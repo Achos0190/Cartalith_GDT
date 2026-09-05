@@ -1954,14 +1954,51 @@ func _landmark_funnel_map() -> Dictionary:
 ## `ID_CLEAR_LIBRARY` reaches `asset_library_window.gd::_on_clear_library()`,
 ## which raises a `ConfirmationDialog` and only clears on `confirmed`.
 ##
-## ## What this costs the command index, stated rather than discovered
+## ## What this costs the command index, and the decision that closes it
 ##
 ## `command_index.gd` walks the live `MenuBar`, so the nine library-window
 ## shortcuts stop being searchable by their own words -- searching `Rename` or
 ## `Collect into set` will find the parameter table and the other menus, not
-## these. That is a real loss of *search terms*, not of capability, and it is
-## the other lane's file this batch: reported, not installed. The honest fix is
-## not nine `EXTRAS` rows but the Asset library window's own search.
+## these.
+##
+## **Re-derived 2026-09-05 against the live index, not the paragraph above**
+## (`_apcmdcheck_probe.gd`, title match only -- `search()` also matches
+## blurb/group, which is exactly what produced a false positive in the
+## verifier's own first pass on the same batch's Refine-detail move, off two
+## atlas rows whose tooltips happen to mention "Refine detail"
+## (`_idxfind_probe.gd`'s own header)). Of the fifteen dropped item rows,
+## **eleven measure a literal zero title matches** for their own words today.
+## Of the other four,
+## two are genuine survivors under the unchanged title (`Sprite sheet slicer`,
+## `Clear library`) and two are false rescues that look like matches and are
+## not: `Tag` only "hits" because the substring sits inside the unrelated
+## landmark row `Portage` (`not buildable`), and `Delete` hits the real, live
+## `Edit ▸ Delete` -- which reaches `app.gd::delete_selection()` ->
+## per-workspace `on_delete_key()` and never touches `asset_library_window`, so
+## pressing it does nothing for a library selection. A searcher typing either
+## word is not rescued; they are misdirected.
+##
+## **No `EXTRAS` row for any of the fifteen, decided per command rather than as
+## a blanket call.** Six are pure navigation and already indexed under their
+## surviving §6.3 title one entry point up (`Open library workspace` ->
+## `⧉ Asset library`, `Import image into slot` -> `Import image…`, `Sprite
+## sheet slicer`, `Import pack .zip` -> `Import asset pack .zip…`, `Apply to
+## map` -> `Apply library to map`, `Clear library`) -- a rename, not a loss;
+## "library"/"import"/"pack"/"apply"/"clear" all still resolve there. The other
+## nine (`Add variant to slot`, `Replace · delete slot art`, `Slot transform`,
+## `Preview background`, `Tag…`, `Collect into set…`, `Rename…`, `Duplicate`,
+## `Delete`) never had independent capability -- every one called straight
+## into `open_asset_library()` -- and checked at the window's own build rather
+## than assumed still true: `asset_library_window.gd::_build_slot_grid()`'s
+## batch-verb row draws `Tag…` / `Collect…` / `Rename…` / `Duplicate` / `Delete`
+## the instant any slot is selected, and `_build_inspector()`'s own
+## `Scale`/`Fit`/`Reset`/`Replace`/`+Variant`/`bg`/tags row draws the rest the
+## instant one slot is focused. Every one of the nine is a labelled control one
+## click past a window this index already finds under `⧉ Asset library` -- an
+## `EXTRAS` pointer for each would only ever open that same window, recreating
+## inside this table the nine-shortcuts-to-one-window shape the owner's ruling
+## flattened out of the menu. The honest remaining gap is the window's own
+## search, still unbuilt, and still not this file's.
 func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	_asset_pack_popup = PopupMenu.new()
 	_asset_pack_popup.name = "AssetPack"
@@ -3222,6 +3259,20 @@ func _build_lighting_menu(p: PopupMenu) -> void:
 	_lighting_popup.about_to_popup.connect(_refresh_lighting_menu)
 	p.add_child(_lighting_popup)
 	p.add_submenu_item("Lighting rig defaults", "LightingRig")
+	## **Missing until 2026-09-05, found auditing `command_index.gd`'s chrome
+	## skip.** `_light_source_idx` is a readout built with an empty `why` --
+	## "Silent chrome for one frame, exactly like the atlas stats row" above --
+	## but the atlas stats row's own build calls `_refresh_atlas_cache_menu()`
+	## right here, and this one never called its equivalent. A `CommandIndex`
+	## built before this submenu is ever opened (every index a cold search
+	## builds) read that first, permanent, empty-tooltip frame and, since a
+	## disabled+silent row reads as chrome, dropped this row out of the search
+	## index entirely -- a real, correctly-marked readout, gone rather than
+	## merely unavailable. `command_index.gd::_walk_popup` no longer trusts
+	## every readout to be refreshed this eagerly (readouts are exempted from
+	## the chrome skip outright), but the row should not have needed that
+	## safety net to begin with, so it is fixed here too.
+	_refresh_lighting_menu()
 
 func _light_ladder(node_name: String, label: String, steps: Array,
 		first_id: int, key: String, tip: String) -> PopupMenu:

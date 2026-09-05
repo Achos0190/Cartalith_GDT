@@ -1,0 +1,385 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<div class="tok" style="width:848px;height:1000px;background:var(--sur);padding:18px;
+     display:flex;flex-direction:column;gap:13px">
+
+  <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">
+    WORLD LEFT DOCK &mdash; OPTION A &middot; one scrolling column, no mode switch</div>
+
+  <!-- The owner's open question, drawn one of its two ways. This is the option NOBODY has drawn:
+       between 2026-08-24 and 2026-09-05 the shell shipped exactly this, then the 2026-09-05 ruling
+       (LARGE_ITEM_RULINGS.md item 2) put the switch back. So option B is what running the app shows
+       you today, and this file is the counterfactual. Same dock width (372), same header, same TOOLS
+       block, same nine categories, same bodies -- the ONLY difference is that band 2 of
+       04-left-dock.md SS2.1 is absent and nothing is ever hidden. -->
+
+  <div style="display:flex;gap:24px;align-items:flex-start">
+
+    <!-- ============================ A1: the top of the column ============================ -->
+    <div>
+      <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:5px">A1 &middot; as opened &mdash; <span style="color:var(--faint)">Generate</span> is the default-open category</div>
+      <div style="width:var(--ldW);height:820px;background:var(--pan);border-right:1px solid var(--hair);
+           display:flex;flex-direction:column;overflow:hidden">
+
+        <!-- Band 1, header. SS2.1: padding 8px var(--pad) 0, title flex:1, then the collapse control.
+             The glyph is U+2039, SS2.2, and it points left because this dock closes to the left. -->
+        <div style="flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 0">
+          <span class="mono" style="flex:1;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">WORLD</span>
+          <span class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+                display:flex;align-items:center;justify-content:center;font-size:13px">&lsaquo;</span>
+        </div>
+
+        <!-- BAND 2 IS ABSENT. That is the whole of option A. -->
+
+        <!-- Band 3, TOOLS. SS2.4: four global squares, a 1 px divider, then the domain pills.
+             SS2.4's WORLD row is three pills (Sculpt / Freehand F / Biome paint B) and this port
+             deliberately ships ONE -- world_workspace.gd::_build() records why at length: Sculpt and
+             Freehand both arm the same tool id, and the only place that id's granularity is chosen is
+             the feature-picker grid inside Terrain. Drawn as shipped, not as specified. -->
+        <div style="flex:none;padding:10px var(--pad);border-bottom:1px solid var(--div)">
+          <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint);padding-bottom:7px">TOOLS</div>
+          <div style="display:flex;gap:5px;align-items:center">
+            <!-- The four global squares are 14x14 stroked SVGs in SS2.4. Stood in here by the key
+                 letters the status bar already prints for them (V M R), so the stand-in is at least
+                 the same fact. `pan` is permanently inert -- SS2.4 overrides its active state. -->
+            <span class="mono" style="width:var(--tool);height:var(--tool);border-radius:8px;background:var(--wash2);
+                  color:var(--acc);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">V</span>
+            <span class="mono" style="width:var(--tool);height:var(--tool);border-radius:8px;background:var(--ins);
+                  color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">M</span>
+            <span class="mono" style="width:var(--tool);height:var(--tool);border-radius:8px;background:var(--ins);
+                  color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">R</span>
+            <span class="mono" style="width:var(--tool);height:var(--tool);border-radius:8px;background:var(--ins);
+                  color:var(--dis);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">&#10021;</span>
+            <span style="width:1px;height:var(--tool);background:var(--div);margin:0 3px"></span>
+            <span class="mono" style="min-height:var(--tool);padding:2px 12px;border-radius:8px;background:var(--ins);
+                  color:var(--sec);display:flex;align-items:center;gap:6px;font-size:var(--m1)">Biome paint
+              <span style="color:var(--faint)">B</span></span>
+          </div>
+        </div>
+
+        <!-- Band 4, the scroll body. Only this band scrolls (SS2.1). -->
+        <div style="flex:1;min-height:0;position:relative;overflow:hidden">
+
+          <div style="display:flex;flex-direction:column">
+
+            <div class="mono" style="height:30px;display:flex;align-items:center;gap:8px;padding:0 12px;
+                 font-size:var(--fs);color:var(--ink)">&#9662; Generate</div>
+            <div class="mono" style="padding:8px 12px 0 14px;font-size:var(--m2);line-height:1.55;color:var(--dis)">
+              The one act: seed, extent, steering, run. Every parameter in the eight categories below
+              feeds this call, and this call resolves all ten pipeline stages at once &mdash; there is no
+              partial recompute in this engine or in the app it ports.</div>
+
+            <div class="mono" style="padding:10px 14px 4px;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">&sect; RUN</div>
+            <div style="padding:0 12px 6px 14px;display:flex;flex-direction:column;gap:2px">
+              <div class="btn mono">Generate world</div>
+              <div class="btn2 mono">New seed</div>
+              <div class="btn2 mono">Center landmasses</div>
+            </div>
+
+            <div class="mono" style="padding:10px 14px 4px;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">&sect; PIPELINE STATUS</div>
+            <!-- Ten rows, because bridge.generation_stage reports a real per-stage index and name
+                 (cartalith-engine/src/progress.rs). The names are STAGES[] verbatim. -->
+            <div style="padding:0 12px 8px 14px;display:flex;flex-direction:column">
+              <div class="mono" style="height:19px;display:flex;align-items:center;gap:8px;font-size:var(--m2)">
+                <span style="width:15px;color:var(--dis)">01</span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--good);flex:none"></span>
+                <span style="flex:1;color:var(--sec)">Planet</span><span style="color:var(--dis)">0.02 s</span></div>
+              <div class="mono" style="height:19px;display:flex;align-items:center;gap:8px;font-size:var(--m2)">
+                <span style="width:15px;color:var(--dis)">02</span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--good);flex:none"></span>
+                <span style="flex:1;color:var(--sec)">Extent &amp; scale</span><span style="color:var(--dis)">0.01 s</span></div>
+              <div class="mono" style="height:19px;display:flex;align-items:center;gap:8px;font-size:var(--m2)">
+                <span style="width:15px;color:var(--dis)">03</span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--good);flex:none"></span>
+                <span style="flex:1;color:var(--sec)">World structure</span><span style="color:var(--dis)">0.14 s</span></div>
+              <div class="mono" style="height:19px;display:flex;align-items:center;gap:8px;font-size:var(--m2)">
+                <span style="width:15px;color:var(--acc)">04</span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--block);flex:none"></span>
+                <span style="flex:1;color:var(--ink)">Tectonics</span><span style="color:var(--block)">stale</span></div>
+              <div class="mono" style="height:19px;display:flex;align-items:center;gap:8px;font-size:var(--m2)">
+                <span style="width:15px;color:var(--dis)">05</span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--ins);flex:none"></span>
+                <span style="flex:1;color:var(--dim)">Volcanism &amp; impacts</span><span style="color:var(--dis)">stale</span></div>
+              <div class="mono" style="height:19px;display:flex;align-items:center;gap:8px;font-size:var(--m2)">
+                <span style="width:15px;color:var(--dis)">06</span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--ins);flex:none"></span>
+                <span style="flex:1;color:var(--dim)">Erosion</span><span style="color:var(--dis)">stale</span></div>
+              <div class="mono" style="height:19px;display:flex;align-items:center;gap:8px;font-size:var(--m2)">
+                <span style="width:15px;color:var(--dis)">07</span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--ins);flex:none"></span>
+                <span style="flex:1;color:var(--dim)">Hydrology</span><span style="color:var(--dis)">stale</span></div>
+              <div class="mono" style="height:19px;display:flex;align-items:center;gap:8px;font-size:var(--m2)">
+                <span style="width:15px;color:var(--dis)">08</span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--ins);flex:none"></span>
+                <span style="flex:1;color:var(--dim)">Climate</span><span style="color:var(--dis)">stale</span></div>
+              <div class="mono" style="height:19px;display:flex;align-items:center;gap:8px;font-size:var(--m2)">
+                <span style="width:15px;color:var(--dis)">09</span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--ins);flex:none"></span>
+                <span style="flex:1;color:var(--dim)">Ecology &amp; biomes</span><span style="color:var(--dis)">stale</span></div>
+              <div class="mono" style="height:19px;display:flex;align-items:center;gap:8px;font-size:var(--m2)">
+                <span style="width:15px;color:var(--dis)">10</span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--ins);flex:none"></span>
+                <span style="flex:1;color:var(--dim)">Resources &amp; soils</span><span style="color:var(--dis)">stale</span></div>
+            </div>
+            <div class="rule"></div>
+
+            <div class="mono" style="height:30px;display:flex;align-items:center;padding:0 12px;font-size:var(--fs);color:var(--ink)">&#9656; Terrain</div>
+            <div class="rule"></div>
+            <div class="mono" style="height:30px;display:flex;align-items:center;padding:0 12px;font-size:var(--fs);color:var(--ink)">&#9656; Geology</div>
+            <div class="rule"></div>
+            <div class="mono" style="height:30px;display:flex;align-items:center;padding:0 12px;font-size:var(--fs);color:var(--ink)">&#9656; Hydrology</div>
+            <div class="rule"></div>
+            <div class="mono" style="height:30px;display:flex;align-items:center;padding:0 12px;font-size:var(--fs);color:var(--ink)">&#9656; Climate</div>
+            <div class="rule"></div>
+            <div class="mono" style="height:30px;display:flex;align-items:center;padding:0 12px;font-size:var(--fs);color:var(--ink)">&#9656; Biomes</div>
+            <div class="rule"></div>
+            <div class="mono" style="height:30px;display:flex;align-items:center;padding:0 12px;font-size:var(--fs);color:var(--ink)">&#9656; Ecology</div>
+            <div class="rule"></div>
+            <div class="mono" style="height:30px;display:flex;align-items:center;padding:0 12px;font-size:var(--fs);color:var(--ink)">&#9656; Resources</div>
+            <div class="rule"></div>
+            <div class="mono" style="height:30px;display:flex;align-items:center;padding:0 12px;font-size:var(--fs);color:var(--ink)">&#9656; World data</div>
+            <div class="rule"></div>
+          </div>
+
+          <!-- The scroll thumb. Drawn because in option A it is the ONLY indicator of how much of the
+               domain is off screen -- there is no second surface saying so. -->
+          <span style="position:absolute;right:2px;top:0;width:3px;height:76%;border-radius:2px;background:var(--bor)"></span>
+        </div>
+      </div>
+      <div class="mono" style="width:var(--ldW);padding-top:6px;font-size:var(--m2);line-height:1.6;color:var(--dis)">
+        nine headers, one body open, nothing hidden. The column<br>
+        runs about a screen and a third with <span style="color:var(--faint)">Generate</span> open</div>
+    </div>
+
+    <!-- ============================ A2: scrolled to the sculpt work ============================ -->
+    <div>
+      <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:5px">A2 &middot; the same column, scrolled to <span style="color:var(--faint)">Terrain</span> &mdash; where sculpting lives</div>
+      <div style="width:var(--ldW);height:820px;background:var(--pan);border-right:1px solid var(--hair);
+           display:flex;flex-direction:column;overflow:hidden">
+
+        <div style="flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 0">
+          <span class="mono" style="flex:1;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">WORLD</span>
+          <span class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+                display:flex;align-items:center;justify-content:center;font-size:13px">&lsaquo;</span>
+        </div>
+
+        <!-- The two pinned bands are identical in both columns: they never scroll (SS2.1). -->
+        <div style="flex:none;padding:10px var(--pad);border-bottom:1px solid var(--div)">
+          <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint);padding-bottom:7px">TOOLS</div>
+          <div style="display:flex;gap:5px;align-items:center">
+            <span class="mono" style="width:var(--tool);height:var(--tool);border-radius:8px;background:var(--ins);
+                  color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">V</span>
+            <span class="mono" style="width:var(--tool);height:var(--tool);border-radius:8px;background:var(--ins);
+                  color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">M</span>
+            <span class="mono" style="width:var(--tool);height:var(--tool);border-radius:8px;background:var(--ins);
+                  color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">R</span>
+            <span class="mono" style="width:var(--tool);height:var(--tool);border-radius:8px;background:var(--ins);
+                  color:var(--dis);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">&#10021;</span>
+            <span style="width:1px;height:var(--tool);background:var(--div);margin:0 3px"></span>
+            <span class="mono" style="min-height:var(--tool);padding:2px 12px;border-radius:8px;background:var(--ins);
+                  color:var(--sec);display:flex;align-items:center;gap:6px;font-size:var(--m1)">Biome paint
+              <span style="color:var(--faint)">B</span></span>
+          </div>
+        </div>
+
+        <div style="flex:1;min-height:0;position:relative;overflow:hidden">
+          <div style="display:flex;flex-direction:column">
+
+            <!-- Scrolled: the tail of the Generate body is above the top edge, and this rule is the
+                 only trace of it left. That is what "reachable by scrolling" looks like in practice. -->
+            <div class="rule"></div>
+            <div class="mono" style="height:30px;display:flex;align-items:center;padding:0 12px;
+                 font-size:var(--fs);color:var(--ink)">&#9662; Terrain</div>
+            <div class="mono" style="padding:8px 12px 0 14px;font-size:var(--m2);line-height:1.55;color:var(--dis)">
+              The surface itself: what erosion does to it, and what a hand does to it.</div>
+
+            <!-- Real param group. GROUP_TITLES["erosion"] = "Stream-power carve"; the five labels are
+                 params.rs verbatim (sUp / sK / sIt / sDep / sClim). SS2.5's stepper squares flank every
+                 pipeline slider and are drawn, because in a 372 px dock their width is the point. -->
+            <div class="mono" style="padding:10px 14px 4px;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">&sect; STREAM-POWER CARVE</div>
+            <div style="padding:0 12px 6px 14px;display:flex;flex-direction:column;gap:2px">
+              <div style="display:flex;align-items:center;gap:6px;height:var(--ctl)">
+                <span class="mono" style="width:78px;font-size:var(--m2);color:var(--faint)">Uplift</span>
+                <span class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+                      color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">&#8722;</span>
+                <span style="flex:1;position:relative;height:4px;border-radius:2px;background:var(--ins)">
+                  <span style="position:absolute;left:0;top:0;bottom:0;width:62%;border-radius:2px;background:var(--acc)"></span>
+                  <span style="position:absolute;left:62%;top:-4px;margin-left:-6px;width:12px;height:12px;border-radius:50%;background:var(--ink)"></span>
+                </span>
+                <span class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+                      color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">&#43;</span>
+                <span class="mono" style="width:32px;text-align:right;font-size:var(--m1);color:var(--sec)">0.62</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;height:var(--ctl)">
+                <span class="mono" style="width:78px;font-size:var(--m2);color:var(--faint)">Channeling</span>
+                <span class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+                      color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">&#8722;</span>
+                <span style="flex:1;position:relative;height:4px;border-radius:2px;background:var(--ins)">
+                  <span style="position:absolute;left:0;top:0;bottom:0;width:40%;border-radius:2px;background:var(--acc)"></span>
+                  <span style="position:absolute;left:40%;top:-4px;margin-left:-6px;width:12px;height:12px;border-radius:50%;background:var(--ink)"></span>
+                </span>
+                <span class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+                      color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">&#43;</span>
+                <span class="mono" style="width:32px;text-align:right;font-size:var(--m1);color:var(--sec)">0.40</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;height:var(--ctl)">
+                <span class="mono" style="width:78px;font-size:var(--m2);color:var(--faint)">Iterations</span>
+                <span class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+                      color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">&#8722;</span>
+                <span style="flex:1;position:relative;height:4px;border-radius:2px;background:var(--ins)">
+                  <span style="position:absolute;left:0;top:0;bottom:0;width:28%;border-radius:2px;background:var(--acc)"></span>
+                  <span style="position:absolute;left:28%;top:-4px;margin-left:-6px;width:12px;height:12px;border-radius:50%;background:var(--ink)"></span>
+                </span>
+                <span class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+                      color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">&#43;</span>
+                <span class="mono" style="width:32px;text-align:right;font-size:var(--m1);color:var(--sec)">28</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;height:var(--ctl)">
+                <span class="mono" style="width:78px;font-size:var(--m2);color:var(--faint)">Deposition</span>
+                <span class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+                      color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">&#8722;</span>
+                <span style="flex:1;position:relative;height:4px;border-radius:2px;background:var(--ins)">
+                  <span style="position:absolute;left:0;top:0;bottom:0;width:18%;border-radius:2px;background:var(--acc)"></span>
+                  <span style="position:absolute;left:18%;top:-4px;margin-left:-6px;width:12px;height:12px;border-radius:50%;background:var(--ink)"></span>
+                </span>
+                <span class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+                      color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:var(--m1)">&#43;</span>
+                <span class="mono" style="width:32px;text-align:right;font-size:var(--m1);color:var(--sec)">0.18</span>
+              </div>
+            </div>
+
+            <!-- The sculpt body starts here. world_workspace.gd parents `_sculpt_body` into Terrain, so
+                 in option A the erosion dials above and the sculpt sections below are ONE column with
+                 no boundary between them but a section header. That is the honest cost, drawn: the
+                 dials above mark the whole world stale on the next Generate, the tools below do not,
+                 and nothing in the column says which is which. -->
+            <div class="mono" style="padding:10px 14px 4px;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">&sect; GEOLOGICAL FEATURE</div>
+            <div style="padding:0 12px 6px 14px;display:flex;gap:4px;flex-wrap:wrap">
+              <span class="mono" style="padding:3px 10px;border-radius:999px;background:var(--wash2);color:var(--acc);font-size:var(--m1)">Ridge</span>
+              <span class="mono" style="padding:3px 10px;border-radius:999px;background:var(--ins);color:var(--sec);font-size:var(--m1)">Basin</span>
+              <span class="mono" style="padding:3px 10px;border-radius:999px;background:var(--ins);color:var(--sec);font-size:var(--m1)">Plateau</span>
+              <span class="mono" style="padding:3px 10px;border-radius:999px;background:var(--ins);color:var(--sec);font-size:var(--m1)">Crater</span>
+              <span class="mono" style="padding:3px 10px;border-radius:999px;background:var(--ins);color:var(--sec);font-size:var(--m1)">Volcano</span>
+              <span class="mono" style="padding:3px 10px;border-radius:999px;background:var(--ins);color:var(--sec);font-size:var(--m1)">Fjord</span>
+              <span class="mono" style="padding:3px 10px;border-radius:999px;background:var(--ins);color:var(--sec);font-size:var(--m1)">Freehand</span>
+              <span class="mono" style="padding:3px 10px;border-radius:999px;background:var(--ins);color:var(--dis);font-size:var(--m1)">&hellip; 6 more</span>
+            </div>
+            <!-- Thirteen entries, not a made-up list: get_sculpt_features() returns 13 and Freehand is
+                 the thirteenth (world_workspace.gd::_build's own comment). Six are elided by the chip
+                 row's own wrap, which is a real behaviour of a 344 px content width, not a shortcut. -->
+
+            <div class="mono" style="padding:10px 14px 4px;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">&sect; PRESETS</div>
+            <div style="padding:0 12px 6px 14px;display:flex;flex-direction:column;gap:2px">
+              <div class="btn2 mono" style="justify-content:flex-start">Sharp alpine ridge</div>
+              <div class="btn2 mono" style="justify-content:flex-start">Worn shield upland</div>
+            </div>
+
+            <div class="mono" style="padding:10px 14px 4px;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">&sect; FEATURE PARAMETERS &middot; RIDGE</div>
+            <div style="padding:0 12px 6px 14px;display:flex;flex-direction:column;gap:2px">
+              <div style="display:flex;align-items:center;gap:6px;height:var(--ctl)">
+                <span class="mono" style="width:78px;font-size:var(--m2);color:var(--faint)">Length</span>
+                <span style="flex:1;position:relative;height:4px;border-radius:2px;background:var(--ins)">
+                  <span style="position:absolute;left:0;top:0;bottom:0;width:54%;border-radius:2px;background:var(--acc)"></span>
+                  <span style="position:absolute;left:54%;top:-4px;margin-left:-6px;width:12px;height:12px;border-radius:50%;background:var(--ink)"></span>
+                </span>
+                <span class="mono" style="width:44px;text-align:right;font-size:var(--m1);color:var(--sec)">54 km</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;height:var(--ctl)">
+                <span class="mono" style="width:78px;font-size:var(--m2);color:var(--faint)">Sharpness</span>
+                <span style="flex:1;position:relative;height:4px;border-radius:2px;background:var(--ins)">
+                  <span style="position:absolute;left:0;top:0;bottom:0;width:71%;border-radius:2px;background:var(--acc)"></span>
+                  <span style="position:absolute;left:71%;top:-4px;margin-left:-6px;width:12px;height:12px;border-radius:50%;background:var(--ink)"></span>
+                </span>
+                <span class="mono" style="width:44px;text-align:right;font-size:var(--m1);color:var(--sec)">0.71</span>
+              </div>
+            </div>
+
+          </div>
+          <span style="position:absolute;right:2px;top:26%;width:3px;height:34%;border-radius:2px;background:var(--bor)"></span>
+        </div>
+      </div>
+      <div class="mono" style="width:var(--ldW);padding-top:6px;font-size:var(--m2);line-height:1.6;color:var(--dis)">
+        still below the fold here: <span style="color:var(--faint)">BRUSH &amp; NOISE &middot; GLOBAL</span>,<br>
+        <span style="color:var(--faint)">BRUSH SHAPE</span>, <span style="color:var(--faint)">STROKE &amp; GRID</span>, and seven more categories</div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:24px;padding-top:2px">
+    <div class="mono" style="flex:1;font-size:var(--m2);line-height:1.75;color:var(--dis)">
+      <span style="color:var(--good)">THE CASE FOR A.</span> <span style="color:var(--sec)">One dock, one rule.</span> Nothing WORLD owns can<br>
+      ever be in &ldquo;the other mode&rdquo;, so a control you cannot find is a control you have not<br>
+      scrolled to &mdash; a state the scrollbar already reports. <span style="color:var(--sec)">One grammar across three<br>
+      domains.</span> CIVIL&rsquo;s eleven categories and CARTO&rsquo;s four are accordion-only; A makes<br>
+      WORLD the same, and a user who learns one dock has learned all three. <span style="color:var(--sec)">Fewer<br>
+      states to keep true.</span> The mode gate, <span style="color:var(--faint)">apply_mode</span>, the pill&rsquo;s three entry routes and<br>
+      the probe that asserts no category is stranded all collapse into nothing.
+    </div>
+    <div class="mono" style="flex:1;font-size:var(--m2);line-height:1.75;color:var(--dis)">
+      <span style="color:var(--block)">WHAT A COSTS, HONESTLY.</span> <span style="color:var(--sec)">The column is long, and sculpting is at<br>
+      the bottom of it.</span> Six sculpt sections sit under a category that is itself under<br>
+      eight collapsed headers. <span style="color:var(--sec)">Arming Sculpt has to scroll the dock</span> rather than<br>
+      switch it, and a column that moves under you is a weaker signal than a body<br>
+      that changes. <span style="color:var(--sec)">Erosion dials and sculpt tools share one column.</span> The dials<br>
+      mark the world stale on the next Generate; the tools do not. A draws no line<br>
+      between them. <span style="color:var(--sec)">And it drops the spec:</span> SS2.1 band 2, SS2.3 and SS3 rows 1&ndash;2 all<br>
+      describe the switch, and A silently declines all three.
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

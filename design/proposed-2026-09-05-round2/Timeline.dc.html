@@ -1,0 +1,416 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<div class="tok" style="width:1280px;height:1160px;background:var(--sur);padding:18px;
+     display:flex;flex-direction:column;gap:13px">
+
+  <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">
+    TIMELINE BAR &mdash; the year scrubber, drawn as the expanded state of the existing strip</div>
+
+  <!-- Owner ruling 2026-09-05: extend the timeline bar. Not a new region, not a right-dock panel.
+       Everything below is 05-right-dock-and-bars.md &sect;4.1 / &sect;4.2 as already built by
+       app.gd::_fill_timeline_strip(), plus the four things &sect;4 leaves open: the year readout, how a
+       year with events differs from an empty one, how a dragged cursor reads, and the ends of the
+       range. Nothing here moves a control the spec places. -->
+
+  <div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:4px">A &middot; collapsed, no world &mdash; 24 px, the whole strip is the expand target (&sect;4.1)</div>
+    <div class="mono" style="height:calc(var(--sbH) - 2px);background:var(--pan);border-top:1px solid var(--hair);
+         display:flex;align-items:center;gap:12px;padding:0 var(--pad);font-size:var(--m2)">
+      <span style="letter-spacing:.16em;color:var(--faint)">TIMELINE</span>
+      <!-- tl_available() is false until a generate has run &mdash; civ_goto_year is a no-op before one,
+           measured rather than assumed (dcc_shell.gd &sect;10a records the probe: three writes, 0 read
+           back all three times). So the slot says so instead of printing a year 0 that is really a
+           missing value wearing a plausible one. -->
+      <span style="font-size:var(--m1);color:var(--dis)">no world</span>
+      <span style="flex:1"></span>
+      <span style="color:var(--faint)">&#9652; expand</span>
+    </div>
+  </div>
+
+  <div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:4px">B &middot; collapsed, world loaded &mdash; slot 2 is <span style="color:var(--faint)">tlYearLabel</span>; the grammar is the CIVIL dock&rsquo;s own <span style="color:var(--faint)">412 AD</span> / <span style="color:var(--faint)">400 BC</span></div>
+    <div class="mono" style="height:calc(var(--sbH) - 2px);background:var(--pan);border-top:1px solid var(--hair);
+         display:flex;align-items:center;gap:12px;padding:0 var(--pad);font-size:var(--m2)">
+      <span style="letter-spacing:.16em;color:var(--faint)">TIMELINE</span>
+      <span style="font-size:var(--m1);color:var(--sec)">412 AD</span>
+      <!-- The ONE addition to &sect;4.1's four slots. It is a set-membership test against
+           get_civ_timeline_years() &mdash; no per-frame engine call, no new binding &mdash; and without it the
+           collapsed strip cannot say the single thing that decides whether the map under it will
+           change when you scrub. Cost: one slot of width, and a fifth thing to read on a 24 px strip. -->
+      <span style="color:var(--dis)">&middot;</span>
+      <span style="font-size:var(--m1);color:var(--faint)">recorded</span>
+      <span style="flex:1"></span>
+      <span style="color:var(--faint)">&#9652; expand</span>
+    </div>
+  </div>
+
+  <div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:4px">C &middot; expanded &mdash; the complete strip, cursor sitting <span style="color:var(--acc)">on</span> a recorded year</div>
+    <div style="background:var(--pan);border-top:1px solid var(--hair);padding:8px var(--pad);
+         display:flex;flex-direction:column;gap:6px">
+
+      <!-- Row 1, transport. &sect;4.2's order verbatim: play/pause, step back, step forward, speed pill,
+           tlState, spacer, the six layer toggles, collapse. Unchanged by this design. -->
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+             color:var(--acc);display:flex;align-items:center;justify-content:center">&#9654;</div>
+        <div class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+             color:var(--sec);display:flex;align-items:center;justify-content:center">&#9664;</div>
+        <div class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+             color:var(--sec);display:flex;align-items:center;justify-content:center">&#9654;</div>
+        <!-- The speed ladder. &sect;4.3 truncates tlSpeeds and leaves only the &times;10 default; 06-phone.md
+             &sect;6.2 carries all three verbatim, which is where TL_SPEEDS recovered them from. -->
+        <div style="display:flex;background:var(--ins);border-radius:999px;padding:2px">
+          <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);color:var(--dim)">&times;1</div>
+          <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);background:var(--acc);color:var(--accInk)">&times;10</div>
+          <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);color:var(--dim)">&times;100</div>
+        </div>
+        <div class="mono" style="font-size:var(--m1);color:var(--acc)">paused</div>
+        <div style="flex:1"></div>
+        <!-- The six layer toggles, ids verbatim from &sect;4.3 with its defaults. They persist and render
+             nothing; row 4 carries the owner-fixed disclosure, quoted rather than reworded. -->
+        <div class="mono" style="padding:3px 10px;border-radius:999px;font-size:var(--m2);background:var(--wash2);color:var(--acc)">Climate</div>
+        <div class="mono" style="padding:3px 10px;border-radius:999px;font-size:var(--m2);background:var(--wash2);color:var(--acc)">Population</div>
+        <div class="mono" style="padding:3px 10px;border-radius:999px;font-size:var(--m2);background:var(--ins);color:var(--dim)">Economy</div>
+        <div class="mono" style="padding:3px 10px;border-radius:999px;font-size:var(--m2);background:var(--wash2);color:var(--acc)">Politics</div>
+        <div class="mono" style="padding:3px 10px;border-radius:999px;font-size:var(--m2);background:var(--ins);color:var(--dim)">Infrastructure</div>
+        <div class="mono" style="padding:3px 10px;border-radius:999px;font-size:var(--m2);background:var(--ins);color:var(--dim)">Warfare</div>
+        <div class="mono" style="padding:0 4px;color:var(--faint)">&#8964;</div>
+      </div>
+
+      <!-- Row 2, the scrub track. &sect;4.2 gives a 16 px row, a 3 px rail and a 2&times;13 playhead and stops
+           there. THE MARKS ARE THIS DESIGN'S ADDITION AND THEY ARE REAL: get_civ_timeline_years()
+           returns every recorded year, ascending (engine_bridge.gd, its own doc comment).
+           Comparable: a video NLE's marker lane, and an RTS replay scrubber's event pips. Marks sit
+           BELOW the rail so the 13 px playhead crossing above can never be read as one of them. -->
+      <div style="position:relative;height:16px">
+        <span style="position:absolute;left:0;right:0;top:7px;height:3px;border-radius:2px;background:var(--ins)"></span>
+        <span style="position:absolute;left:13.75%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:38.125%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:46.25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:50.75%;top:10px;width:2px;height:7px;background:var(--acc)"></span>
+        <span style="position:absolute;left:56.25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:65%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:69.0625%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:72.5%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:75.9375%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:79.375%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:82.8125%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:86.25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:95%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:50.75%;top:2px;width:2px;height:13px;background:var(--acc)"></span>
+      </div>
+
+      <!-- Row 3, the track scale. &sect;4.2 fixes the two literals and binds the centre to tlYearLabel.
+           The centre item is widened IN PLACE rather than given a row of its own: on a recorded year
+           civ_year_diff(y) answers present / added / removed in ONE call, so the counts cost nothing
+           per frame. Azgaar's Burg and Cultures overviews put the count beside the row it belongs to
+           for the same reason &mdash; a number parked away from its subject is a number nobody reads. -->
+      <div class="mono" style="display:flex;justify-content:space-between;align-items:baseline;font-size:var(--m2);color:var(--dis)">
+        <span>YEAR &#8722;400</span>
+        <span style="display:flex;align-items:baseline;gap:8px">
+          <span style="font-size:var(--m1);color:var(--sec)">412 AD</span>
+          <span style="color:var(--acc)">recorded</span>
+          <span style="color:var(--dis)">&middot;</span>
+          <span style="color:var(--dim)">42 present</span>
+          <span style="color:var(--dis)">&middot;</span>
+          <span style="color:var(--good)">&#43;3</span><span style="color:var(--block)">&#8722;1</span>
+          <span style="color:var(--dis)">since 340 AD</span>
+        </span>
+        <span>YEAR 1200</span>
+      </div>
+
+      <!-- Row 4, the disclosure the six toggles owe the reader. Quoted verbatim from
+           DccShell.TL_LAYER_NOTE, which BUILD_ANSWERS.md &sect;3 fixes word for word. -->
+      <div class="mono" style="font-size:var(--m2);color:var(--dis)">
+        Simulation layers &mdash; they record which layer you want; no layer renders yet.</div>
+
+    </div>
+  </div>
+
+  <div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:4px">D &middot; rows 2&ndash;3 &mdash; cursor <span style="color:var(--dim)">between</span> recorded years. The readout drops the counts because <span style="color:var(--faint)">civ_year_diff</span> genuinely has none to give</div>
+    <div style="background:var(--pan);border-top:1px solid var(--hair);padding:8px var(--pad);
+         display:flex;flex-direction:column;gap:6px">
+      <!-- civ_year_diff(y) returns EMPTY sets for an unrecorded year &mdash; not an error, no data
+           (engine_bridge.gd's own doc comment). Printing a zeroed "+0 &#8722;0" here would encode "no value"
+           as a plausible value, which is the first rule in MISTAKES.md's preflight table. So the slot
+           states what is true instead: the cursor moved, the territory did not. -->
+      <div style="position:relative;height:16px">
+        <span style="position:absolute;left:0;right:0;top:7px;height:3px;border-radius:2px;background:var(--ins)"></span>
+        <span style="position:absolute;left:13.75%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:38.125%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:46.25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:50.75%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:56.25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:65%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:69.0625%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:72.5%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:75.9375%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:79.375%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:82.8125%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:86.25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:95%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:55.375%;top:2px;width:2px;height:13px;background:var(--acc)"></span>
+      </div>
+      <div class="mono" style="display:flex;justify-content:space-between;align-items:baseline;font-size:var(--m2);color:var(--dis)">
+        <span>YEAR &#8722;400</span>
+        <span style="display:flex;align-items:baseline;gap:8px">
+          <span style="font-size:var(--m1);color:var(--sec)">486 AD</span>
+          <span style="color:var(--dim)">between</span>
+          <span style="color:var(--dis)">&middot;</span>
+          <span style="color:var(--dis)">territory holds at 412 AD &middot; next 500 AD</span>
+        </span>
+        <span>YEAR 1200</span>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:4px">E &middot; rows 2&ndash;3 &mdash; a drag in flight. The bubble is the only thing that travels with the pointer</div>
+    <div style="background:var(--pan);border-top:1px solid var(--hair);padding:15px var(--pad) 8px;
+         display:flex;flex-direction:column;gap:6px">
+      <!-- The NLE convention: while scrubbing, the year rides ABOVE the playhead rather than making the
+           eye travel to a readout at the far end of a 700 px track. It exists only during the drag.
+           app.gd already emits timeline_changed per motion event and _repaint_timeline writes in place
+           rather than rebuilding, so this is one Label repositioned &mdash; no new per-frame cost.
+           The mark the head is approaching goes --sec, not --acc: --acc is the cursor's own colour and
+           two accents on one track would say the cursor is in two places at once. -->
+      <div style="position:relative;height:16px">
+        <span style="position:absolute;left:0;right:0;top:7px;height:3px;border-radius:2px;background:var(--ins)"></span>
+        <span style="position:absolute;left:13.75%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:38.125%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:46.25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:50.75%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:56.25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:65%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:69.0625%;top:10px;width:2px;height:7px;background:var(--sec)"></span>
+        <span style="position:absolute;left:72.5%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:75.9375%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:79.375%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:82.8125%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:86.25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:95%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:68%;top:2px;width:2px;height:13px;background:var(--acc)"></span>
+        <span class="mono" style="position:absolute;left:68%;top:-16px;transform:translateX(-50%);
+              padding:2px 7px;border-radius:6px;background:var(--acc);color:var(--accInk);
+              font-size:var(--m2);white-space:nowrap">688 AD</span>
+      </div>
+      <div class="mono" style="display:flex;justify-content:space-between;align-items:baseline;font-size:var(--m2);color:var(--dis)">
+        <span>YEAR &#8722;400</span>
+        <span style="display:flex;align-items:baseline;gap:8px">
+          <span style="font-size:var(--m1);color:var(--sec)">688 AD</span>
+          <span style="color:var(--dim)">scrubbing</span>
+          <span style="color:var(--dis)">&middot;</span>
+          <!-- PROPOSED, shell-side only: shift-drag magnets to the nearest recorded year.
+               _tl_nearest_year() already exists in civilization_workspace.gd, so the arithmetic is
+               borrowed rather than written, and Photoshop, Blender and every NLE use the same
+               modifier for the same meaning. Cost: one hint nobody reads until they need it. -->
+          <span style="color:var(--dis)">&#8679; snaps to 705 AD</span>
+        </span>
+        <span>YEAR 1200</span>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:4px">F &middot; the top of the range. Playback stops at 1200 rather than wrapping (&sect;6.2, &ldquo;capped at 1200&rdquo;) &mdash; so the two controls that can do nothing are drawn dead</div>
+    <div style="background:var(--pan);border-top:1px solid var(--hair);padding:8px var(--pad);
+         display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <!-- tl_toggle_play() refuses to start at >= TL_YEAR_MAX and _tl_tick stops there, so at 1200
+             the play square is a control with nothing behind it. This shell's standing rule is to
+             draw such a control dead with the reason on it, not leave it live and silent. -->
+        <div class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+             color:var(--dis);display:flex;align-items:center;justify-content:center">&#9654;</div>
+        <div class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+             color:var(--sec);display:flex;align-items:center;justify-content:center">&#9664;</div>
+        <div class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
+             color:var(--dis);display:flex;align-items:center;justify-content:center">&#9654;</div>
+        <div style="display:flex;background:var(--ins);border-radius:999px;padding:2px">
+          <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);color:var(--dim)">&times;1</div>
+          <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);background:var(--acc);color:var(--accInk)">&times;10</div>
+          <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);color:var(--dim)">&times;100</div>
+        </div>
+        <!-- PROPOSED, one line in tl_state_text(): a third state word. That function answers only
+             "paused" / "playing &times;N" today, and "paused" beside a dead play button reads as a fault
+             rather than as the end of the track. -->
+        <div class="mono" style="font-size:var(--m1);color:var(--dim)">end of track</div>
+        <div style="flex:1"></div>
+        <div class="mono" style="font-size:var(--m2);color:var(--dis)">step back or drag to resume</div>
+      </div>
+      <div style="position:relative;height:16px">
+        <span style="position:absolute;left:0;right:0;top:7px;height:3px;border-radius:2px;background:var(--ins)"></span>
+        <span style="position:absolute;left:13.75%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:38.125%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:46.25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:50.75%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:56.25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:65%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:69.0625%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:72.5%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:75.9375%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:79.375%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:82.8125%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:86.25%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:95%;top:11px;width:1px;height:5px;background:var(--dim)"></span>
+        <span style="position:absolute;left:calc(100% - 1px);top:2px;width:2px;height:13px;background:var(--acc)"></span>
+      </div>
+      <div class="mono" style="display:flex;justify-content:space-between;align-items:baseline;font-size:var(--m2);color:var(--dis)">
+        <span>YEAR &#8722;400</span>
+        <span style="display:flex;align-items:baseline;gap:8px">
+          <span style="font-size:var(--m1);color:var(--sec)">1200 AD</span>
+          <span style="color:var(--dim)">between</span>
+          <span style="color:var(--dis)">&middot;</span>
+          <span style="color:var(--dis)">territory holds at 1120 AD</span>
+        </span>
+        <!-- The right literal lifts from --dis to --faint when the cursor is standing on it. The
+             cheapest possible end-of-range signal, and it costs no width: the string is already there. -->
+        <span style="color:var(--faint)">YEAR 1200</span>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:4px">G &middot; rows 2&ndash;3 &mdash; a world with <span style="color:var(--dim)">no recorded years at all</span>. This is the state every freshly generated world is in</div>
+    <div style="background:var(--pan);border-top:1px solid var(--hair);padding:8px var(--pad);
+         display:flex;flex-direction:column;gap:6px">
+      <!-- Generating a world does not record a timeline year: get_civ_timeline_years() is empty until
+           something calls civ_add_year (CIVIL &#8250; Politics &#8250; Add year) or a collapse simulation runs.
+           The track is therefore bare, and it says so &mdash; an empty marker lane with no explanation is
+           indistinguishable from a broken one. The transport stays LIVE: civ_goto_year still moves the
+           cursor, it simply has no snapshot to land on. -->
+      <div style="position:relative;height:16px">
+        <span style="position:absolute;left:0;right:0;top:7px;height:3px;border-radius:2px;background:var(--ins)"></span>
+        <span style="position:absolute;left:25%;top:2px;width:2px;height:13px;background:var(--acc)"></span>
+      </div>
+      <div class="mono" style="display:flex;justify-content:space-between;align-items:baseline;font-size:var(--m2);color:var(--dis)">
+        <span>YEAR &#8722;400</span>
+        <span style="display:flex;align-items:baseline;gap:8px">
+          <span style="font-size:var(--m1);color:var(--sec)">0 AD</span>
+          <span style="color:var(--dim)">no years recorded</span>
+          <span style="color:var(--dis)">&middot;</span>
+          <span style="color:var(--dis)">CIVIL &#8250; Politics &#8250; Add year puts a mark here</span>
+        </span>
+        <span>YEAR 1200</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:22px;align-items:flex-start">
+    <div style="width:452px">
+      <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:4px">H &middot; touch density &mdash; &sect;4.1&rsquo;s 34 px strip, and the transport floored at 44</div>
+      <div class="mono" style="height:34px;background:var(--pan);border-top:1px solid var(--hair);
+           display:flex;align-items:center;gap:12px;padding:0 var(--pad);font-size:11px">
+        <span style="letter-spacing:.16em;color:var(--faint)">TIMELINE</span>
+        <span style="color:var(--sec)">412 AD</span>
+        <span style="flex:1"></span>
+        <span style="color:var(--faint)">&#9652;</span>
+      </div>
+      <div style="background:var(--pan);padding:8px var(--pad);display:flex;align-items:center;gap:10px">
+        <!-- 44 is a floor, not a token: app.gd::_tl_square already grows the square to
+             role_px("btn_min_h") and never shrinks it. The scrub track is the one control a floor
+             cannot fix &mdash; it is a 3 px rail inside a 16 px row, and a finger gets 16 px of target.
+             So on touch the ROW grows to 44 and the rail and the marks do not: the row is the target,
+             the rail is only its drawing. -->
+        <div class="mono" style="width:44px;height:44px;border-radius:8px;background:var(--ins);
+             color:var(--acc);display:flex;align-items:center;justify-content:center;font-size:13px">&#9654;</div>
+        <div class="mono" style="width:44px;height:44px;border-radius:8px;background:var(--ins);
+             color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:13px">&#9664;</div>
+        <div class="mono" style="width:44px;height:44px;border-radius:8px;background:var(--ins);
+             color:var(--sec);display:flex;align-items:center;justify-content:center;font-size:13px">&#9654;</div>
+        <div style="flex:1;position:relative;height:44px">
+          <span style="position:absolute;left:0;right:0;top:21px;height:3px;border-radius:2px;background:var(--ins)"></span>
+          <span style="position:absolute;left:25%;top:25px;width:1px;height:5px;background:var(--dim)"></span>
+          <span style="position:absolute;left:38.125%;top:25px;width:1px;height:5px;background:var(--dim)"></span>
+          <span style="position:absolute;left:50.75%;top:24px;width:2px;height:7px;background:var(--acc)"></span>
+          <span style="position:absolute;left:79.375%;top:25px;width:1px;height:5px;background:var(--dim)"></span>
+          <span style="position:absolute;left:50.75%;top:16px;width:2px;height:13px;background:var(--acc)"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mono" style="flex:1;font-size:var(--m2);line-height:1.75;color:var(--dis)">
+      <span style="color:var(--faint)">WHAT IS REAL, AND WHERE IT COMES FROM.</span> The marks are
+      <span style="color:var(--sec)">get_civ_timeline_years()</span>, ascending, one per recorded snapshot. The counts on a<br>
+      recorded year are a single <span style="color:var(--sec)">civ_year_diff(y)</span> call &mdash;
+      <span style="color:var(--sec)">present</span>, <span style="color:var(--sec)">added</span>,
+      <span style="color:var(--sec)">removed</span>, diffed against the<br>
+      chronologically previous recorded year. The cursor is
+      <span style="color:var(--sec)">get_civ_year()</span> / <span style="color:var(--sec)">civ_goto_year()</span>; the track is<br>
+      &#8722;400&hellip;1200, fixed and continuous, so the cursor lands anywhere and the territory<br>
+      under it changes only on a recorded year.<br><br>
+      <span style="color:var(--faint)">WHAT IS NOT, AND IS THEREFORE NOT DRAWN.</span>
+      <span style="color:var(--block)">A named event.</span> A snapshot carries no title, no<br>
+      category and no author &mdash; nothing in <span style="color:var(--sec)">cartalith-civ</span> holds one &mdash; so no mark here is<br>
+      labelled and none is coloured by kind. <span style="color:var(--block)">Per-mark magnitude.</span> That needs one<br>
+      <span style="color:var(--sec)">civ_year_diff</span> per mark on every repaint, and the repaint runs per motion event<br>
+      mid-drag; the magnitude is stated once instead, for the year under the cursor.<br>
+      <span style="color:var(--block)">A removed settlement&rsquo;s name or place.</span> <span style="color:var(--sec)">civ_year_diff</span> returns tid sets only.<br><br>
+      <span style="color:var(--faint)">MARK COLLISION.</span> <span style="color:var(--sec)">civ_run_collapse_simulation</span> writes one entry per step, so a run<br>
+      can leave marks 5 years apart &mdash; about 2 px on a 700 px track. Colliding marks merge<br>
+      and are never fattened: a fatter mark would read as a bigger year.
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

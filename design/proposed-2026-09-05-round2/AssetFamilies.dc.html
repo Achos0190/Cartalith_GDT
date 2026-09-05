@@ -1,0 +1,517 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<!--
+  ASSET LIBRARY -- THE FAMILY SET, RECONCILED
+  ==========================================================================
+  Surface: the Asset library window's family rail (older canvas
+  `Cartalith DCC Shell.dc.html`, "Asset library window 1920", the 266 px rail
+  at its lines 800-825) plus the browse pane that answers the standing gap
+  "13 of 24 asset families" (design/dcc-environment-2026-08-31/
+  BUILD_ANSWERS.md section 3; OPEN-QUESTIONS-FOR-DESIGN.md row 17).
+
+  THE PROBLEM THIS ARTBOARD IS FOR, stated plainly because no document states
+  it in one place:
+    * DCC_SHELL_SPEC.md section 8 says "24 families" and NAMES ELEVEN.
+    * The older canvas draws those same eleven, plus two collection rows, and
+      prints `24` in the band.
+    * The engine has NINE families, frozen, ported from the reference
+      (`cartalith-assets/src/slots.rs`, `Family::ALL`).
+    * The thirteen unnamed families are named in NO document anywhere in this
+      repository -- grepped 2026-09-05 across design/, spec/, DCC_SHELL_SPEC.md,
+      DCC_CONTROL_INDEX.md and GUI_GAP_REGISTER.md (AS-16).
+  So this artboard does NOT invent thirteen names. It draws what is real at
+  full fidelity, draws the eleven named design rows against what actually
+  backs each, and draws the thirteen as one honest absent block. An invented
+  family name would become a slot vocabulary, and a slot vocabulary is frozen
+  the day it ships (slots.rs' own warning: "renaming an entry silently
+  re-points every pack ever authored").
+
+  EVERY CAPACITY BELOW IS REAL, read off cartalith-assets/src/slots.rs:
+    textures 7 - biomes 15 - terrains 13 - icons 10 - seamarks 8 -
+    settlement 9 - trait 7 - poi 10 (library vocabulary; a pack IMPORTS
+    against 8, `PACK_POI_SLOTS`) - custom open.  Frozen total 79.
+  FILL counts are sample data -- the quantity is real
+  (`AssetDB::filled_count` / `as_family_slots`), the numbers are not measured.
+-->
+<div class="tok" style="width:1240px;height:880px;background:var(--pan);
+     border:1px solid var(--bor);border-radius:10px;box-shadow:var(--shadow);
+     display:flex;flex-direction:column;overflow:hidden">
+
+  <!-- Window bar: 34 px, the older canvas's own height for a window title bar,
+       kept because 05-right-dock-and-bars.md legislates docks and bars, not
+       windows, and the Environment set draws no asset window to override it. -->
+  <div style="height:34px;flex:none;display:flex;align-items:center;gap:14px;
+       padding:0 16px;border-bottom:1px solid var(--hair)">
+    <span class="mono" style="color:var(--acc);letter-spacing:.14em;font-size:11px">&#9707; ASSET LIBRARY</span>
+    <span class="mono" style="color:var(--faint);font-size:var(--m1)">families &middot; slots &middot; packs</span>
+    <div style="flex:1"></div>
+    <span class="mono" style="font-size:var(--m1);color:var(--dim);background:var(--ins);
+          border-radius:8px;padding:4px 11px">&#8981;&nbsp; name &middot; type &middot; tag &middot; file</span>
+    <span class="mono" style="color:var(--faint);font-size:11px">&#10005;</span>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+
+    <!-- == A - THE RAIL, AS THE ENGINE ACTUALLY STOCKS IT ===================
+         266 px and the row grammar `code / name / filled-capacity, accent when
+         incomplete` are both the older canvas's, verbatim. What changed is the
+         CONTENT: the real nine, in `Family::ALL` order, in the four groups
+         asset_library_window.gd's GROUP_ORDER already ships. -->
+    <div style="width:266px;flex:none;border-right:1px solid var(--hair);
+         display:flex;flex-direction:column;min-height:0">
+
+      <div class="mono" style="height:28px;flex:none;display:flex;align-items:center;gap:9px;
+           padding:0 14px;border-bottom:1px solid var(--hair);font-size:var(--m2);
+           letter-spacing:.2em;color:var(--dim)">
+        <span style="flex:1">FAMILIES</span><span style="color:var(--faint)">9</span></div>
+
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:6px 0">
+
+        <div class="mono" style="padding:7px 14px 4px;font-size:var(--m2);
+             letter-spacing:.16em;color:var(--faint)">GROUND TEXTURES</div>
+        <!-- Tiled, anchor `none`; `texture:true` in the shell's FAMILIES table. -->
+        <div style="display:flex;align-items:center;gap:9px;padding:5px 14px;color:var(--body);min-height:var(--row)">
+          <span class="mono" style="width:26px;font-size:var(--m1);color:var(--faint)">TX</span>
+          <span style="flex:1;font-size:11.5px">Splat channels</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--acc)">4/7</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:5px 14px;color:var(--body);min-height:var(--row)">
+          <span class="mono" style="width:26px;font-size:var(--m1);color:var(--faint)">BI</span>
+          <span style="flex:1;font-size:11.5px">Biome textures</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--acc)">11/15</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:5px 14px;color:var(--body);min-height:var(--row)">
+          <span class="mono" style="width:26px;font-size:var(--m1);color:var(--faint)">TR</span>
+          <span style="flex:1;font-size:11.5px">Terrain textures</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--dim)">13/13</span></div>
+
+        <div class="mono" style="padding:9px 14px 4px;font-size:var(--m2);
+             letter-spacing:.16em;color:var(--faint)">FEATURE ICONS</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:5px 12px 5px 14px;
+             background:var(--wash);color:var(--ink);border-left:2px solid var(--acc);min-height:var(--row)">
+          <span class="mono" style="width:26px;font-size:var(--m1);color:var(--acc)">IC</span>
+          <span style="flex:1;font-size:11.5px">Feature icons</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--acc)">6/10</span></div>
+        <!-- SEA MARKS is the ninth family. It exists in Rust
+             (`Family::SeaMark`, PACK_SEAMARK_SLOTS, 8 slots) by owner ruling
+             2026-09-02, and asset_library_window.gd's own FAMILIES table is
+             still the pre-ruling EIGHT. That is a build gap, not a design
+             question, so the row is drawn live and flagged `new`. -->
+        <div style="display:flex;align-items:center;gap:9px;padding:5px 14px;color:var(--body);min-height:var(--row)">
+          <span class="mono" style="width:26px;font-size:var(--m1);color:var(--faint)">SM</span>
+          <span style="flex:1;font-size:11.5px">Sea marks</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--accH);background:var(--wash2);
+                border-radius:999px;padding:2px 7px">new</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--acc)">0/8</span></div>
+
+        <div class="mono" style="padding:9px 14px 4px;font-size:var(--m2);
+             letter-spacing:.16em;color:var(--faint)">STRUCTURES</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:5px 14px;color:var(--body);min-height:var(--row)">
+          <span class="mono" style="width:26px;font-size:var(--m1);color:var(--faint)">SC</span>
+          <span style="flex:1;font-size:11.5px">Settlement pins</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--acc)">7/9</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:5px 14px;color:var(--body);min-height:var(--row)">
+          <span class="mono" style="width:26px;font-size:var(--m1);color:var(--faint)">ST</span>
+          <span style="flex:1;font-size:11.5px">Settlement traits</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--dim)">7/7</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:5px 14px;color:var(--body);min-height:var(--row)">
+          <span class="mono" style="width:26px;font-size:var(--m1);color:var(--faint)">PI</span>
+          <span style="flex:1;font-size:11.5px">Points of interest</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--acc)">5/10</span></div>
+
+        <div class="mono" style="padding:9px 14px 4px;font-size:var(--m2);
+             letter-spacing:.16em;color:var(--faint)">CUSTOM</div>
+        <!-- Open vocabulary: `Family::Custom` has no frozen slot list, so a
+             `filled/capacity` pair is not a thing that exists here. Drawn as a
+             plain item count, not as `n/0`. -->
+        <div style="display:flex;align-items:center;gap:9px;padding:5px 14px;color:var(--body);min-height:var(--row)">
+          <span class="mono" style="width:26px;font-size:var(--m1);color:var(--faint)">CU</span>
+          <span style="flex:1;font-size:11.5px">Custom icons</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--dim)">18 items</span></div>
+
+        <div class="mono" style="padding:9px 14px 4px;font-size:var(--m2);
+             letter-spacing:.16em;color:var(--faint)">COLLECTIONS</div>
+        <!-- Real: `as_batch_tag`, `as_batch_collect`, `as_drop_collection` are
+             live EngineBridge forwarders. A tag set is a browsable pseudo-family
+             exactly as Azgaar's icon browser treats a saved icon group. -->
+        <div style="display:flex;align-items:center;gap:9px;padding:5px 14px;color:var(--body);min-height:var(--row)">
+          <span class="mono" style="width:26px;font-size:var(--m1);color:var(--faint)">&#9733;</span>
+          <span style="flex:1;font-size:11.5px">Tagged &middot; northern</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--dim)">22</span></div>
+        <!-- ABSENT STATE, DELIBERATE. The canvas draws "Unassigned imports 7".
+             Nothing in cartalith-assets keeps an unassigned bucket: an import
+             that matches no slot is either placed by the slicer or added to
+             `custom` by name. The row stays -- it is the right affordance --
+             and reads em-dash until such a bucket exists. -->
+        <div style="display:flex;align-items:center;gap:9px;padding:5px 14px;color:var(--dis);min-height:var(--row)">
+          <span class="mono" style="width:26px;font-size:var(--m1);color:var(--dis)">&#9734;</span>
+          <span style="flex:1;font-size:11.5px">Unassigned imports</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--dis)">&mdash;</span></div>
+
+      </div>
+
+      <!-- Footer: the canvas's own two, at token button height rather than its
+           5 px padding, so the pair clears the 28 px control floor. -->
+      <div style="flex:none;border-top:1px solid var(--hair);padding:9px 14px;display:flex;gap:6px">
+        <span class="btn2 mono" style="flex:1;font-size:var(--m1);min-height:var(--btnH)">Import image&hellip;</span>
+        <span class="btn2 mono" style="flex:1;font-size:var(--m1);min-height:var(--btnH)">Import pack&hellip;</span>
+      </div>
+    </div>
+
+    <!-- == B - THE DESIGN'S 24, BROWSABLE ==================================
+         Comparable: Azgaar's Fantasy Map Generator icon/style browsers, whose
+         overview tables put one row per named thing and carry the row's own
+         state on the row rather than in a legend. Here each of the eleven
+         named design families is one row, and the row says what actually
+         backs it -- because "Textures" is three engine families and
+         "Trees & cover" is seven slots of one. -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--hair)">
+
+      <div class="mono" style="height:28px;flex:none;display:flex;align-items:center;gap:14px;
+           padding:0 18px;border-bottom:1px solid var(--hair);font-size:var(--m2);
+           letter-spacing:.2em;color:var(--dim)">
+        <span style="flex:1">THE DESIGN&rsquo;S 24 FAMILIES</span>
+        <span style="color:var(--acc)">11 NAMED</span>
+        <span style="color:var(--faint)">13 UNNAMED</span></div>
+
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:4px 18px 18px">
+
+        <!-- Column heads, once. The four columns are: the design's own name,
+             what backs it in the engine, the slot arithmetic, and the state. -->
+        <div class="mono" style="display:flex;align-items:center;gap:12px;padding:12px 0 6px;
+             font-size:var(--m2);letter-spacing:.16em;color:var(--faint)">
+          <span style="width:11px"></span>
+          <span style="flex:1">DESIGN FAMILY</span>
+          <span style="width:196px">BACKED BY</span>
+          <span style="width:66px;text-align:right">SLOTS</span></div>
+        <div class="rule"></div>
+
+        <div class="mono" style="padding:12px 0 5px;font-size:var(--m2);
+             letter-spacing:.16em;color:var(--faint)">SETTLEMENTS</div>
+
+        <!-- REAL. `structures.settlement`, PACK_SETTLEMENT_SLOTS, 9 slots,
+             mirrors CIV_SETTLEMENT_CLASSES. One design row, one engine family:
+             one of only two clean 1:1 matches in the whole table. -->
+        <div style="display:flex;align-items:center;gap:12px;min-height:var(--row);
+             border-bottom:1px solid var(--div)">
+          <span style="width:11px;color:var(--good);font-size:9px">&#9679;</span>
+          <span style="flex:1;font-size:11.5px;color:var(--ink)">Places</span>
+          <span class="mono" style="width:196px;font-size:var(--m1);color:var(--sec)">SC &middot; settlement pins</span>
+          <span class="mono" style="width:66px;text-align:right;font-size:var(--m1);color:var(--sec)">9</span></div>
+
+        <!-- ABSENT AS A SPRITE FAMILY, and the reason matters: buildings ARE
+             generated -- cartalith-urban emits per-building footprints with
+             ridge lines and urban_layout_draw.gd fills them as vector geometry
+             (its own header: "a lot is not a building... its own generated
+             footprint"). There is nothing for a sprite to slot into. -->
+        <div style="display:flex;align-items:center;gap:12px;min-height:var(--row);
+             border-bottom:1px solid var(--div)">
+          <span style="width:11px;color:var(--dis);font-size:9px">&#9675;</span>
+          <span style="flex:1;font-size:11.5px;color:var(--dim)">Buildings</span>
+          <span class="mono" style="width:196px;font-size:var(--m1);color:var(--dis)">drawn as geometry, not sprites</span>
+          <span class="mono" style="width:66px;text-align:right;font-size:var(--m1);color:var(--dis)">&mdash;</span></div>
+
+        <!-- Same: the wall circuit, its gates and its spurs are drawn from
+             `wall_state` (cartalith-urban/amenities.rs, cleanup.rs) as strokes
+             with a per-style colour, not from art. -->
+        <div style="display:flex;align-items:center;gap:12px;min-height:var(--row);
+             border-bottom:1px solid var(--div)">
+          <span style="width:11px;color:var(--dis);font-size:9px">&#9675;</span>
+          <span style="flex:1;font-size:11.5px;color:var(--dim)">Walls &amp; gates</span>
+          <span class="mono" style="width:196px;font-size:var(--m1);color:var(--dis)">drawn as geometry, not sprites</span>
+          <span class="mono" style="width:66px;text-align:right;font-size:var(--m1);color:var(--dis)">&mdash;</span></div>
+
+        <div class="mono" style="padding:14px 0 5px;font-size:var(--m2);
+             letter-spacing:.16em;color:var(--faint)">TERRAIN</div>
+
+        <!-- FACET of one engine family. `PACK_ICON_SLOTS` is ten glyphs; seven
+             of them are cover (five trees, shrub, cactus). Splitting them into
+             a family of their own would fork a frozen vocabulary, so the design
+             row is a FILTER over `icons`, not a family. That is the whole
+             reconciliation in one row. -->
+        <div style="display:flex;align-items:center;gap:12px;min-height:var(--row);
+             border-bottom:1px solid var(--div)">
+          <span style="width:11px;color:var(--acc);font-size:9px">&#9673;</span>
+          <span style="flex:1;font-size:11.5px;color:var(--ink)">Trees &amp; cover</span>
+          <span class="mono" style="width:196px;font-size:var(--m1);color:var(--sec)">IC &middot; 7 of 10 slots</span>
+          <span class="mono" style="width:66px;text-align:right;font-size:var(--m1);color:var(--sec)">7</span></div>
+
+        <div style="display:flex;align-items:center;gap:12px;min-height:var(--row);
+             border-bottom:1px solid var(--div)">
+          <span style="width:11px;color:var(--acc);font-size:9px">&#9673;</span>
+          <span style="flex:1;font-size:11.5px;color:var(--ink)">Rock &amp; scree</span>
+          <span class="mono" style="width:196px;font-size:var(--m1);color:var(--sec)">IC &middot; mountain hill boulder</span>
+          <span class="mono" style="width:66px;text-align:right;font-size:var(--m1);color:var(--sec)">3</span></div>
+
+        <!-- The design's single "Textures" row is THREE engine families with
+             three different consumers -- splat channels, the painted biome
+             layer and the painted terrain layer (v1.28). Collapsing them into
+             one browse row would hide which layer a tile lands on. -->
+        <div style="display:flex;align-items:center;gap:12px;min-height:var(--row);
+             border-bottom:1px solid var(--div)">
+          <span style="width:11px;color:var(--acc);font-size:9px">&#9673;</span>
+          <span style="flex:1;font-size:11.5px;color:var(--ink)">Textures</span>
+          <span class="mono" style="width:196px;font-size:var(--m1);color:var(--sec)">TX + BI + TR &middot; three families</span>
+          <span class="mono" style="width:66px;text-align:right;font-size:var(--m1);color:var(--sec)">35</span></div>
+
+        <div style="display:flex;align-items:center;gap:12px;min-height:var(--row);
+             border-bottom:1px solid var(--div)">
+          <span style="width:11px;color:var(--dis);font-size:9px">&#9675;</span>
+          <span style="flex:1;font-size:11.5px;color:var(--dim)">Hachure &amp; hatch</span>
+          <span class="mono" style="width:196px;font-size:var(--m1);color:var(--dis)">no engine family</span>
+          <span class="mono" style="width:66px;text-align:right;font-size:var(--m1);color:var(--dis)">&mdash;</span></div>
+
+        <div class="mono" style="padding:14px 0 5px;font-size:var(--m2);
+             letter-spacing:.16em;color:var(--faint)">CARTOGRAPHY</div>
+
+        <div style="display:flex;align-items:center;gap:12px;min-height:var(--row);
+             border-bottom:1px solid var(--div)">
+          <span style="width:11px;color:var(--dis);font-size:9px">&#9675;</span>
+          <span style="flex:1;font-size:11.5px;color:var(--dim)">Compass &amp; frame</span>
+          <span class="mono" style="width:196px;font-size:var(--m1);color:var(--dis)">no engine family</span>
+          <span class="mono" style="width:66px;text-align:right;font-size:var(--m1);color:var(--dis)">&mdash;</span></div>
+
+        <div style="display:flex;align-items:center;gap:12px;min-height:var(--row);
+             border-bottom:1px solid var(--div)">
+          <span style="width:11px;color:var(--dis);font-size:9px">&#9675;</span>
+          <span style="flex:1;font-size:11.5px;color:var(--dim)">Label plaques</span>
+          <span class="mono" style="width:196px;font-size:var(--m1);color:var(--dis)">no engine family</span>
+          <span class="mono" style="width:66px;text-align:right;font-size:var(--m1);color:var(--dis)">&mdash;</span></div>
+
+        <!-- The one design row the ENGINE grew to meet, rather than the other
+             way round: owner ruling 2026-09-02 added `Family::SeaMark` so the
+             design's four placement families become literal. Selected here. -->
+        <div style="display:flex;align-items:center;gap:12px;min-height:var(--row);
+             background:var(--wash);border-left:2px solid var(--acc);
+             margin:0 -18px;padding:0 18px">
+          <span style="width:11px;color:var(--good);font-size:9px">&#9679;</span>
+          <span style="flex:1;font-size:11.5px;color:var(--ink)">Ship &amp; sea marks</span>
+          <span class="mono" style="width:196px;font-size:var(--m1);color:var(--acc)">SM &middot; sea marks</span>
+          <span class="mono" style="width:66px;text-align:right;font-size:var(--m1);color:var(--acc)">8</span></div>
+
+        <div style="display:flex;align-items:center;gap:12px;min-height:var(--row);
+             border-bottom:1px solid var(--div);border-top:1px solid var(--div)">
+          <span style="width:11px;color:var(--dis);font-size:9px">&#9675;</span>
+          <span style="flex:1;font-size:11.5px;color:var(--dim)">Map furniture</span>
+          <span class="mono" style="width:196px;font-size:var(--m1);color:var(--dis)">no engine family</span>
+          <span class="mono" style="width:66px;text-align:right;font-size:var(--m1);color:var(--dis)">&mdash;</span></div>
+
+        <!-- == THE THIRTEEN ================================================
+             Drawn as ONE block, not as thirteen invented rows. The ghost strip
+             is thirteen literal empty slots so the count is legible at a
+             glance -- Blender's outliner uses the same device for a collapsed
+             group it cannot yet enumerate. The block is inert: a statement,
+             not a control. -->
+        <div style="margin-top:16px;border:1px dashed var(--bor);border-radius:8px;
+             padding:12px 13px;background:var(--ins)">
+          <div class="mono" style="display:flex;align-items:baseline;gap:10px">
+            <span style="flex:1;font-size:var(--m2);letter-spacing:.16em;color:var(--faint)">12 &mdash; 24 &middot; UNNAMED</span>
+            <span style="font-size:var(--m1);color:var(--dis)">no name, no group, no slots</span></div>
+          <div style="display:flex;gap:5px;padding-top:10px;flex-wrap:wrap">
+            <span style="width:34px;height:9px;border-radius:3px;background:var(--pan);border:1px solid var(--div)"></span>
+            <span style="width:34px;height:9px;border-radius:3px;background:var(--pan);border:1px solid var(--div)"></span>
+            <span style="width:34px;height:9px;border-radius:3px;background:var(--pan);border:1px solid var(--div)"></span>
+            <span style="width:34px;height:9px;border-radius:3px;background:var(--pan);border:1px solid var(--div)"></span>
+            <span style="width:34px;height:9px;border-radius:3px;background:var(--pan);border:1px solid var(--div)"></span>
+            <span style="width:34px;height:9px;border-radius:3px;background:var(--pan);border:1px solid var(--div)"></span>
+            <span style="width:34px;height:9px;border-radius:3px;background:var(--pan);border:1px solid var(--div)"></span>
+            <span style="width:34px;height:9px;border-radius:3px;background:var(--pan);border:1px solid var(--div)"></span>
+            <span style="width:34px;height:9px;border-radius:3px;background:var(--pan);border:1px solid var(--div)"></span>
+            <span style="width:34px;height:9px;border-radius:3px;background:var(--pan);border:1px solid var(--div)"></span>
+            <span style="width:34px;height:9px;border-radius:3px;background:var(--pan);border:1px solid var(--div)"></span>
+            <span style="width:34px;height:9px;border-radius:3px;background:var(--pan);border:1px solid var(--div)"></span>
+            <span style="width:34px;height:9px;border-radius:3px;background:var(--pan);border:1px solid var(--div)"></span>
+          </div>
+          <div class="mono" style="padding-top:11px;font-size:var(--m2);line-height:1.7;color:var(--dis)">
+            <b style="color:var(--faint)">Nothing names these.</b> The spec says
+            <i>24 families</i> and lists eleven; no other document in this repository<br>
+            supplies the remaining thirteen. Until one does, the band above reads
+            <span style="color:var(--sec)">9</span> &mdash; the engine&rsquo;s real count &mdash;
+            and this block is<br>
+            what the number 24 refers to.
+            <span style="color:var(--faint)">GUI_GAP_REGISTER.md AS-16.</span>
+          </div>
+        </div>
+
+        <!-- Three real families the design's 24 never mentions. Symmetry
+             matters: the mismatch runs both ways, and a build lane reading only
+             the top half would think the engine is a subset of the design. -->
+        <div style="margin-top:14px;padding:11px 13px;border-radius:8px;background:var(--ins)">
+          <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--faint)">
+            AND THREE THE DESIGN NEVER NAMES</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:9px">
+            <span class="chip mono">ST &middot; settlement traits &middot; 7</span>
+            <span class="chip mono">PI &middot; points of interest &middot; 10</span>
+            <span class="chip mono">CU &middot; custom &middot; open</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- == C - THE SELECTED FAMILY =========================================
+         330 px, the same inspector width the older canvas's Asset library
+         uses. Picking a row on either side fills this column: the engine key,
+         the real slot vocabulary, and the two facts a pack author needs
+         (anchor, and whether the list is frozen). -->
+    <div style="width:330px;flex:none;display:flex;flex-direction:column;min-height:0;background:var(--pan)">
+
+      <div class="mono" style="height:28px;flex:none;display:flex;align-items:center;
+           padding:0 14px;border-bottom:1px solid var(--hair);font-size:var(--m2);
+           letter-spacing:.2em;color:var(--dim)">FAMILY</div>
+
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:14px">
+
+        <div class="cap mono">SM &middot; SEA MARKS</div>
+        <div class="hero" style="padding-top:5px">0 <span style="font-size:15px;color:var(--dim)">of 8 filled</span></div>
+        <div class="mono foot" style="padding-top:7px;color:var(--dis)">
+          coastal and offshore marks &mdash; the one family with<br>no counterpart in the reference engine</div>
+
+        <div class="rule" style="margin:13px 0 11px"></div>
+
+        <div class="mono row"><span class="k">KEY</span><span class="v">seamarks</span></div>
+        <div class="mono row"><span class="k">ANCHOR</span><span class="v">bottom</span></div>
+        <div class="mono row"><span class="k">SLOT LIST</span><span class="v">frozen &middot; 8</span></div>
+        <div class="mono row"><span class="k">VARIANTS</span><span class="v">1&hellip;N per slot</span></div>
+
+        <div class="rule" style="margin:11px 0 12px"></div>
+
+        <div class="cap mono">SLOTS</div>
+        <!-- Verbatim PACK_SEAMARK_SLOTS, in file order. Order is load-bearing:
+             it is the exporter's file order and the Library's display order. -->
+        <div style="display:flex;gap:5px;flex-wrap:wrap;padding-top:9px">
+          <span class="chip mono" style="color:var(--dis)">lighthouse</span>
+          <span class="chip mono" style="color:var(--dis)">beacon</span>
+          <span class="chip mono" style="color:var(--dis)">buoy</span>
+          <span class="chip mono" style="color:var(--dis)">anchorage</span>
+          <span class="chip mono" style="color:var(--dis)">shipwreck</span>
+          <span class="chip mono" style="color:var(--dis)">reef</span>
+          <span class="chip mono" style="color:var(--dis)">shoal</span>
+          <span class="chip mono" style="color:var(--dis)">whirlpool</span>
+        </div>
+
+        <!-- Empty state, drawn rather than described: eight unfilled slots is
+             what a fresh install shows, and it is the first thing anyone sees
+             on this family. The checkerboard is the older canvas's own empty
+             cell. Four across at 330 px minus 28 px of padding. -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:9px;padding-top:13px">
+          <span style="aspect-ratio:1;border-radius:6px;border:1px dashed var(--bor);
+                background:repeating-conic-gradient(var(--ins) 0% 25%,var(--pan) 0% 50%) 50%/13px 13px"></span>
+          <span style="aspect-ratio:1;border-radius:6px;border:1px dashed var(--bor);
+                background:repeating-conic-gradient(var(--ins) 0% 25%,var(--pan) 0% 50%) 50%/13px 13px"></span>
+          <span style="aspect-ratio:1;border-radius:6px;border:1px dashed var(--bor);
+                background:repeating-conic-gradient(var(--ins) 0% 25%,var(--pan) 0% 50%) 50%/13px 13px"></span>
+          <span style="aspect-ratio:1;border-radius:6px;border:1px dashed var(--bor);
+                background:repeating-conic-gradient(var(--ins) 0% 25%,var(--pan) 0% 50%) 50%/13px 13px"></span>
+          <span style="aspect-ratio:1;border-radius:6px;border:1px dashed var(--bor);
+                background:repeating-conic-gradient(var(--ins) 0% 25%,var(--pan) 0% 50%) 50%/13px 13px"></span>
+          <span style="aspect-ratio:1;border-radius:6px;border:1px dashed var(--bor);
+                background:repeating-conic-gradient(var(--ins) 0% 25%,var(--pan) 0% 50%) 50%/13px 13px"></span>
+          <span style="aspect-ratio:1;border-radius:6px;border:1px dashed var(--bor);
+                background:repeating-conic-gradient(var(--ins) 0% 25%,var(--pan) 0% 50%) 50%/13px 13px"></span>
+          <span style="aspect-ratio:1;border-radius:6px;border:1px dashed var(--bor);
+                background:repeating-conic-gradient(var(--ins) 0% 25%,var(--pan) 0% 50%) 50%/13px 13px"></span>
+        </div>
+
+        <div style="background:var(--ins);border-radius:8px;padding:9px 11px;margin-top:14px;
+             border-left:2px solid var(--acc)">
+          <div class="mono" style="font-size:var(--m2);line-height:1.7;color:var(--dis)">
+            <span style="color:var(--acc)">Owner ruling, 2026-09-02.</span> Added so the
+            design&rsquo;s four placement families &mdash; PLACES, TREES, SEA MARKS,
+            POI &mdash; become literal rather than mapped onto three.
+            <span style="color:var(--faint)">The slot list is frozen from here on:
+            renaming an entry re-points every pack authored against it.</span>
+          </div>
+        </div>
+
+        <div class="rule" style="margin:14px 0 12px"></div>
+
+        <div class="cap mono">THE RECONCILIATION</div>
+        <div class="mono row" style="padding-top:6px"><span class="k">SPEC CLAIMS</span><span class="v">24 families</span></div>
+        <div class="mono row"><span class="k">SPEC NAMES</span><span class="v">11</span></div>
+        <div class="mono row"><span class="k">ENGINE HAS</span><span class="v" style="color:var(--acc)">9</span></div>
+        <div class="mono row"><span class="k">FROZEN SLOTS</span><span class="v">79</span></div>
+        <div class="mono row"><span class="k">1:1 MATCHES</span><span class="v">2 of 11</span></div>
+
+        <div class="mono foot">
+          The two that match are <span style="color:var(--sec)">Places</span> and
+          <span style="color:var(--sec)">Ship &amp; sea marks</span>. Three more are
+          filters over a family rather than families; six have nothing behind them
+          and read em-dash on every surface until they do.
+        </div>
+
+      </div>
+
+      <div style="flex:none;border-top:1px solid var(--hair);padding:9px 14px;display:flex;gap:8px;
+           justify-content:flex-end">
+        <span class="btn2 mono" style="font-size:var(--m1)">Validate</span>
+        <span class="btn mono" style="padding:0 14px;font-size:var(--m1)">Apply to map</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status bar: 26 px (`--sbH`), the resolved height from
+       05-right-dock-and-bars.md, which wins over the older canvas on any
+       shared element. Left message, right shortcut hint. -->
+  <div class="mono" style="height:26px;flex:none;display:flex;align-items:center;gap:22px;
+       padding:0 16px;border-top:1px solid var(--hair);font-size:var(--m1);color:var(--faint)">
+    <span>9 families &middot; 79 frozen slots &middot; 18 custom items</span>
+    <span style="color:var(--dis)">library edited &mdash; apply to map to use it</span>
+    <div style="flex:1"></div>
+    <span style="color:var(--dis)">&#8679;A close &middot; &#8984;&#8679;P export pack</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

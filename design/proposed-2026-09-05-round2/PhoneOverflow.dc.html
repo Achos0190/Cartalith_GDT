@@ -1,0 +1,610 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<!-- ===================================================================
+     PhoneOverflow.dc.html
+     Surface: the seven desktop menus -- File, Edit, Assets, Data,
+     Preferences, Window, Help (menus.gd's own seven add_menu calls) --
+     re-presented as a touch drill-down.
+
+     THE TWO DIAGNOSED CAUSES, AND WHAT ANSWERS EACH
+       15 hover-opened submenus. Hover does not exist on touch, and neither
+       does the tooltip the desktop rows lean on (`set_item_tooltip`). So a
+       submenu becomes ONE OF TWO THINGS, never a hover:
+         - a submenu of RADIO items expands INLINE as chips (§6.6 `seg`,
+           and phone_menu.gd's `_expandable()`);
+         - a submenu of ACTIONS drills to its own screen, because a
+           destructive act must not be one mis-tap wide.
+       ~12 physical px rows. Every tappable row here is >= 48 dp. The
+       handset is 1080 px across a 412 dp canvas -- 1080 / 412 = 2.62,
+       which is where `_phone_scale` comes from -- so 48 dp lands at 126
+       physical px against the diagnosed ~12.
+
+     §6.6's sheet sub-screens are the established idiom. This is the ROOT
+     that reaches them, plus one drilled level. Both levels are drawn from
+     phone_menu.gd's own ROOT_ROWS / ROOT_REST and from menus.gd's real
+     Edit rows -- not from an idea of what those menus contain.
+     =================================================================== -->
+<div class="tok" style="width:1330px;height:1012px;background:var(--sur);padding:22px;
+     display:flex;flex-direction:column;gap:14px">
+
+  <div style="display:flex;align-items:baseline;gap:14px">
+    <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim)">
+      PHONE OVERFLOW &mdash; SEVEN MENUS AS A DRILL-DOWN</div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis)">
+      412 &times; 892 dp &middot; no hover, no tooltips, no 12&thinsp;px rows &middot;
+      the sheet's own back affordance (&sect;5.4) is the only way up</div>
+  </div>
+
+  <div style="display:flex;gap:20px;align-items:flex-start;flex:1;min-height:0">
+
+    <!-- ============ ROOT ============ -->
+    <div style="flex:none">
+      <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:6px">
+        ROOT &middot; <span style="color:var(--faint)">moreStack = ['root']</span>
+        &mdash; no back button, because there is nothing above it</div>
+
+      <div style="width:412px;height:892px;border-radius:30px;border:1px solid var(--bor);
+           overflow:hidden;background:#101112;position:relative">
+
+        <div style="position:absolute;left:0;right:0;top:0;bottom:84px;
+             background:linear-gradient(158deg,#1b2532 0%,#12161b 60%,#12161b 100%)"></div>
+        <div style="position:absolute;left:0;right:0;top:0;height:110px;
+             background:linear-gradient(180deg,rgba(10,11,12,.72) 0%,transparent 100%)"></div>
+
+        <div class="mono" style="position:absolute;left:0;right:0;top:0;height:30px;padding:0 18px;
+             display:flex;align-items:center;font-size:var(--m1);color:var(--sec)">
+          <span>9:41</span><span style="flex:1"></span>
+          <span style="letter-spacing:.14em">LTE &#9646;&#9646; 84%</span>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;top:34px;height:44px;display:flex;
+             align-items:center;gap:8px;padding:0 10px">
+          <div style="flex:1;padding:8px 14px;border-radius:20px;background:rgba(18,19,20,.92);
+               border:1px solid var(--hair);min-width:0">
+            <div class="mono" style="font-weight:500;font-size:11.5px;letter-spacing:.2em;
+                 color:var(--ink)">ELDRA</div>
+            <div class="mono" style="font-size:9.5px;color:var(--dim)">483920 &middot; finalized &middot; atlas</div>
+          </div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8981;</div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8942;</div>
+        </div>
+
+        <!-- MORE sheet at `full` (§5.2: 808 − 96 = 712). The root has more
+             content than one viewport at any detent, so it scrolls -- §5.5's
+             `flex:1; overflow-y:auto`. Drawn scrolled to the top; the tail is
+             listed in the annotation column rather than faked into the frame. -->
+        <div style="position:absolute;left:0;right:0;bottom:84px;height:712px;
+             border-radius:22px 22px 0 0;background:#15171a;
+             box-shadow:0 -10px 30px rgba(0,0,0,.35);display:flex;flex-direction:column">
+          <div style="height:20px;display:flex;align-items:center;justify-content:center">
+            <div style="width:42px;height:4px;border-radius:2px;background:var(--bor)"></div>
+          </div>
+          <!-- No back button at the root: §5.4 shows it only when
+               moreStack.length > 1. The close ✕ is the whole exit. -->
+          <div style="display:flex;align-items:center;gap:10px;padding:0 14px 10px">
+            <div style="flex:1;min-width:0">
+              <div class="mono" style="font-weight:500;font-size:11px;letter-spacing:.2em;
+                   color:var(--acc)">MORE</div>
+              <div class="mono" style="font-size:9.5px;color:var(--dim)">program &middot; data &middot; preferences</div>
+            </div>
+            <div class="mono" style="width:38px;height:38px;border-radius:19px;flex:none;
+                 background:var(--ins);display:flex;align-items:center;justify-content:center;
+                 font-size:13px;color:var(--sec)">&#10005;</div>
+          </div>
+
+          <div style="flex:1;overflow:hidden;padding:2px 14px 0;position:relative">
+
+            <!-- Eight nav rows, verbatim from phone_menu.gd's ROOT_ROWS.
+                 §6.6 `nav`: min-height 52, padding 0 12, radius 16, gap 12.
+                 Glyph 12px mono in an 18px column, --faint. Label 12.5px --ink.
+                 Sub 9.5px mono --dim, ellipsised. Chevron ›.
+                 The glyph column is --dim rather than --faint here: --faint
+                 (#6f7478) measures 3.9:1 on this ground and #8d9296 measures
+                 5.9:1, and a glyph that names the row is information. -->
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dim)">&#9033;</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:12.5px;color:var(--ink)">Project</span>
+                <span style="display:block;font-size:9.5px;color:var(--dim)">save &middot; recent &middot; storage</span></span>
+              <span style="font-size:12px;color:var(--dim)">&rsaquo;</span></div>
+
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dim)">&#9677;</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:12.5px;color:var(--ink)">Civilization</span>
+                <span style="display:block;font-size:9.5px;color:var(--dim)">settlement &middot; POI &middot; way tools</span></span>
+              <span style="font-size:12px;color:var(--dim)">&rsaquo;</span></div>
+
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dim)">&#8645;</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:12.5px;color:var(--ink)">Data manager</span>
+                <span style="display:block;font-size:9.5px;color:var(--dim)">import &middot; export &middot; sources &middot; validation</span></span>
+              <span style="font-size:12px;color:var(--dim)">&rsaquo;</span></div>
+
+            <!-- The badge. §6.6 wants `72 / 113` -- a filled/total this build
+                 has no source for. phone_menu.gd draws the popup's own
+                 non-separator row count instead, read off the live menu and
+                 never written down. An honest count beats an invented ratio. -->
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dim)">&#9638;</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:12.5px;color:var(--ink)">Asset library</span>
+                <span style="display:block;font-size:9.5px;color:var(--dim)">families &middot; slots &middot; packs &middot; landmark types</span></span>
+              <span style="font-size:9px;color:var(--acc)">11</span>
+              <span style="font-size:12px;color:var(--dim)">&rsaquo;</span></div>
+
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dim)">&#8779;</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:12.5px;color:var(--ink)">Travel library</span>
+                <span style="display:block;font-size:9.5px;color:var(--dim)">animals &middot; vehicles &middot; vessels &middot; parties</span></span>
+              <span style="font-size:12px;color:var(--dim)">&rsaquo;</span></div>
+
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dim)">&#9719;</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:12.5px;color:var(--ink)">Simulation</span>
+                <!-- ROOT_ROWS leaves this sub empty and `_live_root_sub()`
+                     fills it at build time, so it is a live value, not a label. -->
+                <span style="display:block;font-size:9.5px;color:var(--dim)">year 412 &middot; paused</span></span>
+              <span style="font-size:12px;color:var(--dim)">&rsaquo;</span></div>
+
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dim)">&#9881;</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:12.5px;color:var(--ink)">Preferences</span>
+                <span style="display:block;font-size:9.5px;color:var(--dim)">theme &middot; units &middot; performance &middot; graphics</span></span>
+              <span style="font-size:12px;color:var(--dim)">&rsaquo;</span></div>
+
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dim)">?</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:12.5px;color:var(--ink)">Help &amp; about</span>
+                <span style="display:block;font-size:9.5px;color:var(--dim)">documentation &middot; shortcuts &middot; credits &middot; about</span></span>
+              <span style="font-size:9px;color:var(--acc)">7</span>
+              <span style="font-size:12px;color:var(--dim)">&rsaquo;</span></div>
+
+            <!-- §6.6 `head`: 9px mono, .18em, padding 14px 4px 6px. -->
+            <div class="mono" style="font-size:9px;letter-spacing:.18em;color:var(--dim);
+                 padding:14px 4px 6px">STATUS</div>
+
+            <!-- §6.6's root table names four read rows. phone_menu.gd draws
+                 app.gd's OWN status slots instead, and says why: "a read row
+                 for a value nothing produces is the 'no value drawn as a
+                 plausible value' defect, not conformance." These are the slots
+                 app.gd actually writes -- top_world, top_res, top_mem, pass. -->
+            <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                 align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+              <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">WORLD</span>
+              <span style="font-size:10.5px;color:var(--ink)">ELDRA &middot; 483920</span></div>
+            <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                 align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+              <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">WORKING</span>
+              <span style="font-size:10.5px;color:var(--ink)">2048 &times; 2048</span></div>
+            <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                 align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+              <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">LAST PASS</span>
+              <span style="font-size:10.5px;color:var(--ink)">generated &middot; 4.8&thinsp;s</span></div>
+
+            <!-- Fade, not a fake row: the scroller genuinely continues. -->
+            <div style="position:absolute;left:0;right:0;bottom:0;height:56px;pointer-events:none;
+                 background:linear-gradient(180deg,rgba(21,23,26,0) 0%,#15171a 82%)"></div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;bottom:0;height:84px;background:var(--pan);
+             border-top:1px solid var(--div);display:flex;flex-direction:column">
+          <div style="flex:1;display:flex;padding:4px 6px 0">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#9636;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">MAP</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#8983;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">GENERATE</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#10132;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">PLAN</span></div>
+            <div style="flex:1;display:flex;align-items:center;justify-content:center">
+              <div style="padding:4px 16px;border-radius:13px;background:var(--wash2);
+                   display:flex;flex-direction:column;align-items:center;gap:3px">
+                <span class="mono" style="font-size:14px;color:var(--acc)">&#8943;</span>
+                <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--acc)">MORE</span>
+              </div></div>
+          </div>
+          <div style="height:18px;display:flex;align-items:center;justify-content:center">
+            <div style="width:112px;height:4px;border-radius:2px;background:var(--bor)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ DRILLED · EDIT ============ -->
+    <div style="flex:none">
+      <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:6px">
+        DRILLED &middot; <span style="color:var(--faint)">Edit</span> &mdash; a program menu
+        re-presented. Reached from the root's <span style="color:var(--faint)">Not on the MORE list</span> band</div>
+
+      <div style="width:412px;height:892px;border-radius:30px;border:1px solid var(--bor);
+           overflow:hidden;background:#101112;position:relative">
+
+        <div style="position:absolute;left:0;right:0;top:0;bottom:84px;
+             background:linear-gradient(158deg,#1b2532 0%,#12161b 60%,#12161b 100%)"></div>
+        <div style="position:absolute;left:0;right:0;top:0;height:110px;
+             background:linear-gradient(180deg,rgba(10,11,12,.72) 0%,transparent 100%)"></div>
+
+        <div class="mono" style="position:absolute;left:0;right:0;top:0;height:30px;padding:0 18px;
+             display:flex;align-items:center;font-size:var(--m1);color:var(--sec)">
+          <span>9:41</span><span style="flex:1"></span>
+          <span style="letter-spacing:.14em">LTE &#9646;&#9646; 84%</span>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;top:34px;height:44px;display:flex;
+             align-items:center;gap:8px;padding:0 10px">
+          <div style="flex:1;padding:8px 14px;border-radius:20px;background:rgba(18,19,20,.92);
+               border:1px solid var(--hair);min-width:0">
+            <div class="mono" style="font-weight:500;font-size:11.5px;letter-spacing:.2em;
+                 color:var(--ink)">ELDRA</div>
+            <div class="mono" style="font-size:9.5px;color:var(--dim)">483920 &middot; finalized &middot; atlas</div>
+          </div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8981;</div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8942;</div>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;bottom:84px;height:712px;
+             border-radius:22px 22px 0 0;background:#15171a;
+             box-shadow:0 -10px 30px rgba(0,0,0,.35);display:flex;flex-direction:column">
+          <div style="height:20px;display:flex;align-items:center;justify-content:center">
+            <div style="width:42px;height:4px;border-radius:2px;background:var(--bor)"></div>
+          </div>
+
+          <!-- THE BACK AFFORDANCE, §5.4 exactly: 38 x 38, radius 19,
+               background var(--chip), 15px mono, var(--body). Pops moreStack by
+               one. Android's system back does the same thing -- BUILD_ANSWERS
+               §4 binds it to the same chain as Escape (modal > search > menu >
+               inspector > sheet), so a user who never finds this button is
+               still never trapped. The subtitle carries `_Step.trail`. -->
+          <div style="display:flex;align-items:center;gap:10px;padding:0 14px 10px">
+            <div class="mono" style="width:38px;height:38px;border-radius:19px;flex:none;
+                 background:var(--ins);display:flex;align-items:center;justify-content:center;
+                 font-size:15px;color:var(--body)">&#8592;</div>
+            <div style="flex:1;min-width:0">
+              <div class="mono" style="font-weight:500;font-size:11px;letter-spacing:.2em;
+                   color:var(--acc)">EDIT</div>
+              <div class="mono" style="font-size:9.5px;color:var(--dim)">MORE &rsaquo; Edit</div>
+            </div>
+            <div class="mono" style="width:38px;height:38px;border-radius:19px;flex:none;
+                 background:var(--ins);display:flex;align-items:center;justify-content:center;
+                 font-size:13px;color:var(--sec)">&#10005;</div>
+          </div>
+
+          <div style="flex:1;overflow:hidden;padding:2px 14px 0;position:relative">
+
+            <!-- menus.gd's real Edit rows, in its real order: Undo, Redo,
+                 Undo history…, sep, Cut, Copy, Paste, Delete, sep, Select all,
+                 Deselect, sep, Find on map…, sep, Reset generation parameters,
+                 Reset one stage ▸. Its four separators become four `head`
+                 bands -- a separator with no name is a desktop affordance; on
+                 a scrolling list a named band is what keeps orientation. -->
+            <div class="mono" style="font-size:9px;letter-spacing:.18em;color:var(--dim);
+                 padding:6px 4px 6px">HISTORY</div>
+
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dim)">&#8630;</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:12.5px;color:var(--ink)">Undo</span>
+                <!-- Real: menus.gd already renders this pair through
+                     `_undo_depth_text(stats)` and `_mb(bytes)` for the
+                     Preferences readout, off the same undo stats dictionary. -->
+                <span style="display:block;font-size:9.5px;color:var(--dim)">stroke &middot; 12 steps kept &middot; 34 MB</span></span></div>
+
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dim)">&#8631;</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:12.5px;color:var(--ink)">Redo</span>
+                <span style="display:block;font-size:9.5px;color:var(--dim)">1 step forward</span></span></div>
+
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dim)">&#9776;</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:12.5px;color:var(--ink)">Undo history</span>
+                <span style="display:block;font-size:9.5px;color:var(--dim)">tap an entry to roll back to it</span></span>
+              <span style="font-size:12px;color:var(--dim)">&rsaquo;</span></div>
+
+            <div class="mono" style="font-size:9px;letter-spacing:.18em;color:var(--dim);
+                 padding:14px 4px 6px">SELECTION</div>
+
+            <!-- THE TOUCH-SPECIFIC PROBLEM, AND THE ANSWER.
+                 On desktop these rows grey out and the reason lives in a
+                 `set_item_tooltip` nobody can hover on a handset. Four rows
+                 disabled for ONE reason get ONE sentence, once, under the
+                 group -- not four silent grey rows and not four repeated subs.
+                 Disabled ink is --dis (#5f6468, 3.1:1): deliberately below the
+                 body threshold, because "you cannot tap this" is the message,
+                 and the sentence that explains it is drawn at --dim (5.9:1). -->
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dis)">&#9986;</span>
+              <span style="flex:1;font-size:12.5px;color:var(--dis)">Cut</span></div>
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dis)">&#9114;</span>
+              <span style="flex:1;font-size:12.5px;color:var(--dis)">Copy</span></div>
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dim)">&#9112;</span>
+              <span style="flex:1;font-size:12.5px;color:var(--ink)">Paste</span>
+              <span style="font-size:9px;color:var(--dim)">1 place</span></div>
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dis)">&#10005;</span>
+              <span style="flex:1;font-size:12.5px;color:var(--dis)">Delete</span></div>
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dim)">&#9634;</span>
+              <span style="flex:1;font-size:12.5px;color:var(--ink)">Select all</span></div>
+            <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="width:18px;text-align:center;font-size:12px;color:var(--dis)">&#9633;</span>
+              <span style="flex:1;font-size:12.5px;color:var(--dis)">Deselect</span></div>
+
+            <div class="mono" style="font-size:9px;line-height:1.6;color:var(--dim);
+                 padding:2px 12px 0">
+              Four rows are off because <span style="color:var(--body)">nothing is
+              selected</span> &mdash; tap a place on the map, or Select all.</div>
+
+            <div style="position:absolute;left:0;right:0;bottom:0;height:56px;pointer-events:none;
+                 background:linear-gradient(180deg,rgba(21,23,26,0) 0%,#15171a 82%)"></div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;bottom:0;height:84px;background:var(--pan);
+             border-top:1px solid var(--div);display:flex;flex-direction:column">
+          <div style="flex:1;display:flex;padding:4px 6px 0">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#9636;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">MAP</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#8983;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">GENERATE</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#10132;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">PLAN</span></div>
+            <div style="flex:1;display:flex;align-items:center;justify-content:center">
+              <div style="padding:4px 16px;border-radius:13px;background:var(--wash2);
+                   display:flex;flex-direction:column;align-items:center;gap:3px">
+                <span class="mono" style="font-size:14px;color:var(--acc)">&#8943;</span>
+                <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--acc)">MORE</span>
+              </div></div>
+          </div>
+          <div style="height:18px;display:flex;align-items:center;justify-content:center">
+            <div style="width:112px;height:4px;border-radius:2px;background:var(--bor)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ DETAIL COLUMN ============ -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:11px;height:892px;
+         padding-top:20px">
+
+      <!-- Below the fold on the root, listed rather than faked into the frame. -->
+      <div>
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim);
+             padding-bottom:8px">ROOT, BELOW THE FOLD</div>
+        <div class="mono" style="min-height:42px;padding:0 12px;display:flex;align-items:center;
+             gap:10px;border-bottom:1px solid var(--div);font-size:9.5px">
+          <span style="flex:1;letter-spacing:.1em;color:var(--dim)">MEMORY</span>
+          <span style="font-size:10.5px;color:var(--ink)">1.4 GB</span></div>
+        <!-- The one status slot that holds a sentence, drawn by phone_menu.gd
+             as `_note_row()` rather than `_value_row()` -- a right-aligned
+             value column cannot hold prose. -->
+        <div class="mono" style="min-height:42px;padding:8px 12px;
+             border-bottom:1px solid var(--div);font-size:9.5px;line-height:1.6">
+          <span style="letter-spacing:.1em;color:var(--dim)">HINT</span><br>
+          <span style="color:var(--body)">3 stages stale &mdash; the civilisation layer is not
+          cascaded per edit</span></div>
+        <div class="mono" style="min-height:52px;padding:8px 12px;border-radius:16px;
+             display:flex;align-items:center;gap:12px">
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font-size:12.5px;color:var(--ink)">Recompute stale stages</span>
+            <span style="display:block;font-size:9.5px;line-height:1.5;color:var(--dim)">
+              Re-runs only the stages the graph reports stale</span></span></div>
+
+        <!-- ROOT_REST, and the reason it exists. §6.6's root table has no row
+             for Edit or Window, and dropping them is what the ruling does NOT
+             authorise: Edit owns Undo history, Delete, Deselect, Find on map
+             and both resets; Window owns the dock and bar toggles, the
+             diagnostics overlay, Workspace, Open windows, Reset layout and
+             Layouts. None is carried by any bespoke screen, and the phone has
+             no menu bar -- so without this band they would be reachable
+             nowhere at all. It is appended AFTER the STATUS block, so §6.6's
+             own order is intact above it, and it is built by walking the live
+             menu bar, so an eighth menu a future menus.gd adds lands here
+             rather than nowhere. -->
+        <div class="mono" style="font-size:9px;letter-spacing:.18em;color:var(--dim);
+             padding:12px 4px 6px">NOT ON THE MORE LIST</div>
+        <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+             display:flex;align-items:center;gap:12px;background:var(--wash)">
+          <span style="flex:1;font-size:12.5px;color:var(--ink)">Edit</span>
+          <span style="font-size:9px;color:var(--acc)">16</span>
+          <span style="font-size:12px;color:var(--dim)">&rsaquo;</span></div>
+        <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+             display:flex;align-items:center;gap:12px">
+          <span style="flex:1;font-size:12.5px;color:var(--ink)">Window</span>
+          <span style="font-size:9px;color:var(--acc)">12</span>
+          <span style="font-size:12px;color:var(--dim)">&rsaquo;</span></div>
+      </div>
+
+      <div class="rule"></div>
+
+      <!-- The submenu rule, shown on both of its branches. -->
+      <div>
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim);
+             padding-bottom:8px">15 HOVER SUBMENUS &mdash; TWO FATES, NOT ONE</div>
+
+        <div class="mono" style="font-size:9px;letter-spacing:.18em;color:var(--acc);
+             padding-bottom:6px">A &middot; RADIO SET &rarr; INLINE CHIPS</div>
+        <!-- Preferences ▸ Undo history, built by add_radio_check_item over
+             UNDO_BUDGETS_MB = [64, 128, 256, 512, 1024]. A radio submenu is a
+             choice among values, and a chip row IS a choice among values, so
+             the conversion loses nothing. §6.6 `seg`: chips min-height 40,
+             padding 0 13, radius 20, gap 6, 10px mono. -->
+        <div class="mono" style="font-size:var(--m1);color:var(--sec);padding-bottom:7px">Undo budget</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <div class="mono" style="min-height:40px;padding:0 13px;border-radius:20px;display:flex;
+               align-items:center;font-size:var(--m1);border:1px solid var(--hair);
+               color:var(--sec)">64 MB</div>
+          <div class="mono" style="min-height:40px;padding:0 13px;border-radius:20px;display:flex;
+               align-items:center;font-size:var(--m1);border:1px solid var(--hair);
+               color:var(--sec)">128 MB</div>
+          <div class="mono" style="min-height:40px;padding:0 13px;border-radius:20px;display:flex;
+               align-items:center;font-size:var(--m1);border:1px solid var(--acc);
+               color:var(--acc);background:var(--wash)">256 MB</div>
+          <div class="mono" style="min-height:40px;padding:0 13px;border-radius:20px;display:flex;
+               align-items:center;font-size:var(--m1);border:1px solid var(--hair);
+               color:var(--sec)">512 MB</div>
+          <div class="mono" style="min-height:40px;padding:0 13px;border-radius:20px;display:flex;
+               align-items:center;font-size:var(--m1);border:1px solid var(--hair);
+               color:var(--sec)">1024 MB</div>
+        </div>
+
+        <div class="mono" style="font-size:9px;letter-spacing:.18em;color:var(--acc);
+             padding:14px 0 6px">B &middot; ACTION SET &rarr; ITS OWN SCREEN</div>
+        <!-- Edit ▸ Reset one stage ▸ ResetStage: ten PLAIN items over
+             WorldWorkspace.STAGES ("%02d %s"), each of which resets a stage's
+             parameters. Ten destructive acts must not be ten chips one mis-tap
+             wide, so this drills. The count on the row is read off the popup,
+             the same way the root badges Assets. -->
+        <div class="mono" style="min-height:52px;padding:0 12px;border-radius:16px;
+             display:flex;align-items:center;gap:12px;border:1px solid var(--div)">
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font-size:12.5px;color:var(--ink)">Reset one stage</span>
+            <span style="display:block;font-size:9.5px;color:var(--dim)">01 Planet &hellip; 10 Resources &amp; soils</span></span>
+          <span style="font-size:9px;color:var(--acc)">10</span>
+          <span style="font-size:12px;color:var(--dim)">&rsaquo;</span></div>
+        <div class="foot mono" style="color:var(--dim)">
+          And two submenus must never expand, whatever their shape:
+          <span style="color:var(--faint)">AtlasCache</span> evicts baked chunks when its
+          handler fires, and <span style="color:var(--faint)">GpuDevices</span> enumerates
+          adapters. Expanding a submenu means emitting its
+          <span style="color:var(--faint)">about_to_popup</span>, and neither of those
+          handlers is an observer.</div>
+      </div>
+
+      <div class="rule"></div>
+
+      <div>
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim);
+             padding-bottom:8px">TARGETS &mdash; THE ARITHMETIC</div>
+        <div class="row"><span class="k mono">CANVAS &rarr; HANDSET</span>
+          <span class="v mono">1080 / 412 = 2.62</span></div>
+        <div class="row"><span class="k mono">NAV ROW &middot; 52 dp</span>
+          <span class="v mono" style="color:var(--good)">136 physical px</span></div>
+        <div class="row"><span class="k mono">ACT ROW &middot; 48 dp</span>
+          <span class="v mono" style="color:var(--good)">126 physical px</span></div>
+        <div class="row"><span class="k mono">READ ROW &middot; 42 dp</span>
+          <span class="v mono">not a target &mdash; a readout</span></div>
+        <div class="row"><span class="k mono">CHIP &middot; drawn 40 dp</span>
+          <span class="v mono" style="color:var(--acc)">hit box 44 &mdash; grown</span></div>
+        <div class="row"><span class="k mono">BACK &#8592; &middot; drawn 38 dp</span>
+          <span class="v mono" style="color:var(--acc)">hit box 44 &mdash; grown</span></div>
+        <!-- Two of the spec's own resolved sizes fall under the 44 dp floor:
+             §6.6's `seg` chip at 40 and §5.4's back disc at 38. Neither is
+             restyled -- the paint stays exactly as specified and the HIT BOX is
+             grown around it, 2 dp of transparent padding on the chip and 3 dp
+             on the disc. Standard practice in both mobile HIGs, and one line in
+             Godot: `custom_minimum_size` on the Control, the stylebox unchanged.
+             The alternative -- redrawing the spec's geometry to reach 44 -- is
+             a new visual identity, which is not this pass's job. -->
+        <div class="foot mono" style="color:var(--dim)">
+          Nothing here is below 44 dp of hit box. Where the spec's drawn size is
+          smaller &mdash; the 40 dp chip, the 38 dp back disc &mdash; the target is grown
+          around the paint rather than the paint being enlarged, so the visual language is
+          untouched. At 2.62 that floor is 115 physical px, about 7.3 mm at this panel's
+          401.6 ppi.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

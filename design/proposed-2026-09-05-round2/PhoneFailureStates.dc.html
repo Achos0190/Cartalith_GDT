@@ -1,0 +1,707 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<!-- ===================================================================
+     PhoneFailureStates.dc.html  ·  BUILD_ANSWERS.md §4
+     "Generation-failure and storage-full states. Not designed yet."
+
+     THE ONE STRUCTURAL RULE, so no new surface has to be invented:
+     A FAILURE IS SHOWN WHERE THE ACTION WAS INVOKED. A generate is started
+     from the GENERATE sheet, so its failure replaces the progress panel in
+     that sheet, in the same place, at the same detent. A save is started
+     from MORE > Project, so its failure lands in that screen where the
+     SAVE PROJECT row is. Neither needs modal geometry this pass has not
+     verified, and both put the outcome where the user was already looking.
+
+     Why not a toast. app.gd's `_report_failure()` today writes a status
+     hint plus `_show_phone_toast(text, null, 4.5)`. A 4.5-second toast is
+     a message; these are states -- they have to survive being read twice,
+     and they have to carry actions. The toast stays as the announcement;
+     the panel is what it announces.
+
+     WHAT THE ENGINE CAN ACTUALLY REPORT -- checked, not assumed:
+       - generation_finished(ok: bool). ONE BOOLEAN. No reason string
+         crosses the bridge, so `ENGINE REASON` is drawn dashed.
+       - generation_stage(index, name, total) fires during the run from
+         GenerationProgress.snapshot(). app.gd holds the last one in
+         `_mid_running_stage` and then DISCARDS it on failure
+         (`if ok: _mid_stage = _mid_running_stage`). The name is available;
+         it is being thrown away. Used here, labelled for what it is --
+         the last stage reported STARTED, not the stage that failed.
+       - last_generate_ms is set before the ok branch, so elapsed time is
+         real on a failure.
+       - "Nothing was changed on the map" is TRUE, not reassurance:
+         `_finish` returns before it sets `has_world` or any extent.
+       - disk_free_bytes() is #[cfg(windows)] only. Every other target --
+         Android included -- returns -1, and the Rust doc says a caller
+         "must draw its storage check as unavailable rather than as
+         'plenty of room'". That is frame 3's dashed row.
+     =================================================================== -->
+<div class="tok" style="width:1320px;height:1206px;background:var(--sur);padding:22px;
+     display:flex;flex-direction:column;gap:12px">
+
+  <div style="display:flex;align-items:baseline;gap:14px">
+    <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim)">
+      PHONE FAILURE STATES &mdash; BUILD_ANSWERS &sect;4</div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis)">
+      412 &times; 892 dp &middot; what happened &middot; what it cost &middot; what to do next.
+      A spinner that stops is not a design</div>
+  </div>
+
+  <div style="display:flex;gap:20px;align-items:flex-start">
+
+    <!-- ============ 1 · GENERATION FAILED ============ -->
+    <div style="flex:none">
+      <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:6px">
+        1 &middot; generation failed &mdash; GENERATE sheet at
+        <span style="color:var(--faint)">full</span> (&sect;5.2: 808 &minus; 96 = 712 dp)</div>
+
+      <div style="width:412px;height:892px;border-radius:30px;border:1px solid var(--bor);
+           overflow:hidden;background:#101112;position:relative">
+
+        <div style="position:absolute;left:0;right:0;top:0;bottom:84px;
+             background:linear-gradient(158deg,#1b2532 0%,#12161b 60%,#12161b 100%)"></div>
+        <div style="position:absolute;left:0;right:0;top:0;height:110px;
+             background:linear-gradient(180deg,rgba(10,11,12,.72) 0%,transparent 100%)"></div>
+
+        <div class="mono" style="position:absolute;left:0;right:0;top:0;height:30px;padding:0 18px;
+             display:flex;align-items:center;font-size:var(--m1);color:var(--sec)">
+          <span>9:41</span><span style="flex:1"></span>
+          <span style="letter-spacing:.14em">LTE &#9646;&#9646; 84%</span>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;top:34px;height:44px;display:flex;
+             align-items:center;gap:8px;padding:0 10px">
+          <div style="flex:1;padding:8px 14px;border-radius:20px;background:rgba(18,19,20,.92);
+               border:1px solid var(--hair);min-width:0">
+            <div class="mono" style="font-weight:500;font-size:11.5px;letter-spacing:.2em;
+                 color:var(--ink)">ELDRA</div>
+            <!-- The world pill's line 2 is `{seed} · {status}` (§4.2). On a failed
+                 generate the status is the one it had BEFORE the run, because
+                 `_finish` never reached the line that rewrites it. -->
+            <div class="mono" style="font-size:9.5px;color:var(--dim)">483920 &middot; finalized &middot; atlas</div>
+          </div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8981;</div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8942;</div>
+        </div>
+
+        <!-- Sheet at `full`. §5.1 geometry, §5.3 handle, §5.4 header. -->
+        <div style="position:absolute;left:0;right:0;bottom:84px;height:712px;
+             border-radius:22px 22px 0 0;background:#15171a;
+             box-shadow:0 -10px 30px rgba(0,0,0,.35);display:flex;flex-direction:column">
+          <div style="height:20px;display:flex;align-items:center;justify-content:center">
+            <div style="width:42px;height:4px;border-radius:2px;background:var(--bor)"></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;padding:0 14px 10px">
+            <div style="flex:1;min-width:0">
+              <div class="mono" style="font-weight:500;font-size:11px;letter-spacing:.2em;
+                   color:var(--acc)">GENERATE</div>
+              <div class="mono" style="font-size:9.5px;color:var(--dim)">pipeline &middot; seed 483920</div>
+            </div>
+            <div class="mono" style="width:38px;height:38px;border-radius:19px;flex:none;
+                 background:var(--ins);display:flex;align-items:center;justify-content:center;
+                 font-size:13px;color:var(--sec)">&#10005;</div>
+          </div>
+
+          <div style="flex:1;overflow:hidden;padding:2px 14px 14px;display:flex;
+               flex-direction:column;gap:12px">
+
+            <!-- The failure panel occupies the progress panel's own footprint:
+                 §6.4.1 gives that panel `border:1px solid var(--acc)`, radius 18,
+                 padding 13px 14px, gap 9. Same box, --block instead of --acc.
+                 Nothing moves under the user between running and failed. -->
+            <div style="border:1px solid var(--block);border-radius:18px;padding:13px 14px;
+                 display:flex;flex-direction:column;gap:9px">
+              <div style="display:flex;align-items:baseline;gap:8px">
+                <span class="mono" style="font-weight:500;font-size:10.5px;letter-spacing:.14em;
+                      color:var(--block)">GENERATION FAILED</span>
+                <span style="flex:1"></span>
+                <span class="mono" style="font-size:var(--m1);color:var(--dim)">1 m 12 s</span>
+              </div>
+
+              <!-- The progress bar does not vanish; it freezes and recolours.
+                   Fill is stages COMPLETED / 10 -- derivable from the stage index
+                   alone, which is the one progress fact a failure leaves behind.
+                   Comparable: Blender's render progress bar stopping in place
+                   rather than resetting. -->
+              <div style="height:5px;border-radius:3px;background:var(--ins);overflow:hidden">
+                <div style="width:30%;height:100%;background:var(--block)"></div>
+              </div>
+
+              <div class="mono" style="font-size:9.5px;line-height:1.6;color:var(--body)">
+                Three of ten stages resolved. The map you had is
+                <span style="color:var(--good)">unchanged</span> &mdash; a failed run writes nothing.</div>
+            </div>
+
+            <!-- Read rows, §6.6 `read`: min-height 42, padding 0 12,
+                 border-bottom 1px --hair2. Key 9.5px mono .1em; value 10.5px
+                 mono, right-aligned. -->
+            <div>
+              <div class="mono" style="font-size:9px;letter-spacing:.18em;color:var(--dim);
+                   padding:0 4px 6px">WHAT IS KNOWN</div>
+
+              <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                   align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+                <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">LAST STAGE STARTED</span>
+                <span style="font-size:10.5px;color:var(--ink)">04 &middot; Tectonics</span></div>
+
+              <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                   align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+                <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">STAGES RESOLVED</span>
+                <span style="font-size:10.5px;color:var(--ink)">3 of 10</span></div>
+
+              <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                   align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+                <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">SEED ASKED FOR</span>
+                <span style="font-size:10.5px;color:var(--ink)">483920</span></div>
+
+              <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                   align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+                <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">RESOLUTION ASKED FOR</span>
+                <span style="font-size:10.5px;color:var(--ink)">2048 &times; 2048</span></div>
+
+              <!-- THE DELIBERATE ABSENT STATE. generation_finished carries one
+                   bool. `last_summary` on failure is the literal string
+                   "generate failed -- see console", which on an exported APK
+                   names a place that does not exist -- and app.gd currently
+                   interpolates it, producing "Generation failed — generate
+                   failed -- see console". Drawn as a dash with its reason,
+                   never as a plausible-looking cause. -->
+              <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                   align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+                <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">ENGINE REASON</span>
+                <span style="font-size:10.5px;color:var(--dis)">&mdash;</span></div>
+              <div class="mono" style="font-size:9px;line-height:1.6;color:var(--dim);padding:6px 12px 0">
+                The bridge returns one boolean. Until it carries a reason, this row
+                stays a dash &mdash; it is not "unknown cause", it is
+                <span style="color:var(--faint)">not asked</span>.</div>
+            </div>
+
+            <div style="flex:1"></div>
+
+            <!-- Actions, §6.6 `act`: min-height 48, margin 5px 0, padding 0 16,
+                 radius 24, font 500 10px mono, .14em. -->
+            <div>
+              <div class="mono" style="min-height:48px;margin:5px 0;border-radius:24px;
+                   display:flex;align-items:center;justify-content:center;font-weight:500;
+                   font-size:var(--m1);letter-spacing:.14em;background:var(--acc);
+                   color:var(--accInk)">TRY AGAIN &middot; SAME SEED</div>
+              <!-- The one concrete remedy, and it is real: `res` is §6.4.1's own
+                   segmented parameter (512 · 1024 · 2048 · 4096). Halving it is
+                   the change most likely to get a handset through a run it just
+                   failed, and it is one param_set away. -->
+              <div class="mono" style="min-height:48px;margin:5px 0;border-radius:24px;
+                   display:flex;align-items:center;justify-content:center;font-weight:500;
+                   font-size:var(--m1);letter-spacing:.14em;background:var(--ins);
+                   color:var(--sec)">RETRY AT 1024 &times; 1024</div>
+              <!-- diagnostic_report.gd exists and already dashes last_error()
+                   when nothing has failed. A failure is exactly when it has
+                   something to say. -->
+              <div class="mono" style="min-height:48px;margin:5px 0;border-radius:24px;
+                   display:flex;align-items:center;justify-content:center;font-weight:500;
+                   font-size:var(--m1);letter-spacing:.14em;background:var(--ins);
+                   color:var(--sec)">COPY DIAGNOSTIC REPORT</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;bottom:0;height:84px;background:var(--pan);
+             border-top:1px solid var(--div);display:flex;flex-direction:column">
+          <div style="flex:1;display:flex;padding:4px 6px 0">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#9636;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">MAP</span></div>
+            <div style="flex:1;display:flex;align-items:center;justify-content:center">
+              <div style="padding:4px 16px;border-radius:13px;background:var(--wash2);
+                   display:flex;flex-direction:column;align-items:center;gap:3px">
+                <span class="mono" style="font-size:14px;color:var(--acc)">&#8983;</span>
+                <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--acc)">GENERATE</span>
+              </div></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#10132;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">PLAN</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#8943;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">MORE</span></div>
+          </div>
+          <div style="height:18px;display:flex;align-items:center;justify-content:center">
+            <div style="width:112px;height:4px;border-radius:2px;background:var(--bor)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 2 · REFUSED BEFORE WRITING ============ -->
+    <div style="flex:none">
+      <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:6px">
+        2 &middot; storage full, <span style="color:var(--faint)">refused before the write</span>
+        &mdash; MORE &rsaquo; PROJECT. Reachable only where free space is answerable</div>
+
+      <div style="width:412px;height:892px;border-radius:30px;border:1px solid var(--bor);
+           overflow:hidden;background:#101112;position:relative">
+
+        <div style="position:absolute;left:0;right:0;top:0;bottom:84px;
+             background:linear-gradient(158deg,#1b2532 0%,#12161b 60%,#12161b 100%)"></div>
+        <div style="position:absolute;left:0;right:0;top:0;height:110px;
+             background:linear-gradient(180deg,rgba(10,11,12,.72) 0%,transparent 100%)"></div>
+
+        <div class="mono" style="position:absolute;left:0;right:0;top:0;height:30px;padding:0 18px;
+             display:flex;align-items:center;font-size:var(--m1);color:var(--sec)">
+          <span>9:41</span><span style="flex:1"></span>
+          <span style="letter-spacing:.14em">LTE &#9646;&#9646; 84%</span>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;top:34px;height:44px;display:flex;
+             align-items:center;gap:8px;padding:0 10px">
+          <div style="flex:1;padding:8px 14px;border-radius:20px;background:rgba(18,19,20,.92);
+               border:1px solid var(--hair);min-width:0">
+            <div class="mono" style="font-weight:500;font-size:11.5px;letter-spacing:.2em;
+                 color:var(--ink)">ELDRA</div>
+            <div class="mono" style="font-size:9.5px;color:var(--dim)">483920 &middot; unsaved changes</div>
+          </div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8981;</div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8942;</div>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;bottom:84px;height:712px;
+             border-radius:22px 22px 0 0;background:#15171a;
+             box-shadow:0 -10px 30px rgba(0,0,0,.35);display:flex;flex-direction:column">
+          <div style="height:20px;display:flex;align-items:center;justify-content:center">
+            <div style="width:42px;height:4px;border-radius:2px;background:var(--bor)"></div>
+          </div>
+          <!-- §5.4: the back button is visible when moreStack.length > 1. -->
+          <div style="display:flex;align-items:center;gap:10px;padding:0 14px 10px">
+            <div class="mono" style="width:38px;height:38px;border-radius:19px;flex:none;
+                 background:var(--ins);display:flex;align-items:center;justify-content:center;
+                 font-size:15px;color:var(--body)">&#8592;</div>
+            <div style="flex:1;min-width:0">
+              <div class="mono" style="font-weight:500;font-size:11px;letter-spacing:.2em;
+                   color:var(--acc)">PROJECT</div>
+              <div class="mono" style="font-size:9.5px;color:var(--dim)">files &middot; autosave &middot; storage</div>
+            </div>
+            <div class="mono" style="width:38px;height:38px;border-radius:19px;flex:none;
+                 background:var(--ins);display:flex;align-items:center;justify-content:center;
+                 font-size:13px;color:var(--sec)">&#10005;</div>
+          </div>
+
+          <div style="flex:1;overflow:hidden;padding:2px 14px 14px;display:flex;
+               flex-direction:column;gap:12px">
+
+            <div style="border:1px solid var(--block);border-radius:18px;padding:13px 14px;
+                 display:flex;flex-direction:column;gap:9px">
+              <div style="display:flex;align-items:baseline;gap:8px">
+                <span class="mono" style="font-weight:500;font-size:10.5px;letter-spacing:.14em;
+                      color:var(--block)">NOT ENOUGH SPACE</span>
+                <span style="flex:1"></span>
+                <span class="mono" style="font-size:var(--m1);color:var(--good)">nothing written</span>
+              </div>
+              <!-- A two-tone bar is the whole story in one object: how much room
+                   there is, against how much the save wants. Comparable: the
+                   storage meters in Android Settings > Storage and in Steam's
+                   install dialog, both of which draw demand against capacity
+                   rather than printing two numbers side by side. -->
+              <div style="height:5px;border-radius:3px;background:var(--ins);overflow:hidden;
+                   display:flex">
+                <div style="width:47%;height:100%;background:var(--good)"></div>
+                <div style="width:53%;height:100%;background:var(--block)"></div>
+              </div>
+              <div class="mono" style="display:flex;font-size:9px;color:var(--dim)">
+                <span style="color:var(--good)">41.2 MiB free</span>
+                <span style="flex:1"></span>
+                <span style="color:var(--block)">46.8 MiB short</span>
+              </div>
+              <div class="mono" style="font-size:9.5px;line-height:1.6;color:var(--body)">
+                This save wants about <span style="color:var(--ink)">88.0 MiB</span> and the archive is
+                built whole before any of it is written, so it is refused rather than half-made.</div>
+            </div>
+
+            <div>
+              <div class="mono" style="font-size:9px;letter-spacing:.18em;color:var(--dim);
+                   padding:0 4px 6px">THE ESTIMATE</div>
+              <!-- Every figure here is app.gd's own arithmetic:
+                   SAVE_BYTES_PER_CELL = 21 (five f32 rasters + one u8 per cell)
+                   and SAVE_PROJECT_LAYER_ALLOWANCE = 4 MiB.
+                   2048² × 21 = 88 080 384 B = 84.0 MiB, + 4 MiB = 88.0 MiB. -->
+              <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                   align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+                <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">RASTERS &middot; 21 B / CELL</span>
+                <span style="font-size:10.5px;color:var(--ink)">84.0 MiB</span></div>
+              <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                   align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+                <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">PROJECT LAYER &middot; ALLOWANCE</span>
+                <span style="font-size:10.5px;color:var(--ink)">4.0 MiB</span></div>
+              <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                   align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+                <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">WHERE</span>
+                <span style="font-size:10.5px;color:var(--ink)">~/Cartalith/Worlds</span></div>
+              <div class="mono" style="font-size:9px;line-height:1.6;color:var(--dim);padding:6px 12px 0">
+                An upper bound on purpose &mdash; every entry is Deflated on the way in, so
+                the file lands smaller. Over-stating costs a second attempt; under-stating
+                costs the write.</div>
+            </div>
+
+            <div style="flex:1"></div>
+
+            <div>
+              <!-- The remedy that frees the most, and it is real: atlas_status()
+                   reports chunks and bytes, atlas_clear() returns the bytes it
+                   freed, and every evicted chunk is re-bakeable from
+                   WORLD > Finalize -- menus.gd says exactly that. -->
+              <div class="mono" style="min-height:48px;margin:5px 0;padding:0 16px;border-radius:24px;
+                   display:flex;align-items:center;gap:10px;background:var(--ins)">
+                <span style="flex:1;font-weight:500;font-size:var(--m1);letter-spacing:.14em;
+                      color:var(--sec)">CLEAR ATLAS CACHE</span>
+                <span style="font-size:var(--m1);color:var(--acc)">148 MB</span></div>
+              <div class="mono" style="font-size:9px;line-height:1.6;color:var(--dim);padding:0 16px 6px">
+                Baked tiles only. Re-bakeable from WORLD &rsaquo; Finalize; no world data is in it.</div>
+              <div class="mono" style="min-height:48px;margin:5px 0;border-radius:24px;
+                   display:flex;align-items:center;justify-content:center;font-weight:500;
+                   font-size:var(--m1);letter-spacing:.14em;background:var(--acc);
+                   color:var(--accInk)">SAVE SOMEWHERE ELSE&#8230;</div>
+              <div class="mono" style="min-height:48px;margin:5px 0;border-radius:24px;
+                   display:flex;align-items:center;justify-content:center;font-weight:500;
+                   font-size:var(--m1);letter-spacing:.14em;background:var(--ins);
+                   color:var(--sec)">NOT NOW</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;bottom:0;height:84px;background:var(--pan);
+             border-top:1px solid var(--div);display:flex;flex-direction:column">
+          <div style="flex:1;display:flex;padding:4px 6px 0">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#9636;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">MAP</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#8983;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">GENERATE</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#10132;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">PLAN</span></div>
+            <div style="flex:1;display:flex;align-items:center;justify-content:center">
+              <div style="padding:4px 16px;border-radius:13px;background:var(--wash2);
+                   display:flex;flex-direction:column;align-items:center;gap:3px">
+                <span class="mono" style="font-size:14px;color:var(--acc)">&#8943;</span>
+                <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--acc)">MORE</span>
+              </div></div>
+          </div>
+          <div style="height:18px;display:flex;align-items:center;justify-content:center">
+            <div style="width:112px;height:4px;border-radius:2px;background:var(--bor)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 3 · THE WRITE FAILED, FREE SPACE UNKNOWABLE ============ -->
+    <div style="flex:none">
+      <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:6px">
+        3 &middot; storage full, <span style="color:var(--faint)">the write failed</span>
+        &mdash; what this handset actually gets today, free space drawn absent</div>
+
+      <div style="width:412px;height:892px;border-radius:30px;border:1px solid var(--bor);
+           overflow:hidden;background:#101112;position:relative">
+
+        <div style="position:absolute;left:0;right:0;top:0;bottom:84px;
+             background:linear-gradient(158deg,#1b2532 0%,#12161b 60%,#12161b 100%)"></div>
+        <div style="position:absolute;left:0;right:0;top:0;height:110px;
+             background:linear-gradient(180deg,rgba(10,11,12,.72) 0%,transparent 100%)"></div>
+
+        <div class="mono" style="position:absolute;left:0;right:0;top:0;height:30px;padding:0 18px;
+             display:flex;align-items:center;font-size:var(--m1);color:var(--sec)">
+          <span>9:41</span><span style="flex:1"></span>
+          <span style="letter-spacing:.14em">LTE &#9646;&#9646; 84%</span>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;top:34px;height:44px;display:flex;
+             align-items:center;gap:8px;padding:0 10px">
+          <div style="flex:1;padding:8px 14px;border-radius:20px;background:rgba(18,19,20,.92);
+               border:1px solid var(--hair);min-width:0">
+            <div class="mono" style="font-weight:500;font-size:11.5px;letter-spacing:.2em;
+                 color:var(--ink)">ELDRA</div>
+            <div class="mono" style="font-size:9.5px;color:var(--dim)">483920 &middot; unsaved changes</div>
+          </div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8981;</div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8942;</div>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;bottom:84px;height:712px;
+             border-radius:22px 22px 0 0;background:#15171a;
+             box-shadow:0 -10px 30px rgba(0,0,0,.35);display:flex;flex-direction:column">
+          <div style="height:20px;display:flex;align-items:center;justify-content:center">
+            <div style="width:42px;height:4px;border-radius:2px;background:var(--bor)"></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;padding:0 14px 10px">
+            <div class="mono" style="width:38px;height:38px;border-radius:19px;flex:none;
+                 background:var(--ins);display:flex;align-items:center;justify-content:center;
+                 font-size:15px;color:var(--body)">&#8592;</div>
+            <div style="flex:1;min-width:0">
+              <div class="mono" style="font-weight:500;font-size:11px;letter-spacing:.2em;
+                   color:var(--acc)">PROJECT</div>
+              <div class="mono" style="font-size:9.5px;color:var(--dim)">files &middot; autosave &middot; storage</div>
+            </div>
+            <div class="mono" style="width:38px;height:38px;border-radius:19px;flex:none;
+                 background:var(--ins);display:flex;align-items:center;justify-content:center;
+                 font-size:13px;color:var(--sec)">&#10005;</div>
+          </div>
+
+          <div style="flex:1;overflow:hidden;padding:2px 14px 14px;display:flex;
+               flex-direction:column;gap:12px">
+
+            <div style="border:1px solid var(--block);border-radius:18px;padding:13px 14px;
+                 display:flex;flex-direction:column;gap:9px">
+              <div style="display:flex;align-items:baseline;gap:8px">
+                <span class="mono" style="font-weight:500;font-size:10.5px;letter-spacing:.14em;
+                      color:var(--block)">COULD NOT SAVE</span>
+                <span style="flex:1"></span>
+                <span class="mono" style="font-size:var(--m1);color:var(--dim)">world_483920.zip</span>
+              </div>
+              <!-- The single most valuable sentence available, and it is a
+                   guarantee rather than a hope: project_bridge.rs builds the
+                   archive whole in memory and writes it once, so a failed write
+                   cannot have left a half-file over a good one. -->
+              <div class="mono" style="font-size:9.5px;line-height:1.6;color:var(--body)">
+                The copy already at this path is
+                <span style="color:var(--good)">untouched</span>. The archive is built whole
+                and written once, so a failed write cannot leave half a file behind a good one.</div>
+            </div>
+
+            <div>
+              <div class="mono" style="font-size:9px;letter-spacing:.18em;color:var(--dim);
+                   padding:0 4px 6px">WHAT IS KNOWN</div>
+
+              <!-- THE DELIBERATE ABSENT STATE, and the reason this frame exists.
+                   volume_free_bytes() is #[cfg(windows)]; every other target
+                   returns None -> disk_free_bytes() returns -1. app.gd's
+                   `_save_blocked_by_space()` treats -1 as "never blocks", so on
+                   this handset frame 2 is unreachable and this is what happens
+                   instead. Drawing a free-space figure here would be an
+                   invented number; drawing the dash is the design. -->
+              <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                   align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+                <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">FREE ON THIS VOLUME</span>
+                <span style="font-size:10.5px;color:var(--dis)">&mdash;</span></div>
+              <div class="mono" style="font-size:9px;line-height:1.6;color:var(--dim);padding:6px 12px 10px">
+                Android cannot be asked without a libc binding this build does not carry, and
+                the engine returns <span style="color:var(--faint)">&minus;1</span> for
+                &ldquo;I do not know&rdquo; rather than a guess. So the save was attempted
+                rather than refused, and this is the outcome.</div>
+
+              <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                   align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+                <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">ENGINE REASON</span>
+                <span style="font-size:10.5px;color:var(--dis)">&mdash;</span></div>
+              <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                   align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+                <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">THIS SAVE WANTED</span>
+                <span style="font-size:10.5px;color:var(--ink)">about 88.0 MiB</span></div>
+              <div class="mono" style="min-height:42px;padding:0 12px;display:flex;
+                   align-items:center;gap:10px;border-bottom:1px solid var(--div)">
+                <span style="flex:1;font-size:9.5px;letter-spacing:.1em;color:var(--dim)">YOUR WORLD</span>
+                <span style="font-size:10.5px;color:var(--good)">still open, still unsaved</span></div>
+            </div>
+
+            <div style="flex:1"></div>
+
+            <div>
+              <div class="mono" style="min-height:48px;margin:5px 0;border-radius:24px;
+                   display:flex;align-items:center;justify-content:center;font-weight:500;
+                   font-size:var(--m1);letter-spacing:.14em;background:var(--acc);
+                   color:var(--accInk)">SAVE AS&#8230; &middot; PICK ANOTHER PLACE</div>
+              <div class="mono" style="min-height:48px;margin:5px 0;padding:0 16px;border-radius:24px;
+                   display:flex;align-items:center;gap:10px;background:var(--ins)">
+                <span style="flex:1;font-weight:500;font-size:var(--m1);letter-spacing:.14em;
+                      color:var(--sec)">CLEAR ATLAS CACHE</span>
+                <span style="font-size:var(--m1);color:var(--acc)">148 MB</span></div>
+              <div class="mono" style="min-height:48px;margin:5px 0;border-radius:24px;
+                   display:flex;align-items:center;justify-content:center;font-weight:500;
+                   font-size:var(--m1);letter-spacing:.14em;background:var(--ins);
+                   color:var(--sec)">TRY AGAIN</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;bottom:0;height:84px;background:var(--pan);
+             border-top:1px solid var(--div);display:flex;flex-direction:column">
+          <div style="flex:1;display:flex;padding:4px 6px 0">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#9636;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">MAP</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#8983;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">GENERATE</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#10132;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">PLAN</span></div>
+            <div style="flex:1;display:flex;align-items:center;justify-content:center">
+              <div style="padding:4px 16px;border-radius:13px;background:var(--wash2);
+                   display:flex;flex-direction:column;align-items:center;gap:3px">
+                <span class="mono" style="font-size:14px;color:var(--acc)">&#8943;</span>
+                <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--acc)">MORE</span>
+              </div></div>
+          </div>
+          <div style="height:18px;display:flex;align-items:center;justify-content:center">
+            <div style="width:112px;height:4px;border-radius:2px;background:var(--bor)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ANNOTATION BAND ============ -->
+  <div style="display:flex;gap:26px;align-items:flex-start;padding-top:4px">
+
+    <div style="flex:1;min-width:0">
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim);
+           padding-bottom:8px">EVERY VALUE DRAWN, AND WHERE IT COMES FROM</div>
+      <div class="row"><span class="k mono">LAST STAGE STARTED</span>
+        <span class="v mono" style="flex:2;text-align:left;color:var(--body)">
+          <span style="color:var(--good)">real</span> &mdash;
+          <span style="color:var(--faint)">generation_stage(index, name, total)</span>,
+          held in app.gd's <span style="color:var(--faint)">_mid_running_stage</span> and
+          currently discarded on failure</span></div>
+      <div class="row"><span class="k mono">STAGES RESOLVED</span>
+        <span class="v mono" style="flex:2;text-align:left;color:var(--body)">
+          <span style="color:var(--good)">real</span> &mdash; the stage index, against
+          <span style="color:var(--faint)">STAGE_COUNT</span> = 10 in
+          <span style="color:var(--faint)">progress.rs</span></span></div>
+      <div class="row"><span class="k mono">RAN FOR</span>
+        <span class="v mono" style="flex:2;text-align:left;color:var(--body)">
+          <span style="color:var(--good)">real</span> &mdash;
+          <span style="color:var(--faint)">last_generate_ms</span>, written before the
+          ok branch, so a failure still has it</span></div>
+      <div class="row"><span class="k mono">SEED &middot; RESOLUTION</span>
+        <span class="v mono" style="flex:2;text-align:left;color:var(--body)">
+          <span style="color:var(--good)">real</span>, and shell-side &mdash; the
+          <span style="color:var(--faint)">request</span> dictionary the sheet built.
+          Labelled &ldquo;asked for&rdquo;, because the engine's own readback is not
+          trustworthy after a failed run</span></div>
+      <div class="row"><span class="k mono">88.0 MiB NEEDED</span>
+        <span class="v mono" style="flex:2;text-align:left;color:var(--body)">
+          <span style="color:var(--good)">real</span> &mdash; 2048&sup2; &times; 21 B + 4 MiB, from
+          <span style="color:var(--faint)">SAVE_BYTES_PER_CELL</span> and
+          <span style="color:var(--faint)">SAVE_PROJECT_LAYER_ALLOWANCE</span></span></div>
+      <div class="row"><span class="k mono">148 MB ATLAS CACHE</span>
+        <span class="v mono" style="flex:2;text-align:left;color:var(--body)">
+          <span style="color:var(--good)">real</span> &mdash;
+          <span style="color:var(--faint)">atlas_status()</span> reports chunks and bytes;
+          <span style="color:var(--faint)">atlas_clear()</span> returns what it freed</span></div>
+      <div class="row"><span class="k mono">ENGINE REASON</span>
+        <span class="v mono" style="flex:2;text-align:left;color:var(--block)">
+          absent &mdash; drawn as a dash. <span style="color:var(--body)">generation_finished
+          carries one boolean; the save's engine-side reason is pushed as a warning and
+          never returned to the caller</span></span></div>
+      <div class="row"><span class="k mono">FREE ON THIS VOLUME</span>
+        <span class="v mono" style="flex:2;text-align:left;color:var(--block)">
+          absent on Android &mdash; drawn as a dash. <span style="color:var(--body)">
+          <span style="color:var(--faint)">volume_free_bytes()</span> is
+          <span style="color:var(--faint)">#[cfg(windows)]</span>; everything else returns
+          &minus;1, and the Rust doc says to draw it unavailable rather than as
+          &ldquo;plenty of room&rdquo;</span></span></div>
+    </div>
+
+    <div style="width:400px;flex:none">
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim);
+           padding-bottom:8px">THREE RULES THESE PANELS FOLLOW</div>
+      <div class="foot mono" style="color:var(--body);padding-top:0;line-height:1.75">
+        <span style="color:var(--acc)">1 &middot; Say what survived, first.</span>
+        Both failures leave something intact and both intacts are provable &mdash; a failed
+        generate returns before it writes anything, and a failed save cannot have damaged
+        the file already there. Neither is reassurance; both are guarantees.<br><br>
+        <span style="color:var(--acc)">2 &middot; Never dress a missing cause as a cause.</span>
+        &ldquo;Unknown error&rdquo; and &ldquo;see console&rdquo; are both worse than a dash.
+        The dash with one sentence under it is the honest form, and the sentence says whether
+        the answer is unavailable or simply not asked for.<br><br>
+        <span style="color:var(--acc)">3 &middot; Every action changes something real.</span>
+        Retry at half resolution moves a parameter that exists. Clear atlas cache frees
+        bytes something measures. Save as&hellip; picks a different volume. No button here
+        merely dismisses the panel while leaving the user where they were.
+      </div>
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim);
+           padding:14px 0 8px">NOT SETTLED HERE</div>
+      <div class="foot mono" style="color:var(--dim);padding-top:0">
+        Frame 2 is unreachable on Android until a free-space query exists there &mdash; a
+        one-line manifest change by the Rust doc's own account, but a change. Drawn anyway,
+        because it is right on desktop today and is the state the handset should get.<br>
+        Whether a failed generate should offer <span style="color:var(--faint)">RETRY AT
+        1024&sup2;</span> unconditionally, or only above some resolution, is an owner call:
+        the engine reports no memory ceiling to test against.
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

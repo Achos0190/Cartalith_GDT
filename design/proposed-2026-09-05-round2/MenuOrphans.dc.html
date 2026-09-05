@@ -1,0 +1,484 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<div class="tok" style="width:1300px;height:940px;background:var(--sur);padding:20px;
+     display:flex;flex-direction:column;gap:14px">
+
+  <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">
+    MENU ORPHANS &mdash; nine rows nobody drew a home for, in 03 &sect;5's own row grammar.
+    &minus;&minus;pop 300 px, no radius, padding 5 px 0</div>
+
+  <div style="flex:1;display:flex;gap:20px;align-items:flex-start;min-height:0">
+
+    <!-- ===================================================================
+         EDIT. Two rows: a command that says what it will do, and a signpost
+         to ten commands that each say the same.
+         =================================================================== -->
+    <div style="width:300px;flex:none;display:flex;flex-direction:column;gap:10px">
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">EDIT</div>
+
+      <div style="background:var(--pan);border:1px solid var(--bor);box-shadow:var(--shadow);
+           padding:5px 0">
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)"></span>
+          <span style="flex:1;color:var(--body)">Undo &mdash; drop settlement</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">&#8984;Z</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)"></span>
+          <span style="flex:1;color:var(--dis)">Redo</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">&#8984;&#8679;Z</span></div>
+        <div style="height:1px;background:var(--div);margin:5px 0"></div>
+
+        <!-- COMMAND, with the count that makes it safe to press. Every part of
+             it is derivable today: param_keys() x param_info(key).default
+             against param_get(key). The row is disabled at 0, and then it is
+             disabled for a reason the row itself states - not a dark row under
+             a tooltip nobody opens. -->
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)"></span>
+          <span style="flex:1;color:var(--body)">Reset generation parameters&hellip;</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--acc)">14 changed</span></div>
+        <!-- SIGNPOST. Ten commands, each narrowed to one stage's own keys. The
+             stage list is WorldWorkspace.STAGES read live, never copied. -->
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px;
+             background:var(--wash)">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
+          <span style="flex:1;color:var(--body)">Reset one stage</span></div>
+        <div style="height:1px;background:var(--div);margin:5px 0"></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)"></span>
+          <span style="flex:1;color:var(--body)">Find on map&hellip;</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">&#8984;F</span></div>
+      </div>
+
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--faint)">
+        &#9656; RESET ONE STAGE</div>
+      <div style="background:var(--pan);border:1px solid var(--bor);box-shadow:var(--shadow);
+           padding:5px 0">
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;color:var(--body)">01 Plates</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">6 keys</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;color:var(--body)">02 Terrain</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">9 keys</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;color:var(--body)">03 Erosion</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">7 keys</span></div>
+        <!-- A stage the engine does not parameterise is disabled carrying its
+             own gap prose, not an invented "0 keys". The distinction between
+             "nothing to reset" and "nothing exists to reset" is the whole
+             point of this row. -->
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;color:var(--dis)">04 Rivers</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--dis)">no parameters</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;color:var(--body)">05 Climate</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">11 keys</span></div>
+        <div class="mono" style="padding:6px 14px;font-size:var(--m2);line-height:1.6;
+             color:var(--faint);border-top:1px solid var(--div);margin-top:4px">
+          five more &middot; numbering is WORLD's own 01&ndash;10</div>
+      </div>
+
+      <div class="mono" style="font-size:var(--m2);line-height:1.75;color:var(--dis)">
+        <span style="color:var(--faint)">verdict</span> &mdash; both are <span style="color:var(--acc)">commands</span>,
+        and both were unpressable in the dark until they carried a count. The ellipsis is
+        earned: reset discards edits with no undo entry behind them
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         WINDOW. A toggle that is not a region, and a submenu of commands.
+         =================================================================== -->
+    <div style="width:300px;flex:none;display:flex;flex-direction:column;gap:10px">
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">WINDOW</div>
+
+      <div style="background:var(--pan);border:1px solid var(--bor);box-shadow:var(--shadow);
+           padding:5px 0">
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;padding-left:22px;color:var(--body)">Left dock</span>
+          <span style="width:30px;height:17px;border-radius:999px;flex:none;position:relative;
+                background:var(--acc)">
+            <span style="position:absolute;top:2px;left:15px;width:13px;height:13px;
+                  border-radius:50%;background:var(--ink)"></span></span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;padding-left:22px;color:var(--body)">Right dock</span>
+          <span style="width:30px;height:17px;border-radius:999px;flex:none;position:relative;
+                background:var(--acc)">
+            <span style="position:absolute;top:2px;left:15px;width:13px;height:13px;
+                  border-radius:50%;background:var(--ink)"></span></span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;padding-left:22px;color:var(--body)">Status bar</span>
+          <span style="width:30px;height:17px;border-radius:999px;flex:none;position:relative;
+                background:var(--acc)">
+            <span style="position:absolute;top:2px;left:15px;width:13px;height:13px;
+                  border-radius:50%;background:var(--ink)"></span></span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;padding-left:22px;color:var(--body)">Timeline</span>
+          <span style="width:30px;height:17px;border-radius:999px;flex:none;position:relative;
+                background:var(--ins)">
+            <span style="position:absolute;top:2px;left:2px;width:13px;height:13px;
+                  border-radius:50%;background:var(--ink)"></span></span></div>
+
+        <!-- THE SEPARATOR IS THE ARGUMENT. The four above are layout regions
+             that Reset layout re-shows; the diagnostics overlay is a debug aid
+             that Reset layout must NOT re-show. Same shape, different band. -->
+        <div style="height:1px;background:var(--div);margin:5px 0"></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;padding-left:22px;color:var(--body)">Diagnostics overlay</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">&#8679;D</span>
+          <span style="width:30px;height:17px;border-radius:999px;flex:none;position:relative;
+                background:var(--ins)">
+            <span style="position:absolute;top:2px;left:2px;width:13px;height:13px;
+                  border-radius:50%;background:var(--ink)"></span></span></div>
+        <div style="height:1px;background:var(--div);margin:5px 0"></div>
+
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)"></span>
+          <span style="flex:1;color:var(--body)">Reset layout</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px;
+             background:var(--wash)">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
+          <span style="flex:1;color:var(--body)">Layouts</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">2 saved</span></div>
+      </div>
+
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--faint)">
+        &#9656; LAYOUTS</div>
+      <div style="background:var(--pan);border:1px solid var(--bor);box-shadow:var(--shadow);
+           padding:5px 0">
+        <!-- Default is an ACT, not a stored snapshot - it is the same code
+             Reset layout runs. Saying so on the row is what stops it reading
+             as a third saved layout that happens to sort first. -->
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;color:var(--body)">Default</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">built in</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;color:var(--body)">Wide viewport</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;color:var(--body)">Planner</span></div>
+        <div style="height:1px;background:var(--div);margin:5px 0"></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;color:var(--body)">Save layout as&hellip;</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;color:var(--body)">Forget layout&hellip;</span></div>
+        <div class="mono" style="padding:6px 14px;font-size:var(--m2);line-height:1.6;
+             color:var(--faint);border-top:1px solid var(--div);margin-top:4px">
+          machine state, not world state &mdash; a layout is<br>
+          which docks this screen has room for</div>
+      </div>
+
+      <!-- The empty case, because it is the one that shipped wrong: with no
+           saved layouts the Forget row was disabled with a reason. Drawn, so a
+           builder does not have to guess whether to hide it. -->
+      <div style="background:var(--pan);border:1px solid var(--div);padding:5px 0;opacity:.85">
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;color:var(--body)">Default</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">built in</span></div>
+        <div style="height:1px;background:var(--div);margin:5px 0"></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;color:var(--body)">Save layout as&hellip;</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span style="flex:1;color:var(--dis)">Forget layout&hellip;</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--dis)">none saved</span></div>
+      </div>
+
+      <div class="mono" style="font-size:var(--m2);line-height:1.75;color:var(--dis)">
+        <span style="color:var(--faint)">verdict</span> &mdash; Diagnostics overlay is a
+        <span style="color:var(--acc)">toggle</span> and belongs below the rule; Layouts is a
+        <span style="color:var(--acc)">signpost</span> over four commands
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         PREFERENCES. One command whose two dark states differ, two signposts
+         whose children are readouts, and the readout/command duplicate.
+         =================================================================== -->
+    <div style="width:300px;flex:none;display:flex;flex-direction:column;gap:10px">
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">PREFERENCES</div>
+
+      <div style="background:var(--pan);border:1px solid var(--bor);box-shadow:var(--shadow);
+           padding:5px 0">
+        <div class="mono" style="padding:9px 14px 4px;font-size:var(--m2);letter-spacing:.2em;
+             color:var(--faint)">PERFORMANCE</div>
+        <!-- A COMMAND with three states and, until now, one visible face. The
+             trailing cell carries the state the tooltip used to carry alone:
+             a dark row that says why it is dark is a readout AND a command,
+             and 03 sec. 5's item row already has a cell for it. -->
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)"></span>
+          <span style="flex:1;color:var(--body)">Try the GPU again</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--acc)">1 banned</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)"></span>
+          <span style="flex:1;color:var(--dis)">Try the GPU again</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--dis)">nothing banned</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)"></span>
+          <span style="flex:1;color:var(--dis)">Try the GPU again</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--dis)">generating</span></div>
+
+        <div class="mono" style="padding:9px 14px 4px;font-size:var(--m2);letter-spacing:.2em;
+             color:var(--faint)">TILES &amp; LOD</div>
+        <!-- Two signposts. Each carries its child's headline value, so the
+             group answers "what is it doing" without opening either. -->
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
+          <span style="flex:1;color:var(--body)">Tiled LOD</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">auto on zoom</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
+          <span style="flex:1;color:var(--body)">Atlas cache</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">6.2 of 24 GB</span></div>
+
+        <div class="mono" style="padding:9px 14px 4px;font-size:var(--m2);letter-spacing:.2em;
+             color:var(--faint)">MEMORY</div>
+        <!-- THE MERGE. The shipped build has "Working set" (a disabled readout)
+             and "Working set..." (the command that opens the breakdown) one line
+             apart, near-identical text, one of them permanently dark. One row
+             instead: the value in the shortcut cell, the ellipsis on the label,
+             clicking opens the full breakdown. Nothing is lost and the dark
+             twin goes. Comparable: Blender's System Info is one entry, not a
+             greyed readout above a live one. -->
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)"></span>
+          <span style="flex:1;color:var(--body)">Working set&hellip;</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">1.6 of 32 GB</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)"></span>
+          <span style="flex:1;color:var(--body)">Clear caches&hellip;</span></div>
+      </div>
+
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--faint)">
+        &#9656; ATLAS CACHE &mdash; A SIGNPOST WHOSE FIRST CHILD IS A READOUT</div>
+      <div style="background:var(--pan);border:1px solid var(--bor);box-shadow:var(--shadow);
+           padding:5px 0">
+        <!-- 03 sec. 5's read-only row: label 9 px mono --faint, letter-spaced,
+             value 10 px mono --sec, 36 px indent, no hover, not clickable. -->
+        <div style="display:flex;align-items:baseline;gap:8px;padding:4px 14px 4px 36px">
+          <span class="mono" style="flex:1;font-size:var(--m2);letter-spacing:.08em;
+                color:var(--faint)">ON DISK</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--sec);text-align:right">6.2 GB &middot; 4 120 tiles</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
+          <span style="flex:1;color:var(--body)">Size cap</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">24 GB</span></div>
+        <div class="mono" style="padding:6px 14px;font-size:var(--m2);line-height:1.6;
+             color:var(--faint);border-top:1px solid var(--div);margin-top:4px">
+          the cap is enforced before this is read, so the<br>
+          size shown is never one the cap is about to void</div>
+      </div>
+
+      <!-- The shipped pair, small, so the merge above reads as a decision. -->
+      <div style="background:var(--pan);border:1px dashed var(--div);padding:5px 0;opacity:.7">
+        <div style="display:flex;align-items:baseline;gap:8px;padding:4px 14px 4px 36px">
+          <span class="mono" style="flex:1;font-size:var(--m2);letter-spacing:.08em;
+                color:var(--faint)">WORKING SET</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--sec)">1.6 of 32 GB</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)"></span>
+          <span style="flex:1;color:var(--body)">Working set&hellip;</span></div>
+      </div>
+      <div class="mono" style="font-size:var(--m2);line-height:1.75;color:var(--dis)">
+        <span style="color:var(--faint)">what this replaces</span> &mdash; a dark readout above a live command
+        with the same name. Two rows, one subject, one of them permanently unpressable
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         ASSETS. The row whose whole job is to be excluded from the counts
+         above it.
+         =================================================================== -->
+    <div style="width:300px;flex:none;display:flex;flex-direction:column;gap:10px">
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">
+        ASSETS &#9656; LANDMARK TYPES</div>
+
+      <div style="background:var(--pan);border:1px solid var(--bor);box-shadow:var(--shadow);
+           padding:5px 0">
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
+          <span style="flex:1;color:var(--body)">PHYSICAL</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">6 of 15 &middot; 74 placed</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
+          <span style="flex:1;color:var(--body)">TRANSPORTATION</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">3 of 8 &middot; 21 placed</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
+          <span style="flex:1;color:var(--body)">MILITARY</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">4 of 6 &middot; 33 placed</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
+          <span style="flex:1;color:var(--body)">HISTORICAL</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">3 of 6 &middot; 9 placed</span></div>
+
+        <!-- The rule ABOVE it is the design, not decoration. A hand-stamped
+             icon is annotation - no causal chain, no emergent importance - so
+             it is never added into a family count. Putting it below a rule and
+             giving it its own unit ("icons", not "placed") says that on the
+             row instead of only in a tooltip. -->
+        <div style="height:1px;background:var(--div);margin:5px 0"></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
+          <span style="flex:1;color:var(--body)">Placed by hand</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">7 icons</span></div>
+        <div class="mono" style="padding:6px 14px;font-size:var(--m2);line-height:1.6;
+             color:var(--faint);border-top:1px solid var(--div);margin-top:4px">
+          annotation, not entities &mdash; never counted<br>
+          into a family above</div>
+
+        <div style="height:1px;background:var(--div);margin:5px 0"></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#8681;</span>
+          <span style="flex:1;color:var(--body)">Landmark icons&hellip;</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)"></span>
+          <span style="flex:1;color:var(--body)">Landmark label style&hellip;</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">&rarr; Cartography</span></div>
+      </div>
+
+      <!-- The zero state. A count of 0 is a real answer and must not be
+           dashed, hidden or greyed - the row still explains why the family
+           totals are what they are. -->
+      <div style="background:var(--pan);border:1px solid var(--div);padding:5px 0;opacity:.85">
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
+          <span style="flex:1;color:var(--body)">Placed by hand</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">none yet</span></div>
+      </div>
+
+      <div class="mono" style="font-size:var(--m2);line-height:1.75;color:var(--dis)">
+        <span style="color:var(--faint)">verdict</span> &mdash; a <span style="color:var(--acc)">signpost</span>
+        that must carry a readout. It jumps to CIVIL &rsaquo; Landmarks with no family selected;
+        without the count the jump explains nothing, and the count is
+        <span style="color:var(--sec)">icon_list().size()</span> &mdash; no new binding
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       THE ANSWER, ROW BY ROW.
+       =================================================================== -->
+  <div style="flex:none;background:var(--pan);border:1px solid var(--hair);border-radius:10px;
+       padding:12px 16px 13px">
+    <div class="mono" style="display:flex;gap:12px;font-size:var(--m2);letter-spacing:.14em;
+         color:var(--faint);padding-bottom:7px;border-bottom:1px solid var(--div)">
+      <span style="width:290px">ROW</span>
+      <span style="width:104px">SHAPE</span>
+      <span style="width:210px">THE VALUE IT CARRIES</span>
+      <span style="flex:1">CAN THE ENGINE SUPPLY IT?</span></div>
+
+    <div class="mono" style="display:flex;gap:12px;padding:4px 0;font-size:var(--m1)">
+      <span style="width:290px;color:var(--sec)">Edit &rsaquo; Reset generation parameters&hellip;</span>
+      <span style="width:104px;color:var(--acc)">command</span>
+      <span style="width:210px;color:var(--dim)">how many are non-default</span>
+      <span style="flex:1;color:var(--good)">yes &mdash; param_keys + param_info(key).default</span></div>
+    <div class="mono" style="display:flex;gap:12px;padding:4px 0;font-size:var(--m1)">
+      <span style="width:290px;color:var(--sec)">Edit &rsaquo; Reset one stage &#9656;</span>
+      <span style="width:104px;color:var(--acc)">signpost</span>
+      <span style="width:210px;color:var(--dim)">keys per stage, or its gap prose</span>
+      <span style="flex:1;color:var(--good)">yes &mdash; WorldWorkspace.STAGES, read live</span></div>
+    <div class="mono" style="display:flex;gap:12px;padding:4px 0;font-size:var(--m1)">
+      <span style="width:290px;color:var(--sec)">Window &rsaquo; Diagnostics overlay</span>
+      <span style="width:104px;color:var(--acc)">toggle</span>
+      <span style="width:210px;color:var(--dim)">on / off, plus &#8679;D</span>
+      <span style="flex:1;color:var(--good)">yes &mdash; resource_overlay.visible</span></div>
+    <div class="mono" style="display:flex;gap:12px;padding:4px 0;font-size:var(--m1)">
+      <span style="width:290px;color:var(--sec)">Window &rsaquo; Layouts &rsaquo; Default</span>
+      <span style="width:104px;color:var(--acc)">command</span>
+      <span style="width:210px;color:var(--dim)">&ldquo;built in&rdquo; &mdash; it is an act, not a snapshot</span>
+      <span style="flex:1;color:var(--good)">yes &mdash; the same code Reset layout runs</span></div>
+    <div class="mono" style="display:flex;gap:12px;padding:4px 0;font-size:var(--m1)">
+      <span style="width:290px;color:var(--sec)">Window &rsaquo; Layouts &rsaquo; Forget layout&hellip;</span>
+      <span style="width:104px;color:var(--acc)">command</span>
+      <span style="width:210px;color:var(--dim)">disabled reason when none are saved</span>
+      <span style="flex:1;color:var(--good)">yes &mdash; DccSettings.layout_names()</span></div>
+    <div class="mono" style="display:flex;gap:12px;padding:4px 0;font-size:var(--m1)">
+      <span style="width:290px;color:var(--sec)">Preferences &rsaquo; Try the GPU again</span>
+      <span style="width:104px;color:var(--acc)">command</span>
+      <span style="width:210px;color:var(--dim)">banned / nothing banned / generating</span>
+      <span style="flex:1;color:var(--good)">yes &mdash; gpu_readback_failed + gpu_settings_locked</span></div>
+    <div class="mono" style="display:flex;gap:12px;padding:4px 0;font-size:var(--m1)">
+      <span style="width:290px;color:var(--sec)">Preferences &rsaquo; Tiled LOD &#9656;</span>
+      <span style="width:104px;color:var(--acc)">signpost</span>
+      <span style="width:210px;color:var(--dim)">the active mode, on the parent row</span>
+      <span style="flex:1;color:var(--good)">yes &mdash; the auto/manual preference</span></div>
+    <div class="mono" style="display:flex;gap:12px;padding:4px 0;font-size:var(--m1)">
+      <span style="width:290px;color:var(--sec)">Preferences &rsaquo; Atlas cache &#9656;</span>
+      <span style="width:104px;color:var(--acc)">signpost</span>
+      <span style="width:210px;color:var(--dim)">size against cap; the child is the readout</span>
+      <span style="flex:1;color:var(--good)">yes &mdash; the store is walked before it is read</span></div>
+    <div class="mono" style="display:flex;gap:12px;padding:4px 0;font-size:var(--m1)">
+      <span style="width:290px;color:var(--sec)">Preferences &rsaquo; Working set&hellip;</span>
+      <span style="width:104px;color:var(--acc)">command</span>
+      <span style="width:210px;color:var(--dim)">used of physical, on the command row</span>
+      <span style="flex:1;color:var(--good)">yes &mdash; OS static memory + memory_info</span></div>
+    <div class="mono" style="display:flex;gap:12px;padding:4px 0;font-size:var(--m1)">
+      <span style="width:290px;color:var(--sec)">Assets &rsaquo; Landmark types &rsaquo; Placed by hand</span>
+      <span style="width:104px;color:var(--acc)">signpost</span>
+      <span style="width:210px;color:var(--dim)">hand-stamped icon count, its own unit</span>
+      <span style="flex:1;color:var(--good)">yes &mdash; icon_list().size(), unused by this row today</span></div>
+
+    <div class="mono" style="padding-top:9px;font-size:var(--m2);line-height:1.7;color:var(--dis);
+         border-top:1px solid var(--div);margin-top:7px">
+      <span style="color:var(--faint)">The one rule all ten follow</span> &mdash; a row that can be dark for more than one
+      reason puts the reason in its own trailing cell, never only in a tooltip. Nine of these were
+      indistinguishable from each other while dark, which is why five of them were read as broken
+      commands by the command index. <span style="color:var(--faint)">None of the ten needs a new binding.</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

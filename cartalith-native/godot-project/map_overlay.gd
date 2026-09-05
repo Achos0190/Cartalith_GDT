@@ -2408,7 +2408,7 @@ func _visible_local_rect() -> Rect2:
 ##
 ## **It moves no pixel by construction** -- what it skips is outside the
 ## viewport, which discarded it anyway. Verified rather than asserted:
-## `_cullframe_probe` compares whole frames against the pre-cull script.
+## `_cull_probe` compares whole frames against the pre-cull script.
 func _run_offscreen(pts: PackedVector2Array, k: float, pad: float) -> bool:
 	if pts.is_empty():
 		return true
@@ -2417,6 +2417,173 @@ func _run_offscreen(pts: PackedVector2Array, k: float, pad: float) -> bool:
 		box = box.expand(p)
 	return not Rect2(_visible_local.position * k, _visible_local.size * k) \
 		.grow(pad + 1.0).intersects(box)
+
+
+## Per-segment culling, the residue this function's own doc above always
+## admitted: `_run_offscreen` rejects at whole-**run** granularity, so one
+## long way whose bounding box crosses the window still has its whole run
+## walked and dashed even though most of it never nears the window
+## (`MEMORY_OPTIMIZATION_SCOPE.md` Lever 2's "what it does not fix",
+## `GUI_GAP_REGISTER.md` §54, `OUTSTANDING_WORK.md`'s "Per-segment culling"
+## row). This asks the same question `_run_offscreen` does -- does this
+## geometry's own bounding box, grown by the same stroke-width pad, reach the
+## visible rect -- **per segment** instead of once for the whole run: a
+## straight line between two points never leaves the axis-aligned box those
+## two points span, so unlike a whole-run box (which can enclose the window
+## by spanning two far corners even when the actual polyline passes nowhere
+## near it) a single segment's own box has no false negative -- only, like
+## `_run_offscreen`, the same over-inclusive one on a diagonal, "the safe
+## direction to be wrong in".
+##
+## Returns the maximal runs of consecutive on-screen segments as
+## `Vector2i(start, end)` POINT-index pairs, `end` inclusive -- slice
+## `screen_points` with them directly (`.slice(start, end + 1)`). A chain's
+## own boundary points are kept even when they themselves sit off-screen:
+## dropping them is exactly the "keep the segment that enters and the segment
+## that leaves" trap, since that boundary segment is still real geometry the
+## viewport clips to a sliver, not one safe to omit. What is skipped is only
+## the run of segments strictly BETWEEN two chains, each individually proven
+## not to reach the window -- so two chains are drawn as separate
+## `draw_polyline` calls, never re-joined by a straight chord the original
+## polyline never actually drew.
+##
+## A chain boundary falls on a point that is itself outside the grown view: if
+## the point sat inside it, both the segment before and the segment after
+## would test visible too (the point alone puts it in either segment's box),
+## so it could never be a boundary. `draw_polyline` still renders that one
+## point differently either way -- an interior join in the original whole-run
+## draw, a terminal cap here -- and a plain `pad + 1.0` margin (this
+## function's first version) was not quite enough to keep that difference off
+## the visible rect: measured, not assumed, the same way `_run_offscreen`'s
+## own margin was (`_cull_probe`, run against the pre-chain script) -- a
+## handful of pixels off by 1 of 255 in one channel, near a chain boundary.
+## `CHAIN_PAD_MULT`/`CHAIN_PAD_EXTRA_PX` below double that margin, which
+## measurably helps (`_cull_probe` re-run: fewer of its 16 cases affected).
+##
+## **The block that stood here was wrong on both of its claims, and a verifier
+## refuted both on 2026-09-05. Kept as a correction rather than deleted,
+## because each was written as measured.**
+##
+## It said (a) the residual pixel differences were "confirmed non-monotonic by
+## measurement -- raising the margin another 10x changed WHICH cases were
+## affected rather than shrinking steadily toward zero", and (b) the cause was
+## Godot's antialiased `draw_polyline` rendering identical visible geometry
+## differently when other points ride along in the same call.
+##
+## **(a) is monotone.** Mutation matrix over `_cull_probe.tscn`, all restored
+## byte-identical: pad `1.0/0.0` -> 14 of 16 cases differing; the shipped
+## `2.0/2.0` -> 13; `8.0/8.0` -> 11; `64.0/64.0` (with the f64 fix) -> 2. That
+## is exactly the steady shrink the old comment said had been ruled out.
+##
+## **(b) was not the rasteriser, but the replacement cause is also unconfirmed.**
+## The verifier's isolation stands and is worth keeping: a bare `draw_polyline`
+## of an 801-point array against the 77-point visible slice of the same way
+## renders diff px = 0, and the SOLID path (`highway`, one unsplit chain, a 5.8x
+## shorter array) is byte-identical -- so "a shorter array rasterises
+## differently" is false, and the residual is confined to the DASHED path. Its
+## proposed cause was `_dash_phase_track`'s f32 accumulator; **widening it
+## changed nothing on either probe when re-measured here** (see that function's
+## own header). So the dashed residual's cause is currently **unknown**, and the
+## honest state is: not the array length, not a join-vs-cap, not confirmed to be
+## the phase precision either.
+##
+## **What this leaves open, and it is an owner call rather than a defect.** A
+## larger pad keeps shrinking the residual, at a cost measured in the same runs:
+## deep-pan objects `22 849 -> 37 726` (still a 97.2% cut against the un-culled
+## `1 344 502`), and the all-visible saving essentially gone (`175 864` vs
+## `175 870`). The shipped `2.0/2.0` is the cheap end of that trade. The old
+## "no pad size closes it" claim foreclosed the choice; it is open again.
+const CHAIN_PAD_MULT := 2.0
+const CHAIN_PAD_EXTRA_PX := 2.0
+
+func _segment_chains(screen_points: PackedVector2Array, k: float, pad: float) -> Array[Vector2i]:
+	var chains: Array[Vector2i] = []
+	var n := screen_points.size()
+	if n < 2:
+		return chains
+	var view := Rect2(_visible_local.position * k, _visible_local.size * k) \
+		.grow(pad * CHAIN_PAD_MULT + CHAIN_PAD_EXTRA_PX + 1.0)
+	var run_start := -1
+	for i in range(n - 1):
+		var box := Rect2(screen_points[i], Vector2.ZERO).expand(screen_points[i + 1])
+		if view.intersects(box):
+			if run_start < 0:
+				run_start = i
+		elif run_start >= 0:
+			chains.append(Vector2i(run_start, i))
+			run_start = -1
+	if run_start >= 0:
+		chains.append(Vector2i(run_start, n - 1))
+	return chains
+
+
+## `out[i]` is the exact `phase` `_draw_dashed_polyline` would carry into
+## point `i` had it walked the WHOLE array from `points[0]` with this
+## `dash_len`/`gap_len` -- reproduced by running that function's own
+## step-by-step accumulation once over the whole run, not by summing segment
+## lengths outright. Feeds a later chain's dash-phase anchor: its own dash
+## pattern must start where it would have if the whole run were still dashed
+## continuously from its true first point (exactly what happened before
+## per-segment culling existed), not reset to zero at the chain's own first
+## point -- a way that leaves and re-enters the window would otherwise show
+## its dashes jump at the seam, a pixel this file's own correctness bar does
+## not allow moving.
+##
+## **Summing whole-segment lengths, this function's first version, was
+## replaced by this** -- mathematically equal, not bit-for-bit equal: it
+## accumulates floating-point error on a different rounding path than summing
+## the same distance in dash/gap-sized steps, and over many segments the two
+## can drift by enough ULPs to flip which side of a pixel boundary an
+## antialiased dash edge falls on. Reproducing `_draw_dashed_polyline`'s own
+## step sequence exactly removes that specific risk on principle -- **it did
+## not, on its own, close the pixel leak this file's per-segment culling
+## carries** (checked, not assumed: re-running `_cull_probe` after swapping
+## the two produced the byte-identical diff, same pixels, same values, as the
+## arc-length version it replaced). That leak's real cause is `_segment_
+## chains`' own doc comment, above -- an antialiasing-rasteriser property, not
+## a phase-accumulation one. This function is kept anyway: it is still the
+## more correct way to compute a resumed dash phase, on grounds that do not
+## depend on whether today's residual has some other source.
+## **`PackedFloat64Array`, not 32 -- kept on principle, NOT on a measured win.**
+## `phase` accumulates along the whole way and reaches ~3 100 px on the long
+## fixture; in a 32-bit array its ULP there is ~2.4e-4, and a chain resuming from
+## a truncated phase is a real precision hazard for a dashed run.
+##
+## **Be careful with the provenance of this change.** A verifier proposed it on
+## 2026-09-05 and reported that widening these declarations took `long_dashed`
+## and `long_pair` "from 43 differing px to 0 and every case to byte-identical".
+## **That did not reproduce here.** Measured both ways on this machine, windowed,
+## same fixtures: float32 -> `_segcull_probe` PASS, `_cull_probe` FAIL 13 of 16;
+## float64 -> `_segcull_probe` PASS, `_cull_probe` FAIL 13 of 16. No difference
+## on either probe. So the width is retained because a 3 100 px accumulator in
+## f32 is wrong on its own terms, **not** because it was observed to fix
+## anything, and no probe in this tree currently pins it. Do not cite it as the
+## cause of a pixel result without re-measuring.
+func _dash_phase_track(points: PackedVector2Array, dash_len: float, gap_len: float) -> PackedFloat64Array:
+	var n := points.size()
+	var out := PackedFloat64Array()
+	out.resize(n)
+	var period := dash_len + gap_len
+	var phase := 0.0
+	for i in range(n - 1):
+		out[i] = phase
+		var seg_len := points[i].distance_to(points[i + 1])
+		if seg_len <= 0.0:
+			continue
+		var traveled := 0.0
+		while traveled < seg_len:
+			var cycle_pos := fmod(phase, period)
+			var on := cycle_pos < dash_len
+			var remaining_in_state := (dash_len - cycle_pos) if on else (period - cycle_pos)
+			## Same epsilon floor as `_draw_dashed_polyline`, and for the same
+			## reason -- this loop has to be its exact twin or the phase it
+			## hands back is not the value that function would have reached.
+			var step := maxf(minf(remaining_in_state, seg_len - traveled), 0.001)
+			traveled += step
+			phase += step
+	if n > 0:
+		out[n - 1] = phase
+	return out
 
 
 ## Every linear layer's own points, in **screen** pixels ready for a
@@ -2472,22 +2639,41 @@ func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: R
 		return
 	var k := _crisp_begin()
 	var screen_points := _stroke_points(points, start, end, rect, k)
-	if _run_offscreen(screen_points, k, style["under_w"] * _way_scale * load_k * 0.5):
+	var pad: float = style["under_w"] * _way_scale * load_k * 0.5
+	if _run_offscreen(screen_points, k, pad):
 		_crisp_end()
 		return
+	var dash: float = style["dash"] * _way_scale
+	var gap: float = style["gap"] * _way_scale
+	## Dash phase must be anchored to the RUN's true start (see
+	## `_dash_phase_track`), so this is built once over the whole run before
+	## the per-chain loops below, not per chain.
+	var track: PackedFloat64Array = _dash_phase_track(screen_points, dash, gap) if dash > 0.0 else PackedFloat64Array()
+	var chains := _segment_chains(screen_points, k, pad)
+	## Two passes over the chains, not one -- matching the original whole-run
+	## draw's own order (every underlayer point painted, THEN the overlay on
+	## top of all of it), not an underlay/overlay pair per chain. A way whose
+	## own chains cross on screen (a real possibility for a long enough run)
+	## would otherwise let a LATER chain's underlayer paint over an EARLIER
+	## chain's overlay at the crossing -- backwards from what one continuous
+	## `draw_polyline` call always did, where every underlayer point precedes
+	## every overlay point.
+	##
 	## `_civWayScale` scales the dash lengths too -- the reference writes
 	## `setLineDash([1.8*rsc, 1.3*rsc])`, one `rsc` for both widths and dashes,
 	## so a wider road gets a proportionally longer dash rather than a wide line
 	## chopped into the same fine ticks.
-	draw_polyline(screen_points, _way_ink(style["under"]),
-		style["under_w"] * _way_scale * load_k, true)
-	var dash: float = style["dash"] * _way_scale
-	if dash > 0.0:
-		_draw_dashed_polyline(screen_points, _way_ink(style["over"]),
-			style["over_w"] * _way_scale * load_k, dash, style["gap"] * _way_scale)
-	else:
-		draw_polyline(screen_points, _way_ink(style["over"]),
-			style["over_w"] * _way_scale * load_k, true)
+	for chain in chains:
+		draw_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(style["under"]),
+			style["under_w"] * _way_scale * load_k, true)
+	for chain in chains:
+		var seg := screen_points.slice(chain.x, chain.y + 1)
+		if dash > 0.0:
+			_draw_dashed_polyline(seg, _way_ink(style["over"]),
+				style["over_w"] * _way_scale * load_k, dash, gap, track[chain.x])
+		else:
+			draw_polyline(seg, _way_ink(style["over"]),
+				style["over_w"] * _way_scale * load_k, true)
 	_crisp_end()
 
 
@@ -2515,14 +2701,22 @@ func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, r
 		return
 	var k := _crisp_begin()   ## Widths and dash lengths in screen px -- see `_draw_way_segment`.
 	var screen_points := _stroke_points(points, start, end, rect, k)
-	if _run_offscreen(screen_points, k, SEA_ROUTE_UNDERLAY_WIDTH * _way_scale * 0.5):
+	var pad: float = SEA_ROUTE_UNDERLAY_WIDTH * _way_scale * 0.5
+	if _run_offscreen(screen_points, k, pad):
 		_crisp_end()
 		return
-	draw_polyline(screen_points, _way_ink(SEA_ROUTE_UNDERLAY),
-		SEA_ROUTE_UNDERLAY_WIDTH * _way_scale, true)
-	_draw_dashed_polyline(screen_points, _way_ink(SEA_ROUTE_DASH_COLOR),
-		SEA_ROUTE_DASH_WIDTH * _way_scale,
-		SEA_ROUTE_DASH_LENGTH * _way_scale, SEA_ROUTE_DASH_GAP * _way_scale)
+	var track := _dash_phase_track(screen_points, SEA_ROUTE_DASH_LENGTH * _way_scale,
+		SEA_ROUTE_DASH_GAP * _way_scale)
+	var chains := _segment_chains(screen_points, k, pad)
+	## Two passes, not one -- see `_draw_way_segment`'s own note on why order
+	## matters the moment a run's chains can cross each other on screen.
+	for chain in chains:
+		draw_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(SEA_ROUTE_UNDERLAY),
+			SEA_ROUTE_UNDERLAY_WIDTH * _way_scale, true)
+	for chain in chains:
+		_draw_dashed_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(SEA_ROUTE_DASH_COLOR),
+			SEA_ROUTE_DASH_WIDTH * _way_scale,
+			SEA_ROUTE_DASH_LENGTH * _way_scale, SEA_ROUTE_DASH_GAP * _way_scale, track[chain.x])
 	_crisp_end()
 
 
@@ -2538,16 +2732,23 @@ func _draw_manual_route_segment(points: PackedVector2Array, start: int, end: int
 		return
 	var k := _crisp_begin()   ## Widths and dash lengths in screen px -- see `_draw_way_segment`.
 	var screen_points := _stroke_points(points, start, end, rect, k)
-	if _run_offscreen(screen_points, k,
-			(MANUAL_ROUTE_SEL_UNDERLAY_WIDTH if sel else MANUAL_ROUTE_UNDERLAY_WIDTH) * _way_scale * 0.5):
+	var pad: float = (MANUAL_ROUTE_SEL_UNDERLAY_WIDTH if sel else MANUAL_ROUTE_UNDERLAY_WIDTH) * _way_scale * 0.5
+	if _run_offscreen(screen_points, k, pad):
 		_crisp_end()
 		return
-	draw_polyline(screen_points, _way_ink(MANUAL_ROUTE_UNDERLAY),
-		(MANUAL_ROUTE_SEL_UNDERLAY_WIDTH if sel else MANUAL_ROUTE_UNDERLAY_WIDTH) * _way_scale, true)
-	_draw_dashed_polyline(screen_points,
-		_way_ink(MANUAL_ROUTE_SEL_COLOR if sel else MANUAL_ROUTE_COLOR),
-		(MANUAL_ROUTE_SEL_WIDTH if sel else MANUAL_ROUTE_WIDTH) * _way_scale,
-		MANUAL_ROUTE_DASH * _way_scale, MANUAL_ROUTE_GAP * _way_scale)
+	var track := _dash_phase_track(screen_points, MANUAL_ROUTE_DASH * _way_scale,
+		MANUAL_ROUTE_GAP * _way_scale)
+	var chains := _segment_chains(screen_points, k, pad)
+	## Two passes, not one -- see `_draw_way_segment`'s own note on why order
+	## matters the moment a run's chains can cross each other on screen.
+	for chain in chains:
+		draw_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(MANUAL_ROUTE_UNDERLAY),
+			(MANUAL_ROUTE_SEL_UNDERLAY_WIDTH if sel else MANUAL_ROUTE_UNDERLAY_WIDTH) * _way_scale, true)
+	for chain in chains:
+		_draw_dashed_polyline(screen_points.slice(chain.x, chain.y + 1),
+			_way_ink(MANUAL_ROUTE_SEL_COLOR if sel else MANUAL_ROUTE_COLOR),
+			(MANUAL_ROUTE_SEL_WIDTH if sel else MANUAL_ROUTE_WIDTH) * _way_scale,
+			MANUAL_ROUTE_DASH * _way_scale, MANUAL_ROUTE_GAP * _way_scale, track[chain.x])
 	_crisp_end()
 
 
@@ -2560,11 +2761,20 @@ func _draw_manual_route_segment(points: PackedVector2Array, start: int, end: int
 ## one that relied on this default (the sea lane) was wrong because of it. The
 ## default is kept only so the parameter reads as optional to a future caller
 ## that genuinely wants a square dash.
-func _draw_dashed_polyline(points: PackedVector2Array, color: Color, width: float, dash_len: float, gap_len: float = -1.0) -> void:
+##
+## `start_phase` anchors the cycle: 0.0 (every caller before per-segment
+## culling, and every caller passing a whole, un-chained run today) starts
+## "on" at `points[0]`. A caller drawing one chain of a longer run -- see
+## `_segment_chains`/`_dash_phase_track` -- passes the phase this same
+## function would already have reached before that chain's own first point,
+## so the visible dash pattern is identical to what an unculled draw of the
+## whole run would have painted at that same point along it, culled lead-in
+## included.
+func _draw_dashed_polyline(points: PackedVector2Array, color: Color, width: float, dash_len: float, gap_len: float = -1.0, start_phase: float = 0.0) -> void:
 	if gap_len < 0.0:
 		gap_len = dash_len
 	var period := dash_len + gap_len
-	var phase := 0.0
+	var phase := start_phase
 	for i in range(points.size() - 1):
 		var p0 := points[i]
 		var p1 := points[i + 1]

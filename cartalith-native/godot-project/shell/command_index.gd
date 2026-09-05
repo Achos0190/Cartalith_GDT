@@ -96,6 +96,21 @@ class_name CommandIndex
 ## A rail node and a bar button are exactly what `EXTRAS` is for: real actions
 ## that are not menu rows. **Any future move off the menu bar owes this table a
 ## row in the same change.**
+##
+## **The Asset-pack flattening (same day) is the mirror case, decided the other
+## way -- zero rows, checked rather than assumed.** Its fifteen dropped rows
+## were never rail nodes or bar buttons; they were shortcuts into the
+## `⧉ Asset library` window, and the nine carrying real per-slot/batch
+## behaviour are each a labelled control already visible inside that window --
+## `asset_library_window.gd::_build_slot_grid()`'s batch-verb row
+## (`Tag…`/`Collect…`/`Rename…`/`Duplicate`/`Delete`, live the moment any slot
+## is selected) and `_build_inspector()`'s
+## `Scale`/`Fit`/`Reset`/`Replace`/`+Variant`/`bg`/tags row (live the moment one
+## slot is focused). An `EXTRAS` pointer for each would only ever open the same
+## window `⧉ Asset library` already opens -- recreating, in this table, the
+## nine-shortcuts-to-one-window shape the owner's ruling flattened out of the
+## menu. `menus.gd::_build_asset_pack_submenu()` carries the re-derived
+## title-match measurement and the full per-command accounting.
 const EXTRAS: Array = [
 	{"title": "Zoom to fit", "blurb": "Frame the whole world in the viewport", "group": "View"},
 	{"title": "Point sample", "blurb": "Read elevation, biome and climate under one cell", "group": "View"},
@@ -195,7 +210,8 @@ func _walk_popup(popup: PopupMenu, menu_name: String) -> void:
 		## an indexed action.
 		if marker == DccMenus.META_SIGNPOST:
 			continue
-		## **A disabled row with no tooltip is chrome, not a command.**
+		## **A disabled row with no tooltip is chrome, not a command** -- unless
+		## it is a marked readout, exempted below.
 		## `menus.gd::_todo(p, text, why)` ALWAYS sets a tooltip -- that is its
 		## whole signature -- so a real not-built-yet row is never silent. What
 		## is disabled and silent is a placeholder -- the Assets menu's
@@ -207,7 +223,25 @@ func _walk_popup(popup: PopupMenu, menu_name: String) -> void:
 		##
 		## Found by the probe rather than by reading: it asserted every
 		## unavailable row carries a reason and reported 26 of 29.
-		if disabled and tip.strip_edges() == "":
+		##
+		## **`is_readout` is exempted from this skip, found 2026-09-05.** A
+		## readout's tooltip is its explanation, not its availability gate --
+		## the marker already answers that (`_readout()`'s own header: "the
+		## marker is the metadata, not the tooltip") -- and one can be genuinely
+		## empty for a frame. `menus.gd`'s lighting-rig provenance row
+		## (`_light_source_idx`) is built via
+		## `_readout(_lighting_popup, "— loading —", "")` and, unlike its
+		## sibling `_atlas_popup` readout, had no eager `_refresh_*` call after
+		## construction, so `about_to_popup` was the only path that ever gave it
+		## a tooltip. A `CommandIndex` built before that submenu was ever opened
+		## -- every index a cold search builds -- hit this exact branch and
+		## dropped a real, correctly-marked row out of the index entirely: not
+		## "unavailable with no reason", gone. Fixed on both sides:
+		## `_build_lighting_menu()` now calls `_refresh_lighting_menu()` at
+		## build time too (matching the atlas pattern it already cited as its
+		## model), and this line no longer trusts that every future readout's
+		## author will remember to add one.
+		if disabled and tip.strip_edges() == "" and not is_readout:
 			continue
 		## A readout is available: it has already told the searcher what they
 		## came for, in its own title. `why` stays empty for the same reason —

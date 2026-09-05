@@ -263,3 +263,47 @@ already exists — so those eight stock `FileDialog`s are derivable work. **The
 other 29 have no drawing at all**, so the owner will first see them running
 rather than drawn; each should carry, in its own source, which canvas vocabulary
 it was derived from.
+
+---
+
+## 2026-09-05 (evening) — the round-2 design canvas
+
+Put to the owner as thirteen artboards at
+<https://claude.ai/code/artifact/782c0fd3-b6ce-4320-a491-a8b48d63e9cd>, page 1
+carrying the two questions only the owner could settle.
+
+**6. The WORLD left dock — Option B. The A/B mode switch comes back.**
+Answered `Option b` against two artboards drawing the same content twice. This
+settles **Owner question 3**, which had been open since before 2026-09-05 and was
+filed in §3.3 as *doubly* blocked — an owner call **and** captions that no longer
+exist in any readable file.
+
+Three consequences travel with it, and they are the cost of the option chosen:
+
+- **The two captions are DERIVED, not read.** `ldSwA` / `ldSwB` sit in the
+  truncated tail of `02-rail-and-domains.md` §8 and cannot be recovered. The
+  build derives them from what each mode actually contains
+  (`world_workspace.gd`) and **must say in its own source that they were
+  derived**, not quoted.
+- **The pill costs 34 px**, which pushes World data below the fold. That is the
+  artboard's own stated cost and the whole reason Option A existed.
+- **`WorldDockB.dc.html` must be fixed before it is built.** Its lit half is
+  drawn as a filled amber slab (`--acc` / `--accInk`). `dcc_widgets.gd:1194`
+  reserves that treatment for the tool bar's three SCULPT / PAINT / MEASURE
+  segments *"and nothing else"*, citing `GUI_GAP_REGISTER` §48 (DS-02) — the pass
+  that **removed every filled amber slab in the shell**. The lane flagged the
+  pill's *radius* as its open question and missed the *fill*, on the single
+  element the owner was being asked to approve.
+
+**7. The timeline's pill on-state matches the WORLD dock's.** Owner: *"For the
+timeline b as well"* — resolving, in one decision, the split the design critic
+asked to be resolved once across **Timeline**, **WorldDockB** and **BiomePaint**.
+
+**Resolved to the WASHED treatment** — `accent_wash_2` fill, `accent` ink,
+border — which is what `DccWidgets.segment()` → `set_segment_on()` already
+builds and what the approved `Religion.dc.html` uses. This is not a style
+preference: the filled alternative is the one DS-02 deleted shell-wide, so
+building it would reintroduce something a previous pass deliberately removed.
+**Recorded as an interpretation:** the owner said "b", the artboard labelled "b"
+draws the filled slab, and it is the drawing that is wrong rather than the
+choice. If the filled look was meant specifically, this reverses.

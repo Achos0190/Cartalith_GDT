@@ -1,0 +1,498 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<div class="tok" style="width:1180px;height:1010px;background:var(--sur);padding:20px;
+     display:flex;flex-direction:column;gap:13px">
+
+  <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">
+    WORLD &rsaquo; BIOMES &mdash; paint lives in the options bar and the right dock (05 &sect;2.2.6, &sect;1.8).
+    What the left dock keeps, and where Draft went</div>
+
+  <!-- ===================================================================
+       A - THE OPTIONS BAR. 40 px, bar B. Slots in 2.2.6's own order.
+       THE TARGETS ARE NOT THE SPEC'S. 2.2.6 draws biome / soil / vegetation
+       and a 6-entry biome legend; the engine's PaintTarget is Biome /
+       Terrain / Splat, with 13 / 13 / N values (paint_bridge.rs; water is
+       excluded from Biome, "the brush never touches water"). The engine wins:
+       soil and vegetation do not exist and cannot be painted.
+       =================================================================== -->
+  <div>
+    <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint);
+         padding-bottom:7px">A &middot; TOOL OPTIONS BAR &mdash; 40 px, `tbBiome`</div>
+    <div style="height:40px;background:var(--pan);border-top:1px solid var(--hair);
+         border-bottom:1px solid var(--hair);display:flex;align-items:center;
+         gap:10px;padding:0 var(--pad)">
+
+      <span class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--acc)">PAINT</span>
+
+      <span style="display:flex;gap:2px;background:var(--ins);border-radius:999px;padding:2px">
+        <span class="mono" style="padding:3px 11px;border-radius:999px;background:var(--wash2);
+              color:var(--acc);font-size:var(--m1)">biome</span>
+        <span class="mono" style="padding:3px 11px;border-radius:999px;color:var(--dim);
+              font-size:var(--m1)">terrain</span>
+        <span class="mono" style="padding:3px 11px;border-radius:999px;color:var(--dim);
+              font-size:var(--m1)">splat</span>
+      </span>
+
+      <!-- Value cycler. 2.2.6 makes it a click-to-cycle pill, which is right
+           at 6 values and wrong at 13: cycling to Hills from Coastal Lowland
+           is twelve clicks. Kept as the pill, opened as a menu (the caret),
+           and the cycle survives as the click - so the fast path and the
+           direct path are the same control. The 13 values are the legend in
+           the right dock, which is where the counts already are. -->
+      <span style="display:flex;align-items:center;gap:7px;min-height:var(--ctl);
+            padding:2px 10px 2px 8px;border-radius:999px;background:var(--ins)">
+        <span style="width:9px;height:9px;border-radius:3px;background:#3a7a4a"></span>
+        <span class="mono" style="font-size:var(--m1);color:var(--ink)">Temperate Forest</span>
+        <span class="mono" style="font-size:var(--m2);color:var(--faint)">&#9662;</span>
+      </span>
+
+      <span class="mono" style="font-size:var(--m1);color:var(--faint)">radius</span>
+      <span style="width:90px;height:var(--ctl);display:flex;align-items:center">
+        <span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative">
+          <span style="position:absolute;left:0;top:0;bottom:0;width:15%;border-radius:2px;
+                background:var(--acc)"></span>
+          <span style="position:absolute;left:15%;top:-4px;margin-left:-6px;width:12px;
+                height:12px;border-radius:50%;background:var(--ink)"></span>
+        </span>
+      </span>
+      <!-- 6 c, not 6 px: paint_set_brush takes cells. Range is the engine's
+           1 - 40, not 2.2.6's 2 - 30. Divergence recorded, engine drawn. -->
+      <span class="mono" style="font-size:var(--m1);color:var(--ink);width:30px">6 c</span>
+
+      <span class="mono" style="min-height:var(--ctl);padding:2px 12px;border-radius:999px;
+            background:var(--ins);color:var(--dim);font-size:var(--m1);
+            display:flex;align-items:center">erase &#8679;</span>
+      <span class="mono" style="min-height:var(--ctl);padding:2px 12px;border-radius:999px;
+            background:var(--wash2);color:var(--acc);font-size:var(--m1);
+            display:flex;align-items:center">land only</span>
+
+      <span style="flex:1"></span>
+
+      <!-- The pending count is the DRAFT (paint_draft_count), not the
+           committed-plus-pending composite. Both numbers exist and they are
+           different; the bar carries the one the two buttons act on. -->
+      <span class="mono" style="font-size:var(--m2);color:var(--dis)">4 dabs pending</span>
+      <span class="mono" style="min-height:var(--ctl);padding:2px 14px;border-radius:8px;
+            background:var(--acc);color:var(--accInk);font-weight:600;font-size:var(--m1);
+            display:flex;align-items:center;white-space:nowrap">&#10003; Commit</span>
+      <span class="mono" style="min-height:var(--ctl);padding:2px 12px;border-radius:8px;
+            background:var(--ins);color:var(--sec);font-size:var(--m1);
+            display:flex;align-items:center">Discard</span>
+    </div>
+    <div class="mono" style="font-size:var(--m2);line-height:1.7;color:var(--dis);padding-top:6px">
+      hardness and softness are <span style="color:var(--faint)">not</span> here &mdash; two more labelled sliders take
+      190 px the bar does not have, and they were the one duplicated pair on screen
+    </div>
+  </div>
+
+  <div style="flex:1;display:flex;gap:18px;align-items:flex-start;min-height:0">
+
+    <!-- ===================================================================
+         B - LEFT DOCK, 372 px. WHAT IT KEEPS.
+         =================================================================== -->
+    <div style="width:372px;flex:none">
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint);
+           padding-bottom:7px">B &middot; LEFT DOCK 372 px &mdash; WHAT IT KEEPS</div>
+
+      <div style="background:var(--pan);border-right:1px solid var(--hair);
+           border-radius:10px 10px 10px 10px;overflow:hidden">
+
+        <div style="display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px">
+          <span class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">WORLD</span>
+          <span style="display:flex;gap:2px;background:var(--ins);border-radius:999px;padding:2px">
+            <span class="mono" style="padding:2px 9px;border-radius:999px;color:var(--dim);
+                  font-size:var(--m1)">a</span>
+            <span class="mono" style="padding:2px 9px;border-radius:999px;background:var(--wash2);
+                  color:var(--acc);font-size:var(--m1)">b</span>
+          </span>
+          <span style="flex:1"></span>
+          <span class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">SCULPT</span>
+        </div>
+        <div class="rule"></div>
+
+        <div style="padding:0 var(--pad) 14px">
+
+          <!-- The brush block is SHARED. Both brushes are one falloff kernel
+               with different targets, and the dock is the only place the pair
+               ever sat side by side. Naming it "brush shape", not "paint
+               brush", is what stops it becoming a second copy: one block,
+               two consumers, and the armed tool decides which. Comparable:
+               Photoshop's Brush Settings panel is one panel for every tool
+               that takes a brush. -->
+          <div class="mono" style="padding:12px 0 6px;font-size:var(--m2);letter-spacing:.2em;
+               color:var(--faint)">BRUSH SHAPE &middot; SCULPT AND PAINT</div>
+
+          <div style="display:flex;align-items:center;gap:10px;min-height:var(--ctl)">
+            <span class="mono" style="width:96px;font-size:var(--m1);color:var(--sec)">hardness</span>
+            <span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative">
+              <span style="position:absolute;left:0;top:0;bottom:0;width:100%;border-radius:2px;
+                    background:var(--acc)"></span>
+              <span style="position:absolute;left:100%;top:-4px;margin-left:-6px;width:12px;
+                    height:12px;border-radius:50%;background:var(--ink)"></span>
+            </span>
+            <span class="mono" style="width:44px;text-align:right;font-size:var(--m1);
+                  color:var(--ink)">1.00</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;min-height:var(--ctl)">
+            <span class="mono" style="width:96px;font-size:var(--m1);color:var(--sec)">softness</span>
+            <span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative">
+              <span style="position:absolute;left:0;top:0;bottom:0;width:0%;border-radius:2px;
+                    background:var(--acc)"></span>
+              <span style="position:absolute;left:0;top:-4px;margin-left:-6px;width:12px;
+                    height:12px;border-radius:50%;background:var(--ink)"></span>
+            </span>
+            <span class="mono" style="width:44px;text-align:right;font-size:var(--m1);
+                  color:var(--ink)">0.00</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;min-height:var(--ctl)">
+            <span class="mono" style="width:96px;font-size:var(--m1);color:var(--sec)">falloff</span>
+            <span style="display:flex;gap:2px;background:var(--ins);border-radius:999px;padding:2px">
+              <span class="mono" style="padding:3px 9px;border-radius:999px;background:var(--wash2);
+                    color:var(--acc);font-size:var(--m1)">smooth</span>
+              <span class="mono" style="padding:3px 9px;border-radius:999px;color:var(--dim);
+                    font-size:var(--m1)">linear</span>
+              <span class="mono" style="padding:3px 9px;border-radius:999px;color:var(--dim);
+                    font-size:var(--m1)">sharp</span>
+              <span class="mono" style="padding:3px 9px;border-radius:999px;color:var(--dim);
+                    font-size:var(--m1)">constant</span>
+            </span>
+          </div>
+          <div class="mono" style="font-size:var(--m2);line-height:1.6;color:var(--dis);
+               padding-top:6px">
+            with <span style="color:var(--acc)">Biome paint</span> armed, size comes from the bar in cells;<br>
+            with <span style="color:var(--sec)">Sculpt</span> armed it comes from brush size in px</div>
+
+          <div class="rule" style="margin:13px 0 0"></div>
+
+          <!-- WHERE DRAFT WENT. Drawn as an absence with its forwarding
+               address, not deleted silently - a builder reading only this
+               artboard would otherwise conclude the section was forgotten. -->
+          <div class="mono" style="padding:12px 0 6px;font-size:var(--m2);letter-spacing:.2em;
+               color:var(--faint)">STROKE &amp; GRID &middot; SELECTED STAMP</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            <span class="mono" style="padding:3px 10px;border-radius:8px;background:var(--ins);
+                  color:var(--dis);font-size:var(--m1)">add point</span>
+            <span class="mono" style="padding:3px 10px;border-radius:8px;background:var(--ins);
+                  color:var(--dis);font-size:var(--m1)">duplicate</span>
+            <span class="mono" style="padding:3px 10px;border-radius:8px;background:var(--ins);
+                  color:var(--dis);font-size:var(--m1)">rotate</span>
+            <span class="mono" style="padding:3px 10px;border-radius:8px;background:var(--ins);
+                  color:var(--dis);font-size:var(--m1)">scale</span>
+            <span class="mono" style="padding:3px 10px;border-radius:8px;background:var(--ins);
+                  color:var(--dis);font-size:var(--m1)">flatten</span>
+          </div>
+          <div class="mono" style="font-size:var(--m2);line-height:1.6;color:var(--dis);
+               padding-top:8px">
+            every stroke becomes a live procedural stamp &middot;<br>
+            commit bakes the stack in one pass</div>
+
+          <div style="margin-top:12px;background:var(--ins);border-radius:8px;
+               border-left:2px solid var(--div);padding:8px 10px 9px">
+            <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--faint);
+                 padding-bottom:4px">DRAFT &mdash; MOVED</div>
+            <div class="mono" style="font-size:var(--m2);line-height:1.65;color:var(--dis)">
+              the stamp count, Commit and Discard are in the<br>
+              right dock's <span style="color:var(--acc)">STAMP STACK</span> and on the sculpt bar.<br>
+              Two copies of one draft is the defect that left<br>
+              Commit greyed over a non-empty stack</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         C - THE RULING, ROW BY ROW
+         =================================================================== -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:11px">
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">
+        C &middot; WHERE EACH CONTROL GOES, AND WHY</div>
+
+      <div style="background:var(--pan);border:1px solid var(--hair);border-radius:10px;
+           padding:11px 13px 12px">
+        <div class="mono" style="display:flex;gap:8px;font-size:var(--m2);letter-spacing:.14em;
+             color:var(--faint);padding-bottom:6px;border-bottom:1px solid var(--div)">
+          <span style="flex:1">CONTROL</span><span style="width:74px">HOME</span><span style="width:132px">BECAUSE</span></div>
+
+        <div class="mono" style="display:flex;gap:8px;padding:5px 0;font-size:var(--m1)">
+          <span style="flex:1;color:var(--sec)">target &middot; value</span>
+          <span style="width:74px;color:var(--acc)">bar</span>
+          <span style="width:132px;color:var(--dis);font-size:var(--m2)">changed every few strokes</span></div>
+        <div class="mono" style="display:flex;gap:8px;padding:5px 0;font-size:var(--m1)">
+          <span style="flex:1;color:var(--sec)">radius</span>
+          <span style="width:74px;color:var(--acc)">bar</span>
+          <span style="width:132px;color:var(--dis);font-size:var(--m2)">changed mid-stroke</span></div>
+        <div class="mono" style="display:flex;gap:8px;padding:5px 0;font-size:var(--m1)">
+          <span style="flex:1;color:var(--sec)">erase &middot; land only</span>
+          <span style="width:74px;color:var(--acc)">bar</span>
+          <span style="width:132px;color:var(--dis);font-size:var(--m2)">modal, must be visible</span></div>
+        <div class="mono" style="display:flex;gap:8px;padding:5px 0;font-size:var(--m1)">
+          <span style="flex:1;color:var(--sec)">hardness &middot; softness</span>
+          <span style="width:74px;color:var(--sec)">left dock</span>
+          <span style="width:132px;color:var(--dis);font-size:var(--m2)">set once per session; shared with Sculpt</span></div>
+        <div class="mono" style="display:flex;gap:8px;padding:5px 0;font-size:var(--m1)">
+          <span style="flex:1;color:var(--sec)">painted counts</span>
+          <span style="width:74px;color:var(--water)">right dock</span>
+          <span style="width:132px;color:var(--dis);font-size:var(--m2)">a readout, and 13 rows tall</span></div>
+        <div class="mono" style="display:flex;gap:8px;padding:5px 0;font-size:var(--m1)">
+          <span style="flex:1;color:var(--sec)">Commit &middot; Discard</span>
+          <span style="width:74px;color:var(--acc)">bar <span style="color:var(--dis)">+</span> <span style="color:var(--water)">dock</span></span>
+          <span style="width:132px;color:var(--dis);font-size:var(--m2)">2.2.6 and 1.8 both draw the pair</span></div>
+        <div class="mono" style="display:flex;gap:8px;padding:5px 0;font-size:var(--m1)">
+          <span style="flex:1;color:var(--sec)">Painted lakes</span>
+          <span style="width:74px;color:var(--water)">right dock</span>
+          <span style="width:132px;color:var(--dis);font-size:var(--m2)">post-commit, not a draft control</span></div>
+      </div>
+
+      <!-- One draft, three surfaces. The rule that follows from it. -->
+      <div style="background:var(--pan);border:1px solid var(--hair);border-radius:10px;
+           padding:11px 13px 12px">
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--acc);
+             padding-bottom:7px">ONE DRAFT, TWO SURFACES &mdash; THE RULE</div>
+        <div class="mono" style="font-size:var(--m2);line-height:1.85;color:var(--dis)">
+          Commit and Discard appear <span style="color:var(--faint)">twice</span>, and that is deliberate: the bar is
+          where the hand is and the dock is where the count is. The rule that makes it safe
+          is that <span style="color:var(--faint)">every surface over one draft refreshes together</span> &mdash; a commit from
+          the bar left the right dock reporting &ldquo;1 dab pending&rdquo; with a live Commit over an
+          emptied draft, and rebuilt that dock <span style="color:var(--block)">zero</span> times.<br>
+          <span style="color:var(--faint)">Never</span> a third copy in the left dock. That is what the removed panel was.
+        </div>
+      </div>
+
+      <!-- SPLAT: an honest absent state, drawn rather than omitted. -->
+      <div style="background:var(--pan);border:1px solid var(--hair);border-radius:10px;
+           padding:11px 13px 12px">
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--acc);
+             padding-bottom:7px">SPLAT &mdash; THE TARGET WITH NO SWATCHES</div>
+        <div style="display:flex;gap:14px;align-items:flex-start">
+          <div style="width:190px;flex:none;background:var(--ins);border-radius:8px;padding:7px 9px 8px">
+            <div class="mono" style="display:flex;align-items:center;gap:8px;min-height:20px;
+                 font-size:var(--m1)">
+              <span style="width:10px;height:10px;border:1px solid var(--bor);border-radius:2px"></span>
+              <span style="flex:1;color:var(--sec)">rock</span>
+              <span style="color:var(--dis);font-size:var(--m2)">1 284</span></div>
+            <div class="mono" style="display:flex;align-items:center;gap:8px;min-height:20px;
+                 font-size:var(--m1)">
+              <span style="width:10px;height:10px;border:1px solid var(--bor);border-radius:2px"></span>
+              <span style="flex:1;color:var(--sec)">sand</span>
+              <span style="color:var(--dis);font-size:var(--m2)">0</span></div>
+            <div class="mono" style="font-size:var(--m2);line-height:1.6;color:var(--dis);
+                 padding-top:4px">no swatch &mdash; splat forces a ground<br>
+              texture from the pack, not a colour</div>
+          </div>
+          <div class="mono" style="flex:1;font-size:var(--m2);line-height:1.8;color:var(--dis)">
+            Biome and Terrain get real swatches, taken from the Biomes / Terrain
+            <span style="color:var(--faint)">debug-layer legends</span> &mdash; position <i>i</i> in one is position <i>i</i> in the
+            other, verified against the palette slices.<br>
+            Splat has no debug layer, so the swatch cell is an <span style="color:var(--faint)">empty outline</span>, never
+            a grey square that reads as a colour. Counts are still real
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         D - RIGHT DOCK 304 px. rdPaint.
+         =================================================================== -->
+    <div class="dock" style="width:304px;flex:none;height:600px;border-radius:10px;
+         border-left:1px solid var(--hair)">
+      <div class="dockhead">
+        <span class="closebtn">&#10005;</span>
+        <span class="docktitle">PAINT &middot; BIOME</span>
+      </div>
+      <div class="dockbody">
+        <div class="cap">PAINTED &middot; UNCOMMITTED</div>
+        <!-- The hero is paint_painted_counts()["total"] - committed plus
+             whatever is still in the draft. The pending figure below it is
+             paint_draft_count(), a different number, and the pair is stated
+             because "4 of them are not yet real" is the question the hero
+             raises. -->
+        <div class="hero" style="padding-top:2px">6 240 cells</div>
+        <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-top:3px">
+          4 dabs pending across <span style="color:var(--sec)">every</span> layer, not just biome</div>
+
+        <div class="rule" style="margin:12px 0 9px"></div>
+        <div class="cap" style="padding-bottom:5px">LEGEND &middot; PAINTED COUNTS</div>
+
+        <!-- 13 values, CART_BIOMES[..13] with CART_BIOME_COLS in the same
+             order. Water is excluded: the brush never touches it. The armed
+             value takes the --wash background and the accent name, per sec. 1.8;
+             clicking a row arms it, which is the only affordance the bar's
+             cycler has no room for. -->
+        <div style="display:flex;align-items:center;gap:9px;min-height:22px;padding:2px 4px">
+          <span style="width:10px;height:10px;border-radius:3px;background:#5a93b8"></span>
+          <span style="flex:1;color:var(--body)">Coastal Lowland</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dim)">418</span></div>
+        <div style="display:flex;align-items:center;gap:9px;min-height:22px;padding:2px 4px;
+             background:var(--wash);border-radius:5px">
+          <span style="width:10px;height:10px;border-radius:3px;background:#3a7a4a"></span>
+          <span style="flex:1;color:var(--acc)">Temperate Forest</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dim)">2 106</span></div>
+        <div style="display:flex;align-items:center;gap:9px;min-height:22px;padding:2px 4px">
+          <span style="width:10px;height:10px;border-radius:3px;background:#a8a35a"></span>
+          <span style="flex:1;color:var(--body)">Mediterranean Scrub</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dim)">0</span></div>
+        <div style="display:flex;align-items:center;gap:9px;min-height:22px;padding:2px 4px">
+          <span style="width:10px;height:10px;border-radius:3px;background:#4a7878"></span>
+          <span style="flex:1;color:var(--body)">Wetlands / Marshes</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dim)">311</span></div>
+        <div style="display:flex;align-items:center;gap:9px;min-height:22px;padding:2px 4px">
+          <span style="width:10px;height:10px;border-radius:3px;background:#9e9560"></span>
+          <span style="flex:1;color:var(--body)">Steppe / Grassland</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dim)">1 442</span></div>
+        <div style="display:flex;align-items:center;gap:9px;min-height:22px;padding:2px 4px">
+          <span style="width:10px;height:10px;border-radius:3px;background:#2a6a3a"></span>
+          <span style="flex:1;color:var(--body)">Tropical Jungle</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dim)">0</span></div>
+        <div style="display:flex;align-items:center;gap:9px;min-height:22px;padding:2px 4px">
+          <span style="width:10px;height:10px;border-radius:3px;background:#3a6a5a"></span>
+          <span style="flex:1;color:var(--body)">Boreal Taiga</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dim)">903</span></div>
+        <div style="display:flex;align-items:center;gap:9px;min-height:22px;padding:2px 4px">
+          <span style="width:10px;height:10px;border-radius:3px;background:#7a7a8a"></span>
+          <span style="flex:1;color:var(--body)">Mountain Highland</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dim)">1 060</span></div>
+        <div class="mono" style="font-size:var(--m2);color:var(--dis);padding:4px 4px 0">
+          5 more &middot; 13 values, water excluded</div>
+
+        <div class="rule" style="margin:11px 0 10px"></div>
+        <div style="display:flex;gap:6px">
+          <div class="btn" style="flex:1;padding:0 12px;font-size:var(--m1)">&#10003; Commit</div>
+          <div class="btn2 mono" style="font-size:var(--m1)">Discard</div>
+        </div>
+        <!-- sec. 1.8's footnote hard-codes "stages 09 and 10". The engine reports
+             the stale set per target from paint_commit(), and it differs by
+             layer - so the number cannot be written into the design. The
+             sentence names the mechanism and the status bar names the stages. -->
+        <div class="foot">
+          painted biome overrides classification for the cells it covers.
+          Commit marks stages stale &mdash; which ones depends on the layer;
+          the status bar names them when you press it</div>
+
+        <div class="rule" style="margin:11px 0 9px"></div>
+        <!-- PAINTED LAKES, rehomed. It is not a draft control: it acts on
+             cells a Lake stamp has already DEPOSITED, touches no height,
+             marks nothing stale, and the next full civ recompute undoes it.
+             So it sits after commit, in the dock, and is absent - not greyed
+             for a reason it cannot state - until there are committed lake
+             stamps to reclassify. -->
+        <div class="cap" style="padding-bottom:5px">AFTER COMMIT</div>
+        <div class="btn2 mono" style="font-size:var(--m1);justify-content:flex-start">
+          Count painted lakes as water</div>
+        <div class="foot" style="padding-top:6px">
+          reclassifies every cell a Lake stamp deposited, whether or not its floor
+          ended below sea level. Changes settlement placement, routing, trade and
+          the Journey Planner. Undone by the next full civ recompute
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       E - THE TWO STATES THE PAIR HAS, AND THE ONE THE BUILD MAY NOT HAVE
+       =================================================================== -->
+  <div style="flex:none;background:var(--pan);border:1px solid var(--hair);border-radius:10px;
+       padding:11px 14px 12px">
+    <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--acc);
+         padding-bottom:8px">COMMIT / DISCARD &mdash; THREE STATES, ALL THREE ALREADY DECIDABLE</div>
+    <div style="display:flex;gap:18px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="mono" style="min-height:var(--ctl);padding:2px 14px;border-radius:8px;
+                background:var(--acc);color:var(--accInk);font-weight:600;font-size:var(--m1);
+                display:flex;align-items:center">&#10003; Commit</span>
+          <span class="mono" style="min-height:var(--ctl);padding:2px 12px;border-radius:8px;
+                background:var(--ins);color:var(--sec);font-size:var(--m1);
+                display:flex;align-items:center">Discard</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dis)">4 dabs pending</span>
+        </div>
+        <div class="mono" style="font-size:var(--m2);line-height:1.7;color:var(--dis);padding-top:6px">
+          <span style="color:var(--faint)">pending &gt; 0</span> &mdash; both live. Commit is the primary
+          and Discard is not, in both places</div>
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;gap:6px;align-items:center;opacity:.5">
+          <span class="mono" style="min-height:var(--ctl);padding:2px 14px;border-radius:8px;
+                background:var(--ins);color:var(--dis);font-size:var(--m1);
+                display:flex;align-items:center">&#10003; Commit</span>
+          <span class="mono" style="min-height:var(--ctl);padding:2px 12px;border-radius:8px;
+                background:var(--ins);color:var(--dis);font-size:var(--m1);
+                display:flex;align-items:center">Discard</span>
+        </div>
+        <div class="mono" style="font-size:var(--m2);line-height:1.7;color:var(--dis);padding-top:6px">
+          <span style="color:var(--faint)">pending = 0, some painted</span> &mdash; disabled, and the
+          tooltip says which: &ldquo;the 6 240 cells above are already committed&rdquo;,
+          not a bare &ldquo;nothing pending&rdquo;</div>
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="mono" style="font-size:var(--m1);color:var(--dis);
+                border:1px solid var(--div);border-radius:8px;padding:4px 11px">
+            no paint editor for this world</span>
+        </div>
+        <!-- A loaded save has no draft session - the same ceiling Sculpt has.
+             The whole context is replaced by the sentence, rather than drawn
+             with every control greyed, because nothing here is one input away
+             from working. -->
+        <div class="mono" style="font-size:var(--m2);line-height:1.7;color:var(--dis);padding-top:6px">
+          <span style="color:var(--faint)">a loaded save</span> &mdash; get_paint_layers() is empty. The
+          context is replaced by one sentence, not drawn with eight dead controls</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

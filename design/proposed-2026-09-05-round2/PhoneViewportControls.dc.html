@@ -1,0 +1,597 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<!-- ===================================================================
+     PhoneViewportControls.dc.html  ·  DS-13
+     Surface: the phone map viewport's navigation cluster.
+     412 x 892 dp frame (06-phone.md §1, the 412 default; ruled the phone
+     authority 2026-08-25, GUI_GAP_REGISTER.md).
+
+     WHY THIS IS NOT THE 2026-08-29 DESIGN
+     That pass drew a right-edge column and took four high-severity
+     refutations (GUI_GAP_REGISTER.md §57). This one answers each:
+       1. It KEEPS the pan control. viewport_host.gd's LMB branch is
+          `elif mb.button_index == MOUSE_BUTTON_LEFT and _pan_mode:` with
+          no armed-tool condition -- and the touch story is stronger than
+          the register knew: the file's own InputEventMagnifyGesture
+          comment says single-finger drag-to-pan is DELIBERATELY not wired
+          on touch ("one finger keeps painting/drawing"), so on a handset
+          the latch is the ONLY one-finger pan there is.
+       2. It moves zoom nowhere. menus.gd adds seven menus -- File, Edit,
+          Assets, Data, Preferences, Window, Help. There is no View menu,
+          so `MORE > VIEW > Zoom` is not a destination.
+       3. It does not claim to be phone-only. `_build_navpad()` opens
+          `if not _touch: return`, so a touch tablet builds the same
+          controls; the reduction rule below is written in detents, which
+          exist on both.
+       4. It asserts no false colour equality. Every equality claimed here
+          is arithmetic, and the two NON-equalities are stated as such.
+     =================================================================== -->
+<div class="tok" style="width:1360px;height:1012px;background:var(--sur);padding:22px;
+     display:flex;flex-direction:column;gap:14px">
+
+  <div style="display:flex;align-items:baseline;gap:14px">
+    <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim)">
+      DS-13 &mdash; PHONE VIEWPORT CONTROLS</div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis)">
+      412 &times; 892 dp &middot; 1080 px at <span style="color:var(--faint)">_phone_scale</span> 2.62
+      &middot; owner ruling 2026-09-05: a thumb-reachable bottom cluster, not a right-edge column</div>
+  </div>
+
+  <div style="display:flex;gap:20px;align-items:flex-start;flex:1;min-height:0">
+
+    <!-- ============ FRAME A · default, no sheet ============ -->
+    <div style="flex:none">
+      <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:6px">
+        A &middot; default &mdash; <span style="color:var(--faint)">tab = null</span>, map full-bleed
+        (&sect;2: the app opens with no sheet)</div>
+
+      <div style="width:412px;height:892px;border-radius:30px;border:1px solid var(--bor);
+           overflow:hidden;background:#101112;position:relative">
+
+        <!-- Map host. §6.2: top:0; left:0; right:0; bottom:84px.
+             Fill and grid are the `atlas` palette from §6.2's _styleP() table --
+             bg #12161b, minor rgba(185,205,230,.09), major rgba(185,205,230,.17).
+             The bright wedge is deliberate: it is the ice-cap/desert case that
+             made the navpad read as four black holes before the 92 % alpha fix
+             (viewport_host.gd `_navpad_paint`'s own note), and it sits exactly
+             under the cluster. -->
+        <div style="position:absolute;left:0;right:0;top:0;bottom:84px;overflow:hidden;
+             background:
+               repeating-linear-gradient(0deg,rgba(185,205,230,.17) 0 1px,transparent 1px 128px),
+               repeating-linear-gradient(90deg,rgba(185,205,230,.17) 0 1px,transparent 1px 128px),
+               repeating-linear-gradient(0deg,rgba(185,205,230,.09) 0 1px,transparent 1px 32px),
+               repeating-linear-gradient(90deg,rgba(185,205,230,.09) 0 1px,transparent 1px 32px),
+               radial-gradient(130% 62% at 84% 92%,#eef3f7 0%,#cfd8df 30%,rgba(207,216,223,0) 64%),
+               linear-gradient(158deg,#1b2532 0%,#12161b 46%,#161d19 74%,#12161b 100%),
+               #12161b">
+
+          <!-- Route polyline + labels, §6.2 draw order: P.acc at alpha .85.
+               PLACES 0..6 only; the eighth entry (Qet Oasis) is off-route. -->
+          <div style="position:absolute;left:44px;top:300px;width:250px;height:2px;
+               background:var(--acc);opacity:.85;transform:rotate(-31deg);
+               transform-origin:0 0"></div>
+          <div style="position:absolute;left:262px;top:172px;width:96px;height:2px;
+               background:var(--acc);opacity:.85;transform:rotate(-18deg);
+               transform-origin:0 0"></div>
+          <div class="mono" style="position:absolute;left:52px;top:308px;font-size:var(--m1);
+               color:#e6ebf2">Vhal Serai</div>
+          <div class="mono" style="position:absolute;left:268px;top:150px;font-size:var(--m1);
+               color:#e6ebf2">Port Amre</div>
+
+          <!-- Scale bar, §6.2 screen-space furniture: x:14, y:H-26, height 2,
+               label fmtKm(n) at (14, H-34), 10px mono, P.ink. -->
+          <div style="position:absolute;left:14px;bottom:26px;width:128px;height:2px;
+               background:rgba(195,210,230,.55)"></div>
+          <div class="mono" style="position:absolute;left:14px;bottom:34px;font-size:var(--m1);
+               color:rgba(195,210,230,.75)">100 km</div>
+        </div>
+
+        <!-- Top scrim, §6.2: height 110, linear-gradient(180deg, scrimCol, transparent).
+             scrimCol dark = rgba(10,11,12,.72). -->
+        <div style="position:absolute;left:0;right:0;top:0;height:110px;pointer-events:none;
+             background:linear-gradient(180deg,rgba(10,11,12,.72) 0%,transparent 100%)"></div>
+
+        <!-- Status band, §4.1: height 30, padding 0 18, 10px mono, statusCol.
+             statusCol dark is #a9adb0 -- EQUAL to the DCC token set's --sec
+             (#a9adb0). Checked digit by digit; one of the two colour equalities
+             this artboard asserts. -->
+        <div class="mono" style="position:absolute;left:0;right:0;top:0;height:30px;padding:0 18px;
+             display:flex;align-items:center;font-size:var(--m1);color:var(--sec)">
+          <span>9:41</span><span style="flex:1"></span>
+          <span style="letter-spacing:.14em">LTE &#9646;&#9646; 84%</span>
+        </div>
+
+        <!-- Control row, §4.2: gap 8, padding 4px 10px 0, occupies y 34..78.
+             pillBg dark is rgba(18,20,21,.92) = #121415 at 92 %. The DCC set's
+             --pan is #121314. THOSE ARE NOT EQUAL -- one level apart in G and
+             B. Drawn here as the shell actually paints it: DccTheme.c("panel")
+             at alpha .92 (viewport_host.gd `_navpad_paint`), i.e. --pan / 92 %. -->
+        <div style="position:absolute;left:0;right:0;top:34px;height:44px;display:flex;
+             align-items:center;gap:8px;padding:0 10px">
+          <div style="flex:1;padding:8px 14px;border-radius:20px;background:rgba(18,19,20,.92);
+               border:1px solid var(--hair);min-width:0">
+            <div class="mono" style="font-weight:500;font-size:11.5px;letter-spacing:.2em;
+                 color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">ELDRA</div>
+            <div class="mono" style="font-size:9.5px;color:var(--dim);white-space:nowrap;
+                 overflow:hidden;text-overflow:ellipsis">483920 &middot; finalized &middot; atlas</div>
+          </div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8981;</div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8942;</div>
+        </div>
+
+        <!-- ---- THE CLUSTER ----------------------------------------------
+             right:12px; bottom:104px. Both numbers are the phone spec's own:
+             §6.2 puts the FAB column at right:12px;bottom:104px in portrait,
+             so this occupies a band the spec already reserved for floating map
+             chrome and introduces no new geometry.
+
+             WHY THAT BAND IS THE THUMB ZONE, without inventing an anthropometric:
+             §3 already put the primary navigation -- the four-tab bar -- at
+             bottom:0..84. The spec has therefore already committed the bottom of
+             the screen as the reachable region. This cluster is the next 44 dp
+             band above it, 20 dp clear of the bar.
+
+             GROUPING. Four separate discs is what ships today and what the
+             register calls "four identical dark pills". Zoom out and zoom in are
+             inverse operations on one quantity, so they become one 88 x 44 rocker
+             split by a hairline -- the affordance Google Maps' web zoom control
+             and Blender's viewport zoom widget both use. Pan and recentre stay
+             separate discs: one latches, one fires. Every target is 44 x 44
+             (§13's floor, and viewport_host.gd's own NAVPAD_HIT = 44). -->
+        <div style="position:absolute;right:12px;bottom:104px;display:flex;
+             align-items:center;gap:10px">
+
+          <!-- Zoom rocker. Two 44 x 44 halves, one hairline between. Glyphs are
+               §0.4's stepper pair, − and ＋, at 14px mono. Fires
+               zoom_step(ZOOM_BUTTON_STEP) and its reciprocal -- both already
+               exist in viewport_host.gd and are already bound. -->
+          <div class="mono" style="height:44px;border-radius:22px;background:rgba(18,19,20,.92);
+               border:1px solid var(--hair);display:flex;align-items:stretch;overflow:hidden">
+            <div style="width:44px;display:flex;align-items:center;justify-content:center;
+                 font-size:14px;color:var(--body)">&minus;</div>
+            <div style="width:1px;background:var(--hair);margin:11px 0"></div>
+            <div style="width:44px;display:flex;align-items:center;justify-content:center;
+                 font-size:14px;color:var(--body)">&#65291;</div>
+          </div>
+
+          <!-- Pan latch, OFF state. `tool_pan` in viewport_host.gd; that file's
+               own comments call it the navpad's hand. A toggle, not a momentary
+               press -- `_pan_btn.toggle_mode = true`, and `set_pan_mode()` writes
+               `button_pressed` back. The shell draws it as
+               DccIcons.get_icon("tool_pan", 17); the character here stands in. -->
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#9995;</div>
+
+          <!-- Recentre. `view_fill` -> reset_view(). Glyph is §6.2's own
+               recenter-FAB glyph, ⌖ at 16px mono. -->
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:16px;color:var(--body)">&#8982;</div>
+        </div>
+
+        <!-- Undo chip, §6.2: left:12px; bottom:104px, shown only when
+             undoStack.length > 0. Drawn because it is the collision test: at
+             412 dp the chip and the cluster clear each other by ~37 dp. At
+             360 dp (§1's smallest frame) the slack is gone and the chip's label
+             must ellipsise -- called out below, not silently drawn away. -->
+        <div class="mono" style="position:absolute;left:12px;bottom:104px;display:flex;
+             align-items:center;gap:8px;padding:11px 15px;border-radius:22px;
+             background:rgba(18,19,20,.92);border:1px solid var(--hair)">
+          <span style="font-size:13px;color:var(--acc)">&#8630;</span>
+          <span style="font-size:var(--m1);color:var(--body)">label</span>
+        </div>
+
+        <!-- Bottom bar, §3: 84 total = 66 tab row + 18 gesture inset,
+             background var(--pan2). The phone spec's --pan2 dark is #121314,
+             which IS the DCC token set's --pan (#121314). Second and last
+             equality asserted here, and it is exact. -->
+        <div style="position:absolute;left:0;right:0;bottom:0;height:84px;background:var(--pan);
+             border-top:1px solid var(--div);display:flex;flex-direction:column">
+          <div style="flex:1;display:flex;padding:4px 6px 0">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#9636;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">MAP</span>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#8983;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">GENERATE</span>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#10132;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">PLAN</span>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#8943;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">MORE</span>
+            </div>
+          </div>
+          <div style="height:18px;display:flex;align-items:center;justify-content:center">
+            <div style="width:112px;height:4px;border-radius:2px;background:var(--bor)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ FRAME B · sheet open at the half detent ============ -->
+    <div style="flex:none">
+      <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:6px">
+        B &middot; sheet open &mdash; MAP tab at <span style="color:var(--faint)">half</span>
+        (&sect;5.2: round(808 &times; .46) = 372 dp). The cluster tracks the sheet's top edge; nothing is removed</div>
+
+      <div style="width:412px;height:892px;border-radius:30px;border:1px solid var(--bor);
+           overflow:hidden;background:#101112;position:relative">
+
+        <div style="position:absolute;left:0;right:0;top:0;bottom:84px;overflow:hidden;
+             background:
+               repeating-linear-gradient(0deg,rgba(185,205,230,.17) 0 1px,transparent 1px 128px),
+               repeating-linear-gradient(90deg,rgba(185,205,230,.17) 0 1px,transparent 1px 128px),
+               repeating-linear-gradient(0deg,rgba(185,205,230,.09) 0 1px,transparent 1px 32px),
+               repeating-linear-gradient(90deg,rgba(185,205,230,.09) 0 1px,transparent 1px 32px),
+               radial-gradient(130% 62% at 84% 92%,#eef3f7 0%,#cfd8df 30%,rgba(207,216,223,0) 64%),
+               linear-gradient(158deg,#1b2532 0%,#12161b 46%,#161d19 74%,#12161b 100%),
+               #12161b">
+          <div style="position:absolute;left:44px;top:300px;width:250px;height:2px;
+               background:var(--acc);opacity:.85;transform:rotate(-31deg);transform-origin:0 0"></div>
+          <div style="position:absolute;left:262px;top:172px;width:96px;height:2px;
+               background:var(--acc);opacity:.85;transform:rotate(-18deg);transform-origin:0 0"></div>
+          <div class="mono" style="position:absolute;left:52px;top:308px;font-size:var(--m1);
+               color:#e6ebf2">Vhal Serai</div>
+          <div class="mono" style="position:absolute;left:268px;top:150px;font-size:var(--m1);
+               color:#e6ebf2">Port Amre</div>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;top:0;height:110px;pointer-events:none;
+             background:linear-gradient(180deg,rgba(10,11,12,.72) 0%,transparent 100%)"></div>
+
+        <div class="mono" style="position:absolute;left:0;right:0;top:0;height:30px;padding:0 18px;
+             display:flex;align-items:center;font-size:var(--m1);color:var(--sec)">
+          <span>9:41</span><span style="flex:1"></span>
+          <span style="letter-spacing:.14em">LTE &#9646;&#9646; 84%</span>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;top:34px;height:44px;display:flex;
+             align-items:center;gap:8px;padding:0 10px">
+          <div style="flex:1;padding:8px 14px;border-radius:20px;background:rgba(18,19,20,.92);
+               border:1px solid var(--hair);min-width:0">
+            <div class="mono" style="font-weight:500;font-size:11.5px;letter-spacing:.2em;
+                 color:var(--ink)">ELDRA</div>
+            <div class="mono" style="font-size:9.5px;color:var(--dim)">483920 &middot; finalized &middot; atlas</div>
+          </div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8981;</div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;flex:none;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#8942;</div>
+        </div>
+
+        <!-- Cluster, sheet-open position: bottom = 84 (bar) + 372 (detent) + 12.
+             ONE RULE, no removals: bottom = 84 + _detH(detent) + 12, and the
+             whole cluster hides at `full`, where §5.2 leaves the map a 96 dp
+             strip with nothing left to navigate. Written in detents rather than
+             in "phone", so a touch tablet -- which builds the same controls,
+             `_build_navpad()` being gated on `_touch` and not on `_phone` --
+             gets the same behaviour with no second code path.
+
+             The alternative was to drop controls when the sheet opens. Rejected:
+             removing the pan latch is exactly what the 2026-08-29 design was
+             refuted for, and a control that vanishes at one detent and returns at
+             another is a worse teacher than one that moves. -->
+        <div style="position:absolute;right:12px;bottom:468px;display:flex;
+             align-items:center;gap:10px">
+          <div class="mono" style="height:44px;border-radius:22px;background:rgba(18,19,20,.92);
+               border:1px solid var(--hair);display:flex;align-items:stretch;overflow:hidden">
+            <div style="width:44px;display:flex;align-items:center;justify-content:center;
+                 font-size:14px;color:var(--body)">&minus;</div>
+            <div style="width:1px;background:var(--hair);margin:11px 0"></div>
+            <div style="width:44px;display:flex;align-items:center;justify-content:center;
+                 font-size:14px;color:var(--body)">&#65291;</div>
+          </div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:15px;color:var(--body)">&#9995;</div>
+          <div class="mono" style="width:44px;height:44px;border-radius:22px;
+               background:rgba(18,19,20,.92);border:1px solid var(--hair);display:flex;
+               align-items:center;justify-content:center;font-size:16px;color:var(--body)">&#8982;</div>
+        </div>
+
+        <!-- Sheet, §5.1 portrait: left:0; right:0; bottom:84px; height 372;
+             border-radius 22 22 0 0; background var(--pan).
+             The phone spec's --pan is #15171a. The DCC token set has NO member
+             equal to it: --pan is #121314 and --ins is #191c1e. Drawn as the
+             literal, and said so, rather than asserting a match that is not one. -->
+        <div style="position:absolute;left:0;right:0;bottom:84px;height:372px;
+             border-radius:22px 22px 0 0;background:#15171a;
+             box-shadow:0 -10px 30px rgba(0,0,0,.35);display:flex;flex-direction:column">
+          <div style="height:20px;display:flex;align-items:center;justify-content:center">
+            <div style="width:42px;height:4px;border-radius:2px;background:var(--bor)"></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;padding:0 14px 10px">
+            <div style="flex:1;min-width:0">
+              <div class="mono" style="font-weight:500;font-size:11px;letter-spacing:.2em;
+                   color:var(--acc)">MAP</div>
+              <div class="mono" style="font-size:9.5px;color:var(--dim)">layers &middot; style &middot; annotation</div>
+            </div>
+            <div class="mono" style="width:38px;height:38px;border-radius:19px;flex:none;
+                 background:var(--ins);display:flex;align-items:center;justify-content:center;
+                 font-size:13px;color:var(--sec)">&#10005;</div>
+          </div>
+          <div style="flex:1;overflow:hidden;padding:2px 14px 24px">
+            <div class="mono" style="font-size:9.5px;letter-spacing:.2em;color:var(--dim);
+                 padding:6px 2px 8px">TOOLS &middot; ARMING DROPS THE SHEET TO A PEEK</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <div class="mono" style="min-height:44px;padding:0 16px;border-radius:22px;
+                   display:flex;align-items:center;gap:8px;font-size:var(--m1);letter-spacing:.12em;
+                   border:1px solid var(--acc);color:var(--acc);background:var(--wash2)">&#10148; INSPECT</div>
+              <div class="mono" style="min-height:44px;padding:0 16px;border-radius:22px;
+                   display:flex;align-items:center;gap:8px;font-size:var(--m1);letter-spacing:.12em;
+                   border:1px solid var(--hair);color:var(--sec);background:var(--ins)">&#10079; MEASURE</div>
+              <div class="mono" style="min-height:44px;padding:0 16px;border-radius:22px;
+                   display:flex;align-items:center;gap:8px;font-size:var(--m1);letter-spacing:.12em;
+                   border:1px solid var(--hair);color:var(--sec);background:var(--ins)">&#8982; LABEL</div>
+              <div class="mono" style="min-height:44px;padding:0 16px;border-radius:22px;
+                   display:flex;align-items:center;gap:8px;font-size:var(--m1);letter-spacing:.12em;
+                   border:1px solid var(--hair);color:var(--sec);background:var(--ins)">&#9671; ICON</div>
+            </div>
+            <div class="mono" style="font-size:9px;letter-spacing:.18em;color:var(--dim);
+                 padding:14px 2px 4px">LAYERS &middot; SURFACE</div>
+            <div class="mono" style="min-height:46px;padding:0 12px;border-radius:14px;
+                 display:flex;align-items:center;gap:12px;background:var(--wash)">
+              <span style="font-size:11px;color:var(--acc)">&#9679;</span>
+              <span style="flex:1;font-size:12.5px;color:var(--ink)">Relief</span></div>
+            <div class="mono" style="min-height:46px;padding:0 12px;border-radius:14px;
+                 display:flex;align-items:center;gap:12px">
+              <span style="font-size:11px;color:var(--dim)">&#9675;</span>
+              <span style="flex:1;font-size:12.5px;color:var(--body)">Biome</span></div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:0;right:0;bottom:0;height:84px;background:var(--pan);
+             border-top:1px solid var(--div);display:flex;flex-direction:column">
+          <div style="flex:1;display:flex;padding:4px 6px 0">
+            <div style="flex:1;display:flex;align-items:center;justify-content:center">
+              <div style="padding:4px 16px;border-radius:13px;background:var(--wash2);
+                   display:flex;flex-direction:column;align-items:center;gap:3px">
+                <span class="mono" style="font-size:14px;color:var(--acc)">&#9636;</span>
+                <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--acc)">MAP</span>
+              </div>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#8983;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">GENERATE</span>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#10132;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">PLAN</span>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;gap:3px">
+              <span class="mono" style="font-size:14px;color:var(--dim)">&#8943;</span>
+              <span class="mono" style="font-size:9.5px;letter-spacing:.12em;color:var(--dim)">MORE</span>
+            </div>
+          </div>
+          <div style="height:18px;display:flex;align-items:center;justify-content:center">
+            <div style="width:112px;height:4px;border-radius:2px;background:var(--bor)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ DETAIL COLUMN ============ -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:12px;height:892px;
+         padding-top:20px">
+
+      <div>
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim);
+             padding-bottom:8px">ANATOMY &mdash; DRAWN AT 2&times;</div>
+        <div style="display:flex;align-items:flex-end;gap:18px">
+          <div>
+            <div class="mono" style="width:176px;height:88px;border-radius:44px;
+                 background:rgba(18,19,20,.92);border:2px solid var(--hair);
+                 display:flex;align-items:stretch;overflow:hidden">
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;
+                   font-size:28px;color:var(--body)">&minus;</div>
+              <div style="width:2px;background:var(--hair);margin:22px 0"></div>
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;
+                   font-size:28px;color:var(--body)">&#65291;</div>
+            </div>
+            <div class="mono" style="font-size:var(--m2);color:var(--dim);padding-top:6px">
+              zoom rocker &middot; 88 &times; 44</div>
+          </div>
+          <!-- Pan latch, ARMED. §0.4's selected-chip formula, the only on-state
+               the spec gives: border --acc, colour --acc, background --wash.
+               Not an accent-FILLED disc: an accent fill is the phone canvas's
+               one primary-action surface, and a mode is not a primary action. -->
+          <div>
+            <div class="mono" style="width:88px;height:88px;border-radius:44px;
+                 background:var(--wash2);border:2px solid var(--acc);display:flex;
+                 align-items:center;justify-content:center;font-size:30px;color:var(--acc)">&#9995;</div>
+            <div class="mono" style="font-size:var(--m2);color:var(--acc);padding-top:6px">
+              pan &middot; ARMED</div>
+          </div>
+          <div>
+            <div class="mono" style="width:88px;height:88px;border-radius:44px;
+                 background:rgba(18,19,20,.92);border:2px solid var(--hair);display:flex;
+                 align-items:center;justify-content:center;font-size:32px;color:var(--body)">&#8982;</div>
+            <div class="mono" style="font-size:var(--m2);color:var(--dim);padding-top:6px">
+              recentre</div>
+          </div>
+        </div>
+        <div class="foot mono" style="color:var(--dim)">
+          Arming pan also raises the existing phone toast
+          (<span style="color:var(--faint)">app.gd &middot; _show_phone_toast</span>, 4.5&thinsp;s):
+          <span style="color:var(--body)">one finger pans &mdash; tap again to give it back to the tool</span>.
+          A latched mode with no announcement is the failure a toggle-only repaint already is.</div>
+      </div>
+
+      <div class="rule"></div>
+
+      <!-- The premise this lane was handed was half wrong, and the correction is
+           the strongest argument in the design. viewport_host.gd handles
+           InputEventMagnifyGesture and InputEventPanGesture, both switched on by
+           project.godot's `pointing/android/enable_pan_and_scale_gestures=true`,
+           whose own comment reads "Two-finger only." Single-finger drag is
+           deliberately NOT wired to the camera -- the file quotes the reference's
+           own "one finger keeps painting/drawing". So: pinch pans and zooms; one
+           finger does not pan. -->
+      <div>
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim);
+             padding-bottom:8px">FOUR CONTROLS, FOUR JUSTIFICATIONS</div>
+        <div class="row" style="align-items:flex-start"><span class="k mono">&minus; &nbsp;ZOOM OUT</span>
+          <span class="v mono" style="flex:2;text-align:left;color:var(--body)">
+            stepped and repeatable where pinch is continuous; one-handed, where a pinch is not.
+            Already bound &mdash; <span style="color:var(--faint)">zoom_step(1 / ZOOM_BUTTON_STEP)</span></span></div>
+        <div class="row" style="align-items:flex-start"><span class="k mono">&#65291; &nbsp;ZOOM IN</span>
+          <span class="v mono" style="flex:2;text-align:left;color:var(--body)">
+            the same, and the reachable half of the pair &mdash; a rocker keeps them adjacent, so
+            a repeated tap needs no re-aim</span></div>
+        <div class="row" style="align-items:flex-start"><span class="k mono">&#9995; &nbsp;PAN LATCH</span>
+          <span class="v mono" style="flex:2;text-align:left;color:var(--body)">
+            <span style="color:var(--acc)">not a duplicate of drag.</span>
+            Two fingers pan; one finger is given to the armed tool on purpose. This latch is the
+            only one-finger pan the handset has &mdash; which is the one-handed case exactly</span></div>
+        <div class="row" style="align-items:flex-start"><span class="k mono">&#8982; &nbsp;RECENTRE</span>
+          <span class="v mono" style="flex:2;text-align:left;color:var(--body)">
+            no gesture recovers a lost view; a pinch cannot undo a pan.
+            <span style="color:var(--faint)">reset_view()</span> exists, and clears pan mode with it</span></div>
+      </div>
+
+      <div class="rule"></div>
+
+      <!-- Direct answer to §57's "three colour equalities that were
+           arithmetically false". -->
+      <div>
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim);
+             padding-bottom:8px">COLOUR &mdash; TWO EQUALITIES, TWO NON-EQUALITIES</div>
+        <div class="row" style="align-items:flex-start"><span class="k mono" style="color:var(--good);flex:none;width:88px">EQUAL</span>
+          <span class="v mono" style="flex:1;text-align:left;color:var(--body)">
+            phone <span style="color:var(--faint)">--pan2</span> #121314
+            = DCC <span style="color:var(--faint)">--pan</span> #121314 &mdash; the bottom bar</span></div>
+        <div class="row" style="align-items:flex-start"><span class="k mono" style="color:var(--good);flex:none;width:88px">EQUAL</span>
+          <span class="v mono" style="flex:1;text-align:left;color:var(--body)">
+            phone <span style="color:var(--faint)">statusCol</span> #a9adb0
+            = DCC <span style="color:var(--faint)">--sec</span> #a9adb0 &mdash; the status band</span></div>
+        <div class="row" style="align-items:flex-start"><span class="k mono" style="color:var(--block);flex:none;width:88px">NOT EQUAL</span>
+          <span class="v mono" style="flex:1;text-align:left;color:var(--body)">
+            canvas <span style="color:var(--faint)">pillBg</span> rgba(18,20,21,.92) = #121415;
+            the shell paints <span style="color:var(--faint)">panel</span> #121314 at 92&thinsp;%.
+            One level apart in G and B. Drawn as the shell paints it</span></div>
+        <div class="row" style="align-items:flex-start"><span class="k mono" style="color:var(--block);flex:none;width:88px">NOT EQUAL</span>
+          <span class="v mono" style="flex:1;text-align:left;color:var(--body)">
+            phone <span style="color:var(--faint)">--pan</span> #15171a has no equal in the DCC set
+            (<span style="color:var(--faint)">--pan</span> #121314,
+            <span style="color:var(--faint)">--ins</span> #191c1e). The sheet uses the literal</span></div>
+      </div>
+
+      <div class="rule"></div>
+
+      <!-- The pill is 92 % over the MAP, so the effective background is not
+           --pan and has to be composited before it can be checked. -->
+      <div>
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim);
+             padding-bottom:8px">CONTRAST &mdash; COMPOSITED, WORST CASE</div>
+        <div class="row"><span class="k mono">GLYPH ON PILL, DARK MAP</span>
+          <span class="v mono" style="color:var(--good)">#c8cbcd on #121315 &middot; 11.4:1</span></div>
+        <div class="row"><span class="k mono">GLYPH ON PILL, ICE CAP</span>
+          <span class="v mono" style="color:var(--good)">#c8cbcd on #242424 &middot; 9.5:1</span></div>
+        <div class="row"><span class="k mono">ARMED GLYPH ON WASH</span>
+          <span class="v mono" style="color:var(--good)">#e0a34a on #242424 &middot; 7.0:1</span></div>
+        <div class="row"><span class="k mono">HAIRLINE BORDER</span>
+          <span class="v mono">1.5:1 &mdash; decoration, carries nothing</span></div>
+        <div class="foot mono" style="color:var(--dim)">
+          The pill is 92&thinsp;% opaque, so 8&thinsp;% of the background is map. Composited
+          against the brightest terrain the ramps produce (Imhof's #f2ead9) it lands at
+          #242424, and every glyph still clears 4.5:1 &mdash; which is what the alpha was
+          lowered for in the first place.</div>
+      </div>
+
+      <div class="rule"></div>
+
+      <div>
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--dim);
+             padding-bottom:8px">NOT SETTLED HERE</div>
+        <div class="foot mono" style="color:var(--dim);padding-top:0">
+          <span style="color:var(--faint)">1 &middot;</span> The cluster is right-anchored, so a
+          left-handed one-handed reach crosses the screen. Neither
+          <span style="color:var(--faint)">06-phone.md</span> nor
+          <span style="color:var(--faint)">menus.gd</span>'s Preferences has a handedness
+          setting, so none is drawn.<br>
+          <span style="color:var(--faint)">2 &middot;</span> At 360 dp the undo chip and the
+          cluster have no slack and the chip's label must ellipsise. Drawn at 412,
+          measured for 360, not resolved.<br>
+          <span style="color:var(--faint)">3 &middot;</span>
+          <span style="color:var(--faint)">_apply_touch_scale()</span> enforces one size for
+          every navpad child, so an 88 dp rocker needs that loop to size by group rather
+          than by child. A build change &mdash; flagged, not assumed away.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

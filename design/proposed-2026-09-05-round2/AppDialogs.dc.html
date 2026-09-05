@@ -1,0 +1,487 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<!--
+  APP-LEVEL DIALOGS -- STORAGE LOCATIONS, ABOUT/CREDITS, FIND ON MAP
+  ==========================================================================
+  These are INSTANCES of the approved modal pattern in
+  `design/proposed-2026-09-05/Modal.dc.html`, not new shapes. Inherited from
+  it verbatim and NOT re-decided here:
+
+    * card = `--pan` on `--bor`, 10 px radius, `--shadow`
+    * title band = 9/14/8 padding, `.2em` mono caps, close glyph trailing
+    * body pad 13/14/14
+    * fact block = `--ins`, 8 px radius, 9/11 pad, key/value `row` pairs
+    * footnote = `--m2` mono, 1.6 line, `--dis`
+    * BUTTON ORDER: safe action filled and LAST; a destructive action is
+      text-only beside it, never filled, never rightmost. Where a card has no
+      safe action the rule does not reach it.
+
+  All three are real surfaces with real code behind them, named per card. The
+  only thing this artboard adds to the pattern is the LIST-IN-A-MODAL body
+  (C), which Modal.dc.html's warnings card already prototypes as a bordered
+  `--ins` list with per-row leading glyphs; here the rows are results and the
+  glyph is a kind, not a severity.
+
+  Widths: A is 420 (four path rows need the length), B is 460 (running prose),
+  C is 400 -- the width `_ensure_desktop_search_dialog()` already sets as its
+  `min_size`, so the drawing and the shipped dialog agree.
+-->
+<div class="tok" style="width:1400px;height:760px;background:var(--sur);padding:22px;
+     display:flex;gap:22px;align-items:flex-start">
+
+  <!-- ══ A · STORAGE LOCATIONS ═══════════════════════════════════════════
+       REAL, all of it. `DccSettings.ROOT_KEYS` is exactly four -- projects,
+       atlas_cache, asset_packs, exports -- persisted to one ConfigFile at
+       user://cartalith_settings.cfg, with `storage_root(k)` per row and a
+       Browse that writes back immediately. app.gd::open_storage_locations().
+
+       Two owner/spec facts the drawing must carry:
+       * ONE dialog, not two. A read-only list and a separate "Change
+         locations..." item were merged on owner feedback 2026-08-19: the
+         readout IS the committed value, so there is no separate confirm and
+         therefore no Apply button. The safe action is `Done`.
+       * Defaults derive from OS.get_user_data_dir(), not from the spec's
+         `~/Cartalith/...` prose, which does not hold on Windows or Android.
+  -->
+  <div style="width:420px;flex:none">
+    <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint);
+         padding-bottom:10px">A &middot; STORAGE LOCATIONS</div>
+
+    <div style="background:var(--pan);border:1px solid var(--bor);border-radius:10px;
+         box-shadow:var(--shadow);overflow:hidden">
+
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 14px 8px;
+           border-bottom:1px solid var(--div)">
+        <span class="mono" style="flex:1;font-size:var(--m2);letter-spacing:.2em;
+              color:var(--faint)">STORAGE LOCATIONS</span>
+        <span class="mono" style="color:var(--faint);font-size:11px">&#10005;</span></div>
+
+      <div style="padding:13px 14px 14px">
+        <div style="color:var(--body);line-height:1.5">
+          One folder per root. Each change saves immediately.</div>
+
+        <!-- Row geometry: 28 px (`--row`), a 118 px mono label column, the path
+             in a `--ins` well, Browse at 24 px (`--ctl`) so the control does
+             not out-weigh the value it edits. The well clips from the LEFT on
+             overflow -- a path's tail identifies it, its head rarely does. -->
+        <div style="padding-top:11px;display:flex;flex-direction:column;gap:6px">
+
+          <div class="mono" style="display:flex;align-items:center;gap:9px;min-height:var(--row)">
+            <span style="width:118px;font-size:var(--m2);letter-spacing:.1em;
+                  color:var(--faint)">PROJECTS</span>
+            <span style="flex:1;min-width:0;background:var(--ins);border-radius:8px;
+                  min-height:var(--ctl);padding:4px 10px;font-size:var(--m1);color:var(--sec);
+                  display:flex;align-items:center;overflow:hidden;white-space:nowrap">D:\Cartalith\Worlds</span>
+            <span class="btn2 mono" style="font-size:var(--m1);min-height:var(--ctl);
+                  padding:0 10px">Browse&hellip;</span></div>
+
+          <div class="mono" style="display:flex;align-items:center;gap:9px;min-height:var(--row)">
+            <span style="width:118px;font-size:var(--m2);letter-spacing:.1em;
+                  color:var(--faint)">TILE ATLAS CACHE</span>
+            <span style="flex:1;min-width:0;background:var(--ins);border-radius:8px;
+                  min-height:var(--ctl);padding:4px 10px;font-size:var(--m1);color:var(--sec);
+                  display:flex;align-items:center;overflow:hidden;white-space:nowrap">D:\Cartalith\Cache\atlas</span>
+            <span class="btn2 mono" style="font-size:var(--m1);min-height:var(--ctl);
+                  padding:0 10px">Browse&hellip;</span></div>
+
+          <!-- The one row that owes a consequence, and it sits UNDER its own
+               row rather than in the footnote: moving this root does not
+               delete anything -- the chunks stay where they are and the new
+               location starts empty. That is the honest behaviour and the one
+               a browser cache pane has. -->
+          <div class="mono" style="padding:1px 0 3px 127px;font-size:var(--m2);
+               line-height:1.6;color:var(--dis)">
+            moving this leaves the baked chunks where they are and starts the new
+            folder empty &mdash; clear the old one from Preferences &rsaquo; Memory
+            if you want the space back</div>
+
+          <div class="mono" style="display:flex;align-items:center;gap:9px;min-height:var(--row)">
+            <span style="width:118px;font-size:var(--m2);letter-spacing:.1em;
+                  color:var(--faint)">ASSET PACKS</span>
+            <span style="flex:1;min-width:0;background:var(--ins);border-radius:8px;
+                  min-height:var(--ctl);padding:4px 10px;font-size:var(--m1);color:var(--sec);
+                  display:flex;align-items:center;overflow:hidden;white-space:nowrap">D:\Cartalith\Packs</span>
+            <span class="btn2 mono" style="font-size:var(--m1);min-height:var(--ctl);
+                  padding:0 10px">Browse&hellip;</span></div>
+
+          <div class="mono" style="display:flex;align-items:center;gap:9px;min-height:var(--row)">
+            <span style="width:118px;font-size:var(--m2);letter-spacing:.1em;
+                  color:var(--faint)">EXPORTS</span>
+            <span style="flex:1;min-width:0;background:var(--ins);border-radius:8px;
+                  min-height:var(--ctl);padding:4px 10px;font-size:var(--m1);color:var(--sec);
+                  display:flex;align-items:center;overflow:hidden;white-space:nowrap">D:\Cartalith\Exports</span>
+            <span class="btn2 mono" style="font-size:var(--m1);min-height:var(--ctl);
+                  padding:0 10px">Browse&hellip;</span></div>
+
+        </div>
+
+        <div class="mono" style="padding-top:11px;font-size:var(--m2);line-height:1.6;
+             color:var(--dis)">
+          defaults come from the platform&rsquo;s own user-data directory &mdash; the
+          spec&rsquo;s <span style="color:var(--faint)">~/Cartalith/&hellip;</span> paths
+          are prose that does not hold on every device this ships to</div>
+
+        <!-- No Apply and no Cancel: every Browse has already committed. A
+             Cancel here would promise a rollback that does not exist. -->
+        <div style="display:flex;gap:8px;justify-content:flex-end;padding-top:13px">
+          <div class="btn mono" style="padding:0 16px;font-size:var(--m1)">Done</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mono" style="padding-top:12px;font-size:var(--m2);line-height:1.7;color:var(--dis)">
+      <b style="color:var(--faint)">no Cancel, on purpose</b> &mdash; each Browse writes<br>
+      to disk the moment a folder is picked, so the card<br>
+      has nothing to roll back. Reached from two places<br>
+      (File, and Preferences &rsaquo; Application), one dialog
+    </div>
+  </div>
+
+  <!-- ══ B · ABOUT / CREDITS ═════════════════════════════════════════════
+       REAL: `credits.gd` (AcceptDialog, "Credits & academic principles"),
+       reachable from Help > About and Help > Credits, with the OK button
+       relabelled `Close`. The body is a long BBCode document -- four sections
+       and roughly forty bullets -- and that is the design problem here: a wall
+       of text in a modal is unreadable, and the attribution is exactly what
+       must not be skimmed past (PROVENANCE.md: dropping it "would quietly
+       withdraw attribution the HTML app has always given").
+
+       SO: sectioned, with a scrolling body and a fixed identity head. The head
+       carries what an About dialog is FOR -- what this is, and which build --
+       and the sections below are the credits document. Comparable: Blender's
+       Splash/About, whose top block is identity and version and whose links
+       sit under it, and Photoshop's About, which scrolls its credits under a
+       fixed identity plate.
+
+       BUILD ID IS REAL AND IS NOT A VERSION NUMBER. `DccShell.build_id()`
+       hashes every shipped script; there is no version constant in this
+       project for anyone to forget to bump. Drawing a `v1.4.2` here would be
+       inventing a field. The digest is shown as what it is.
+  -->
+  <div style="width:460px;flex:none">
+    <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint);
+         padding-bottom:10px">B &middot; ABOUT &middot; CREDITS</div>
+
+    <div style="background:var(--pan);border:1px solid var(--bor);border-radius:10px;
+         box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;
+         height:600px">
+
+      <div style="flex:none;display:flex;align-items:center;gap:8px;padding:9px 14px 8px;
+           border-bottom:1px solid var(--div)">
+        <span class="mono" style="flex:1;font-size:var(--m2);letter-spacing:.2em;
+              color:var(--faint)">ABOUT CARTALITH</span>
+        <span class="mono" style="color:var(--faint);font-size:11px">&#10005;</span></div>
+
+      <!-- Identity plate: fixed, does not scroll with the credits. -->
+      <div style="flex:none;padding:14px 14px 12px;border-bottom:1px solid var(--div)">
+        <div style="color:var(--ink);font-weight:500;font-size:15px">Cartalith Terrain Generator</div>
+        <div class="mono" style="padding-top:3px;font-size:var(--m1);color:var(--faint)">
+          a native Rust / Godot port of <i>Cartalith Gen1</i></div>
+        <div style="background:var(--ins);border-radius:8px;padding:9px 11px;margin-top:11px">
+          <div class="mono row" style="min-height:19px"><span class="k">BUILD</span>
+            <span class="v">a8ee3535&hellip;</span></div>
+          <div class="mono row" style="min-height:19px"><span class="k">SHELL SCRIPTS</span>
+            <span class="v">md5 of res://shell</span></div>
+          <div class="mono row" style="min-height:19px"><span class="k">DEPENDENCIES</span>
+            <span class="v">219 crates &middot; audited</span></div>
+        </div>
+        <div class="mono" style="padding-top:8px;font-size:var(--m2);line-height:1.6;color:var(--dis)">
+          there is no version constant &mdash; the build id is a digest of every
+          shipped script, so it cannot go stale</div>
+      </div>
+
+      <!-- Scrolling credits. Section heads are `.16em` mono caps at `--m2`,
+           the same head grammar every dock accordion uses, so the document
+           reads as this app's own rather than as pasted text. -->
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:12px 14px 14px">
+
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--faint);
+             padding-bottom:7px">STUDIED, NOT COPIED</div>
+        <div style="color:var(--sec);line-height:1.55;font-size:11px">
+          Every solver, renderer and control in the original app is original code.
+          The methods below were studied and independently implemented; this port
+          carries that same standing forward.</div>
+
+        <div style="display:flex;gap:5px;flex-wrap:wrap;padding-top:10px">
+          <span class="chip mono" style="font-size:var(--m2)">hydraulic erosion</span>
+          <span class="chip mono" style="font-size:var(--m2)">river geometry</span>
+          <span class="chip mono" style="font-size:var(--m2)">optical water</span>
+          <span class="chip mono" style="font-size:var(--m2)">procedural noise</span>
+          <span class="chip mono" style="font-size:var(--m2)">map-icon placement</span>
+        </div>
+
+        <div class="rule" style="margin:13px 0 12px"></div>
+
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--faint);
+             padding-bottom:7px">ACADEMIC PRINCIPLES</div>
+        <!-- Two-column key/value rather than bullets: the left is the subject,
+             the right is the citation, and a reader scanning for one topic
+             finds it by the left column alone. -->
+        <div class="mono row"><span class="k">TECTONICS</span>
+          <span class="v">plate partition &middot; orogeny</span></div>
+        <div class="mono row"><span class="k">FLEXURE</span>
+          <span class="v">isostatic rebound</span></div>
+        <div class="mono row"><span class="k">INCISION</span>
+          <span class="v">Braun &amp; Willett 2013</span></div>
+        <div class="mono row"><span class="k">DRAINAGE</span>
+          <span class="v">Strahler 1957</span></div>
+        <div class="mono row"><span class="k">EROSION</span>
+          <span class="v">Mei et al. 2007</span></div>
+        <div class="mono row"><span class="k">CLIMATE</span>
+          <span class="v">K&ouml;ppen-Geiger &middot; Miami NPP</span></div>
+        <div class="mono row"><span class="k">CAPACITY</span>
+          <span class="v">Tallavaara 2018 &middot; Zhu 2021</span></div>
+        <div class="mono row"><span class="k">SETTLEMENT</span>
+          <span class="v">Christaller 1933 &middot; L&ouml;sch 1940</span></div>
+        <div class="mono row"><span class="k">CENTRALITY</span>
+          <span class="v">Brandes 2001</span></div>
+        <div class="mono row"><span class="k">MIGRATION</span>
+          <span class="v">Zipf 1946 &middot; Ravenstein 1885</span></div>
+
+        <div class="rule" style="margin:13px 0 12px"></div>
+
+        <!-- The one disclosure that must not be a chip. PROVENANCE.md rules
+             that the Nortantis disclosure "should travel with" the constants
+             this port inherits, and names the credits screen as its home. It
+             gets its own accented block for that reason. -->
+        <div style="background:var(--ins);border-radius:8px;padding:10px 12px;
+             border-left:2px solid var(--acc)">
+          <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--acc);
+               padding-bottom:6px">NORTANTIS &middot; AGPL-3.0</div>
+          <div class="mono" style="font-size:var(--m2);line-height:1.7;color:var(--dis)">
+            Studied for <span style="color:var(--faint)">algorithm only</span>. The
+            map-icon elevation thresholds and the ridge-clustering approach were
+            taken from studying it; the naming rejection rule was shaped by
+            comparing against it. <span style="color:var(--faint)">No Nortantis code
+            is used or included, and no licence claim over it is made.</span></div>
+        </div>
+
+        <div class="rule" style="margin:13px 0 12px"></div>
+
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--faint);
+             padding-bottom:7px">CRATE LICENCE AUDIT &middot; 2026-09-02</div>
+        <!-- The `bar` class from the shared tokens, used once: 203 third-party
+             crates as one stacked bar makes "overwhelmingly permissive" a fact
+             you can see rather than a claim you have to take. -->
+        <div class="bar" style="height:6px">
+          <span style="flex:194;background:var(--good)"></span>
+          <span style="flex:8;background:var(--acc)"></span>
+          <span style="flex:1;background:var(--water)"></span>
+        </div>
+        <div class="mono" style="display:flex;gap:14px;padding-top:8px;font-size:var(--m2);
+             color:var(--dis);flex-wrap:wrap">
+          <span><span style="color:var(--good)">&#9679;</span> 194 permissive</span>
+          <span><span style="color:var(--acc)">&#9679;</span> 8 godot / gdext &middot; MPL-2.0</span>
+          <span><span style="color:var(--water)">&#9679;</span> 1 bzip2</span>
+        </div>
+        <div class="mono" style="padding-top:9px;font-size:var(--m2);line-height:1.7;color:var(--dis)">
+          all 219 packages in <span style="color:var(--faint)">Cargo.lock</span>
+          enumerated, of which 16 are this project&rsquo;s own crates.
+          <span style="color:var(--faint)">No GPL, LGPL or AGPL dependency was found
+          anywhere in the workspace</span> &mdash; all features, all platforms.</div>
+
+      </div>
+
+      <div style="flex:none;border-top:1px solid var(--div);padding:11px 14px;
+           display:flex;gap:8px;justify-content:flex-end">
+        <div class="btn2 mono" style="font-size:var(--m1)">Copy build id</div>
+        <div class="btn mono" style="padding:0 16px;font-size:var(--m1)">Close</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ C · FIND ON MAP ═════════════════════════════════════════════════
+       REAL: `PlaceSearch` (godot-project/shell/place_search.gd) builds the
+       index from five live getters, and `DccShell._open_desktop_find_on_map()`
+       presents it at 440x480 over a 400x420 minimum. Picking a row calls
+       `ViewportHost.move_view_to()` and closes the dialog.
+
+       THE FIVE KINDS AND THEIR EXACT SUBTITLE SHAPES are read off that file,
+       not invented:
+         settlement  `<Kind> - pop <n> - <faction>`
+         faction     `Faction - <n> settlements - pop <n> - capital <name>`
+         label       `Map label - at grid (x, y)`
+         road        `<Way type> - <n> km`
+         sea route   `Sea route - <n> km`
+
+       WHAT IS DELIBERATELY ABSENT, and drawn as such: there is no kind filter
+       and no result count in the shipped dialog, and this artboard does not
+       add either -- adding a filter row would be designing a control the
+       engine has no query for. Map ICONS are not indexed at all, by decision:
+       an icon carries family/slot/set, all closed vocabularies, so a row
+       reading "pine / forest" is not a place anyone typed a name to find. The
+       footnote says so, because a user who searches "pine" and gets nothing is
+       owed the reason.
+
+       TOUCH: rows are 44 px here, above the 28 px desktop row floor, because
+       the same function serves the phone overlay (`_phone_list_row`, `_ptap`)
+       and a two-line row at 28 px cannot hold a name and a subtitle legibly.
+  -->
+  <div style="width:400px;flex:none">
+    <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint);
+         padding-bottom:10px">C &middot; FIND ON MAP</div>
+
+    <div style="background:var(--pan);border:1px solid var(--bor);border-radius:10px;
+         box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;
+         height:480px">
+
+      <div style="flex:none;display:flex;align-items:center;gap:8px;padding:9px 14px 8px;
+           border-bottom:1px solid var(--div)">
+        <span class="mono" style="flex:1;font-size:var(--m2);letter-spacing:.2em;
+              color:var(--faint)">FIND ON MAP</span>
+        <span class="mono" style="color:var(--faint);font-size:11px">&#10005;</span></div>
+
+      <div style="flex:none;padding:13px 14px 10px">
+        <div class="mono" style="display:flex;align-items:center;gap:9px;background:var(--ins);
+             border-radius:8px;min-height:var(--btnH);padding:0 11px">
+          <span style="color:var(--faint);font-size:12px">&#8981;</span>
+          <span style="flex:1;color:var(--ink);font-size:11px">rav</span>
+          <span style="color:var(--faint);font-size:11px">&#10005;</span></div>
+      </div>
+
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:0 8px 8px">
+
+        <!-- Row: name at 11.5 px body, then `kind — subtitle` at `--m1` dim,
+             which is exactly what `_fill_search_results()` composes. The kind
+             is not repeated as a badge: it already opens the second line. -->
+        <div style="display:flex;flex-direction:column;justify-content:center;gap:2px;
+             min-height:44px;padding:6px 10px;border-radius:8px;background:var(--wash)">
+          <div style="font-size:11.5px;color:var(--ink)">Ravenhold</div>
+          <div class="mono" style="font-size:var(--m1);color:var(--dim)">
+            capital &mdash; Capital &middot; pop 41 200 &middot; Vessik League</div></div>
+
+        <div style="display:flex;flex-direction:column;justify-content:center;gap:2px;
+             min-height:44px;padding:6px 10px">
+          <div style="font-size:11.5px;color:var(--body)">Ravensmoor</div>
+          <div class="mono" style="font-size:var(--m1);color:var(--dim)">
+            town &mdash; Town &middot; pop 3 480 &middot; unclaimed</div></div>
+
+        <div style="display:flex;flex-direction:column;justify-content:center;gap:2px;
+             min-height:44px;padding:6px 10px">
+          <div style="font-size:11.5px;color:var(--body)">Ravenhold Reach</div>
+          <div class="mono" style="font-size:var(--m1);color:var(--dim)">
+            faction &mdash; Faction &middot; 12 settlements &middot; pop 184 000 &middot; capital Ravenhold</div></div>
+
+        <div style="display:flex;flex-direction:column;justify-content:center;gap:2px;
+             min-height:44px;padding:6px 10px">
+          <div style="font-size:11.5px;color:var(--body)">The Raven Road</div>
+          <div class="mono" style="font-size:var(--m1);color:var(--dim)">
+            highway &mdash; Highway &middot; 168 km</div></div>
+
+        <div style="display:flex;flex-direction:column;justify-content:center;gap:2px;
+             min-height:44px;padding:6px 10px">
+          <div style="font-size:11.5px;color:var(--body)">Ravensgate Passage</div>
+          <div class="mono" style="font-size:var(--m1);color:var(--dim)">
+            sea route &mdash; Sea route &middot; 240 km</div></div>
+
+        <div style="display:flex;flex-direction:column;justify-content:center;gap:2px;
+             min-height:44px;padding:6px 10px">
+          <div style="font-size:11.5px;color:var(--body)">Ravenmere</div>
+          <div class="mono" style="font-size:var(--m1);color:var(--dim)">
+            label &mdash; Map label &middot; at grid (412, 208)</div></div>
+
+      </div>
+
+      <div style="flex:none;border-top:1px solid var(--div);padding:9px 14px 11px">
+        <div class="mono" style="font-size:var(--m2);line-height:1.6;color:var(--dis)">
+          searches settlements, factions, labels, roads and sea routes.
+          <span style="color:var(--faint)">Map icons are not searchable</span> &mdash;
+          an icon has a family and a slot, not a name.</div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;padding-top:11px">
+          <div class="btn mono" style="padding:0 16px;font-size:var(--m1)">Close</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- The empty state, drawn rather than described: it is the state a fresh
+         world with no civilisation layer is permanently in, and the shipped
+         dialog says only "No matches", which does not explain a world that
+         has nothing to match. Same card, body swapped. -->
+    <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint);
+         padding:20px 0 10px">C&rsquo; &middot; NOTHING TO FIND</div>
+    <div style="background:var(--pan);border:1px solid var(--bor);border-radius:10px;
+         box-shadow:var(--shadow);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 14px 8px;
+           border-bottom:1px solid var(--div)">
+        <span class="mono" style="flex:1;font-size:var(--m2);letter-spacing:.2em;
+              color:var(--faint)">FIND ON MAP</span>
+        <span class="mono" style="color:var(--faint);font-size:11px">&#10005;</span></div>
+      <div style="padding:13px 14px 14px">
+        <div class="mono" style="display:flex;align-items:center;gap:9px;background:var(--ins);
+             border-radius:8px;min-height:var(--btnH);padding:0 11px">
+          <span style="color:var(--faint);font-size:12px">&#8981;</span>
+          <span style="flex:1;color:var(--dis);font-size:11px">Search places, factions, routes&hellip;</span></div>
+        <div class="mono" style="padding-top:14px;font-size:var(--m1);color:var(--dim)">
+          No places yet</div>
+        <div class="mono" style="padding-top:5px;font-size:var(--m2);line-height:1.7;color:var(--dis)">
+          this world has no settlements, factions or routes to search.
+          <span style="color:var(--faint)">CIVIL &rsaquo; Generate</span> builds them;
+          a loaded <span style="color:var(--faint)">.zip</span> save carries rivers
+          and labels only.</div>
+      </div>
+    </div>
+
+    <div class="mono" style="padding-top:12px;font-size:var(--m2);line-height:1.7;color:var(--dis)">
+      <b style="color:var(--faint)">an empty index is not an empty query</b> &mdash;<br>
+      &ldquo;no matches&rdquo; and &ldquo;nothing was ever indexed&rdquo; are<br>
+      different answers and the second one is actionable
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

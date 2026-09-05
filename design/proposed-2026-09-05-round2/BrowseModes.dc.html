@@ -1,0 +1,446 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<div class="tok" style="width:1600px;height:1010px;background:var(--sur);padding:20px;
+     display:flex;flex-direction:column;gap:13px">
+
+  <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">
+    DCC BROWSE DIALOG &mdash; 760 &times; 640, min 560 &times; 460. FILES and SAVE, the two modes the
+    &ldquo;Select folder&rdquo; canvas never drew</div>
+
+  <div style="flex:1;display:flex;gap:24px;align-items:flex-start;min-height:0">
+
+    <!-- ===================================================================
+         FILES. Every measurement is browse_dialog.gd's: head, rule, crumbs
+         (pad 28/14/28/0), path well (28/12/28/0), list (28/16/28/8) with 2 px
+         between rows and 14/11 inside them, rule, foot (28/14).
+         =================================================================== -->
+    <div style="width:760px;flex:none;display:flex;flex-direction:column;gap:11px">
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">
+        FILES &mdash; &ldquo;which of these?&rdquo;</div>
+
+      <div style="height:640px;background:var(--pan);border:1px solid var(--bor);
+           border-radius:10px;box-shadow:var(--shadow);display:flex;
+           flex-direction:column;overflow:hidden">
+
+        <div style="flex:none;display:flex;align-items:center;gap:14px;padding:14px 28px 13px">
+          <span class="mono" style="flex:1;font-size:var(--m2);letter-spacing:.2em;
+                color:var(--faint)">IMPORT ASSET PACK</span>
+          <span class="mono" style="color:var(--faint);font-size:11px">&#10005;</span>
+        </div>
+        <div class="rule"></div>
+
+        <!-- Breadcrumb. Pinned to its right-hand end (_pin_crumbs), so a deep
+             path shows the current folder and its nearest parents; the head of
+             the path scrolls off to the left rather than eliding in the middle.
+             The leading fade says the row is scrolled, which a bare cut does
+             not. Home sits outside the scroll and never moves. -->
+        <div style="flex:none;display:flex;align-items:center;gap:6px;padding:14px 28px 0">
+          <span style="flex:1;min-width:0;display:flex;align-items:center;gap:6px;
+                overflow:hidden;position:relative">
+            <span class="mono" style="font-size:var(--m1);color:var(--dis)">&hellip;</span>
+            <span class="mono" style="font-size:var(--m1);color:var(--dis)">&rsaquo;</span>
+            <span class="mono" style="font-size:var(--m1);color:var(--sec)">Documents</span>
+            <span class="mono" style="font-size:var(--m1);color:var(--dis)">&rsaquo;</span>
+            <span class="mono" style="font-size:var(--m1);color:var(--sec)">Cartalith</span>
+            <span class="mono" style="font-size:var(--m1);color:var(--dis)">&rsaquo;</span>
+            <span class="mono" style="font-size:var(--m1);color:var(--acc)">packs</span>
+          </span>
+          <span class="mono" style="font-size:var(--m1);color:var(--dis)">&#8962; Home</span>
+        </div>
+
+        <!-- Path well: typeable, not required. In FILES it is written by the
+             selection (_select sets _path_edit.text to the picked file), so it
+             doubles as the "what will Open return" readout. -->
+        <div style="flex:none;padding:12px 28px 0">
+          <div class="mono" style="min-height:var(--ctl);background:var(--ins);
+               border-radius:8px;padding:4px 11px;display:flex;align-items:center;
+               font-size:var(--m1);color:var(--sec);overflow:hidden;white-space:nowrap">
+            C:\Users\Vincent\Documents\Cartalith\packs\coastal-props.zip</div>
+        </div>
+
+        <!-- THE FILTER STATEMENT. One line, once, instead of the shipped
+             per-row "file - not a .zip" repeated on every non-matching row.
+             The filter is a property of the dialog, not of each file, and
+             stating it once leaves the row meta free to carry what that row
+             actually is. Comparable: Blender's file browser puts its filter in
+             the header and dims non-matching entries silently. -->
+        <div style="flex:none;display:flex;align-items:baseline;gap:8px;padding:11px 28px 0">
+          <span class="mono" style="font-size:var(--m2);letter-spacing:.16em;
+                color:var(--faint)">SHOWING</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--acc)">.zip</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dis)">&middot; 3 other files are dimmed, not hidden</span>
+        </div>
+
+        <div style="flex:1;min-height:0;overflow:hidden;padding:14px 28px 8px">
+
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 14px">
+            <span class="mono" style="color:var(--dim);font-size:var(--fs)">&#9656;</span>
+            <span style="flex:1;color:var(--body)">archive</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">14 items</span>
+          </div>
+          <div style="height:2px"></div>
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 14px">
+            <span class="mono" style="color:var(--dim);font-size:var(--fs)">&#9656;</span>
+            <span style="flex:1;color:var(--body)">unassigned</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">2 items</span>
+          </div>
+          <div style="height:2px"></div>
+
+          <!-- Selected: accent hairline, 8 % accent wash, name in text_bright,
+               and the meta cell swapped for a mono "selected" in accent -
+               _paint_row's own treatment, kept verbatim. The size it displaces
+               is not lost: it is on the row until the moment it is chosen. -->
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;
+               border:1px solid var(--acc);border-radius:8px;background:var(--wash);
+               margin:0 -1px">
+            <span class="mono" style="color:var(--acc);font-size:var(--fs)">&#9670;</span>
+            <span style="flex:1;color:var(--ink)">coastal-props.zip</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--acc)">selected</span>
+          </div>
+          <div style="height:2px"></div>
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 14px">
+            <span class="mono" style="color:var(--dim);font-size:var(--fs)">&#9670;</span>
+            <span style="flex:1;color:var(--body)">eldra-atlas.zip</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">26 MB</span>
+          </div>
+          <div style="height:2px"></div>
+
+          <!-- Non-matching: --dis on the glyph AND the name, no hover, no
+               pointer. The meta is the file's own extension rather than a
+               sentence about the filter - derivable from the path with no new
+               binding, and it is the one fact that explains the dimming. Rows
+               are never hidden: knowing a folder holds a worldgen.log is part
+               of recognising the folder. -->
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;opacity:.72">
+            <span class="mono" style="color:var(--dis);font-size:var(--fs)">&#9670;</span>
+            <span style="flex:1;color:var(--dis)">pack-manifest.json</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">.json</span>
+          </div>
+          <div style="height:2px"></div>
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;opacity:.72">
+            <span class="mono" style="color:var(--dis);font-size:var(--fs)">&#9670;</span>
+            <span style="flex:1;color:var(--dis)">pier_04.png</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">.png</span>
+          </div>
+          <div style="height:2px"></div>
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;opacity:.72">
+            <span class="mono" style="color:var(--dis);font-size:var(--fs)">&#9670;</span>
+            <span style="flex:1;color:var(--dis)">worldgen.log</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">.log</span>
+          </div>
+          <div style="height:2px"></div>
+
+          <!-- The canvas's dashed + New folder. Godot's StyleBoxFlat has no
+               dash, so the shipped row is a full hairline at ghost weight -
+               drawn here as shipped rather than as the canvas, because the
+               approximation is the honest one. It stays in FILES: a file pick
+               can still need somewhere to put the next one. -->
+          <div style="display:flex;align-items:center;gap:12px;padding:9px 14px;
+               border:1px solid var(--div);border-radius:8px">
+            <span class="mono" style="color:var(--acc);font-size:var(--fs)">&#65291;</span>
+            <span class="mono" style="font-size:var(--m1);color:var(--dim)">New folder&hellip;</span>
+          </div>
+        </div>
+
+        <div class="rule"></div>
+        <!-- Foot, one row. The hint IS the expanding child - it is the spacer,
+             which is what stopped it laying out one pixel wide. Measured at
+             546 px in FILES, and that width no longer depends on the text or
+             on how deep the start directory is. -->
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:14px 28px">
+          <span class="mono" style="flex:1;min-width:0;font-size:var(--m2);color:var(--dis);
+                overflow:hidden;white-space:nowrap">a pack .zip &mdash; it loads into the library for editing, nothing is applied to the map</span>
+          <div class="btn2 mono" style="font-size:var(--m1)">Cancel</div>
+          <div class="btn" style="padding:0 16px;font-size:var(--m1)">Open</div>
+        </div>
+      </div>
+
+      <div class="mono" style="font-size:var(--m2);line-height:1.85;color:var(--dis)">
+        <span style="color:var(--faint)">what changed from the shipped row</span> &mdash; the meta cell read
+        <span style="color:var(--sec)">file &middot; not a .zip</span> on every dimmed row, six words repeated<br>
+        five times to say one thing. The filter moves to its own line under the well and each row
+        keeps its own extension.<br>
+        <span style="color:var(--faint)">Open is disabled until a row is picked</span> &mdash; FILES has no fallback: with nothing
+        selected there is no file to return<br>
+        <span style="color:var(--faint)">double-click</span> enters a folder or confirms a file; single click selects. That is why a row is a
+        panel and not a button
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         SAVE. FILES plus a name field. Drawn on Export atlas cache, because
+         it is the call site that passes both a real footnote and a real
+         default name, so both foot lines are exercised at once
+         (menus.gd::_export_atlas).
+         =================================================================== -->
+    <div style="width:760px;flex:none;display:flex;flex-direction:column;gap:11px">
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">
+        SAVE &mdash; &ldquo;where shall I put this?&rdquo;</div>
+
+      <div style="height:640px;background:var(--pan);border:1px solid var(--bor);
+           border-radius:10px;box-shadow:var(--shadow);display:flex;
+           flex-direction:column;overflow:hidden">
+
+        <div style="flex:none;display:flex;align-items:center;gap:14px;padding:14px 28px 13px">
+          <span class="mono" style="flex:1;font-size:var(--m2);letter-spacing:.2em;
+                color:var(--faint)">EXPORT ATLAS CACHE</span>
+          <span class="mono" style="color:var(--faint);font-size:11px">&#10005;</span>
+        </div>
+        <div class="rule"></div>
+
+        <div style="flex:none;display:flex;align-items:center;gap:6px;padding:14px 28px 0">
+          <span style="flex:1;min-width:0;display:flex;align-items:center;gap:6px;overflow:hidden">
+            <span class="mono" style="font-size:var(--m1);color:var(--dis)">&hellip;</span>
+            <span class="mono" style="font-size:var(--m1);color:var(--dis)">&rsaquo;</span>
+            <span class="mono" style="font-size:var(--m1);color:var(--sec)">Cartalith</span>
+            <span class="mono" style="font-size:var(--m1);color:var(--dis)">&rsaquo;</span>
+            <span class="mono" style="font-size:var(--m1);color:var(--acc)">exports</span>
+          </span>
+          <span class="mono" style="font-size:var(--m1);color:var(--dis)">&#8962; Home</span>
+        </div>
+
+        <!-- In SAVE the path well shows the FOLDER, not the answer. The answer
+             is folder + name, and it is previewed in the foot beside the field
+             that produces it - one place, next to the control that changes it. -->
+        <div style="flex:none;padding:12px 28px 0">
+          <div class="mono" style="min-height:var(--ctl);background:var(--ins);
+               border-radius:8px;padding:4px 11px;display:flex;align-items:center;
+               font-size:var(--m1);color:var(--sec);overflow:hidden;white-space:nowrap">
+            C:\Users\Vincent\Documents\Cartalith\exports</div>
+        </div>
+
+        <div style="flex:none;display:flex;align-items:baseline;gap:8px;padding:11px 28px 0">
+          <span class="mono" style="font-size:var(--m2);letter-spacing:.16em;
+                color:var(--faint)">SHOWING</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--acc)">.zip</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dis)">&middot; click one to write over it</span>
+        </div>
+
+        <div style="flex:1;min-height:0;overflow:hidden;padding:14px 28px 8px">
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 14px">
+            <span class="mono" style="color:var(--dim);font-size:var(--fs)">&#9656;</span>
+            <span style="flex:1;color:var(--body)">older</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">6 items</span>
+          </div>
+          <div style="height:2px"></div>
+          <!-- Rows stay LIVE in SAVE. That is the whole reason: clicking an
+               existing file fills the name field with its basename, which is
+               how every save dialog spells "overwrite that one". -->
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 14px">
+            <span class="mono" style="color:var(--dim);font-size:var(--fs)">&#9670;</span>
+            <span style="flex:1;color:var(--body)">atlas.zip</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">1.4 GB</span>
+          </div>
+          <div style="height:2px"></div>
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 14px">
+            <span class="mono" style="color:var(--dim);font-size:var(--fs)">&#9670;</span>
+            <span style="flex:1;color:var(--body)">atlas-L0-L5.zip</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">612 MB</span>
+          </div>
+          <div style="height:2px"></div>
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;opacity:.72">
+            <span class="mono" style="color:var(--dis);font-size:var(--fs)">&#9670;</span>
+            <span style="flex:1;color:var(--dis)">world-data.json</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">.json</span>
+          </div>
+          <div style="height:2px"></div>
+          <div style="display:flex;align-items:center;gap:12px;padding:9px 14px;
+               border:1px solid var(--div);border-radius:8px">
+            <span class="mono" style="color:var(--acc);font-size:var(--fs)">&#65291;</span>
+            <span class="mono" style="font-size:var(--m1);color:var(--dim)">New folder&hellip;</span>
+          </div>
+        </div>
+
+        <div class="rule"></div>
+        <!-- FOOT, TWO LINES. A name field, a hint and two buttons do not fit
+             one 760 px row, so the hint keeps line one and the field joins the
+             buttons on line two: "what shall it be called" belongs beside "do
+             it", not above the folder list.
+             Line three is the resolved path. It exists because _save_path()
+             appends the extension SILENTLY when the typed name carries none -
+             an invisible edit to the answer, made visible here rather than
+             discovered afterwards in the file manager. -->
+        <div style="flex:none;padding:14px 28px">
+          <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:8px">
+            The baked tile pyramid only. The world itself is saved from File &rsaquo; Save project.</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="mono" style="font-size:var(--m2);color:var(--faint)">name</span>
+            <span style="width:260px;flex:none;min-height:var(--ctl);background:var(--ins);
+                  border:1px solid var(--acc);border-radius:8px;padding:4px 11px;
+                  display:flex;align-items:center;gap:1px">
+              <span style="color:var(--ink);font-size:var(--fs)">atlas-L0-L5</span>
+              <!-- The extension is drawn INSIDE the field, after the caret, in
+                   --dis: it is part of the answer but not part of what the
+                   user typed, and it must not be selectable text they can
+                   delete by accident. Comparable: Photoshop's Save As shows
+                   the format as a separate, non-editable control. -->
+              <span style="width:1px;height:13px;background:var(--acc)"></span>
+              <span class="mono" style="color:var(--dis);font-size:var(--m1)">.zip</span>
+            </span>
+            <span style="flex:1"></span>
+            <div class="btn2 mono" style="font-size:var(--m1)">Cancel</div>
+            <div class="btn" style="padding:0 16px;font-size:var(--m1)">Save</div>
+          </div>
+          <!-- The replace warning is derivable with no new binding
+               (FileAccess.file_exists on the resolved path). It states the
+               fact; it does not confirm. Confirmation belongs to the caller,
+               which is the only side that knows what is about to be lost -
+               app.gd's Save project as already raises its own Overwrite modal. -->
+          <div class="mono" style="display:flex;align-items:center;gap:7px;padding-top:7px">
+            <span style="color:var(--block);font-size:var(--m1)">&#9679;</span>
+            <span style="font-size:var(--m2);color:var(--dis)">writes
+              <span style="color:var(--sec)">&hellip;\Cartalith\exports\atlas-L0-L5.zip</span>
+              &mdash; <span style="color:var(--block)">replaces the 612 MB file above</span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="mono" style="font-size:var(--m2);line-height:1.85;color:var(--dis)">
+        <span style="color:var(--faint)">Save is disabled</span> while the name is empty or ends in a separator &mdash;
+        _save_path() returns &ldquo;&rdquo; and there is nothing to write<br>
+        <span style="color:var(--faint)">when the caller passes no hint</span> (app.gd's Save project as) line one is hidden
+        outright, not blanked, so the foot is two lines<br>
+        <span style="color:var(--faint)">Open question</span> &mdash; the resolved-path line is a fourth foot element the shipped
+        dialog does not have. It costs ~20 px of the 640
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===================================================================
+       THE NAME FIELD, STATE BY STATE. Every one of these is a real branch of
+       _save_path() / _refresh_primary(); none is a new rule.
+       =================================================================== -->
+  <div style="flex:none;background:var(--pan);border:1px solid var(--hair);border-radius:10px;
+       padding:12px 16px 13px">
+    <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--acc);
+         padding-bottom:9px">THE NAME FIELD &mdash; FOUR STATES, ALL FOUR ALREADY IN _save_path()</div>
+    <div style="display:flex;gap:16px">
+
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="mono" style="font-size:var(--m2);color:var(--faint)">name</span>
+          <span style="flex:1;min-height:var(--ctl);background:var(--ins);
+                border:1px solid var(--div);border-radius:8px;padding:4px 11px;
+                display:flex;align-items:center">
+            <span class="mono" style="color:var(--dis);font-size:var(--m1)">atlas.zip</span></span>
+          <span class="btn2 mono" style="font-size:var(--m1);min-height:var(--ctl);
+                color:var(--dis);opacity:.5">Save</span>
+        </div>
+        <div class="mono" style="font-size:var(--m2);line-height:1.7;color:var(--dis);padding-top:6px">
+          <span style="color:var(--faint)">empty &mdash; placeholder only</span><br>
+          Save disabled. The default name is a<br>placeholder, never pre-filled text the<br>
+          user has to clear first</div>
+      </div>
+
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="mono" style="font-size:var(--m2);color:var(--faint)">name</span>
+          <span style="flex:1;min-height:var(--ctl);background:var(--ins);
+                border:1px solid var(--acc);border-radius:8px;padding:4px 11px;
+                display:flex;align-items:center;gap:1px">
+            <span style="color:var(--ink);font-size:var(--fs)">winter-bake</span>
+            <span style="width:1px;height:13px;background:var(--acc)"></span>
+            <span class="mono" style="color:var(--dis);font-size:var(--m1)">.zip</span></span>
+          <span class="btn mono" style="font-size:var(--m1);min-height:var(--ctl);padding:0 12px">Save</span>
+        </div>
+        <div class="mono" style="font-size:var(--m2);line-height:1.7;color:var(--dis);padding-top:6px">
+          <span style="color:var(--faint)">typed, no extension</span><br>
+          the suffix is appended for them and<br>shown as it will be written &mdash;
+          the<br>silent half of _save_path(), made visible</div>
+      </div>
+
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="mono" style="font-size:var(--m2);color:var(--faint)">name</span>
+          <span style="flex:1;min-height:var(--ctl);background:var(--ins);
+                border:1px solid var(--acc);border-radius:8px;padding:4px 11px;
+                display:flex;align-items:center">
+            <span style="color:var(--ink);font-size:var(--fs)">winter-bake.zip</span></span>
+          <span class="btn mono" style="font-size:var(--m1);min-height:var(--ctl);padding:0 12px">Save</span>
+        </div>
+        <div class="mono" style="font-size:var(--m2);line-height:1.7;color:var(--dis);padding-top:6px">
+          <span style="color:var(--faint)">typed WITH the extension</span><br>
+          nothing is appended and no ghost suffix<br>is drawn &mdash; two .zip on one row would
+          be<br>the dialog contradicting itself</div>
+      </div>
+
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="mono" style="font-size:var(--m2);color:var(--faint)">name</span>
+          <span style="flex:1;min-height:var(--ctl);background:var(--ins);
+                border:1px solid var(--acc);border-radius:8px;padding:4px 11px;
+                display:flex;align-items:center;gap:1px">
+            <span style="color:var(--ink);font-size:var(--fs)">winter.bake</span>
+            <span style="width:1px;height:13px;background:var(--acc)"></span>
+            <span class="mono" style="color:var(--dis);font-size:var(--m1)">.zip</span></span>
+          <span class="btn mono" style="font-size:var(--m1);min-height:var(--ctl);padding:0 12px">Save</span>
+        </div>
+        <!-- Recorded because it surprises people, not because it is wrong:
+             _extension_ok() tests the LAST extension only, so "winter.bake"
+             gets ".zip" appended and becomes winter.bake.zip. -->
+        <div class="mono" style="font-size:var(--m2);line-height:1.7;color:var(--dis);padding-top:6px">
+          <span style="color:var(--faint)">a dot that is not the extension</span><br>
+          <span style="color:var(--sec)">winter.bake.zip</span> &mdash; the check is on the<br>
+          last extension, so the ghost suffix is<br>the warning as well as the preview</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

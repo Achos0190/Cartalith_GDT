@@ -1,0 +1,605 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<div class="tok" style="width:1090px;height:900px;background:var(--sur);padding:20px;
+     display:flex;flex-direction:column;gap:14px">
+
+  <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">
+    LAYERS POPOVER &mdash; 238 px, anchored under the 30 px viewport button (05 &sect;5.2)</div>
+
+  <div style="flex:1;display:flex;gap:20px;align-items:flex-start;min-height:0">
+
+    <!-- ===================================================================
+         A - DEFAULT. view = "off". Every row, group heading, availability
+         and hint below is read from sample_bridge.rs LAYER_GROUPS (6 groups,
+         the reference's own Base/Climate/Tectonics/Hydrology/Surface/
+         Civilization order). Nothing here is invented.
+         Rows are var(--row) = 28 px, per 05 section 5.2's own row style.
+         OPEN QUESTION: layers_popover.gd ships 22 px desktop /
+         role_px("row_min_h") on touch. The spec says var(--row); this draws
+         the spec, which costs roughly two visible rows of the 420 scroll.
+         =================================================================== -->
+    <div style="width:238px;flex:none">
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint);
+           padding-bottom:9px">A &middot; DEFAULT &mdash; NOTHING OVER THE BASE MAP</div>
+
+      <div style="background:var(--pan);border:1px solid var(--bor);border-radius:10px;
+           box-shadow:var(--shadow);overflow:hidden;padding:6px 0 0">
+
+        <!-- 420 px scroll, the authored popover height. 34 rows never fit;
+             the popover has always scrolled. Drawn with its own track so the
+             list does not read as complete. -->
+        <div style="height:420px;overflow:hidden;position:relative">
+
+          <div class="mono" style="padding:8px 12px 2px;font-size:var(--m2);
+               letter-spacing:.2em;color:var(--faint)">BASE</div>
+          <!-- Active row: the filled accent slab, the one filled surface in the
+               desktop canvas (GUI_GAP_REGISTER DS-02), ink = --accInk. -->
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;background:var(--acc);color:var(--accInk)">
+            <span style="flex:1">No overlay (base map)</span>
+            <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                  border-radius:4px;padding:0 4px;opacity:.75">1</span>
+          </div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)">
+            <span style="flex:1">Elevation</span>
+            <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                  border-radius:4px;padding:0 4px;opacity:.55">2</span>
+          </div>
+
+          <div class="mono" style="padding:8px 12px 2px;font-size:var(--m2);
+               letter-spacing:.2em;color:var(--faint)">CLIMATE</div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)">
+            <span style="flex:1">Temperature</span>
+            <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                  border-radius:4px;padding:0 4px;opacity:.55">3</span>
+          </div>
+          <!-- COST. Not a number: no timing binding exists anywhere in the
+               bridge. The mark is derived from this row's own engine hint,
+               which says picking it "runs the temperature and weather models
+               twice more" and calls it "the slowest view here". Comparable:
+               Blender marks the expensive modifier in the stack rather than
+               timing it live. -->
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)">
+            <span style="flex:1">K&ouml;ppen climate</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">rebuilds</span>
+            <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                  border-radius:4px;padding:0 4px;opacity:.55">4</span>
+          </div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)">
+            <span style="flex:1">Rainfall</span>
+            <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                  border-radius:4px;padding:0 4px;opacity:.55">5</span>
+          </div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)">
+            <span style="flex:1">Wind</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">rebuilds</span>
+            <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                  border-radius:4px;padding:0 4px;opacity:.55">6</span>
+          </div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)">
+            <span style="flex:1">Ocean currents</span>
+            <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                  border-radius:4px;padding:0 4px;opacity:.55">7</span>
+          </div>
+
+          <div class="mono" style="padding:8px 12px 2px;font-size:var(--m2);
+               letter-spacing:.2em;color:var(--faint)">TECTONICS</div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)">
+            <span style="flex:1">Plates</span>
+            <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                  border-radius:4px;padding:0 4px;opacity:.55">8</span>
+          </div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)"><span style="flex:1">Plate boundaries</span></div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)"><span style="flex:1">Tectonic type</span></div>
+          <!-- A permanent engine gap (GAP_LAYERS: oro). Disabled, never hidden,
+               and it spends no hotkey digit - which is why Plates above takes 8
+               and this row takes nothing. -->
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--dis)">
+            <span style="flex:1">Orogeny</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">&mdash;</span>
+          </div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)"><span style="flex:1">Stress</span></div>
+
+          <div style="position:absolute;right:3px;top:6px;bottom:6px;width:3px;
+               border-radius:2px;background:var(--ins)">
+            <div style="position:absolute;left:0;right:0;top:0;height:44%;
+                 border-radius:2px;background:var(--bor)"></div>
+          </div>
+        </div>
+
+        <div class="rule"></div>
+
+        <!-- The pinned foot: legend, opacity, cross-reference note. -->
+        <div style="padding:6px 10px 8px">
+          <!-- Legend is EMPTY here, and that is the honest state: legend("off")
+               returns no rows, because "no overlay" has nothing to key. The
+               empty state says which row would fill it rather than collapsing
+               to nothing, so the foot does not change height on every pick. -->
+          <div class="mono" style="font-size:var(--m2);color:var(--dis);
+               padding:2px 0 7px;line-height:1.6">
+            no key &mdash; the base map is not a keyed field.<br>
+            pick a row above to fill this</div>
+
+          <div class="mono" style="display:flex;align-items:center;gap:8px;height:var(--ctl)">
+            <span style="font-size:var(--m2);color:var(--faint)">OPACITY</span>
+            <span style="flex:1;height:4px;border-radius:2px;background:var(--ins);
+                  position:relative">
+              <span style="position:absolute;left:0;top:0;bottom:0;width:100%;
+                    border-radius:2px;background:var(--acc);opacity:.35"></span>
+              <span style="position:absolute;left:100%;top:-4px;margin-left:-6px;
+                    width:12px;height:12px;border-radius:50%;background:var(--ink);
+                    opacity:.35"></span>
+            </span>
+            <span style="width:32px;text-align:right;font-size:var(--m1);color:var(--dis)">100%</span>
+          </div>
+          <!-- The slider is dimmed, not hidden, when no field view is picked:
+               it blends a field raster over the base map and there is no
+               raster. Photoshop dims a layer's opacity control the same way
+               when the layer is the background. -->
+          <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-top:2px">
+            nothing to blend while the overlay is off</div>
+
+          <div class="rule" style="margin:8px 0 7px"></div>
+
+          <!-- THE CROSS-REFERENCE NOTE, drawn rather than left as prose. Two
+               halves, because the shipped note (layers_popover.gd) carries
+               two different things and reads as one paragraph:
+               (1) what is drawing under these overlays, and
+               (2) where the overlays this popover does NOT own are switched. -->
+          <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;
+               color:var(--faint);padding-bottom:4px">UNDER THIS &middot; BASE MAP</div>
+          <div style="background:var(--ins);border-radius:8px;padding:6px 8px 7px">
+            <div class="mono" style="display:flex;align-items:center;gap:7px;
+                 min-height:18px;font-size:var(--m1)">
+              <span style="color:var(--good)">&#9679;</span>
+              <span style="flex:1;color:var(--sec)">Terrain</span>
+              <span style="color:var(--dis);font-size:var(--m2)">Normal</span>
+            </div>
+            <!-- THE LIVE DEFECT, told rather than hidden. render.rs ships
+                 TerrainAppearance::ramp_strength at 0.0 and LayerStack::
+                 composite skips Colour relief entirely when the ramp
+                 contributes nothing - measured as a byte-identical swap. The
+                 row is NOT greyed: its controls work, and they take effect the
+                 moment the ramp has a strength, so disabling would be the
+                 opposite lie. -->
+            <div class="mono" style="display:flex;align-items:center;gap:7px;
+                 min-height:18px;font-size:var(--m1)">
+              <span style="color:var(--block)">&#9675;</span>
+              <span style="flex:1;color:var(--sec)">Colour relief</span>
+              <span style="color:var(--block);font-size:var(--m2)">draws nothing</span>
+            </div>
+            <div class="mono" style="display:flex;align-items:center;gap:7px;
+                 min-height:18px;font-size:var(--m1)">
+              <span style="color:var(--good)">&#9679;</span>
+              <span style="flex:1;color:var(--sec)">Hillshade</span>
+              <span style="color:var(--dis);font-size:var(--m2)">Multiply</span>
+            </div>
+          </div>
+          <div class="mono" style="font-size:var(--m2);line-height:1.6;color:var(--dis);
+               padding-top:5px">
+            ramp strength is 0, so the ramp contributes no<br>
+            colour. <span style="color:var(--acc)">Rendering &rsaquo; Colour relief</span> &#9662;</div>
+
+          <div class="rule" style="margin:8px 0 7px"></div>
+          <div class="mono" style="font-size:var(--m2);line-height:1.65;color:var(--dis)">
+            settlements, roads, sea routes, town layouts,<br>
+            way types and the two political layers are<br>
+            vector overlays, not field rasters &mdash; they<br>
+            toggle rather than replace, in<br>
+            <span style="color:var(--acc)">Cartography &rsaquo; Layers</span> &#9662;</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         B - A FIELD VIEW PICKED. Koppen, because it is the row that exercises
+         every part of the foot at once: it has a real legend (5 swatches,
+         sample_bridge::legend("koppen") - the reference's own 5-of-30
+         abbreviation, KOPPEN_COL[0/3/14/26/28]), it is the one row the
+         engine's own hint calls the slowest, and it is land-only.
+         =================================================================== -->
+    <div style="width:238px;flex:none">
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint);
+           padding-bottom:9px">B &middot; ONE FIELD VIEW DRAWING</div>
+
+      <div style="background:var(--pan);border:1px solid var(--bor);border-radius:10px;
+           box-shadow:var(--shadow);overflow:hidden;padding:6px 0 0">
+        <div style="height:420px;overflow:hidden;position:relative">
+
+          <div class="mono" style="padding:8px 12px 2px;font-size:var(--m2);
+               letter-spacing:.2em;color:var(--faint)">CLIMATE</div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)">
+            <span style="flex:1">Temperature</span>
+            <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                  border-radius:4px;padding:0 4px;opacity:.55">3</span>
+          </div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;background:var(--acc);color:var(--accInk)">
+            <span style="flex:1">K&ouml;ppen climate</span>
+            <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                  border-radius:4px;padding:0 4px;opacity:.75">4</span>
+          </div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)">
+            <span style="flex:1">Rainfall</span>
+            <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                  border-radius:4px;padding:0 4px;opacity:.55">5</span>
+          </div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)">
+            <span style="flex:1">Wind</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">rebuilds</span>
+            <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                  border-radius:4px;padding:0 4px;opacity:.55">6</span>
+          </div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)">
+            <span style="flex:1">Ocean currents</span>
+            <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                  border-radius:4px;padding:0 4px;opacity:.55">7</span>
+          </div>
+
+          <div class="mono" style="padding:8px 12px 2px;font-size:var(--m2);
+               letter-spacing:.2em;color:var(--faint)">HYDROLOGY</div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)"><span style="flex:1">River flow</span></div>
+          <!-- A this-world refusal, not a permanent one. Different sentence,
+               same grey: it becomes available the moment river extraction runs. -->
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--dis)">
+            <span style="flex:1">Strahler order</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">&mdash;</span>
+          </div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--dis)">
+            <span style="flex:1">Velocity</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">&mdash;</span>
+          </div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)"><span style="flex:1">Fjord mask</span></div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--body)"><span style="flex:1">Flood</span></div>
+
+          <div class="mono" style="padding:8px 12px 2px;font-size:var(--m2);
+               letter-spacing:.2em;color:var(--faint)">SURFACE</div>
+          <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+               padding:2px 12px;color:var(--dis)">
+            <span style="flex:1">Biomes</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">&mdash;</span>
+          </div>
+
+          <div style="position:absolute;right:3px;top:6px;bottom:6px;width:3px;
+               border-radius:2px;background:var(--ins)">
+            <div style="position:absolute;left:0;right:0;top:22%;height:44%;
+                 border-radius:2px;background:var(--bor)"></div>
+          </div>
+        </div>
+
+        <div class="rule"></div>
+
+        <div style="padding:6px 10px 8px">
+          <!-- LEGEND. Five rows, exactly sample_bridge::legend("koppen"):
+               Af/BWh/Cfb/Dfc/ET, captioned with koppen_group_name()'s own
+               words. 11x11 swatch, 6 px gap, 9 px label in --dim, per
+               layers_popover.gd's own _refresh_legend. The class code is kept
+               mono and the plain-word gloss sans, so a reader who does not
+               know Koppen still gets a name. Comparable: Azgaar's Biomes
+               editor keys by name with the code secondary. -->
+          <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;
+               color:var(--faint);padding-bottom:5px">KEY &middot; 5 OF 30 CLASSES</div>
+          <div style="display:flex;align-items:center;gap:6px;min-height:14px">
+            <span style="width:11px;height:11px;background:#0000fe;flex:none"></span>
+            <span class="mono" style="font-size:var(--m2);color:var(--sec);width:26px">Af</span>
+            <span style="font-size:var(--m2);color:var(--dim)">tropical</span></div>
+          <div style="display:flex;align-items:center;gap:6px;min-height:14px">
+            <span style="width:11px;height:11px;background:#fe0000;flex:none"></span>
+            <span class="mono" style="font-size:var(--m2);color:var(--sec);width:26px">BWh</span>
+            <span style="font-size:var(--m2);color:var(--dim)">desert</span></div>
+          <div style="display:flex;align-items:center;gap:6px;min-height:14px">
+            <span style="width:11px;height:11px;background:#66ff33;flex:none"></span>
+            <span class="mono" style="font-size:var(--m2);color:var(--sec);width:26px">Cfb</span>
+            <span style="font-size:var(--m2);color:var(--dim)">oceanic</span></div>
+          <div style="display:flex;align-items:center;gap:6px;min-height:14px">
+            <span style="width:11px;height:11px;background:#007e7d;flex:none"></span>
+            <span class="mono" style="font-size:var(--m2);color:var(--sec);width:26px">Dfc</span>
+            <span style="font-size:var(--m2);color:var(--dim)">subarctic</span></div>
+          <div style="display:flex;align-items:center;gap:6px;min-height:14px">
+            <span style="width:11px;height:11px;background:#b2b2b2;flex:none"></span>
+            <span class="mono" style="font-size:var(--m2);color:var(--sec);width:26px">ET</span>
+            <span style="font-size:var(--m2);color:var(--dim)">tundra</span></div>
+          <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-top:4px">
+            land only &middot; 25 more classes on the map</div>
+
+          <div class="rule" style="margin:7px 0 5px"></div>
+
+          <div class="mono" style="display:flex;align-items:center;gap:8px;height:var(--ctl)">
+            <span style="font-size:var(--m2);color:var(--faint)">OPACITY</span>
+            <span style="flex:1;height:4px;border-radius:2px;background:var(--ins);
+                  position:relative">
+              <span style="position:absolute;left:0;top:0;bottom:0;width:65%;
+                    border-radius:2px;background:var(--acc)"></span>
+              <span style="position:absolute;left:65%;top:-4px;margin-left:-6px;
+                    width:12px;height:12px;border-radius:50%;background:var(--ink)"></span>
+            </span>
+            <span style="width:32px;text-align:right;font-size:var(--m1);color:var(--sec)">65%</span>
+          </div>
+
+          <div class="rule" style="margin:7px 0 7px"></div>
+          <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;
+               color:var(--faint);padding-bottom:4px">UNDER THIS &middot; BASE MAP</div>
+          <div style="background:var(--ins);border-radius:8px;padding:6px 8px 7px">
+            <div class="mono" style="display:flex;align-items:center;gap:7px;
+                 min-height:18px;font-size:var(--m1)">
+              <span style="color:var(--good)">&#9679;</span>
+              <span style="flex:1;color:var(--sec)">Terrain</span>
+              <span style="color:var(--dis);font-size:var(--m2)">Normal</span></div>
+            <div class="mono" style="display:flex;align-items:center;gap:7px;
+                 min-height:18px;font-size:var(--m1)">
+              <span style="color:var(--good)">&#9679;</span>
+              <span style="flex:1;color:var(--sec)">Colour relief</span>
+              <span style="color:var(--dis);font-size:var(--m2)">Normal</span></div>
+            <div class="mono" style="display:flex;align-items:center;gap:7px;
+                 min-height:18px;font-size:var(--m1)">
+              <span style="color:var(--good)">&#9679;</span>
+              <span style="flex:1;color:var(--sec)">Hillshade</span>
+              <span style="color:var(--dis);font-size:var(--m2)">Multiply</span></div>
+          </div>
+          <div class="mono" style="font-size:var(--m2);line-height:1.6;color:var(--dis);
+               padding-top:5px">
+            all three contributing &mdash; this block is a<br>
+            readout, and it is silent when it has<br>
+            nothing to correct</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         C - THE STATES THAT TELL THE TRUTH
+         =================================================================== -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:12px">
+
+      <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">
+        C &middot; LIT AND DRAWING NOTHING &mdash; THREE REAL CAUSES, THREE ANSWERS</div>
+
+      <!-- 1. The popover's own case. host.set_debug_opacity() is real and
+           reaches 0, and at 0 the picked row is armed and invisible. -->
+      <div style="background:var(--pan);border:1px solid var(--hair);border-radius:10px;
+           padding:11px 13px 12px">
+        <div class="mono" style="display:flex;align-items:baseline;gap:8px;padding-bottom:7px">
+          <span style="font-size:var(--m2);letter-spacing:.16em;color:var(--acc)">1 &middot; THE CONTROL IS AT ZERO</span>
+          <span style="flex:1"></span>
+          <span style="font-size:var(--m2);color:var(--dis)">answer &mdash; say it on the control</span>
+        </div>
+        <div style="display:flex;gap:14px;align-items:flex-start">
+          <div style="width:210px;flex:none;background:var(--pan);border:1px solid var(--div);
+               border-radius:8px;padding:5px 10px 7px">
+            <div style="min-height:var(--row);display:flex;align-items:center;gap:9px;
+                 background:var(--acc);color:var(--accInk);padding:2px 8px;
+                 border-radius:4px;margin:0 -4px">
+              <span style="flex:1">Rainfall</span>
+              <span class="mono" style="font-size:var(--m2);border:1px solid currentColor;
+                    border-radius:4px;padding:0 4px;opacity:.75">5</span>
+            </div>
+            <div class="mono" style="display:flex;align-items:center;gap:8px;height:var(--ctl);
+                 padding-top:4px">
+              <span style="font-size:var(--m2);color:var(--faint)">OPACITY</span>
+              <span style="flex:1;height:4px;border-radius:2px;background:var(--ins);
+                    position:relative">
+                <span style="position:absolute;left:0;top:-4px;margin-left:-6px;
+                      width:12px;height:12px;border-radius:50%;background:var(--ink)"></span>
+              </span>
+              <span style="width:32px;text-align:right;font-size:var(--m1);color:var(--block)">0%</span>
+            </div>
+            <div class="mono" style="font-size:var(--m2);line-height:1.6;color:var(--block);
+                 padding-top:3px">Rainfall is picked and invisible.<br>
+              <span style="color:var(--acc)">restore to 100%</span></div>
+          </div>
+          <div class="mono" style="flex:1;font-size:var(--m2);line-height:1.8;color:var(--dis);
+               padding-top:2px">
+            the readout turns <span style="color:var(--block)">--block</span> at 0 and the row keeps its slab &mdash;<br>
+            the pick is still true, only the blend is off. A one-click<br>
+            <span style="color:var(--acc)">restore</span> beside it, because the way back is otherwise a drag<br>
+            to an exact end stop.<br>
+            <span style="color:var(--faint)">Comparable</span>: Photoshop leaves a 0 %-opacity layer's eye open<br>
+            and shows the 0 &mdash; this goes one step further and names it
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. The Colour relief defect. -->
+      <div style="background:var(--pan);border:1px solid var(--hair);border-radius:10px;
+           padding:11px 13px 12px">
+        <div class="mono" style="display:flex;align-items:baseline;gap:8px;padding-bottom:7px">
+          <span style="font-size:var(--m2);letter-spacing:.16em;color:var(--acc)">2 &middot; ANOTHER SURFACE IS NULLING IT</span>
+          <span style="flex:1"></span>
+          <span style="font-size:var(--m2);color:var(--dis)">answer &mdash; disclose, never disable</span>
+        </div>
+        <div style="display:flex;gap:14px;align-items:flex-start">
+          <div style="width:210px;flex:none;background:var(--ins);border-radius:8px;
+               padding:7px 9px 8px;border-left:2px solid var(--block)">
+            <div class="mono" style="display:flex;align-items:center;gap:7px;
+                 min-height:20px;font-size:var(--m1)">
+              <span style="color:var(--block)">&#9675;</span>
+              <span style="flex:1;color:var(--sec)">Colour relief</span>
+              <span style="color:var(--block);font-size:var(--m2)">draws nothing</span></div>
+            <div class="mono" style="font-size:var(--m2);line-height:1.6;color:var(--dis);
+                 padding-top:3px">
+              ramp strength 0 &mdash; the ramp contributes<br>
+              no colour, so this layer's opacity,<br>
+              blend and order have no visible effect</div>
+            <div class="mono" style="font-size:var(--m1);color:var(--acc);padding-top:6px">
+              Ramp strength &#9662;</div>
+          </div>
+          <div class="mono" style="flex:1;font-size:var(--m2);line-height:1.8;color:var(--dis);
+               padding-top:2px">
+            <span style="color:var(--faint)">Measured, not suspected</span>: ramp_strength ships at 0.0 and<br>
+            LayerStack::composite skips this layer outright when the ramp<br>
+            contributes nothing &mdash; a verifier swapped hillshade and colour<br>
+            relief and got a byte-identical raster.<br>
+            <span style="color:var(--faint)">Not greyed</span>, because the controls do work and take effect the<br>
+            moment the ramp has a strength. Greying would be the opposite<br>
+            lie. The row gets the hollow dot, the reason, and the one<br>
+            control that fixes it
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Available, picked, and legitimately all-zero for this world. -->
+      <div style="background:var(--pan);border:1px solid var(--hair);border-radius:10px;
+           padding:11px 13px 12px">
+        <div class="mono" style="display:flex;align-items:baseline;gap:8px;padding-bottom:7px">
+          <span style="font-size:var(--m2);letter-spacing:.16em;color:var(--acc)">3 &middot; THE FIELD IS EMPTY FOR THIS WORLD</span>
+          <span style="flex:1"></span>
+          <span style="font-size:var(--m2);color:var(--dis)">answer &mdash; the key says so</span>
+        </div>
+        <div style="display:flex;gap:14px;align-items:flex-start">
+          <div style="width:210px;flex:none;background:var(--pan);border:1px solid var(--div);
+               border-radius:8px;padding:6px 10px 8px">
+            <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;
+                 color:var(--faint);padding-bottom:5px">KEY &middot; FJORD MASK</div>
+            <div style="display:flex;align-items:center;gap:6px;min-height:14px">
+              <span style="width:11px;height:11px;background:#1e282e;flex:none"></span>
+              <span style="font-size:var(--m2);color:var(--dim)">no fjord</span>
+              <span style="flex:1"></span>
+              <span class="mono" style="font-size:var(--m2);color:var(--sec)">all cells</span></div>
+            <div style="display:flex;align-items:center;gap:6px;min-height:14px;opacity:.45">
+              <span style="width:11px;height:11px;background:#3f6f8c;flex:none"></span>
+              <span style="font-size:var(--m2);color:var(--dim)">fjord-prone coast</span>
+              <span style="flex:1"></span>
+              <span class="mono" style="font-size:var(--m2);color:var(--dis)">0</span></div>
+            <div class="mono" style="font-size:var(--m2);line-height:1.6;color:var(--dis);
+                 padding-top:5px">
+              no cold, rugged, competent-rock<br>coast here &mdash; the field is real<br>
+              and is uniformly zero</div>
+          </div>
+          <div class="mono" style="flex:1;font-size:var(--m2);line-height:1.8;color:var(--dis);
+               padding-top:2px">
+            <span style="color:var(--faint)">The distinction that matters</span>: 1 and 2 are faults, 3 is an<br>
+            answer. A view that computed correctly and came back empty must<br>
+            not borrow the fault vocabulary &mdash; no <span style="color:var(--block)">--block</span>, no hollow dot.<br>
+            It reports a per-swatch count instead, and the empty swatch dims.<br>
+            <span style="color:var(--faint)">Comparable</span>: Azgaar's Cultures editor keeps a zero-cell culture<br>
+            in the table with its 0 rather than dropping the row.<br>
+            <span style="color:var(--faint)">Open</span>: per-swatch counts exist for paint (paint_painted_counts)<br>
+            but <span style="color:var(--block)">not for debug rasters</span> &mdash; this needs a histogram binding,<br>
+            or the count cell is dashed
+          </div>
+        </div>
+      </div>
+
+      <!-- Refusal vocabulary. -->
+      <div style="background:var(--pan);border:1px solid var(--hair);border-radius:10px;
+           padding:11px 13px 12px">
+        <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--acc);
+             padding-bottom:7px">REFUSALS &mdash; TWO GROUNDS, ONE GREY, TWO SENTENCES</div>
+        <div style="display:flex;gap:12px">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:9px;
+                 min-height:var(--row);color:var(--dis);background:var(--ins);
+                 border-radius:6px;padding:2px 10px">
+              <span style="flex:1">Velocity</span>
+              <span class="mono" style="font-size:var(--m2)">&mdash;</span></div>
+            <div class="mono" style="font-size:var(--m2);line-height:1.7;color:var(--dis);
+                 padding-top:6px">
+              <span style="color:var(--faint)">never, on any world</span> &mdash; 4 rows<br>
+              &ldquo;Never available: a missing<br>computation.&rdquo;<br>
+              spends no hotkey digit, ever</div>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:9px;
+                 min-height:var(--row);color:var(--dis);background:var(--ins);
+                 border-radius:6px;padding:2px 10px">
+              <span style="flex:1">Biomes</span>
+              <span class="mono" style="font-size:var(--m2)">&mdash;</span></div>
+            <div class="mono" style="font-size:var(--m2);line-height:1.7;color:var(--dis);
+                 padding-top:6px">
+              <span style="color:var(--faint)">not yet, on this world</span> &mdash; 7 rows<br>
+              &ldquo;Not available for this<br>world.&rdquo;<br>
+              takes a digit the moment it lands</div>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:9px;
+                 min-height:var(--row);color:var(--body);background:var(--ins);
+                 border-radius:6px;padding:2px 10px">
+              <span style="flex:1">K&ouml;ppen climate</span>
+              <span class="mono" style="font-size:var(--m2);color:var(--dis)">rebuilds</span></div>
+            <div class="mono" style="font-size:var(--m2);line-height:1.7;color:var(--dis);
+                 padding-top:6px">
+              <span style="color:var(--faint)">costs, but works</span> &mdash; 3 rows<br>
+              no timing binding exists, so this<br>is a
+              <span style="color:var(--block)">word, never a number</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

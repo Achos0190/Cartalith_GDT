@@ -1,0 +1,177 @@
+{
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Your two decisions"
+    },
+    {
+      "id": "page-2",
+      "name": "Windows & dialogs"
+    },
+    {
+      "id": "page-3",
+      "name": "Phone"
+    },
+    {
+      "id": "page-4",
+      "name": "Chrome & menus"
+    }
+  ],
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "page": "page-1",
+      "x": 0,
+      "y": 0,
+      "w": 848,
+      "h": 1000,
+      "title": "WORLD dock — Option A: one column"
+    },
+    {
+      "file": "WorldDockB.dc.html",
+      "page": "page-1",
+      "x": 948,
+      "y": 0,
+      "w": 848,
+      "h": 1000,
+      "title": "WORLD dock — Option B: A/B switch"
+    },
+    {
+      "file": "Timeline.dc.html",
+      "page": "page-1",
+      "x": 1896,
+      "y": 0,
+      "w": 1280,
+      "h": 1160,
+      "title": "Timeline — the year scrubber"
+    },
+    {
+      "file": "DataManager.dc.html",
+      "page": "page-2",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Data manager window"
+    },
+    {
+      "file": "AssetFamilies.dc.html",
+      "page": "page-2",
+      "x": 1540,
+      "y": 0,
+      "w": 1240,
+      "h": 880,
+      "title": "Asset library — 24 families"
+    },
+    {
+      "file": "AppDialogs.dc.html",
+      "page": "page-2",
+      "x": 0,
+      "y": 1080,
+      "w": 1400,
+      "h": 760,
+      "title": "App dialogs"
+    },
+    {
+      "file": "BrowseModes.dc.html",
+      "page": "page-2",
+      "x": 1540,
+      "y": 1080,
+      "w": 1600,
+      "h": 1010,
+      "title": "Browse — FILES and SAVE"
+    },
+    {
+      "file": "PhoneViewportControls.dc.html",
+      "page": "page-3",
+      "x": 0,
+      "y": 0,
+      "w": 1360,
+      "h": 1012,
+      "title": "Phone viewport controls (DS-13)"
+    },
+    {
+      "file": "PhoneFailureStates.dc.html",
+      "page": "page-3",
+      "x": 1460,
+      "y": 0,
+      "w": 1320,
+      "h": 1206,
+      "title": "Phone — failure & storage full"
+    },
+    {
+      "file": "PhoneOverflow.dc.html",
+      "page": "page-3",
+      "x": 2880,
+      "y": 0,
+      "w": 1330,
+      "h": 1012,
+      "title": "Phone overflow drill-down"
+    },
+    {
+      "file": "LayersPopover.dc.html",
+      "page": "page-4",
+      "x": 0,
+      "y": 0,
+      "w": 1090,
+      "h": 900,
+      "title": "Layers popover"
+    },
+    {
+      "file": "BiomePaint.dc.html",
+      "page": "page-4",
+      "x": 1190,
+      "y": 0,
+      "w": 1180,
+      "h": 1010,
+      "title": "Biome paint"
+    },
+    {
+      "file": "MenuOrphans.dc.html",
+      "page": "page-4",
+      "x": 0,
+      "y": 1130,
+      "w": 1300,
+      "h": 940,
+      "title": "Menu rows with no home"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "note-decide",
+      "page": "page-1",
+      "x": 0,
+      "y": -190,
+      "w": 900,
+      "text": "TWO THINGS ONLY YOU CAN SETTLE.\n\n1. WORLD dock — A or B. Same content twice. A drops the mode switch and scrolls; B restores the two-segment pill. B's two captions are DERIVED, not read: the originals sit in the truncated tail of the spec and cannot be recovered.\n\n2. Timeline — the year scrubber as the timeline bar's expanded state, per your ruling. Collapsed and expanded are both drawn."
+    },
+    {
+      "id": "note-known",
+      "page": "page-2",
+      "x": 0,
+      "y": -190,
+      "w": 1100,
+      "text": "REVIEW THE LAYOUT, NOT THE VALUES.\n\nA design critic opened all thirteen boards and found factual errors in seven of them — a wrong swatch hex, a missing GeoJSON layer, live readouts for bindings that do not exist. Those are listed in the chat and queued as a fix pass.\n\nWhat I need from you here is composition and direction. A wrong hex does not change whether the window is laid out right."
+    },
+    {
+      "id": "note-phone",
+      "page": "page-3",
+      "x": 0,
+      "y": -150,
+      "w": 900,
+      "text": "Thumb-reachable bottom cluster, per your ruling — drawn over a map in both the default and sheet-open states, because the bottom sheet competes for exactly that band.\n\nThe generation-failure and storage-full states had no design at all. The critic rated these the most rigorously source-checked boards in the round."
+    },
+    {
+      "id": "note-chrome",
+      "page": "page-4",
+      "x": 0,
+      "y": -150,
+      "w": 900,
+      "text": "Four surfaces the design set never drew.\n\nThe Layers popover has one job worth checking: the Colour relief row is currently a live control over a layer that draws nothing at its shipped default. The design has to tell that truth rather than leave a dead row looking alive."
+    }
+  ],
+  "launch": {
+    "view": "canvas",
+    "page": "page-1"
+  }
+}
