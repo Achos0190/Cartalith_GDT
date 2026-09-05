@@ -1230,49 +1230,67 @@ func _rebuild_world_data() -> void:
 	if _selected_id == "export_world":
 		_select_route("export_world")
 
+## Every picker in this window is `DccBrowseDialog` -- the "Select folder
+## dialog 1920" browser from `design/Cartalith DCC Shell.dc.html`, whose own
+## comment says it *"replaces the stock OS tree picker"*. Five stock
+## `FileDialog`s lived here until 2026-09-05, each raising Godot's own generic
+## file browser (`use_native_dialog` is set nowhere in this project, so these
+## were never the Windows shell dialog either) in the middle of a shell that
+## draws every other pixel itself.
+##
+## The one capability the swap does not inherit is the overwrite prompt, so it
+## is rebuilt here -- see `_overwrite_guard()`.
+##
+## The rest mapped across without loss: `add_filter` becomes the browser's
+## extension list (non-matching files stay visible but dimmed rather than
+## being hidden, which is the design's own choice), `current_dir` the start
+## directory, `current_file` the save name, and `FILE_MODE_OPEN_DIR` /
+## `FILE_MODE_SAVE_FILE` the `choose_folder` / `choose_save_path` entry
+## points. The stock dialog also appended the filter's extension to a name
+## that lacked one -- measured at 4.7.1, `wrong.txt` came back as
+## `wrong.txt.png` -- and `_save_path()` does the same thing.
 func _pick_raster_destination() -> void:
-	var d := FileDialog.new()
-	d.access = FileDialog.ACCESS_FILESYSTEM
-	d.current_dir = DccSettings.storage_root("exports")
+	var start := DccSettings.storage_root("exports")
 	if _wd_tiled:
 		## Tiled mode writes a *directory* of tiles plus index.json, so the
 		## picker asks for one -- the reference's own tiles/ prefix, as a real
 		## folder rather than a path inside a zip.
-		d.title = "Export map tiles into…"
-		d.file_mode = FileDialog.FILE_MODE_OPEN_DIR
-		d.dir_selected.connect(func(path: String):
-			_run_raster_export(path)
-			d.queue_free())
+		DccBrowseDialog.choose_folder(self, "Export map tiles into…", start,
+			"one .png per tile plus index.json, written into the folder you choose",
+			func(path: String): _run_raster_export(path))
 	else:
-		d.title = "Export map raster"
-		d.file_mode = FileDialog.FILE_MODE_SAVE_FILE
-		d.add_filter("*.png ; PNG image")
 		## `exportZip`'s own name for this file.
-		d.current_file = "map.png"
-		d.file_selected.connect(func(path: String):
-			_run_raster_export(path)
-			d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered_ratio(0.6)
+		DccBrowseDialog.choose_save_path(self, "Export map raster", "png", start,
+			"the colour map as one .png, %d px wide" % _wd_width, "map.png",
+			func(path: String): _overwrite_guard(path, func(): _run_raster_export(path)))
 
 ## The heightmap's own picker. A single file, always -- unlike the colour
 ## raster it has no tiled mode, because the formats that read a heightmap want
 ## one image.
 func _pick_heightmap_destination() -> void:
-	var d := FileDialog.new()
-	d.access = FileDialog.ACCESS_FILESYSTEM
-	d.current_dir = DccSettings.storage_root("exports")
-	d.title = "Export heightmap"
-	d.file_mode = FileDialog.FILE_MODE_SAVE_FILE
-	d.add_filter("*.png ; 16-bit grayscale PNG")
-	d.current_file = "heightmap.png"
-	d.file_selected.connect(func(path: String):
-		_run_heightmap_export(path)
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered_ratio(0.6)
+	DccBrowseDialog.choose_save_path(self, "Export heightmap", "png",
+		DccSettings.storage_root("exports"),
+		"16-bit grayscale .png, %d px wide" % _wd_width, "heightmap.png",
+		func(path: String): _overwrite_guard(path, func(): _run_heightmap_export(path)))
+
+## Godot's stock `FileDialog` would not hand a save path back to its caller
+## while a file of that name already existed: it interposed *File "…" already
+## exists. Do you want to overwrite it?* and emitted `file_selected` only once
+## that was answered. Measured against 4.7.1 on 2026-09-05, by driving a
+## SAVE-mode dialog at an existing file and watching `file_selected` not fire.
+##
+## `DccBrowseDialog` deliberately does not do this -- `choose_save_path`'s own
+## doc gives the reason: the caller "is the only side that knows what is about
+## to be overwritten". So every save picker in this window comes through here,
+## which is the shape `app.gd::save_project_as()` already uses for File ▸ Save
+## as…. Without it the eight-picker swap would have quietly removed the only
+## thing standing between a mistyped name and a destroyed export.
+func _overwrite_guard(path: String, then: Callable) -> void:
+	if not FileAccess.file_exists(path):
+		then.call()
+		return
+	_host._confirm("Overwrite %s?" % path.get_file(),
+		"That file already exists. Exporting replaces it.", "Overwrite", then)
 
 func _run_heightmap_export(path: String) -> void:
 	if _bridge == null or not _bridge.has_world:
@@ -1293,18 +1311,17 @@ func _run_heightmap_export(path: String) -> void:
 			% String(r.get("error", "see the Godot log")), "warn")
 	_rebuild_world_data()
 
+## A folder, not a file: the atlas is several PNGs plus its own index, and
+## `WD_ATLAS_NOTE` above names them. No `_overwrite_guard()` -- the pick
+## returns a directory and the names written inside it are the engine's, not
+## the user's, so there is no name here for a typo to destroy. `_run_atlas_
+## export()` will still replace a file of the same name it wrote last time,
+## which is what it did before this swap too.
 func _pick_atlas_destination() -> void:
-	var d := FileDialog.new()
-	d.title = "Export channel atlas into…"
-	d.file_mode = FileDialog.FILE_MODE_OPEN_DIR
-	d.access = FileDialog.ACCESS_FILESYSTEM
-	d.current_dir = DccSettings.storage_root("exports")
-	d.dir_selected.connect(func(path: String):
-		_run_atlas_export(path)
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered_ratio(0.6)
+	DccBrowseDialog.choose_folder(self, "Export channel atlas into…",
+		DccSettings.storage_root("exports"),
+		"one .png per channel group plus atlas/index.json, written into the folder you choose",
+		func(path: String): _run_atlas_export(path))
 
 ## Both exports write from Rust with `std::fs`, so the path handed across has
 ## to be a real OS path -- `globalize_path` is a no-op for one already, and the
@@ -1740,22 +1757,21 @@ func _rebuild_tile_export() -> void:
 # Export ▸ Maps -- the run
 # ---------------------------------------------------------------------------
 
+## The one picker here that writes nothing: it only remembers `_tx_dest` for
+## the footer's Export button. The overwrite guard still runs at pick time,
+## which is exactly where the stock dialog put it -- and `_run_export()` has
+## never had one of its own, so re-exporting to a destination already chosen
+## still clobbers without asking. That is unchanged by this swap, and it is
+## the reason the guard cannot simply move to the write.
 func _pick_destination() -> void:
-	var d := FileDialog.new()
-	d.title = "Export tiles .zip"
-	d.file_mode = FileDialog.FILE_MODE_SAVE_FILE
-	d.access = FileDialog.ACCESS_FILESYSTEM
-	d.add_filter("*.zip ; Tile archive")
-	d.current_dir = _tx_dest.get_base_dir() if _tx_dest != "" else DccSettings.storage_root("exports")
-	d.current_file = _tx_dest.get_file() if _tx_dest != "" else "region-tiles.zip"
-	d.file_selected.connect(func(path: String):
-		_tx_dest = path
-		_rebuild_tile_export()
-		_refresh_foot()
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered_ratio(0.6)
+	DccBrowseDialog.choose_save_path(self, "Export tiles .zip", "zip",
+		_tx_dest.get_base_dir() if _tx_dest != "" else DccSettings.storage_root("exports"),
+		"one .zip of %d tiles; nothing is written until you press Export" % (_tx_cols * _tx_rows),
+		_tx_dest.get_file() if _tx_dest != "" else "region-tiles.zip",
+		func(path: String): _overwrite_guard(path, func():
+			_tx_dest = path
+			_rebuild_tile_export()
+			_refresh_foot()))
 
 # ---------------------------------------------------------------------------
 # Export ▸ GIS / GeoJSON -- the run (DM-03)
@@ -1766,22 +1782,13 @@ func _pick_destination() -> void:
 # ---------------------------------------------------------------------------
 
 func _pick_geojson_destination() -> void:
-	var d := FileDialog.new()
-	d.title = "Export GeoJSON"
-	d.file_mode = FileDialog.FILE_MODE_SAVE_FILE
-	d.access = FileDialog.ACCESS_FILESYSTEM
-	d.add_filter("*.geojson ; GeoJSON FeatureCollection")
-	d.current_dir = DccSettings.storage_root("exports")
 	## The reference names its own download `world_{seed}.geojson`; the shell
 	## has no seed of its own to interpolate, and the document carries it as a
 	## property anyway.
-	d.current_file = "world.geojson"
-	d.file_selected.connect(func(path: String):
-		_run_geojson_export(path)
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered_ratio(0.6)
+	DccBrowseDialog.choose_save_path(self, "Export GeoJSON", "geojson",
+		DccSettings.storage_root("exports"),
+		"one FeatureCollection describing the whole world", "world.geojson",
+		func(path: String): _overwrite_guard(path, func(): _run_geojson_export(path)))
 
 func _run_geojson_export(path: String) -> void:
 	if _bridge == null:

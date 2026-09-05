@@ -73,6 +73,15 @@ const DOMAINS: Array = [
 # must be reachable after"). So a node click *opens* its category and lights the
 # rail; it never hides a sibling.
 #
+# **One node does more than that, and the design is why.** CIVIL ▸ `planner`
+# opens the `Travel` category exactly like its siblings *and* arms the Journey
+# takeover, because the owner moved that command here from `Data ▸ Journey
+# planner… ⇧J` on 2026-09-05 -- it is the one item in the menu bar whose
+# destination is the viewport rather than a window or a dock body. The extra
+# behaviour is on the node **press** (`_on_rail_node_pressed()`), never on
+# `select_domain_mode()`, so nothing that merely wants the Travel accordion
+# acquires a viewport swap. It still hides no sibling category.
+#
 # `category` is the accordion header the node opens -- `Workspace.open_category()`
 # matches these strings verbatim against the titles the workspaces pass to
 # `DccWidgets.category()`, so a typo here is a silent no-op and is what
@@ -2476,8 +2485,52 @@ func _on_domain_pressed(id: String) -> void:
 ## The close is what makes the column a transient drill-down rather than a second
 ## permanent navigation surface, and it matches `setDomain`'s own
 ## `railExp:false` (`ENV:2054`).
+##
+## ## CIVIL ▸ `planner` also opens the Journey planner (2026-09-05)
+##
+## Owner ruling, `LARGE_ITEM_RULINGS.md` 2026-09-05 item 4: the Journey planner
+## *"becomes a CIVIL rail node rather than a Data menu row"*. `RAIL_NODES` has
+## carried the node since stage 2, but it only opened CIVIL's `Travel` accordion
+## category -- the takeover itself was reached from `Data ▸ Journey planner… ⇧J`
+## and three in-dock buttons, and that menu row is gone as of the same pass
+## (`menus.gd::_data()`). This branch is the row's replacement.
+##
+## **Hung on the click, not on `select_domain_mode()`.** That function is also
+## reached by `select_domain_category()`, and `mode_for_category("civilization",
+## "Travel")` resolves to `planner` -- so putting the takeover there would make
+## every jump that merely wants the Travel accordion (a cross-reference button,
+## a probe, `_railfold_probe.gd` §2's own driver) swap the viewport as a side
+## effect. A node *press* is the deliberate act; a mode write is not.
+##
+## ## And the three sibling CIVIL nodes release it
+##
+## `journey_planner_view.gd::_recompute_visibility()` shows the takeover while
+## `armed_tool == "journey"` **and** the domain is CIVIL. Switching domain
+## therefore hides it on its own; switching *node inside CIVIL* did not, and
+## `_hide()` is what restores `_workspace_panels["civilization"]`. Clicking
+## `Landmarks` with the planner up would otherwise have re-shown the civ dock
+## underneath a still-visible planner panel -- two left docks at once. That was
+## reachable before this pass and is the main path after it, which is why it is
+## fixed here rather than left as a corner.
+##
+## Disarmed *before* the mode write, so `_hide()` runs while the domain is still
+## CIVIL and hands `timeline_row` back (JP-13) before the new node's category
+## opens. `has_method("arm_tool")` because `DccShell` is instantiated bare by the
+## capture probes -- the same guard `_pick_phone_tab()` uses for
+## `open_journey_planner()`, and for the same reason.
 func _on_rail_node_pressed(domain: String, mode: String) -> void:
+	if domain == "civilization" and mode != "planner" and has_method("arm_tool") \
+			and String(get("armed_tool")) == "journey":
+		call("arm_tool", "inspect")
 	select_domain_mode(domain, mode)
+	if domain == "civilization" and mode == "planner" and has_method("open_journey_planner"):
+		## Re-selects the same mode on the way through, which is why the call
+		## above is not skipped: `select_domain_mode()` is idempotent (the mode
+		## is already written, `_select_domain()` repaints from it, and
+		## `Workspace.open_category()` emits only when the body is hidden), and
+		## routing the rail through the one opener every other entry point uses
+		## is worth more than saving the repaint.
+		call("open_journey_planner")
 	set_rail_expanded(false)
 
 ## Node ink (`ENV:1826`). Accent when the node's domain is the active one **and**

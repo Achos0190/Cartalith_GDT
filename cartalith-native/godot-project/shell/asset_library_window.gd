@@ -1707,51 +1707,49 @@ func _on_import_image(replace_first: bool = false) -> void:
 		return
 	var target_uid := _focused_uid
 	var into_unassigned := target_uid == ""
-	var d := FileDialog.new()
-	d.title = "Replace image" if replace_first else "Import image"
-	d.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	d.access = FileDialog.ACCESS_FILESYSTEM
-	d.add_filter("*.png ; PNG image")
-	d.file_selected.connect(func(path: String):
-		var bytes := FileAccess.get_file_as_bytes(path)
-		var uid := target_uid
-		if into_unassigned:
-			## AS-12: no slot was focused, so this file gets a fresh custom
-			## slot of its own under the reserved "Unassigned imports" set --
-			## `as_add_custom_slot` is the real engine call that bucket sits
-			## on, same as every other custom slot.
-			var made: Dictionary = _bridge.as_add_custom_slot(path.get_file().get_basename(), UNASSIGNED_SET)
-			uid = String(made.get("uid", ""))
-		var result: Dictionary = _bridge.as_import_item(uid, path.get_file(), bytes)
-		if bool(result.get("ok", false)):
-			if replace_first:
-				_bridge.as_remove_item(uid, 0)
-			_dirty = true
-			_host.set_status("hint", "imported %s%s" % [
-				path.get_file(), " → Unassigned imports" if into_unassigned else ""], "accent")
-			_preview_index = 0
+	## `DccBrowseDialog`, not a stock `FileDialog` -- see `_picker_start_dir()`
+	## for the one thing that had to be decided rather than translated.
+	DccBrowseDialog.choose_file(self,
+		"Replace image" if replace_first else "Import image",
+		PackedStringArray(["png"]), _picker_start_dir(),
+		("replaces the first variant of %s" % target_uid) if replace_first
+			else ("lands in %s" % (UNASSIGNED_SET if into_unassigned else target_uid)),
+		func(path: String):
+			var bytes := FileAccess.get_file_as_bytes(path)
+			var uid := target_uid
 			if into_unassigned:
-				_current_unassigned = true
-				_current_collection = ""
-				_current_family = ""
-				_highlight_collection_row("")
-				_highlight_unassigned_row(true)
-				for k in _rail_buttons:
-					var parts: Dictionary = _rail_buttons[k]
-					(parts["button"] as Button).add_theme_stylebox_override("normal", DccTheme.empty())
-					(parts["code"] as Label).add_theme_color_override("font_color", DccTheme.c("text_ghost"))
-					(parts["name"] as Label).add_theme_color_override("font_color", DccTheme.c("text"))
-				_focused_uid = uid
-			_refresh_grid()
-			_refresh_inspector()
-			_refresh_rail_counts()
-			_refresh_status_line()
-		else:
-			_host.set_status("hint", "import failed — %s" % String(result.get("error", "unknown error")), "warn")
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered_ratio(0.6)
+				## AS-12: no slot was focused, so this file gets a fresh custom
+				## slot of its own under the reserved "Unassigned imports" set --
+				## `as_add_custom_slot` is the real engine call that bucket sits
+				## on, same as every other custom slot.
+				var made: Dictionary = _bridge.as_add_custom_slot(path.get_file().get_basename(), UNASSIGNED_SET)
+				uid = String(made.get("uid", ""))
+			var result: Dictionary = _bridge.as_import_item(uid, path.get_file(), bytes)
+			if bool(result.get("ok", false)):
+				if replace_first:
+					_bridge.as_remove_item(uid, 0)
+				_dirty = true
+				_host.set_status("hint", "imported %s%s" % [
+					path.get_file(), " → Unassigned imports" if into_unassigned else ""], "accent")
+				_preview_index = 0
+				if into_unassigned:
+					_current_unassigned = true
+					_current_collection = ""
+					_current_family = ""
+					_highlight_collection_row("")
+					_highlight_unassigned_row(true)
+					for k in _rail_buttons:
+						var parts: Dictionary = _rail_buttons[k]
+						(parts["button"] as Button).add_theme_stylebox_override("normal", DccTheme.empty())
+						(parts["code"] as Label).add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+						(parts["name"] as Label).add_theme_color_override("font_color", DccTheme.c("text"))
+					_focused_uid = uid
+				_refresh_grid()
+				_refresh_inspector()
+				_refresh_rail_counts()
+				_refresh_status_line()
+			else:
+				_host.set_status("hint", "import failed — %s" % String(result.get("error", "unknown error")), "warn"))
 
 ## AS-07: the Scale slider / Pan X / Pan Y spinboxes writing live, straight
 ## through `as_set_item_transform`. Only the preview repaints here -- the
@@ -2949,24 +2947,62 @@ func _on_export_pack() -> void:
 		return
 	var bytes: PackedByteArray = result.get("bytes", PackedByteArray())
 	var suggested := "%s.zip" % _slug_name(String(result.get("name", "asset_pack")))
-	var d := FileDialog.new()
-	d.title = "Export pack .zip"
-	d.file_mode = FileDialog.FILE_MODE_SAVE_FILE
-	d.access = FileDialog.ACCESS_FILESYSTEM
-	d.add_filter("*.zip ; Asset pack")
-	d.current_file = suggested
-	d.file_selected.connect(func(path: String):
-		var f := FileAccess.open(path, FileAccess.WRITE)
-		if f == null:
-			_host.set_status("hint", "export failed — could not open %s for writing" % path.get_file(), "warn")
-		else:
-			f.store_buffer(bytes)
-			f.close()
-			_host.set_status("hint", "exported %s (%d bytes)" % [path.get_file(), bytes.size()], "accent")
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered_ratio(0.6)
+	## The asset-packs root, not `_picker_start_dir()`: a written pack is the
+	## same kind of file `app.gd::open_asset_pack_picker()` reads back out of
+	## that root, so writing it anywhere else would make the two halves of one
+	## round trip disagree about where packs live.
+	##
+	## Name the branch, not the intention: `DccBrowseDialog.navigate()` falls
+	## back to `home_dir()` when the requested directory does not exist, and no
+	## `make_dir` in `godot-project/shell/` ever creates a storage root. On this
+	## machine `DirAccess.dir_exists_absolute()` on the asset-packs root is
+	## **false**, so this picker and `open_asset_pack_picker()` both open on
+	## home -- agreeing by the fallback rather than by the root. The moment the
+	## root exists, both follow it.
+	DccBrowseDialog.choose_save_path(self, "Export pack .zip", "zip",
+		DccSettings.storage_root("asset_packs"),
+		"one .zip, %d bytes, importable by Assets ▸ Import pack…" % bytes.size(),
+		suggested, func(path: String): _overwrite_guard(path, func():
+			var f := FileAccess.open(path, FileAccess.WRITE)
+			if f == null:
+				_host.set_status("hint", "export failed — could not open %s for writing" % path.get_file(), "warn")
+			else:
+				f.store_buffer(bytes)
+				f.close()
+				_host.set_status("hint", "exported %s (%d bytes)" % [path.get_file(), bytes.size()], "accent")))
+
+## Where a picker that reads a loose image should open. All three stock
+## `FileDialog`s this window used to raise set no `current_dir`, and a
+## `FileDialog` that is not told one opens on the process working directory --
+## measured at 4.7.1: a fresh `FileDialog` reports exactly `DirAccess.open(".")
+## .get_current_dir()`, which for a run of this project is the `godot-project`
+## folder. Nobody keeps their artwork there.
+##
+## So this is a change, not a translation. None of the four `DccSettings` roots
+## is right for a user's own PNGs either, and the home directory is at least
+## somewhere they have been; it is also the fallback `DccBrowseDialog
+## ::navigate("")` already takes, named here so the choice is visible rather
+## than accidental -- `vault_window.gd::_browse_vault()` passes `""` for the
+## same reason.
+##
+## The pack export does not come through here; it asks for the asset-packs
+## root instead, and lands here only when that root does not exist.
+func _picker_start_dir() -> String:
+	return DccBrowseDialog.home_dir()
+
+## The overwrite prompt Godot's stock `FileDialog` performed for free in
+## `FILE_MODE_SAVE_FILE` and `DccBrowseDialog` deliberately leaves to its
+## caller (`choose_save_path`'s own doc: the caller "is the only side that
+## knows what is about to be overwritten"). Measured against 4.7.1 on
+## 2026-09-05: a stock save dialog driven at an existing file does not emit
+## `file_selected` until *File "…" already exists. Do you want to overwrite
+## it?* is answered. Same shape as `app.gd::save_project_as()`.
+func _overwrite_guard(path: String, then: Callable) -> void:
+	if not FileAccess.file_exists(path):
+		then.call()
+		return
+	_host._confirm("Overwrite %s?" % path.get_file(),
+		"That file already exists. Exporting replaces it.", "Overwrite", then)
 
 ## The reference's own `slugName` (`Cartalith Gen1 v2.10.html` line ~27011):
 ## lowercase, collapse every non-alphanumeric run to `_`, trim the ends, fall
@@ -3312,18 +3348,22 @@ func _close_slicer() -> void:
 		_sheet_loaded = false
 	_slicer.hide()
 
+## Hosted on `_slicer`, not on `self` -- the only picker in this window that
+## is, and the stock dialog it replaces was parented the same way. Kept rather
+## than tidied because `_slicer.exclusive` is `true` (measured, not assumed:
+## `AcceptDialog` sets it in its constructor), and an exclusive window is the
+## one shape where *which* node you parent to changes who receives input. A
+## host swap here would need testing against a live slicer; the swap this
+## batch is making does not, because the parent is unchanged.
+##
+## `DccBrowseDialog._shell_of()` walks up from whatever node it is handed
+## until it finds `is_phone()`, so a `Window` host costs it nothing -- the
+## same thing `open_project_dialog.gd::_browse_from_disk()` relies on.
 func _pick_sheet_image() -> void:
-	var d := FileDialog.new()
-	d.title = "Choose sprite sheet"
-	d.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	d.access = FileDialog.ACCESS_FILESYSTEM
-	d.add_filter("*.png ; PNG image")
-	d.file_selected.connect(func(path: String):
-		_load_sheet_image(path)
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	_slicer.add_child(d)
-	d.popup_centered_ratio(0.6)
+	DccBrowseDialog.choose_file(_slicer, "Choose sprite sheet",
+		PackedStringArray(["png"]), _picker_start_dir(),
+		"one .png; the slicer cuts it into cells, it is not imported as-is",
+		func(path: String): _load_sheet_image(path))
 
 ## The image goes to the engine (which owns the slice) *and* to a local
 ## `ImageTexture` (which is only ever drawn). Godot's own decoder is not asked

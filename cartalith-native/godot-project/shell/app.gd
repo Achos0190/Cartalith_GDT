@@ -182,6 +182,11 @@ func _on_map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2) 
 ## because `_unhandled_key_input` still fires for a focused text field on
 ## some platforms and deleting a settlement while the user is editing its
 ## name would be the worst possible surprise.
+##
+## **⇧J is the odd one out and says so at its own branch.** It is not a
+## tool-context key; it is a menu accelerator that lost its menu row when the
+## Journey planner moved to the CIVIL rail on 2026-09-05, and this is where it
+## landed so the shortcut did not die with the row.
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed):
 		return
@@ -205,6 +210,32 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		if delete_selection():
 			get_viewport().set_input_as_handled()
 			return
+	elif event.keycode == KEY_J and event.shift_pressed \
+			and not (event.ctrl_pressed or event.alt_pressed or event.meta_pressed):
+		## **⇧J, which used to be a menu accelerator.** `Data ▸ Journey
+		## planner… ⇧J` was retired on 2026-09-05 (owner ruling,
+		## `LARGE_ITEM_RULINGS.md` item 4) and the planner moved to the CIVIL
+		## rail node. A rail node has no accelerator column, so the key lands
+		## here or nowhere -- and dropping a working shortcut to a layout change
+		## is the same capability-loss-as-conformance the ruling forbids for
+		## `Clear library…`.
+		##
+		## **Two consequences, stated because they are real costs, not nits.**
+		## The key is no longer rebindable: `menus.gd::_shortcut_defaults` is
+		## filled only by `_bind_accelerator()`, which only menu rows reach. And
+		## it is no longer listed in `Help ▸ Keyboard shortcuts`, which reads the
+		## live menus -- it belongs in `shortcuts_dialog.gd::UNLISTED` beside
+		## Esc, Delete and Space, which is a one-line install in a file this lane
+		## does not own. Reported, not made.
+		##
+		## The text-field guard is Delete's and Backspace's, for the same reason:
+		## `_unhandled_key_input` still fires for a focused `LineEdit` on some
+		## platforms, and ⇧J while naming a settlement means the letter J.
+		var typing := get_viewport().gui_get_focus_owner()
+		if typing is LineEdit or typing is TextEdit or typing is SpinBox:
+			return
+		open_journey_planner()
+		get_viewport().set_input_as_handled()
 
 ## Delete whatever is selected, in whichever workspace owns a selection.
 ##
@@ -1593,6 +1624,34 @@ func _tool_options_generate() -> void:
 			if ws != null:
 				ws.bake_and_finalize())
 		_tool_options_bake = bake
+		## **`Refine detail`, moved here 2026-09-05** from `Preferences ▸ Tiles &
+		## LOD ▸ Atlas cache` by the owner's structural-move ruling
+		## (`LARGE_ITEM_RULINGS.md` item 4: *"Atlas 'Refine detail for the
+		## current view' moves to the WORLD rail beside Bake & finalize"*).
+		## `design/Cartalith Menu Structure v3.dc.html` draws it exactly there --
+		## `LOD terrain data · refine · atlas bake` (`#lodRefineBtn
+		## #lodBakeBtn`) inside `WORLD ▸ GENERATE ▸ › Bake & finalize`, annotated
+		## `from · View ▸ Tiled LOD, Atlas cache` -- and `03-menu-bar.md` §6.5's
+		## TILES & LOD block has no refine row at all.
+		##
+		## Beside `Bake ALL & finalize` literally: this row is the WORLD bar, and
+		## the two are the shell's only two bakes. `menus.gd` keeps the pass
+		## (`refine_current_view()`, public for this one caller) because
+		## everything it needs -- the bridge, the viewport, the status
+		## vocabulary -- is that file's; a copy here would have been a second
+		## implementation rather than a move. `REFINE_TOOLTIP` is shared for the
+		## same reason: it is where the "does NOT speed up panning back" limit is
+		## written down, and two copies is two things to keep in step.
+		##
+		## **Not pushed a state the way `_tool_options_bake` is.** The bake
+		## shortcut mirrors the WORLD dock's own control, so `set_bake_shortcut`
+		## keeps them from drifting; refine has no dock twin and answers for
+		## itself -- `refine_current_view()` reports "no world on screen" and
+		## "the pyramid is not up at this zoom" on the status line rather than
+		## going dark, which is the only honest gate when the precondition is
+		## the *camera*, not the world.
+		DccWidgets.action(row, "Refine detail", func(): menus.refine_current_view()) \
+			.tooltip_text = DccMenus.REFINE_TOOLTIP
 		var ws0: WorldWorkspace = _world_workspace()
 		if ws0 != null:
 			ws0.on_world_changed()
@@ -2746,9 +2805,19 @@ func reveal_on_disk(path: String) -> bool:
 ## `DCC_SHELL_SPEC.md` §4.5.4's 2026-08-19 addition: Journey is an INFRA tool
 ## takeover, not a dialog -- this arms it exactly like any other tool
 ## (`journey_planner_view.gd` does the actual region swap, listening to
-## `tool_armed`). Both real entry points converge here: `Data ▸ Journey
-## planner… ⇧J` (`menus.gd`) and the INFRA dock's own Logistics button
-## (`infrastructure_workspace.gd`).
+## `tool_armed`).
+##
+## **Every entry point converges here, and the list changed on 2026-09-05.** The
+## owner's structural-move ruling (`LARGE_ITEM_RULINGS.md`, item 4) retired
+## `Data ▸ Journey planner… ⇧J` and made the CIVIL rail node `planner` the
+## planner's home, per `00-REPLACEMENT-PLAN.md` §1.1 and v3. What calls this now:
+##
+##   - the rail node (`dcc_shell.gd::_on_rail_node_pressed()`), desktop and phone
+##   - the phone PLAN tab (`dcc_shell.gd::PHONE_TABS`)
+##   - `right_dock.gd`'s `Logistics` and `Plan a journey` actions
+##   - `infrastructure_workspace.gd`'s `Open Journey Planner`
+##   - `⇧J`, now bound in `_unhandled_key_input()` below rather than as a menu
+##     accelerator -- a rail node has no accelerator column
 ##
 ## **The domain switch is load-bearing** (`GUI_GAP_REGISTER.md` IN-10, owner
 ## report 2026-08-24: "there is no way to plan a Journey"). Journey's takeover
@@ -2756,16 +2825,19 @@ func reveal_on_disk(path: String) -> bool:
 ## `_recompute_visibility()` requires `app.active_domain() == "civilization"`,
 ## correctly, since the view swaps *that domain's* region and would otherwise
 ## paint over WORLD's or CARTO's dock. But the shell opens on WORLD, and the
-## two entry points that can be reached from anywhere (`Data ▸ Journey
-## planner… ⇧J` and the right dock's own "Plan a journey") only armed the
-## tool. From WORLD or CARTO the result was a menu item that changed nothing
-## on screen at all: the tool armed, the status line said so in ghost text at
-## the far corner, and every other pixel stayed put. Verified live from a
-## fresh launch before the fix. Selecting the domain first is what the INFRA
-## dock button had implicitly all along (you can only click it from inside
-## CIVIL), so this makes every entry point behave like the one that worked.
+## entry points reachable from anywhere only armed the tool. From WORLD or CARTO
+## the result was an item that changed nothing on screen at all: the tool armed,
+## the status line said so in ghost text at the far corner, and every other pixel
+## stayed put. Verified live from a fresh launch before the fix.
+##
+## `select_domain_mode()` rather than `select_domain()` since 2026-09-05: the
+## planner now owns a rail node, so every route into it must light that node and
+## open its `Travel` category, or the rail would say `Landmarks` over an open
+## planner. The extra work over `select_domain()` is a `RAIL_NODES` lookup, the
+## mode write the rail paints from, and one `Workspace.open_category()` that
+## emits only when the body is hidden.
 func open_journey_planner() -> void:
-	select_domain("civilization")
+	select_domain_mode("civilization", "planner")
 	journey_planner_view.open()
 
 ## `credits.gd` extends AcceptDialog and fills `%CreditsText` from `_ready`, so

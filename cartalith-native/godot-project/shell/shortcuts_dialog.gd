@@ -98,6 +98,7 @@ const UNLISTED: Array = [
 	["Map view", "Space", "Hold to pan the map", "viewport_host.gd"],
 	["Map view", "Esc", "Cancel the active tool or close the top sheet", "app.gd"],
 	["Map view", "Delete / Backspace", "Remove the selected item", "app.gd"],
+	["Civilization", "Shift+J", "Open the Journey planner", "app.gd"],
 ]
 
 func setup(app: Node) -> void:

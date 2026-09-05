@@ -85,9 +85,22 @@ class_name CommandIndex
 ## Actions that are neither a generation parameter nor a menu row. Deliberately
 ## short: anything that belongs in a menu should BE in a menu, where the walk
 ## finds it for free.
+## **Two rows added 2026-09-05, and the reason is the point of this table.**
+## `_add_menu_commands()` walks the live `MenuBar`, so a command that stops being
+## a menu row stops being searchable — silently, with nothing failing. The owner's
+## 2026-09-05 ruling moved `Journey planner` to the CIVIL rail and
+## `Refine detail for the current view` to the WORLD tool-options bar; a verifier
+## then measured **0 title matches out of 361 indexed rows** for both. Neither
+## move was authorised to remove a command from search.
+##
+## A rail node and a bar button are exactly what `EXTRAS` is for: real actions
+## that are not menu rows. **Any future move off the menu bar owes this table a
+## row in the same change.**
 const EXTRAS: Array = [
 	{"title": "Zoom to fit", "blurb": "Frame the whole world in the viewport", "group": "View"},
 	{"title": "Point sample", "blurb": "Read elevation, biome and climate under one cell", "group": "View"},
+	{"title": "Journey planner", "blurb": "Plan a route: party, season, carriage, stages and cost. CIVIL rail ▸ Travel, or Shift+J", "group": "Civilization"},
+	{"title": "Refine detail for the current view", "blurb": "Re-render the visible tiles at full detail. WORLD tool options, beside Bake & finalize", "group": "World"},
 ]
 
 var _rows: Array = []

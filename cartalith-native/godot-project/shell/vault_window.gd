@@ -51,9 +51,11 @@ class_name VaultWindow
 ## one section here that writes a file into the vault that is not a `.md`. Its
 ## own doc comment carries §22's "must not silently pollute the Markdown
 ## vault" and how the folder is accepted. The three Map checkboxes in
-## `_build_feedback` appear only once a snapshot exists — `export::offer`
-## filters on the value being there, so the block can never carry a link to an
-## image that was never written.
+## `_build_feedback` appear only while the image is actually in the vault:
+## `vault_export_fields` filters through `entity_values`, which supplies a Map
+## value only for a snapshot that was written **and that nothing reported
+## gone** (2026-09-05). So the block can never carry a link to an image that
+## was never written, nor to one this device has looked for and not found.
 ##
 ## ## What is deliberately not here
 ##
@@ -959,6 +961,30 @@ func _confirm_section_write() -> void:
 ## one the note can still resolve on another machine, and an absolute path to
 ## somewhere else on this disk would be a §5 violation living in the user's
 ## own file, where nothing here could later correct it.
+##
+## ## Three states per radius, and three different things to say (2026-09-05)
+##
+## A filed path used to be the whole story here: `path != ""` drew a tick and
+## labelled the button *Regenerate*. It is not, because the file lives outside
+## this process and a file manager can take it away. `vault_snapshot_radii`
+## now separates the cases and the row renders each differently:
+##
+## | row | shown | button |
+## |---|---|---|
+## | no `path` | `○ not generated` | *Generate* |
+## | `path`, no `missing` | `✓ <path>` | *Regenerate* |
+## | `path` + `missing` | `✕ <path> — written before, and not in the vault now` | *Generate … again* |
+##
+## The middle row is two states the panel cannot tell apart and does not
+## pretend to: `missing` is omitted both when the image is there and when this
+## device cannot check (a vault that is not on this filesystem). Omitted is
+## also why the branch is `has()` and not `get(…, false)` — see the loop.
+##
+## *Regenerate* is deliberately not the word on the third row. Regenerating
+## replaces a picture the note already renders; the third row's file is gone,
+## so the act is putting it back, and the row says what that changes — a note
+## pointing at it currently shows nothing, and Cartalith feedback offers no
+## Map checkbox for it until it exists again.
 func _build_snapshots() -> void:
 	var radii := bridge.vault_snapshot_radii(_kind, _entity_id)
 	if radii.is_empty():
@@ -987,16 +1013,54 @@ func _build_snapshots() -> void:
 	row.add_child(dir_edit)
 	sec.add_child(row)
 
+	var base_tip := "Crops the map you are looking at — the same renderer, the same look — around this entity and writes a %d px PNG into the folder above. Regenerating replaces that file, so a note already pointing at it shows the new picture." % SNAPSHOT_PX
+
 	for r in radii:
 		var d: Dictionary = r
 		var radius := String(d.get("radius", ""))
 		var have := String(d.get("path", ""))
 		var caption := "%s — %d km across, %d cells" % [
 			String(d.get("label", radius)), int(round(float(d.get("km", 0.0)) * 2.0)), int(d.get("cells", 0)) * 2 + 1]
-		DccWidgets.note(sec, caption + ("\n✓ %s" % have if have != "" else "\n○ not generated"))
-		var b := DccWidgets.action(sec, ("Regenerate " if have != "" else "Generate ") + radius, func():
+		## `has("missing")`, never `get("missing", false)`: the engine omits
+		## the key rather than sending `false`, because there is no value of it
+		## that means *unknown* — see `vault_snapshot_radii`'s own table. A
+		## filed path is a record that a snapshot was **written**; whether the
+		## image is still there is the separate question `snapshot_on_disk`
+		## answers, and it answers `None` — key omitted — for a vault this
+		## device cannot look inside. So the tick below means "filed, and
+		## nothing said it was gone", which is the strongest true statement
+		## the panel has, and a wrongly-ticked row is only reachable on a
+		## project written on a desktop and opened where the vault is not on
+		## this filesystem.
+		var status := "\n○ not generated"
+		var verb := "Generate " + radius
+		var tip := base_tip
+		if have != "":
+			if d.has("missing"):
+				## Not *Regenerate*: there is nothing there to replace. The
+				## file was written and something outside Cartalith removed
+				## it, so the act on offer is putting it back — and it is
+				## worth offering rather than hiding, because the Map checkbox
+				## in Cartalith feedback stays away until it is back
+				## (`vault_export_fields` filters through `entity_values`,
+				## which drops a Map field whose image is gone).
+				##
+				## The condition on that repair is the folder field above, and
+				## it is stated because the code branches on it: `rel` is
+				## `{subdir}/{entity key}_{radius}.png` built from whatever
+				## that field holds at the moment Generate is pressed, so
+				## typing a different folder writes a new image somewhere else
+				## and leaves the old path as dead as it was.
+				status = "\n✕ %s — written before, and not in the vault now. A note already pointing at it shows nothing, and Cartalith feedback stops offering this map until the file is back." % have
+				verb = "Generate %s again" % radius
+				tip = base_tip + " This one was written and is gone — something outside Cartalith moved or deleted it. Generating again writes into the folder above: leave that at %s and the image comes back at the path a note is already pointing at, change it and the new image goes somewhere else with the old path still empty." % have.get_base_dir()
+			else:
+				status = "\n✓ %s" % have
+				verb = "Regenerate " + radius
+		DccWidgets.note(sec, caption + status)
+		var b := DccWidgets.action(sec, verb, func():
 			_generate_snapshot(radius, dir_edit.text.strip_edges()))
-		b.tooltip_text = "Crops the map you are looking at — the same renderer, the same look — around this entity and writes a %d px PNG into the folder above. Regenerating replaces that file, so a note already pointing at it shows the new picture." % SNAPSHOT_PX
+		b.tooltip_text = tip
 
 
 func _generate_snapshot(radius: String, subdir: String) -> void:
@@ -1451,10 +1515,10 @@ func _build_index_report() -> void:
 
 func _build_footer() -> void:
 	DccWidgets.note(_body,
-		"Not built here, each for a stated reason: the map snapshot (§21) — it needs a crop of "
-		+ "the live renderer at three radii, held as its own milestone rather than shipped as a "
-		+ "broken image link; two-way sync and an Obsidian plugin — an explicit V1 non-goal and a "
-		+ "deferred wish. Compare-with-source (§14) is built now — the diff sits beside a stale "
+		"Not built here, each for a stated reason: two-way sync and an Obsidian plugin — an "
+		+ "explicit V1 non-goal and a deferred wish. The map snapshot (§21) is built, in an "
+		+ "entity's own view: three radii cropped from the live renderer, and a row that says so "
+		+ "when its image has gone missing from the vault. Compare-with-source (§14) is built now — the diff sits beside a stale "
 		+ "link's Reload source button. Links themselves ride inside a saved project: File ▸ Save "
 		+ "writes them into the project archive's own vault.json, beside the settlements and "
 		+ "factions the same archive already carries, and opening that project restores them "

@@ -43,9 +43,12 @@ const ID_DELETE := 77
 const ID_DESELECT := 82
 ## The four `Edit` clipboard commands (§2.2), step three of the owner's
 ## `LARGE_ITEM_RULINGS.md` ruling. `84`-`87` by the same whole-file grep of
-## `^const ID_[A-Z_]+ := [0-9]+` its neighbours record making: `78`-`83` are
+## `^const ID_[A-Z_]+ := [0-9]+` its neighbours record making: `78`-`83` were
 ## taken (`ID_HELP_DOCS`, `ID_LOD_TILE_BORDERS`, `ID_LOD_REFINE_VIEW`,
-## `ID_DESELECT` and `83`) and no `*_FIRST` block reaches this range.
+## `ID_DESELECT` and `83`) and no `*_FIRST` block reaches this range. **`81` is
+## free again** since `ID_LOD_REFINE_VIEW` was retired on 2026-09-05 (see its
+## own note below); it is left unallocated rather than recycled, so a reader
+## chasing an old id lands on the note instead of on someone else's row.
 const ID_CUT := 84
 const ID_COPY := 85
 const ID_PASTE := 86
@@ -73,12 +76,19 @@ const ID_AP_EXPORT := 39
 const ID_AP_PACK_META := 49
 
 const ID_DATA_MANAGER := 40
-const ID_JOURNEY_PLANNER := 41
+## 41 held `Journey planner… ⇧J` until 2026-09-05, when the owner's structural-
+## move ruling (`LARGE_ITEM_RULINGS.md`, 2026-09-05 item 4) sent the planner to
+## the CIVIL rail node `planner` -- `03-menu-bar.md` §6.4 draws the Data menu as
+## five heads and no planner row, and `00-REPLACEMENT-PLAN.md` §1.1 lists
+## `Journey planner` as a CIVIL node. `dcc_shell.gd::_on_rail_node_pressed()` is
+## the row's replacement and `app.gd::open_journey_planner()` is still the one
+## call every entry point makes.
+##
 ## 42/43/44/46 held one id per Data-manager *group* while the dropdown drew one
 ## row per group. It now draws one row per route (see `_data()`), so the group
 ## ids are gone and `ID_DATA_ROUTE_FIRST` below replaces them. Left out rather
 ## than left dangling: an unused id in a menu file is how a row ends up wired
-## to the wrong thing later.
+## to the wrong thing later. 41 is left out for the same reason.
 const ID_TRAVEL_LIBRARY := 48
 const ID_VAULT := 45
 const ID_WORLD_DATA := 47
@@ -152,7 +162,13 @@ const ID_LOD_DBG_LABELS := 76
 ## but `get_item_index(id)` does not know that, and a probe or a later reader
 ## looking a row up by number would find the wrong menu's. Cheap to avoid.
 const ID_LOD_TILE_BORDERS := 80
-const ID_LOD_REFINE_VIEW := 81
+## 81 held `Atlas cache ▸ Refine detail for the current view` until 2026-09-05.
+## The same structural-move ruling put it on the WORLD rail beside Bake &
+## finalize -- v3 draws it as `LOD terrain data · refine · atlas bake` under
+## `WORLD ▸ GENERATE ▸ › Bake & finalize`, and `03-menu-bar.md` §6.5's
+## TILES & LOD block has no refine row at all. The pass itself stayed here as
+## the public `refine_current_view()`; `app.gd::_tool_options_generate()` is
+## what presses it now. Left out rather than left dangling, as above.
 const ID_LOD_EXPORT_ATLAS := 82
 const ID_LOD_IMPORT_ATLAS := 83
 
@@ -242,9 +258,17 @@ var _landmark_hand_idx: int = -1
 ## AS-13 / omission O2: `Assets ▸ Asset pack ▸`, `DCC_CONTROL_INDEX.md` §2.3.1.
 var _asset_pack_popup: PopupMenu
 ## The `Edit ▸`/`Batch ▸`/`Build ▸` child popups these three held are gone
-## (2026-08-25): the canvas draws one panel with four labelled bands, so
-## `_build_asset_pack_submenu()` builds bands rather than submenus.
-var _ap_stats_idx: int = -1
+## (2026-08-25); the four labelled bands that replaced them are gone too
+## (2026-09-05). `_build_asset_pack_submenu()` now builds the newest design's
+## flat nine rows -- see its header.
+##
+## The five `ACTIVE PACK` readouts, in build order (`NAME`, `AUTHOR`, `LICENSE`,
+## `SCHEMA`, `FILLED`), so `_refresh_asset_pack_stats()` can rewrite each one on
+## `about_to_popup`. An array rather than five ints, and rather than one base
+## index plus arithmetic: five contiguous rows is a property of today's build
+## order, not of the design, and an offset would go quietly wrong the first time
+## a row is inserted between them.
+var _ap_read_idx: Array[int] = []
 ## §2.5 Performance ▸ the four multi-GPU rows (`GUI_GAP_REGISTER.md`
 ## PR-01/PR-02/PR-04/PR-05). `_gpu_devices` is cached rather than
 ## re-enumerated on every popup: enumeration opens a `wgpu` instance and walks
@@ -299,7 +323,7 @@ var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
 	## every launch. `BUILD_ANSWERS.md:98-99`: "Device, theme and units persist
 	## ... and restore on load."
 ## §2.5 Tiles & LOD. `_atlas_popup`'s first row is a live status readout, so
-## its index is kept the way `_ap_stats_idx` keeps the Asset pack one.
+## its index is kept the way `_ap_read_idx` keeps the Asset pack ones.
 var _tile_size_popup: PopupMenu
 var _lod_levels_popup: PopupMenu
 var _tiled_lod_popup: PopupMenu
@@ -1559,7 +1583,18 @@ func _assets(p: PopupMenu) -> void:
 
 	p.add_separator()
 	_live(p, "Apply library to map", ID_APPLY_LIBRARY)
-	_live(p, "Clear library…", ID_CLEAR_LIBRARY)
+	## §6.3 row 13, and the only `Clear library…` in the shell since 2026-09-05
+	## -- the Asset pack expansion's duplicate went with the four bands. The
+	## design marks this row `danger:1 → color:var(--block)`; Godot 4's
+	## `PopupMenu` has no per-item font colour, so the word carries it, exactly
+	## as `_data()`'s route badges carry a column a `PopupMenu` cannot draw.
+	##
+	## The confirmation is not this row's: `ID_CLEAR_LIBRARY` reaches
+	## `asset_library_window.gd::clear_library_now()` -> `_on_clear_library()`,
+	## which raises a `ConfirmationDialog` and clears only on `confirmed`.
+	## Checked at the symbol when the duplicate was dropped, rather than assumed
+	## to have survived the move.
+	_live(p, "Clear library…   destructive", ID_CLEAR_LIBRARY)
 	p.id_pressed.connect(_on_assets)
 
 ## §2.3's "filled/capacity counts", per family, on one of the two family
@@ -1864,20 +1899,69 @@ func _landmark_funnel_map() -> Dictionary:
 ## against 1 engine gap") -- most of it real once `asset_bridge.rs`'s
 ## session exists.
 ##
-## **Flattened 2026-08-25.** §2.3.1's four groups were built as three *nested
-## submenus* (`Edit ▸`, `Batch ▸`, `Build ▸`) hanging off a fourth popup. The
-## canvas draws one 306 px panel with four **labelled bands** and every row
-## visible at once -- `ACTIVE PACK`, `EDIT`, `BATCH · 12 SELECTED`, `BUILD`,
-## each `font:9px 'IBM Plex Mono';letter-spacing:.18em;color:#5f6468` -- and
-## `Clear library…` at its foot. Three popups became zero, which also removes
-## three more places for MN-10's trap (a submenu's `id_pressed` does not bubble
-## to its parent in Godot 4) to reappear: there is now one popup and one
-## handler.
+## **Flattened once (2026-08-25) and again (2026-09-05).** §2.3.1's four groups
+## were first three *nested submenus* (`Edit ▸`, `Batch ▸`, `Build ▸`) hanging
+## off a fourth popup; the 2026-08-25 pass made them four labelled bands --
+## `ACTIVE PACK`, `EDIT`, `BATCH · 12 SELECTED`, `BUILD` -- in one popup, which
+## is what the `DCC shell tablet 2560` artboard draws. Three popups became zero,
+## which also removed three places for MN-10's trap (a submenu's `id_pressed`
+## does not bubble to its parent in Godot 4) to reappear.
 ##
-## The Edit and Batch rows still need a *selected slot* / *multi-selection*
-## that no `PopupMenu` item has, so they still open the real window where that
-## context lives, and still say so in their tooltips. Build's four rows and
-## Pack metadata need no such context and call straight into the engine.
+## The newest design replaces the bands outright, and the owner ruled for it
+## (`LARGE_ITEM_RULINGS.md`, 2026-09-05 item 4: *"the Asset-pack submenu
+## flattens from four bands to the newest 9-row expansion"*).
+## `design/dcc-environment-2026-08-31/spec/03-menu-bar.md` §6.3a is that
+## expansion, and it is exactly nine rows: one head, five reads, three items.
+##
+##     head ACTIVE PACK · read NAME · read AUTHOR · read LICENSE
+##     read SCHEMA · read FILLED
+##     item Pack metadata… · item Validate pack · item Export pack .zip… ⌘⇧P
+##
+## ## Where the fifteen dropped rows went, one by one
+##
+## Fifteen item rows leave (seven `EDIT`, five `BATCH`, two of `BUILD`'s four,
+## and the foot); `Validate pack`, `Export pack .zip…` and `Pack metadata…`
+## stay, and the two old readouts become five. Nothing here is deleted
+## capability; §6.3's own parent menu already carries every destination, which
+## is the whole reason the expansion can be this short. Checked against
+## `_assets()` above rather than assumed:
+##
+## | dropped band row | where it lives now |
+## |---|---|
+## | `Open library workspace ▤` | §6.3 row 1, `⧉ Asset library` (⇧A) |
+## | `Sprite sheet slicer…` | §6.3 row 2, `⧉ Sprite sheet slicer (▦)` |
+## | `Import image into slot…` | §6.3 row 4, `Import image…` |
+## | `Import pack .zip…` | §6.3 row 5, `Import asset pack .zip…` |
+## | `Apply to map` | §6.3 row 12, `Apply library to map` |
+## | `Clear library…   destructive` | §6.3 row 13, `Clear library…` -- see below |
+## | `Add variant to slot`, `Replace · delete slot art`, `Slot transform`, `Preview background`, and BATCH's `Tag…` / `Collect into set…` / `Rename…` / `Duplicate` / `Delete` | all nine opened the Asset library window, which row 1 does -- eight carried `ID_ASSET_LIBRARY` and `Add variant to slot` carried `ID_IMPORT_IMAGE`, which `_on_assets` sends to the same `open_asset_library()`. They were nine shortcuts into one window, not nine commands, and their own tooltips said so |
+##
+## ## `Clear library…` — the consequence the owner raised, and where it went
+##
+## The ruling names it in terms: *"the flat shape has nowhere for `Clear
+## library… destructive` … do not silently drop it — find it a home and say
+## where, because losing a destructive action to a layout change is a capability
+## loss wearing conformance clothes."*
+##
+## **It needed no new home: it already had the design's own.** §6.3 row 13 is
+## `Clear library…` with `danger:1 → color:var(--block)`, and `_assets()` has
+## built that row since the menu existed -- so the band's copy at this popup's
+## foot was the *second* of two, not the only one. What this pass does is drop
+## the duplicate and move the word `destructive` onto the surviving row, which
+## is the only way a `PopupMenu` can render `danger:1` (Godot 4 has no per-item
+## font colour; the badge-in-the-label shape is the one `_data()`'s route rows
+## already use for the same reason). It still confirms before acting --
+## `ID_CLEAR_LIBRARY` reaches `asset_library_window.gd::_on_clear_library()`,
+## which raises a `ConfirmationDialog` and only clears on `confirmed`.
+##
+## ## What this costs the command index, stated rather than discovered
+##
+## `command_index.gd` walks the live `MenuBar`, so the nine library-window
+## shortcuts stop being searchable by their own words -- searching `Rename` or
+## `Collect into set` will find the parameter table and the other menus, not
+## these. That is a real loss of *search terms*, not of capability, and it is
+## the other lane's file this batch: reported, not installed. The honest fix is
+## not nine `EXTRAS` rows but the Asset library window's own search.
 func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	_asset_pack_popup = PopupMenu.new()
 	_asset_pack_popup.name = "AssetPack"
@@ -1886,79 +1970,55 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	p.add_submenu_item("Asset pack", "AssetPack")
 
 	var ap := _asset_pack_popup
-	## Active pack -- name/author/license/schema/filled-slots, live values
-	## refreshed on every `about_to_popup` (the same pattern `_quality_popup`'s
-	## own live-check row and `_refresh_recent_worlds()` already use).
+	## Row 1 of §6.3a: the head. `add_separator(text)` is this file's only band
+	## head, and it is what the four retired bands used too.
 	ap.add_separator("ACTIVE PACK")
-	## Marked a readout even though it opens with no tooltip: the first
-	## `_refresh_asset_pack_stats()` gives it one, and by the time
-	## `CommandIndex` walks these menus it looks exactly like the five
-	## permanent readouts. The marker is what stops it being indexed as a
-	## command the moment it stops being silent chrome.
-	_ap_stats_idx = ap.item_count
-	_readout(ap, "— loading —", "")
-	## `schema   2 · STORED zip` is the canvas's own row, verbatim. The longer
-	## "(frozen timestamps, byte-reproducible)" gloss this used to carry made
-	## this popup 512 px wide against the canvas's 306 -- a `PopupMenu` sizes
-	## itself to its widest item, and that one row was setting the width of the
-	## whole panel. The gloss is on the tooltip.
-	_readout(ap, "schema   2 · STORED zip",
-		"Frozen timestamps, byte-reproducible: the same library exports to the same bytes.")
-	ap.add_item("Pack metadata…   name · author · license", ID_AP_PACK_META)
-	ap.set_item_tooltip(ap.item_count - 1,
-		"SS2.3.1: a modal editing name / author / license. Writes straight through as_set_pack_info(); the three values above are the same record, read back.")
 
-	ap.add_separator("EDIT")
-	for row in [
-		["Open library workspace   ▤", ID_ASSET_LIBRARY],
-		["Import image into slot…", ID_IMPORT_IMAGE],
-		["Sprite sheet slicer…   cols · rows · margin", ID_SLICER],
-		["Add variant to slot   + variant", ID_IMPORT_IMAGE],
-		["Replace · delete slot art", ID_ASSET_LIBRARY],
-		## Live since 2026-08-30. The `_todo` here said "no
-		## `as_set_item_transform` #[func] exists yet to write a new scale/pan
-		## back" -- **false, and false for a week**: it is at
-		## `cartalith-godot/src/lib.rs:10811` and the library window has been
-		## calling it from `_on_insp_transform_changed()`
-		## (`asset_library_window.gd:1703`) along with `as_reset_item_transform`
-		## behind the Fit and Reset chips (`:2485`, `:2488`).
-		##
-		## So the row is what its four neighbours already are: a route into the
-		## library workspace where the three controls live. It never needed to
-		## be anything else -- a menu cannot host a scale slider.
-		["Slot transform   scale · fit · reset", ID_ASSET_LIBRARY],
-		["Preview background   checker", ID_ASSET_LIBRARY],
-	]:
-		## Every row in this band now has an id -- the `wid < 0` branch that
-		## used to draw `Slot transform` as a `_todo` is gone with it, rather
-		## than kept as a fallback nothing takes.
-		ap.add_item(String(row[0]), int(row[1]))
-		ap.set_item_tooltip(ap.item_count - 1,
-			"Opens the Asset Library window -- every Edit control needs a focused slot, which only the window's own grid provides.")
-
-	## `Delete ⌫` used to carry the canvas's own accelerator glyph inside its
-	## label, and MN-09 removed it for two reasons. **One of the two is now
-	## false**: since 2026-08-24 `asset_library_window.gd` does bind Delete and
-	## Backspace, to its own confirmed batch delete. The other still stands and
-	## is why the glyph stays off — *this row does not delete anything*. Every
-	## one of the five opens the window, as its own tooltip says, and the
-	## binding lives in the window that has a selection to act on. A shortcut
-	## printed on a row that is not the action is still a promise this build
-	## cannot keep.
+	## Rows 2-6: the five reads, in §6.3a's order. Every one is rewritten by
+	## `_refresh_asset_pack_stats()` on `about_to_popup` (the same pattern
+	## `_quality_popup`'s live-check row and `_refresh_recent_worlds()` use), so
+	## the text below is the placeholder for exactly one frame.
 	##
-	## The canvas's band reads `BATCH · 12 SELECTED`, a live count. This build
-	## has no selection at the menu level to count -- the selection lives in the
-	## window -- so the band is `BATCH` and the count is not faked.
-	ap.add_separator("BATCH")
-	for label in ["Tag…", "Collect into set…", "Rename…", "Duplicate", "Delete"]:
-		ap.add_item(label, ID_ASSET_LIBRARY)
-		ap.set_item_tooltip(ap.item_count - 1,
-			"Opens the Asset Library window -- every batch op needs a multi-selection, which only the window's own grid (Shift-click ranges, Ctrl-click adds) provides. All five are real there, and Delete/Backspace there is the same confirmed batch delete.")
+	## `_readout`, not `add_item` + `set_item_disabled`: the marker is what stops
+	## `command_index.gd` filing five live values as five unavailable *commands*
+	## -- see `_readout()`'s own header.
+	##
+	## The design draws label and value as two columns. A `PopupMenu`'s only
+	## right column is the accelerator, which renders a real keystroke or
+	## nothing, so the value is appended to the label -- the same compromise
+	## `_data()`'s route badges make, and for the same reason.
+	_ap_read_idx.clear()
+	for r in [
+		["NAME", "The pack's own name, as Export pack .zip will write it into pack.json. Pack metadata… edits it."],
+		["AUTHOR", "Written into pack.json on export. Pack metadata… edits it."],
+		["LICENSE", "Written into pack.json on export. Pack metadata… edits it."],
+		## `2 · STORED zip` is the canvas's own value, verbatim. The longer
+		## "(frozen timestamps, byte-reproducible)" gloss this used to carry
+		## made the popup 512 px wide against the canvas's 306 -- a `PopupMenu`
+		## sizes itself to its widest item, and that one row set the width of
+		## the whole panel. The gloss is on the tooltip.
+		["SCHEMA", "Frozen timestamps, byte-reproducible: the same library exports to the same bytes. Schema and packaging are the exporter's, not the pack's, and are not editable."],
+		## §6.3a draws `FILLED` as `148 of 212 · 26 MB`. The slot halves are
+		## real and counted below; **the byte size is not, and is therefore not
+		## drawn** -- nothing in `asset_bridge.rs` reports the library's size in
+		## memory or on disk, and the only byte figure that exists is whatever
+		## `Export pack .zip…` happens to write. Dashing an invented megabyte
+		## count here would be the "no value as a plausible value" shape this
+		## project keeps having to undo.
+		["FILLED", "Filled slots out of capacity, counted across all eight families the same way the Asset library's own rail counts them, plus the item total (a slot can hold several variants). The pack's size in bytes is not shown: nothing reports it until Export pack .zip writes the archive."],
+	]:
+		_ap_read_idx.append(_readout(ap, "%s   — loading —" % String(r[0]), String(r[1])))
 
-	ap.add_separator("BUILD")
-	ap.add_item("Validate pack   warning count", ID_AP_VALIDATE)
-	ap.add_item("Apply to map   compile & load", ID_APPLY_LIBRARY)
-	ap.add_item("Import pack .zip…", ID_IMPORT_PACK)
+	## Rows 7-9: the three items. None of them needs a focused slot or a
+	## multi-selection, which is exactly why these three survived the flatten
+	## and the nine window shortcuts did not -- all three call straight into the
+	## engine through `_on_assets`.
+	ap.add_item("Pack metadata…", ID_AP_PACK_META)
+	ap.set_item_tooltip(ap.item_count - 1,
+		"A modal editing name / author / license. Writes straight through as_set_pack_info(); the three values above are the same record, read back.")
+	ap.add_item("Validate pack", ID_AP_VALIDATE)
+	ap.set_item_tooltip(ap.item_count - 1,
+		"Runs AssetValidator over the live library and reports its warnings. Reads only -- it changes nothing and writes nothing.")
 	## The canvas draws `⌘⇧P` in the popup's own *accelerator column*, right
 	## of the label — not inside the label. Baking it into the text put the
 	## shortcut on the row twice, `Export pack .zip… ⌘⇧P    Ctrl+Shift+P`, one
@@ -1968,9 +2028,6 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	ap.add_item("Export pack .zip…", ID_AP_EXPORT)
 	_bind_accelerator(ap, ap.item_count - 1, ID_AP_EXPORT, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_P)
 
-	ap.add_separator()
-	ap.add_item("Clear library…   destructive", ID_CLEAR_LIBRARY)
-
 	## `GUI_GAP_REGISTER.md` **MN-10**. The three child popups this used to
 	## build each connected their own `id_pressed` and this one never did, so
 	## `Pack metadata…` -- the one live row the parent owned -- was enabled,
@@ -1979,17 +2036,55 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	ap.id_pressed.connect(_on_assets)
 	ap.about_to_popup.connect(_refresh_asset_pack_stats)
 
+## The five `ACTIVE PACK` reads, rewritten from the live session on every open.
+##
+## An unset name / author / license is dashed rather than given a plausible
+## substitute: `as_pack_info()` returns `""` for all three on a fresh library,
+## and `(unnamed)` reads like a value the pack actually carries. The reason
+## lives on the row's tooltip, which `_build_asset_pack_submenu()` set once and
+## this never overwrites.
 func _refresh_asset_pack_stats() -> void:
-	if _ap_stats_idx < 0:
+	if _ap_read_idx.size() != 5:
 		return
 	var info: Dictionary = _bridge.as_pack_info()
 	var total := int(info.get("total_items", 0))
-	var pn := String(info.get("name", ""))
-	_asset_pack_popup.set_item_text(_ap_stats_idx, "%s · %s · %s · %d item%s" % [
-		pn if pn != "" else "(unnamed)",
-		String(info.get("author", "")) if String(info.get("author", "")) != "" else "(no author)",
-		String(info.get("license", "")) if String(info.get("license", "")) != "" else "(no license)",
-		total, "" if total == 1 else "s"])
+	var slots := _pack_slot_totals()
+	var vals := [
+		_dashed(String(info.get("name", ""))),
+		_dashed(String(info.get("author", ""))),
+		_dashed(String(info.get("license", ""))),
+		"2 · STORED zip",
+		"%d of %d slots · %d item%s" % [int(slots["filled"]), int(slots["capacity"]),
+			total, "" if total == 1 else "s"],
+	]
+	var labels := ["NAME", "AUTHOR", "LICENSE", "SCHEMA", "FILLED"]
+	for i in 5:
+		_asset_pack_popup.set_item_text(_ap_read_idx[i],
+			"%s   %s" % [labels[i], vals[i]])
+
+## An em dash for a string the session has not been given, so the row cannot be
+## read as reporting a value.
+static func _dashed(s: String) -> String:
+	return s if s != "" else "—"
+
+## Filled slots and capacity across every family, by the Asset library's own
+## rule (`_refresh_family_counts()` above, and `asset_library_window.gd`'s
+## `_refresh_rail_counts`): a **custom** family's capacity is however many slots
+## it currently has, a **frozen** one's is the count the crate froze. Taking
+## `as_family_slots().size()` for both would report every custom family as
+## permanently full.
+func _pack_slot_totals() -> Dictionary:
+	var filled := 0
+	var capacity := 0
+	for fam in AssetLibraryWindow.FAMILIES:
+		var f: Dictionary = fam
+		var slots: Array = _bridge.as_family_slots(String(f["key"]))
+		for slot in slots:
+			if bool((slot as Dictionary).get("filled", false)):
+				filled += 1
+		capacity += slots.size() if bool(f.get("custom", false)) \
+			else (f["slots"] as Array).size()
+	return {"filled": filled, "capacity": capacity}
 
 ## §2.3.1: "Pack metadata… — modal editing name / author / license."
 ##
@@ -2062,13 +2157,38 @@ func _on_assets(id: int) -> void:
 # changed here is that the item now opens a real window that is honest about
 # which of its own routes work, rather than being disabled at the menu level.
 
-## §2.4's own 2026-08-19 addition (`DCC_SHELL_SPEC.md`, reconciled from
-## `JOURNEY_PLANNER_SPEC.md`): Journey planner sits above the five Data
-## manager groups, alongside World data tables, and arms the INFRA JOURNEY
-## tool takeover rather than opening a window. Travel library (⇧L,
-## `TRAVEL_LIBRARY_SPEC.md`) is the sibling addition that DOES open its own
-## window -- `2a`'s own mockup places it directly below Journey planner,
-## in its own bracket, above the Data manager's four groups.
+## **Journey planner left this menu on 2026-09-05** (owner ruling,
+## `LARGE_ITEM_RULINGS.md` 2026-09-05 item 4: *"Journey planner becomes a CIVIL
+## rail node (v3/RP) rather than a Data menu row"*). §2.4's own 2026-08-19
+## addition put it here, above the five Data manager groups, because it arms the
+## INFRA JOURNEY tool takeover rather than opening a window -- and that is
+## exactly the property the newest design acts on: it is the one item in the bar
+## that changes the *viewport*, so it belongs on the navigation surface, not in a
+## file-and-data dropdown. `03-menu-bar.md` §6.4 draws Data as five heads with no
+## planner row; `00-REPLACEMENT-PLAN.md` §1.1 lists `Journey planner` as CIVIL
+## node `planner`, which `DccShell.RAIL_NODES` has carried since stage 2.
+##
+## What moved with it, row by row, so nothing is assumed:
+##   - the **accelerator ⇧J** is now `app.gd::_unhandled_key_input()`, since a
+##     rail node has no accelerator column. It is no longer rebindable through
+##     `Preferences ▸ Keyboard shortcuts…` (that table is `_shortcut_defaults`,
+##     which only `_bind_accelerator()` fills) and it therefore belongs in
+##     `shortcuts_dialog.gd::UNLISTED` beside Esc/Delete/Space -- reported, not
+##     installed here, because that file is another lane's this batch.
+##   - the **command index** entry went with the row: `command_index.gd` walks
+##     the live `MenuBar` and knows nothing about the rail, so `EXTRAS` needs a
+##     `Journey planner` row. Also reported rather than installed.
+##   - the **phone** keeps both of its routes -- the PLAN tab
+##     (`dcc_shell.gd::PHONE_TABS`) and the floating rail -- and loses only the
+##     re-presented Data popup row, which is what the design intends.
+##   - **`right_dock.gd`'s `Plan a journey` / `Logistics` and
+##     `infrastructure_workspace.gd`'s `Open Journey Planner`** all call
+##     `app.open_journey_planner()` and are untouched.
+##
+## Travel library (⇧L, `TRAVEL_LIBRARY_SPEC.md`) stays: it opens its own window,
+## which is what every other row in this menu does. `2a`'s own mockup placed it
+## directly below Journey planner; with the planner gone it follows World data
+## tables directly.
 ## **Conversion is deliberately absent** (owner decision, 2026-08-20). The
 ## row used to read "Conversion ▸ Coordinate systems · Formats" and open the
 ## Data manager on a three-route group of disclosed gaps. `GUI_GAP_REGISTER
@@ -2103,7 +2223,6 @@ func _data(p: PopupMenu) -> void:
 	## the only way in.
 	_live(p, "⧉ Data manager", ID_DATA_MANAGER)
 	_live(p, "World data tables…", ID_WORLD_DATA)
-	_live(p, "Journey planner…", ID_JOURNEY_PLANNER, KEY_MASK_SHIFT | KEY_J)
 	_live(p, "Travel library…", ID_TRAVEL_LIBRARY, KEY_MASK_SHIFT | KEY_L)
 
 	_data_route_ids.clear()
@@ -2130,7 +2249,6 @@ func _data(p: PopupMenu) -> void:
 		match id:
 			ID_DATA_MANAGER: _host.open_data_manager()
 			ID_WORLD_DATA: _host.open_world_data()
-			ID_JOURNEY_PLANNER: _host.open_journey_planner()
 			ID_TRAVEL_LIBRARY: _host.open_travel_library()
 			ID_VAULT: _host.open_vault_overview()
 	)
@@ -3410,8 +3528,9 @@ func _on_tile_size(id: int) -> void:
 ## Clear is the same action as `Memory ▸ Clear caches…` and goes through the
 ## same `_clear_caches()` -- one implementation, two entry points, the shape
 ## `Storage locations…` already has in File and Preferences, not a second
-## clearer. The cap and the reference's Refine pass are both real gaps and say
-## which kind of gap each is.
+## clearer. The reference's Refine pass was the third row here and is not any
+## more -- it moved to the WORLD tool-options bar on 2026-09-05, and the note
+## below the `_build_atlas_cap_menu()` call says why and where.
 ##
 ## # The atlas is still write-only, and every row here says so (2026-08-31)
 ##
@@ -3437,26 +3556,26 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 	## then a live store readout with its own tooltip.
 	_readout(_atlas_popup, "— loading —", "")
 	_build_atlas_cap_menu(_atlas_popup)
-	## The reference's `#lodRefineBtn`. Live since 2026-08-30: the accessor
-	## that was owed -- `ViewportHost.visible_grid_rect()` -- now returns the
-	## grid rectangle the camera is showing plus the pyramid level that
-	## rectangle resolves to, which is exactly `bake_visible`'s five
-	## arguments and nothing more. Measured on a 256x192 world at 6x zoom:
-	## 16 chunks baked in 0.26 s.
-	_atlas_popup.add_item("Refine detail for the current view", ID_LOD_REFINE_VIEW)
-	## **The read side is not wired, and this tooltip no longer says it is.**
-	## Until 2026-08-31 this row promised "panning back over this area reads
-	## from disk instead of synthesizing", which no draw path performs:
-	## `viewport_host.gd`'s `_build_lod_tile()` calls
-	## `_bridge.lod_synthesize_tile()` unconditionally with no atlas branch,
-	## and `atlas_tile_png()` -- the reader -- is wrapped in
-	## `engine_bridge.gd` (`func atlas_tile_png`, cited by name rather than by
-	## line: the number moved under a concurrent edit within one session of
-	## being written) and called by no shell file. What a refine
-	## actually buys is listed instead; see `_build_atlas_cache_menu`'s own
-	## header for why the read cannot simply be switched on.
-	_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1,
-		"Bakes the pyramid chunks the current view touches, at the level this zoom resolves to, into the atlas cache: already-baked chunks are skipped, the store persists across sessions, and Preferences > Tiles & LOD > Chunk debug overlay marks which chunks it covers. It does NOT speed up panning back -- the deep-zoom layer still synthesizes every tile it draws, because nothing reads the cache at draw time yet. Zoom in first: at a fitted view the pyramid is not up and there is nothing to refine.")
+	## **`Refine detail for the current view` left this submenu on 2026-09-05.**
+	## Owner ruling (`LARGE_ITEM_RULINGS.md`, 2026-09-05 item 4): it moves to the
+	## WORLD rail beside Bake & finalize. v3 draws it there --
+	## `design/Cartalith Menu Structure v3.dc.html` puts `LOD terrain data ·
+	## refine · atlas bake` (`#lodRefineBtn #lodBakeBtn`) inside
+	## `WORLD ▸ GENERATE ▸ › Bake & finalize`, annotated `from · View ▸ Tiled
+	## LOD, Atlas cache` -- and `03-menu-bar.md` §6.5's TILES & LOD block draws
+	## two readouts and `Clear caches…` and no refine row at all. It is a bake,
+	## and every other bake in this shell is on the WORLD bar.
+	##
+	## The pass stayed in this file as the public `refine_current_view()`; the
+	## presser is `app.gd::_tool_options_generate()`, beside the `Bake ALL &
+	## finalize` shortcut that row already carried. The tooltip moved with it
+	## verbatim rather than being re-worded, because its "does NOT speed up
+	## panning back" clause is still the only place that limit is written down.
+	##
+	## **The command-index entry went with the row** -- `command_index.gd` walks
+	## the `MenuBar` and cannot see a tool-options button -- so `EXTRAS` needs a
+	## `Refine detail for the current view` row. Reported, not installed: that
+	## file belongs to another lane this batch.
 	_atlas_popup.add_separator()
 	## **The portable pair, wired 2026-09-01.** `atlas_export_zip(gzip)` and
 	## `atlas_import_zip(bytes)` have been bound, wrapped in
@@ -3492,8 +3611,6 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 	_atlas_popup.id_pressed.connect(func(id: int):
 		if id == ID_LOD_CLEAR_ATLAS:
 			_clear_caches()
-		elif id == ID_LOD_REFINE_VIEW:
-			_refine_current_view()
 		elif id == ID_LOD_EXPORT_ATLAS:
 			_export_atlas()
 		elif id == ID_LOD_IMPORT_ATLAS:
@@ -3620,7 +3737,7 @@ func _refresh_atlas_cache_menu() -> void:
 	if clear_idx >= 0:
 		_atlas_popup.set_item_disabled(clear_idx, chunks <= 0)
 		_atlas_popup.set_item_tooltip(clear_idx,
-			"Nothing is baked for this world, so there is no cache to clear. Bake ALL levels & finalize (WORLD dock), or Refine detail for the current view above, first."
+			"Nothing is baked for this world, so there is no cache to clear. Bake ALL levels & finalize (WORLD dock), or Refine detail beside it on the WORLD tool-options bar, first."
 			if chunks <= 0 else
 			"Deletes this world's %d baked chunk%s (%s), asking first. The same action as Preferences > Memory > Clear caches..., confirmation and all -- one clearer with two entry points, since SS2.5 lists it in both groups." % [
 				chunks, "" if chunks == 1 else "s", String(st.get("bytes_text", "0 B"))])
@@ -3638,7 +3755,7 @@ func _refresh_atlas_cache_menu() -> void:
 	if exp_idx >= 0:
 		_atlas_popup.set_item_disabled(exp_idx, chunks <= 0)
 		_atlas_popup.set_item_tooltip(exp_idx,
-			"Nothing is baked for this world, so there is nothing to export. Bake ALL levels & finalize (WORLD dock), or Refine detail for the current view above, first."
+			"Nothing is baked for this world, so there is nothing to export. Bake ALL levels & finalize (WORLD dock), or Refine detail beside it on the WORLD tool-options bar, first."
 			if chunks <= 0 else
 			"Writes this world's %d baked chunk%s (%s) to one portable .zip -- the archive another machine can import to skip the bake. It carries the cache only: the world, its parameters and every edit live in the project .zip and are not in this file." % [
 				chunks, "" if chunks == 1 else "s", String(st.get("bytes_text", "0 B"))])
@@ -4426,7 +4543,35 @@ func _refresh_lod_debug_menu() -> void:
 ##     and baking level 0 would silently do something other than what the row
 ##     says
 ##   - no atlas directory -> `bake_visible` refuses, and its own message says so
-func _refine_current_view() -> void:
+## What a refine actually buys, and what it does not. Carried as a constant so
+## the WORLD bar's button and this file's own status vocabulary read the same
+## sentence -- the row moved out of this menu on 2026-09-05 and a copied string
+## would have been the second thing to keep in step.
+##
+## **The read side is not wired, and this text does not say it is.** Until
+## 2026-08-31 the row promised "panning back over this area reads from disk
+## instead of synthesizing", which no draw path performs: `viewport_host.gd`'s
+## `_build_lod_tile()` calls `_bridge.lod_synthesize_tile()` unconditionally
+## with no atlas branch, and `atlas_tile_png()` -- the reader -- is wrapped in
+## `engine_bridge.gd` (`func atlas_tile_png`, cited by name rather than by line:
+## the number moved under a concurrent edit within one session of being written)
+## and called by no shell file. See `_build_atlas_cache_menu()`'s own header for
+## why the read cannot simply be switched on.
+const REFINE_TOOLTIP := "Bakes the pyramid chunks the current view touches, at the level this zoom resolves to, into the atlas cache: already-baked chunks are skipped, the store persists across sessions, and Preferences > Tiles & LOD > Chunk debug overlay marks which chunks it covers. It does NOT speed up panning back -- the deep-zoom layer still synthesizes every tile it draws, because nothing reads the cache at draw time yet. Zoom in first: at a fitted view the pyramid is not up and there is nothing to refine."
+
+## The reference's `#lodRefineBtn`. Live since 2026-08-30: the accessor that was
+## owed -- `ViewportHost.visible_grid_rect()` -- returns the grid rectangle the
+## camera is showing plus the pyramid level that rectangle resolves to, which is
+## exactly `bake_visible`'s five arguments and nothing more. Measured on a
+## 256x192 world at 6x zoom: 16 chunks baked in 0.26 s.
+##
+## **Public since 2026-09-05**, when the row moved off `Preferences ▸ Atlas
+## cache` and onto the WORLD tool-options bar (see `_build_atlas_cache_menu()`
+## for the ruling). The only caller is `app.gd::_tool_options_generate()`; the
+## pass stayed here because everything it needs -- `_bridge`, `_host.viewport`,
+## the status vocabulary -- is this file's, and moving it would have been a
+## second implementation rather than a move.
+func refine_current_view() -> void:
 	if _host == null or _host.viewport == null:
 		return
 	if not _host.viewport.has_method("visible_grid_rect"):

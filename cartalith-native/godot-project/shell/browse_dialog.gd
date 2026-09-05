@@ -260,10 +260,45 @@ func _build_path_well() -> Control:
 	_path_edit.text_submitted.connect(_on_path_submitted)
 	return _pad(_path_edit, 28, 12, 28, 0)
 
+## The mockup's foot is *"a hint, `Cancel`, `Use this folder`"*, and until this
+## rewrite no call site of this dialog had ever put a hint on screen. Two
+## separate defects, both measured rather than reasoned about, 2026-09-05 at
+## 4.7.1:
+##
+##   * **In FOLDERS and FILES the hint rendered one pixel wide.** `clip_text`
+##     collapses a `Label`'s minimum width to 1 (the hazard `MISTAKES.md`
+##     already records), and the `DccTheme.spacer()` beside it is
+##     `SIZE_EXPAND_FILL`, so the spacer took every free pixel and the note
+##     took its minimum. Three note lengths -- 11, 33 and 76 characters -- all
+##     measured `_foot_note.size.x == 1.0`. Fixed by making the note itself
+##     the row's expanding child: it *is* the spacer now, so there is nothing
+##     left to lose the width to. In the same harness the same three then all
+##     measure 460 px in FOLDERS and 510 px in FILES -- identical across the
+##     three, because a filling label's width stops depending on its text.
+##   * **SAVE mode had no hint at all.** `choose_save_path` accepts a
+##     `footnote` and this function dropped it on the floor -- `menus.gd
+##     ::_export_atlas()` passes a full sentence that has never been on
+##     screen. A name field, a hint and two buttons do not fit one row, so
+##     SAVE keeps the hint on the foot's first line and puts the field with
+##     the buttons on the second.
+##
+## The note exists in every mode, so `_build_new_folder_row()` always has
+## somewhere to report a failure; in SAVE it is hidden while the footnote is
+## empty, which is `app.gd::save_project_as()`'s case, because a hidden child
+## contributes no height to a `VBoxContainer` and an empty one would reserve a
+## blank line.
 func _build_foot(footnote: String) -> Control:
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 8)
+	_foot_note = DccTheme.mono_label(footnote, "text_ghost", DccTheme.FS_TINY)
+	_foot_note.clip_text = true
+	_foot_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	if _mode == PickKind.SAVE:
+		_foot_note.visible = footnote != ""
+		stack.add_child(_foot_note)
 		## The one control the mockup's browser does not draw, because the
 		## mockup never had a save flow. Kept in the foot beside the primary
 		## button -- the "what shall it be called" question belongs next to
@@ -278,11 +313,9 @@ func _build_foot(footnote: String) -> Control:
 		_name_edit.text_changed.connect(func(_t: String): _refresh_primary())
 		_name_edit.text_submitted.connect(func(_t: String): _confirm())
 		row.add_child(_name_edit)
+		row.add_child(DccTheme.spacer())
 	else:
-		_foot_note = DccTheme.mono_label(footnote, "text_ghost", DccTheme.FS_TINY)
-		_foot_note.clip_text = true
 		row.add_child(_foot_note)
-	row.add_child(DccTheme.spacer())
 	DccWidgets.modal_button(row, "Cancel", func(): hide())
 	var primary_text := "Open"
 	if _mode == PickKind.FOLDERS:
@@ -290,7 +323,8 @@ func _build_foot(footnote: String) -> Control:
 	elif _mode == PickKind.SAVE:
 		primary_text = "Save"
 	_primary = DccWidgets.modal_button(row, primary_text, _confirm, true)
-	return _pad(row, 28, 14, 28, 14)
+	stack.add_child(row)
+	return _pad(stack, 28, 14, 28, 14)
 
 # ---------------------------------------------------------------------------
 # Navigation
@@ -534,10 +568,12 @@ func _build_new_folder_row() -> Control:
 			return
 		var da := DirAccess.open(_cwd)
 		if da == null or da.make_dir(clean) != OK:
-			## SAVE mode gives the foot to the name field instead, so there
-			## is no note to write into there.
-			if _foot_note != null:
-				_foot_note.text = "could not create '%s' here" % clean
+			## Every mode has a foot note to write into since `_build_foot()`
+			## gave SAVE one of its own -- it used to hand the whole foot to
+			## the name field, and this branch went silent there. `show()`
+			## because a SAVE dialog opened without a footnote hides it.
+			_foot_note.text = "could not create '%s' here" % clean
+			_foot_note.show()
 			return
 		navigate(_cwd.path_join(clean)))
 	row.add_child(field)
