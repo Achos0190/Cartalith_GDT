@@ -99,31 +99,67 @@
      border:1px solid var(--bor);border-radius:10px;box-shadow:var(--shadow);
      display:flex;flex-direction:column;overflow:hidden">
 
-  <!-- == MENU BAR (34 px) ==================================================
+  <!-- == MENU BAR (36 px) ==================================================
        The canvas puts the app's own menu bar above the window bar, with Data
        lit. 03-menu-bar.md's seven menus, in its order. Kept because the Data
        manager is a WINDOW inside the shell, not a detached dialog, and the lit
-       Data item is how a reader knows which one. -->
-  <div style="height:34px;flex:none;display:flex;align-items:center;
+       Data item is how a reader knows which one.
+
+       36 px, not the canvas's 34. `--menuH` is `36px` in 01-frame-and-tokens
+       and in 03-menu-bar.md section 1's own metric table, and the shell already
+       carries the correction with its provenance: `dcc_theme.gd`'s
+       `const H_MENU_BAR := 36  ## '--menuH', 34 -> 36 (ENV:25)`. Drawing 34
+       here would revert a measured change.
+
+       CHILDREN 3-5, section 2: a 1x16 `--div` rule with `margin:0 6px`, then
+       the undo and redo squares. They are not decoration -- `dcc_shell.gd`
+       builds them and says why: until that pass undo was reachable only from
+       `Edit > Undo` and Ctrl+Z, so "the bar's own most-used control was one the
+       design draws and this shell did not". Glyphs are the shell's own
+       `DccIcons.SYMBOLS["undo"]`/`["redo"]`, U+21B6 and U+21B7. Redo is drawn
+       dead: `--sec` over `--dis` is the same enabled/disabled pair the approved
+       Main.dc.html's own History squares use (different glyphs there, same
+       `--ctl` box and the same two inks).
+
+       NO CPU/GPU READOUT. The bar used to end `CPU 38 · GPU 71`; both are
+       removed. The slots exist (`dcc_shell.gd` registers `top_cpu`/`top_gpu`)
+       and nothing in the workspace ever writes them -- there is no
+       `set_status("top_cpu", ...)` anywhere -- because the number cannot be
+       had: `cartalith-gpu/src/multi.rs` names section 2.5's "live utilisation
+       `71%`" as the one phrase it deliberately does not implement, since wgpu
+       30 exposes no system-wide utilisation on any backend, and
+       `gpu_enumerate_devices` repeats it. `71` was that fiction, verbatim.
+       03-menu-bar.md section 2's eight children list no such slot either. What
+       stays is the world readout, child 7. -->
+  <div style="height:36px;flex:none;display:flex;align-items:center;
        padding:0 16px;border-bottom:1px solid var(--hair)">
     <div class="mono" style="font-weight:500;font-size:12px;letter-spacing:.26em;
          color:var(--ink);margin-right:22px">CARTALITH</div>
+    <!-- Titles: section 3's `padding:5px 11px; border-radius:8px`. Open is
+         `color:var(--ink); background:var(--ins)` -- there is no underline-tab
+         treatment anywhere in this shell, and the accent-wash-plus-bottom-rule
+         this used to draw invented one. -->
     <div style="display:flex;font-size:11.5px;color:var(--sec)">
-      <span style="padding:9px 11px">File</span>
-      <span style="padding:9px 11px">Edit</span>
-      <span style="padding:9px 11px">Assets</span>
-      <span style="padding:9px 11px;color:var(--acc);background:var(--wash);
-            border-bottom:1px solid var(--acc)">Data</span>
-      <span style="padding:9px 11px">Preferences</span>
-      <span style="padding:9px 11px">Window</span>
-      <span style="padding:9px 11px">Help</span>
+      <span style="padding:5px 11px;border-radius:8px">File</span>
+      <span style="padding:5px 11px;border-radius:8px">Edit</span>
+      <span style="padding:5px 11px;border-radius:8px">Assets</span>
+      <span style="padding:5px 11px;border-radius:8px;
+            color:var(--ink);background:var(--ins)">Data</span>
+      <span style="padding:5px 11px;border-radius:8px">Preferences</span>
+      <span style="padding:5px 11px;border-radius:8px">Window</span>
+      <span style="padding:5px 11px;border-radius:8px">Help</span>
     </div>
+    <div style="width:1px;height:16px;background:var(--div);margin:0 6px"></div>
+    <div class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;
+         background:var(--ins);color:var(--sec);display:flex;align-items:center;
+         justify-content:center">&#8630;</div>
+    <div class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;
+         background:var(--ins);color:var(--dis);display:flex;align-items:center;
+         justify-content:center;margin-left:2px">&#8631;</div>
     <div style="flex:1"></div>
     <div class="mono" style="display:flex;gap:22px;font-size:var(--m1);color:var(--faint)">
       <span>NORTHERN REACH &middot; 483920</span>
       <span>vault linked &middot; 412 notes</span>
-      <span>CPU 38</span>
-      <span>GPU 71</span>
     </div>
   </div>
 
@@ -390,15 +426,27 @@
         <div>
 
           <!-- The canvas's ESTIMATE card, kept: it is the one thing that makes
-               an export decidable before it runs, and every figure here is
-               derivable from counts the engine already has. -->
+               an export decidable before it runs. FEATURES and LAYERS are
+               derivable from counts the engine already has -- 1 091 is the sum
+               of the chips, and 5 of 7 is `data_manager_window.gd`'s
+               `GIS_GROUPS`, seven named groups of which five carry.
+
+               SIZE AND TIME ARE NOT, and are no longer drawn as if they were.
+               This port has no size model and refuses to invent one: the same
+               card on the Maps route (`_build_estimate_block()`) says so in the
+               source -- "The canvas's `~ 214 MB` and `~ 3 min 40 s` are a size
+               *model*; this port has none, and inventing one would be exactly
+               the kind of plausible fiction the rest of this window avoids" --
+               and ghosts both rows until a real run has reported them. The two
+               rows here do the same. The receipt lower in this column is where
+               a measured size appears, because that is a run that happened. -->
           <div class="mono" style="font-size:var(--m2);letter-spacing:.16em;color:var(--faint);
                padding:14px 0 7px">ESTIMATE</div>
           <div style="background:var(--ins);border-radius:8px;padding:10px 12px">
             <div class="mono row" style="min-height:20px"><span class="k">FEATURES</span><span class="v">1 091</span></div>
             <div class="mono row" style="min-height:20px"><span class="k">LAYERS</span><span class="v">5 of 7 groups</span></div>
-            <div class="mono row" style="min-height:20px"><span class="k">SIZE ON DISK</span><span class="v">~ 3.4 MB</span></div>
-            <div class="mono row" style="min-height:20px"><span class="k">WRITE TIME</span><span class="v">under a second</span></div>
+            <div class="mono row" style="min-height:20px"><span class="k">SIZE ON DISK</span><span class="v" style="color:var(--dis)">measured by the run</span></div>
+            <div class="mono row" style="min-height:20px"><span class="k">WRITE TIME</span><span class="v" style="color:var(--dis)">measured by the run</span></div>
           </div>
 
           <!-- MARKDOWN VAULT: the canvas draws this block on its Export pane
@@ -487,9 +535,26 @@
            The canvas's own footer: destination sentence at the leading edge,
            actions at the trailing edge, safe action filled and last. That
            ordering is the approved Modal.dc.html's rule and is not re-decided
-           here. `Save as preset` is drawn DEAD: no export-preset store exists
-           (DccSettings has no preset section and nothing reads one), so a live
-           button would write a preset nothing would load. -->
+           here.
+
+           TWO OF THE THREE ARE DEAD, and for two different reasons.
+
+           `Save as preset`: no export-preset store exists. That is
+           `data_manager_window.gd`'s own `PRESET_NOTE` -- "DccSettings has no
+           preset section and nothing reads one" -- and the shell already draws
+           this chip disabled with that string in its tooltip.
+
+           `Dry run`: dead ON THIS ROUTE, and this is narrower than it looks. A
+           dry run is real for Export > Maps -- `_build_tile_export_footer()`
+           wires it to `_run_export(true)`, which runs the whole tile pass and
+           reports "dry run -- N tiles, size, seconds (nothing written)". The
+           GeoJSON route has no such half: `_run_geojson_export()` calls
+           `_bridge.export_geojson()` and immediately opens the destination with
+           `FileAccess.WRITE`, and the shell's own GIS footer
+           (`_pattern_actions`, "export_gis") draws `Reveal file` + `Export` and
+           no dry run at all. Splitting the write off the build would be a new
+           code path, not a switch -- so the chip is drawn dead beside the other
+           one rather than promising a measurement this route cannot take. -->
       <div style="flex:none;border-top:1px solid var(--hair);padding:11px 18px;
            display:flex;align-items:center;gap:12px">
         <span class="mono" style="font-size:var(--m1);color:var(--faint)">
@@ -498,7 +563,9 @@
         <span class="mono" style="min-height:var(--btnH);padding:0 12px;border-radius:8px;
               background:var(--ins);color:var(--dis);display:flex;align-items:center;
               font-size:var(--m1)">Save as preset</span>
-        <span class="btn2 mono" style="font-size:var(--m1)">Dry run</span>
+        <span class="mono" style="min-height:var(--btnH);padding:0 12px;border-radius:8px;
+              background:var(--ins);color:var(--dis);display:flex;align-items:center;
+              font-size:var(--m1)">Dry run</span>
         <span class="btn mono" style="padding:0 16px;font-size:var(--m1)">Export 1 091 features</span>
       </div>
     </div>

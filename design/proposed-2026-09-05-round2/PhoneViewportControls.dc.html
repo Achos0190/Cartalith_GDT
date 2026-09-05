@@ -79,7 +79,7 @@
        4. It asserts no false colour equality. Every equality claimed here
           is arithmetic, and the two NON-equalities are stated as such.
      =================================================================== -->
-<div class="tok" style="width:1360px;height:1012px;background:var(--sur);padding:22px;
+<div class="tok" style="width:1360px;height:1800px;background:var(--sur);padding:22px;
      display:flex;flex-direction:column;gap:14px">
 
   <div style="display:flex;align-items:baseline;gap:14px">
@@ -177,10 +177,16 @@
         </div>
 
         <!-- ---- THE CLUSTER ----------------------------------------------
-             right:12px; bottom:104px. Both numbers are the phone spec's own:
-             §6.2 puts the FAB column at right:12px;bottom:104px in portrait,
-             so this occupies a band the spec already reserved for floating map
-             chrome and introduces no new geometry.
+             right:12px; bottom:104px. That anchor is not vacant, and saying it
+             was is what the first cut of this comment got wrong. §6.2's
+             floating-map-furniture table assigns exactly right:12px;bottom:104px
+             (portrait) to the FAB COLUMN -- z:9, column, gap:10px, holding a
+             48 x 48 3D/2D FAB above a 48 x 48 recentre FAB. Two things cannot
+             own one anchor, so this cluster REPLACES that column; it does not
+             sit beside it. Which is also why the recentre disc here carries
+             §6.2's own ⌖ glyph: it IS that FAB, moved into the row.
+             Where the other FAB went, and why the disc is 44 and not 48, is
+             "THE FAB COLUMN THIS REPLACES" in the detail column opposite.
 
              WHY THAT BAND IS THE THUMB ZONE, without inventing an anthropometric:
              §3 already put the primary navigation -- the four-tab bar -- at
@@ -193,8 +199,12 @@
              inverse operations on one quantity, so they become one 88 x 44 rocker
              split by a hairline -- the affordance Google Maps' web zoom control
              and Blender's viewport zoom widget both use. Pan and recentre stay
-             separate discs: one latches, one fires. Every target is 44 x 44
-             (§13's floor, and viewport_host.gd's own NAVPAD_HIT = 44). -->
+             separate discs: one latches, one fires. Every target is 44 x 44 --
+             §4.2's own Search/Overflow disc (44 x 44, radius 22, pillBg, hair
+             border, 15px mono in --body), drawn twice on this same frame;
+             DCC_SHELL_SPEC.md §13's "minimum target 44 px ... with no
+             exceptions"; and viewport_host.gd's own NAVPAD_HIT = 44. The 48 dp
+             disc was the FAB's, and it leaves with the column. -->
         <div style="position:absolute;right:12px;bottom:104px;display:flex;
              align-items:center;gap:10px">
 
@@ -228,15 +238,25 @@
         </div>
 
         <!-- Undo chip, §6.2: left:12px; bottom:104px, shown only when
-             undoStack.length > 0. Drawn because it is the collision test: at
-             412 dp the chip and the cluster clear each other by ~37 dp. At
-             360 dp (§1's smallest frame) the slack is gone and the chip's label
-             must ellipsise -- called out below, not silently drawn away. -->
+             undoStack.length > 0, and its label is THE LAST UNDO ENTRY -- not
+             the word "label". A committed label pushes the entry `label · {text}`
+             (§6.2, Label bar contents), so a real one is drawn. The distinction
+             is not pedantry: this chip is the cluster's collision test, and the
+             test is worth nothing at a placeholder length.
+             MEASURED IN A BROWSER, NOT ESTIMATED. Carrying `label · Kess Ford`
+             the chip is 153 dp wide with its right edge at 166; the cluster is
+             199 as drawn, left edge at 200. (Both anchors sit 1 px in from the
+             number in the spec, because the phone frame's own 1 px border insets
+             the box these are positioned against.) They clear by 34 dp at 412.
+             At 360 the cluster's left edge is 148, so they OVERLAP BY 18 --
+             called out below, not silently drawn away. The measuring browser had
+             no IBM Plex Mono and fell back to a narrower mono, so 18 dp is the
+             floor of that overlap and not its worst case. -->
         <div class="mono" style="position:absolute;left:12px;bottom:104px;display:flex;
              align-items:center;gap:8px;padding:11px 15px;border-radius:22px;
              background:rgba(18,19,20,.92);border:1px solid var(--hair)">
           <span style="font-size:13px;color:var(--acc)">&#8630;</span>
-          <span style="font-size:var(--m1);color:var(--body)">label</span>
+          <span style="font-size:var(--m1);color:var(--body)">label &middot; Kess Ford</span>
         </div>
 
         <!-- Bottom bar, §3: 84 total = 66 tab row + 18 gesture inset,
@@ -518,6 +538,23 @@
           <span class="v mono" style="flex:2;text-align:left;color:var(--body)">
             no gesture recovers a lost view; a pinch cannot undo a pan.
             <span style="color:var(--faint)">reset_view()</span> exists, and clears pan mode with it</span></div>
+        <div class="foot mono" style="color:var(--dim)">
+          <span style="color:var(--faint)">THE FAB COLUMN THIS REPLACES.</span>
+          &sect;6.2 already owns <span style="color:var(--faint)">right:12px; bottom:104px</span>:
+          a 48&thinsp;dp 3D/2D FAB over a 48&thinsp;dp recentre FAB. This cluster takes the
+          anchor, so it takes the column.
+          <span style="color:var(--body)">Recentre is absorbed</span> &mdash; same anchor,
+          same &#8982;, same reset.
+          <span style="color:var(--body)">3D/2D is removed, not rehoused</span>: DECISIONS.md
+          &sect;4 keeps v1 2D and hands 3D to Phase&nbsp;3, so the FAB's own spec &mdash;
+          &ldquo;toggles a label only&rdquo; &mdash; has nothing to toggle, and its toast's
+          one real half already landed. <span style="color:var(--faint)">BUILD_ANSWERS.md</span>
+          &sect;3 wired it to Preferences &#9656; Graphics &#9656; Relief exaggeration
+          (1&times; / 2&times; / 4&times;), which
+          <span style="color:var(--faint)">menus.gd</span>'s
+          <span style="color:var(--faint)">_build_relief_exag_menu()</span> builds as a live
+          submenu today. 48&thinsp;dp leaves with the column: 44 is
+          <span style="color:var(--faint)">&sect;4.2</span>'s disc, on this frame twice.</div>
       </div>
 
       <div class="rule"></div>
@@ -580,9 +617,14 @@
           <span style="color:var(--faint)">06-phone.md</span> nor
           <span style="color:var(--faint)">menus.gd</span>'s Preferences has a handedness
           setting, so none is drawn.<br>
-          <span style="color:var(--faint)">2 &middot;</span> At 360 dp the undo chip and the
-          cluster have no slack and the chip's label must ellipsise. Drawn at 412,
-          measured for 360, not resolved.<br>
+          <span style="color:var(--faint)">2 &middot;</span> At 360&thinsp;dp (&sect;1's
+          smallest frame) the cluster's left edge is 148 and the undo chip's right edge is
+          166: they <span style="color:var(--block)">overlap by 18&thinsp;dp</span>, measured,
+          not estimated. The chip has to shed that much &mdash; three or four characters off a
+          17-character entry like
+          <span style="color:var(--faint)">label &middot; Kess Ford</span> at 10&thinsp;px mono.
+          Drawn at 412, measured for 360; whether the chip ellipsises or the cluster reflows
+          is a build decision and is not taken here.<br>
           <span style="color:var(--faint)">3 &middot;</span>
           <span style="color:var(--faint)">_apply_touch_scale()</span> enforces one size for
           every navpad child, so an 88 dp rocker needs that loop to size by group rather

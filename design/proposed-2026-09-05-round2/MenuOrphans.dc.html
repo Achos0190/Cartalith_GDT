@@ -346,18 +346,43 @@
 
       <div style="background:var(--pan);border:1px solid var(--bor);box-shadow:var(--shadow);
            padding:5px 0">
+        <!-- ALL SIX FAMILIES, in the engine's own first-seen order. Four
+             were drawn and two -- Economic and Cultural -- were missing, with
+             no ellipsis and a separator straight after, so the list read as
+             complete. cartalith-civ/src/landmark.rs `kinds()` declares 49
+             types across LandmarkFamily's six: Physical 15, Transport 8,
+             Economic 6, Military 6, Cultural 8, Historical 6 (research §29 says
+             the same 49 and the same six; LANDMARK_UI_DESIGN.md line 259 relays
+             it — that document has nine sections and no §29, and this comment
+             cited it as if it did). The "of N"
+             cell is that type count; menus.gd groups by `family` first-seen
+             out of landmark_kinds(), which is exactly this order.
+             The row TEXT is menus.gd's own: `_build_landmark_family` sets
+             title = family.replace("_"," ").capitalize() on the KEY, so the
+             popup says Transport and Cultural. LandmarkFamily::label()'s
+             "Transportation" and "Religious . cultural" are the DOCK's
+             headers (its own doc says sec.3.2) and never reach this menu --
+             which is why TRANSPORTATION is corrected here too. -->
         <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
           <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
           <span style="flex:1;color:var(--body)">PHYSICAL</span>
           <span class="mono" style="font-size:var(--m1);color:var(--faint)">6 of 15 &middot; 74 placed</span></div>
         <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
           <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
-          <span style="flex:1;color:var(--body)">TRANSPORTATION</span>
+          <span style="flex:1;color:var(--body)">TRANSPORT</span>
           <span class="mono" style="font-size:var(--m1);color:var(--faint)">3 of 8 &middot; 21 placed</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
+          <span style="flex:1;color:var(--body)">ECONOMIC</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">4 of 6 &middot; 28 placed</span></div>
         <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
           <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
           <span style="flex:1;color:var(--body)">MILITARY</span>
           <span class="mono" style="font-size:var(--m1);color:var(--faint)">4 of 6 &middot; 33 placed</span></div>
+        <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
+          <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
+          <span style="flex:1;color:var(--body)">CULTURAL</span>
+          <span class="mono" style="font-size:var(--m1);color:var(--faint)">2 of 8 &middot; 12 placed</span></div>
         <div style="min-height:var(--row);display:flex;align-items:center;gap:8px;padding:3px 14px">
           <span class="mono" style="width:14px;flex:none;color:var(--dim);font-size:var(--m1)">&#9656;</span>
           <span style="flex:1;color:var(--body)">HISTORICAL</span>

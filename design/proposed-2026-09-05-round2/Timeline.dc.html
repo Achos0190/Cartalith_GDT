@@ -112,10 +112,19 @@
         <div class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;background:var(--ins);
              color:var(--sec);display:flex;align-items:center;justify-content:center">&#9654;</div>
         <!-- The speed ladder. &sect;4.3 truncates tlSpeeds and leaves only the &times;10 default; 06-phone.md
-             &sect;6.2 carries all three verbatim, which is where TL_SPEEDS recovered them from. -->
+             &sect;6.2 carries all three verbatim, which is where TL_SPEEDS recovered them from.
+             ON-STATE IS THE WASH, NOT A FILLED SLAB (owner, 2026-09-05). The first cut of this
+             board drew the lit segment as --acc under --accInk. dcc_widgets.gd's
+             `set_segment_on()` builds `box("accent", "accent_wash")` -- accent border, accent
+             wash, accent ink -- and `set_mode_segment_on()` right beneath it reserves the filled
+             amber slab for the tool bar's three SCULPT / PAINT / MEASURE segments "and nothing
+             else", citing GUI_GAP_REGISTER.md &sect;48 (DS-02), the pass that cleared every filled
+             amber slab from this shell across 141 call sites. Drawn as the approved
+             Religion.dc.html draws its own three-segment pill: --wash2 fill, --acc ink, no
+             border, because the --ins track behind it already supplies the edge. -->
         <div style="display:flex;background:var(--ins);border-radius:999px;padding:2px">
           <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);color:var(--dim)">&times;1</div>
-          <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);background:var(--acc);color:var(--accInk)">&times;10</div>
+          <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);background:var(--wash2);color:var(--acc)">&times;10</div>
           <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);color:var(--dim)">&times;100</div>
         </div>
         <div class="mono" style="font-size:var(--m1);color:var(--acc)">paused</div>
@@ -285,7 +294,7 @@
              color:var(--dis);display:flex;align-items:center;justify-content:center">&#9654;</div>
         <div style="display:flex;background:var(--ins);border-radius:999px;padding:2px">
           <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);color:var(--dim)">&times;1</div>
-          <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);background:var(--acc);color:var(--accInk)">&times;10</div>
+          <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);background:var(--wash2);color:var(--acc)">&times;10</div>
           <div class="mono" style="padding:2px 10px;border-radius:999px;font-size:var(--m1);color:var(--dim)">&times;100</div>
         </div>
         <!-- PROPOSED, one line in tl_state_text(): a third state word. That function answers only

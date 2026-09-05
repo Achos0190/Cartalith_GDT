@@ -165,15 +165,24 @@
 
         <div style="padding:0 var(--pad) 14px">
 
-          <!-- The brush block is SHARED. Both brushes are one falloff kernel
-               with different targets, and the dock is the only place the pair
-               ever sat side by side. Naming it "brush shape", not "paint
-               brush", is what stops it becoming a second copy: one block,
-               two consumers, and the armed tool decides which. Comparable:
-               Photoshop's Brush Settings panel is one panel for every tool
-               that takes a brush. -->
+          <!-- NOT a shared block: three rows, three owners, checked one by
+               one. `hardness` exists on both tools and is TWO values -
+               paint_bridge::Brush.hardness (default 1.0, fed to
+               PaintStamp::with_falloff, feather = ((1-hard)+soft)) and
+               SculptGlobals.hardness (default 0.5, feather =
+               max(2, rad*(1-hard))). Separate structs on WorldGen, separate
+               setters (paint_set_brush vs sculpt_set_globals): moving one
+               cannot move the other. `softness` is paint's alone - Sculpt's
+               eight globals are brush_size/hardness/intensity/noise_scale/
+               octaves/persistence/lacunarity/edge_noise, and the only
+               "softness" over there is FeatureParams::Hills's own shape
+               parameter. `falloff` is built on neither: 04-left-dock.md
+               5.5 specifies it, and world_workspace.gd's own "Not built"
+               note says the sculpt bridge is feature/preset/globals/
+               freehand/seed/stroke/stamp-stack only. So this block is
+               PAINT's, and falloff is drawn refused. -->
           <div class="mono" style="padding:12px 0 6px;font-size:var(--m2);letter-spacing:.2em;
-               color:var(--faint)">BRUSH SHAPE &middot; SCULPT AND PAINT</div>
+               color:var(--faint)">BRUSH SHAPE &middot; PAINT</div>
 
           <div style="display:flex;align-items:center;gap:10px;min-height:var(--ctl)">
             <span class="mono" style="width:96px;font-size:var(--m1);color:var(--sec)">hardness</span>
@@ -198,22 +207,25 @@
                   color:var(--ink)">0.00</span>
           </div>
           <div style="display:flex;align-items:center;gap:10px;min-height:var(--ctl)">
-            <span class="mono" style="width:96px;font-size:var(--m1);color:var(--sec)">falloff</span>
+            <span class="mono" style="width:96px;font-size:var(--m1);color:var(--dis)">falloff</span>
             <span style="display:flex;gap:2px;background:var(--ins);border-radius:999px;padding:2px">
-              <span class="mono" style="padding:3px 9px;border-radius:999px;background:var(--wash2);
-                    color:var(--acc);font-size:var(--m1)">smooth</span>
-              <span class="mono" style="padding:3px 9px;border-radius:999px;color:var(--dim);
+              <span class="mono" style="padding:3px 9px;border-radius:999px;color:var(--dis);
+                    font-size:var(--m1)">smooth</span>
+              <span class="mono" style="padding:3px 9px;border-radius:999px;color:var(--dis);
                     font-size:var(--m1)">linear</span>
-              <span class="mono" style="padding:3px 9px;border-radius:999px;color:var(--dim);
+              <span class="mono" style="padding:3px 9px;border-radius:999px;color:var(--dis);
                     font-size:var(--m1)">sharp</span>
-              <span class="mono" style="padding:3px 9px;border-radius:999px;color:var(--dim);
+              <span class="mono" style="padding:3px 9px;border-radius:999px;color:var(--dis);
                     font-size:var(--m1)">constant</span>
             </span>
           </div>
           <div class="mono" style="font-size:var(--m2);line-height:1.6;color:var(--dis);
                padding-top:6px">
-            with <span style="color:var(--acc)">Biome paint</span> armed, size comes from the bar in cells;<br>
-            with <span style="color:var(--sec)">Sculpt</span> armed it comes from brush size in px</div>
+            hardness is on both tools and is <span style="color:var(--block)">two values, not one</span>:<br>
+            Brush.hardness (paint, 1.00) and SculptGlobals.hardness (0.50)<br>
+            are separate fields with separate setters. softness is<br>
+            <span style="color:var(--faint)">paint&rsquo;s alone</span> &mdash; Sculpt&rsquo;s eight globals have none. falloff is<br>
+            <span style="color:var(--block)">built on neither</span>, so it is drawn refused, not lit</div>
 
           <div class="rule" style="margin:13px 0 0"></div>
 
@@ -281,7 +293,7 @@
         <div class="mono" style="display:flex;gap:8px;padding:5px 0;font-size:var(--m1)">
           <span style="flex:1;color:var(--sec)">hardness &middot; softness</span>
           <span style="width:74px;color:var(--sec)">left dock</span>
-          <span style="width:132px;color:var(--dis);font-size:var(--m2)">set once per session; shared with Sculpt</span></div>
+          <span style="width:132px;color:var(--dis);font-size:var(--m2)">set once per session; paint&rsquo;s own pair</span></div>
         <div class="mono" style="display:flex;gap:8px;padding:5px 0;font-size:var(--m1)">
           <span style="flex:1;color:var(--sec)">painted counts</span>
           <span style="width:74px;color:var(--water)">right dock</span>

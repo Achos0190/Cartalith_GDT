@@ -526,12 +526,12 @@
               <span style="width:11px;height:11px;background:#1e282e;flex:none"></span>
               <span style="font-size:var(--m2);color:var(--dim)">no fjord</span>
               <span style="flex:1"></span>
-              <span class="mono" style="font-size:var(--m2);color:var(--sec)">all cells</span></div>
+              <span class="mono" style="font-size:var(--m2);color:var(--dis)">&mdash;</span></div>
             <div style="display:flex;align-items:center;gap:6px;min-height:14px;opacity:.45">
-              <span style="width:11px;height:11px;background:#3f6f8c;flex:none"></span>
+              <span style="width:11px;height:11px;background:#3cc8f0;flex:none"></span>
               <span style="font-size:var(--m2);color:var(--dim)">fjord-prone coast</span>
               <span style="flex:1"></span>
-              <span class="mono" style="font-size:var(--m2);color:var(--dis)">0</span></div>
+              <span class="mono" style="font-size:var(--m2);color:var(--dis)">&mdash;</span></div>
             <div class="mono" style="font-size:var(--m2);line-height:1.6;color:var(--dis);
                  padding-top:5px">
               no cold, rugged, competent-rock<br>coast here &mdash; the field is real<br>
@@ -542,12 +542,12 @@
             <span style="color:var(--faint)">The distinction that matters</span>: 1 and 2 are faults, 3 is an<br>
             answer. A view that computed correctly and came back empty must<br>
             not borrow the fault vocabulary &mdash; no <span style="color:var(--block)">--block</span>, no hollow dot.<br>
-            It reports a per-swatch count instead, and the empty swatch dims.<br>
+            It keeps the swatch, dims it, and dashes the count cell.<br>
             <span style="color:var(--faint)">Comparable</span>: Azgaar's Cultures editor keeps a zero-cell culture<br>
             in the table with its 0 rather than dropping the row.<br>
             <span style="color:var(--faint)">Open</span>: per-swatch counts exist for paint (paint_painted_counts)<br>
-            but <span style="color:var(--block)">not for debug rasters</span> &mdash; this needs a histogram binding,<br>
-            or the count cell is dashed
+            but <span style="color:var(--block)">not for debug rasters</span> &mdash; so the count cell is drawn<br>
+            as a dash, and stays one until a histogram binding exists
           </div>
         </div>
       </div>

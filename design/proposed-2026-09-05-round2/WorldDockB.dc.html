@@ -71,7 +71,7 @@
 
     <!-- ============================ B1: PIPELINE ============================ -->
     <div>
-      <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:5px">B1 &middot; <span style="color:var(--acc)">PIPELINE</span> &mdash; nine categories, ungated, exactly as option A shows them</div>
+      <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:5px">B1 &middot; <span style="color:var(--acc)">PIPELINE</span> &mdash; nine categories, ungated; <span style="color:var(--faint)">World data</span> below the fold</div>
       <div style="width:var(--ldW);height:820px;background:var(--pan);border-right:1px solid var(--hair);
            display:flex;flex-direction:column;overflow:hidden">
 
@@ -90,11 +90,27 @@
              every other caps mono label in the dock chrome. GENERATION PIPELINE at 9 px with .12em
              tracking does not clear a 163 px half, which is why the first is shortened and the second,
              already one word, is not. The shipped shell independently landed on the same two strings
-             (DccShell._MODE_SWITCH_LABELS) -- convergent, not a source. -->
+             (DccShell._MODE_SWITCH_LABELS) -- convergent, not a source.
+
+             THE ON-STATE IS THE WASH, NOT A FILLED SLAB (owner ruling, 2026-09-05). This board's
+             first cut drew the lit segment as --acc under --accInk, and nothing in the canvas
+             asked for that: &sect;2.3 leaves BOTH fills as template variables, `{{ ldSwABg }}` and
+             `{{ ldSwBBg }}`, lost in the same truncation that took the labels. So the canvas
+             settles the fill no more than it settles the wording, and the ruling settles both.
+             dcc_widgets.gd's `set_segment_on()` builds a lit segment as
+             `box("accent", "accent_wash")` -- accent border, accent wash, accent ink -- and
+             `set_mode_segment_on()` directly beneath it keeps the filled amber slab for the tool
+             bar's three SCULPT / PAINT / MEASURE segments "and nothing else", citing
+             GUI_GAP_REGISTER.md &sect;48 (DS-02), the pass that removed every filled amber slab
+             from this shell. Drawn --wash2 under --acc with no border of its own, because the
+             --ins track already supplies the edge -- which is exactly &sect;2.4's active state for
+             the TOOLS buttons one band below (`background: var(--wash2)`, `color: var(--acc)`),
+             what the approved Religion.dc.html draws on its own three-segment pill, and what this
+             same board already draws on its Ridge and circle chip rows. -->
         <div style="flex:none;padding:8px var(--pad) 2px">
           <div style="display:flex;background:var(--ins);border-radius:999px;padding:3px">
             <div class="mono" style="flex:1;text-align:center;padding:5px 0;border-radius:999px;
-                 background:var(--acc);color:var(--accInk);font-size:var(--m2);letter-spacing:.12em">PIPELINE</div>
+                 background:var(--wash2);color:var(--acc);font-size:var(--m2);letter-spacing:.12em">PIPELINE</div>
             <div class="mono" style="flex:1;text-align:center;padding:5px 0;border-radius:999px;
                  color:var(--dim);font-size:var(--m2);letter-spacing:.12em">SCULPT</div>
           </div>
@@ -222,7 +238,7 @@
             <div class="mono" style="flex:1;text-align:center;padding:5px 0;border-radius:999px;
                  color:var(--dim);font-size:var(--m2);letter-spacing:.12em">PIPELINE</div>
             <div class="mono" style="flex:1;text-align:center;padding:5px 0;border-radius:999px;
-                 background:var(--acc);color:var(--accInk);font-size:var(--m2);letter-spacing:.12em">SCULPT</div>
+                 background:var(--wash2);color:var(--acc);font-size:var(--m2);letter-spacing:.12em">SCULPT</div>
           </div>
         </div>
 

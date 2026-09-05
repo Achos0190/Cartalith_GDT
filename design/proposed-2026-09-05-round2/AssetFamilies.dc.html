@@ -421,7 +421,12 @@
         <div class="rule" style="margin:13px 0 11px"></div>
 
         <div class="mono row"><span class="k">KEY</span><span class="v">seamarks</span></div>
-        <div class="mono row"><span class="k">ANCHOR</span><span class="v">bottom</span></div>
+        <!-- `center`, not `bottom`: cartalith-assets/src/slots.rs's
+             `Family::anchor()` is `Family::SeaMark => Anchor::Center`, and its
+             own comment says why -- half of PACK_SEAMARK_SLOTS (buoy, reef,
+             shoal, whirlpool) has no base to stand on. Same value the shell
+             lights, where the three segments read tiled / centre / base. -->
+        <div class="mono row"><span class="k">ANCHOR</span><span class="v">center</span></div>
         <div class="mono row"><span class="k">SLOT LIST</span><span class="v">frozen &middot; 8</span></div>
         <div class="mono row"><span class="k">VARIANTS</span><span class="v">1&hellip;N per slot</span></div>
 
