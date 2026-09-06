@@ -1842,10 +1842,56 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 				min_size.x = round(min_size.x * unit)
 			if min_size.y > 0.0:
 				min_size.y = round(min_size.y * unit)
+			## **Both axes unconditionally.** The width floor used to be nested
+			## under `if min_size.x > 0.0`, which made it reach only controls
+			## that had already declared a width -- so an icon-only button, a
+			## bare `CheckBox`, anything sized by its own content, was never
+			## floored horizontally however many times this walk ran over it.
+			## The route-map layer button is the instance that surfaced it
+			## (35 x 115 physical px, 13 dp wide against a 44 dp floor, *after*
+			## `phone_fit()` had run; fixed in `journey_planner_view.gd` by
+			## declaring a width, which is to say by satisfying the condition
+			## rather than by removing it). It was never one button:
+			## `_widthfloor_probe.gd` counts **174** laid-out tappable controls
+			## under the 115 px floor at a 1080 x 2340 / 412 dp handset, and
+			## **all 174** of them have `custom_minimum_size.x == 0` -- the
+			## guard was the whole cause, not a contributing one.
+			##
+			## **What the condition protected, measured rather than assumed:**
+			## nothing. It is not a protection, it is the shape of the two
+			## `round(min_size.? * unit)` lines above -- where `> 0.0` really is
+			## a no-op, since `round(0.0 * unit)` is `0.0` -- carried down two
+			## lines to a `maxf()` where it is not. Both were written in one
+			## edit, in `_phone_fit_tool_options()`, this walk's first version
+			## (`c33ccb6`), over a single tool-options row. Removing it and
+			## re-censusing the whole 4 315-control surface: 439 controls grew,
+			## **2** shrank (the "Enable continental steering" row label
+			## 497 -> 457 px, whose text wants 364, and the spacer beside it),
+			## **0** controls changed height, **0** controls' text stopped
+			## fitting, 77 controls that had never resolved a width got one, and
+			## of 17 `Window`s exactly one content minimum moved -- 497 -> 507
+			## against a 1080 px screen. Nothing overflowed that was not
+			## already inside a horizontal scroller by design.
+			##
+			## The one consequence worth stating rather than burying: `Range`
+			## is in this list, so a `VSlider` or `ProgressBar` would now get a
+			## 115 px *width* minimum, which for a `VSlider` would be wrong.
+			## Neither exists anywhere in the phone tree today: the censused
+			## tappable population is `Button` 276, `HSlider` 216, `CheckBox`
+			## 53, `SpinBox` 12, `LineEdit` 2, and opening the roster, the data
+			## manager and the credits dialog adds only a single `TextEdit` to
+			## that list of classes. 208 of the 216 `HSlider`s already carry a
+			## non-zero `custom_minimum_size.x` and so were floored before this
+			## change too; `DccWidgets.slider()` is one writer of that
+			## (`custom_minimum_size = Vector2(track_w, 14)`) and no attempt was
+			## made to attribute all 208 to it. So no carve-out is written for a
+			## control that is not here. `tablet_fit()` below
+			## does exclude `Range`, and its reason is explicitly about
+			## *height* growing a fixed-height bar; it is not a width precedent
+			## and is not cited as one.
 			if ctl is BaseButton or ctl is LineEdit or ctl is Range or ctl is TextEdit:
 				min_size.y = maxf(min_size.y, tap)
-				if min_size.x > 0.0:
-					min_size.x = maxf(min_size.x, tap)
+				min_size.x = maxf(min_size.x, tap)
 			ctl.custom_minimum_size = min_size
 			## §4.5's TOOLS block. The floor above grew each tool's *box* to
 			## 44 dp and left everything inside it exactly as authored, which is

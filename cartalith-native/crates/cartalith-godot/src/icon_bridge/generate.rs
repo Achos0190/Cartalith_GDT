@@ -38,11 +38,24 @@
 //!
 //! ## What is *not* here
 //!
-//! No new list, no `generated` flag: the pass appends into the one icon list
-//! and is idempotent because its own output culls its own candidates —
-//! [`IconEditor::generate`]'s doc says why that differs from the label pass.
-//! So `icon_list`, `icon_delete` and `icon_clear_all` in `lib.rs` keep working
-//! unchanged, and "undo a generated run" is the Clear-all that already exists.
+//! No new list: the pass appends into the one icon list and is idempotent
+//! because its own output culls its own candidates — [`IconEditor::generate`]'s
+//! doc says why that differs from the label pass. So `icon_list`, `icon_delete`
+//! and `icon_clear_all` in `lib.rs` still operate on one flat list, and "undo a
+//! generated run" is the Clear-all that already exists.
+//!
+//! There **is** now a flag on each row, and this said there was not until owner
+//! ruling 14 (2026-09-06) added one: every icon carries
+//! [`cartalith_assets::manual::IconOrigin`], and the pass this file drives —
+//! [`super::IconEditor::generate`] — is the only producer that writes
+//! `Generated` outside a test. `grep -rn "origin: IconOrigin::Generated"
+//! crates/` on 2026-09-06 returns two sites: `icon_bridge.rs`'s own
+//! `IconEditor::generate`, and one fixture inside `project_bridge.rs`'
+//! `#[cfg(test)]` block. It is a discriminator inside the single
+//! list, not a second list — the sentence above still holds — and `icon_dict`
+//! surfaces it to GDScript as `origin`, which is what lets `map_overlay.gd`
+//! draw one annotation layer instead of a manual pass and a landmark pass that
+//! both draw the same landmark.
 
 use godot::prelude::*;
 

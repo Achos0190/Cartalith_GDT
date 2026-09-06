@@ -8854,7 +8854,8 @@ impl WorldGen {
 
     /// One placed icon's properties (`DCC_SHELL_SPEC.md` §4.5.5's right
     /// dock): `x`, `y`, `family`, `slot`, `set` (empty string outside
-    /// `Custom`), `scale`. Empty `Dictionary` for an out-of-range `index`
+    /// `Custom`), `scale`, `origin` (`"manual"` / `"generated"` -- see
+    /// `icon_dict` below). Empty `Dictionary` for an out-of-range `index`
     /// or before any `generate()` call.
     #[func]
     fn icon_get(&self, index: i64) -> VarDictionary {
@@ -8918,6 +8919,17 @@ impl WorldGen {
 /// One `ManualIcon`'s fields as a flat `Dictionary` -- shared by `icon_get`
 /// and `icon_list`, which both need exactly this shape (`icon_list` adds
 /// its own `index` on top).
+///
+/// `origin` is owner ruling 14's *"one collection, two origins"* crossing the
+/// gdext boundary, and it is the only thing on the Godot side that can tell a
+/// generated landmark from a hand-placed stamp: they are one `Vec` now
+/// (`icon_bridge::IconEditor::icons`), and `map_overlay.gd` has to draw them as
+/// one layer without drawing a landmark twice. Written on **every** row,
+/// `Manual` included -- unlike the archive, which spells `Manual` as an absent
+/// member so that re-saving an older project does not rewrite it
+/// ([`cartalith_assets::manual::IconOrigin::key`]'s own doc comment). Nothing
+/// is absent here, because nothing is unknown here: every live icon has a
+/// producer.
 fn icon_dict(ic: &cartalith_assets::manual::ManualIcon) -> VarDictionary {
     vdict! {
         "x" => ic.x,
@@ -8926,6 +8938,7 @@ fn icon_dict(ic: &cartalith_assets::manual::ManualIcon) -> VarDictionary {
         "slot" => ic.slot.as_str(),
         "set" => ic.set.as_deref().unwrap_or(""),
         "scale" => ic.scale,
+        "origin" => ic.origin.key(),
     }
 }
 

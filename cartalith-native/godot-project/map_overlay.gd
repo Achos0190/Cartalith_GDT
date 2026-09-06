@@ -460,7 +460,7 @@ const ICON_FAMILY_COLORS := {
 ## control's own LOCAL pixels -- no `rect`/grid term and no `_civ_zoom_k()`
 ## term -- so the camera, which is an ancestor scale (see `_crisp_begin()`),
 ## multiplies it: an icon's mark grows with zoom rather than holding a
-## constant on-screen size the way a settlement pin does. `_draw_landmarks`
+## constant on-screen size the way a settlement pin does. `_draw_landmark_ring`
 ## is written the same way, so this is a shared property of the two newer
 ## annotation layers and not a slip unique to this constant.
 ##
@@ -486,11 +486,16 @@ const ICON_OUTLINE := Color(0.051, 0.043, 0.031, 0.9)
 
 ## **Generated landmarks are not manual icons, and must not read as them.**
 ##
-## `design/landmark-generation/LANDMARK_UI_DESIGN.md` §9's row 23:
-## `icon_place`/`icon_list` draw the *manual* Icon tool's stamps, and "a
-## generated landmark is not one". They come from different places, mean
-## different things, and one of them the user placed by hand — so they are drawn
-## with a different mark, not a fifth colour in `ICON_FAMILY_COLORS`.
+## `design/landmark-generation/LANDMARK_UI_DESIGN.md` §9's row 23 reads
+## `icon_place` … `icon_list` … "draw *manual* icons. A generated landmark is
+## not one", and files the landmark renderer as **owed**. **Owner ruling 14
+## (2026-09-06) superseded the collection half of that**: a generated landmark
+## now lives in the very list `icon_list()` returns, told apart by its `origin`
+## rather than by being kept out. What survives is the symbology half, and this
+## file keeps it — the two come from different places, mean different things,
+## and one of them the user placed by hand, so they are drawn with a different
+## mark, not a fifth colour in `ICON_FAMILY_COLORS`. `_draw_annotation_marks` is
+## where that decides which of two coincident marks draws.
 ##
 ## Size carries CLASS (`LANDMARK_GENERATION_RESEARCH.md` §23's hierarchy:
 ## Continental is extremely rare and enormous, Local is common and small),
@@ -964,6 +969,14 @@ func _lod_zoom_base() -> float:
 ## §4.5.5's Icon and Label tools place these; `bridge.icon_list()`/
 ## `bridge.labels_render_list()` are this data's only source, both already bound
 ## (`icon_bridge.rs`/`label_bridge.rs`) and both wrapped in `engine_bridge.gd`.
+##
+## **`_manual_icons` is no longer only the hand-placed ones either.** Owner
+## ruling 14 (2026-09-06) put `IconEditor::generate`'s output into the same
+## engine-side list, so a row's `origin` ("manual" / "generated") says
+## which producer placed it — `_icon_is_generated()` reads it and
+## `_draw_annotation_marks()` is the one pass that draws the whole collection.
+## Editing still goes through the same indices this array carries, which is the
+## one way it differs from `_labels` below.
 ## Set by `ViewportHost.refresh_annotations()`, a lighter call than the full
 ## `refresh()` -- placing one icon shouldn't re-fetch the terrain texture.
 ##
@@ -1735,7 +1748,7 @@ func _settlement_label_candidates(pos: Vector2, radius: float, sc: float, w: flo
 ## names are DELIBERATE cartography -- they must not be silently suppressed
 ## by an auto-placed settlement label"). Approximate rather than exact for
 ## icons (whose real footprint depends on family/shape, drawn in
-## `_draw_manual_icons`, not recomputed here) -- close enough to keep a
+## `_draw_icon_glyph`, not recomputed here) -- close enough to keep a
 ## label from visibly overlapping an icon, which is all this simplified
 ## system claims to do; see `_draw()`'s own settlement-loop comment for the
 ## full scope of the simplification against the reference's real occupancy
@@ -1761,6 +1774,11 @@ func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 		var h := float(font_px) * 1.3
 		boxes.append(Rect2(pos - Vector2(w, h) / 2.0, Vector2(w, h)))
 	for ic: Dictionary in _manual_icons:
+		## A mark that is not drawn must not push a name around. The only rows
+		## this can skip are generated POI icons with Landmarks off -- see
+		## `_icon_layer_hidden()`.
+		if _icon_layer_hidden(ic):
+			continue
 		var pos2 := _point_to_screen(Vector2(ic["x"], ic["y"]), rect)
 		var r: float = ICON_BASE_RADIUS * maxf(0.2, float(ic["scale"]))
 		boxes.append(Rect2(pos2 - Vector2(r, r), Vector2(r, r) * 2.0))
@@ -2092,54 +2110,169 @@ func _draw() -> void:
 		if _hover_index >= 0 and _hover_index < _settlements.size():
 			_draw_hover_card(_settlements[_hover_index], rect, interior)
 
-	# Manual annotations (§4.5.5) are independent of the Settlements/Roads/Sea
-	# routes toggles above -- they have no layer-visibility flag of their own
-	# in `DCC_SHELL_SPEC.md`, so they always draw once placed, same as the
-	# Measure/Region tool overlays in `tool_overlay.gd` always draw once armed.
-	_draw_manual_icons(rect, interior)
-	## Under the labels and over everything else. Labels are text and lose
-	## legibility the moment anything crosses them; a landmark ring is a mark
-	## and does not.
-	##
-	## Rejections draw UNDER the placements, deliberately: the layer's whole
-	## claim is that a rejected candidate lost to a placed one, so the placed
-	## mark must win the pixel wherever they coincide.
+	# Manual annotations (§4.5.5) and generated landmarks are ONE layer, drawn
+	# by one pass -- owner ruling 14 (2026-09-06), *"one collection, two
+	# origins ... the renderer draws one layer"*. `_draw_annotation_marks`
+	# below states the visibility rule and which mark wins where the two
+	# origins meet.
+	#
+	# Rejections draw UNDER the placements, deliberately: the layer's whole
+	# claim is that a rejected candidate lost to a placed one, so the placed
+	# mark must win the pixel wherever they coincide. That now puts hand-placed
+	# icons OVER the reject diamonds, where the old two-pass order put them
+	# under -- a diagnostic covering authored content was never what this
+	# comment asked for.
 	_draw_landmark_rejects(rect, interior)
-	_draw_landmarks(rect, interior)
+	## Under the labels and over everything else. Labels are text and lose
+	## legibility the moment anything crosses them; an annotation mark does not.
+	_draw_annotation_marks(rect, interior)
 	_draw_labels(rect, interior)
 
 
-## §4.5.5's Icon tool: placed markers, by `family` (`icon_dict`'s
-## `{x, y, family, slot, set, scale}`). Positions are continuous
-## full-resolution coordinates (a placement click's own `gx, gy`, not a
-## cell index) -- `_point_to_screen`, not `_cell_to_screen`, matching roads'
-## own reasoning in this file's `set_civ_data` doc comment.
-func _draw_manual_icons(rect: Rect2, interior: Rect2) -> void:
+## Owner ruling 14's `origin`, read back on the draw side.
+##
+## `icon_list()`'s rows carry it as `IconOrigin::key()`'s own string
+## (`lib.rs::icon_dict`): `"manual"` for a click (`place_manual_icon`) or a
+## brush stamp, `"generated"` for `IconEditor::generate`'s output, which is the
+## only producer in the tree that writes it.
+##
+## `has()`, not a default. Every row from this build's engine carries the key,
+## so an absent one means an engine older than the field -- and the honest
+## answer there is *"not known to be generated"*, which is what this returns.
+func _icon_is_generated(ic: Dictionary) -> bool:
+	return ic.has("origin") and String(ic["origin"]) == "generated"
+
+
+## Whether the Layers popover currently hides this icon -- the middle case of
+## `_draw_annotation_marks`' three-case visibility rule, factored out because
+## `_seed_label_occupancy()` has to ask the same question (a mark that is not
+## drawn must not push a settlement's name around).
+func _icon_layer_hidden(ic: Dictionary) -> bool:
+	return (not _landmarks_visible
+		and _icon_is_generated(ic)
+		and String(ic.get("family", "")) == "poi")
+
+
+## §4.5.5's Icon tool and the landmark pass, drawn as ONE layer over the one
+## collection they share -- owner ruling 14 (2026-09-06), *"one collection, two
+## origins ... the renderer draws one layer"*.
+##
+## ## What this replaced, and what a reader should expect to see change
+##
+## `icon_list()` and `bridge.landmarks()` are two calls whose contents overlap:
+## `icon_bridge/generate.rs::icon_candidates` builds the POI family's candidates
+## straight out of the landmark store, one per landmark at that landmark's own
+## cell. So after a POI automatic-placement run the same landmark sat in both
+## arrays, and the two independent passes this replaces drew it twice -- a ring
+## and a POI glyph, half a cell apart. Measured before the merge at **139 ring
+## pixels beside 27 POI-glyph pixels** in one 45x45 px box
+## (`_iconmerge_probe.gd`, 2026-09-06).
+##
+## Worse, only one of the two answered to the Layers popover: the ring honoured
+## `layer_visible("landmarks")` and the icon pass had no flag at all, so
+## switching Landmarks off left the duplicate glyphs on the map -- **41 POI
+## pixels with the ring at 0**, same probe.
+##
+## ## The visibility rule, chosen rather than defaulted
+##
+## - **`origin == "manual"` always draws.** A hand-placed icon is authored
+##   content and does not vanish behind a generated-content toggle. Nothing here
+##   can hide one, which is exactly the guarantee the old pass gave.
+## - **A GENERATED icon of the `poi` family follows the Landmarks flag**, because
+##   its source *is* the landmark store. It is a landmark by another name, and a
+##   control labelled Landmarks that leaves half the landmark layer on screen is
+##   the defect this function exists to close.
+## - **Every other generated icon draws unconditionally**, as before. PLACES
+##   comes from `civ.settlements`, TREES from the ruled scatter engine, SEA MARKS
+##   from a water sweep (`icon_bridge/generate.rs`'s own four sources); none of
+##   those is a landmark, and hiding a generated forest behind a control named
+##   Landmarks would invent a correspondence nobody asked for.
+##
+## ## Which mark wins where both would have drawn: the RING
+##
+## A generated POI icon whose cell carries a landmark is drawn as that
+## landmark's ring and its own glyph is suppressed -- one mark, and it is not
+## the glyph. Three reasons, heaviest first:
+##
+##   1. **The ring encodes two fields the glyph encodes none of.** Its radius is
+##      the landmark's CLASS and its size within that class is `importance`
+##      (`LANDMARK_CLASS_RADIUS`, §23/§24 above). The POI glyph is one flat
+##      yellow diamond for every landmark kind, so letting it win would trade
+##      two readable fields for nothing.
+##   2. **The design asks for the two to read differently.** See
+##      `LANDMARK_CLASS_RADIUS`'s own block. Ruling 14 put generated landmarks
+##      into the icon *collection*; it did not ask for one symbology.
+##   3. **The ring lands on the right pixel.** A landmark's `x`/`y` are cell
+##      indices and draw through `_cell_to_screen`; the generated icon copied
+##      those indices into a field whose other rows are continuous click
+##      coordinates, so its glyph draws through `_point_to_screen`, half a cell
+##      up-left of the thing it stands for. Choosing the ring sidesteps that
+##      without touching generated output.
+##
+## A generated POI icon whose cell has **no** landmark still draws its own
+## glyph: that is a row the store can no longer resolve -- a landmark pass
+## re-run after the placement -- and dropping it would erase a mark for
+## something the icon list still holds and the user can still select.
+func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
+	## Cells a ring will draw at. Keyed off `_landmarks`, not off the icons,
+	## because the ring needs `class` and `importance` and only the landmark row
+	## carries them.
+	var ringed := {}
+	if _landmarks_visible:
+		for lm: Dictionary in _landmarks:
+			ringed[Vector2i(int(lm.get("x", 0)), int(lm.get("y", 0)))] = true
+
 	for ic: Dictionary in _manual_icons:
+		if _icon_layer_hidden(ic):
+			continue
+		## `roundi` on a value the engine widened from a `usize`, so this is an
+		## exact match rather than a tolerance: `icon_candidates` writes
+		## `l.x as f64`, never a fraction.
+		if (_icon_is_generated(ic) and String(ic.get("family", "")) == "poi"
+				and ringed.has(Vector2i(roundi(float(ic["x"])), roundi(float(ic["y"]))))):
+			continue
 		var pos := _point_to_screen(Vector2(ic["x"], ic["y"]), rect)
 		if not interior.has_point(pos):
 			continue
-		var color: Color = ICON_FAMILY_COLORS.get(ic["family"], Color(0.7, 0.7, 0.7))
-		var r: float = ICON_BASE_RADIUS * maxf(0.2, float(ic["scale"]))
-		match ic["family"]:
-			"settlement":
-				var half := r * 0.85
-				draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), color, true)
-				draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), ICON_OUTLINE, false, 1.2)
-			"feature":
-				var pts := PackedVector2Array([
-					pos + Vector2(0, -r), pos + Vector2(r * 0.87, r * 0.5), pos + Vector2(-r * 0.87, r * 0.5)])
-				draw_colored_polygon(pts, color)
-				draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[0]]), ICON_OUTLINE, 1.2, true)
-			"poi":
-				var pts2 := PackedVector2Array([
-					pos + Vector2(0, -r), pos + Vector2(r, 0), pos + Vector2(0, r), pos + Vector2(-r, 0)])
-				draw_colored_polygon(pts2, color)
-				draw_polyline(PackedVector2Array([pts2[0], pts2[1], pts2[2], pts2[3], pts2[0]]), ICON_OUTLINE, 1.2, true)
-			_: ## "custom", or any future family this build doesn't recognise yet.
-				draw_circle(pos, r, color, true, -1.0, true)   ## See the settlement pin's own antialiasing comment above.
-				draw_arc(pos, r, 0, TAU, 20, ICON_OUTLINE, 1.2, true)
-				draw_arc(pos, r * 0.4, 0, TAU, 12, ICON_OUTLINE, 1.0, true)
+		_draw_icon_glyph(pos, ic)
+
+	if not _landmarks_visible:
+		return
+	for lm: Dictionary in _landmarks:
+		var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
+		if not interior.has_point(lpos):
+			continue
+		_draw_landmark_ring(lpos, lm)
+
+
+## One placed icon's mark, by `family` (`icon_dict`'s `{x, y, family, slot, set,
+## scale, origin}`). Positions are continuous full-resolution coordinates (a
+## placement click's own `gx, gy`, not a cell index) -- `_point_to_screen`, not
+## `_cell_to_screen`, matching roads' own reasoning in this file's
+## `set_civ_data` doc comment. The caller has already resolved visibility and
+## the interior test; this only draws.
+func _draw_icon_glyph(pos: Vector2, ic: Dictionary) -> void:
+	var color: Color = ICON_FAMILY_COLORS.get(ic["family"], Color(0.7, 0.7, 0.7))
+	var r: float = ICON_BASE_RADIUS * maxf(0.2, float(ic["scale"]))
+	match ic["family"]:
+		"settlement":
+			var half := r * 0.85
+			draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), color, true)
+			draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), ICON_OUTLINE, false, 1.2)
+		"feature":
+			var pts := PackedVector2Array([
+				pos + Vector2(0, -r), pos + Vector2(r * 0.87, r * 0.5), pos + Vector2(-r * 0.87, r * 0.5)])
+			draw_colored_polygon(pts, color)
+			draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[0]]), ICON_OUTLINE, 1.2, true)
+		"poi":
+			var pts2 := PackedVector2Array([
+				pos + Vector2(0, -r), pos + Vector2(r, 0), pos + Vector2(0, r), pos + Vector2(-r, 0)])
+			draw_colored_polygon(pts2, color)
+			draw_polyline(PackedVector2Array([pts2[0], pts2[1], pts2[2], pts2[3], pts2[0]]), ICON_OUTLINE, 1.2, true)
+		_: ## "custom", or any future family this build doesn't recognise yet.
+			draw_circle(pos, r, color, true, -1.0, true)   ## See the settlement pin's own antialiasing comment above.
+			draw_arc(pos, r, 0, TAU, 20, ICON_OUTLINE, 1.2, true)
+			draw_arc(pos, r * 0.4, 0, TAU, 12, ICON_OUTLINE, 1.0, true)
 
 
 ## Generated landmarks — `LANDMARK_GENERATION_RESEARCH.md` §23's four classes,
@@ -2156,31 +2289,31 @@ func _draw_manual_icons(rect: Rect2, interior: Rect2) -> void:
 ## a landmark the engine placed and this build cannot categorise is still a real
 ## landmark, and dropping it would be this file quietly disagreeing with the
 ## panel about how many exist.
-func _draw_landmarks(rect: Rect2, interior: Rect2) -> void:
-	if not _landmarks_visible or _landmarks.is_empty():
-		return
-	for lm: Dictionary in _landmarks:
-		var pos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
-		if not interior.has_point(pos):
-			continue
-		var cls := String(lm.get("class", "local")).to_lower()
-		var base: float = float(LANDMARK_CLASS_RADIUS.get(cls, LANDMARK_CLASS_RADIUS["local"]))
-		## §24: importance is emergent, so it is worth showing. Bounded to
-		## +/-25% so the class stays the dominant read — an important local
-		## landmark must never out-draw a continental one, or the size stops
-		## meaning class at all.
-		var imp := clampf(float(lm.get("importance", 0.5)), 0.0, 1.0)
-		var r: float = base * (0.75 + 0.5 * imp)
-		var col: Color = LANDMARK_COL_CULTURAL if cls == "cultural" else LANDMARK_COL_PHYSICAL
-		## Dark halo first so the ring survives on pale terrain, the same
-		## two-pass trick the settlement labels use for their outline.
-		draw_arc(pos, r, 0, TAU, 22, LANDMARK_OUTLINE, 2.4, true)
-		draw_arc(pos, r, 0, TAU, 22, col, 1.3, true)
-		## A centre dot only on the two rare classes. On Local, where a dense
-		## world can carry hundreds, it fills the ring in and the mark stops
-		## reading as open.
-		if cls == "continental" or cls == "regional":
-			draw_circle(pos, maxf(1.0, r * 0.22), col, true, -1.0, true)
+##
+## Called from `_draw_annotation_marks`, which owns the `_landmarks_visible`
+## gate, the `_cell_to_screen` transform and the interior test -- so this draws
+## a ring at `pos` and asks no questions. It is also the mark a *generated* POI
+## icon gets, which is the whole of ruling 14's "one layer": see that function
+## for why the ring wins over the glyph.
+func _draw_landmark_ring(pos: Vector2, lm: Dictionary) -> void:
+	var cls := String(lm.get("class", "local")).to_lower()
+	var base: float = float(LANDMARK_CLASS_RADIUS.get(cls, LANDMARK_CLASS_RADIUS["local"]))
+	## §24: importance is emergent, so it is worth showing. Bounded to
+	## +/-25% so the class stays the dominant read — an important local
+	## landmark must never out-draw a continental one, or the size stops
+	## meaning class at all.
+	var imp := clampf(float(lm.get("importance", 0.5)), 0.0, 1.0)
+	var r: float = base * (0.75 + 0.5 * imp)
+	var col: Color = LANDMARK_COL_CULTURAL if cls == "cultural" else LANDMARK_COL_PHYSICAL
+	## Dark halo first so the ring survives on pale terrain, the same
+	## two-pass trick the settlement labels use for their outline.
+	draw_arc(pos, r, 0, TAU, 22, LANDMARK_OUTLINE, 2.4, true)
+	draw_arc(pos, r, 0, TAU, 22, col, 1.3, true)
+	## A centre dot only on the two rare classes. On Local, where a dense
+	## world can carry hundreds, it fills the ring in and the mark stops
+	## reading as open.
+	if cls == "continental" or cls == "regional":
+		draw_circle(pos, maxf(1.0, r * 0.22), col, true, -1.0, true)
 
 
 ## The candidates the landmark pass offered and did not place -- the second
@@ -2195,7 +2328,7 @@ func _draw_landmarks(rect: Rect2, interior: Rect2) -> void:
 ## many marks it holds. The per-mark work left is arithmetic.
 ##
 ## Positions are grid CELLS, so `_cell_to_screen`, for the reason
-## `_draw_landmarks` states directly above: `Landmark.x`/`.y` and a reject's
+## `_draw_landmark_ring` states directly above: `Landmark.x`/`.y` and a reject's
 ## `x`/`y` are the same `usize` cell space, unlike the Icon tool's continuous
 ## click coordinates.
 ##
