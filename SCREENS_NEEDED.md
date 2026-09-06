@@ -136,10 +136,12 @@ Every comparable ships named looks and a "modified" indicator. Mapbox Studio's s
 **Comparables already researched:**
 - Every comparable ships named looks and a "modified" indicator. Mapbox Studio's style gallery, ArcGIS Pro's basemap gallery, Affinity's adjustment presets, Blender's material previews.
 
-### 13. Layer list search; Blocks / Verticality
+### 13. Layer list search; Blocks / Verticality — **no screen needed (2026-09-06)**
 *Register: CA-09*
 
-Blocks / Verticality is genuinely undefined, and DCC_CONTROL_INDEX.md already marks it uncertain. No comparable has footer tabs by those names. The two plausible readings, from the vocabulary of the field:
+**Both halves are settled and neither needs an artboard.** The **search field** shipped into `layers_popover.gd` — one field over two bands, `VISIBLE LAYERS` and `DATA OVERLAYS`, drawn from the Find-on-map dialog's own vocabulary (field, band header, right-aligned count, one no-match sentence), so there was nothing new to draw. The **footer tabs** were ruled **not built** (`GUI_GAP_REGISTER.md` §7.16, reading C): both names describe something the shell already does — Verticality is `exag`, a live slider in CARTO ▸ Map style ▸ § Map view, and Blocks is either a 2.5D view this 2D port does not have or a name already taken (tiles are Preferences ▸ Tiles & LOD; style bundles are `STYLE_PRESETS`). A design would have been a pane of controls that already have two homes.
+
+The original entry, kept because it is what the ruling answers — Blocks / Verticality is genuinely undefined, `DCC_CONTROL_INDEX.md` already marked it uncertain, and no comparable has footer tabs by those names. The two plausible readings, from the vocabulary of the field:
 
 ### 14. Rail expansion
 *Register: SH-01*

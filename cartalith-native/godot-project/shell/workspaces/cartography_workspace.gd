@@ -317,6 +317,40 @@ func _build() -> void:
 		DccWidgets.category(self, "Colours", categories))
 
 	## 4 -- LAYERS
+	##
+	## **CA-09's footer tabs -- Blocks / Verticality -- are deliberately not
+	## built, and this is the record of why** (`GUI_GAP_REGISTER.md` §7.16,
+	## `DCC_CONTROL_INDEX.md`'s "uncertain" row, `DCC_SHELL_SPEC.md` §755
+	## "Footer tabs Blocks / Verticality"). The search half of CA-09 shipped
+	## with this pass, in `layers_popover.gd`. The tabs did not.
+	##
+	## Three readings were considered. **Both names are dead**, because each
+	## describes something this shell already does under a better name, and a
+	## footer tab would be a *third* place to reach controls that already have
+	## two:
+	##
+	## - **Verticality = vertical exaggeration.** That is `exag`, and it is a
+	##   live slider today: `render_workspace.gd`'s `APPEARANCE_VIEW` puts it
+	##   in CARTO ▸ Map style ▸ § Map view, tooltipped "Vertical exaggeration
+	##   of the relief the hillshade is computed from. The reference's own
+	##   Relief slider", beside the two sun angles. Backed by
+	##   `render.rs`'s `TerrainAppearance::exag`. A tab holding one existing
+	##   slider is not a tab.
+	## - **Blocks = a 2.5D block diagram**, the usual companion to
+	##   "Verticality". This port renders 2D; there is no such view to switch
+	##   to, and inventing a tab for one would advertise a mode that does not
+	##   exist. Note the word is *already taken* in this shell, meaning
+	##   something else: `city_viewer_window.gd` shows a town layout's block
+	##   count as "Blocks". Two unrelated Blocks in one shell is its own
+	##   defect.
+	## - **Blocks = tiles, or a style bundle.** Both are built and named:
+	##   tiling is Preferences ▸ Tiles & LOD (`dcc_settings.gd` §2.5) and style
+	##   bundles are `render_workspace.gd`'s `STYLE_PRESETS`, drawn in Map
+	##   style.
+	##
+	## So nothing is added here. If the owner meant something the three
+	## readings miss, it costs one sentence to say so -- which is what §7.16
+	## recommended, and the reason this is a note and not a control.
 	var cat := DccWidgets.category(self, "Layers", categories)
 	var body := DccWidgets.section(cat, "Visible layers")
 	for layer in LIVE_LAYERS:

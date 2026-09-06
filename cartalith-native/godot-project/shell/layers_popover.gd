@@ -11,8 +11,11 @@ class_name LayersPopover
 ## labelled Layers that jumped the whole workspace rather than opening
 ## anything. The stand-in is replaced, not extended -- but nothing it reached
 ## is removed: `cartography_workspace.gd`'s own toggles and
-## `ViewportHost.set_layer_visible()` are untouched, still on the rail, and
-## the note at the foot of this popover points at them.
+## `ViewportHost.set_layer_visible()` are untouched and still on the rail.
+## **Since CA-09 they are also here**, as this popover's first band, driving
+## the same `ViewportHost` switch rather than a copy of it -- see the
+## `SEARCH_HINT` block below for why the two lists share one field and stay
+## two lists.
 ##
 ## **The grouping is the reference's, verbatim.** `LAYER_GROUPS` in
 ## `sample_bridge.rs` keeps the original's Base / Climate / Tectonics /
@@ -105,7 +108,12 @@ var host: ViewportHost
 
 var _list: VBoxContainer
 var _legend: VBoxContainer
-var _rows: Dictionary = {}   ## view id -> its Button
+## view id -> its Button, for the rows **currently drawn**. Since CA-09's
+## filter that is a subset of the overlay list, not the whole of it, so it is
+## no longer safe to ask this "does view X exist" -- `_input()` used to and
+## that is exactly the bug the filter would have introduced (see its comment).
+## Kept as the drawn-row index; nothing reads it to decide behaviour.
+var _rows: Dictionary = {}
 
 ## Hotkey badges 1-8 (`DCC_SHELL_SPEC.md` §10: "grouped rows with hotkey
 ## badges: SURFACE (Relief 1, Biome 2, Political 3), TERRAIN FIELDS
@@ -148,6 +156,78 @@ const HOTKEY_ACTIONS: Array[String] = [
 	"layers_hotkey_5", "layers_hotkey_6", "layers_hotkey_7", "layers_hotkey_8",
 ]
 var _hotkey_ids: Array = []   ## index 0-7 -> the row id badged with that digit.
+
+## -- CA-09, the layer-list search field ---------------------------------------
+##
+## `GUI_GAP_REGISTER.md` CA-09 / §7.16 ("the search field needs no research --
+## §7.2's locator, scoped to the layer list"). **Two lists, one field, and they
+## are NOT merged**, because a row in each does a different thing:
+##
+## - **Visible layers** (`CartographyWorkspace.LIVE_LAYERS`) are vector
+##   overlays with a visibility switch each. A row here **toggles**, and the
+##   switch it drives is `ViewportHost.set_layer_visible()` -- the same one
+##   CARTO's own rail dock drives, read back through `layer_visible()`, so the
+##   two surfaces cannot disagree (and `cartography_workspace.gd` re-reads
+##   itself from `layer_visibility_changed`, which this row emits).
+## - **Data overlays** are the engine's field rasters, from `debug_layers()`.
+##   A row here **replaces** which field the viewport draws.
+##
+## Before this pass the popover carried only the second list and a foot note
+## pointing at the rail for the first; the note is still there, and now says
+## the rows are also here rather than only there.
+##
+## **The band headers are what keep them apart** -- drawn without the `§`
+## sigil, unlike the engine's own group headings (Base / Climate / ...), which
+## keep it. §11's sigil is the L3 disclosure marker (`DccTheme.header()`), so a
+## header without one already reads as the level above in this shell's own
+## grammar, and the two do not collide when both are on screen.
+##
+## **What is reused from `DccShell`'s Find-on-map dialog, and what is not.**
+## Reused: the field itself (`LineEdit` + `DccWidgets.well()`), the right-
+## aligned `mono_label(text_faint, FS_MICRO)` count, the "one notice, not an
+## empty list" idiom, and the band-header shape (mono caps, tracked, faint,
+## in a margin -- `DccShell._search_band_header`'s own comment calls that "the
+## same vocabulary `DccWidgets.section()` uses", which is what is called here).
+## `_search_band_header()` itself is NOT called: it multiplies its padding and
+## its font through `_pscale()`/`_pfont()`, and this popover is scaled by
+## `content_scale_factor` on the window instead (`DccWidgets.phone_present()`),
+## so calling it would scale twice on a phone.
+##
+## **Deliberately NOT reused: the re-ranking.** Find-on-map's three bands are
+## *ranking* bands (STARTS WITH / CONTAINS / ...) over a list whose order is
+## the ranker's to choose. These two are *list-identity* bands over an order
+## that is load-bearing: `HOTKEY_ACTIONS`' doc comment above spells out why
+## re-sorting the overlay rows would scatter digits 1-8 across non-adjacent
+## groups. Rows stay in build order in both bands and only the non-matching
+## ones are dropped.
+const SEARCH_HINT := "Filters both lists at once. Matches a layer's name or its engine id (settlements, popdensity, ...); an empty field shows everything."
+
+## The first band's list, taken from `cartography_workspace.gd` rather than
+## restated -- one enumeration of what this shell can toggle, in one place, so
+## a layer added there appears here without a second edit. Reached by global
+## class name, the same way this file already types `bridge`/`host` as
+## `EngineBridge`/`ViewportHost`: `CartographyWorkspace` is a permanent shipped
+## file, not the concurrent-sibling case `FLOW_FX_SCRIPT`'s `preload` exists
+## for. `preload()` is deliberately NOT used -- `app.gd` names `LayersPopover`
+## statically and `Workspace.app` is a `DccApp`, so a preload edge from here
+## would close a cycle that the class-name cache resolves fine today.
+const _LIVE: Array = CartographyWorkspace.LIVE_LAYERS
+const _POLITICAL: Array = CartographyWorkspace.POLITICAL_LAYERS
+
+## Matched over the **label and the id**. The id is not printed on a row today
+## -- both lists draw `label` only -- so this is an alias, not a second visible
+## column: it is what makes `velo`, `sea_routes` or `bclass` find their row
+## for anyone reading `sample_bridge.rs`, a tooltip that names one, or this
+## project's own docs. Stated rather than implied, because a brief described
+## the ids as shown and they are not.
+static func _matches(needle: String, label: String, id: String) -> bool:
+	return needle == "" \
+		or label.to_lower().find(needle) >= 0 \
+		or id.to_lower().find(needle) >= 0
+
+var _field: LineEdit
+var _count: Label
+var _query := ""
 
 ## Phone (§13) -- PH-12, and this one had to be checked before it was built:
 ## a popover may simply be the wrong control on a handset, and §13's phone
@@ -203,7 +283,58 @@ func setup(b: EngineBridge, h: ViewportHost) -> void:
 		outer.custom_minimum_size = Vector2(DccTheme.role_px("w_popover"), 0)
 	add_child(outer)
 	if _phone:
-		DccWidgets.phone_head(outer, "Data overlays", "one field view at a time")
+		## "Layers", not the "Data overlays / one field view at a time" this
+		## said until CA-09: the sheet now carries both bands, and a title
+		## naming only the second one would be false about half of it. The
+		## routes in are unchanged and still say "Data overlays…" where they
+		## are about that band (`cartography_workspace.gd::_build_visibility`).
+		DccWidgets.phone_head(outer, "Layers",
+			"toggle an overlay, or pick one field view")
+
+	## CA-09's field, above the scroll rather than inside it -- it filters what
+	## the scroll holds, so it must not scroll away from the list it is
+	## filtering. On a phone the head is above it and the foot is inside the
+	## scroll (see `scroll_body` below); this row sits between them.
+	var search_pad := MarginContainer.new()
+	search_pad.add_theme_constant_override("margin_left", 10)
+	search_pad.add_theme_constant_override("margin_right", 10)
+	search_pad.add_theme_constant_override("margin_top", 8)
+	search_pad.add_theme_constant_override("margin_bottom", 2)
+	var search_col := VBoxContainer.new()
+	search_col.add_theme_constant_override("separation", 3)
+	search_pad.add_child(search_col)
+	outer.add_child(search_pad)
+
+	_field = LineEdit.new()
+	_field.placeholder_text = "Filter layers…"
+	_field.tooltip_text = SEARCH_HINT
+	## The same two calls `DccShell._ensure_desktop_search_dialog()` makes for
+	## the Find-on-map field: `well()` for the sunken field surface, and the
+	## hint on the tooltip rather than in a second line of prose under it.
+	DccWidgets.well(_field)
+	## **The touch floor, on the tablet branch, and it was measured missing.**
+	## A phone gets this free -- `phone_fit()` floors every `LineEdit` and this
+	## popover is walked by it (`_phone_fit()`). A tablet does not: `_row()`
+	## below floors its own rows with `role_px("row_min_h")` for exactly this
+	## reason, and a field built with neither measured **22.0 px against the
+	## 44 px touch floor** at `--resolution 1080x2400 -- --force-touch`
+	## (`_layersearch_probe.gd` §7, which asserts it now). `btn_min_h`, not
+	## `row_min_h`: a field is a discrete target you aim at, the tier
+	## `DccWidgets.toggle()`/`action()` use, not a list row.
+	if DccTheme.is_tablet():
+		_field.custom_minimum_size.y = DccTheme.role_px("btn_min_h")
+		_field.add_theme_font_size_override("font_size",
+			DccTheme.role_px("fs_prose"))
+	_field.text_changed.connect(func(q: String):
+		_query = q
+		rebuild())
+	search_col.add_child(_field)
+
+	## `mono_label(..., "text_faint", FS_MICRO, 0)`, right-aligned -- byte for
+	## byte the count `_ensure_desktop_search_dialog()` builds.
+	_count = DccTheme.mono_label("", "text_faint", DccTheme.FS_MICRO, 0)
+	_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	search_col.add_child(_count)
 
 	var scroll := ScrollContainer.new()
 	## PH-12: `--popW` x 420 is a popover's authored size. As a full-screen sheet
@@ -274,13 +405,20 @@ func setup(b: EngineBridge, h: ViewportHost) -> void:
 		foot.add_child(close)
 		_close_row = close
 
+	## **Rewritten by CA-09.** This used to say those layers "live in Cartography
+	## ▸ Layers on the rail" -- true when the popover held only field rasters,
+	## and false the moment the VISIBLE LAYERS band landed above. What is still
+	## only on the rail is the *sub*-filtering: which settlement classes and
+	## which way types draw, which are per-row lists this popover has no band
+	## for.
 	DccWidgets.note(foot,
-		"Settlement, road, sea-route and town-layout visibility live in " +
-		"Cartography ▸ Layers on the rail; way types are Cartography ▸ Roads & " +
-		"routes and the two political layers are Cartography ▸ Political " +
-		"display. All of those are vector overlays drawn from world data, not " +
-		"field rasters, and they toggle rather than replace one another. Town " +
-		"layouts draw themselves once the map spans under 24 km.")
+		"The Visible layers band above is the same switch as Cartography ▸ " +
+		"Layers on the rail (the two political rows are Cartography ▸ " +
+		"Political display). Filtering those by settlement class or by way " +
+		"type is on the rail only. All of them are vector overlays drawn from " +
+		"world data, not field rasters, and they toggle rather than replace " +
+		"one another. Town layouts draw themselves once the map spans under " +
+		"24 km.")
 
 	bridge.generation_finished.connect(func(_ok: bool): if visible: rebuild())
 	bridge.world_loaded.connect(func(): if visible: rebuild())
@@ -318,6 +456,20 @@ func _attach_flow_fx() -> void:
 ## Anchored under the viewport's own layers button rather than at a guessed
 ## corner offset -- the button moves with `set_safe_insets()` on phone.
 func open() -> void:
+	## CA-09: the filter is cleared on every open, the same reset
+	## `DccShell._open_desktop_find_on_map()` does to its own field. A filter
+	## left over from last time is a short list with no visible cause, and this
+	## popover is opened to *pick* a layer far more often than to search for
+	## one.
+	##
+	## **The field is deliberately not focused.** Find-on-map grabs focus on
+	## open because typing is the only thing that dialog does; here the eight
+	## digit hotkeys are the headline affordance, and `_input()` hands every
+	## keystroke to a focused field -- so an auto-focus would open this popover
+	## with 1-8 dead.
+	if _field != null:
+		_field.text = ""
+	_query = ""
 	rebuild()
 	## PH-12. `phone_present()` takes any `Window`, not only an `AcceptDialog`,
 	## so a `PopupPanel` gets the identical fill and content scale every other
@@ -340,6 +492,40 @@ func _phone_fit() -> void:
 	if shell != null and shell.has_method("phone_fit"):
 		shell.phone_fit(self, 1.0)
 
+## One band header. Mono caps, tracked, `text_faint`, in a margin -- the shape
+## `DccShell._search_band_header()` ships and `DccWidgets.section()` uses, with
+## the `§` sigil suppressed so a band cannot be mistaken for one of the engine's
+## own group headings under it. A `rule()` above every band but the first.
+func _band(title: String, first: bool) -> void:
+	if not first:
+		var gap := Control.new()
+		gap.custom_minimum_size = Vector2(0, 8)
+		_list.add_child(gap)
+		_list.add_child(DccTheme.rule())
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 14)
+	pad.add_theme_constant_override("margin_top", 9)
+	pad.add_theme_constant_override("margin_bottom", 3)
+	pad.add_child(DccTheme.header(title, ""))
+	_list.add_child(pad)
+
+## One VISIBLE LAYERS row: a `DccWidgets.toggle()`, the same factory CARTO's own
+## rail dock builds these eight with. Seeded from `host.layer_visible()` and
+## writing through `host.set_layer_visible()`, so the switch state lives in
+## `ViewportHost` and neither surface holds a copy that could drift -- and the
+## `layer_visibility_changed` that call emits is what
+## `cartography_workspace.gd::_sync_layers()` already listens to, so flipping a
+## row here moves the dock's checkbox in the same frame.
+func _live_row(parent: Control, layer: Dictionary) -> CheckBox:
+	var id := String(layer["id"])
+	var home := "Cartography ▸ Political display" if _POLITICAL.has(id) \
+		else "Cartography ▸ Layers"
+	return DccWidgets.toggle(parent, String(layer["label"]),
+		host.layer_visible(id),
+		func(on: bool): host.set_layer_visible(id, on),
+		"A vector overlay drawn from world data: this shows and hides it, it "
+		+ "does not replace the field view below. Same switch as %s." % home)
+
 func rebuild() -> void:
 	for child in _list.get_children():
 		_list.remove_child(child)
@@ -347,21 +533,43 @@ func rebuild() -> void:
 	_rows.clear()
 	_hotkey_ids.clear()
 
+	var needle := _query.strip_edges().to_lower()
 	var groups := bridge.debug_layers()
-	if groups.is_empty():
-		DccWidgets.note(_list,
-			"No field views: this build's engine has no debug_layers() binding.")
-		_refresh_legend([])
-		return
 
+	## The count's denominator, measured off the two lists themselves rather
+	## than written down: `LIVE_LAYERS` plus every `debug_layers()` item,
+	## available or not (a disabled row is still a row you can find).
+	var total: int = _LIVE.size()
+	for g in groups:
+		total += ((g as Dictionary)["items"] as Array).size()
+
+	## -- Band 1: VISIBLE LAYERS ----------------------------------------------
+	var live_hits: Array = []
+	for l in _LIVE:
+		var layer: Dictionary = l
+		if _matches(needle, String(layer["label"]), String(layer["id"])):
+			live_hits.append(layer)
+
+	## -- Band 2: DATA OVERLAYS -----------------------------------------------
+	##
+	## **The digits are assigned over the UNFILTERED order, before anything is
+	## dropped.** `HOTKEY_ACTIONS`' doc comment above is a promise that `4`
+	## reaches the fourth *available* view; if a query re-counted "first eight"
+	## over what survived the filter, typing three characters would silently
+	## rebind all eight keys. So `row_i` walks every item and only the drawing
+	## is filtered -- a badge visible after a filter still carries the digit it
+	## carried before, and a digit whose row was filtered out still works,
+	## because `_input()` dispatches from `_hotkey_ids` and not from a drawn row.
 	var current := host.debug_view()
 	var row_i := 0   ## Running count of *available* rows across every group --
 		## `HOTKEY_ACTIONS`' own doc comment on why this badges the first 8 in
 		## build order rather than the spec's own SURFACE/TERRAIN FIELDS/
 		## CLIMATE grouping, and why a disabled row never consumes a digit.
+	var kept_groups: Array = []
+	var overlay_hits := 0
 	for g in groups:
 		var group: Dictionary = g
-		var body := DccWidgets.section(_list, String(group["group"]))
+		var kept: Array = []
 		for it in group["items"]:
 			var item: Dictionary = it
 			var hotkey := -1
@@ -369,7 +577,56 @@ func rebuild() -> void:
 				hotkey = row_i
 				_hotkey_ids.append(String(item["id"]))
 				row_i += 1
-			_rows[String(item["id"])] = _row(body, item, current, hotkey)
+			if _matches(needle, String(item["label"]), String(item["id"])):
+				kept.append({"item": item, "hotkey": hotkey})
+		if not kept.is_empty():
+			kept_groups.append({"group": String(group["group"]), "rows": kept})
+			overlay_hits += kept.size()
+
+	## -- Draw ----------------------------------------------------------------
+	var first := true
+	if not live_hits.is_empty():
+		_band("Visible layers", first)
+		first = false
+		var live_body := VBoxContainer.new()
+		live_body.add_theme_constant_override("separation", 2)
+		live_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var live_pad := MarginContainer.new()
+		live_pad.add_theme_constant_override("margin_left", 14)
+		live_pad.add_theme_constant_override("margin_right", 12)
+		live_pad.add_theme_constant_override("margin_bottom", 6)
+		live_pad.add_child(live_body)
+		_list.add_child(live_pad)
+		for layer in live_hits:
+			_live_row(live_body, layer)
+
+	if groups.is_empty():
+		## Unchanged: no binding is not the same as no match, and it is said in
+		## the same words it was said in before the field existed.
+		DccWidgets.note(_list,
+			"No field views: this build's engine has no debug_layers() binding.")
+	elif not kept_groups.is_empty():
+		_band("Data overlays", first)
+		first = false
+		for kg in kept_groups:
+			var kept_group: Dictionary = kg
+			var body := DccWidgets.section(_list, String(kept_group["group"]))
+			for r in kept_group["rows"]:
+				var row: Dictionary = r
+				var item: Dictionary = row["item"]
+				_rows[String(item["id"])] = _row(
+					body, item, current, int(row["hotkey"]))
+
+	## **One sentence, not an empty band pair.** Both bands empty is the only
+	## state that draws this, and it can only happen with a query typed -- an
+	## empty needle matches everything in `_matches()`.
+	if live_hits.is_empty() and kept_groups.is_empty() and not groups.is_empty():
+		DccWidgets.note(_list,
+			"No layer matches \"%s\". Names and engine ids are both searched."
+			% _query.strip_edges())
+
+	if _count != null:
+		_count.text = "%d of %d layers" % [live_hits.size() + overlay_hits, total]
 	_refresh_legend(_legend_for(current, groups))
 	_phone_fit()   ## PH-12 -- every row above is a fresh node.
 
@@ -535,15 +792,29 @@ func _register_hotkeys() -> void:
 ## stays in the scene tree while hidden (this node is never freed), so
 ## without that check the digit keys would fire from anywhere in the shell,
 ## which is not what a popover-local hotkey means.
+## **Two changes CA-09's field forced, and both are about a digit.**
+##
+## 1. **The field gets its digits back.** `Node._input()` runs *ahead* of GUI
+##    input, so without the focus check below, typing `1` into the filter would
+##    swap the layer and never reach the `LineEdit` -- `set_input_as_handled()`
+##    consumes it. A focused field owns every keystroke; the hotkeys resume the
+##    moment focus leaves it.
+## 2. **Dispatch is by id, not by drawn row.** This used to look the row up in
+##    `_rows` and refuse if it was missing or disabled. `_rows` now holds only
+##    the rows that survived the filter, so that lookup would have made every
+##    filtered-out digit a silent no-op -- eight keys quietly rebound by three
+##    characters of typing. `_hotkey_ids` is built over the unfiltered list in
+##    `rebuild()` and only ever holds `available` ids, so the id alone is the
+##    whole answer; `_on_pick()` reads `debug_view()` back afterwards, which is
+##    what catches an engine refusal.
 func _input(event: InputEvent) -> void:
 	if not visible:
 		return
+	if _field != null and _field.has_focus():
+		return
 	for i in range(_hotkey_ids.size()):
 		if event.is_action_pressed(HOTKEY_ACTIONS[i]):
-			var id: String = _hotkey_ids[i]
-			var row: Button = _rows.get(id)
-			if row != null and not row.disabled:
-				_on_pick(id)
+			_on_pick(String(_hotkey_ids[i]))
 			get_viewport().set_input_as_handled()
 			return
 
