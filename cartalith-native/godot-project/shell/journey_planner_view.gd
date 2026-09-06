@@ -528,7 +528,7 @@ func _refresh_route_choice() -> void:
 		var km := float(r.get("km", 0.0))
 		var mode := String(r.get("mode", "?"))
 		var unreach := int(r.get("unreachable_legs", 0))
-		var label_text := "Route #%d — %s km (%s)" % [i, _fmt_thousands(km, 0), mode]
+		var label_text := "Route #%d — %s (%s)" % [i, DccUnits.format_thousands(km), mode]
 		if unreach > 0:
 			label_text += "  [%d unreachable]" % unreach
 		labels.append(label_text)
@@ -817,10 +817,13 @@ func _stage_picks_note() -> String:
 			changed.append(String(d["transport"]))
 		var head := "Stage %d (%s): %s" % [int(d.get("stage", 0)) + 1, d.get("terrain", "?"), " + ".join(changed)]
 		if bool(d.get("unblocks", false)):
-			lines.append("%s -- was impassable, now %.0f km/day. %s" % [head, float(d.get("daily_km_after", 0.0)), d.get("reason", "")])
+			lines.append("%s -- was impassable, now %.0f %s/day. %s" % [
+				head, DccUnits.to_unit(float(d.get("daily_km_after", 0.0))), DccUnits.suffix(),
+				d.get("reason", "")])
 		else:
-			lines.append("%s -- %.0f -> %.0f km/day (+%.0f%%). %s" % [
-				head, float(d.get("daily_km_before", 0.0)), float(d.get("daily_km_after", 0.0)),
+			lines.append("%s -- %.0f -> %.0f %s/day (+%.0f%%). %s" % [
+				head, DccUnits.to_unit(float(d.get("daily_km_before", 0.0))),
+				DccUnits.to_unit(float(d.get("daily_km_after", 0.0))), DccUnits.suffix(),
 				float(d.get("gain_pct", 0.0)), d.get("reason", "")])
 	return "\n".join(lines)
 
@@ -1232,6 +1235,36 @@ func _apply_result() -> void:
 	_phone_refit()   ## PH-12: five of those six rebuilt from fresh nodes.
 	if app != null and app.right_dock_ctrl != null:
 		app.right_dock_ctrl.refresh_journey()
+
+## Redraw every readout after `Preferences ▸ Units` changed, without asking the
+## engine for anything.
+##
+## `menus.gd::_on_units_choice()`'s own comment states the shell's rule --
+## *"every readout picks it up through `DccUnits` on its own next read"* -- and
+## names `viewport_host.gd`'s scale bar as the one exception, because it has no
+## event of its own to ride a unit change in on and so is called directly.
+## **This view is a second such surface and this is its entry point.** While
+## JOURNEY is armed the left panel, centre panel, stage matrix, inspector and
+## right-dock section are all standing text that nothing repaints until the
+## next `_compute()`; a user who switches units with the planner open would
+## otherwise watch a converted scale bar sit beside an unconverted journey.
+##
+## **Not yet called from anywhere.** The one-line call belongs in
+## `menus.gd::_on_units_choice()` beside the `refresh_scale_bar()` it already
+## makes, and `menus.gd` is not this change's file to edit -- reported rather
+## than reached into. Measured in the same edit, from the project root:
+## `grep -rn "\.refresh_units()" --include=*.gd .` returns **four hits, all four
+## in `_jpunits_probe.gd`** -- nothing in the shell calls it yet. A plain
+## `grep -rn refresh_units` looks busier than that and is misleading: four of
+## its hits are `menus.gd`'s `_refresh_units_menu`, a **different, pre-existing
+## symbol** that ticks the Units popup's own radio checkmarks and touches no
+## readout. Do not read those four as the wiring.
+##
+## Costs one full rebuild and no `jp_compute` -- `_apply_result()` re-reads the
+## cached `_last_result`, so this is a repaint, not a recomputation.
+func refresh_units() -> void:
+	_refresh_route_choice()
+	_apply_result()
 
 ## Stage bands as fractions of total route km (real: `stages[i].km`, cumulative)
 ## and the elevation sparkline as `plan.profile`'s own 0-1 normalised samples
@@ -2008,8 +2041,15 @@ func _rebuild_route_map(plan: Dictionary) -> void:
 		if bool(r.get("blocked", false)):
 			blocked_count += 1
 
-	_totals_row(_totals_body, "distance", "%s km" % _fmt_thousands(total_km, 0))
-	_totals_row(_totals_body, "land · water", "%s · %s" % [_fmt_thousands(land_km, 0), _fmt_thousands(water_km, 0)])
+	_totals_row(_totals_body, "distance", DccUnits.format_thousands(total_km))
+	## The two halves carry no suffix of their own -- the `distance` row above
+	## is the legend for both, which is why they convert with it rather than
+	## staying km beside a converted total.
+	_totals_row(_totals_body, "land · water", "%s · %s" % [
+		_fmt_thousands(DccUnits.to_unit(land_km), 0), _fmt_thousands(DccUnits.to_unit(water_km), 0)])
+	## Metres in every unit mode, deliberately -- `right_dock.gd`'s own Δ
+	## vertical readout draws the same line for the same reason: `DccUnits`
+	## converts a *linear map distance*, and an ascent is not one.
 	_totals_row(_totals_body, "ascent", "%s m" % _fmt_thousands(float(plan.get("ascent", 0.0)), 0))
 	_totals_row(_totals_body, "high point", "%s m" % _fmt_thousands(float(plan.get("hi_m", 0.0)), 0))
 	var stage_text := "%d" % stages.size()
@@ -2018,7 +2058,10 @@ func _rebuild_route_map(plan: Dictionary) -> void:
 	_totals_row(_totals_body, "stages", stage_text)
 	_totals_row(_totals_body, "settlements", "%d on path" % stops.size())
 	_totals_body.add_child(DccTheme.rule())
-	_totals_row(_totals_body, "mean speed", "%.1f km/d" % float(plan.get("avg_km_day", 0.0)), "accent")
+	## A rate, not a length: only the numerator is a distance, so the linear
+	## factor applies once and the `/d` is untouched. `DccUnits` has no rate
+	## formatter to call for this (see `_rate_text()`).
+	_totals_row(_totals_body, "mean speed", _rate_text(float(plan.get("avg_km_day", 0.0)), 1), "accent")
 
 func _totals_row(parent: Control, label_text: String, value_text: String, token: String = "text") -> void:
 	var row := HBoxContainer.new()
@@ -2155,6 +2198,55 @@ func _set_stage_override(idx: int, field: String, value) -> void:
 	else:
 		_stage_overrides[idx] = entry
 	_compute()
+
+# ============================================ Units at the formatting sites ====
+#
+# **Every distance and rate this view prints goes through `DccUnits`**
+# (`Preferences ▸ Units`, km / mi / nmi, persisted by
+# `DccSettings.units_mode()`), the same way `viewport_host.gd`'s scale bar and
+# `right_dock.gd`'s ~25 readouts already do. Nothing below the formatting layer
+# moved: `jp_compute`'s plan, `route_get()`, `journeys_document()` and every
+# intermediate arithmetic (`km / daily_km` -> days, `seg_frac * total_km`,
+# `water_km / days`) stay canonical kilometres, which is `DccUnits`' own stated
+# rule and the reference's ("units: display-only. Canonical storage stays km").
+#
+# **Four sites deliberately do NOT convert, and each has its reason in place:**
+# the clipboard CSV (`_export_stage_table`, a machine-readable export whose
+# header names its own units), `per tonne-km` (`_build_cost_group`, a
+# *reciprocal* length that `to_unit()`'s division cannot express), every
+# elevation in metres, and every `kg`/`t`/`d`/`%` figure, none of which is a
+# linear map distance.
+
+## A distance-per-day rate in the current unit -- `"31.2 mi/d"`.
+##
+## **`DccUnits` offers no rate formatter, and this does not invent a second
+## conversion factor to fill the gap.** Everything it exposes formats a
+## *length* (`format`, `format_adaptive`, `format_thousands`) or an *area*
+## (`format_area`, the linear factor squared); a speed is neither, so the only
+## piece of it that fits is `to_unit()` -- the one division its own header
+## calls "the one division every formatter below builds on" -- with `suffix()`
+## supplying the word. No factor and no `match` on the mode is restated here.
+##
+## The denominator is left alone on purpose: converting a rate converts its
+## numerator only, and this shell has no time-unit preference for `/d` to
+## follow.
+##
+## Reported rather than fixed in place: the natural home is a
+## `DccUnits.format_rate()` beside `format_area()`, and `dcc_units.gd` is not
+## this change's file to edit.
+func _rate_text(km_per_day: float, decimals: int) -> String:
+	return "%.*f %s" % [decimals, DccUnits.to_unit(km_per_day), _rate_suffix()]
+
+## `"km/d"` / `"mi/d"` / `"nm/d"` -- the unit word a rate **column header**,
+## legend or stat label carries. A header names the unit for every number
+## beneath it, so it follows the preference exactly as its cells do; a header
+## left at `km/d` over converted cells is the disagreement this pass exists to
+## remove, not a cosmetic one.
+##
+## All three suffixes are two characters (`DccUnits._SUFFIX`), so no header
+## built from this changes width between modes.
+func _rate_suffix(per: String = "d") -> String:
+	return "%s/%s" % [DccUnits.suffix(), per]
 
 func _fmt_thousands(v: float, decimals: int) -> String:
 	var s := ("%.*f" % [decimals, v])
@@ -2312,8 +2404,10 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 	_inspector_body.add_child(DccTheme.rule())
 	head.add_child(DccTheme.mono_label("STAGE %02d" % (idx + 1), "block" if bool(r.get("blocked", false)) else "accent",
 		DccTheme.FS_HEADER, 2, true))
-	head.add_child(DccTheme.label("%s · %s km · %.0f m · %s" % [
-		String(s.get("terrain", "?")), _fmt_thousands(float(s.get("km", 0.0)), 0),
+	## The `%.0f m` is the stage's own ascent and stays metres in every mode --
+	## the same line `right_dock.gd`'s Δ vertical readout draws.
+	head.add_child(DccTheme.label("%s · %s · %.0f m · %s" % [
+		String(s.get("terrain", "?")), DccUnits.format_thousands(float(s.get("km", 0.0))),
 		float(s.get("gain", 0.0)), String(s.get("biome", "?"))], "text_faint", DccTheme.FS_MICRO))
 	head.add_child(DccTheme.spacer())
 	head.add_child(DccTheme.label("overrides: %d" % ov.size(), "text_ghost", DccTheme.FS_MICRO))
@@ -2428,7 +2522,12 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 	## and the same three seeds: five stat pairs at 265 + 178 + 126 + 160 + 456
 	## with four 20 px gaps = **1 265** at 412 dp on seed 483920 (1 248 and
 	## 1 265 on the other two -- only the `km/day` and `load` pairs move with
-	## the world), the widest being the fifth pair, `arrive` /
+	## the world). **Those figures still hold under Preferences ▸ Units:** the
+	## rate pair's label is `_rate_suffix("day")`, whose three values are all
+	## two characters wide, and mi/nmi are larger units, so a converted value
+	## carries fewer digits, never more -- the km measurement above is the
+	## widest of the three modes, not one of three. The widest is the fifth
+	## pair, `arrive` /
 	## `~day N (travel only)`, at 456 on its own. Wrapping that last pair onto
 	## a second line is what a stat strip does on a handset; the pairs stay
 	## atomic, so nothing is split across lines and no value leaves its label.
@@ -2459,7 +2558,7 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 			if i < results.size():
 				travel_days_so_far += float((results[i] as Dictionary).get("days", 0.0))
 		_footer_stat(footer, "this stage", "%.1f d" % float(r.get("days", 0.0)))
-		_footer_stat(footer, "km/day", "%.1f" % float(r.get("daily_km", 0.0)))
+		_footer_stat(footer, _rate_suffix("day"), "%.1f" % DccUnits.to_unit(float(r.get("daily_km", 0.0))))
 		_footer_stat(footer, "load", "%.0f%%" % (load_ratio * 100.0), "warn" if load_ratio > 0.9 else "text_bright")
 		_footer_stat(footer, "ascent", "%s m" % _fmt_thousands(float(s.get("gain", 0.0)), 0))
 		_footer_stat(footer, "arrive", "~day %.0f (travel only)" % travel_days_so_far)
@@ -2531,7 +2630,11 @@ func _rebuild_matrix(plan: Dictionary) -> void:
 		head.add_child(DccTheme.mono_label("%s %d" % [DccIcons.SYMBOLS["blocked"], blocked_total], "block", DccTheme.FS_MICRO))
 	_matrix_body.add_child(DccTheme.rule())
 
-	_matrix_header(["stage", "mode", "pace", "hrs", "terrain · biome", "weather", "cargo kg", "supply d", "km/d", "days"])
+	## The rate column's heading is built, not written: it names the unit for
+	## every cell beneath it, so a fixed `km/d` over converted cells would make
+	## the header and its own numbers disagree. `cargo kg` / `supply d` / `hrs`
+	## are not linear map distances and stay put.
+	_matrix_header(["stage", "mode", "pace", "hrs", "terrain · biome", "weather", "cargo kg", "supply d", _rate_suffix(), "days"])
 
 	# -- Problem stages first (blocked, then warned), then route order. --
 	var order: Array = range(stages.size())
@@ -2650,7 +2753,7 @@ func _rebuild_matrix(plan: Dictionary) -> void:
 		var supply_l := DccTheme.mono_label("—" if blocked else "%.1f" % float(eff.get("supply_days", 0.0)), "text_dim", DccTheme.FS_TINY)
 		supply_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		grid.add_child(supply_l)
-		var kmd_l := DccTheme.mono_label("—" if blocked else "%.1f" % float(r.get("daily_km", 0.0)), "text_dim", DccTheme.FS_TINY)
+		var kmd_l := DccTheme.mono_label("—" if blocked else "%.1f" % DccUnits.to_unit(float(r.get("daily_km", 0.0))), "text_dim", DccTheme.FS_TINY)
 		kmd_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		grid.add_child(kmd_l)
 		var days_l := DccTheme.mono_label("—" if blocked else "%.1f" % float(r.get("days", 0.0)), token if blocked else "text", DccTheme.FS_TINY)
@@ -2752,7 +2855,12 @@ func _save_journey() -> void:
 	var km := 0.0
 	if bool(_last_result.get("ok", false)):
 		km = float((_last_result.get("plan", {}) as Dictionary).get("km", 0.0))
-	le.text = "Journey %d — %s km" % [_journeys.size() + 1, _fmt_thousands(km, 0)]
+	## The suggestion follows Preferences ▸ Units like every other readout, and
+	## carries its unit word into the string -- so the name still says what it
+	## means after it is saved, when it is frozen user text that no later unit
+	## change re-converts (`journeys_document()` stores the typed name, not a
+	## distance).
+	le.text = "Journey %d — %s" % [_journeys.size() + 1, DccUnits.format_thousands(km)]
 	le.select_all_on_focus = true
 	body.add_child(le)
 	body.add_child(DccTheme.label(
@@ -2833,7 +2941,7 @@ func _reroute_journey() -> void:
 	_refresh_route_choice()
 	_tool_options_journey()
 	_compute()
-	app.set_status("hint", "Re-routed for %s — %s km." % [transport, _fmt_thousands(float(r.get("km", 0.0)), 0)], "accent")
+	app.set_status("hint", "Re-routed for %s — %s." % [transport, DccUnits.format_thousands(float(r.get("km", 0.0)))], "accent")
 
 # ================================================ Party set-ups (JP-02) ====
 #
@@ -2921,6 +3029,12 @@ func _export_stage_table() -> void:
 	var plan: Dictionary = _last_result.get("plan", {})
 	var stages: Array = plan.get("stages", [])
 	var results: Array = plan.get("results", [])
+	## **Canonical kilometres, whatever Preferences ▸ Units says**, and the
+	## header names them so the file says which. `right_dock.gd` draws the same
+	## line for its own measurements CSV, for the same reason: this is an
+	## export, not a screenshot of whatever the unit toggle happened to be set
+	## to, and a column called `km` that sometimes holds miles is worse than
+	## one that never converts.
 	var lines: Array[String] = ["stage,cat,terrain,biome,km,days,km_per_day,blocked"]
 	for i in stages.size():
 		var s: Dictionary = stages[i]
@@ -3010,7 +3124,8 @@ func readout_text() -> String:
 	var plan: Dictionary = _last_result.get("plan", {})
 	var days := float(plan.get("total_days", -1.0))
 	var km := float(plan.get("km", 0.0))
-	return ("%.0f d · %.0f km" % [days, km]) if days >= 0.0 else "%.0f km" % km
+	var dist := DccUnits.format(km)
+	return ("%.0f d · %s" % [days, dist]) if days >= 0.0 else dist
 
 func _build_verdict_card(body: Control, plan: Dictionary, verdict: Dictionary, confidence: Dictionary) -> void:
 	var level := String(verdict.get("level", ""))
@@ -3259,7 +3374,11 @@ func _build_load_group(body: Control, plan: Dictionary) -> void:
 				carriers.append("%d %s" % [n, pair[1]])
 		_kv_row(g, "carriers", " · ".join(carriers) if not carriers.is_empty() else "none carried")
 		_kv_row(g, "load", "%.0f%% of capacity" % (worst_ratio * 100.0), "block" if worst_ratio >= 1.0 else ("warn" if worst_ratio >= 0.7 else "text"))
-	DccWidgets.note(g, "Speed penalty is folded into each leg's own km/day rather than reported as a separate percentage -- jp_plan does not return one.")
+	## `_rate_suffix()` rather than a written `km/day`: the note points at the
+	## stage matrix's rate column, and a note naming a column heading that no
+	## longer reads that way sends the reader looking for a column that is not
+	## there.
+	DccWidgets.note(g, "Speed penalty is folded into each leg's own %s rather than reported as a separate percentage -- jp_plan does not return one." % _rate_suffix("day"))
 
 func _build_supply_group(body: Control, plan: Dictionary) -> void:
 	var g := DccWidgets.section(body, "Supply reach")
@@ -3267,12 +3386,17 @@ func _build_supply_group(body: Control, plan: Dictionary) -> void:
 	if reach.is_empty():
 		DccWidgets.note(g, "No resupply-reach figure for this journey.")
 		return
-	_kv_row(g, "carried", "%.0f d · %s km" % [float(_plan_values.get("supply_days", 0.0)), _fmt_thousands(float(reach.get("required_km", 0.0)), 0)])
+	_kv_row(g, "carried", "%.0f d · %s" % [float(_plan_values.get("supply_days", 0.0)), DccUnits.format_thousands(float(reach.get("required_km", 0.0)))])
 	var gap := float(reach.get("max_gap_km", 0.0))
+	## Both terms canonical km, so the division is a length over a rate and
+	## gives days -- converting either here would leave the ratio unchanged and
+	## the arithmetic harder to read. The DISPLAY of `gap` converts below.
 	var gap_km_per_day := float(plan.get("avg_km_day", 1.0))
 	var gap_days := gap / maxf(1.0, gap_km_per_day)
-	_kv_row(g, "longest gap", "%.1f d · %s km" % [gap_days, _fmt_thousands(gap, 0)], "warn" if bool(reach.get("unmet", false)) else "text")
-	_kv_row(g, "desert km", "%s km" % _fmt_thousands(float(plan.get("desert_km", 0.0)), 0))
+	_kv_row(g, "longest gap", "%.1f d · %s" % [gap_days, DccUnits.format_thousands(gap)], "warn" if bool(reach.get("unmet", false)) else "text")
+	## The LABEL carried the unit here -- `desert km` names what its value is
+	## measured in, so it follows the preference with the number.
+	_kv_row(g, "desert %s" % DccUnits.suffix(), DccUnits.format_thousands(float(plan.get("desert_km", 0.0))))
 	_kv_row(g, "stops needed", str(int(reach.get("stops", 0))), "block" if bool(reach.get("unmet", false)) else "text")
 	_build_reach_bar(g, plan, reach)
 	DccWidgets.note(g, "Foraging offset is not broken out as a separate figure by jp_plan -- it is already folded into the food/water totals above.")
@@ -3311,7 +3435,7 @@ func _build_reach_bar(parent: Control, plan: Dictionary, reach: Dictionary) -> v
 			seg.color = DccTheme.c("block") if (required_km > 0.0 and seg_km > required_km) else DccTheme.c("accent")
 			seg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			seg.size_flags_stretch_ratio = maxf(0.001, seg_frac)
-			seg.tooltip_text = "%s km leg" % _fmt_thousands(seg_km, 0)
+			seg.tooltip_text = "%s leg" % DccUnits.format_thousands(seg_km)
 			track.add_child(seg)
 		if i < bounds.size() - 2:   ## a tick at every interior boundary -- a real stop, not a route end
 			var tick := ColorRect.new()
@@ -3340,8 +3464,10 @@ func _build_cost_group(body: Control) -> void:
 	var plan: Dictionary = _last_result.get("plan", {})
 	var total := float(cost.get("total", 0.0))
 	var cargo_t := float(cost.get("cargo_t", 0.0))
-	_kv_row(g, "carriage", "%s  (%.2f t over %s km)" % [
-		_fmt_wages(float(cost.get("carriage", 0.0))), cargo_t, _fmt_thousands(float(plan.get("km", 0.0)), 0)])
+	## Tonnes stay tonnes -- a mass is not a linear map distance; the route
+	## length beside it converts.
+	_kv_row(g, "carriage", "%s  (%.2f t over %s)" % [
+		_fmt_wages(float(cost.get("carriage", 0.0))), cargo_t, DccUnits.format_thousands(float(plan.get("km", 0.0)))])
 	_kv_row(g, "wages", "%s  (%d × %.0f d)" % [
 		_fmt_wages(float(cost.get("wages", 0.0))), int(_plan_values.get("group_size", 1)), float(cost.get("days", 0.0))])
 	if float(cost.get("crew", 0.0)) > 0.0:
@@ -3354,6 +3480,16 @@ func _build_cost_group(body: Control) -> void:
 	if float(cost.get("transship", 0.0)) > 0.0:
 		_kv_row(g, "transshipment", "%s  (%d)" % [_fmt_wages(float(cost.get("transship", 0.0))), int(plan.get("transshipments", 0))])
 	_kv_row(g, "total", "%s day-wages" % _fmt_wages(total), "text_bright")
+	## **The one distance-bearing figure in this view that stays canonical, and
+	## it is a deliberate refusal rather than a miss.** Every other readout here
+	## is a length or a length-per-day, which `DccUnits.to_unit()` converts by
+	## dividing; this is day-wages per tonne-**kilometre**, an INVERSE length,
+	## which needs the same factor MULTIPLIED in. `DccUnits` exposes no helper
+	## for that -- `format`, `format_adaptive` and `format_thousands` all divide
+	## once, `format_area` squares -- and hand-rolling `ptk * KM_PER_MI` here
+	## would put a second copy of the conversion table in a file that is not
+	## the one that owns it. Reported upward instead; the label names its own
+	## unit meanwhile, so the number is readable rather than ambiguous.
 	var ptk := float(cost.get("per_tonne_km", -1.0))
 	if ptk >= 0.0:
 		_kv_row(g, "per tonne-km", "%.3f" % ptk, "text_dim")
@@ -3400,9 +3536,11 @@ func _build_vessels_group(body: Control, plan: Dictionary) -> void:
 ## cannot make it say why; with no water stages it falls back to the general
 ## reference, so the information is reachable from any route."*
 ##
-## - **On this route** — every hull's km/day and days over *these* legs,
-##   ranked, with the ones that cannot make it named and dimmed. Only when
-##   the route has water legs.
+## - **On this route** — every hull's speed and days over *these* legs, ranked,
+##   with the ones that cannot make it named and dimmed. Only when the route
+##   has water legs. The speed is drawn in whatever `Preferences ▸ Units`
+##   holds (`_rate_text()`); the engine figure behind it is km/day, as
+##   everywhere else here.
 ## - **By water type** — the full hull x water grid, collapsed by default.
 ##   The fastest hull per column is lit in accent, which is the whole point:
 ##   an open-sea passage sails through the night (22 h) while a sheltered bay
@@ -3425,7 +3563,10 @@ func _build_vessel_matrix_groups(body: Control, plan: Dictionary, has_water: boo
 		_build_vessels_on_route(body, plan, waters, vessels, current)
 
 	var g := DccWidgets.group(body, "vessel reference · speed by water", false)
-	DccWidgets.note(g, "km/day per water type: cruise x that water's sailing window x the fraction of cruise the hull realises. A dash is a hull not rated for that water at all -- a different statement from slow. Lit = fastest hull for that water.")
+	## The grid's cells carry no suffix of their own -- this note is the LEGEND
+	## that names the unit for the whole hull x water table, so it follows the
+	## preference with them.
+	DccWidgets.note(g, "%s per water type: cruise x that water's sailing window x the fraction of cruise the hull realises. A dash is a hull not rated for that water at all -- a different statement from slow. Lit = fastest hull for that water." % _rate_suffix("day"))
 	var grid := GridContainer.new()
 	grid.columns = waters.size() + 1
 	grid.add_theme_constant_override("h_separation", 4)
@@ -3445,7 +3586,7 @@ func _build_vessel_matrix_groups(body: Control, plan: Dictionary, has_water: boo
 				grid.add_child(DccTheme.mono_label("—", "text_ghost", DccTheme.FS_MICRO))
 				continue
 			var best := String((waters[ci] as Dictionary).get("best_vessel", ""))
-			grid.add_child(DccTheme.mono_label("%.0f" % km, "accent" if best == vname else "text_dim", DccTheme.FS_MICRO))
+			grid.add_child(DccTheme.mono_label("%.0f" % DccUnits.to_unit(km), "accent" if best == vname else "text_dim", DccTheme.FS_MICRO))
 	var scroll := ScrollContainer.new()
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.custom_minimum_size.y = grid.get_combined_minimum_size().y
@@ -3505,13 +3646,13 @@ func _build_vessels_on_route(body: Control, plan: Dictionary, waters: Array, ves
 		return float(a["kmday"]) > float(b["kmday"]))
 
 	var g := DccWidgets.group(body, "vessels on this route", false)
-	DccWidgets.note(g, "%s km of water across %d leg(s). Speed is cruise x that water's sailing window x the fraction of cruise it realises -- cargo and weather aside, this is the ranking that matters." % [_fmt_thousands(water_km, 0), legs.size()])
+	DccWidgets.note(g, "%s of water across %d leg(s). Speed is cruise x that water's sailing window x the fraction of cruise it realises -- cargo and weather aside, this is the ranking that matters." % [DccUnits.format_thousands(water_km), legs.size()])
 	for s in scored:
 		var sd: Dictionary = s
 		var vname := String(sd["name"])
 		var mark := "> " if vname == current else ""
 		if bool(sd["ok"]):
-			_kv_row(g, "%s%s" % [mark, vname], "%.0f km/d · %.1f d" % [float(sd["kmday"]), float(sd["days"])],
+			_kv_row(g, "%s%s" % [mark, vname], "%s · %.1f d" % [_rate_text(float(sd["kmday"]), 0), float(sd["days"])],
 				"accent" if vname == current else "text")
 		else:
 			_kv_row(g, "%s%s" % [mark, vname], "%s cannot enter %s" % [DccIcons.SYMBOLS["blocked"], String(sd["why"])], "text_ghost")
@@ -3726,9 +3867,27 @@ func _build_trace_group(body: Control) -> void:
 	## the stage inspector's header prints and the matrix sorts its rows by.
 	## Its `leg` cell is dashed because a distance with no rate against it has
 	## no duration yet; that is the reason, not a missing number.
+	##
+	## **The trace converts, and it still closes.** Exactly one term in the
+	## chain carries a length -- `base` (`cartalith-civ`'s `term("base", ...)`,
+	## `base_speed` on land and `ship.speed_kmh` on water, and its own test
+	## asserts `trace[0].key == "base"`); every other factor is a dimensionless
+	## multiplier. So converting `base`, this length, and the `= <unit>/day`
+	## total by the one linear factor scales both sides of the identity
+	## equally: the displayed terms still multiply to the displayed rate, and
+	## the `leg` column stays untouched because days are a ratio of two lengths
+	## and the factor cancels. `running` is accumulated from RAW factors below
+	## for the same reason -- the arithmetic is canonical, only the printing
+	## moves.
+	##
+	## Leaving this panel in km was the alternative and it is the worse one:
+	## the `read off` column sends the reader to the stage matrix's rate
+	## column, which now reads in their chosen unit, and a trace that prints a
+	## different number for the same leg than the column it points at is the
+	## half-converted state this pass exists to remove.
 	_trace_cell(grid, "stage length", "text_bright")
 	_trace_cell(grid, "Stage %02d · inspector header" % (idx + 1), "text_ghost")
-	_trace_cell(grid, "%s km" % _fmt_thousands(km, 1), "text_bright", true)
+	_trace_cell(grid, "%s %s" % [_fmt_thousands(DccUnits.to_unit(km), 1), DccUnits.suffix()], "text_bright", true)
 	_trace_cell(grid, "— no rate yet", "text_ghost", true)
 
 	var running := 1.0
@@ -3743,17 +3902,23 @@ func _build_trace_group(body: Control) -> void:
 		if detail != "":
 			label_text = "%s · %s" % [label_text, detail]
 		# The first term is the base speed, not a multiplier: printing it as
-		# "×4.0" would read as a factor applied to something.
-		var rhs := ("%.3f" % factor) if key == "base" else "×%.3f" % factor
+		# "×4.0" would read as a factor applied to something. It is also the
+		# only term with a length in it, so it is the only one the unit
+		# preference touches -- see the block above the `stage length` row.
+		var rhs := ("%.3f" % DccUnits.to_unit(factor)) if key == "base" else "×%.3f" % factor
 		var token := "text" if factor >= 0.999 else ("warn" if factor < 0.7 else "text_dim")
 		_trace_cell(grid, label_text, "text_bright" if key == "base" else token)
 		_trace_cell(grid, _trace_source(key, idx, ov), "text_ghost")
 		_trace_cell(grid, rhs, "text_bright" if key == "base" else token, true)
 		_trace_cell(grid, ("%.3f d" % (km / running)) if running > 0.0 else "— zero rate", "text_dim", true)
 
-	_trace_cell(grid, "= km/day", "accent", false, true)
-	_trace_cell(grid, "Stage matrix · km/d", "text_ghost")
-	_trace_cell(grid, "%.3f" % float(calc.get("daily_km", 0.0)), "accent", true, true)
+	_trace_cell(grid, "= %s" % _rate_suffix("day"), "accent", false, true)
+	## A locator quoted verbatim so the reader can find the column by looking
+	## for that exact string (`_TRACE_TERMS`' own rule) -- which is why it is
+	## built from `_rate_suffix()` rather than written, now that the heading it
+	## names is.
+	_trace_cell(grid, "Stage matrix · %s" % _rate_suffix(), "text_ghost")
+	_trace_cell(grid, "%.3f" % DccUnits.to_unit(float(calc.get("daily_km", 0.0))), "accent", true, true)
 	_trace_cell(grid, "%.3f d" % float(r.get("days", 0.0)), "accent", true, true)
 
 	## The reconciliation, drawn as a real row with a real value: the chain's
@@ -3789,7 +3954,7 @@ func _build_trace_group(body: Control) -> void:
 	## build whose engine applies a term it does not put in `trace` would
 	## produce -- which is exactly the state this row exists to catch.
 	if closes:
-		DccWidgets.note(g, "The chain closes: the %d terms above multiply to this leg's km/day exactly, and the length divided by that is the days the stage matrix reports. Nothing in this leg's speed is applied outside the trace." % trace.size())
+		DccWidgets.note(g, "The chain closes: the %d terms above multiply to this leg's %s exactly, and the length divided by that is the days the stage matrix reports. Nothing in this leg's speed is applied outside the trace." % [trace.size(), _rate_suffix("day")])
 	else:
 		var l := DccWidgets.note(g, "The chain does NOT close. %+.6f d of this leg comes from something jp_plan_ex applied and did not put in land.trace/water.trace, so it cannot be named here -- the gap is real and is not guessed at. It is a defect against the %d terms listed above, not a rounding artefact." % [resid, trace.size()])
 		l.add_theme_color_override("font_color", DccTheme.c("block"))

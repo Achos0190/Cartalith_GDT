@@ -334,8 +334,21 @@ func _process(_delta: float) -> void:
 # this file goes through: it answers the same question `world_gen.has_method()`
 # did, and the first time an answer is `false` it says so with
 # `push_warning()`, which reaches the Godot console on desktop and `logcat`
-# on Android (unlike `print()`, which this project has repeatedly found does
-# not survive the Android log path -- `ANDROID_BUILD_SCOPE.md`, 2026-08-24).
+# on Android.
+#
+# **Measured on the device 2026-09-07, and it corrects this comment.** The
+# clause here used to add "unlike `print()`, which this project has
+# repeatedly found does not survive the Android log path". On a release
+# export to a OnePlus 6T (Android 15), `dcc_shell.gd`'s own
+# `print("Cartalith shell build ", build_id())` arrives in the very first
+# boot capture as `I/godot(27101): Cartalith shell build 8fd916035577`, so
+# `print()` DOES survive on this template.
+#
+# `push_warning()` is still the right call here, for a better reason: it
+# arrives at **priority E with an `at: push_warning` frame**, so a grep can
+# tell an engine warning from ordinary output. A marker found in `logcat`
+# without that frame proves nothing -- an unrelated Android subsystem
+# printed the same unique string during the 2026-09-07 control run.
 #
 # **Once per method name, not once per call.** Several of these wrappers are
 # polled from `_process` or from a redraw, and a per-frame warning would bury

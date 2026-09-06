@@ -572,11 +572,29 @@ func _file(p: PopupMenu) -> void:
 	## `padding:2px 14px 8px;font:10px 'IBM Plex Mono';color:#6f7478` with the
 	## path in `#8d9296`: four read-only rows, not a control. Rebuilt on every
 	## popup because Change locations… can move any of them mid-session.
+	##
+	## **`_readout()`, not a bare `add_item` + `set_item_disabled`, since
+	## 2026-09-07.** These are the definition of a readout -- disabled, carrying
+	## a live value as their text, with the un-elided path on the tooltip that
+	## `_tail()`'s own header prescribes -- and they were built without the
+	## marker, so `command_index.gd::_walk_popup` indexed all four as unavailable
+	## *commands* and published a Windows path as the reason a user could not
+	## press them. Measured through the index before the fix: `title=projects
+	## …/Worlds  kind=menu  available=false  why=C:/Users/…/Worlds`, four times.
+	## `_readout()`'s own header states the rule -- *"the marker is the
+	## metadata, not the tooltip"* -- and `dcc_settings.gd`'s comment on
+	## `all_roots()` was already calling these "the File-menu readout rows"
+	## while nothing in the code said so.
 	var root_rows: Array[int] = []
-	for key in DccSettings.ROOT_KEYS:
-		p.add_item("")
-		p.set_item_disabled(p.item_count - 1, true)
-		root_rows.append(p.item_count - 1)
+	for _i in DccSettings.ROOT_KEYS.size():
+		root_rows.append(_readout(p, "", ""))
+	## Filled at build time, not only from `about_to_popup`. `CommandIndex`
+	## reads the BUILT state (its own header says so), and `_walk_popup` skips a
+	## row whose text is blank -- so until the user happened to open File, the
+	## four roots were absent from search altogether rather than merely
+	## mis-typed. The same eager-refresh `_build_lighting_menu()` adopted on
+	## 2026-09-05, for the same reader and the same reason.
+	_refresh_storage_rows(p, root_rows)
 	## One item, one dialog with an inline Browse… per root (`DccApp.
 	## open_storage_locations()`) -- was two items (a read-only list plus a
 	## separate "Change locations…" item) opening two dialogs that showed the
@@ -604,12 +622,7 @@ func _file(p: PopupMenu) -> void:
 
 	p.about_to_popup.connect(func():
 		_refresh_recent_worlds()
-		for ri in root_rows.size():
-			var key := String(DccSettings.ROOT_KEYS[ri])
-			var full := DccSettings.storage_root(key)
-			p.set_item_text(root_rows[ri], "%s   %s" % [
-				String(DccSettings.ROOT_LABELS[key]).to_lower(), _tail(full)])
-			p.set_item_tooltip(root_rows[ri], full)
+		_refresh_storage_rows(p, root_rows)
 		p.set_item_disabled(show_idx, _host.current_project_path == "")
 		var can_write: bool = _bridge.save_api
 		var has_world: bool = _bridge.has_world
@@ -638,6 +651,18 @@ func _file(p: PopupMenu) -> void:
 			"" if _host.current_project_path != "" else "This world has never been saved.")
 		p.set_item_disabled(close_idx, not has_world))
 	p.id_pressed.connect(_on_file)
+
+## The four `STORAGE LOCATIONS` readouts' live text and tooltip: the elided
+## label-plus-tail on the row, the whole path on the tooltip. Called once from
+## `_file()` at build time so a cold `CommandIndex` sees them, and again on
+## every popup because `Change locations…` can move any of them mid-session.
+func _refresh_storage_rows(p: PopupMenu, root_rows: Array[int]) -> void:
+	for ri in root_rows.size():
+		var key := String(DccSettings.ROOT_KEYS[ri])
+		var full := DccSettings.storage_root(key)
+		p.set_item_text(root_rows[ri], "%s   %s" % [
+			String(DccSettings.ROOT_LABELS[key]).to_lower(), _tail(full)])
+		p.set_item_tooltip(root_rows[ri], full)
 
 ## The canvas prints a storage root as `~/Cartalith/Worlds` -- three segments,
 ## because the mockup's roots live under a home directory. This port's real
@@ -2543,7 +2568,22 @@ func _preferences(p: PopupMenu) -> void:
 	## `_signpost`, not `_todo`: this is not an unavailable command, and
 	## `_todo` here would make `command_index.gd` count a shipped feature as
 	## missing -- the exact confusion `_readout`'s own doc records.
-	_signpost(p, "Colour management — Render ▸ Colours ▸ Colour management")
+	##
+	## **The destination reads `CARTO`, corrected 2026-09-07.** It said
+	## *"Render ▸ Colours ▸ Colour management"*, and **there is no RENDER
+	## domain**: `DccShell.DOMAINS` is World / Civilization / Cartography, and
+	## `dcc_shell.gd` records the merge in two doc blocks -- above `DOMAINS`
+	## itself and above the phone tab bar's own list -- both naming it as an
+	## owner decision of 2026-08-20 (`RenderWorkspace` is composed into
+	## `cartography_workspace.gd`, which builds this control's home as
+	## `DccWidgets.category(self, "Colours", categories)` -> `build_colours_into`
+	## -> `_build_color_management`). A signpost that names a rail button the
+	## shell does not draw sends the reader looking for a domain that was
+	## removed -- and the *"The control itself lives in CARTO ▸ COLOURS"*
+	## sentence in this same comment block already said so. `CARTO`
+	## rather than `Cartography` because that is the string the rail draws
+	## (`dcc_shell.gd` renders `String(d.rail).to_upper()`).
+	_signpost(p, "Colour management — CARTO ▸ Colours ▸ Colour management")
 	_todo(p, "3D viewport defaults",
 		"SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten oceans -- replacing the reference's #genV3dSec, and exempt from the finalize lock. There is no 3D viewport to give defaults to.")
 	## Live since 2026-08-30. The reason that stood here identified its own fix
@@ -2679,7 +2719,7 @@ func _preferences(p: PopupMenu) -> void:
 	## `is_dark`, no `rebuild_theme` and no palette reference at all, so the map
 	## genuinely cannot follow.
 	_theme_popup.set_item_tooltip(1,
-		"Repaints the shell chrome. The map canvas stays dark either way -- a light map is a style preset, not a theme consequence. The map's own palette is chosen in RENDER, on the style chips (Antique, Ink, Watercolor, Print) and the Base look beside them.")
+		"Repaints the shell chrome. The map canvas stays dark either way -- a light map is a style preset, not a theme consequence. The map's own palette is chosen in CARTO ▸ Map style, on the style chips (Antique, Ink, Watercolor, Print) and the Base look beside them.")
 	_theme_popup.add_radio_check_item("Follow system", ID_PREF_THEME_SYSTEM)
 	if not DisplayServer.is_dark_mode_supported():
 		_theme_popup.set_item_disabled(2, true)
@@ -2814,7 +2854,7 @@ func _build_relief_exag_menu(p: PopupMenu) -> void:
 	p.add_child(_exag_popup)
 	p.add_submenu_item("Relief exaggeration", "ReliefExag")
 	p.set_item_tooltip(p.item_count - 1,
-		"The vertical exaggeration a fresh Generate starts from -- the relief the hillshade is computed from, the reference's own Relief slider. Per world it stays live under RENDER; this is only where a new world begins. Applied on Generate and never on opening a project, which carries its own stored appearance.")
+		"The vertical exaggeration a fresh Generate starts from -- the relief the hillshade is computed from, the reference's own Relief slider. Per world it stays live under CARTO ▸ Map style; this is only where a new world begins. Applied on Generate and never on opening a project, which carries its own stored appearance.")
 	_refresh_relief_exag_menu()
 
 func _refresh_relief_exag_menu() -> void:
@@ -3336,7 +3376,7 @@ static func _gb(bytes: int) -> String:
 ## Ladders rather than free numbers because a `PopupMenu` has no slider, and
 ## the rungs are the values a cartographer actually picks: the eight compass
 ## bearings for azimuth, the reference's own band for elevation. The per-world
-## controls in RENDER stay continuous -- this sets where they START.
+## controls in CARTO stay continuous -- this sets where they START.
 const LIGHT_AZ_STEPS: Array[float] = [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]
 const LIGHT_ALT_STEPS: Array[float] = [15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 75.0]
 const LIGHT_AMB_STEPS: Array[float] = [0.0, 0.15, 0.25, 0.35, 0.5, 0.7]
@@ -3375,7 +3415,8 @@ func _build_lighting_menu(p: PopupMenu) -> void:
 	## `appearance_over`, which nothing clears on Generate -- only
 	## `reset_appearance()` and a preset load do. So a rung sent by an earlier
 	## Generate is still overriding the tier after this row runs, and the
-	## control that takes it back is RENDER's own `Reset to quality tier`. The
+	## control that takes it back is CARTO ▸ Terrain appearance's own
+	## `Reset to quality tier`. The
 	## tooltip says so rather than claiming a reach this row does not have.
 	##
 	## It used to be called `Reset to the reference rig` and its tooltip said
@@ -3386,7 +3427,7 @@ func _build_lighting_menu(p: PopupMenu) -> void:
 	## and 6 lights (10 on Ultra).
 	_lighting_popup.add_item("Use the engine's own rig", ID_LIGHT_RESET)
 	_lighting_popup.set_item_tooltip(_lighting_popup.item_count - 1,
-		"Forgets all four stored rungs, so this menu stops sending them and a new world takes the engine's own rig instead. That is NOT the reference HTML's single-sun shading: render.rs ships six light directions (ten on Ultra), 40 deg elevation and 0.34 ambient. It does NOT undo a rung already applied -- once sent, a value stays an override until RENDER > Reset to quality tier hands it back.")
+		"Forgets all four stored rungs, so this menu stops sending them and a new world takes the engine's own rig instead. That is NOT the reference HTML's single-sun shading: render.rs ships six light directions (ten on Ultra), 40 deg elevation and 0.34 ambient. It does NOT undo a rung already applied -- once sent, a value stays an override until CARTO > Terrain appearance > Reset to quality tier hands it back.")
 	_lighting_popup.id_pressed.connect(_on_lighting)
 	_lighting_popup.about_to_popup.connect(_refresh_lighting_menu)
 	p.add_child(_lighting_popup)
@@ -3510,7 +3551,7 @@ func _on_lighting(id: int) -> void:
 		DccSettings.reset_lighting_defaults()
 		_refresh_lighting_menu()
 		_host.set_status("hint",
-			"lighting rig defaults forgotten — nothing is sent on the next Generate; RENDER ▸ Reset to quality tier takes back one already applied", "text_dim")
+			"lighting rig defaults forgotten — nothing is sent on the next Generate; CARTO ▸ Terrain appearance ▸ Reset to quality tier takes back one already applied", "text_dim")
 		return
 	for row in _light_ladders():
 		var steps: Array = row[1]
@@ -4144,9 +4185,32 @@ func _refresh_undo_budget_menu() -> void:
 			_undo_budget_popup.set_item_text(i, "%d MB" % mb)
 	var clear_idx := _undo_budget_popup.get_item_index(ID_PREF_UNDO_CLEAR)
 	if clear_idx >= 0:
-		_undo_budget_popup.set_item_disabled(clear_idx, not _bridge.can_undo())
+		var can_clear: bool = _bridge.can_undo()
+		_undo_budget_popup.set_item_disabled(clear_idx, not can_clear)
+		## **The tooltip has to move with the disabling, and until 2026-09-07 it
+		## did not** -- the identical defect `Clear atlas cache now…` was fixed
+		## for on 2026-09-03, one submenu away in this same file (see
+		## `_refresh_atlas_cache_menu()`, which carries the full reasoning).
+		## `command_index.gd` takes a disabled row's tooltip as its `why`, so the
+		## one sentence written on both branches reached the searchable index as
+		## the stated reason the row could not be pressed. Measured through the
+		## index before the fix: `available=false  why=Frees 0 MB immediately.
+		## The next destructive edit starts a new stack.` -- a description of
+		## what the command *does*, wearing a justification's clothes, with a
+		## `0 MB` standing in for "nothing" on top of it.
+		##
+		## **The disabled branch states the gate and no more.** `can_undo()` is
+		## `!self.undo.is_empty()` (`WorldGen::can_undo`), so the row is dark
+		## exactly when the backward stack is empty -- which is NOT the same
+		## claim as "nothing is held": `WorldGen::clear_undo` drops the redo tail
+		## as well, and the tail is non-empty in the commonest way of arriving
+		## here (undo the only step). So the reason names the empty stack and
+		## points at the control that does free a tail, rather than asserting
+		## there is no memory to reclaim.
 		_undo_budget_popup.set_item_tooltip(clear_idx,
-			"Frees %s immediately. The next destructive edit starts a new stack." % _mb(int(s.get("bytes", 0))))
+			"Frees %s immediately. The next destructive edit starts a new stack." % _mb(int(s.get("bytes", 0)))
+			if can_clear else
+			"The undo stack is empty -- nothing has been committed that could be reverted, so there is no history here to drop. It fills again on the next destructive edit. Steps you have already undone sit in the redo tail instead, which Edit > Undo history... lists with its own discard row.")
 
 func _on_undo_budget(id: int) -> void:
 	if id == ID_PREF_UNDO_CLEAR:

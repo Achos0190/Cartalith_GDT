@@ -1266,9 +1266,22 @@ at 393 x 852 and asking `gui_get_hovered_control()` what was under the map
 centre; it named the chrome spacer.
 
 **The lesson is the loop, not the bug.** Each device iteration is an export, an
-`adb install` and a re-navigation — several minutes, and `print()`/`printerr()`
-from GDScript never appeared in `logcat` on this build, so the device could
-show *that* something failed but not *where*. The `--force-touch` harness
+`adb install` and a re-navigation — several minutes.
+
+> **This paragraph used to add that `print()`/`printerr()` from GDScript
+> "never appeared in `logcat` on this build", so the device could show
+> *that* something failed but not *where*. Measured false 2026-09-07** on a
+> release export to the 6T (Android 15): `dcc_shell.gd`'s own `print()` of
+> the shell build id arrives in the first boot capture as `I/godot`. The
+> claim was true when written on 2026-08-24 and is not true of this
+> template — **and AND-9's whole framing rested on it**, so re-read that row
+> before quoting it.
+>
+> What the same pass DID measure, and what is worth keeping: across a
+> complete successful world generation the app writes **zero** lines under
+> the `godot` tag, so a clean `logcat` is the expected state whether or not
+> anything is wrong. A silent log is not evidence of health.
+ The `--force-touch` harness
 reproduces the same composition in seconds with full console output and
 synthesised `device = -1` (`DEVICE_ID_EMULATION`) pointer events, which is what
 Android's mouse emulation stamps on its own — so hit-testing, `mouse_filter`
