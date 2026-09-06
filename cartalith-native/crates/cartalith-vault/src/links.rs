@@ -40,6 +40,16 @@
 //! | Continent | landmass component index | Re-derived from the height field; any terrain edit that merges or splits a landmass renumbers it. |
 //! | Faction | `faction_roster` row index | Stable while the roster is; `civ_remove_faction` renumbers the rows above the one removed. |
 //! | Culture | `CIV_CULTURES` index | **Stable absolutely.** Seven compile-time rows, the same seven in every world, so a culture link survives a regenerate and a save/load — the only kind here that does. |
+//! | Landmark | [`landmark_entity_id`] over `Landmark::key()` | Stable for as long as the landmark keeps its kind and its cell — which is what `key()` is built to guarantee, across a re-run at the same seed, a cap change and a kind being disarmed. **Not** across a terrain edit that moves the feature, and not across a `generate()` at a different seed. |
+//!
+//! **Landmark is the one kind whose id is not an id the engine issued.** Every
+//! row above addresses an entity the world model numbers; a landmark's own
+//! `Landmark::id` is documented as *"a position in `LandmarkResult::landmarks`"*
+//! and "nothing outside one run's own list may store it", so storing it would
+//! have re-pointed every note the first time a cap moved. [`landmark_entity_id`]
+//! derives the id from `Landmark::key()` instead, and the resolver walks the
+//! run recomputing keys rather than indexing — which is why a note survives a
+//! re-run that moves *other* landmarks.
 //!
 //! So every link also stores [`KnowledgeLink::entity_label`] — the entity's
 //! name at link time. It is not the key and nothing resolves by it; it exists
@@ -53,13 +63,14 @@ use std::collections::BTreeMap;
 /// The entity kinds this port can genuinely address
 /// (`MARKDOWN_VAULT_SCOPE.md` milestone 0's verification).
 ///
-/// **Five of them, and this sentence used to say three.** `Faction` and
+/// **Six of them, and this sentence used to say three.** `Faction` and
 /// `Culture` were both added on 2026-08-25, each with its own doc comment
 /// below, and the count above them was not moved with them — so the header
-/// disagreed with the variants it introduces for twelve days. Counted from
+/// disagreed with the variants it introduces for twelve days. `Landmark`
+/// joined on 2026-09-06 and moved the number in the same edit. Counted from
 /// the definition on 2026-09-06:
 /// `awk '/^pub enum EntityKind \{/,/^\}/' links.rs | grep -cE '^    [A-Z][A-Za-z]+,$'`
-/// → `5`. A sixth needs this number moved in the same change.
+/// → `6`. A seventh needs this number moved in the same change.
 ///
 /// §3 of the design also lists POIs and region labels. **POIs are not a
 /// ported concept** in this port at all — `civ_tools_bridge.rs`'s module doc
@@ -92,7 +103,82 @@ pub enum EntityKind {
     /// save/load. That is a property worth having rather than an accident —
     /// a person's essay on the Riverlands stays attached to the Riverlands.
     Culture,
+    /// Owner ruling 13, 2026-09-06. A generated landmark —
+    /// `cartalith_civ::landmark::Landmark` — addressed by
+    /// [`landmark_entity_id`] over its `key()`.
+    ///
+    /// **This was correctly declined once**, on 2026-09-05, because a
+    /// landmark had no stable identity to hang a note on: `Landmark::id` is a
+    /// position in the result vector and `Landmark::seed` takes no kind, so
+    /// two same-class kinds on one cell hash equal. `Landmark::key()` landed
+    /// on 2026-09-06 and is the thing that was missing; re-verified at the
+    /// symbol before this variant was added, and it is
+    /// `format!("{}@{},{}", self.kind, self.x, self.y)`.
+    ///
+    /// Unlike every other kind here, the landmark a note points at may simply
+    /// not be in the current run. `LandmarkStore::invalidate()` is called
+    /// from `WorldGen`'s `absorb`, `center_landmasses` and `load_save`
+    /// (measured 2026-09-06 —
+    /// `grep -n "landmark_store.invalidate" crates/cartalith-godot/src/lib.rs`
+    /// gives three hits and `generate`/`generate_sized` reach it through
+    /// `absorb`), and only two things write it back: the dock's own Run
+    /// button, and `project_open` restoring the archive's
+    /// `LandmarksDoc.results`.
+    ///
+    /// That gap is an **absent entity, never an error and never a
+    /// deletion**: `WorldGen::entity_values` answers an empty map, the panel
+    /// shows the stored `entity_label`, and nothing in this crate removes a
+    /// link because its target went away.
+    Landmark,
 }
+
+/// The `entity_id` a landmark is filed under: 52 bits of
+/// [`crate::provider::content_hash`] over `cartalith_civ::landmark::
+/// Landmark::key()` — `"waterfall@120,64"`.
+///
+/// ## Why a derived integer rather than the string itself
+///
+/// `SAVEFILE_COMPAT.md` §13.3.3 fixes `entity_id` as an **integer**, and
+/// §13.3.8 forbids string-encoded integers outright; `KnowledgeLink`,
+/// `LinkStore::links_for`, `LinkStore::mint_id`, [`entity_key`] and **16**
+/// `#[func]`s across the gdext boundary are all `i64` (measured 2026-09-06 by
+/// walking every `#[func]` in `vault_bridge.rs` whose signature contains
+/// `entity_id: i64`, which catches the two that wrap their arguments and a
+/// line-oriented grep does not — that grep says 15). A landmark's identity is
+/// a string, so exactly one of the two has to give. Deriving the id keeps
+/// the format legal and the whole existing resolution path untouched, and it
+/// keeps **one** identity rather than two — the string is still the identity,
+/// this is only how it is written down.
+///
+/// ## The 52 bits, and why not 64
+///
+/// `SAVEFILE_COMPAT.md` §14.1 caps an integer in this archive at 2^53: a JSON
+/// number is a `double` in the reference implementation and anything above
+/// that stops round-tripping. Thirteen hex digits is 52 bits, one clear bit
+/// under the cap, which is why the constant is 13 and not 16.
+///
+/// ## Collisions are possible and are handled, not argued away
+///
+/// 52 bits over the couple of hundred landmarks a world places is a birthday
+/// probability around 5e-12, but "unlikely" is not "cannot", and a collision
+/// would attach someone's note to the wrong feature. So the resolver —
+/// `cartalith_godot::vault_bridge::landmark_with_entity_id` — refuses an
+/// ambiguous id rather than taking the first match, which turns a collision
+/// into an unresolved link the user can re-bind instead of a silent
+/// mis-attachment.
+///
+/// This is the same trick [`VaultRef::new`] already plays on a vault's
+/// display name, with the same hash.
+pub fn landmark_entity_id(key: &str) -> i64 {
+    let hex = crate::provider::content_hash(key);
+    i64::from_str_radix(&hex[..LANDMARK_ID_HEX_DIGITS], 16)
+        .expect("content_hash is 16 lowercase hex digits; LANDMARK_ID_HEX_DIGITS of them fit in an i64")
+}
+
+/// Hex digits of [`crate::provider::content_hash`] that become a landmark's
+/// `entity_id`. 13 x 4 = **52 bits**, one bit under `SAVEFILE_COMPAT.md`
+/// §14.1's 2^53 ceiling.
+const LANDMARK_ID_HEX_DIGITS: usize = 13;
 
 impl EntityKind {
     pub fn as_str(self) -> &'static str {
@@ -102,6 +188,7 @@ impl EntityKind {
             EntityKind::Continent => "continent",
             EntityKind::Faction => "faction",
             EntityKind::Culture => "culture",
+            EntityKind::Landmark => "landmark",
         }
     }
 
@@ -112,6 +199,7 @@ impl EntityKind {
             "continent" => Some(EntityKind::Continent),
             "faction" => Some(EntityKind::Faction),
             "culture" => Some(EntityKind::Culture),
+            "landmark" => Some(EntityKind::Landmark),
             _ => None,
         }
     }
@@ -882,32 +970,194 @@ mod tests {
     #[test]
     fn entity_keys_and_kinds_round_trip() {
         // Derived from the definition, not from memory. Adding a variant to
-        // `EntityKind` already breaks the build at three exhaustive matches --
+        // `EntityKind` breaks the build at three exhaustive matches --
         // `template::suggested_path` in this crate, and
         // `cartalith_godot::vault_bridge`'s `entity_values` and `entity_cell`
-        // -- so the compiler routes you to the resolution paths. It does not
-        // route you here: add the row in the same change, or the new kind's
-        // wire name goes unasserted the way faction's did.
+        // -- so the compiler routes you to the resolution paths. Confirmed
+        // again on 2026-09-06 by adding `Landmark`: `cargo build -p
+        // cartalith-vault` named `template.rs`, and `cargo build -p
+        // cartalith-godot` named those two and nothing else. It does not
+        // route you here, nor to `export::FIELDS`' `kinds` arrays, which are
+        // slices and accept a new variant silently: add both in the same
+        // change, or the new kind's wire name goes unasserted the way
+        // faction's did.
         let wire: &[(EntityKind, &str)] = &[
             (EntityKind::Settlement, "settlement"),
             (EntityKind::Province, "province"),
             (EntityKind::Continent, "continent"),
             (EntityKind::Faction, "faction"),
             (EntityKind::Culture, "culture"),
+            (EntityKind::Landmark, "landmark"),
         ];
         for (k, s) in wire {
             assert_eq!(k.as_str(), *s, "as_str drifted from the wire name");
             assert_eq!(EntityKind::parse(s), Some(*k), "parse does not invert as_str");
         }
         assert_eq!(EntityKind::parse("poi"), None, "POI is not a ported concept");
-        // `landmark` is not a variant: owner ruling 13 asks for one, and
-        // ruling 10's persistence -- the stable id it would be keyed by -- is
-        // not built. See the stability table in this module's own doc.
-        assert_eq!(EntityKind::parse("landmark"), None);
+        // This assertion used to read `parse("landmark") == None`, with the
+        // comment *"owner ruling 13 asks for one, and ruling 10's
+        // persistence -- the stable id it would be keyed by -- is not
+        // built."* Both halves are now false: `Landmark::key()` landed
+        // 2026-09-06 and `LandmarksDoc.results` persists the run, so the
+        // decline that sentence recorded no longer holds and the row above
+        // replaces it.
         assert_eq!(EntityKind::parse("Settlement"), None, "the wire name is lowercase");
         assert_eq!(entity_key(EntityKind::Continent, 2), "continent:2");
         assert_eq!(entity_key(EntityKind::Faction, 1), "faction:1");
     }
+    /// [`landmark_entity_id`]'s two properties, against **literals**: the
+    /// exact value for a known key, and the 52-bit width `SAVEFILE_COMPAT.md`
+    /// §14.1 requires.
+    ///
+    /// The literals are the point. `assert!(id < 1 << LANDMARK_ID_HEX_DIGITS * 4)`
+    /// would hold for every value of the constant; these do not. Mutation,
+    /// measured 2026-09-06:
+    ///
+    /// * `13` -> `12`: the exact-value assertions go red, and so does the
+    ///   "at least one key reaches past 2^48" floor.
+    /// * `13` -> `14`: the exact-value assertions go red, and so does the
+    ///   `< 2^52` ceiling, which is §14.1's rule itself.
+    #[test]
+    fn a_landmark_id_is_fifty_two_bits_of_its_key() {
+        // FNV-1a of "waterfall@120,64" is bfad749b8f506f12; the id is its
+        // first thirteen hex digits, 0xbfad749b8f506.
+        assert_eq!(landmark_entity_id("waterfall@120,64"), 3_372_027_305_587_974);
+        assert_eq!(landmark_entity_id("peak@0,0"), 1_703_234_371_990_620);
+        // One cell over is a different id -- the key is the whole identity.
+        assert_ne!(landmark_entity_id("waterfall@120,64"), landmark_entity_id("waterfall@120,65"));
+        assert_ne!(landmark_entity_id("waterfall@120,64"), landmark_entity_id("peak@120,64"));
+
+        // §14.1's ceiling, and a floor that fails if the id is narrowed.
+        let keys = ["waterfall@120,64", "peak@0,0", "mine@7,7", "harbour@4095,4095", ""];
+        for k in keys {
+            let id = landmark_entity_id(k);
+            assert!(id > 0, "{k}: an id is positive");
+            assert!(id < 4_503_599_627_370_496, "{k}: 2^52, one bit under §14.1's 2^53");
+        }
+        assert!(
+            keys.iter().any(|k| landmark_entity_id(k) >= 281_474_976_710_656),
+            "at least one key reaches past 2^48, so shrinking the digit count is not free"
+        );
+
+        // And the entity key the Markdown block carries.
+        assert_eq!(
+            entity_key(EntityKind::Landmark, landmark_entity_id("waterfall@120,64")),
+            "landmark:3372027305587974"
+        );
+    }
+
+    /// Owner ruling 13's round trip: a landmark link is written, read back
+    /// and written again **byte for byte**, and the store it travelled in is
+    /// unchanged.
+    ///
+    /// Byte-identity rather than `==` on the struct, because
+    /// `SAVEFILE_COMPAT.md` §13.3.5's closing rule is about the *file*: "a
+    /// reader that cannot use a link keeps it, reports it, and writes it back
+    /// byte-equivalent."
+    #[test]
+    fn a_landmark_link_round_trips_byte_for_byte() {
+        let mut s = LinkStore::default();
+        let vid = s.add_vault("Elaris");
+        let id = landmark_entity_id("waterfall@120,64");
+        let link_id = s.attach(KnowledgeLink {
+            link_id: String::new(),
+            entity_kind: EntityKind::Landmark,
+            entity_id: id,
+            entity_label: "Waterfall (120, 64)".into(),
+            vault_id: vid,
+            relative_path: "Landmarks/Waterfall (120, 64).md".into(),
+            selection: Selection::Heading { value: "Cultural Significance".into() },
+            source_modified: 1700,
+            source_hash: "abc".into(),
+            imported_text: Some("## Cultural Significance\n\nThe falls are sung of.\n".into()),
+            edited_text: None,
+            imported_data: ImportedData::default(),
+        });
+        // A snapshot is keyed by the entity key, and a landmark is in
+        // `export::PLACED`, so it can have one.
+        s.set_snapshot(&entity_key(EntityKind::Landmark, id), "local", ".cartalith/maps/lm.png");
+
+        let first = s.to_json();
+        let back = LinkStore::from_json(&first).expect("a landmark link parses");
+        assert_eq!(back, s);
+        assert_eq!(back.to_json(), first, "a second write is byte-identical");
+
+        let l = back.get(&link_id).expect("the link survives the trip");
+        assert_eq!(l.entity_kind, EntityKind::Landmark);
+        assert_eq!(l.entity_id, id);
+        assert_eq!(l.entity_key(), "landmark:3372027305587974");
+        assert_eq!(back.links_for(EntityKind::Landmark, id).len(), 1);
+        // Addressed by kind as well as by id: the same number under another
+        // kind is a different entity.
+        assert!(back.links_for(EntityKind::Settlement, id).is_empty());
+        assert_eq!(
+            back.snapshot(&entity_key(EntityKind::Landmark, id), "local"),
+            Some(".cartalith/maps/lm.png")
+        );
+        // The wire really says `landmark`, not a serde default.
+        assert!(first.contains("\"entity_kind\": \"landmark\""), "{first}");
+    }
+
+    /// **Non-destruction.** Owner ruling 13's second requirement: a note for
+    /// a landmark that is no longer generated is an *absent entity*, and
+    /// nothing in this crate may turn that into a deletion.
+    ///
+    /// The resolution half of it -- that a surviving landmark still resolves
+    /// after a re-run moves the others -- is `cartalith_godot::vault_bridge`'s
+    /// `a_landmark_note_survives_a_rerun_that_moves_the_others`, because the
+    /// walk over a `Vec<Landmark>` lives there. This is the storage half:
+    /// whatever the resolver answers, the link is still in the file.
+    #[test]
+    fn a_landmark_link_survives_its_landmark_going_away() {
+        let mut s = LinkStore::default();
+        let vid = s.add_vault("Elaris");
+        let gone = landmark_entity_id("waterfall@120,64");
+        let kept = landmark_entity_id("peak@8,9");
+        for (id, label, rel) in [
+            (gone, "Waterfall (120, 64)", "Landmarks/Waterfall.md"),
+            (kept, "Peak (8, 9)", "Landmarks/Peak.md"),
+        ] {
+            s.attach(KnowledgeLink {
+                link_id: String::new(),
+                entity_kind: EntityKind::Landmark,
+                entity_id: id,
+                entity_label: label.into(),
+                vault_id: vid.clone(),
+                relative_path: rel.into(),
+                selection: Selection::WholeDocument,
+                source_modified: 1,
+                source_hash: "h".into(),
+                imported_text: Some("body\n".into()),
+                edited_text: None,
+                imported_data: ImportedData::default(),
+            });
+        }
+        let before = s.to_json();
+
+        // The world is regenerated and the waterfall is not placed again.
+        // Nothing calls anything: there is no "prune links whose entity is
+        // gone" path, and this asserts that absence rather than describing
+        // it. `git grep -n "retain" -- crates/cartalith-vault/src/links.rs`
+        // returns two code hits on 2026-09-06 (plus this comment), both
+        // inside `attach`/`detach`,
+        // which are the two acts a user performs on purpose.
+        let after = LinkStore::from_json(&before).expect("re-opens");
+        assert_eq!(after.to_json(), before, "opening and saving changes no byte");
+        assert_eq!(after.links.len(), 2, "the unresolvable link is kept");
+        let orphan = after.links_for(EntityKind::Landmark, gone);
+        assert_eq!(orphan.len(), 1);
+        // §13.3.5: what a person needs in order to re-bind by hand.
+        assert_eq!(orphan[0].entity_label, "Waterfall (120, 64)");
+        assert_eq!(orphan[0].working_text(), "body\n", "and their imported copy is still readable");
+        // Detaching is still the only thing that removes one, and it removes
+        // exactly one.
+        let orphan_id = orphan[0].link_id.clone();
+        let mut s2 = after.clone();
+        assert!(s2.detach(&orphan_id));
+        assert_eq!(s2.links.len(), 1);
+        assert_eq!(s2.links_for(EntityKind::Landmark, kept).len(), 1);
+    }
+
     /// `SAVEFILE_COMPAT.md` §13.3.6, and the reason it is a MUST.
     ///
     /// Before 2026-08-26 an unrecognised `selection.type` failed that link,

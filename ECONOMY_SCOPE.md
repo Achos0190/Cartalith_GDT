@@ -523,7 +523,12 @@ either codebase at the same time.
 **One real number this pass produced that the economy layer should note.** On
 a real 233-settlement world, five of six factions' territory sustains **at
 least twice** the population the settlement layer puts on it — the manpower
-model's `ecological_factor` hits its `2.0` ceiling for all five. That is the
+model's `ecological_factor` hit its **then-`2.0`** ceiling for all five.
+**That ceiling moved to 4.0 on 2026-09-06** under owner ruling 11, precisely
+because pinning was deciding the answer instead of the ecology — measured over
+108 faction-samples, the old bound pinned 39 (36.1%) and 4.0 pins 21. The
+observation here stands as the evidence that prompted it; the `2.0` does not
+describe the code any more. That is the
 same divergence `civ_agrarian_regional_total`'s own readout has always shown
 between "Land sustains ≈ N" and the settled total, quantified per faction for
 the first time. Whether generated worlds should be more densely populated

@@ -69,8 +69,10 @@ fn label_for(rel: &str) -> String {
 }
 
 /// The vault-relative path a new note for `kind` named `name` goes to —
-/// v3's own `Settlements/{name}.md` convention, generalised to the four
-/// entity kinds this port can address.
+/// v3's own `Settlements/{name}.md` convention, generalised to every entity
+/// kind this port can address. (This line used to say "the four entity
+/// kinds"; there were five when it was written and there are six now, so it
+/// names the definition instead of counting it.)
 ///
 /// The folder is plural and capitalised because that is what the owner's own
 /// vault looks like and what every Markdown-vault convention does; the file
@@ -84,6 +86,12 @@ pub fn suggested_path(kind: crate::EntityKind, name: &str) -> String {
         crate::EntityKind::Continent => "Continents",
         crate::EntityKind::Faction => "Factions",
         crate::EntityKind::Culture => "Cultures",
+        // Owner ruling 13, 2026-09-06. The owner's own vault already has a
+        // `Landmark template.md` at its root and a second inside `Region
+        // Template/Landmarks/`, so `Landmarks/` is the folder their corpus
+        // already names -- the same "follow the author's convention" test
+        // `discover` applies to templates, applied to the destination.
+        crate::EntityKind::Landmark => "Landmarks",
     };
     format!("{folder}/{}.md", sanitise(name))
 }
@@ -186,6 +194,7 @@ mod tests {
         assert_eq!(suggested_path(EntityKind::Continent, "Vantharis"), "Continents/Vantharis.md");
         assert_eq!(suggested_path(EntityKind::Faction, "Draumr League"), "Factions/Draumr League.md");
         assert_eq!(suggested_path(EntityKind::Culture, "Riverlands"), "Cultures/Riverlands.md");
+        assert_eq!(suggested_path(EntityKind::Landmark, "Waterfall (120, 64)"), "Landmarks/Waterfall (120, 64).md");
     }
 
     #[test]

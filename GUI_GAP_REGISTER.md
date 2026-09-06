@@ -6703,10 +6703,17 @@ and the standing shares land at Imperial Rome's own ratio.
    every verdict and nothing else. **→ Ruled and built the same day; see §44.**
 2. Standing shares agree with the specification's *example* and not its
    *table*, in the same direction and for the same reason.
-3. `ecological_factor` saturates for five of six factions on a real world:
+3. ~~`ecological_factor` saturates for five of six factions on a real world~~
+   — **corrected 2026-09-06.** That saturation was the symptom owner ruling 11
+   was about, and the ceiling moved 2.0 → 4.0 (`ECOLOGICAL_CEILING`,
+   `manpower.rs`). Measured across 108 faction-samples: the old ceiling pinned
+   **39 of 108 (36.1%)**, 4.0 pins **21**. The observation below was true and is
+   now history; the clause that followed it — *"Geography therefore
+   discriminates mainly at the low end"* — is the part the ruling specifically
+   falsified. Kept for the reasoning, not as current state:
    generated territory sustains at least twice the population the model puts
    on it, the same divergence `civ_agrarian_regional_total`'s own readout has
-   always shown. Geography therefore discriminates mainly at the low end,
+   always shown. Geography ~~therefore discriminates mainly at the low end~~,
    where it does real work — Draumr League's 87-strong standing army against
    Veldmark's 1 509 on otherwise identical institutions.
 4. **The road-density reference was wrong on the first try and measuring found

@@ -169,6 +169,56 @@ pub const EXTRACTION_FLOOR: f64 = 0.04;
 /// See [`EXTRACTION_FLOOR`].
 pub const EXTRACTION_CEILING: f64 = 0.16;
 
+/// The floor and ceiling of [`MilitaryDrivers::ecological_factor`] -- how
+/// many times over a faction's own territory feeds the population standing
+/// on it.
+///
+/// **The ceiling was `2.0` until 2026-09-06, and it was deciding the answer
+/// rather than guarding it** (owner ruling 11). Measured before it moved,
+/// over 108 faction-samples -- six seeds x three world shapes, because
+/// `land_capacity` integrates cell area while `nucleated_pop` does not, so
+/// one world would have been one sample of the wrong thing. The raw
+/// `land_capacity / total_pop` ratio runs **0.008 .. 17.9**, median 1.58,
+/// p75 3.11, p90 9.88, and **45 of the 108 sat at or above 2.0** -- 24 of 36
+/// on the largest shape. A bound that binds on two fifths of real inputs is
+/// not an outlier guard.
+///
+/// **The ceiling is the reciprocal of the floor**: a factor of four either
+/// way about 1.0 -- the land feeds four times the people on it, or a quarter
+/// of them. The measured distribution picks the neighbourhood (4.0 sits
+/// between its p75 and p90); the reciprocal picks the exact value, so the
+/// constant is not fitted to the worlds it was measured on.
+/// `the_ecological_clamp_is_symmetric_about_one` pins the identity, and
+/// `the_ecological_ceiling_binds_where_the_ruling_put_it` pins the bound
+/// itself from both sides.
+///
+/// **Both failure modes were live and both are named.** Lower still pins too
+/// much of the sample to be a guard -- 37 of 108 at 2.5 and 30 of 108 at 3.0,
+/// against 24 at 4.0 -- so the clamp would keep making the decision. Higher
+/// -- the measured p90, near 10 -- pins only a tenth of the sample, but
+/// [`Manpower::standing_army`] is *linear* in this factor, and at that
+/// ceiling 20 of the same 108 factions read **above** their own [`ERA_BANDS`]
+/// standing row where none does at 4.0. That direction is wrong on the
+/// merits and not merely inconvenient: `military_budget`'s other term is the
+/// *realised* surplus (the non-agricultural population the farmers already
+/// feed), while this factor is only what the land could support, and paying
+/// an army out of unfarmed potential is not a fiscal quantity. At 4.0, 24 of
+/// 108 stay pinned and none moves above its band.
+///
+/// **What moving the ceiling does not fix, disclosed rather than tuned
+/// around:** the raw ratio's centre tracks world size at a fixed faction
+/// count -- median 0.39 on a 512x384 800 km world against 5.04 on a 768x576
+/// 2 000 km one -- so part of the upper tail is map scale, not ecology.
+/// Normalising that would mean changing how `land_capacity` or
+/// `nucleated_pop` are computed, which is a different question from this
+/// one; `MILITARY_MANPOWER_SCOPE.md` Section 3.3 finding 3 carries it.
+pub const ECOLOGICAL_FLOOR: f64 = 0.25;
+/// See [`ECOLOGICAL_FLOOR`], which carries the measurement and the rule.
+/// `1 / ECOLOGICAL_FLOOR`, written as a literal rather than a division so
+/// that moving one end cannot silently move the other -- the identity is a
+/// test's job, not a definition's.
+pub const ECOLOGICAL_CEILING: f64 = 4.0;
+
 /// [`Manpower::emergency_mobilization`] as a share of the military-age pool:
 /// a base nobody falls below, plus what administration and transport add.
 ///
@@ -520,10 +570,14 @@ pub struct MilitaryDrivers {
     pub navigable_share: f64,
     /// See [`road_density`](Self::road_density).
     pub sea_share: f64,
-    /// `land capacity / total population`, clamped — whether the territory
+    /// `land capacity / total population`, clamped to
+    /// [`ECOLOGICAL_FLOOR`]..[`ECOLOGICAL_CEILING`] — whether the territory
     /// comfortably feeds the people on it (`>1`) or is drawn tight (`<1`).
     /// **This is the geography term**, and it is why two factions on the
-    /// same ag-tech row do not get the same answer.
+    /// same ag-tech row do not get the same answer. The bounds are stated at
+    /// [`ECOLOGICAL_FLOOR`] rather than repeated here, together with the
+    /// measured distribution that set them; the ceiling last moved
+    /// 2026-09-06.
     pub ecological_factor: f64,
     /// `0..1` — the share of the population holding full civic status, from
     /// [`CITIZEN_SHARE`] and [`CITIZEN_MODERNISATION`].
@@ -812,11 +866,13 @@ pub fn military_drivers(input: &ManpowerInput) -> MilitaryDrivers {
 
     let total_pop = input.nucleated_pop * (1.0 + f);
     // How well the land actually feeds the people on it. Clamped rather
-    // than open-ended in both directions: an empty faction must not read as
-    // infinitely fertile, and an over-drawn one is at famine rather than at
-    // zero.
+    // than open-ended in both directions -- an empty faction must not read
+    // as infinitely fertile, and an over-drawn one is at famine rather than
+    // at zero -- but the bounds live in ECOLOGICAL_FLOOR/ECOLOGICAL_CEILING,
+    // which carry the measurement that set them and the reason the ceiling
+    // moved on 2026-09-06.
     let ecological = if total_pop > 0.0 {
-        js_max(0.25, js_min(2.0, input.land_capacity / total_pop))
+        js_max(ECOLOGICAL_FLOOR, js_min(ECOLOGICAL_CEILING, input.land_capacity / total_pop))
     } else {
         1.0
     };
@@ -1172,10 +1228,13 @@ mod tests {
         assert!(strong.standing_army > weak.standing_army * 2.0);
         assert!(strong.era_band.name != weak.era_band.name);
 
-        // Geography alone, holding every institution fixed: a territory that
-        // feeds its people twice over supports more than one that is drawn
-        // tight. This is `ecological_factor`, and it is why two factions on
-        // one ag-tech row and one government still differ.
+        // Geography alone, holding every institution fixed: a territory
+        // that feeds its people four times over supports more than one that
+        // is drawn tight. This is `ecological_factor`, and it is why two
+        // factions on one ag-tech row and one government still differ.
+        // `4_000_000` over a million people is exactly ECOLOGICAL_CEILING,
+        // so this pair brackets the clamp rather than probing inside it --
+        // `the_factor_still_discriminates_above_the_old_ceiling` does that.
         let fertile = civ_military_manpower(&ManpowerInput { land_capacity: 4_000_000.0, ..base });
         let barren = civ_military_manpower(&ManpowerInput { land_capacity: 300_000.0, ..base });
         assert!(fertile.standing_army > barren.standing_army * 2.0);
@@ -1184,6 +1243,101 @@ mod tests {
         // separation between the two chains rather than one number wearing
         // two hats.
         assert!((fertile.emergency_mobilization - barren.emergency_mobilization).abs() < 1e-9);
+    }
+
+    // ---- The ecological clamp's bounds (owner ruling 11, 2026-09-06).
+
+    /// Every input below makes `total_pop` exactly `100 000`
+    /// (`10 000 x (1 + 9)`), so `land_capacity / 100 000` **is** the raw
+    /// ratio and each expectation is exact in `f64`.
+    fn eco_at(land: f64) -> f64 {
+        military_drivers(&ManpowerInput {
+            nucleated_pop: 10_000.0,
+            farmers_per_urbanite: 9.0,
+            land_capacity: land,
+            government: "monarchy",
+            capital_road_reach: 0.5,
+            road_density: 0.5,
+            navigable_share: 0.5,
+            sea_share: 0.5,
+        })
+        .ecological_factor
+    }
+
+    /// The clamp's bounds, pinned as **literals** from both sides. The
+    /// ceiling was `2.0` until owner ruling 11 raised it; this is the test
+    /// that says which value is live, and a mutant in either direction goes
+    /// red here.
+    #[test]
+    fn the_ecological_ceiling_binds_where_the_ruling_put_it() {
+        // Below the ceiling, passed through untouched. A ceiling of 2.0
+        // (what shipped until the ruling), 2.5 or 3.0 fails these three.
+        assert_eq!(eco_at(250_000.0), 2.5);
+        assert_eq!(eco_at(350_000.0), 3.5);
+        assert_eq!(eco_at(399_000.0), 3.99);
+        // At and above it, pinned to 4.0. A ceiling of 5.0 fails these.
+        assert_eq!(eco_at(400_000.0), 4.0);
+        assert_eq!(eco_at(450_000.0), 4.0);
+        assert_eq!(eco_at(100_000_000.0), 4.0);
+        // The floor is outside the ruling and still binds, at the same value
+        // it always had.
+        assert_eq!(eco_at(30_000.0), 0.3);
+        assert_eq!(eco_at(25_000.0), 0.25);
+        assert_eq!(eco_at(10_000.0), 0.25);
+    }
+
+    /// The ceiling is `1 / ECOLOGICAL_FLOOR` -- a factor of four either way
+    /// about 1.0 -- and that identity is the whole rule for its value, the
+    /// same shape [`CITIZEN_MODERNISATION`]'s own derivation test pins.
+    /// Editing one end without the other fails here.
+    ///
+    /// The two `assert_eq!`s against the constants check **wiring**, not
+    /// value: they hold for any pair, which is exactly why the value is
+    /// pinned by literals in
+    /// [`the_ecological_ceiling_binds_where_the_ruling_put_it`] instead.
+    #[test]
+    fn the_ecological_clamp_is_symmetric_about_one() {
+        assert!((ECOLOGICAL_CEILING * ECOLOGICAL_FLOOR - 1.0).abs() < 1e-12);
+        assert_eq!(eco_at(1.0e12), ECOLOGICAL_CEILING);
+        assert_eq!(eco_at(0.0), ECOLOGICAL_FLOOR);
+    }
+
+    /// What the ruling was *for*. Two factions whose own land feeds 2.5 and
+    /// 3.5 times the people on it must get different answers; under the old
+    /// `2.0` ceiling both saturated and the ratio below was exactly `1.0` --
+    /// the ceiling, not the ecology, deciding.
+    #[test]
+    fn the_factor_still_discriminates_above_the_old_ceiling() {
+        let at = |land: f64| {
+            civ_military_manpower(&ManpowerInput {
+                nucleated_pop: 10_000.0,
+                farmers_per_urbanite: 9.0,
+                land_capacity: land,
+                government: "monarchy",
+                capital_road_reach: 0.5,
+                road_density: 0.5,
+                navigable_share: 0.5,
+                sea_share: 0.5,
+            })
+        };
+        let (a, b) = (at(250_000.0), at(350_000.0));
+        assert_eq!(a.drivers.ecological_factor, 2.5);
+        assert_eq!(b.drivers.ecological_factor, 3.5);
+        // `standing_army` is linear in the factor, so their ratio is the
+        // ratio of the two land capacities and nothing else -- an
+        // independent relationship rather than the constant restated.
+        assert!(
+            (b.standing_army / a.standing_army - 1.4).abs() < 1e-9,
+            "{} / {} is not 3.5/2.5",
+            b.standing_army,
+            a.standing_army
+        );
+        // And the demographic chain does not move with it, which is what
+        // makes the standing figure the *fiscal* answer of the four.
+        assert_eq!(a.emergency_mobilization, b.emergency_mobilization);
+        assert_eq!(a.field_army, b.field_army);
+        assert_eq!(a.force_ladder[3].force, b.force_ladder[3].force);
+        assert_eq!(a.emergency_duration_days, b.emergency_duration_days);
     }
 
     /// The ladder must be monotonically decreasing in duration, and its
@@ -1479,7 +1633,12 @@ mod tests {
                     assert!((0.0..=1.0).contains(&d.logistics_capacity));
                     assert!((0.0..=1.0).contains(&d.professionalization));
                     assert!((0.03..=0.95).contains(&d.state_capacity));
-                    assert!((0.25..=2.0).contains(&d.ecological_factor));
+                    // Literals, not the constants: an assertion written
+                    // as `(ECOLOGICAL_FLOOR..=ECOLOGICAL_CEILING)` holds for
+                    // every value of them and so pins nothing
+                    // (`MISTAKES.md`, "a test that compares a constant
+                    // against itself").
+                    assert!((0.25..=4.0).contains(&d.ecological_factor));
                     assert!(
                         (CITIZEN_FLOOR..=CITIZEN_CEILING).contains(&d.citizen_fraction),
                         "citizen fraction {} out of range",

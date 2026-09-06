@@ -262,11 +262,20 @@ silent drift between the table and its reading would be invisible.
 feeds *beyond his own household*. Technology sets the ratio; the land decides
 whether it is met.
 
-**`ecological_factor`** = `clamp(land_capacity / total_population, 0.25, 2.0)`,
+**`ecological_factor`** = `clamp(land_capacity / total_population, 0.25, 4.0)`,
 where `land_capacity` is Σ `dens[i] × cellKm²` over the faction's own
 territory cells — exactly the integral `civ_agrarian_regional_total` takes over
 the whole map, restricted to one owner. **This is the geography term**, and it
 is why two factions on the same ag-tech row do not get the same answer.
+
+> **The ceiling was `2.0` until 2026-09-06** — owner ruling 11, because at
+> `2.0` it was saturating and therefore deciding the answer rather than
+> guarding it (§3.3 finding 3, which carries the before- and
+> after-measurements). The floor is unchanged. Both bounds are now named
+> constants, `ECOLOGICAL_FLOOR` and `ECOLOGICAL_CEILING` in
+> `cartalith-civ/src/manpower.rs`, whose doc carries the distribution the
+> ceiling was chosen from; the ceiling is `1 / floor`, and a unit test pins
+> that identity.
 
 **2 · `agricultural_labour_ratio`** — §2.2 above.
 
@@ -633,7 +642,10 @@ Engine-level (33 settlements, 1200 km) drove the assertions the shell cannot:
   `chiefdom → empire` moved it **948 → 1 841**.
 - **Geography is genuinely live**: with every faction forced onto identical
   institutions, standing still spreads **199 … 1 435**, logistics
-  **0.415 … 0.841**, and ecological factor **0.428 … 2.000**. If this had
+  **0.415 … 0.841**, and ecological factor **0.428 … 2.000** (that upper
+  figure is the *old* `2.0` ceiling truncating the spread, which is finding 3
+  and was ruled on 2026-09-06; the same probe now reads 0.438 … 2.912 on the
+  33-settlement world). If this had
   collapsed to one number the model would have been a technology lookup
   wearing five variables.
 - **The citizen population is a real subset, differentiated, and moves no
@@ -707,8 +719,9 @@ the model agrees with the specification's *example* and disagrees with its
 > mean recalibrating outputs validated against the worked example. Reported,
 > not tuned.
 
-**3 · `ecological_factor` saturates on real generated worlds.** Five of six
-factions on the 233-settlement world hit the `2.0` ceiling — their territory
+**3 · `ecological_factor` saturated on real generated worlds — ruled on and
+raised, 2026-09-06.** As first measured: five of six
+factions on the 233-settlement world hit the then-`2.0` ceiling — their territory
 sustains at least twice the population the model puts on it. This is not a
 bug: it is the same divergence `civ_agrarian_regional_total`'s own "Land
 sustains ≈ N … x % actually live in settlements" readout has always shown, and
@@ -718,6 +731,65 @@ term does real work, and it is why that faction's standing army is 87 against
 Veldmark's 1 509 on otherwise similar institutions. Whether generated worlds
 should be more densely populated relative to their carrying capacity is a
 separate question, and an old one.
+
+> **Owner ruling 11, 2026-09-06: raise the ceiling so the factor
+> discriminates again.** Done, to `4.0`. What was measured, in this order,
+> because the ruling asked for the distribution *before* the value:
+>
+> **Before.** The raw `land_capacity / total_pop` ratio, read with both clamp
+> ends opened to sentinels, over **108 faction-samples** — six seeds
+> (483920, 7, 101, 202501, 999331, 31337) × three world shapes, because
+> `land_capacity` integrates cell area while `nucleated_pop` does not, so one
+> world is one sample of the wrong thing. Pooled: **0.008 … 17.9**, p25 0.37,
+> **median 1.58**, p75 3.11, p90 9.88. **45 of the 108 sat at or above 2.0.**
+> Per world, out of six factions: 0–4 on the 800 km and 1 200 km shapes,
+> **3–5 on the 2 000 km one** — which is where the ruling's own "five of six"
+> reproduces.
+>
+> **The rule for the value.** The distribution picks the neighbourhood — 4.0
+> lies between the measured p75 and p90 — and the *reciprocal of the
+> untouched floor* picks the exact value, so the constant is not fitted to
+> the worlds it was measured on: a factor of four either way about 1.0, the
+> land feeding four times the people on it or a quarter of them. Both failure
+> modes were live and both were checked. A lower ceiling still pins too much
+> of the sample to be a guard — 37 of 108 at 2.5 and 30 of 108 at 3.0,
+> against 24 at 4.0 — so the clamp would go on making the decision. A higher one (the p90, near 10) pins only a tenth, but
+> `standing_army` is **linear** in this factor and at that ceiling 20 of the
+> same 108 factions read *above* their own era band on standing where none
+> does at 4.0 — wrong on the merits, not merely inconvenient, because
+> `military_budget`'s other term is the *realised* surplus while this factor
+> is only the land's potential.
+>
+> **After.** Pinned at the ceiling: **24 of 108 (22 %)**, from 45 of 108
+> (42 %). Distinct reported values, over the same 108 samples, 47 → 68. Worst world 4 of 6, typical 0–3.
+> **45 faction-samples changed value**; every one of them had a raw ratio
+> above 2.0 and every other row is unchanged. Their standing armies scale by
+> `new_eco / 2.0`, i.e. **1.005× … 2.000×** (median 2.000×), and *only* the
+> standing side moves: `total_population`, `citizen_population`,
+> `emergency_mobilization`, `field_army`, the force ladder and both durations
+> are identical on all 108 rows. **The reason first given for that was wrong and
+> is corrected here:** it said *"nothing but `military_budget` reads this
+> factor"*, and there is a second reader — `surplus_per_farmer = ecological / f`
+> in `military_drivers`, published as `food_surplus_per_farmer`, which therefore
+> moves on every changed row. This document states that relationship itself nine
+> sections earlier. The enumerated list above is still right, established by
+> control flow rather than by the false reason: `campaign_capability` reads only
+> `state_capacity` / `logistics_capacity` / `professionalization`,
+> `professionalization` is `0.15 + 0.55*state_capacity + 0.30*urban_norm`, and
+> `levy_reach`, `emergency`, `field`, the ladder and both durations never touch
+> `ecological`. `standing < field < levy` holds on all 108. The committed
+> `_manpower_probe.tscn` reports **PASS**, and now prints `ecological 0.438 …
+> 2.912` on the 33-settlement world where the ceiling used to truncate it at
+> 2.000.
+>
+> **What the ruling did not fix, disclosed rather than tuned around.** The
+> raw ratio's *centre* tracks world size at a fixed faction count — median
+> 0.39 on a 512×384 800 km world against 5.04 on a 768×576 2 000 km one — so
+> part of the upper tail is map scale, not ecology, and the 2 000 km shape
+> still pins half its factions at 4.0. Normalising that means changing how
+> `land_capacity` or `nucleated_pop` are computed, which this ruling
+> explicitly does not authorise. It is the same "should generated worlds be
+> more densely populated" question this finding already ends on.
 
 **4 · The road-density reference was wrong on the first try, and measuring it
 is what found that.** Anchoring on the Roman empire's ~16 km of built road per

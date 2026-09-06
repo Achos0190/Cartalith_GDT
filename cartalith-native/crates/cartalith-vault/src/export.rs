@@ -55,8 +55,15 @@ const S: &[EntityKind] = &[EntityKind::Settlement];
 /// The three *place* kinds — every one of these has a position on the map.
 /// A faction does not, which is why it is not in here and `EVERY` exists.
 const ALL: &[EntityKind] = &[EntityKind::Settlement, EntityKind::Province, EntityKind::Continent];
-/// `GUI_GAP_REGISTER.md` **CV-22**: the two fields every addressable entity
-/// has, factions and cultures included.
+/// `GUI_GAP_REGISTER.md` **CV-22**: the kinds that carry a **name**.
+///
+/// It used to be called "the two fields every addressable entity has", and
+/// that stopped being true on 2026-09-06: `EntityKind::Landmark` is
+/// addressable and has no name. `cartalith_civ::landmark` generates a *kind*
+/// and a *cell* and never names one, so a landmark is offered
+/// [`LANDMARK`]'s `landmark_type` instead and is absent from this list on
+/// purpose. Putting "Waterfall" in a Name row would be Cartalith naming a
+/// feature the engine did not name.
 const EVERY: &[EntityKind] = &[
     EntityKind::Settlement,
     EntityKind::Province,
@@ -64,6 +71,22 @@ const EVERY: &[EntityKind] = &[
     EntityKind::Faction,
     EntityKind::Culture,
 ];
+/// Every kind an `entity_type` row can be written for — [`EVERY`] plus the
+/// landmark. This is the one field that is genuinely universal.
+const ADDRESSABLE: &[EntityKind] = &[
+    EntityKind::Settlement,
+    EntityKind::Province,
+    EntityKind::Continent,
+    EntityKind::Faction,
+    EntityKind::Culture,
+    EntityKind::Landmark,
+];
+/// Owner ruling 13's own three fields. Each is a member of
+/// `cartalith_civ::landmark::Landmark` this port measures rather than a
+/// property invented to fill a note; the record's `score` and `importance`
+/// are deliberately **not** here, because a bare `0..1` in someone's prose is
+/// a number with no scale beside it and the dock is where those belong.
+const LANDMARK: &[EntityKind] = &[EntityKind::Landmark];
 const F: &[EntityKind] = &[EntityKind::Faction];
 /// `GUI_GAP_REGISTER.md` **CV-02**.
 const C: &[EntityKind] = &[EntityKind::Culture];
@@ -71,8 +94,16 @@ const C: &[EntityKind] = &[EntityKind::Culture];
 /// through its capital; a **culture does not resolve to one at all** — it is
 /// a naming vocabulary several factions can share, so any point offered for
 /// it would be a fabrication.
-const PLACED: &[EntityKind] =
-    &[EntityKind::Settlement, EntityKind::Province, EntityKind::Continent, EntityKind::Faction];
+/// A landmark is the most literally placed of all of them: `Landmark::x` and
+/// `Landmark::y` **are** a cell, with no capital, centroid or seed to go
+/// through.
+const PLACED: &[EntityKind] = &[
+    EntityKind::Settlement,
+    EntityKind::Province,
+    EntityKind::Continent,
+    EntityKind::Faction,
+    EntityKind::Landmark,
+];
 /// A named list of member settlements, and the population that follows from
 /// it — a province partitions a faction, so both aggregate the same way, and
 /// a culture aggregates over the factions that speak it.
@@ -82,7 +113,14 @@ const PF: &[EntityKind] = &[EntityKind::Province, EntityKind::Faction, EntityKin
 /// §19's own group order.
 pub const FIELDS: &[ExportField] = &[
     ExportField { key: "name", group: "Identity", label: "Name", kinds: EVERY },
-    ExportField { key: "entity_type", group: "Identity", label: "Entity type", kinds: EVERY },
+    ExportField { key: "entity_type", group: "Identity", label: "Entity type", kinds: ADDRESSABLE },
+    // Owner ruling 13's Identity row for a landmark, standing where `name`
+    // stands for every other kind: `LandmarkKindSpec::label` -- "Waterfall",
+    // "Mountain pass" -- resolved from `Landmark::kind` through
+    // `kind_spec()`. A `kind` that does not resolve costs the row rather
+    // than being shown raw, which is the rule `LandmarkDto` already applies
+    // to an unknown kind on load.
+    ExportField { key: "landmark_type", group: "Identity", label: "Landmark type", kinds: LANDMARK },
     // A faction's own three roster vocabularies (CV-22). `ECONOMY_SCOPE.md`
     // found none of them drives anything in either codebase -- which is the
     // argument for exporting them into a note, where an author's own prose
@@ -101,6 +139,22 @@ pub const FIELDS: &[ExportField] = &[
     // seat of power is the coordinate a note would want.
     ExportField { key: "coordinates", group: "Geography", label: "Coordinates", kinds: PLACED },
     ExportField { key: "elevation", group: "Geography", label: "Elevation", kinds: S },
+    // **A separate key from `elevation` above, and the unit is the whole
+    // reason.** A settlement's `elevation` is the normalised `0..1` field
+    // value `cartalith_godot`'s `SettlementExplanation` carries
+    // (`elevation: ws.field[i]`, the raw height raster), formatted `{:.3}`;
+    // a landmark's
+    // `Landmark::elevation` is documented as **metres above sea level**.
+    // Sharing one key would have put "1240" and "0.612" under one "Elevation"
+    // label in the same registry, which is the mistake of comparing two
+    // numbers that were never in the same unit.
+    ExportField { key: "elevation_m", group: "Geography", label: "Elevation (m)", kinds: LANDMARK },
+    // Research §22's `causal_chain`, ordered cause -> consequence ->
+    // landmark, with the measured values in it. It is the one field here
+    // that is prose rather than a datum, and it is the reason a landmark is
+    // worth linking to a note at all: it says *why this is here*, which is
+    // exactly what an author would otherwise write by hand.
+    ExportField { key: "causal", group: "Geography", label: "Causal chain", kinds: LANDMARK },
     ExportField { key: "biome", group: "Geography", label: "Biome", kinds: S },
     ExportField { key: "region", group: "Geography", label: "Province", kinds: S },
     ExportField { key: "area", group: "Geography", label: "Area", kinds: &[EntityKind::Continent, EntityKind::Faction] },
@@ -306,6 +360,81 @@ mod tests {
         assert_eq!(
             body,
             "\n## Cartalith\n\n**Identity**\n- Name: Nareth\n\n**Map**\n- Local map: ![](.cartalith/maps/settlement_42_local.png)\n"
+        );
+    }
+
+    /// Owner ruling 13's registry half: what a landmark is and is not
+    /// offered, asserted against **literal key lists** rather than against
+    /// the `LANDMARK` constant, so renaming a key in both places at once
+    /// still goes red.
+    ///
+    /// The negative half is the load-bearing one. A landmark is not offered
+    /// `name`, because `cartalith_civ::landmark` never names one and a
+    /// "Name: Waterfall" row would be Cartalith inventing one; it is not
+    /// offered `elevation`, because that key is the settlement's normalised
+    /// `0..1` field value and a landmark's is metres; and it is not offered
+    /// any of the settlement/faction aggregates, which it has no members to
+    /// aggregate over.
+    #[test]
+    fn a_landmark_is_offered_its_own_three_fields_and_never_a_name() {
+        let all = offer(EntityKind::Landmark, &|_| true);
+        let keys: Vec<&str> = all.iter().map(|f| f.key).collect();
+        assert_eq!(
+            keys,
+            [
+                "entity_type",
+                "landmark_type",
+                "coordinates",
+                "elevation_m",
+                "causal",
+                "map_immediate",
+                "map_local",
+                "map_regional",
+            ],
+            "registry order is the order of the note"
+        );
+        for absent in ["name", "elevation", "population", "settlements", "faction", "area", "biome"] {
+            assert!(keys.iter().all(|k| *k != absent), "a landmark was offered {absent}");
+        }
+        // And every one of the three is landmark-only: no other kind may
+        // grow an "Elevation (m)" row that means something different.
+        for k in [EntityKind::Settlement, EntityKind::Province, EntityKind::Continent, EntityKind::Faction, EntityKind::Culture] {
+            let other: Vec<&str> = offer(k, &|_| true).iter().map(|f| f.key).collect();
+            for mine in ["landmark_type", "elevation_m", "causal"] {
+                assert!(other.iter().all(|x| *x != mine), "{} was offered {mine}", k.as_str());
+            }
+            assert!(other.iter().any(|x| *x == "name"), "{} still has a name", k.as_str());
+        }
+        // A landmark whose kind did not resolve supplies no `landmark_type`,
+        // and is not offered a blank one -- §20 through `offer`'s own gate.
+        let unresolved = offer(EntityKind::Landmark, &|k| k != "landmark_type");
+        assert!(unresolved.iter().all(|f| f.key != "landmark_type"));
+        assert!(unresolved.iter().any(|f| f.key == "coordinates"));
+
+        // And the block it renders. `render_body` re-opens a group header
+        // whenever a row's group differs from the previous **emitted** row's,
+        // so a Geography field placed after an Infrastructure one would draw
+        // `**Geography**` twice; `causal` sits beside `elevation_m` in the
+        // registry for that reason, and this measures it rather than
+        // reasoning about it.
+        let body = render_body(
+            "Cartalith",
+            &keys.iter().map(|k| k.to_string()).collect::<Vec<_>>(),
+            &|k| match k {
+                "entity_type" => Some("landmark".into()),
+                "landmark_type" => Some("Waterfall".into()),
+                "coordinates" => Some("120, 64".into()),
+                "elevation_m" => Some("1,240 m".into()),
+                "causal" => Some("hard cap rock \u{2192} knickpoint retreat \u{2192} waterfall".into()),
+                _ => None,
+            },
+        );
+        assert_eq!(body.matches("**Geography**").count(), 1, "{body}");
+        assert_eq!(
+            body,
+            "\n## Cartalith\n\n**Identity**\n- Entity type: landmark\n- Landmark type: Waterfall\n\
+             \n**Geography**\n- Coordinates: 120, 64\n- Elevation (m): 1,240 m\n\
+             - Causal chain: hard cap rock \u{2192} knickpoint retreat \u{2192} waterfall\n"
         );
     }
 

@@ -152,9 +152,19 @@ impl WorldGen {
     /// string this engine actually parses rather than a transcribed literal.
     ///
     /// `"faction"` joined the list on 2026-08-25 (`GUI_GAP_REGISTER.md`
-    /// **CV-22**) and `"culture"` the same day (**CV-02**). `"poi"` is
-    /// deliberately absent and always will be while this port has no
-    /// point-of-interest entity (CV-01).
+    /// **CV-22**), `"culture"` the same day (**CV-02**), and `"landmark"` on
+    /// 2026-09-06 (owner ruling 13). `"poi"` is deliberately absent and
+    /// always will be while this port has no point-of-interest entity
+    /// (CV-01).
+    ///
+    /// **Nothing in `shell/` calls this yet.** Measured 2026-09-06:
+    /// `grep -rn "vault_entity_kinds" godot-project/shell/*.gd` returns the
+    /// `engine_bridge.gd` wrapper's own four lines (4034-4036, 4042) and
+    /// two doc-comment mentions in `app.gd`, and no call site. So adding a
+    /// kind here moves no pixel today; it states what the engine can
+    /// address, which is the contract this method exists to hold. The
+    /// fallback literal inside that wrapper — the one a build too old for
+    /// this binding falls back to — still lists five and is now one short.
     #[func]
     fn vault_entity_kinds(&self) -> PackedStringArray {
         [
@@ -163,10 +173,54 @@ impl WorldGen {
             EntityKind::Continent,
             EntityKind::Faction,
             EntityKind::Culture,
+            EntityKind::Landmark,
         ]
         .iter()
         .map(|k| GString::from(k.as_str()))
         .collect()
+    }
+
+    /// The `entity_id` to pass every `vault_*` call for the landmark whose
+    /// `cartalith_civ::landmark::Landmark::key()` is `key` -- owner ruling
+    /// 13's one new binding, and the only way GDScript can address a
+    /// landmark at all, because `landmarks()` deliberately publishes
+    /// `Landmark::id` (a position) and not this.
+    ///
+    /// `{ok, error, entity_id, label}`.
+    ///
+    /// **It resolves against the current run rather than just hashing the
+    /// string.** `cartalith_vault::links::landmark_entity_id` is a total
+    /// function -- it answers for `""` as readily as for
+    /// `"waterfall@120,64"` -- so hashing alone would hand the caller a
+    /// plausible id for a landmark that does not exist and let them file a
+    /// note against nothing. A key with no landmark behind it is an `error`
+    /// here, and `entity_id` is **absent** from the dictionary rather than
+    /// present as a zero.
+    ///
+    /// `label` is `LandmarkKindSpec::label` plus the cell -- "Waterfall (120,
+    /// 64)" -- which is what `vault_attach`'s `entity_label` wants and what
+    /// `cartalith_vault::template::suggested_path` turns into
+    /// `Landmarks/Waterfall (120, 64).md`. A landmark has no name of its own
+    /// (see `export.rs`'s `EVERY`), so this is a designation, not one.
+    #[func]
+    fn vault_landmark_entity_id(&self, key: GString) -> VarDictionary {
+        let key = key.to_string();
+        let Some(run) = self.landmark_store.last.as_ref() else {
+            return err("No landmark pass has run for this world.");
+        };
+        let Some(lm) = landmark_with_entity_id(
+            &run.landmarks,
+            cartalith_vault::links::landmark_entity_id(&key),
+        )
+        .filter(|lm| lm.key() == key) else {
+            return err(format!("No landmark in this run has the key {key:?}."));
+        };
+        let mut d = ok();
+        d.set("entity_id", cartalith_vault::links::landmark_entity_id(&key));
+        if let Some(spec) = cartalith_civ::landmark::kind_spec(&lm.kind) {
+            d.set("label", format!("{} ({}, {})", spec.label, lm.x, lm.y));
+        }
+        d
     }
 
     // -- searching (§9, the owner's 2026-08-25 direction) ------------------
@@ -1048,6 +1102,13 @@ impl WorldGen {
     /// civ layer — `CivData`'s own doc comment), or for an id that no longer
     /// resolves. An entity that has gone away is not an error here; the panel
     /// shows the link's stored `entity_label` and offers a re-bind.
+    ///
+    /// **Two kinds are answered before the `civ` guard and are not subject to
+    /// that first clause.** A culture is seven compile-time rows and is real
+    /// with no world at all; a landmark (owner ruling 13, 2026-09-06) lives
+    /// in `self.landmark_store`, which the landmark pass fills without ever
+    /// reading `CivData` — so both would have returned empty for reasons that
+    /// are not true of them.
     pub(crate) fn entity_values(&self, kind: EntityKind, entity_id: i64) -> BTreeMap<&'static str, String> {
         let mut out: BTreeMap<&'static str, String> = BTreeMap::new();
 
@@ -1093,6 +1154,48 @@ impl WorldGen {
                 out.insert("settlements", names.join(", "));
                 out.insert("population", thousands(pop));
             }
+            return out;
+        }
+
+        // Owner ruling 13, 2026-09-06. Answered before the `civ` guard for
+        // the same reason a culture is, and a different one: the landmark
+        // pass reads `WorldSource::Generated` and never touches `CivData`,
+        // so a world with landmarks and no civ layer is an ordinary state
+        // rather than an edge case, and gating this on `self.civ` would show
+        // an empty panel for every one of them.
+        //
+        // **Resolution is by `Landmark::key()`, walked, never by index** --
+        // see [`landmark_with_entity_id`]. A landmark that is not in the
+        // current run answers an empty map, which is `entity_values`' own
+        // documented "an entity that has gone away is not an error here".
+        if kind == EntityKind::Landmark {
+            let Some(lm) = self.landmark_for_entity(entity_id) else { return out };
+            out.insert("entity_type", kind.as_str().to_string());
+            // `LandmarkKindSpec::label`, resolved rather than title-cased
+            // from the key: "river_confluence" is "River confluence" and
+            // `capitalise` would render it "River_confluence". A kind that
+            // does not resolve costs the row -- the same rule `LandmarkDto`
+            // applies on load -- rather than showing a machine token.
+            if let Some(spec) = cartalith_civ::landmark::kind_spec(&lm.kind) {
+                out.insert("landmark_type", spec.label.to_string());
+            }
+            out.insert("coordinates", format!("{}, {}", lm.x, lm.y));
+            // `Landmark::elevation` is **metres above sea level** and says so
+            // in its own doc; `elevation_m` names the unit for exactly that
+            // reason, and is a different registry key from the settlement's
+            // normalised `elevation`. A non-finite value is omitted rather
+            // than printed: "we did not measure this" is not a number.
+            if lm.elevation.is_finite() {
+                out.insert("elevation_m", format!("{} m", thousands(lm.elevation.round() as i64)));
+            }
+            // Research 22's `causal_chain`, joined cause-first with the
+            // arrow its own doc comment uses ("ordered cause -> consequence
+            // -> landmark"). Empty stays absent -- an empty chain is a run
+            // that recorded none, not a landmark with no cause.
+            if !lm.causal.is_empty() {
+                out.insert("causal", lm.causal.join(" \u{2192} "));
+            }
+            self.append_snapshot_fields(&mut out, kind, entity_id);
             return out;
         }
 
@@ -1249,27 +1352,49 @@ impl WorldGen {
             // (`cartalith-rust-conventions`). An impossible branch is not
             // worth a way to crash.
             EntityKind::Culture => {}
+            // Answered above, before the `civ` guard, for the same reason
+            // `Culture` is: a landmark run needs `WorldSource::Generated`
+            // and no civ layer at all, so gating it on `self.civ` would have
+            // hidden every landmark from a user who has never pressed
+            // Recompute. Same empty-arm reasoning as the line above.
+            EntityKind::Landmark => {}
         }
-        // §19's Map group — the one set of values that is not read out of
-        // `CivData` at all, because a snapshot is a file somebody generated
-        // rather than a property of the world. Filed on the link store by
-        // `vault_snapshot`, and absent until one exists, which is what keeps
-        // `export::offer` from putting a Map checkbox in front of a user with
-        // no image behind it.
-        //
-        // The value is the Markdown image `export.rs`'s module doc specifies:
-        // a relative path, never a base64 payload (§22).
-        //
-        // **A filed path is a record that a snapshot was written, not proof
-        // it is still there** (2026-09-05). The store is the only thing this
-        // loop used to consult, so deleting or moving `.cartalith/maps/*.png`
-        // from outside Cartalith left the Map checkbox offered and let
-        // `vault_block_body` write `![](…)` into the user's own note pointing
-        // at nothing — §20's "must not expose information that the entity
-        // does not possess" failing on the one field whose value lives
-        // outside the process. `snapshot_on_disk` closes it, and only ever
-        // *removes* a field: `None` (this device cannot check) keeps the old
-        // behaviour rather than hiding a snapshot nobody verified was gone.
+        self.append_snapshot_fields(&mut out, kind, entity_id);
+        out
+    }
+
+    /// §19's Map group appended to `out` — the one set of values that is not
+    /// read out of `CivData` at all, because a snapshot is a file somebody
+    /// generated rather than a property of the world. Filed on the link store
+    /// by `vault_snapshot`, and absent until one exists, which is what keeps
+    /// `export::offer` from putting a Map checkbox in front of a user with
+    /// no image behind it.
+    ///
+    /// The value is the Markdown image `export.rs`'s module doc specifies:
+    /// a relative path, never a base64 payload (§22).
+    ///
+    /// **A filed path is a record that a snapshot was written, not proof
+    /// it is still there** (2026-09-05). The store is the only thing this
+    /// loop used to consult, so deleting or moving `.cartalith/maps/*.png`
+    /// from outside Cartalith left the Map checkbox offered and let
+    /// `vault_block_body` write `![](…)` into the user's own note pointing
+    /// at nothing — §20's "must not expose information that the entity
+    /// does not possess" failing on the one field whose value lives
+    /// outside the process. `snapshot_on_disk` closes it, and only ever
+    /// *removes* a field: `None` (this device cannot check) keeps the old
+    /// behaviour rather than hiding a snapshot nobody verified was gone.
+    ///
+    /// Extracted from the tail of [`WorldGen::entity_values`] on 2026-09-06,
+    /// unchanged, because owner ruling 13's landmark arm answers **before**
+    /// the `civ` guard and still has to reach it: a landmark is in
+    /// `export::PLACED`, so it is offered the three Map fields exactly as a
+    /// settlement is.
+    fn append_snapshot_fields(
+        &self,
+        out: &mut BTreeMap<&'static str, String>,
+        kind: EntityKind,
+        entity_id: i64,
+    ) {
         let key = entity_key(kind, entity_id);
         for (field, radius, _) in export::MAP_RADII {
             if let Some(rel) = self.vault.store.snapshot(&key, radius) {
@@ -1279,7 +1404,22 @@ impl WorldGen {
                 out.insert(*field, format!("![]({rel})"));
             }
         }
-        out
+    }
+
+    /// The landmark in the **current run** that `entity_id` addresses, or
+    /// `None`.
+    ///
+    /// `None` is the ordinary state, not a failure: `LandmarkStore::last` is
+    /// dropped by `LandmarkStore::invalidate()`, which `WorldGen::absorb`,
+    /// `center_landmasses` and `load_save` all call (measured 2026-09-06;
+    /// `generate`/`generate_sized` reach it through `absorb`) — so between a
+    /// regenerate and the next landmark pass every landmark link is
+    /// unresolved. `project_open` is the exception and restores `last` from
+    /// the archive's own `LandmarksDoc.results`. `SAVEFILE_COMPAT.md` 13.3.5's rule
+    /// applies -- keep the link, report it, write it back unchanged -- and
+    /// nothing here removes one.
+    fn landmark_for_entity(&self, entity_id: i64) -> Option<&cartalith_civ::landmark::Landmark> {
+        landmark_with_entity_id(&self.landmark_store.last.as_ref()?.landmarks, entity_id)
     }
 
     /// Whether the image a filed snapshot points at is still on disk.
@@ -1356,25 +1496,43 @@ impl WorldGen {
     /// naming vocabulary several factions share, so any point offered for it
     /// would be a fabrication).
     ///
-    /// The three lookups mirror [`WorldGen::entity_values`]' own arms — a
+    /// The lookups mirror [`WorldGen::entity_values`]' own arms — a
     /// settlement by `tid`, a province by its capital, a continent by its
-    /// centroid — deliberately rather than parsing the `coordinates` string
+    /// centroid, a faction by its seat of power, a **landmark by its own
+    /// cell** — deliberately rather than parsing the `coordinates` string
     /// that function formats. A snapshot centred on a re-parsed display
     /// string would be one rounding decision away from a different cell.
+    /// (This paragraph said "the three lookups" while there were four, and
+    /// is now written against the match rather than counted.)
     pub(crate) fn entity_cell(&self, kind: EntityKind, entity_id: i64) -> Option<(i64, i64)> {
-        let civ = self.civ.as_ref()?;
         let (gw, gh) = (self.gw.max(0) as i64, self.gh.max(0) as i64);
         let (x, y) = match kind {
+            // Owner ruling 13. **The only arm that does not consult `civ`**,
+            // which is why the `let civ = self.civ.as_ref()?` that used to
+            // stand above this match now lives inside the four arms that
+            // need it: a landmark run needs no civ layer, and hoisting the
+            // guard would have made every landmark unsnapshottable until
+            // someone pressed Recompute.
+            //
+            // A landmark is the most literally placed kind here -- `x` and
+            // `y` *are* the cell, with no capital, centroid or seed in
+            // between.
+            EntityKind::Landmark => {
+                landmark_cell(&self.landmark_store.last.as_ref()?.landmarks, entity_id)?
+            }
             EntityKind::Settlement => {
+                let civ = self.civ.as_ref()?;
                 let s = civ.settlements.iter().find(|s| s.tid as i64 == entity_id)?;
                 (s.placement.x as i64, s.placement.y as i64)
             }
             EntityKind::Province => {
+                let civ = self.civ.as_ref()?;
                 let p = civ.province_list.iter().find(|p| p.id as i64 == entity_id)?;
                 let cap = civ.settlements.get(p.capital_settlement_index)?;
                 (cap.placement.x as i64, cap.placement.y as i64)
             }
             EntityKind::Continent => {
+                let civ = self.civ.as_ref()?;
                 let c = civ.continents.iter().find(|c| c.id as i64 == entity_id)?;
                 (c.cx.round() as i64, c.cy.round() as i64)
             }
@@ -1387,6 +1545,7 @@ impl WorldGen {
                 // one, and a faction with no capital is a real state
                 // (`civ_recompute` can leave one) rather than a lookup to
                 // paper over.
+                let civ = self.civ.as_ref()?;
                 if entity_id < 1 || entity_id as usize >= civ.faction_roster.0.len() {
                     return None;
                 }
@@ -1421,6 +1580,52 @@ impl WorldGen {
             self.map_width_km / self.gw as f64
         }
     }
+}
+
+/// The landmark in `landmarks` whose `key()` hashes to `entity_id` --
+/// owner ruling 13's whole resolution path, in one place and free of
+/// `WorldGen` so it can be tested without a Godot engine.
+///
+/// **It walks and recomputes; it never indexes.** That is the property the
+/// ruling turns on: `Landmark::id` is "a position in
+/// `LandmarkResult::landmarks`" that moves when a cap moves or a kind is
+/// disarmed, while `key()` is `"<kind>@<x>,<y>"` and moves only when the
+/// landmark itself does. A re-run that places different landmarks around this
+/// one leaves this one's key -- and therefore this lookup -- alone.
+///
+/// **An ambiguous id resolves to nothing.** `cartalith_vault::links::
+/// landmark_entity_id` is 52 bits, so a collision is possible (around 5e-12
+/// for a few hundred landmarks) and "unlikely" is not "cannot": taking the
+/// first match would silently attach someone's note to the wrong feature,
+/// while `None` makes it an unresolved link they can re-bind. Two rows with
+/// the same key -- which `the_stable_key_is_unique_within_a_run` says a real
+/// run never produces -- take the same branch.
+pub(crate) fn landmark_with_entity_id(
+    landmarks: &[cartalith_civ::landmark::Landmark],
+    entity_id: i64,
+) -> Option<&cartalith_civ::landmark::Landmark> {
+    let mut hits = landmarks
+        .iter()
+        .filter(|lm| cartalith_vault::links::landmark_entity_id(&lm.key()) == entity_id);
+    let first = hits.next()?;
+    hits.next().is_none().then_some(first)
+}
+
+/// `(x, y)` for the landmark `entity_id` addresses, in grid cells.
+///
+/// A one-line wrapper, and it exists for one reason: [`WorldGen::entity_cell`]
+/// cannot be unit-tested — `WorldGen` is a cdylib `GodotClass` — so the `(x,
+/// y)` read inside it is unreachable by any test in this workspace.
+/// **Measured**: with the tuple written inline there, mutating it to `(lm.y,
+/// lm.x)` **SURVIVED** the suite; against this function it is killed by
+/// `a_landmarks_cell_is_x_then_y`. The bounds check stays in `entity_cell`,
+/// which is the only caller that knows the grid.
+pub(crate) fn landmark_cell(
+    landmarks: &[cartalith_civ::landmark::Landmark],
+    entity_id: i64,
+) -> Option<(i64, i64)> {
+    let lm = landmark_with_entity_id(landmarks, entity_id)?;
+    Some((lm.x as i64, lm.y as i64))
 }
 
 /// `8420` -> `8,420`. The one place the vault formats a number, so a note
@@ -1491,6 +1696,129 @@ mod tests {
         assert_eq!(EntityKind::parse("poi"), None, "POI is not a ported concept");
         assert_eq!(EntityKind::parse("Settlement"), None);
         assert_eq!(EntityKind::parse(""), None);
+    }
+
+    /// One landmark, for the three tests below. Every field but `kind`, `x`
+    /// and `y` is deliberately *wrong* in the second run — `id`, `score`,
+    /// `importance`, `elevation` and `seed` all move — because those are
+    /// exactly the members a resolver must not be reading.
+    fn lm(id: u64, kind: &str, x: usize, y: usize) -> cartalith_civ::landmark::Landmark {
+        cartalith_civ::landmark::Landmark {
+            id,
+            kind: kind.to_string(),
+            class: cartalith_civ::landmark::LandmarkClass::Regional,
+            x,
+            y,
+            elevation: 100.0 * id as f64,
+            score: 0.5,
+            importance: 0.5,
+            causal: vec!["a".into(), "b".into()],
+            seed: id,
+        }
+    }
+
+    /// **Owner ruling 13's central claim, measured rather than asserted.** A
+    /// landmark's note survives a landmark pass that moves every *other*
+    /// landmark.
+    ///
+    /// The second run is deliberately hostile to anything but the key: the
+    /// kept landmark's `id` goes 3 -> 1, its `elevation` and `seed` move with
+    /// it, two neighbours are gone, three new ones appear, and the list is in
+    /// a different order. `key()` — `"peak@40,50"` — is the only thing that
+    /// did not move, and the lookup still lands on it.
+    #[test]
+    fn a_landmark_note_survives_a_rerun_that_moves_the_others() {
+        let first = [
+            lm(1, "waterfall", 10, 12),
+            lm(2, "cliff", 20, 22),
+            lm(3, "peak", 40, 50),
+            lm(4, "mine", 60, 61),
+        ];
+        let kept = cartalith_vault::links::landmark_entity_id("peak@40,50");
+        assert_eq!(landmark_with_entity_id(&first, kept).map(|l| l.id), Some(3));
+
+        // A second pass: a lower cap dropped two, three others were placed,
+        // and the survivor's own `id` is now 1.
+        let second = [
+            lm(1, "peak", 40, 50),
+            lm(2, "waterfall", 11, 12),
+            lm(3, "gorge", 70, 70),
+            lm(4, "spring", 5, 5),
+            lm(5, "harbour", 80, 3),
+        ];
+        let found = landmark_with_entity_id(&second, kept).expect("the kept landmark still resolves");
+        assert_eq!(found.key(), "peak@40,50");
+        assert_eq!(found.id, 1, "and it is found in spite of its id having moved");
+        assert_eq!(found.elevation, 100.0, "the row really is the second run's, not a stale reference");
+
+        // The waterfall moved one cell, so its key moved with it — which is
+        // the honest answer: that is a different feature, not the same one
+        // relocated, and §13.3.5 wants it reported rather than re-bound
+        // behind the user's back.
+        let moved = cartalith_vault::links::landmark_entity_id("waterfall@10,12");
+        assert!(landmark_with_entity_id(&second, moved).is_none());
+        assert!(landmark_with_entity_id(&second, cartalith_vault::links::landmark_entity_id("waterfall@11,12")).is_some());
+    }
+
+    /// A note whose landmark is not in the current run is an **absent
+    /// entity**, not an error and not a deletion.
+    ///
+    /// Three ways to be absent, and all three answer the same `None`: the
+    /// kind was disarmed, the cap dropped it, or no pass has run at all —
+    /// which is the state `WorldGen::generate` and `absorb` leave behind
+    /// (`LandmarkStore::invalidate`), so it is the *ordinary* one after a
+    /// regenerate rather than an edge case.
+    #[test]
+    fn a_landmark_that_is_no_longer_placed_is_absent_not_an_error() {
+        let gone = cartalith_vault::links::landmark_entity_id("waterfall@120,64");
+        // No pass has run.
+        assert!(landmark_with_entity_id(&[], gone).is_none());
+        // The kind was disarmed; everything else is still there.
+        let run = [lm(1, "peak", 120, 64), lm(2, "cliff", 3, 4)];
+        assert!(landmark_with_entity_id(&run, gone).is_none(), "same cell, different kind, different entity");
+        // And nothing in the resolver can panic on the way: it is one
+        // `#[func]` from the gdext boundary.
+        assert!(landmark_with_entity_id(&run, i64::MIN).is_none());
+        assert!(landmark_with_entity_id(&run, 0).is_none());
+    }
+
+    /// `(x, y)`, in that order, and asymmetric fixtures so a swap cannot
+    /// pass. The one thing `WorldGen::entity_cell` adds on top — the
+    /// grid-bounds check — stays there and is not reachable from here.
+    #[test]
+    fn a_landmarks_cell_is_x_then_y() {
+        let run = [lm(1, "peak", 40, 50), lm(2, "cliff", 7, 3)];
+        assert_eq!(
+            landmark_cell(&run, cartalith_vault::links::landmark_entity_id("peak@40,50")),
+            Some((40, 50))
+        );
+        assert_eq!(
+            landmark_cell(&run, cartalith_vault::links::landmark_entity_id("cliff@7,3")),
+            Some((7, 3))
+        );
+        // And an absent landmark has no cell rather than the origin.
+        assert_eq!(landmark_cell(&run, cartalith_vault::links::landmark_entity_id("mine@0,0")), None);
+        assert_eq!(landmark_cell(&[], 1), None);
+    }
+
+    /// An ambiguous id resolves to **nothing**, not to the first match.
+    ///
+    /// `landmark_entity_id` is 52 bits, so two keys *can* collide; a real run
+    /// also cannot contain two rows with one key
+    /// (`the_stable_key_is_unique_within_a_run` measures that on a world).
+    /// Both reach this branch, and the branch exists because taking the first
+    /// match would attach someone's note to the wrong feature silently, while
+    /// `None` makes it an unresolved link they can re-bind.
+    #[test]
+    fn an_ambiguous_landmark_id_resolves_to_nothing() {
+        let id = cartalith_vault::links::landmark_entity_id("peak@40,50");
+        assert!(landmark_with_entity_id(&[lm(1, "peak", 40, 50)], id).is_some());
+        let twice = [lm(1, "peak", 40, 50), lm(2, "cliff", 9, 9), lm(3, "peak", 40, 50)];
+        assert!(landmark_with_entity_id(&twice, id).is_none(), "two claimants means no claimant");
+        // The unambiguous neighbour in the same list is unaffected.
+        assert!(
+            landmark_with_entity_id(&twice, cartalith_vault::links::landmark_entity_id("cliff@9,9")).is_some()
+        );
     }
 
     /// `GUI_GAP_REGISTER.md` **CV-02**: the kind the vault gained on
