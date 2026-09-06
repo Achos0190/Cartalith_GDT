@@ -1595,9 +1595,15 @@ func _assets(p: PopupMenu) -> void:
 	##
 	## The confirmation is not this row's: `ID_CLEAR_LIBRARY` reaches
 	## `asset_library_window.gd::clear_library_now()` -> `_on_clear_library()`,
-	## which raises a `ConfirmationDialog` and clears only on `confirmed`.
-	## Checked at the symbol when the duplicate was dropped, rather than assumed
-	## to have survived the move.
+	## which raises a `DccWidgets.modal_card(..., MODAL_DESTRUCTIVE)` and clears
+	## only from that card's `modal_choices()` destructive branch.
+	##
+	## **Corrected 2026-09-07 (mechanism only; the behaviour claim held).** This
+	## and the twin claim in `_build_asset_pack_submenu`'s header both said
+	## `ConfirmationDialog` / `confirmed`; `asset_library_window.gd` contains
+	## neither string -- `grep -n 'ConfirmationDialog\|confirmed' shell/
+	## asset_library_window.gd` returns nothing. It does still confirm before
+	## acting, which is what the paragraph was written to assert.
 	_live(p, "Clear library…   destructive", ID_CLEAR_LIBRARY)
 	p.id_pressed.connect(_on_assets)
 
@@ -1875,10 +1881,16 @@ func _open_landmark_dock(family: String) -> void:
 
 # -- landmark bridge access, guarded ------------------------------------------
 #
-# A concurrent pass is writing these wrappers. Until they land the cascade draws
-# its one disclosed `_todo` row and the two real destinations at its foot, which
-# is the same degrade-rather-than-crash shape `_live`/`_todo` already give every
-# other unbacked row in this file.
+# **All three wrappers landed** -- `engine_bridge.gd` defines `landmark_kinds()`,
+# `landmark_settings()` and `landmark_funnels()`, and a live walk of the built
+# menu reads six families, 49 types and real armed/placed counts. The guards
+# below stay for the one case that still empties the list: a `libcartalith_
+# godot` older than this shell, which is what the `kinds.is_empty()` branch in
+# `_build_landmark_types_menu` now says at greater length.
+#
+# (This block said "a concurrent pass is writing these wrappers" from the day
+# the cascade was built until 2026-09-07, so it described the cascade as
+# degraded to one `_todo` row long after it had stopped being.)
 
 func _landmark_kinds() -> Array:
 	if _bridge == null or not _bridge.has_method("landmark_kinds"):
@@ -1956,7 +1968,10 @@ func _landmark_funnel_map() -> Dictionary:
 ## font colour; the badge-in-the-label shape is the one `_data()`'s route rows
 ## already use for the same reason). It still confirms before acting --
 ## `ID_CLEAR_LIBRARY` reaches `asset_library_window.gd::_on_clear_library()`,
-## which raises a `ConfirmationDialog` and only clears on `confirmed`.
+## which raises a `DccWidgets.modal_card(..., MODAL_DESTRUCTIVE)` and clears
+## only from that card's `modal_choices()` destructive branch. (Said
+## `ConfirmationDialog` / `confirmed` until 2026-09-07; that file contains
+## neither string. The behaviour claim -- it confirms -- was correct.)
 ##
 ## ## What this costs the command index, and the decision that closes it
 ##
@@ -2001,8 +2016,16 @@ func _landmark_funnel_map() -> Dictionary:
 ## click past a window this index already finds under `⧉ Asset library` -- an
 ## `EXTRAS` pointer for each would only ever open that same window, recreating
 ## inside this table the nine-shortcuts-to-one-window shape the owner's ruling
-## flattened out of the menu. The honest remaining gap is the window's own
-## search, still unbuilt, and still not this file's.
+## flattened out of the menu.
+##
+## **The gap this paragraph named is closed.** It ended *"The honest remaining
+## gap is the window's own search, still unbuilt"* -- written 2026-09-05, false
+## by 2026-09-06 and corrected here 2026-09-07. `asset_library_window.gd` has a
+## live search well in **both** compositions (`SEARCH_PLACEHOLDER`, wired at
+## `_build_window_bar()`'s phone and pointer branches into `_search_text` ->
+## `_refresh_grid()`), and `_slot_matches()` reads name, id, grid code, set and
+## tag. So the nine dropped rows' words are one window away and then findable
+## inside it, which is what the decision above assumed and could not yet cite.
 func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	_asset_pack_popup = PopupMenu.new()
 	_asset_pack_popup.name = "AssetPack"
@@ -2134,9 +2157,20 @@ func _pack_slot_totals() -> Dictionary:
 ## `open_asset_library()`, so the one item §2.3.1 describes as a modal opened a
 ## window that edits something else. The write binding it needed
 ## (`as_set_pack_info`) had been on the bridge the whole time; nothing called
-## it. Three fields, the modal the spec asks for, and the same
-## `ConfirmationDialog`-with-a-body shape `asset_library_window.gd`'s
-## `_prompt_text()` uses for its batch prompts.
+## it. Three fields, and the modal the spec asks for.
+##
+## **The cited precedent was wrong, and correcting it names a real gap
+## (2026-09-07).** This said the row uses "the same `ConfirmationDialog`-with-
+## a-body shape `asset_library_window.gd`'s `_prompt_text()` uses for its batch
+## prompts". `_prompt_text()` uses **`DccWidgets.modal_card(..., MODAL_CONFIRM,
+## 360)` + `modal_prose` + a `well()`-styled `LineEdit` + `modal_choices`** --
+## the shell's own card. `asset_library_window.gd` contains no
+## `ConfirmationDialog` at all. The body below is still a stock
+## `ConfirmationDialog` with `popup_centered()`, so this is the one row in
+## `Assets` that raises OS-styled modal chrome while the sibling row above it
+## (`Validate pack`) and the destructive row below (`Clear library…`) both use
+## `modal_card`. Left as-is deliberately: converting it changes what a user
+## sees, which is an owner call, not an audit's. Reported, not edited.
 func _open_pack_metadata() -> void:
 	var info: Dictionary = _bridge.as_pack_info()
 	var d := ConfirmationDialog.new()
@@ -2249,8 +2283,21 @@ func _on_assets(id: int) -> void:
 ## destinations were reachable from the menu and ten were not.
 ##
 ## The rows are generated from `DataManagerWindow.ROUTES` rather than retyped:
-## that table already carries the canvas's own label and badge for every route,
-## and a second copy here is a second thing to keep in step.
+## that table already carries a label and a badge for every route, and a second
+## copy here is a second thing to keep in step.
+##
+## **This said "the canvas's own label and badge for every route" until
+## 2026-09-07, and that overstated it.** Measured against the Data menu as
+## `DCC shell tablet 2560` draws it: five badges are the canvas's or a
+## deliberate truncation of it (`→ Assets` verbatim; `PNG · TIFF` -> `PNG`,
+## `.zip · fields` -> `.zip`, `image · tiles` -> `tiles`, `pack .zip` ->
+## `.zip`); two are dropped on purpose and say why in their `reason`
+## (Connected Sources' `vault · 412`, Check Data's `8 warnings`, both mockup
+## counts this build cannot produce); and **two are this port's own** --
+## `.geojson` on Export ▸ GIS and `map + atlas` on Export ▸ World Data, neither
+## of which appears in `Cartalith DCC Shell.dc.html`, `Cartalith Menu Structure
+## v2.dc.html` or `v3.dc.html` (`grep -c` = 0 in all three, 2026-09-07). The
+## labels themselves *are* the canvas's, all fifteen.
 ##
 ## One thing the canvas has that a `PopupMenu` cannot draw: its badge is a
 ## right-aligned second column in `13px 'IBM Plex Mono';color:#6f7478`. Godot's
@@ -2303,12 +2350,32 @@ func _data(p: PopupMenu) -> void:
 ## in this menu already is, and an eighth top-level menu for one window is
 ## the kind of bar growth `DCC_SHELL_SPEC.md` §2 exists to prevent.
 ##
-## One live row, because there is exactly one window behind it
-## (`vault_window.gd`, `MARKDOWN_VAULT_SCOPE.md` milestone 1) and a second
-## row onto the same window is the duplicate-owner shape this shell keeps
-## having to undo. Three of v3's seven rows are that window's own content and
-## say so in the tooltip; the other three have no implementation at all and
-## are `_todo`, not invented.
+## **Three live rows now, and the paragraph here claimed one until 2026-09-07.**
+## It read: *"One live row, because there is exactly one window behind it ... and
+## a second row onto the same window is the duplicate-owner shape this shell
+## keeps having to undo. Three of v3's seven rows are that window's own content
+## ...; the other three have no implementation at all and are `_todo`, not
+## invented."* Written at `8e3b824`, when the block was one `_live` and two
+## `_todo` (already three, not the six that sentence totals). Both `_todo` rows
+## were promoted when VA-01 and VA-02 landed, and the prose never followed:
+## **no row in this menu is `_todo` today** -- walked off the live `PopupMenu`,
+## all three carry `ID_VAULT` and are enabled.
+##
+## So: **one window (`vault_window.gd`, `MARKDOWN_VAULT_SCOPE.md` milestone 1),
+## three rows onto it**, folding all seven of v3's `▾ VAULT` rows -- connect/
+## relink, note templates, path convention, frontmatter mapping, sync
+## direction, missing & orphan notes, create-notes -- into three destinations,
+## each of which says in its tooltip which of the seven it carries. They are
+## three *labels* over one route, not three implementations; every one calls
+## `open_vault_overview()`, which is `open_for("", 0, "")`.
+##
+## **Known and reported rather than silently fixed:** that route is unscoped,
+## so the two lower rows land on the panel's top rather than on the section
+## their tooltip names -- and `vault_window.gd::_rebuild()` builds
+## `_build_create()` only when `scoped`, so `Create a note from a template…`
+## reaches a window with no template block on it until the user picks an entity
+## out of *All linked notes*. Section-scoping `open_vault_overview()` is a
+## behaviour change and an owner call.
 func _build_vault_rows(p: PopupMenu) -> void:
 	p.add_separator()
 	_live(p, "Markdown vault ▸ Connect · Browse · Links", ID_VAULT)
@@ -4716,9 +4783,13 @@ func _sync_region_checks(p: PopupMenu, id: int) -> void:
 	if i >= 0:
 		p.set_item_checked(i, not p.is_item_checked(i))
 
-## `_host` is `DccApp` (`app.gd`); these five fields are its own public
+## `_host` is `DccApp` (`app.gd`); these **six** fields are its own public
 ## `AcceptDialog`s, none reached through any new API. Grepped against
-## `app.gd` rather than trusted from memory -- the list has grown before.
+## `app.gd` rather than trusted from memory -- the list has grown before,
+## and this sentence said "five" while the array below held six (counted
+## 2026-09-07: the `for entry in [...]` literal has six rows). `app.gd`
+## declares **twelve** public window fields; which of the other six belong
+## here is a product question this comment does not answer.
 func _refresh_open_windows() -> void:
 	_windows_popup.clear()
 	_open_windows.clear()
