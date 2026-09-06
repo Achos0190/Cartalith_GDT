@@ -466,50 +466,54 @@ struct LabelDto {
 
 /// `annotations/icons.json` — every icon in `IconEditor::icons`.
 ///
-/// # Owner ruling 14 lands here, and the format half is not the blocker
+/// # Owner ruling 14, built 2026-09-06
 ///
 /// *"How does a generated landmark relate to the existing manual icon
 /// tool?"* — `LANDMARK_GENERATION_SCOPE.md` §4's open question 6, which asks
 /// it as *"one representation, two origins, or a wholly separate data/render
-/// path"* — **was answered on 2026-09-06**: `LARGE_ITEM_RULINGS.md` 14,
+/// path"* — was answered on 2026-09-06: `LARGE_ITEM_RULINGS.md` 14,
 /// *"ONE LAYER, TWO ORIGINS. One collection with an `origin` field. The
 /// renderer draws one layer; M6 spacing sees everything, so generation
 /// cannot place a landmark on top of a hand-placed icon; a regenerate
-/// replaces only the generated ones."* This comment described the question
-/// as open — and called it "question 15", a number nothing in the tree
-/// carries (`grep -rn 'question 15' --include=*.md .`) — and is corrected
-/// rather than deleted, because the *state* it described is still the state
-/// of the code.
+/// replaces only the generated ones."*
 ///
-/// **Three producers write into one list, and none of them marks its
-/// output**: click-placement ([`icon_bridge::IconEditor::place`]), the
-/// density brush ([`icon_bridge::IconEditor::brush_stamp`], 2026-09-03) and
-/// the generated placement pass ([`icon_bridge::IconEditor::generate`]) —
-/// whose `POI` family reads `landmark_store.last.landmarks` directly and
-/// turns each landmark into an ordinary
-/// `cartalith_assets::manual::ManualIcon`. So **a landmark's icon is still
-/// indistinguishable from a hand-placed one**, and reopening a project
-/// cannot tell them apart either.
+/// **Three producers write into one list, and the generated one now marks
+/// its output**: click-placement ([`icon_bridge::IconEditor::place`]) and
+/// the density brush ([`icon_bridge::IconEditor::brush_stamp`], 2026-09-03)
+/// write `cartalith_assets::manual::IconOrigin::Manual`; the generated
+/// placement pass ([`icon_bridge::IconEditor::generate`]) — whose `POI`
+/// family reads `landmark_store.last.landmarks` directly — writes
+/// `Generated`. This comment used to record the field as the missing half
+/// and is rewritten rather than deleted, because the migration rule it
+/// fixed is still the rule.
 ///
-/// **What ruling 14 needs that is not here, stated so the next pass does not
-/// re-derive it.** An `origin` member on [`IconDto`] is a forward-compatible
-/// change an older archive opens through unchanged — every field is
-/// `#[serde(default)]` — but it would have nothing true to write and nowhere
-/// to put what it read. The runtime collection is
-/// `IconEditor::icons: Vec<ManualIcon>`, and `ManualIcon`
-/// (`cartalith-assets/src/manual.rs`) has no provenance field; a save that
-/// stamped every row `"manual"` would be inventing a value for the generated
-/// ones, and a load that resolved `"generated"` would have nowhere to keep
-/// it. **The field belongs on `ManualIcon` and is set at the three producers
-/// above** — one field and nineteen struct literals across four files, one
-/// of them `cartalith-assets/tests/golden_parity_manual_icons.rs`. Counted
-/// 2026-09-06 with `grep -rn 'ManualIcon *{' --include=*.rs crates/`.
+/// **The wire spelling of `Manual` is an absent member, not `"manual"`.**
+/// [`IconDto::origin`] is `#[serde(skip_serializing_if = "String::is_empty")]`
+/// and the writer ([`icon_to_dto`]) emits nothing for a hand-placed row, so a
+/// project written before this field existed opens and re-saves
+/// **byte-identically** (`SAVEFILE_COMPAT.md` §6.2's "without data loss";
+/// asserted by `a_document_written_before_origin_reopens_and_re_serialises_byte_identically`).
+/// That is the same fact from the other side: absent means `Manual`, so
+/// writing `"manual"` would add bytes that carry no information and rewrite
+/// every existing project on first open.
 ///
-/// [`icon_from_dto`] is the one seam the load half then lands on, and the
-/// migration rule is already fixed by the file's own history: **a document
-/// written before `origin` existed carries only hand-placed icons**, because
-/// it predates the generated pass having anywhere to write. Absent must
-/// therefore read as `manual`, not as unknown.
+/// [`icon_from_dto`] is the one seam the load half lands on, and the
+/// migration rule is fixed by the file's own history: **a document written
+/// before `origin` existed carries only hand-placed icons**, because it
+/// predates the generated pass having anywhere to write. Absent therefore
+/// reads as `Manual`, not as unknown. A value that is neither known string
+/// costs the row, the answer `family` already gives.
+///
+/// **Not to be confused with `world.origin`** (`SAVEFILE_COMPAT.md` §16's
+/// `"gen"`/`"import"`/`"region"`, `bake_bridge::ORIGIN_GENERATED`), which is
+/// a different member in a different document with a different vocabulary —
+/// how the *height field* was produced, not who placed an icon.
+///
+/// **Generated icons are persisted here exactly as they always were**, as
+/// rows of this document, and this change adds only the `origin` marker to
+/// them. Whether they *should* live here at all — rather than being
+/// re-derived from `entities/landmarks.json` on open — is a separate
+/// decision that is not taken by this field.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct IconsDoc {
     #[serde(default)]
@@ -530,16 +534,49 @@ struct IconDto {
     set: Option<String>,
     #[serde(default)]
     scale: f64,
+    /// An `IconOrigin::key()`, or the empty string for "the member was not
+    /// there" — which is what a pre-2026-09-06 document and every
+    /// hand-placed row both look like. `skip_serializing_if` is what keeps
+    /// those two the same bytes; see [`IconsDoc`]'s own comment for why that
+    /// is the honest spelling of `Manual` rather than an omission.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    origin: String,
+}
+
+/// One `ManualIcon` as a row of `annotations/icons.json` — the inverse of
+/// [`icon_from_dto`], and extracted from `project_save_with_documents` for
+/// the same reason that one was extracted from `project_open`: owner ruling
+/// 14's `origin` gets exactly one seam on each side, and the writer's own
+/// choice to spell `Manual` as an absent member becomes something a test can
+/// assert instead of something a reader has to take on trust.
+fn icon_to_dto(i: &cartalith_assets::manual::ManualIcon) -> IconDto {
+    use cartalith_assets::manual::IconOrigin;
+    IconDto {
+        x: i.x,
+        y: i.y,
+        family: i.family.key().to_string(),
+        slot: i.slot.clone(),
+        set: i.set.clone(),
+        scale: i.scale,
+        // `Manual` is written as absent, so opening and re-saving a project
+        // that predates this field does not rewrite it.
+        origin: match i.origin {
+            IconOrigin::Manual => String::new(),
+            o => o.key().to_string(),
+        },
+    }
 }
 
 /// One row of `annotations/icons.json`, resolved — or `None` when the row
-/// names a family that cannot be placed at all.
+/// names a **family** that cannot be placed at all, or an **`origin`** that
+/// is present and unrecognised. Those are the only two drops; everything
+/// else here is a substitution.
 ///
 /// **Extracted from `project_open`'s own closure so that owner ruling 14's
 /// `origin` has exactly one seam to land on**, and so the two substitutions
 /// below can be asserted rather than only described. Nothing about the
 /// resolution changed in the extraction; the reporting of the drop did (see
-/// the call site).
+/// the call site). `origin` landed on that seam 2026-09-06.
 ///
 /// Two of §6.4a's rungs meet here and take opposite answers, which is the
 /// only thing in this function worth reading twice:
@@ -568,6 +605,19 @@ struct IconDto {
 /// `filter_map`s in it.
 fn icon_from_dto(d: &IconDto) -> Option<cartalith_assets::manual::ManualIcon> {
     let family = cartalith_assets::manual::ManualIconFamily::from_key(&d.family)?;
+    // Owner ruling 14's third answer, and the only one of the three that is a
+    // *migration* rather than a substitution: an absent `origin` is not a
+    // missing value to be guessed at, it is a document that predates the
+    // generated placement pass existing at all, so every row in it was placed
+    // by hand. An `origin` that is present but neither known string takes
+    // `family`'s answer above -- the row costs itself -- rather than being
+    // folded into `Manual`, which would silently relabel a newer writer's
+    // third origin as hand-placed.
+    let origin = if d.origin.is_empty() {
+        cartalith_assets::manual::IconOrigin::Manual
+    } else {
+        cartalith_assets::manual::IconOrigin::from_key(&d.origin)?
+    };
     Some(cartalith_assets::manual::ManualIcon {
         x: d.x,
         y: d.y,
@@ -575,6 +625,7 @@ fn icon_from_dto(d: &IconDto) -> Option<cartalith_assets::manual::ManualIcon> {
         slot: d.slot.clone(),
         set: d.set.clone(),
         scale: if d.scale > 0.0 { d.scale } else { 1.0 },
+        origin,
     })
 }
 
@@ -1825,20 +1876,7 @@ impl WorldGen {
             insert_doc(
                 &mut documents,
                 SLOT_ICONS,
-                &IconsDoc {
-                    icons: icons
-                        .icons
-                        .iter()
-                        .map(|i| IconDto {
-                            x: i.x,
-                            y: i.y,
-                            family: i.family.key().to_string(),
-                            slot: i.slot.clone(),
-                            set: i.set.clone(),
-                            scale: i.scale,
-                        })
-                        .collect(),
-                },
+                &IconsDoc { icons: icons.icons.iter().map(icon_to_dto).collect() },
             );
         }
 
@@ -2148,10 +2186,16 @@ impl WorldGen {
             // warning for the whole document rather than one per row, because
             // a corrupted `family` column would otherwise fill the dialog
             // with one line per icon and say the same thing each time.
+            //
+            // `family` was the only reason a row could be dropped until
+            // 2026-09-06; owner ruling 14's `origin` added a second, so the
+            // wording names both rather than blaming the wrong column. See
+            // [`icon_from_dto`] for why `origin` is exact-match and absent
+            // is not a drop.
             let dropped = doc.icons.len() - editor.icons.len();
             if dropped > 0 {
                 restore_warnings.push(format!(
-                    "{SLOT_ICONS}: {dropped} of {} icons skipped (unresolvable family)",
+                    "{SLOT_ICONS}: {dropped} of {} icons skipped (unresolvable family or origin)",
                     doc.icons.len()
                 ));
             }
@@ -4773,6 +4817,7 @@ mod icon_document_tests {
                     slot: "mountain".to_string(),
                     set: None,
                     scale: 1.0,
+                    origin: String::new(),
                 },
                 IconDto {
                     x: 7.5,
@@ -4781,6 +4826,7 @@ mod icon_document_tests {
                     slot: "city".to_string(),
                     set: None,
                     scale: 0.625,
+                    origin: String::new(),
                 },
                 IconDto {
                     x: 3.0,
@@ -4789,6 +4835,7 @@ mod icon_document_tests {
                     slot: "obelisk".to_string(),
                     set: Some("my pack".to_string()),
                     scale: 2.0,
+                    origin: String::new(),
                 },
                 IconDto {
                     x: 100.0,
@@ -4797,12 +4844,140 @@ mod icon_document_tests {
                     slot: "a_slot_no_pack_here_defines".to_string(),
                     set: None,
                     scale: 1.0,
+                    origin: String::new(),
                 },
             ],
         };
         // `insert_doc`'s own call, which is what puts this document in the
         // archive.
         assert_eq!(serde_json::to_string_pretty(&doc).expect("serialises"), ICONS_BEFORE_ORIGIN);
+    }
+
+    /// The whole chain MISTAKES.md's backward-compatibility rule asks for:
+    /// the frozen document **opens, resolves, and re-serialises
+    /// byte-identically** -- through [`icon_from_dto`] and [`icon_to_dto`],
+    /// the two seams a real save/open uses, not through serde alone.
+    ///
+    /// This is what makes "`Manual` is spelled as an absent member" a fact
+    /// about the *writer* rather than about a hand-built DTO: the icons
+    /// below are `IconOrigin::Manual` after resolution, and the bytes that
+    /// come back out carry no `origin` member at all.
+    #[test]
+    fn the_frozen_document_survives_a_full_resolve_and_write_back_unchanged() {
+        let doc: IconsDoc = serde_json::from_str(ICONS_BEFORE_ORIGIN).expect("parses");
+        let icons: Vec<_> = doc.icons.iter().filter_map(icon_from_dto).collect();
+        assert_eq!(icons.len(), 4, "a row was dropped on the way in");
+        let back = IconsDoc { icons: icons.iter().map(icon_to_dto).collect() };
+        assert_eq!(
+            serde_json::to_string_pretty(&back).expect("serialises"),
+            ICONS_BEFORE_ORIGIN,
+            "a load-and-save cycle rewrote a project written before `origin` existed"
+        );
+        assert!(
+            !ICONS_BEFORE_ORIGIN.contains("origin"),
+            "the fixture is no longer a pre-`origin` document"
+        );
+    }
+
+    /// **Owner ruling 14's migration rule, and the assertion that could not
+    /// exist before the field did**: a document written before `origin`
+    /// loads with every icon `Manual`.
+    ///
+    /// Not "defaults to `Manual` because that is convenient" -- it is the
+    /// true answer for old data. The generated placement pass
+    /// (`icon_bridge::IconEditor::generate`) is newer than this document
+    /// format, so nothing that could have written a generated row existed
+    /// when the fixture's writer ran.
+    #[test]
+    fn a_document_written_before_origin_loads_with_every_icon_manual() {
+        use cartalith_assets::manual::IconOrigin;
+        let doc: IconsDoc = serde_json::from_str(ICONS_BEFORE_ORIGIN).expect("parses");
+        let icons: Vec<_> = doc.icons.iter().filter_map(icon_from_dto).collect();
+        assert_eq!(icons.len(), 4, "a row was dropped: {icons:?}");
+        for (i, ic) in icons.iter().enumerate() {
+            assert_eq!(
+                ic.origin,
+                IconOrigin::Manual,
+                "row {i} of a pre-`origin` document did not read as hand-placed"
+            );
+        }
+        // The negative control: the same reader does *not* answer `Manual`
+        // for everything. A row that says so explicitly still resolves, and
+        // a `generated` row resolves to the other variant -- so the loop
+        // above is reading the member, not returning a constant.
+        let explicit: IconsDoc = serde_json::from_str(
+            r#"{"icons":[
+                {"x":1.0,"y":2.0,"family":"feature","slot":"mountain","scale":1.0,"origin":"manual"},
+                {"x":3.0,"y":4.0,"family":"poi","slot":"ruin","scale":1.0,"origin":"generated"}
+            ]}"#,
+        )
+        .expect("parses");
+        let got: Vec<IconOrigin> =
+            explicit.icons.iter().filter_map(icon_from_dto).map(|i| i.origin).collect();
+        assert_eq!(got, vec![IconOrigin::Manual, IconOrigin::Generated]);
+    }
+
+    /// A generated icon survives the round trip **as generated**, and is the
+    /// only kind that puts an `origin` member on the wire.
+    #[test]
+    fn a_generated_icon_writes_its_origin_and_reads_back_as_generated() {
+        use cartalith_assets::manual::{IconOrigin, ManualIcon, ManualIconFamily};
+        let ic = ManualIcon {
+            x: 12.0,
+            y: 34.0,
+            family: ManualIconFamily::Poi,
+            slot: "ruin".to_string(),
+            set: None,
+            scale: 1.0,
+            origin: IconOrigin::Generated,
+        };
+        let text = serde_json::to_string_pretty(&IconsDoc { icons: vec![icon_to_dto(&ic)] })
+            .expect("serialises");
+        assert!(text.contains(r#""origin": "generated""#), "{text}");
+
+        let doc: IconsDoc = serde_json::from_str(&text).expect("parses");
+        let back: Vec<_> = doc.icons.iter().filter_map(icon_from_dto).collect();
+        assert_eq!(back, vec![ic], "a generated icon did not survive the round trip");
+
+        // And the hand path's own row carries no `origin` member at all --
+        // the same icon, one field different, is the pre-`origin` shape.
+        let manual = ManualIcon { origin: IconOrigin::Manual, ..back[0].clone() };
+        let text = serde_json::to_string_pretty(&IconsDoc { icons: vec![icon_to_dto(&manual)] })
+            .expect("serialises");
+        assert!(!text.contains("origin"), "a hand-placed row wrote an `origin` member: {text}");
+    }
+
+    /// §6.4a rung 2 again, for the new member: an `origin` that is neither
+    /// known string costs its row and nothing more -- `family`'s answer, not
+    /// a silent fold into `Manual`.
+    ///
+    /// The difference matters because the two are not the same claim. Absent
+    /// means "written before the field existed", which this build knows the
+    /// answer to. `"imported"` means "written by something this build does
+    /// not understand", which it does not -- and relabelling it hand-placed
+    /// would be inventing the world.
+    #[test]
+    fn an_unrecognised_origin_costs_the_row_and_is_not_folded_into_manual() {
+        let text = r#"{"icons":[
+            {"x":1.0,"y":2.0,"family":"feature","slot":"mountain","scale":1.0},
+            {"x":3.0,"y":4.0,"family":"feature","slot":"mountain","scale":1.0,"origin":"manual"},
+            {"x":5.0,"y":6.0,"family":"feature","slot":"mountain","scale":1.0,"origin":"generated"},
+            {"x":7.0,"y":8.0,"family":"feature","slot":"mountain","scale":1.0,"origin":"imported"},
+            {"x":9.0,"y":10.0,"family":"feature","slot":"mountain","scale":1.0,"origin":"Manual"}
+        ]}"#;
+        let doc: IconsDoc = serde_json::from_str(text).expect("parses");
+        assert_eq!(doc.icons.len(), 5, "the fixture itself is wrong");
+        let icons: Vec<_> = doc.icons.iter().filter_map(icon_from_dto).collect();
+        // Three kept: absent, `manual`, `generated`. Two dropped: `imported`
+        // and the wrong-case `Manual` -- the keys are exact, as every other
+        // `from_key` in this port is.
+        assert_eq!(icons.len(), 3, "{icons:?}");
+        assert!(
+            !icons.iter().any(|i| i.x == 7.0 || i.x == 9.0),
+            "an unrecognised origin was guessed into a known one: {icons:?}"
+        );
+        // The same shape `project_open` builds its warning line from.
+        assert_eq!(doc.icons.len() - icons.len(), 2, "the warning would understate the loss");
     }
 
     /// Opening a document written before `origin` existed must not silently

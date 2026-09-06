@@ -1735,6 +1735,40 @@ func _build_route_map_layer_button() -> void:
 	## left edge of its own hit box -- `ViewportHost`'s own `_layers_btn` (the
 	## same widget, same icon) carries the OnePlus 6T history that found this.
 	_route_map_layer_btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	## **Phone: a 44 dp square, because this is a finger target.** Measured on a
+	## 1080-wide handset composition, where `phone_scale` is 2.621: **35 x 115**
+	## physical px once `phone_fit()` has run -- 13 dp wide against a 44 dp
+	## floor -- and 35 x 27 before it runs, which is the state the planner sits
+	## in until it is first opened. The height was already floored; the width
+	## never was, and that is what shipped. `_route_map_layer_popup.popup()` has
+	## exactly one caller, this button's own `pressed`, so it is the only way to
+	## change the route map's backdrop on a phone -- not one of the
+	## popup-opening controls `_phonechrome_probe.gd` exempts from the floor.
+	##
+	## `phone_fit()`'s own `BaseButton` floor does not reach it, and the reason
+	## is worth stating: it raises `custom_minimum_size.y` unconditionally but
+	## `.x` only `if min_size.x > 0.0`, so an icon-only button that declares no
+	## width keeps whatever narrow minimum the theme gave it. Declaring a width
+	## here is what satisfies that condition; both axes then land on the floor.
+	##
+	## **44, not 115.** Authored desktop px, like every other constant in this
+	## panel (`_build_center_panel()`'s PH-16 header): the one
+	## `phone_fit(_center_panel, phone_scale())` walk multiplies
+	## `custom_minimum_size` by `phone_scale()`, and pre-scaling here is the
+	## double-multiplication PH-16 exists to prevent. Measured: 44 -> 115 px,
+	## the same figure `_phonechrome_probe.gd`'s own `_pscale(44)` floor prints.
+	##
+	## The glyph is *not* part of that walk -- `phone_fit()` re-rasterises icons
+	## only for `TOOL_GLYPH_META` buttons -- so flooring the box alone would
+	## leave a 15 px mark adrift in a 115 px cell, which is the fault
+	## `_phone_fit_tool_button()` was written for. Re-rasterised rather than
+	## stretched, at the same `round(15 * scale)` `ViewportHost._apply_touch_
+	## scale()` uses for this same widget with this same glyph.
+	if _phone:
+		_route_map_layer_btn.custom_minimum_size = Vector2(
+			DccTheme.PHONE_TAP_MIN, DccTheme.PHONE_TAP_MIN)
+		_route_map_layer_btn.icon = DccIcons.get_icon("layers",
+			maxi(1, int(round(15.0 * app.phone_scale()))))
 	## Anchored to the panel's top-right, growing LEFT and DOWN off that
 	## corner. `position = Vector2(-26, 6)` + `size = Vector2(20, 20)` (what
 	## this was) does NOT survive: a `Control` is clamped up to its combined
@@ -1743,7 +1777,8 @@ func _build_route_map_layer_button() -> void:
 	## right edge. Measured live, not guessed. `grow_horizontal` is the same
 	## lever `dcc_shell.gd` uses for exactly this ("picks which edge stays put
 	## while it grows"), which makes the inset exact whatever the theme says
-	## the button's minimum is.
+	## the button's minimum is -- and on a phone that minimum is the 44 dp
+	## square set just above (115 px), not the desktop 35 x 27.
 	_route_map_layer_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	_route_map_layer_btn.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	_route_map_layer_btn.grow_vertical = Control.GROW_DIRECTION_END

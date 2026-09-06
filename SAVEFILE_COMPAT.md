@@ -1069,7 +1069,21 @@ Array order is significant — it is draw order.
 `family` is one of `settlement`, `feature`, `poi`, `custom`, `seamarks`.
 `slot` names the symbol within that family. `set` is the custom set name and
 is non-`null` only when `family` is `custom`. `scale` is a per-instance size
-multiplier, `1.0` for a plain click placement. A reader MUST keep an icon
+multiplier, `1.0` for a plain click placement.
+
+**`origin`** — optional, added 2026-09-06 under owner ruling 14. One of
+`manual` or `generated`. **It is omitted when the icon is hand-placed**, so an
+existing document re-serialises byte-identically and no project is silently
+rewritten on open (§6.2). Therefore:
+
+- **absent means `manual`** — a document written before the member existed
+  predates generated icons having anywhere to be recorded, so hand-placed is
+  the only honest reading and never "unknown";
+- **`generated` marks a row the automatic placement owns**, and is the marker a
+  regenerate needs to replace only its own rows;
+- **an `origin` that is neither takes `family`'s answer below and costs its
+  row** — a row a reader cannot classify cannot be routed by the regenerate the
+  field exists for. Case-sensitive: `"Manual"` is unrecognised. A reader MUST keep an icon
 whose `slot` it cannot resolve, and render a placeholder — dropping it
 silently loses the author's work over an art-pack mismatch.
 
@@ -1896,8 +1910,16 @@ be discarded by clicking elsewhere is stored.
   GDScript-owned payloads reach the archive through a document channel rather
   than through a schema in Rust, so a payload the shell owns needs no engine
   change to be persisted.
-- **`annotations/icons.json` has no `origin` member, and owner ruling 14
-  (2026-09-06) says it will.** *"ONE LAYER, TWO ORIGINS. One collection with
+- ~~**`annotations/icons.json` has no `origin` member**~~ — **IT DOES, as of
+  2026-09-06. The bullet below is kept because its migration rule is now the
+  shipped behaviour and was written before the member existed, which is why it
+  did not have to be invented twice.** What is stale in it is only the tense and
+  the final paragraph: `ManualIcon` now carries `IconOrigin { Manual, Generated }`
+  defaulting to `Manual`, `IconDto.origin` is an optional string
+  (`skip_serializing_if`, so **`Manual` is written as an ABSENT member** and an
+  existing document re-serialises byte-identically), and `icon_from_dto`
+  resolves absent → `Manual`, an unrecognised value → the row is dropped.
+  Owner ruling 14 (2026-09-06) said it would: *"ONE LAYER, TWO ORIGINS. One collection with
   an `origin` field. The renderer draws one layer; M6 spacing sees everything,
   so generation cannot place a landmark on top of a hand-placed icon; a
   regenerate replaces only the generated ones."* Recorded here **before** the
@@ -1909,13 +1931,15 @@ be discarded by clicking elsewhere is stored.
   than being defaulted — a row a reader cannot classify cannot be routed by
   the regenerate the field exists for.
 
-  The member is not here yet because the *format* is not what blocks it: the
-  runtime icon (`cartalith_assets::manual::ManualIcon`) records no provenance,
-  so a writer would have nothing true to put in it and a reader nowhere to
-  keep what it read. Until then, a project that has run the POI automatic
-  placement stores each landmark **twice** — once in
-  `entities/landmarks.json`'s `results`, once as a `poi` row here — and
-  nothing in either document says they are the same placement.
+  ~~The member is not here yet because the *format* is not what blocks it…~~
+  **Superseded 2026-09-06.** That paragraph was right when written — the blocker
+  was that `ManualIcon` recorded no provenance — and the field landed once a lane
+  was granted `cartalith-assets`. **What has NOT changed:** a project that has run
+  the POI automatic placement still stores each landmark **twice**, once in
+  `entities/landmarks.json`'s `results` and once as a `poi` row here. `origin`
+  now makes the two **separable** — a reader can tell which rows generation owns
+  — but nothing yet de-duplicates them, and the renderer still draws both passes,
+  so those landmarks draw twice on screen. That is tracked, not fixed here.
 - §6.5's partition is `project_bridge.rs`'s `ENGINE_OWNED_SLOTS` — the eleven
   documents this port models — against the six it carries
   (`entities/journeys.json`, `annotations/measurements.json`,

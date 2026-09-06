@@ -140,7 +140,67 @@ impl ArmedIcon {
     }
 }
 
-/// One hand-placed icon — the reference's `state.mapIcons[i]`.
+/// Which producer put an icon on the map — owner ruling 14's *"ONE LAYER,
+/// TWO ORIGINS"*.
+///
+/// The ruling settled `LANDMARK_GENERATION_SCOPE.md` §4's open question 6
+/// (*"one representation, two origins, or a wholly separate data/render
+/// path"*) on 2026-09-06: **one collection with an `origin` field**, so the
+/// renderer draws one layer, spacing sees everything, and a regenerate can
+/// replace only the generated rows. This is that field's type.
+///
+/// [`Default`] is [`Manual`](Self::Manual), and that is not a convenience:
+/// the generated placement pass is newer than the collection, so an icon
+/// with no recorded origin — in an archive, or in a struct literal written
+/// before this field existed — was placed by hand. The reference has no
+/// generated pass at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IconOrigin {
+    /// Placed by a person: a click ([`place_manual_icon`]) or a brush stamp
+    /// ([`icon_brush_stamp`]).
+    #[default]
+    Manual,
+    /// Placed by `IconEditor::generate` in `cartalith-godot` — the pass that
+    /// turns landmark candidates into icons.
+    Generated,
+}
+
+impl IconOrigin {
+    /// The `annotations/icons.json` string.
+    ///
+    /// **`"manual"` is written by nothing today**: the archive spells
+    /// `Manual` as an *absent* member, so opening and re-saving a project
+    /// written before this field existed does not rewrite it
+    /// (`SAVEFILE_COMPAT.md` §6.2). The string exists so that
+    /// [`from_key`](Self::from_key) answers a document that spells it out —
+    /// a hand-edited file, or a future writer that chooses to.
+    pub fn key(self) -> &'static str {
+        match self {
+            IconOrigin::Manual => "manual",
+            IconOrigin::Generated => "generated",
+        }
+    }
+
+    /// `None` for a string that is neither — the same drop-and-report answer
+    /// [`ManualIconFamily::from_key`] gives, rather than a third variant
+    /// invented to hold it. **The empty string is not handled here**: absent
+    /// is the reader's question, not this function's, and the reader answers
+    /// it with [`Manual`](Self::Manual) for the reason on that type.
+    pub fn from_key(key: &str) -> Option<IconOrigin> {
+        match key {
+            "manual" => Some(IconOrigin::Manual),
+            "generated" => Some(IconOrigin::Generated),
+            _ => None,
+        }
+    }
+}
+
+/// One icon on the map — the reference's `state.mapIcons[i]`.
+///
+/// Was *"one hand-placed icon"*, and that stopped being true on 2026-09-06:
+/// owner ruling 14 puts generated landmarks in the same collection, told
+/// apart by [`origin`](Self::origin). The type keeps its name because every
+/// consumer indexes by it and the hand-placed case is still the common one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ManualIcon {
     pub x: f64,
@@ -153,6 +213,9 @@ pub struct ManualIcon {
     /// Per-instance size multiplier. Click-placement always uses 1.0; the
     /// brush draws it from the rule's `min_size..max_size`.
     pub scale: f64,
+    /// Which producer placed it. [`IconOrigin::Manual`] for both hand paths;
+    /// only `IconEditor::generate` writes [`IconOrigin::Generated`].
+    pub origin: IconOrigin,
 }
 
 /// `_carIconBrush` — the brush's own controls.
@@ -292,6 +355,8 @@ pub fn icon_brush_stamp(
                 _ => None,
             },
             scale: s,
+            // The brush is a person dragging a pointer.
+            origin: IconOrigin::Manual,
         });
         near.push((x, y));
         placed += 1;
@@ -324,6 +389,7 @@ pub fn place_manual_icon(gx: f64, gy: f64, gw: usize, gh: usize, armed: Option<&
             _ => None,
         },
         scale: 1.0,
+        origin: IconOrigin::Manual,
     })
 }
 
@@ -698,6 +764,7 @@ mod tests {
                 slot: "mountain".into(),
                 set: None,
                 scale: 1.0,
+                origin: IconOrigin::Manual,
             })
             .collect();
         let before = icons.len();
@@ -707,6 +774,42 @@ mod tests {
                                  &ScatterRule::default(), &field, 48, 32, 0.42, 20.0, 10.0, &mut rng);
         assert_eq!(n, 0);
         assert_eq!(icons.len(), before);
+    }
+
+    /// [`IconOrigin`]'s `Default` is a load-bearing claim, not a formality:
+    /// it is what a caller that has no origin to supply gets, and the only
+    /// honest answer there is the one the archive's absent member takes.
+    /// Asserted against the literal variant, so moving `#[default]` to
+    /// `Generated` fails it.
+    #[test]
+    fn an_icon_with_no_stated_origin_is_hand_placed() {
+        assert_eq!(IconOrigin::default(), IconOrigin::Manual);
+        // The keys are exact and round-trip; nothing else resolves.
+        assert_eq!(IconOrigin::from_key("manual"), Some(IconOrigin::Manual));
+        assert_eq!(IconOrigin::from_key("generated"), Some(IconOrigin::Generated));
+        assert_eq!(IconOrigin::from_key(""), None, "absent is the reader's question, not from_key's");
+        assert_eq!(IconOrigin::from_key("Generated"), None);
+        for o in [IconOrigin::Manual, IconOrigin::Generated] {
+            assert_eq!(IconOrigin::from_key(o.key()), Some(o));
+        }
+    }
+
+    /// Both hand paths mark their output, and neither of them marks it
+    /// `Generated`. `place_manual_icon` is the click; `icon_brush_stamp` is
+    /// the drag.
+    #[test]
+    fn both_hand_paths_write_manual() {
+        let ic = place_manual_icon(3.0, 4.0, 48, 32, Some(&feature())).expect("on-grid");
+        assert_eq!(ic.origin, IconOrigin::Manual);
+
+        let field = all_land(48, 32);
+        let mut icons = Vec::new();
+        let mut rng = lcg(31337);
+        let n = icon_brush_stamp(&mut icons, Some(&feature()),
+                                 &IconBrush { on: true, r: 10.0, density: 0.8 },
+                                 &ScatterRule::default(), &field, 48, 32, 0.42, 20.0, 10.0, &mut rng);
+        assert!(n > 0, "the fixture placed nothing, so the assertion below is vacuous");
+        assert!(icons.iter().all(|i| i.origin == IconOrigin::Manual), "{icons:?}");
     }
 
     #[test]
@@ -725,6 +828,7 @@ mod tests {
             slot: "city".into(),
             set: None,
             scale: 1.0,
+            origin: IconOrigin::Manual,
         };
         let b = icon_box(&ic, &IconViewEnv { grid_w: 48, zoom_scale: 1.0, icon_scale: 1.0 });
         assert_eq!((b.px, b.py), (10.5, 8.5));
@@ -741,6 +845,7 @@ mod tests {
             slot: "mountain".into(),
             set: None,
             scale: 1.0,
+            origin: IconOrigin::Manual,
         };
         let env = IconViewEnv { grid_w: 48, zoom_scale: 1.0, icon_scale: 1.0 };
         let a = icon_box(&ic, &env).r;
@@ -850,6 +955,7 @@ mod tests {
             slot: "mountain".into(),
             set: None,
             scale: 1.0,
+            origin: IconOrigin::Manual,
         }];
         let (mut rng, _) = scripted([dart_at(d, r).to_vec(), vec![1.0]].concat());
         icon_brush_stamp(&mut icons, Some(&feature()), &IconBrush { on: true, r, density },

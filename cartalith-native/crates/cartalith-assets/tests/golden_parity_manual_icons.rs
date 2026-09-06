@@ -349,6 +349,10 @@ fn the_icon_brush_matches_the_reference_dart_for_dart() {
                 _ => None,
             };
             assert_eq!(icons[i].set, want_set, "{} icon {i} set", r.label);
+            // Owner ruling 14: the brush is a hand path, so every dart it
+            // throws is `Manual`. No expected value above moved for this --
+            // `origin` is not an input to any of them.
+            assert_eq!(icons[i].origin, IconOrigin::Manual, "{} icon {i} origin", r.label);
             // shape, re-asserted from the harness
             assert!((0.0..GW as f64).contains(&x) && (0.0..GH as f64).contains(&y));
             assert!(field[y as usize * GW + x as usize] as f64 > SEA, "{} placed into water", r.label);
@@ -365,12 +369,14 @@ fn the_icon_brush_matches_the_reference_dart_for_dart() {
 #[test]
 fn icon_box_matches_the_reference_across_every_zoom_and_scale() {
     let icons = [
+        // `origin` added 2026-09-06 for owner ruling 14; it is not a box or
+        // hit-test input and no expected value below moved.
         ManualIcon { x: 10.0, y: 8.0, family: ManualIconFamily::Settlement, slot: "city".into(),
-                     set: None, scale: 1.0 },
+                     set: None, scale: 1.0, origin: IconOrigin::Manual },
         ManualIcon { x: 30.0, y: 20.0, family: ManualIconFamily::Feature, slot: "mountain".into(),
-                     set: None, scale: 2.5 },
+                     set: None, scale: 2.5, origin: IconOrigin::Manual },
         ManualIcon { x: 10.4, y: 8.4, family: ManualIconFamily::Custom, slot: "thing".into(),
-                     set: Some("myset".into()), scale: 0.4 },
+                     set: Some("myset".into()), scale: 0.4, origin: IconOrigin::Manual },
     ];
     // (grid_w, zoom, icon_scale, index, px, py, r, side)
     type BoxCase = (usize, f64, f64, usize, f64, f64, f64, f64);
@@ -399,12 +405,14 @@ fn icon_box_matches_the_reference_across_every_zoom_and_scale() {
 #[test]
 fn icon_hit_testing_matches_the_reference_including_its_one_miss() {
     let icons = [
+        // `origin` added 2026-09-06 for owner ruling 14; it is not a box or
+        // hit-test input and no expected value below moved.
         ManualIcon { x: 10.0, y: 8.0, family: ManualIconFamily::Settlement, slot: "city".into(),
-                     set: None, scale: 1.0 },
+                     set: None, scale: 1.0, origin: IconOrigin::Manual },
         ManualIcon { x: 30.0, y: 20.0, family: ManualIconFamily::Feature, slot: "mountain".into(),
-                     set: None, scale: 2.5 },
+                     set: None, scale: 2.5, origin: IconOrigin::Manual },
         ManualIcon { x: 10.4, y: 8.4, family: ManualIconFamily::Custom, slot: "thing".into(),
-                     set: Some("myset".into()), scale: 0.4 },
+                     set: Some("myset".into()), scale: 0.4, origin: IconOrigin::Manual },
     ];
     let env = IconViewEnv { grid_w: 48, zoom_scale: 1.0, icon_scale: 1.0 };
     let boxes: Vec<IconBox> = icons.iter().map(|i| icon_box(i, &env)).collect();

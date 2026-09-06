@@ -97,8 +97,8 @@
 
 use cartalith_assets::manual::{
     civ_zoom_k, icon_box, icon_brush_stamp, icon_hit_test, icon_resize_scale, place_manual_icon,
-    ArmedIcon, IconBox, IconBrush, IconHandle, IconHit, IconHitKind, IconViewEnv, ManualIcon,
-    ManualIconFamily,
+    ArmedIcon, IconBox, IconBrush, IconHandle, IconHit, IconHitKind, IconOrigin, IconViewEnv,
+    ManualIcon, ManualIconFamily,
 };
 use cartalith_assets::ScatterRule;
 use cartalith_civ::labels::LabelRect;
@@ -353,13 +353,17 @@ pub struct IconGenReport {
     pub snapped: usize,
 }
 
-/// The live Icon-editor state for one generated world: every hand-placed
-/// icon, the current armed selection (if any), and which placed icon (if
+/// The live Icon-editor state for one generated world: every icon on the
+/// map, the current armed selection (if any), and which placed icon (if
 /// any) is selected — the reference's own `state.mapIcons`/`_carIconArmed`/
 /// the click handler's own "select what was just placed or hit" convention,
 /// kept together the way `SculptEditor` keeps its own draft/tool-state/
 /// selection together.
 pub struct IconEditor {
+    /// Owner ruling 14's *"ONE LAYER, TWO ORIGINS"*: hand-placed icons and
+    /// generated landmarks share this one `Vec`, told apart by each row's
+    /// [`ManualIcon::origin`]. [`IconEditor::generate`] is the only producer
+    /// that writes [`IconOrigin::Generated`].
     pub icons: Vec<ManualIcon>,
     pub armed: Option<ArmedSelection>,
     /// Which placed icons are selected — [`crate::selection::SelectionSet`],
@@ -759,6 +763,12 @@ impl IconEditor {
                 // family resolves to -- `ManualIcon`'s own contract.
                 set: None,
                 scale,
+                // The one producer in the tree that writes `Generated`, and
+                // owner ruling 14's whole point: this row goes into the same
+                // `icons` list a click writes into, and stays separable from
+                // it. `place` and `brush_stamp` write `Manual` in
+                // `cartalith_assets::manual` itself.
+                origin: IconOrigin::Generated,
             };
             if plan.avoid_labels {
                 let foot = footprint_rect(&icon, env);
@@ -1040,7 +1050,7 @@ mod tests {
 
     #[test]
     fn icon_handle_matches_the_reference_formula() {
-        let ic = ManualIcon { x: 10.0, y: 8.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 1.0 };
+        let ic = ManualIcon { x: 10.0, y: 8.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 1.0, origin: IconOrigin::Manual };
         // grid_w=2048 -> sc/lsc base = 4; zoom_scale=1 -> civ_zoom_k=1.
         let env = IconViewEnv { grid_w: 2048, zoom_scale: 1.0, icon_scale: 1.0 };
         let box_ = icon_box(&ic, &env); // px=10.5, py=8.5, r=20, side=52
@@ -1052,8 +1062,8 @@ mod tests {
 
     #[test]
     fn icon_handle_follows_the_boxs_own_per_instance_scale() {
-        let small = ManualIcon { x: 0.0, y: 0.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 1.0 };
-        let big = ManualIcon { x: 0.0, y: 0.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 2.5 };
+        let small = ManualIcon { x: 0.0, y: 0.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 1.0, origin: IconOrigin::Manual };
+        let big = ManualIcon { x: 0.0, y: 0.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 2.5, origin: IconOrigin::Manual };
         let env = IconViewEnv { grid_w: 2048, zoom_scale: 1.0, icon_scale: 1.0 };
         let h_small = icon_handle(&icon_box(&small, &env), &env);
         let h_big = icon_handle(&icon_box(&big, &env), &env);
@@ -1072,7 +1082,7 @@ mod tests {
         // collapses toward its minimum and the max(4,...) floor takes over
         // -- same fixture shape `label_bridge::handle_circles`' own
         // low-zoom-floor test uses.
-        let ic = ManualIcon { x: 0.0, y: 0.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 1.0 };
+        let ic = ManualIcon { x: 0.0, y: 0.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 1.0, origin: IconOrigin::Manual };
         let env = IconViewEnv { grid_w: 512, zoom_scale: 1000.0, icon_scale: 1.0 };
         let h = icon_handle(&icon_box(&ic, &env), &env);
         assert!((h.r - 6.4).abs() < 1e-9, "hr floors at 4, stored r = 4*1.6");
@@ -1454,6 +1464,27 @@ mod tests {
         assert_eq!(e.icons.len(), 2);
         // And the hand-placed one is untouched, still at index 0.
         assert_eq!((e.icons[0].x, e.icons[0].y), (10.0, 10.0));
+        // Owner ruling 14 in one list: two rows, one layer, two origins.
+        // Asserting both is what makes this a discrimination rather than a
+        // constant -- a `generate` that wrote `Manual`, or a `place` that
+        // wrote `Generated`, fails one half each.
+        assert_eq!(e.icons[0].origin, IconOrigin::Manual, "the click path marked its row generated");
+        assert_eq!(e.icons[1].origin, IconOrigin::Generated, "the generated pass did not mark its row");
+    }
+
+    /// The brush is the third producer, and it is a hand path.
+    ///
+    /// `place` is covered by the two-origin assertion above; this covers
+    /// `brush_stamp`, whose `ManualIcon` is built in
+    /// `cartalith_assets::manual::icon_brush_stamp` rather than here.
+    #[test]
+    fn every_dart_the_brush_throws_is_hand_placed() {
+        let mut e = brushed();
+        let field = shore(48, 32, 40);
+        let n = e.brush_stamp(&ScatterRule::default(), &field, 48, 32, 0.5, 10.0, 16.0);
+        assert!(n > 0, "the fixture placed nothing, so the assertion below is vacuous");
+        assert_eq!(e.icons.len(), n);
+        assert!(e.icons.iter().all(|i| i.origin == IconOrigin::Manual), "{:?}", e.icons);
     }
 
     #[test]

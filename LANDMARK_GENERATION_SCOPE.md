@@ -365,11 +365,25 @@ Posed, not answered — the same discipline `STORY_PLANNING_SCOPE.md` §6 and
 6. **How does a generated landmark relate to the existing manual icon tool?**
    A user can already hand-place a `family: "feature"` icon (e.g. `slot:
    "mountain"`) via `annotations/icons.json` (`SAVEFILE_COMPAT.md` §11.2).
-   Does a procedurally generated landmark become one of these icons for
-   rendering purposes (one representation, two origins), or a wholly
-   separate data/render path? This affects the save format, the renderer,
-   and whether M6's spatial-competition radius needs to consider
-   hand-placed icons as pre-existing "occupied" points.
+   ~~Does a procedurally generated landmark become one of these icons…~~
+   **ANSWERED by owner ruling 14, 2026-09-06: ONE representation, two
+   origins.** The save format half **shipped** the same day —
+   `ManualIcon` carries `IconOrigin { Manual, Generated }`, `annotations/icons.json`
+   gained an optional `origin` (absent means manual; see `SAVEFILE_COMPAT.md`
+   §11.2), and a pre-`origin` document is proved to load with every icon
+   hand-placed.
+
+   **Two of the three consequences this question named are still open, and the
+   third is the reason the ruling was made:**
+   - **The renderer still draws two passes**, so after POI automatic placement
+     every landmark draws twice — a landmark ring and a poi glyph at one cell —
+     and only one pass honours the Layers flag.
+   - **M6's spatial competition still cannot see hand-placed icons.** Its only
+     input is `LandmarkInputs`, which does not carry them, so generation can
+     still place a landmark on top of one. **That was the ruling's own
+     justification for choosing one layer over two**, and it is unrealised until
+     that input changes.
+   Both are tracked in `OUTSTANDING_WORK.md`.
 
 ## 5. Cost and feasibility: the expensive parts, stated honestly
 
