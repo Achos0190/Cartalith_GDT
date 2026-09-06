@@ -528,3 +528,65 @@ call, the banded path stops being an optimisation and becomes the only route.
 
 Unchanged by this ruling: **the render-once decision still has to be reversed**
 (ruling 15's first cost), and what depends on it must be established first.
+
+**27. The timeline stores mutations, not snapshots.** Owner, 2026-09-06: *"for
+the timeline we basically only have to track mutations per year. If a position
+doesn't change for 50 years that's 50 datapoints we do not need."*
+
+**The current shape is worse than the archive-size discussion suggested, and the
+memory cost is the headline.** `TimelineSnapshot` is `{ year, territory:
+Vec<i32>, settlements: Vec<NamedSettlement>, ways: Vec<Way> }` — every recorded
+year keeps a **full territory raster and a complete copy of every settlement and
+way**. `CivData.timeline` is a live `Vec<TimelineSnapshot>`, so this is resident
+memory first and archive size second: one snapshot's territory at 2 048 × 1 311
+is **10.74 MB in RAM**, and the phone already peaks near 878 MB with no timeline
+at all.
+
+**On disk the redundancy is real but milder, and an earlier framing of mine was
+wrong.** Deflate compresses each year's entry **independently**, so temporal
+redundancy is entirely unexploited — 100 unchanged years cost 100 × ~40 KB, not
+~40 KB. The 294× figure measured for a territory raster is *spatial* coherence
+within one year and says nothing about the year-over-year case this ruling is
+about.
+
+Build notes, not decisions:
+
+- **The unit is a mutation** — a cell whose owner changed, a settlement whose
+  fields changed, a way added or removed. Everything else is inherited.
+- **Reconstruction must be exact, and that is the property to test:** replay to
+  year N and compare against a full snapshot taken the old way. A delta chain
+  that drifts is worse than the redundancy it replaces.
+- **Keyframes are probably still wanted**, because the timeline has a year cursor
+  the user drags and pure deltas make a late year replay from the beginning.
+  State the interval and why.
+- **This ends `SAVEFILE_COMPAT.md` §10.2's `history/territory/<year>.i32` as the
+  on-disk shape**, so it needs a `format_version` bump and §18.4's **fail-loud**
+  discipline: a reader that ignores the marker must not read plausible-looking
+  noise.
+- **Measure resident memory and archive size before and after** rather than
+  asserting the win.
+
+**28. LOD tiles are stored in the save, optionally.** Owner, same message: *"the
+LOD tiles should be stored in the save, or at least optional to include."*
+
+**The archive can already carry them, which makes this smaller than it looks.**
+`cartography/tiles/**` round-trips today as **foreign entries**, with a test
+asserting a tile survives open-and-resave byte-identically. This is promotion to
+a first-class optional slot, not new plumbing.
+
+Two things it does need:
+
+1. **A producer.** Tiles are synthesised on demand (`lod_bridge::
+   synthesize_tile_rgba`) and the atlas cache is explicitly deferred at M3, so
+   nothing currently holds a tile set to write.
+2. **Invalidation.** Tiles are *derived*, so a stored set is a cache that can go
+   stale against a regenerated or sculpted heightmap. `cartalith-spatial`'s
+   `StageGraph`/`Staleness` is the existing mechanism. **Silently drawing a stale
+   tile over a re-sculpted world is the failure to design against — prefer
+   dropping them to drawing them.**
+
+**Optional means the default must be chosen.** Recommended **off, with the size
+shown at save time**: a pyramid is ~4/3 of its base level, which makes this the
+one slot capable of outgrowing the three float grids that dominate the archive
+today. **Measure a real pyramid before writing a default into the UI** — the
+previous ruling in this file shipped four unmeasured figures.
