@@ -59,10 +59,54 @@ pub(crate) fn ok() -> VarDictionary {
     vdict! { "ok" => true, "error" => "" }
 }
 
+/// `SAVEFILE_COMPAT.md` §13.3.5's *"report it"*, in one sentence, or `None`
+/// when there is nothing to report — which is the normal case and the common
+/// one.
+///
+/// `pub(crate)` because the archive path (`project_bridge.rs`'s `project_open`)
+/// wants the identical sentence and must not grow a second phrasing of it.
+/// **It does not call it yet.** Measured 2026-09-06:
+/// `grep -rn "unresolvable_kind_report" crates/cartalith-godot/src/ -l` names
+/// **this file only**, and `grep -c` in it gives **8** — this comment, the
+/// definition, the one call in [`WorldGen::vault_restore_state`], and five in
+/// the test. `project_bridge.rs` has none.
+///
+/// That is a gap in the *reporting* on the archive path, not in the keeping:
+/// the links themselves survive `project_open` either way now, because the
+/// keeping is in `cartalith_vault::LinkKind` and not here. Wiring it is one
+/// call beside that function's existing `Err(e) => godot_warn!` arm, in a file
+/// this change did not own.
+pub(crate) fn unresolvable_kind_report(store: &cartalith_vault::LinkStore) -> Option<String> {
+    let odd = store.unresolvable_links();
+    if odd.is_empty() {
+        return None;
+    }
+    let mut kinds: Vec<&str> = odd.iter().map(|l| l.entity_kind.as_str()).collect();
+    kinds.sort_unstable();
+    kinds.dedup();
+    Some(format!(
+        "{} of this project's {} knowledge links name an entity kind this build does not know ({}); \
+         they are kept, listed in the vault window's overview under the name they were saved with, \
+         and written back unchanged. Nothing was discarded.",
+        odd.len(),
+        store.links.len(),
+        kinds.join(", ")
+    ))
+}
+
 /// `"settlement"`/`"province"`/`"continent"` from GDScript into the enum.
 /// An unknown string is `None` and every caller turns that into an `error`,
 /// never a default — silently treating a typo as "settlement" would attach a
 /// note to the wrong thing.
+///
+/// **This is the *input* path, and it is the one place refusing is right.**
+/// A kind arriving here is a live request to attach or to list, so there is a
+/// user in front of it and an `error` reaches them. A kind arriving from a
+/// *file* is the opposite case: nobody is there, the writer is gone, and
+/// refusing costs somebody's filing — so `SAVEFILE_COMPAT.md` §13.3.5 keeps it
+/// instead, and `cartalith_vault::LinkKind` is where that happens. The two
+/// answers differ on purpose; see
+/// [`WorldGen::vault_restore_state`] for the other half.
 fn kind_of(s: &GString) -> Option<EntityKind> {
     EntityKind::parse(&s.to_string())
 }
@@ -501,6 +545,27 @@ impl WorldGen {
 
     /// Every link in the store, for the vault window's own overview. Same
     /// keys as `vault_links_for` plus `entity_kind`/`entity_id`.
+    ///
+    /// **This is where a link whose `entity_kind` this build does not know is
+    /// seen**, and it is why it is unfiltered. `SAVEFILE_COMPAT.md` §13.3.5
+    /// requires such a link to be kept, *reported*, and written back
+    /// unchanged; [`cartalith_vault::LinkKind`] does the keeping and the
+    /// writing, and this list is the reporting — `entity_kind` carries the
+    /// newer writer's own text (`"river"`, not a guess) beside the
+    /// `entity_label` §13.3.5 says a person re-binds by. `vault_links_for`
+    /// deliberately does **not** show it: that call is per-entity, and there
+    /// is no entity.
+    ///
+    /// **One shell consequence, stated rather than left to be found.** The
+    /// overview row is a button that calls `open_for(kind, …)`, and
+    /// `vault_window.gd::_build_links` then asks `vault_links_for` for that
+    /// kind, gets nothing back (correctly — the kind resolves to no entity),
+    /// and takes its `links.is_empty()` branch: *"No notes attached to The
+    /// Silverflow yet."* That sentence is **false** — the note is attached and
+    /// is in the file — and it is the one place this fix leaves a wrong
+    /// message rather than a missing one. Reported, not fixed: the shell is
+    /// not this change's file. The data is safe either way; what is wrong is
+    /// the wording of an empty state that has a cause it does not name.
     #[func]
     fn vault_all_links(&self) -> Array<VarDictionary> {
         self.vault
@@ -1019,11 +1084,33 @@ impl WorldGen {
     /// Restores a link store, keeping any binding this session already has.
     /// Malformed JSON returns `false` and changes nothing — a corrupt sidecar
     /// must not take the links that are in memory with it.
+    ///
+    /// ## What "malformed" stopped meaning on 2026-09-06
+    ///
+    /// It used to include *"holds a link whose `entity_kind` I have never
+    /// heard of"*. `LinkStore::from_json` failed the **whole document** over
+    /// one such value — reproduced by doctoring one link of two from
+    /// `"settlement"` to `"river"`: `unknown variant `river`, expected one of
+    /// `settlement`, `province`, `continent`, `faction`, `culture`,
+    /// `landmark``, and the valid link went with it. `SAVEFILE_COMPAT.md`
+    /// §13.3.3 says the opposite in terms — *"An unrecognised value MUST NOT
+    /// drop the link"* — and §13.3.5 says what to do instead: keep it, report
+    /// it, write it back byte-equivalent. `cartalith_vault::LinkKind` keeps
+    /// and writes; the `godot_warn!` below is the reporting, and
+    /// [`Self::vault_all_links`] is where the user then sees the link itself.
+    ///
+    /// The warning names the kinds rather than only counting them, because
+    /// the useful thing to know is *which* vocabulary this build is behind on
+    /// — a count says a number, a name says which build wrote the file.
     #[func]
     fn vault_restore_state(&mut self, json: GString) -> bool {
         match cartalith_vault::LinkStore::from_json(&json.to_string()) {
             Ok(store) => {
+                let unknown = unresolvable_kind_report(&store);
                 self.vault.store = store;
+                if let Some(report) = unknown {
+                    godot_warn!("cartalith-godot: {report}");
+                }
                 true
             }
             Err(_) => false,
@@ -1689,6 +1776,18 @@ mod tests {
     /// which is the part with a wrong answer available: an unrecognised kind
     /// must be `None`, never a default that attaches a note to the wrong
     /// entity.
+    ///
+    /// **This covers the input path only, and the distinction is load-bearing
+    /// as of 2026-09-06.** `kind_of` reads a kind a *person* just typed or a
+    /// panel just passed, and refusing it produces an `error` they see. A kind
+    /// read from a *file* is the opposite case and now has the opposite
+    /// answer: `SAVEFILE_COMPAT.md` §13.3.5 keeps it, and
+    /// `cartalith_vault::LinkKind` is where. Before that change the two shared
+    /// one answer and the file half was wrong —
+    /// `a_link_kind_this_build_does_not_know_is_kept_and_reported` below is
+    /// its counterpart, and
+    /// `cartalith_vault::links::tests::a_newer_writers_entity_kind_costs_neither_the_link_nor_the_store`
+    /// is the storage proof.
     #[test]
     fn an_unknown_entity_kind_is_none_not_a_default() {
         assert_eq!(EntityKind::parse("settlement"), Some(EntityKind::Settlement));
@@ -1696,6 +1795,63 @@ mod tests {
         assert_eq!(EntityKind::parse("poi"), None, "POI is not a ported concept");
         assert_eq!(EntityKind::parse("Settlement"), None);
         assert_eq!(EntityKind::parse(""), None);
+    }
+
+    /// The bridge half of `SAVEFILE_COMPAT.md` §13.3.5: the sentence a person
+    /// actually reads when a project names a kind this build does not know.
+    ///
+    /// `vault_restore_state` cannot run here (it needs a live `WorldGen`), so
+    /// this exercises the part that carries the decision —
+    /// [`unresolvable_kind_report`] — against a real store built from a real
+    /// document, and asserts the two things the sentence must not get wrong:
+    /// it must say **nothing was discarded**, because nothing is, and it must
+    /// name the kinds rather than only counting them.
+    ///
+    /// `None` on a store with nothing to report is the other half, and it is
+    /// the one that keeps the warning meaningful: a message on every open is
+    /// a message nobody reads.
+    #[test]
+    fn a_link_kind_this_build_does_not_know_is_kept_and_reported() {
+        let doc = r#"{"version":1,"vaults":[{"id":"v","display_name":"Elaris"}],"links":[
+            {"link_id":"a","vault_id":"v","relative_path":"Locations/Nareth.md",
+             "entity_kind":"settlement","entity_id":42,"entity_label":"Nareth",
+             "selection":{"type":"whole_document"}},
+            {"link_id":"b","vault_id":"v","relative_path":"Roads/The Long Way.md",
+             "entity_kind":"road","entity_id":9,"entity_label":"The Long Way",
+             "selection":{"type":"whole_document"}},
+            {"link_id":"c","vault_id":"v","relative_path":"Rivers/The Silverflow.md",
+             "entity_kind":"river","entity_id":7,"entity_label":"The Silverflow",
+             "selection":{"type":"whole_document"}}]}"#;
+        let store = cartalith_vault::LinkStore::from_json(doc).expect("the store still opens");
+        assert_eq!(store.links.len(), 3);
+
+        let report = unresolvable_kind_report(&store).expect("two links are unresolvable");
+        assert_eq!(
+            report,
+            "2 of this project's 3 knowledge links name an entity kind this build does not know \
+             (river, road); they are kept, listed in the vault window's overview under the name \
+             they were saved with, and written back unchanged. Nothing was discarded."
+        );
+
+        // The kinds are the *distinct* ones, **sorted** -- the document above
+        // lists `road` before `river` on purpose, so a report that echoed the
+        // document's own order would read "(road, river)" and fail here.
+        // Distinct, too: not one entry per link.
+        let both = cartalith_vault::LinkStore::from_json(&doc.replace("\"road\"", "\"river\""))
+            .expect("opens");
+        let r = unresolvable_kind_report(&both).expect("still two");
+        assert!(r.starts_with("2 of this project's 3 "), "{r}");
+        assert!(r.contains("(river);"), "one kind, named once: {r}");
+
+        // Nothing to report is silence, not an empty warning.
+        assert_eq!(unresolvable_kind_report(&cartalith_vault::LinkStore::default()), None);
+        let clean = cartalith_vault::LinkStore::from_json(
+            r#"{"version":1,"vaults":[],"links":[
+                {"link_id":"a","vault_id":"v","relative_path":"a.md","entity_kind":"landmark",
+                 "entity_id":1,"entity_label":"Waterfall","selection":{"type":"whole_document"}}]}"#,
+        )
+        .expect("opens");
+        assert_eq!(unresolvable_kind_report(&clean), None, "every kind known is nothing to say");
     }
 
     /// One landmark, for the three tests below. Every field but `kind`, `x`

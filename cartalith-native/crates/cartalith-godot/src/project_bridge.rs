@@ -466,37 +466,50 @@ struct LabelDto {
 
 /// `annotations/icons.json` — every icon in `IconEditor::icons`.
 ///
-/// # Owner question 15 meets this file, and nowhere else
+/// # Owner ruling 14 lands here, and the format half is not the blocker
 ///
-/// *"How does a generated landmark relate to the manual icon tool
-/// (`annotations/icons.json`)?"* is open, and this DTO is the exact seam it
-/// would be answered at, so the seam is stated here rather than left to be
-/// rediscovered.
+/// *"How does a generated landmark relate to the existing manual icon
+/// tool?"* — `LANDMARK_GENERATION_SCOPE.md` §4's open question 6, which asks
+/// it as *"one representation, two origins, or a wholly separate data/render
+/// path"* — **was answered on 2026-09-06**: `LARGE_ITEM_RULINGS.md` 14,
+/// *"ONE LAYER, TWO ORIGINS. One collection with an `origin` field. The
+/// renderer draws one layer; M6 spacing sees everything, so generation
+/// cannot place a landmark on top of a hand-placed icon; a regenerate
+/// replaces only the generated ones."* This comment described the question
+/// as open — and called it "question 15", a number nothing in the tree
+/// carries (`grep -rn 'question 15' --include=*.md .`) — and is corrected
+/// rather than deleted, because the *state* it described is still the state
+/// of the code.
 ///
-/// **Three producers now write into one list**, and none of them marks its
-/// output: click-placement ([`icon_bridge::IconEditor::place`]), the density
-/// brush ([`icon_bridge::IconEditor::brush_stamp`], 2026-09-03) and the
-/// generated placement pass ([`icon_bridge::IconEditor::generate`]) — whose
-/// `POI` family reads `landmark_store.last.landmarks` directly and turns each
-/// landmark into an ordinary `cartalith_assets::manual::ManualIcon`. That pass
-/// ships with *"no new
-/// list, no `generated` flag"* by its own design, so as of today **a landmark's
-/// icon is indistinguishable from a hand-placed one the moment it is written
-/// here**, and reopening a project cannot tell them apart either.
+/// **Three producers write into one list, and none of them marks its
+/// output**: click-placement ([`icon_bridge::IconEditor::place`]), the
+/// density brush ([`icon_bridge::IconEditor::brush_stamp`], 2026-09-03) and
+/// the generated placement pass ([`icon_bridge::IconEditor::generate`]) —
+/// whose `POI` family reads `landmark_store.last.landmarks` directly and
+/// turns each landmark into an ordinary
+/// `cartalith_assets::manual::ManualIcon`. So **a landmark's icon is still
+/// indistinguishable from a hand-placed one**, and reopening a project
+/// cannot tell them apart either.
 ///
-/// That is one of the two answers question 15 could take, arrived at by
-/// default rather than by decision: *generation seeds, the author owns the
-/// result.* The other answer — *the landmark owns its icon, and moving or
-/// deleting the landmark moves or deletes it* — needs exactly one thing that
-/// is not here: a provenance field on this struct (a landmark id, plus
-/// whatever "the author has since edited it" flag the owner wants). Every
-/// field below is `#[serde(default)]`, so adding one is a forward-compatible
-/// change an older archive opens through unchanged.
+/// **What ruling 14 needs that is not here, stated so the next pass does not
+/// re-derive it.** An `origin` member on [`IconDto`] is a forward-compatible
+/// change an older archive opens through unchanged — every field is
+/// `#[serde(default)]` — but it would have nothing true to write and nowhere
+/// to put what it read. The runtime collection is
+/// `IconEditor::icons: Vec<ManualIcon>`, and `ManualIcon`
+/// (`cartalith-assets/src/manual.rs`) has no provenance field; a save that
+/// stamped every row `"manual"` would be inventing a value for the generated
+/// ones, and a load that resolved `"generated"` would have nowhere to keep
+/// it. **The field belongs on `ManualIcon` and is set at the three producers
+/// above** — one field and nineteen struct literals across four files, one
+/// of them `cartalith-assets/tests/golden_parity_manual_icons.rs`. Counted
+/// 2026-09-06 with `grep -rn 'ManualIcon *{' --include=*.rs crates/`.
 ///
-/// **Nothing in this file forecloses either.** The brush was deliberately not
-/// given a list or a flag of its own for that reason: a second list would have
-/// had to be re-merged the moment provenance became a *field*, which is where
-/// it belongs whichever way the question lands.
+/// [`icon_from_dto`] is the one seam the load half then lands on, and the
+/// migration rule is already fixed by the file's own history: **a document
+/// written before `origin` existed carries only hand-placed icons**, because
+/// it predates the generated pass having anywhere to write. Absent must
+/// therefore read as `manual`, not as unknown.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct IconsDoc {
     #[serde(default)]
@@ -517,6 +530,52 @@ struct IconDto {
     set: Option<String>,
     #[serde(default)]
     scale: f64,
+}
+
+/// One row of `annotations/icons.json`, resolved — or `None` when the row
+/// names a family that cannot be placed at all.
+///
+/// **Extracted from `project_open`'s own closure so that owner ruling 14's
+/// `origin` has exactly one seam to land on**, and so the two substitutions
+/// below can be asserted rather than only described. Nothing about the
+/// resolution changed in the extraction; the reporting of the drop did (see
+/// the call site).
+///
+/// Two of §6.4a's rungs meet here and take opposite answers, which is the
+/// only thing in this function worth reading twice:
+///
+/// * **An unresolvable `slot` is kept.** §11.2 states the substitution — the
+///   reader renders a placeholder — because dropping it would lose the
+///   author's work over an art-pack mismatch. `slot` is carried as the
+///   archive's own string and resolved at draw time.
+/// * **An unresolvable `family` costs the row.** There is no family to place
+///   it in — `ManualIconFamily::from_key` answers the four §11.2 names plus
+///   this port's own `seamarks`, and every consumer, the gallery, the hit
+///   test and the pack resolver, indexes by it. Guessing `feature` would put
+///   the icon under art the author never chose, which is §6.4a's "inventing
+///   the world" rather than reporting a gap.
+///
+/// `scale` is §6.4a rung 1: a non-positive or absent multiplier is
+/// substituted with `1.0`, the value a plain click placement writes. **That
+/// substitution is not reported**, and §6.4a's closing rule says every one
+/// should be. It is left as it is rather than half-fixed, because it is not
+/// alone: `dto_to_settlement` reads an unrecognised `kind` as
+/// `SettlementKind::Town` (§9.1's own stated substitution) and `sane_breaks`
+/// silently discards every out-of-range break index, both unreported. Fixing
+/// one member of that set would read as though the set were covered. The two
+/// **row** drops in the restore pass — this function's, and
+/// `LandmarkRunDto::into_result`'s — do report, and they are the two
+/// `filter_map`s in it.
+fn icon_from_dto(d: &IconDto) -> Option<cartalith_assets::manual::ManualIcon> {
+    let family = cartalith_assets::manual::ManualIconFamily::from_key(&d.family)?;
+    Some(cartalith_assets::manual::ManualIcon {
+        x: d.x,
+        y: d.y,
+        family,
+        slot: d.slot.clone(),
+        set: d.set.clone(),
+        scale: if d.scale > 0.0 { d.scale } else { 1.0 },
+    })
 }
 
 /// `SAVEFILE_COMPAT.md` §13.2. Every member optional, and a reader may
@@ -831,9 +890,13 @@ impl LandmarkRunDto {
     ///   landmark at `(9000, 3)` on a 512-wide grid is not a landmark;
     /// * a non-finite number, which §14.1 does not allow in the format.
     ///
-    /// Like `IconDto`'s unresolvable family, the drops are counted by the
-    /// caller rather than announced: `landmarks()` returns what survived, and
-    /// its length against the file's is the count.
+    /// **Each drop is reported** — `project_open` subtracts the surviving
+    /// count from the document's own and raises one `warnings` line for the
+    /// document, which is §6.4a rung 2's *"skip that element, keep the rest
+    /// of the array, and report the skip"*. This comment used to say the
+    /// drops were "counted by the caller rather than announced", and no
+    /// caller counted them: `landmarks()` returns what survived and nothing
+    /// anywhere held the number it was fewer than.
     ///
     /// `id` is re-derived here, `k + 1` over the surviving order -- the same
     /// two lines `generate` runs at the end of its own pass. It is a
@@ -1900,6 +1963,23 @@ impl WorldGen {
     ///   and why. Non-empty is **not** failure — a damaged optional payload
     ///   costs itself and nothing else (§6.4) — but it must be shown, or
     ///   the loss is silent.
+    ///
+    ///   **Two sources, one list.** `cartalith_io::read_project` raises the
+    ///   entry- and document-level ones while reading the archive; the
+    ///   restore pass below raises **two** row-level ones that §6.4a rung 2
+    ///   requires (*"skip that element, keep the rest of the array, and
+    ///   report the skip"*) and that were silent until 2026-09-06 — a
+    ///   landmark row whose `kind` this build does not know, and an icon row
+    ///   whose `family` it cannot resolve. A caller has no use for the
+    ///   distinction between the two sources, so there is one key rather
+    ///   than two to remember to show.
+    ///
+    ///   **Two is what this pass drops, not what §6.4a asks for.** They are
+    ///   the pass's only two `filter_map`s (`grep -n 'filter_map'` over the
+    ///   restore block, 2026-09-06); its rung-1 *substitutions* — a
+    ///   settlement `kind` read as `town`, an icon `scale` read as `1.0`, an
+    ///   out-of-range way break discarded — are still silent, and
+    ///   [`icon_from_dto`] says why they were not half-fixed here.
     /// - `documents` carries the slots the engine did **not** consume, as
     ///   JSON **text**, for the shell to restore its own state from. The
     ///   return half of `project_save_with_documents`' channel, and its
@@ -1964,6 +2044,14 @@ impl WorldGen {
 
         let n = (self.gw.max(0) as usize) * (self.gh.max(0) as usize);
         let mut restored: Vec<&str> = Vec::new();
+        // Warnings raised by the *restore* pass, as distinct from
+        // `data.warnings`, which `cartalith_io::read_project` raised while
+        // reading the archive. Both go out through the one `warnings` key --
+        // a caller has no use for the distinction, and two keys would be two
+        // things to remember to show. §6.4a's closing rule is why the list
+        // exists at all: *"every substitution above is reported, never
+        // silent"*.
+        let mut restore_warnings: Vec<String> = Vec::new();
 
         // Immediately after `load_save`, which cleared the previous project's
         // copy: these bytes are what the *next* save owes this file (§6.2),
@@ -1998,7 +2086,8 @@ impl WorldGen {
             // flat reference archive, an HTML-app export) restores nothing
             // here and keeps the cleared store, which is still right for it.
             if let Some(run) = doc.results {
-                self.landmark_store.last = Some(run.into_result(
+                let rows = run.landmarks.len();
+                let result = run.into_result(
                     // The same expression `landmark_run()` uses to widen the
                     // seed, so a restored seed and a re-run one agree bit for
                     // bit. `load_save` sets `self.seed` from `save.params`,
@@ -2006,7 +2095,21 @@ impl WorldGen {
                     self.seed as u64,
                     self.gw.max(0) as usize,
                     self.gh.max(0) as usize,
-                ));
+                );
+                // The same §6.4a rung-2 obligation the icon restore below
+                // carries, and it was silent here for the same reason: the
+                // count only exists as the difference between the document's
+                // rows and the surviving ones, and nothing was subtracting
+                // them. `LandmarkRunDto::into_result`'s own doc lists the
+                // three ways a row is untrusted.
+                let dropped = rows - result.landmarks.len();
+                if dropped > 0 {
+                    restore_warnings.push(format!(
+                        "{SLOT_LANDMARKS}: {dropped} of {rows} landmarks skipped \
+                         (unknown kind, off-grid cell, or a non-finite number)"
+                    ));
+                }
+                self.landmark_store.last = Some(result);
                 restored.push("landmarks");
             }
         }
@@ -2035,26 +2138,23 @@ impl WorldGen {
 
         if let Some(Ok(doc)) = data.parse::<IconsDoc>(SLOT_ICONS) {
             let mut editor = icon_bridge::IconEditor::new();
-            editor.icons = doc
-                .icons
-                .iter()
-                .filter_map(|d| {
-                    // §11.2 says keep an icon whose *slot* cannot be
-                    // resolved. A `family` that is not one of the four is a
-                    // different thing: there is no family to place it in,
-                    // so it is dropped and reported by the caller's own
-                    // count rather than guessed into `feature`.
-                    let family = cartalith_assets::manual::ManualIconFamily::from_key(&d.family)?;
-                    Some(cartalith_assets::manual::ManualIcon {
-                        x: d.x,
-                        y: d.y,
-                        family,
-                        slot: d.slot.clone(),
-                        set: d.set.clone(),
-                        scale: if d.scale > 0.0 { d.scale } else { 1.0 },
-                    })
-                })
-                .collect();
+            editor.icons = doc.icons.iter().filter_map(icon_from_dto).collect();
+            // §6.4a rung 2: *"the reader MUST skip that element, keep the rest
+            // of the array, and report the skip"*, and its closing rule --
+            // *"every substitution above is reported, never silent"*. This
+            // drop was silent, and [`icon_from_dto`]'s own comment used to
+            // claim it was "reported by the caller's own count": no count of
+            // it existed anywhere, in this function or in the shell. One
+            // warning for the whole document rather than one per row, because
+            // a corrupted `family` column would otherwise fill the dialog
+            // with one line per icon and say the same thing each time.
+            let dropped = doc.icons.len() - editor.icons.len();
+            if dropped > 0 {
+                restore_warnings.push(format!(
+                    "{SLOT_ICONS}: {dropped} of {} icons skipped (unresolvable family)",
+                    doc.icons.len()
+                ));
+            }
             self.icons = Some(editor);
             restored.push("icons");
         }
@@ -2292,7 +2392,8 @@ impl WorldGen {
             },
         );
         out.set("format_version", data.format_version);
-        let warnings: PackedStringArray = data.warnings.iter().map(GString::from).collect();
+        let warnings: PackedStringArray =
+            data.warnings.iter().chain(restore_warnings.iter()).map(GString::from).collect();
         let foreign: PackedStringArray = self.carried_foreign.keys().map(GString::from).collect();
         let restored: PackedStringArray = restored.iter().map(|s| GString::from(*s)).collect();
         out.set("warnings", &warnings);
@@ -4588,5 +4689,215 @@ mod tests {
                 "an id past Number.MAX_SAFE_INTEGER reached the archive: {worst}"
             );
         }
+    }
+}
+
+/// `annotations/icons.json`'s own tests. Separate from the module above
+/// because they exercise the *document*, not `WorldGen` -- `WorldGen` is a
+/// cdylib `GodotClass` and cannot be constructed in a unit test, which is why
+/// [`icon_from_dto`] was lifted out of `project_open`'s body in the first
+/// place.
+#[cfg(test)]
+mod icon_document_tests {
+    use super::*;
+
+    /// **The exact text this build's writer produces**, and the fixture owner
+    /// ruling 14's `origin` migration is owed.
+    ///
+    /// `MISTAKES.md`: *"A backward-compatibility test whose fixture is an
+    /// empty collection proves nothing about the installed base. Build the
+    /// fixture from a real prior-format document at the commit that wrote
+    /// it."* This is that document, frozen **before** the format changes
+    /// rather than reconstructed after: every project saved by this build and
+    /// every one saved before it carries this shape, with no `origin` member
+    /// anywhere in it. `the_frozen_fixture_is_the_writers_own_text` below is
+    /// what stops it drifting into a hand-built approximation --
+    /// `project_save_with_documents` writes icons through `insert_doc`, which
+    /// is `serde_json::to_string_pretty`, and that call is made there too.
+    ///
+    /// Four rows, chosen to reach the branches rather than to look plausible:
+    /// a plain click placement (`scale` 1.0, `set` null), a brush stamp (a
+    /// scale that is not 1.0), a `custom` row (the only family that carries a
+    /// `set`), and a row whose `slot` this build cannot resolve -- which
+    /// §11.2 requires be **kept**.
+    const ICONS_BEFORE_ORIGIN: &str = r#"{
+  "icons": [
+    {
+      "x": 40.0,
+      "y": 12.0,
+      "family": "feature",
+      "slot": "mountain",
+      "set": null,
+      "scale": 1.0
+    },
+    {
+      "x": 7.5,
+      "y": 91.25,
+      "family": "settlement",
+      "slot": "city",
+      "set": null,
+      "scale": 0.625
+    },
+    {
+      "x": 3.0,
+      "y": 4.0,
+      "family": "custom",
+      "slot": "obelisk",
+      "set": "my pack",
+      "scale": 2.0
+    },
+    {
+      "x": 100.0,
+      "y": 200.0,
+      "family": "poi",
+      "slot": "a_slot_no_pack_here_defines",
+      "set": null,
+      "scale": 1.0
+    }
+  ]
+}"#;
+
+    /// The fixture is the writer's output and not a hand-typed lookalike.
+    ///
+    /// Without this the migration test would be checking a reader against a
+    /// document no writer ever produced, which is the failure mode
+    /// `MISTAKES.md`'s backward-compatibility row exists to name.
+    #[test]
+    fn the_frozen_fixture_is_the_writers_own_text() {
+        let doc = IconsDoc {
+            icons: vec![
+                IconDto {
+                    x: 40.0,
+                    y: 12.0,
+                    family: "feature".to_string(),
+                    slot: "mountain".to_string(),
+                    set: None,
+                    scale: 1.0,
+                },
+                IconDto {
+                    x: 7.5,
+                    y: 91.25,
+                    family: "settlement".to_string(),
+                    slot: "city".to_string(),
+                    set: None,
+                    scale: 0.625,
+                },
+                IconDto {
+                    x: 3.0,
+                    y: 4.0,
+                    family: "custom".to_string(),
+                    slot: "obelisk".to_string(),
+                    set: Some("my pack".to_string()),
+                    scale: 2.0,
+                },
+                IconDto {
+                    x: 100.0,
+                    y: 200.0,
+                    family: "poi".to_string(),
+                    slot: "a_slot_no_pack_here_defines".to_string(),
+                    set: None,
+                    scale: 1.0,
+                },
+            ],
+        };
+        // `insert_doc`'s own call, which is what puts this document in the
+        // archive.
+        assert_eq!(serde_json::to_string_pretty(&doc).expect("serialises"), ICONS_BEFORE_ORIGIN);
+    }
+
+    /// Opening a document written before `origin` existed must not silently
+    /// rewrite it (`SAVEFILE_COMPAT.md` §6.2, §14.3).
+    #[test]
+    fn a_document_written_before_origin_reopens_and_re_serialises_byte_identically() {
+        let doc: IconsDoc =
+            serde_json::from_str(ICONS_BEFORE_ORIGIN).expect("an older document parses");
+        assert_eq!(doc.icons.len(), 4, "a row was lost on the way in");
+        let again = serde_json::to_string_pretty(&doc).expect("serialises");
+        assert_eq!(again, ICONS_BEFORE_ORIGIN, "opening an old project rewrote it");
+    }
+
+    /// Every field of every row survives resolution -- the property the
+    /// `origin` merge has to keep, asserted before the merge rather than
+    /// after.
+    #[test]
+    fn every_row_of_the_frozen_fixture_resolves_with_its_own_values() {
+        use cartalith_assets::manual::ManualIconFamily;
+        let doc: IconsDoc = serde_json::from_str(ICONS_BEFORE_ORIGIN).expect("parses");
+        let icons: Vec<_> = doc.icons.iter().filter_map(icon_from_dto).collect();
+        assert_eq!(icons.len(), 4, "a row was dropped: {icons:?}");
+
+        assert_eq!(icons[0].family, ManualIconFamily::Feature);
+        assert_eq!((icons[0].x, icons[0].y), (40.0, 12.0));
+        assert_eq!(icons[0].scale, 1.0);
+        assert_eq!(icons[0].set, None);
+
+        assert_eq!(icons[1].family, ManualIconFamily::Settlement);
+        assert_eq!((icons[1].x, icons[1].y), (7.5, 91.25));
+        // A brush stamp's own multiplier, carried rather than normalised.
+        assert_eq!(icons[1].scale, 0.625);
+
+        assert_eq!(icons[2].family, ManualIconFamily::Custom);
+        assert_eq!(icons[2].set.as_deref(), Some("my pack"));
+        assert_eq!(icons[2].scale, 2.0);
+
+        // §11.2: *"A reader MUST keep an icon whose `slot` it cannot resolve,
+        // and render a placeholder -- dropping it silently loses the author's
+        // work over an art-pack mismatch."* The slot is carried as written.
+        assert_eq!(icons[3].family, ManualIconFamily::Poi);
+        assert_eq!(icons[3].slot, "a_slot_no_pack_here_defines");
+    }
+
+    /// §6.4a rung 2: a damaged row costs its element and nothing more.
+    ///
+    /// The three cases are the three answers `icon_from_dto` can give, and
+    /// they are deliberately not the same answer: an unresolvable **family**
+    /// costs the row, an unresolvable **slot** does not, and a non-positive
+    /// **scale** is substituted rather than costing anything.
+    #[test]
+    fn an_icon_row_whose_family_does_not_resolve_costs_the_row() {
+        let text = r#"{"icons":[
+            {"x":1.0,"y":2.0,"family":"feature","slot":"mountain","scale":1.0},
+            {"x":3.0,"y":4.0,"family":"not_a_family","slot":"mountain","scale":1.0},
+            {"x":5.0,"y":6.0,"family":"","slot":"mountain","scale":1.0},
+            {"x":7.0,"y":8.0,"family":"poi","slot":"nothing_defines_this","scale":1.0},
+            {"x":9.0,"y":10.0,"family":"feature","slot":"mountain","scale":0.0},
+            {"x":11.0,"y":12.0,"family":"feature","slot":"mountain","scale":-4.0}
+        ]}"#;
+        let doc: IconsDoc = serde_json::from_str(text).expect("parses");
+        assert_eq!(doc.icons.len(), 6, "the fixture itself is wrong");
+        let icons: Vec<_> = doc.icons.iter().filter_map(icon_from_dto).collect();
+
+        // Two rows dropped, and only those two: `not_a_family` and the empty
+        // string. The empty string is the shape a *missing* `family` member
+        // takes through `#[serde(default)]`, and it must not resolve to a
+        // family either.
+        assert_eq!(icons.len(), 4, "{icons:?}");
+        assert!(
+            !icons.iter().any(|i| i.x == 3.0 || i.x == 5.0),
+            "an unresolvable family was guessed into a family: {icons:?}"
+        );
+
+        // The unresolvable slot survived, with its string intact.
+        assert_eq!(icons[1].slot, "nothing_defines_this");
+
+        // §6.4a rung 1: a stated substitution, applied. `1.0` is what a plain
+        // click placement writes, so a row with no usable multiplier draws at
+        // the size an unscaled one does.
+        assert_eq!(icons[2].scale, 1.0, "a zero scale was carried through");
+        assert_eq!(icons[3].scale, 1.0, "a negative scale was carried through");
+    }
+
+    /// The count `project_open` reports is the document's rows minus the
+    /// survivors, which is the number the `warnings` line is built from.
+    #[test]
+    fn the_reported_drop_count_is_the_rows_that_did_not_survive() {
+        let text = r#"{"icons":[
+            {"family":"feature","slot":"mountain"},
+            {"family":"nope","slot":"mountain"},
+            {"family":"also_nope","slot":"mountain"}
+        ]}"#;
+        let doc: IconsDoc = serde_json::from_str(text).expect("parses");
+        let kept = doc.icons.iter().filter_map(icon_from_dto).count();
+        assert_eq!(doc.icons.len() - kept, 2, "the warning would understate the loss");
     }
 }

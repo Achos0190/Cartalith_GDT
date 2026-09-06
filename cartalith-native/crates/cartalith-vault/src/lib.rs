@@ -50,7 +50,7 @@ pub mod template;
 
 pub use backlinks::{Backlink, BacklinkIndex, LinkForm, RefreshStats, excerpt};
 pub use block::{BlockAction, BlockError};
-pub use links::{EntityKind, ImportedData, KnowledgeLink, LinkStatus, LinkStore, Selection, VaultRef};
+pub use links::{EntityKind, ImportedData, KnowledgeLink, LinkKind, LinkStatus, LinkStore, Selection, VaultRef};
 pub use markdown::{FieldFill, FieldOutcome, Section, SectionError};
 pub use provider::{FileMeta, FsVault, VaultError, VaultProvider};
 pub use template::Template;
@@ -664,7 +664,7 @@ impl VaultSession {
         let vault_id = self.store.vaults.first().map(|x| x.id.clone()).unwrap_or_default();
         Ok(self.store.attach(KnowledgeLink {
             link_id: String::new(),
-            entity_kind: kind,
+            entity_kind: kind.into(),
             entity_id,
             entity_label: entity_label.to_string(),
             vault_id,

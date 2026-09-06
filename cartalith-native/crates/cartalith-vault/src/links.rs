@@ -180,6 +180,122 @@ pub fn landmark_entity_id(key: &str) -> i64 {
 /// §14.1's 2^53 ceiling.
 const LANDMARK_ID_HEX_DIGITS: usize = 13;
 
+/// The `entity_kind` **as the document says it**: a kind this build knows, or
+/// the exact text a newer writer used.
+///
+/// ## Why this type exists at all
+///
+/// Until 2026-09-06 [`KnowledgeLink::entity_kind`] was a bare [`EntityKind`]
+/// with a derived `Deserialize`, so a value outside the six failed that link,
+/// which failed [`LinkStore::from_json`], which made `project_open` warn and
+/// leave **every link in the project** out of the opened document. Reproduced
+/// before it was fixed, by doctoring one link's `"settlement"` to `"river"` in
+/// a two-link store:
+///
+/// ```text
+/// unknown variant `river`, expected one of `settlement`, `province`,
+/// `continent`, `faction`, `culture`, `landmark` at line 6 column 6
+/// ```
+///
+/// `SAVEFILE_COMPAT.md` §13.3.3 says of `entity_kind`: *"An unrecognised value
+/// MUST NOT drop the link."*
+///
+/// ## Preserved-but-inert, not dropped — and the format decided that, not this
+/// module
+///
+/// §13.3.5 gives an unknown `entity_kind` its own row in the resolution table
+/// — *"`entity_kind` is a value this reader does not know → **unresolved** —
+/// show `entity_label` and offer a re-bind"* — and closes: *"A reader that
+/// cannot use a link keeps it, reports it, and **writes it back
+/// byte-equivalent**."* So the choice was made in the format document; the
+/// only thing left was to obey it.
+///
+/// It is also the choice that survives the round trip, which is the argument
+/// that would have picked it anyway. A drop is lossy in one direction only:
+/// open a project in a build that predates a kind, re-save it, and a person's
+/// filing is gone from the archive that was its only copy — silently, with no
+/// undo, at exactly the moment they did nothing but look at it. Keeping the
+/// row costs one `String` and lets the newer build read its own links back.
+///
+/// `IconsDoc` in `cartalith-godot`'s `project_bridge.rs` drops a row whose
+/// `family` does not resolve, and that is right **there** for a reason that
+/// does not carry: an icon whose family is unknown has nothing left to be —
+/// no place to draw it, no text to show. A link keeps its `entity_label`, its
+/// path and its imported prose whatever its kind says, so there is something
+/// to keep it *as*. The shape borrowed from that load site is the one that
+/// matters: **an unresolvable value costs its own row and nothing else**, and
+/// the comment says who reports it.
+///
+/// ## What is still a parse failure, stated rather than left to be found
+///
+/// A **non-string** `entity_kind` — `null`, `7`, an object — still fails the
+/// store. §13.3.3 types the member as a string MUST, so that is a malformed
+/// document rather than a newer one, and the tolerance here is deliberately
+/// scoped to §13.3.3's own sentence. The same is true of a missing
+/// `entity_kind`: absent is not unrecognised.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkKind {
+    /// One of the six [`EntityKind`] variants this build resolves.
+    Known(EntityKind),
+    /// A kind this build does not know, held **verbatim** so that
+    /// [`LinkStore::to_json`] writes back the text it read.
+    Unknown(String),
+}
+
+impl LinkKind {
+    /// The wire text, whichever half this is. Not `&'static str`: an
+    /// [`LinkKind::Unknown`] borrows its own `String`, which is the whole
+    /// point of keeping it.
+    pub fn as_str(&self) -> &str {
+        match self {
+            LinkKind::Known(k) => k.as_str(),
+            LinkKind::Unknown(s) => s.as_str(),
+        }
+    }
+
+    /// The kind this build can resolve against, or `None` for a value it does
+    /// not know. `None` is what makes the link **inert**:
+    /// [`LinkStore::links_for`] never matches it, so no panel binds a note to
+    /// an entity on a guess.
+    pub fn known(&self) -> Option<EntityKind> {
+        match self {
+            LinkKind::Known(k) => Some(*k),
+            LinkKind::Unknown(_) => None,
+        }
+    }
+}
+
+impl From<EntityKind> for LinkKind {
+    fn from(k: EntityKind) -> Self {
+        LinkKind::Known(k)
+    }
+}
+
+/// So that `link.entity_kind == EntityKind::Settlement` still reads as it did
+/// before this type existed. A [`LinkKind::Unknown`] equals no [`EntityKind`],
+/// which is the inertness the format asks for.
+impl PartialEq<EntityKind> for LinkKind {
+    fn eq(&self, other: &EntityKind) -> bool {
+        self.known() == Some(*other)
+    }
+}
+
+impl Serialize for LinkKind {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for LinkKind {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Ok(match EntityKind::parse(&s) {
+            Some(k) => LinkKind::Known(k),
+            None => LinkKind::Unknown(s),
+        })
+    }
+}
+
 impl EntityKind {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -429,7 +545,11 @@ impl VaultRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KnowledgeLink {
     pub link_id: String,
-    pub entity_kind: EntityKind,
+    /// The kind as the document says it. [`LinkKind`] rather than
+    /// [`EntityKind`] so that a value a newer writer used survives a read and
+    /// a write unchanged (`SAVEFILE_COMPAT.md` §13.3.3, §13.3.5) instead of
+    /// failing the whole store.
+    pub entity_kind: LinkKind,
     /// The entity's own id (`tid` for a settlement). See the module doc's
     /// stability table.
     pub entity_id: i64,
@@ -463,8 +583,11 @@ pub struct KnowledgeLink {
 }
 
 impl KnowledgeLink {
+    /// This link's `kind:id`, built from the **stored** kind text — so an
+    /// unresolvable link still reports the key its writer meant
+    /// (`river:2`), rather than one this build invented.
     pub fn entity_key(&self) -> String {
-        entity_key(self.entity_kind, self.entity_id)
+        format!("{}:{}", self.entity_kind.as_str(), self.entity_id)
     }
 
     /// The text the UI should show and the write-back should send: the
@@ -646,6 +769,26 @@ impl LinkStore {
         self.links.iter().filter(|l| l.entity_kind == kind && l.entity_id == id).collect()
     }
 
+    /// Every link whose `entity_kind` is a value this build does not know.
+    ///
+    /// `SAVEFILE_COMPAT.md` §13.3.5 asks for three things of such a link and
+    /// this crate does two of them structurally — it is **kept**
+    /// ([`LinkStore::from_json`] no longer fails) and it is **written back
+    /// byte-equivalent** ([`LinkKind::Unknown`] holds the text). The third is
+    /// *"report it"*, and a report needs someone to report to, which a
+    /// storage crate does not have. This is the list that someone reads:
+    /// `cartalith_godot::vault_bridge`'s `vault_restore_state` warns from it,
+    /// and `vault_all_links` already hands the raw
+    /// [`KnowledgeLink::entity_kind`] text and [`KnowledgeLink::entity_label`]
+    /// straight to the vault window's overview.
+    ///
+    /// Empty is the normal answer and the common one; a non-empty list means
+    /// this project was last written by a build that knows a kind this one
+    /// does not.
+    pub fn unresolvable_links(&self) -> Vec<&KnowledgeLink> {
+        self.links.iter().filter(|l| l.entity_kind.known().is_none()).collect()
+    }
+
     pub fn get(&self, link_id: &str) -> Option<&KnowledgeLink> {
         self.links.iter().find(|l| l.link_id == link_id)
     }
@@ -712,7 +855,7 @@ mod tests {
     fn link() -> KnowledgeLink {
         KnowledgeLink {
             link_id: String::new(),
-            entity_kind: EntityKind::Settlement,
+            entity_kind: EntityKind::Settlement.into(),
             entity_id: 42,
             entity_label: "Nareth".into(),
             vault_id: "vault_x".into(),
@@ -1061,7 +1204,7 @@ mod tests {
         let id = landmark_entity_id("waterfall@120,64");
         let link_id = s.attach(KnowledgeLink {
             link_id: String::new(),
-            entity_kind: EntityKind::Landmark,
+            entity_kind: EntityKind::Landmark.into(),
             entity_id: id,
             entity_label: "Waterfall (120, 64)".into(),
             vault_id: vid,
@@ -1119,7 +1262,7 @@ mod tests {
         ] {
             s.attach(KnowledgeLink {
                 link_id: String::new(),
-                entity_kind: EntityKind::Landmark,
+                entity_kind: EntityKind::Landmark.into(),
                 entity_id: id,
                 entity_label: label.into(),
                 vault_id: vid.clone(),
@@ -1156,6 +1299,196 @@ mod tests {
         assert!(s2.detach(&orphan_id));
         assert_eq!(s2.links.len(), 1);
         assert_eq!(s2.links_for(EntityKind::Landmark, kept).len(), 1);
+    }
+
+    /// A two-link `vault.json` **this build wrote**, with one link's
+    /// `entity_kind` doctored from `"settlement"` to `"river"` -- the exact
+    /// reproduction a verifier ran on 2026-09-06, and the shape of what a
+    /// newer writer would leave behind.
+    ///
+    /// It is a real store rather than a hand-typed one:
+    /// `a_newer_writers_entity_kind_costs_neither_the_link_nor_the_store`
+    /// re-derives every byte of it from `to_json()` and `str::replace`, so the
+    /// fixture cannot drift away from what the writer actually produces. Both
+    /// links are ordinary settlements as far as *this* build's writer is
+    /// concerned; only the doctored token makes the second one unreadable,
+    /// which is precisely how the defect reaches a user.
+    const NEWER_STORE: &str = r###"{
+  "version": 1,
+  "vaults": [
+    {
+      "id": "vault_f4dce017eb51232b",
+      "display_name": "Elaris"
+    }
+  ],
+  "links": [
+    {
+      "link_id": "link_7a79cb0395536f7e",
+      "entity_kind": "settlement",
+      "entity_id": 42,
+      "entity_label": "Nareth",
+      "vault_id": "vault_f4dce017eb51232b",
+      "relative_path": "Locations/Nareth.md",
+      "selection": {
+        "type": "heading",
+        "value": "The Old Quarter"
+      },
+      "source_modified": 1000,
+      "source_hash": "aaaa",
+      "imported_text": "## The Old Quarter\n\nNarrow streets.\n"
+    },
+    {
+      "link_id": "link_68069fb4c0443c4c",
+      "entity_kind": "river",
+      "entity_id": 7,
+      "entity_label": "The Silverflow",
+      "vault_id": "vault_f4dce017eb51232b",
+      "relative_path": "Rivers/The Silverflow.md",
+      "selection": {
+        "type": "whole_document"
+      },
+      "source_modified": 1200,
+      "source_hash": "bbbb",
+      "imported_text": "The Silverflow runs south.\n"
+    }
+  ]
+}"###;
+
+    /// `SAVEFILE_COMPAT.md` §13.3.3's MUST, and §13.3.5's disposition for it.
+    ///
+    /// Before 2026-09-06 an `entity_kind` outside the six failed that link,
+    /// which failed [`LinkStore::from_json`] with *"unknown variant `river`,
+    /// expected one of `settlement`, `province`, `continent`, `faction`,
+    /// `culture`, `landmark`"* -- **taking the valid settlement link with
+    /// it**, and `project_open` warned and opened the project with no
+    /// knowledge layer at all. §13.3.6's fix one member down had been in
+    /// since 2026-08-26; this member never got it.
+    ///
+    /// Four claims, in the order §13.3.5 makes them:
+    ///
+    /// 1. The store parses, and the link this build **can** read is untouched.
+    /// 2. The one it cannot is **kept**, with the label and the prose a person
+    ///    needs to re-bind it by hand.
+    /// 3. It is **inert**: it matches no [`LinkStore::links_for`] query for any
+    ///    kind this build knows, so nothing binds a note to an entity on a
+    ///    guess. [`LinkStore::unresolvable_links`] is where it *is* visible.
+    /// 4. It is written back **byte for byte**, so a project opened in an
+    ///    older build and re-saved does not lose links that build never
+    ///    understood. That is the whole reason the choice is preserve rather
+    ///    than drop, and it is the assertion that fails if anyone changes it.
+    #[test]
+    fn a_newer_writers_entity_kind_costs_neither_the_link_nor_the_store() {
+        // The fixture is this build's own output with one token changed --
+        // derived here rather than trusted, so it stays a real store.
+        let mut written = LinkStore::default();
+        let vid = written.add_vault("Elaris");
+        let mut a = link();
+        a.vault_id = vid.clone();
+        written.attach(a);
+        written.attach(KnowledgeLink {
+            link_id: String::new(),
+            entity_kind: EntityKind::Settlement.into(),
+            entity_id: 7,
+            entity_label: "The Silverflow".into(),
+            vault_id: vid,
+            relative_path: "Rivers/The Silverflow.md".into(),
+            selection: Selection::WholeDocument,
+            source_modified: 1200,
+            source_hash: "bbbb".into(),
+            imported_text: Some("The Silverflow runs south.\n".into()),
+            edited_text: None,
+            imported_data: ImportedData::default(),
+        });
+        assert_eq!(
+            written.to_json().replace(
+                "\"entity_kind\": \"settlement\",\n      \"entity_id\": 7",
+                "\"entity_kind\": \"river\",\n      \"entity_id\": 7"
+            ),
+            NEWER_STORE,
+            "the fixture is what this build's writer produces, with one token doctored"
+        );
+
+        // 1. It parses at all -- this is the assertion that was red.
+        let store = LinkStore::from_json(NEWER_STORE)
+            .expect("an entity_kind from a newer writer must not fail the store");
+        assert_eq!(store.links.len(), 2, "both links survive");
+        assert_eq!(store.vaults.len(), 1);
+
+        // ...and the readable link is exactly what it was.
+        let known = store.links_for(EntityKind::Settlement, 42);
+        assert_eq!(known.len(), 1, "the valid settlement link is not collateral damage");
+        assert_eq!(known[0].link_id, "link_7a79cb0395536f7e");
+        assert_eq!(known[0].entity_key(), "settlement:42");
+        assert_eq!(known[0].working_text(), "## The Old Quarter\n\nNarrow streets.\n");
+        assert_eq!(known[0].selection, Selection::Heading { value: "The Old Quarter".into() });
+
+        // 2. The unreadable one is kept whole, not dropped and not guessed
+        //    into a kind this build happens to have.
+        let odd = store.get("link_68069fb4c0443c4c").expect("the unrecognised kind keeps its link");
+        assert_eq!(odd.entity_kind, LinkKind::Unknown("river".to_string()));
+        assert_eq!(odd.entity_kind.known(), None);
+        assert_eq!(odd.entity_kind.as_str(), "river", "the wire text is held verbatim");
+        assert_eq!(odd.entity_label, "The Silverflow", "§13.3.5: what a person re-binds by");
+        assert_eq!(odd.entity_key(), "river:7", "the key its writer meant, not one we invented");
+        assert_eq!(odd.working_text(), "The Silverflow runs south.\n");
+
+        // 3. Inert: it answers no query for any kind this build knows, and it
+        //    is not silently equal to the first variant either.
+        for k in [
+            EntityKind::Settlement,
+            EntityKind::Province,
+            EntityKind::Continent,
+            EntityKind::Faction,
+            EntityKind::Culture,
+            EntityKind::Landmark,
+        ] {
+            assert!(
+                store.links_for(k, 7).is_empty(),
+                "an unresolvable kind must not resolve as {}",
+                k.as_str()
+            );
+            assert_ne!(odd.entity_kind, k, "LinkKind::Unknown equals no EntityKind");
+        }
+        // Where it *is* visible, which is how §13.3.5's "report it" is met.
+        let flagged = store.unresolvable_links();
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].link_id, "link_68069fb4c0443c4c");
+        assert_eq!(flagged[0].entity_kind.as_str(), "river");
+
+        // 4. Byte for byte, both directions. This is the assertion that makes
+        //    preserve-but-inert different from drop: re-saving in this build
+        //    hands the newer build back its own link, unchanged.
+        assert_eq!(store.to_json(), NEWER_STORE, "opening and saving changes no byte");
+        let again = LinkStore::from_json(&store.to_json()).expect("re-reads");
+        assert_eq!(again, store);
+        assert!(store.to_json().contains("\"entity_kind\": \"river\""), "the text is echoed, not swallowed");
+        // A dropped link would have made this write shorter; it does not.
+        assert_eq!(again.links.len(), 2);
+        assert!(!store.is_empty(), "and the store is still worth writing");
+    }
+
+    /// The boundary of the tolerance above, stated rather than left to be
+    /// discovered: §13.3.3 types `entity_kind` as a **string** MUST, so a
+    /// non-string one is a malformed document rather than a newer one and is
+    /// still a parse failure. Absent is not "unrecognised" either.
+    ///
+    /// Asserted so that a later widening is a deliberate change to this test
+    /// and not a silent one.
+    #[test]
+    fn a_non_string_entity_kind_is_still_malformed() {
+        for bad in ["7", "null", r#"{"kind":"river"}"#] {
+            let json = format!(
+                r#"{{"version":1,"vaults":[],"links":[
+                    {{"link_id":"a","vault_id":"v","relative_path":"a.md","entity_kind":{bad},
+                     "entity_id":1,"entity_label":"Nareth","selection":{{"type":"whole_document"}}}}]}}"#
+            );
+            assert!(LinkStore::from_json(&json).is_err(), "{bad} is not a kind name");
+        }
+        // ...and a missing member is the same: the field has no `default`.
+        let absent = r#"{"version":1,"vaults":[],"links":[
+            {"link_id":"a","vault_id":"v","relative_path":"a.md",
+             "entity_id":1,"entity_label":"Nareth","selection":{"type":"whole_document"}}]}"#;
+        assert!(LinkStore::from_json(absent).is_err());
     }
 
     /// `SAVEFILE_COMPAT.md` §13.3.6, and the reason it is a MUST.

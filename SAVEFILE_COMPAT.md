@@ -1066,12 +1066,45 @@ Array order is significant — it is draw order.
 }
 ```
 
-`family` is one of `settlement`, `feature`, `poi`, `custom`. `slot` names the
-symbol within that family. `set` is the custom set name and is non-`null` only
-when `family` is `custom`. `scale` is a per-instance size multiplier, `1.0`
-for a plain click placement. A reader MUST keep an icon whose `slot` it cannot
-resolve, and render a placeholder — dropping it silently loses the author's
-work over an art-pack mismatch.
+`family` is one of `settlement`, `feature`, `poi`, `custom`, `seamarks`.
+`slot` names the symbol within that family. `set` is the custom set name and
+is non-`null` only when `family` is `custom`. `scale` is a per-instance size
+multiplier, `1.0` for a plain click placement. A reader MUST keep an icon
+whose `slot` it cannot resolve, and render a placeholder — dropping it
+silently loses the author's work over an art-pack mismatch.
+
+**`seamarks` was missing from that list until 2026-09-06, and this port
+writes it.** It is the port's own fifth family (owner ruling 2026-09-02), so
+the reference writes no icon with it and a reference export can carry none —
+but a project saved by this build can, and under the `family` rule below a
+reader working from the old four-name list would have dropped every sea mark
+in it.
+
+**`family` takes the opposite answer to `slot`, and both are §6.4a.** An
+unresolvable `slot` has a stated substitution (the placeholder above) and is
+rung 1; a `family` outside the list has none — there is nothing to place the
+icon in and every consumer indexes by it — so it is rung 2 and costs its
+element. **This build skips that icon, keeps the rest of the array, and reports
+the skip**, and MUST NOT read it as `feature` or as any other family:
+guessing puts the icon under art the author never chose, which is §6.4a's
+"inventing the world" rather than reporting a gap.
+
+> **OPEN — this describes behaviour, and was briefly written here as a `MUST`.
+> Downgraded 2026-09-06, unresolved, pending the owner.** §13.3.5 answers the
+> *same-shaped* question the opposite way for vault links: *"A reader that cannot
+> use a link keeps it, reports it, and writes it back byte-equivalent."* An icon
+> row is not information-free either — `x`, `y`, the family text, `slot`, `set`
+> and `scale` all survive an unknown `family` and could be held inert exactly as
+> `LinkKind::Unknown` holds a kind. **The concrete cost of the skip:** a later
+> build adds a sixth manual family, a user saves in it, opens in this build and
+> saves — every icon of that family is gone permanently. Two lanes of one batch
+> reached opposite dispositions on this, and a cross-lane verification pass
+> caught it; **no shipped behaviour changed either way**, so what is at stake is
+> whether the format blesses a lossy round trip. That is an owner call. An absent `family` member
+is the same case, since it resolves to no family either.
+
+`scale` is rung 1 with a stated substitution: a reader MUST read an absent,
+zero or negative `scale` as `1.0`, the value a plain click placement writes.
 
 Array order is draw order.
 
@@ -1863,6 +1896,26 @@ be discarded by clicking elsewhere is stored.
   GDScript-owned payloads reach the archive through a document channel rather
   than through a schema in Rust, so a payload the shell owns needs no engine
   change to be persisted.
+- **`annotations/icons.json` has no `origin` member, and owner ruling 14
+  (2026-09-06) says it will.** *"ONE LAYER, TWO ORIGINS. One collection with
+  an `origin` field. The renderer draws one layer; M6 spacing sees everything,
+  so generation cannot place a landmark on top of a hand-placed icon; a
+  regenerate replaces only the generated ones."* Recorded here **before** the
+  member exists so the migration rule is not invented twice: when it lands,
+  **an icon with no `origin` is hand-placed**, because a document written
+  without the member predates the generated pass having anywhere to write.
+  Absent must read as `manual`, never as unknown, and an `origin` value that
+  is neither `manual` nor `generated` takes `family`'s answer above rather
+  than being defaulted — a row a reader cannot classify cannot be routed by
+  the regenerate the field exists for.
+
+  The member is not here yet because the *format* is not what blocks it: the
+  runtime icon (`cartalith_assets::manual::ManualIcon`) records no provenance,
+  so a writer would have nothing true to put in it and a reader nowhere to
+  keep what it read. Until then, a project that has run the POI automatic
+  placement stores each landmark **twice** — once in
+  `entities/landmarks.json`'s `results`, once as a `poi` row here — and
+  nothing in either document says they are the same placement.
 - §6.5's partition is `project_bridge.rs`'s `ENGINE_OWNED_SLOTS` — the eleven
   documents this port models — against the six it carries
   (`entities/journeys.json`, `annotations/measurements.json`,

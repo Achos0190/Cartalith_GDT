@@ -274,15 +274,15 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// so it is validated structurally rather than by lookup (see
 /// [`ProjectWrite::history_territory`]).
 ///
-/// # `entities/landmarks.json` carries the dock's settings, not its results
+/// # `entities/landmarks.json` carries the dock's settings **and its results**
 ///
 /// Registered 2026-09-01. Before that the landmark layer was in no slot at
 /// all, and `write_project` rejects an unregistered slot outright, so the name
 /// had to exist here before a writer could exist anywhere.
 /// `cartalith-godot`'s `project_bridge.rs` supplies that writer
-/// (`LandmarksDoc`, written from `WorldGen::landmark_store.settings` and
-/// parsed back on open), and lists the slot in its own `ENGINE_OWNED_SLOTS`
-/// so the shell cannot overwrite a document it has no view of.
+/// (`LandmarksDoc`, written from `WorldGen::landmark_store` and parsed back on
+/// open), and lists the slot in its own `ENGINE_OWNED_SLOTS` so the shell
+/// cannot overwrite a document it has no view of.
 ///
 /// # `annotations/measurements.json` is the opposite case — caller-owned
 ///
@@ -298,16 +298,25 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// measurement is a mark the author made on the sheet, not a thing in the
 /// world with an id that other documents reference.
 ///
-/// **The split is deliberate and the two halves are not symmetric.** The
-/// authored settings — per-kind caps, armed flags, crowding, the four class
-/// radii — are hand-entered configuration that no recomputation brings back,
-/// and until this slot existed they were never written *and* never cleared,
-/// so they followed the user out of whichever project was open last into the
-/// next one. The retained *run* is not written, because
-/// `cartalith_civ::landmark::generate` is a pure function of the world, the
-/// settings and the seed: reproducing it is one click, and showing placements
-/// taken over the previous field against a new one would be wrong, which is
-/// why `load_save` invalidates it either way.
+/// **Both halves are written, and they are written for different reasons.**
+/// The authored settings — per-kind caps, armed flags, crowding, the four
+/// class radii — are hand-entered configuration that no recomputation brings
+/// back, and until this slot existed they were never written *and* never
+/// cleared, so they followed the user out of whichever project was open last
+/// into the next one.
+///
+/// The retained *run* is written too, since owner ruling 10 (2026-09-06):
+/// *"Landmark persistence? → PERSIST in `entities/landmarks.json`."* **This
+/// paragraph used to say the opposite** — "the retained run is not written,
+/// because `cartalith_civ::landmark::generate` is a pure function of the
+/// world, the settings and the seed" — and that argument is superseded rather
+/// than wrong. Re-running the pass does reproduce the placement exactly; what
+/// it does not reproduce is anything a person or a later pass has since
+/// attached to one. `LandmarksDoc.results` is `Option` and
+/// `skip_serializing_if`, so a project whose pass has never run still writes
+/// no run at all, and `load_save` reached on its own still invalidates —
+/// `project_bridge.rs`'s restore puts the archive's own placements back on
+/// top afterwards, over the field and grid that archive carried.
 pub const DOCUMENT_SLOTS: &[&str] = &[
     "entities/settlements.json",
     "entities/factions.json",
