@@ -40,20 +40,33 @@ class_name PhoneMenu
 ## exactly what opening that menu costs on desktop, which is the budget
 ## `command_index.gd`'s own header explains must not be exceeded.
 ##
+## ## The 2026-09-06 pass: nine more screens, and two that are not built
+##
+## §6.6 defines **seventeen** screens; the ruling built six. Eleven remained --
+## not the twelve the backlog row says, counted off §6.6's own `_moreTitle()`
+## table rather than off the row. Nine of the eleven are now built
+## (`assets`, `assets-grid`, `asset-slot`, `travel`, `travel-item`,
+## `landmarks`, `lm-fam`, `help`, `gestures`), each over state this build
+## actually holds. **`data-tiles` and `data-io` are not**, and the reason is
+## stated at the head of the sub-screen section below rather than left as a
+## title with an empty screen under it: the first needs XYZ/TMS/WMTS tile
+## addressing this engine does not have, and the second is a mock in the
+## specification itself whose real equivalent the `data` screen already draws.
+##
 ## ## Reachability is the constraint, and it is checked, not assumed
 ##
 ## §6.6's `help` screen states the rule this build is held to: *"The phone
 ## reorganises rather than truncates: every desktop function is reachable
-## through MAP · GENERATE · PLAN · MORE."* Five screens cannot carry 361 menu
-## rows, so the coverage is explicit:
+## through MAP · GENERATE · PLAN · MORE."* Fifteen screens cannot carry 361
+## menu rows one for one, so the coverage is explicit:
 ##
 ## | Program menu | Where it is reached on the phone |
 ## |---|---|
 ## | `File` | the `project` screen -- §6.6's four acts and its autosave block first, then **every remaining File row in File's own order** (`_rest_of()`) |
 ## | `Data` | the `data` screen -- the whole Data popup, whose own `IMPORT`/`EXPORT`/`SOURCES`/`VALIDATION` separators are already §6.6's bands |
 ## | `Preferences` | the `prefs` screen -- Theme and Units lifted to the top per §6.6, then the rest of the popup in its own order |
-## | `Assets` | the root's `Asset library` row (a drill into the real popup) **and** the `civ` screen's `Landmark generation` row (`Assets ▸ Landmark types`) |
-## | `Help` | the root's `Help & about` row |
+## | `Assets` | the `assets` screen -- §6.6's family rows over `as_family_slots()`, then **the whole Assets popup** (`_rest_of()`), which is what carries `Landmark types ▸`, the icon families and the slicer |
+## | `Help` | the `help` screen -- this build's own runtime identity, the gesture drill, then **the whole Help popup** (`_rest_of()`) |
 ## | `Edit`, `Window` | the root's last band. §6.6's root table has no row for either, and dropping them would make Undo history, Find on map, Reset one stage, the dock toggles, Workspace, Open windows and Layouts unreachable on a handset |
 ##
 ## `_phonemore_reach_probe.gd` renders each built screen and reads back the
@@ -99,16 +112,28 @@ class _Step:
 	## is a popup being re-presented. Exactly one of `popup` / `screen` is set;
 	## the root is the `"more"` screen and so has neither a popup nor a parent.
 	var screen: String
+	## The one thing a screen is *about*, when a screen id alone does not say:
+	## which asset family `assets-grid` is showing, which slot uid `asset-slot`
+	## is inspecting, which `kind|id` pair `travel-item` opened, which landmark
+	## family `lm-fam` drew. Empty for every screen that needs no argument.
+	##
+	## A plain `String` rather than a Dictionary because every consumer wants
+	## exactly one identifier and the one pair (`travel-item`) splits on `|` --
+	## a two-field payload is not worth a second type, and a String keeps the
+	## whole navigation stack printable, which is what the probes read.
+	var arg: String
 	var title: String
 	var trail: String
 	var level: int
 
-	func _init(p: PopupMenu, t: String, tr: String, lv: int, scr: String = "") -> void:
+	func _init(p: PopupMenu, t: String, tr: String, lv: int, scr: String = "",
+			ar: String = "") -> void:
 		popup = p
 		title = t
 		trail = tr
 		level = lv
 		screen = scr
+		arg = ar
 
 	func is_sheet() -> bool:
 		return level == 4
@@ -139,20 +164,62 @@ const SCREEN_TITLES: Dictionary = {
 	"data": ["Data manager", "import · export · sources · validation"],
 	"sim": ["Simulation", "timeline · layers"],
 	"prefs": ["Preferences", "application · performance · graphics"],
+	## -- The 2026-09-06 pass: §6.6's sub-screens, minus the two that are mock --
+	##
+	## §6.6 defines seventeen screens; the ruling built six of them (`root`
+	## through `prefs` above). **Eleven remained, not the twelve the backlog row
+	## and this batch's brief both say** -- counted off §6.6's own
+	## `_moreTitle()` table, which is the list directly above: `data-tiles`,
+	## `data-io`, `assets`, `assets-grid`, `asset-slot`, `travel`,
+	## `travel-item`, `landmarks`, `lm-fam`, `help`, `gestures`. Nine are here;
+	## `data-tiles` and `data-io` are **not built**, and the reason is in
+	## `_fill_data()`'s own comment rather than in a title nobody would reach.
+	##
+	## Two subtitles deviate from §6.6 and both are this port having more than
+	## the prototype did rather than less:
+	##
+	##   - **`assets`** is `24 families · 72 of 113 filled` there -- a written
+	##     count over a family list the prototype invented. This build's
+	##     families are `AssetLibraryWindow.FAMILIES` (eight, see that constant's
+	##     `FAMILIES_NOTE` for why the canvas's 24 do not exist in any Rust type)
+	##     and its fill counts are real, so the subtitle names the source and the
+	##     screen counts.
+	##   - **`help`** is `Cartalith Mobile 0.9` there. There is no product
+	##     version, build number or "Cartalith Mobile" in this port -- see
+	##     `_fill_help()`, which draws what this build CAN answer for itself.
+	"assets": ["Asset library", "families · slots · fill"],
+	"assets-grid": ["Asset library", ""],
+	"asset-slot": ["Slot inspector", ""],
+	"travel": ["Travel library", "classifications & constraints — feeds the planner"],
+	"travel-item": ["Travel library", ""],
+	"landmarks": ["Landmarks", "caps · spacing · one run"],
+	"lm-fam": ["", "zero = off · a cap is a ceiling, not a quota"],
+	"help": ["Help & about", "version · engine · gestures · credits"],
+	"gestures": ["Gesture reference", "the touch vocabulary this build has"],
 }
 
 ## §6.6's `root` table, in its order, with its glyphs and its sub text.
 ##
-## `t` is what the row goes to: `screen` a bespoke screen id, `menu` a program
-## menu re-presented whole, `call` one of `_root_action()`'s destinations.
+## `t` is what the row goes to: `screen` a bespoke screen id, or `menu` a
+## program menu re-presented whole. **Every row is a `screen` today**; `menu`
+## is kept because `_named_in_root()` reads it and because a future root row
+## may want a plain drill, and a third kind (`call`, straight to a window)
+## existed until 2026-09-06 and was removed with its last row -- the Travel
+## library window is now opened from inside the `travel` screen instead.
 ##
-## **Three of the eight are not bespoke screens, and that is the ruling, not a
-## shortfall.** The owner named five (Project, Civilization, Data, Simulation,
-## Preferences); §6.6's `assets`/`assets-grid`/`asset-slot` and its `help`/
-## `gestures` screens were not among them, and this port already has a real
-## Asset Library window and a real Help menu behind those two rows. The Travel
-## library row likewise opens the real `travel_library_window.gd`, which is a
-## whole window rather than §6.6's two mock screens.
+## **All eight are bespoke screens as of 2026-09-06.** Until then three were
+## not: the 2026-09-05 ruling named five screens, and Assets, Travel and Help
+## drilled the real popup or opened the real window instead. Each of those three
+## turned out to have real state behind it -- `as_family_slots()` reports every
+## family's slots with true fill flags, `tl_list()` reports the four travel
+## kinds, and the build can answer its own identity -- so the three rows now
+## reach screens that show it. **Nothing stopped being reachable:**
+## `_fill_assets()` and `_fill_help()` both end in `_rest_of()` over the same
+## program popup the row used to drill, so every Assets and Help row is still
+## drawn, in the popup's own order, under §6.6's rows. Travel is not a program
+## menu at all -- `Data ▸ Travel library…` is its menu row, and the `data`
+## screen draws that -- so it loses nothing either, and its screen ends with an
+## act that opens the same window the row used to.
 const ROOT_ROWS: Array = [
 	{"t": "screen", "id": "project", "glyph": "⧉", "label": "Project",
 		"sub": "save · recent · storage"},
@@ -160,15 +227,15 @@ const ROOT_ROWS: Array = [
 		"sub": "settlement · POI · way tools"},
 	{"t": "screen", "id": "data", "glyph": "⇅", "label": "Data manager",
 		"sub": "import · export · sources · validation"},
-	{"t": "menu", "id": "Assets", "glyph": "▦", "label": "Asset library",
+	{"t": "screen", "id": "assets", "glyph": "▦", "label": "Asset library",
 		"sub": "families · slots · packs · landmark types"},
-	{"t": "call", "id": "travel_library", "glyph": "≋", "label": "Travel library",
+	{"t": "screen", "id": "travel", "glyph": "≋", "label": "Travel library",
 		"sub": "animals · vehicles · vessels · parties"},
 	{"t": "screen", "id": "sim", "glyph": "◷", "label": "Simulation",
 		"sub": ""},
 	{"t": "screen", "id": "prefs", "glyph": "⚙", "label": "Preferences",
 		"sub": "theme · units · performance · graphics"},
-	{"t": "menu", "id": "Help", "glyph": "?", "label": "Help & about",
+	{"t": "screen", "id": "help", "glyph": "?", "label": "Help & about",
 		"sub": "documentation · shortcuts · credits · about"},
 ]
 
@@ -523,11 +590,31 @@ func open() -> void:
 	visible = true
 	_render()
 
-func _screen_title(id: String) -> String:
+## §6.6's `_moreTitle()` is a lookup for most screens and a **template** for
+## four of them (`{assetFam}`, `{selected entry}`, `{family label}`,
+## `{assetFam} · slot {n+1}`). Those four resolve against the step's `arg`, and
+## every one of them resolves against LIVE state rather than a stored copy: an
+## asset family's title comes from `AssetLibraryWindow.FAMILIES`, a travel
+## entry's name from `tl_get()`, a landmark family's from the engine's own key.
+##
+## An unresolvable arg falls back to the arg itself rather than to a plausible
+## name -- a header reading `poi` is a header saying "this is the poi family and
+## nothing pretty was found for it", which is true; one reading `Points of
+## interest` for a family that no longer exists would not be.
+func _screen_title(id: String, arg: String = "") -> String:
+	if id == "lm-fam" and arg != "":
+		return CivilizationWorkspace._lm_pretty(arg).capitalize()
 	var row: Array = SCREEN_TITLES.get(id, [])
-	return String(row[0]) if row.size() == 2 else id
+	return String(row[0]) if row.size() == 2 and String(row[0]) != "" else id
 
-func _screen_sub(id: String) -> String:
+func _screen_sub(id: String, arg: String = "") -> String:
+	match id:
+		"assets-grid":
+			return "family · %s" % _asset_family_title(arg)
+		"asset-slot":
+			return _slot_subtitle(arg)
+		"travel-item":
+			return _travel_entry_name(arg)
 	var row: Array = SCREEN_TITLES.get(id, [])
 	return String(row[1]) if row.size() == 2 else ""
 
@@ -630,11 +717,12 @@ func _push(popup: PopupMenu, title: String, level: int) -> void:
 ## pages *inside* it, not a second surface stacked over it. `is_sheet()` (level
 ## 4) stays what `open_sheet()` uses for the map context menu, which is the one
 ## thing in this file that really is an overlay over an unrelated surface.
-func _push_screen(id: String) -> void:
+func _push_screen(id: String, arg: String = "") -> void:
 	var trail := PackedStringArray()
 	for s in _stack:
 		trail.append(s.title)
-	_stack.append(_Step.new(null, _screen_title(id), " · ".join(trail), SCREEN_LEVEL, id))
+	_stack.append(_Step.new(null, _screen_title(id, arg), " · ".join(trail),
+		SCREEN_LEVEL, id, arg))
 	_render()
 
 # -- Render -------------------------------------------------------------------
@@ -667,8 +755,8 @@ func _render() -> void:
 		## no such subtitle exists and the trail is the only orientation there
 		## is. The root keeps neither: its right-hand readout is §6.6's `root`
 		## header and a subtitle under `MORE` would push it off.
-		var sub := _screen_sub(screen_step.screen) if screen_step.screen != "" \
-			else screen_step.trail
+		var sub := _screen_sub(screen_step.screen, screen_step.arg) \
+			if screen_step.screen != "" else screen_step.trail
 		_screen_head_trail.text = "" if root else sub
 		_screen_head_trail.visible = not root and sub != ""
 		## Canvas "07 More": the root's header is a title and a readout, with no
@@ -700,7 +788,7 @@ func _fill(body: VBoxContainer, step: _Step) -> void:
 	_clear(body)
 	_refreshed.clear()
 	if step.screen != "":
-		_fill_screen(body, step.screen)
+		_fill_screen(body, step.screen, step.arg)
 	elif step.popup == null:
 		## Unreachable through `open()` / `_push_screen()` / `_push()`, all of
 		## which set one of the two. Drawn rather than returning silently, for
@@ -794,7 +882,7 @@ func _missing_row(label: String, why: String) -> Control:
 
 # -- The screens --------------------------------------------------------------
 
-func _fill_screen(body: VBoxContainer, id: String) -> void:
+func _fill_screen(body: VBoxContainer, id: String, arg: String = "") -> void:
 	match id:
 		"more": _fill_root(body)
 		"project": _fill_project(body)
@@ -802,6 +890,15 @@ func _fill_screen(body: VBoxContainer, id: String) -> void:
 		"data": _fill_data(body)
 		"sim": _fill_sim(body)
 		"prefs": _fill_prefs(body)
+		"assets": _fill_assets(body)
+		"assets-grid": _fill_assets_grid(body, arg)
+		"asset-slot": _fill_asset_slot(body, arg)
+		"travel": _fill_travel(body)
+		"travel-item": _fill_travel_item(body, arg)
+		"landmarks": _fill_landmarks(body)
+		"lm-fam": _fill_lm_family(body, arg)
+		"help": _fill_help(body)
+		"gestures": _fill_gestures(body)
 		_:
 			body.add_child(_missing_row("Unknown screen '%s'." % id,
 				"No builder in _fill_screen()."))
@@ -817,7 +914,11 @@ func _fill_root(body: VBoxContainer) -> void:
 				var target := String(spec.id)
 				if sub == "":
 					sub = _live_root_sub(target)
-				_add(body, _row(label, sub, null, _chevron(),
+				## §6.6 badges its `Asset library` row `72 / 113`. This build
+				## can answer that for real -- see `_asset_fill_badge()`, which
+				## counts `as_family_slots()` rather than printing a figure.
+				var badge: Control = _root_badge(target)
+				_add(body, _row(label, sub, badge, _chevron(),
 					func(): _push_screen(target), false, glyph))
 			"menu":
 				var p := _menu_popup(String(spec.id), false)
@@ -835,8 +936,6 @@ func _fill_root(body: VBoxContainer) -> void:
 							n += 1
 					_add(body, _row(label, sub, _trail_label("%d" % n), _chevron(),
 						func(): _push(p, label, SCREEN_LEVEL), false, glyph))
-			"call":
-				_add(body, _root_action(String(spec.id), label, sub, glyph))
 
 	## §15 fault 2: the desktop readout cluster used to be reparented into the
 	## sheet whole -- a 150 px wordmark and five labels that are empty before a
@@ -887,14 +986,20 @@ func _fill_root(body: VBoxContainer) -> void:
 ## missing from the phone -- including an eighth one a future `menus.gd` adds,
 ## which lands in `Not on the MORE list` rather than nowhere.
 ##
-## The three screen-owned menus are named here rather than derived, because the
-## coverage lives in `_fill_project()` / `_fill_data()` / `_fill_prefs()` as row
-## calls and there is nothing to read it off. `Assets` is deliberately NOT among
-## them: the root already drills it (`ROOT_ROWS`), so the loop below finds it,
-## and listing it twice would hide a future edit that removed that row.
-## `_phonemore_reach_probe.gd` is what checks the claim either way.
+## The screen-owned menus are named here rather than derived, because the
+## coverage lives in `_fill_project()` / `_fill_data()` / `_fill_prefs()` /
+## `_fill_assets()` / `_fill_help()` as row calls and there is nothing to read
+## it off. `_phonemore_reach_probe.gd` is what checks the claim either way.
+##
+## **`Assets` and `Help` joined this list on 2026-09-06**, when their root rows
+## stopped being `menu` drills and became bespoke screens. The comment here used
+## to say `Assets` was deliberately absent *"because the root already drills
+## it"*; it does not any more, and leaving it out would have put the whole
+## Assets popup in the `Not on the MORE list` band as well as on its own screen
+## -- two routes to one menu, which is exactly the duplication this predicate
+## exists to prevent.
 func _named_in_root(menu_title: String) -> bool:
-	if ["File", "Data", "Preferences"].has(menu_title):
+	if ["File", "Data", "Preferences", "Assets", "Help"].has(menu_title):
 		return true
 	for spec in ROOT_ROWS:
 		if String(spec.t) == "menu" and String(spec.id) == menu_title:
@@ -1003,19 +1108,25 @@ func _fill_civ(body: VBoxContainer) -> void:
 			+ "workspace drops one, so an armed tool would have nothing to call. "
 			+ "POI art is an icon family — Assets ▸ Icon families ▸ Points of interest."))
 
+	## §6.6's `civ` row goes to its `landmarks` screen, and as of 2026-09-06 so
+	## does this one. **It drilled `Assets ▸ Landmark types ▸` until then**, and
+	## that submenu is a *read-only* one -- `menus.gd::_build_landmark_family()`
+	## ends every family with a signpost saying so in its own words: *"Rows here
+	## read state; they do not arm a type."* So the row promised landmark
+	## generation and reached a report of it. It now reaches the caps, the
+	## spacing dial and the run, over the same `landmark_*` bridge the CIVIL
+	## dock uses. The submenu is still reachable, on the `assets` screen, where
+	## `_rest_of()` draws it as itself.
+	##
+	## The subtitle stays `_landmark_sub()`'s count, which is read off that same
+	## submenu -- a type or a family added to `menus.gd` still moves this line.
 	var assets := _menu_popup("Assets")
-	if assets == null:
-		_add(body, _missing_row("Landmark generation",
-			"The Assets menu is not on this build's menu bar."))
-	else:
-		var li := _find_sub(assets, "LandmarkTypes")
-		if li < 0:
-			_add(body, _missing_row("Landmark generation",
-				"Assets ▸ Landmark types is not in this build."))
-		else:
-			var sub := assets.get_node_or_null(NodePath("LandmarkTypes")) as PopupMenu
-			_add(body, _row("Landmark generation", _landmark_sub(sub), null, _chevron(),
-				func(): _push(sub, "Landmark types", SCREEN_LEVEL), false))
+	var lm_sub := ""
+	if assets != null and _find_sub(assets, "LandmarkTypes") >= 0:
+		lm_sub = _landmark_sub(assets.get_node_or_null(NodePath("LandmarkTypes")) as PopupMenu)
+	_add(body, _row("Landmark generation",
+		lm_sub if lm_sub != "" else "Caps, spacing and one run.",
+		null, _chevron(), func(): _push_screen("landmarks"), false))
 
 	_add(body, _row("Open journey planner", "Party, season, carriage, stages and cost.",
 		null, _chevron(), _go_journey_planner, false))
@@ -1114,12 +1225,14 @@ func _fill_sim(body: VBoxContainer) -> void:
 ## `PERFORMANCE`, `GRAPHICS`, `TILES & LOD` and `MEMORY` heads as labelled
 ## separators.
 ##
-## §6.6's `TOUCH` head and its `Gesture reference` screen are **not built**.
-## That screen is nine claims about what a gesture does on this shell (pan,
-## pinch, rotate, double-tap, long-press sample, edge-swipe inspector, sheet
-## handle, tab re-tap, undo chip), and writing them down without testing each
-## one against this build is exactly the "prose that describes behaviour nobody
-## checked" defect. Reported as outstanding rather than guessed at.
+## §6.6's `TOUCH` head and its `Gesture reference` drill are built as of
+## 2026-09-06. **This comment said they were "not built" and gave the reason:**
+## the screen is nine claims about what a gesture does on this shell, and
+## writing them down without testing each against this build is the "prose that
+## describes behaviour nobody checked" defect. That reason still stands and is
+## what `_fill_gestures()` is: each of the nine was checked at a symbol, three
+## turned out to be wrong about this build and say what it does instead, and two
+## do not exist here and are drawn as absent.
 func _fill_prefs(body: VBoxContainer) -> void:
 	var p := _menu_popup("Preferences")
 	if p == null:
@@ -1131,6 +1244,1096 @@ func _fill_prefs(body: VBoxContainer) -> void:
 	_expand_sub(body, p, "ThemeChoice", "Theme", drawn)
 	_expand_sub(body, p, "UnitsChoice", "Units", drawn)
 	_rest_of(body, p, drawn)
+	## §6.6 closes this screen on `head TOUCH` / `nav ☰ Gesture reference`.
+	## After `_rest_of()`, so the Preferences popup's own bands are not
+	## interrupted by a band that belongs to neither of them.
+	_head(body, "Touch")
+	_add(body, _row("Gesture reference", "The whole touch vocabulary this build "
+		+ "has, each row checked at its symbol.", null, _chevron(),
+		func(): _push_screen("gestures"), false, _glyph("☰")))
+
+# -- §6.6's sub-screens (2026-09-06) ------------------------------------------
+#
+# §6.6 defines seventeen screens. Six shipped 2026-09-05; **eleven remained**
+# (`data-tiles`, `data-io`, `assets`, `assets-grid`, `asset-slot`, `travel`,
+# `travel-item`, `landmarks`, `lm-fam`, `help`, `gestures` -- counted off
+# §6.6's own `_moreTitle()` table, which is the enumeration, not off a backlog
+# row, which says twelve and lists eleven). Nine are below. The two that are
+# not built are not built for the reasons in the next two paragraphs, and are
+# not drawn as empty frames:
+#
+#   - **`data-tiles`** is §6.6's slippy-map pyramid export: a scheme chooser
+#     over `XYZ · TMS · WMTS`, a `Zoom levels 0 → N` range, an estimator, and
+#     an `EXPORT {tiles} TILES` act that emits `leaflet-preview.html`. **None of
+#     that addressing exists in this engine.** `data_manager_window.gd`'s
+#     `SCHEME_NOTE` is the measurement: *"The export writes a flat row/column
+#     tile grid plus tiles/index.json (cartalith_engine::region_export::
+#     export_region_tiles), not a slippy-map pyramid. XYZ, TMS and WMTS all
+#     address tiles by zoom/x/y over a projected CRS; none of that addressing
+#     exists in the engine, and adding it is DM-02's remaining half."* That
+#     window draws its own scheme chips **disabled** and its `Emit
+#     leaflet-preview.html` checkbox unchecked-and-dead for the same reason. A
+#     phone screen offering zoom levels and a tile estimate would be a control
+#     with nothing behind it. The real export -- the flat grid one -- is
+#     reachable: it is a `DataManagerWindow.ROUTES` row, drawn by the `data`
+#     screen through the real Data popup.
+#   - **`data-io`** is a mock in the specification itself. Its own first row is
+#     *"Route configuration is desktop-parity mock in this prototype. The route
+#     exists so nothing on the phone is unreachable"*, and §9 item 16 records
+#     that all eight of its callers land on one screen whose title never
+#     changes because `this.state.dataRoute` is declared and never assigned.
+#     This port has the real thing instead -- fourteen `DataManagerWindow.
+#     ROUTES`, each opened by `open_data_manager_route()` -- and the `data`
+#     screen already draws every one of those rows. Building `data-io` here
+#     would add a screen whose only honest content is a copy of the rows one
+#     level above it.
+#
+# Everything below reads live state. Where a figure does not exist this build
+# draws no figure: no invented byte sizes, no `0.9 · build 2611`, no fill
+# counts written down. Where §6.6's own row is *wrong about this build* -- three
+# of `gestures`' nine are -- the row says what this build does.
+
+## The live `EngineBridge`, or `null`.
+##
+## `bridge` lives on `DccApp`, not on `DccShell`, so it is fetched by name for
+## the reason `_can_recompute_stale()` already gives: `DccApp extends DccShell`
+## and `DccShell` builds this file, so a typed access would close a class cycle,
+## and the capture probes instantiate `DccShell` bare where the property does
+## not exist at all.
+func _engine():
+	return _shell.get("bridge")
+
+## The bridge, or `null` **while the engine is busy as well as when it is
+## absent**.
+##
+## `generate()` and `landmark_run()` both hold `world_gen` mutably borrowed on a
+## worker thread, and any `#[func]` reached from the main thread meanwhile fails
+## its own `Gd<T>::bind()` -- a Rust panic per call, which `engine_bridge.gd`'s
+## landmark block documents with its 360-panic measurement. Every `landmark_*`
+## wrapper carries that guard itself; **`as_family_slots`, `as_slot_summary`,
+## `as_item_summary`, `as_pack_info` and every `tl_*` wrapper do not** -- they
+## guard only on `_has()`. So this is where the guard lives for the asset and
+## travel screens, and `_busy_why()` is what those screens draw instead of a
+## count they could not take.
+func _engine_idle():
+	var br = _engine()
+	if br == null or bool(br.get("generating")):
+		return null
+	return br
+
+func _busy_why() -> String:
+	var br = _engine()
+	if br == null:
+		return "This build has no engine bridge, so there is nothing to read."
+	if bool(br.get("generating")):
+		return ("A generation or landmark pass holds the engine. These counts are "
+			+ "read live and cannot be taken while it is running — reopen this "
+			+ "screen when the status bar clears.")
+	return "The engine reported nothing for this screen."
+
+# -- assets / assets-grid / asset-slot ----------------------------------------
+
+## `AssetLibraryWindow.FAMILIES`' row for `key`, or an empty Dictionary.
+##
+## The family table is read off that window rather than copied here, and that
+## is the whole reason these three screens are a re-presentation rather than a
+## second asset library: a family added there (or its slot list changed)
+## appears here with no edit, exactly as a `menus.gd` row does.
+func _asset_family(key: String) -> Dictionary:
+	for f in AssetLibraryWindow.FAMILIES:
+		if String((f as Dictionary).get("key", "")) == key:
+			return f
+	return {}
+
+func _asset_family_title(key: String) -> String:
+	var f := _asset_family(key)
+	return String(f.get("title", key)) if not f.is_empty() else key
+
+## `{filled, total}` over one family's real slots, or an empty Dictionary when
+## the engine could not be read. **Empty, not `{0, 0}`** -- "no art anywhere"
+## and "could not ask" are different answers and a zero would print as the
+## first.
+func _asset_family_fill(family_key: String) -> Dictionary:
+	var br = _engine_idle()
+	if br == null or not br.has_method("as_family_slots"):
+		return {}
+	var rows: Array = br.as_family_slots(family_key)
+	if rows.is_empty():
+		return {}
+	var filled := 0
+	for r in rows:
+		if bool((r as Dictionary).get("filled", false)):
+			filled += 1
+	return {"filled": filled, "total": rows.size()}
+
+## §6.6 badges the root's `Asset library` row `72 / 113`. That is a written
+## figure over an invented family list; this one is `as_family_slots()` counted
+## across `AssetLibraryWindow.FAMILIES`, and it is **absent rather than zero**
+## when the engine is busy or the binding is missing.
+##
+## **Eight crossings of the gdext boundary on every root render**, so it gets a
+## number rather than an assumption: `0.412 ms` median (`0.400..0.796`) over 9
+## against a `5.28 ms` (`5.25..6.08`) whole-root render -- measured 2026-09-06
+## by `_phonemore2_probe.gd` at 1080x2400, the badge **timed on its own** rather
+## than inferred from the render, since a whole-render figure cannot say whose
+## milliseconds it is. A second process re-ran it at `0.452` (`0.436..0.560`),
+## inside the first bracket, so the order of magnitude holds. `_menu_row()`'s
+## header refuses a preview that would fire one `about_to_popup`; this is a
+## different cost -- a registry walk, not a menu handler -- and small enough to
+## keep.
+func _root_badge(screen_id: String) -> Control:
+	if screen_id != "assets":
+		return null
+	var filled := 0
+	var total := 0
+	var any := false
+	for f in AssetLibraryWindow.FAMILIES:
+		var n := _asset_family_fill(String((f as Dictionary).get("key", "")))
+		if n.is_empty():
+			continue
+		any = true
+		filled += int(n["filled"])
+		total += int(n["total"])
+	return _badge("%d / %d" % [filled, total]) if any else null
+
+## §6.6 `assets`. Eleven family nav rows badged `filled / total`, then a
+## `COLLECTIONS` block.
+##
+## **Eight families, not eleven, and not the canvas's 24.**
+## `AssetLibraryWindow.FAMILIES_NOTE` is the authority and states the reason in
+## its own words: *"frozen against the reference engine
+## (cartalith-assets::slots / library) -- not the design canvas's own 24. The
+## canvas subdivides more finely (splitting e.g. 'Feature icons' into 'Trees &
+## cover' / 'Rock & scree'); no Rust type draws that line"*. Drawing §6.6's
+## eleven would mean inventing three families and splitting one that is a single
+## slot registry in the engine.
+##
+## §6.6's `COLLECTIONS` block is **not** carried: it is `read UNASSIGNED
+## IMPORTS 3` plus an info line, and per-slot collection membership is a
+## `as_slot_summary()`-per-slot walk (`asset_library_window.gd`'s own comment
+## names that cost). What replaces it is the real pack line, which is one call.
+##
+## Ends in `_rest_of()` over the Assets popup. That is what keeps the Assets
+## menu reachable now that the root row pushes this screen instead of drilling
+## it -- Asset library…, Sprite sheet slicer…, Icon families ▸, Texture sets ▸,
+## Landmark types ▸ and the rest all arrive because `menus.gd` put them there.
+func _fill_assets(body: VBoxContainer) -> void:
+	var br = _engine_idle()
+	for f in AssetLibraryWindow.FAMILIES:
+		var fam: Dictionary = f
+		var key := String(fam.get("key", ""))
+		var title := String(fam.get("title", key))
+		var n := _asset_family_fill(key)
+		var sub := "%s · %s" % [String(fam.get("group", "")),
+			"%d px seamless tile" % int(fam.get("size", 0)) if bool(fam.get("texture", false))
+				else "%d px RGBA icon" % int(fam.get("size", 0))]
+		if n.is_empty():
+			## A family whose count could not be taken still drills -- the grid
+			## re-asks, and by then the pass may have finished.
+			_add(body, _row(title, sub, null, _chevron(),
+				func(): _push_screen("assets-grid", key), false, _glyph("▦")))
+			continue
+		_add(body, _row(title, sub,
+			_badge("%d / %d" % [int(n["filled"]), int(n["total"])]), _chevron(),
+			func(): _push_screen("assets-grid", key), false, _glyph("▦")))
+	if br == null:
+		_info(body, _busy_why())
+
+	_head(body, "Pack")
+	if br != null and br.has_method("as_pack_info"):
+		var pack: Dictionary = br.as_pack_info()
+		## Every field here is optional in the reply and each is omitted rather
+		## than defaulted: an unnamed pack is a pack with no name, and printing
+		## `—` for `name` would read as a pack called that.
+		for pair in [["Name", "name"], ["Author", "author"], ["Licence", "license"]]:
+			var text := String(pack.get(String(pair[1]), "")).strip_edges()
+			if text != "":
+				_add(body, _value_row(String(pair[0]), text))
+		if pack.has("total_items"):
+			_add(body, _value_row("Stored items", "%d" % int(pack["total_items"])))
+	else:
+		_add(body, _missing_row("Pack metadata", _busy_why()))
+
+	var p := _menu_popup("Assets")
+	if p == null:
+		_add(body, _missing_row("Assets menu",
+			"The Assets menu is not on this build's menu bar."))
+		return
+	_rest_of(body, p, {})
+
+## §6.6 `assets-grid`: *"No list rows -- this screen renders only the slot
+## grid"*, four columns, one cell per slot, tapping a cell pushes `asset-slot`.
+##
+## §6.6 draws **12 cells always** and fills `Places → 10`, `Trees & cover → 11`,
+## every other family `7` -- a written fill pattern over an invented slot count.
+## This draws one cell per **real** slot (`as_family_slots()`: 7 for
+## `textures`, 15 for `biomes`, 10 for `icons`, …) with each cell's own real
+## `filled` flag, so an empty family draws an empty grid rather than seven
+## imaginary filled cells.
+##
+## The `custom` family is the one that can legitimately have no slots at all,
+## and its empty state says so rather than drawing nothing.
+func _fill_assets_grid(body: VBoxContainer, family_key: String) -> void:
+	var fam := _asset_family(family_key)
+	if fam.is_empty():
+		_add(body, _missing_row(family_key,
+			"No such family in AssetLibraryWindow.FAMILIES."))
+		return
+	var br = _engine_idle()
+	if br == null or not br.has_method("as_family_slots"):
+		_add(body, _missing_row("%s slots" % String(fam.get("title", family_key)),
+			_busy_why()))
+		return
+	var rows: Array = br.as_family_slots(family_key)
+
+	## §6.6's header row: the family and `tap a slot` on the right.
+	var filled := 0
+	for r in rows:
+		if bool((r as Dictionary).get("filled", false)):
+			filled += 1
+	_head(body, "%s · slots" % String(fam.get("title", family_key)))
+	_add(body, _value_row("Filled", "%d of %d" % [filled, rows.size()]))
+
+	if rows.is_empty():
+		_info(body, ("This family has no slots yet. %s"
+			% ("Custom icons are created by importing an image with no slot focused "
+				+ "(as_add_custom_slot); the eight registry families are fixed."
+				if bool(fam.get("custom", false))
+				else "The engine reported an empty slot registry for it.")))
+	else:
+		var grid := GridContainer.new()
+		grid.columns = ASSET_GRID_COLS
+		grid.add_theme_constant_override("h_separation", _ps(8))
+		grid.add_theme_constant_override("v_separation", _ps(8))
+		var wrap := MarginContainer.new()
+		wrap.add_theme_constant_override("margin_left", _ps(16))
+		wrap.add_theme_constant_override("margin_right", _ps(16))
+		wrap.add_theme_constant_override("margin_top", _ps(8))
+		wrap.add_theme_constant_override("margin_bottom", _ps(8))
+		wrap.add_child(grid)
+		for i in rows.size():
+			grid.add_child(_asset_cell(fam, rows[i], i))
+		_add(body, wrap)
+
+	_add(body, _row("Open %s in the asset library" % String(fam.get("title", family_key)),
+		"Import, slice, tag, collect and apply — the whole window, on this family.",
+		null, _chevron(), func(): _go_asset_library(family_key), false))
+
+## §6.6's grid geometry is `repeat(4,1fr)`, and **that spec is the whole reason
+## for the value** -- 4 is what the design draws.
+##
+## **The touch floor does NOT pin it, and an earlier version of this comment
+## claimed it did.** That claim said "a fifth column would take it under on a
+## narrow handset"; a verifier set the constant to 5 and re-ran at both ends
+## (540x1200 and 1080x2400) and got `0 failure(s)` both times -- five columns at
+## 412 dp is about 71 dp square, still well clear of `DccTheme.PHONE_TAP_MIN`.
+## `fits` does not catch it either: `assets-grid body_min_w` goes 819 -> 1008
+## against a 1080 screen.
+##
+## So **no assertion currently covers this value** -- it is held by the design
+## spec alone. Said plainly rather than left as a coverage claim that would not
+## have gone red.
+const ASSET_GRID_COLS := 4
+
+## One slot cell. A `Button`, deliberately -- **not** the `PanelContainer` +
+## `_row_input()` pair the list rows use.
+##
+## `_row_input()`'s own header records why that pair exists and what it costs:
+## a `PanelContainer` is not a `BaseButton`, so it never gets the free
+## press-cancel a `ScrollContainer` gives a real button when a drag passes
+## `scroll_deadzone`, and PH-15 had to reimplement it. A grid cell needs no
+## wrapped second line, which is the only thing the pair buys, so it takes the
+## `BaseButton` and gets that cancellation for nothing.
+func _asset_cell(fam: Dictionary, row: Dictionary, index: int) -> Control:
+	var uid := String(row.get("uid", ""))
+	var filled := bool(row.get("filled", false))
+	var code := "%s-%02d" % [String(fam.get("code", "?")), index + 1]
+	var slot_name := String(row.get("name", row.get("id", "")))
+
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(_pt(64), _pt(64))
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.tooltip_text = "%s · %s · %s" % [code, slot_name,
+		"%d variant(s)" % int(row.get("item_count", 0)) if filled else "empty"]
+	## §6.6's own filled/empty distinction, onto the two stylebox factories this
+	## shell already has: a filled slot is a raised surface (`panel_alt`), an
+	## empty one is the bordered-but-transparent `pill(false)` -- "there is a
+	## slot here and nothing in it". §6.6 hatches the empty one with a 45°
+	## repeating gradient, which is not something a `StyleBoxFlat` draws, so the
+	## outline carries that job instead.
+	var sb: StyleBox = DccTheme.flat(DccTheme.c("panel_alt"), _ps(14)) if filled \
+		else DccTheme.pill(false, _ps(14), _ps(6), _ps(6))
+	b.add_theme_stylebox_override("normal", sb)
+	b.add_theme_stylebox_override("hover", sb)
+	b.add_theme_stylebox_override("disabled", sb)
+	b.add_theme_stylebox_override("pressed", DccTheme.pill(true, _ps(14), _ps(6), _ps(6)))
+	if uid != "":
+		b.pressed.connect(func(): _push_screen("asset-slot", uid))
+	else:
+		b.disabled = true
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", _ps(2))
+	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(col)
+
+	var name_l := DccTheme.mono_label(slot_name, "text" if filled else "text_ghost",
+		_ps(9), 0)
+	name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(name_l)
+
+	var code_l := DccTheme.mono_label(code, "accent" if filled else "text_ghost",
+		_ps(8.5), 1)
+	code_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	code_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(code_l)
+	return b
+
+## §6.6 `asset-slot`'s subtitle is `{assetFam} · slot {n+1}`. The slot's real
+## family comes back from `as_slot_summary()`, so this is the family it is in
+## rather than the family the user happened to arrive from.
+func _slot_subtitle(uid: String) -> String:
+	var br = _engine_idle()
+	if br == null or not br.has_method("as_slot_summary"):
+		return ""
+	var s: Dictionary = br.as_slot_summary(uid)
+	if not bool(s.get("ok", false)):
+		return ""
+	return _asset_family_title(String(s.get("family", "")))
+
+## §6.6 `asset-slot`. **§9 item 20 records that the prototype's own version of
+## this screen is a fixed placeholder** -- *"`asset-slot` shows the same fixed
+## placeholder (`capital-star.png · 512×512 · 84 KB`, `118% · fit · reset`,
+## anchor `base`, `×3` variants) for every slot in every family"*. Every figure
+## below is instead the engine's, and one of the prototype's five is **not
+## drawn at all**: the engine reports no stored byte size, which
+## `asset_library_window.gd` already found and states in its own words
+## (*"`as_item_summary` carries name/transform/decoded size/hash and nothing
+## else, so the last field is dropped rather than invented"*).
+func _fill_asset_slot(body: VBoxContainer, uid: String) -> void:
+	var br = _engine_idle()
+	if br == null or not br.has_method("as_slot_summary"):
+		_add(body, _missing_row("Slot", _busy_why()))
+		return
+	var s: Dictionary = br.as_slot_summary(uid)
+	if not bool(s.get("ok", false)):
+		_add(body, _missing_row("Slot",
+			"This slot no longer exists in the live session — a batch delete or "
+				+ "rename removed it while this screen was open."))
+		return
+	var fam := _asset_family(String(s.get("family", "")))
+	var item_count := int(s.get("item_count", 0))
+
+	_add(body, _value_row("Slot", String(s.get("name", s.get("id", uid)))))
+	if not fam.is_empty():
+		_add(body, _value_row("Family", String(fam.get("title", ""))))
+	_add(body, _value_row("Variants", "%d" % item_count))
+
+	if item_count > 0 and br.has_method("as_item_summary"):
+		var item: Dictionary = br.as_item_summary(uid, 0)
+		if bool(item.get("ok", false)):
+			## `w`/`h` are the DECODED size, which is what the window's own
+			## readout prints. No byte figure follows it: see this function's
+			## header.
+			_add(body, _value_row("File", "%s · %d × %d · PNG" % [
+				String(item.get("name", "")), int(item.get("w", 0)), int(item.get("h", 0))]))
+			if item.has("scale"):
+				_add(body, _value_row("Scale", "%d%%" % int(roundf(float(item["scale"]) * 100.0))))
+			if item.has("pan_x") and item.has("pan_y"):
+				_add(body, _value_row("Pan", "%.0f, %.0f" % [
+					float(item["pan_x"]), float(item["pan_y"])]))
+			if item.has("hash"):
+				_add(body, _value_row("Content hash", String(item["hash"])))
+		var png: PackedByteArray = br.as_thumbnail_png(uid, 0, 256) \
+			if br.has_method("as_thumbnail_png") else PackedByteArray()
+		var preview := _asset_preview(png)
+		if preview != null:
+			_add(body, preview)
+	else:
+		_info(body, "No art in this slot yet. Import one from the asset library — "
+			+ "the phone screens read the library, they do not write to it.")
+
+	if not fam.is_empty():
+		## §6.6 draws `ANCHOR base` as an editable-looking field. It is not
+		## per-slot here and saying so is the point: `asset_library_window.gd`
+		## states it as *"Anchor is fixed by the family
+		## (cartalith-assets::Family), not a per-slot setting"*, and its own
+		## chips are drawn disabled for that reason.
+		_add(body, _note_row("Anchor", "%s — fixed by the family, not per slot."
+			% String(fam.get("anchor", "center"))))
+		_add(body, _value_row("Bakes to", "%d px %s" % [int(fam.get("size", 0)),
+			"opaque, seamless tile" if bool(fam.get("texture", false))
+				else "RGBA, straight alpha"]))
+
+	var tags: PackedStringArray = s.get("tags", PackedStringArray())
+	if tags.size() > 0:
+		_add(body, _value_row("Tags", " · ".join(tags)))
+	if bool(s.get("has_dupe", false)):
+		_add(body, _note_row("Duplicate art",
+			"Another slot in this library holds a byte-identical image."))
+
+	var fam_key := String(s.get("family", ""))
+	_add(body, _row("Open in the asset library",
+		"Replace, add a variant, tag, or move this slot into a collection.",
+		null, _chevron(), func(): _go_asset_library(fam_key), false))
+
+## A decoded thumbnail, or `null` when there is nothing to draw.
+##
+## Null rather than an empty frame: a bordered blank square is indistinguishable
+## from art that failed to decode, and this screen already says "no art in this
+## slot" above in the case where there is none.
+func _asset_preview(png: PackedByteArray) -> Control:
+	if png.is_empty():
+		return null
+	var img := Image.new()
+	if img.load_png_from_buffer(png) != OK:
+		return null
+	var tr := TextureRect.new()
+	tr.texture = ImageTexture.create_from_image(img)
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tr.custom_minimum_size.y = _ps(160)
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var wrap := MarginContainer.new()
+	wrap.add_theme_constant_override("margin_left", _ps(16))
+	wrap.add_theme_constant_override("margin_right", _ps(16))
+	wrap.add_theme_constant_override("margin_top", _ps(10))
+	wrap.add_theme_constant_override("margin_bottom", _ps(10))
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(tr)
+	return wrap
+
+## Closed first, and every window opener in this file does the same: the window
+## opens over the map, and leaving this full-screen overlay underneath it puts
+## the user behind it the moment they dismiss the window.
+##
+## Reached by name rather than by type -- `open_asset_library()` lives on
+## `DccApp`, the subclass that owns the windows, and a typed call from a file
+## `DccShell` builds would close a class cycle. Guarded, because `DccShell` is
+## also instantiated bare by the capture probes.
+func _go_asset_library(family_key: String) -> void:
+	close()
+	if _shell.has_method("open_asset_library"):
+		_shell.call("open_asset_library", family_key, false)
+
+# -- travel / travel-item -----------------------------------------------------
+
+## Which of `TravelLibraryWindow.KINDS` the `travel` screen's `seg` has
+## selected. §6.6 defaults it to `ANIMALS`; `KINDS[0]` is `animal`, so the
+## default is read off that table rather than written here.
+var _travel_kind := ""
+
+func _travel_kinds() -> Array:
+	return TravelLibraryWindow.KINDS
+
+func _travel_current_kind() -> String:
+	if _travel_kind == "" and not _travel_kinds().is_empty():
+		_travel_kind = String((_travel_kinds()[0] as Dictionary).get("key", ""))
+	return _travel_kind
+
+## §6.6 `travel`. A `seg` over the four types, then one nav row per entry.
+##
+## §6.6 lists **sixteen entries by name with their sub text written out**
+## (`Horse` / `mount · pack 90 kg · 24 km/d base · grazing normal`, …). Not one
+## of them is written here: `tl_list(kind)` returns the live library, and each
+## row carries its own `subtitle` (`travel_bridge.rs`), so a row edited in the
+## Travel library window — or added there, or duplicated — moves this screen.
+## That also means the count is whatever the project holds, not sixteen.
+func _fill_travel(body: VBoxContainer) -> void:
+	var kind := _travel_current_kind()
+	var chips: Array = []
+	for k in _travel_kinds():
+		var kd: Dictionary = k
+		var key := String(kd.get("key", ""))
+		chips.append({"label": String(kd.get("label", key)), "on": key == kind,
+			"press": func(): _set_travel_kind(key)})
+	_chips(body, "Type", chips)
+
+	var br = _engine_idle()
+	if br == null or not br.has_method("tl_list"):
+		_add(body, _missing_row("Travel entries", _busy_why()))
+		return
+	var rows: Array = br.tl_list(kind)
+	if rows.is_empty():
+		_add(body, _missing_row("Travel entries",
+			## Parenthesised, because `%` binds tighter than `+`: without them
+			## the format would apply to the last literal alone, which carries
+			## no placeholder.
+			("This build's library holds no entries of this type. "
+				+ "tl_list(\"%s\") returned nothing — an older extension has no "
+				+ "tl_* bindings at all, and a newer one ships stock rows.") % kind))
+	for r in rows:
+		var row: Dictionary = r
+		var id := String(row.get("id", ""))
+		var origin := String(row.get("origin", ""))
+		## `origin` is `stock` / `custom`. Badged only when it is `custom`,
+		## because "this one was edited or added here" is the state worth
+		## marking; badging every stock row would make the badge mean nothing.
+		var mark: Control = _badge("CUSTOM") if origin == "custom" else _chevron()
+		_add(body, _row(String(row.get("name", id)), String(row.get("subtitle", "")),
+			null, mark, func(): _push_screen("travel-item", "%s|%s" % [kind, id]),
+			false, _glyph("≋")))
+
+	_info(body, "An information layer only — entries become selectable options in "
+		+ "the journey planner's party form.")
+	_add(body, _row("Open the travel library",
+		"Add, duplicate, edit and validate entries — the whole window.",
+		null, _chevron(), func(): _go_travel_library_kind(kind), false))
+
+func _set_travel_kind(kind: String) -> void:
+	_travel_kind = kind
+	_render()
+
+func _go_travel_library_kind(kind: String) -> void:
+	close()
+	if _shell.has_method("open_travel_library"):
+		_shell.call("open_travel_library", kind)
+
+## `"kind|id"` -> the entry's live name, for the header subtitle.
+func _travel_entry_name(arg: String) -> String:
+	var parts := arg.split("|")
+	if parts.size() != 2:
+		return ""
+	var br = _engine_idle()
+	if br == null or not br.has_method("tl_get"):
+		return ""
+	var e: Dictionary = br.tl_get(String(parts[0]), String(parts[1]))
+	return String(e.get("name", "")) if bool(e.get("ok", false)) else ""
+
+## §6.6 `travel-item`: `ENTRY` / `CLASS` / `CONSTRAINTS` / `SOURCE`, plus
+## `LOAD INTO PLANNER ➔` for the party set-ups.
+##
+## §6.6 also writes out three party presets as a table of nine columns each
+## (`Merchant caravan` groupSize 12, pace `Steady`, …). Those are the
+## prototype's own fixtures; here the presets are `tl_list("preset")` rows and
+## the planner reads them itself, so the table is not copied and cannot drift
+## from the library.
+func _fill_travel_item(body: VBoxContainer, arg: String) -> void:
+	var parts := arg.split("|")
+	if parts.size() != 2:
+		_add(body, _missing_row("Travel entry",
+			"Malformed screen argument '%s' — expected \"kind|id\"." % arg))
+		return
+	var kind := String(parts[0])
+	var id := String(parts[1])
+	var br = _engine_idle()
+	if br == null or not br.has_method("tl_get"):
+		_add(body, _missing_row("Travel entry", _busy_why()))
+		return
+	var e: Dictionary = br.tl_get(kind, id)
+	if not bool(e.get("ok", false)):
+		_add(body, _missing_row("Travel entry",
+			"tl_get(\"%s\", \"%s\") reports this entry no longer exists." % [kind, id]))
+		return
+
+	_add(body, _value_row("Entry", String(e.get("name", id))))
+	var kind_label := kind
+	for k in _travel_kinds():
+		if String((k as Dictionary).get("key", "")) == kind:
+			kind_label = String((k as Dictionary).get("label", kind))
+	_add(body, _value_row("Class", kind_label))
+	var subtitle := String(e.get("subtitle", ""))
+	if subtitle != "":
+		_add(body, _note_row("Constraints", subtitle))
+	_add(body, _value_row("Source",
+		"stock definition" if String(e.get("origin", "")) == "stock" else "project data"))
+
+	## §3's validation state, drawn because it is the one thing on this entry
+	## that can be WRONG -- a row missing a required field is selectable in the
+	## planner and then fails there instead of here.
+	var vstate := String(e.get("validation_state", ""))
+	if vstate != "" and vstate != "ok":
+		var missing: PackedStringArray = e.get("validation_missing", PackedStringArray())
+		_add(body, _note_row("Validation", "%s%s" % [vstate,
+			(" — missing %s" % " · ".join(missing)) if missing.size() > 0 else ""]))
+
+	## Usage, and both halves only when the bridge sent them: a `0` here means
+	## "nothing uses it", which is a real and useful answer, but an ABSENT key
+	## means the binding did not report and must not print as zero.
+	var used := PackedStringArray()
+	if e.has("usage_presets"):
+		used.append("%d party set-up(s)" % int(e["usage_presets"]))
+	if e.has("usage_journeys"):
+		used.append("%d journey(s)" % int(e["usage_journeys"]))
+	if used.size() > 0:
+		_add(body, _value_row("Used by", " · ".join(used)))
+
+	if kind == "preset":
+		_add(body, _row("Load into planner",
+			"Writes this set-up's party fields into the journey planner and opens it.",
+			null, _chevron(), func(): _load_preset_into_planner(id), false))
+	else:
+		_info(body, "Selectable as a mount, vehicle or vessel in the planner's "
+			+ "party form.")
+	_add(body, _row("Open in the travel library",
+		"Edit, duplicate or validate this entry.", null, _chevron(),
+		func(): _go_travel_library_kind(kind), false))
+
+## §6.6's `LOAD INTO PLANNER ➔`.
+##
+## The planner is opened **first**, because `_apply_preset()` calls
+## `_rebuild_party_form()` and `_compute()` on the view, and doing that before
+## the view has been presented rebuilds a form nobody is looking at and then
+## rebuilds it again on open.
+##
+## `_apply_preset` is reached **by name**, which is the same route
+## `_go_recompute_stale()` takes to `DccShell._recompute_stale()` and for the
+## same reason -- but unlike that one it crosses into another file's private
+## method, and that is worth saying plainly rather than burying: a public entry
+## point on `JourneyPlannerView` would be better, and this row is the caller
+## that would justify adding one. Guarded, so an older or refactored planner
+## leaves the user in the planner rather than doing nothing silently.
+func _load_preset_into_planner(id: String) -> void:
+	close()
+	if _shell.has_method("open_journey_planner"):
+		_shell.call("open_journey_planner")
+	var view = _shell.get("journey_planner_view")
+	if view != null and view.has_method("_apply_preset"):
+		view.call("_apply_preset", id)
+	elif _shell.has_method("set_status"):
+		_shell.call("set_status", "hint",
+			"This build's journey planner has no preset entry point — pick the "
+				+ "set-up from the planner's own party row.", "warn")
+
+# -- landmarks / lm-fam -------------------------------------------------------
+
+## §6.6's landmark screens are the one place it writes out a whole model: six
+## families, 49 types, a cap and a `was` per type, a placement formula and a
+## `setInterval` run mock. **None of that is copied.** This engine has the real
+## thing behind `EngineBridge`'s `landmark_*` block -- `landmark_kinds()` is the
+## type registry, `landmark_settings()` the caps and armed flags,
+## `landmark_headroom()` §6.6's own info line (`caps_total` / `room_estimate` /
+## `last_placed`), `landmark_funnels()` the per-type limiting reason, and
+## `landmark_run()` a real threaded pass -- and `CivilizationWorkspace` is the
+## desktop panel over exactly those calls.
+##
+## The ladder, the class labels, the Crowding range and the limiting-reason
+## vocabulary are read from that class's own constants rather than restated, so
+## a ladder rung added there appears here. That is deliberate and it is the same
+## contract this file has with `menus.gd`: one definition, two presentations.
+##
+## §6.6's `nav ×6` count is not written down either -- the families are the
+## engine's, first-seen out of `landmark_kinds()`, which is the order
+## `menus.gd::_build_landmark_types_menu()` also uses.
+func _lm_kinds() -> Array:
+	var br = _engine()
+	if br == null or not br.has_method("landmark_kinds"):
+		return []
+	return br.landmark_kinds()
+
+func _lm_settings() -> Dictionary:
+	var br = _engine()
+	if br == null or not br.has_method("landmark_settings"):
+		return {}
+	return br.landmark_settings()
+
+## `kind key -> funnel row`, so a type's last-run result is one lookup.
+func _lm_funnels() -> Dictionary:
+	var br = _engine()
+	if br == null or not br.has_method("landmark_funnels"):
+		return {}
+	var out: Dictionary = {}
+	for f in br.landmark_funnels():
+		out[String((f as Dictionary).get("kind", ""))] = f
+	return out
+
+## The engine's families, in the engine's own first-seen order.
+func _lm_families() -> Array:
+	var order: Array = []
+	for k in _lm_kinds():
+		var fam := String((k as Dictionary).get("family", "other"))
+		if not order.has(fam):
+			order.append(fam)
+	return order
+
+func _fill_landmarks(body: VBoxContainer) -> void:
+	var br = _engine()
+	var kinds := _lm_kinds()
+	if br == null or kinds.is_empty():
+		_add(body, _missing_row("Landmark types",
+			"This build's extension returned no landmark vocabulary. "
+				+ "landmark_kinds() is the type registry and it came back empty, "
+				+ "which is a missing binding rather than an empty world — "
+				+ "rebuild the native library."))
+		return
+	var st := _lm_settings()
+	var caps: Dictionary = st.get("caps", {})
+	var armed: Dictionary = st.get("armed", {})
+	var funnels := _lm_funnels()
+
+	## §6.6's info row is one sentence of three figures. **Two of the three are
+	## not always figures**, and this is the one place on the screen where a
+	## zero would read as a measurement:
+	##
+	##   - `room_estimate` is `0` **whenever there is no generated world**, not
+	##     because nothing fits. `lib.rs::landmark_headroom()` computes it only
+	##     for `WorldSource::Generated` and its other arm is a literal `_ => 0`.
+	##     With 384 of armed caps standing, *"room for about 0 at this spacing"*
+	##     is the app reporting a world it has not got.
+	##   - `last_placed` is `0` until the first pass, because
+	##     `landmark_store.last` is `None` and `map_or(0, …)` flattens that to a
+	##     count. *"last run placed 0"* before any run reads as a run that
+	##     placed nothing.
+	##
+	## So each clause is emitted only when it is one, and what is missing says
+	## why. `caps_total` is exact at all times (`LandmarkStore::caps_total()`
+	## over the armed kinds) and is always drawn.
+	var head: Dictionary = br.landmark_headroom() if br.has_method("landmark_headroom") else {}
+	if head.is_empty():
+		_info(body, "This build's bridge reports no headroom estimate, so neither "
+			+ "the packing figure nor the last run's total is shown. The caps and "
+			+ "the spacing below are live.")
+	else:
+		var line := PackedStringArray(["caps total %d" % int(head.get("caps_total", 0))])
+		var world: bool = bool(br.get("has_world"))
+		if world:
+			line.append("room for about %d at this spacing" % int(head.get("room_estimate", 0)))
+		var ran: bool = not (br.landmark_funnels() as Array).is_empty()
+		if ran:
+			line.append("last run placed %d" % int(head.get("last_placed", 0)))
+		var why := PackedStringArray()
+		if not world:
+			why.append("the packing estimate needs a generated world")
+		if not ran:
+			why.append("no landmark pass has run yet")
+		_info(body, " · ".join(line)
+			+ ("" if why.is_empty() else " — " + ", and ".join(why) + "."))
+
+	## §6.6's `range Crowding`, over `CivilizationWorkspace`'s own dial range and
+	## step, with §4.1's second line: `× 1.00` is arithmetic, `34 km` is a fact
+	## about the map. `_lm_radius_in_force()` DIVIDES -- the engine's
+	## `radius_km` is `base / crowding`, and the desktop panel multiplied here
+	## until 2026-09-03, so this calls that helper rather than doing the sum.
+	var crowd := float(st.get("crowding", 1.0))
+	var radii: Array = st.get("class_radius_km", [])
+	var qi: int = CivilizationWorkspace.LM_QUOTED_CLASS
+	var base_km: float = float(radii[qi]) if qi < radii.size() else 0.0
+	var cname := String(CivilizationWorkspace.LM_CLASS_LABEL.get(
+		CivilizationWorkspace.LM_CLASSES[qi], "")).to_lower()
+	##
+	## The readout is `× 1.00` alone and the sentence is a wrapping row under
+	## it, which is the desktop panel's own structure (`_lm_crowd_readout` and
+	## `_lm_crowd_note` are two labels) and is here for a measured reason: a
+	## `_slider_row()` display is a `mono_label` that neither wraps nor clips, so
+	## its full text width is the row's minimum width. With the sentence inline
+	## this screen measured **1035 px of minimum width against a 1080 px
+	## screen** — 96% of it, the widest of the nine — and the sentence grows as
+	## Crowding falls (`× 0.25` puts a three-digit km in it), so the tightest
+	## reading was not the worst case.
+	_add(body, _slider_row("Crowding", "× %.2f" % crowd,
+		CivilizationWorkspace.LM_CROWDING_MIN, CivilizationWorkspace.LM_CROWDING_MAX,
+		crowd, Callable(), CivilizationWorkspace.LM_CROWDING_STEP,
+		func(v: float): _lm_write("landmark_set_crowding", [v], true),
+		func(v: float): return "× %.2f" % v))
+	_info(body, "a %s landmark keeps %.0f km clear · sparse → dense" % [cname,
+		CivilizationWorkspace._lm_radius_in_force(base_km, crowd)])
+
+	var compete := bool(st.get("cross_type_competition", true))
+	_add(body, _row("Types compete with each other",
+		"Off lets a shrine sit beside a waterfall. On keeps every landmark clear "
+			+ "of every other one.", null, _switch(compete),
+		func(): _lm_write("landmark_set_cross_competition", [not compete], true), false))
+
+	_head(body, "Families")
+	for fam in _lm_families():
+		var n_armed := 0
+		var n_total := 0
+		var n_placed := 0
+		for k in kinds:
+			var kd: Dictionary = k
+			if String(kd.get("family", "other")) != fam:
+				continue
+			n_total += 1
+			if bool(armed.get(String(kd.get("key", "")), false)):
+				n_armed += 1
+			var fn: Dictionary = funnels.get(String(kd.get("key", "")), {})
+			n_placed += int(fn.get("placed", 0))
+		var fk: String = fam
+		_add(body, _row(CivilizationWorkspace._lm_pretty(fk).capitalize(),
+			"%d of %d armed · %d placed" % [n_armed, n_total, n_placed],
+			null, _chevron(), func(): _push_screen("lm-fam", fk), false))
+
+	var busy: bool = bool(br.get("generating"))
+	if busy:
+		_add(body, _missing_row("Run landmark pass",
+			"A generation or landmark pass is already running. The pass is "
+				+ "threaded and only one may hold the engine at a time."))
+	else:
+		_add(body, _row("Run landmark pass",
+			"Places every armed type, once, against the current terrain.",
+			null, _chevron(), _lm_run, false))
+	## §6.6's closing info, verbatim on its second clause because it is the
+	## sentence the whole screen exists to make true.
+	_info(body, "a cap is a ceiling, not a quota — the spacing calculation gives "
+		+ "the restraint")
+
+## One landmark setting write, then a redraw.
+##
+## `emit_after` exists because this screen's own rows are its listeners: a
+## redraw before the engine call would repaint from the value the setting had
+## BEFORE the write, which is the ten-emitters-fired-early defect
+## `MISTAKES.md` records. The write happens first, always; only the redraw is
+## conditional, and it is skipped for the slider (which redraws on release
+## instead, so the body is not rebuilt under a moving finger).
+func _lm_write(method: String, args: Array, redraw: bool = false) -> void:
+	var br = _engine()
+	if br == null or not br.has_method(method):
+		return
+	br.callv(method, args)
+	if redraw:
+		_render()
+
+## `landmark_run()` is `await`-able and threaded (`engine_bridge.gd`: it sets
+## the same `generating` flag a generate does, so neither can start while the
+## other is in flight). The screen is left open across it -- unlike
+## `_go_recompute_stale()`, which closes because that call blocks the main
+## thread -- and redrawn when the pass returns, so the family rows' `placed`
+## counts and the headroom line update in place.
+func _lm_run() -> void:
+	var br = _engine()
+	if br == null or not br.has_method("landmark_run"):
+		return
+	if _shell.has_method("set_status"):
+		_shell.call("set_status", "hint", "Landmark pass running…", "accent")
+	var result: Dictionary = await br.landmark_run()
+	if _shell.has_method("set_status"):
+		_shell.call("set_status", "hint",
+			"Landmark pass — %d placed." % int(result.get("placed", 0))
+				if bool(result.get("ok", false))
+				else String(result.get("error", "The landmark pass did not run.")),
+			"accent" if bool(result.get("ok", false)) else "warn")
+	if visible:
+		_render()
+
+## §6.6 `lm-fam`: one `range` per type over the cap ladder, and a `read` under
+## each armed one carrying the last run's placed count and limiting reason.
+##
+## The ladder is `CivilizationWorkspace.LM_LADDER` and the slider carries its
+## **index**, never the cap -- that class's own comment explains why (for a
+## Continental type one versus two is the design of the world and 120 versus
+## 200 means nothing). Dragging to index 0 disarms and the row then prints what
+## the cap was, because the store keeps `armed` and `cap` apart on purpose.
+func _fill_lm_family(body: VBoxContainer, family: String) -> void:
+	var kinds := _lm_kinds()
+	if kinds.is_empty():
+		_add(body, _missing_row(family, "landmark_kinds() returned no types."))
+		return
+	var st := _lm_settings()
+	var caps: Dictionary = st.get("caps", {})
+	var armed_map: Dictionary = st.get("armed", {})
+	var funnels := _lm_funnels()
+	var mine: Array = []
+	for k in kinds:
+		if String((k as Dictionary).get("family", "other")) == family:
+			mine.append(k)
+	if mine.is_empty():
+		_add(body, _missing_row(family,
+			"No landmark type reports this family. The families are the engine's "
+				+ "own, first-seen out of landmark_kinds()."))
+		return
+
+	var ladder: Array = CivilizationWorkspace.LM_LADDER
+	var any_no_viewshed := false
+	for k in mine:
+		var kd: Dictionary = k
+		var key := String(kd.get("key", ""))
+		var label := String(kd.get("label", key))
+		var cls := String(kd.get("class", ""))
+		var buildable := bool(kd.get("buildable", true))
+		var needs_vs := bool(kd.get("needs_viewshed", false))
+		if needs_vs:
+			any_no_viewshed = true
+		var cap := int(caps.get(key, int(kd.get("default_cap", 0))))
+		var is_armed: bool = buildable and bool(armed_map.get(key, false))
+		var rung: int = CivilizationWorkspace._lm_rung(cap) if is_armed else 0
+
+		var caption := "%s · %s%s" % [label,
+			String(CivilizationWorkspace.LM_CLASS_LABEL.get(cls, cls)).to_lower(),
+			" · no viewshed" if needs_vs else ""]
+		if not buildable:
+			## An unbuildable type is drawn, disabled, with the engine's own
+			## reason -- `menus.gd`'s honesty rule, and the desktop panel does
+			## the same rather than hiding the row.
+			_add(body, _missing_row(caption,
+				CivilizationWorkspace._lm_limit_why("not_buildable")))
+			continue
+		var kk := key
+		var kept := cap
+		_add(body, _slider_row(caption,
+			"%d max" % cap if is_armed else "off · was %d" % cap,
+			0.0, float(ladder.size() - 1), float(rung),
+			Callable(), 1.0,
+			func(v: float): _lm_set_rung(kk, int(round(v))),
+			## §6.6's own two readouts: `{cap} max` when armed, `off · was
+			## {cap}` at the zero stop. The remembered number is `kept` -- the
+			## cap the engine holds right now -- so the zero stop says what the
+			## user is about to get back rather than `off · was 0`.
+			func(v: float):
+				var i: int = clampi(int(round(v)), 0, ladder.size() - 1)
+				return "off · was %d" % kept if i == 0 else "%d max" % int(ladder[i])))
+		if is_armed and funnels.has(key):
+			var fn: Dictionary = funnels[key]
+			_add(body, _value_row("↳ last run", "%d placed · %s" % [
+				int(fn.get("placed", 0)),
+				CivilizationWorkspace._lm_limit_word(String(fn.get("limit", "")))]))
+
+	var fam := family
+	_add(body, _row("Arm every type in this family",
+		"Each type resumes the cap it was last set to.", null, _chevron(),
+		func(): _lm_bulk(fam, true), false))
+	_add(body, _row("Turn every type off",
+		"Each row keeps its number and says so, so this is reversible.",
+		null, _chevron(), func(): _lm_bulk(fam, false), false))
+	_info(body, "The slider is one gesture — zero disarms the type and remembers "
+		+ "its number; drag up and it resumes. The track is a 1-2-3-5 ladder, "
+		+ "not a linear count."
+		+ (" · no viewshed = scores without the visibility term; this engine "
+			+ "computes no visibility analysis yet." if any_no_viewshed else ""))
+
+## Index 0 is the detented zero stop: it disarms and **never writes a cap of
+## 0**, so the row keeps its number. That is the desktop panel's own rule
+## (`_lm_type_row()`: *"disarming writes `landmark_set_armed(false)` and never
+## `landmark_set_cap(0)`, and the row prints `was 40`"*), and getting it wrong
+## here would silently destroy a setting on the way past zero.
+## Called once, on release -- never per drag frame. See `_slider_row()`'s
+## `on_release` note for what per-frame writing would do on the way past zero.
+func _lm_set_rung(key: String, rung: int) -> void:
+	var ladder: Array = CivilizationWorkspace.LM_LADDER
+	var i: int = clampi(rung, 0, ladder.size() - 1)
+	if i == 0:
+		_lm_write("landmark_set_armed", [key, false], true)
+		return
+	_lm_write("landmark_set_cap", [key, int(ladder[i])])
+	_lm_write("landmark_set_armed", [key, true], true)
+
+func _lm_bulk(family: String, on: bool) -> void:
+	for k in _lm_kinds():
+		var kd: Dictionary = k
+		if String(kd.get("family", "other")) != family:
+			continue
+		if on and not bool(kd.get("buildable", true)):
+			continue
+		_lm_write("landmark_set_armed", [String(kd.get("key", "")), on])
+	_render()
+
+# -- help / gestures ----------------------------------------------------------
+
+## §6.6 `help`: `read VERSION` `Cartalith Mobile 0.9 · build 2611`, `read ENGINE`
+## `shared with desktop · WebGPU`, the gesture-reference drill, and two acts.
+##
+## **There is no product version in this port and none is invented.** No
+## `VERSION` constant exists in the shell, no "Cartalith Mobile" exists at all,
+## and `app.gd::open_about()`'s own dialog reports the Godot version and the OS
+## rather than a build number. So the VERSION row is not drawn with a made-up
+## figure and it is not drawn blank either: what replaces it is the two
+## identities this build **can** answer for itself — the engine it is running
+## on, and the GPU state the shell already measures.
+##
+## Ends in `_rest_of()` over the real Help popup, which is what keeps
+## Documentation, Keyboard shortcuts…, Credits & academic principles,
+## Generation info…, Save diagnostic report and About reachable now that the
+## root row pushes this screen instead of drilling the menu. §6.6's `CREDITS &
+## ACADEMIC PRINCIPLES` and `REPORT AN ISSUE` acts are two of those six, so they
+## arrive as themselves rather than as re-labelled copies.
+func _fill_help(body: VBoxContainer) -> void:
+	_add(body, _value_row("Runtime", "Godot %s · %s"
+		% [Engine.get_version_info().string, OS.get_name()]))
+	var gpu := _slot("top_gpu")
+	if gpu != "":
+		_add(body, _value_row("Engine", gpu))
+	_add(body, _row("Gesture reference", "The touch vocabulary this build has.",
+		null, _chevron(), func(): _push_screen("gestures"), false, _glyph("☰")))
+
+	var p := _menu_popup("Help")
+	if p == null:
+		_add(body, _missing_row("Help menu",
+			"The Help menu is not on this build's menu bar."))
+	else:
+		_rest_of(body, p, {})
+
+	## §6.6's own closing line, and the rule this whole surface is held to. It
+	## is quoted in this file's header for the same reason.
+	_info(body, "The phone reorganises rather than truncates: every desktop "
+		+ "function is reachable through MAP · GENERATE · PLAN · MORE.")
+
+## §6.6's nine `read` rows, **checked against this build one at a time**, which
+## is what the 2026-09-05 pass declined to do and said so
+## (`_fill_prefs()` carried the note: *"writing them down without testing each
+## one against this build is exactly the 'prose that describes behaviour nobody
+## checked' defect. Reported as outstanding rather than guessed at."*). That
+## note is now stale and has been removed from that function.
+##
+## **Three of §6.6's nine are wrong about this build, and each says what this
+## build does instead:**
+##
+##   - `TWO FINGERS · rotate` — there is no map rotation anywhere in
+##     `viewport_host.gd`; what two fingers produce is
+##     `InputEventPanGesture`, which pans.
+##   - `LONG-PRESS · sample terrain → pin + chip` — `map_overlay.gd`'s
+##     `_TOUCH_HOLD_MS` (500 ms) turns a hold into `map_right_clicked`, which
+##     `civilization_workspace.gd::on_map_right_clicked()` presents as the L4
+##     sheet. Its `Info here` row is the sampling half; there is no pin-and-chip.
+##   - `TAB RE-TAP · close the sheet` — `DccShell._pick_phone_tab()` collapses
+##     it to **peek** instead, and its own comment says why: this sheet is the
+##     tool options bar and it has no "gone" state on the other two form
+##     factors.
+##
+## **Two more of the nine do not exist and are drawn as absent, not omitted:**
+## there is no double-tap handler on the map (`viewport_host.gd` has no
+## `double_click` branch at all), and no edge-swipe inspector — the only edge
+## swipe this shell reads is Android's own back gesture, which
+## `DccShell._phone_back()` handles and which is listed here as itself.
+##
+## Every row below names the symbol it was checked at, in its second line, so
+## the next reader can re-check it rather than believing this list.
+const GESTURES: Array = [
+	["Drag", "Pans the map.", "viewport_host.gd — the pan branch of _input()"],
+	["Pinch", "Zooms at the pinch centre.",
+		"viewport_host.gd — InputEventMagnifyGesture"],
+	["Two fingers", "Pans. This build has no map rotation.",
+		"viewport_host.gd — InputEventPanGesture; nothing rotates the view"],
+	["Press and hold", "Opens the map menu: edit, move the viewer, delete, drop a "
+		+ "settlement here, or read the terrain here.",
+		"map_overlay.gd — _TOUCH_HOLD_MS 500 → map_right_clicked → "
+			+ "civilization_workspace.gd::on_map_right_clicked()"],
+	["Sheet handle", "Drags the sheet between peek, half and full.",
+		"dcc_shell.gd — _on_phone_sheet_grab_input() / _set_phone_detent()"],
+	["Tab re-tap", "Collapses the sheet to peek. It does not close: the sheet is "
+		+ "the tool options bar and has no closed state on desktop or tablet.",
+		"dcc_shell.gd — _pick_phone_tab()"],
+	["Undo chip", "Tap undoes one step; hold opens the step history.",
+		"dcc_shell.gd — PHONE_UNDO_HOLD_SEC 0.45 → the undo_ledger() popover"],
+	["Back", "Leaves a sheet, then this screen, then the overlay — never the app. "
+		+ "Android's edge swipe and the hardware key are the same gesture.",
+		"dcc_shell.gd — _phone_back(), and PhoneMenu.go_back()"],
+]
+
+## The two §6.6 rows this build does not have. Drawn, with the true reason,
+## rather than dropped: a gesture reference that silently omits two of the nine
+## a user may have read about elsewhere teaches them the list is complete.
+const GESTURES_ABSENT: Array = [
+	["Double-tap", "No double-tap handler exists on the map. viewport_host.gd has "
+		+ "no double_click branch; pinch and the zoom buttons are the zoom paths."],
+	["Edge-swipe inspector", "No inspector drawer is bound to an edge swipe. The "
+		+ "right dock is a sheet reached from the bottom bar, and the only edge "
+		+ "swipe this shell reads is Android's back gesture, listed above."],
+]
+
+func _fill_gestures(body: VBoxContainer) -> void:
+	for g in GESTURES:
+		_add(body, _row(String(g[0]), "%s  ·  %s" % [String(g[1]), String(g[2])],
+			null, null, Callable(), false))
+	_head(body, "Not in this build")
+	for g in GESTURES_ABSENT:
+		_add(body, _missing_row(String(g[0]), String(g[1])))
+	_info(body, "Each row above names the symbol it was checked at — re-check it "
+		+ "rather than trusting this list, which is prose about behaviour and "
+		+ "goes stale the way prose does.")
 
 ## The live status rows, as `[label, value, wraps]`.
 ##
@@ -1151,20 +2354,6 @@ func _status_rows() -> Array:
 			out.append([String(entry[1]), text, key == "hint"])
 	return out
 
-## A `ROOT_ROWS` entry whose destination is neither a bespoke screen nor a
-## program menu: a real window or view, opened by the same call the desktop
-## opens it by. Nothing here is a stub and nothing duplicates a `menus.gd`
-## handler.
-func _root_action(id: String, label: String, sub: String, glyph: Control) -> Control:
-	match id:
-		"travel_library":
-			return _row(label, sub, null, _chevron(), _go_travel_library, false, glyph)
-	## Only reachable if `ROOT_ROWS` names a destination this match has no case
-	## for. Drawn disabled with the reason, not skipped -- the same honesty rule
-	## `menus.gd` follows for an item the port cannot honour, and the
-	## alternative is a destination that vanishes with nothing said.
-	return _row(label, "No destination is wired to this row.", null, null, Callable(), true, glyph)
-
 ## Both halves of the condition `app.gd` puts on its own Recompute button:
 ## something is actually stale, and this GDExtension build can act on it.
 ## An older extension answers `stale_stages()` and not
@@ -1173,8 +2362,8 @@ func _root_action(id: String, label: String, sub: String, glyph: Control) -> Con
 ## is the same call the desktop button makes (it hides itself).
 ##
 ## `bridge` lives on `DccApp`, not on `DccShell`, so it is fetched by name
-## for the same reason `_go_travel_library()` reaches `open_travel_library`
-## that way: `DccApp extends DccShell` and `DccShell` builds this file, so a
+## for the same reason `_engine()` and `_go_travel_library_kind()` do:
+## `DccApp extends DccShell` and `DccShell` builds this file, so a
 ## typed access here would close a class cycle -- and the capture probes
 ## instantiate `DccShell` bare, where the property does not exist at all.
 func _can_recompute_stale() -> bool:
@@ -1235,23 +2424,8 @@ func _go_simulation() -> void:
 func _open_left_sheet() -> void:
 	_shell._set_sheet_open("left", true)
 
-## The Travel library window (`TRAVEL_LIBRARY_SPEC.md`; the desktop reaches it
-## from Data ▸ Travel library…, ⇧L). `open_travel_library()` lives on `DccApp`,
-## the subclass that owns the windows, and is reached **by name** rather than by
-## type for the same reason `DccShell._pick_phone_tab()` reaches
-## `open_journey_planner()` that way: `DccApp extends DccShell` and `DccShell`
-## builds this file, so a typed call here would close a class cycle. Guarded
-## because `DccShell` is also instantiated bare by the capture probes.
-##
-## Closed first: the window opens over the map, and leaving the menu underneath
-## it would put the user behind a full-screen overlay when they dismiss it.
-func _go_travel_library() -> void:
-	close()
-	if _shell.has_method("open_travel_library"):
-		_shell.call("open_travel_library")
-
 ## §6.6 `civ`'s `OPEN JOURNEY PLANNER ➔`. Reached by name for the same class
-## cycle reason as `_go_travel_library()` above, and it is the same call
+## cycle reason `_go_travel_library_kind()` gives, and it is the same call
 ## `DccShell._pick_phone_tab()` makes for the PLAN tab -- so this row and that
 ## tab land on one view, not two.
 func _go_journey_planner() -> void:
@@ -1523,8 +2697,27 @@ func _chip(text: String, on: bool, on_press: Callable) -> Button:
 ## §6.6's `range`: a label, a right-hand display, and a full-width slider with
 ## no steppers. Used **only** where the underlying quantity really is
 ## continuous -- see the row-type table in this file's header.
+##
+## `step` defaults to 1, which is what the Year row and every ladder-index row
+## want. It is a **parameter** rather than a constant because Crowding is
+## `CivilizationWorkspace.LM_CROWDING_STEP` (0.05) and a slider stepping by 1
+## over a 0.25..2.00 range has three usable positions -- the same defect class
+## as drawing a range over a set, one layer down.
+##
+## **`on_release` is the write; `fmt` is what moves under the finger.**
+## `DccWidgets.slider()` has had that split since it was built and the landmark
+## rows need it for a reason stronger than cost: `landmark_set_cap()` and
+## `landmark_set_armed()` on every drag frame means a drag from rung 5 to rung 8
+## writes six intermediate caps and, if it passes the zero stop, disarms and
+## re-arms the type on the way. `fmt` is called with the slider's value and
+## returns the readout text, so the number tracks the finger with no engine
+## write at all; `on_release` is called once, with the final value.
+##
+## `on_change` stays for the one caller whose write really is per-frame -- the
+## `sim` screen's Year cursor, where the map is meant to follow the drag.
 func _slider_row(label: String, display: String, lo: float, hi: float, value: float,
-		on_change: Callable) -> Control:
+		on_change: Callable, step: float = 1.0,
+		on_release: Callable = Callable(), fmt: Callable = Callable()) -> Control:
 	var wrap := MarginContainer.new()
 	wrap.add_theme_constant_override("margin_left", _ps(16))
 	wrap.add_theme_constant_override("margin_right", _ps(16))
@@ -1546,13 +2739,27 @@ func _slider_row(label: String, display: String, lo: float, hi: float, value: fl
 	var s := HSlider.new()
 	s.min_value = lo
 	s.max_value = hi
-	s.step = 1.0
+	s.step = step
 	s.value = value
 	s.focus_mode = Control.FOCUS_NONE
 	## The grab region, not the drawn track: a 4 dp rail is not a touch target,
 	## and the slider's own height is what the finger has to find.
 	s.custom_minimum_size.y = _pt(44)
-	s.value_changed.connect(func(v: float): on_change.call(v))
+	s.value_changed.connect(func(v: float):
+		if fmt.is_valid():
+			val.text = String(fmt.call(v))
+		if on_change.is_valid():
+			on_change.call(v))
+	if on_release.is_valid():
+		## `drag_ended`, not `mouse_exited`: on the handset a finger produces
+		## `InputEventScreenTouch` and `HSlider` reports the end of that drag
+		## through `drag_ended` only. It fires for the mouse too, so one
+		## connection covers both and a second would double the write.
+		##
+		## `s` is captured so the final value is read off the control rather
+		## than off `drag_ended`'s argument, which is a *changed* flag and not a
+		## value.
+		s.drag_ended.connect(func(_changed: bool): on_release.call(s.value))
 	col.add_child(s)
 	return wrap
 
@@ -1565,8 +2772,9 @@ func _slider_row(label: String, display: String, lo: float, hi: float, value: fl
 ## desktop does it too.
 ##
 ## Since the 2026-09-05 ruling this draws only the root's `Not on the MORE list`
-## band -- `Edit` and `Window`. The root's two §6.6 drill rows build their own
-## row and pass `refresh:false` to `_menu_popup()` for exactly the same reason.
+## band -- `Edit` and `Window`. **It had two other callers until 2026-09-06**,
+## the root's `Asset library` and `Help & about` drill rows; both are bespoke
+## screens now, so this is the fallback band's builder and nothing else.
 func _menu_row(mb: MenuButton) -> Control:
 	var popup := mb.get_popup()
 	var title := String(mb.text)

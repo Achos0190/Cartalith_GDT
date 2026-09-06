@@ -1184,7 +1184,42 @@ static func set_segment_on(b: Button, on: bool) -> void:
 	## which is why "which one is armed" read as a hairline colour change on a
 	## row of eight identical chips. Not a filled surface -- see
 	## `set_mode_segment_on()` below for the one segment that is.
-	var wash := "accent_wash" if on else ""
+	##
+	## **The wash is `accent_wash_2` (.16), not `accent_wash` (.09), since
+	## 2026-09-06.** The `.10` quoted above is real and is the *older* Paint
+	## Toolbar canvas; the newer `design/dcc-environment-2026-08-31/Cartalith
+	## DCC Environment.dc.html` separates the two weights and spends them on two
+	## different jobs, which is the whole reason `accent_wash_2` exists:
+	##
+	## - `var(--wash2)` -- **36 uses, every one a segment or toggle on-state**:
+	##   `ldSwABg`/`ldSwBBg`, `measSegBg`/`measPathBg`, `terrAddBg`/`terrSubBg`,
+	##   `bpEraseBg`/`bpLandBg`, `layersBtnBg`, `bakeBg`, `waySnapBg`, and the
+	##   `X===id?'var(--wash2)'` chip rows (tool, ramp, shape, op, fall,
+	##   anchor, iconFam, sizeMode, interp, cls, kind, tlSpeed, inspFilter).
+	## - `var(--wash)` -- **13 uses, every one a hover or a list-row
+	##   selection**: the two `style-hover="background:var(--wash)"` menu rows,
+	##   `ca.sel===l.id`, `cv.sel===i`, `i===sc.sel`, `sel===i`, `bp.value===v`,
+	##   `s.domain===id` (the domain cell, "merely current"), `finBg`.
+	##
+	## Counted with `grep -o "[A-Za-z_]*:[^,;{}]\{0,90\}var(--wash2)"` and its
+	## `--wash` twin over that file. So this was never a choice between two
+	## alphas for one token: the shell had both tokens and was spending the
+	## row-selection one on the segment class. `accent_wash` keeps .09 and keeps
+	## its own consumers -- menu highlight, `active_row()`, the selected-row
+	## fills in the asset library and data manager, the chart fills.
+	##
+	## The owner's ruling names the token outright (`LARGE_ITEM_RULINGS.md` §6
+	## and §7, hedge retired 2026-09-06): *"Resolved to the WASHED treatment --
+	## `accent_wash_2` fill, `accent` ink, border"*, with the 0.16 move filed as
+	## outstanding work precisely because it re-bases every call site here.
+	##
+	## **Measured before it was moved**, because the row that scheduled it asked
+	## for that rather than for an opinion -- `_washstep_probe.gd`, windowed,
+	## both palettes, real chips on their real grounds. The .09 -> .16 step is
+	## **14-16 / 255** on the worst channel, against **19-26 / 255** for the
+	## whole ground-to-lit signal this design already ships as legible. It is
+	## roughly three quarters of the entire on/off cue, not a rounding step.
+	var wash := "accent_wash_2" if on else ""
 	for sb_name in ["normal", "pressed", "disabled"]:
 		b.add_theme_stylebox_override(sb_name, box(token, wash, seg_px, seg_py))
 	b.add_theme_color_override("font_color", fg)

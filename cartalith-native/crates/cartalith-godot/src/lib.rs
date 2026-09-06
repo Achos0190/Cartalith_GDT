@@ -175,37 +175,15 @@ struct WalkingSkeleton {
     base: Base<Node>,
 }
 
-/// How much river ink a cell carries, so the renderer can take either the
-/// stamped width raster or the legacy one-cell flag without branching per
-/// pixel.
+/// How much river ink a cell carries — **moved to `render::RiverInk`
+/// 2026-09-06**, and re-exported here only so the two dozen references to the
+/// bare name in this file keep resolving.
 ///
-/// `Stamped` is `stamp_river_intensity`'s disc raster -- a real width that
-/// scales with the world's km extent and the river's Strahler order. `Flag`
-/// is `ChannelResult::chan`, the binary "this cell is a channel" byte, which
-/// is all a loaded save has: `SAVEFILE_COMPAT.md` stores no channel topology,
-/// so a save keeps the one-cell river it has always drawn instead of losing
-/// its rivers to an empty stamp.
-#[derive(Clone, Copy)]
-enum RiverInk<'a> {
-    Stamped(&'a [f32]),
-    Flag(&'a [u8]),
-}
-
-impl RiverInk<'_> {
-    #[inline]
-    fn at(self, i: usize) -> f32 {
-        match self {
-            RiverInk::Stamped(v) => v.get(i).copied().unwrap_or(0.0).clamp(0.0, 1.0),
-            RiverInk::Flag(v) => {
-                if v.get(i).copied().unwrap_or(0) != 0 {
-                    1.0
-                } else {
-                    0.0
-                }
-            }
-        }
-    }
-}
+/// It was private to this file until then, which is precisely why the export
+/// path never got the stamp: see [`render::RiverInk`]'s own doc for the week
+/// the probe spent red because a screen-only type could drift from
+/// `render::bake_rect`'s parameter.
+use render::RiverInk;
 
 #[godot_api]
 impl INode for WalkingSkeleton {
@@ -6913,36 +6891,17 @@ impl WorldGen {
     /// `generate()` call.
     #[func]
     fn build_color_texture(&self) -> Option<Gd<ImageTexture>> {
-        let (field, temperature, rainfall, flow, chan_mask) = match self.source.as_ref()? {
-                WorldSource::Generated(ws) => (
-                    &ws.field,
-                    &ws.temperature,
-                    &ws.rainfall,
-                    Some(ws.flow_discharge.as_slice()),
-                    // The stamped width raster when the world carries one,
-                    // falling back to the binary channel flag. A loaded save
-                    // has no stamp (`SAVEFILE_COMPAT.md` stores no channel
-                    // topology), so it keeps the one-cell look it has always
-                    // had rather than losing its rivers.
-                    ws.channels.as_ref().map(|c| {
-                        if c.intensity.len() == c.chan.len() {
-                            RiverInk::Stamped(c.intensity.as_slice())
-                        } else {
-                            RiverInk::Flag(c.chan.as_slice())
-                        }
-                    }),
-                ),
-                WorldSource::Loaded(save) => (
-                    &save.fields.heightmap,
-                    &save.fields.temperature,
-                    &save.fields.rainfall,
-                    None,
-                    // A save carries no channel topology and therefore no
-                    // stamp, so its rivers stay one cell wide -- unchanged
-                    // from every build before this one.
-                    Some(RiverInk::Flag(save.fields.strahler_order.as_slice())),
-                ),
-            };
+        let (field, temperature, rainfall, flow) = match self.source.as_ref()? {
+            WorldSource::Generated(ws) => (&ws.field, &ws.temperature, &ws.rainfall, Some(ws.flow_discharge.as_slice())),
+            WorldSource::Loaded(save) => (&save.fields.heightmap, &save.fields.temperature, &save.fields.rainfall, None),
+        };
+        // The stamped width raster when the world carries one, falling back to
+        // the binary channel flag; a loaded save's `strahler_order` for the
+        // same reason it always had it. **Through `river_ink()`, which is now
+        // the only copy of that rule** -- this used to be an inline `match`
+        // here and three more in `export_raster.rs`, and on 2026-08-30 only
+        // this one learned about the stamp. See `WorldGen::river_ink`.
+        let chan_mask: Option<RiverInk<'_>> = self.river_ink();
         let gw = self.gw as usize;
         let gh = self.gh as usize;
         let appearance = self.appearance();

@@ -173,13 +173,28 @@ const DARK := {
 	## (`ENV:1910`), `measSegBg` (`ENV:1912`), the timeline speed pills
 	## (`ENV:1978`), `ldSwABg` (`ENV:1941`), `layersBtnBg` (`ENV:1959`).
 	##
-	## **Nothing in this port reads it yet, and that is disclosed rather than
-	## quietly shipped.** "Armed" is not a state this shell distinguishes from
-	## "active" today; inventing the distinction means deciding which of some
-	## forty controls is which, which is a structural change stage 1 does not
-	## own. The value is imported now so the structural stage has it to hand,
-	## and it is the one token here whose consumer is in the future rather than
-	## the past.
+	## ~~**Nothing in this port reads it yet** … the one token here whose
+	## consumer is in the future rather than the past.~~ **Both halves of that
+	## went stale, and on different dates.** It has consumers --
+	## `grep -rn '"accent_wash_2"' --include=*.gd . | grep -v dcc_theme | grep
+	## -v "^./_"` returned **nine** on 2026-09-06 before this token pass and ten
+	## after it: the data manager's route-segment track, its carried-format row
+	## and its bound-column block; the phone transport's play button on hover
+	## and on press; the right dock's pressed history chip and its accent stance
+	## chip; the viewport's armed-tool fill; `modal_destructive()`, which
+	## borrows the alpha and not the hue; and now `set_segment_on()`.
+	##
+	## The second half went with them. The paragraph's real claim was that
+	## "armed vs. merely current" could not be drawn without deciding, control
+	## by control, which of some forty is which -- and the prototype turns out
+	## to make that decision itself, cleanly, along a line the shell already
+	## has a widget for. `var(--wash2)` is 36 uses and every one is a **segment
+	## or toggle on-state**; `var(--wash)` is 13 and every one is a **hover or
+	## a list-row selection**. `DccWidgets.set_segment_on()` is exactly the
+	## first set, so the whole class moved through one call on 2026-09-06 --
+	## see that function's own header for the two greps, the owner ruling that
+	## names this token (`LARGE_ITEM_RULINGS.md` §6/§7) and the windowed
+	## measurement that had to come first.
 	"accent_wash_2": Color(0.878431, 0.639216, 0.290196, 0.16),
 	## No prototype counterpart: besides the two washes, `--accH` is the only
 	## amber derivative the prototype declares. Kept at the old canvas's value
@@ -320,8 +335,11 @@ const LIGHT := {
 	## the dark half, so the two themes now agree on the wash weight where they
 	## used to differ by a quarter.
 	"accent_wash": Color(0.643137, 0.396078, 0.058824, 0.09),
-	## **New**: `--wash2`, `rgba(164,101,15,.16)`. Unconsumed for now -- see the
-	## dark half for why that is deliberate.
+	## **New**: `--wash2`, `rgba(164,101,15,.16)`. ~~Unconsumed for now~~ --
+	## consumed since, on this half as much as the dark one: the light palette
+	## is what this machine boots, and the segment on-state's .09 -> .16 step
+	## measures **15-16 / 255** here against the dark half's 14-15. See the
+	## dark half for the whole correction.
 	"accent_wash_2": Color(0.643137, 0.396078, 0.058824, 0.16),
 	"accent_dim": Color("#7a6a4a"),  ## No prototype counterpart. Unchanged.
 	## No prototype counterpart. Unchanged; see the dark half.

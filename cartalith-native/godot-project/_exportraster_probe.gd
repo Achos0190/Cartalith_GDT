@@ -371,6 +371,20 @@ func _ready() -> void:
 			## the difference between a rounding bound and a missing stage,
 			## and it is why this asserts a bound rather than a tolerance on
 			## a mean.
+			##
+			## It caught a second missing stage the same way, and that one is
+			## worth recording because the bound is what noticed. Measured at
+			## 65a8262 on 2026-09-06, this section read 199,909 bytes and
+			## worst delta 73: the screen had learned to composite the stamped
+			## river disc at its own intensity (58dd5b2, 2026-08-30, "Rivers
+			## have a width now" -- which touched neither render.rs nor
+			## export_raster.rs) while render::bake_rect still took a bare
+			## chan flag and tinted every channel cell at full strength. The
+			## number is the giveaway: 73 levels is far too large for f32
+			## rounding, which cannot exceed 1, and far too small for a
+			## different picture. Nobody re-ran the probe in between, so it
+			## went unnoticed. Do not relax either assertion below to make it
+			## green.
 			_ok(worst <= 1, "no byte is off by more than one level (worst %d)" % worst)
 			_ok(bad3 * 10000 < a.size(), "the f32 prologue is the only difference (%d of %d bytes)" % [bad3, a.size()])
 
@@ -406,6 +420,58 @@ func _ready() -> void:
 			seen8[big.get_pixel(randi() % 8192, randi() % 5248).to_rgba32()] = true
 		print("  %d distinct colours in 3000 samples" % seen8.size())
 		_ok(seen8.size() > 1000, "the 8K raster is a real render")
+
+	print("\n== 15. the display space stays on the display ==")
+	## export_raster.rs's module doc, asserted rather than documented and
+	## hoped: **no export applies render::apply_color_space**, deliberately.
+	## The space describes the monitor in front of this session (WorldGen::
+	## color_space's own doc, and GUI_GAP_REGISTER.md's "display = app,
+	## working space = document"), an exported PNG is a document, and
+	## encode_png_rgb8 writes no ICC profile -- so P3 numbers in an untagged
+	## file are misread as sRGB by every consumer rather than matching the
+	## screen.
+	##
+	## The positive control comes first and is not optional. "The export did
+	## not move" is a vacuous pass if the setting moved nothing at all, which
+	## is exactly how this project has shipped an unfailable probe three
+	## times.
+	if bridge.world_gen.has_method("set_color_space"):
+		var srgb_bytes := PackedByteArray()
+		var stex: ImageTexture = bridge.world_gen.build_color_texture()
+		if stex != null:
+			var simg := stex.get_image()
+			simg.convert(Image.FORMAT_RGB8)
+			srgb_bytes = simg.get_data()
+		_ok(bool(bridge.world_gen.set_color_space("Display P3")), "Display P3 is offered by this build")
+		var p3_bytes := PackedByteArray()
+		var ptex: ImageTexture = bridge.world_gen.build_color_texture()
+		if ptex != null:
+			var pimg := ptex.get_image()
+			pimg.convert(Image.FORMAT_RGB8)
+			p3_bytes = pimg.get_data()
+		var vworst := 0
+		if srgb_bytes.size() == p3_bytes.size() and srgb_bytes.size() > 0:
+			for i in range(20000):
+				var k := randi() % srgb_bytes.size()
+				vworst = maxi(vworst, absi(srgb_bytes[k] - p3_bytes[k]))
+		print("  viewport raster under P3 vs sRGB: worst %d byte levels in 20000 samples" % vworst)
+		_ok(srgb_bytes.size() > 0 and p3_bytes.size() > 0 and srgb_bytes != p3_bytes,
+			"positive control -- Display P3 really does move the viewport raster")
+
+		var pp3 := dir.path_join("map_p3.png")
+		var rp3: Dictionary = bridge.world_gen.export_raster_png(pp3, 2048, false)
+		_ok(bool(rp3.get("ok", false)), "the export still runs with a display space selected")
+		var fa := FileAccess.open(dir.path_join("map_gridres.png"), FileAccess.READ)
+		var fb := FileAccess.open(pp3, FileAccess.READ)
+		if fa != null and fb != null:
+			var ba := fa.get_buffer(fa.get_length())
+			var bb := fb.get_buffer(fb.get_length())
+			fa.close()
+			fb.close()
+			print("  sRGB-session PNG %d bytes, P3-session PNG %d bytes" % [ba.size(), bb.size()])
+			_ok(ba.size() > 500_000 and ba == bb,
+				"the exported file is byte-identical with the display space moved (%d vs %d bytes)" % [ba.size(), bb.size()])
+		_ok(bool(bridge.world_gen.set_color_space("sRGB")), "and the session goes back to sRGB")
 
 	print("\n==== 8K: %s ====\n" % ["OK" if fails == 0 else "SEE ABOVE"])
 	get_tree().quit(1 if fails > 0 else 0)

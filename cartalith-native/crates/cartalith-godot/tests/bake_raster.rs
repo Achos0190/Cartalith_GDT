@@ -325,6 +325,19 @@ fn a_finer_export_is_a_finer_render_not_an_upscale() {
 /// lands on a `.75` fraction where `floor` stops commuting with the
 /// halving. That is why `channel_tint` is called inside `bake_rect`'s pixel
 /// loop rather than as a pass over its result.
+///
+/// # Both inks, because one of them is how this went wrong a second time
+///
+/// **Extended 2026-09-06.** The version of this test that shipped ran a
+/// `Flag` mask only, and transcribed a screen loop that tinted at full
+/// strength on `mask[i] != 0`. Both halves went stale on 2026-08-30, when
+/// `58dd5b2` gave the screen `RiverInk::Stamped` and composited
+/// `r + (fr - r) * ink` — and because the test's "screen" was a transcription
+/// of the *old* screen, it stayed green while the live probe went red at
+/// 199 909 of 8 060 928 bytes. So the `Stamped` case below is not decoration:
+/// it is the case whose ink is strictly between 0 and 1, which is the only
+/// kind of value that can tell a proportional composite from a full-strength
+/// one.
 #[test]
 fn a_grid_resolution_export_carries_the_river_tint() {
     let (field, temp, rain, flow) = fixture();
@@ -338,39 +351,89 @@ fn a_grid_resolution_export_carries_the_river_tint() {
     let mask: Vec<u8> = (0..GW * GH).map(|i| u8::from(i % GW % 3 == 0 || i % GW == i / GW)).collect();
     let tinted = mask.iter().filter(|&&m| m != 0).count();
     assert!(tinted > GW * GH / 8 && tinted < GW * GH * 7 / 8, "the fixture mask is degenerate: {tinted} of {} cells", GW * GH);
+    // `stamp_river_intensity`'s own shape without its generator: the same
+    // cells, at a *partial* ink that varies cell to cell. The `0.45` floor is
+    // the stamp's own `amp` floor (`js_min(1, 0.45 + mag * 0.7)`), so no value
+    // here is a strength this renderer could not really be handed.
+    let stamp: Vec<f32> = (0..GW * GH).map(|i| if mask[i] != 0 { 0.45 + 0.5 * ((i % 7) as f32 / 7.0) } else { 0.0 }).collect();
+    let partial = stamp.iter().filter(|&&v| v > 1.0 / 255.0 && v < 1.0).count();
+    assert_eq!(partial, tinted, "every stamped cell must be strictly between 0 and 1 or this fixture cannot see a full-strength tint");
 
-    let got = render::bake_rect(&ctx, &bf, Some(&mask), GW, GH, 0, 0, GW, GH);
+    for (what, ink) in [("flag", render::RiverInk::Flag(&mask)), ("stamp", render::RiverInk::Stamped(&stamp))] {
+        let got = render::bake_rect(&ctx, &bf, Some(ink), GW, GH, 0, 0, GW, GH);
 
-    // `build_color_texture`'s loop, transcribed.
-    let mut want = vec![0u8; GW * GH * 3];
-    for y in 0..GH {
-        for x in 0..GW {
-            let i = y * GW + x;
-            let (mut r, mut g, mut b) = render::cell_color(&ctx, x, y);
-            if mask[i] != 0 {
-                let cover = render::border_cover(&a, x, y, GW, GH);
-                if cover < 1.0 {
-                    let (tr, tg, tb) = (r * 0.5, (g * 0.5 + 0.3).min(1.0), (b * 0.5 + 0.45).min(1.0));
-                    r = tr + (r - tr) * cover;
-                    g = tg + (g - tg) * cover;
-                    b = tb + (b - tb) * cover;
+        // `build_color_texture`'s loop, transcribed — including the `1/255`
+        // floor and the proportional composite it has carried since `58dd5b2`.
+        let mut want = vec![0u8; GW * GH * 3];
+        for y in 0..GH {
+            for x in 0..GW {
+                let i = y * GW + x;
+                let (mut r, mut g, mut b) = render::cell_color(&ctx, x, y);
+                let t = ink.at(i) as f64;
+                if t > 1.0 / 255.0 {
+                    let cover = render::border_cover(&a, x, y, GW, GH);
+                    if cover < 1.0 {
+                        let (fr, fg, fb) = (r * 0.5, (g * 0.5 + 0.3).min(1.0), (b * 0.5 + 0.45).min(1.0));
+                        let (tr, tg, tb) = (r + (fr - r) * t, g + (fg - g) * t, b + (fb - b) * t);
+                        r = tr + (r - tr) * cover;
+                        g = tg + (g - tg) * cover;
+                        b = tb + (b - tb) * cover;
+                    }
                 }
+                let o = i * 3;
+                want[o] = (r.clamp(0.0, 1.0) * 255.0) as u8;
+                want[o + 1] = (g.clamp(0.0, 1.0) * 255.0) as u8;
+                want[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
             }
-            let o = i * 3;
-            want[o] = (r.clamp(0.0, 1.0) * 255.0) as u8;
-            want[o + 1] = (g.clamp(0.0, 1.0) * 255.0) as u8;
-            want[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
         }
-    }
-    assert_eq!(got, want, "a grid-resolution export is not the screen raster once rivers are in it");
+        assert_eq!(got, want, "a grid-resolution export is not the screen raster once {what} rivers are in it");
 
-    // And the tint is not a no-op that the assertion above would pass
-    // vacuously: without the mask the same export must differ, at exactly
-    // the tinted cells and nowhere else.
+        // And the tint is not a no-op that the assertion above would pass
+        // vacuously: without the mask the same export must differ, at exactly
+        // the tinted cells and nowhere else.
+        let plain = render::bake_rect(&ctx, &bf, None, GW, GH, 0, 0, GW, GH);
+        let changed = (0..GW * GH).filter(|&i| plain[i * 3..i * 3 + 3] != got[i * 3..i * 3 + 3]).count();
+        assert!(changed > 0, "the {what} mask changed nothing -- the tint is not being applied");
+        assert!(changed <= tinted, "{changed} cells changed but only {tinted} are masked ({what})");
+    }
+}
+
+/// **The stamp is not the flag, measurably** — the discriminating half of the
+/// test above, stated on its own so that a `RiverInk::Stamped` quietly treated
+/// as "nonzero means tint" fails a named assertion rather than a general one.
+///
+/// This is the shape of the live defect: for a week `bake_rect` took a bare
+/// `&[u8]`, so every export tinted a stamped cell at 100 % while the viewport
+/// tinted it at its stamp value. Measured, not modelled — a uniform 0.5 stamp
+/// against the same cells as a flag puts **47 byte levels** between the two
+/// rasters on this fixture (printed by the assertion below when it fires);
+/// live at 2048 × 1312 through the real binding it was 199 909 differing bytes
+/// of 8 060 928 and a worst delta of 73.
+#[test]
+fn a_partial_stamp_tints_less_than_a_full_flag() {
+    let (field, temp, rain, flow) = fixture();
+    let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, 0.42, false, 55.0, 5.0, TerrainAppearance::default());
+    let bf = BakeFields::new(&ctx);
+
+    let mask: Vec<u8> = (0..GW * GH).map(|i| u8::from(i % GW % 3 == 0 || i % GW == i / GW)).collect();
+    // A uniform half-strength stamp on exactly the flagged cells, so the only
+    // difference between the two rasters is the strength of the composite.
+    let stamp: Vec<f32> = mask.iter().map(|&m| if m != 0 { 0.5 } else { 0.0 }).collect();
+
     let plain = render::bake_rect(&ctx, &bf, None, GW, GH, 0, 0, GW, GH);
-    let changed = (0..GW * GH).filter(|&i| plain[i * 3..i * 3 + 3] != got[i * 3..i * 3 + 3]).count();
-    assert!(changed > 0, "the mask changed nothing -- the tint is not being applied");
-    assert!(changed <= tinted, "{changed} cells changed but only {tinted} are masked");
+    let full = render::bake_rect(&ctx, &bf, Some(render::RiverInk::Flag(&mask)), GW, GH, 0, 0, GW, GH);
+    let half = render::bake_rect(&ctx, &bf, Some(render::RiverInk::Stamped(&stamp)), GW, GH, 0, 0, GW, GH);
+
+    assert_ne!(half, full, "a half-strength stamp produced the full-strength flag's raster -- the ink is being read as a flag");
+    let worst = (0..full.len()).map(|i| full[i].abs_diff(half[i])).max().unwrap_or(0);
+    assert!(worst >= 8, "the strongest disagreement between a full and a half tint is {worst} byte levels -- too small for this fixture to be a real test");
+
+    // And it is *between* the two, not merely different from one: half the
+    // ink must land between no tint and all of it on every channel.
+    for i in 0..plain.len() {
+        let (lo, hi) = (plain[i].min(full[i]), plain[i].max(full[i]));
+        assert!(half[i] >= lo.saturating_sub(1) && half[i] <= hi.saturating_add(1), "byte {i}: half-tint {} is not between untinted {} and full tint {}", half[i], plain[i], full[i]);
+    }
 }
 
 /// **The export runs the two whole-raster stages, in the viewport's own
@@ -478,7 +541,7 @@ fn the_river_tint_keeps_its_world_width_at_every_resolution() {
     let mut fracs = Vec::new();
     for mult in [1usize, 2, 4] {
         let (ow, oh) = (GW * mult, GH * mult);
-        let with = render::bake_rect(&ctx, &bf, Some(&mask), ow, oh, 0, 0, ow, oh);
+        let with = render::bake_rect(&ctx, &bf, Some(render::RiverInk::Flag(&mask)), ow, oh, 0, 0, ow, oh);
         let without = render::bake_rect(&ctx, &bf, None, ow, oh, 0, 0, ow, oh);
         let n = (0..ow * oh).filter(|&i| with[i * 3..i * 3 + 3] != without[i * 3..i * 3 + 3]).count();
         fracs.push(n as f64 / (ow * oh) as f64);

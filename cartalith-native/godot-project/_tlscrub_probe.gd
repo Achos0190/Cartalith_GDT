@@ -138,13 +138,24 @@ func _s1_mode_switch() -> void:
 
 	## The on-state, which is the clause `LARGE_ITEM_RULINGS.md` §6 held the
 	## artboard back over: `set_segment_on()` builds `box("accent",
-	## "accent_wash")`, so the lit half's fill is the **wash** and not `accent`.
-	## A filled amber slab here would be the treatment DS-02 removed shell-wide.
+	## "accent_wash_2")`, so the lit half's fill is the **wash** and not
+	## `accent`. A filled amber slab here would be the treatment DS-02 removed
+	## shell-wide.
+	##
+	## **`accent_wash` until 2026-09-06.** §6 and §7 both name `accent_wash_2`
+	## in words ("`accent_wash_2` fill, `accent` ink, border") and §7's closing
+	## paragraph files the .09 -> .16 move as outstanding work; this assertion
+	## had been pinned to the shipped implementation rather than to the ruling.
+	## Nothing was loosened -- the "NOT accent" clause below, which is what §6
+	## is actually about, is unchanged, and a second NOT pins out the .09
+	## row-selection weight so the pin cannot silently slide back.
 	_app.call("select_domain_mode", "world", "a")
 	await _frames(3)
 	var lit := (segs[0] as Button).get_theme_stylebox("normal") as StyleBoxFlat
 	var quiet := (segs[1] as Button).get_theme_stylebox("normal") as StyleBoxFlat
-	_ok("lit fill is accent_wash", lit.bg_color, DccTheme.c("accent_wash"))
+	_ok("lit fill is accent_wash_2", lit.bg_color, DccTheme.c("accent_wash_2"))
+	_ok("lit fill is NOT accent_wash (.09)",
+		lit.bg_color == DccTheme.c("accent_wash"), false)
 	_ok("lit fill is NOT accent", lit.bg_color == DccTheme.c("accent"), false)
 	_ok("lit border is accent", lit.border_color, DccTheme.c("accent"))
 	_ok("quiet half unfilled", quiet.bg_color.a, 0.0)

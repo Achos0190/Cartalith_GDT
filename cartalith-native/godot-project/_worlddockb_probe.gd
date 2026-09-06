@@ -23,7 +23,7 @@ extends Node
 ## §3 is the one the owner ruled on (`LARGE_ITEM_RULINGS.md` 2026-09-05 §6, third
 ## bullet), so it is asserted against the two builders' own distinguishable
 ## output rather than against a colour literal: `set_segment_on()` fills with
-## `accent_wash` behind an `accent` border, `set_mode_segment_on()` fills with
+## `accent_wash_2` behind an `accent` border, `set_mode_segment_on()` fills with
 ## `accent` under `accent_ink` type. Comparing to `DccTheme.c()` rather than to a
 ## hex keeps the assertion true in both palettes — this machine boots light.
 
@@ -162,9 +162,21 @@ func _run(app: Node, tag: String) -> void:
 		var sb := lit.get_theme_stylebox("normal") as StyleBoxFlat
 		_ok("lit half has a StyleBoxFlat", sb != null, true)
 		if sb != null:
-			## `set_segment_on()`: accent_wash fill, accent border.
+			## `set_segment_on()`: accent_wash_2 fill, accent border.
 			## `set_mode_segment_on()`: accent fill, accent_ink type.
-			_ok("lit fill is accent_wash (washed)", sb.bg_color, DccTheme.c("accent_wash"))
+			##
+			## **The pin moved .09 -> .16 on 2026-09-06, and nothing here was
+			## loosened to let it.** The ruling's own words are "`accent_wash_2`
+			## fill, `accent` ink, border"; the shell was painting `accent_wash`
+			## and the last paragraph of §7 filed the gap as outstanding work.
+			## This line was pinned to the implementation rather than to the
+			## ruling, so it is re-pinned to the ruling. The clause §3 actually
+			## defends -- washed, **not** the filled amber slab DS-02 deleted --
+			## is the two `NOT` assertions below, and both are untouched: .16 is
+			## a wash, and `accent_wash_2 != accent`.
+			_ok("lit fill is accent_wash_2 (washed)", sb.bg_color, DccTheme.c("accent_wash_2"))
+			_ok("lit fill is NOT accent_wash (.09, the row-selection weight)",
+				sb.bg_color == DccTheme.c("accent_wash"), false)
 			_ok("lit fill is NOT the accent slab", sb.bg_color == DccTheme.c("accent"), false)
 			_ok("lit border is accent", sb.border_color, DccTheme.c("accent"))
 		_ok("lit ink is accent", lit.get_theme_color("font_color"), DccTheme.c("accent"))

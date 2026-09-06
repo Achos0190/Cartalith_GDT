@@ -2510,11 +2510,16 @@ func _fill_religion(parent: Control) -> void:
 ## track carrying three chips.
 ##
 ## `--ins` is `sunken` and `--wash2` is `accent_wash_2`; the lit chip is drawn
-## by `DccWidgets.set_segment_on()`, which paints `accent_wash` (`--wash`)
-## behind an accent border rather than `--wash2` behind none. That is this
-## shell's one lit-segment vocabulary and DS-02's ruling about filled accent
-## surfaces sits behind it, so the factory is used as it stands rather than
-## restyled here for one category.
+## by `DccWidgets.set_segment_on()`.
+##
+## ~~which paints `accent_wash` (`--wash`) behind an accent border rather than
+## `--wash2` behind none.~~ **The wash half of that stopped being true on
+## 2026-09-06**: `set_segment_on()` paints `accent_wash_2` now, so the fill
+## here matches the artboard's `--wash2` exactly. The border does not -- the
+## factory keeps its accent hairline where the artboard has none, and that is
+## still deliberate. It is this shell's one lit-segment vocabulary and DS-02's
+## ruling about filled accent surfaces sits behind it, so the factory is used
+## as it stands rather than restyled here for one category.
 func _religion_segments(parent: Control) -> void:
 	var pad := MarginContainer.new()
 	pad.add_theme_constant_override("margin_left", 14)

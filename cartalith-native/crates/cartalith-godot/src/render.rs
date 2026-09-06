@@ -6155,6 +6155,62 @@ impl BakeFields {
     }
 }
 
+/// How much river ink a cell carries, so both consumer paths can take either
+/// the stamped width raster or the legacy one-cell flag without branching per
+/// pixel.
+///
+/// `Stamped` is `stamp_river_intensity`'s disc raster -- a real width that
+/// scales with the world's km extent and the river's Strahler order. `Flag`
+/// is `ChannelResult::chan`, the binary "this cell is a channel" byte, which
+/// is all a loaded save has: `SAVEFILE_COMPAT.md` stores no channel topology,
+/// so a save keeps the one-cell river it has always drawn instead of losing
+/// its rivers to an empty stamp.
+///
+/// **This lives here, and not in `lib.rs`, because of what happened when it
+/// did.** It shipped 2026-08-30 (`58dd5b2`, "Rivers have a width now") as a
+/// private enum next to `build_color_texture`, so the *screen* started drawing
+/// a stamped disc while [`bake_rect`] kept taking a bare `&[u8]` flag — and
+/// every export, snapshot and layer preview went on painting full-strength
+/// one-cell rivers. That commit touched neither this file nor
+/// `export_raster.rs` (`git show --stat 58dd5b2`), which is the mechanism;
+/// what was *measured* is the end state, `_exportraster_probe.gd` section 13
+/// at `65a8262` on 2026-09-06: **199 909 of 8 060 928 bytes differ, worst
+/// delta 73**, and 15 bytes / worst 1 once the two paths shared this type
+/// again. A type both consumers share cannot drift like that, which is the
+/// whole reason it moved out of `lib.rs`.
+#[derive(Clone, Copy)]
+pub enum RiverInk<'a> {
+    Stamped(&'a [f32]),
+    Flag(&'a [u8]),
+}
+
+impl RiverInk<'_> {
+    /// The ink at cell `i`, in `[0, 1]`.
+    #[inline]
+    pub fn at(self, i: usize) -> f32 {
+        match self {
+            RiverInk::Stamped(v) => v.get(i).copied().unwrap_or(0.0).clamp(0.0, 1.0),
+            RiverInk::Flag(v) => {
+                if v.get(i).copied().unwrap_or(0) != 0 {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
+
+    /// Cells the source actually covers — [`bake_rect`] indexes it by nearest
+    /// cell and would otherwise have to bounds-check every pixel.
+    #[inline]
+    pub fn cells(self) -> usize {
+        match self {
+            RiverInk::Stamped(v) => v.len(),
+            RiverInk::Flag(v) => v.len(),
+        }
+    }
+}
+
 /// `bakeSingle`/`bakeTiled`'s shared inner loop (reference lines 11975 and
 /// 11982) — render one axis-aligned rectangle of an `out_w × out_h` export
 /// raster into tightly-packed RGB8.
@@ -6169,22 +6225,25 @@ impl BakeFields {
 /// `GW-1`, which is why an export at the grid's own resolution reproduces
 /// the screen image cell-for-cell rather than half a cell off.
 ///
-/// `chan` is the river-channel mask `build_color_texture` tints with — see
+/// `ink` is the river ink `build_color_texture` tints with — see
 /// [`channel_tint`] for why an export without it is the wrong picture, and
 /// why it belongs inside this loop rather than in a pass over the result.
-/// `None` renders the terrain alone, which is what a caller comparing
-/// against [`cell_color`] directly wants.
+/// **Pass the same [`RiverInk`] the screen builds**, stamp and all: a caller
+/// that hands over the bare `chan` flag while the viewport is drawing a stamp
+/// gets a picture with different rivers in it, which is the exact defect
+/// [`RiverInk`]'s own doc records. `None` renders the terrain alone, which is
+/// what a caller comparing against [`cell_color`] directly wants.
 ///
 /// `rayon`-parallel by output row, on the same determinism argument
 /// [`BakeFields::new`] makes.
 #[allow(clippy::too_many_arguments)]
-pub fn bake_rect(ctx: &RenderCtx, bf: &BakeFields, chan: Option<&[u8]>, out_w: usize, out_h: usize, x0: usize, y0: usize, w: usize, h: usize) -> Vec<u8> {
+pub fn bake_rect(ctx: &RenderCtx, bf: &BakeFields, ink: Option<RiverInk<'_>>, out_w: usize, out_h: usize, x0: usize, y0: usize, w: usize, h: usize) -> Vec<u8> {
     let mut bytes = vec![0u8; w * h * 3];
     if w == 0 || h == 0 || out_w == 0 || out_h == 0 {
         return bytes;
     }
     let (gw, gh) = (ctx.gw, ctx.gh);
-    let chan = chan.filter(|m| m.len() >= gw * gh);
+    let ink = ink.filter(|m| m.cells() >= gw * gh);
     // `Math.max(1, w-1)` in the reference; `out_w.max(2) - 1` is the same
     // divisor without an underflow on the `out_w == 1` degenerate case
     // `usize` would otherwise wrap on.
@@ -6196,10 +6255,11 @@ pub fn bake_rect(ctx: &RenderCtx, bf: &BakeFields, chan: Option<&[u8]>, out_w: u
         for col in 0..w {
             let gx = (x0 + col) as f64 * sx;
             let (r, g, b) = bf.pixel(ctx, gx, gy);
-            let (r, g, b) = match chan {
-                Some(m) if m[cy * gw + (gx.round().clamp(0.0, (gw - 1) as f64)) as usize] != 0 => channel_tint(&ctx.appearance, (r, g, b), gx, gy, gw, gh),
-                _ => (r, g, b),
-            };
+            // `build_color_texture`'s own two lines: the same nearest-cell
+            // lookup, and the same `1/255` floor below which the tint cannot
+            // move a byte anyway.
+            let t = ink.map_or(0.0, |m| m.at(cy * gw + (gx.round().clamp(0.0, (gw - 1) as f64)) as usize)) as f64;
+            let (r, g, b) = if t > 1.0 / 255.0 { channel_tint(&ctx.appearance, (r, g, b), t, gx, gy, gw, gh) } else { (r, g, b) };
             let o = col * 3;
             out[o] = (r * 255.0) as u8;
             out[o + 1] = (g * 255.0) as u8;
@@ -6234,20 +6294,35 @@ pub fn bake_rect(ctx: &RenderCtx, bf: &BakeFields, chan: Option<&[u8]>, out_w: u
 /// loop's order exactly — after `apply_border`, before
 /// [`apply_local_contrast`].
 ///
+/// # `t` is the ink, and it is not a flag
+///
+/// **Corrected 2026-09-06.** This function used to be entered on `mask[i] !=
+/// 0` and tint at full strength, which was right only while the screen did
+/// the same. Since `58dd5b2` the screen composites `r + (fr - r) * ink` with
+/// [`RiverInk`]'s stamped disc value, so a channel cell whose stamp reads
+/// `0.45` gets 45 % of the tint on screen and used to get 100 % of it in the
+/// PNG. `t` is that same ink, and the three lines below are
+/// `build_color_texture`'s three lines, in its order, so the two cannot
+/// disagree by construction rather than by review.
+///
 /// # Nearest cell, not a bilinear sample
 ///
-/// `mask` is categorical: `chan` is a channelization flag, `strahler_order`
-/// is a stream order, and neither has a meaningful value between two cells.
-/// Interpolating would fringe every river with a band of half-tinted pixels,
-/// and would do it *more* visibly at 8K than at 2K — exactly backwards.
-/// Nearest-cell keeps a river the same width in **world** terms at every
-/// export resolution, which is what the on-screen tint means.
-fn channel_tint(a: &TerrainAppearance, c: (f64, f64, f64), gx: f64, gy: f64, gw: usize, gh: usize) -> (f64, f64, f64) {
+/// Kept as nearest, and the reason changed with the mask. The old reason was
+/// that the mask was categorical (`chan` a flag, `strahler_order` a stream
+/// order); the stamp is not — it is a continuous parabolic disc. What still
+/// holds is the property the choice was made for: nearest-cell keeps a river
+/// the same width in **world** terms at every export resolution, and makes an
+/// export at the grid's own width land on exactly the cell the screen read.
+/// Interpolating would soften the stamp's own edge a second time, more at 8K
+/// than at 2K — and `the_river_tint_keeps_its_world_width_at_every_resolution`
+/// is what would notice.
+fn channel_tint(a: &TerrainAppearance, c: (f64, f64, f64), t: f64, gx: f64, gy: f64, gw: usize, gh: usize) -> (f64, f64, f64) {
     let cover = border_cover_f(a, gx, gy, gw, gh);
     if cover >= 1.0 {
         return c;
     }
     let (r, g, b) = c;
-    let (tr, tg, tb) = (r * 0.5, (g * 0.5 + 0.3).min(1.0), (b * 0.5 + 0.45).min(1.0));
+    let (fr, fg, fb) = (r * 0.5, (g * 0.5 + 0.3).min(1.0), (b * 0.5 + 0.45).min(1.0));
+    let (tr, tg, tb) = (r + (fr - r) * t, g + (fg - g) * t, b + (fb - b) * t);
     (tr + (r - tr) * cover, tg + (g - tg) * cover, tb + (b - tb) * cover)
 }

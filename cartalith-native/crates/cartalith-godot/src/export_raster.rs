@@ -20,6 +20,46 @@
 //! single flat image the user takes away. The `bakeTiles` option here is a
 //! *file layout* for that one image, not a pyramid level.
 //!
+//! # Every file here is written in the **working space**, not the display's
+//!
+//! **Decided 2026-09-06, after `grep -n 'apply_color_space' export_raster.rs`
+//! returned nothing and the absence turned out to be deliberate-by-accident.**
+//! Nothing in this file calls [`render::apply_color_space`]; the only
+//! production call is at the end of `lib.rs::build_color_texture`. So when a
+//! user picks **Display P3** — and they can, today: `render_workspace.gd`
+//! wires the picker to `set_color_space`, so this is a live behaviour and not
+//! a latent one — the viewport re-encodes its raster for that panel and every
+//! PNG this file writes keeps the sRGB numbers.
+//!
+//! **That is the right way round, and it is kept on purpose.** Two reasons,
+//! neither of them "it was already like that":
+//!
+//! 1. `WorldGen::color_space`'s own doc says what that setting is: *"it
+//!    describes the **monitor in front of this session**"*, which is why it is
+//!    deliberately excluded from a saved look and from the project's
+//!    `AppearanceDoc` — `GUI_GAP_REGISTER.md`'s rule, quoted there verbatim, is
+//!    *"display = app, working space = document"*. An exported PNG is a
+//!    document. Baking a monitor transform into one is the same category error
+//!    that field refuses to make.
+//! 2. `cartalith_assets::raster::encode_png_rgb8` writes **no ICC profile** —
+//!    it is `image::DynamicImage::write_to(.., ImageFormat::Png)`, and nothing
+//!    passes a profile to it. An untagged PNG is interpreted as sRGB, so P3
+//!    numbers in one would be *misread* by anything that colour-manages, and
+//!    would land right only on the wide-gamut panel that is not managing
+//!    ([`render::apply_color_space`]'s own doc says that is exactly the
+//!    monitor the setting is for). Applying the transform would not make the
+//!    file match the screen; it would make the file wrong for every consumer
+//!    that does the conversion properly, and leave the screen unchanged.
+//!
+//! So the exports match the viewport **in the working space** — which is what
+//! `_exportraster_probe.gd`'s section 13 asserts byte for byte, and what its
+//! section 15 asserts stays true when the display space moves. The cost is
+//! real and stated rather than hidden: a user on a P3 panel sees a map on
+//! screen whose exported PNG will look slightly different **on that panel**,
+//! and identical everywhere else. Fixing that properly is an ICC-tagged export
+//! (write `sRGB`/`Display P3` chunks and let the consumer convert), which needs
+//! an encoder that takes a profile — not a second call to a display transform.
+//!
 //! # Why a new module rather than another `lib.rs` block
 //!
 //! `lib.rs` is 10 000 lines and under concurrent edit for most of this
@@ -35,7 +75,7 @@ use godot::prelude::*;
 use cartalith_engine::channel_atlas::{self, Channel, ChannelGroup, ChannelSrc};
 use cartalith_io::{TileManifestOpts, build_tile_manifest, manifest_json};
 
-use crate::render::{self, BakeFields, RenderCtx, SplatTextures};
+use crate::render::{self, BakeFields, RenderCtx, RiverInk, SplatTextures};
 use crate::{WorldGen, WorldSource, paint_bridge, sample_bridge};
 
 /// `bakeRes`' own three options in its own order, plus the two
@@ -262,6 +302,37 @@ fn refuse_unaffordable(width: i64, peak: u64) -> Option<VarDictionary> {
 }
 
 impl WorldGen {
+    /// **The one place that decides how much river ink a cell carries**, for
+    /// the viewport and for every raster this file writes.
+    ///
+    /// `build_color_texture` calls it, `export_raster_png` calls it,
+    /// `export_snapshot_png` and `export_layer_previews` call it. That is the
+    /// point: it used to be an inline `match` next to `build_color_texture`
+    /// and three *different* inline matches here, and when `58dd5b2` taught
+    /// the screen to draw a stamped disc only the screen's copy learned it —
+    /// that commit touched no file in this directory. Measured at `65a8262`,
+    /// seven days later: `_exportraster_probe.gd` section 13 read **199 909 of
+    /// 8 060 928 bytes different, worst delta 73**, with every export,
+    /// snapshot and layer preview painting full-strength one-cell rivers over
+    /// a map that had stopped drawing them that way.
+    ///
+    /// The rule it carries is `build_color_texture`'s, unchanged: the stamp
+    /// when the world has one whose length matches the flag, the flag
+    /// otherwise, and a loaded save's `strahler_order` as a flag because
+    /// `SAVEFILE_COMPAT.md` stores no channel topology and therefore no stamp.
+    pub(crate) fn river_ink(&self) -> Option<RiverInk<'_>> {
+        match self.source.as_ref()? {
+            WorldSource::Generated(ws) => ws.channels.as_ref().map(|c| {
+                if c.intensity.len() == c.chan.len() {
+                    RiverInk::Stamped(c.intensity.as_slice())
+                } else {
+                    RiverInk::Flag(c.chan.as_slice())
+                }
+            }),
+            WorldSource::Loaded(save) => Some(RiverInk::Flag(save.fields.strahler_order.as_slice())),
+        }
+    }
+
     /// Everything `render::bake_rect` needs, assembled the same way
     /// `build_color_texture` assembles it.
     ///
@@ -626,16 +697,13 @@ impl WorldGen {
 
         let appearance = self.appearance();
         let world = self.world;
-        // The river-channel mask, chosen exactly as `build_color_texture`
-        // chooses it — `channels.chan` for a generated world, the save's
-        // `strahler_order` for a loaded one. Without it the export is a map
-        // of a world with no rivers in it; `render::channel_tint`'s doc
-        // comment carries the measurement that found this.
-        let chan: Option<&[u8]> = match self.source.as_ref() {
-            Some(WorldSource::Generated(ws)) => ws.channels.as_ref().map(|c| c.chan.as_slice()),
-            Some(WorldSource::Loaded(save)) => Some(save.fields.strahler_order.as_slice()),
-            None => None,
-        };
+        // The river ink, from the one chooser both paths share
+        // ([`WorldGen::river_ink`]) rather than a second inline `match` here.
+        // Without it the export is a map of a world with no rivers in it, and
+        // with the *wrong* one it is a map of a world whose rivers are a
+        // different width; `render::channel_tint`'s doc comment carries both
+        // measurements.
+        let chan = self.river_ink();
         let Some(mut bytes) = self.export_render(|ctx| {
             let bf = BakeFields::new(ctx);
             let mut px = render::bake_rect(ctx, &bf, chan, w, h, 0, 0, w, h);
@@ -777,14 +845,10 @@ impl WorldGen {
         let (x0, y0) = (place(cx, gw, out_w, w), place(cy, gh, out_h, h));
 
         let appearance = self.appearance();
-        // The same mask `export_raster_png` chooses, for the reason
-        // `render::channel_tint`'s doc comment measured: without it the
-        // snapshot is a picture of a place with no rivers in it.
-        let chan: Option<&[u8]> = match self.source.as_ref() {
-            Some(WorldSource::Generated(ws)) => ws.channels.as_ref().map(|c| c.chan.as_slice()),
-            Some(WorldSource::Loaded(save)) => Some(save.fields.strahler_order.as_slice()),
-            None => None,
-        };
+        // The same ink `export_raster_png` uses, from the same chooser, for
+        // the reason `render::channel_tint`'s doc comment measured: without it
+        // the snapshot is a picture of a place with no rivers in it.
+        let chan = self.river_ink();
         let Some(bytes) = self.export_render(|ctx| {
             let bf = BakeFields::new(ctx);
             let mut px = render::bake_rect(ctx, &bf, chan, out_w, out_h, x0, y0, w, h);
@@ -908,10 +972,11 @@ impl WorldGen {
         // the whole of `renderNow` too.
         let appearance = self.appearance();
         let world = self.world;
-        let chan: Option<&[u8]> = match self.source.as_ref() {
-            Some(WorldSource::Generated(ws)) => ws.channels.as_ref().map(|c| c.chan.as_slice()),
-            _ => None,
-        };
+        // Generated worlds only reach here (`sample_refs()` above), so this is
+        // the stamp or the flag, never a save's `strahler_order` -- but it goes
+        // through the same chooser anyway, because the last time this file held
+        // its own copy of that decision it was the copy that went stale.
+        let chan = self.river_ink();
         let Some((biome, hillshade)) = self.export_render(|ctx| {
             let bf = BakeFields::new(ctx);
             let mut px = render::bake_rect(ctx, &bf, chan, gw, gh, 0, 0, gw, gh);
