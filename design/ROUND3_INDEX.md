@@ -116,3 +116,67 @@ Save layout third because it repairs a defect that silently loses user data;
 Checks fourth because it needs the five validators surfaced across the boundary;
 Shortcuts last because it is the only one that needs a new widget and a new
 persisted store.
+
+---
+
+## Batch 3 — `Cartalith Undesigned Surfaces 3.dc.html`, checked 2026-09-06
+
+PR-07 colour · PR-10 tiles & LOD · PR-15 units · HE-01/HE-03 docs & report.
+**The strongest of the three canvases**: three of its four sections argue for
+*less* surface than the register asks for, and the argument is the work. Two
+premises still fail, and one recommendation collides with a standing ruling.
+
+**PR-07 — the central premise is false, and it inverts the recommendation.**
+The canvas says *"Display Device is sRGB and nothing else"* and draws a locked
+readout *"because the list has no second entry"*. There is a second entry:
+`render::ColorSpace` is `Srgb` **and `DisplayP3`** (DCI-P3 primaries, D65,
+sRGB's transfer function), `set_color_space` is bound and forwarded through
+`engine_bridge.gd`, and `render_workspace.gd` already wires a picker to it.
+**Measured 2026-09-06 by the export verifier: Display P3 moves the viewport
+raster by up to 23 byte levels.** So the axis is real, user-selectable, and
+already has a home. The honest screen is not "there is nothing to choose" — it
+is that **the picker affects the screen and deliberately does NOT affect
+exports**: `encode_png_rgb8` writes no ICC profile, so applying the transform
+would produce an untagged P3 file that everything colour-managed reads as sRGB.
+That is a fact a user needs told, and no surface tells them today.
+
+**HE-03 — the owner already ruled, and the canvas draws the opposite.**
+`LARGE_ITEM_RULINGS.md`: *"`Report an issue` → **Replace with a local diagnostic
+dump**. Rename to a save-diagnostic-report action writing generation info,
+missing bindings, project format version, GPU state and the last error to a file
+the user attaches themselves. **No endpoint required.**"* The canvas draws an
+`OPEN TRACKER` button that opens a browser. **An owner decision is newer than any
+canvas.** The canvas half-arrives at the right answer on its own — its note says
+*"COPY DETAILS is the row that earns its place: it works with no network"* — and
+its **"what will be attached" review list is exactly right** and should be kept:
+a pre-filled report is a claim about what the app knows, so the user must see it
+before it leaves. Build the ruling's version with the canvas's review panel.
+
+**PR-10 — the route is real, the row is disabled.** `Preferences ▸ Tiles & LOD`
+exists with `Tile size` (256/512/1024 — **three values, not the canvas's four**),
+`LOD levels` and `Chunk debug overlay`. `Atlas cache ▸ Size cap · GB` exists as a
+**`_todo` row**, not a live one. So the canvas is right that the destination
+exists and wrong that the control does. Its split — Preferences keeps what
+changes drawing now, tiled *output* becomes a named build definition under
+`Data ▸ Export` — is sound and matches ruling 28's own division. **Needs the
+owner to confirm that destination before the build dialog is drawn.**
+
+**PR-15 — no toggle exists in the shell, which settles it toward Reading 3.**
+The canvas says *"a Cartalith canvas already draws a working km/mi toggle in the
+menu bar"* and calls it a contradiction with a kilometre-only engine. Searched
+the shell: **there is no km/mi toggle anywhere in `shell/*.gd`.** So the
+contradiction is between a *design canvas* and the engine, not inside the code —
+which makes **Reading 3 (the toggle was drawn by mistake; remove it from the
+canvas)** the cheapest answer and the only one needing no build work. The
+canvas's own core argument stands and is worth keeping either way: **units belong
+in the file, not the preferences**, because a world is shared and must not read
+in kilometres for its author and miles for everyone they send it to.
+
+### What is implementable now, and what is not
+
+| § | State | Next step |
+|---|---|---|
+| HE-01/HE-03 | **Ready** — the ruling settles it and the canvas supplies the review panel | Build the diagnostic dump. `menus.gd` is held by a running lane |
+| PR-07 | **Redraw** — premise false | Draw the screen-vs-export distinction instead |
+| PR-10 | **Owner** — confirm `Data ▸ Export` as the destination | Then draw the build dialog and manager |
+| PR-15 | **Owner** — Reading 3 recommended on the evidence | Then remove the toggle from the canvas |

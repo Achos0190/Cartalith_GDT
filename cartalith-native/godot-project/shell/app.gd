@@ -3310,8 +3310,11 @@ func toggle_resource_overlay() -> void:
 func open_data_manager(group: String = "") -> void:
 	data_manager_window.open(group)
 
-## The Data dropdown's fourteen route rows (`menus.gd::_data()`, rebuilt
-## against `DCC shell tablet 2560` on 2026-08-25). A group name picks that
+## The Data dropdown's **fifteen** route rows (`menus.gd::_data()`, rebuilt
+## against `DCC shell tablet 2560` on 2026-08-25; fourteen until the `checks`
+## route landed 2026-09-06, and this sentence said fourteen for a batch after
+## it -- `menus.gd::_data()` generates one row per `DataManagerWindow.ROUTES`
+## entry, so the count follows that array and nothing else). A group name picks that
 ## group's first route; this picks the exact one the row names.
 func open_data_manager_route(route_id: String) -> void:
 	data_manager_window.open_route(route_id)

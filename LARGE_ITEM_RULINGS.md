@@ -590,3 +590,38 @@ shown at save time**: a pyramid is ~4/3 of its base level, which makes this the
 one slot capable of outgrowing the three float grids that dominate the archive
 today. **Measure a real pyramid before writing a default into the UI** — the
 previous ruling in this file shipped four unmeasured figures.
+
+**29. Tiled output lives in the save path only, never in Data ▸ Export.** Owner,
+2026-09-06: *"the tiled output should only live in the save menu. It has no merit
+in the export menu."*
+
+**This resolves PR-10's open question by rejecting its premise rather than
+answering it.** The round-3 canvas took Gaea's lesson — that what you build and
+how it is written are different objects — and proposed a **Build dialog plus a
+persistent Build Manager under `Data ▸ Export`**, with build type, tile grid and
+inter-tile blending as a named, saved, reusable definition. The owner's answer is
+that there is no such object here: a tile pyramid is **not an export product**,
+it is part of what a project stores.
+
+**It agrees exactly with ruling 28, which was decided independently a few hours
+earlier**, and the two together now say one thing rather than two: tiles are an
+**optional slot inside the project archive** (`cartography/tiles/**`, already
+round-tripping as a foreign entry), written when the user saves, defaulting off,
+with the size shown at save time. **Ruling 28's "size shown at save time" now has
+a home** — the save affordance, not a preferences pane and not an export dialog.
+
+**What this deletes from the design, and it is most of it:**
+
+- no build dialog, no build manager, no saved build definitions;
+- **no build type, no tile grid, no blending percentage** — those describe a file
+  layout the user chooses, and there is no such choice when the destination is
+  the archive's own slot;
+- `Preferences ▸ Tiles & LOD` keeps only what changes how the app **draws right
+  now**: the atlas-cache size cap (a `_todo` row today), tile size (256/512/1024
+  as shipped, not the canvas's four), the memory readouts, and clear/rebuild.
+
+**Do not conflate this with ruling 26.** The 16K/32K PNG is a *monolithic single
+image for an external viewer* — one flat raster, deliberately not tiled, and the
+owner scoped it that way on the same day. Tiled output going to the save path
+takes nothing away from it: they are different artefacts with different
+destinations, and the export menu keeps the one it already has.

@@ -525,7 +525,15 @@ var _right_dock_scroll: ScrollContainer
 var _phone_search_overlay: Control
 var _phone_search_field: LineEdit
 var _phone_search_results: VBoxContainer
+var _phone_search_chips: HFlowContainer
+var _phone_search_count: Label
 var _place_search_index  ## `PlaceSearch` -- untyped, see `_has_place_search()`.
+## `CommandIndex`, built lazily the first time a `.` query is run and dropped by
+## `_reset_place_search_cache()` alongside the place index. Statically typed,
+## unlike `_place_search_index` beside it: `command_index.gd` is a shipped file
+## with eight probes already naming the class, not this pass's concurrent
+## sibling, so a bare `CommandIndex` token here cannot fail to parse.
+var _command_index: CommandIndex
 
 var _phone_undo_chip: Button
 ## `06-phone.md` §6.2's edit-history popover and sim strip, and the app bar's
@@ -556,6 +564,8 @@ const PHONE_UNDO_HOLD_SEC := 0.45  ## Standard mobile long-press threshold
 var _desktop_search_dialog: AcceptDialog
 var _desktop_search_field: LineEdit
 var _desktop_search_results: VBoxContainer
+var _desktop_search_chips: HFlowContainer
+var _desktop_search_count: Label
 
 # -- Build identity ------------------------------------------------------------
 
@@ -2588,9 +2598,16 @@ func _build_rail_expansion() -> Control:
 			hp.add_theme_constant_override("margin_left", 14)
 			hp.add_theme_constant_override("margin_right", 14)
 			hp.add_theme_constant_override("margin_top", 10)
-			hp.add_theme_constant_override("margin_bottom", 3)
+			## `3` before the subtitle line below existed; `1` now, so the
+			## header and the sentence explaining it read as one block rather
+			## than two (`design/round3-corrected/Rail.dc.html` A2, which draws
+			## `10px 14px 1px` on the header and `0 14px 4px` on the subtitle).
+			hp.add_theme_constant_override("margin_bottom", 1)
 			hp.add_child(h)
 			col.add_child(hp)
+			var sub := _domain_subtitle(String(n["domain"]))
+			if sub != "":
+				col.add_child(_rail_header_subtitle(sub))
 			continue
 
 		var b := Button.new()
@@ -2616,6 +2633,68 @@ func _build_rail_expansion() -> Control:
 
 	_paint_rail_nodes()
 	return panel
+
+## `DOMAINS[i].subtitle` for a domain id, or `""` for an id that has none.
+##
+## `""` rather than a placeholder sentence, and `_build_rail_expansion()` skips
+## the row entirely on it -- an empty label under a header would draw a blank
+## band that reads as a subtitle that failed to load. There is no `DOMAINS` row
+## without a subtitle today; the branch exists so that adding one does not
+## silently ship an empty line.
+func _domain_subtitle(domain_id: String) -> String:
+	for entry in DOMAINS:
+		var d: Dictionary = entry
+		if String(d.get("id", "")) == domain_id:
+			return String(d.get("subtitle", ""))
+	return ""
+
+## The one added line under a rail-expansion header
+## (`design/round3-corrected/Rail.dc.html` A2/A3).
+##
+## **Wraps, does not clip.** `AUTOWRAP_WORD_SMART`, no `clip_text`, no
+## `text_overrun_behavior`: CIVIL's subtitle is 71 characters (measured
+## `Label.text.length()` by `_railfind_probe.gd` §C, 2026-09-06; A3's own
+## caption says 70) and takes three lines in the 200 px desktop column, two in
+## the tablet's 264 -- and the subtitle is the entire payload of
+## expanding the rail -- clipping would leave the widest domain the least
+## explained (A3 states exactly that). Headers therefore become unequal height.
+## Node rows are untouched and keep their own uniform `_scaled(28)`.
+##
+## Two things this deliberately does NOT do:
+##
+##   - It does not set a `custom_minimum_size.x`. An autowrapping `Label`
+##     reports minimum width 1 in Godot 4, so it cannot widen the enclosing
+##     `ScrollContainer` -- whose horizontal axis is DISABLED, and a disabled
+##     axis folds the child's minimum into the parent's own (see `MISTAKES.md`,
+##     "Read a layout that overflows the screen"). Pinning a width here would
+##     push the whole rail wider at the tablet's 264 as well as at 200.
+##   - It does not touch the node rows' typography. Headers stay tracked mono,
+##     nodes stay sans, selection stays ink alone.
+##
+## **Ink, measured rather than asserted.** `text_ghost` is the nearest shipped
+## token to the artboard's `#565c60` (dark `#5f6468`, light `#9a9d95`) and is
+## deliberately dimmer than the `text_faint` header above it, which is what A2
+## draws. Against the `panel` ground this column sits on that is **3.15:1 dark /
+## 2.68:1 light**, under the header's own **3.97:1 / 3.11:1** -- so neither the
+## added line nor the header it explains reaches 4.5:1. The header's shortfall
+## shipped long before this line; the new line is dimmer still, and that is the
+## design's stated intent, not an oversight. Recorded here so the next reader
+## does not have to re-derive it to know it was looked at.
+##
+## Size is `FS_TINY` (10), one step under the node rows' `FS_SMALL` (11), not
+## the artboard's literal 11: the artboard's node row is 12 px and its subtitle
+## 11, so the drawn relationship is "one step under the node label", and the
+## shipped node label is 11 rather than 12.
+func _rail_header_subtitle(text: String) -> Control:
+	var l := DccTheme.label(text, "text_ghost", DccTheme.FS_TINY)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 14)
+	pad.add_theme_constant_override("margin_right", 14)
+	pad.add_theme_constant_override("margin_top", 0)
+	pad.add_theme_constant_override("margin_bottom", 4)
+	pad.add_child(l)
+	return pad
 
 ## `hRailExp` (`ENV:1929`). Nothing but the flag and the two things that read it.
 func _toggle_rail_expansion() -> void:
@@ -6107,6 +6186,21 @@ func _wire_phone_overflow() -> void:
 # instead, and `_place_search_index` is deliberately untyped for the same
 # reason. `EngineBridge`/`ViewportHost` do not need this treatment -- both are
 # permanent, already-shipped files, not this pass's concurrent sibling.
+#
+# **`CommandIndex` is on the permanent side of that line, not this one.**
+# `shell/command_index.gd` shipped long before this section and is already
+# named as a static type by `_vfy_batch0905_probe.gd`, so `SEARCH_SCOPES`' `.`
+# scope reaches it by class name with no `ResourceLoader` dance. What it did
+# NOT have until this pass was a consumer: every construction of one was a
+# probe. See `_ensure_command_index()`.
+#
+# The four additions the round-3 artboard asks for
+# (`design/round3-corrected/FindOnMap.dc.html` B2) all live in this section:
+# scope prefixes (`SEARCH_SCOPES`, `_split_search_scope()`), the `.` scope
+# (`_ensure_command_index()`), band headers (`PLACE_BANDS`/`COMMAND_BANDS`,
+# drawn by `_fill_search_results()`) and the count (`_search_count_text()`).
+# The dialog itself is unchanged: B3's recommendation is to keep it, and a
+# status-bar locator is a separate change to a different surface.
 
 ## Whether the index this whole feature depends on exists yet. Checked fresh
 ## on every call (button build, each open) rather than once at boot and
@@ -6125,6 +6219,13 @@ func _has_place_search() -> bool:
 ## world on each one would make the field feel laggy for no benefit `.search()`
 ## alone doesn't already give it. See `_set_search_open()` and
 ## `_open_desktop_find_on_map()` for the two places that reset the cache.
+##
+## **`query` is the residual, never the raw field.** Since the scope prefixes
+## landed this is called only from `_search_result_set()`, which has already
+## split `lb ald` into a scope and `ald`; handing it the raw text would search
+## for the prefix token as if it were part of the name. Scope filtering happens
+## in the caller, on `entity`, so this function still returns the whole matching
+## set and `size()` still means the whole index.
 func _run_place_search(query: String):
 	if not _has_place_search():
 		return []
@@ -6141,33 +6242,316 @@ func _run_place_search(query: String):
 	var q := query.strip_edges()
 	return _place_search_index.call("all") if q == "" else _place_search_index.call("search", q)
 
-## Drops and rebuilds the cached index -- called whenever an overlay/dialog
-## opens, so a world that regenerated since the last search is never searched
-## stale. Cheap to over-call: an unopened search never rebuilds anything.
+## Drops both cached indexes -- called whenever an overlay/dialog opens, so a
+## world that regenerated since the last search is never searched stale. Cheap
+## to over-call: an unopened search never rebuilds anything.
+##
+## **Both**, not just the place index the name still says: the `.` scope's
+## `CommandIndex` goes stale the same way and worse. A place row goes wrong when
+## a settlement is added; a command row's `available`/`why` change with the
+## world state every `about_to_popup` handler in `menus.gd` reads, so a cached
+## command index would report a command as unavailable after the thing it waits
+## for arrived. The name is kept because `_set_search_open()` and
+## `_open_desktop_find_on_map()` both cite it by it.
 func _reset_place_search_cache() -> void:
 	_place_search_index = null
+	_command_index = null
+
+# -- Scopes ---------------------------------------------------------------------
+#
+# `design/round3-corrected/FindOnMap.dc.html` B2, addition 1.
+#
+# **The token before the first space, matched WHOLE.** `_split_search_scope()`
+# compares with `==` against a whole `prefix`, never `begins_with`, which is the
+# entire reason `l` and `lb` can coexist -- a prefix test would make every `lb`
+# query a landmarks query. There is no ambiguity to resolve and no ordering
+# dependency in this array.
+#
+# A row carries `entity` (filter `PlaceSearch` rows on that field), or
+# `commands` (search `CommandIndex` instead), or `why` (declined -- drawn, and
+# explained, but returning nothing). **Exactly one of the three**, and the key
+# is ABSENT rather than empty on the other two, so `has()` decides and no caller
+# has to know what an empty `entity` would have meant.
+## The prefix grammar, in one sentence, on both fields. Written out rather than
+## generated from `SEARCH_SCOPES` on purpose: a generated list would read
+## "s settlements, f factions, ..." and say nothing about the space, which is
+## the part that decides whether a token is a scope at all.
+const SEARCH_HINT := "Start with a scope and a space to narrow: s settlements, f factions, lb labels, r routes, . commands."
+
+const SEARCH_SCOPES: Array = [
+	{"prefix": "s", "label": "settlements", "entity": "settlement"},
+	{"prefix": "f", "label": "factions", "entity": "faction"},
+	{"prefix": "lb", "label": "labels", "entity": "label"},
+	{"prefix": "r", "label": "routes", "entity": "route"},
+	{"prefix": ".", "label": "commands", "commands": true},
+	## **Declined, in the code's own words.** `place_search.gd`'s header
+	## declines icons because `icon_dict` (lib.rs:5939-5948) carries
+	## `family`/`slot`/`set`/`scale` -- four closed vocabularies and no
+	## identifying name -- so a row reading "pine / forest" is not a place
+	## anyone typed a name to find. Drawn disabled rather than omitted because
+	## a searcher who expects landmarks deserves to be told why there are none,
+	## and typing `l ` says the same thing where the result list would be.
+	{"prefix": "l", "label": "landmarks",
+		"why": "Placed landmarks carry family / slot / set / scale — four closed vocabularies, no name. Nothing to type to find one."},
+]
+
+## The band a returned row fell in, recomputed here rather than re-ranked.
+##
+## `PlaceSearch.search()` returns `prefix + name_hit + other`, and
+## `CommandIndex.search()` returns `title + group + blurb`; both concatenate
+## three already-sorted lists and neither tells the caller where the seams are.
+## These two functions restate each ranker's own test so the seams can be drawn.
+##
+## **The rows never move.** `_fill_search_results()` walks the returned order and
+## emits a header only where this index changes, so if one of these ever drifts
+## from the ranker it wrote itself against, the visible failure is a band header
+## appearing twice -- not a list in a different order from the one `search()`
+## chose. That is the whole reason the grouping is computed instead of re-sorted.
+const PLACE_BANDS: Array = ["STARTS WITH", "CONTAINS", "MATCHED ON KIND OR SUBTITLE"]
+const COMMAND_BANDS: Array = ["MATCHED THE NAME", "MATCHED THE MENU", "MATCHED THE DESCRIPTION"]
+
+static func _place_band(row: Dictionary, needle: String) -> int:
+	var at := String(row.get("name", "")).to_lower().find(needle)
+	if at == 0:
+		return 0
+	return 1 if at > 0 else 2
+
+static func _command_band(row: Dictionary, needle: String) -> int:
+	if String(row.get("title", "")).to_lower().find(needle) >= 0:
+		return 0
+	return 1 if String(row.get("group", "")).to_lower().find(needle) >= 0 else 2
+
+## Splits a raw field value into `{scope?, query}`. `scope` is ABSENT unless the
+## token before the first space is exactly one of `SEARCH_SCOPES`' prefixes --
+## so `lb ald` scopes to labels, `l ald` scopes to the declined landmarks row,
+## and `ald` (no space at all, or an unrecognised token) searches everything for
+## the whole string, `s` and `lb` included.
+func _split_search_scope(raw: String) -> Dictionary:
+	var at := raw.find(" ")
+	if at < 0:
+		return {"query": raw.strip_edges()}
+	var token := raw.substr(0, at)
+	for entry in SEARCH_SCOPES:
+		var sc: Dictionary = entry
+		if String(sc["prefix"]) == token:
+			return {"scope": sc, "query": raw.substr(at + 1).strip_edges()}
+	return {"query": raw.strip_edges()}
+
+## `CommandIndex` for the `.` scope, built lazily. This dialog is its FIRST
+## shipping consumer: before this pass the only things that ever constructed one
+## were probes (`_cmdindex_probe.gd`, `_cmdunavail_probe.gd`, `_perfwin_probe.gd`,
+## `_apcmdcheck_probe.gd`, `_idxfind_probe.gd`, `_vfy_batch0905_probe.gd`) --
+## `grep -rn 'CommandIndex' godot-project --include=*.gd`, 2026-09-06, no
+## `shell/` hit outside comments. Its API, read off `command_index.gd` rather
+## than assumed: `CommandIndex.new()`, `build(app, bridge)`, `size()`, `all()`,
+## `search(q)`, `groups()`, each row `{title, blurb, group, kind, available,
+## why, key}`.
+##
+## `self` as the `app` argument because `DccApp extends DccShell`: `build()`
+## walks `_gather_menu_buttons(app, ...)` for `MenuButton`s, and `add_menu()` in
+## this very file is what parents them. A bare `DccShell` has no menus and no
+## bridge and yields an empty index rather than failing -- the same degradation
+## every other engine touch in this file already takes.
+func _ensure_command_index() -> CommandIndex:
+	if _command_index == null:
+		var idx := CommandIndex.new()
+		idx.build(self, _find_engine_bridge())
+		_command_index = idx
+	return _command_index
+
+## Everything one keystroke produces, in one dictionary, so the two surfaces
+## render from the same computation instead of two.
+##
+## Keys: `rows` (what to draw) and `total` (the size of the pool they were drawn
+## from, for the count) always; `query` (the residual after a scope token);
+## `scope` only when one was recognised; `commands` only when the rows are
+## `CommandIndex` rows rather than `PlaceSearch` rows; `note` only when a
+## declined scope was typed and the reason is what should be shown instead of a
+## result list. Absent, never empty -- callers use `has()`.
+func _search_result_set(raw: String) -> Dictionary:
+	var split := _split_search_scope(raw)
+	var query := String(split["query"])
+	var out := {"query": query}
+	if split.has("scope"):
+		out["scope"] = split["scope"]
+	var scope: Dictionary = split.get("scope", {})
+
+	if scope.has("why"):
+		out["rows"] = []
+		out["total"] = 0
+		out["note"] = String(scope["why"])
+		return out
+
+	if scope.has("commands"):
+		var idx := _ensure_command_index()
+		out["rows"] = idx.all() if query == "" else idx.search(query)
+		out["total"] = idx.size()
+		out["commands"] = true
+		return out
+
+	var rows: Array = _run_place_search(query)
+	if scope.has("entity"):
+		var want := String(scope["entity"])
+		var kept: Array = []
+		for r in rows:
+			if String((r as Dictionary).get("entity", "")) == want:
+				kept.append(r)
+		rows = kept
+	out["rows"] = rows
+	## The whole index, not the filtered pool: "7 of 342" says seven of the
+	## world's three hundred and forty-two indexed places, which is the sentence
+	## a scope chip makes interesting. `size()` is `PlaceSearch`'s own, so an
+	## absent index (no `place_search.gd`, no bridge) reports 0 rather than a
+	## guess.
+	out["total"] = int(_place_search_index.call("size")) if _place_search_index != null else 0
+	return out
 
 ## Renders a result set into `container` as `_phone_list_row()` rows (used on
 ## BOTH surfaces -- see `_open_desktop_find_on_map()`'s own comment for why
-## reusing the phone row on desktop is deliberate here, not an oversight).
-func _fill_search_results(container: VBoxContainer, rows, close_fn: Callable) -> void:
+## reusing the phone row on desktop is deliberate here, not an oversight), with
+## a band header wherever the ranking's own three bands change over.
+##
+## **A `.` command row is drawn inert, and that is the code's state, not a
+## styling choice.** A `CommandIndex` row is `{title, blurb, group, kind,
+## available, why, key}` -- no popup, no item id, no `Callable`, and no `x`/`y`
+## -- so nothing in this shell can dispatch a menu command from one, the way
+## `_select_search_hit()` can pan to a place. The row therefore says where the
+## command lives (its `group`, i.e. the menu it is under) and, when it is
+## unavailable, `why`; it does not offer a press that would do nothing.
+func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: Callable) -> void:
 	for child in container.get_children():
 		child.queue_free()
-	if rows == null or (rows as Array).is_empty():
-		var pad := MarginContainer.new()
-		pad.add_theme_constant_override("margin_left", _pscale(14))
-		pad.add_theme_constant_override("margin_top", _pscale(12))
-		pad.add_child(DccTheme.label("No matches", "text_faint", _pfont(10)))
-		container.add_child(pad)
+	if res.has("note"):
+		container.add_child(_search_notice(String(res["note"])))
 		return
+	var rows: Array = res.get("rows", [])
+	if rows.is_empty():
+		container.add_child(_search_notice("No matches"))
+		return
+	var commands: bool = res.has("commands")
+	var needle := String(res.get("query", "")).to_lower()
+	var bands: Array = COMMAND_BANDS if commands else PLACE_BANDS
+	var last_band := -1
 	for row in rows:
 		var d: Dictionary = row
-		var title := String(d.get("name", ""))
+		## Bands only describe a match, so an empty query -- which returns the
+		## index in build order, unranked -- has none to draw.
+		if needle != "":
+			var band := _command_band(d, needle) if commands else _place_band(d, needle)
+			if band != last_band:
+				container.add_child(_search_band_header(String(bands[band])))
+				last_band = band
+		if commands:
+			var why := String(d.get("why", ""))
+			var line2: String = why if why != "" else "%s menu" % String(d.get("group", ""))
+			var cmd := _phone_list_row(String(d.get("title", "")), line2, func(): pass)
+			(cmd as Button).disabled = true
+			(cmd as Button).accessibility_description = \
+				"%s. Lives under the %s menu." % [line2, String(d.get("group", ""))]
+			container.add_child(cmd)
+			continue
 		var kind := String(d.get("kind", ""))
 		var sub := String(d.get("subtitle", ""))
 		var line2 := "%s — %s" % [kind, sub] if kind != "" and sub != "" else kind + sub
-		container.add_child(_phone_list_row(title, line2,
+		container.add_child(_phone_list_row(String(d.get("name", "")), line2,
 			_select_search_hit.bind(d, close_fn)))
+
+## One band header inside the result list. Tracked mono caps in `text_faint`,
+## the same vocabulary `DccWidgets.section()` uses for a dock section and the
+## rail expansion uses for a domain header -- a divider, not a row.
+func _search_band_header(text: String) -> Control:
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", _pscale(14))
+	pad.add_theme_constant_override("margin_right", _pscale(14))
+	pad.add_theme_constant_override("margin_top", _pscale(9))
+	pad.add_theme_constant_override("margin_bottom", _pscale(3))
+	pad.add_child(DccTheme.mono_label(text, "text_faint", _pfont(9), 2, true))
+	return pad
+
+## "No matches", or a declined scope's reason, in the space the rows would have
+## taken. Wraps: a reason is a sentence, not a label.
+func _search_notice(text: String) -> Control:
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", _pscale(14))
+	pad.add_theme_constant_override("margin_right", _pscale(14))
+	pad.add_theme_constant_override("margin_top", _pscale(12))
+	var l := DccTheme.label(text, "text_faint", _pfont(10))
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	pad.add_child(l)
+	return pad
+
+## The scope chips (`FindOnMap.dc.html` B2). Rebuilt wholesale on every render
+## rather than repainted, because `DccWidgets.chip()` bakes `accent` into four
+## styleboxes at construction and there is no setter for it afterwards -- six
+## buttons is cheaper than the result list this is rebuilt alongside.
+##
+## Pressing the active chip clears the scope instead of re-applying it, so a
+## chip is a toggle and there is no state a pointer cannot get out of.
+func _fill_scope_chips(row: HFlowContainer, res: Dictionary) -> void:
+	for child in row.get_children():
+		child.queue_free()
+	var scope: Dictionary = res.get("scope", {})
+	var active := String(scope.get("prefix", "")) if not scope.is_empty() else ""
+	var query := String(res.get("query", ""))
+	for entry in SEARCH_SCOPES:
+		var sc: Dictionary = entry
+		var p := String(sc["prefix"])
+		var on := p == active
+		var declined := sc.has("why")
+		var press := Callable() if declined else _set_search_query.bind(
+			query if on else "%s %s" % [p, query])
+		var b := DccWidgets.chip(row, "%s %s" % [p, String(sc["label"])], press,
+			on and not declined, _pscale(6), _pscale(2))
+		b.add_theme_font_size_override("font_size", _pfont(9))
+		if declined:
+			b.disabled = true
+			b.tooltip_text = String(sc["why"])
+			b.accessibility_description = String(sc["why"])
+		else:
+			b.tooltip_text = "Type \"%s \" to search only %s" % [p, String(sc["label"])]
+
+## The count line. Never "0 of 0" for a scope that has no index to count: a
+## declined scope names itself and says so instead, because a zero there would
+## read as "the world has none", which is a different and false claim.
+func _search_count_text(res: Dictionary) -> String:
+	if res.has("note"):
+		var scope: Dictionary = res.get("scope", {})
+		return "%s · not indexed" % String(scope.get("label", "this scope"))
+	var shown: int = (res.get("rows", []) as Array).size()
+	var noun := "commands" if res.has("commands") else "places"
+	return "%d of %d %s · rebuilt on open" % [shown, int(res.get("total", 0)), noun]
+
+## Writes the field on whichever surface is up and re-renders. Used by the scope
+## chips, which are the only thing that sets the query from outside the field --
+## `LineEdit.text_changed` does NOT fire on a programmatic `text` assignment, so
+## the re-render here is the whole update, not a duplicate of one.
+func _set_search_query(text: String) -> void:
+	var field: LineEdit = _phone_search_field if _phone else _desktop_search_field
+	if field != null and is_instance_valid(field):
+		field.text = text
+		field.caret_column = text.length()
+		field.grab_focus()
+	if _phone:
+		_refresh_phone_search()
+	else:
+		_refresh_desktop_search()
+
+func _refresh_phone_search() -> void:
+	if _phone_search_results == null or not is_instance_valid(_phone_search_results):
+		return
+	var res := _search_result_set(_phone_search_field.text)
+	_fill_scope_chips(_phone_search_chips, res)
+	_phone_search_count.text = _search_count_text(res)
+	_fill_search_results(_phone_search_results, res, func(): _set_search_open(false))
+
+func _refresh_desktop_search() -> void:
+	if _desktop_search_results == null or not is_instance_valid(_desktop_search_results):
+		return
+	var res := _search_result_set(_desktop_search_field.text)
+	_fill_scope_chips(_desktop_search_chips, res)
+	_desktop_search_count.text = _search_count_text(res)
+	_fill_search_results(_desktop_search_results, res,
+		func(): _desktop_search_dialog.hide())
 
 ## A result row was picked: pan the map to it (`x`/`y` are grid cells, the
 ## same coordinate handling every OTHER `move_view_to()` call site in this
@@ -6216,7 +6600,15 @@ func _build_phone_search_overlay() -> Control:
 	panel.offset_left = 0
 	panel.offset_right = 0
 	panel.offset_top = phone_content_insets().get("top", 0.0)
-	panel.offset_bottom = panel.offset_top + _pscale(360)
+	## **360 -> 460, because this pass put chrome inside a fixed box.** Measured
+	## by `_railfind_probe.gd` §K at 412x915, 2026-09-06: the chips row is 38 px
+	## and the count line 13 px, and with the separation they cost the result
+	## scroll 51 px. At 460 the scroll measures 340 px and holds 6 rows of
+	## `_ptap(52)`; at the old 360 those same two rows would have left 240 px, or
+	## 4. Adding chrome to a fixed-height sheet takes the space from whatever was
+	## below it, and here that is the entire result of searching -- so the sheet
+	## grows by more than the chrome rather than the list shrinking.
+	panel.offset_bottom = panel.offset_top + _pscale(460)
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -6233,16 +6625,40 @@ func _build_phone_search_overlay() -> Control:
 	col.add_child(head_pad)
 
 	_phone_search_field = LineEdit.new()
-	_phone_search_field.placeholder_text = "Search places, factions, routes…"
+	## `commands` is in the list because the `.` scope really does reach them
+	## now. The old wording named the four place families and nothing else, which
+	## was exactly true before `SEARCH_SCOPES` and understates the field today.
+	_phone_search_field.placeholder_text = "Search places, factions, routes, commands…"
+	_phone_search_field.tooltip_text = SEARCH_HINT
 	_phone_search_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_phone_search_field.custom_minimum_size.y = _ptap(40)
 	DccWidgets.well(_phone_search_field, _pscale(12), _pscale(8))
 	_phone_search_field.add_theme_font_size_override("font_size", _pfont(12))
-	_phone_search_field.text_changed.connect(func(q: String):
-		_fill_search_results(_phone_search_results, _run_place_search(q),
-			func(): _set_search_open(false)))
+	_phone_search_field.text_changed.connect(func(_q: String): _refresh_phone_search())
 	head.add_child(_phone_search_field)
 	head.add_child(_sheet_close_button(func(): _set_search_open(false)))
+
+	## Chips and count, between the field and the list -- B2's own order.
+	## `HFlowContainer` because six chips do not fit one phone line and the
+	## sixth wrapping is the correct answer, not a horizontal scroll.
+	_phone_search_chips = HFlowContainer.new()
+	_phone_search_chips.add_theme_constant_override("h_separation", _pscale(5))
+	_phone_search_chips.add_theme_constant_override("v_separation", _pscale(4))
+	var chip_pad := MarginContainer.new()
+	chip_pad.add_theme_constant_override("margin_left", _pscale(16))
+	chip_pad.add_theme_constant_override("margin_right", _pscale(16))
+	chip_pad.add_child(_phone_search_chips)
+	col.add_child(chip_pad)
+
+	_phone_search_count = DccTheme.mono_label("", "text_faint", _pfont(9), 0)
+	_phone_search_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	var count_pad := MarginContainer.new()
+	count_pad.add_theme_constant_override("margin_left", _pscale(16))
+	count_pad.add_theme_constant_override("margin_right", _pscale(16))
+	count_pad.add_theme_constant_override("margin_top", _pscale(6))
+	count_pad.add_theme_constant_override("margin_bottom", _pscale(2))
+	count_pad.add_child(_phone_search_count)
+	col.add_child(count_pad)
 
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -6264,8 +6680,7 @@ func _set_search_open(open: bool) -> void:
 	if open:
 		_reset_place_search_cache()
 		_phone_search_field.text = ""
-		_fill_search_results(_phone_search_results, _run_place_search(""),
-			func(): _set_search_open(false))
+		_refresh_phone_search()
 		_phone_search_field.grab_focus.call_deferred()
 
 ## Desktop's presentation. `AcceptDialog`/`PopupPanel` are retheme'd from the
@@ -6294,8 +6709,7 @@ func _open_desktop_find_on_map() -> void:
 	_ensure_desktop_search_dialog()
 	_reset_place_search_cache()
 	_desktop_search_field.text = ""
-	_fill_search_results(_desktop_search_results, _run_place_search(""),
-		func(): _desktop_search_dialog.hide())
+	_refresh_desktop_search()
 	_desktop_search_dialog.popup_centered(Vector2i(440, 480))
 	_desktop_search_field.grab_focus.call_deferred()
 
@@ -6318,12 +6732,22 @@ func _ensure_desktop_search_dialog() -> void:
 	pad.add_child(col)
 
 	_desktop_search_field = LineEdit.new()
-	_desktop_search_field.placeholder_text = "Search places, factions, routes…"
+	_desktop_search_field.placeholder_text = "Search places, factions, routes, commands…"
+	_desktop_search_field.tooltip_text = SEARCH_HINT
 	DccWidgets.well(_desktop_search_field)
-	_desktop_search_field.text_changed.connect(func(q: String):
-		_fill_search_results(_desktop_search_results, _run_place_search(q),
-			func(): _desktop_search_dialog.hide()))
+	_desktop_search_field.text_changed.connect(func(_q: String): _refresh_desktop_search())
 	col.add_child(_desktop_search_field)
+
+	## Chips then count, the same order and the same two controls the phone
+	## overlay builds -- one design, two surfaces, not two designs.
+	_desktop_search_chips = HFlowContainer.new()
+	_desktop_search_chips.add_theme_constant_override("h_separation", 5)
+	_desktop_search_chips.add_theme_constant_override("v_separation", 4)
+	col.add_child(_desktop_search_chips)
+
+	_desktop_search_count = DccTheme.mono_label("", "text_faint", DccTheme.FS_MICRO, 0)
+	_desktop_search_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	col.add_child(_desktop_search_count)
 
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL

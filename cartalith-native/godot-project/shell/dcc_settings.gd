@@ -561,6 +561,29 @@ static func forget_layout(name: String) -> void:
 	_cfg.set_value(_SEC_LAYOUT, "named", all)
 	_save()
 
+## Has the first-run seeding of `DccMenus.SEED_LAYOUTS` already happened on this
+## install? One boolean beside `named`, in the same section, written once.
+##
+## **The flag exists because "is the list empty" is the wrong question.** An
+## empty list is a state the user can reach deliberately -- forget all four
+## seeds and it is empty again -- and a seeder that keyed on emptiness would
+## put them straight back on the next launch, which is a delete that does not
+## stick. It would also mean a user who keeps exactly one layout of their own
+## never gets re-seeded while the user who keeps none is re-seeded forever:
+## two different behaviours from one predicate that was never about seeding.
+##
+## So the recorded fact is *"seeding ran"*, not *"seeds are present"*. The two
+## diverge the moment a user touches the list, and only the first one is what
+## "seed once" means.
+static func layouts_seeded() -> bool:
+	_ensure_loaded()
+	return bool(_cfg.get_value(_SEC_LAYOUT, "seeded", false))
+
+static func mark_layouts_seeded() -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_LAYOUT, "seeded", true)
+	_save()
+
 # -- §2.5 Application > Keyboard shortcuts -------------------------------------
 
 ## Rebindable menu accelerators. `DCC_SHELL_SPEC.md` §2.5: "Keyboard

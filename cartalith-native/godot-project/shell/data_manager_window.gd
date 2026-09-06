@@ -46,6 +46,52 @@ class_name DataManagerWindow
 ## bodies now renders through it -- see that function's own header for what the
 ## pattern keeps of this window's frame and what it does not.
 ##
+## ## 2026-09-06: Validation ▸ Definitions (DM-10) -- the finding is the screen
+##
+## **Cartalith cannot ship QGIS's geometry validator, and the reason is not
+## that nobody has written one.** Measured at the symbols this pass:
+##
+## - `poly_self_intersects` (`cartalith-urban/src/geom.rs`) is `pub` inside its
+##   own crate and has exactly two callers -- `blocks.rs:407` and
+##   `geom.rs::inset_poly` -- both of which are *city blocks*, not territory,
+##   coastline or province rings. Nothing crosses the gdext boundary.
+## - In `cartalith-spatial/src/geo.rs` **an unclosed ring is normal output**,
+##   not a defect: the module doc's own item 2 says "a traced ring is not
+##   necessarily closed", `ring_area` iterates `i < len - 1` and deliberately
+##   omits the closing segment, and `tests/golden_parity_geo.rs` asserts the
+##   unclosed shape twice ("still six points, still unclosed"). Reporting it as
+##   an error would be **wrong**, not merely absent.
+## - Ring orientation is checked nowhere. `ensure_ccw` *imposes* a winding; no
+##   function anywhere reports one as invalid.
+##
+## So the Map geometry group is drawn **dashed, carrying that reason**, and the
+## route validates what the engine actually validates: **definitions**. Five
+## validators, and every one of them was already `#[func]`-bound and already
+## forwarded through `EngineBridge` before this pass -- `tl_list(kind)` carries
+## `validation_state`/`validation_missing`/`validation_conflicts` per row, and
+## `as_validate()` returns the asset library's ordered warning strings. **This
+## route needed no new boundary and none was added**; what was missing was a
+## caller.
+##
+## Three shapes the table holds because the engine holds them, not because a
+## design preferred them:
+##
+## - **`FIELDS` is empty for asset rows.** `AssetLibrarySession::validate()`
+##   returns `Vec<String>`; the subject is inside the sentence, not a payload.
+##   Dashed with that reason rather than filled with a guess.
+## - **`LOCATE` is present and disabled on every row.** No row here is a placed
+##   thing -- a definition has no coordinates -- and
+##   `viewport_host.gd::move_view_to()` takes grid cells.
+##   The column stays so the table already has the right shape the day a
+##   positional validator exists. Not omitted, and not wired.
+## - **There is no FIX SELECTED.** The engine has validators only; nothing here
+##   changes state. `RESOLUTION` therefore names the window that edits the
+##   definition, which is a navigation, not a repair.
+##
+## `RUN ALL VALIDATORS` simply rebuilds the pane: all five are pure functions
+## over state already in memory, so re-running them costs nothing and cannot
+## fail differently.
+##
 ## ## One deliberate divergence from the canvas
 ##
 ## **The canvas still has a CONVERSION group** (Coordinate Systems / Format
@@ -104,9 +150,21 @@ class_name DataManagerWindow
 ##   code, and this route's pane has drawn a live raster/heightmap/atlas export
 ##   since 2026-08-24. Corrected 2026-09-05, having survived two passes that
 ##   edited the constants three hundred lines below it.
-## - **Import ▸ Maps**, **Import ▸ GIS / GeoJSON**, **Sources** and
-##   **Validation** are disclosed gaps: no tile-map import, no source registry
-##   and no validation pass exist anywhere in the workspace. GeoJSON is the
+## - **Validation ▸ Definitions** is real as of 2026-09-06 (DM-10) -- see the
+##   next header section. **Validation ▸ Check Data** and **Repair / Normalize**
+##   stay disclosed gaps beside it, and the distinction is the whole point:
+##   what exists validates *definitions*, not world state.
+## - **Import ▸ Maps**, **Import ▸ GIS / GeoJSON** and **Sources** are disclosed
+##   gaps: no tile-map import and no source registry exist anywhere in the
+##   workspace. *This bullet used to say the same of the whole Validation group,
+##   on the ground that "no validation pass exists anywhere in the workspace".
+##   Measured 2026-09-06, that is false: `validate_animal`, `validate_vehicle`,
+##   `validate_vessel`, `validate_party_preset` and
+##   `AssetLibrarySession::validate()` all ship, are all `#[func]`-bound
+##   (`tl_list`, `as_validate`) and are all forwarded through `EngineBridge`.
+##   What was missing was a caller, not an engine. When the clause stopped being
+##   true was not established and is not asserted here.*
+##   GeoJSON is the
 ##   half-shaped one and its row says so -- `cartalith_io::parse_geojson` and
 ##   the bound `WorldGen::geojson_inspect` both exist; nothing turns a parsed
 ##   feature into world state, and no GDScript calls the inspector.
@@ -232,6 +290,7 @@ const PANE_PURPOSE := {
 	"sources_external": "point the project at data held outside it — no source registry exists",
 	"sources_connected": "what this project is currently reading from — no source registry exists",
 	"sources_registry": "the list of every known source — no source registry exists",
+	"val_defs": "run every validator the engine has over the definitions it has — nothing is written back",
 	"val_check": "look for contradictions in the world's own data — nothing collects warnings",
 	"val_repair": "fix what a check found — there is no check to repair against",
 }
@@ -305,9 +364,11 @@ const ROUTES: Array[Dictionary] = [
 		"sub": "no registry", "reason": "Same -- no source registry exists. The canvas's `1` badge on this row is mockup data, not a count this build could produce, so no badge is drawn."},
 	{"group": "Sources", "id": "sources_registry", "label": "Source Registry", "badge": "", "kind": "gap",
 		"sub": "no registry", "reason": "Same -- no source registry exists."},
+	{"group": "Validation", "id": "val_defs", "label": "Definitions", "badge": "", "kind": "live",
+		"sub": "five validators · definitions, not geometry"},
 	{"group": "Validation", "id": "val_check", "label": "Check Data", "badge": "", "kind": "gap",
 		"sub": "no warning store",
-		"reason": "There is a warning collection and it is about opening a FILE, not about checking a world: project_open() returns a warnings array, EngineBridge.last_open_warnings holds it, and app.gd surfaces its first entry after an open. Nothing anywhere walks a loaded world looking for contradictions in its own data, which is what this route means -- and what would be checked, against which invariant, is itself undefined (DM-10, classed (C)). The canvas's `8` badge on this row is mockup data, so no badge is drawn. (Re-checked 2026-09-05; this row previously said no warning collection existed anywhere, which project_open's own return had already falsified.)"},
+		"reason": "There is a warning collection and it is about opening a FILE, not about checking a world: project_open() returns a warnings array, EngineBridge.last_open_warnings holds it, and app.gd surfaces its first entry after an open. Nothing anywhere walks a loaded WORLD looking for contradictions in its own data, which is what this route means -- and what would be checked, against which invariant, is itself undefined. The five validators that do exist check DEFINITIONS rather than world state and have their own route, Validation > Definitions, next door; this row is what is still missing after it. The canvas's `8` badge on this row is mockup data, so no badge is drawn. (Re-checked 2026-09-05; this row previously said no warning collection existed anywhere, which project_open's own return had already falsified. Re-checked 2026-09-06 when Definitions landed: the DM-10 register row moved there, so it no longer reads (C) here.)"},
 	{"group": "Validation", "id": "val_repair", "label": "Repair / Normalize", "badge": "", "kind": "gap",
 		"sub": "nothing to repair against", "reason": "No validation pass exists to repair against."},
 ]
@@ -429,6 +490,12 @@ var _bridge: EngineBridge
 
 var _rail_rows: Dictionary = {}   ## route id -> {button, label, badge, caret}
 var _selected_id := ""
+
+## The last `_checks_run()` on Validation ▸ Definitions, so the status line can
+## report the numbers the pane actually drew rather than scan again. Empty
+## until that route has been built once -- and the status line tests for that
+## rather than printing a zero, which would be a real count on a healthy world.
+var _checks_last: Dictionary = {}
 
 var _pane_title: Label
 var _pane_sub: Label
@@ -597,7 +664,7 @@ func open(group: String = "") -> void:
 			if String(r["group"]) == group:
 				target = String(r["id"])
 				break
-	## `ROUTES` is a 14-entry `const`, so the `is_empty()` test could never be
+	## `ROUTES` is a 15-entry `const`, so the `is_empty()` test could never be
 	## false and the `target != ""` test after it could never fail either -- the
 	## line above assigns one. Both are gone; the fallback is unconditional.
 	if target == "":
@@ -606,8 +673,9 @@ func open(group: String = "") -> void:
 	_refresh_foot()
 	_refresh_status()
 
-## One exact route, by id. The Data dropdown draws all fourteen rows the canvas
-## draws (`menus.gd::_data()`), and each is its own destination -- `open()`
+## One exact route, by id. The Data dropdown generates a row per `ROUTES` entry
+## (`menus.gd::_data()`) -- the canvas's own fourteen, plus `val_defs`, which
+## the canvas predates -- and each is its own destination. `open()`
 ## above takes a *group* and lands on that group's first route, which is what
 ## the four collapsed group rows used to do.
 func open_route(route_id: String) -> void:
@@ -1144,6 +1212,13 @@ func _select_route(id: String) -> void:
 		_build_tile_export_pane()
 	elif id == "export_world":
 		_build_world_data_pane()
+	elif id == "val_defs":
+		## DM-10. A third bespoke body, and for the reason the other two are:
+		## the pattern's one 620 px prose column cannot hold a seven-column
+		## table. Its footer action row is this window's shared `_pane_footer`,
+		## exactly as `_build_pattern_pane` uses it.
+		_build_checks_pane()
+		_checks_actions()
 	else:
 		_build_pattern_pane(route)
 	_refresh_status()
@@ -1723,6 +1798,403 @@ func _footer_note(text: String) -> void:
 	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_pane_footer.add_child(l)
 	_pane_footer.add_child(DccTheme.spacer())
+
+# ---------------------------------------------------------------------------
+# Validation ▸ Definitions -- DM-10
+#
+# The header section "2026-09-06: Validation ▸ Definitions (DM-10)" carries the
+# finding this pane exists to record and the three shapes the table takes from
+# the engine rather than from a preference. Everything below is the drawing.
+# ---------------------------------------------------------------------------
+
+## The table's seven columns, in order.
+##
+## `world_data_window.gd::_cells()` is the shape being followed rather than
+## re-invented: a mono/`FS_MICRO`/tracked header band over mono rows, the
+## identity column brightest and every other cell at `text`. The one departure
+## is `LOCATE`, which is a `Button` and not a `Label`, so this file lays its own
+## row out instead of reaching into that window's private helper.
+const CHECKS_COLS: Array[String] = ["STATE", "KIND", "NAME", "FIELDS",
+	"MESSAGE", "RESOLUTION", "LOCATE"]
+
+## Stretch for the first six columns; `LOCATE` is `CHECKS_LOCATE_W` and fixed.
+##
+## MESSAGE is the widest because it is the only cell whose text the *engine*
+## writes -- a conflict sentence out of `validate_animal` is a whole clause
+## ("...but Marsh still carries a 0.60x multiplier -- block Marsh or loosen the
+## grazing tolerance.", one of `TL_TERRAIN_KEYS`' ten rows). RESOLUTION is next
+## because its longest real value is "Data ▸ Travel library ⇧L ▸ Animals & mounts".
+##
+## Balanced against the **1 152 px window `_dm10_probe.gd` opens**, which is
+## the narrowest this pane was looked at rather than the narrowest it can be;
+## the wider the screen, the more of each cell survives. Every cell carries its
+## own full text as a tooltip, so clipping loses nothing.
+const CHECKS_STRETCH: Array[float] = [0.8, 0.9, 1.3, 1.8, 3.9, 2.3]
+
+const CHECKS_LOCATE_W := 74
+
+## Why `LOCATE` is drawn and disabled on every row, shown as its tooltip.
+##
+## Not "not implemented": the column is disabled because **nothing in this
+## table is a placed thing**. A definition has no coordinates, and the
+## `viewport_host.gd::move_view_to(gx, gy)` takes grid cells -- it divides by
+## `grid_size()`, checked this pass. Keeping the column means
+## the table has the right shape the day a positional validator exists.
+const CHECKS_LOCATE_NOTE := "Nothing in this table is a placed thing: these are definitions, and a definition has no coordinates. viewport_host.gd::move_view_to(gx, gy) takes grid cells, so there is nothing to hand it. The column is kept, disabled, so the table already has the right shape the day a positional validator exists."
+
+## `FIELDS`' dash reason on an asset row.
+const CHECKS_ASSET_FIELDS_NOTE := "AssetLibrarySession::validate() returns Vec<String> -- one ordered sentence per warning, with the subject inside the sentence. There is no field list to put here, so this is a dash rather than a guess."
+
+## `FIELDS`' dash reason on a conflicting row.
+const CHECKS_CONFLICT_FIELDS_NOTE := "ValidationState::Conflicting carries sentences, not field names -- \"every detected conflict, as a human-readable sentence\" (travel_library.rs). The fields it is between are named inside the message."
+
+## `NAME`'s dash reason on an asset row whose pack has no name.
+const CHECKS_ASSET_NAME_NOTE := "as_pack_info().name is empty -- the pack has not been named. That absence is itself one of the warnings in this table."
+
+## The Map geometry row's reason -- the finding, in the UI, and worded to
+## survive being read out of context. Every clause was measured at the symbol
+## on 2026-09-06; the header section says where.
+const CHECKS_GEOMETRY_NOTE := "No geometry-validity entry point exists over map layers, and that is a finding rather than a to-do. poly_self_intersects lives in cartalith-urban and has two callers, blocks.rs and inset_poly -- its subject is city blocks, not territory, coastline or province rings, and it does not cross the gdext boundary. In cartalith-spatial/src/geo.rs an unclosed ring is NORMAL output: the module doc says a traced ring is not necessarily closed, ring_area deliberately omits the closing segment, and golden_parity_geo.rs asserts the unclosed shape. Reporting it as an error would be wrong, not merely absent. Ring orientation is checked nowhere -- ensure_ccw imposes a winding; nothing reports one as invalid."
+
+## The four travel-definition validators, as this pane needs them. The asset
+## one is a single session rather than a list and is drawn separately.
+##
+## `kind` is `tl_list`'s own argument. The RESOLUTION column's tab name is
+## resolved from `TravelLibraryWindow.KINDS` at build time rather than retyped
+## here, so it cannot name a tab that moved.
+##
+## `states` is what each validator can actually return. **Party set-ups list
+## two, not three**, and that is `validate_party_preset`'s own doc: *"party
+## set-ups carry no terrain/grazing constraint fields to conflict-check against
+## each other -- only completeness is meaningful, so
+## ValidationState::Conflicting never appears here."*
+const CHECKS_SOURCES: Array[Dictionary] = [
+	{"kind": "animal", "name": "Animal", "fn": "validate_animal",
+		"states": "ok · incomplete · conflicting"},
+	{"kind": "vehicle", "name": "Vehicle", "fn": "validate_vehicle",
+		"states": "ok · incomplete · conflicting"},
+	{"kind": "vessel", "name": "Vessel", "fn": "validate_vessel",
+		"states": "ok · incomplete · conflicting"},
+	{"kind": "preset", "name": "Party preset", "fn": "validate_party_preset",
+		"states": "ok · incomplete"},
+]
+
+## Both bindings, checked on the `WorldGen` object itself rather than through
+## `EngineBridge`'s forwarders -- those answer `[]` for a build without them,
+## which is exactly the value a healthy, empty result has. Distinguishing the
+## two is the whole reason this exists: an all-clear that actually means "this
+## build cannot ask" is the worst row this table could draw.
+func _checks_api() -> bool:
+	return (_bridge != null and _bridge.world_gen != null
+		and _bridge.world_gen.has_method("tl_list")
+		and _bridge.world_gen.has_method("as_validate"))
+
+## Every validator, run. Returns `{"rows": Array, "defs": int}` -- `defs` is how
+## many travel definitions were examined, so the summary can say what was
+## looked at as well as what came back.
+##
+## Pure: five functions over state already in memory. Nothing here writes.
+func _checks_run() -> Dictionary:
+	var rows: Array = []
+	var defs := 0
+	for src in CHECKS_SOURCES:
+		var kind := String(src["kind"])
+		var listed: Array = _bridge.tl_list(kind)
+		defs += listed.size()
+		for r in listed:
+			var d: Dictionary = r
+			var state := String(d.get("validation_state", "ok"))
+			if state == "ok":
+				continue
+			var missing: PackedStringArray = d.get("validation_missing", PackedStringArray())
+			var conflicts: PackedStringArray = d.get("validation_conflicts", PackedStringArray())
+			rows.append({
+				"state": state,
+				"kind": String(src["name"]),
+				"name": String(d.get("name", "")),
+				"name_reason": "",
+				"fields": ", ".join(missing),
+				"fields_reason": "" if state == "incomplete" else CHECKS_CONFLICT_FIELDS_NOTE,
+				"message": ("%d constraint field%s unset — every one is named in FIELDS."
+						% [missing.size(), "" if missing.size() == 1 else "s"]
+					if state == "incomplete" else " ".join(conflicts)),
+				"resolution": "Data ▸ Travel library ⇧L ▸ %s" % _checks_tab_label(kind),
+			})
+	var pack: Dictionary = _bridge.as_pack_info()
+	var pack_name := String(pack.get("name", ""))
+	for w in _bridge.as_validate():
+		rows.append({
+			"state": "warning",
+			"kind": "Asset library",
+			"name": pack_name,
+			"name_reason": "" if pack_name != "" else CHECKS_ASSET_NAME_NOTE,
+			"fields": "",
+			"fields_reason": CHECKS_ASSET_FIELDS_NOTE,
+			"message": String(w),
+			"resolution": "Assets ▸ ⧉ Asset library",
+		})
+	return {"rows": rows, "defs": defs}
+
+## The Travel library window's own tab name for a `tl_list` kind, read from
+## `TravelLibraryWindow.KINDS` so RESOLUTION cannot name a tab that moved.
+func _checks_tab_label(kind: String) -> String:
+	for k in TravelLibraryWindow.KINDS:
+		if String((k as Dictionary)["key"]) == kind:
+			return String((k as Dictionary)["label"])
+	return kind
+
+func _build_checks_pane() -> void:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_pane_body.add_child(col)
+
+	if not _checks_api():
+		## Cleared, not left: a stale count from a previous build's scan would
+		## reach the status line under a pane that just said it cannot ask.
+		_checks_last = {}
+		_col_header(col, "FINDINGS")
+		DccWidgets.note(col,
+			"This build's GDExtension predates the validator bindings (WorldGen::tl_list and WorldGen::as_validate). Nothing is reported below -- deliberately, rather than an all-clear, which a build that cannot ask would be unable to tell apart from a healthy library.")
+		_col_header(col, "COVERAGE")
+		_checks_geometry_group(col)
+		return
+
+	var run := _checks_run()
+	## Kept so `_refresh_status()` reports the same numbers the pane drew
+	## rather than scanning a third time and risking a different answer.
+	_checks_last = run
+	_checks_summary(col, run)
+	_col_header(col, "FINDINGS")
+	var rows: Array = run["rows"]
+	if rows.is_empty():
+		_checks_all_clear(col, run)
+	else:
+		_checks_table(col, rows)
+	_col_header(col, "COVERAGE")
+	_checks_coverage(col)
+	_checks_geometry_group(col)
+
+## The one-line count above the table. Says what was **examined** as well as
+## what came back, so a short table cannot be misread as a short scan.
+func _checks_summary(col: Control, run: Dictionary) -> void:
+	var n: int = (run["rows"] as Array).size()
+	var l := DccTheme.mono_label(
+		"%d finding%s · %d definitions and 1 asset library examined"
+			% [n, "" if n == 1 else "s", int(run["defs"])],
+		"text_bright" if n > 0 else "good", DccTheme.FS_TINY)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(l)
+	DccWidgets.note(col,
+		"Nothing on this route needs a generated world: the travel library is stock-seeded from init() and the asset library is a session. All five validators are pure -- they read, and nothing here writes.")
+
+## The all-clear, with the counts. **Not an empty pane**: a blank body and a
+## build that cannot ask look identical, and the difference between "nothing
+## found" and "nothing looked" is this table's whole subject.
+func _checks_all_clear(col: Control, run: Dictionary) -> void:
+	var wrap := PanelContainer.new()
+	var sb := DccTheme.flat(DccTheme.c("sunken"), DccWidgets.MODAL_INSET_RADIUS)
+	sb.content_margin_left = PATTERN_RECEIPT_PAD_X
+	sb.content_margin_right = PATTERN_RECEIPT_PAD_X
+	sb.content_margin_top = PATTERN_RECEIPT_PAD_Y
+	sb.content_margin_bottom = PATTERN_RECEIPT_PAD_Y
+	wrap.add_theme_stylebox_override("panel", sb)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 4)
+	wrap.add_child(body)
+	col.add_child(wrap)
+	body.add_child(DccTheme.mono_label("✓  every validator returned ok",
+		"good", DccTheme.FS_SMALL))
+	var detail := DccTheme.mono_label(
+		"%d travel definitions across four types, and the asset library's own AssetValidator.run() — 0 warnings."
+			% int(run["defs"]), "text_faint", DccTheme.FS_MICRO)
+	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_child(detail)
+
+## The header band, then one row per finding.
+func _checks_table(col: Control, rows: Array) -> void:
+	if not _phone:
+		col.add_child(_checks_header_row())
+		col.add_child(DccTheme.rule())
+	for r in rows:
+		_checks_row(col, r as Dictionary)
+
+func _checks_header_row() -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	for i in CHECKS_COLS.size():
+		var l := DccTheme.mono_label(CHECKS_COLS[i], "text_faint",
+			DccTheme.FS_MICRO, 1, true)
+		if i == CHECKS_COLS.size() - 1:
+			l.custom_minimum_size.x = CHECKS_LOCATE_W
+		else:
+			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			l.size_flags_stretch_ratio = CHECKS_STRETCH[i]
+		row.add_child(l)
+	return row
+
+## One cell. An empty `text` means the value is genuinely absent, and the cell
+## is then a dash carrying `reason` as its tooltip -- never a plausible-looking
+## stand-in. Every dash this table can produce has a reason and the caller
+## passes it; a dash with an empty tooltip is a bug, and the probe asserts so.
+func _checks_cell(row: Control, text: String, i: int, token: String,
+		reason: String = "") -> Label:
+	var l: Label
+	if text == "":
+		l = DccTheme.mono_label("—", "text_ghost", DccTheme.FS_SMALL)
+		l.tooltip_text = reason
+	else:
+		l = DccTheme.mono_label(text, token, DccTheme.FS_SMALL)
+		l.tooltip_text = text
+	l.mouse_filter = Control.MOUSE_FILTER_STOP
+	l.clip_text = true
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.size_flags_stretch_ratio = CHECKS_STRETCH[i]
+	row.add_child(l)
+	return l
+
+## `warn` for an incomplete definition and for an asset warning, `block` for a
+## conflict -- the theme's own verdict vocabulary, whose positive half `good`
+## the all-clear uses. All three are defined for both palettes.
+func _checks_state_token(state: String) -> String:
+	return "block" if state == "conflicting" else "warn"
+
+func _checks_row(col: Control, r: Dictionary) -> void:
+	if _phone:
+		_checks_phone_row(col, r)
+		return
+	var state := String(r["state"])
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.custom_minimum_size.y = 20
+	_checks_cell(row, state, 0, _checks_state_token(state))
+	_checks_cell(row, String(r["kind"]), 1, "text")
+	_checks_cell(row, String(r["name"]), 2, "text_bright",
+		String(r.get("name_reason", "")))
+	_checks_cell(row, String(r["fields"]), 3, "text",
+		String(r.get("fields_reason", "")))
+	_checks_cell(row, String(r["message"]), 4, "text")
+	_checks_cell(row, String(r["resolution"]), 5, "text_dim")
+	_checks_locate(row)
+	col.add_child(row)
+
+## PH-12: seven `clip_text` columns across 393 dp is ~50 dp each, which is not a
+## table. Same answer `world_data_window.gd` reached for its six -- the row
+## becomes a stack, identity over the rest as prose -- and the header band is
+## dropped with the columns rather than left labelling a table that is not on
+## screen. `LOCATE` stays: "present and disabled on every row" is a statement
+## about rows, not about a density.
+func _checks_phone_row(col: Control, r: Dictionary) -> void:
+	var rule := ColorRect.new()
+	rule.color = DccTheme.c("line_soft")
+	rule.custom_minimum_size.y = 1
+	col.add_child(rule)
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", 10)
+	line.custom_minimum_size.y = DccTheme.PHONE_TAP_MIN + 8
+	col.add_child(line)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 2)
+	stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	line.add_child(stack)
+	var head := DccTheme.mono_label("%s · %s · %s"
+		% [String(r["state"]), String(r["kind"]),
+			String(r["name"]) if String(r["name"]) != "" else "—"],
+		_checks_state_token(String(r["state"])), DccTheme.FS_SMALL)
+	head.clip_text = true
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stack.add_child(head)
+	var sub := DccTheme.mono_label(String(r["message"]), "text_ghost",
+		DccTheme.FS_MICRO)
+	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stack.add_child(sub)
+	var res := DccTheme.mono_label(String(r["resolution"]), "text_faint",
+		DccTheme.FS_MICRO)
+	res.clip_text = true
+	res.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stack.add_child(res)
+	_checks_locate(line)
+
+## Present and disabled, on every row and at every density. `CHECKS_LOCATE_NOTE`
+## is why it is drawn at all, and it is the button's tooltip so a reader gets
+## the reason rather than an inert control with nothing to say.
+func _checks_locate(row: Control) -> Button:
+	var b := DccWidgets.chip(row, "Locate", func(): pass, false, 8, 2)
+	b.disabled = true
+	b.tooltip_text = CHECKS_LOCATE_NOTE
+	b.custom_minimum_size.x = CHECKS_LOCATE_W
+	return b
+
+## What ran, by validator, with what it can return and how much it saw. This is
+## the block that makes a short -- or empty -- FINDINGS table readable: five
+## named validators with real counts beside them, rather than a silence.
+func _checks_coverage(col: Control) -> void:
+	for src in CHECKS_SOURCES:
+		var n: int = (_bridge.tl_list(String(src["kind"])) as Array).size()
+		_checks_coverage_row(col, String(src["name"]), String(src["fn"]),
+			String(src["states"]), "%d checked" % n, "")
+	_checks_coverage_row(col, "Asset library",
+		"AssetLibrarySession::validate()", "ordered warning strings",
+		"1 session", "")
+
+## The dashed group. Present, named, and carrying the code's own reason -- not
+## omitted, because an absent group reads as an oversight and this one is a
+## measured finding.
+func _checks_geometry_group(col: Control) -> void:
+	_checks_coverage_row(col, "Map geometry", "—", "—", "—",
+		CHECKS_GEOMETRY_NOTE)
+
+## One coverage row. A non-empty `reason` makes it the dashed kind: the row
+## carries the reason as a tooltip on every cell and as a wrapped line beneath
+## it, so it reads as a stated absence rather than as a row that failed to load.
+func _checks_coverage_row(col: Control, name: String, fn: String,
+		states: String, count: String, reason: String) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.custom_minimum_size.y = 18
+	var dashed := reason != ""
+	var parts: Array[String] = [name, fn, states, count]
+	var ratios: Array[float] = [1.2, 2.0, 1.8, 1.0]
+	for i in parts.size():
+		var token := "text_ghost"
+		if not dashed:
+			token = "text_bright" if i == 0 else "text"
+		elif i == 0:
+			token = "text_dim"
+		var l := DccTheme.mono_label(parts[i], token, DccTheme.FS_SMALL)
+		l.clip_text = true
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		l.size_flags_stretch_ratio = ratios[i]
+		if dashed:
+			l.tooltip_text = reason
+			l.mouse_filter = Control.MOUSE_FILTER_STOP
+		row.add_child(l)
+	col.add_child(row)
+	if not dashed:
+		return
+	var why := DccTheme.mono_label(reason, "text_ghost", DccTheme.FS_MICRO)
+	why.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	why.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(why)
+
+## The action row for this route -- **one button, and it is not a repair.**
+##
+## `RUN ALL VALIDATORS` re-selects the route, which rebuilds the pane and so
+## re-calls all five. There is deliberately no `FIX SELECTED`: the engine has
+## validators only, and nothing in `cartalith-civ::travel_library` or
+## `AssetLibrarySession` changes state in response to one. Building a repair
+## affordance over nothing is the failure this route was written to avoid.
+func _checks_actions() -> void:
+	_footer_note("validators are pure — nothing here writes")
+	var run := DccWidgets.chip(_pane_footer, "Run all validators", func():
+		_select_route("val_defs"), true, 16, 6)
+	run.disabled = not _checks_api()
+	run.tooltip_text = ("Re-calls validate_animal, validate_vehicle, validate_vessel, validate_party_preset and AssetLibrarySession::validate(). All five are pure functions over state already in memory, so re-running them costs nothing and cannot fail differently."
+		if not run.disabled
+		else "This build's GDExtension carries neither WorldGen::tl_list nor WorldGen::as_validate.")
 
 # ---------------------------------------------------------------------------
 # Export ▸ World Data -- the export raster and the channel atlas
@@ -2761,6 +3233,19 @@ func _refresh_status() -> void:
 		return
 	_status_left.text = "idle · no pass running"
 	_status_left.add_theme_color_override("font_color", DccTheme.c("text_faint"))
+	if _selected_id == "val_defs":
+		## DM-10. `_checks_last` is empty only before that route has ever been
+		## built; a healthy scan puts a real `0` there, so the two are told
+		## apart by `is_empty()` rather than by the count.
+		if _checks_last.is_empty():
+			_status_mid.text = ""
+			return
+		var found: int = (_checks_last["rows"] as Array).size()
+		_status_mid.text = ("%d finding%s across %d definitions and 1 asset library"
+			% [found, "" if found == 1 else "s", int(_checks_last["defs"])])
+		_status_mid.add_theme_color_override("font_color",
+			DccTheme.c("text_faint") if found == 0 else DccTheme.c("warn"))
+		return
 	if _selected_id != "export_maps":
 		_status_mid.text = ""
 		return

@@ -223,8 +223,13 @@ func _coverage() -> void:
 	print("DP      pattern (%d): %s" % [pattern.size(), ", ".join(pattern)])
 	print("DP      bespoke (%d): %s" % [bespoke.size(), ", ".join(bespoke)])
 	_eq("12 routes render through the pattern", pattern.size(), 12)
-	_eq("2 routes keep a bespoke body", Array(bespoke),
-		["export_maps", "export_world"])
+	## **Three, since 2026-09-06.** `val_defs` (Validation ▸ Definitions, DM-10)
+	## is the third bespoke body, for the same reason the other two are: a
+	## seven-column table does not fit the pattern's single 620 px prose column.
+	## The pattern's own count is unchanged at 12 -- the route was added, not
+	## converted. `_dm10_probe.gd` owns that route's own assertions.
+	_eq("3 routes keep a bespoke body", Array(bespoke),
+		["export_maps", "export_world", "val_defs"])
 
 # ---------------------------------------------------------------------------
 # 2. The anatomy, on the one route that has every part

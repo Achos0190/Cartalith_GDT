@@ -4208,12 +4208,13 @@ func _window(p: PopupMenu) -> void:
 	## layout records live as this popup's own check state (kept honest by
 	## `_sync_region_checks`), and `DccApp` publishes no reader for them.
 	_window_popup = p
-	for entry in [
-		["Left dock", ID_WIN_LEFT], ["Right dock", ID_WIN_RIGHT],
-		["Timeline", ID_WIN_TIMELINE], ["Status bar", ID_WIN_STATUS],
-		["Domain rail", ID_WIN_RAIL],
-	]:
-		p.add_check_item(entry[0], entry[1])
+	## `WIN_REGION_IDS` for the order, `WIN_REGION_LABELS` for the wording --
+	## the same two sources `_layout_readout()` reads, so the save modal's
+	## rows cannot come to name a region this menu does not have, or miss one
+	## it does. The five labels were written out inline here until 2026-09-06,
+	## which made the readout a second copy of them.
+	for rid in WIN_REGION_IDS:
+		p.add_check_item(String(WIN_REGION_LABELS[rid]), rid)
 		p.set_item_checked(p.item_count - 1, true)
 	p.add_separator()
 
@@ -4284,6 +4285,7 @@ func _window(p: PopupMenu) -> void:
 ## `DccSettings.reset_lighting_defaults()` gives for erasing keys rather than
 ## writing default values over them.
 func _build_layouts_menu(p: PopupMenu) -> void:
+	_seed_layouts_once()
 	_layouts_popup = PopupMenu.new()
 	_layouts_popup.name = "Layouts"
 	_shell.style_popup(_layouts_popup)
@@ -4292,7 +4294,7 @@ func _build_layouts_menu(p: PopupMenu) -> void:
 	p.add_child(_layouts_popup)
 	p.add_submenu_item("Layouts", "Layouts")
 	p.set_item_tooltip(p.item_count - 1,
-		"Named snapshots of the five region toggles above, the active domain and its mode, and the domain rail's expansion -- plus the tool sheet's detent on the phone, which is recorded and restored for real since 2026-09-01. Reset layout is the built-in first entry; Save layout as… adds one and Forget layout… removes one.")
+		"Named snapshots of the five region toggles above, the active domain and its mode, and the domain rail's expansion -- plus the tool sheet's detent on the phone, which is recorded and restored for real since 2026-09-01. Reset layout is the built-in first entry; Save layout as… adds one and Forget layout… removes one. Generate, Sculpt, Cartography and Journey are seeded once on a first run and are ordinary saved layouts: forget them, or save over them, like any other.")
 	_refresh_layouts_menu()
 
 func _refresh_layouts_menu() -> void:
@@ -4318,11 +4320,92 @@ func _refresh_layouts_menu() -> void:
 	## (2026-09-01).
 	if _layout_names.is_empty():
 		_todo(_layouts_popup, "Forget layout…",
-			"No saved layouts to forget. Save layout as… above makes the first one; Default is built in and is not stored.")
+			"No saved layouts to forget. Save layout as… above makes the first one; Default is built in and is not stored. The four seeded task layouts are seeded once, on a first run, and do not come back once forgotten.")
 	else:
 		_layouts_popup.add_item("Forget layout…", ID_WIN_FORGET_LAYOUT)
 		_layouts_popup.set_item_tooltip(_layouts_popup.item_count - 1,
 			"Deletes one saved layout from DccSettings. It does not change what is on screen -- a layout is a stored snapshot, not the live arrangement -- and Default cannot be forgotten because it is built in rather than stored.")
+
+## WI-01's four task layouts, seeded on first run because `Window ▸ Layouts`
+## is otherwise **empty but for `Default`**, and a user who has never arranged
+## the window has no reason to save one. `SaveLayout.dc.html` C2 draws both
+## states side by side; this is the second.
+##
+## **`mode` here is the `RAIL_NODES` mode string, and two of the four are not
+## what the design named them.** The artboard's own note says the code wins,
+## and it does: `dcc_shell.gd`'s `RAIL_NODES` spells WORLD's two modes `a`
+## (label "Generation pipeline") and `b` (label "Sculpt"), not `pipeline` and
+## `sculpt`. CARTO `style` and CIVIL `planner` match as drawn. `domain` is
+## likewise `DOMAINS[].id` -- `world` / `cartography` / `civilization` -- not
+## the `rail` tokens WORLD / CARTO / CIVIL the artboard labels them with;
+## `_apply_layout()` passes it to `DccShell.select_domain()`, which matches on
+## the id. Both errors are silent if made: `select_domain_mode()` returns
+## early on an unknown mode and `select_domain()` on an unknown id, so a seed
+## with the artboard's strings would restore the domain-and-mode half of the
+## snapshot to nothing at all. `_seed_layouts_once()` therefore checks each
+## pair against `DccShell.rail_node()` before writing it rather than trusting
+## this table.
+##
+## **Four tasks over three domains is not a conflict**, because a layout is
+## not a domain: the snapshot carries `domain` *and* `mode`, and WORLD's two
+## nodes are two different tasks.
+const SEED_LAYOUTS: Array = [
+	{"name": "Generate", "domain": "world", "mode": "a"},
+	{"name": "Sculpt", "domain": "world", "mode": "b"},
+	{"name": "Cartography", "domain": "cartography", "mode": "style"},
+	{"name": "Journey", "domain": "civilization", "mode": "planner"},
+]
+
+## Plant `SEED_LAYOUTS` once per install, then never again.
+##
+## **The record that it happened is `DccSettings.layouts_seeded()`, a stored
+## flag -- deliberately not "the list is empty".** A seed is an ordinary saved
+## layout: forgettable, and re-saveable over. A user who forgets "Sculpt" must
+## not find it back on the next launch, and emptiness cannot tell the
+## difference between a first run and a user who forgot all four. That header
+## on `layouts_seeded()` carries the rest of the argument.
+##
+## Two guards on top of the flag, and each answers a way this could damage
+## something a user already had:
+##
+##  - **A name already in `layouts()` is left alone**, so an install that
+##    predates this seeding and already has a layout called `Sculpt` keeps its
+##    own. The flag alone would not cover that: it is absent on exactly those
+##    installs.
+##  - **A pair `RAIL_NODES` does not have is skipped and warned about**, not
+##    written. A layout naming a mode that no longer exists restores nothing
+##    and says nothing, which is the failure mode a typo here would ship.
+##
+## The region flags are the shell's own boot state -- all five shown, rail
+## collapsed, the arrangement `Reset layout` restores. **No design specifies
+## per-task dock hiding**, and inventing one here would put a decision nobody
+## made into four files a user then has to undo; what the seeds are for is the
+## domain-and-mode jump, and the rest is the arrangement the shell already
+## boots into.
+func _seed_layouts_once() -> void:
+	if DccSettings.layouts_seeded():
+		return
+	var existing := DccSettings.layouts()
+	var regions := {}
+	for rid in WIN_REGION_IDS:
+		regions[rid] = true
+	for seed_row in SEED_LAYOUTS:
+		var name := String(seed_row["name"])
+		var domain := String(seed_row["domain"])
+		var mode := String(seed_row["mode"])
+		if existing.has(name):
+			continue
+		if DccShell.rail_node(domain, mode).is_empty():
+			push_warning("DccMenus: seed layout \"%s\" names (%s, %s), which is not a RAIL_NODES pair -- not seeded."
+				% [name, domain, mode])
+			continue
+		DccSettings.save_layout(name, {
+			"regions": regions.duplicate(),
+			"domain": domain,
+			"mode": mode,
+			"rail_expanded": false,
+		})
+	DccSettings.mark_layouts_seeded()
 
 ## Everything §2.6 names, off the live shell. **No new API was added for
 ## this**: the five region flags are the Window menu's own check state, and the
@@ -4395,10 +4478,96 @@ func _on_layout(id: int) -> void:
 	_apply_layout(DccSettings.layout(name))
 	_host.set_status("hint", "layout \"%s\"" % name, "text_dim")
 
+## The save modal's "THIS LAYOUT WILL RECORD" block -- `SaveLayout.dc.html` C3.
+##
+## **The same information the note used to carry as a sentence, read out of
+## `snap` instead.** The sentence was accurate on the day it was written and
+## had no way to stay that way: it named five region toggles, a domain, a mode
+## and the rail, and nothing would have failed if `_capture_layout()` had
+## stopped recording one of them. Reading the snapshot the modal is about to
+## store cannot drift from it, because it *is* it.
+##
+## Takes the dictionary rather than calling `_capture_layout()` itself, so both
+## branches of every row are reachable from a probe -- an absent key is not a
+## state the live shell reaches from a built Window menu, and a row that dashes
+## only in code nobody runs is a row whose reason nobody has read.
+##
+## `_host` is not touched here; `DccTheme.is_phone()` answers the one
+## composition question this needs, and it is the same static the widget
+## factories already resolve density from.
+func _layout_readout(parent: Control, snap: Dictionary) -> void:
+	parent.add_child(DccTheme.mono_label("THIS LAYOUT WILL RECORD", "text_faint",
+		DccTheme.FS_MICRO, 1))
+	var stats := DccWidgets.modal_inset(parent)
+	var regions: Dictionary = snap.get("regions", {})
+	for rid in WIN_REGION_IDS:
+		var label := String(WIN_REGION_LABELS[rid])
+		if regions.has(rid):
+			DccWidgets.modal_stat(stats, label, "shown" if bool(regions[rid]) else "hidden")
+		else:
+			## True whenever it fires: `_capture_layout()` reads these five off
+			## the Window popup's own check state and writes nothing for a row
+			## it cannot find there, so an absent key means the popup is not
+			## built (or no longer carries that row) -- not that the region is
+			## hidden. Encoding it as "hidden" would be a plausible value for
+			## no value, and it would be wrong in the common direction: every
+			## region boots shown.
+			DccWidgets.modal_stat_absent(stats, label,
+				"Not readable. A layout takes these five from the Window menu's own check state, and that menu is not built yet -- so this region's setting is unknown here, not off.")
+	var domain := String(snap.get("domain", ""))
+	var mode := String(snap.get("mode", ""))
+	if domain != "" and mode != "":
+		## The rail token (`WORLD` / `CIVIL` / `CARTO`) for the domain, because
+		## that is what the rail this layout restores actually says; the mode
+		## is the stored `RAIL_NODES` string verbatim -- `a` and `b` included,
+		## which is why the node's own label goes on the tooltip rather than
+		## being shown in place of the value that is stored.
+		var node := DccShell.rail_node(domain, mode)
+		var rail := domain
+		for dom in DccShell.DOMAINS:
+			if String(dom["id"]) == domain:
+				rail = String(dom["rail"])
+		var row := DccWidgets.modal_stat(stats, "domain · mode", "%s · %s" % [rail, mode])
+		row.tooltip_text = ("Restores the %s rail node \"%s\"." % [rail, String(node["label"])]) \
+			if not node.is_empty() else \
+			("Stored as (%s, %s), which is not a rail node this build has." % [domain, mode])
+	else:
+		DccWidgets.modal_stat_absent(stats, "domain · mode",
+			"No domain is active on the shell this modal was opened from, so there is none to record.")
+	if snap.has("rail_expanded"):
+		DccWidgets.modal_stat(stats, "rail",
+			"expanded" if bool(snap["rail_expanded"]) else "collapsed")
+	else:
+		DccWidgets.modal_stat_absent(stats, "rail",
+			"Not readable: the snapshot carries no rail_expanded key, which only happens when it was not taken off a live DccShell.")
+	## Phone only, and only when the key is there. The desktop and tablet
+	## compositions draw no tool sheet, so a detent row there would describe a
+	## surface the reader does not have -- `_capture_layout()` still stores the
+	## key on every composition, and `_apply_layout()` still restores it, which
+	## is what makes the row honest on the phone and noise everywhere else.
+	if snap.has("detent") and DccTheme.is_phone():
+		DccWidgets.modal_stat(stats, "tool sheet", String(snap["detent"]))
+	## Drawn rather than omitted, on the artboard's own instruction: the docks
+	## are drag-resizable (`DccShell._left_width` / `_right_width`, clamped
+	## between `DccTheme.W_*_DOCK_MIN` and `_MAX` by the drag handler), and
+	## neither `_capture_layout()` nor `_apply_layout()` touches a width. So
+	## restoring a layout leaves both docks exactly where the user dragged
+	## them. Whether it should is unresolved by two rounds of design and is not
+	## settled here; the row makes the answer visible instead of assumed.
+	DccWidgets.modal_stat_absent(stats, "dock widths",
+		"Not recorded. The docks are drag-resizable, but a layout stores no width -- restoring one leaves both docks at their current size.")
+
 ## Name-and-save. Same modal shape as `Pack metadata…` above, phone presentation
-## included -- one `LineEdit`, and a same-named entry is overwritten rather than
-## duplicated (`DccSettings.save_layout`), which the note says so a user is not
-## surprised by it.
+## included -- one `LineEdit`, over a live `_layout_readout()` of the snapshot
+## about to be stored.
+##
+## **A same-named entry is overwritten rather than duplicated**
+## (`DccSettings.save_layout`), and the modal says so at the moment it matters
+## rather than in advance: the OK button reads `Replace` and a warning line
+## appears under the well exactly while the typed name is one that already
+## exists. That is a wording change, not a behaviour change -- replacing has
+## always been what this does, and the note used to disclose it as a sentence
+## a user read before typing anything.
 func _prompt_save_layout() -> void:
 	var d := ConfirmationDialog.new()
 	d.title = "Save layout as"
@@ -4407,20 +4576,46 @@ func _prompt_save_layout() -> void:
 	body.add_theme_constant_override("separation", 8)
 	body.add_child(DccTheme.label("Name", "text_dim", DccTheme.FS_SMALL))
 	var le := LineEdit.new()
-	le.text = "Layout %d" % (DccSettings.layout_names().size() + 1)
+	## The first **free** `Layout N`, not `count + 1`. The counter was a fair
+	## approximation while the list was empty until the user filled it; seeding
+	## four named task layouts on first run broke it in both directions at once
+	## -- it offered `Layout 5` on a first save (the artboard draws `Layout 1`),
+	## and it can land on a name that already exists as soon as the numbering
+	## and the count disagree, which is the one thing a pre-filled name must
+	## never do.
+	var n := 1
+	while DccSettings.layouts().has("Layout %d" % n):
+		n += 1
+	le.text = "Layout %d" % n
 	le.select_all_on_focus = true
 	DccWidgets.well(le)
 	body.add_child(le)
-	DccWidgets.note(body,
-		"Records the five Window region toggles, the active domain and its mode, and the rail's expansion. An existing name is replaced, not duplicated.")
+	var clash := DccTheme.label("", "warn", DccTheme.FS_MICRO)
+	clash.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	clash.visible = false
+	body.add_child(clash)
+	_layout_readout(body, _capture_layout())
 	d.add_child(body)
-	d.ok_button_text = "Save"
+	## `layouts()` rather than the `_layout_names` the submenu drew: that array
+	## is only as fresh as the last `_refresh_layouts_menu()`, the same reason
+	## `_prompt_forget_layout()` re-reads its own list at open.
+	var restate := func():
+		var typed := le.text.strip_edges()
+		var hit := typed != "" and DccSettings.layouts().has(typed)
+		clash.visible = hit
+		if hit:
+			clash.text = "\"%s\" already exists. Saving replaces it." % typed
+		d.ok_button_text = "Replace" if hit else "Save"
+	le.text_changed.connect(func(_t: String): restate.call())
+	restate.call()
 	d.confirmed.connect(func():
 		var name := le.text.strip_edges()
 		if name != "":
+			var replaced := DccSettings.layouts().has(name)
 			DccSettings.save_layout(name, _capture_layout())
 			_refresh_layouts_menu()
-			_host.set_status("hint", "layout \"%s\" saved" % name, "text_dim")
+			_host.set_status("hint",
+				"layout \"%s\" %s" % [name, "replaced" if replaced else "saved"], "text_dim")
 		d.queue_free())
 	d.canceled.connect(func(): d.queue_free())
 	if _host.is_phone():
@@ -4487,6 +4682,26 @@ func _prompt_forget_layout() -> void:
 ## `ID_WIN_RESET` branch), so it re-checks all five rather than flipping one.
 const WIN_REGION_IDS: Array[int] = [ID_WIN_LEFT, ID_WIN_RIGHT, ID_WIN_TIMELINE,
 	ID_WIN_STATUS, ID_WIN_RAIL]
+
+## The wording of those five rows, in one place. `_window()` builds the check
+## items from it and `_layout_readout()` labels the save modal's rows from it,
+## so the modal cannot describe a region the Window menu does not have.
+##
+## **The fifth region is `Domain rail`, not "Tool options".** The
+## `SaveLayout.dc.html` artboard drew Left dock / Right dock / **Tool options**
+## / Timeline / Status bar and told the reader to confirm the five against the
+## code before drawing them. Confirmed 2026-09-06: `WIN_REGION_IDS` above is
+## the list, there is no tool-options region toggle anywhere in this menu, and
+## the rail appears twice in a layout for two different reasons -- as a
+## *visibility* flag here, and as `rail_expanded` in `_capture_layout()`, which
+## is its width. The artboard is the stale party and the readout follows this.
+const WIN_REGION_LABELS := {
+	ID_WIN_LEFT: "Left dock",
+	ID_WIN_RIGHT: "Right dock",
+	ID_WIN_TIMELINE: "Timeline",
+	ID_WIN_STATUS: "Status bar",
+	ID_WIN_RAIL: "Domain rail",
+}
 
 func _sync_region_checks(p: PopupMenu, id: int) -> void:
 	if id == ID_WIN_RESET:
