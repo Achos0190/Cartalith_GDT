@@ -1,0 +1,89 @@
+<div style="background:#0a0b0c;color:#c8cbcd;font:12px/1.6 'Helvetica Neue',Helvetica,Arial,sans-serif;padding:26px 30px 50px;min-height:100%">
+
+  <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid #23272a">
+    <span style="font:500 12px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.24em;color:#e8ebec">C · SAVE LAYOUT AS…</span>
+    <span style="font:10px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.14em;color:#6f7478">WI-01 · THE MODAL IS FINE · THE SUBMENU IS EMPTY</span>
+  </div>
+
+  <div style="max-width:840px;padding:16px 0 22px;color:#a9adb0">
+    <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">_prompt_save_layout()</span> is a complete modal: a name well
+    pre-filled <span style="font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">“Layout N”</span>, select-on-focus, a note stating exactly
+    what is stored, replace-not-duplicate, a status hint on save, and phone presentation through
+    <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">phone_window</span>. <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">_prompt_forget_layout()</span>
+    mirrors it with an <span style="font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">OptionButton</span>, because forgetting is destructive and the valid
+    answers are finite. The detent guards this design was told to assume fixed <b style="color:#e8ebec">were fixed on 2026-09-01</b>.
+  </div>
+
+  <div style="display:flex;gap:30px;flex-wrap:wrap;align-items:flex-start">
+
+    <!-- C1 : the modal as shipped -->
+    <div style="display:flex;flex-direction:column;gap:9px">
+      <div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#6f7478">C1 · AS SHIPPED · NO CHANGE PROPOSED</div>
+      <div style="width:320px;border:1px solid #23272a;background:#0e1011">
+        <div style="padding:9px 12px;border-bottom:1px solid #23272a;color:#e8ebec;font-size:11px">Save layout as</div>
+        <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:11px;color:#8f9497">Name</div>
+          <div style="border:1px solid #3a4045;background:#141719;padding:6px 9px;color:#c8cbcd;font-size:11px">Layout 1</div>
+          <div style="border-left:2px solid #3a4045;padding:5px 0 5px 10px;font-size:11px;color:#6f7478;line-height:1.5">Records the five Window region toggles, the active domain and its mode, and the rail's expansion. An existing name is replaced, not duplicated.</div>
+        </div>
+        <div style="padding:8px 12px;border-top:1px solid #23272a;display:flex;justify-content:flex-end;gap:7px">
+          <div style="border:1px solid #3a4045;padding:4px 12px;font-size:11px;color:#8f9497">Cancel</div>
+          <div style="border:1px solid #6b5327;background:#2a2116;padding:4px 12px;font-size:11px;color:#e0a34a">Save</div>
+        </div>
+      </div>
+      <div style="width:320px;color:#6f7478;font-size:11px;line-height:1.5">The note is <b style="color:#8f9497">accurate prose</b>. It is the one thing here that could be better as live values — see C3.</div>
+    </div>
+
+    <!-- C2 : the real gap -->
+    <div style="display:flex;flex-direction:column;gap:9px">
+      <div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#b4553f">C2 · THE REAL GAP · FIRST RUN</div>
+      <div style="width:300px;border:1px solid #4a3028;background:#0e1011">
+        <div style="padding:9px 12px;border-bottom:1px solid #23272a;color:#8f9497;font-size:11px">Window ▸ Layouts</div>
+        <div style="padding:12px;display:flex;flex-direction:column;gap:2px">
+          <div style="padding:5px 8px;color:#c8cbcd;display:flex;gap:8px"><span style="color:#e0a34a">•</span> Default <span style="color:#565c60;font-size:11px">built in</span></div>
+          <div style="padding:14px 8px;font-size:11px;color:#565c60;font-style:italic;line-height:1.5">No saved layouts yet — arrange the window and choose Save layout as…</div>
+          <div style="border-top:1px solid #23272a;margin-top:6px;padding:8px 8px 4px;color:#c8cbcd">Save layout as…</div>
+          <div style="padding:4px 8px;color:#565c60">Forget layout ▸</div>
+        </div>
+      </div>
+      <div style="width:300px;color:#b4553f;font-size:11px;line-height:1.5">Nothing seeds the four task layouts, so the submenu is empty until the user builds one — and a user who has never arranged the window has no reason to.</div>
+
+      <div style="width:300px;border:1px solid #3d4a3d;background:#0e1011;margin-top:6px">
+        <div style="padding:9px 12px;border-bottom:1px solid #23272a;color:#7fa87f;font-size:11px">Proposed · seeded at first run</div>
+        <div style="padding:12px;display:flex;flex-direction:column;gap:2px">
+          <div style="padding:5px 8px;color:#c8cbcd;display:flex;gap:8px"><span style="color:#e0a34a">•</span> Default <span style="color:#565c60;font-size:11px">built in</span></div>
+          <div style="padding:5px 8px;color:#c8cbcd">Generate <span style="color:#565c60;font-size:11px">WORLD · pipeline</span></div>
+          <div style="padding:5px 8px;color:#c8cbcd">Sculpt <span style="color:#565c60;font-size:11px">WORLD · sculpt</span></div>
+          <div style="padding:5px 8px;color:#c8cbcd">Cartography <span style="color:#565c60;font-size:11px">CARTO · style</span></div>
+          <div style="padding:5px 8px;color:#c8cbcd">Journey <span style="color:#565c60;font-size:11px">CIVIL · planner</span></div>
+        </div>
+      </div>
+      <div style="width:300px;color:#7fa87f;font-size:11px;line-height:1.5">A layout is not a domain, so four tasks over three domains is no conflict: the snapshot carries <span style="font:10px 'IBM Plex Mono',monospace">domain</span> <b>and</b> <span style="font:10px 'IBM Plex Mono',monospace">mode</span>. Seeds are ordinary saved layouts — forgettable, and re-saveable over.</div>
+    </div>
+
+    <!-- C3 : live values -->
+    <div style="display:flex;flex-direction:column;gap:9px">
+      <div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#7fa87f">C3 · THE NOTE, AS LIVE VALUES</div>
+      <div style="width:270px;border:1px solid #3d4a3d;background:#0e1011;padding:12px;display:flex;flex-direction:column;gap:7px">
+        <div style="font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f7478">THIS LAYOUT WILL RECORD</div>
+        <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:#8f9497">Left dock</span><span style="font:10px 'IBM Plex Mono',monospace;color:#c8cbcd">shown</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:#8f9497">Right dock</span><span style="font:10px 'IBM Plex Mono',monospace;color:#c8cbcd">hidden</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:#8f9497">Tool options</span><span style="font:10px 'IBM Plex Mono',monospace;color:#c8cbcd">shown</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:#8f9497">Timeline</span><span style="font:10px 'IBM Plex Mono',monospace;color:#c8cbcd">shown</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:#8f9497">Status bar</span><span style="font:10px 'IBM Plex Mono',monospace;color:#c8cbcd">shown</span></div>
+        <div style="border-top:1px solid #23272a;padding-top:7px;display:flex;justify-content:space-between"><span style="font-size:11px;color:#8f9497">Domain · mode</span><span style="font:10px 'IBM Plex Mono',monospace;color:#c8cbcd">CIVIL · planner</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:#8f9497">Rail</span><span style="font:10px 'IBM Plex Mono',monospace;color:#c8cbcd">expanded</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:#565c60">Dock widths</span><span style="font:10px 'IBM Plex Mono',monospace;color:#565c60">— not captured</span></div>
+      </div>
+      <div style="width:270px;color:#7fa87f;font-size:11px;line-height:1.5">Same information, read from <span style="font:10px 'IBM Plex Mono',monospace">_capture_layout()</span> at open, so it cannot drift from what is actually stored the way a sentence can.</div>
+      <div style="width:270px;border:1px solid #4a3028;background:#12100c;padding:9px 11px;color:#8f9497;font-size:11px;line-height:1.5"><b style="color:#c8cbcd">Confirm the five before drawing them.</b> This list is frame §4's five regions. If <span style="font:10px 'IBM Plex Mono',monospace">_capture_layout()</span> holds a different five, the readout follows the code and this artboard is the stale party.</div>
+    </div>
+  </div>
+
+  <div style="max-width:840px;padding-top:26px;display:flex;flex-direction:column;gap:11px">
+    <div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f7478">SMALLER, AND OPTIONAL</div>
+    <div style="color:#b9bcbe;line-height:1.6"><b style="color:#e8ebec">A live collision warning.</b> Typing an existing name replaces it — the note says so, and the OK button still reads Save. A one-line warning under the well when <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">layouts().has(name)</span>, and the button reading <span style="font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">Replace</span>, would say it at the moment it matters. Not a defect; the behaviour is already documented and correct.</div>
+    <div style="color:#b9bcbe;line-height:1.6"><b style="color:#e8ebec">Dock widths stay uncaptured, and stay dashed.</b> Neither this design nor the last resolved whether a layout should carry them. Drawn as an explicit “not captured” row rather than omitted, so the answer is visible instead of assumed.</div>
+  </div>
+
+</div>

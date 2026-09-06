@@ -1975,6 +1975,39 @@ An in-progress measurement chain, a half-drawn polyline, the currently armed
 brush. These are the state of a gesture, not of a project. Nothing that would
 be discarded by clicking elsewhere is stored.
 
+### 16.7 The edit history — and the save time, which is the file's own
+
+The history ledger (`WorldGen::undo_ledger`) and the height-undo snapshots
+behind it are session state. **Opening an archive clears them outright**:
+`load_save` records a floor entry, and a floor entry's first act is to empty
+the ledger, so no row written before a save can be read back after one. Storing
+the rows would therefore be storing names for steps nothing could revert to —
+the snapshots are 4 bytes per cell each and are not in the archive either.
+
+**Nor is a "saved at" stamp**, and that is worth stating because it looks like
+an obvious addition. The right dock's `COMMITTED` rule (`GUI_GAP_REGISTER.md`
+ED-02) needs two things when a project is reopened: *where* the boundary sits,
+and *when* the file was written. The first is the floor row the load has just
+created — the world on screen **is** the file, so the rule sits under that row
+and every later edit lands above it. The second is the archive's own
+filesystem mtime, read by `undo::file_written_at_ms`.
+
+Both answers exist for **every archive any version of this port ever wrote**,
+including a `Cartalith Gen1` browser export. A stamp inside the file would have
+bought nothing the mtime does not, and would have had to be spelled *unknown*
+for the entire installed base. Verified against two archives written before the
+boundary existed — a committed reference export
+(`crates/cartalith-io/tests/fixtures/real_export_seed24601.zip`, flat layout,
+21 days old) and this port's own tree writer from an earlier session — both of
+which place the rule and report their true age.
+
+A writer that wants the save time *inside* the archive already has it: the zip
+container stamps every entry, and this port's writer populates them from the
+clock rather than leaving the 1980 epoch — `project.json`, `params.json` and
+each raster in an archive written 2026-09-06 14:39 local all read
+`(2026, 9, 6, 12, 39, 28)` UTC. Adding a JSON key for it would be a second,
+weaker answer to a question two existing mechanisms already answer.
+
 ---
 
 ## 17. Notes for this repository's implementation

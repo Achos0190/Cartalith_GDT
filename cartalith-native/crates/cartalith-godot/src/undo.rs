@@ -545,10 +545,60 @@ pub const MAX_LEDGER: usize = 200;
 /// pops everything above it, and the row reverted to leaves with them -- the
 /// snapshot *is* the state before that operation, so once it is restored the
 /// operation is not part of the history any more.
+///
+/// ## The `COMMITTED` boundary lives here, and it is a mark, not a row
+///
+/// `design/proposed-2026-09-05/Main.dc.html` draws a labelled rule across the
+/// step list -- rows at or below it are inside the project file on disk, rows
+/// above it are not -- and its footnote's third clause is *"reverting above
+/// COMMITTED asks first"*. The shell derived that boundary itself until
+/// 2026-09-06, from `EngineBridge.project_saved`, which is correct within one
+/// session and **blank for a project saved in an earlier one**.
+///
+/// **Adding a `saved` field to a [`LedgerEntry`] would not have fixed that,
+/// and the measurement is the reason this is a mark instead.** The ledger
+/// does not survive a reload at all: `WorldGen::load_save` records an
+/// [`EntryKind::Floor`], and [`Self::record`]'s first statement is
+/// `self.entries.clear()` for that kind. Every row written before the save is
+/// gone by the time the panel asks the question, so a per-row flag would be a
+/// field that is never read back.
+///
+/// So the boundary is three scalars on the ledger itself:
+///
+/// | | |
+/// |---|---|
+/// | [`Self::saved_seq`] | highest `seq` known to be in the file. `None` = no such point |
+/// | [`Self::saved_at_ms`] | when the file was written, Unix ms. `None` is a real answer -- placeable rule, unknown age |
+/// | [`Self::saved_reverted_past`] | a revert unwound past the mark. A file exists and no row here is in it |
+///
+/// **`None` and "seq 0" are different claims and are spelled differently.**
+/// A world that has never been saved has `saved_seq == None`, and the panel
+/// draws no rule rather than one at the bottom of the list.
+///
+/// ### The save format did not move for this
+///
+/// The cross-session half is [`WorldGen::load_save`] calling
+/// [`Self::mark_saved`] with [`file_written_at_ms`] of the archive it just
+/// read -- the file's own last-write time, which every archive has and no
+/// writer had to start emitting. An archive written by any earlier build of
+/// this port opens with a correctly placed rule and a correct age, because
+/// nothing inside the archive is consulted for either.
+///
+/// [`WorldGen::load_save`]: crate::WorldGen
 #[derive(Debug, Default)]
 pub struct HistoryLedger {
     entries: VecDeque<LedgerEntry>,
     next_seq: u64,
+    /// Highest `seq` inside the project file on disk. See the type's own doc
+    /// for why this is a mark and not a column on [`LedgerEntry`].
+    saved_seq: Option<u64>,
+    /// Unix-epoch milliseconds the file was written, when that could be
+    /// established at all.
+    saved_at_ms: Option<u64>,
+    /// Set by [`Self::truncate_to`] / [`Self::pop_newest_height`] when the
+    /// undone rows reach the mark -- the state on screen is now *older* than
+    /// the file, which is neither "saved" nor "never saved".
+    saved_reverted_past: bool,
 }
 
 impl HistoryLedger {
@@ -556,11 +606,18 @@ impl HistoryLedger {
         Self::default()
     }
 
-    fn now_ms() -> u64 {
+    /// Unix-epoch milliseconds, or `None` when the clock refuses. Callers
+    /// that must produce a number use [`Self::now_ms`]; callers recording a
+    /// *claim* about when something happened keep the `None`.
+    fn now_ms_opt() -> Option<u64> {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
+            .ok()
             .map(|d| d.as_millis() as u64)
-            .unwrap_or(0)
+    }
+
+    fn now_ms() -> u64 {
+        Self::now_ms_opt().unwrap_or(0)
     }
 
     /// Append one entry and return its `seq`.
@@ -579,6 +636,13 @@ impl HistoryLedger {
     ) -> u64 {
         if kind == EntryKind::Floor {
             self.entries.clear();
+            // ...and the saved mark with them. A generate produces a world
+            // that is on no disk anywhere; a load produces one that is, and
+            // `WorldGen::load_save` re-marks immediately after this call
+            // rather than this method guessing which floor it is holding.
+            self.saved_seq = None;
+            self.saved_at_ms = None;
+            self.saved_reverted_past = false;
         }
         self.next_seq += 1;
         self.entries.push_back(LedgerEntry {
@@ -647,23 +711,120 @@ impl HistoryLedger {
 
     /// Drop `seq` and everything after it -- what a successful revert leaves
     /// behind.
+    ///
+    /// Reverting *to* a row at or below the saved mark throws away work that
+    /// is in the file, so the boundary stops being placeable and says which
+    /// way it went. The panel's own confirmation already warns about exactly
+    /// this gesture (*"this reverts past the COMMITTED rule"*); leaving the
+    /// mark standing afterwards would draw the rule below every remaining row
+    /// and claim the file matches a state it does not.
     pub fn truncate_to(&mut self, seq: u64) {
         while self.entries.back().is_some_and(|e| e.seq >= seq) {
             self.entries.pop_back();
         }
+        self.invalidate_mark_at_or_below(seq);
     }
 
     /// Drop the newest height row -- for the plain `Edit > Undo`, which pops
     /// one snapshot without going through a row.
     pub fn pop_newest_height(&mut self) {
         if let Some(pos) = self.entries.iter().rposition(|e| e.kind == EntryKind::HeightSnapshot) {
+            let seq = self.entries[pos].seq;
             self.entries.remove(pos);
+            // The newest *height* row is not always the newest row: a paint
+            // or civ commit above it is `Recorded` and is not popped here. So
+            // this asks the removed row's own seq rather than assuming the
+            // undo happened above the mark.
+            self.invalidate_mark_at_or_below(seq);
         }
+    }
+
+    /// Shared by the two removal paths: a row at or below [`Self::saved_seq`]
+    /// has just been undone, so the file on disk no longer matches anything
+    /// still listed.
+    ///
+    /// Eviction by [`MAX_LEDGER`] deliberately does **not** call this -- those
+    /// rows are older than the save and are still in the file; forgetting
+    /// their names is not unwinding them.
+    fn invalidate_mark_at_or_below(&mut self, seq: u64) {
+        if self.saved_seq.is_some_and(|s| seq <= s) {
+            self.saved_seq = None;
+            self.saved_at_ms = None;
+            self.saved_reverted_past = true;
+        }
+    }
+
+    /// Everything at or below the newest `seq` issued is now in the project
+    /// file on disk. `at_ms` is when that file was written, Unix ms, and
+    /// **stays `None` when it is not known** -- a placeable rule whose age is
+    /// unknown is a different thing from one drawn at "just now".
+    ///
+    /// Called from two places and they are the two ways a world can equal a
+    /// file: `project_save_with_documents` after the bytes land, and
+    /// `load_save` after the archive's own floor row.
+    pub fn mark_saved(&mut self, at_ms: Option<u64>) {
+        self.saved_seq = Some(self.next_seq);
+        self.saved_at_ms = at_ms;
+        self.saved_reverted_past = false;
+    }
+
+    /// [`Self::mark_saved`] with this machine's clock -- the save side, where
+    /// the write just happened here.
+    pub fn mark_saved_now(&mut self) {
+        self.mark_saved(Self::now_ms_opt());
+    }
+
+    /// Highest `seq` that is inside the file on disk, or `None` when no such
+    /// point is known.
+    pub fn saved_seq(&self) -> Option<u64> {
+        self.saved_seq
+    }
+
+    /// When the file was written, Unix ms. `None` even while
+    /// [`Self::saved_seq`] is `Some` is a legitimate pair.
+    pub fn saved_at_ms(&self) -> Option<u64> {
+        self.saved_at_ms
+    }
+
+    /// Whether the mark was lost to a revert rather than never set. The panel
+    /// says different things for the two, because they are different facts.
+    pub fn saved_reverted_past(&self) -> bool {
+        self.saved_reverted_past
     }
 
     pub fn clear(&mut self) {
         self.entries.clear();
+        // `clear_undo()` throws the snapshots away, so no row here could be
+        // reverted to anyway. The mark goes with them rather than surviving
+        // as a boundary across an empty list.
+        self.saved_seq = None;
+        self.saved_at_ms = None;
+        self.saved_reverted_past = false;
     }
+}
+
+/// Unix-epoch milliseconds of `path`'s last write, or `None` when the
+/// filesystem will not say.
+///
+/// This is the whole of the cross-session `COMMITTED` boundary's age, and it
+/// is why the save format did not have to change: a project archive's own
+/// mtime is when it was last written, which is what a save is, and every
+/// archive ever written by this port has one. A stamp inside the archive
+/// would have been a format addition whose absence in older files had to be
+/// spelled "unknown" — this reaches the same answer for those files instead
+/// of the same gap.
+///
+/// `None` on any refusal (the file was moved between the read and this call,
+/// a filesystem with no mtime, a platform error). The caller keeps the `None`
+/// rather than substituting `now`, which would report a years-old project as
+/// saved this minute.
+pub fn file_written_at_ms(path: &str) -> Option<u64> {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_millis() as u64)
 }
 
 #[cfg(test)]
@@ -769,6 +930,190 @@ mod ledger_tests {
     /// `seq` is what the shell round-trips, so it must never repeat within a
     /// session -- including across a floor, which clears the rows but not the
     /// counter.
+    // -- the `COMMITTED` boundary ------------------------------------------
+    //
+    // A wall-clock instant used as a literal, so the assertions below pin the
+    // value that was handed in rather than whatever `now_ms_opt()` returns:
+    // 2023-11-14T22:13:20Z.
+    const WRITTEN_AT: u64 = 1_700_000_000_000;
+
+    /// The never-saved case, which the panel must draw as *no rule* rather
+    /// than a rule at seq 0. All three answers are absent, and absent is a
+    /// different value from zero.
+    #[test]
+    fn a_world_that_was_never_saved_has_no_boundary() {
+        let l = ledger();
+        assert_eq!(l.saved_seq(), None);
+        assert_eq!(l.saved_at_ms(), None);
+        assert!(!l.saved_reverted_past(), "never saved is not the same fact as reverted past");
+    }
+
+    /// The mark sits at the newest row, stated two ways: against the row's own
+    /// `seq` (the relationship the panel needs -- everything at or below it is
+    /// in the file) and against the literal `5`, since `ledger()` records five
+    /// rows into a fresh counter.
+    #[test]
+    fn mark_saved_puts_the_boundary_at_the_newest_row() {
+        let mut l = ledger();
+        l.mark_saved(Some(WRITTEN_AT));
+        let rows = l.rows(0);
+        let newest = rows[rows.len() - 1].0.seq;
+        assert_eq!(l.saved_seq(), Some(newest));
+        assert_eq!(l.saved_seq(), Some(5));
+        assert_eq!(l.saved_at_ms(), Some(WRITTEN_AT));
+        assert!(!l.saved_reverted_past());
+    }
+
+    /// A file whose write time the filesystem would not give up: the rule is
+    /// still placeable and its age is still unknown. Two facts, and the second
+    /// is not allowed to become "just now".
+    #[test]
+    fn an_unknown_write_time_stays_unknown() {
+        let mut l = ledger();
+        l.mark_saved(None);
+        assert_eq!(l.saved_seq(), Some(5), "the boundary is placeable without a time");
+        assert_eq!(l.saved_at_ms(), None);
+    }
+
+    /// The generate case. A floor clears the rows, and the mark goes with them
+    /// -- a freshly generated world is on no disk anywhere.
+    #[test]
+    fn a_generate_floor_clears_the_boundary() {
+        let mut l = ledger();
+        l.mark_saved(Some(WRITTEN_AT));
+        assert_eq!(l.saved_seq(), Some(5));
+        l.record("world", "Generate world", "seed 2", EntryKind::Floor);
+        assert_eq!(l.saved_seq(), None);
+        assert_eq!(l.saved_at_ms(), None);
+        assert!(!l.saved_reverted_past());
+    }
+
+    /// The cross-session case at this type's own level, in the order
+    /// `WorldGen::load_save` runs it: the load's floor clears everything, and
+    /// the mark is set on the floor immediately after. The boundary is then
+    /// the only row, and every later edit lands above it.
+    #[test]
+    fn a_load_marks_the_floor_it_just_recorded() {
+        let mut l = ledger();
+        let floor = l.record("world", "Open project", "512 x 512", EntryKind::Floor);
+        l.mark_saved(Some(WRITTEN_AT));
+        assert_eq!(l.saved_seq(), Some(floor));
+        assert_eq!(l.saved_at_ms(), Some(WRITTEN_AT));
+        assert_eq!(l.len(), 1, "the floor cleared the rows a previous session left");
+
+        let after = l.record("height", "Carve fjords", "512 sq", EntryKind::HeightSnapshot);
+        assert!(after > l.saved_seq().unwrap(), "an edit after the load is above the rule");
+        assert_eq!(l.saved_seq(), Some(floor), "and does not move it");
+    }
+
+    /// Reverting *to* the saved row, or below it, unwinds work that is in the
+    /// file -- so the boundary stops being placeable and says which of the two
+    /// reasons it is. Reverting above it leaves the mark alone.
+    #[test]
+    fn reverting_at_or_below_the_boundary_replaces_it_with_a_reason() {
+        // Five rows, saved (mark at 5), then two edits since the save.
+        fn saved_then_edited() -> HistoryLedger {
+            let mut l = ledger();
+            l.mark_saved(Some(WRITTEN_AT));
+            l.record("civ", "Rename", "Sevjuniana", EntryKind::Recorded("no snapshot"));
+            l.record("height", "Sculpt commit", "512 sq", EntryKind::HeightSnapshot);
+            l
+        }
+        assert_eq!(saved_then_edited().saved_seq(), Some(5));
+
+        // Above the rule: rows 6 and 7 are unsaved work, and unwinding them
+        // leaves the file's own state exactly where it was.
+        let mut above = saved_then_edited();
+        above.truncate_to(6);
+        assert_eq!(above.saved_seq(), Some(5));
+        assert_eq!(above.saved_at_ms(), Some(WRITTEN_AT));
+        assert!(!above.saved_reverted_past());
+
+        // Exactly at it -- the boundary row is itself unwound.
+        let mut at = saved_then_edited();
+        at.truncate_to(5);
+        assert_eq!(at.saved_seq(), None, "the saved row itself was unwound");
+        assert!(at.saved_reverted_past());
+        assert_eq!(at.saved_at_ms(), None, "no age for a boundary that is not there");
+
+        // Below it.
+        let mut below = saved_then_edited();
+        below.truncate_to(3);
+        assert_eq!(below.saved_seq(), None);
+        assert!(below.saved_reverted_past());
+    }
+
+    /// `Edit > Undo` pops the newest *height* row, which is not always the
+    /// newest row -- so the invalidation asks that row's own `seq`. Here the
+    /// mark is above the height row being popped, and the boundary survives;
+    /// mark below it and it does not.
+    #[test]
+    fn a_plain_undo_invalidates_only_when_it_reaches_the_boundary() {
+        // `ledger()`'s newest height row is seq 5 (Sculpt commit).
+        let mut kept = HistoryLedger::new();
+        kept.record("height", "Carve fjords", "", EntryKind::HeightSnapshot);
+        kept.mark_saved(Some(WRITTEN_AT));
+        kept.record("height", "Sculpt commit", "", EntryKind::HeightSnapshot);
+        kept.pop_newest_height();
+        assert_eq!(kept.saved_seq(), Some(1), "the undone row was above the rule");
+        assert!(!kept.saved_reverted_past());
+
+        let mut lost = ledger();
+        lost.mark_saved(Some(WRITTEN_AT));
+        lost.pop_newest_height();
+        assert_eq!(lost.saved_seq(), None, "seq 5 was the rule and it was just undone");
+        assert!(lost.saved_reverted_past());
+    }
+
+    #[test]
+    fn clearing_the_ledger_drops_the_boundary_without_blaming_a_revert() {
+        let mut l = ledger();
+        l.mark_saved(Some(WRITTEN_AT));
+        l.clear();
+        assert_eq!(l.saved_seq(), None);
+        assert_eq!(l.saved_at_ms(), None);
+        assert!(!l.saved_reverted_past());
+    }
+
+    /// `MAX_LEDGER` eviction forgets old rows' *names*; it does not unwind
+    /// them, and they are still in the file. The boundary must not move.
+    #[test]
+    fn eviction_does_not_disturb_the_boundary() {
+        let mut l = HistoryLedger::new();
+        l.record("world", "Generate world", "", EntryKind::Floor);
+        l.mark_saved(Some(WRITTEN_AT));
+        for i in 0..(MAX_LEDGER + 20) {
+            l.record("civ", format!("op{i}"), "", EntryKind::Recorded("r"));
+        }
+        assert_eq!(l.len(), MAX_LEDGER);
+        assert_eq!(l.saved_seq(), Some(1), "seq 1 is evicted from the list, not from the file");
+        assert_eq!(l.saved_at_ms(), Some(WRITTEN_AT));
+        assert!(!l.saved_reverted_past());
+    }
+
+    /// [`file_written_at_ms`] over a file this test just wrote, and over one
+    /// that is not there. The window is deliberately wide -- the assertion is
+    /// that a real epoch-milliseconds figure comes back, not a timing.
+    #[test]
+    fn file_written_at_ms_reads_a_real_mtime_and_refuses_a_missing_path() {
+        let dir = std::env::temp_dir().join("cartalith_undo_mtime_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("probe.zip");
+        std::fs::write(&path, b"not really a zip").unwrap();
+
+        let at = file_written_at_ms(path.to_str().unwrap()).expect("a file has an mtime");
+        let now = HistoryLedger::now_ms_opt().expect("this platform has a clock");
+        // 2001-09-09T01:46:40Z: any plausible mtime is far above it, and a
+        // seconds-instead-of-milliseconds bug lands far below it.
+        assert!(at > 1_000_000_000_000, "epoch milliseconds, not seconds: {at}");
+        assert!(at <= now + 60_000, "an mtime cannot be a minute in the future: {at} vs {now}");
+        assert!(now - at.min(now) < 600_000, "written seconds ago, not hours: {at} vs {now}");
+
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(file_written_at_ms(path.to_str().unwrap()), None);
+        assert_eq!(file_written_at_ms(""), None);
+    }
+
     #[test]
     fn seq_never_repeats_across_a_floor() {
         let mut l = HistoryLedger::new();

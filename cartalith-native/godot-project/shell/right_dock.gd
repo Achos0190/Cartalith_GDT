@@ -401,20 +401,28 @@ var _journey_view: JourneyPlannerView = null   ## TOOL_JOURNEY delegate -- see `
 
 ## -- HISTORY's `COMMITTED` boundary (`design/proposed-2026-09-05/Main.dc.html`).
 ##
-## **The engine has no commit boundary and this is the whole of what stands in
-## for one.** `undo_ledger()`'s rows carry `seq`, `at_ms`, `kind` and
-## `reversible` and *nothing* about saving; `save_project()` writes a `.zip`
-## and stamps no ledger row. So the boundary is derived here, in the shell,
-## from `EngineBridge.project_saved` -- the same signal `app.gd`'s own save
-## bookkeeping and `dcc_shell.gd`'s phone `savedAt` already read, so this is a
-## second *reader* of one event rather than a second notion of "saved".
+## **The engine holds it now, and this file only reads it.** Until 2026-09-06
+## the boundary was derived here, from `EngineBridge.project_saved`: correct
+## within one session and blank for a project saved in an earlier one, which
+## the panel disclosed rather than papered over. `undo_stats()` carries it
+## instead -- `saved_seq`, `saved_at_ms`, `saved_reverted_past`, documented on
+## `WorldGen::undo_stats` -- set by `project_save_with_documents` after the
+## bytes land and by `load_save` on the floor row it has just recorded.
 ##
-## `-1` and `0` are **not** "seq 0" and "just now": before the first save of
-## this session there is no boundary at all, and the panel draws none and says
-## why. A project saved in an earlier session leaves nothing behind either --
-## reported as a gap rather than papered over with the ledger floor.
-var _saved_seq := -1
-var _saved_at_ms := 0
+## Three answers, and the panel says a different thing for each:
+##
+## | | |
+## |---|---|
+## | `saved_seq` present | draw the rule below the last row whose `seq` is at or below it |
+## | absent, `saved_reverted_past` false | nothing here is on disk -- generated and never saved |
+## | absent, `saved_reverted_past` true | a revert unwound past the save; a file exists and no row here is in it |
+##
+## **The absent cases are absent keys, not `0`.** `0` is a legal `seq` and a
+## legal instant, so a defaulted read could not tell "never saved" from "saved
+## at the very beginning". `_saved_boundary()` is the one reader.
+##
+## No member variable stands for any of this any more: a cached copy would go
+## stale against a revert, which changes the answer without any signal firing.
 
 ## -- TOOL_PAINT. `_paint_ctx_layer` mirrors `world_workspace.gd`'s own private
 ## `_paint_layer` -- the caller passes it on every `show_paint()`, the same
@@ -668,14 +676,12 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	## already having no owner.
 	app.tool_armed.connect(func(_id: String): _rebuild())
 	bridge.layer_stack_changed.connect(_rebuild)
-	## HISTORY's `COMMITTED` rule -- see `_saved_seq`. The newest ledger seq at
-	## the instant the `.zip` was written IS the boundary: every row at or below
-	## it is in the file on disk, every row above it is not. Read here rather
-	## than stored by the engine because the engine stores nothing about saving.
+	## HISTORY's `COMMITTED` rule -- see `_saved_boundary()`. The boundary
+	## itself is the engine's now (`project_save_with_documents` marks it as
+	## the bytes land), so this connection carries no state and exists only to
+	## repaint: nothing else tells the dock that a save happened, and the rule
+	## has to appear without waiting for the next edit.
 	bridge.project_saved.connect(func(_path: String):
-		var rows: Array = bridge.undo_ledger()
-		_saved_seq = int((rows[rows.size() - 1] as Dictionary).get("seq", 0)) if not rows.is_empty() else 0
-		_saved_at_ms = Time.get_ticks_msec()
 		if _context == CTX_HISTORY:
 			_rebuild())
 	_rebuild()
@@ -3848,28 +3854,36 @@ func _build_history(body: Control) -> void:
 		## newest-first list would have to draw it before the rows it separates.
 		## (This reverses what shipped here until 2026-09-05.)
 		var cursor_seq := int((rows[rows.size() - 1] as Dictionary).get("seq", -1))
+		var saved_seq := _saved_boundary(stats)
 		var drawn_rule := false
 		for i in range(rows.size()):
 			var d: Dictionary = rows[i]
 			var seq := int(d.get("seq", 0))
 			## The boundary is drawn once, before the first row that is NOT in
-			## the saved file. `_saved_seq < 0` means no save this session, so
-			## there is no boundary to draw and none is invented.
-			if _saved_seq >= 0 and not drawn_rule and seq > _saved_seq:
-				_committed_rule(sec)
+			## the saved file. `saved_seq < 0` means the engine reported no
+			## boundary at all, so none is drawn and none is invented.
+			if saved_seq >= 0 and not drawn_rule and seq > saved_seq:
+				_committed_rule(sec, stats)
 				drawn_rule = true
-			_history_row(sec, d, i + 1, seq <= _saved_seq and _saved_seq >= 0, seq == cursor_seq)
-		if _saved_seq >= 0 and not drawn_rule:
+			_history_row(sec, d, i + 1, seq <= saved_seq and saved_seq >= 0, seq == cursor_seq)
+		if saved_seq >= 0 and not drawn_rule:
 			## Every row is in the file -- the boundary is below the last one.
-			_committed_rule(sec)
+			## This is what a project reopened and not yet edited looks like:
+			## one `Open project` floor, the rule under it.
+			_committed_rule(sec, stats)
 		_history_undone(sec, rows.size(), undone)
-		if _saved_seq < 0:
-			DccWidgets.note(sec,
-				"No COMMITTED rule: nothing has been saved this session, and the ledger "
-				+ "stores no save marker of its own -- undo_ledger()'s rows carry seq, "
-				+ "at_ms, kind and reversible and nothing about the file on disk. File ▸ "
-				+ "Save draws the rule from that point on; a project saved in an earlier "
-				+ "session leaves nothing for this panel to read.")
+		if saved_seq < 0:
+			## The two ways there is no rule are different facts and get
+			## different sentences -- a file that exists and was reverted past
+			## is not a project that was never written.
+			DccWidgets.note(sec, ("No COMMITTED rule: a revert unwound past the point this "
+				+ "project was last saved, so no step listed here is in the file on disk. "
+				+ "File ▸ Save draws the rule again.")
+				if bool(stats.get("saved_reverted_past", false)) else
+				("No COMMITTED rule: this project has not been saved. File ▸ Save draws it "
+				+ "from that point on, and reopening a saved project draws it under the "
+				+ "Open project row -- the engine takes the age from the archive's own "
+				+ "timestamp, so an earlier session's save is readable here."))
 
 	var cost := DccWidgets.section(body, "Cost")
 	var bytes := int(stats.get("bytes", 0))
@@ -3989,14 +4003,51 @@ func _history_row(parent: Control, entry: Variant, ordinal: int,
 				_revert_history(seq, steps))
 	row.tooltip_text = tip
 
+## The engine's `COMMITTED` boundary as a ledger `seq`, or `-1` for "there is
+## none". `-1` and not `0`, because `0` is a legal `seq`; and the two ways
+## there can be none -- never saved, or reverted past the save -- are told
+## apart by `saved_reverted_past` rather than by this number.
+##
+## `stats` is `bridge.undo_stats()`, which `_build_history()` already reads on
+## every rebuild. Passed in rather than fetched so one rebuild asks the engine
+## once and every row is drawn against the same answer.
+func _saved_boundary(stats: Dictionary) -> int:
+	return int(stats["saved_seq"]) if stats.has("saved_seq") else -1
+
 ## The labelled `COMMITTED` rule, with the last save's age on the right
-## (`Main.dc.html`). Drawn only when `_saved_seq >= 0`; see that variable for
-## what the engine does and does not know about saving.
-func _committed_rule(parent: Control) -> void:
-	var mins := int(floor(float(Time.get_ticks_msec() - _saved_at_ms) / 60000.0))
-	var age := "saved just now" if mins <= 0 else \
-		("saved %d min ago" % mins if mins < 60 else "saved %d h ago" % int(mins / 60))
-	_caption_row(parent, "committed", age)
+## (`Main.dc.html`). Drawn only when `_saved_boundary()` is non-negative.
+func _committed_rule(parent: Control, stats: Dictionary) -> void:
+	_caption_row(parent, "committed", _saved_age(stats))
+
+## The artboard's own trailing readout, `saved 4 min ago`.
+##
+## Unix milliseconds on both paths -- `HistoryLedger::mark_saved_now()` after a
+## save in this session, the archive's own mtime after a reopen -- so one
+## subtraction covers a save two minutes ago and a project written last week.
+## It used to be `Time.get_ticks_msec()`, which counts from this process's
+## start and cannot express either.
+##
+## **An absent `saved_at_ms` is a real answer and reads as one.** The rule is
+## placeable (the engine gave a `saved_seq`) and the filesystem would not give
+## up a write time; that is never rendered as "just now".
+func _saved_age(stats: Dictionary) -> String:
+	if not stats.has("saved_at_ms"):
+		return "save time unknown"
+	var secs := int(Time.get_unix_time_from_system()) - int(int(stats["saved_at_ms"]) / 1000)
+	## A file whose stamp is ahead of this clock -- copied off another machine,
+	## or a drive with a skewed clock. A minute of slack absorbs granularity;
+	## past that the honest thing is to name the problem, not the age.
+	if secs < -60:
+		return "saved · file clock ahead"
+	if secs < 60:
+		return "saved just now"
+	var mins := int(secs / 60)
+	if mins < 60:
+		return "saved %d min ago" % mins
+	var hours := int(mins / 60)
+	if hours < 24:
+		return "saved %d h ago" % hours
+	return "saved %d d ago" % int(hours / 24)
 
 ## Everything the cursor has stepped *off*, one named row per step, continuing
 ## the ordinals of the committed rows above -- the artboard's `07 add label ·
@@ -4222,14 +4273,26 @@ func _process(_delta: float) -> void:
 ## the non-linear kind, and the one place in this panel that destroys work.
 func _revert_history(seq: int, steps: int) -> void:
 	## The artboard's own footnote -- *"reverting above COMMITTED asks first"*.
-	## `seq < _saved_seq` is that condition stated in the ledger's terms:
-	## reverting *to* `seq` drops every row above it, so a target older than
-	## the boundary throws away operations that are already in the file on
-	## disk. A single-step revert of unsaved work still goes straight through.
-	if steps > 1 or (_saved_seq >= 0 and seq < _saved_seq):
+	## `_reverts_past_committed()` is that condition in the ledger's terms. A
+	## single-step revert of unsaved work still goes straight through.
+	if steps > 1 or _reverts_past_committed(seq):
 		_confirm_revert(seq, steps)
 		return
 	_do_revert(seq)
+
+## Whether reverting *to* `seq` unwinds work that is already in the file on
+## disk -- the artboard footnote's third clause, and the exact condition
+## `HistoryLedger::truncate_to` uses to drop the mark.
+##
+## **`<=`, not `<`, and the difference is one real gesture.** `truncate_to`
+## drops `seq` *and everything above it*, so reverting to the boundary row
+## itself puts the world at the state **before** that operation while the file
+## holds the state after it. This read `seq < saved_seq` until 2026-09-06,
+## which let exactly that click through with no prompt whenever the saved row
+## was also the newest reversible one (`steps == 1`).
+func _reverts_past_committed(seq: int) -> bool:
+	var saved_seq := _saved_boundary(bridge.undo_stats())
+	return saved_seq >= 0 and seq <= saved_seq
 
 func _confirm_revert(seq: int, steps: int) -> void:
 	var dlg := ConfirmationDialog.new()
@@ -4238,11 +4301,11 @@ func _confirm_revert(seq: int, steps: int) -> void:
 %d committed operation%s after it will be "
 		+ "discarded. History here is linear -- there is no branch to come back to.") % [
 			steps - 1, "" if steps == 2 else "s"]
-	if _saved_seq >= 0 and seq < _saved_seq:
+	if _reverts_past_committed(seq):
 		dlg.dialog_text += ("
 
 Some of them are in the project as last saved: this "
-			+ "reverts past the COMMITTED rule.")
+			+ "reverts past the COMMITTED rule, and the rule goes with them.")
 	dlg.ok_button_text = "Revert"
 	dlg.confirmed.connect(func():
 		_do_revert(seq)

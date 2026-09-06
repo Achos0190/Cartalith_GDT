@@ -299,8 +299,15 @@ func _probe_history() -> void:
 	rd.show_history()
 	await _frames(6)
 	var after_save: Array = _bridge.undo_ledger()
-	_p("after the post-save carve: ledger=%d rows, _saved_seq=%d"
-		% [after_save.size(), int(rd._saved_seq)])
+	## `rd._saved_seq` until 2026-09-06, when the boundary moved into the engine
+	## and this file's own member went away with it -- reading a property that
+	## no longer exists is a runtime error, not a stale number, so this line had
+	## to move with it. `undo_stats()` omits the key when there is no boundary,
+	## which is why this prints the absence rather than defaulting it.
+	var st_after: Dictionary = _bridge.undo_stats()
+	_p("after the post-save carve: ledger=%d rows, saved_seq=%s"
+		% [after_save.size(),
+			str(st_after["saved_seq"]) if st_after.has("saved_seq") else "(absent)"])
 	var filled: Array = _pip_states()
 	_p("pips (filled?) in draw order: %s" % str(filled))
 	_check("one pip per ledger row", filled.size() == after_save.size(),

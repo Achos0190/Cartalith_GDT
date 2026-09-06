@@ -1,0 +1,61 @@
+<div style="background:#0a0b0c;color:#c8cbcd;font:12px/1.6 'Helvetica Neue',Helvetica,Arial,sans-serif;padding:30px 34px 60px;min-height:100%">
+
+  <div style="display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid #23272a">
+    <span style="font:500 12px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.26em;color:#e8ebec">CARTALITH · ROUND 3, REDRAWN</span>
+    <span style="font:10px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.16em;color:#6f7478">THREE SURFACES · AGAINST WHAT EXISTS</span>
+  </div>
+
+  <div style="max-width:900px;padding-top:18px;display:flex;flex-direction:column;gap:14px">
+    <div style="color:#a9adb0">
+      The first round-3 canvas drew these three against an <em>Exists&nbsp;today</em> column that did not
+      hold. Each claim below was re-checked against <span style="font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">origin/main&nbsp;0732cfc</span>
+      — the exact commit that canvas cites — and against the working branch, which is 43 commits ahead of it.
+    </div>
+
+    <div style="border-left:3px solid #b4553f;background:#141112;padding:13px 16px;display:flex;flex-direction:column;gap:9px">
+      <div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#d97b62">THREE PREMISES THAT DID NOT HOLD</div>
+      <div style="color:#b9bcbe"><b style="color:#e8ebec">Rail expansion.</b> Declined the node-tree model because “the spec never enumerates the sub-nodes, so there is nothing to build”. <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">RAIL_NODES</span> enumerates thirteen rows — three headers and <b style="color:#e8ebec">ten navigable nodes</b> — and <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">_build_rail_expansion()</span> already builds them into the very column the design targets. Drawing labels-and-subtitles instead would have replaced ten working navigation targets with three inert lines.</div>
+      <div style="color:#b9bcbe"><b style="color:#e8ebec">Find on map.</b> “The menu row exists and is disabled”, accelerator “no”. It is <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">_live</span> with <b style="color:#e8ebec">Ctrl+F bound</b>, and <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">open_find_on_map()</span> opens a working dialog on desktop and an overlay on phone.</div>
+      <div style="color:#b9bcbe"><b style="color:#e8ebec">Save layout as…</b> Modal “no”. <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">_prompt_save_layout()</span> is a complete modal — name well, seeded default name, a note stating exactly what is stored, replace-not-duplicate, a status hint and phone presentation. Its “known defect this design assumes fixed” was fixed on 2026-09-01.</div>
+    </div>
+
+    <div style="color:#a9adb0">
+      So these three artboards draw <b style="color:#e8ebec">what is on screen today</b>, then the gap that is
+      actually left. Nothing here proposes replacing working behaviour. Every dashed field carries the
+      code's own reason.
+    </div>
+
+    <div style="display:flex;gap:28px;flex-wrap:wrap;padding-top:6px">
+      <span style="font:11px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#e0a34a">A · rail expansion</span>
+      <span style="font:11px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#e0a34a">B · find on map</span>
+      <span style="font:11px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#e0a34a">C · save layout as…</span>
+    </div>
+  </div>
+
+  <div style="max-width:900px;padding-top:26px;display:flex;flex-direction:column;gap:10px">
+    <div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f7478">WHAT EACH ARTBOARD ASKS FOR</div>
+    <table style="border-collapse:collapse;width:100%;font-size:12px">
+      <tr style="color:#6f7478;font:10px 'IBM Plex Mono',monospace;letter-spacing:.14em;text-align:left">
+        <th style="padding:7px 10px 7px 0;border-bottom:1px solid #23272a;font-weight:400">SURFACE</th>
+        <th style="padding:7px 10px;border-bottom:1px solid #23272a;font-weight:400">ALREADY SHIPS</th>
+        <th style="padding:7px 0 7px 10px;border-bottom:1px solid #23272a;font-weight:400">THE REAL GAP</th>
+      </tr>
+      <tr style="vertical-align:top">
+        <td style="padding:9px 10px 9px 0;border-bottom:1px solid #17191b;color:#e8ebec">Rail expansion</td>
+        <td style="padding:9px 10px;border-bottom:1px solid #17191b;color:#8f9497">The 200/264&nbsp;px column, ten nodes, three headers, selection in ink alone</td>
+        <td style="padding:9px 0 9px 10px;border-bottom:1px solid #17191b;color:#b9bcbe">The three headers explain nothing. <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">DOMAINS[i].subtitle</span> exists and is used only as a collapsed-button tooltip</td>
+      </tr>
+      <tr style="vertical-align:top">
+        <td style="padding:9px 10px 9px 0;border-bottom:1px solid #17191b;color:#e8ebec">Find on map</td>
+        <td style="padding:9px 10px;border-bottom:1px solid #17191b;color:#8f9497">Ctrl+F, a 440×480 dialog, a phone overlay, the whole index as the empty state, click&nbsp;→&nbsp;pan</td>
+        <td style="padding:9px 0 9px 10px;border-bottom:1px solid #17191b;color:#b9bcbe">No scopes, no command results, no bands, no count — and it is a stock <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">AcceptDialog</span></td>
+      </tr>
+      <tr style="vertical-align:top">
+        <td style="padding:9px 10px 9px 0;color:#e8ebec">Save layout as…</td>
+        <td style="padding:9px 10px;color:#8f9497">The modal, the note, replace semantics, forget, phone presentation</td>
+        <td style="padding:9px 0 9px 10px;color:#b9bcbe">No layouts are seeded, so the submenu is empty on first run; the note is prose where it could be the live values</td>
+      </tr>
+    </table>
+  </div>
+
+</div>

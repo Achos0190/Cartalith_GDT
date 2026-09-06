@@ -1,0 +1,95 @@
+<div style="background:#0a0b0c;color:#c8cbcd;font:12px/1.6 'Helvetica Neue',Helvetica,Arial,sans-serif;padding:26px 30px 50px;min-height:100%">
+
+  <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid #23272a">
+    <span style="font:500 12px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.24em;color:#e8ebec">B · FIND ON MAP</span>
+    <span style="font:10px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.14em;color:#6f7478">ED-05 · IT SHIPS · FOUR ADDITIONS AND ONE CHOICE</span>
+  </div>
+
+  <div style="max-width:840px;padding:16px 0 22px;color:#a9adb0">
+    <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">Edit ▸ Find on map…</span> is
+    <span style="font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">_live</span> with <b style="color:#e8ebec">Ctrl+F</b> bound, and
+    <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">open_find_on_map()</span> already opens a 440×480 dialog on desktop and a
+    full-width overlay under the app bar on phone. Both run <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">PlaceSearch</span>
+    and pan the map on click. What follows adds to that; nothing here replaces it.
+  </div>
+
+  <div style="display:flex;gap:30px;flex-wrap:wrap;align-items:flex-start">
+
+    <!-- B1 : as shipped -->
+    <div style="display:flex;flex-direction:column;gap:9px">
+      <div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#6f7478">B1 · AS SHIPPED, DESKTOP 440×480</div>
+      <div style="width:330px;border:1px solid #23272a;background:#0e1011">
+        <div style="padding:9px 12px;border-bottom:1px solid #23272a;color:#e8ebec;font-size:11px">Find on map</div>
+        <div style="padding:12px">
+          <div style="border:1px solid #3a4045;background:#141719;padding:6px 9px;color:#565c60;font-size:11px">Search places, factions, routes…</div>
+          <div style="padding-top:10px;display:flex;flex-direction:column;gap:1px">
+            <div style="padding:6px 8px;background:#141719"><div style="color:#c8cbcd">Aldermoor</div><div style="font-size:11px;color:#6f7478">settlement — Verath, pop. 12 400</div></div>
+            <div style="padding:6px 8px"><div style="color:#c8cbcd">Aldric's Crossing</div><div style="font-size:11px;color:#6f7478">road — 84 km, Verath to Kest</div></div>
+            <div style="padding:6px 8px"><div style="color:#c8cbcd">Alder Reach</div><div style="font-size:11px;color:#6f7478">label — river</div></div>
+          </div>
+        </div>
+        <div style="padding:8px 12px;border-top:1px solid #23272a;display:flex;justify-content:flex-end">
+          <div style="border:1px solid #3a4045;padding:4px 14px;font-size:11px;color:#8f9497">Close</div>
+        </div>
+      </div>
+      <div style="width:330px;color:#6f7478;font-size:11px;line-height:1.5">A stock <span style="font:10px 'IBM Plex Mono',monospace">AcceptDialog</span>. Rows are <span style="font:10px 'IBM Plex Mono',monospace">name</span> over <span style="font:10px 'IBM Plex Mono',monospace">kind — subtitle</span>. Empty query returns the <b style="color:#8f9497">whole index</b>, so the resting state is the index rather than a blank panel.</div>
+    </div>
+
+    <!-- B2 : proposed additions -->
+    <div style="display:flex;flex-direction:column;gap:9px">
+      <div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#7fa87f">B2 · THE FOUR ADDITIONS</div>
+      <div style="width:360px;border:1px solid #3d4a3d;background:#0e1011">
+        <div style="padding:9px 12px;border-bottom:1px solid #23272a;display:flex;justify-content:space-between;align-items:baseline">
+          <span style="color:#e8ebec;font-size:11px">Find on map</span>
+          <span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">7 of 342 · rebuilt on open</span>
+        </div>
+        <div style="padding:12px">
+          <div style="border:1px solid #e0a34a;background:#141719;padding:6px 9px;display:flex;gap:7px;align-items:center">
+            <span style="font:10px 'IBM Plex Mono',monospace;background:#2a2116;border:1px solid #6b5327;color:#e0a34a;padding:1px 5px">s</span>
+            <span style="color:#c8cbcd;font-size:11px">ald</span>
+          </div>
+          <div style="display:flex;gap:5px;padding-top:8px;flex-wrap:wrap">
+            <span style="font:10px 'IBM Plex Mono',monospace;border:1px solid #6b5327;color:#e0a34a;padding:1px 6px">s settlements</span>
+            <span style="font:10px 'IBM Plex Mono',monospace;border:1px solid #3a4045;color:#6f7478;padding:1px 6px">f factions</span>
+            <span style="font:10px 'IBM Plex Mono',monospace;border:1px solid #3a4045;color:#6f7478;padding:1px 6px">lb labels</span>
+            <span style="font:10px 'IBM Plex Mono',monospace;border:1px solid #3a4045;color:#6f7478;padding:1px 6px">r routes</span>
+            <span style="font:10px 'IBM Plex Mono',monospace;border:1px solid #3a4045;color:#6f7478;padding:1px 6px">. commands</span>
+            <span style="font:10px 'IBM Plex Mono',monospace;border:1px dashed #4a4038;color:#565c60;padding:1px 6px">l landmarks</span>
+          </div>
+          <div style="padding-top:12px">
+            <div style="font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f7478;padding-bottom:3px">STARTS WITH</div>
+            <div style="padding:6px 8px;background:#141719"><div style="color:#c8cbcd">Aldermoor</div><div style="font-size:11px;color:#6f7478">settlement — Verath, pop. 12 400</div></div>
+            <div style="padding:6px 8px"><div style="color:#c8cbcd">Aldric's Crossing</div><div style="font-size:11px;color:#6f7478">settlement — Kest, pop. 900</div></div>
+            <div style="font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f7478;padding:9px 0 3px">CONTAINS</div>
+            <div style="padding:6px 8px"><div style="color:#c8cbcd">Old Aldenholt</div><div style="font-size:11px;color:#6f7478">settlement — Verath, pop. 3 100</div></div>
+            <div style="font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f7478;padding:9px 0 3px">MATCHED ON KIND OR SUBTITLE</div>
+            <div style="padding:6px 8px"><div style="color:#c8cbcd">Bramble Watch</div><div style="font-size:11px;color:#6f7478">settlement — Aldric March, pop. 640</div></div>
+          </div>
+        </div>
+      </div>
+      <div style="width:360px;color:#7fa87f;font-size:11px;line-height:1.5">
+        <b>1</b> scope prefixes · <b>2</b> the <span style="font:10px 'IBM Plex Mono',monospace">.</span> scope reaching <span style="font:10px 'IBM Plex Mono',monospace">CommandIndex</span>, which the dialog never consults today ·
+        <b>3</b> band headers, computed client-side from the ranking that already exists · <b>4</b> the count, from <span style="font:10px 'IBM Plex Mono',monospace">size()</span>.
+      </div>
+    </div>
+
+    <!-- B3 : the one choice -->
+    <div style="display:flex;flex-direction:column;gap:9px">
+      <div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#e0a34a">B3 · THE ONE CHOICE</div>
+      <div style="width:250px;border:1px solid #6b5327;background:#12100c;padding:13px 15px;display:flex;flex-direction:column;gap:11px">
+        <div style="color:#e8ebec;font-size:11px;font-weight:600">Keep the centred dialog, or move to a status-bar locator?</div>
+        <div style="color:#8f9497;font-size:11px;line-height:1.5">The earlier canvas proposed QGIS's locator: a 250×17 field living in the status bar, no modal at all.</div>
+        <div style="border-top:1px solid #2a2620;padding-top:9px;color:#8f9497;font-size:11px;line-height:1.5"><b style="color:#c8cbcd">Recommendation: keep the dialog.</b> The four additions above are worth having on their own and do not depend on where the field lives. Moving it is a separate change that touches the status bar's own layout, and the dialog is not the thing that is wrong today.</div>
+        <div style="border-top:1px solid #2a2620;padding-top:9px;color:#8f9497;font-size:11px;line-height:1.5">If it does move, the honest reason is that <span style="font:10px 'IBM Plex Mono',monospace">AcceptDialog</span> is one of the stock dialogs round 1 was reducing — 11 sites down to 5. That is an argument for the <em>modal pattern</em>, not necessarily for the status bar.</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="max-width:840px;padding-top:26px;display:flex;flex-direction:column;gap:11px">
+    <div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f7478">DASHED, WITH THE CODE'S OWN REASON</div>
+    <div style="color:#b9bcbe;line-height:1.6"><b style="color:#e8ebec">l · landmarks.</b> <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">icon_list()</span> carries <span style="font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">family / slot / set / scale</span> — four closed vocabularies and no identifying name — so a row reading “pine / forest” is not a place anyone typed a name to find. <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">place_search.gd</span> declines them in writing. A scope that always returns nothing is worse than an absent one; it ships when a placed landmark has one identifying name.</div>
+    <div style="color:#b9bcbe;line-height:1.6"><b style="color:#e8ebec">Ranking is not a proposal.</b> Case-insensitive substring, deliberately not fuzzy, three bands each alphabetical, first band a row qualifies for. That is what <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">search()</span> already returns — the bands above only <em>draw</em> a grouping the order already has.</div>
+    <div style="color:#b9bcbe;line-height:1.6"><b style="color:#e8ebec">Row handles go stale on add/remove.</b> Index-based for settlements, labels, roads and sea routes; the faction id itself for factions. Same as every other index handle in the shell, and the reason <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">build()</span> is wholesale on every open.</div>
+  </div>
+
+</div>

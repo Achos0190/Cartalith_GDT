@@ -5842,6 +5842,24 @@ impl WorldGen {
             format!("{} x {}", self.gw, self.gh),
             undo::EntryKind::Floor,
         );
+        // ...and the one floor that IS on disk, so the history panel's
+        // `COMMITTED` rule is placeable for a project saved in an earlier
+        // session (`undo::HistoryLedger`'s own doc, and the third clause of
+        // `design/proposed-2026-09-05/Main.dc.html`'s footnote). The floor
+        // just recorded is the newest row, so `mark_saved` puts the rule
+        // immediately below it: the world on screen is this file, and every
+        // later edit lands above the rule.
+        //
+        // The age comes from the archive's own mtime rather than from
+        // anything inside it, which is why nothing about the save format
+        // moved for this -- see `undo::file_written_at_ms`. An mtime the
+        // filesystem refuses stays `None` and the panel says the age is
+        // unknown rather than reporting a years-old project as saved now.
+        //
+        // Reached by `project_open` too: that function's first act is to call
+        // this one (`project_bridge.rs`, "the terrain half goes in through
+        // the existing loader"), so both readers mark the same way.
+        self.ledger.mark_saved(undo::file_written_at_ms(&path.to_string()));
         // The generation parameters this port wrote into the save
         // (`params::apply_saved_state`, `SAVEFILE_COMPAT.md`). A genuine
         // HTML-app export carries no such block and leaves every parameter
@@ -16033,6 +16051,11 @@ impl WorldGen {
             done += 1;
         }
         if done > 0 {
+            // ...and `truncate_to` also drops the `COMMITTED` mark when the
+            // revert reached it, so the panel stops drawing a rule that would
+            // now claim the file matches a state it does not. See
+            // `HistoryLedger::truncate_to`; the shell asks first before
+            // getting here (`right_dock.gd::_reverts_past_committed`).
             self.ledger.truncate_to(seq);
         }
         done
@@ -16065,13 +16088,27 @@ impl WorldGen {
     /// still held — and wrong for a history panel. A panel counts
     /// [`Self::redo_labels`], which is gated on availability; this row
     /// reports what is occupied.
+    ///
+    /// **Plus the history panel's `COMMITTED` boundary**, which is a property
+    /// of the ledger rather than of either stack and rides here because the
+    /// panel already reads this dictionary on every rebuild:
+    ///
+    /// | Key | |
+    /// |---|---|
+    /// | `saved_seq` | highest ledger `seq` inside the file on disk. **Absent** when there is no such point |
+    /// | `saved_at_ms` | when that file was written, Unix ms. **Absent** when the filesystem would not say -- a placeable rule with an unknown age |
+    /// | `saved_reverted_past` | `bool`, always present: the mark was lost to a revert rather than never set |
+    ///
+    /// The two absences are why this returns keys conditionally: `0` is a
+    /// legal `seq` and a legal instant, and `right_dock.gd` has to be able to
+    /// tell "never saved" from "saved at the very beginning".
     #[func]
     fn undo_stats(&self) -> VarDictionary {
         let step_bytes = match self.source.as_ref() {
             Some(WorldSource::Generated(ws)) => ws.field.len() * 4,
             _ => 0,
         };
-        dict! {
+        let mut d = dict! {
             "depth" => self.undo.depth() as i64,
             "max_steps" => undo::MAX_STEPS as i64,
             "bytes" => self.undo.bytes() as i64,
@@ -16080,7 +16117,23 @@ impl WorldGen {
             "label" => self.undo.next_label().unwrap_or_default(),
             "redo_depth" => self.redo.steps.depth() as i64,
             "redo_bytes" => self.redo.steps.bytes() as i64,
+        };
+        // The history panel's `COMMITTED` boundary (`undo::HistoryLedger`'s
+        // own doc). **Both keys are omitted when there is no answer**, so a
+        // caller asks `has()` rather than reading a `0` that is also a legal
+        // sequence number and a legal instant. `right_dock.gd` draws no rule
+        // at all for the absent case and says which of the two reasons it is.
+        if let Some(seq) = self.ledger.saved_seq() {
+            d.set("saved_seq", seq as i64);
         }
+        if let Some(at_ms) = self.ledger.saved_at_ms() {
+            d.set("saved_at_ms", at_ms as i64);
+        }
+        // A genuine two-valued fact rather than a stand-in for absence, so it
+        // is always present: *was* the mark lost to a revert, as against never
+        // set. An older cdylib omits the key and `false` is the right read.
+        d.set("saved_reverted_past", self.ledger.saved_reverted_past());
+        d
     }
 
     /// `Preferences ▸ Memory ▸ Undo history` (register `PR-11`): re-budget
@@ -16108,6 +16161,16 @@ impl WorldGen {
         // The ledger's rows go with the snapshots. Leaving them would show a
         // history of operations none of which could be reverted, which is
         // worse than an empty panel: the panel would look like it works.
+        //
+        // The `COMMITTED` mark goes too, and **without** claiming a revert
+        // took it: `HistoryLedger::clear` sets `saved_reverted_past` false,
+        // so the panel says "this project has not been saved" rather than
+        // blaming a rollback that never happened. Freeing the buffer unwinds
+        // nothing: the file on disk is untouched and the height field on
+        // screen is exactly what it was. What goes is the *list the rule
+        // separated*, which is why the boundary stops being placeable --
+        // **not** that the world moved relative to the file, which it may or
+        // may not have. After this, `File > Save` is what puts the rule back.
         self.ledger.clear();
     }
 }

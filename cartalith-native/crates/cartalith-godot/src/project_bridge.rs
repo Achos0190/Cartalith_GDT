@@ -1985,6 +1985,17 @@ impl WorldGen {
             + 8;
         match std::fs::write(path.to_string(), &buf) {
             Ok(()) => {
+                // ED-02's `COMMITTED` rule: everything in the ledger is now
+                // in this file, so the boundary moves to the newest row.
+                // **Only on `Ok`** -- a refused write leaves the previous
+                // file in place (this function's own contract) and must not
+                // move a rule that says what is on disk.
+                //
+                // The shell derived this from `EngineBridge.project_saved`
+                // until 2026-09-06 and was right within a session; it is
+                // recorded here so the save side and the load side are one
+                // fact rather than two that can disagree.
+                self.ledger.mark_saved_now();
                 let mut d = vdict! { "ok" => true, "error" => "" };
                 d.set("bytes", buf.len() as i64);
                 d.set("entries", entries as i64);
