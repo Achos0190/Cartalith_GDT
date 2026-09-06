@@ -162,41 +162,76 @@ func _on_copy() -> void:
 	if _app != null and _app.has_method("set_status"):
 		_app.set_status("hint", "Generation info copied to clipboard.", "text_ghost")
 
-func _dump_text() -> String:
+## **`include_seed_and_params` exists for `diagnostic_report.gd`'s review
+## panel, and this dialog never passes it.** The panel lets the user drop the
+## seed and the parameter dump from the file it writes (a world is
+## reproducible from a seed, so that is a real disclosure choice), and it can
+## only offer that honestly if the two blocks are separable. `true` reproduces
+## this function's output byte for byte, including the order the lines were in
+## before the split -- the seed still sits between the grid and the quality
+## tier, which is why the pieces below are five small statics rather than one
+## "summary" call with the seed bolted on either end.
+func _dump_text(include_seed_and_params: bool = true) -> String:
 	if _bridge == null or not _bridge.has_world:
-		return "No world generated yet."
-
-	var lines: Array[String] = []
-	var g := _bridge.grid_size()
-	lines.append("Cartalith native port")
-	lines.append("Grid %d x %d  ·  %.0f x %.0f km" % [g.x, g.y, _bridge.last_width_km, _bridge.last_height_km])
-	if _bridge.world_gen.has_method("get_seed"):
-		lines.append("Seed %d" % int(_bridge.world_gen.get_seed()))
-	lines.append("Quality tier: %s" % _bridge.quality_tier())
-	var gpu_on := bool(_bridge.param_get("use_gpu"))
-	lines.append("GPU: %s" % ("on" if gpu_on else "off"))
-	## The `format_version` this build writes (`SAVEFILE_COMPAT.md` §4). It is
-	## the first thing asked when an old `.zip` misbehaves, and nothing else in
-	## the UI printed it. `project_format_version()` returns 0 when the binding
-	## is absent, which is not a version -- say so rather than print "0".
-	var fmt := _bridge.project_format_version()
-	lines.append("Project format version: %s" % (str(fmt) if fmt > 0 else "unknown (binding absent)"))
-	## The staleness fingerprint. `EngineBridge._has()` already warns once per
-	## missing method and accumulates the names; printing them here means a
-	## report that says "feature X is greyed out" arrives with its own answer,
-	## instead of needing the reporter to find the warnings in a log.
-	var missing := _bridge.missing_bindings()
-	lines.append("Bindings missing: %s" % ("none" if missing.is_empty() else ", ".join(missing)))
-	lines.append("")
-	lines.append("Full generation parameters (for reproducing this exact world):")
-
-	if _bridge.world_gen.has_method("get_params"):
-		var params: Dictionary = _bridge.world_gen.get_params()
-		var keys := params.keys()
-		keys.sort()
-		for k in keys:
-			lines.append("%s: %s" % [k, JSON.stringify(params[k])])
-	else:
-		lines.append("(get_params() unavailable -- built against an older binary.)")
-
+		return NO_WORLD
+	var lines: Array[String] = ["Cartalith native port", grid_text(_bridge)]
+	if include_seed_and_params:
+		var s := seed_text(_bridge)
+		if s != "":
+			lines.append(s)
+	lines.append(quality_text(_bridge))
+	lines.append(format_version_text(_bridge))
+	lines.append(bindings_text(_bridge))
+	if include_seed_and_params:
+		lines.append("")
+		lines.append(PARAMS_HEADING)
+		lines.append(params_text(_bridge))
 	return "\n".join(lines)
+
+## The one string both this dialog and `diagnostic_report.gd` show when there
+## is nothing to dump, held once so the report's review panel can recognise it
+## rather than pattern-match a sentence that might be reworded here.
+const NO_WORLD := "No world generated yet."
+const PARAMS_HEADING := "Full generation parameters (for reproducing this exact world):"
+
+static func grid_text(bridge: EngineBridge) -> String:
+	var g := bridge.grid_size()
+	return "Grid %d x %d  ·  %.0f x %.0f km" % [g.x, g.y, bridge.last_width_km, bridge.last_height_km]
+
+## `""` when the binding is absent -- an absent seed is omitted, never printed
+## as `Seed 0`, which is a legal seed.
+static func seed_text(bridge: EngineBridge) -> String:
+	if bridge == null or bridge.world_gen == null or not bridge.world_gen.has_method("get_seed"):
+		return ""
+	return "Seed %d" % int(bridge.world_gen.get_seed())
+
+static func quality_text(bridge: EngineBridge) -> String:
+	return "Quality tier: %s\nGPU: %s" % [bridge.quality_tier(),
+		"on" if bool(bridge.param_get("use_gpu")) else "off"]
+
+## The `format_version` this build writes (`SAVEFILE_COMPAT.md` §4). It is
+## the first thing asked when an old `.zip` misbehaves, and nothing else in
+## the UI printed it. `project_format_version()` returns 0 when the binding
+## is absent, which is not a version -- say so rather than print "0".
+static func format_version_text(bridge: EngineBridge) -> String:
+	var fmt := bridge.project_format_version()
+	return "Project format version: %s" % (str(fmt) if fmt > 0 else "unknown (binding absent)")
+
+## The staleness fingerprint. `EngineBridge._has()` already warns once per
+## missing method and accumulates the names; printing them here means a
+## report that says "feature X is greyed out" arrives with its own answer,
+## instead of needing the reporter to find the warnings in a log.
+static func bindings_text(bridge: EngineBridge) -> String:
+	var missing := bridge.missing_bindings()
+	return "Bindings missing: %s" % ("none" if missing.is_empty() else ", ".join(missing))
+
+static func params_text(bridge: EngineBridge) -> String:
+	if bridge == null or bridge.world_gen == null or not bridge.world_gen.has_method("get_params"):
+		return "(get_params() unavailable -- built against an older binary.)"
+	var params: Dictionary = bridge.world_gen.get_params()
+	var keys := params.keys()
+	keys.sort()
+	var out: Array[String] = []
+	for k in keys:
+		out.append("%s: %s" % [k, JSON.stringify(params[k])])
+	return "\n".join(out)

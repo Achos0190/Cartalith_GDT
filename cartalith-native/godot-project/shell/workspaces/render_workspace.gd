@@ -1423,8 +1423,11 @@ func _on_animate_water(on: bool) -> void:
 
 # -- Colour management (`LARGE_ITEM_RULINGS.md`, owner-ruled build) ------------
 
-## The output colour space, as **one axis and one stated fact** rather than the
-## three-row radio `OUTSTANDING_WORK.md` §2.5 draws.
+## The output colour space, as **one axis and two stated facts** rather than
+## the three-row radio `OUTSTANDING_WORK.md` §2.5 draws. The facts are the
+## working space (below, in place of §2.5's third dropdown entry) and, added
+## 2026-09-06, **that this axis does not reach exports** -- see the note under
+## the picker for why that was the one gap worth closing here.
 ##
 ## `GUI_GAP_REGISTER.md` §7.6 read Blender 4.x's own Color Management panel and
 ## found §2.5's row (`sRGB · Display P3 · linear`) offers one control where
@@ -1465,6 +1468,37 @@ func _build_color_management() -> void:
 		+ "wide-gamut screen that is NOT colour-managing sRGB input for itself: "
 		+ "on one of those, sRGB numbers read oversaturated and these read "
 		+ "correct. On an ordinary sRGB screen it is the other way round.")
+
+	## **The one thing a user can get wrong here, said where the choice is
+	## made.** Verified at the symbol 2026-09-06, not taken from a document:
+	## `export_raster.rs` never calls `render::apply_color_space` (its three
+	## mentions of it are all doc comments), and
+	## `cartalith_assets::raster::encode_png_rgb8` is a bare
+	## `write_to(.., ImageFormat::Png)` that passes **no ICC profile**. So an
+	## exported file is untagged, and an untagged file is read as sRGB.
+	##
+	## That decision is deliberate and is not this note's to reopen --
+	## `export_raster.rs`'s module doc carries the whole reasoning. What was
+	## missing is that **nothing on screen told the user**, at the moment they
+	## pick a display, that the file will not match the panel. It was not
+	## unsaid: it was a trailing clause on the overlays note below, whose
+	## subject is overlays and which a user scanning for "what do I get when I
+	## export" does not read. This is that clause promoted, rewritten for
+	## someone exporting a map rather than someone reading render code, and
+	## **removed from below rather than duplicated** -- two statements about
+	## exports in one section is how they drift apart.
+	DccWidgets.note(body,
+		"This picker changes the panel, not your files. Exports are written in "
+		+ "the working space: whichever display is selected here, an exported "
+		+ "map carries the same sRGB numbers. So on the wide-gamut screen "
+		+ "Display P3 is for, a file you export will not match the map you "
+		+ "exported it from -- and on an ordinary screen, or in any viewer that "
+		+ "manages colour, the file is the one that is right. That is "
+		+ "deliberate: the encoder writes no colour profile, an untagged image "
+		+ "is read as sRGB by everything, so P3 numbers in a file would be "
+		+ "misread by every consumer that converts properly and would still not "
+		+ "match this panel. Leave this on sRGB if what you send out has to "
+		+ "match what you see.")
 	DccWidgets.note(body,
 		"Working space: sRGB, 8 bits per channel. A fact, not a choice -- the "
 		+ "renderer composites into an 8-bit buffer, and 8-bit linear is not a "
@@ -1478,8 +1512,7 @@ func _build_color_management() -> void:
 		+ "-- rivers, labels, settlement markers, territory, the scale bar -- and "
 		+ "the interface around it stay sRGB, because Godot's compatibility "
 		+ "renderer does no colour management and there is no hook to convert a "
-		+ "colour on its way to the screen. Exports are unaffected and stay sRGB, "
-		+ "which is right: an image file with no profile is read as sRGB.")
+		+ "colour on its way to the screen.")
 	DccWidgets.note(body,
 		"Display P3 is a real change to the numbers, not a tag: measured on a "
 		+ "2048-wide map it moves 87% of the bytes, by up to 31 levels. Greys, "

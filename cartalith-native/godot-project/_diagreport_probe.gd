@@ -92,11 +92,25 @@ func _ready() -> void:
 	var text := rf.get_as_text()
 	rf.close()
 
+	## **Three of these moved on 2026-09-06 and are updated, not relaxed.** The
+	## report is now composed from `DiagnosticReport.manifest()` -- one section
+	## per attached value, so the review panel can list them -- which split the
+	## old `== Generation info · missing bindings · project format version ==`
+	## into three headers and renamed `== Last error ==`. The section CONTENT
+	## checks below (`Bindings missing:`, `Project format version:`,
+	## `Godot renderer:`) were already the real assertions and did not move.
+	##
+	## `== WHAT THIS FILE CONTAINS ==` is new and is checked here as well: it
+	## is the manifest the user was shown, and a `write()` that skips it would
+	## produce a file whose provenance nobody can check.
 	var checks := [
 		"Cartalith diagnostic report",
-		"== Generation info · missing bindings · project format version ==",
+		"== WHAT THIS FILE CONTAINS ==",
+		"== Generation info ==",
+		"== Missing bindings ==",
+		"== Project format version ==",
 		"== GPU state ==",
-		"== Last error ==",
+		"== Last error this session ==",
 		"Bindings missing:",
 		"Project format version:",
 		"Godot renderer:",

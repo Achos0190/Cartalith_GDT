@@ -13,12 +13,26 @@ class_name DiagnosticReport
 ## text file and tells the user where, exactly like `data_manager_window.gd`'s
 ## existing exports (`_host.reveal_on_disk()` / `_host.set_status()`).
 ##
+## **`DiagnosticReviewDialog` shows the user every row before any of this
+## runs.** The round-3 canvas's own contribution -- the part of it that was
+## right, against an `OPEN TRACKER` button that contradicts the ruling -- is
+## that a pre-filled report is a claim about what the app knows, so the rows
+## are reviewable first. `manifest()` below is that table, and `build_text()`
+## writes the same array, which is what makes the panel and the file agree by
+## construction rather than by two code paths being kept in step.
+##
 ## Three of the five named readouts already existed as trivial calls and are
-## reused rather than re-implemented: `GenInfoDialog._dump_text()` already
-## dumps generation info, `EngineBridge.missing_bindings()` and
-## `EngineBridge.project_format_version()` inside it -- `menus.gd`'s own
-## comment on the old `_todo` row said as much ("pairing that with the version
-## and build string from About is exactly the body a report wants").
+## reused rather than re-implemented: `GenInfoDialog` holds generation info,
+## `EngineBridge.missing_bindings()` and `EngineBridge.project_format_version()`
+## -- `menus.gd`'s own comment on the old `_todo` row said as much ("pairing
+## that with the version and build string from About is exactly the body a
+## report wants"). Those three arrived here as one `_dump_text()` call until
+## 2026-09-06; the review panel needs them as separate rows with separate
+## sources, and needs the seed and parameter dump separable from the summary,
+## so `GenInfoDialog` gained six statics (`grid_text`, `seed_text`,
+## `quality_text`, `format_version_text`, `bindings_text`, `params_text`) that
+## its own `_dump_text()` now composes. One implementation, two callers -- the
+## drift the old note guarded against is still guarded against.
 ## GPU state and the last error did not exist anywhere and are built here:
 ## GPU state from the multi-GPU/`RenderingServer` accessors `engine_bridge.gd`
 ## and `menus.gd` already expose for their own Preferences rows; the last
@@ -27,13 +41,187 @@ class_name DiagnosticReport
 ## codebase retained one before, confirmed by grepping the whole repository
 ## for `last_error` and finding nothing but this addition.
 
+## The two toggles the review panel offers. `Help ▸ Save diagnostic report`
+## opens that panel; `write()` stays callable on its own (that is what
+## `_diagreport_probe.gd` exercises) and then uses `default_options()`.
+const OPT_SEED_PARAMS := "seed_params"
+const OPT_PROJECT_PATH := "project_path"
+
+## Seed and parameters **on**: a world is reproducible from its seed, so a
+## report without them can rarely be acted on. Project path **off**: it is a
+## filesystem path, and on Windows it ordinarily embeds the account name --
+## the one field where the safe default and the useful default disagree.
+static func default_options() -> Dictionary:
+	return {OPT_SEED_PARAMS: true, OPT_PROJECT_PATH: false}
+
+## Every value the report can carry, in the order the file writes it.
+##
+## One entry per attached value: `key`, the `label` both surfaces show, the
+## `source` (the symbol the value was read from, not a description of it), a
+## one-line `preview` for the panel, and the `body` the file gets. `included`
+## false carries `why` -- either a toggle the user turned off, or a value this
+## build genuinely cannot supply, which is dashed with the reason rather than
+## written as an empty section.
+##
+## **`why` is present exactly when `included` is false**, so a reader takes it
+## with `r["included"]` rather than testing a sentinel -- there is no "no
+## reason" string, and an included row carries no `why` key at all.
+##
+## The two optional rows are `seed` and `path`; the panel knows which by key
+## because it owns the toggles, and nothing here encodes a gate the caller
+## would have to keep in step.
+static func manifest(app: Node, bridge: EngineBridge, opts: Dictionary) -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	var seed_on: bool = bool(opts.get(OPT_SEED_PARAMS, true))
+	var path_on: bool = bool(opts.get(OPT_PROJECT_PATH, false))
+	var has_world: bool = bridge != null and bridge.has_world
+
+	rows.append(_row("session", "Session & platform",
+		"Engine.get_version_info() · OS.get_name() · Time.get_datetime_string_from_system()",
+		_session_section(bridge)))
+
+	if has_world:
+		rows.append(_row("generation", "Generation info",
+			"EngineBridge.grid_size() / .quality_tier() / .param_get(\"use_gpu\"), via GenInfoDialog",
+			GenInfoDialog.grid_text(bridge) + "\n" + GenInfoDialog.quality_text(bridge)))
+	else:
+		rows.append(_absent("generation", "Generation info",
+			"EngineBridge.has_world", GenInfoDialog.NO_WORLD))
+
+	## The one row the seed toggle gates. Kept as its own section rather than
+	## folded into Generation info precisely so it can be dropped without
+	## rewriting anything else -- see `GenInfoDialog._dump_text()`'s own note.
+	if not seed_on:
+		rows.append(_absent("seed", "Seed & generation parameters",
+			"WorldGen.get_seed() · WorldGen.get_params()",
+			"you turned this off -- the report will not say which world this is or how to rebuild it"))
+	elif not has_world:
+		rows.append(_absent("seed", "Seed & generation parameters",
+			"WorldGen.get_seed() · WorldGen.get_params()", GenInfoDialog.NO_WORLD))
+	else:
+		var seed_line := GenInfoDialog.seed_text(bridge)
+		rows.append(_row("seed", "Seed & generation parameters",
+			"WorldGen.get_seed() · WorldGen.get_params()",
+			(seed_line + "\n" if seed_line != "" else "")
+				+ GenInfoDialog.PARAMS_HEADING + "\n" + GenInfoDialog.params_text(bridge)))
+
+	if bridge == null:
+		rows.append(_absent("bindings", "Missing bindings", "EngineBridge.missing_bindings()",
+			"no engine bridge on this build's app root"))
+		rows.append(_absent("format", "Project format version",
+			"EngineBridge.project_format_version()", "no engine bridge on this build's app root"))
+	else:
+		rows.append(_row("bindings", "Missing bindings",
+			"EngineBridge.missing_bindings()", GenInfoDialog.bindings_text(bridge)))
+		rows.append(_row("format", "Project format version",
+			"EngineBridge.project_format_version()", GenInfoDialog.format_version_text(bridge)))
+
+	rows.append(_row("gpu", "GPU state",
+		"RenderingServer.* · EngineBridge.gpu_devices() / .gpu_last_backend() / .gpu_stages_used()",
+		_gpu_section(bridge)))
+	rows.append(_row("error", "Last error this session",
+		"EngineBridge.last_error()", _last_error_section(bridge)))
+	rows.append(_log_row())
+	rows.append(_project_path_row(app, path_on))
+	return rows
+
+static func _row(key: String, label: String, source: String, body: String) -> Dictionary:
+	return {"key": key, "label": label, "source": source, "body": body,
+		"included": true, "preview": _preview(body)}
+
+static func _absent(key: String, label: String, source: String, why: String) -> Dictionary:
+	return {"key": key, "label": label, "source": source, "body": "", "included": false,
+		"preview": "", "why": why}
+
+## The panel's right-hand column: the value's first line, elided. Never a
+## substitute for the value -- the file gets `body` whole.
+static func _preview(body: String) -> String:
+	var first := body.split("\n")[0]
+	var extra := body.split("\n").size() - 1
+	if first.length() > 46:
+		first = first.substr(0, 45) + "…"
+	return first if extra <= 0 else "%s  (+%d line%s)" % [first, extra, "" if extra == 1 else "s"]
+
+static func _session_section(bridge: EngineBridge) -> String:
+	var lines: Array[String] = []
+	lines.append("Written %s local time" % Time.get_datetime_string_from_system())
+	lines.append("Godot %s · %s" % [Engine.get_version_info().string, OS.get_name()])
+	if bridge != null and bridge.generating:
+		lines.append("A generation is running right now -- the GPU/device readouts below are whatever was last measured, not this run's.")
+	return "\n".join(lines)
+
+## **The one readout the round-3 canvas got wrong, and it was measured rather
+## than believed.** The canvas dashed a log tail as "there is no log file". On
+## desktop there is: `debug/file_logging/enable_file_logging` reads `false`,
+## and **Godot enables file logging by default on desktop regardless**, so it writes
+## `user://logs/godot.log` and rotates five deep -- confirmed 2026-09-06 by
+## printing a unique marker and finding it in the file the same run.
+##
+## **An earlier version of this comment credited a `.pc` feature override in
+## `project.godot`. There is none** -- `grep file_logging project.godot`
+## returns nothing. The dash reason the user actually sees always said
+## "Godot's file logging is a desktop-only default", which was right while
+## this explanation of it was wrong.
+##
+## The test below is the open, not the setting: `get_setting()` on the base key
+## returns `false` while logging is on, because the logger resolves the feature
+## override during early boot through a path the base lookup does not see. So
+## the honest question is "can this build read its own log", and that is also
+## the right answer on Android, where the `pc` tag does not apply, nothing
+## writes a log, and the row dashes with that as its reason.
+const LOG_TAIL_LINES := 40
+const LOG_TAIL_BYTES := 65536
+
+static func _log_row() -> Dictionary:
+	var path := String(ProjectSettings.get_setting("debug/file_logging/log_path",
+		"user://logs/godot.log"))
+	var label := "Log tail (last %d lines)" % LOG_TAIL_LINES
+	var source := "%s -- Godot's own file log" % path
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return _absent("log", label, source,
+			"nothing to read at %s: Godot's file logging is a desktop-only default (enable_file_logging.pc), so this platform writes no log" % path)
+	## Tail, not the whole file: a long session's log is unbounded and a bug
+	## report wants the end of it. Read through `get_buffer` after a seek --
+	## `get_as_text()` returns the file from the beginning whatever the cursor
+	## is, which would defeat the seek silently.
+	var length := f.get_length()
+	var start: int = max(0, length - LOG_TAIL_BYTES)
+	f.seek(start)
+	var text := f.get_buffer(length - start).get_string_from_utf8()
+	f.close()
+	var all := text.split("\n")
+	var keep: Array[String] = []
+	for i in range(max(0, all.size() - LOG_TAIL_LINES), all.size()):
+		keep.append(all[i])
+	var body := "\n".join(keep).strip_edges()
+	if body == "":
+		return _absent("log", label, source, "the log file at %s is empty" % path)
+	return _row("log", label, source, body)
+
+static func _project_path_row(app: Node, on: bool) -> Dictionary:
+	var label := "Project file path"
+	var source := "app.current_project_path"
+	if not on:
+		return _absent("path", label, source,
+			"off by default -- a filesystem path, and on Windows it embeds your account name")
+	if app == null or not ("current_project_path" in app):
+		return _absent("path", label, source, "this build's app root holds no current_project_path")
+	var p := String(app.current_project_path)
+	if p == "":
+		return _absent("path", label, source, "no project is open -- this world has never been saved or loaded")
+	return _row("path", label, source, p)
+
 ## Builds the report, writes it under the same storage root
 ## `data_manager_window.gd`'s exports already use, and tells the user where --
 ## `app.reveal_on_disk()` opens the OS file manager on desktop (the same
 ## fallback-aware call every export already goes through), and the status
 ## line always carries the full path too, since `reveal_on_disk()` is a
 ## desktop-only no-op on a phone or tablet.
-static func write(app: Node, bridge: EngineBridge) -> void:
+##
+## Returns the path written, or `""` on failure, so the review panel can say
+## which file it produced instead of repeating the status line's guesswork.
+static func write(app: Node, bridge: EngineBridge, opts: Dictionary = {}) -> String:
 	var dir := DccSettings.storage_root("exports")
 	## Not return-checked: `engine_bridge.gd`'s own `_preset_path()` calls this
 	## the same bare way and lets the write below be the real failure signal --
@@ -45,26 +233,44 @@ static func write(app: Node, bridge: EngineBridge) -> void:
 	## filing several reports in a session (plausible -- a report is exactly
 	## what a user reaches for right after something goes wrong more than
 	## once) does not silently overwrite the previous one's evidence.
+	##
+	## **That guarantee did not hold, and the fix is the loop below.** The
+	## stamp resolves to one second and `Time` offers nothing finer, so two
+	## reports written inside the same second landed on the same filename and
+	## the second silently replaced the first -- the exact outcome this comment
+	## claimed to prevent. Found by `_diagreview_probe.gd`, which writes one
+	## report per toggle case: the second case reported "Save wrote no new
+	## file" because it had overwritten the first. Real for a user too, and for
+	## the same reason the comment gives -- a report is what you reach for when
+	## something has just gone wrong twice in a row.
 	var stamp: String = Time.get_datetime_string_from_system().replace(":", "-")
 	var path := dir.path_join("cartalith_diagnostic_report_%s.txt" % stamp)
+	var n := 2
+	while FileAccess.file_exists(path) and n <= 99:
+		path = dir.path_join("cartalith_diagnostic_report_%s-%d.txt" % [stamp, n])
+		n += 1
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
 		app.set_status("hint", "could not write diagnostic report (%s)"
 			% error_string(FileAccess.get_open_error()), "accent")
-		return
-	f.store_string(_build(app, bridge))
+		return ""
+	f.store_string(build_text(app, bridge, opts))
 	f.close()
 	var shown: bool = app.reveal_on_disk(path)
 	app.set_status("hint", "diagnostic report saved -> %s"
 		% (path.get_file() if shown else path), "accent")
+	return path
 
-static func _build(app: Node, bridge: EngineBridge) -> String:
+## The file, built from the same array the panel drew. The
+## `WHAT THIS FILE CONTAINS` block is not decoration: it is `manifest()`
+## verbatim, so a reader can check the file against what they were shown and
+## `_diagreview_probe.gd` can assert the two agree row for row without parsing
+## prose. Every section below it is one included row, in the same order.
+static func build_text(app: Node, bridge: EngineBridge, opts: Dictionary = {}) -> String:
+	var rows := manifest(app, bridge,
+		default_options() if opts.is_empty() else opts)
 	var lines: Array[String] = []
 	lines.append("Cartalith diagnostic report")
-	lines.append("Written %s local time -- Godot %s · %s"
-		% [Time.get_datetime_string_from_system(), Engine.get_version_info().string, OS.get_name()])
-	if bridge != null and bridge.generating:
-		lines.append("A generation is running right now -- the GPU/device readouts below are whatever was last measured, not this run's.")
 	lines.append("")
 	## Requirement #2 (see the ruling row): redact nothing, but a path is not
 	## something to ship unremarked either. Every path this file can contain
@@ -77,28 +283,33 @@ static func _build(app: Node, bridge: EngineBridge) -> String:
 	lines.append("Nothing below is redacted -- review before attaching to a public issue")
 	lines.append("if that matters to you.")
 	lines.append("")
-
-	lines.append("== Generation info · missing bindings · project format version ==")
-	lines.append(_gen_info_section(app))
+	## **What the toggles do NOT guarantee, measured rather than assumed.** A
+	## row turned off is absent as a SECTION; it is not scrubbed from the file,
+	## because the log tail is whatever the application printed and nothing
+	## filters it. `_diagreview_probe.gd` caught this the honest way: with the
+	## seed row off, its own printed output had put the seed string back into
+	## the log, and the probe failed a check that was written as though the
+	## toggle were a redaction. Filtering the log would be guessing at what to
+	## redact and would cost the log its value, so this says so instead.
+	lines.append("The Log tail section is verbatim application output and is not filtered")
+	lines.append("by the choices above: a value you excluded can still appear there if the")
+	lines.append("app happened to print it.")
 	lines.append("")
-
-	lines.append("== GPU state ==")
-	lines.append(_gpu_section(bridge))
+	lines.append("== WHAT THIS FILE CONTAINS ==")
+	for r in rows:
+		lines.append("%s %s  [%s]" % ["[x]" if bool(r["included"]) else "[ ]",
+			String(r["label"]), String(r["source"])])
+		if not bool(r["included"]):
+			lines.append("      not included: %s" % String(r["why"]))
 	lines.append("")
-
-	lines.append("== Last error ==")
-	lines.append(_last_error_section(bridge))
-
+	for r in rows:
+		if not bool(r["included"]):
+			continue
+		lines.append("== %s ==" % String(r["label"]))
+		lines.append("source: %s" % String(r["source"]))
+		lines.append(String(r["body"]))
+		lines.append("")
 	return "\n".join(lines)
-
-## Readouts 1-3. `GenInfoDialog._dump_text()` already IS this -- grid, seed,
-## quality tier, a GPU on/off line (the GPU section below goes much further),
-## `missing_bindings()` and `project_format_version()`, then the full
-## generation-parameter dump. Reused rather than re-implemented: duplicating
-## its sorted-keys/JSON.stringify loop here would be the same list drifting
-## out of step with itself the moment one of them is edited.
-static func _gen_info_section(app: Node) -> String:
-	return String(app.gen_info_dialog._dump_text())
 
 ## Readout 4. Two different questions this project has already found can
 ## disagree (`STATUS.md`, 2026-09-02: `forward_plus`/vulkan loses the device

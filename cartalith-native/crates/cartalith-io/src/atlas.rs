@@ -177,6 +177,28 @@ pub struct AtlasKey {
     pub id: ChunkId,
 }
 
+/// One eviction candidate: `(last access, level, world key, chunk, bytes)`.
+type ColdChunk = (SystemTime, u32, String, AtlasKey, u64);
+
+/// The order [`AtlasStore::evict_to`] takes chunks in, front first:
+///
+/// 1. **Coldest first**, by last read ([`AtlasStore::last_access`]).
+/// 2. **At equal age, the deeper LOD level first.** A coarse tile covers the
+///    whole world at a glance, is what a re-bake has to rebuild before
+///    anything else, and costs a quarter of what the level below it does —
+///    cheaper to keep and more expensive to lose.
+/// 3. Then by world key and chunk address, only so the order is total and
+///    therefore reproducible across platforms.
+///
+/// A free function rather than the closure it used to be because `evict_to`
+/// now applies it twice — once per single-level world to find the warmest
+/// chunk to spare, and once over the merged list — and two spellings of one
+/// order is how the spared chunk stops being the one the merged pass would
+/// have kept.
+fn evict_order(a: &ColdChunk, b: &ColdChunk) -> std::cmp::Ordering {
+    a.0.cmp(&b.0).then(b.1.cmp(&a.1)).then((&a.2, a.3).cmp(&(&b.2, b.3)))
+}
+
 /// The filesystem stand-in for the reference's IndexedDB object store.
 ///
 /// Layout, chosen so that the reference's key components are all recoverable
@@ -438,47 +460,69 @@ impl AtlasStore {
     /// Bring the whole cache under `max_bytes` by deleting chunks, coldest
     /// first. Returns the bytes actually freed.
     ///
-    /// The engine half of *Preferences ▸ Memory ▸ Atlas cache · Size cap*,
-    /// which until now had a status readout and a clear button and nothing in
-    /// between.
+    /// The engine half of *Preferences ▸ Tiles & LOD ▸ Atlas cache ▸ Size cap
+    /// · GB*, which before it had a status readout and a clear button and
+    /// nothing in between. (**Tiles & LOD, not Memory** — `Memory` holds
+    /// `Clear caches…`, which is the clear button, not the cap. This said
+    /// `Memory` until 2026-09-06, disagreeing with the group `menus.gd`
+    /// actually builds it under.)
     ///
     /// **The budget is over the store, not over one world.** A cap that only
     /// saw the current world would leave every previously-generated world's
     /// chunks on disk untouched — which is most of what a long session
     /// accumulates, and exactly what a user sets a cap to bound.
     ///
-    /// Order:
+    /// The order chunks go in is [`evict_order`]'s, which states it.
     ///
-    /// 1. **Coldest first**, by last read ([`Self::last_access`]).
-    /// 2. **At equal age, the deeper LOD level first.** A coarse tile covers
-    ///    the whole world at a glance, is what a re-bake has to rebuild
-    ///    before anything else, and costs a quarter of what the level below
-    ///    it does — cheaper to keep and more expensive to lose.
-    /// 3. Then by world key and chunk address, only so the order is total and
-    ///    therefore reproducible across platforms.
+    /// **The floor: a world always keeps something.** In the ordinary case
+    /// that is its whole coarsest level — reducing a world to no tiles would
+    /// draw as an empty atlas rather than as a coarse one, and a size cap is a
+    /// budget, not a clear button ([`Self::clear_world`] is the clear button).
+    /// A cache that cannot reach the budget without crossing that line stops
+    /// above it and reports what it did free.
     ///
-    /// **A world's coarsest level is never evicted.** Reducing a world to no
-    /// tiles at all would draw as an empty atlas rather than as a coarse one,
-    /// and a size cap is a budget, not a clear button — [`Self::clear_world`]
-    /// is the clear button. A cache that cannot reach the budget without
-    /// crossing that line stops above it and reports what it did free.
+    /// **A world with only one baked level is the exception, and it had to
+    /// be.** "The coarsest level is protected" reads as "a cheap overview is
+    /// protected" only because level 0 is one tile; when the coarsest level
+    /// *is* the only level, protecting it protects the entire world and the
+    /// cap frees nothing. That is not a corner case — `bake_visible(z, …)`
+    /// bakes one level with no ancestors, so a user who only ever presses
+    /// *Refine detail for the current view* fills the store with exactly such
+    /// worlds. Measured before this clause existed: a world of 16 chunks at
+    /// z=4, `evict_to(0)` freed **0 of 1088 bytes** and kept all 16. Such a
+    /// world is trimmed like any other down to its **warmest single chunk**,
+    /// which is the one the user was last looking at.
+    ///
+    /// Why one chunk rather than none: `chunks == 0` is not merely an empty
+    /// atlas, it is the state `atlas_clear` deliberately refuses to leave
+    /// behind. Clearing releases the finalize lock with it, because a
+    /// finalized world with no atlas is a lock protecting nothing; eviction
+    /// does not touch that flag and must not manufacture the same state
+    /// behind the user's back.
     pub fn evict_to(&self, max_bytes: u64) -> io::Result<u64> {
         let mut total = 0u64;
-        // (last access, level, world key, chunk, bytes)
-        let mut cold: Vec<(SystemTime, u32, String, AtlasKey, u64)> = Vec::new();
+        let mut cold: Vec<ColdChunk> = Vec::new();
         for wk in self.worlds()? {
             let keys = self.keys_for_world(&wk)?;
             let Some(coarsest) = keys.iter().map(|k| k.id.z).min() else { continue };
-            for k in keys {
+            let mut mine: Vec<ColdChunk> = Vec::with_capacity(keys.len());
+            for &k in &keys {
                 let bytes = self.key_bytes(&wk, k);
                 total += bytes;
-                if k.id.z == coarsest {
-                    continue;
-                }
-                cold.push((self.last_access(&wk, k), k.id.z, wk.clone(), k, bytes));
+                mine.push((self.last_access(&wk, k), k.id.z, wk.clone(), k, bytes));
             }
+            // `mine` is empty of anything below `coarsest` exactly when the
+            // world has one level, which is the test the exception needs and
+            // costs no second traversal.
+            if mine.iter().any(|e| e.1 != coarsest) {
+                mine.retain(|e| e.1 != coarsest);
+            } else {
+                mine.sort_by(evict_order);
+                mine.pop();
+            }
+            cold.append(&mut mine);
         }
-        cold.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)).then((&a.2, a.3).cmp(&(&b.2, b.3))));
+        cold.sort_by(evict_order);
         let mut freed = 0u64;
         for (_, _, wk, k, bytes) in cold {
             if total <= max_bytes {
@@ -852,6 +896,56 @@ mod tests {
         s.evict_to(3 * CHUNK_BYTES).unwrap();
         assert!(s.keys_for_world("old").unwrap().len() == 1, "the cold world was not touched");
         assert!(s.keys_for_world("new").unwrap().len() == 2, "the warm world was evicted first");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The hole the floor used to have, and the reason it is not a corner
+    /// case: `bake_visible(z, …)` — what *Refine detail for the current view*
+    /// calls — bakes **one level with no ancestors**, so a store filled that
+    /// way holds worlds whose coarsest level is also their only one. Under
+    /// the old "the coarsest level is never evicted" rule every chunk of such
+    /// a world was protected and a cap of zero freed nothing: measured at
+    /// 0 of 1088 bytes, 16 of 16 chunks kept.
+    #[test]
+    fn a_single_level_world_is_still_reachable_by_the_cap() {
+        let root = tmp("evict-single-level");
+        let s = AtlasStore::new(&root);
+        for col in 0..4 {
+            for row in 0..4 {
+                s.put("w1", 512, &chunk(4, col, row, 16)).unwrap();
+            }
+        }
+        assert_eq!(s.total_bytes().unwrap(), 16 * CHUNK_BYTES);
+        // (4,3,3) is the warmest and is the one chunk the floor spares.
+        for (i, k) in s.keys_for_world("w1").unwrap().iter().enumerate() {
+            age(&s, "w1", *k, 1_000 + i as u64);
+        }
+        assert_eq!(s.evict_to(0).unwrap(), 15 * CHUNK_BYTES, "the cap could not reach a one-level world");
+        let left = s.keys_for_world("w1").unwrap();
+        assert_eq!(left.len(), 1, "a size cap is not a clear button");
+        assert!(left.contains(&key(4, 3, 3)), "the spared chunk was not the warmest");
+        assert!(s.total_bytes().unwrap() > 0);
+        // ...and it is a floor, not a one-off: a second pass frees nothing.
+        assert_eq!(s.evict_to(0).unwrap(), 0);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The exception is scoped to *one level*, not to *no level 0*. A world
+    /// baked at levels 2 and 3 keeps the whole of level 2, not one chunk of
+    /// it — which is what separates "protect the overview" from "protect the
+    /// last thing standing".
+    #[test]
+    fn two_levels_still_protect_the_whole_coarsest_one() {
+        let root = tmp("evict-two-levels");
+        let s = AtlasStore::new(&root);
+        for col in 0..2 {
+            s.put("w1", 512, &chunk(2, col, 0, 16)).unwrap();
+            s.put("w1", 512, &chunk(3, col, 0, 16)).unwrap();
+        }
+        s.evict_to(0).unwrap();
+        let left = s.keys_for_world("w1").unwrap();
+        assert_eq!(left.len(), 2, "the coarsest level was not kept whole");
+        assert!(left.iter().all(|k| k.id.z == 2));
         let _ = fs::remove_dir_all(&root);
     }
 

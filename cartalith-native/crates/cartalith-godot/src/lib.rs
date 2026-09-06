@@ -10651,8 +10651,12 @@ impl WorldGen {
     /// live in
     /// `cartalith_io::atlas::AtlasStore::evict_to`, whose own doc states the
     /// ordering rule (coldest first, deeper LOD first at equal age) and the
-    /// floor (a world is never taken below its coarsest level — a size cap is
-    /// a budget, `atlas_clear` is the clear button).
+    /// floor — which is **one chunk, not one level**, and this sentence used
+    /// to say otherwise. A world is never emptied (`chunks > 0`, `finalized`
+    /// false — the state `atlas_clear` refuses to manufacture), but a
+    /// single-level world *can* be cut to one chunk, so a 64-chunk `z = 3`
+    /// world drops to 1/64 coverage rather than stopping at its coarsest
+    /// level. A size cap is a budget; `atlas_clear` is the clear button).
     ///
     /// **Spans every world in the cache directory, not only the current
     /// one** — an old world's chunks are most of what a long session
@@ -10660,7 +10664,8 @@ impl WorldGen {
     ///
     /// `0` when no cache directory is configured, when the cache already
     /// fits, or when nothing outside the protected coarsest levels is left to
-    /// free; the caller should re-read `atlas_status()` rather than infer
+    /// free — which is not the same as "outside the coarsest levels", per the
+    /// floor above; the caller should re-read `atlas_status()` rather than infer
     /// which of those it was. A negative `max_bytes` is treated as `0`.
     #[func]
     fn atlas_evict_to(&mut self, max_bytes: i64) -> i64 {

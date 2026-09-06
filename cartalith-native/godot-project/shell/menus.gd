@@ -4792,9 +4792,19 @@ func _help(p: PopupMenu) -> void:
 	## with a **local** diagnostic dump -- "No endpoint required" is the ruling's
 	## own words. `diagnostic_report.gd` is that dump; see its header for what
 	## it writes and why each of the five named readouts is or is not new.
-	_live(p, "Save diagnostic report", ID_HELP_REPORT)
+	##
+	## **The row opens a review panel first, and did not until 2026-09-06.** A
+	## pre-filled report is a claim about what the app knows, so
+	## `DiagnosticReviewDialog` lists every value and where it came from, offers
+	## the two disclosure toggles and a copy-to-clipboard that needs no file
+	## manager, and only then writes. The ellipsis is the shell's own signal
+	## that a row asks before it acts. Deliberately NOT the round-3 canvas's
+	## `OPEN TRACKER` button beside it: that opens a browser, which is the
+	## endpoint the ruling says is not required, and an owner decision is newer
+	## than any canvas.
+	_live(p, "Save diagnostic report…", ID_HELP_REPORT)
 	p.set_item_tooltip(p.item_count - 1,
-		"Writes generation info, missing bindings, the project format version, GPU state and the last error this session saw to a text file, and opens it in the file manager. Nothing is sent anywhere -- attach the file yourself to a bug report.")
+		"Shows you generation info, missing bindings, the project format version, GPU state, the last error this session saw and the tail of the log — each with the symbol it was read from — and writes the ones you keep to a text file. Nothing is sent anywhere and no tracker is opened: attach the file yourself.")
 	_live(p, "About", ID_HELP_ABOUT)
 	p.id_pressed.connect(_on_help)
 
@@ -4994,5 +5004,8 @@ func _on_help(id: int) -> void:
 		ID_HELP_CREDITS: _host.open_credits()
 		ID_HELP_SHORTCUTS: _host.open_shortcuts()
 		ID_HELP_GEN_INFO: _host.open_gen_info()
-		ID_HELP_REPORT: DiagnosticReport.write(_host, _bridge)
+		## The panel, not the write. `DiagnosticReport.write()` is still the
+		## thing that produces the file and is still callable on its own --
+		## `DiagnosticReviewDialog` calls it once the user has seen the rows.
+		ID_HELP_REPORT: DiagnosticReviewDialog.open(_host, _bridge)
 		ID_HELP_ABOUT: _host.open_about()
