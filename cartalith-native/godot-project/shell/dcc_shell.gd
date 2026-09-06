@@ -7227,9 +7227,67 @@ func _do_phone_undo() -> void:
 # inner `padding:8px 12px`, radius 18, `background:pillBg`, `border:1px solid
 # var(--hair)`. Left to right: play/pause in a `38x38` radius-19 `var(--wash)`
 # circle at `13px` mono `var(--acc)`; `YEAR {n}` at `11px` mono `var(--ink)`;
-# a `min=-400 max=1200 step=1` slider taking the rest of the width; the three
-# speed labels at `9.5px` mono, lit `var(--acc)` and quiet `var(--faint)`; and
-# `✕` at `11px` mono `var(--sec)`, which stops playback and hides the strip.
+# a `min=-400 max=1200 step=1` slider; the three speed labels at `9.5px` mono,
+# lit `var(--acc)` and quiet `var(--faint)`; and `✕` at `11px` mono
+# `var(--sec)`, which stops playback and hides the strip.
+#
+# **One deviation, and the arithmetic is what forced it: the scrub gets its own
+# row.** §6.2 draws all six on one line and gives the slider `flex:1` -- "the
+# rest of the width". That works in the canvas because four of the six are not
+# boxes at all: the speed labels are `9.5px` type with `padding:6px 3px` and
+# `✕` is an `11px` glyph with `padding:6px 2px`, so each is about as wide as
+# its own glyphs. (Play is the one the canvas does declare, at `38x38`, and it
+# is also the one the floor barely moves -- 38 dp to 44.) This port floors every
+# tappable control at §13's 44 dp (`_ptap()`), and that floor is what ate the
+# track: five of the six siblings became 44 dp boxes and the slider, the one
+# `SIZE_EXPAND_FILL` child, was left the remainder.
+#
+# Measured on the shipped nodes, `_simscrub_probe.gd`, 2026-09-06:
+#
+# | at | inner width | five `_ptap` boxes | 6 gaps | `YEAR -400` | left for the scrub |
+# |---|---|---|---|---|---|
+# | 1080 x 2340, scale 2.621, floor 115 px | 966 px | 575 | 156 | 157 | **78 px** (96 with the shorter `NO WORLD`) |
+# | 1440 x 3168, scale 3.495, floor 154 px | 1286 px | 770 | 210 | 205 | **101 px** (123 with `NO WORLD`) |
+# | 2340 x 1080 landscape, scale 2.621 | 888 px | 575 | 156 | 157 | **0 px** (18 with `NO WORLD`) |
+#
+# **Every phone composition, so this was never a small-screen edge case**:
+# 36.6 dp at 1080, 35.2 dp at 1440 and **6.9 dp in landscape**, against the
+# same 44 dp floor. The floor is scale-invariant and so is the overrun -- the
+# row asks for more dp than 412 has, and landscape has fewer still: 338.8 dp of
+# inner width against portrait's 368.5. Landscape is also the tightest fit in
+# the strip on the other axis: with `YEAR -400` the row's minimum is 950 px and
+# it is given exactly 950. (The landscape figures come from the probe's replica
+# rather than a pre-fix build; the same replica reproduces the 1080 portrait
+# scrub width to the pixel, which is what licenses reading them that way.)
+#
+# The two other ways out were measured and lost; the numbers live in
+# `_simscrub_probe.gd::_losing_options()`, which builds a replica from these
+# controls' own minimum widths so they stay true as those minimums move.
+# **Wrapping the row in an `HFlowContainer`** (the shell has the precedent, in
+# the search chips) lays **one line** and changes nothing: a `FlowContainer`
+# breaks on its children's *minimum* widths and the scrub is the expander,
+# whose minimum is 0. Declaring the floor on it does make it wrap -- and then
+# the break lands after the sixth control, stranding `✕` alone on a second row
+# and still leaving the track sharing the first (237 px, 90.4 dp at 1080).
+# **Shrinking the three speed pills** to close the 19 px deficit at 1080 puts
+# each at 108.7 px = 41.5 dp: three violations bought with one, and the scrub
+# arrives at exactly 115 px, which is a target and not a length.
+#
+# A track is dragged along its length. 96 px of length over `TL_YEAR_MIN`..
+# `TL_YEAR_MAX` is 16.7 years per pixel; its own row is 966 px and 1.66. The
+# strip pays 157 -> 288 px of height for that at 1080 (385 at 1440), which is
+# 18% of `_phone_content_gap` in both portrait legs and 38% in landscape, whose
+# gap is 749 px -- it grows upward over the map (`GROW_DIRECTION_BEGIN`), and
+# the gap is the bound that already clears the tool sheet and the bottom bar.
+# All three are asserted inside it, not argued: `_simscrub_probe.gd`'s A4.
+#
+# **`Timeline.dc.html` board C is cited for what it settles and no more.** That
+# board is the desktop/tablet timeline and does not govern this strip; what it
+# shows is that when a transport competes with a scrub for one width, this
+# project's own newest drawing of *this cursor* answers with
+# `flex-direction:column;gap:6px` -- "Row 1, transport" and "Row 2, the scrub
+# track" full width beneath it. The phone has less width than the desktop, not
+# more. `_pscale(6)` below is that board's gap rather than a fourth number.
 #
 # **This is the desktop timeline strip's cursor, not a second one.** Every
 # control here goes through the §10a block -- `tl_year()`, `tl_set_year()`,
@@ -7237,11 +7295,16 @@ func _do_phone_undo() -> void:
 # `CivData::year` directly. `timeline_changed` is what keeps this view and
 # `app.gd`'s desktop strip agreeing; neither holds a year of its own.
 #
-# There is no entry point in `phone_menu.gd` for it (that file routes
-# MORE ▸ Simulation to the CIVIL Simulation category, which is a different
-# destination and stays as it is). The phone's own timeline strip row opens it
-# -- `app.gd::_fill_timeline_strip()`'s collapsed form -- which is the surface
-# the desktop expands in place and the phone has no room to.
+# **Two ways in, and `phone_menu.gd` is one of them.** This block used to say
+# there was *no* entry point there; opened 2026-09-06, `_fill_sim()`'s first
+# row is a `Transport strip on map` switch whose handler `_toggle_sim_strip()`
+# calls `set_phone_sim_strip_open()` and then closes the sheet -- because the
+# strip draws over the map that sheet covers, which is §6.6's own toast ("close
+# this sheet to scrub") carried out rather than printed. The other way in is
+# the phone's own timeline row: `app.gd::_fill_timeline_strip()` dispatches to
+# `_fill_phone_timeline_row()`, whose whole-width button toggles the strip, and
+# that row is the surface the desktop expands in place and the phone has no
+# room to.
 func _build_phone_sim_strip() -> Control:
 	var wrap := PanelContainer.new()
 	wrap.name = "PhoneSimStrip"
@@ -7267,9 +7330,18 @@ func _build_phone_sim_strip() -> Control:
 	wrap.offset_bottom = -_pscale(14)
 	wrap.visible = false
 
+	## Two rows, not §6.2's one -- see this block's header for the measured
+	## arithmetic that forced it and for the two alternatives that lost. `6` is
+	## the gap `Timeline.dc.html` board C puts between its own transport row and
+	## its own scrub row (`flex-direction:column;gap:6px`), rather than a fourth
+	## number invented for this strip.
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", _pscale(6))
+	wrap.add_child(col)
+
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", _pscale(10))
-	wrap.add_child(row)
+	col.add_child(row)
 
 	## The `38x38` accent circle. `▶`/`⏸` swap in `_refresh_phone_sim_strip()`.
 	_phone_sim_play = Button.new()
@@ -7302,6 +7374,23 @@ func _build_phone_sim_strip() -> Control:
 	_phone_sim_year = DccTheme.mono_label("", "text_bright", _pfont(11), 0)
 	row.add_child(_phone_sim_year)
 
+	## Where the slider used to sit. With the scrub moved to its own row the
+	## transport row has 122 px of slack at 1080 (measured, no-world string),
+	## and without an expander it would all pool at the right-hand end past the
+	## `✕`. This puts it between the readout and the speed ladder, which is
+	## board C's row 1 exactly (`<div style="flex:1"></div>` between `tlState`
+	## and the trailing controls) and keeps §6.2's own left-to-right grouping:
+	## transport and readout at one end, rate and dismiss at the other.
+	##
+	## `IGNORE`, not the `Control` default of `STOP`: it exists only to take up
+	## room, and `phone_fit()`'s own spacer clause is the recorded reason a bare
+	## `Control` with no `gui_input` must not be the node a tap lands on. That
+	## walk never runs over this strip -- it is built in phone units directly --
+	## so the rule is applied here by hand rather than inherited.
+	var gap := DccTheme.spacer()
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(gap)
+
 	_phone_sim_slider = HSlider.new()
 	_phone_sim_slider.min_value = TL_YEAR_MIN
 	_phone_sim_slider.max_value = TL_YEAR_MAX
@@ -7309,6 +7398,18 @@ func _build_phone_sim_strip() -> Control:
 	_phone_sim_slider.focus_mode = Control.FOCUS_NONE
 	_phone_sim_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_phone_sim_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	## §13's tap floor, on **both** axes and declared here rather than left to
+	## the row to supply. `phone_fit()` -- this shell's other 44 dp floor, and
+	## the one that reaches `Range` -- never walks this strip, so nothing else
+	## was flooring the scrub at all; it was sized entirely by what its five
+	## floored siblings left over. The same `_ptap(0)` the speed pills below
+	## use, which is `_pscale(maxf(44, 0))`.
+	##
+	## The height is the term that actually bites: `DccWidgets.phone_slider()`
+	## takes `maxf()` against whatever is already declared, and its own row
+	## figure is `PHONE_SLIDER_ROW` (32 dp) -- 12 dp under the floor at every
+	## scale. Declaring 44 first is what makes that `maxf()` resolve to 44.
+	_phone_sim_slider.custom_minimum_size = Vector2(_ptap(0), _ptap(0))
 	DccWidgets.phone_slider(_phone_sim_slider, _phone_scale)
 	## `value_changed` and not `drag_ended`: the readout beside it has to follow
 	## the finger, and `tl_set_year()` is a cursor write plus a snapshot load
@@ -7317,7 +7418,10 @@ func _build_phone_sim_strip() -> Control:
 	_phone_sim_slider.value_changed.connect(func(v: float):
 		if int(v) != tl_year():
 			tl_set_year(int(v)))
-	row.add_child(_phone_sim_slider)
+	## `col`, not `row`: the second line of the strip, full width. Built here so
+	## the construction still reads in §6.2's own left-to-right order; only the
+	## parent differs, and `col` already holds `row` so this lands beneath it.
+	col.add_child(_phone_sim_slider)
 	_phone_sim_transport.append(_phone_sim_slider)
 
 	for mult in TL_SPEEDS:

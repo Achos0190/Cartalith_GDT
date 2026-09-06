@@ -1283,6 +1283,48 @@ func _rebuild_profile(plan: Dictionary) -> void:
 ## `DccShell`/`DccApp`, not this file -- see this file's own class doc for
 ## why every other region this view takes over is reached the same
 ## read-only way.
+## **`app.timeline_row` is the one container in this shell that no fit walk
+## reaches**, and everything this file puts in it therefore drew at native
+## device resolution. `DccShell::_on_phone_node_added()` fits only descendants
+## of `left_dock`/`right_dock`; `_do_phone_refit()` above fits only
+## `_center_panel`; `DccShell.tablet_fit()` has exactly one call site
+## (`dcc_shell.gd`'s `tool_options_row`). The strip is a sibling of both docks
+## under `shell`/`chrome`, so it is outside all three, and unlike a `Window` it
+## has no `content_scale_factor` either -- the same hole `_build_center_panel()`
+## records for the centre panel, in the one region that file does not own.
+##
+## Measured 2026-09-06, windowed, `--force-touch`, `_phonesweep_probe.tscn`:
+## the empty-state label below drew **10.0 physical px** on 14 of 23 screens at
+## 1440x3168 (`phone=true`, `phone_scale` 3.495) and 19 of 23 at 1080x2400
+## (2.622) -- 33 of the 34 sub-11 px label measurements the whole sweep found.
+##
+## Two scalings, both copied rather than invented:
+##
+## - **Density**: `role_px("fs_timeline")` is `[10, 13]`, and it is what
+##   `app.gd` -- the *other* filler of this same row -- already uses for all
+##   nine of its own strip labels. Identical to the `FS_TINY` this replaced on
+##   pointer (both 10), so the desktop strip is unchanged.
+## - **Phone**: `round(px * phone_scale())`, which is `phone_fit()`'s own
+##   expression for a font size, applied here because the walk cannot reach
+##   this subtree. Font sizes and `custom_minimum_size` only -- exactly what
+##   that walk scales, so a container separation is left alone here for the
+##   same reason it is left alone there.
+##
+## `role_px()` is not enough on its own: `is_tablet()` is `_touch and not
+## _phone_mode`, so it answers the pointer half of every pair on a handset.
+func _tl_fs(px: int) -> int:
+	if app != null and app.has_method("is_phone") and app.is_phone():
+		return maxi(1, int(round(px * app.phone_scale())))
+	return px
+
+## The `custom_minimum_size` half of `_tl_fs()`, for the marks laid beside that
+## type: a 7 px legend swatch or an 8 px band next to 35 px of glyph is the
+## mismatch this pass exists to avoid, one axis over.
+func _tl_px(px: float) -> float:
+	if app != null and app.has_method("is_phone") and app.is_phone():
+		return round(px * app.phone_scale())
+	return px
+
 func _rebuild_timeline_band(plan: Dictionary) -> void:
 	if not _bound or app == null or app.timeline_row == null:
 		return
@@ -1301,12 +1343,13 @@ func _rebuild_timeline_band(plan: Dictionary) -> void:
 
 	if _route_index < 0:
 		app.timeline_row.add_child(DccTheme.mono_label(
-			"no committed route selected", "text_ghost", DccTheme.FS_TINY))
+			"no committed route selected", "text_ghost",
+			_tl_fs(DccTheme.role_px("fs_timeline"))))
 		return
 	var total_days := float(plan.get("total_days", -1.0))
 	if plan.is_empty() or total_days < 0.0:
 		var reason := "journey blocked -- no calendar to show" if not plan.is_empty() else "no result yet"
-		app.timeline_row.add_child(DccTheme.mono_label(reason, "block" if not plan.is_empty() else "text_ghost", DccTheme.FS_TINY))
+		app.timeline_row.add_child(DccTheme.mono_label(reason, "block" if not plan.is_empty() else "text_ghost", _tl_fs(DccTheme.role_px("fs_timeline"))))
 		return
 
 	## Real segments only: `results[i].days` per stage (land -> accent, water
@@ -1339,14 +1382,14 @@ func _rebuild_timeline_band(plan: Dictionary) -> void:
 	if rest_layover > 0.0:
 		segments.append({"days": rest_layover, "token": "text_dim"})
 
-	app.timeline_row.add_child(DccTheme.mono_label("day 1", "text_faint", DccTheme.FS_TINY))
+	app.timeline_row.add_child(DccTheme.mono_label("day 1", "text_faint", _tl_fs(DccTheme.role_px("fs_timeline"))))
 	_timeline_view = _TimelineBandView.new()
 	_timeline_view.segments = segments
 	_timeline_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_timeline_view.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_timeline_view.custom_minimum_size = Vector2(0, 8)
+	_timeline_view.custom_minimum_size = Vector2(0, _tl_px(8.0))
 	app.timeline_row.add_child(_timeline_view)
-	app.timeline_row.add_child(DccTheme.mono_label("day %d" % int(roundf(total_days)), "text_faint", DccTheme.FS_TINY))
+	app.timeline_row.add_child(DccTheme.mono_label("day %d" % int(roundf(total_days)), "text_faint", _tl_fs(DccTheme.role_px("fs_timeline"))))
 
 	var legend := HBoxContainer.new()
 	legend.add_theme_constant_override("separation", 10)
@@ -1361,11 +1404,27 @@ func _timeline_legend_item(parent: Control, token: String, label_text: String) -
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 4)
 	var sw := ColorRect.new()
-	sw.custom_minimum_size = Vector2(7, 7)
+	sw.custom_minimum_size = Vector2(_tl_px(7.0), _tl_px(7.0))
 	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	sw.color = DccTheme.c(token)
 	row.add_child(sw)
-	row.add_child(DccTheme.mono_label(label_text, "text_ghost", DccTheme.FS_MICRO))
+	## **`fs_dock_header` is borrowed for its PAIR, not for its name**, and that
+	## is worth stating because a legend caption is not a dock header.
+	## `ROLE` holds exactly one `[9, N]` row and this is it: 9 on pointer, which
+	## is byte-identical to the bare `FS_MICRO` this caption drew before, and 11
+	## on tablet, which is the legibility floor itself.
+	##
+	## The alternative -- keeping bare `FS_MICRO`, which is what `app.gd` does
+	## for this row's own sub-marks -- was measured and rejected rather than
+	## assumed: `_jptlfs_probe.tscn -- --tablet --force-touch` read all four of
+	## these captions at **9 px** while the `fs_timeline` labels beside them had
+	## moved to 13. That 4-step gap is not the 1-step gap the desktop draws, so
+	## leaving it would have been this pass creating a mismatch on the density it
+	## was not looking at -- `MISTAKES.md`'s "check the other density before
+	## naming one", and its re-base row: the *relationship* is what a moved token
+	## leaves unverified, not just the value.
+	row.add_child(DccTheme.mono_label(label_text, "text_ghost",
+		_tl_fs(DccTheme.role_px("fs_dock_header"))))
 	parent.add_child(row)
 	return row
 

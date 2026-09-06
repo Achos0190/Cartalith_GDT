@@ -1416,7 +1416,15 @@ func _cancel_label_edit() -> void:
 ## establish that popups belong on the app root.
 func _prompt_label_name(gx: float, gy: float) -> void:
 	var dlg := AcceptDialog.new()
-	dlg.title = "New label"
+	## **The dialog names the role it is about to create in**, because the role
+	## it creates in changed: a new label used to be Settlement always
+	## (`MapLabel::new`'s own default) and now takes whichever role the Label
+	## classes panel has selected, along with that role's base size and size
+	## mode. That is the point of a per-role editor -- the selected role is the
+	## one receiving new work -- and it is exactly the kind of change that has
+	## to be visible at the moment it happens rather than discovered afterwards.
+	var role_name := String(_label_class_spec(_label_class).get("label", _label_class))
+	dlg.title = "New %s label" % role_name.to_lower()
 	dlg.get_ok_button().text = "Create"
 	dlg.min_size = Vector2i(320, 0)
 
@@ -1433,6 +1441,18 @@ func _prompt_label_name(gx: float, gy: float) -> void:
 	var create := func():
 		var idx := bridge.label_create(gx, gy, edit.text)
 		if idx >= 0:
+			## The role and its two defaults, applied in the one place a label
+			## comes into existence -- "applies to new ones" is not a policy
+			## written anywhere else, it is these three lines. The engine's own
+			## `MapLabel::new` values (`LABEL_NEW_SIZE`/`LABEL_NEW_SIZE_MODE`)
+			## are what they replace, and an untouched panel replaces the mode
+			## with the identical value.
+			bridge.label_set_class(idx, _label_class)
+			var spec := _label_class_spec(_label_class)
+			bridge.label_set(idx, {
+				"size": float(spec.get("size", LABEL_NEW_SIZE)),
+				"size_mode": String(_label_role_size_mode.get(_label_class, LABEL_NEW_SIZE_MODE)),
+			})
 			app.viewport.refresh_annotations()
 			app.set_tool_options(_build_label_tool_options_row)
 			_rebuild_label_panel()
@@ -1560,10 +1580,96 @@ const LABEL_TRACK_RANGE := Vector2(0.0, 0.40)
 ## `LABD().sel` is `'settlement'`, and the design's own fallback when `sel`
 ## matches nothing is `CL[2]` -- also settlement (`parts.js:378`).
 var _label_class := "settlement"
+## The `Class` OptionButton, held so `_sync_label_class()` can re-seat it
+## when a role is chosen from the list instead of from the dropdown.
+var _label_class_picker: OptionButton
 var _label_class_rows: Dictionary = {}     ## key -> the row's name Label.
 var _label_class_count_cells: Dictionary = {}  ## key -> the row's count Label.
 var _label_class_title: Label
 var _label_class_fields: Array = []        ## The three `DccWidgets.slider()` dicts.
+
+# -- Roles: the route in, the role defaults, and the hand-placed tally --------
+#
+# **What was already here, opened at the symbol before any of this was added.**
+# The pass that built this block was briefed that "the list exists, the route
+# into a role does not". Half of that was already false: the
+# `DccWidgets.choice(fields, "Class", ...)` below has selected a role since the
+# class panel shipped, and `_sync_label_class()` re-seats the three dials on it.
+# Three other things were genuinely missing, and they are what this builds:
+#
+#   1. **A route from the list itself.** The five rows were a `ColorRect` and
+#      three `Label`s with nothing to press, so selecting a role meant finding a
+#      dropdown under a second heading. Each row is a flat `Button` now: the
+#      thing you are looking at is the thing you press.
+#   2. **Role-level defaults for a hand-placed label's `size` and `size_mode`.**
+#      Both were per-label and nothing else set them -- a role's base size is
+#      the one control that fixes a whole class of labels at once instead of one
+#      edit per label.
+#   3. **A per-role count of the labels you placed.** The count column that was
+#      already there counts the *generated* pass
+#      (`labels_generated_counts()`); nothing answered "how many labels have I
+#      placed in this role".
+#
+# **The disagreement rule, decided and stated: a role default is a template for
+# NEW labels plus an explicit, counted apply. It never overwrites silently, and
+# it is deliberately not a fallback.**
+#
+# A fallback -- "the label draws at its role's size unless it has its own" --
+# is the shape to want and the engine cannot express it. `MapLabel.font` and
+# `MapLabel.color` are `Option<String>` read through `font_or_default()` /
+# `color_or_default()`, so the engine *has* the unset-then-fall-back idiom and
+# deliberately withholds it from `size`/`size_mode`: both are plain fields,
+# `label_dict()` emits a concrete value for both on every row, and
+# `map_overlay.gd::_draw_labels` draws the stored number. Resolving a fallback
+# at draw time is a change to `cartalith-civ`, not to this panel.
+#
+# The cheap shell-side imitation -- a sentinel size meaning "follows the role"
+# -- is the mistake `MISTAKES.md` opens with: never encode "no value" as a
+# plausible value. `8.0` is a real size a user can choose.
+#
+# So a new label takes the selected role's defaults at creation, and an existing
+# one changes only when `Apply to the N labels...` is pressed, which names the
+# values it will overwrite and the count it will reach. The label list marks
+# every label whose size and mode currently **match** its role's base -- match,
+# not follow: nothing binds them, and the mark is a comparison made when the
+# list is rebuilt.
+
+## Per-role `size_mode` for hand-placed labels, `key -> "fixed"`/`"zoom"`.
+##
+## Shell-side, and the engine is the reason rather than the obstacle:
+## `LabelTypography` carries size/halo/tracking/italic/ink and no size mode, and
+## `LabelTypography::set_field()` has exactly three arms. A size mode is a
+## property of a placed label, not of the type spec the pass draws with.
+var _label_role_size_mode: Dictionary = {}
+
+## `MapLabel::new`'s own two defaults, transcribed with their source for the
+## same reason `LABEL_CLASSES` above is: they are what `label_create` gives a
+## label before any role default reaches it, and this file has to know the
+## before-value to seed the after-value with something that is not a guess.
+## `labels.rs`: `size: DEFAULT_LABEL_SIZE` (16.0) and `size_mode:
+## LabelSizeMode::Zoom` (the enum's `#[default]`, the reference's
+## `sizeMode: 'zoom'`).
+const LABEL_NEW_SIZE := 16.0
+const LABEL_NEW_SIZE_MODE := "zoom"
+
+var _label_role_rows: Dictionary = {}          ## key -> the row `Button`.
+var _label_role_tally: Dictionary = {}         ## key -> `{placed, matching}`.
+var _label_role_line: Label                    ## The selected role's own tally.
+var _label_role_apply: Button
+var _label_role_mode: OptionButton
+var _label_role_italic: Label                  ## A readout of a live spec value.
+
+## Whether `label_class_table()` answered at all.
+##
+## `false` means an older cdylib: `label_class_of()` then returns `""` for every
+## index and the per-label `Class` row already resolves that to settlement. That
+## is a safe *default* for one label and a **fabricated tally** over 118 of
+## them, so the counts read `--` with that reason instead of filing every label
+## under Settlement. The two bindings ship together -- `label_class_table`,
+## `label_class_of` and `label_set_class` are all `#[func]`s of the one
+## `#[godot_api(secondary)] impl WorldGen` in `label_bridge/generate.rs` -- so
+## the table's own emptiness is a sound test for the other two.
+var _label_role_binding := true
 
 ## The five type specs currently in force, in engine order. Each entry is
 ## `label_class_table()`'s own row shape (`key`, `label`, `size`, `halo`,
@@ -1642,22 +1748,81 @@ func _label_class_spec(key: String) -> Dictionary:
 func _build_label_classes(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Label classes")
 	_label_class_specs = _label_class_specs_from_engine()
+	## **Both count columns are named here**, because a row now carries two
+	## numbers and an unlabelled pair of right-aligned figures is a guess. The
+	## sentence about hand-placed labels keeping their own size is still exactly
+	## true: `Apply to the N labels...` in the role defaults below is the only
+	## thing that writes a role's size onto one, and a user has to press it.
 	DccWidgets.note(sec,
 		"The engine places these. Continent, province, settlement, lake and "
 		+ "landmark names are generated from the world's own features and styled "
-		+ "per class; the counts on the right are what the last run actually "
-		+ "drew. Moving a dial re-runs the pass when you let go of it. Region "
-		+ "labels you place by hand are the section below and are never replaced "
-		+ "by a run -- they take their class's halo and tracking, and keep their "
-		+ "own size, font and colour.")
+		+ "per class; press a row to edit that role. The first number is what "
+		+ "the last generated run drew, the second is how many labels you placed "
+		+ "in that role. Moving a dial re-runs the pass when you let go of it. "
+		+ "Region labels you place by hand are the section below and are never "
+		+ "replaced by a run -- they take their class's halo and tracking, and "
+		+ "keep their own size, font and colour.")
 
 	var rows := DccWidgets.group(sec, "Classes", true)
+	## The two count columns' own heading, at the widths the cells below use
+	## (44 and 30) so the three line up as columns rather than as three strings
+	## that happen to end near each other.
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	head.add_child(DccTheme.spacer())
+	for pair in [["drawn", 44], ["placed", 30]]:
+		var h := DccTheme.mono_label(String(pair[0]), "text_ghost", DccTheme.FS_MICRO, 1)
+		h.custom_minimum_size.x = float(pair[1])
+		h.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		head.add_child(h)
+	rows.add_child(head)
 	for entry in _label_class_specs:
 		var cl: Dictionary = entry
 		var key := String(cl.get("key", ""))
+		## Every role starts at the engine's own new-label mode, so an untouched
+		## panel and an untouched `MapLabel::new` agree before the first click --
+		## the same discipline `_build_settlement_class_filter()` states for its
+		## own defaults ("an untouched panel and an untouched overlay agree").
+		_label_role_size_mode[key] = LABEL_NEW_SIZE_MODE
+		## **The row is the route into the role.** A flat `Button` carrying the
+		## row as a full-rect child, which is `right_dock.gd::_stacked_bar()`'s
+		## own shape for "a composed row that is one control": a `Button` lays
+		## out no children of its own, so the `HBoxContainer` is anchored and
+		## every cell in it is `MOUSE_FILTER_IGNORE` -- a cell left on the
+		## `Control` default of `STOP` would still be hit-tested and would eat
+		## the press over its own width, which is why the count cell's tooltip
+		## moved up to the button in `_refresh_label_class_row()`.
+		##
+		## Full width, so the touch floor is a *height* question here and the
+		## width axis is satisfied by the dock. `phone_fit()` floors both axes
+		## for any `BaseButton` under the dock; `tablet_fit()` floors height
+		## only, and reaches this row because `register_workspace()` defers one
+		## pass over the whole panel after `_build()` returns. The explicit
+		## height below means the row does not depend on either having run.
+		var btn := Button.new()
+		btn.flat = true
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.clip_contents = true
+		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		btn.custom_minimum_size.y = DccTheme.role_px("btn_min_h") if DccTheme.is_tablet() else 22
+		btn.pressed.connect(_set_label_class.bind(key))
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
-		row.custom_minimum_size.y = 22
+		row.set_anchors_preset(Control.PRESET_FULL_RECT)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		btn.add_child(row)
+		## Which role is selected, encoded as presence rather than hue: a 2 px
+		## bar that is there or is not. The name's accent ink beside it and the
+		## `WATER · TYPE` title below both say the same thing, so the state
+		## survives a reader who cannot separate the two colours -- this shell's
+		## own rule for a lit-one-of-a-set (`_mode_switch_segment()`: "the state
+		## has to be legible without colour alone").
+		var mark := ColorRect.new()
+		mark.color = Color(0, 0, 0, 0)
+		mark.custom_minimum_size = Vector2(2, 12)
+		mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(mark)
 		## `width:11px;height:11px;border-radius:3px` (`ENV:702`). A `ColorRect`
 		## rather than a themed swatch: these five colours are the design's own
 		## literals and are NOT tokens -- `#a9adb0` and `#6f9fb5` appear nowhere
@@ -1669,9 +1834,21 @@ func _build_label_classes(parent: Control) -> void:
 		sw.color = Color(String(cl.get("ink", "#ffffff")))
 		sw.custom_minimum_size = Vector2(11, 11)
 		sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(sw)
 		var name_l := DccTheme.label(String(cl.get("label", key)), "text", DccTheme.FS_SMALL)
 		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		## The row is anchored inside the button, so its own minimum no longer
+		## propagates out to the dock -- which removes the DS-03 overflow route
+		## and puts the *squeeze* here instead: on a 400 px tablet dock the four
+		## fixed columns and the larger type leave the name less than it wants.
+		## Trimmed with an ellipsis rather than cut, the same pair
+		## `DccWidgets._row()` uses for the identical fault. The name is the
+		## expanding cell and every sibling is fixed-width, so `clip_text`'s
+		## collapse to a 1 px minimum cannot make it vanish here -- it takes
+		## whatever the fixed columns leave.
+		name_l.clip_text = true
+		name_l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		row.add_child(name_l)
 		var spec_l := DccTheme.mono_label(_label_spec_text(cl), "text_dim", DccTheme.FS_MICRO)
 		row.add_child(spec_l)
@@ -1680,9 +1857,20 @@ func _build_label_classes(parent: Control) -> void:
 		count.custom_minimum_size.x = 44
 		count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row.add_child(count)
-		rows.add_child(row)
+		## **The second count, and it answers a different question.** The column
+		## to its left is the generated pass's (`labels_generated_counts()`);
+		## this one is how many labels *you* placed in this role, tallied from
+		## `label_list()` -- which carries no class of its own, so the role comes
+		## from `label_class_of(index)` one call per label
+		## (`_label_role_recount()`).
+		var placed := DccTheme.mono_label("--", "text_ghost", DccTheme.FS_MICRO)
+		placed.custom_minimum_size.x = 30
+		placed.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(placed)
+		rows.add_child(btn)
 		_label_class_rows[key] = name_l
-		_label_class_count_cells[key] = {"count": count, "spec": spec_l}
+		_label_role_rows[key] = {"btn": btn, "mark": mark}
+		_label_class_count_cells[key] = {"count": count, "spec": spec_l, "placed": placed, "btn": btn}
 
 	## One line under the list rather than a per-row second number: the design
 	## draws a single summary (`parts.js:372`, "122 drawn · 9 culled") and the
@@ -1706,7 +1894,22 @@ func _build_label_classes(parent: Control) -> void:
 	var fields := DccWidgets.group(sec, "Type", true)
 	_label_class_title = DccTheme.mono_label("", "text_faint", DccTheme.FS_MICRO, 2)
 	fields.add_child(_label_class_title)
-	DccWidgets.choice(fields, "Class",
+	## The selected role's own tally, in words under its title: how many labels
+	## are in it and how many of them still match its base. Wrapped for the
+	## reason `_label_class_summary` above carries a comment about -- this dock's
+	## `ScrollContainer` has its horizontal axis disabled, so an unwrapped
+	## `Label`'s minimum width propagates out and grows the dock.
+	_label_role_line = DccTheme.mono_label("", "text_faint", DccTheme.FS_MICRO, 1)
+	_label_role_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	fields.add_child(_label_role_line)
+	## **Kept, not discarded.** This return was thrown away until 2026-09-06,
+	## which was harmless while the dropdown was the ONLY route into a role.
+	## The row press added a second route, and the two then disagreed on
+	## screen: pressing Water moved the marks, the title, the three dials and
+	## the Apply button while this still read Settlement. No data was lost --
+	## every consumer reads `_label_class` -- but the panel contradicted
+	## itself. `_sync_label_class()` now re-seats it.
+	_label_class_picker = DccWidgets.choice(fields, "Class",
 		_label_class_specs.map(func(c: Dictionary) -> String: return String(c.get("label", ""))),
 		_label_class_index(_label_class),
 		func(i: int): _set_label_class(String((_label_class_specs[i] as Dictionary).get("key", ""))),
@@ -1717,14 +1920,29 @@ func _build_label_classes(parent: Control) -> void:
 	## The three constants above are the fallback for a cdylib without the
 	## binding, exactly as `LABEL_CLASSES` is for the specs.
 	var table: Dictionary = bridge.label_class_table()
+	## The one place the panel can tell an older cdylib from a current one --
+	## see `_label_role_binding`'s own declaration for why the tally depends on
+	## it and the per-label `Class` row does not.
+	_label_role_binding = not table.is_empty()
 	var cl0: Dictionary = _label_class_spec(_label_class)
+	## **One tooltip per dial, not one shared string.** The shared one said
+	## *"Applies to every label of this class, generated or hand-placed"*, and
+	## that is true of two of the three: `labels_render_list()` hands every row
+	## -- generated and hand-placed alike -- its class's `halo_em`/`tracking_em`,
+	## and `map_overlay.gd::_draw_labels` strokes and tracks with them. `size`
+	## is the exception: a hand-placed label draws at its own `size`
+	## (`_label_font_px`), and this dial is the role's *base*, which reaches one
+	## only at creation or through the explicit apply below.
 	_label_class_fields = [
 		_label_class_dial(fields, "size", "size", _label_range(table, "size_range", LABEL_SIZE_RANGE),
-			1.0, float(cl0.get("size", 13.0)), " px"),
+			1.0, float(cl0.get("size", 13.0)), " px",
+			"The size the generated pass draws this role at, and the base a NEW hand-placed label of this role is created at. Labels already placed keep their own size until you apply it below. Released, not dragged: letting go re-runs the labelling pass."),
 		_label_class_dial(fields, "halo", "halo", _label_range(table, "halo_range", LABEL_HALO_RANGE),
-			0.1, float(cl0.get("halo", 1.5)), " px"),
+			0.1, float(cl0.get("halo", 1.5)), " px",
+			"The outline every label of this role is stroked with, generated or hand-placed -- it is what keeps a name legible over terrain. Released, not dragged: letting go re-runs the labelling pass."),
 		_label_class_dial(fields, "tracking", "tracking", _label_range(table, "tracking_range", LABEL_TRACK_RANGE),
-			0.01, float(cl0.get("tracking", 0.06)), " em"),
+			0.01, float(cl0.get("tracking", 0.06)), " em",
+			"Letter spacing for every label of this role, generated or hand-placed. Released, not dragged: letting go re-runs the labelling pass."),
 	]
 
 	## `hLabColl` / `labCollNote` (`parts.js:387`-`:389`). **Live.** The pass
@@ -1754,6 +1972,63 @@ func _build_label_classes(parent: Control) -> void:
 		+ "Boxes are estimated from this font's average glyph width, not "
 		+ "measured per name, so an unusually wide name can still touch its "
 		+ "neighbour.")
+
+	## -- Role defaults, and the four type fields that are not here -----------
+	##
+	## **`halo` and `tracking` are NOT among the missing ones**, and this is
+	## written here because the pass that built this block was briefed that they
+	## were -- that `family`, `weight`, `tracking`, `case` and `halo` all "have
+	## no engine behind them", with halo called out as the one that matters.
+	## Opened at the symbol: `LabelTypography::set_field()` accepts exactly
+	## `size`, `halo` and `tracking`; `labels_generate`'s `typography` option
+	## carries all three; `labels_render_list()` resolves them to `halo_em` /
+	## `tracking_em` on every row, generated and hand-placed; and
+	## `map_overlay.gd::_draw_labels` turns those into `outline_w` and
+	## `track_px` and draws them. Both dials are live, both are two rows above
+	## this one, and dashing halo "prominently" would have shipped a false
+	## reason for the one field that keeps a name legible over terrain.
+	##
+	## Three are genuinely absent, and the reason is the same one twice over: no
+	## field to hold the value, and no renderer that would read one.
+	var defaults := DccWidgets.group(sec, "Role defaults", true)
+	DccWidgets.note(defaults,
+		"These are the role's own defaults for the labels you place by hand. A "
+		+ "new label takes them at the moment it is created; labels already on "
+		+ "the map keep whatever they have until you press Apply, which says "
+		+ "how many it will change. Nothing here rewrites a size you set "
+		+ "yourself without being asked. The base size is the size dial above, "
+		+ "so the role's generated names and its new hand-placed ones start at "
+		+ "the same figure.")
+	_label_role_mode = DccWidgets.choice(defaults, "Size mode",
+		["Fixed", "Zoom with map"], 1,
+		func(i: int):
+			_label_role_size_mode[_label_class] = "fixed" if i == 0 else "zoom"
+			_refresh_label_role_controls(),
+		"Fixed grows and shrinks with the terrain; Zoom holds a constant on-screen size. Applies to new labels of this role, and to existing ones only through Apply below.")
+	## `italic` is a real attribute and is deliberately not a dial: the water
+	## row is the only spec that carries it (`parts.js:363`), and
+	## `set_field(\"italic\", ...)` returns `None` with a Rust test pinning that
+	## it does. So this is a readout of a live value, not a dashed field.
+	_label_role_italic = DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO, 1)
+	_label_role_italic.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	defaults.add_child(_label_role_italic)
+	_label_role_apply = DccWidgets.action(defaults, "Apply to this role's labels",
+		_apply_role_defaults_to_labels)
+
+	_dead_text_row(defaults, "Font family",
+		"No field to hold it -- LabelTypography is size/halo/tracking/italic/ink and set_field() has three arms -- and nothing that would read one: map_overlay.gd::_draw_labels draws every label with get_theme_default_font(), the one face this shell has. Even the per-label font string the engine already stores is never read there.")
+	_dead_text_row(defaults, "Weight",
+		"The same two gaps: no weight field on LabelTypography or MapLabel, and one loaded face with no weight axis to select from.")
+	_dead_text_row(defaults, "Case",
+		"Nothing records a case rule and nothing applies one -- the string goes from MapLabel.name to draw_string untouched.")
+	## Where a per-label font picker would have gone, and why it is not there.
+	DccWidgets.note(defaults,
+		"There is deliberately no font picker per label. Inkarnate makes label "
+		+ "editing one click and per layer instead of solving scaling, and that "
+		+ "is the trade this panel takes: a role's base size fixes every label "
+		+ "of that role at once, where per-label type would turn 118 labels "
+		+ "into 118 decisions and would not survive a change of style. If "
+		+ "families ever land, they belong on the role, beside the dials above.")
 	_sync_label_class()
 
 
@@ -1795,14 +2070,15 @@ func _label_advance_ratio() -> float:
 ## (`labels::lake_features`). Re-running that on every `value_changed` sample of
 ## a drag would put an O(gw*gh) pass on a per-frame path.
 func _label_class_dial(parent: Control, label_text: String, field: String,
-		range_: Vector2, step: float, value: float, unit: String) -> Dictionary:
+		range_: Vector2, step: float, value: float, unit: String, tip: String) -> Dictionary:
 	return DccWidgets.slider(parent, label_text, range_.x, range_.y, step, value, unit,
 		func(v: float):
 			var spec := _label_class_spec(_label_class)
 			if not spec.is_empty():
 				spec[field] = v
-				_refresh_label_class_row(_label_class),
-		"Applies to every label of this class, generated or hand-placed. Released, not dragged: letting go re-runs the labelling pass.",
+				_refresh_label_class_row(_label_class)
+				_refresh_label_role_controls(),
+		tip,
 		_regenerate_labels)
 
 
@@ -1827,6 +2103,12 @@ func _set_label_class(id: String) -> void:
 ## it is written down rather than defended with a re-entrancy guard nothing else
 ## in this file uses.
 func _sync_label_class() -> void:
+	## The dropdown is a second view of `_label_class`, so it follows a row
+	## press. Guarded on validity because the panel is rebuilt wholesale.
+	if is_instance_valid(_label_class_picker):
+		var want := _label_class_index(_label_class)
+		if _label_class_picker.selected != want:
+			_label_class_picker.selected = want
 	var cl := _label_class_spec(_label_class)
 	if cl.is_empty():
 		return
@@ -1835,6 +2117,13 @@ func _sync_label_class() -> void:
 		if is_instance_valid(l):
 			l.add_theme_color_override("font_color",
 				DccTheme.c("accent") if key == _label_class else DccTheme.c("text"))
+	## The selected row's presence bar -- the half of the selection that is not
+	## a hue. See the `mark` `ColorRect` in `_build_label_classes()`.
+	for key in _label_role_rows:
+		var parts: Dictionary = _label_role_rows[key]
+		var mark: ColorRect = parts.get("mark")
+		if mark != null and is_instance_valid(mark):
+			mark.color = DccTheme.c("accent") if key == _label_class else Color(0, 0, 0, 0)
 	if _label_class_title != null and is_instance_valid(_label_class_title):
 		_label_class_title.text = "%s · TYPE" % String(cl.get("label", "")).to_upper()
 	if _label_class_fields.size() == 3:
@@ -1844,6 +2133,7 @@ func _sync_label_class() -> void:
 			if is_instance_valid(s):
 				s.value = float(cl.get(String(pair[1]), s.value))
 				(d["readout"] as Label).text = (d["format"] as Callable).call(s.value)
+	_refresh_label_role_controls()
 
 
 ## Repaint one class row's spec string and drawn count.
@@ -1872,11 +2162,187 @@ func _refresh_label_class_row(key: String) -> void:
 	## a world with no lakes over the floor and a world whose lakes were all
 	## capped away are different situations.
 	if available == 0:
-		count_l.tooltip_text = "Nothing in this world to label at this class."
+		_set_label_row_tip(cells, "Nothing in this world to label at this class.")
 	elif drawn < available:
-		count_l.tooltip_text = "%d drawn of %d available; %d over the cap." % [drawn, available, available - drawn]
+		_set_label_row_tip(cells, "%d drawn of %d available; %d over the cap." % [drawn, available, available - drawn])
 	else:
-		count_l.tooltip_text = "%d drawn, every candidate this class found." % drawn
+		_set_label_row_tip(cells, "%d drawn, every candidate this class found." % drawn)
+
+
+## The count column's own explanation, written onto the **row button** rather
+## than onto the count `Label`.
+##
+## The label is `MOUSE_FILTER_IGNORE` now, because a cell left on the `Control`
+## default of `STOP` is still hit-tested inside its ignoring parent and would
+## swallow the press over its own 44 px -- a dead strip in the middle of the
+## control that selects the role. So the tooltip moves up one level, where it
+## still answers a hover anywhere on the row, and the row's "press to select"
+## sentence is appended to it rather than replacing it.
+static func _set_label_row_tip(cells: Dictionary, why: String) -> void:
+	var btn: Button = cells.get("btn")
+	if btn != null and is_instance_valid(btn):
+		btn.tooltip_text = why + "\nPress this row to edit the role."
+
+
+## One hand-placed label's role key, resolved the same way the per-label
+## `Class` row resolves it: `label_class_of()` answers `""` both for an
+## out-of-range index and on a cdylib without the binding, and the design's own
+## fallback for an unmatched class is settlement (`parts.js:378`'s `CL[2]`, and
+## `MapLabel::class`'s own default).
+func _label_role_of(index: int) -> String:
+	var key := String(bridge.label_class_of(index))
+	return key if not key.is_empty() else "settlement"
+
+
+## Walk `label_list()` and tally the hand-placed labels per role.
+##
+## `label_list()` carries no class -- `label_dict()` is nine fields and class is
+## not one of them, deliberately (`label_class_of`'s own doc comment says why it
+## is a separate call) -- so this is one `label_class_of()` per label. That is
+## why it runs on create/delete/reclass/world-change and on a dial's *release*,
+## and never from a drag sample.
+##
+## `matching` is a **comparison, not a binding**: how many of the role's labels
+## currently sit at the role's base size and mode. Nothing holds them there and
+## nothing will move them without the Apply button.
+func _label_role_recount() -> void:
+	_label_role_tally.clear()
+	for entry in _label_class_specs:
+		_label_role_tally[String((entry as Dictionary).get("key", ""))] = {"placed": 0, "matching": 0}
+	if _label_role_binding:
+		for entry in bridge.label_list():
+			var d: Dictionary = entry
+			var key := _label_role_of(int(d.get("index", -1)))
+			if not _label_role_tally.has(key):
+				_label_role_tally[key] = {"placed": 0, "matching": 0}
+			var t: Dictionary = _label_role_tally[key]
+			t["placed"] = int(t["placed"]) + 1
+			if _label_matches_role(d, key):
+				t["matching"] = int(t["matching"]) + 1
+	for key in _label_class_count_cells:
+		var cells: Dictionary = _label_class_count_cells[key]
+		var placed_l: Label = cells.get("placed")
+		if placed_l == null or not is_instance_valid(placed_l):
+			continue
+		if not _label_role_binding:
+			## Not "0". A cdylib without `label_class_of` reports no class for
+			## any label, and filing all of them under Settlement would be a
+			## fabricated attribution rather than a missing one.
+			placed_l.text = "--"
+			placed_l.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+			continue
+		var n := int((_label_role_tally[key] as Dictionary)["placed"])
+		placed_l.text = "%d" % n
+		placed_l.add_theme_color_override("font_color",
+			DccTheme.c("text") if n > 0 else DccTheme.c("text_ghost"))
+	_refresh_label_role_controls()
+
+
+## Does this label sit at its role's base?
+##
+## Both halves, not just the size: a label at the base size in the other size
+## mode is not following the role, and calling it "matching" would be a false
+## green in the one place the panel promises to show the difference.
+func _label_matches_role(lb: Dictionary, key: String) -> bool:
+	var spec := _label_class_spec(key)
+	if spec.is_empty():
+		return false
+	var base := float(spec.get("size", LABEL_NEW_SIZE))
+	var mode := String(_label_role_size_mode.get(key, LABEL_NEW_SIZE_MODE))
+	return is_equal_approx(float(lb.get("size", -1.0)), base) \
+		and String(lb.get("size_mode", "")) == mode
+
+
+## The cheap half: everything that reads the *selected* role's own state, with
+## no walk over the labels. Safe from a drag sample; `_label_role_recount()` is
+## not.
+func _refresh_label_role_controls() -> void:
+	var spec := _label_class_spec(_label_class)
+	var name_s := String(spec.get("label", _label_class))
+	var base := float(spec.get("size", LABEL_NEW_SIZE))
+	var mode := String(_label_role_size_mode.get(_label_class, LABEL_NEW_SIZE_MODE))
+	if _label_role_mode != null and is_instance_valid(_label_role_mode):
+		_label_role_mode.selected = 0 if mode == "fixed" else 1
+	if _label_role_italic != null and is_instance_valid(_label_role_italic):
+		var italic := bool(spec.get("italic", false))
+		_label_role_italic.text = "italic: %s — set by the class spec, not editable" \
+			% ("on" if italic else "off")
+	var t: Dictionary = _label_role_tally.get(_label_class, {})
+	var placed := int(t.get("placed", 0))
+	var matching := int(t.get("matching", 0))
+	if _label_role_line != null and is_instance_valid(_label_role_line):
+		if not _label_role_binding:
+			_label_role_line.text = "This build cannot report which role a placed label is in."
+		elif placed == 0:
+			_label_role_line.text = "No labels placed in %s yet." % name_s
+		else:
+			_label_role_line.text = "%d placed in %s · %d already at the base (%d px, %s)" \
+				% [placed, name_s, matching, int(round(base)), mode]
+	if _label_role_apply == null or not is_instance_valid(_label_role_apply):
+		return
+	var changeable := placed - matching
+	_label_role_apply.text = "Apply base to %s (%d)" % [name_s, changeable]
+	_label_role_apply.disabled = changeable <= 0 or not _label_role_binding
+	if not _label_role_binding:
+		_label_role_apply.tooltip_text = "This build's engine cannot say which role a placed label is in, so there is nothing to apply to."
+	elif placed == 0:
+		_label_role_apply.tooltip_text = "No labels are in this role yet. New ones take the base as they are created."
+	elif changeable <= 0:
+		_label_role_apply.tooltip_text = "All %d %s labels are already at %d px, %s." % [placed, name_s, int(round(base)), mode]
+	else:
+		_label_role_apply.tooltip_text = "Overwrites size and size mode on %d of the %d %s labels, setting them to %d px, %s. The other %d are already there. This is the only thing that changes a size you set yourself." \
+			% [changeable, placed, name_s, int(round(base)), mode, matching]
+
+
+## Overwrite `size` and `size_mode` on every hand-placed label of the selected
+## role. The one destructive route the role defaults have, and it is behind a
+## button that states the count and the values before it runs.
+func _apply_role_defaults_to_labels() -> void:
+	if not _label_role_binding:
+		return
+	var spec := _label_class_spec(_label_class)
+	if spec.is_empty():
+		return
+	var base := float(spec.get("size", LABEL_NEW_SIZE))
+	var mode := String(_label_role_size_mode.get(_label_class, LABEL_NEW_SIZE_MODE))
+	for entry in bridge.label_list():
+		var d: Dictionary = entry
+		var idx := int(d.get("index", -1))
+		if idx < 0 or _label_role_of(idx) != _label_class:
+			continue
+		bridge.label_set(idx, {"size": base, "size_mode": mode})
+	app.viewport.refresh_annotations()
+	_update_label_handles_overlay()
+	_rebuild_label_panel()
+
+
+## One role-level type field the engine has nowhere to put. A row with an em
+## dash where the control would be, its reason on the row, dimmed the same way
+## `_dead_slider()` dims an inert dial.
+##
+## A dash rather than a plausible default: `MISTAKES.md`'s first rule is never
+## to encode "no value" as a value, and a family box reading `Georgia` would
+## name a family the renderer never asks for.
+func _dead_text_row(parent: Control, label_text: String, why: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if DccTheme.is_tablet() else 24
+	row.tooltip_text = why
+	var fs := DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL
+	var l := DccTheme.label(label_text, "text_secondary", fs)
+	l.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
+	l.clip_text = true
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	row.add_child(l)
+	row.add_child(DccTheme.spacer())
+	var dash := DccTheme.mono_label("--", "text_ghost",
+		DccTheme.role_px("fs_readout") if DccTheme.is_tablet() else DccTheme.FS_SMALL)
+	dash.custom_minimum_size.x = DccWidgets.ROW_VALUE_W
+	dash.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(dash)
+	parent.add_child(row)
+	_mark_inert(row)
+	return row
 
 
 ## Push the five specs to the engine, run the pass, and repaint what it said.
@@ -1925,6 +2391,12 @@ func _regenerate_labels() -> void:
 				suppressed += int((_label_class_counts[key2] as Dictionary).get("suppressed", 0))
 			_label_class_summary.text = "%d drawn · %d culled · %d ms" % [
 				total, suppressed, int(res.get("elapsed_ms", 0))]
+	## The hand-placed half of the same two-column row, and the reason it is
+	## here rather than on the dial's `on_change`: this is the release path, and
+	## a recount is one `label_class_of()` per label. A `size` dial that has just
+	## moved has also just moved how many labels still match the base, so the
+	## second column and the tally line go stale on exactly this event.
+	_label_role_recount()
 	app.viewport.refresh_annotations()
 
 
@@ -2229,11 +2701,46 @@ func _rebuild_label_panel() -> void:
 			l.add_theme_color_override("font_color",
 				DccTheme.c("accent" if bool(d.get("primary", true)) else "text"))
 		row.add_child(l)
+		## **Which role this label is in, and whether it is still at that role's
+		## base.** The half of the role-defaults decision that shows on screen:
+		## a default that can be applied but never applies itself is only honest
+		## if the list says which labels took it and which are carrying their own
+		## value. The word is *base*, not *following* -- nothing binds a label to
+		## its role, and this is a comparison made when the list is rebuilt.
+		##
+		## `MOUSE_FILTER_STOP` because a `Label` ignores the mouse by default
+		## and would never show the tooltip that carries the distinction.
+		if _label_role_binding:
+			var role_key := _label_role_of(idx)
+			var role_name := String(_label_class_spec(role_key).get("label", role_key)).to_lower()
+			var at_base := _label_matches_role(d, role_key)
+			var cell := DccTheme.mono_label(
+				"%s · %s" % [role_name, "base" if at_base else ("%dpx" % int(round(float(d.get("size", 0.0)))))],
+				"text_ghost" if at_base else "text_dim", DccTheme.FS_MICRO)
+			cell.mouse_filter = Control.MOUSE_FILTER_STOP
+			cell.tooltip_text = ("At this role's base size and mode. Nothing holds it there -- change its size below and it keeps the new one." if at_base
+				else "Carries its own size or size mode, not the role's base. Apply the role's defaults from Label classes above to bring it back.")
+			row.add_child(cell)
+		## **Both axes, and the tablet floor is authored here rather than left to
+		## a fitter.** Measured at 1600x1000 `--force-touch` before this line
+		## existed: `edit` laid **44 x 29** and `×` laid **27 x 29** against a
+		## 44 px floor -- one height defect and one that misses on *both* axes,
+		## which is `MISTAKES.md`'s own "a floor applies to the TARGET, not to
+		## its taller axis" in the flesh.
+		##
+		## Neither fitter reaches them. `tablet_fit()` floors height only and
+		## runs once, from `register_workspace()`'s deferred pass over the panel;
+		## these rows are built later, by `_rebuild_label_panel()`, so at tablet
+		## density they were reached by nothing at all. `phone_fit()` does reach
+		## them -- it re-runs on `node_added` under a dock and floors both axes
+		## -- so the phone was never affected and the authored figures below are
+		## deliberately left as the pre-scaled desktop pair for it to multiply.
+		var tap := float(DccTheme.role_px("btn_min_h")) if DccTheme.is_tablet() else 0.0
 		var sel := Button.new()
 		sel.text = "edit"
 		sel.tooltip_text = "Select for editing"
 		sel.focus_mode = Control.FOCUS_NONE
-		sel.custom_minimum_size = Vector2(34, 20)
+		sel.custom_minimum_size = Vector2(maxf(34.0, tap), maxf(20.0, tap))
 		sel.pressed.connect(func():
 			bridge.label_select(idx)
 			app.set_tool_options(_build_label_tool_options_row)
@@ -2243,7 +2750,7 @@ func _rebuild_label_panel() -> void:
 		del.text = "×"
 		del.tooltip_text = "Delete"
 		del.focus_mode = Control.FOCUS_NONE
-		del.custom_minimum_size = Vector2(22, 20)
+		del.custom_minimum_size = Vector2(maxf(22.0, tap), maxf(20.0, tap))
 		del.pressed.connect(func():
 			bridge.label_delete(idx)
 			app.viewport.refresh_annotations()
@@ -2252,6 +2759,11 @@ func _rebuild_label_panel() -> void:
 		row.add_child(del)
 		_label_list_body.add_child(row)
 
+	## Create, delete, reclass and clear-all all land here, and every one of them
+	## moves a per-role count. This is the only place the second column is
+	## refreshed from a change to the labels themselves; `_regenerate_labels()`
+	## refreshes it from a change to a role's base.
+	_label_role_recount()
 	_rebuild_label_edit_form()
 	_refresh_right_dock_anno()
 
@@ -2307,14 +2819,31 @@ func _rebuild_label_edit_form() -> void:
 			_label_class_index(cls),
 			func(i: int):
 				bridge.label_set_class(idx, String((_label_class_specs[i] as Dictionary).get("key", "")))
-				app.viewport.refresh_annotations(),
+				app.viewport.refresh_annotations()
+				## Deferred, never direct: this callable is running inside the
+				## `OptionButton`'s own `item_selected`, and a rebuild frees that
+				## button. `dcc_shell.gd::_rebuild_mode_switch()` states the same
+				## hazard in the same words -- freeing the control that is
+				## mid-emit takes the process with it. The rebuild is what keeps
+				## the per-role counts and this label's own `role · base` mark
+				## from describing the role it was in a moment ago.
+				_rebuild_label_panel.call_deferred(),
 			"Sets the halo and tracking this label draws with, from the class table above. Not part of the Confirm/Cancel snapshot -- like a reposition, it commits immediately.")
 
+	## `on_release` rather than a rebuild per sample, for the reason
+	## `_label_class_dial()` gives for its own split: the mark in the list above
+	## has to end up right, and recomputing it on every tick of a drag would put
+	## a walk over every label on a per-frame path. Deferred for the same
+	## mid-emit reason as the class row.
 	DccWidgets.slider(_label_edit_body, "Size", LABEL_SIZE_MIN, LABEL_SIZE_MAX, 1.0, float(lb.get("size", 16.0)), "px",
-		func(v: float): _apply_label_field(idx, "size", v))
+		func(v: float): _apply_label_field(idx, "size", v),
+		"This label's own size. It starts at its role's base and stays where you leave it -- a role default never comes back to overwrite it.",
+		func(): _rebuild_label_panel.call_deferred())
 	DccWidgets.choice(_label_edit_body, "Size mode", ["Fixed", "Zoom with map"],
 		0 if String(lb.get("size_mode", "fixed")) == "fixed" else 1,
-		func(i: int): _apply_label_field(idx, "size_mode", "fixed" if i == 0 else "zoom"))
+		func(i: int):
+			_apply_label_field(idx, "size_mode", "fixed" if i == 0 else "zoom")
+			_rebuild_label_panel.call_deferred())
 	DccWidgets.slider(_label_edit_body, "Arc", -1.0, 1.0, 0.01, float(lb.get("arc", 0.0)), "",
 		func(v: float): _apply_label_field(idx, "arc", v))
 	DccWidgets.slider(_label_edit_body, "Angle", -180.0, 180.0, 1.0, float(lb.get("angle", 0.0)), "°",
@@ -2339,7 +2868,14 @@ func _rebuild_label_edit_form() -> void:
 	color_row.add_child(DccTheme.mono_label("Color", "text_dim", DccTheme.FS_SMALL))
 	var picker := ColorPickerButton.new()
 	picker.color = Color(String(lb.get("color", "#f4e9c8")))
-	picker.custom_minimum_size = Vector2(60, 20)
+	## Measured at 1600x1000 `--force-touch` before this line: **60 x 24**
+	## against a 44 px floor. A `ColorPickerButton` is a `BaseButton` and this
+	## form is rebuilt long after `register_workspace()`'s one deferred
+	## `tablet_fit()`, so nothing floored it -- the same gap the list rows above
+	## had, on the same surface. `phone_fit()` reaches it and is unaffected, so
+	## the authored pair stays the desktop one for it to scale.
+	var pick_tap := float(DccTheme.role_px("btn_min_h")) if DccTheme.is_tablet() else 0.0
+	picker.custom_minimum_size = Vector2(maxf(60.0, pick_tap), maxf(20.0, pick_tap))
 	picker.color_changed.connect(func(c: Color): _apply_label_field(idx, "color", "#%s" % c.to_html(false)))
 	color_row.add_child(picker)
 	_label_edit_body.add_child(color_row)
