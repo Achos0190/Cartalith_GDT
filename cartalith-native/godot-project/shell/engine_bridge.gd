@@ -1837,6 +1837,50 @@ func sculpt_add_point(x: float, y: float) -> int:
 		return -1
 	return world_gen.sculpt_add_point(x, y)
 
+## The grid-snap ladder in grid cells, in engine order. Empty when the
+## binding is missing, which reads the same as "this build offers no snap
+## steps" -- and a picker built from an empty ladder correctly shows only
+## Off.
+func get_sculpt_grid_snap_steps() -> PackedFloat64Array:
+	if not _has("get_sculpt_grid_snap_steps"):
+		return PackedFloat64Array()
+	return world_gen.get_sculpt_grid_snap_steps()
+
+## `{"step": <cells>}` while snapping is on, and an **empty** Dictionary
+## while it is off -- ask `has("step")`, never compare against 0. An older
+## extension with no binding also reads as off, which is what it is.
+func sculpt_get_grid_snap() -> Dictionary:
+	if not _has("sculpt_get_grid_snap"):
+		return {}
+	return world_gen.sculpt_get_grid_snap()
+
+## Sets the snap step; anything off the ladder (0 included) turns snapping
+## off. Returns the step now in effect, or 0 for off.
+func sculpt_set_grid_snap(step: float) -> float:
+	if not _has("sculpt_set_grid_snap"):
+		return 0.0
+	return world_gen.sculpt_set_grid_snap(step)
+
+## One point through the engine's own snap, so a stroke preview draws the
+## polyline that will actually be stamped. Returns the input unchanged when
+## snapping is off *or* the binding is missing -- both of which mean "no
+## snapping is happening", so the fallback is the truth rather than a guess.
+##
+## **This is for a preview, not for feeding `sculpt_add_point`.** The engine
+## returns `PackedFloat64Array` precisely so an un-snapped point survives at
+## full precision; narrowing to `Vector2` here costs f32 rounding, which is
+## free only because the one consumer -- `world_workspace.gd`'s
+## `_sculpt_stroke_points` -- is a `PackedVector2Array` and f32 already.
+## Stroke capture still passes the raw pointer coordinates straight to
+## `sculpt_add_point`, which does its own snapping in f64.
+func sculpt_snap(x: float, y: float) -> Vector2:
+	if not _has("sculpt_snap"):
+		return Vector2(x, y)
+	var p: PackedFloat64Array = world_gen.sculpt_snap(x, y)
+	if p.size() < 2:
+		return Vector2(x, y)
+	return Vector2(p[0], p[1])
+
 ## **No caller.** The Sculpt tool needs the stroke's point *positions*, not
 ## its length -- it draws them as a path preview -- so
 ## `world_workspace.gd::_sculpt_stroke_points` keeps the array as the clicks

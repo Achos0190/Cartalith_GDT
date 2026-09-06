@@ -119,10 +119,15 @@ class_name JourneyPlannerView
 ## - **Calculation trace**: real as of 2026-08-23 (JP-05), built as
 ##   `GUI_GAP_REGISTER.md` §7.12 proposed — an inline group over the
 ##   selected stage rather than the spec's `⧉` window, one row per
-##   multiplicative term with its running value. The reference's `formula`
+##   multiplicative term. The reference's `formula`
 ##   *string* still does not cross the boundary; what crosses is the
 ##   structured `trace` (`JpTerm`), whose product is asserted engine-side to
-##   equal the leg's own `daily_km`.
+##   equal the leg's own `daily_km`. Since 2026-09-06 it is a four-column
+##   table -- step, the panel that term's input is read off, the factor, and
+##   what the LEG'S OWN DURATION becomes once the term is applied -- ending in
+##   a reconciliation row against the `days` the stage matrix already reports.
+##   See `_build_trace_group()` for what that row measures to, and why it is
+##   drawn rather than assumed.
 ## - **Elevation-profile sparkline**: unlike the old dialog (which reported
 ##   `plan.profile`'s presence and stopped), this pass DOES draw it --
 ##   `_ProfileView` plots the real 0-1 normalised samples. It was only
@@ -3076,6 +3081,15 @@ func _blocked_resolution_row(r: Dictionary) -> Control:
 ## disabled-axis trap again, in the same shape `DccWidgets.action()` records for
 ## the left dock.
 ##
+## **That trace sample is history: since 2026-09-06 the Calculation trace does
+## not come through here at all.** It is a four-column `GridContainer` inside
+## its own horizontally-scrolled `ScrollContainer` (`_build_trace_group()`), so
+## its grid -- 644 / 776 / 736 px wide over stage 01 of the same three seeds,
+## measured 2026-09-06 with `_jptraceshot_probe.gd` -- reaches this dock's
+## minimum through a scroll bar (`min.x` 20) rather than through `_kv_row`. Everything the paragraph above
+## says about the mechanism still holds for the rows that DO come through here;
+## only that example moved.
+##
 ## Only ONE side is bound, and it is chosen by measurement rather than by
 ## position, because either side can be the sentence: the label is long in
 ## `rest days · <basis>` and the VALUE is long in the vessel rows, where
@@ -3109,6 +3123,14 @@ func _kv_row(parent: Control, label_text: String, value_text: String, token: Str
 	## and changed nothing -- the same side chosen on every row the probe printed
 	## for all three seeds, the same 59 / 61 / 57 row counts, the same 258 px
 	## panel. The simpler read stands.
+	##
+	## Those row counts are the 2026-09-04 tree's. Re-measured 2026-09-06 with
+	## the same probe, seeds and resolution they are **55 / 63 / 58**, and no
+	## attempt is made here to attribute the move: two of the three went UP,
+	## which the trace's departure from this function cannot explain, and the
+	## file has taken several unrelated passes since. What IS re-measured and
+	## unchanged is the figure the paragraph exists for -- `body min.x` 231 and
+	## `right_dock min.x` 280 on all three seeds.
 	if l.get_combined_minimum_size().x >= v.get_combined_minimum_size().x:
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -3461,12 +3483,156 @@ func _vessel_matrix_data() -> Dictionary:
 
 ## JP-05. `GUI_GAP_REGISTER.md` §7.12's own proposal, built as an inline
 ## group rather than the spec's `⧉` window: one row per multiplicative term
-## in the engine's application order, with the running value beside it. The
-## rows come from `land.trace`/`water.trace` -- structured factors, not the
-## reference's `formula` prose string, which stays out of the engine on
-## purpose. The trace's own invariant (`∏ factor == daily_km`) is asserted in
-## `cartalith-civ`, so the last running value here always equals the km/day
-## the results panel reports above.
+## in the engine's application order, in four columns -- the step, the panel
+## its input is read off, the factor, and the running value. The rows come
+## from `land.trace`/`water.trace` -- structured factors, not the reference's
+## `formula` prose string, which stays out of the engine on purpose.
+##
+## **The running column counts DAYS, not km/day, and that is the whole point
+## of the screen.** The complaint a trace answers is never "what is the
+## answer" but *"why is this leg three days"*, so the chain starts at the
+## stage's own length and every substitution shows what the leg's duration
+## becomes once that term is applied -- Excel's Evaluate Formula, one
+## substitution at a time. `days == km / daily_km` on every path
+## (`jp_calc_land`'s convergence loop assigns `daily_km` and `days` together
+## on both its exits; `jp_calc_water`'s `trip_days` likewise), so dividing the
+## length by the running product is the calculator's own arithmetic rather
+## than a re-derivation on this side.
+##
+## **The last row is a reconciliation and it is drawn with a real value.** A
+## trace whose steps do not multiply out to the headline has been caught
+## lying, which is worse than not having one, so the residual against the
+## `days` the stage matrix and the inspector footer already print is a row
+## rather than an assumption. Measured 2026-09-06 over seeds 483920 / 77021 /
+## 4242 on every unblocked leg of all three, land and water --
+## `_jptraceshot_probe.gd` reads the drawn cell on **29 legs** and
+## `_jptrace_probe.gd` recomputes the arithmetic to twelve decimals -- and it
+## is **0.000000000000 d on every one of them**, as is `∏ factor - daily_km`.
+##
+## **Exactly zero is more than the engine promises, which is why the row is
+## drawn rather than assumed.** `cartalith-civ`'s
+## `the_calculation_trace_reproduces_daily_km_on_every_leg` -- the single test,
+## despite `JpTerm`'s doc calling it *"both"* -- asserts a **tolerance**,
+## `(product - daily_km).abs() < 1e-9 * daily_km.max(1.0)`, not equality. So
+## nothing guarantees this cell reads `+0.000000`; it reads that because the
+## shell multiplies the same `f64` factors in the same order the calculator
+## did. A world where it does not is exactly what the row exists to surface.
+##
+## **A land leg has no `crossing` row, and that is the engine's answer rather
+## than a gap in this table.** `jp_calc_water`'s `sailing window` is the only
+## crossing-shaped factor either calculator applies; `jp_calc_land` applies
+## none, and a stage's river crossings (`JpDerivedStage::rx`, summed into
+## `plan.riv_x`) never reach `daily_km` or `days` at all -- their only
+## consumer is a verdict reason pushed at `plan.riv_x >= 6`. So a ford costs
+## this model nothing in time, and inventing a row to say otherwise would put
+## a number on screen the calculator does not have.
+##
+## **Nothing here is a new engine call.** `land.trace`/`water.trace` already
+## cross the boundary and this function already read them; the source column
+## is assembled from controls this shell already draws.
+##
+## The row that scheduled this expected the reconciliation to be non-zero, on
+## the premise that only six of a leg's terms are visible to the shell and the
+## rest live inside `jp_plan_ex`. Measured, that premise is false in both
+## directions and the numbers are worth keeping: **every** term crosses (14 on
+## a land leg, 8 on a water one), and the six that premise named -- length,
+## terrain, pace, load, weather, crossing -- account between them for only a
+## **1/25.8 to 1/49.3 share of a land leg's speed and 1/3.4 to 1/4.0 of a
+## water leg's**. A six-row trace would have been wrong by that factor; this
+## one is not, because it drops no term.
+const _TRACE_TERMS := {
+	## `key` -> {label, field, party, stage}.
+	##
+	## `label` is the human name -- `JpTerm`'s own doc splits it that way
+	## (*"Stable machine key ... Godot owns the human label"*).
+	##
+	## **`party`/`stage` quote a section title VERBATIM as a locator, not a literal -- `DccTheme.header()` upper-cases and prefixes a section sigil, and `Stage matrix` is the centre pane's own header rather than a section at all, so none of the seven is drawn character-for-character**
+	## -- `Party · Traveler`, `Carriage`, `Season & weather`, `Route
+	## conditions`, `Load`, `Vessels · water legs`, `Stage matrix` -- because a
+	## source cell is only worth a column if the reader can find the control it
+	## names by looking for that exact string. A tidier invented locator
+	## ("Party · Carriage", say, which is not a heading anywhere) reads better
+	## and cannot be searched for.
+	##
+	## `field` is the plan key that drives the term, so a stage carrying an
+	## override for it sources to the **stage inspector's** own row rather
+	## than the party form's; `""` means no control drives it and `party`
+	## then names whatever surface does show the input. Both branches are
+	## real and both are exercised (`_jptraceshot_probe.gd` plants an
+	## override and re-reads the column).
+	##
+	## Where nothing in this shell shows the input at all, `party` is `""`
+	## and `_trace_source()` dashes the cell with that as its reason instead
+	## of naming a panel that does not carry the number. `column` is the only
+	## such term: `col_km`/`col_mod` reach no readout in this shell (grep
+	## returns the trace itself and nothing else), and their only other
+	## surface is a verdict reason the engine pushes solely when `col_mod <
+	## 0.75`.
+	"base": {"label": "base rate", "field": "transport",
+		"party": "Carriage · Transport", "stage": "Travel mode"},
+	"hours": {"label": "hours on the road", "field": "hours",
+		"party": "Party · Traveler · Hours/day (land)", "stage": "Hours/day"},
+	"sailing window": {"label": "crossing · sailing window", "field": "",
+		"party": "Vessels · water legs · sailing window", "stage": ""},
+	"terrain": {"label": "terrain rate", "field": "",
+		"party": "Stage matrix · terrain · biome", "stage": ""},
+	"route": {"label": "road quality", "field": "route_cond",
+		"party": "Route conditions · Road quality", "stage": "Road quality"},
+	"group": {"label": "column class", "field": "group_size",
+		"party": "Party · Traveler · Group size", "stage": "Group size"},
+	"pace": {"label": "party pace", "field": "pace",
+		"party": "Party · Traveler · Pace", "stage": "Pace"},
+	"infra": {"label": "infrastructure", "field": "infra",
+		"party": "Route conditions · Infrastructure", "stage": "Infrastructure"},
+	"weather": {"label": "weather", "field": "weather_override",
+		"party": "Season & weather · Weather", "stage": "Weather"},
+	"fatigue": {"label": "fatigue", "field": "hours",
+		"party": "Party · Traveler · Hours/day (land)", "stage": "Hours/day"},
+	"grazing": {"label": "grazing", "field": "grazing",
+		"party": "Party · Traveler · Grazing", "stage": "Grazing"},
+	"foraging": {"label": "foraging", "field": "foraging",
+		"party": "Party · Traveler · Foraging", "stage": "Foraging"},
+	"desert water": {"label": "desert water", "field": "desert_water",
+		"party": "Route conditions · Desert water", "stage": "Desert water"},
+	"column": {"label": "column length", "field": "", "party": "", "stage": ""},
+	"load": {"label": "load penalty", "field": "",
+		"party": "Load · % of capacity", "stage": ""},
+}
+
+## Which panel this stage read one term's input off, as a string for the
+## trace's source column. `ov` is `_stage_override(idx)`, so a field the party
+## has overridden here points at the stage inspector's own row -- the value in
+## the trace is that override's, and sending the reader to the party form
+## would send them to a control that is not what the leg was computed with.
+func _trace_source(key: String, idx: int, ov: Dictionary) -> String:
+	if not _TRACE_TERMS.has(key):
+		## A term this build's engine emits that this table has no row for --
+		## named rather than blanked, so a newly added engine term shows up as
+		## a gap to fill instead of silently losing its source.
+		return "— no source mapped for %s" % key
+	var m: Dictionary = _TRACE_TERMS[key]
+	var field := String(m.get("field", ""))
+	if field != "" and ov.has(field) and String(m.get("stage", "")) != "":
+		return "Stage %02d · %s" % [idx + 1, String(m["stage"])]
+	var party := String(m.get("party", ""))
+	if party == "":
+		return "— no panel shows this"
+	return party
+
+## `FS_SMALL`, which is what every `_kv_row` in this results panel already
+## draws at and what this trace drew at before it became a grid. The matrix's
+## own `FS_TINY` cells are a fixed-width pane paying for ten columns; this grid
+## scrolls horizontally instead (see the `ScrollContainer` below), so there is
+## nothing to buy by shrinking the type and a point of legibility to lose --
+## at tablet density in particular, where `DccShell.tablet_fit()` never reaches
+## the right dock and so would not floor it back up.
+func _trace_cell(grid: GridContainer, text: String, token: String, right: bool = false,
+		medium: bool = false, size: int = DccTheme.FS_SMALL, spacing: int = 0) -> void:
+	var l := DccTheme.mono_label(text, token, size, spacing, medium)
+	if right:
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	grid.add_child(l)
+
 func _build_trace_group(body: Control) -> void:
 	var g := DccWidgets.section(body, "Calculation trace")
 	var plan: Dictionary = _last_result.get("plan", {})
@@ -3484,7 +3650,28 @@ func _build_trace_group(body: Control) -> void:
 	if trace.is_empty():
 		DccWidgets.note(g, "This build's GDExtension binary returns no trace -- rebuild cartalith-godot.")
 		return
-	DccWidgets.note(g, "Stage %02d · %s — click a band on the spine to trace another stage." % [idx + 1, String(r.get("cat", ""))])
+	var km := float(r.get("km", 0.0))
+	DccWidgets.note(g, "Stage %02d · %s — click a band on the spine to trace another stage. Each row substitutes one term and shows what the leg becomes once it is applied; the source names the control that term's INPUT is read off, not a second printing of the multiplier." % [idx + 1, String(r.get("cat", ""))])
+
+	var ov: Dictionary = _stage_override(idx)
+	var grid := GridContainer.new()
+	grid.columns = 4
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 3)
+	## `FS_MICRO`, tracked and medium -- `_matrix_header()`'s own vocabulary for
+	## a column header sitting over larger cells.
+	for h in ["step", "read off", "value", "leg"]:
+		_trace_cell(grid, h, "text_faint", h == "value" or h == "leg", true, DccTheme.FS_MICRO, 1)
+
+	## Step 1 is the numerator, not a multiplier -- the leg's own length, which
+	## the stage inspector's header prints and the matrix sorts its rows by.
+	## Its `leg` cell is dashed because a distance with no rate against it has
+	## no duration yet; that is the reason, not a missing number.
+	_trace_cell(grid, "stage length", "text_bright")
+	_trace_cell(grid, "Stage %02d · inspector header" % (idx + 1), "text_ghost")
+	_trace_cell(grid, "%s km" % _fmt_thousands(km, 1), "text_bright", true)
+	_trace_cell(grid, "— no rate yet", "text_ghost", true)
+
 	var running := 1.0
 	for t in trace:
 		var term: Dictionary = t
@@ -3492,13 +3679,61 @@ func _build_trace_group(body: Control) -> void:
 		running *= factor
 		var key := String(term.get("key", ""))
 		var detail := String(term.get("detail", ""))
-		var lhs := key if detail == "" else "%s · %s" % [key, detail]
+		var meta: Dictionary = _TRACE_TERMS.get(key, {})
+		var label_text := String(meta.get("label", key))
+		if detail != "":
+			label_text = "%s · %s" % [label_text, detail]
 		# The first term is the base speed, not a multiplier: printing it as
 		# "×4.0" would read as a factor applied to something.
-		var rhs := ("%.2f" % factor) if key == "base" else "×%.3f    %.2f" % [factor, running]
+		var rhs := ("%.3f" % factor) if key == "base" else "×%.3f" % factor
 		var token := "text" if factor >= 0.999 else ("warn" if factor < 0.7 else "text_dim")
-		_kv_row(g, lhs, rhs, "text_bright" if key == "base" else token)
-	_kv_row(g, "= km/day", "%.2f" % float(calc.get("daily_km", 0.0)), "accent")
+		_trace_cell(grid, label_text, "text_bright" if key == "base" else token)
+		_trace_cell(grid, _trace_source(key, idx, ov), "text_ghost")
+		_trace_cell(grid, rhs, "text_bright" if key == "base" else token, true)
+		_trace_cell(grid, ("%.3f d" % (km / running)) if running > 0.0 else "— zero rate", "text_dim", true)
+
+	_trace_cell(grid, "= km/day", "accent", false, true)
+	_trace_cell(grid, "Stage matrix · km/d", "text_ghost")
+	_trace_cell(grid, "%.3f" % float(calc.get("daily_km", 0.0)), "accent", true, true)
+	_trace_cell(grid, "%.3f d" % float(r.get("days", 0.0)), "accent", true, true)
+
+	## The reconciliation, drawn as a real row with a real value: the chain's
+	## own product against the `days` the matrix and the inspector footer
+	## already print for this leg. A disagreement is shown, never rounded away
+	## -- six decimals is three orders past the 0.001 d the rows above are drawn
+	## to, so a residual cannot hide behind the formatting.
+	var chain_days := (km / running) if running > 0.0 else 0.0
+	var headline_days := float(r.get("days", 0.0))
+	var resid := chain_days - headline_days
+	var closes := resid == 0.0
+	_trace_cell(grid, "reconciliation", "accent" if closes else "block", false, true)
+	_trace_cell(grid, "chain − Stage matrix · days", "text_ghost")
+	_trace_cell(grid, "%.6f d" % headline_days, "text_dim", true)
+	_trace_cell(grid, "%+.6f d" % resid, "accent" if closes else "block", true, true)
+
+	## Horizontally scrolled rather than widened, which is this file's own
+	## established answer for a table with more columns than the dock has room
+	## for (`_build_vessel_matrix_groups`, and the stops strip before it). The
+	## dock's outer `ScrollContainer` has its horizontal axis DISABLED, so a
+	## grid left to size itself would fold its whole minimum into the dock and
+	## push it over the map.
+	var scroll := ScrollContainer.new()
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size.y = grid.get_combined_minimum_size().y
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(grid)
+	g.add_child(scroll)
+
+	## The reconciliation's own sentence, because a number alone does not say
+	## what a reader should do about it. Both branches are real: the closing
+	## one is what every measured leg produces, and the open one is what a
+	## build whose engine applies a term it does not put in `trace` would
+	## produce -- which is exactly the state this row exists to catch.
+	if closes:
+		DccWidgets.note(g, "The chain closes: the %d terms above multiply to this leg's km/day exactly, and the length divided by that is the days the stage matrix reports. Nothing in this leg's speed is applied outside the trace." % trace.size())
+	else:
+		var l := DccWidgets.note(g, "The chain does NOT close. %+.6f d of this leg comes from something jp_plan_ex applied and did not put in land.trace/water.trace, so it cannot be named here -- the gap is real and is not guessed at. It is a defect against the %d terms listed above, not a rounding artefact." % [resid, trace.size()])
+		l.add_theme_color_override("font_color", DccTheme.c("block"))
 
 # ================================================================ Draw views ====
 

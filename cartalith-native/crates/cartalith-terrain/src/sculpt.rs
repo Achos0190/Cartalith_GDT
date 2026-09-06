@@ -754,8 +754,162 @@ impl FeatureParams {
     }
 }
 
+/// The shape of the brush's coverage ramp — **a port addition, not in the
+/// reference**, which hardwires [`Falloff::Smooth`]'s `smoothstep` at all
+/// three of its coverage sites and offers no choice.
+///
+/// ## Why this is an enum and not "a preset over `hardness`"
+///
+/// `hardness` was checked first, because a named preset over a control that
+/// already ships is a much smaller row than a new formula. It is not enough,
+/// and the reason is structural rather than a matter of taste: `hardness`
+/// feeds exactly one quantity, `feather` (`max(2, rad*(1-hardness))` radial,
+/// `max(1.5, R*(1-hardness))` otherwise), and `feather` is the *denominator*
+/// of the ramp coordinate. So the whole `hardness` slider traces a
+/// one-parameter family of **horizontally scaled copies of one S curve** — it
+/// moves the band's *width* and can never change its *shape*.
+///
+/// Measured, not asserted (`falloff_shapes_are_not_reachable_by_hardness`
+/// below sweeps all 101 hardness steps at 0.01 against each shape, at
+/// `rad = 32`): the closest smoothstep to Linear is still **0.0962** off in
+/// coverage, to Sharp **0.1071**, and Constant is unreachable outright
+/// because `feather` is *floored* at 2 cells, so even `hardness = 1.0` keeps
+/// a ~2-cell ramp. All three needed a branch; none was a preset in disguise.
+///
+/// ## Why there is no curve editor here, and there should not be one
+///
+/// A user-drawn falloff curve is the obvious next ask and it is the wrong
+/// one. Blender 5's brush-asset conversion is the evidence: brushes whose
+/// hand-authored curve merely *approximated* smoothstep were converted back
+/// to the built-in Smooth preset, because the curve widget had earned less
+/// than the presets it was drawn to imitate. Four named shapes cover what
+/// the curve was being used for, are one enum wide in a save file, and can
+/// be reasoned about in a doc comment. A curve cannot.
+///
+/// ## The other three brush asks, scoped and not started
+///
+/// All three are cheap to *name* and expensive to *build*, and the reason
+/// is the same in each case: [`SculptStamp::apply_into`] is a
+/// **per-pixel-independent** function of one distance, and each of these
+/// breaks that invariant somewhere all thirteen feature formulas can see.
+/// Written down here so the next reader inherits the estimate instead of
+/// re-deriving it.
+///
+/// * **Elliptical tip.** The stamp's shape enters as a single scalar — `r_c`
+///   for radial features, `d`/`sd`/`s` for stroke ones — and every one of the
+///   thirteen `eval` arms is written against that scalar (Ridge's gaussian
+///   over `sd`, Volcano's cone over `r_c`, Canyon's walls over `d`). An
+///   anisotropic tip means those distances stop being isotropic, so it is not
+///   one new branch in `coverage` but a review of all thirteen formulas plus
+///   `bbox`, which currently pads a square from one radius. Golden-relevant:
+///   every one of `golden_parity_sculpt.rs`'s 22 hashes runs through those
+///   same arms.
+/// * **Stroke spacing / jitter.** Both need a **stroke accumulator** — state
+///   carried between points — where today a stroke is a polyline resolved by
+///   `nearest_on_stroke` in one pass with no memory. Spacing also changes
+///   what a stamp *is*: one stamp per dab rather than one per stroke, which
+///   the draft (`PassBuffer<SculptStamp>`), the stamp stack UI, undo and the
+///   save format all count.
+/// * **Airbrush.** Time-dependent, so identical input produces different
+///   output — the one property this engine's whole golden-parity discipline
+///   is built on not having. It would need its own accumulation buffer and
+///   its own testing story before a line of it was written.
+///
+/// The falloff shapes above avoid all of that precisely because they change
+/// only how one already-computed distance becomes a weight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Falloff {
+    /// `smoothstep(0, 1, t)` — the reference's own ramp and the default, so
+    /// an untouched brush is bit-identical to the pre-`Falloff` engine.
+    #[default]
+    Smooth,
+    /// `t` — a constant-slope cone. Reads as a chamfer rather than a fillet.
+    Linear,
+    /// `t³` — coverage collapses fast off the crest, so the interior stays
+    /// full and the skirt is thin.
+    ///
+    /// Cubic rather than square, and the reason is a measurement rather than
+    /// taste. Both are legitimate — a square-law Sharp is **0.102** of full
+    /// height from `Smooth` at its peak, far above the 1/255 an 8-bit
+    /// channel can show — but the cube separates further from *both* of its
+    /// neighbours: 0.154 from `Smooth` against the square's 0.102, and 0.128
+    /// from `Linear` against 0.083. Four names spread over more picture is
+    /// worth more than four names crowded into less. Measured on a Mountains
+    /// stroke, brush 12, `edge_noise` 0, 96×96, by building each variant and
+    /// diffing the fields; **not** on a Ridge one, which would have shown
+    /// ~0 for every shape (see
+    /// `ridge_is_immune_to_the_falloff_because_its_own_gaussian_is_narrower`).
+    Sharp,
+    /// `1` inside the radius, `0` outside — no ramp at all. Deliberately
+    /// aliased: this is the shape you pick when you want a mesa wall or a
+    /// stencil edge, and softening it is what the other three are for.
+    Constant,
+}
+
+impl Falloff {
+    /// Registry order, and the integer a save file and the globals bag carry.
+    pub const ALL: [Falloff; 4] =
+        [Falloff::Smooth, Falloff::Linear, Falloff::Sharp, Falloff::Constant];
+
+    pub fn index(self) -> u32 {
+        match self {
+            Falloff::Smooth => 0,
+            Falloff::Linear => 1,
+            Falloff::Sharp => 2,
+            Falloff::Constant => 3,
+        }
+    }
+
+    /// An out-of-range index is [`Falloff::Smooth`], not an error: an index
+    /// this build does not have came from a newer file, and the reference's
+    /// own ramp is the honest thing to draw instead of refusing to open it.
+    pub fn from_index(i: u32) -> Falloff {
+        *Falloff::ALL.get(i as usize).unwrap_or(&Falloff::Smooth)
+    }
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Falloff::Smooth => "smooth",
+            Falloff::Linear => "linear",
+            Falloff::Sharp => "sharp",
+            Falloff::Constant => "constant",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Falloff::Smooth => "Smooth",
+            Falloff::Linear => "Linear",
+            Falloff::Sharp => "Sharp",
+            Falloff::Constant => "Constant",
+        }
+    }
+
+    /// Coverage for a ramp coordinate `t = (radius - distance) / feather`.
+    ///
+    /// `Smooth`'s arm is the **same call expression** the three `cov =`
+    /// sites used before this enum existed, so identity is by control flow
+    /// rather than by arithmetic (`MISTAKES.md`: "identity by control flow
+    /// beats identity by arithmetic") — there is no re-derivation that could
+    /// round differently.
+    pub fn coverage(self, t: f64) -> f64 {
+        match self {
+            Falloff::Smooth => smoothstep(0.0, 1.0, t),
+            Falloff::Linear => clamp01(t),
+            Falloff::Sharp => {
+                let u = clamp01(t);
+                u * u * u
+            }
+            // `> 0.0`, matching where `smoothstep(0,1,t)` first leaves zero,
+            // so the covered set is the same set — only its ramp is gone.
+            Falloff::Constant => f64::from(u8::from(t > 0.0)),
+        }
+    }
+}
+
 /// The eight shared brush/noise globals — the reference's `SCULPT_GLOBAL_DEF`
-/// (line 8862) and per-stamp `g:{...}` bag.
+/// (line 8862) and per-stamp `g:{...}` bag — **plus one this port added**,
+/// [`SculptGlobals::falloff`], which the reference has no equivalent of.
 ///
 /// `brush_size` is in **grid cells** at the current resolution (the
 /// reference converted the PoC's fixed-512-canvas pixel convention on
@@ -782,10 +936,17 @@ pub struct SculptGlobals {
     /// 0..1, step 0.01. Amplitude of the domain warp applied to the
     /// coverage mask itself.
     pub edge_noise: f64,
+    /// **Port addition, no reference counterpart.** The ramp's *shape*, where
+    /// `hardness` above is only its *width* — see [`Falloff`] for the
+    /// measurement that showed the two are not substitutes. Defaults to
+    /// [`Falloff::Smooth`], which is what the reference hardwires, so every
+    /// pinned golden keeps its value.
+    pub falloff: Falloff,
 }
 
 impl Default for SculptGlobals {
-    /// `SCULPT_GLOBAL_DEF`, verbatim.
+    /// `SCULPT_GLOBAL_DEF`, verbatim, plus `falloff` at the shape the
+    /// reference hardwires.
     fn default() -> Self {
         Self {
             brush_size: 32.0,
@@ -796,6 +957,7 @@ impl Default for SculptGlobals {
             persistence: 0.5,
             lacunarity: 2.0,
             edge_noise: 0.55,
+            falloff: Falloff::Smooth,
         }
     }
 }
@@ -1117,6 +1279,14 @@ impl SculptStamp {
     /// bbox's floor is the larger of the two, so the box always covers what
     /// `apply` writes, and "fixing" the inconsistency would change which
     /// tiles a stamp reports as touched.
+    ///
+    /// [`Falloff`] deliberately does **not** enter this calculation. Every
+    /// shape's support is a subset of `Smooth`'s (each is zero wherever
+    /// `t <= 0`), so the box this returns still covers what `apply_into`
+    /// writes for all four — and narrowing it for `Constant`, whose skirt is
+    /// genuinely empty, would move every pinned bbox in
+    /// `golden_parity_sculpt.rs` the moment someone tidied the two cases into
+    /// one. The box is allowed to be generous; it is not allowed to be wrong.
     fn bbox(&self, w: usize, h: usize) -> Option<(usize, usize, usize, usize)> {
         if self.points.is_empty() || w == 0 || h == 0 {
             return None;
@@ -1212,7 +1382,7 @@ impl SculptStamp {
             for py in y0..=y1 {
                 for px in x0..=x1 {
                     let hit = nearest_on_stroke(px as f64, py as f64, &self.points);
-                    let cov = smoothstep(0.0, 1.0, (brush_r - hit.dist) / feather);
+                    let cov = g.falloff.coverage((brush_r - hit.dist) / feather);
                     if cov <= 0.0 {
                         continue;
                     }
@@ -1278,13 +1448,13 @@ impl SculptStamp {
                 let mut cov;
                 if meta.radial {
                     r_c = js_hypot(qx - cx, qy - cy);
-                    cov = smoothstep(0.0, 1.0, (rad - r_c) / feather);
+                    cov = g.falloff.coverage((rad - r_c) / feather);
                 } else {
                     let hit = nearest_on_stroke(qx, qy, &self.points);
                     d = hit.dist;
                     sd = hit.sd;
                     s_arc = hit.s;
-                    cov = smoothstep(0.0, 1.0, (brush_r - d) / feather);
+                    cov = g.falloff.coverage((brush_r - d) / feather);
                 }
                 if cov <= 0.0 {
                     continue;
@@ -1292,6 +1462,12 @@ impl SculptStamp {
                 // A second, higher-frequency noise term roughens only the
                 // partially-covered rim (`cov < 1`), so the interior stays
                 // solid while the silhouette breaks up.
+                //
+                // Under `Falloff::Constant` this block is unreachable by
+                // construction rather than by a guard: that shape only ever
+                // returns 0 or 1, and 0 has already `continue`d above. A hard
+                // edge therefore stays hard however high `edge_noise` is set,
+                // which is the behaviour that name promises.
                 if warp && cov < 1.0 {
                     let detail = sculpt_fbm(
                         fx * wf2 + 500.7,
@@ -2201,5 +2377,246 @@ mod tests {
         assert_eq!(sculpt_fbm(1.0, 1.0, 0, 0.5, 2.0, 1), 0.0);
         assert_eq!(sculpt_ridged(1.0, 1.0, 0, 0.5, 2.0, 1), 0.0);
         assert_eq!(sculpt_billow(1.0, 1.0, 0, 0.5, 2.0, 1), 0.0);
+    }
+
+    // ---- Falloff ----
+
+    /// The regression this whole enum could cause: `Smooth` must be the ramp
+    /// the engine drew before `Falloff` existed, to the bit.
+    ///
+    /// The *field-level* proof is `tests/golden_parity_sculpt.rs`, whose 22
+    /// FNV-1a-64 folds over every `f32` bit pattern were taken from the JS
+    /// reference and are built through `SculptStamp::new` — i.e. through
+    /// `Falloff::Smooth`. This test pins the narrower claim the dispatch adds:
+    /// routing through `coverage` changes no bit of the value itself, at any
+    /// input including the two clamp shoulders and a NaN.
+    #[test]
+    fn smooth_falloff_is_the_pre_enum_smoothstep_bit_for_bit() {
+        for i in -400..=400 {
+            let t = f64::from(i) / 200.0;
+            assert_eq!(
+                Falloff::Smooth.coverage(t).to_bits(),
+                smoothstep(0.0, 1.0, t).to_bits(),
+                "diverged at t = {t}"
+            );
+        }
+        assert!(Falloff::Smooth.coverage(f64::NAN).is_nan() == smoothstep(0.0, 1.0, f64::NAN).is_nan());
+    }
+
+    /// The measurement behind [`Falloff`]'s "not a preset over `hardness`"
+    /// claim, re-run on every `cargo test` rather than quoted from a session.
+    ///
+    /// For each shape, sweep all 101 `hardness` steps and find the *closest*
+    /// smoothstep to it; the floors below are that closest distance, so they
+    /// say "no setting of the shipped slider gets nearer than this". They are
+    /// literals rather than `>= 0.0`-style tautologies, so they say something
+    /// falsifiable about the slider rather than nothing.
+    ///
+    /// **What they do NOT do -- and this comment claimed they did until
+    /// 2026-09-06 -- is pin a shape's exponent.** It said the floors turn red
+    /// "say by changing `Sharp` from a cube to a square". A verifier made
+    /// exactly that change and the whole crate stayed green: a square is still
+    /// further from every smoothstep than the floor allows, so a FLOOR cannot
+    /// catch it. `sharp_is_a_cube_and_not_merely_steeper_than_the_others` pins
+    /// the exponent by value and does turn red on that mutation.
+    #[test]
+    fn falloff_shapes_are_not_reachable_by_hardness() {
+        const RAD: f64 = 32.0;
+        let profile = |shape: Falloff, hardness: f64| -> Vec<f64> {
+            let feather = 2.0f64.max(RAD * (1.0 - hardness));
+            (0..=1500)
+                .map(|i| shape.coverage((RAD - f64::from(i) * RAD * 1.5 / 1500.0) / feather))
+                .collect()
+        };
+        let smooths: Vec<Vec<f64>> = (0..=100)
+            .map(|h| profile(Falloff::Smooth, f64::from(h) / 100.0))
+            .collect();
+        // The *easiest* target hardness for each shape: even the friendliest
+        // case is this far from every smoothstep.
+        for (shape, floor) in [
+            (Falloff::Linear, 0.09),
+            (Falloff::Sharp, 0.10),
+            (Falloff::Constant, 0.99),
+        ] {
+            let mut easiest = f64::INFINITY;
+            for h in 0..=100 {
+                let target = profile(shape, f64::from(h) / 100.0);
+                let closest = smooths
+                    .iter()
+                    .map(|s| {
+                        s.iter()
+                            .zip(&target)
+                            .map(|(a, b)| (a - b).abs())
+                            .fold(0.0f64, f64::max)
+                    })
+                    .fold(f64::INFINITY, f64::min);
+                easiest = easiest.min(closest);
+            }
+            assert!(
+                easiest > floor,
+                "{} came within {easiest} of some smoothstep — it is a hardness \
+                 preset, not a shape, and shipping it as a separate control \
+                 would be a control with nothing behind it",
+                shape.label()
+            );
+        }
+    }
+
+    const FALLOFF_W: usize = 96;
+
+    /// One stamp of `feature` under `shape`, on a flat field, with the edge
+    /// warp switched off so what is measured is the ramp itself and not the
+    /// domain-warp noise sitting on top of it.
+    fn falloff_render(feature: Feature, shape: Falloff, params: Option<FeatureParams>) -> Vec<f32> {
+        let pts = if feature.meta().radial {
+            vec![Point::new(48.0, 48.0)]
+        } else {
+            vec![Point::new(20.0, 48.0), Point::new(76.0, 48.0)]
+        };
+        let mut s = SculptStamp::new(feature, 1234, pts, 0.5);
+        if let Some(p) = params {
+            s.params = p;
+        }
+        s.globals.brush_size = 12.0;
+        s.globals.edge_noise = 0.0;
+        s.globals.falloff = shape;
+        let mut f = flat(FALLOFF_W, FALLOFF_W, 0.3);
+        s.apply_into(&mut f, None, FALLOFF_W, FALLOFF_W, false);
+        f
+    }
+
+    /// Peak `|Δ|` in height between two shapes of the same stamp.
+    fn falloff_peak(feature: Feature, a: Falloff, b: Falloff, p: Option<FeatureParams>) -> f64 {
+        falloff_render(feature, a, p)
+            .iter()
+            .zip(&falloff_render(feature, b, p))
+            .map(|(x, y)| f64::from((x - y).abs()))
+            .fold(0.0f64, f64::max)
+    }
+
+    /// The bound the row was given: *a new falloff must visibly change a
+    /// profile*. Measured on a real `apply_into`, not on the coverage curve —
+    /// coverage is multiplied by `intensity` and then by the feature's own
+    /// height, so a difference in the ramp is not automatically a difference
+    /// on the ground, and for two features it is not (see the test below).
+    ///
+    /// `1/255` is the threshold because the field is displayed through an
+    /// 8-bit channel: a peak difference below one code point is a control
+    /// that draws the same picture. Every *pair* is checked, not just each
+    /// against `Smooth` — two new shapes that differ from the default and not
+    /// from each other would be the same defect one step along.
+    ///
+    /// Mountains, Plateau and Volcano are the three measured strongest
+    /// (weakest pair 0.0386 / 0.0448 / 0.0475 of full height, i.e. 10-12
+    /// code points); one radial and two not, so the two `cov` branches are
+    /// both exercised.
+    #[test]
+    fn every_falloff_pair_moves_a_stamp_by_more_than_an_8_bit_step() {
+        for feature in [Feature::Mountains, Feature::Plateau, Feature::Volcano] {
+            for (i, &a) in Falloff::ALL.iter().enumerate() {
+                for &b in &Falloff::ALL[i + 1..] {
+                    let peak = falloff_peak(feature, a, b, None);
+                    assert!(
+                        peak > 1.0 / 255.0,
+                        "on {} , {} and {} differ by at most {peak} of height — \
+                         below one 8-bit code point, so they draw the same picture",
+                        feature.meta().key,
+                        a.label(),
+                        b.label()
+                    );
+                }
+            }
+        }
+    }
+
+    /// **The exponent, pinned by value -- because the pair test above does
+    /// NOT pin it, and its own comment used to claim otherwise.**
+    ///
+    /// That test asserts a FLOOR (`peak > 1/255`), so it answers "do these two
+    /// draw differently", not "is Sharp a cube". A verifier changed `u * u * u`
+    /// to `u * u` on 2026-09-06 and the whole crate stayed green, this file
+    /// included. A floor cannot catch a shape change that stays above the
+    /// floor, and believing it could is the coverage-claimed-but-not-given
+    /// defect `MISTAKES.md` tracks.
+    ///
+    /// The expectations are **literals computed by hand**, never `powi(3)`
+    /// re-derived from the arm under test: 0.25^3 = 0.015625, 0.5^3 = 0.125,
+    /// 0.75^3 = 0.421875. Squaring would give 0.0625, 0.25 and 0.5625 -- each
+    /// far outside the tolerance below.
+    #[test]
+    fn sharp_is_a_cube_and_not_merely_steeper_than_the_others() {
+        for (t, want) in [(0.25_f64, 0.015625_f64), (0.5, 0.125), (0.75, 0.421875)] {
+            let got = Falloff::Sharp.coverage(t);
+            assert!(
+                (got - want).abs() < 1e-12,
+                "Sharp.coverage({t}) is {got}, expected {want} -- not a cube"
+            );
+        }
+        // And the other three must NOT satisfy the cube, or the assertion above
+        // would pass for a shape that merely resembles it.
+        assert!((Falloff::Linear.coverage(0.5) - 0.125).abs() > 0.3);
+        assert!((Falloff::Smooth.coverage(0.5) - 0.125).abs() > 0.3);
+    }
+
+    /// **Ridge is immune to the falloff, and that is Ridge's own formula
+    /// talking, not a bug in this enum.** Recorded as a test because it is
+    /// the first thing a reader will try to reproduce and the easiest thing
+    /// to misdiagnose.
+    ///
+    /// Ridge multiplies coverage by its own perpendicular gaussian,
+    /// `exp(-sd²/(wid²·0.5))` with `wid = max(1, R·ridgeWidth)`. At the
+    /// registry default `ridgeWidth = 0.28` and `R = 12` that gaussian is
+    /// already down to 1.7e-3 at the inner edge of the coverage band, so the
+    /// entire region where the four shapes disagree is multiplied by
+    /// approximately nothing. Measured peaks: **5e-6** (Linear), **1.7e-5**
+    /// (Sharp), **2e-6** (Constant). Widening to `ridgeWidth`'s maximum
+    /// `0.6` only reaches **7.3e-3** at its most extreme pair.
+    ///
+    /// The floors below are upper bounds, so this test goes red if a future
+    /// change makes the brush ramp start to dominate Ridge — which would be
+    /// a real behaviour change and not a silent improvement.
+    #[test]
+    fn ridge_is_immune_to_the_falloff_because_its_own_gaussian_is_narrower() {
+        for &shape in &Falloff::ALL[1..] {
+            let peak = falloff_peak(Feature::Ridge, Falloff::Smooth, shape, None);
+            assert!(
+                peak < 1.0 / 255.0,
+                "{} now moves a default Ridge by {peak} — the coverage ramp has \
+                 started to reach past Ridge's own gaussian, which changes what \
+                 the Falloff control means for this feature",
+                shape.label()
+            );
+        }
+        let widest = FeatureParams::Ridge {
+            ridge_height: 0.15,
+            ridge_width: 0.6,
+            ridge_freq: 1.5,
+        };
+        let peak = falloff_peak(Feature::Ridge, Falloff::Smooth, Falloff::Sharp, Some(widest));
+        assert!(
+            peak < 0.01,
+            "even at ridgeWidth 0.6 the gap should stay under a percent of \
+             height; measured {peak}"
+        );
+    }
+
+    /// A `Falloff` index that this build does not have opens as `Smooth`
+    /// rather than panicking or being silently dropped — the save-file rule
+    /// [`Falloff::from_index`] documents.
+    #[test]
+    fn an_unknown_falloff_index_reads_back_as_smooth() {
+        for (i, expected) in [
+            (0u32, Falloff::Smooth),
+            (1, Falloff::Linear),
+            (2, Falloff::Sharp),
+            (3, Falloff::Constant),
+            (4, Falloff::Smooth),
+            (u32::MAX, Falloff::Smooth),
+        ] {
+            assert_eq!(Falloff::from_index(i), expected, "index {i}");
+        }
+        for f in Falloff::ALL {
+            assert_eq!(Falloff::from_index(f.index()), f, "{} round trip", f.key());
+        }
     }
 }

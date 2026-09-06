@@ -55,10 +55,18 @@
 //! hand-copied — so this table can never drift from the value the golden
 //! suite actually depends on. `DCC_SHELL_SPEC.md` §5.2's differing numbers
 //! will be corrected at the design end, not here.
+//!
+//! That whole paragraph is about the **eight** globals the reference has.
+//! [`GLOBAL_RANGES`] carries a ninth, `falloff`, which this port added and
+//! §5.2 has no row for at all — so there is nothing for it to disagree
+//! with, and its default is `Falloff::Smooth` precisely so the golden
+//! fixtures above keep spreading `..SculptGlobals::default()` unchanged.
 
 use cartalith_engine::sculpt_commit::{commit_sculpt_pass, SculptCommitSummary, WaterState};
 use cartalith_spatial::{DirtyTracker, PassBuffer};
-use cartalith_terrain::sculpt::{Control, Feature, FeatureParams, Point, SculptGlobals, SculptStamp};
+use cartalith_terrain::sculpt::{
+    Control, Falloff, Feature, FeatureParams, Point, SculptGlobals, SculptStamp,
+};
 
 use crate::selection::SelectionSet;
 
@@ -81,19 +89,27 @@ pub enum Outcome {
     /// Stored exactly as given.
     Applied,
     /// Stored, but clamped to the control's own range (or rounded to a
-    /// whole number for `octaves`).
+    /// whole number first, for a [`ROUNDED_KEYS`] control).
     Clamped,
     /// Not stored — unknown key, or a non-finite value.
     Rejected,
 }
 
-/// [`SculptGlobals`]' 8 fields' `[min, max, step]`, transcribed from
+/// [`SculptGlobals`]' fields' `[min, max, step]`, transcribed from
 /// `SculptGlobals`'s own field doc comments (themselves ported from the
 /// reference's `SCULPT_GLOBAL_DEF` UI ranges — `DCC_SHELL_SPEC.md` §5.2's
-/// "Brush & noise · global" table matches every one of these eight ranges
-/// exactly, per `SCULPT_FUNCTION_CHART.md` §4). Only the *range* is
-/// duplicated here; the *default* is never hand-copied — see
+/// "Brush & noise · global" table matches every one of the **eight**
+/// reference ranges exactly, per `SCULPT_FUNCTION_CHART.md` §4). Only the
+/// *range* is duplicated here; the *default* is never hand-copied — see
 /// [`global_controls`].
+///
+/// `falloff` is the ninth row and the one §5.2 has no counterpart for: it
+/// is this port's own addition (`cartalith_terrain::sculpt::Falloff`), and
+/// its "range" is an ordinal — `0..=3` over `Falloff::ALL`, stepping by 1.
+/// Carrying it here rather than on a surface of its own is what makes it
+/// enumerate, clamp, marshal and round-trip through a save file with no new
+/// plumbing at all; [`enum_options`] is the one place that knows the number
+/// is an index and not a quantity.
 const GLOBAL_RANGES: &[(&str, &str, f64, f64, f64)] = &[
     ("brush_size", "Brush size", 6.0, 200.0, 1.0),
     ("hardness", "Hardness", 0.0, 1.0, 0.01),
@@ -103,7 +119,53 @@ const GLOBAL_RANGES: &[(&str, &str, f64, f64, f64)] = &[
     ("persistence", "Persistence", 0.20, 0.90, 0.01),
     ("lacunarity", "Lacunarity", 1.40, 3.20, 0.05),
     ("edge_noise", "Edge noise", 0.0, 1.0, 0.01),
+    ("falloff", "Falloff", 0.0, (Falloff::ALL.len() - 1) as f64, 1.0),
 ];
+
+/// The [`GLOBAL_RANGES`] keys whose number is a **whole** one — an index or
+/// a count, not a quantity — so [`set_global`] rounds before clamping and a
+/// shell draws something other than a continuous slider.
+///
+/// `octaves` was already in this class and had the rounding hardcoded
+/// against its own key; `falloff` joins it rather than adding a second
+/// special case, because a third would then be written the same way again.
+const ROUNDED_KEYS: &[&str] = &["octaves", "falloff"];
+
+/// Of those, the ones that are an **index into a named set** rather than a
+/// number a user reads — so a shell offers the names and never a spinner.
+/// The labels are read live off the engine's own enum, never re-typed.
+pub fn enum_options(key: &str) -> Option<Vec<&'static str>> {
+    match key {
+        "falloff" => Some(Falloff::ALL.iter().map(|f| f.label()).collect()),
+        _ => None,
+    }
+}
+
+/// Grid-snap steps a shell offers, in **grid cells**. There is no reference
+/// counterpart to port: the reference captures raw pointer positions and
+/// never snaps.
+///
+/// A fixed ladder rather than a free number because the useful values are
+/// powers of two on a grid and the alternative — a 0-means-off spinner —
+/// would encode "no snapping" as a plausible step, which is the one shape
+/// `MISTAKES.md` names outright. Off is the *absence* of a value here
+/// ([`SculptEditor::grid_snap`] is an `Option`), not a zero.
+pub const GRID_SNAP_STEPS: &[f64] = &[1.0, 2.0, 4.0, 8.0];
+
+/// `p` rounded onto a `step`-cell lattice; `p` unchanged when `step` is not
+/// a positive finite number.
+///
+/// Plain `f64::round`, deliberately **not** `cartalith_jsmath::js_round`:
+/// the JS tie rule exists to match a reference expression, and this feature
+/// has no reference expression to match. Nothing downstream is golden-pinned
+/// on it — a snapped stroke is just a stroke whose points happen to be
+/// integers.
+pub fn snap_point(p: Point, step: f64) -> Point {
+    if !(step.is_finite() && step > 0.0) {
+        return p;
+    }
+    Point::new((p.x / step).round() * step, (p.y / step).round() * step)
+}
 
 /// [`GLOBAL_RANGES`] joined with `SculptGlobals::default()`'s live values —
 /// the same `Control` shape `Feature::meta().controls` uses per feature, so
@@ -135,6 +197,7 @@ pub fn get_global(g: &SculptGlobals, key: &str) -> Option<f64> {
         "persistence" => g.persistence,
         "lacunarity" => g.lacunarity,
         "edge_noise" => g.edge_noise,
+        "falloff" => f64::from(g.falloff.index()),
         _ => return None,
     })
 }
@@ -143,8 +206,9 @@ pub fn get_global(g: &SculptGlobals, key: &str) -> Option<f64> {
 /// key -> [`Outcome::Rejected`]; non-finite value -> [`Outcome::Rejected`]
 /// (same policy `params::set` documents, and for the same reason: a NaN
 /// silently propagates through every stamp's noise —
-/// `cartalith-rust-conventions`). `octaves` rounds before clamping, same
-/// as any `Kind::Int` generation parameter.
+/// `cartalith-rust-conventions`). Every [`ROUNDED_KEYS`] entry — `octaves`
+/// and `falloff` — rounds before clamping, same as any `Kind::Int`
+/// generation parameter.
 pub fn set_global(g: &mut SculptGlobals, key: &str, value: f64) -> Outcome {
     let Some(&(_, _, min, max, _)) = GLOBAL_RANGES.iter().find(|(k, ..)| *k == key) else {
         return Outcome::Rejected;
@@ -153,7 +217,7 @@ pub fn set_global(g: &mut SculptGlobals, key: &str, value: f64) -> Outcome {
         return Outcome::Rejected;
     }
     let mut v = value;
-    if key == "octaves" {
+    if ROUNDED_KEYS.contains(&key) {
         v = v.round();
     }
     let clamped = v.clamp(min, max);
@@ -166,6 +230,10 @@ pub fn set_global(g: &mut SculptGlobals, key: &str, value: f64) -> Outcome {
         "persistence" => g.persistence = clamped,
         "lacunarity" => g.lacunarity = clamped,
         "edge_noise" => g.edge_noise = clamped,
+        // `clamped` is already inside `0..=ALL.len()-1`, so `from_index`'s
+        // out-of-range arm is unreachable from here — it is there for a save
+        // file written by a build with more shapes than this one.
+        "falloff" => g.falloff = Falloff::from_index(clamped as u32),
         _ => unreachable!("checked above against the same GLOBAL_RANGES table"),
     }
     if clamped == value { Outcome::Applied } else { Outcome::Clamped }
@@ -386,6 +454,24 @@ pub struct SculptEditor {
     /// and what `sculpt_get_selected_stamp` still reports. Step one of the
     /// owner's selection-sets ruling; see that module's own doc comment.
     pub selection: SelectionSet,
+    /// Lattice each captured point is rounded onto, in grid cells; `None`
+    /// is no snapping, which is what the reference always does.
+    ///
+    /// **Tool state, not stamp state, and deliberately not saved.** Snapping
+    /// is applied where a point is *captured* ([`snap_point`], called from
+    /// `WorldGen::sculpt_add_point`), so by the time a `SculptStamp` exists
+    /// its points are already on the lattice and the setting has nothing
+    /// left to affect. Writing it into the project document would record a
+    /// value that could not change what re-opening the document draws — the
+    /// same reason `brush_size` is *captured into* each stamp rather than
+    /// re-read at apply time.
+    ///
+    /// One consequence, stated rather than hidden: for a multi-point stroke
+    /// this snaps the *points*, so the centroid a radial feature measures
+    /// from is the mean of snapped points and need not itself land on the
+    /// lattice. For a tap — which is how every radial feature is actually
+    /// used — the centroid is the one snapped point exactly.
+    pub grid_snap: Option<f64>,
 }
 
 impl SculptEditor {
@@ -422,6 +508,29 @@ impl SculptEditor {
             seed,
             points: Vec::new(),
             selection: SelectionSet::new(),
+            grid_snap: None,
+        }
+    }
+
+    /// Turns snapping on at `step` cells, or off when `step` is not one of
+    /// [`GRID_SNAP_STEPS`] — including `0`, which is how a shell says "off"
+    /// without a second call. Returns what is now in effect, so a caller
+    /// never has to guess whether its value was accepted.
+    ///
+    /// An arbitrary positive step is refused rather than stored: the ladder
+    /// is what a shell draws, and a stored 3.7 would be a state no control
+    /// could show.
+    pub fn set_grid_snap(&mut self, step: f64) -> Option<f64> {
+        self.grid_snap = GRID_SNAP_STEPS.iter().copied().find(|&s| s == step);
+        self.grid_snap
+    }
+
+    /// One captured stroke point, snapped if snapping is on. Non-finite
+    /// coordinates are the caller's to reject — this only rounds.
+    pub fn snapped(&self, p: Point) -> Point {
+        match self.grid_snap {
+            Some(step) => snap_point(p, step),
+            None => p,
         }
     }
 
@@ -661,5 +770,85 @@ mod tests {
         assert_eq!(e.selection.sorted(), vec![0, 1, 2]);
         assert!(e.delete_stamp(1));
         assert_eq!(e.selection.sorted(), vec![0, 1], "2 became 1; the deleted one is gone");
+    }
+
+    // ---- falloff (a port addition; see `sculpt::Falloff`) ----
+
+    #[test]
+    fn falloff_round_trips_through_set_global_at_every_shape() {
+        for f in Falloff::ALL {
+            let mut g = SculptGlobals::default();
+            assert_eq!(
+                set_global(&mut g, "falloff", f64::from(f.index())),
+                Outcome::Applied,
+                "{}",
+                f.key()
+            );
+            assert_eq!(g.falloff, f);
+            assert_eq!(get_global(&g, "falloff"), Some(f64::from(f.index())));
+        }
+    }
+
+    /// The two halves of the ordinal encoding: a fractional index rounds
+    /// (a shell that sends `2.0000001` back off its own control must not
+    /// land on `Sharp`'s neighbour), and an out-of-range one clamps to a
+    /// real shape rather than being silently dropped.
+    #[test]
+    fn a_fractional_or_out_of_range_falloff_index_lands_on_a_real_shape() {
+        let mut g = SculptGlobals::default();
+        assert_eq!(set_global(&mut g, "falloff", 1.4), Outcome::Clamped);
+        assert_eq!(g.falloff, Falloff::Linear);
+        assert_eq!(set_global(&mut g, "falloff", 2.6), Outcome::Clamped);
+        assert_eq!(g.falloff, Falloff::Constant);
+        assert_eq!(set_global(&mut g, "falloff", 99.0), Outcome::Clamped);
+        assert_eq!(g.falloff, Falloff::Constant, "clamped to the last shape, not reset");
+        assert_eq!(set_global(&mut g, "falloff", -3.0), Outcome::Clamped);
+        assert_eq!(g.falloff, Falloff::Smooth);
+    }
+
+    /// `enum_options` must name every shape the ordinal range admits, or a
+    /// shell's dropdown has an index a user can reach and cannot pick.
+    #[test]
+    fn the_falloff_option_labels_cover_the_whole_ordinal_range() {
+        let opts = enum_options("falloff").expect("falloff is an enum control");
+        let &(_, _, min, max, step) = GLOBAL_RANGES
+            .iter()
+            .find(|(k, ..)| *k == "falloff")
+            .expect("falloff has a range row");
+        assert_eq!(min, 0.0);
+        assert_eq!(step, 1.0);
+        assert_eq!(opts.len(), (max as usize) + 1);
+        for (i, label) in opts.iter().enumerate() {
+            assert_eq!(*label, Falloff::from_index(i as u32).label());
+        }
+        assert!(enum_options("hardness").is_none(), "a quantity is not an enum");
+    }
+
+    // ---- grid snap ----
+
+    #[test]
+    fn snap_point_rounds_onto_the_lattice_and_leaves_a_zero_step_alone() {
+        assert_eq!(snap_point(Point::new(10.4, 31.6), 1.0), Point::new(10.0, 32.0));
+        assert_eq!(snap_point(Point::new(10.4, 31.6), 4.0), Point::new(12.0, 32.0));
+        assert_eq!(snap_point(Point::new(-3.2, -5.9), 2.0), Point::new(-4.0, -6.0));
+        // Not a lattice: the point comes back untouched rather than turning
+        // into a NaN or collapsing onto the origin.
+        for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(snap_point(Point::new(10.4, 31.6), bad), Point::new(10.4, 31.6), "step {bad}");
+        }
+    }
+
+    #[test]
+    fn set_grid_snap_accepts_only_the_ladder_and_reports_what_took_effect() {
+        let mut e = SculptEditor::new(8, 8, None, None, 7);
+        assert_eq!(e.grid_snap, None, "snapping is off until it is asked for");
+        for &step in GRID_SNAP_STEPS {
+            assert_eq!(e.set_grid_snap(step), Some(step));
+            assert_eq!(e.snapped(Point::new(5.6, 5.6)), snap_point(Point::new(5.6, 5.6), step));
+        }
+        for off in [0.0, 3.7, -2.0, f64::NAN] {
+            assert_eq!(e.set_grid_snap(off), None, "step {off}");
+            assert_eq!(e.snapped(Point::new(5.6, 5.6)), Point::new(5.6, 5.6));
+        }
     }
 }

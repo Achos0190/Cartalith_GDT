@@ -117,6 +117,43 @@ const STYLE_PRESETS := [
 	["Print", "Natural Vibrant", {"risograph": 0.5, "contours": 0.25}],
 ]
 
+## The gallery tile's own minimum width. **Not a `DccTheme.ROLE` row**: `ROLE`
+## is a shared table whose every relationship is re-checked when it is re-based
+## (`MISTAKES.md`'s re-base row), and one workspace's card width is not a shared
+## relationship -- nothing else in the shell draws this control.
+##
+## Both figures are a **minimum**, not a size: the tiles are `SIZE_EXPAND_FILL`
+## inside an `HFlowContainer`, so a wider dock widens them rather than opening a
+## gutter, and a dock too narrow for two reflows to one column on its own.
+##
+## **Both were chosen by measuring the dock, not by scaling one from the other**
+## -- `_presetgal_probe.gd` §4, this machine, 2026-09-06:
+##
+##   density   dock   flow width   two columns need   drawn
+##   pointer   372    331          2x156 + 4 = 316     2 cols, 163 x 71-87
+##   laptop    330    289          2x156 + 4 = 316     1 col,  289 x 55
+##   tablet    400    359          2x172 + 4 = 348     2 cols, 177 x 94-114
+##
+## The first tablet figure tried was the pointer one times the 400/372 the dock
+## itself takes -- 198 -- and the probe measured **one** column, because the
+## dock's own chrome takes 41 px off both densities and 400 is not 1.27x 372
+## once that is paid. The scaled number looked principled and was wrong; these
+## two are what the flow actually fits. The 1366 LAPTOP band reflows to one
+## full-width column on its own and is left to, which is the flow doing its job
+## rather than a third constant.
+const TILE_W := 156
+const TILE_W_T := 172
+const TILE_GAP := 4
+
+## The three managed keys that are not Painter styles, labelled exactly as
+## `_build_npr` labels their own controls. Reading a tile and then finding the
+## row it names has to be one vocabulary, not two.
+const MANAGED_LABEL := {
+	"contour_m": "Contour interval",
+	"waves": "Coastal wave lines",
+	"multi_sun": "Multi-sun lighting",
+}
+
 ## What a preset resets before applying itself -- the reference's own
 ## `STYLE_MANAGED_NUM`/`STYLE_MANAGED_BOOL`, intersected with what this port
 ## binds. `contour_m` is 0 = the reference's own automatic interval.
@@ -280,9 +317,15 @@ var _anim_check: CheckBox
 ## user is looking at rather than only the value behind it.
 var _npr_rows: Dictionary = {}
 var _app_rows: Dictionary = {}
-var _preset_chips: Array[Button] = []
+## One parts dictionary per gallery tile, in `STYLE_PRESETS` order -- see
+## `_preset_tile()` for its shape. **Not the `Array[Button]` of segment
+## chips this used to be**: a tile is a card with three separate inks, so
+## `DccWidgets.set_segment_on()` (which paints one `Button`'s own text) can
+## no longer say which preset is lit. `_set_tile_on()` is the replacement
+## and keeps that function's grammar exactly.
+var _preset_tiles: Array = []
 var _custom_note: Label
-## The base-look picker, kept so a Map-style chip can move it rather than
+## The base-look picker, kept so a Map-style tile can move it rather than
 ## leaving it naming a look that is not the one drawing the map.
 var _look_pick: OptionButton
 
@@ -299,7 +342,7 @@ var _applying := false
 
 func _build() -> void:
 	## Nested under CARTO, this node draws nothing itself: it holds the state
-	## (the ramp, the preset chips, the appearance rows, the water-anim layer)
+	## (the ramp, the preset tiles, the appearance rows, the water-anim layer)
 	## while `cartography_workspace.gd` calls the four `build_*_into()` entry
 	## points below with v3's own category bodies. See `_host`.
 	if _nested:
@@ -405,15 +448,20 @@ func _build_map_style() -> void:
 	if not bridge.npr_api:
 		return
 	var body := DccWidgets.section(_h(), "Map style")
+	## The engine's own look list, read **before** the gallery rather than after
+	## it: a tile names the base look it selects, and whether this cdylib
+	## actually has that look is a fact only this list can answer.
+	var look_names: Array = bridge.looks()
+	_look_names = look_names
 	var row := HFlowContainer.new()
-	row.add_theme_constant_override("h_separation", 4)
-	row.add_theme_constant_override("v_separation", 4)
+	row.add_theme_constant_override("h_separation", TILE_GAP)
+	row.add_theme_constant_override("v_separation", TILE_GAP)
 	body.add_child(row)
-	## Which chip opens lit is read from the engine, not assumed: the shipped
+	## Which tile opens lit is read from the engine, not assumed: the shipped
 	## default is Natural Vibrant and a hard-coded `i == 0` would go on lying
 	## the day that changes.
 	var live_look := bridge.look()
-	## The first chip whose look matches. On a fresh session that is Natural
+	## The first preset whose look matches. On a fresh session that is Natural
 	## Vibrant, which is exactly what is on screen; `0` is the fallback for a
 	## cdylib with no look API at all, where the old "Default is lit" behaviour
 	## is still the truthful one.
@@ -423,15 +471,12 @@ func _build_map_style() -> void:
 			lit = i
 			break
 	for i in STYLE_PRESETS.size():
-		var chip := DccWidgets.segment(row, String(STYLE_PRESETS[i][0]),
-			_apply_preset.bind(i))
-		DccWidgets.set_segment_on(chip, i == lit)
-		_preset_chips.append(chip)
+		var tile := _preset_tile(row, i, look_names)
+		_set_tile_on(tile, i == lit)
+		_preset_tiles.append(tile)
 
 	## The look on its own, because it is the engine's own list and a user may
 	## want a base without a Painter bundle over it.
-	var look_names: Array = bridge.looks()
-	_look_names = look_names
 	if not look_names.is_empty():
 		_look_pick = DccWidgets.choice(body, "Base look", look_names,
 			maxi(look_names.find(live_look), 0),
@@ -453,6 +498,218 @@ func _build_map_style() -> void:
 		+ "this file's STYLE_PRESETS for why the reference's own number would "
 		+ "reduce it. The reference's Antique also turns on a stylized "
 		+ "mountain/hill/tree glyph layer, which this port has not built.")
+	## **Why a tile carries its bundle and not a picture.** Stated to the user,
+	## not only in the source, because the absence is the first thing anyone
+	## looking at a gallery will ask about -- and because the reason is a real
+	## measured cost rather than an omission. See `_preset_tile`'s own comment
+	## for the numbers.
+	DccWidgets.note(body,
+		"A tile lists what its bundle does rather than showing a preview: "
+		+ "there is no way to picture a look without applying it and rendering "
+		+ "the whole map, which costs one full render per preset and would go "
+		+ "stale on the next slider you moved.")
+
+## One gallery tile. Returns the parts dictionary `_set_tile_on()` repaints:
+## `card` (the flat ground), `button` (the whole-card hit target), `name`,
+## `look` and `bundle` (the three inks).
+##
+## **The thumbnail question, decided by measurement rather than by taste.** A
+## tile wants a picture of the look and cannot have one: nothing in this engine
+## renders a look without applying it, and `build_color_texture()` takes no
+## arguments -- it renders the whole grid. **The one sized entry point that
+## does exist cannot help**: `WorldGen::lod_synthesize_tile(z, col, row)` is
+## handed `field, gw, gh, z, col, row, seed, sea_level` and never reads
+## `appearance()` or the look, so it draws the same picture whichever preset is
+## selected. Measured by `_presetgal_probe.gd
+## -- --cost` on this machine, 2026-09-06, windowed, seed 483920, median of
+## five after a discarded warm-up -- and **run twice, in separate processes**,
+## because a median is still one sample of the median:
+##
+##   grid          one build_color_texture(), run A / run B      gallery of 6
+##   384 x 288      15.7 (15.0..18.6) /  15.3 (14.3..15.4)        99 /   88 ms
+##   1024 x 656    100.4 (99.7..101.0) / 102.5 (100.7..104.3)    589 /  596 ms
+##   2048 x 1311   405.0 (400.2..406.1) / 406.3 (404.7..407.9)  2378 / 2397 ms
+##
+## The 1024 medians land just outside each other's brackets, so read the
+## magnitude and not the third digit; the decision does not turn on 2 ms. Both
+## runs are the **debug** cdylib, which is what `.gdextension` resolves for any
+## non-exported run and therefore what a session in the editor pays; a release
+## build is faster by an amount this pass did not measure and did not need to,
+## since the answer does not change at any plausible speed-up.
+##
+## So route "cache a render per preset at generate time" costs **2.4 seconds**
+## on a world this shell generates routinely, re-paid on every world change --
+## and any of the **49** keys `APPEARANCE_GROUPS` above lists, the ramp, the
+## layer stack, the quality tier or a sculpt invalidates all six the moment it
+## moves. (49 counted from this file's own table, 2026-09-06: the seven groups
+## hold 49 keys and `APPEARANCE_VIEW` four more; `_build_appearance` draws
+## whichever of them the running cdylib publishes, so the drawn count is that
+## or fewer, never more.) Static shipped thumbnails would show *a* world rather
+## than *this* one, which is the same defect wearing a cheaper coat.
+##
+## The tile therefore carries **a flat ground and no picture**, which is what
+## the artboard's own preset control carries -- `presetChips` is a pill with a
+## `var(--ins)` / `var(--wash2)` fill and nothing inside it but its name
+## (`design/dcc-environment-2026-08-31/Cartalith DCC Environment.dc.html`, the
+## `presetChips` markup and its state map; grepped, not line-jumped). The lit
+## pair here is `DccWidgets.set_segment_on()`'s, not the artboard's raw tokens:
+## this shell resolved that chip to a bordered outline unlit and an
+## `accent_wash_2` fill with an accent border lit, under an owner ruling that
+## function's own comment records, and a gallery drawing a *different* on-state
+## from every other segment in the shell would be the drift that ruling exists
+## to stop.
+##
+## What the space a picture would have taken is spent on instead is the one
+## thing a bare chip could not say: **what the bundle actually does**, derived
+## from the preset's own overrides. No per-preset colour is invented anywhere
+## here; the only fill is the theme's.
+func _preset_tile(parent: Control, index: int, look_names: Array) -> Dictionary:
+	var entry: Array = STYLE_PRESETS[index]
+	## Font sizes are resolved from `ROLE` **here**, at construction, rather
+	## than left to `DccShell.tablet_fit()`'s deferred walk. The walk would
+	## raise them after the card has already measured itself, and a card whose
+	## height was computed against 11 px type clips 13 px type. Setting them up
+	## front makes that walk a no-op on these labels -- it only ever raises a
+	## font *below* the floor -- so the measurement below is the shipped one at
+	## both densities.
+	var fs_name := DccTheme.role_px("fs_prose")
+	var fs_meta := DccTheme.role_px("fs_shortcut")
+
+	## **The card carries no stylebox of its own.** It looks like the obvious
+	## home for the border and the fill, and it is the wrong one: a
+	## `PanelContainer` insets every child by its panel's content margins, so
+	## the button below would be laid out inside the padding ring and the ring
+	## would not be clickable. Measured before it was moved -- with the box on
+	## the card, a 156 x 71 tile had a 138 x 59 hit target: a dead 9 px margin
+	## left and right and 6 px top and bottom, which are this function's own
+	## `pad_x`/`pad_y`. The box lives on the button instead, which is therefore
+	## the full card, and the padding is a `MarginContainer` over the top.
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", DccTheme.empty())
+	card.custom_minimum_size.x = TILE_W_T if DccTheme.is_tablet() else TILE_W
+	## `SIZE_EXPAND_FILL`, so the row's leftover width is shared out rather
+	## than left as a gutter: at the 1366 LAPTOP dock the flow fits one column
+	## and a `SIZE_FILL` tile sat 156 px wide in a 289 px row.
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(card)
+
+	## Child order is draw order and both children get the card's whole rect:
+	## the button first so its border and fill are the ground, the text over it.
+	## Every node in the text stack ignores the mouse, so the click still lands
+	## on the button underneath however tall the bundle line wraps.
+	var btn := Button.new()
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.tooltip_text = "%s -- %s" % [String(entry[0]), _bundle_line(index)]
+	btn.pressed.connect(_apply_preset.bind(index))
+	card.add_child(btn)
+
+	var pad := MarginContainer.new()
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var pad_x := DccTheme.role_px("chip_pad_x") if DccTheme.is_tablet() else 9
+	var pad_y := DccTheme.role_px("chip_pad_y") if DccTheme.is_tablet() else 6
+	for side in ["margin_left", "margin_right"]:
+		pad.add_theme_constant_override(side, pad_x)
+	for side in ["margin_top", "margin_bottom"]:
+		pad.add_theme_constant_override(side, pad_y)
+	card.add_child(pad)
+
+	var vb := VBoxContainer.new()
+	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vb.add_theme_constant_override("separation", 1)
+	pad.add_child(vb)
+
+	var name_l := DccTheme.label(String(entry[0]), "text", fs_name)
+	name_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(name_l)
+
+	## `ROLE_META` on both meta lines, which is what that key is for: without
+	## it `DccShell.tablet_fit()`'s fallback walk resolves a plain `Label` as
+	## `fs_prose` and would raise the bundle line to 14 px on tablet, one rung
+	## above the look line beside it and above the role either was authored
+	## for. `_tabletparity_probe.gd`'s dock-label assertion reads the same meta
+	## in the same order, so the check and the fix agree by construction.
+	var look_l := DccTheme.mono_label(_look_line(String(entry[1]), look_names),
+		"text_faint", fs_meta)
+	look_l.set_meta(DccTheme.ROLE_META, "fs_shortcut")
+	look_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	look_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(look_l)
+
+	var bundle_l := DccTheme.label(_bundle_line(index), "text_dim", fs_meta)
+	bundle_l.set_meta(DccTheme.ROLE_META, "fs_shortcut")
+	bundle_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bundle_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(bundle_l)
+
+	return {"card": card, "button": btn, "name": name_l, "look": look_l,
+		"bundle": bundle_l}
+
+## The tile's second line: the base look this preset selects.
+##
+## `set_look()` returns false and changes nothing for a name this cdylib does
+## not have, and `_apply_preset` applies the Painter half regardless -- so a
+## preset naming an absent look is a real, survivable state and the tile says
+## so instead of naming a look that will not be selected.
+##
+## **The disclosure is gated on the list being readable at all.** With no look
+## API (`bridge.looks()` empty) nothing here knows which looks exist, so the
+## name is drawn plain: claiming "not in this build" from an empty list would
+## be the wrong reason on every tile at once.
+func _look_line(look: String, look_names: Array) -> String:
+	if look_names.is_empty() or look_names.has(look):
+		return look
+	return "%s -- not in this build" % look
+
+## What a preset's bundle actually does, derived from its own overrides rather
+## than authored beside them: the two can therefore never disagree, which is
+## the property a hand-written blurb per preset would not have.
+##
+## Order is the Painter panel's own -- `STYLES` first, then the contour
+## interval, then the two switches in `_build_npr`'s "Water & light" order --
+## so reading a tile and then scrolling to the sliders reads the same list
+## twice rather than two orderings of one list.
+func _bundle_line(index: int) -> String:
+	var over: Dictionary = STYLE_PRESETS[index][2]
+	var parts := PackedStringArray()
+	for entry in STYLES:
+		var key := String(entry[0])
+		if over.has(key):
+			parts.append("%s %d%%" % [String(entry[1]), int(round(float(over[key]) * 100.0))])
+	if over.has("contour_m") and float(over["contour_m"]) > 0.0:
+		parts.append("Contour interval %d m" % int(round(float(over["contour_m"]))))
+	for key in ["waves", "multi_sun"]:
+		if over.has(key) and bool(over[key]):
+			parts.append(String(MANAGED_LABEL[key]))
+	if parts.is_empty():
+		## Not a dash and not a blank: an empty override dictionary is a real,
+		## deliberate value here -- `STYLE_MANAGED` has already put every
+		## managed key back to off -- so the tile states what that produces.
+		return "No Painter styles -- the quality tier's own image."
+	return " · ".join(parts)
+
+## Lit / unlit, in `DccWidgets.set_segment_on()`'s own grammar (accent border,
+## `accent_wash_2` fill, accent ink) rather than by calling it: that function
+## paints a `Button`'s own text, and a tile's text lives in three child labels
+## it cannot reach.
+func _set_tile_on(tile: Dictionary, on: bool) -> void:
+	var btn := tile["button"] as Button
+	## Zero content margins: the padding is the `MarginContainer` over this
+	## button, not the box under it, and a box that also padded would inset the
+	## button's own minimum size against text it does not draw.
+	var rest := DccWidgets.box("accent" if on else "border",
+		"accent_wash_2" if on else "", 0, 0)
+	for sb_name in ["normal", "pressed", "disabled", "focus"]:
+		btn.add_theme_stylebox_override(sb_name, rest)
+	btn.add_theme_stylebox_override("hover",
+		DccWidgets.box("accent" if on else "border",
+			"accent_wash_2" if on else "line_soft", 0, 0))
+	(tile["name"] as Label).add_theme_color_override("font_color",
+		DccTheme.c("accent" if on else "text"))
+	(tile["look"] as Label).add_theme_color_override("font_color",
+		DccTheme.c("accent" if on else "text_faint"))
+	(tile["bundle"] as Label).add_theme_color_override("font_color",
+		DccTheme.c("text" if on else "text_dim"))
 
 func _apply_preset(index: int) -> void:
 	var values: Dictionary = STYLE_MANAGED.duplicate()
@@ -478,8 +735,8 @@ func _apply_preset(index: int) -> void:
 		elif row.has("check"):
 			row["check"].set_pressed_no_signal(bool(values[key]))
 	_applying = false
-	for i in _preset_chips.size():
-		DccWidgets.set_segment_on(_preset_chips[i], i == index)
+	for i in _preset_tiles.size():
+		_set_tile_on(_preset_tiles[i], i == index)
 	if _custom_note != null:
 		_custom_note.visible = false
 	## `GUI_GAP_REGISTER.md`'s top-right-readout note, now taken: the viewport's
@@ -488,7 +745,7 @@ func _apply_preset(index: int) -> void:
 	if app != null and app.viewport != null:
 		app.viewport.set_style_readout(String(STYLE_PRESETS[index][0]))
 
-## Pick a base look on its own. Marks Custom, because the chips above name a
+## Pick a base look on its own. Marks Custom, because the tiles above name a
 ## look *and* a Painter bundle and only one half moved.
 func _on_look(name: String) -> void:
 	if not bridge.set_look(name):
@@ -497,7 +754,7 @@ func _on_look(name: String) -> void:
 	_refresh_map()
 	_mark_custom()
 
-## Re-select the picker after a Map-style chip changed the look underneath it.
+## Re-select the picker after a Map-style tile changed the look underneath it.
 func _sync_look_pick() -> void:
 	if _look_pick == null:
 		return
@@ -511,8 +768,8 @@ func _sync_look_pick() -> void:
 func _mark_custom() -> void:
 	if _applying:
 		return
-	for chip in _preset_chips:
-		DccWidgets.set_segment_on(chip, false)
+	for tile in _preset_tiles:
+		_set_tile_on(tile, false)
 	if _custom_note != null:
 		_custom_note.visible = true
 	if app != null and app.viewport != null:

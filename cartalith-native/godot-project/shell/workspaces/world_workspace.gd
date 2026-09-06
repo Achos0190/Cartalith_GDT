@@ -1848,7 +1848,8 @@ func _on_generate_pressed() -> void:
 # -- §5.2 Sculpt ----------------------------------------------------------------
 #
 # Every table this panel draws (features + their own controls, presets, the
-# eight brush/noise globals) comes straight off `bridge.get_sculpt_features()`
+# brush/noise globals -- §5.2's eight plus this port's own `falloff`, nine in
+# all) comes straight off `bridge.get_sculpt_features()`
 # / `get_sculpt_presets()` / `get_sculpt_globals_info()` -- none of §5.2's own
 # table is hand-copied here, so this panel cannot drift from the registry the
 # way a hardcoded copy could. `parent` is always `_sculpt_body`; this function
@@ -2013,8 +2014,22 @@ func _on_freehand_mode_changed(i: int, modes: PackedStringArray) -> void:
 	bridge.sculpt_set_freehand_mode(String(modes[i]))
 
 ## §5.2's "Brush & noise · global" table -- applies to every feature. The
-## eight controls (`#sBrush`…`#sSeed`) come from `get_sculpt_globals_info()`;
-## the seed row is its own thing since a dice button has no `Control` entry.
+## controls (`#sBrush`…`#sSeed`) come from `get_sculpt_globals_info()`; the
+## seed row is its own thing since a dice button has no `Control` entry.
+##
+## §5.2's table has **eight** rows and the engine now reports **nine**: the
+## ninth, `falloff`, is this port's own addition and has no §5.2 counterpart
+## to have drifted from (`sculpt_bridge.rs`'s `GLOBAL_RANGES` says so at the
+## source). It arrives with `type == "enum"` and an `options` array, so it
+## draws as a dropdown of names rather than as a 0..3 slider -- an ordinal
+## is what the engine stores, never what a user should be asked to aim at.
+## The branch is on `has("options")`, not on the key, so a second enum
+## control needs no edit here.
+##
+## The grid-snap picker rides in the same section and is deliberately *not*
+## one of those rows: snapping is applied at capture and never reaches a
+## stamp, so it is tool state rather than a brush global (`SculptEditor`'s
+## own `grid_snap` doc comment carries the reasoning).
 func _build_brush_globals(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Brush & noise · global")
 	var live := bridge.sculpt_get_globals()
@@ -2028,7 +2043,14 @@ func _build_brush_globals(parent: Control) -> void:
 		var cval := float(live.get(key, cd.get("default", 0.0)))
 		var is_int := String(cd.get("type", "float")) == "int"
 		var unit := " px" if key == "brush_size" else ""
-		DccWidgets.slider(sec, clabel, cmin, cmax, cstep, cval, unit, _on_global_changed.bind(key, is_int))
+		if cd.has("options"):
+			var opts: Array = Array(cd["options"])
+			var sel := clampi(int(round(cval)), 0, maxi(0, opts.size() - 1))
+			DccWidgets.choice(sec, clabel, opts, sel, _on_global_enum_changed.bind(key),
+				_falloff_tooltip() if key == "falloff" else "")
+		else:
+			DccWidgets.slider(sec, clabel, cmin, cmax, cstep, cval, unit, _on_global_changed.bind(key, is_int))
+	_build_grid_snap(sec)
 
 	var seed_row := HBoxContainer.new()
 	seed_row.add_theme_constant_override("separation", 8)
@@ -2052,6 +2074,55 @@ func _build_brush_globals(parent: Control) -> void:
 
 func _on_global_changed(v: float, key: String, is_int: bool) -> void:
 	bridge.sculpt_set_globals({key: (round(v) if is_int else v)})
+
+## An enum global's dropdown index **is** the value the engine stores, so
+## this passes it straight through rather than mapping through a name: the
+## `options` array came from the same ordinal the engine reads back.
+func _on_global_enum_changed(i: int, key: String) -> void:
+	bridge.sculpt_set_globals({key: float(i)})
+
+## The one thing a user could reasonably expect the Falloff control to do
+## and it will not: **Ridge ignores it.** Measured, not guessed -- Ridge
+## multiplies coverage by its own perpendicular gaussian, which at the
+## default `Width frac` has decayed to ~0.002 before the brush ramp starts
+## to bend, so all four shapes land within 2e-5 of full height of each
+## other (`sculpt.rs`'s
+## `ridge_is_immune_to_the_falloff_because_its_own_gaussian_is_narrower`).
+## Said here rather than left for the user to discover by drawing four
+## identical ridges.
+func _falloff_tooltip() -> String:
+	return ("Shape of the brush's coverage ramp. Hardness sets how WIDE the ramp is; "
+		+ "this sets its shape, which hardness cannot reach at any setting. "
+		+ "Constant has no ramp at all, so edge noise cannot roughen it. "
+		+ "Ridge is the one feature this barely affects -- its own Width frac "
+		+ "gaussian is narrower than the ramp and decides the profile instead.")
+
+## Grid snap: Off plus whatever ladder the engine offers, in grid cells.
+##
+## Off is the **first** entry and means the absence of a step, not a step of
+## zero -- `sculpt_get_grid_snap()` returns an empty Dictionary rather than a
+## `0`, and this reads it with `has("step")` for exactly that reason.
+func _build_grid_snap(sec: Control) -> void:
+	var steps := bridge.get_sculpt_grid_snap_steps()
+	if steps.is_empty():
+		return
+	var live := bridge.sculpt_get_grid_snap()
+	var options: Array = ["Off"]
+	var selected := 0
+	for i in steps.size():
+		var step := float(steps[i])
+		options.append("%d cell%s" % [int(step), "" if int(step) == 1 else "s"])
+		if live.has("step") and float(live["step"]) == step:
+			selected = i + 1
+	DccWidgets.choice(sec, "Grid snap", options, selected, _on_grid_snap_changed.bind(steps),
+		"Rounds each captured stroke point onto a lattice of this many grid cells. "
+		+ "Applies to points captured after the change, not to the stroke in progress "
+		+ "or to stamps already on the draft.")
+
+func _on_grid_snap_changed(i: int, steps: PackedFloat64Array) -> void:
+	## Index 0 is Off, so `i - 1` indexes the ladder. A 0.0 step is what the
+	## engine reads as "off"; it is never stored as a snap value.
+	bridge.sculpt_set_grid_snap(0.0 if i <= 0 else float(steps[i - 1]))
 
 func _on_sculpt_seed_dice() -> void:
 	bridge.sculpt_set_seed(randi())
@@ -2196,17 +2267,29 @@ func _on_sculpt_discard() -> void:
 ## `map_clicked` at all, per `map_overlay.gd`) followed by a drag that moves
 # onto it (`map_dragged` fires once valid).
 
+## The raw pointer position goes to `sculpt_add_point`, which does its own
+## grid snapping in f64; the **preview** point comes back from
+## `bridge.sculpt_snap()` so the teal polyline draws where the stamp will
+## actually land. With snapping off the two are the same point, and this
+## costs one extra engine call per motion sample.
+##
+## The order matters: `sculpt_add_point` first, then the readback. Snapping
+## is a pure function of the live step, so a readback taken before the push
+## would agree today -- but every other pair in this file emits after the
+## engine call for the reason `MISTAKES.md` records, and a preview drawn
+## from a value read before its own write is that mistake waiting for the
+## first stateful snap mode.
 func _sculpt_click(gx: float, gy: float) -> void:
 	bridge.sculpt_begin_stroke()
 	bridge.sculpt_add_point(gx, gy)
-	_sculpt_stroke_points = PackedVector2Array([Vector2(gx, gy)])
+	_sculpt_stroke_points = PackedVector2Array([bridge.sculpt_snap(gx, gy)])
 	app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
 
 func _sculpt_drag(gx: float, gy: float) -> void:
 	if _sculpt_stroke_points.is_empty():
 		bridge.sculpt_begin_stroke()
 	bridge.sculpt_add_point(gx, gy)
-	_sculpt_stroke_points.append(Vector2(gx, gy))
+	_sculpt_stroke_points.append(bridge.sculpt_snap(gx, gy))
 	app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
 
 ## `build_sculpt_preview_texture()` is only called here, on release -- calling

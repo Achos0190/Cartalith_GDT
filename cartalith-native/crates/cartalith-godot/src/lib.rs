@@ -8002,17 +8002,96 @@ impl WorldGen {
         sculpt_bridge::global_controls()
             .iter()
             .map(|c| {
-                vdict! {
+                let options = sculpt_bridge::enum_options(c.key);
+                let mut d = vdict! {
                     "key" => c.key,
                     "label" => c.label,
-                    "type" => if c.key == "octaves" { "int" } else { "float" },
+                    "type" => match (options.is_some(), c.key) {
+                        (true, _) => "enum",
+                        (false, "octaves") => "int",
+                        _ => "float",
+                    },
                     "min" => c.min,
                     "max" => c.max,
                     "step" => c.step,
                     "default" => c.default,
+                };
+                // `options` is present only for an `enum` control, so a shell
+                // switches on the presence of the key rather than on an empty
+                // array standing in for "not an enum".
+                if let Some(labels) = options {
+                    let arr: Array<GString> = labels.iter().map(|s| GString::from(*s)).collect();
+                    d.set("options", &arr);
                 }
+                d
             })
             .collect()
+    }
+
+    /// The grid-snap steps this build offers, in **grid cells**, in ladder
+    /// order (`sculpt_bridge::GRID_SNAP_STEPS`). "Off" is not among them —
+    /// it is the absence of a step, not a step of zero — so a shell that
+    /// draws a picker prepends its own Off entry.
+    #[func]
+    fn get_sculpt_grid_snap_steps(&self) -> PackedFloat64Array {
+        PackedFloat64Array::from(sculpt_bridge::GRID_SNAP_STEPS)
+    }
+
+    /// Turns grid snapping on at `step` cells, or off for anything not on
+    /// `get_sculpt_grid_snap_steps()`'s ladder (`0` included -- that is how
+    /// a shell says "off"). Returns the step now in effect, or `0` when
+    /// snapping is off; read `sculpt_get_grid_snap()` rather than this
+    /// return value if you need to distinguish the two without a magic
+    /// number.
+    ///
+    /// Affects only points captured **after** this call: an in-progress
+    /// stroke keeps whatever it has already captured, which is the same
+    /// rule every other brush global follows (a stamp freezes the tool
+    /// state it was drawn with).
+    #[func]
+    fn sculpt_set_grid_snap(&mut self, step: f64) -> f64 {
+        self.sculpt
+            .as_mut()
+            .and_then(|s| s.set_grid_snap(step))
+            .unwrap_or(0.0)
+    }
+
+    /// `[x, y]` after the live grid snap — **the same `snapped()` call
+    /// `sculpt_add_point` makes**, exposed so a shell drawing a stroke
+    /// preview shows the polyline the engine will actually stamp instead of
+    /// the raw pointer path.
+    ///
+    /// Without this a snapped stroke draws twice: a preview on the pointer
+    /// and a stamp on the lattice. Re-implementing the rounding shell-side
+    /// would work until the two rounding rules disagreed — Godot's
+    /// `snappedf` is `floor(x/step + 0.5)*step` and Rust's `round` is
+    /// half-away-from-zero, which differ at every negative half-integer.
+    ///
+    /// `PackedFloat64Array` rather than `Vector2` on purpose: `Vector2` is
+    /// `f32`, and with snapping **off** this returns its input unchanged, so
+    /// a `Vector2` would quietly move an un-snapped point by an `f32` ulp.
+    /// Returns the input unchanged when there is no editor.
+    #[func]
+    fn sculpt_snap(&self, x: f64, y: f64) -> PackedFloat64Array {
+        let p = cartalith_terrain::sculpt::Point::new(x, y);
+        let p = self.sculpt.as_ref().map_or(p, |s| s.snapped(p));
+        PackedFloat64Array::from(&[p.x, p.y])
+    }
+
+    /// The live grid snap as `{"step": <cells>}`, or an **empty**
+    /// `Dictionary` when snapping is off or there is no editor yet.
+    ///
+    /// The key is omitted rather than sent as `0`, so a caller asks
+    /// `has("step")` and can never mistake "not snapping" for "snapping to a
+    /// zero-cell lattice" -- the shape `MISTAKES.md`'s absent-value rule
+    /// asks for, and the reason this is a `Dictionary` and not a `float`.
+    #[func]
+    fn sculpt_get_grid_snap(&self) -> VarDictionary {
+        let mut out = VarDictionary::new();
+        if let Some(step) = self.sculpt.as_ref().and_then(|s| s.grid_snap) {
+            out.set("step", step);
+        }
+        out
     }
 
     /// Freehand's 8 sub-mode keys, in registry order (`FreehandMode`'s own
@@ -8180,11 +8259,18 @@ impl WorldGen {
     /// or `-1` before any `generate()` call. A non-finite `x`/`y` is
     /// silently dropped (the point count is unchanged) rather than
     /// poisoning every stamp built from this stroke with a NaN.
+    ///
+    /// **Grid snap applies here**, at capture, when `sculpt_set_grid_snap`
+    /// has set a lattice: the stored point is the rounded one, so the stamp
+    /// a stroke becomes carries snapped coordinates and re-opening a saved
+    /// project draws exactly what was drawn. The finiteness check runs
+    /// first, since rounding a NaN produces another NaN and would defeat it.
     #[func]
     fn sculpt_add_point(&mut self, x: f64, y: f64) -> i32 {
         let Some(s) = self.sculpt.as_mut() else { return -1 };
         if x.is_finite() && y.is_finite() {
-            s.points.push(cartalith_terrain::sculpt::Point::new(x, y));
+            let p = s.snapped(cartalith_terrain::sculpt::Point::new(x, y));
+            s.points.push(p);
         }
         s.points.len() as i32
     }
