@@ -452,3 +452,52 @@ than unexamined, because it is not cheap: every crate on the shared path would
 have to stay wasm-compatible, forbidding threads, filesystem and some
 dependencies in exactly the crates doing the heavy work. Zero `wasm32` hits in
 any `Cargo.toml` today, which is correct.
+
+**26. The 16K/32K export codec? → PNG.** Owner, 2026-09-06: *"For the codec in
+export use png, even if size balloons. We should just inform the user of the
+expected file size."* And, clarifying the deliverable the same day: *"this would
+be an user generated monolithic image of the map. No layers, no extensive
+information. Just to be used outside of Cartalith in an image viewer."*
+
+The survey had already eliminated the alternatives on their own terms — **WebP
+dies at 16 383 px**, below the smaller of the two target sizes, and **JPEG XL
+dies on its AGPL encoder**. Size was the only argument left against PNG and the
+owner spent it deliberately. The clarification removes the rest of the question:
+one flat raster, no sidecar metadata, no layer preservation, no tiling.
+
+**Three consequences follow, and they are build items rather than open
+questions.**
+
+**Export RGB, not RGBA.** No layers and no overlay data means no transparency is
+needed. That is not cosmetic: it cuts the pre-encode allocation by a quarter.
+**Using `EXPORT_SCOPE.md` §6's own target dimensions rather than a square
+canvas** — the export is 32 768 × 20 976 and 16 384 × 10 488, not N² —
+**32K drops from 2.75 GB to 2.06 GB and 16K from 687 MB to 515 MB**. It also
+removes the failure this exact use case invites: a map with a transparent sea
+opening white-on-white in a viewer that does not composite. Establish that the
+renderer's output really is opaque everywhere before dropping the channel; if
+any pass writes alpha, composite onto the theme's ground rather than keep it.
+
+**Report memory as well as file size, before the run.** The instruction is to
+tell the user the expected size, which is only useful *ahead* of a long export —
+the Data-manager route pane's ESTIMATE block is the existing shape for that.
+Derive bytes-per-pixel from real exports at smaller sizes rather than a generic
+PNG rule of thumb: map imagery compresses unusually well, so a textbook figure
+will be wrong in the user's favour and still wrong. **Memory is the harder
+constraint** — the phone already peaks near 878 MB on a 2048×1311 world, so a
+2.06 GB allocation is not slow there but impossible, and even 16K's 515 MB is
+doubtful. The export should refuse a size the device cannot hold rather than die
+mid-run. §6's own estimate for the *file* is 500 MB - 1 GB at 32K, so the two
+figures are the same order and the user needs both.
+
+**PNG is scanline-ordered, and that is the good news in this decision.**
+`EXPORT_SCOPE.md` §5 records a banded renderer that was prototyped, **measured
+byte-identical**, and reverted. A band of rows is exactly what a PNG encoder
+consumes next; a tiled format would not have had this property. **Recover that
+prototype from history rather than rewriting it** — it was measured
+byte-identical once and that evidence is worth keeping. Check Godot's own
+`Image`/`save_png` dimension limits early: if it cannot write a 32K PNG in one
+call, the banded path stops being an optimisation and becomes the only route.
+
+Unchanged by this ruling: **the render-once decision still has to be reversed**
+(ruling 15's first cost), and what depends on it must be established first.

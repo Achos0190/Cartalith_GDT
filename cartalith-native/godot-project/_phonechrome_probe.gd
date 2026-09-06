@@ -120,13 +120,24 @@ func _tap_walk(app: Node, floor_px: float) -> int:
 			## **A zero axis is UNMEASURED, not too small**, and reporting it as a
 			## tap-floor violation is a false red. It means the control has never
 			## had a real layout pass -- the state the warm-up above exists to
-			## remove. Counted and printed separately, 2026-09-06, after the
-			## `_set_panel_picker_open` warm-up was deleted with the `▤` glyph
-			## (owner ruling 20) and three Controls in one subtree stopped being
-			## laid out: they reported `(0.0, 115.0)`, a correct height against a
-			## width that had never been resolved. **The gap is real and is a
-			## backlog row** -- something is no longer warmed -- but it is a
-			## measurement gap, not four buttons a finger cannot hit.
+			## remove.
+			##
+			## Three such buttons were reported here from 2026-09-06 at
+			## `(0.0, 115.0)`, a correct height against a width that had never
+			## been resolved, and the cause recorded beside them -- that deleting
+			## the `_set_panel_picker_open` warm-up with the `▤` glyph (owner
+			## ruling 20) had stopped warming them -- was **wrong**. Measured
+			## with `_sheetback_probe.gd --sub 1080x2340`: they are the `⋮`
+			## overflow popover's three rows (`Save project` / `Theme` /
+			## `Close world`, built by `_build_phone_overflow()` under
+			## `_phone_overflow_pop`), and **nothing has ever warmed them**. The
+			## warm-up above called `_set_overflow_open()`, which despite the
+			## name opens `PhoneMenu`'s L2 root and never touches the popover;
+			## the function that shows it is `_set_phone_overflow_open()`. The
+			## picker deletion narrowed the count from 5 to 3, which is why it
+			## looked like the cause. Adding that one call resolves all three:
+			## `(0.0, 115.0)` -> `(601.0, 115.0)` at `_phone_scale` 2.6214,
+			## clearing the 115 px floor on both axes.
 			if sz.x <= 0.5 or sz.y <= 0.5:
 				unlaid += 1
 				print("  UNLAID   ", bb.get_path(), "  size=", sz,
@@ -233,6 +244,15 @@ func _ready() -> void:
 	## 4+ — the tap-floor walk it exists for — never ran. `_hidpi_probe.gd` and
 	## `_jp16_probe.gd` carry the post-mortem for this same failure mode.
 	app.call("_set_overflow_open", true); await _frames(2)
+	## **A second, differently named function, and the difference is the whole
+	## point.** `_set_overflow_open()` above opens `PhoneMenu`'s L2 root -- it
+	## keeps that name only so `_shot_phone.gd --overflow` still works, and its
+	## own doc comment says so. The `⋮` popover is `_phone_overflow_pop` and
+	## `_set_phone_overflow_open()` is what shows it. Without this line its
+	## three rows are the only phone subtree no warm-up reaches, and they were
+	## reported as UNLAID for it. `_close_all_phone_overlays()` below hides the
+	## popover again, so the restore is the same one the other three get.
+	app.call("_set_phone_overflow_open", true); await _frames(2)
 	app.call("_set_sheet_open", "left", true); await _frames(2)
 	app.call("_set_sheet_open", "right", true); await _frames(2)
 	app.call("_close_all_phone_overlays")

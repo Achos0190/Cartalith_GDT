@@ -384,12 +384,16 @@ Posed, not answered — the same discipline `STORY_PLANNING_SCOPE.md` §6 and
      `LandmarkInputs`, which does not carry them~~: as of 2026-09-06
      `LandmarkInputs::manual_icons` exists, `generate` honours it with a 3 km
      exclusion, and `landmark_bridge::icon_to_mark` filters to `Manual` origins.
-     **What is missing is the wiring, not the capability:** `icon_to_mark` has
+     ~~**What is missing is the wiring, not the capability:** `icon_to_mark` has
      **zero shipping callers** and nothing assigns `inputs.manual_icons` in
      `lib.rs`'s `landmark_run_inner`, which assigns only `settlements`. **So in
      the running app, generation can still place a landmark on top of a
-     hand-placed icon** — the engine can see them and is never shown any. **That
-     was the ruling's own justification for choosing one layer over two**, and it
+     hand-placed icon**~~ — **CLOSED 2026-09-06.** `landmark_run_inner` now
+     assembles `manual_icons` from `WorldGen::icons` through `icon_to_mark`, the
+     same shape it uses for `settlements`. `_lmicon_probe.tscn` shows a landmark
+     leaving an icon's cell and returning when the icon is deleted, and a
+     verifier reproduced all three runs and killed a mutant of the assignment.
+     **That was the ruling's own justification for choosing one layer over two**, and it
      stays unrealised until those two lines land. *(Narrowed rather than struck:
      a lane reported this bullet "false as of this change" and a verifier
      established that only the middle clause is.)*

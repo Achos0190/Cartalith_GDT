@@ -6064,6 +6064,13 @@ func _phone_overflow_row(parent: Control, text: String, method: String,
 	parent.add_child(row)
 	return value
 
+## Shows the `⋮` popover built by `_build_phone_overflow()`. **Not to be
+## confused with `_set_overflow_open()`**, which opens `PhoneMenu`'s L2 root
+## and keeps that name for `_shot_phone.gd --overflow`; see its own comment for
+## what mistaking the two already cost. This one is the only thing that makes
+## `_phone_overflow_pop` visible, so it is also the only thing that gives its
+## three rows a layout pass -- a probe that wants to measure them has to call
+## it by name.
 func _set_phone_overflow_open(open: bool) -> void:
 	_close_all_phone_overlays()
 	if _phone_overflow_pop == null:
@@ -6987,6 +6994,18 @@ func _set_coach_mark_seen(id: String) -> void:
 ## Kept under its old name so `_shot_phone.gd --overflow` and anything else
 ## already driving it keeps working; what it opens is now `PhoneMenu`'s L2 root
 ## rather than the reparented desktop bar.
+##
+## **This is NOT the `⋮` popover.** That is `_phone_overflow_pop`, and
+## `_set_phone_overflow_open()` -- eleven characters longer, same file -- is
+## what shows it. The names are close enough that every probe warm-up in the
+## tree calls this one believing it opens the popover, which is how the
+## popover's three rows (`Save project` / `Theme` / `Close world`) reached
+## 2026-09-06 as the only phone subtree nothing had ever laid out:
+## `_phonechrome_probe.gd` reported them at `size=(0.0, 115.0)` and blamed a
+## deleted warm-up that had never covered them. Measured with
+## `_sheetback_probe.gd --sub 1080x2340`: calling the other function first
+## takes them to `(601.0, 115.0)` at `_phone_scale` 2.6214. If you want the
+## popover, you want the other function.
 func _set_overflow_open(open: bool) -> void:
 	_close_all_phone_overlays()
 	if open:

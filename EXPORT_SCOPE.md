@@ -1,9 +1,22 @@
-# High-resolution image export — findings, **shelved 2026-08-25**
+# High-resolution image export — findings, **UN-SHELVED 2026-09-06**
 
-> **Shelved at the owner's request, 2026-08-25**, the same day it was raised:
-> *"Let's shelve the 16k export and higher for the moment."* Nothing in this
-> document is scheduled work. It exists so that the day it is un-shelved, the
-> expensive parts do not have to be established a second time.
+> **UN-SHELVED by the owner, 2026-09-06 (ruling 15)**, against the standing
+> recommendation to leave it shelved. **The codec is settled: PNG, RGB (ruling
+> 26)** — *"even if size balloons. We should just inform the user of the expected
+> file size."* §6's survey stands as the reason nothing else was eligible.
+>
+> **The owner scoped the deliverable the same day, and it is narrower than this
+> document assumes throughout:** *"a user generated monolithic image of the map.
+> No layers, no extensive information. Just to be used outside of Cartalith in an
+> image viewer."* One flat raster — no sidecar metadata, no layer preservation,
+> no tiling. **Read §6's codec comparison as history now**, not as an open
+> question; what remains live there is the size arithmetic.
+>
+> **Shelved at the owner's request 2026-08-25**, the same day it was raised:
+> *"Let's shelve the 16k export and higher for the moment."* That hold lasted
+> twelve days and the findings below were written under it, so **anything here
+> phrased as "if this is ever un-shelved" is describing a condition that has now
+> happened.**
 >
 > **The shipped 2K/4K/8K export was left untouched.** Everything described below
 > as "prototyped" was written, run, and then reverted; the pass left the working

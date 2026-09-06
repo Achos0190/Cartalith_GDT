@@ -3345,30 +3345,49 @@ struct WorldGen {
     /// a user who armed twelve types, tuned the caps and ran the pass got an
     /// archive that remembered none of it.
     ///
-    /// Half of that is now closed. `project_bridge.rs` writes `settings`
-    /// into `entities/landmarks.json` (see `LandmarksDoc`) and restores it in
+    /// The `settings` half closed first. `project_bridge.rs` writes them
+    /// into `entities/landmarks.json` (see `LandmarksDoc`) and restores them in
     /// `project_open`, and `load_save`'s reset puts it back to
     /// `LandmarkSettings::default()` first — which also ends the leak in the
     /// other direction, where an un-reset cap table followed the user from
     /// one project into the next.
     ///
-    /// `last` is still not written, deliberately and not for want of a slot:
-    /// the pass is a pure function of the world, the settings and the seed
-    /// (`LANDMARK_GENERATION_RESEARCH.md` §27), `invalidate()` has to clear
-    /// it on open regardless — placements taken over the previous field must
-    /// not be drawn against a new one — and re-running it is one click that
-    /// reproduces the same placements exactly.
+    /// **`last` is written too, since owner ruling 10 (2026-09-06)** — the
+    /// same document's `results` member (`project_bridge.rs`'s
+    /// `LandmarksDoc`), `skip_serializing_if` so a project whose pass never
+    /// ran carries no member rather than an empty run, restored in
+    /// `project_open` on top of the field `load_save` has just installed.
+    ///
+    /// This doc argued the opposite until then, and the argument is worth
+    /// keeping because of *how* it failed: the pass is a pure function of the
+    /// world, the settings and the seed (`LANDMARK_GENERATION_RESEARCH.md`
+    /// §27), so re-running it is one click that reproduces the placements and
+    /// a slot would be redundant. **That was one term short when it was
+    /// written and is two now.** It never covered what a person or a later
+    /// pass *attaches* to a placement — a §25 state transition, a name, a
+    /// knowledge link — which is the ruling's own reason and
+    /// `LandmarksDoc`'s. And since owner ruling 14 the pass reads a fourth
+    /// input, `cartalith_civ::landmark::LandmarkInputs::manual_icons`
+    /// (assembled in `landmark_run_inner` below from `self.icons`), so a
+    /// re-run reproduces the placements only while the hand-placed icons are
+    /// unchanged as well. `cartalith_civ::landmark::generate`'s own doc
+    /// states the four-term form and flags exactly this argument shape.
     ///
     /// `settings` is **not** reset by `absorb()`, the same reasoning
     /// `WorldParams::civ` already carries: a cap table describes what the user
     /// wants placed, not one generation's output. `last` (the retained
     /// result) **is** invalidated there (`LandmarkStore::invalidate`) — a
     /// fresh terrain makes the previous run's placements meaningless, and
-    /// landmark generation is deterministic per
-    /// `LANDMARK_GENERATION_RESEARCH.md` §27, so nothing is lost by asking
-    /// for another run rather than trying to carry the old one across.
-    /// Unlike `civ`, `last` is never auto-computed — the dock's own "Run
-    /// landmark pass" button is the only writer.
+    /// nothing is lost by asking for another run rather than trying to carry
+    /// the old one across: `absorb()` replaces `self.icons` with a fresh
+    /// `IconEditor` on the same line of reasoning, so the fourth input above
+    /// is empty again too and the new run has nothing to disagree with.
+    ///
+    /// Unlike `civ`, `last` is never auto-computed. `landmark_run()` is the
+    /// only thing here that *computes* one, behind the dock's own "Run
+    /// landmark pass" button (`civilization_workspace.gd::_lm_run`, its one
+    /// caller). `project_open` is the second writer and computes nothing —
+    /// it restores a run the archive already carried.
     landmark_store: cartalith_civ::landmark::LandmarkStore,
 
     /// Every archive entry the **currently open project** carried that this
@@ -16421,6 +16440,24 @@ impl WorldGen {
             .as_ref()
             .map(|civ| civ.settlements.iter().map(landmark_bridge::settlement_to_site).collect())
             .unwrap_or_default();
+        // Owner ruling 14's spacing half, in `sites`' own three-part shape
+        // directly above: map the editor's records to the pass's marks, hold
+        // the vector alive for the borrow below, assign the slice.
+        // `icon_to_mark` returns `None` for every `IconOrigin::Generated`
+        // row — a generated icon is a landmark's own glyph, and feeding one
+        // back in would make the pass avoid itself, placing fewer on every
+        // re-run (that function's own doc comment).
+        //
+        // `self.icons` is `None` before the first `generate()`, so an empty
+        // vector here is the same degradation `self.civ` gives the inputs
+        // above, and an empty `manual_icons` slice leaves placement
+        // bit-identical (`an_empty_icon_slice_changes_nothing` in
+        // `cartalith-civ`).
+        let icon_marks: Vec<cartalith_civ::landmark::ManualIconMark> = self
+            .icons
+            .as_ref()
+            .map(|ed| ed.icons.iter().filter_map(landmark_bridge::icon_to_mark).collect())
+            .unwrap_or_default();
 
         let mut inputs = cartalith_civ::landmark::LandmarkInputs::new(
             &ws.field, gwu, ghu, self.sea_level, self.world, self.map_width_km,
@@ -16439,6 +16476,34 @@ impl WorldGen {
         inputs.resistance = Some(&ws.resistance_field);
         inputs.resources = &resource_pairs;
         inputs.settlements = &sites;
+        // The pass's only obstacle input, and the one input on this list that
+        // a person edits directly rather than generating.
+        //
+        // **Nothing re-runs the pass when it changes, and nothing invalidates
+        // the retained result.** Establishing that rather than assuming it:
+        // the three `landmark_store.invalidate()` sites are `absorb()`,
+        // `center_landmasses`' rotate branch and `load_save`, and all three
+        // share one property an icon edit does not have — the grid the
+        // placements are addressed in moved, so a stored `x,y` is meaningless
+        // or out of bounds. An icon edit leaves the field, the resolution and
+        // every reading alone; the standing placements are still true of the
+        // world, they are just no longer what a fresh run would produce.
+        //
+        // Left that way deliberately, and the precedent is two screens up:
+        // `landmark_reset_settings` changes the pass's output just as much and
+        // its own doc states that the last run's placements stay on screen
+        // until the next `landmark_run()`, "the same way resetting a
+        // generation parameter does not itself regenerate the world". The
+        // brush makes it more than a symmetry argument —
+        // `cartography_workspace.gd::_on_icon_drag` stamps on every drag
+        // sample while painting and `ICON_BRUSH_MAX_DARTS` is 1 500 per
+        // stamp, so invalidating here would blank the landmark overlay
+        // mid-stroke and drop the panel's second line to `—`
+        // (`LandmarkStore::last`'s own doc for what `None` draws as).
+        // What is genuinely open is whether the shell should *say* the
+        // result is stale; that is a UI question and there is no engine
+        // signal for it yet.
+        inputs.manual_icons = &icon_marks;
         // The routed way graph, which Road junction, Bridge site, Market site,
         // Caravan station and Trade depot read and nothing else can stand in
         // for. Empty until `compute_civilisation` has run, which is the same

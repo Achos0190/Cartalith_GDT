@@ -309,10 +309,20 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// *"Landmark persistence? → PERSIST in `entities/landmarks.json`."* **This
 /// paragraph used to say the opposite** — "the retained run is not written,
 /// because `cartalith_civ::landmark::generate` is a pure function of the
-/// world, the settings and the seed" — and that argument is superseded rather
-/// than wrong. Re-running the pass does reproduce the placement exactly; what
-/// it does not reproduce is anything a person or a later pass has since
-/// attached to one. `LandmarksDoc.results` is `Option` and
+/// world, the settings and the seed".
+///
+/// **That argument is now wrong, and this paragraph has been wrong about how
+/// wrong it was.** It first read "superseded rather than wrong — re-running the
+/// pass does reproduce the placement exactly", which was true when written and
+/// stopped being true on 2026-09-06, when `landmark_run_inner` began assembling
+/// `LandmarkInputs::manual_icons` under owner ruling 14. The pass takes a
+/// **fourth** input, so a re-run reproduces the placement only if the
+/// hand-placed icons are also unchanged — and a user can move one at any time.
+/// `cartalith_civ::landmark::generate`'s own doc carries the four-term form and
+/// flags this exact argument shape; read it there rather than trusting a
+/// restatement here. What a re-run never reproduces, fourth term or not, is
+/// anything a person or a later pass has since attached to a placement.
+/// `LandmarksDoc.results` is `Option` and
 /// `skip_serializing_if`, so a project whose pass has never run still writes
 /// no run at all, and `load_save` reached on its own still invalidates —
 /// `project_bridge.rs`'s restore puts the archive's own placements back on
