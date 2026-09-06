@@ -963,9 +963,13 @@ func _tool_options_territory() -> void:
 			func(i: int): _territory_subtract = (i == 1))
 		var stats := bridge.civ_faction_territory_stats(_territory_faction)
 		if not stats.is_empty():
+			## `format_area`, not `format`: the linear factor squared. 100 km²
+			## is 38.6 mi², not 62.1. Cells and contested cells are counts and
+			## carry no unit, so only the middle term moves.
 			row.add_child(DccTheme.mono_label(
-				"%d cells · %.0f km² · %d contested" % [
-					int(stats.get("claimed_cells", 0)), float(stats.get("area_km2", 0.0)),
+				"%d cells · %s · %d contested" % [
+					int(stats.get("claimed_cells", 0)),
+					DccUnits.format_area(float(stats.get("area_km2", 0.0))),
 					int(stats.get("contested_cells", 0))],
 				"text_dim", DccTheme.FS_MICRO))
 		row.add_child(DccTheme.spacer())
@@ -1606,9 +1610,12 @@ func _build_pop_estimate(parent: Control) -> void:
 	var settled := int(agr.get("settled", 0))
 	var land := int(agr.get("land_km2", 0))
 	var pct := (100.0 * float(settled) / float(sustains)) if sustains > 0 else 0.0
+	## The two people counts stay `_thousands` (a headcount has no unit); the
+	## area follows `Preferences ▸ Units` through `DccUnits.format_area`, which
+	## groups thousands the same way with the same separator.
 	DccWidgets.note(parent,
-		"Land sustains ≈ %s people over %s km² of land; %s actually live in settlements (%.1f%%). "
-		% [FactionRosterWindow._thousands(sustains), FactionRosterWindow._thousands(land),
+		"Land sustains ≈ %s people over %s of land; %s actually live in settlements (%.1f%%). "
+		% [FactionRosterWindow._thousands(sustains), DccUnits.format_area(float(land)),
 			FactionRosterWindow._thousands(settled), pct]
 		+ "Σ agrarian density × cell area over land -- the ceiling settlement nuclei are sized "
 		+ "against, not a target.")
@@ -1644,6 +1651,16 @@ func _build_pop_estimate(parent: Control) -> void:
 ## reaches here when `civ_agrarian_regional_total()` came back non-empty,
 ## which needs a world, so there is no state in which this row appears over
 ## nothing. A binary too old to answer says so when pressed, in the handler.
+## **`persons/km²` here stays km², and it is the one site on this panel that
+## does.** It is a RATE, not a length or an area: `DccUnits` offers `to_unit`
+## (linear), `format_area` (linear squared) and nothing that inverts a factor,
+## so there is no helper to route it through and hand-rolling `× 2.59` here is
+## exactly the second conversion path `dcc_units.gd`'s header exists to
+## prevent. It is also the name of the reference's own field --
+## `currentPopulationDensity`'s `persons/km²` -- quoted in the tooltip below,
+## and a quoted field name is not a readout. The *result* the button computes
+## is a headcount and an area, and the area does convert (`_on_compute_
+## regional_population`).
 func _build_regional_population(parent: Control) -> void:
 	var btn := DccWidgets.action(parent, "Compute regional population (persons/km²)…",
 		_on_compute_regional_population)
@@ -1667,8 +1684,11 @@ func _on_compute_regional_population() -> void:
 	var total := int(r.get("total", 0))
 	var land := int(r.get("land_km2", 0))
 	var claimed := int(r.get("claimed", 0))
-	var text := "Regional average model ≈ %s people over the same %s km²." \
-		% [FactionRosterWindow._thousands(total), FactionRosterWindow._thousands(land)]
+	## "the same" is a claim about `_build_pop_estimate`'s figure directly
+	## above, so this area has to be printed in the same unit that one is --
+	## both go through `DccUnits.format_area`, and neither can drift alone.
+	var text := "Regional average model ≈ %s people over the same %s." \
+		% [FactionRosterWindow._thousands(total), DccUnits.format_area(float(land))]
 	if claimed > 0:
 		text += " %s of that falls inside painted faction territory." % FactionRosterWindow._thousands(claimed)
 	_regional_pop_note.text = text
@@ -1765,6 +1785,18 @@ func _build_settlement_diagnostics(parent: Control) -> void:
 		var settlement: Dictionary = places[index] if index >= 0 and index < places.size() else {}
 		_diag_card(list, settlement, d, index)
 
+## The two engine thresholds this card quotes at the user, in canonical km.
+## Named rather than repeated as literals because each is printed **twice** --
+## once in a readout and once in the tooltip that explains it -- and both
+## copies go through `DccUnits`, so a threshold and the distance measured
+## against it can never end up in two different units. `2.125` is
+## `um_water_near_km()`'s `um_site_box_km() * 1.25` with `SITE_WM` 1700 m (it
+## prints as `2.1 km`, which is the figure the prose carried before);
+## `25.0` is `UM_RIVER_CONTEXT_KM`. The engine is unchanged -- these are the
+## same numbers it uses, converted only where they are drawn.
+const SITE_WATER_REACH_KM := 2.125
+const SITE_RIVER_CONTEXT_KM := 25.0
+
 ## One `_build_settlement_diagnostics` card. `has_river`/`has_harbour` are
 ## the dictionary's own presence guards -- read those, never infer "missing"
 ## from a zero, which is a real value on both axes (a settlement can
@@ -1824,13 +1856,16 @@ func _diag_card(parent: Control, settlement: Dictionary, d: Dictionary, index: i
 		var order := int(d.get("river_order", 0))
 		var dist := float(d.get("river_dist_km", -1.0))
 		if order <= 0:
-			river_text = ("River %.1f km off · order — beyond this site's water reach "
-				+ "(2.1 km or 1.5 cells), so no stem was resolved") % dist
+			river_text = ("River %s off · order — beyond this site's water reach "
+				+ "(%s or 1.5 cells), so no stem was resolved") % [
+					DccUnits.format(dist, 1),
+					DccUnits.format(SITE_WATER_REACH_KM, 1)]
 		else:
-			river_text = "River, Strahler order %d, %.1f km off%s" % [order, dist,
+			river_text = "River, Strahler order %d, %s off%s" % [order,
+				DccUnits.format(dist, 1),
 				" (confluence)" if bool(d.get("confluence", false)) else ""]
 	else:
-		river_text = "No river within context range (25 km)"
+		river_text = "No river within context range (%s)" % DccUnits.format(SITE_RIVER_CONTEXT_KM)
 
 	var harbour_text: String
 	if not d.has("harbour_scale"):
@@ -1853,9 +1888,14 @@ func _diag_card(parent: Control, settlement: Dictionary, d: Dictionary, index: i
 	b.tooltip_text = "Pin this settlement in the right dock (same as clicking it on the map)."
 	DccWidgets.note(box, "%s · %s" % [spec_text, wall_text])
 	var second := DccWidgets.note(box, river_text)
-	second.tooltip_text = ("Distance is always honest, however far, out to the 25 km context "
+	## The tooltip quotes the same two thresholds the readout above does, so it
+	## converts with it: a reader in miles cannot judge "2.1 mi off" against a
+	## reach printed in km.
+	second.tooltip_text = ("Distance is always honest, however far, out to the %s context "
+		% DccUnits.format(SITE_RIVER_CONTEXT_KM)
 		+ "range. Strahler order and channel width are a separate question and are filled in "
-		+ "only when the nearest traced stem is inside this site's water reach -- 2.1 km, or "
+		+ "only when the nearest traced stem is inside this site's water reach -- %s, or "
+		% DccUnits.format(SITE_WATER_REACH_KM, 1)
 		+ "1.5 grid cells where those are coarser. Past that reach the site cannot draw on the "
 		+ "river, so the order is dashed rather than printed as 0, which is the value the "
 		+ "engine deliberately leaves it at (um_site_profile's v1.32 fix: the profile must not "
@@ -2105,8 +2145,8 @@ func _fill_faction_economy(parent: Control) -> void:
 		var verdict := "feeds itself with %s to spare" % FactionRosterWindow._thousands(int(surplus))
 		if surplus < 0.0:
 			verdict = "short by %s" % FactionRosterWindow._thousands(int(-surplus))
-		DccWidgets.note(grp, "%s -- %s km², %s people, %s." % [
-			label, FactionRosterWindow._thousands(int(float(d.get("territory_km2", 0.0)))),
+		DccWidgets.note(grp, "%s -- %s, %s people, %s." % [
+			label, DccUnits.format_area(float(d.get("territory_km2", 0.0))),
 			FactionRosterWindow._thousands(int(float(d.get("pop", 0.0)))), verdict])
 		var strat: PackedStringArray = d.get("strategic", PackedStringArray())
 		var ex: PackedStringArray = d.get("exports", PackedStringArray())
@@ -4164,8 +4204,9 @@ func _lm_placement(parent: Control, st: Dictionary) -> void:
 	##
 	## The `on_change`/`on_release` split is `dcc_widgets.gd:349`'s own, and the
 	## reference's `tparam()` split before it: every tick updates the readout and
-	## the km sentence (cheap, local), and the write to the engine happens once,
-	## on release.
+	## the distance sentence below it (cheap, local -- and that sentence follows
+	## `Preferences ▸ Units`, see `_lm_refresh_crowding`), and the write to the
+	## engine happens once, on release.
 	var crowd := DccWidgets.slider(sec, "Crowding",
 		LM_CROWDING_MIN, LM_CROWDING_MAX, LM_CROWDING_STEP, _lm_crowding,
 		"", func(v: float): _lm_on_crowding(v),
@@ -4203,6 +4244,17 @@ func _lm_placement(parent: Control, st: Dictionary) -> void:
 		+ "the most ground clear and cultural ones the least, which is what makes "
 		+ "one world landmark per continent and a shrine every few valleys come "
 		+ "out of the same rule.")
+	## **These four stay kilometres whatever `Preferences ▸ Units` says, and
+	## that is deliberate.** A slider is an INPUT, not a readout: its value goes
+	## straight back to the engine on release (`landmark_set_class_radius`,
+	## which takes km), and its `1.0 … 400.0` bounds and `1.0` step are km
+	## bounds. Converting the face of it without converting the write would
+	## corrupt the setting; converting both would make the user's own typed
+	## number a round trip through two divisions and land them somewhere they
+	## did not choose. `dcc_units.gd`'s own header draws this line -- "canonical
+	## storage stays km; this only converts what a readout shows". The
+	## *consequence* of these radii, the "keeps N clear" sentence above, is a
+	## readout and does convert.
 	for i in LM_CLASSES.size():
 		var ck: String = LM_CLASSES[i]
 		var km := _lm_class_radius(i)
@@ -4960,10 +5012,17 @@ func _lm_refresh_crowding() -> void:
 	## §4.1: the second line is the whole point. `× 1.00` is arithmetic; `34 km`
 	## is a fact about the map the user is looking at.
 	##
-	## Kilometres unconditionally: `Preferences ▸ Units` has two ids reserved
-	## (`menus.gd`'s `ID_PREF_UNITS_KM` / `ID_PREF_UNITS_MI`) and nothing in the
-	## shell reads them, so there is no setting to honour yet and inventing one
-	## here would be a second copy of a preference.
+	## **Follows `Preferences ▸ Units` as of 2026-09-07.** This block used to
+	## say kilometres unconditionally, on the grounds that the preference was
+	## two reserved ids nothing read. It is a live three-way radio now
+	## (`menus.gd`'s `_on_units_choice`, persisted by
+	## `DccSettings.set_units_mode`), and `DccUnits.format` is the one
+	## formatter every readout in the shell reads it through -- so honouring it
+	## here is not a second copy of the preference, it is the only copy.
+	##
+	## The value handed to it stays canonical km: `_lm_radius_in_force` divides
+	## the class radius by Crowding and nothing else, and the engine write on
+	## the slider's release (`landmark_set_class_radius`) is untouched.
 	##
 	## **This multiplied until 2026-09-03 and the engine divides.** The two
 	## agreed at the default × 1.00 and nowhere else: at × 2.00 the panel read
@@ -4976,7 +5035,8 @@ func _lm_refresh_crowding() -> void:
 	## the `spacing` tooltip and §5's chip label were the three that were not.
 	var km := _lm_radius_in_force(_lm_class_radius(LM_QUOTED_CLASS), _lm_crowding)
 	var cname := String(LM_CLASS_LABEL.get(LM_CLASSES[LM_QUOTED_CLASS], "")).to_lower()
-	_lm_crowd_note.text = "a %s landmark keeps %.0f km clear · sparse → dense" % [cname, km]
+	_lm_crowd_note.text = "a %s landmark keeps %s clear · sparse → dense" % [
+		cname, DccUnits.format(km)]
 
 func _lm_class_radius(i: int) -> float:
 	return float(_lm_radii[i]) if i >= 0 and i < _lm_radii.size() else 0.0

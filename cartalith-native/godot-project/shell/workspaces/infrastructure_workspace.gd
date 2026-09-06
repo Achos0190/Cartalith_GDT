@@ -109,6 +109,12 @@ const WAY_TYPE_ORDER := ["highway", "regional", "road", "track"]
 const WAY_DRAW_TYPES := ["road", "track", "sea_lane", "ancient"]
 const WAY_DRAW_TYPE_LABELS := ["Road", "Track", "Sea lane", "Ancient"]
 
+## The reference's own local supply radius, canonical km. Named rather than
+## written inline because `_fill_flows_ways`'s empty-list note quotes it at the
+## user beside distances that follow `Preferences ▸ Units` -- so the quotation
+## converts through `DccUnits` and the constant behind it does not move.
+const LOCAL_SUPPLY_RADIUS_KM := 50.0
+
 ## Which of our two tools (if either) is currently armed -- tracked locally
 ## because `app.tool_armed` fires with the *new* id already written into
 ## `app.armed_tool` (`app.gd`'s `arm_tool`), so there is no other way to
@@ -479,7 +485,8 @@ func _commit_route() -> void:
 		_refresh_manual_routes()
 		var r := bridge.route_get(idx)
 		app.set_status("hint",
-			"Route #%d committed -- %.0f km, drawn on the map and listed under Civilization ▸ Routes & ways ▸ Hand-drawn." % [idx, float(r.get("km", 0.0))],
+			"Route #%d committed -- %s, drawn on the map and listed under Civilization ▸ Routes & ways ▸ Hand-drawn." % [
+				idx, DccUnits.format(float(r.get("km", 0.0)))],
 			"text_ghost")
 	if _active_infra_tool == "route":
 		_tool_options_route()
@@ -736,11 +743,14 @@ func _fill_flows_partners(d: Dictionary) -> void:
 	for i in range(shown):
 		var row: Dictionary = rows[i]
 		var from_i := int(row.get("from", -1))
-		var b := DccWidgets.action(g, "%s → %s -- %s, %s, %s %d km" % [
+		## Volume is a count of goods and stays `_thousands`; the carriage
+		## distance is a map length and follows `Preferences ▸ Units`.
+		var b := DccWidgets.action(g, "%s → %s -- %s, %s, %s %s" % [
 			String(row.get("from_name", "?")), String(row.get("to_name", "?")),
 			String(row.get("good", "?")),
 			FactionRosterWindow._thousands(int(round(float(row.get("volume", 0.0))))),
-			String(row.get("mode", "land")), int(round(float(row.get("distance_km", 0.0))))],
+			String(row.get("mode", "land")),
+			DccUnits.format(float(row.get("distance_km", 0.0)))],
 			func():
 				if from_i >= 0:
 					app.right_dock_ctrl.on_settlement_selected(
@@ -786,7 +796,11 @@ func _fill_flows_ways(d: Dictionary) -> void:
 	if rows.is_empty():
 		DccWidgets.note(g,
 			"No way carries anything: every matched flow is either short enough to need no road "
-			+ "at all (under 50 km, the reference's own local supply radius) or seaborne.")
+			## The threshold converts with the flow distances it decides. It is
+			## the reference's own local supply radius, canonically 50 km; the
+			## engine's copy is untouched and only this quotation of it moves.
+			+ "at all (under %s, the reference's own local supply radius) or seaborne."
+			% DccUnits.format(LOCAL_SUPPLY_RADIUS_KM))
 	else:
 		for r in rows:
 			var row: Dictionary = r
@@ -965,7 +979,7 @@ func _routes_teaser_row(parent: Control, i: int, r: Dictionary, settlements: Arr
 		var dest := _nearest_settlement_name(pts[pts.size() - 1], settlements)
 		if origin != "" and dest != "":
 			label_text += " · %s → %s" % [origin, dest]
-	label_text += " -- %d km" % int(round(float(r.get("km", 0.0))))
+	label_text += " -- %s" % DccUnits.format(float(r.get("km", 0.0)))
 	var b := DccWidgets.action(parent, label_text, func(): app.open_journey_planner())
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.tooltip_text = ("Opens the Journey Planner. It opens to its own Journeys list -- " +
@@ -1129,7 +1143,7 @@ func _manual_route_row(i: int, r: Dictionary) -> void:
 	name_edit.text_changed.connect(func(t: String): bridge.route_set_name(i, t))
 	row.add_child(name_edit)
 
-	var meta := "%d km" % int(round(float(r.get("km", 0.0))))
+	var meta := DccUnits.format(float(r.get("km", 0.0)))
 	var unreachable := int(r.get("unreachable_legs", 0))
 	if unreachable > 0:
 		meta += " · %d straight-lined" % unreachable
@@ -1423,7 +1437,7 @@ func _route_row(parent: Control, entry: Dictionary, kind: String) -> void:
 		label_text += " (sea lane)"
 	var km := float(entry.get("km", 0.0))
 	if km > 0.0:
-		label_text += " -- %d km" % int(round(km))
+		label_text += " -- %s" % DccUnits.format(km)
 	var b := DccWidgets.action(parent, label_text, func(): app.right_dock_ctrl.show_route(entry, kind))
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.tooltip_text = "Open this route in the right dock."

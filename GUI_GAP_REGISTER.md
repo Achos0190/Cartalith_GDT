@@ -16,9 +16,11 @@
 > applications."*
 
 **The premise does not hold, and that is by design.** The shell does not have a
-small number of stragglers to finish connecting: it has **215 catalogued
-disconnected surfaces** (123 at this document's original writing; recounted
-2026-08-24, §3 has the method and the caveats), every one of them added
+small number of stragglers to finish connecting: it has **241 catalogued
+disconnected surfaces**, of which **73 are still open** (123 at this document's
+original writing; recounted 2026-08-24 and 2026-08-25; re-derived and split from
+the 101 *driven-defect* entries that share its numbering on 2026-09-07 — §3 has
+the method and the caveats), every one of them added
 *deliberately disabled with a stated reason*, per the honesty rule `menus.gd`'s
 own header states —
 
@@ -45,7 +47,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [3](#3--headline-counts) | Headline counts |
 | [4](#4--stale-disclosed-reasons-five-fixed-in-this-pass) | Stale disclosed reasons — five fixed here |
 | [5](#5--omissions-designed-not-present-not-even-as-a-disabled-item) | Omissions — designed, and not present at all |
-| [6](#6--layer-1--2-the-catalogue) | **Layer 1 + 2 — the catalogue** (215 entries as of the 2026-08-24 recount, classified; 123 at original writing) |
+| [6](#6--layer-1--2-the-catalogue) | **Layer 1 + 2 — the catalogue** (241 catalogue entries as re-derived 2026-09-07 — 139 closed, 61 (B), 12 (C), 23 (D), 6 unresolved, **0 (A)**; 215 at the 2026-08-24 recount, 123 at original writing) |
 | [7](#7--layer-3--comparable-application-research-for-c) | **Layer 3 — comparable-application research** for every (C) |
 | [8](#8--menu-naming-audit) | **Menu naming audit** |
 | [9](#9--d-entries-owner-decisions-not-gaps) | (D) entries: owner decisions, not gaps |
@@ -188,6 +190,13 @@ and pass 3 both gave and this pass repeats: recovering each row's dropped
 class letter is a judgment per row, not arithmetic. Only the total is
 corrected here.
 
+> **Superseded 2026-09-07.** This paragraph, and the longer *"the A/B/C/D
+> classification breakdown below is left as originally computed"* one further
+> down, are the pass-4 state. Both are kept because the reasoning in them is
+> what the 2026-09-07 re-derivation had to get past. **The split *is* re-derived now** — see
+> *"Re-derived 2026-09-07"* further down this section, which also corrects
+> pass 4's own totals (250 / 342, not 249 / 300).
+
 The original framing still holds — a group of identically-blocked sibling
 controls (the ten Edit-menu items, the five erosion Run buttons) is one
 entry, so the raw count of individually disabled controls is higher than
@@ -207,9 +216,181 @@ history (what kind of gap it *was* when catalogued, not whether it is now
 closed) one at a time across all 215 — exactly the "classification pass,
 not an arithmetic one... a judgment per row" `PARITY_AUDIT.md` pass 2 itself
 declined to do for this same reason (§13, its own explanation for leaving
-this section's counts alone). The table below is retained as a historical
-snapshot against the old 123-entry total; treat its percentages as
-describing that earlier, smaller catalogue, not the current 215-entry one.
+this section's counts alone). The 123-entry table is retained as a historical
+snapshot against the old total; treat its percentages as
+describing that earlier, smaller catalogue, not the current one.
+
+> **Superseded 2026-09-07**, and the "not possible" was wrong in an
+> interesting way: the letter a closed row *had* is indeed unrecoverable
+> without reading its history, and it is also not the letter that matters. The
+> re-derivation below assigns the letter each entry **earns today**, from its
+> own verdict cell and, where that is not enough, from the shipped symbol.
+
+---
+
+### Re-derived 2026-09-07 — the class split, rebuilt, and why it could be rebuilt this time
+
+**Everything above is the honest account of the *total*, and it is itself out
+of date.** Re-running pass 4's own two greps against today's file returns
+**250** and **342**, not 249 and 300:
+
+```
+# markdown table rows beginning "| <PREFIX>-<NN>"  ->  250 distinct IDs (280 rows)
+grep -oE '^\| *\*{0,2}[A-Z]{2,4}-[0-9]{2}[a-z]?\*{0,2} *(\||[[:space:]])' GUI_GAP_REGISTER.md \
+  | grep -oE '[A-Z]{2,4}-[0-9]{2}[a-z]?' | sort -u | wc -l
+# the bare token <PREFIX>-<NN> anywhere, de-duplicated  ->  342 distinct IDs
+grep -oE '\b[A-Z]{2,4}-[0-9]{2}[a-z]?\b' GUI_GAP_REGISTER.md | sort -u | wc -l
+```
+
+The row grep matches **280 rows** for those 250 IDs — several IDs legitimately
+carry a row in more than one section. **Forty-two** prefixes are now in use
+(`… | sed 's/-.*//' | sort -u | wc -l`) — pass 4's thirty-nine plus `BI`, `FX`
+and `MEM`, from §52 and §54-§56.
+
+**The second question — the A/B/C/D split — is re-derived here, and the reason
+three passes could not do it is not the one they gave.** They gave: *the class
+letter was edited out of 161 of the rows when the row was updated to record
+closure, and recovering it means reading each row's history.* That is true, and
+it is also the wrong thing to recover. The letter that matters is not the one
+the row *had*; it is the one the row *earns today*, and a row's verdict cell
+plus the shipped symbol settle that without any history at all. The real
+obstacle was different, and naming it is what made this pass finish.
+
+#### The obstacle: two different kinds of entry share one numbering scheme
+
+**The legend classifies a *missing or disconnected surface*. Roughly a third of
+today's IDs are not that — they are *defects in shipped behaviour*,** found by
+driving the app: the map right-click menu having no touch route (**PH-02**), the
+phone menu covering the bottom bar so two taps in five did nothing (**PH-22**),
+the flow overlay never seeing the camera (**FX-01**), a `has_method()` guard
+failing silently against a stale `.so` (**SB-01**). None of those is "designed
+but engine-blocked" or "undesigned"; asking which letter they take is a category
+error. Treating the register as one population forces that error onto a third of
+it, which is a good reason to stop — and stopping is what the three previous
+passes did.
+
+So the population is split first, mechanically:
+
+- **Catalogue entries — 241.** An ID whose defining occurrence is a row in one of
+  the six gap-catalogue tables — **§6** (the catalogue proper), **§13**'s v2.10
+  omissions, **§16**'s measurement-toolbar rows together with **§17**'s debug
+  views, **§18**'s civ-interaction rows, **§21**'s staleness rows and **§37**'s
+  v3-rail rows — plus the five capability entries §34 and §35 write as headings
+  rather than rows (`RN-04`, `CA-14`, `KV-01`-`KV-03`), named here so the rule
+  stays reproducible. Resolve those by heading, not by line: this section's own
+  edits move every line number below it. **This is the population §3 has always
+  been counting**, and it is the only one the legend describes.
+- **Driven findings — 101.** Everything else: every ID first written by the
+  live-driving, phone, hi-DPI, conformance, menu-by-menu, memory and overlay
+  passes of §22-§58. They are not classified here and the legend is not stretched
+  to cover them. Their own section headings carry their verdicts; **six are
+  explicitly registered-not-fixed or re-opened** — DS-03's tablet *interior* and
+  DS-13's phone-map *composition* (both re-opened by §57), `KV-04`, `WW-16`,
+  `PH-16` and `PH-28`.
+
+#### Method for the 241
+
+1. Each entry was read at its own row. Where the row's own verdict did not settle
+   it, the **shipped symbol** was opened — that is how `HE-01`/`HE-04`
+   (`menus.gd::_help`), `WI-01`-`WI-05` (`menus.gd`'s Layouts popup,
+   `_dock_drag_handle`, `resource_overlay.gd`), `SH-01`
+   (`dcc_shell.gd::_build_rail`), `ED-05` (`place_search.gd`), `PR-07`
+   (`render_workspace.gd`'s Colour management section) and `WW-03`
+   (`Falloff::ALL` in `cartalith-terrain/src/sculpt.rs`) were settled.
+2. **A partly-closed entry is counted by its open remainder's class**, since that
+   is the question this table exists to answer. `DM-02` is (B) because the
+   slippy-map half is what is left; `CV-23`/`CV-25`/`CV-26` are (B) for the same
+   reason; `CA-19` is closed because its named remainder is a separate larger
+   item, not this entry's residue.
+3. **The register was checked for staleness in both directions.** It is stale
+   *pessimistically*, and measurably so: **nine §6 rows still print
+   `**(C)** → §7.x` in their Class cell for a surface that is built** — `ED-05`,
+   `PR-07`, `PR-15`, `PR-16`, `WI-01`, `HE-01`, `HE-02`, `HE-03` and `WW-03`.
+   (`grep -cE '^\| [A-Z]{2,4}-[0-9]{2}[a-z]? \|.*\*\*\(C\)\*\* → §7'` over this file
+   returns **15** — anchored to the row start, because this paragraph now
+   contains the same string;
+   the six the cell still describes correctly are `DM-06`, `DM-10`, `DM-11`,
+   `WW-04`, `WW-05` and — differently — `CA-07`.) Two examples of how far a cell
+   can drift: `HE-02`/`PR-16`, the shortcuts editor, was **found already built**
+   when a lane opened `shortcuts_dialog.gd`; and `PR-15`/`MEA-06`'s *"this shell
+   has no unit preference at all"* is false — `Preferences ▸ Units` is a
+   three-way `km / mi / nmi` radio with `dcc_units.gd` as the display layer under
+   it. **Those nine cells are left standing on purpose**: rewriting Class cells
+   is a reclassification pass and would put two authorities in one document.
+   §3 is the authority; the cells are the history.
+4. **Six entries are left unresolved rather than guessed**, and are counted as
+   their own row below.
+
+| Class | Count (of 241) | Share |
+|---|---:|---:|
+| **(A)** designed + engine-ready | **0** | 0 % |
+| **(B)** designed, engine-blocked | **61** | 25 % |
+| **(C)** undesigned | **12** | 5 % |
+| **(D)** deliberate decision | **23** | 10 % |
+| **(✓)** closed — built, fixed, or resolved by decision | **139** | 58 % |
+| **unresolved** — state not established this pass | **6** | 2 % |
+| **Total (catalogue entries)** | **241** | |
+
+**(A) is zero, and it is a result rather than an artefact.** Every row this
+register ever classed (A) has shipped: `RD-03`/`RD-06`/`RD-08`/`RD-11`/`RD-13`
+(2026-08-19), `SH-05`/`SH-09`/`SH-10`/`SH-11`/`SH-12`/`SH-13`/`SH-14`,
+`JP-12`-`JP-15`, `WW-13`, `HE-04`, `PR-13`/`PR-14`, `WI-02`-`WI-05` and
+`MEA-06`. §10's actionable list is empty of live rows. **This is the register's
+strongest single finding today and the one most worth re-checking**, because a
+zero is exactly the shape a missed row hides in.
+
+**(C) fell from 23 of 123 to 12 of 241** — a real collapse, not a denominator
+effect: fifteen of §7's twenty-five (C) IDs are now closed (`ED-02`, `ED-05`,
+`PR-07`, `PR-11`, `PR-15`, `PR-16`, `HE-01`, `HE-02`, `HE-03`, `WI-01`, `JP-05`,
+`WW-03`, `CA-08`, `CA-09`, `SH-01`); three became (D) when the owner deleted the
+Conversion route outright (`DM-07`-`DM-09`, 2026-08-20); **`CA-07` moved (C) →
+(B)** — the label *role* system shipped 2026-09-06 (a counted apply over a role
+template, driven against a real slider), but font **family, weight and case**
+have no field in the engine's label model at all, so the half this row is named
+for is engine-blocked rather than undesigned; and six remain: `DM-06`, `DM-10`,
+`DM-11`, `PR-10`, `WW-04`, `WW-05`. The other six (C)
+entries come from outside §7 — `CV-24` (§37) and `MEA-03`/`MEA-05`/`MEA-08`/
+`MEA-09`/`MEA-10` (§16). **Two of the sixteen were closed by discovering they
+were already built**, which is why the count moved further than any build log
+would predict.
+
+**The (B)-by-cost table below is *not* re-derived, and this pass did not attempt
+it.** Only 28 of the 61 (B) rows state a cost word in their own text — 2
+wrapper, 16 small, 10 large — and inferring the other 33 means sizing a crate
+change per row, which is a different exercise from classification. Left stated
+rather than estimated.
+
+**The six unresolved, with the reason each is unresolved:**
+
+| ID | Why it is not classified |
+|---|---|
+| `CA-18` | Zoom ladder: `CIV_LOD_ROAD` is ported, but whether the remaining declutter budget and per-layer ranges are engine-blocked or merely undrawn was not established |
+| `CV-03` | Timeline filters: *Exist only* is wired; the row does not say what became of *Ghost removed* and *Highlight new*, and neither was driven this pass |
+| `ED-03a` | Specialisation → `civ_faction_aggregates`: the row calls it *"a decision to take deliberately"*. An undecided decision is neither (B) nor (D) |
+| `ED-03c` | Per-trait map glyphs: the data is stored and the reference draws them, but no design in this shell's own vocabulary was found for them |
+| `JP-06`, `JP-08` | Both were *"partly closed, session-only, blocked on FI-01's save writer"*. **FI-01 has since closed**, so the stated blocker is gone — whether persistence followed was not verified |
+
+#### Three ID collisions, found while counting
+
+**`RD-01`, `RD-02` and `FI-04` each name two different things**, so the
+distinct-ID count under-counts entries by three:
+
+| ID | §6-catalogue meaning | Later-pass meaning |
+|---|---|---|
+| `RD-01` | §6.8 *Settlement ▸ Defensibility* | §29 *the roads curve, and the renderer was drawing their chords* |
+| `RD-02` | §6.8 *Settlement ▸ Routes* | §36 *five land way types, one colour* |
+| `FI-04` | §6.1 *Revert to last save* | §45 *copy that named a place the user cannot look* |
+
+`RD-03`-`RD-13` are all right-dock; `RD-01b` belongs to the *roads* family, not
+to the right dock. Nothing is renumbered here — a register that renumbers breaks
+every citation into it from `OUTSTANDING_WORK.md` and from the shell's own
+comments — but a reader resolving an `RD-` citation must check which family it
+means, and the counts above resolve each collision by its catalogue meaning.
+
+**The earlier reading, kept:** the table immediately below was computed once
+against the 123-entry catalogue and is retained as the historical snapshot this
+project's corrections stay visible in. It is superseded by the 241-entry table
+above.
 
 | Class | Count (of 123, stale) | Share (of 123, stale) |
 |---|---:|---:|
@@ -260,6 +441,17 @@ boundary-wrapper problem, not a capability problem"), measured against the
 shipped shell rather than the design at the time. Whether the shape still
 holds at 215 entries is exactly the open question the class-breakdown
 re-derivation above would answer.
+
+**Answered 2026-09-07, and the shape has inverted.** Against the 241 catalogue
+entries: **58 % are closed**, and of the 73 that are still open, **84 % are (B)
+— designed and waiting on the engine — against 16 % (C)**. The 2026-08-19
+reading (58 % (B), 19 % (C) of *all* entries) described a shell where most of
+the register was outstanding; today most of the register is history, the
+undesigned share has collapsed from 23 entries to 12, and **(A) — designed,
+engine-ready, "someone should build the UI" — is empty**. The one part of the
+old shape that could not be re-tested is the wrapper share: 32 of the 60 (B)
+rows state no cost, so *"31 % of (B) is a boundary wrapper"* is neither
+confirmed nor refuted here.
 
 ---
 
@@ -711,7 +903,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | CA-04 | Layer opacity / blend mode / reorder | *absent* | none in this file (`layers_popover.gd` has a *debug-view* opacity slider, a different thing) | — | §6's Layers context, §7 | (B) — opacity is **wrapper** (overlays already carry alpha); blend/reorder is **large** |
 | CA-05 | Icon ▸ on-canvas resize handle | 277-279 | *"no on-canvas resize handle yet… (`icon_bridge.rs`'s own acknowledged gap)"* | was true — see Now | §4.5.5 | **CLOSED (2026-08-24)** — `icon_bridge::icon_handle`/`IconEditor::handles` port the reference's `drawCivLayer` icon-handle geometry (lines 15883-15893: `hr=max(4,3.2*lsc)`, `hx=px+side/2*0.7`, `hy=py+side/2*0.7`, stored `r=hr*1.6`), transcribed the same way `label_bridge::handle_circles` was for the label's own three handles — `manual.rs` never had a home for it either, being inline canvas drawing rather than a callable reference function. `WorldGen::icon_handles(index, zoom)` returns `{"resize": {"x","y","r"}}`, the same shape `label_handles` already uses, so `tool_overlay.gd`'s existing `set_handles()` primitive needed no change. `cartography_workspace.gd` gained the one missing piece of state the engine has no reason to hold — `icon_get_selected()` (a new `#[func]`, `label_get_selected`'s own icon counterpart) plus `_on_icon_click`/`_on_icon_drag`/`_on_icon_release`, mirroring `_begin_label_handle_drag`'s pattern one handle down (no rotate/arc to capture, and `icon_resize` already commits the scale directly, unlike `label_resize_size` which only computes the value). Verified: place an icon, drag its handle, watch the sprite rescale live and the change survive a zoom/redraw. **Not folded in**: `icon_hit_test`'s own box-hit half is still unused by this file — selecting a *previously placed, now-unselected* icon by clicking its box has no GDScript wiring yet, a separate gap from the resize handle this row was about. |
 | CA-06 | Label ▸ letter-spacing, anchor | 643-648 | no backing field on `MapLabel` (`label_bridge.rs`'s own "Not modelled" note) | yes | §4.5.5's tool options row lists both | (B) small |
-| CA-07 | Label ▸ font (the stored CSS string doesn't render) | 643-648 | Godot has no web-font fallback chain, so only size/angle/arc/colour render | yes | §4.5.5 says "font role" — **a role, not a CSS string** | **(C)** → §7.14 |
+| CA-07 | Label ▸ font (the stored CSS string doesn't render) | 643-648 | Godot has no web-font fallback chain, so only size/angle/arc/colour render | yes | §4.5.5 says "font role" — **a role, not a CSS string** | **(C)** → §7.14 **Reclassified (C) → (B), 2026-09-07.** §4.5.5's *role* is built — label roles landed 2026-09-06 as a role **template** plus an explicit counted apply (never a silent overwrite and deliberately not a fallback), and `halo` and `tracking` were found **fully live** on the way, so a brief that said to dash them was refused. What is left is the half this row is named for: **family, weight and case have no field in the engine's label model**, so this is engine-blocked now, not undesigned. |
 | CA-08 | Style presets (Atlas / Parchment / Physical / Ink) + `custom — edited since preset` + Reset + Save preset | *absent* | none | — | §4's Cartography row | **CLOSED 2026-08-24** — CARTO ▸ Map style now carries the **reference's own five** (Default / Antique / Ink / Watercolor / Print, reference HTML 12850's `STYLE_PRESETS`) as absolute bundles, the `Custom — controls edited since the last preset` note, and Reset-to-quality-tier. **Save preset closed 2026-08-24, and the row with it.** `TerrainAppearance` (and `Npr`, and the new `ElevationRamp`) now derive `Serialize`/`Deserialize` — §7.15's *"the one Rust line the whole feature depends on"* — and `save_appearance_preset`/`load_appearance_preset`/`peek_appearance_preset` write a named look to its **own small JSON file** (`user://appearance_presets/<slug>.json`) rather than into the world `.zip`: a look is reusable *across* worlds, which is the whole reason to save one, and `SAVEFILE_COMPAT.md`'s format is the reference app's and shallow-merges `state`, so a block this port invented would be one more unshimmed key for that app to choke on. A loaded preset replaces the **quality tier** as the base layer (so a look saved at Ultra renders at Ultra wherever it is opened) and clears the override map, because otherwise loading a saved look would reproduce something other than the saved look. `reset_appearance()` drops all three layers. Panel: CARTO ▸ **Saved looks** (name field, Save look, picker, Load look). Verified non-headlessly: an authored look at 2048×1311 saved, the session then mangled to **99.999 %** different, and the preset loaded back at **0.0000 % moved, worst 0 levels** — including the hand-authored four-stop ramp; Reset then returned the tier's own look at 0.0000 %. `#[serde(default)]` at struct level, so a preset written before a field existed still loads. Three tests. The design's own four names are a separate question from the reference's five; the reference's won, being verifiable. |
 | CA-09 | Layer list ▸ search field; footer tabs **Blocks / Verticality** | `layers_popover.gd` | `EngineBridge.debug_layers()` + `CartographyWorkspace.LIVE_LAYERS` | yes (search) | §7 names them | **SEARCH CLOSED 2026-09-06; TABS RULED NOT BUILT** → §7.16. One field over **two lists that stay two lists**: `VISIBLE LAYERS` (the eight `LIVE_LAYERS` toggles, writing through `ViewportHost.set_layer_visible()` so CARTO ▸ Layers follows in the same frame) and `DATA OVERLAYS` (the 43 `debug_layers()` field rasters). Matches label **and** engine id; count reads `3 of 51 layers`; an empty field shows everything; no match says so once. Hotkeys 1-8 are assigned over the **unfiltered** order, so a filter cannot silently rebind them — 8/8 still reach their view with their rows filtered off screen (`_layersearch_probe.gd` §5). Blocks/Verticality: reading **C, both are dead names** — see §7.16 and the note beside the Layers category in `cartography_workspace.gd`. |
 | CA-11 | **`hydro_wet_strength` (Wetness) renders nothing at working resolution** | *engine* | — | — | reference `wetnessR` | **CLOSED 2026-08-24 (owner-authorised retune; it moves the shipped look).** Found the day before by measurement, not by reading: the binding was correct end to end and the *stage* was invisible, and got worse as the grid got finer. Both halves of `build_hydro_wetness` had been tuned at a small grid. **(1)** The gate was a `smoothstep(0.55, 0.88, …)` over the world's own *min-max-normalized* log-flow range — but `flow / (gw*gh)` is already scale-free (it is the fraction of the map a cell drains), so re-normalizing it cost the threshold its meaning: `lo` pinned to the `1e-4` clamp floor and `hi` to the largest basin, putting the knee at ~0.8 % of map area drained, i.e. the trunk river and nothing else. Replaced with an **absolute** upstream-area gate, `6e-4 … 8e-3` — the same set of channels at any resolution. **(2)** The blur then diluted what survived: a box blur conserves the mean, so a one-cell line smeared over radius `r = gw * 0.006` loses about `1/(2r+1)` of its peak, and `r` grows with the grid (3 cells at 512 wide, 12 at 2048). The blur stays (it is what makes the halo soft); a matching **gain of `2r + 1`**, clamped, restores its peak. Measured on one generated world, 0 → 1, pixels moved: **1.216 % → 10.785 %** at 512×384, **0.184 % → 4.966 %** at 1024×768, **0.002 % → 2.589 %** at 2048×1311; at the shipped `0.38` default, **0.000 % → 1.422 %** at working resolution (worst per-channel delta 3 → 59 levels). The `6e-4/8e-3` pair was picked by sweeping: `1e-3 … 1.2e-2` left working resolution at 0.67 % and `3e-4 … 5e-3` took it to 3.4 %, which is a wet-valley wash rather than a river corridor. **Trade, stated:** the gate is absolute, so a world whose basins are all smaller than `6e-4` of the map gets no wetness — an island with no river has no river to tint. Verified non-headlessly at 2048×1311 (default → 0 moves 0.821 % of pixels, default → 1 moves 1.295 %, and the corridors read as wet valley floors along the real drainage). `hydro_wet_strength` left `every_tunable_is_load_bearing`'s exemption list, and `appearance_ab_dump.rs`'s new `hydro_wetness_visibility_by_resolution` fails if any of the three sizes goes quiet again. |
@@ -1933,6 +2125,14 @@ is the only document that enumerates the preset names §4 asks for.
 Listed together so nobody proposes a design for them. **No design is proposed
 for any row here.**
 
+> **This list is seven entries short of the real (D) set (2026-09-07
+> re-count).** It carries 16 live rows plus struck `DM-07`; §3's re-derivation
+> counts **23**. The seven it never picked up: `DM-08` and `DM-09` (deleted by
+> the same owner decision as `DM-07`, and struck nowhere), `CV-13` (its own row
+> says *"Not a gap"*), and `MEA-04`, `MEA-11`, `MEA-12` — three explicit
+> `**(D)**` rows §16 added after this list was written. Nothing here is wrong;
+> it simply stopped being swept when new sections stopped feeding it.
+
 | # | Decision | Documented at |
 |---|---|---|
 | WW-11 | Per-stage `Run stage n` / `Run n → 10` / stale dots / stage counter — the capability exists in neither this engine nor the reference app; verified by Playwright against the real reference | `DCC_SHELL_SPEC.md` header correction #2; `world_workspace.gd:129-145`; `app.gd:298-306` |
@@ -1975,6 +2175,19 @@ a design decision rather than a build: **ED-05 Find on map** (§7.2 — every so
 already exposed), **PR-15 Units** (§7.8 — one helper, the cost is the decision),
 **PR-16 Keyboard shortcuts** (§7.9 — `InputMap` + `ConfigFile`), and **WI-01
 Save layout** (§7.10 — all state is already in `DccShell`).
+
+> **All four have since landed, and two of the twelve rows above need a
+> correction (2026-09-07 re-count).** `ED-05` is `place_search.gd`; `PR-15` is
+> `Preferences ▸ Units`' three-way `km / mi / nmi` radio with `dcc_units.gd`
+> under it; `PR-16`/`HE-02` is `shortcuts_dialog.gd`'s `open_editable()`, which
+> was **found already built** when a lane opened the symbol; `WI-01` is
+> `menus.gd`'s Layouts popup, live since 2026-08-31. **`SH-01`'s "withdrawn"
+> is no longer the state either** — the rail expansion was rebuilt against the
+> 2026-08-31 ENV prototype, which draws it as a separate sibling column rather
+> than the strip growing (`dcc_shell.gd::_build_rail`'s own header records the
+> reversal and why the newer-canvas rule settles it). **Only `SH-06`'s `→`
+> draft-elevation suffix survives as open, and it is (B), not (A).** That is why
+> §3's re-derived split reads **(A) = 0**.
 
 ---
 
@@ -2875,7 +3088,7 @@ while Region's rect survives in the engine for *Send to Data ▸ Export*.
 | **MEA-03** | Sculpt/Paint ▸ **Mask** | **(C)** — no mask channel exists in either editor, and none is designed. Disclosed in the bar's own note. |
 | **MEA-04** | Distance ▸ **path ▸ great circle** | **(D)** — this map is equirectangular and `cartalith_spatial::measure` is planar with a seam rule. There is no spherical path to offer; offering one would report a distance that disagreed with every route length beside it. |
 | **MEA-05** | Distance ▸ **snap ▸ settlements · rivers** | **(C)** — `DCC_SHELL_SPEC.md` §4.5.1 lists no snap modifier for Measure, deliberately (Way/Route have one; the ruler is raw). The canvas adds it. |
-| **MEA-06** | **units ▸ km/mi** | **(A)** — the canvas itself says this *inherits* the app-wide switch (`#calUnitSeg`). The reference has one (`_setUnits`, line 13722, "switch km/mi and re-render all unit-bearing labels"); this shell has no unit preference at all, so every reading in the app is km. App-wide, not Measure's. |
+| **MEA-06** | **units ▸ km/mi** | **(A)** — the canvas itself says this *inherits* the app-wide switch (`#calUnitSeg`). The reference has one (`_setUnits`, line 13722, "switch km/mi and re-render all unit-bearing labels"); this shell has no unit preference at all, so every reading in the app is km. App-wide, not Measure's. **CLOSED — and the sentence before this one is false as of 2026-09-07's re-count**: `Preferences ▸ Units` is a three-way radio (`menus.gd`'s `_units_popup`: `DccUnits.label("km"/"mi"/"nmi")`), persisted through `DccSettings.units_mode()`, with `dcc_units.gd` as the display-layer conversion. The app-wide switch this row waited for exists. **What is open is narrower and is not this row**: `OUTSTANDING_WORK.md` measures 77 raw-km display lines across 14 shell files that never reach `DccUnits`, the journey planner's 24 among them. |
 | **MEA-07** | **Saved measurements** list, **Save**, **CSV**, **export PNG**, **save section** | **Built 2026-09-03**, except the two image exports. The store is a caller-owned save **slot** — `annotations/measurements.json`, registered in `cartalith_io::DOCUMENT_SLOTS` and carried by the same `project_save_with_documents` channel the other five documents use (owner ruling, `LARGE_ITEM_RULINGS.md`: *"deliberately not a second persistence mechanism"*). So the objection this row used to carry — "a store is a persistence feature, not a measuring one" — was answered by making it not a new mechanism. `Save measurement`, the list (with per-entry recall and drop), `Clear all` and `Copy saved as CSV` are live in `right_dock.gd`; the CSV is canonical km/km²/m/deg whatever the Units preference is set to. An entry carries the mode, the clicked grid points and the reading; the store is cleared when the world is replaced and a document from another grid is refused rather than shown. **export PNG and save section remain (C)** — both are image writers, unrelated to the store. |
 | **MEA-08** | Cross-section ▸ draggable **A/B line-end handles** | **(C)** — a third click starts a new section instead. Same two clicks, no new on-canvas hit test. |
 | **MEA-09** | Cross-section ▸ **Custom ▾** field | **(C)** — there is no user-defined field to bind it to. The other five channels (Elevation · Terrain · Climate · Hydrology · Geology) are live. |
