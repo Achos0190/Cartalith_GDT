@@ -67,7 +67,12 @@ func _ready() -> void:
 		_ok(bridge.world_gen.has_method(m), "%s is bound" % m)
 	var widths: PackedInt32Array = bridge.world_gen.export_raster_widths()
 	print("  widths: %s" % str(widths))
-	_ok(widths.size() == 3 and widths[0] == 2048 and widths[2] == 8192, "bakeRes offers 2K/4K/8K")
+	## Five rungs since 2026-09-06: `bakeRes`' own three plus the 16K/32K
+	## `LARGE_ITEM_RULINGS.md` ruling 15 un-shelved. This asserted three until
+	## that landed. `_export16k_probe.gd` owns the measurements behind the two
+	## new rungs and the memory gate that guards them; this line only checks
+	## the shell is offered what the engine will accept.
+	_ok(widths.size() == 5 and widths[0] == 2048 and widths[4] == 32768, "bakeRes offers 2K/4K/8K/16K/32K")
 
 	print("\n== 3. bakeDims, before rendering anything ==")
 	for w in widths:
@@ -373,10 +378,13 @@ func _ready() -> void:
 
 	print("\n== 14. 8K, the size the estimate warns about ==")
 	## The one path a unit test cannot reach: 43 MP through bake_rect, the
-	## local-contrast pass' three f32 buffers, and a single PNG encode, all
-	## live in one process. 615 MB peak by the binding's own estimate, on a
-	## 2048 x 1312 grid -- so this also exercises a 4x upsample, the ratio
-	## the whole fractional-sampling design exists for.
+	## local-contrast pass' luma and its two blurs' FOUR f32 buffers, and a
+	## single PNG encode, all live in one process. 943 MB peak by the
+	## binding's own estimate, on a 2048 x 1312 grid -- so this also exercises
+	## a 4x upsample, the ratio the whole fractional-sampling design exists
+	## for. (615 MB until 2026-09-06, when PEAK_BYTES_PER_PIXEL was corrected
+	## from 15 to 23: `blur_once` allocates two buffers, not one, and
+	## `apply_local_contrast` runs two of them under one `rayon::join`.)
 	var e8: Dictionary = bridge.world_gen.export_raster_estimate(8192)
 	print("  estimate: %d x %d, %.1f MP, %.0f MB peak"
 		% [int(e8.get("width", 0)), int(e8.get("height", 0)),

@@ -3,7 +3,9 @@
 //!
 //! # Two capabilities, one file, deliberately
 //!
-//! `bakeRes`/`bakeTiles` write a **picture** of the world at 2K/4K/8K
+//! `bakeRes`/`bakeTiles` write a **picture** of the world at 2K/4K/8K/16K/32K
+//! — and,
+//! since ruling 15 un-shelved the high-resolution export, at 16K/32K as well
 //! (`render::bake_rect`, the whole material path at fractional grid
 //! positions). `chanAtlasChk` writes **data** — the affordance fields packed
 //! three to an RGB8 PNG (`cartalith_engine::channel_atlas`). They share only
@@ -36,19 +38,228 @@ use cartalith_io::{TileManifestOpts, build_tile_manifest, manifest_json};
 use crate::render::{self, BakeFields, RenderCtx, SplatTextures};
 use crate::{WorldGen, WorldSource, paint_bridge, sample_bridge};
 
-/// `bakeRes`' own three options, in its own order. Anything else is refused
+/// `bakeRes`' own three options in its own order, plus the two
+/// `LARGE_ITEM_RULINGS.md` ruling 15 un-shelved. Anything else is refused
 /// rather than silently rounded — a 3000 px export is not a resolution this
 /// system offers, and quietly giving the user 2048 is worse than saying no.
-const BAKE_WIDTHS: [i64; 3] = [2048, 4096, 8192];
+///
+/// # 16 384 and 32 768 are real, measured, and gated
+///
+/// Added 2026-09-06 under ruling 15 (un-shelve) and ruling 26 (PNG, RGB, one
+/// flat raster). Both run to completion on the monolithic path — this is a
+/// measurement, not an expectation. Three worlds each, `2048 × 1311` grid,
+/// `_exportbig_probe.gd`, peak resident measured by the host rather than by
+/// the process:
+///
+/// | width | file, median of 3 | wall | peak resident |
+/// |---|---|---|---|
+/// | 8 192 | 28.1 MB | 3.9 s | 1 377 MB |
+/// | 16 384 | 80.4 MB | 15.7 s | 4 041 – 4 169 MB |
+/// | 32 768 | 213.9 MB | 69.2 s | 15 187 – 15 349 MB |
+///
+/// **32 768 therefore needs roughly 15 GB free and 16 384 roughly 3.5 GB**,
+/// over and above the ~765 MB the process already holds for a world at that
+/// grid. That is why every export below goes through [`refuse_unaffordable`]
+/// first: `Vec` allocation failure **aborts** the process rather than
+/// returning an error, so a size the device cannot hold has to be refused
+/// before it is attempted. `EXPORT_SCOPE.md` §7's E1 — the banded renderer —
+/// is what would remove the ceiling rather than gate it, and it does not
+/// exist in this tree.
+///
+/// Both new widths reach [`WorldGen::export_heightmap_png`] too, which is the
+/// other consumer of this array; it is gated on its own, much smaller,
+/// [`HEIGHTMAP_PEAK_BYTES_PER_PIXEL`].
+const BAKE_WIDTHS: [i64; 5] = [2048, 4096, 8192, 16384, 32768];
+
+/// The largest width that shipped before ruling 15, and the last one this file
+/// will run on a platform that reports **no** memory budget at all (Godot's
+/// `OS.get_memory_info()` returns `-1` for entries a platform will not give —
+/// `menus.gd::_refresh_working_set_row` carries the same caveat for
+/// `physical`).
+///
+/// **Read the name narrowly: this bounds the no-budget arm ONLY.** When the
+/// platform *does* report `available`, [`refuse_unaffordable`] gates **every**
+/// width, the three that shipped before ruling 15 included. **That is a
+/// behaviour change to a previously unconditional path and it is deliberate** —
+/// an 8192 export on a device with 2 GB free aborts the process today, taking
+/// the editor and any unsaved world with it, and a refusal the user can act on
+/// is strictly better than that. It matters most on Android, where `available`
+/// is small and real.
+///
+/// **The gate errs toward refusing**, because [`PEAK_BYTES_PER_PIXEL`] is a
+/// documented upper bound (23) above the measured slope (21.7 B/px), so a
+/// budget is over-stated by roughly 6%. On a device close to its limit that can
+/// refuse an export which would in fact have fitted. **That is the direction to
+/// err in** — the alternative failure is a process abort — but it is a real
+/// cost and not a rounding detail.
+const UNGATED_MAX_WIDTH: i64 = 8192;
 
 /// `bakeTiled`'s `TS` (reference line 11982).
 const TILE_SIZE: usize = 1024;
 
-/// Bytes per output pixel the whole export path holds at its peak: 3 for the
-/// raster itself plus 12 for `apply_local_contrast`'s luma and its two blur
-/// buffers (`f32` each). Reported to the caller so the UI can show a real
-/// number instead of the user discovering it by running out of memory.
-const PEAK_BYTES_PER_PIXEL: u64 = 3 + 12;
+/// Bytes per output pixel the colour-raster export holds at its peak.
+///
+/// **Corrected 2026-09-06 from `3 + 12` (15), which was too low by half.** The
+/// old figure counted [`render::apply_local_contrast`]'s luma plus *one* buffer
+/// per blur; `render::blur_once` allocates **two** — `b` for `box_h`'s output
+/// and `out` for `box_v`'s, both live until it returns — and
+/// `apply_local_contrast` runs two of them inside one `rayon::join`, which may
+/// execute them concurrently. So the true worst case is 3 (the RGB8 raster) +
+/// 4 (`luma`) + 16 (two blurs × two `f32` buffers) = 23.
+///
+/// **Measured independently rather than asserted against itself.** Peak
+/// resident set, polled by the host across single-export runs of
+/// `_exportbig_probe.gd` on a `2048 × 1311` world, gives an incremental slope
+/// of **21.7 B/px** over both large intervals — `(4169 − 1377) MB ÷ 128.9 MP =
+/// 21.66` for 8K→16K and `(15349 − 4169) MB ÷ 515.5 MP = 21.69` for 16K→32K.
+/// Below 23 because a working set undercounts freed-but-unfaulted pages and
+/// because `rayon::join` need not overlap the two blurs; 23 is the bound the
+/// gate has to budget against, and an estimate that can be exceeded is worse
+/// than none.
+///
+/// The PNG encode is **not** an additional peak: `image` 0.25.10's PNG encoder
+/// passes an `Rgb8` buffer through untouched (`codecs/png.rs`'s `L8 | La8 |
+/// Rgb8 | Rgba8 => self.encode_inner(buf, …)` arm), so at encode time the
+/// process holds the raster plus the output — at most ~4.2 B/px, well under 23.
+const PEAK_BYTES_PER_PIXEL: u64 = 3 + 4 + 16;
+
+/// The same figure for [`WorldGen::export_heightmap_png`], which is a
+/// completely different shape: no local-contrast pass, one `u16` buffer.
+///
+/// 2 for `gray`, plus 2 for the copy `image` makes of it. The copy is not an
+/// assumption — the 16-bit arm of the same `codecs/png.rs` match says so in
+/// its own comment (*"create a temporary buffer for big endian reordering"*)
+/// and builds a full-length `reordered` `Vec<u8>` on any little-endian target.
+///
+/// Measured slope, same harness: `(3019 − 690) MB ÷ 644.4 MP` = **3.6 B/px**
+/// between the 8K and 32K heightmap runs, against this bound of 4.
+const HEIGHTMAP_PEAK_BYTES_PER_PIXEL: u64 = 2 + 2;
+
+/// Ruling 26's *"we should just inform the user of the expected file size"*,
+/// as a two-constant power law fitted to **measured exports of this renderer**
+/// rather than to a textbook PNG figure — which the ruling explicitly warns
+/// against, and which was wrong here by the factor §6.3's own row records.
+///
+/// # What was measured
+///
+/// `_export16k_probe.gd` and `_exportbig_probe.gd`, three worlds (seeds
+/// 20260906 / 7 / 991733) on a `2048 × 1311` grid at the default appearance.
+/// Bytes on disk ÷ output pixels, median (min .. max):
+///
+/// | width | upsample | bytes/px | file, median |
+/// |---|---|---|---|
+/// | 2 048 | 1× | 1.1641 (1.1363 .. 1.1860) | 3.13 MB |
+/// | 4 096 | 2× | 0.8646 (0.8582 .. 0.8933) | 9.29 MB |
+/// | 8 192 | 4× | 0.6544 (0.6512 .. 0.6905) | 28.11 MB |
+/// | 16 384 | 8× | 0.4678 (0.4619 .. 0.5018) | 80.38 MB |
+/// | 32 768 | 16× | 0.3112 (0.3030 .. 0.3343) | 213.93 MB |
+///
+/// **`EXPORT_SCOPE.md` §6.3's "500 MB - 1 GB" landing zone for 32K was the
+/// textbook figure, and it is 2.3–4.7× too high.** The measurement replaces it.
+///
+/// # Why the upsample ratio and not the pixel count
+///
+/// The information in the picture is bounded by the grid; every pixel past
+/// that is interpolation, and interpolation is what a PNG filter predicts
+/// almost for free. So bytes/px falls as the export outruns the grid, and the
+/// variable that governs it is `width / gw`. Least squares on `log₂` of the
+/// five medians gives an exponent of −0.469 and a 1× intercept of 1.199,
+/// rounded here to −0.47 and 1.20. Residuals against the five measurements:
+/// **+3.1 %, +0.2 %, −4.4 %, −3.5 %, +4.8 %** — inside the world-to-world spread
+/// (up to +7.3 % at 16K, where seed 7 measured 0.5018 against the 0.4678
+/// median), which is the honest bar for a number labelled an estimate.
+/// `estimate_file_bytes_tracks_the_five_measured_exports` re-checks every one
+/// of those residuals rather than leaving them as prose.
+///
+/// **Fitted at one grid width.** `gw = 2048` is the app's own default and the
+/// grid `EXPORT_SCOPE.md` §6's dimensions come from; whether the same curve
+/// holds at `gw = 1024` or `4096` was not measured, and the claim being made is
+/// that the ratio is the governing variable, not that it has been checked at a
+/// second grid.
+const FILE_BYTES_AT_GRID_WIDTH: f64 = 1.20;
+
+/// The exponent of [`FILE_BYTES_AT_GRID_WIDTH`]'s power law — see its doc for
+/// the five measurements this was fitted to.
+const FILE_BYTES_UPSAMPLE_DECAY: f64 = 0.47;
+
+/// The estimated size on disk of the finished PNG, from the model
+/// [`FILE_BYTES_AT_GRID_WIDTH`] documents.
+///
+/// `0` for a degenerate input rather than a plausible-looking number, since
+/// the caller has already returned an empty `Dictionary` in that case.
+fn estimate_file_bytes(w: usize, h: usize, gw: usize) -> u64 {
+    if w == 0 || h == 0 || gw == 0 {
+        return 0;
+    }
+    let upsample = w as f64 / gw as f64;
+    let per_px = FILE_BYTES_AT_GRID_WIDTH * upsample.powf(-FILE_BYTES_UPSAMPLE_DECAY);
+    ((w as f64) * (h as f64) * per_px) as u64
+}
+
+/// What the platform says is available to allocate right now, or `None` when
+/// it will not say.
+///
+/// Godot fills `OS.get_memory_info()` with `-1` for every entry the platform
+/// does not report, and `menus.gd::_refresh_working_set_row` already carries
+/// that caveat for `physical` — so **absence is returned as absence** rather
+/// than as a zero budget that would refuse every export, or a huge one that
+/// would refuse none.
+///
+/// `available` and not `physical`: the question is whether this allocation can
+/// be served now, not how much RAM the machine was sold with. On the Windows
+/// box these constants were measured on the two differ by 7 GB in one
+/// direction (`available` 40.4 GB against `physical` 33.5 GB, because
+/// `available` counts pagefile headroom) and would differ in the other on a
+/// loaded machine.
+fn memory_available() -> Option<u64> {
+    let info = godot::classes::Os::singleton().get_memory_info();
+    let n: i64 = info.get("available")?.try_to().ok()?;
+    (n > 0).then_some(n as u64)
+}
+
+/// Refuse an export the device cannot hold, **before** it is attempted.
+///
+/// Sizes are formatted with [`crate::bake_bridge::human_bytes`] rather than a
+/// local helper. A second one was written here and removed the same day: it did
+/// binary arithmetic (`1 << 30`) under decimal labels (`GB`), so the refusal and
+/// the bake status line disagreed about the same byte count — 15.4 GB against
+/// 15.4 GiB. One crate, one convention.
+///
+/// Ruling 26: *"The export should refuse a size the device cannot hold rather
+/// than die mid-run."* That is not a style preference — a failed `Vec`
+/// allocation aborts the process, and this one is inside a GDExtension, so the
+/// user loses the editor and any unsaved world with it.
+///
+/// Two branches, and the second is the one worth reading:
+///
+/// - **The platform reports a budget:** refuse when the peak exceeds it —
+///   **at every width, including the 2K/4K/8K that shipped unconditionally
+///   before ruling 15.** No invented safety multiplier: `available` already
+///   excludes what this process holds and counts reclaimable cache, and a fudge
+///   factor would be a constant nobody measured. [`UNGATED_MAX_WIDTH`]'s doc
+///   carries why gating the shipped widths is the right trade and what it
+///   costs.
+/// - **The platform reports nothing:** allow anything up to
+///   [`UNGATED_MAX_WIDTH`], which has shipped this way for months, and refuse
+///   above it. A 4 GB allocation against an unknown budget is exactly the
+///   gamble this function exists to stop.
+fn refuse_unaffordable(width: i64, peak: u64) -> Option<VarDictionary> {
+    match memory_available() {
+        Some(avail) if peak > avail => Some(fail(format!(
+            "a {width} px export needs about {} of memory and this device reports {} available -- \
+             pick a smaller width, or close other applications and try again",
+            crate::bake_bridge::human_bytes(peak),
+            crate::bake_bridge::human_bytes(avail)
+        ))),
+        Some(_) => None,
+        None if width > UNGATED_MAX_WIDTH => Some(fail(format!(
+            "a {width} px export needs about {} of memory and this platform does not report how much is available, \
+             so it is refused rather than risked -- {UNGATED_MAX_WIDTH} px and below are unaffected",
+            crate::bake_bridge::human_bytes(peak)
+        ))),
+        None => None,
+    }
+}
 
 impl WorldGen {
     /// Everything `render::bake_rect` needs, assembled the same way
@@ -158,8 +369,9 @@ fn fail(msg: impl Into<String>) -> VarDictionary {
 /// Write one file, creating its parent directory. `FileAccess` is not used
 /// deliberately: these paths are real OS paths outside the project tree
 /// (`DccSettings.storage_root`), the bytes are already in Rust, and routing
-/// 129 MB back through a `PackedByteArray` to hand to GDScript would double
-/// the peak for nothing.
+/// 214 MB back through a `PackedByteArray` to hand to GDScript would double
+/// the peak for nothing. (214 MB is the measured 32K PNG; it was 129 MB when
+/// this was written and 8192 was the ceiling.)
 fn write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if let Some(dir) = path.parent()
         && !dir.as_os_str().is_empty()
@@ -179,9 +391,37 @@ impl WorldGen {
     }
 
     /// What an export at `width` would produce, without producing it —
-    /// `bakeDims` plus the peak memory the run would hold. Lets the UI show
-    /// "8192 x 5244 · ~645 MB peak" before the user commits to it, which at
-    /// 8K is a number worth seeing first.
+    /// `bakeDims`, the peak memory the run would hold, and the size of the
+    /// file it would leave. Lets the UI show "8192 x 5244 · 943 MB peak ·
+    /// ~28 MB file" before the user commits to it, which at 8K is a number
+    /// worth seeing first and at 32K is the difference between a considered
+    /// decision and a lost afternoon.
+    ///
+    /// # The file size is ruling 26's instruction, not a nicety
+    ///
+    /// *"We should just inform the user of the expected file size."* It comes
+    /// from [`estimate_file_bytes`], whose doc carries the five measured
+    /// widths it was fitted to. **`peak_bytes` and `file_bytes` are the same
+    /// order of magnitude at 8K and two orders apart at 32K** (943 MB against
+    /// 28 MB; 15 GB against 214 MB), so the user needs both and neither
+    /// stands in for the other.
+    ///
+    /// `heightmap_peak_bytes` prices the *other* button at the same width —
+    /// [`WorldGen::export_heightmap_png`], which shares this ladder and costs
+    /// about a sixth as much. There is deliberately **no** `heightmap_file_
+    /// bytes`: a 16-bit height field compresses nothing like a colour raster
+    /// (0.166 B/px at 8K falling to 0.021 at 32K, against 0.654 and 0.311),
+    /// two points are not a model, and an invented one would be a fake value
+    /// in the one field a user would read as a promise.
+    ///
+    /// # Two keys are omitted rather than faked
+    ///
+    /// `memory_available` and `affordable` are present only when the platform
+    /// actually reports a budget — see [`memory_available`]. A `0` there would
+    /// read as "no memory" and a `-1` as a size, and callers use `has()`.
+    ///
+    /// This does **not** consult `BAKE_WIDTHS`: it answers for any width, so a
+    /// UI can price a size before offering it.
     ///
     /// Empty `Dictionary` before any `generate()`/`load_save()`.
     #[func]
@@ -192,14 +432,22 @@ impl WorldGen {
         }
         let (w, h) = render::bake_dims(width.max(0) as usize, gw, gh);
         let px = (w as u64) * (h as u64);
-        dict! {
+        let peak = px * PEAK_BYTES_PER_PIXEL;
+        let mut out = dict! {
             "width" => w as i64,
             "height" => h as i64,
             "pixels" => px as i64,
-            "peak_bytes" => (px * PEAK_BYTES_PER_PIXEL) as i64,
+            "peak_bytes" => peak as i64,
+            "file_bytes" => estimate_file_bytes(w, h, gw) as i64,
+            "heightmap_peak_bytes" => (px * HEIGHTMAP_PEAK_BYTES_PER_PIXEL) as i64,
             "tiles" => (w.div_ceil(TILE_SIZE) * h.div_ceil(TILE_SIZE)) as i64,
             "tile_size" => TILE_SIZE as i64,
+        };
+        if let Some(avail) = memory_available() {
+            out.set("memory_available", avail as i64);
+            out.set("affordable", peak <= avail);
         }
+        out
     }
 
     /// `bakeSingle(W)` / `bakeTiled(W)` (reference lines 11975 / 11982) —
@@ -225,8 +473,10 @@ impl WorldGen {
     ///
     /// # Progress and blocking
     ///
-    /// Synchronous, and an 8K export is seconds of work: call it from a
-    /// GDScript `Thread`, or accept a frozen frame. The reference's own
+    /// Synchronous, and long: **3.9 s at 8K, 15.7 s at 16K, 69.2 s at 32K**,
+    /// measured on a `2048 x 1311` world under `[profile.dev]`'s `opt-level =
+    /// 1`. Call it from a GDScript `Thread`, or accept a frozen frame for over
+    /// a minute. The reference's own
     /// `onP` callback and `await microtask()` yields are browser event-loop
     /// concerns with no equivalent here (the same note
     /// `cartalith_engine::region_export` makes about `exportRegionTiles`).
@@ -289,6 +539,14 @@ impl WorldGen {
         let (w, h) = render::bake_dims(width as usize, gw, gh);
         if w == 0 || h == 0 {
             return fail(format!("degenerate export dimensions {w}x{h}"));
+        }
+        // Ruling 26's refusal, with this path's own much smaller budget --
+        // `HEIGHTMAP_PEAK_BYTES_PER_PIXEL` is 4 against the colour raster's
+        // 23, so a heightmap survives a width the picture would be refused at.
+        // It shares `BAKE_WIDTHS` with `export_raster_png` and therefore
+        // inherited ruling 15's two new sizes; it does not share their cost.
+        if let Some(refusal) = refuse_unaffordable(width, (w as u64) * (h as u64) * HEIGHTMAP_PEAK_BYTES_PER_PIXEL) {
+            return refusal;
         }
 
         // Box-filter the grid into the export raster. Same span arithmetic as
@@ -355,6 +613,15 @@ impl WorldGen {
         let (w, h) = render::bake_dims(width as usize, gw, gh);
         if w == 0 || h == 0 {
             return fail(format!("degenerate export dimensions {w}x{h}"));
+        }
+        // Ruling 26's refusal. Before `export_render`, because the first thing
+        // past this point is `bake_rect`'s `vec![0u8; w * h * 3]` and a `Vec`
+        // that cannot be served aborts the process -- taking the editor and any
+        // unsaved world with it. Applies to the tiled layout too: `write_tiles`
+        // slices a raster that was already rendered whole, so it costs the same
+        // peak and gets the same answer.
+        if let Some(refusal) = refuse_unaffordable(width, (w as u64) * (h as u64) * PEAK_BYTES_PER_PIXEL) {
+            return refusal;
         }
 
         let appearance = self.appearance();
@@ -602,7 +869,7 @@ impl WorldGen {
     /// The reference's are `GW × GH` and these are too. They are a *reference
     /// view of the data layers* — the README line calls them "reference only",
     /// and the `.f32` blobs beside them are the master copies at exactly this
-    /// size. Baking them at the map raster's 2K/4K/8K would be four more
+    /// size. Baking them at the map raster's 2K..32K would be four more
     /// full-size renders of data that has one cell per value.
     ///
     /// **Generated worlds only**, the same rule and the same reason as
@@ -931,4 +1198,116 @@ impl AtlasFields {
         }
         AtlasFields { soil, water, carry, suit, biome, lithology, resources: map }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The five real exports [`FILE_BYTES_AT_GRID_WIDTH`]'s doc tabulates,
+    /// as `(width, height, measured bytes on disk)` — median of three worlds,
+    /// `2048 x 1311` grid, seeds 20260906 / 7 / 991733, taken on 2026-09-06
+    /// with `_export16k_probe.gd` and `_exportbig_probe.gd`.
+    ///
+    /// **These are measurements, not model outputs.** That is what makes the
+    /// test below an independent check rather than the constant asserted
+    /// against itself.
+    const MEASURED: [(usize, usize, u64); 5] = [
+        (2048, 1311, 3_125_614),
+        (4096, 2622, 9_285_851),
+        (8192, 5244, 28_113_105),
+        (16384, 10488, 80_383_779),
+        (32768, 20976, 213_925_342),
+    ];
+
+    #[test]
+    fn estimate_file_bytes_tracks_the_five_measured_exports() {
+        for (w, h, measured) in MEASURED {
+            let got = estimate_file_bytes(w, h, 2048) as f64;
+            let err = (got - measured as f64) / measured as f64;
+            assert!(
+                err.abs() < 0.055,
+                "{w}x{h}: model {got:.0} B vs measured {measured} B, {:.1}% out -- \
+                 the five residuals were +3.1 / +0.2 / -4.4 / -3.5 / +4.8 %",
+                err * 100.0
+            );
+        }
+    }
+
+    /// The change detector the loose 5.5 % bound above cannot be: it pins the
+    /// model's own output, so moving either constant by even 1 % turns this
+    /// red. Both tests are needed -- this one alone would happily pass on a
+    /// model that has drifted away from reality together with its literals,
+    /// and the one above alone survives a 1 % mutation.
+    #[test]
+    fn the_two_model_constants_are_pinned() {
+        let bpp = |w: usize, h: usize| estimate_file_bytes(w, h, 2048) as f64 / (w as f64 * h as f64);
+        for (w, h, want) in [
+            (2048usize, 1311usize, 1.200_0f64),
+            (4096, 2622, 0.866_4),
+            (8192, 5244, 0.625_5),
+            (16384, 10488, 0.451_6),
+            (32768, 20976, 0.326_0),
+        ] {
+            let got = bpp(w, h);
+            assert!((got - want).abs() < 5e-4, "{w} px: {got:.6} B/px, expected {want:.4}");
+        }
+    }
+
+    /// The estimate is a function of the **upsample ratio**, which is the
+    /// claim `FILE_BYTES_AT_GRID_WIDTH`'s doc makes and the reason it takes
+    /// `gw` at all. Halving the grid under a fixed export width has to make
+    /// the picture cheaper per pixel, not leave it alone.
+    #[test]
+    fn a_coarser_grid_makes_the_same_export_smaller() {
+        let fine = estimate_file_bytes(8192, 5244, 2048);
+        let coarse = estimate_file_bytes(8192, 5244, 1024);
+        assert!(coarse < fine, "coarse {coarse} should be under fine {fine}");
+        // 2^-0.47 = 0.722, so exactly one doubling of the ratio.
+        let r = coarse as f64 / fine as f64;
+        assert!((r - 0.721_966).abs() < 1e-3, "ratio {r:.6}");
+    }
+
+    #[test]
+    fn a_degenerate_estimate_is_zero_rather_than_a_plausible_number() {
+        assert_eq!(estimate_file_bytes(0, 5244, 2048), 0);
+        assert_eq!(estimate_file_bytes(8192, 0, 2048), 0);
+        assert_eq!(estimate_file_bytes(8192, 5244, 0), 0);
+    }
+
+    /// The peak constants against the **independently measured** marginal cost
+    /// -- `_exportbig_probe.gd`'s peak-resident slopes, which are 21.7 B/px for
+    /// the colour raster over both large intervals and 3.6 B/px for the
+    /// heightmap. A budget below the measurement would let an export be
+    /// attempted that cannot be served; a budget far above it would refuse
+    /// exports that fit.
+    #[test]
+    fn the_peak_budgets_bracket_what_was_measured() {
+        assert!(
+            (21.7..=25.0).contains(&(PEAK_BYTES_PER_PIXEL as f64)),
+            "{PEAK_BYTES_PER_PIXEL} B/px must cover the measured 21.7 without wildly exceeding it"
+        );
+        assert!(
+            (3.6..=6.0).contains(&(HEIGHTMAP_PEAK_BYTES_PER_PIXEL as f64)),
+            "{HEIGHTMAP_PEAK_BYTES_PER_PIXEL} B/px must cover the measured 3.6"
+        );
+        // And the shapes really are different: a heightmap is one u16 buffer
+        // and no local-contrast pass, so budgeting them alike would refuse
+        // heightmap exports that fit comfortably.
+        assert!(HEIGHTMAP_PEAK_BYTES_PER_PIXEL * 4 < PEAK_BYTES_PER_PIXEL);
+    }
+
+    /// Every rung the shell will offer, and the two ruling 15 added. Asserted
+    /// as literals rather than against the array, so replacing the array with
+    /// anything else turns this red.
+    #[test]
+    fn the_ladder_is_the_five_ruled_widths() {
+        assert_eq!(BAKE_WIDTHS, [2048, 4096, 8192, 16384, 32768]);
+        assert_eq!(UNGATED_MAX_WIDTH, 8192);
+        // The un-gated ceiling has to BE a rung, or the two branches of
+        // `refuse_unaffordable` disagree about where the shipped ladder ends.
+        assert!(BAKE_WIDTHS.contains(&UNGATED_MAX_WIDTH));
+        assert!(BAKE_WIDTHS.iter().filter(|&&w| w > UNGATED_MAX_WIDTH).count() == 2);
+    }
+
 }

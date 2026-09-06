@@ -468,13 +468,23 @@ one flat raster, no sidecar metadata, no layer preservation, no tiling.
 **Three consequences follow, and they are build items rather than open
 questions.**
 
-**Export RGB, not RGBA.** No layers and no overlay data means no transparency is
-needed. That is not cosmetic: it cuts the pre-encode allocation by a quarter.
-**Using `EXPORT_SCOPE.md` §6's own target dimensions rather than a square
-canvas** — the export is 32 768 × 20 976 and 16 384 × 10 488, not N² —
-**32K drops from 2.75 GB to 2.06 GB and 16K from 687 MB to 515 MB**. It also
-removes the failure this exact use case invites: a map with a transparent sea
-opening white-on-white in a viewer that does not composite. Establish that the
+**Export RGB, not RGBA — ALREADY TRUE, nothing to change.** Measured
+2026-09-06: `render::bake_rect` fills `vec![0u8; w*h*3]`, `encode_png_rgb8` takes
+exactly that, and `write_tiles` cuts 3-byte runs. **There is no alpha on this
+path to drop.** This paragraph first claimed dropping it "cuts the pre-encode
+allocation by a quarter" and quoted a saving of 2.75 → 2.06 GB at 32K; that
+saving was never available, because the buffer has always been three-channel.
+The instruction stands as a constraint on anything added later, not as work.
+
+**And the memory figures it quoted were the RAW BUFFER, not the peak** — the
+error that mattered. `w*h*3` is 2.06 GB at 32 768 × 20 976 and 515 MB at
+16 384 × 10 488, but the export also allocates the local-contrast pass's luma
+and its blur buffers. **The file's own budget said 15 B/px and was itself too
+low** — `blur_once` allocates two buffers, not one, and both live until it
+returns. Corrected bound **23 B/px**, against a **measured 21.7 B/px** from
+host-polled peak resident memory. **So 32K really costs about 15.8 GB and 16K
+about 3.95 GB** — 7.7× what this ruling first said. Anything reasoning about
+whether a device can hold an export must use the peak, not the buffer. Establish that the
 renderer's output really is opaque everywhere before dropping the channel; if
 any pass writes alpha, composite onto the theme's ground rather than keep it.
 
@@ -484,18 +494,35 @@ the Data-manager route pane's ESTIMATE block is the existing shape for that.
 Derive bytes-per-pixel from real exports at smaller sizes rather than a generic
 PNG rule of thumb: map imagery compresses unusually well, so a textbook figure
 will be wrong in the user's favour and still wrong. **Memory is the harder
-constraint** — the phone already peaks near 878 MB on a 2048×1311 world, so a
-2.06 GB allocation is not slow there but impossible, and even 16K's 515 MB is
-doubtful. The export should refuse a size the device cannot hold rather than die
-mid-run. §6's own estimate for the *file* is 500 MB - 1 GB at 32K, so the two
-figures are the same order and the user needs both.
+constraint** — and by more than this ruling first allowed. Against a real peak
+of ~15.8 GB at 32K and ~3.95 GB at 16K, a phone that already peaks near 878 MB
+on a 2048×1311 world cannot hold **either** new size. **The export refuses
+rather than dying mid-run** (built 2026-09-06): a failed `Vec` inside a
+GDExtension aborts the process and takes the editor and any unsaved world, so
+`refuse_unaffordable` runs before the allocation. **Note it gates every width,
+the three that shipped before this ruling included** — a deliberate behaviour
+change, since an 8K export on a device with 2 GB free aborted today.
 
-**PNG is scanline-ordered, and that is the good news in this decision.**
-`EXPORT_SCOPE.md` §5 records a banded renderer that was prototyped, **measured
-byte-identical**, and reverted. A band of rows is exactly what a PNG encoder
-consumes next; a tiled format would not have had this property. **Recover that
-prototype from history rather than rewriting it** — it was measured
-byte-identical once and that evidence is worth keeping. Check Godot's own
+**The FILE is far smaller than §6 guessed, and in the wrong direction.**
+Measured across three worlds: **213.9 MB at 32K** (208.3 .. 229.8) and 80.4 MB
+at 16K — a 9.6× compression ratio, not the 2-4× §6.3 assumed, so its
+"500 MB - 1 GB" is 2.3-4.7× too high. This ruling warned a textbook figure would
+be "wrong in the user's favour"; it was wrong **against** the user instead. The
+estimate now ships a model fitted to five real exports.
+
+**PNG is scanline-ordered, and that is still the good news — but the prototype
+cannot be recovered, and this ruling was wrong to say it could.** It said
+*"recover that prototype from history rather than rewriting it"*. **It is not in
+history:** the banded renderer was reverted *before* its pass committed.
+`git log --all --diff-filter=A -- '*export_bands*'` returns nothing, and
+`git log --all -S ExportBandPlan` returns only two commits whose diffs are prose.
+**`EXPORT_SCOPE.md` §4.1-§4.3 is the entire surviving artefact**, and any banded
+implementation is a rewrite against that description. The design property holds
+— a band of rows is what a PNG encoder consumes next, where a tiled format would
+not be — so the approach is right and only the "recover it" instruction was
+false. **Note also that the existing `tiled` flag is NOT this**: `write_tiles`
+slices tiles out of an already-whole raster, so it costs the same peak and buys
+nothing at 32K. Check Godot's own
 `Image`/`save_png` dimension limits early: if it cannot write a 32K PNG in one
 call, the banded path stops being an optimisation and becomes the only route.
 

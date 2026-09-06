@@ -787,8 +787,10 @@ impl ElevationRamp {
 // resident memory on every redraw — and the export path is where it stops
 // being affordable, because `bake_dims(8192, ...)` on that grid is
 // 8 192 x 5 244 = 42 958 848 px, i.e. **122.9 MiB per buffer, 368.8 MiB for
-// three**, on top of the 15 B/px `export_raster.rs::PEAK_BYTES_PER_PIXEL`
-// already budgets. `MEMORY_OPTIMIZATION_SCOPE.md`'s whole premise is that this
+// three**, on top of the 23 B/px `export_raster.rs::PEAK_BYTES_PER_PIXEL`
+// already budgets (**15 B/px when this was written** -- it undercounted
+// `blur_once`, which allocates two buffers, not one, and both live until it
+// returns; the corrected bound was checked against a measured 21.7 B/px). `MEMORY_OPTIMIZATION_SCOPE.md`'s whole premise is that this
 // renderer's peak is what limits the export ceiling.
 //
 // The cheap version is enough for blend + reorder + opacity + visibility, and

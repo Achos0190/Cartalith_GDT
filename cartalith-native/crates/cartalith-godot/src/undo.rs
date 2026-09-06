@@ -222,6 +222,21 @@ impl HeightUndo {
         self.stack.back().map(|s| s.label.as_str())
     }
 
+    /// Every held step's label, **newest first** — the order
+    /// [`Self::restore`] hands them back in, so the first element is always
+    /// [`Self::next_label`].
+    ///
+    /// The stack has held these labels since it was written; only the newest
+    /// one was reachable, so a caller could name the step it was about to
+    /// pop and nothing else. Exposing the rest costs no memory, retains
+    /// nothing extra and moves no bound — [`Self::evict`] still decides what
+    /// is in the stack, and this only reads it. Which is the point: a panel
+    /// listing undone steps does not need undo to keep more, it needs to see
+    /// what undo already keeps.
+    pub fn labels(&self) -> impl ExactSizeIterator<Item = &str> {
+        self.stack.iter().rev().map(|s| s.label.as_str())
+    }
+
     /// Re-budget, evicting immediately if the new budget is smaller.
     /// Clamped to at least one 1024² field (4 MiB) so a caller cannot set a
     /// budget that makes every push a one-step stack by accident.
@@ -298,6 +313,53 @@ mod tests {
             assert_eq!(f, field(2, expected as f32));
         }
         assert!(u.is_empty());
+    }
+
+    /// `labels()` is `next_label()` extended to the whole stack, in the same
+    /// direction: newest first, first element identical to `next_label()`,
+    /// and it shortens as steps are popped.
+    #[test]
+    fn labels_list_the_whole_stack_newest_first() {
+        let mut u = HeightUndo::new();
+        let mut f = field(2, 0.0);
+        assert_eq!(u.labels().len(), 0, "an empty stack names nothing");
+        assert_eq!(u.labels().next(), None);
+        for step in 1..=3 {
+            u.push(&format!("op{step}"), &f);
+            f.iter_mut().for_each(|v| *v = step as f32);
+        }
+        assert_eq!(u.labels().collect::<Vec<_>>(), vec!["op3", "op2", "op1"]);
+        assert_eq!(u.labels().len(), u.depth());
+        assert_eq!(u.labels().next(), u.next_label(), "the head must be the next pop");
+        u.restore(&mut f);
+        assert_eq!(u.labels().collect::<Vec<_>>(), vec!["op2", "op1"]);
+        u.clear();
+        assert_eq!(u.labels().len(), 0);
+    }
+
+    /// The list is a view of what the stack **actually holds**, not of what
+    /// was pushed: an evicted step is not named, exactly as it is not
+    /// counted by `depth()` and not restorable. Eight pushes, five survivors.
+    #[test]
+    fn labels_do_not_name_evicted_steps() {
+        let mut u = HeightUndo::new();
+        let f = field(2, 0.0);
+        for step in 0..8 {
+            u.push(&format!("op{step}"), &f);
+        }
+        assert_eq!(u.labels().collect::<Vec<_>>(), vec!["op7", "op6", "op5", "op4", "op3"]);
+
+        // ...and the budget bound drops names the same way the count bound
+        // does. 4 MiB steps against a 9 MiB budget: two survive, two names.
+        let mut b = HeightUndo::new();
+        let big = field(1024 * 1024, 0.0);
+        for step in 0..5 {
+            b.push(&format!("op{step}"), &big);
+        }
+        assert_eq!(b.labels().len(), 5);
+        b.set_budget_bytes(9 * 1024 * 1024);
+        assert_eq!(b.labels().collect::<Vec<_>>(), vec!["op4", "op3"]);
+        assert_eq!(b.labels().len(), b.depth(), "the list and the depth cannot disagree");
     }
 
     #[test]

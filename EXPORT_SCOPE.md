@@ -18,16 +18,35 @@
 > phrased as "if this is ever un-shelved" is describing a condition that has now
 > happened.**
 >
-> **The shipped 2K/4K/8K export was left untouched.** Everything described below
-> as "prototyped" was written, run, and then reverted; the pass left the working
-> tree exactly as it found it. Test suite before and after: **139 binaries,
-> 2 254 passed, 0 failed, 8 ignored.**
+> **The shipped 2K/4K/8K export was left untouched by the pass that wrote this
+> document.** Everything it described as "prototyped" was written, run, and then
+> reverted; that pass left the working tree exactly as it found it. Test suite
+> before and after: **139 binaries, 2 254 passed, 0 failed, 8 ignored.**
+>
+> **2026-09-06 changed the tree.** `BAKE_WIDTHS` is now five rungs, the peak
+> estimate was corrected from 15 to 23 B/px, `export_raster_estimate` returns a
+> measured `file_bytes`, and every export is gated on a real memory budget. The
+> shipped 2K/4K/8K behaviour is unchanged except that it now refuses rather than
+> aborts on a device that cannot hold it. §2.1, §2.2 and §6.3 carry the
+> measurements; §3 enumerates what still depends on the render-once decision,
+> which was **not** reversed; §4 records that the banded prototype is not
+> recoverable from git.
+>
+> **RGB, ruling 26's other build item, needed no change: the path was already
+> three-channel.** `render::bake_rect` fills `vec![0u8; w * h * 3]`,
+> `cartalith_assets::raster::encode_png_rgb8` takes exactly that, and
+> `write_tiles` cuts three-byte runs out of it. There is no alpha anywhere on
+> this path to drop, so ruling 26's *"cuts the pre-encode allocation by a
+> quarter"* was already banked — the 2.06 GB / 515 MB figures it quotes are the
+> raster the code has been allocating all along, not a saving still to be made.
 >
 > **This document defines what a 16K/32K export would be — the findings, the
 > constraints, the codec survey and the five milestones §7 sets out. It does not
-> track them.** The shelving is an owner decision and stays; anything about where
-> work stands belongs to **`cartalith-native/docs/STATUS.md`**, which is the only
-> place progress is recorded.
+> track them.** Anything about where work stands belongs to
+> **`cartalith-native/docs/STATUS.md`**, which is the only place progress is
+> recorded. (This paragraph used to add *"the shelving is an owner decision and
+> stays"* — true when written, and superseded by ruling 15 in the same file's
+> own header.)
 
 ## What was asked for
 
@@ -106,36 +125,71 @@ has to be built (§5).
 All four are in
 `cartalith-native/crates/cartalith-godot/src/export_raster.rs`.
 
-### 2.1 The width ceiling
+### 2.1 The width ceiling — **closed 2026-09-06**
 
 ```rust
-const BAKE_WIDTHS: [i64; 3] = [2048, 4096, 8192];   // line 42
+const BAKE_WIDTHS: [i64; 5] = [2048, 4096, 8192, 16384, 32768];
 ```
 
 `export_raster_png` refuses anything not in that array rather than rounding —
-deliberately, and the doc comment says why. 8192 is the ceiling.
+deliberately, and the doc comment says why. **8192 was the ceiling until ruling
+15; it is now 32768**, and both new rungs were run end to end before being
+offered rather than merely permitted. Three worlds each, `2048 × 1311` grid,
+`_exportbig_probe.gd`:
 
-### 2.2 The whole raster is held in RAM
+| width | file, median of 3 | wall | peak resident |
+|---|---|---|---|
+| 8 192 | 28.1 MB | 3.9 s | 1 377 MB |
+| 16 384 | 80.4 MB | 15.7 s | 4 041 – 4 169 MB |
+| 32 768 | 213.9 MB | 69.2 s | 15 187 – 15 349 MB |
+
+The ceiling is now a **memory budget rather than a constant** — see §2.2.
+
+### 2.2 The whole raster is held in RAM — **and 15 B/px was too low by half**
 
 ```rust
-const PEAK_BYTES_PER_PIXEL: u64 = 3 + 12;   // line 51
+const PEAK_BYTES_PER_PIXEL: u64 = 3 + 4 + 16;   // 23, was 3 + 12
 ```
 
-3 bytes for the RGB8 raster, plus 12 for `apply_local_contrast`'s luma and its
-two `f32` blur buffers. Height comes from `render::bake_dims` =
-`round(W · GH / GW)`, so at the app's own 2048 × 1311 grid:
+The old figure counted `apply_local_contrast`'s luma plus *one* buffer per blur.
+`render::blur_once` allocates **two** — `b` for `box_h`'s output and `out` for
+`box_v`'s, both live until it returns — and `apply_local_contrast` runs two of
+them inside one `rayon::join`, which may execute them concurrently. 3 (RGB8
+raster) + 4 (`luma`) + 16 (two blurs × two `f32` buffers) = **23**.
 
-| width | height | pixels | raw RGB8 | **peak at 15 B/px** |
-|---|---|---|---|---|
-| 2 048 | 1 311 | 2.7 M | 8 MB | ~40 MB |
-| 4 096 | 2 622 | 10.7 M | 32 MB | ~161 MB |
-| 8 192 | 5 244 | 43.0 M | 129 MB | **~645 MB** |
-| 16 384 | 10 488 | 171.8 M | 515 MB | **~2.6 GB** |
-| 32 768 | 20 976 | 687.4 M | 2.06 GB | **~10.3 GB** |
+**Measured, not merely re-derived.** Peak resident set polled by the host across
+single-export runs gives an incremental slope of **21.7 B/px** over both large
+intervals — `(4169 − 1377) MB ÷ 128.9 MP = 21.66` for 8K→16K and
+`(15349 − 4169) MB ÷ 515.5 MP = 21.69` for 16K→32K. A working set undercounts,
+so 23 is the bound the gate budgets against.
 
-**This is not reachable by raising a constant.** 16K is already beyond what a
-32-bit-ish allocation budget should be asked for on a phone, and 32K is beyond
-most desktops.
+Height comes from `render::bake_dims` = `round(W · GH / GW)`, so at the app's
+own 2048 × 1311 grid:
+
+| width | height | pixels | raw RGB8 | **peak at 23 B/px** | measured peak resident |
+|---|---|---|---|---|---|
+| 2 048 | 1 311 | 2.7 M | 8 MB | ~62 MB | 762 MB total, export delta below the noise |
+| 4 096 | 2 622 | 10.7 M | 32 MB | ~247 MB | 780 MB total |
+| 8 192 | 5 244 | 43.0 M | 129 MB | **~988 MB** | 1 377 MB total |
+| 16 384 | 10 488 | 171.8 M | 515 MB | **~3.95 GB** | 4 041 – 4 169 MB total |
+| 32 768 | 20 976 | 687.4 M | 2.06 GB | **~15.8 GB** | 15 187 – 15 349 MB total |
+
+(The "total" column is the whole process, which already holds ~765 MB for a
+world at that grid before the export starts.)
+
+**This was reached by raising a constant, and it should not have been reachable
+that way alone.** 16K and 32K both complete on a 31 GB desktop; neither is
+possible on the phone, which peaks near 878 MB on a 2048 × 1311 world. So the
+ladder was raised **together with a refusal**: `export_raster.rs::
+refuse_unaffordable` compares the peak against `OS.get_memory_info()`'s
+`available` and returns `{ok: false, error}` rather than attempting it, because
+a `Vec` allocation that cannot be served **aborts** the process — inside a
+GDExtension that costs the editor and any unsaved world. Where the platform
+reports no budget at all (Godot fills unavailable entries with `-1`), anything
+above the pre-ruling `UNGATED_MAX_WIDTH = 8192` is refused rather than risked.
+
+`EXPORT_SCOPE.md` §7's **E1 is what would remove the ceiling instead of gating
+it**, and it is unbuilt — see §4.
 
 ### 2.3 Content is terrain only
 
@@ -183,13 +237,60 @@ footing as `DECISIONS.md` §7a-§7h, not a bug fix — and whoever reverses it o
 the guarantee the note was protecting, in a form at least as strong: **the same
 pixels, with no seams.**
 
+### What actually depends on it, enumerated 2026-09-06
+
+Ruling 15 says the reversal is the first cost and that what depends on it must
+be established first. Established by reading the code rather than the note, and
+**not reversed** — this pass raised the ceiling by gating memory (§2.2), which
+buys the two sizes on machines that can hold them without touching the
+guarantee:
+
+1. **`write_tiles` is the only consumer of "one finished raster".** It takes
+   `rgb: &mut [u8]` spanning the whole image and copies row runs out of it; it
+   has exactly one call site, `export_raster_png`'s `tiled` branch. Its
+   guarantee is not just prose — `_exportraster_probe.gd` §8 samples 3 000
+   pixels of `tile_0_0.png` against the same region of the single-file 4K export
+   and asserts **zero** differ.
+2. **`render::apply_local_contrast` is the only neighbourhood stage**, which
+   §4.1 already establishes and §4.2 already solves with an apron.
+3. **`render::build_grade_influence(ctx, w, h)`** allocates the full `w × h` and
+   lifts cells by `oy · gh / h`, so a band must be handed the full `h` and its
+   own row offset — §4.1's "yes with care", restated here because it is a
+   *dependency* on the whole-image shape and not only a porting note.
+4. **`render::bake_rect`'s band-safety is already shipped, not merely claimed.**
+   `export_snapshot_png` calls it as
+   `bake_rect(ctx, &bf, chan, out_w, out_h, x0, y0, w, h)` — a sub-rectangle of
+   a *virtual* image far larger than anything allocated — and that is the
+   Markdown Vault's map snapshot, in use. So the riskiest-sounding line of §4.1
+   is the one with a production caller.
+5. **The memory estimate is keyed to the monolithic peak.**
+   `PEAK_BYTES_PER_PIXEL`, `refuse_unaffordable` and `export_raster_estimate`'s
+   `peak_bytes` all describe holding the whole raster at once. A banded path
+   makes the peak a function of band height, so **E1 has to move those three
+   together** or the app will refuse exports it could serve.
+
+Nothing else in the tree reads the whole-raster property. The reversal remains
+E1's work.
+
 ---
 
-## 4. The banded renderer — prototyped, verified, and reverted
+## 4. The banded renderer — prototyped, verified, reverted, and **not in git**
 
-Built and run during this pass, then reverted with everything else. Recorded
+Built and run during that pass, then reverted with everything else. Recorded
 here in full because the verification is the expensive part and the result was
 better than expected.
+
+> **Correction, 2026-09-06. There is nothing to recover from history.** Ruling
+> 26 says to *"recover that prototype from history rather than rewriting it"*.
+> It was reverted **before** the pass committed, so no commit ever contained it:
+> `git log --all --diff-filter=A -- '*export_bands*'` returns nothing, and
+> `git log --all -S ExportBandPlan` returns exactly two commits — `76f5e6b`
+> (*"Export at 16K/32K: shelved, but the findings are written down"*, whose
+> `--stat` is `CLAUDE.md | 1 +` and `EXPORT_SCOPE.md | 376 ++++`, i.e. prose
+> only) and `fd9de7c`, which is the backlog row. **§4.1–§4.3 below are the
+> whole surviving artefact**, and E1 is a rewrite against them, not a
+> `git checkout`. That is worth knowing before a lane is scheduled to "restore"
+> it and finds an empty search.
 
 ### 4.1 Which stages are band-safe, and the one that is not
 
@@ -348,12 +449,42 @@ it as a design sketch, not as verified code.
 
 ### 6.3 The thing the owner should hear plainly
 
-**At 32K, no codec makes this small.** Lossless RGB at 32 768 × 20 976 is
-~2.06 GB raw; a good lossless codec on terrain art might reach 2-4×, so
-500 MB - 1 GB is the realistic landing zone. Lossy JPEG XL at visually-lossless
-quality could plausibly reach 100-200 MB, but that is a quality trade on his
-linework, it is his call, and — see above — the encoder licensing rules it out
-for this workspace anyway.
+**At 32K, no codec makes this small — but PNG makes it much smaller than this
+section guessed.** The paragraph below was written from a rule of thumb and is
+kept for the record; **the measurement replaces it.**
+
+> ~~Lossless RGB at 32 768 × 20 976 is ~2.06 GB raw; a good lossless codec on
+> terrain art might reach 2-4×, so 500 MB - 1 GB is the realistic landing
+> zone.~~
+
+**Measured 2026-09-06, three worlds, `2048 × 1311` grid, default appearance:
+32 768 × 20 976 lands at 213.9 MB (208.3 .. 229.8), i.e. a 9.6× ratio, not
+2-4×.** The guess is **2.3–4.7× too high**. Ruling 26's own warning — *"a
+textbook figure will be wrong in the user's favour and still wrong"* — held,
+though it erred in the other direction: the estimate was wrong *against* the
+user, and a size the owner would have rejected on a 1 GB projection is actually
+a 214 MB file.
+
+| width | upsample | bytes/px, median (min .. max) | file, median |
+|---|---|---|---|
+| 2 048 | 1× | 1.1641 (1.1363 .. 1.1860) | 3.13 MB |
+| 4 096 | 2× | 0.8646 (0.8582 .. 0.8933) | 9.29 MB |
+| 8 192 | 4× | 0.6544 (0.6512 .. 0.6905) | 28.11 MB |
+| 16 384 | 8× | 0.4678 (0.4619 .. 0.5018) | 80.38 MB |
+| 32 768 | 16× | 0.3112 (0.3030 .. 0.3343) | 213.93 MB |
+
+Bytes/px falls because the information in the picture is bounded by the **grid**,
+not by the export width; everything past `gw` is interpolation, which a PNG
+filter predicts almost for free. `export_raster_estimate` now returns
+`file_bytes` from a two-constant power law fitted to those five rows
+(`FILE_BYTES_AT_GRID_WIDTH` / `FILE_BYTES_UPSAMPLE_DECAY`, residuals +3.1 /
++0.2 / −4.4 / −3.5 / +4.8 %, inside the ±7.3 % world-to-world spread).
+
+Lossy JPEG XL at visually-lossless quality could plausibly reach 100-200 MB,
+but that is a quality trade on his linework, it is his call, and — see above —
+the encoder licensing rules it out for this workspace anyway. **Ruling 26
+settled it as PNG regardless, and at 214 MB the size argument that ruling spent
+turns out to have been much smaller than either party thought.**
 
 Whatever ships, `export_raster_estimate()` should report **the estimated output
 file size per format** alongside the peak memory, clearly labelled an estimate,
@@ -379,7 +510,10 @@ reviewable.
   / tunables, layered over `appearance()` without mutating it), and the content
   set including the explicit settlement tier of §5. `export_raster_estimate`
   extended to report dimensions, band count, peak bytes **and** estimated file
-  size per format.
+  size — one format now, since ruling 26 settled on PNG, so "per format" is
+  moot. **The file-size and memory halves of that sentence are built** (§6.3's
+  fitted model, plus `memory_available`/`affordable`); band count is not, and
+  cannot be until E1 exists.
 - **E4 — the overlay session.** The cross-frame `begin` / band / composite /
   `write` / `finish` contract of §5, with `map_overlay.gd` drawing into a
   `SubViewport` at export scale under a synthetic per-band camera. This is the

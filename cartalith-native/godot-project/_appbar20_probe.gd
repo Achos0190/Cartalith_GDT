@@ -11,9 +11,14 @@ extends Node
 ## and no app bar to walk. Headless is correct here -- nothing this probe reads
 ## is a pixel or a frame time; every claim is a drawn string or a shell flag.
 ##
-## Runs unchanged **before and after** the glyphs are removed: a cell that is
-## gone reports ABSENT rather than failing, so one script produces both halves
-## of the before/after set.
+## **Written to run either side of the deletion; now an after-only regression
+## guard.** Until 2026-09-06 a cell that was gone *printed* ABSENT rather than
+## failing, so one script produced both halves of the before/after set. Ruling
+## 20 has landed and the before half is spent -- its result is the four-row
+## `pressed | reached` table in `dcc_shell.gd`'s ruling-20 block, which this
+## file produced. Absence is now `_check`ed, so a `☰` or `▤` that comes back is
+## a FAIL here instead of a line of prose nobody re-reads. Running this against
+## a pre-ruling-20 shell will therefore fail three checks, correctly.
 ##
 ## Method, deliberately the same shape as `_phonemore_reach_probe.gd`: press
 ## the REAL buttons on the REAL bar, read the REAL flags back, then dump ground
@@ -190,45 +195,40 @@ func _ready() -> void:
 	_check("app bar fits the screen width", bar != null and min_w <= float(want.x),
 		"min_w=%.0f  screen=%d  (%dx%d)" % [min_w, want.x, want.x, want.y])
 
-	## -- BEFORE: what each glyph reaches -------------------------------------
+	## -- The two cells ruling 20 removed, now asserted GONE -------------------
+	##
+	## **This block used to be the "before" half and is now the "after" half,
+	## and the difference is that it can fail.** It read each glyph, pressed it
+	## if present, and merely *printed* ABSENT if not -- the shape the header
+	## above still describes, so one script could be run either side of the
+	## deletion. Ruling 20 has landed; the before half is spent and its result is
+	## recorded permanently in `dcc_shell.gd`'s own ruling-20 block (the four-row
+	## `pressed | reached` table there was produced by this file). What is worth
+	## having now is the opposite check: that neither cell has come back, which a
+	## `print` cannot tell anyone.
 	for tip in ["Domain panel", "Panels"]:
 		var b := _bar_cell(String(tip))
-		if b == null:
-			print("REACH glyph '%s' ABSENT" % tip)
-			continue
-		_reset()
-		await _frames(2)
-		b.pressed.emit()
-		await _frames(2)
-		print("REACH glyph '%s' -> %s" % [tip, _state()])
+		_check("app bar no longer draws a '%s' cell (ruling 20)" % tip, b == null,
+			"" if b == null else "present -> %s" % _state())
 
-	## The picker is a router, so its own rows are the destinations, not it.
-	var picker: Node = app.get("_phone_panel_picker")
-	if picker == null:
-		print("REACH picker ABSENT")
-	else:
-		for row_title in ["Left panel", "Right panel"]:
-			_reset()
-			app.call("_set_panel_picker_open", true)
-			await _frames(2)
-			## `_phone_list_row()` builds a `Button` whose drawn title is
-			## `to_upper()`ed and whose `accessibility_name` is the un-cased
-			## string -- so the row is NOT the `PanelContainer` shape
-			## `_row_named()` finds in `PhoneMenu`, and matching it by drawn
-			## text would match "LEFT PANEL", not "Left panel".
-			var rows: Array = []
-			_collect_buttons(picker, rows)
-			var row: Button = null
-			for candidate in rows:
-				if String((candidate as Button).accessibility_name) == String(row_title):
-					row = candidate as Button
-					break
-			if row == null:
-				_check("picker row '%s' is drawn" % row_title, false)
-				continue
-			row.pressed.emit()
-			await _frames(2)
-			print("REACH picker '%s' -> %s" % [row_title, _state()])
+	## `▤` opened a *router*, not a destination -- so the picker went with it,
+	## and its two rows (`Left panel` / `Right panel`) are now `MORE ▸ Window ▸
+	## Left dock` / `Right dock`, driven end to end at the bottom of this file.
+	##
+	## **The block that used to drive the picker's own rows was deleted here,
+	## not repaired, and it was never the reason this probe still passes.** It
+	## sat behind this same `picker == null` guard, so from the moment
+	## `_build_phone_panel_picker()` went it was unreachable: the run prints
+	## `REACH picker ABSENT` and skips it. Its `app.call("_set_panel_picker_
+	## open", true)` therefore never executed and never errored -- unlike the
+	## same-named calls in `_menuconf_probe.gd` / `_phonesweep_probe.gd` /
+	## `_shot_phone.gd`, which are not guarded. Measured 2026-09-06 before
+	## touching this file: `--headless _appbar20_probe.tscn -- --force-touch
+	## --nowelcome` printed `REACH picker ABSENT` and exited 0 with
+	## `failures=0`. Recorded because "four probes call a deleted function" is
+	## true of the grep and false of the behaviour for this one.
+	_check("the panel-picker overlay is gone with it (ruling 20)",
+		app.get("_phone_panel_picker") == null, _state())
 
 	## -- Ground truth from the live MenuBar ----------------------------------
 	var win := _menu_popup("Window")

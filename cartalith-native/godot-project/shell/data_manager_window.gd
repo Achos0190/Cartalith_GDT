@@ -296,7 +296,7 @@ const ROUTES: Array[Dictionary] = [
 	{"group": "Export", "id": "export_gis", "label": "GIS / GeoJSON", "badge": ".geojson", "kind": "live",
 		"sub": "whole world · planar km"},
 	{"group": "Export", "id": "export_world", "label": "World Data", "badge": "map + atlas", "kind": "live",
-		"sub": "whole world · 2K/4K/8K raster · channel atlas"},
+		"sub": "whole world · 2K-32K raster · channel atlas"},
 	{"group": "Export", "id": "export_assets", "label": "Assets", "badge": ".zip", "kind": "route",
 		"sub": "routes to the Asset library"},
 	{"group": "Sources", "id": "sources_external", "label": "External Sources", "badge": "", "kind": "gap",
@@ -453,12 +453,18 @@ var _tx_ridged := false
 var _tx_dest := ""
 
 ## Export ▸ World Data, live `export_raster_png`/`export_channel_atlas` opts.
-## `bakeRes`' own three widths with the reference's own default in the middle,
-## and `bakeTiles` off -- both the reference's own initial state.
+## `bakeRes`' widths with the reference's own default (4096) among them, and
+## `bakeTiles` off -- both the reference's own initial state.
+##
+## **The fallback is FIVE since owner ruling 15 (2026-09-06)**, not the three
+## the reference shipped. It is only reached if `export_raster_widths` cannot be
+## asked, and a fallback that disagrees with the engine would silently offer a
+## ladder the binding refuses -- which is the failure this constant exists to
+## avoid, so it has to move whenever `BAKE_WIDTHS` does.
 ##
 ## The width list is asked of the binding (`export_raster_widths`) rather than
 ## written here, so the shell cannot offer a resolution the engine refuses.
-const WD_WIDTH_FALLBACK: Array[int] = [2048, 4096, 8192]
+const WD_WIDTH_FALLBACK: Array[int] = [2048, 4096, 8192, 16384, 32768]
 var _wd_widths: Array[int] = WD_WIDTH_FALLBACK.duplicate()
 var _wd_width := 4096
 var _wd_tiled := false
@@ -1723,7 +1729,8 @@ func _footer_note(text: String) -> void:
 # (`PARITY_AUDIT.md` §5 item 14, `GUI_GAP_REGISTER.md` DM-04)
 #
 # The reference puts these four controls in its header bar next to Export:
-# `bakeRes` (2K/4K/8K), `bakeTiles`, `chanAtlasChk` and `layersPreviewChk`.
+# `bakeRes` (2K/4K/8K/16K/32K since ruling 15), `bakeTiles`, `chanAtlasChk`
+# and `layersPreviewChk`.
 # This shell has no header-bar export strip, and §9 routes every export through
 # this window -- so they live here, in the route the canvas already names for
 # whole-world output, rather than in a fifth place.
@@ -1861,7 +1868,7 @@ func _build_wd_output_column(col: Control, api: bool) -> void:
 	if api and not est.is_empty():
 		var peak_row := _row(col, "Peak memory")
 		_well_label(peak_row, _fmt_bytes(int(est.get("peak_bytes", 0))),
-			"3 bytes per output pixel for the raster plus 12 for the local-contrast pass' luma and its two blur buffers. Reported by the binding, not modelled here -- at 8K it is worth seeing before you press the button.")
+			"3 bytes per output pixel for the raster, 4 for the local-contrast pass' luma and 16 for its blur buffers -- 23 B/px, measured at 21.7. Reported by the binding, not modelled here -- at 16K and 32K the export is refused outright if the device cannot hold it.")
 		var px_row := _row(col, "Pixels")
 		_well_label(px_row, "%.1f MP" % (float(est.get("pixels", 0)) / 1_000_000.0))
 

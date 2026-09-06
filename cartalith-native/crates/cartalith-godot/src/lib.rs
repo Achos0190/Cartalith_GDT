@@ -15646,6 +15646,25 @@ impl RedoTail {
         self.steps.next_label()
     }
 
+    /// Every undone step still on the tail, **newest first** — the order
+    /// [`redo_one`] re-applies them in, so element 0 is what [`Self::label`]
+    /// names.
+    ///
+    /// Empty rather than stale when the tail is not current: the same
+    /// [`Self::is_current`] gate `label()` uses, so the list and the single
+    /// label can never disagree about whether there is anything to redo.
+    ///
+    /// Nothing is retained for this. The tail is a [`undo::HeightUndo`] and
+    /// has always held one labelled snapshot per undone step; `label()` just
+    /// reached the newest of them. Listing the rest is a read, so undo's
+    /// semantics, its byte budget and what it evicts are all unchanged.
+    fn labels(&self, undo_depth: usize) -> Vec<&str> {
+        if !self.is_current(undo_depth) {
+            return Vec::new();
+        }
+        self.steps.labels().collect()
+    }
+
     fn clear(&mut self) {
         self.steps.clear();
         self.at_undo_depth = 0;
@@ -15708,6 +15727,20 @@ fn redo_one(
     }
     redo.at_undo_depth = undo.depth();
     Some(label)
+}
+
+/// Count what the tail is currently offering, then drop it — the whole body
+/// of `WorldGen::discard_redo_tail`, as a free function for exactly the
+/// reason [`undo_one`] is one: a `#[func]` needs a live Godot engine and the
+/// order of these two lines does not.
+///
+/// The order is the behaviour. Counting *after* the clear returns 0 for
+/// every discard, and the shell's confirmation would name the wrong number
+/// with nothing failing.
+fn discard_tail(redo: &mut RedoTail, undo_depth: usize) -> usize {
+    let n = redo.labels(undo_depth).len();
+    redo.clear();
+    n
 }
 
 /// Global heightmap undo — the reference's `pushUndo`/`undoLast`/
@@ -15807,6 +15840,75 @@ impl WorldGen {
     #[func]
     fn redo_label(&self) -> GString {
         GString::from(self.redo.label(self.undo.depth()).unwrap_or_default())
+    }
+
+    /// **Every** undone step on the redo tail, newest first — element 0 is
+    /// [`Self::redo_label`], element 1 is what a second `redo_last()` would
+    /// re-apply, and so on. Empty exactly when [`Self::redo_available`] is
+    /// `false`.
+    ///
+    /// This exists because the history panel drew one undone row by name and
+    /// *counted* the rest: `redo_label()` names the top of the tail and there
+    /// was no way to ask for the others, so `right_dock.gd`'s
+    /// `_history_undone` printed "N further undone steps" rather than invent
+    /// names. The names were already held — the tail is a whole
+    /// [`undo::HeightUndo`], one labelled snapshot per undone step — and only
+    /// the accessor was missing.
+    ///
+    /// **Undo semantics did not move to make this work, deliberately.** The
+    /// alternative was to stop `undo_last()`/`undo_revert_to()` truncating
+    /// the *ledger*, which would have changed what an undo means to every
+    /// reader of [`Self::undo_ledger`]. Nothing is retained that was not
+    /// retained before, so the list is bounded by the tail's own byte budget
+    /// and shortens as it evicts: a step whose snapshot was evicted is
+    /// neither named here nor redoable.
+    ///
+    /// **`len()` is not `undo_stats()["redo_depth"]`, and a shell must not
+    /// treat it as one.** That readout is raw buffer occupancy for
+    /// `Preferences ▸ Memory` and is deliberately not gated on
+    /// [`Self::redo_available`]: a tail invalidated by an
+    /// `erode_bridge.rs`-style push still holds its fields, so it reports
+    /// bytes it has not given back while offering nothing. The two agree
+    /// exactly while `redo_available()` is `true`, which is the only state
+    /// in which a history panel draws undone rows at all.
+    ///
+    /// The tail is still invalidated by a new commit — a redo list that
+    /// survived a fresh edit would offer a state that no longer exists — so
+    /// this returns empty the moment anything is pushed onto the undo stack.
+    /// See [`RedoTail`] for the two mechanisms that enforce it.
+    ///
+    /// The approved artboard (`design/proposed-2026-09-05/Main.dc.html`)
+    /// asks for exactly this and no more. Its footnote reads *"click a step
+    /// to move the cursor — steps below it are undone, **not deleted** / the
+    /// next edit drops them"*: undone steps are drawn until the next commit,
+    /// which is `RedoTail`'s lifetime stated in the design's own words.
+    #[func]
+    fn redo_labels(&self) -> PackedStringArray {
+        self.redo.labels(self.undo.depth()).into_iter().map(GString::from).collect()
+    }
+
+    /// Throw the redo tail away without committing anything — the artboard's
+    /// `✕ discard the 2 undone steps` row, the one control in that panel
+    /// with no binding behind it.
+    ///
+    /// Returns how many steps were discarded, so the shell can name the
+    /// number it just acted on rather than re-reading and hoping. `0` when
+    /// there was no live tail, including when the tail was already stale.
+    ///
+    /// **It touches the tail and nothing else.** Not the undo stack, not the
+    /// ledger: those steps left the ledger when they were undone
+    /// (`undo_last` calls `pop_newest_height`, `undo_revert_to` calls
+    /// `truncate_to`), so there is no row here to keep in step with. That is
+    /// what distinguishes this from [`Self::clear_undo`], which drops the
+    /// backward half and the ledger too and is a Preferences ▸ Memory
+    /// control rather than a history-panel one.
+    ///
+    /// The height field is not touched either — discarding a redo is not an
+    /// edit. After it, [`Self::redo_available`] is `false` and
+    /// [`Self::redo_labels`] is empty.
+    #[func]
+    fn discard_redo_tail(&mut self) -> i64 {
+        discard_tail(&mut self.redo, self.undo.depth()) as i64
     }
 
     /// Step the cursor forward: re-apply the state the last `undo_last()` (or
@@ -15947,9 +16049,21 @@ impl WorldGen {
     ///
     /// Plus `redo_depth` and `redo_bytes` (ints), the same two numbers for
     /// the forward half of the cursor. Reported separately rather than folded
-    /// into `bytes` because they are separately freeable — committing any new
-    /// operation drops the tail — and because a Memory row that showed one
-    /// figure for two budgets would be a readout nobody could act on.
+    /// into `bytes` because they are separately freeable, and because a
+    /// Memory row that showed one figure for two budgets would be a readout
+    /// nobody could act on.
+    ///
+    /// **These two are occupancy, not availability, and the difference is
+    /// visible.** This block used to say a new operation "drops the tail";
+    /// two of the three `self.undo.push` call sites do
+    /// (`carve_fjords`, `sculpt_commit` — both clear it on the next line),
+    /// and `erode_bridge.rs`'s does not: it only invalidates the tail, whose
+    /// fields are then freed lazily by the next `undo_one`/`redo_one`. So
+    /// `redo_depth` can be non-zero while [`Self::redo_available`] is
+    /// `false`, which is correct for a memory readout — the bytes really are
+    /// still held — and wrong for a history panel. A panel counts
+    /// [`Self::redo_labels`], which is gated on availability; this row
+    /// reports what is occupied.
     #[func]
     fn undo_stats(&self) -> VarDictionary {
         let step_bytes = match self.source.as_ref() {
@@ -16816,6 +16930,122 @@ mod global_redo_tests {
         assert_eq!(redo.label(undo.depth()), None);
         assert_eq!(redo_one(&mut undo, &mut redo, &mut f), None);
         assert_eq!(f, field(3.0), "a truncated redo must not overwrite the new work");
+    }
+
+    /// The tail names every step it holds, not just the next one — what
+    /// `redo_labels()` hands the history panel. Newest first, head identical
+    /// to `label()`, and one element shorter after each `redo_one`.
+    #[test]
+    fn the_tail_names_every_undone_step() {
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        let mut f = field(0.0);
+        assert!(redo.labels(undo.depth()).is_empty(), "an untouched cursor names nothing");
+        for step in 1..=3 {
+            commit(&mut undo, &mut redo, &mut f, &format!("op{step}"), step as f32);
+        }
+        for _ in 0..3 {
+            undo_one(&mut undo, &mut redo, &mut f);
+        }
+        // Undone back to the start, so the *next* redo is the earliest
+        // operation: newest-on-the-tail is op1.
+        assert_eq!(redo.labels(undo.depth()), vec!["op1", "op2", "op3"]);
+        assert_eq!(redo.labels(undo.depth()).len(), redo.steps.depth(), "the list and the depth disagree");
+        assert_eq!(redo.labels(undo.depth()).first().copied(), redo.label(undo.depth()));
+
+        redo_one(&mut undo, &mut redo, &mut f);
+        assert_eq!(redo.labels(undo.depth()), vec!["op2", "op3"]);
+        redo_one(&mut undo, &mut redo, &mut f);
+        redo_one(&mut undo, &mut redo, &mut f);
+        assert!(redo.labels(undo.depth()).is_empty(), "the tail is spent at the tip");
+    }
+
+    /// The memory readout and the redo offer are allowed to disagree, and
+    /// this pins the only state where they do. `undo_stats()`'s `redo_depth`
+    /// is `redo.steps.depth()` -- raw occupancy, ungated -- so a tail
+    /// invalidated by `erode_bridge.rs`'s push still reports bytes while
+    /// naming nothing. A history panel must count `redo_labels()`, not that.
+    #[test]
+    fn a_stale_tail_holds_memory_while_offering_nothing() {
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        let mut f = field(0.0);
+        commit(&mut undo, &mut redo, &mut f, "op1", 1.0);
+        undo_one(&mut undo, &mut redo, &mut f);
+        assert_eq!(redo.labels(undo.depth()).len(), 1);
+
+        // The one `self.undo.push` call site that does not clear the tail.
+        undo.push("Erode (droplet)", &f);
+        assert!(redo.labels(undo.depth()).is_empty(), "a stale tail is not an offer");
+        assert_eq!(redo.steps.depth(), 1, "...but its fields are still held");
+        assert!(redo.steps.bytes() > 0, "which is what redo_bytes reports");
+
+        // Freed lazily, by the next cursor move -- not by the push.
+        assert_eq!(redo_one(&mut undo, &mut redo, &mut f), None);
+        assert_eq!(redo.steps.depth(), 0);
+        assert_eq!(redo.steps.bytes(), 0);
+    }
+
+    /// What `discard_redo_tail()` does, at the level a unit test can reach:
+    /// the tail goes, the **undo stack and the field do not**. Discarding a
+    /// redo is not an edit, and the count it returns is `labels().len()`
+    /// read before the clear — hence read here in the same order.
+    #[test]
+    fn discarding_the_tail_leaves_the_field_and_the_undo_stack_alone() {
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        let mut f = field(0.0);
+        for step in 1..=3 {
+            commit(&mut undo, &mut redo, &mut f, &format!("op{step}"), step as f32);
+        }
+        undo_one(&mut undo, &mut redo, &mut f);
+        undo_one(&mut undo, &mut redo, &mut f);
+        let depth_before = undo.depth();
+
+        let discarded = discard_tail(&mut redo, undo.depth());
+        assert_eq!(discarded, 2, "the count is read before the clear, not after");
+        assert!(redo.labels(undo.depth()).is_empty());
+        assert_eq!(redo.label(undo.depth()), None);
+        assert_eq!(redo_one(&mut undo, &mut redo, &mut f), None);
+        assert_eq!(f, field(1.0), "discarding a redo is not an edit");
+        assert_eq!(undo.depth(), depth_before, "the backward half is untouched");
+        assert_eq!(undo.next_label(), Some("op1"), "undo still walks back");
+        // Nothing is left holding a field nobody can reach.
+        assert_eq!(redo.steps.bytes(), 0);
+    }
+
+    /// **The invalidation property, asserted on the list rather than on the
+    /// single label.** A redo list that survived a fresh edit would offer the
+    /// user a state that no longer exists; both truncation mechanisms have to
+    /// empty it, not just shorten it.
+    #[test]
+    fn the_label_list_is_invalidated_by_a_new_operation() {
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        let mut f = field(0.0);
+        for step in 1..=3 {
+            commit(&mut undo, &mut redo, &mut f, &format!("op{step}"), step as f32);
+        }
+        undo_one(&mut undo, &mut redo, &mut f);
+        undo_one(&mut undo, &mut redo, &mut f);
+        assert_eq!(redo.labels(undo.depth()), vec!["op2", "op3"], "two steps undone, two names");
+
+        // 1. The explicit clear a real call site performs.
+        commit(&mut undo, &mut redo, &mut f, "op4", 4.0);
+        assert!(redo.labels(undo.depth()).is_empty(), "the list survived a new operation");
+        assert_eq!(redo.label(undo.depth()), None, "the list and the label must agree");
+        assert_eq!(redo_one(&mut undo, &mut redo, &mut f), None);
+        assert_eq!(f, field(4.0), "a truncated redo must not overwrite the new work");
+
+        // 2. The structural check alone, for a pusher that never clears --
+        //    `erode_bridge.rs`. Undo once to refill the tail, then push raw.
+        undo_one(&mut undo, &mut redo, &mut f);
+        assert_eq!(redo.labels(undo.depth()), vec!["op4"]);
+        undo.push("Erode (droplet)", &f);
+        f.iter_mut().for_each(|v| *v = 7.0);
+        assert!(redo.labels(undo.depth()).is_empty(), "a stale tail was still named");
+        assert_eq!(redo_one(&mut undo, &mut redo, &mut f), None);
+        assert_eq!(f, field(7.0));
     }
 
     /// The same truncation, enforced by the depth check alone — what keeps

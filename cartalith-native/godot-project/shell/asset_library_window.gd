@@ -222,6 +222,21 @@ const SZ_SWATCH := 20
 ## now on the FAMILIES band's tooltip so the rail can look like the canvas.
 const FAMILIES_NOTE := "Eight families, frozen against the reference engine (cartalith-assets::slots / library) -- not the design canvas's own 24. The canvas subdivides more finely (splitting e.g. \"Feature icons\" into \"Trees & cover\" / \"Rock & scree\"); no Rust type draws that line, and ASSET_LIBRARY_SCOPE.md §1 recorded the real eight when Phase 4's engine side was built. Capacity and fill counts are both real (AssetDB::slots_in_family + per-slot filled state)."
 
+## **One string for both compositions, and it lists exactly what
+## `_slot_matches()` looks at.** The two wells carried different placeholders
+## and neither was true: the desktop one said `name · type · category · tag ·
+## file` (the older `Cartalith DCC Shell.dc.html` canvas's own words, verbatim)
+## and the phone one `name · type · tag · file`, while the filter read the slot
+## name, the slot id and the grid code and nothing else. A search field that
+## names four fields it does not read is the same defect class as a readout
+## showing `0` for "no value": the user cannot tell a miss from an unsupported
+## query. Tag and set are searchable for real as of 2026-09-06; `file` is not,
+## and no longer claims to be -- `_slot_matches()` carries why.
+##
+## Hoisted to a constant so the desktop and phone wells cannot drift apart
+## again, and so it sits one screen from the function that has to keep it true.
+const SEARCH_PLACEHOLDER := "Search name · id · code · set · tag…"
+
 ## AS-07 closed 2026-08-23: `as_set_item_transform`/`as_reset_item_transform`
 ## exist now, so Scale/Pan/Fit/Reset below write straight through them.
 
@@ -1131,7 +1146,7 @@ func _build_window_bar() -> Control:
 		row.add_theme_constant_override("h_separation", 6)
 		row.add_theme_constant_override("v_separation", 6)
 		var search_phone := LineEdit.new()
-		search_phone.placeholder_text = "Search name · type · tag · file…"
+		search_phone.placeholder_text = SEARCH_PLACEHOLDER
 		search_phone.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_well(search_phone)
 		search_phone.text_changed.connect(func(t: String): _search_text = t; _refresh_grid())
@@ -1157,7 +1172,7 @@ func _build_window_bar() -> Control:
 		row.add_child(divider)
 
 		var search := LineEdit.new()
-		search.placeholder_text = "Search name · type · category · tag · file…"
+		search.placeholder_text = SEARCH_PLACEHOLDER
 		search.custom_minimum_size.x = 340   ## canvas: `flex:1;max-width:340px`
 		_well(search)
 		search.text_changed.connect(func(t: String): _search_text = t; _refresh_grid())
@@ -2024,6 +2039,53 @@ func _humanize(id: String) -> String:
 		out.append(p.substr(0, 1).to_upper() + p.substr(1))
 	return " ".join(out)
 
+## Every field `SEARCH_PLACEHOLDER` names, and nothing it does not name.
+##
+## `name` / `id` / `code` / `set` cost nothing: `as_family_slots()` returns the
+## first, second and fourth per row and `_refresh_grid()` builds the third, so
+## all four are already in hand by the time this is called. **`tags` are one
+## `as_slot_summary()` call per slot**, which is why the cheap four are tested
+## first and this returns before making it -- a query that matches a name never
+## pays for a tag lookup, and the worst case is one call per slot in the
+## *current family only*. That ceiling is the family's own slot count, and the
+## largest in `FAMILIES` is `biomes` at 15; `_build_cell()` already runs an
+## `as_thumbnail_png()` PNG decode per filled slot on the same keystroke, so
+## this is not the expensive thing in the loop.
+##
+## **`file` is deliberately absent, and the placeholder stopped claiming it.**
+## An item's name *is* its file name -- the Replace… path passes
+## `path.get_file()` straight into `as_import_item` -- but reading one back
+## needs `as_item_summary(uid, i)`, and that binding decodes the item's image to
+## report `w`/`h`. Per keystroke, per item, that is a different order of cost
+## from the five fields above, and making it searchable properly wants an
+## engine binding that returns item names without decoding: a Rust change, which
+## this file cannot make and should not pretend to have made.
+##
+## `query` is lowered here rather than by the caller so the contract lives with
+## the comparison; an empty query matches everything, which is what makes the
+## unfiltered grid the zero-cost path.
+func _slot_matches(query: String, uid: String, id: String, slot_name: String,
+		code: String, set_name: String) -> bool:
+	var q := query.to_lower()
+	if q == "":
+		return true
+	if slot_name.to_lower().find(q) >= 0 or id.to_lower().find(q) >= 0 \
+			or code.to_lower().find(q) >= 0 \
+			or (set_name != "" and set_name.to_lower().find(q) >= 0):
+		return true
+	## `set_name` is guarded above because the engine returns `""` for the
+	## reference's own unnamed "Default" set (`slot.set.unwrap_or_default()`),
+	## and `"".find(q)` on a non-empty `q` is -1 anyway -- but an empty *set*
+	## must never read as a set that happens to match, which is the failure this
+	## guard makes impossible rather than merely unlikely.
+	var summary: Dictionary = _bridge.as_slot_summary(uid)
+	if not bool(summary.get("ok", false)):
+		return false
+	for t in summary.get("tags", PackedStringArray()):
+		if String(t).to_lower().find(q) >= 0:
+			return true
+	return false
+
 func _refresh_grid() -> void:
 	for c in _grid.get_children():
 		_grid.remove_child(c)
@@ -2049,7 +2111,7 @@ func _refresh_grid() -> void:
 	for s in server_slots:
 		_slot_state[String(s["uid"])] = s
 
-	var q := _search_text.to_lower()
+	var q := _search_text
 	var entries: Array = []
 	var is_custom := bool(fam.get("custom", false))
 	if is_custom:
@@ -2061,7 +2123,12 @@ func _refresh_grid() -> void:
 			var slot_name := String(s["name"])
 			var code := "%s-%02d" % [String(fam["code"]), i + 1]
 			var uid := String(s["uid"])
-			if q != "" and slot_name.to_lower().find(q) < 0 and code.to_lower().find(q) < 0:
+			## The custom branch used to match name and code and **not** id,
+			## where the frozen branch below matched all three -- one search
+			## field with two different meanings depending on which rail row was
+			## selected. `_slot_matches()` is now the single answer for both.
+			if not _slot_matches(q, uid, String(s["id"]), slot_name, code,
+					String(s.get("set", ""))):
 				continue
 			entries.append({"uid": uid, "id": String(s["id"]), "name": slot_name, "code": code})
 	else:
@@ -2091,8 +2158,8 @@ func _refresh_grid() -> void:
 			var slot_name := String(row.get("name", ""))
 			if slot_name == "":
 				slot_name = _humanize(id)
-			if q != "" and id.to_lower().find(q) < 0 and slot_name.to_lower().find(q) < 0 \
-					and code.to_lower().find(q) < 0:
+			if not _slot_matches(q, uid, id, slot_name, code,
+					String(row.get("set", ""))):
 				continue
 			entries.append({"uid": uid, "id": id, "name": slot_name, "code": code})
 	if _sort_mode == 1:

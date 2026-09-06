@@ -135,8 +135,17 @@ func _open_window(win: Window) -> void:
 		_last_window.hide()
 	_last_window = win
 
+## `_close_all_phone_overlays()` is the shell's own single teardown and is named
+## directly rather than reached through `_set_overflow_open(false)`, whose only
+## non-`open` behaviour was to call it. The comment that stood here said it
+## "closes drawer/picker/menu/dock-sheets too": the drawer went 2026-08-25 and
+## the picker with owner ruling 20, so two of those four named surfaces had not
+## existed for some time. What it actually closes is the `⌕` search overlay, the
+## `⋮` popover, the undo popover, `PhoneMenu`, both dock sheets, and every
+## `Popup` in the tree (`GUI_GAP_REGISTER.md` §46 -- a `PopupPanel` is a
+## `Window`, which no `Control` walk reaches).
 func _close_overlays_and_windows() -> void:
-	app._set_overflow_open(false)   ## closes drawer/picker/menu/dock-sheets too
+	app._close_all_phone_overlays()
 	if _last_window != null and is_instance_valid(_last_window):
 		_last_window.hide()
 	_last_window = null
@@ -218,13 +227,34 @@ func _sweep(res_tag: String) -> void:
 	await _screen("shell_at_rest", res_tag, func():
 		_close_overlays_and_windows())
 
-	await _screen("menu_drawer", res_tag, func():
+	## **`menu_drawer` and `panel_picker` were screenshots of nothing.** `☰`'s
+	## side drawer (`_set_drawer_open`) went with the 412 dp migration on
+	## 2026-08-25 and `▤`'s panel picker (`_set_panel_picker_open`) with owner
+	## ruling 20; each lambda raised "Invalid call. Nonexistent function", which
+	## aborts that lambda and nothing else -- so `_screen()` went straight on to
+	## measure and photograph the shell **at rest**, and filed the result under a
+	## name claiming an overlay was up. Two of this sweep's screens were
+	## duplicates of `shell_at_rest` with misleading captions.
+	##
+	## The two app-bar cells ruling 20 kept -- `⌕` and `⋮` -- had no screen in
+	## this sweep at all, so these two slots become those. `_set_phone_overflow_
+	## open()` is the `⋮` popover; `_set_overflow_open()` below, eleven
+	## characters shorter, is `PhoneMenu`'s L2 root. Different surfaces, and
+	## `dcc_shell.gd`'s comment on the second records what confusing them cost.
+	## The picker's own two destinations survive as the dock sheets, and this
+	## sweep covers **one** of them: `_set_sheet_open("left", true)` appears
+	## twice below (the three `domain_*_leftsheet` screens and the flick test)
+	## and `"right"` appears nowhere -- `grep -n "_set_sheet_open" _phonesweep_
+	## probe.gd`, 2026-09-06, three hits, all `"left"`. Stated rather than fixed:
+	## adding a right-sheet screen is a coverage decision for whoever owns this
+	## sweep, not a repair of a call that stopped resolving.
+	await _screen("search_overlay", res_tag, func():
 		_close_overlays_and_windows()
-		app._set_drawer_open(true))
+		app.open_find_on_map())
 
-	await _screen("panel_picker", res_tag, func():
+	await _screen("overflow_popover", res_tag, func():
 		_close_overlays_and_windows()
-		app._set_panel_picker_open(true))
+		app._set_phone_overflow_open(true))
 
 	await _screen("overflow_sheet", res_tag, func():
 		_close_overlays_and_windows()

@@ -170,7 +170,8 @@ pub fn encode_png(img: &DecodedImage) -> Result<Vec<u8>, ImageError> {
 /// [`encode_png`] is the right entry point for anything that already holds a
 /// [`DecodedImage`]; this one exists for the export raster
 /// (`TERRAIN_APPEARANCE_SCOPE.md`'s bake milestone), whose renderer produces
-/// RGB8 and whose largest output is 8192 px wide. Routing that through
+/// RGB8 and whose largest output is 32 768 px wide since owner ruling 15
+/// (8192 before it). Routing that through
 /// `DecodedImage` would mean widening to RGBA (+33%) and then
 /// `to_rgba_image`'s own `clone()` (+100%) — roughly 470 MB of transient
 /// allocation on a single 8K export against the 129 MB the pixels actually
@@ -202,7 +203,8 @@ pub fn encode_png_rgb8(w: u32, h: u32, rgb: Vec<u8>) -> Result<Vec<u8>, ImageErr
 ///
 /// Sibling of [`encode_png_rgb8`] and written the same way and for the same
 /// reason -- it takes ownership rather than copying, because the largest
-/// heightmap this ships is 8192 px wide and a needless clone there is 128 MB.
+/// heightmap this ships is 32 768 px wide since ruling 15 and a needless clone
+/// there is 2.06 GB — it was 8192 px and 128 MB when this was written.
 pub fn encode_png_luma16(w: u32, h: u32, gray: Vec<u16>) -> Result<Vec<u8>, ImageError> {
     let expected = u64::from(w) * u64::from(h);
     if gray.len() as u64 != expected {

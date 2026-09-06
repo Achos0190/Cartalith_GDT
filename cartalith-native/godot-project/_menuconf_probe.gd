@@ -3,9 +3,15 @@ extends Node
 ##
 ## §48 walked *screens*. This walks **menus** -- every program menu, every
 ## submenu, the rail's three domain menus, the right dock's contexts, the tool
-## options rows, the Layers popover, and on the phone the drawer / panel picker
-## / overflow / tool sheet -- and dumps, per menu, every row's text, state and
-## the popup's own measured geometry, beside a screenshot.
+## options rows, the Layers popover, and on the phone the `⌕` search overlay /
+## `⋮` popover / `PhoneMenu` overflow root / tool sheet -- and dumps, per menu,
+## every row's text, state and the popup's own measured geometry, beside a
+## screenshot.
+##
+## That phone list read "the drawer / panel picker / overflow / tool sheet"
+## until 2026-09-06. Both of the first two were deleted surfaces by then (`☰`
+## 2026-08-25, `▤` with owner ruling 20) and the sweep was still trying to open
+## them -- see `_close()` below for what that actually did to the run.
 ##
 ## Hosted in a `SubViewport` for §47/§48's reason: `--resolution WxH` is clamped
 ## to the dev monitor's work area (1680x1002) and boots the shell into tablet
@@ -229,11 +235,29 @@ func _ctx_map_setup() -> void:
 			_dump_popup(cm as PopupMenu, "Map right-click (CIVIL)", 0)
 
 
+## **This function was silently a no-op, and that was worse than a hang.**
+## Measured 2026-09-06 with `--headless _menuconf_probe.tscn -- --vp 1080x2400
+## --tag phone1080 --force-touch`, at HEAD before this edit:
+##
+##   SCRIPT ERROR: Invalid call. Nonexistent function '_set_drawer_open' in
+##   base 'Control (DccApp)'.  at: _close (res://_menuconf_probe.gd:235)
+##
+## `_set_drawer_open()` went with the 412 dp migration on **2026-08-25**, and
+## the runtime error aborts `_close()` at that line -- so the
+## `_set_panel_picker_open()` call one line below it was never even reached, and
+## neither was the `await`. Every `_screen()` in the phone sweep then captured
+## whatever overlay the *previous* section had left open, under a caption naming
+## a different one. The probe kept running and kept reporting.
+##
+## `_close_all_phone_overlays()` is the shell's own single teardown for exactly
+## this -- search overlay, `⋮` popover, undo popover, `PhoneMenu` and both dock
+## sheets, plus every `Popup` (`GUI_GAP_REGISTER.md` §46's `Window`-class fix,
+## which no Control walk reaches). It is what `_set_overflow_open(false)` was
+## calling one hop later anyway, so this is the same teardown named directly
+## rather than three calls of which two no longer exist.
 func _close() -> void:
 	if app.is_phone():
-		app._set_overflow_open(false)
-		app._set_drawer_open(false)
-		app._set_panel_picker_open(false)
+		app._close_all_phone_overlays()
 	await _frames(2)
 
 
@@ -343,12 +367,36 @@ func _sweep() -> void:
 
 	# -- 9. phone chrome ---------------------------------------------------
 	if app.is_phone():
-		await _screen("phone_drawer", func():
+		## **`phone_drawer` and `phone_panels` are not renamed here, they are
+		## replaced.** `☰`'s side drawer (`_set_drawer_open`, gone 2026-08-25)
+		## and `▤`'s panel picker (`_set_panel_picker_open`, gone with owner
+		## ruling 20) are both deleted surfaces; a sweep cannot capture a menu
+		## that does not exist, and the two lambdas that tried were producing a
+		## shell-at-rest frame filed under those two names.
+		##
+		## What the app bar draws today is `[world pill] · ⌕ · ⋮`, and neither
+		## of the two cells that *stayed* was ever in this sweep. They are now.
+		## `_set_phone_overflow_open()` is the `⋮` popover; `_set_overflow_open()`
+		## eleven characters shorter, called by `phone_overflow_root` below, is
+		## `PhoneMenu`'s L2 root -- two different surfaces, and `dcc_shell.gd`'s
+		## comment on the first records what confusing them cost.
+		##
+		## The picker's own two destinations are not lost with it -- it was a
+		## router to the left and right dock sheets -- but only one of them is
+		## in this sweep, and saying which is the point of writing it down.
+		## Section 3's three `rail_*` screens above call `_set_sheet_open("left",
+		## true)` under an `is_phone()` branch, so the **left** sheet is captured
+		## three times over. The **right** sheet is not: section 7's `rdock_*`
+		## screens call `rd.show_*()` and screenshot `right_dock` without ever
+		## opening its phone sheet. Stated, not fixed here -- adding a phone
+		## branch to section 7 is a change to five screens' captured state and
+		## belongs with whoever is auditing this sweep's coverage.
+		await _screen("phone_search", func():
 			await _close()
-			app._set_drawer_open(true), func(): return app)
-		await _screen("phone_panels", func():
+			app.open_find_on_map(), func(): return app)
+		await _screen("phone_overflow_popover", func():
 			await _close()
-			app._set_panel_picker_open(true), func(): return app)
+			app._set_phone_overflow_open(true), func(): return app)
 		await _screen("phone_overflow_root", func():
 			await _close()
 			app._set_overflow_open(true), func(): return app)
