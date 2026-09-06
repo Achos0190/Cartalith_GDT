@@ -375,14 +375,24 @@ Posed, not answered — the same discipline `STORY_PLANNING_SCOPE.md` §6 and
 
    **Two of the three consequences this question named are still open, and the
    third is the reason the ruling was made:**
-   - **The renderer still draws two passes**, so after POI automatic placement
-     every landmark draws twice — a landmark ring and a poi glyph at one cell —
-     and only one pass honours the Layers flag.
-   - **M6's spatial competition still cannot see hand-placed icons.** Its only
-     input is `LandmarkInputs`, which does not carry them, so generation can
-     still place a landmark on top of one. **That was the ruling's own
-     justification for choosing one layer over two**, and it is unrealised until
-     that input changes.
+   - ~~**The renderer still draws two passes**~~ — **CLOSED 2026-09-06.**
+     `map_overlay.gd` now draws one pass; measured windowed, the duplicate glyph
+     went to zero and the landmark ring gained the pixels the diamond had been
+     overdrawing.
+   - **M6's spatial competition still cannot see hand-placed icons — the claim
+     holds, but its mechanism has changed.** ~~Its only input is
+     `LandmarkInputs`, which does not carry them~~: as of 2026-09-06
+     `LandmarkInputs::manual_icons` exists, `generate` honours it with a 3 km
+     exclusion, and `landmark_bridge::icon_to_mark` filters to `Manual` origins.
+     **What is missing is the wiring, not the capability:** `icon_to_mark` has
+     **zero shipping callers** and nothing assigns `inputs.manual_icons` in
+     `lib.rs`'s `landmark_run_inner`, which assigns only `settlements`. **So in
+     the running app, generation can still place a landmark on top of a
+     hand-placed icon** — the engine can see them and is never shown any. **That
+     was the ruling's own justification for choosing one layer over two**, and it
+     stays unrealised until those two lines land. *(Narrowed rather than struck:
+     a lane reported this bullet "false as of this change" and a verifier
+     established that only the middle clause is.)*
    Both are tracked in `OUTSTANDING_WORK.md`.
 
 ## 5. Cost and feasibility: the expensive parts, stated honestly

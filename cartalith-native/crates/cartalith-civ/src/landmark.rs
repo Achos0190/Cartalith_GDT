@@ -23,6 +23,13 @@
 //! carry. See [`EXTRACTION_RESOURCES`] for why Resource extraction site is not
 //! the duplicate its name suggests, and `pool_trade_road` for why the last two
 //! of the five are one function.
+//! One of those inputs is not terrain at all: [`LandmarkInputs::manual_icons`]
+//! carries the **hand-placed** icons, so §30's spacing step can refuse a cell
+//! a person has already marked. That is owner ruling 14's own justification
+//! for putting generated and hand-placed icons in one collection, and
+//! [`MANUAL_ICON_EXCLUSION_KM`] is how much weaker an annotation is than a
+//! place.
+//!
 //! [`generate`] runs research §30's twelve steps over whichever inputs the
 //! caller really has, and returns both the landmarks and — the part the UI
 //! actually needs — a [`LandmarkFunnel`] per kind saying how many candidates
@@ -995,6 +1002,65 @@ pub struct LandmarkSite {
     pub population: f64,
 }
 
+/// One hand-placed icon, as much of it as this pass reads — owner ruling 14's
+/// last consequence: *"M6's spacing sees hand-placed icons and generation
+/// cannot put a landmark on top of one."*
+///
+/// Whole-grid cell coordinates, `f64` because that is what a click-placed icon
+/// carries (`cartalith_assets::manual::place_manual_icon` stores the raw click
+/// position; only the brush rounds). Same discipline as [`LandmarkSite`]: two
+/// numbers, not the whole `ManualIcon` record — which would put
+/// `cartalith-assets`' family/slot/set vocabulary on this crate's dependency
+/// graph for no gain.
+///
+/// **Only `IconOrigin::Manual` icons belong in this slice**, and the filter is
+/// the caller's job (`cartalith_godot::landmark_bridge::icon_to_mark`). A
+/// *generated* icon is a landmark's own glyph, so feeding one back in would
+/// make the pass avoid itself.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ManualIconMark {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// **Category C**, and the reason it is a separate number rather than a class
+/// radius is the whole of [`LandmarkInputs::manual_icons`]' design.
+///
+/// A hand-placed icon is an **annotation, not a place**, and it is a strictly
+/// weaker obstacle than the weakest landmark class: 3 km against
+/// [`DEFAULT_CLASS_RADIUS_KM`]'s smallest entry of 6 km (Cultural). Stated in
+/// km, like every other separation in this module, so it means the same thing
+/// at 512 and at 8192 (§28); divided by
+/// [`LandmarkSettings::crowding_in_force`] exactly as
+/// [`LandmarkSettings::radius_km`] divides the class radii, so the Crowding
+/// dial governs the whole pass and [`LandmarkReject::needs_crowding`] stays
+/// answerable for a candidate an icon turned away.
+///
+/// **The alternative — seeding icons into the ordinary spacing field, so each
+/// one exerts the candidate's own class radius — was implemented first and
+/// measured against this rule on the same world**, `real_world(256, 192,
+/// 24601)` at `LandmarkSettings::default()`, 800 km across (3.125 km per
+/// cell), which places 250 landmarks with no icons at all:
+///
+/// | hand-placed icons | this rule | class-radius rule |
+/// |---|---|---|
+/// | 1 | 250 | 249 |
+/// | 12 | 250 | 249 |
+/// | 200 | 248 | **203** (Regional 84 → 38) |
+///
+/// So a person decorating a region costs 2 landmarks under this rule and 47
+/// under the other, 46 of them from one class. Two hundred icons is a modest
+/// stroke, not an extreme: `cartalith_assets::manual::ICON_BRUSH_MAX_DARTS`
+/// allows **1 500 per stamp**, and a stamp fires on every pointer-move. The
+/// shape of that collapse is the one this module's own `Buckets` doc measured
+/// and rejected for the `max(r_a, r_b)` rule, reached through a different
+/// door — and `an_icon_ring_is_weaker_than_a_class_ring` is what pins the
+/// difference in the suite.
+///
+/// (Continental placed **none** on that world with or without icons, so the
+/// table says nothing about that class either way.)
+pub const MANUAL_ICON_EXCLUSION_KM: f64 = 3.0;
+
 /// Everything [`generate`] reads.
 ///
 /// **Every field after the first six is optional and length-checked.** A slice
@@ -1058,7 +1124,29 @@ pub struct LandmarkInputs<'a> {
     pub resources: &'a [(&'a str, &'a [f32])],
     /// Settlements, for §13's gravity term. Empty is legal: the term is then
     /// simply not part of the weighted sum, rather than contributing zero.
+    ///
+    /// **An attractor, not an obstacle.** Nothing here seeds the spacing
+    /// field with a settlement — Market site and Caravan station *want* to be
+    /// near one — so "an obstacle like a settlement" is not a thing this pass
+    /// has. See [`manual_icons`](Self::manual_icons), which is the pass's
+    /// first and only obstacle input.
     pub settlements: &'a [LandmarkSite],
+    /// **Hand-placed icons, which generation must not land on top of** —
+    /// owner ruling 14. Empty is legal, and it is the state every test in
+    /// this file predating this input is in, so an empty slice must leave
+    /// placement bit-identical (`an_empty_icon_slice_changes_nothing`).
+    ///
+    /// Manual-origin only; see [`ManualIconMark`]. Each mark excludes a disc
+    /// of `min(`[`MANUAL_ICON_EXCLUSION_KM`]`, the candidate's own class
+    /// radius)` — the `min` is what keeps "a class radius of zero disables
+    /// spacing for that class" true, which it would not be if an icon ring
+    /// survived a zeroed dial.
+    ///
+    /// A non-finite coordinate is skipped rather than seeded, and **not**
+    /// because it would panic or block — it can do neither. See the seeding
+    /// loop in [`generate`] for the real reason, which is that such a point
+    /// poisons the [`LandmarkReject::needs_crowding`] diagnostic.
+    pub manual_icons: &'a [ManualIconMark],
     /// **The routed way network** — `civ_consolidate_and_smooth_ways`' output,
     /// the same `Vec<Way>` the map draws. Empty is legal and disarms every
     /// kind that reads it.
@@ -1141,6 +1229,7 @@ impl<'a> LandmarkInputs<'a> {
             resistance: None,
             resources: &[],
             settlements: &[],
+            manual_icons: &[],
             ways: &[],
         }
     }
@@ -1631,6 +1720,13 @@ const WAY_MAX_STEPS: i64 = 100_000;
 /// between them at their own, smaller separation. The invariant this leaves is
 /// `d(a, b) >= min(r_a, r_b)` for every placed pair, and
 /// `a_placed_landmark_is_never_inside_its_own_exclusion_radius` asserts it.
+///
+/// **A second, weaker field of the same type holds the hand-placed icons**
+/// (owner ruling 14) — a separate [`Buckets`] rather than a seeding of these,
+/// because an icon exerts [`MANUAL_ICON_EXCLUSION_KM`] and not the
+/// candidate's class radius, and `fits` reads one radius per query. That
+/// constant's own doc carries the measurement that decided it, and it is the
+/// same collapse this `max`-versus-own argument is about.
 ///
 /// One disclosure: `design/landmark-generation/Dock.dc.html`'s viewport legend
 /// reads "rejected candidate — inside a placed one's ring", which is the `max`
@@ -3479,11 +3575,19 @@ fn all_skipped(settings: &LandmarkSettings, t0: std::time::Instant) -> LandmarkR
 /// **The pass.** Research §30's twelve steps, over whichever inputs the caller
 /// really has.
 ///
-/// Deterministic per §27: same world, same settings, same `world_seed` ⇒ the
-/// same landmarks in the same order with the same ids. It draws no random
-/// numbers at all — the only place a seed appears is [`Landmark::seed`], which
-/// is an identity for later passes to derive from, not a source of variation
-/// here. `two_runs_of_the_same_world_are_identical` pins this.
+/// Deterministic per §27: same world, same settings, same `world_seed` **and
+/// the same hand-placed icons** ⇒ the same landmarks in the same order with
+/// the same ids. It draws no random numbers at all — the only place a seed
+/// appears is [`Landmark::seed`], which is an identity for later passes to
+/// derive from, not a source of variation here.
+/// `two_runs_of_the_same_world_are_identical` pins this.
+///
+/// **The fourth term is owner ruling 14's, and it is new.** Moving, adding or
+/// deleting a hand-placed icon can move a placement, because
+/// [`LandmarkInputs::manual_icons`] is an obstacle field. Any argument of the
+/// form *"a pure function of the world, the settings and the seed, so
+/// re-running reproduces it"* is one term short as of this change, and holds
+/// only while the icon collection is also unchanged.
 ///
 /// ## Order of work, and why kinds are processed by class
 ///
@@ -3546,6 +3650,42 @@ pub fn generate(
     });
 
     let mut shared = Buckets::new(inputs.gw, inputs.gh, inputs.world, max_radius);
+    // Owner ruling 14's obstacle field, and its own `Buckets` rather than a
+    // seeding of `shared`/`own`: an icon exerts `MANUAL_ICON_EXCLUSION_KM`,
+    // not the candidate's class radius, and `Buckets::fits` reads one radius
+    // per query. `None` when there are no icons, so a world without any runs
+    // exactly the code it ran before this input existed — the reason every
+    // placement in this file's tests is unmoved.
+    let icon_r = if cell_km > 0.0 {
+        let r = MANUAL_ICON_EXCLUSION_KM / settings.crowding_in_force() / cell_km;
+        if r.is_finite() && r > 0.0 {
+            r
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
+    let icon_field: Option<Buckets> = if inputs.manual_icons.is_empty() || icon_r <= 0.0 {
+        None
+    } else {
+        let mut b = Buckets::new(inputs.gw, inputs.gh, inputs.world, icon_r);
+        for m in inputs.manual_icons {
+            // Not defensive about a panic — `Buckets::take`'s float-to-int
+            // casts saturate, so a NaN mark is stored safely and can never
+            // *block* anything (`fits` compares squared distances, and every
+            // comparison against NaN is false). It is defensive about the
+            // **diagnostic**: `nearest_conflict_sq` answers `Some(NaN)` for
+            // such a point, which would turn a perfectly clearable
+            // `needs_crowding` into a false `None` for a candidate some
+            // *other* ring turned away. Measured by
+            // `a_nan_point_is_reported_as_a_conflict_by_nearest_conflict_sq`.
+            if m.x.is_finite() && m.y.is_finite() {
+                b.take(m.x, m.y);
+            }
+        }
+        Some(b)
+    };
     let mut funnels: BTreeMap<&'static str, LandmarkFunnel> = BTreeMap::new();
     let mut out: Vec<Landmark> = Vec::new();
     let mut rejects: Vec<LandmarkReject> = Vec::new();
@@ -3619,11 +3759,16 @@ pub fn generate(
             }
             let cand = &pool.cands[ci];
             let (fx, fy) = (cand.x as f64, cand.y as f64);
-            let fits = match &own {
+            // The icon ring never exceeds the candidate's own: see
+            // `LandmarkInputs::manual_icons` for why the `min` is load-bearing
+            // rather than defensive.
+            let ir = if icon_r < r { icon_r } else { r };
+            let fits_peers = match &own {
                 Some(b) => b.fits(fx, fy, r),
                 None => shared.fits(fx, fy, r),
             };
-            if !fits {
+            let fits_icons = icon_field.as_ref().is_none_or(|b| b.fits(fx, fy, ir));
+            if !fits_peers || !fits_icons {
                 rejected_spacing += 1;
                 if listed < REJECT_LIST_MAX_PER_KIND {
                     listed += 1;
@@ -3632,12 +3777,37 @@ pub fn generate(
                     // `crowding * r / d`. Guarded on `d > 0`: a blocker on this
                     // very cell is not reachable by any finite setting, and
                     // saying `None` there is the honest answer.
-                    let d = match &own {
+                    //
+                    // Two rings can block one candidate, and clearing it needs
+                    // enough Crowding for **both**, so the answer is the
+                    // larger of the two ratios. The icon ring divides by the
+                    // same `crowding_in_force()` the class ring does, so this
+                    // is the same formula twice and stays exact rather than
+                    // becoming an estimate.
+                    //
+                    // A ring that blocked but cannot be cleared (`d == 0`, or
+                    // a non-finite ratio) makes the whole answer `None`, not
+                    // the other ring's number: quoting the clearable one would
+                    // promise a Crowding that still would not place this
+                    // candidate.
+                    let peers_sq = match &own {
                         Some(b) => b.nearest_conflict_sq(fx, fy, r),
                         None => shared.nearest_conflict_sq(fx, fy, r),
+                    };
+                    let icons_sq = icon_field.as_ref().and_then(|b| b.nearest_conflict_sq(fx, fy, ir));
+                    let mut needs: Option<f64> = None;
+                    let mut unclearable = false;
+                    for (sq, ring) in [(peers_sq, r), (icons_sq, ir)] {
+                        let Some(d2) = sq else { continue };
+                        let d = d2.sqrt();
+                        let v = if d > 0.0 { crowding * ring / d } else { f64::INFINITY };
+                        if v.is_finite() {
+                            needs = Some(needs.map_or(v, |b| if v > b { v } else { b }));
+                        } else {
+                            unclearable = true;
+                        }
                     }
-                    .map(f64::sqrt);
-                    let needs = d.filter(|d| *d > 0.0).map(|d| crowding * r / d).filter(|v| v.is_finite());
+                    let needs = if unclearable { None } else { needs };
                     rejects.push(LandmarkReject {
                         kind: spec.key,
                         x: cand.x,
@@ -5501,6 +5671,187 @@ mod tests {
         assert_eq!((p.x, p.y), (16, 24), "the weaker cone won the competition");
     }
 
+    // -- owner ruling 14: hand-placed icons are obstacles --
+
+    /// The positive and its negative in one test, because either alone is a
+    /// coincidence: with a hand-placed icon on the cell the winning peak
+    /// takes, the peak moves to the other cone; with the icon removed and
+    /// nothing else changed, it comes back to the same cell.
+    ///
+    /// `two_cones()` is 64 cells across 128 km, so a cell is 2 km and the
+    /// icon ring is 1.5 cells — the icon blocks its own cell and nothing near
+    /// the second cone 16 cells away.
+    #[test]
+    fn a_manual_icon_moves_a_landmark_off_its_cell_and_removing_it_brings_it_back() {
+        let (f, gw, gh, width) = two_cones();
+        let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
+        inp.peak_m = PEAK_M;
+
+        // Negative first, so the "otherwise taken" claim is established
+        // before anything relies on it.
+        let without = generate(&inp, &only_peaks(1), 1);
+        let p = without.landmarks.iter().find(|l| l.kind == "peak").expect("a peak");
+        assert_eq!((p.x, p.y), (16, 24), "the fixture's own winning cell");
+
+        let marks = [ManualIconMark { x: 16.0, y: 24.0 }];
+        inp.manual_icons = &marks;
+        let with = generate(&inp, &only_peaks(1), 1);
+        let q = with.landmarks.iter().find(|l| l.kind == "peak").expect("a peak");
+        assert_eq!((q.x, q.y), (32, 24), "the icon's cell must not be taken");
+        assert_eq!(
+            with.funnel("peak").unwrap().rejected_spacing,
+            1,
+            "the displaced candidate is a spacing rejection, not a vanished one"
+        );
+
+        // And back again, from the same inputs with only the slice emptied.
+        inp.manual_icons = &[];
+        let again = generate(&inp, &only_peaks(1), 1);
+        let b = again.landmarks.iter().find(|l| l.kind == "peak").expect("a peak");
+        assert_eq!((b.x, b.y), (16, 24), "removing the icon must restore the placement");
+    }
+
+    /// An empty `manual_icons` slice must leave the pass bit-identical — the
+    /// state every other test in this file is in, and the reason none of them
+    /// moved when this input was added.
+    #[test]
+    fn an_empty_icon_slice_changes_nothing() {
+        let (f, gw, gh, width) = two_cones();
+        let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
+        inp.peak_m = PEAK_M;
+        let base = generate(&inp, &LandmarkSettings::default(), 7);
+        let empty: [ManualIconMark; 0] = [];
+        inp.manual_icons = &empty;
+        let with = generate(&inp, &LandmarkSettings::default(), 7);
+        assert_eq!(base.landmarks, with.landmarks, "an empty slice moved a placement");
+        assert_eq!(base.funnels, with.funnels);
+        assert_eq!(base.rejects, with.rejects);
+    }
+
+    /// The design decision, asserted rather than argued: an icon ring is
+    /// **weaker** than a class ring.
+    ///
+    /// A `peak` is Regional, so its own ring is 34 km — 17 cells on this
+    /// fixture. An icon 8 cells away is well inside that and would block the
+    /// candidate outright if icons exerted the candidate's class radius (the
+    /// rejected alternative, and what `MANUAL_ICON_EXCLUSION_KM` mutated
+    /// upward reproduces). At 3 km it is 1.5 cells and blocks nothing.
+    ///
+    /// The literal 8.0 is chosen against the two independent numbers, not
+    /// against the constant: `> MANUAL_ICON_EXCLUSION_KM / cell_km` and
+    /// `< class_radius_km(Regional) / cell_km`.
+    #[test]
+    fn an_icon_ring_is_weaker_than_a_class_ring() {
+        let (f, gw, gh, width) = two_cones();
+        let cell_km = width / gw as f64;
+        assert_eq!(cell_km, 2.0, "the fixture's own scale, which the gap below is chosen against");
+        let s = only_peaks(1);
+        let class_r_cells = s.radius_km(LandmarkClass::Regional) / cell_km;
+        assert!(8.0 < class_r_cells, "8 cells must be inside a peak's own 17-cell ring");
+        assert!(
+            8.0 > MANUAL_ICON_EXCLUSION_KM / cell_km,
+            "8 cells must be outside the icon ring, or this measures nothing"
+        );
+
+        let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
+        inp.peak_m = PEAK_M;
+        let marks = [ManualIconMark { x: 24.0, y: 24.0 }];
+        inp.manual_icons = &marks;
+        let r = generate(&inp, &s, 1);
+        let p = r.landmarks.iter().find(|l| l.kind == "peak").expect("a peak");
+        assert_eq!(
+            (p.x, p.y),
+            (16, 24),
+            "an icon 8 cells away must not displace a peak; only a class-radius ring would"
+        );
+    }
+
+    /// A class radius of zero already means *no spacing for this class*, and
+    /// an icon ring must not survive that — which is the whole of the `min`
+    /// in `generate`'s `ir`.
+    #[test]
+    fn a_zeroed_class_radius_disables_the_icon_ring_too() {
+        let (f, gw, gh, width) = two_cones();
+        let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
+        inp.peak_m = PEAK_M;
+        let mut s = only_peaks(2);
+        s.class_radius_km[LandmarkClass::Regional.index()] = 0.0;
+        assert_eq!(s.radius_km(LandmarkClass::Regional), 0.0, "the dial really is off");
+
+        // An icon on each cone's own cell. With spacing off for the class,
+        // both peaks must still be placed.
+        let marks =
+            [ManualIconMark { x: 16.0, y: 24.0 }, ManualIconMark { x: 32.0, y: 24.0 }];
+        inp.manual_icons = &marks;
+        let r = generate(&inp, &s, 1);
+        let fu = r.funnel("peak").unwrap();
+        assert_eq!(fu.placed, 2, "a zeroed radius must place both: {fu:?}");
+        assert_eq!(fu.rejected_spacing, 0, "nothing may be rejected on spacing at radius 0");
+    }
+
+    /// An icon-blocked candidate still answers §5's "what would Crowding have
+    /// to be", and answers it against the icon ring it was actually turned
+    /// away by — `None` there would read as "no setting clears this", which is
+    /// false for a ring that divides by Crowding like every other.
+    #[test]
+    fn an_icon_rejection_carries_a_reachable_crowding_answer() {
+        let (f, gw, gh, width) = two_cones();
+        let cell_km = width / gw as f64;
+        let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
+        inp.peak_m = PEAK_M;
+        // One cell off the winning peak: inside the 1.5-cell icon ring, and
+        // clearable by packing tighter.
+        let marks = [ManualIconMark { x: 17.0, y: 24.0 }];
+        inp.manual_icons = &marks;
+        let r = generate(&inp, &only_peaks(1), 1);
+        let row = r
+            .rejects
+            .iter()
+            .find(|j| j.reason == LandmarkRejectReason::Spacing && (j.x, j.y) == (16, 24))
+            .expect("the blocked cell is listed");
+        // d = 1 cell = 2 km against a 3 km ring at Crowding 1, so it clears at
+        // **1.5** — a literal, deliberately. `MANUAL_ICON_EXCLUSION_KM /
+        // cell_km` would hold for every value of that constant, and the
+        // mutation run proved it: 3.0 -> 6.0 SURVIVED against the derived
+        // form and is killed by this one.
+        assert_eq!(cell_km, 2.0, "the literal below is computed against this");
+        let got = row.needs_crowding.expect("an icon ring is clearable by Crowding");
+        assert!((got - 1.5).abs() < 1e-9, "needs_crowding {got} against 1.5");
+    }
+
+    /// When two rings block one candidate and **one of them cannot be
+    /// cleared**, the answer is `None` — not the other ring's number, which
+    /// would promise a Crowding that still would not place it.
+    ///
+    /// Cap 2 puts a peak on the taller cone; the weaker cone is then 16 cells
+    /// away, inside the 17-cell class ring, and clears at `17/16 = 1.0625`.
+    /// An icon sitting **on** the weaker cone's own cell is at `d = 0`, which
+    /// no finite Crowding clears. So the honest answer is absent, and 1.0625
+    /// is the wrong answer this pins against.
+    #[test]
+    fn a_candidate_blocked_by_an_unclearable_ring_reports_no_crowding_answer() {
+        let (f, gw, gh, width) = two_cones();
+        let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
+        inp.peak_m = PEAK_M;
+        let marks = [ManualIconMark { x: 32.0, y: 24.0 }];
+        inp.manual_icons = &marks;
+        let r = generate(&inp, &only_peaks(2), 1);
+        assert_eq!(
+            r.landmarks.iter().filter(|l| l.kind == "peak").count(),
+            1,
+            "the icon must keep the second peak off its cone"
+        );
+        let row = r
+            .rejects
+            .iter()
+            .find(|j| j.reason == LandmarkRejectReason::Spacing && (j.x, j.y) == (32, 24))
+            .expect("the blocked cell is listed");
+        assert_eq!(
+            row.needs_crowding, None,
+            "a clearable peer ring must not paper over an unclearable icon ring"
+        );
+    }
+
     #[test]
     fn at_cap_and_spacing_are_different_answers() {
         let (f, gw, gh, width) = two_cones();
@@ -5699,6 +6050,28 @@ mod tests {
         for pair in r.rejects.windows(2) {
             assert!(!(pair[1].score > pair[0].score), "the retained head is not ranked");
         }
+    }
+
+    /// Why `generate` refuses to seed a non-finite [`ManualIconMark`] into
+    /// the icon field, measured rather than asserted: such a point **cannot
+    /// block** (`fits` says `true`, every comparison against NaN being false)
+    /// and yet **is reported as a conflict** by `nearest_conflict_sq`, whose
+    /// NaN-hardened `!(d2 >= r * r)` admits it.
+    ///
+    /// The asymmetry is the hazard: a candidate turned away by some other
+    /// ring would then take `Some(NaN)` from this one and report
+    /// `needs_crowding: None` — "no setting clears this" — when the real ring
+    /// that blocked it clears at a finite Crowding.
+    #[test]
+    fn a_nan_point_is_reported_as_a_conflict_by_nearest_conflict_sq() {
+        let mut b = Buckets::new(64, 48, false, 10.0);
+        b.take(f64::NAN, f64::NAN);
+        assert!(b.fits(1.0, 1.0, 5.0), "a NaN point must not block");
+        let got = b.nearest_conflict_sq(1.0, 1.0, 5.0);
+        assert!(
+            got.is_some_and(|d| d.is_nan()),
+            "the diagnostic sees a conflict the pass did not: {got:?}"
+        );
     }
 
     /// `nearest_conflict_sq` must agree with `fits` on the question `fits`

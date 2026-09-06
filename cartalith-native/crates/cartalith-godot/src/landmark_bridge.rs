@@ -126,6 +126,33 @@ pub fn settlement_to_site(s: &cartalith_civ::NamedSettlement) -> cartalith_civ::
     }
 }
 
+/// [`cartalith_civ::landmark::LandmarkInputs::manual_icons`]'s own element,
+/// and the origin filter that field's doc requires — owner ruling 14's
+/// spacing half, the reason the ruling chose one collection over two.
+///
+/// `None` for a [`IconOrigin::Generated`] icon, which is not an oversight and
+/// not a degradation: after ruling 14 one collection holds both origins, and
+/// a generated icon **is** a landmark's own glyph. Feeding it back into the
+/// pass that placed it would make generation avoid itself — every re-run
+/// would place fewer than the last. Only a hand-placed icon is an obstacle.
+///
+/// Pure mapping like [`settlement_to_site`] beside it, and for the same
+/// reason: two numbers, so `landmark_run()` in `lib.rs` reads as assembly.
+/// Coordinate hygiene is deliberately **not** repeated here — a non-finite
+/// mark is skipped by `cartalith_civ::landmark::generate`'s own seeding loop,
+/// one copy, so this boundary and that pass cannot disagree about which icons
+/// are in force.
+pub fn icon_to_mark(
+    icon: &cartalith_assets::manual::ManualIcon,
+) -> Option<cartalith_civ::landmark::ManualIconMark> {
+    match icon.origin {
+        cartalith_assets::manual::IconOrigin::Manual => {
+            Some(cartalith_civ::landmark::ManualIconMark { x: icon.x, y: icon.y })
+        }
+        cartalith_assets::manual::IconOrigin::Generated => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,5 +241,50 @@ mod tests {
         assert_eq!(site.x, 7);
         assert_eq!(site.y, 9);
         assert_eq!(site.population, 4200.0);
+    }
+
+    fn icon_at(x: f64, y: f64, origin: cartalith_assets::manual::IconOrigin)
+        -> cartalith_assets::manual::ManualIcon
+    {
+        cartalith_assets::manual::ManualIcon {
+            x,
+            y,
+            family: cartalith_assets::manual::ManualIconFamily::Poi,
+            slot: "shrine".to_string(),
+            set: None,
+            scale: 1.0,
+            origin,
+        }
+    }
+
+    /// The filter owner ruling 14's one-collection choice makes necessary:
+    /// only a hand-placed icon is an obstacle, because a generated one is a
+    /// landmark's own glyph and the pass would otherwise avoid itself.
+    #[test]
+    fn only_a_manual_icon_becomes_an_obstacle() {
+        use cartalith_assets::manual::IconOrigin;
+        let m = icon_to_mark(&icon_at(7.5, 9.25, IconOrigin::Manual))
+            .expect("a hand-placed icon is an obstacle");
+        assert_eq!((m.x, m.y), (7.5, 9.25), "the click position, not a rounded cell");
+        assert!(
+            icon_to_mark(&icon_at(7.5, 9.25, IconOrigin::Generated)).is_none(),
+            "a generated icon must not make generation avoid its own output"
+        );
+    }
+
+    /// The list is partitioned by origin, not thinned by it — the count that
+    /// reaches the pass is exactly the hand-placed count.
+    #[test]
+    fn a_mixed_collection_yields_only_its_manual_half() {
+        use cartalith_assets::manual::IconOrigin;
+        let icons = [
+            icon_at(1.0, 1.0, IconOrigin::Manual),
+            icon_at(2.0, 2.0, IconOrigin::Generated),
+            icon_at(3.0, 3.0, IconOrigin::Manual),
+            icon_at(4.0, 4.0, IconOrigin::Generated),
+        ];
+        let marks: Vec<_> = icons.iter().filter_map(icon_to_mark).collect();
+        assert_eq!(marks.len(), 2, "{marks:?}");
+        assert_eq!(marks.iter().map(|m| m.x).collect::<Vec<_>>(), vec![1.0, 3.0]);
     }
 }

@@ -2153,6 +2153,70 @@ func _icon_layer_hidden(ic: Dictionary) -> bool:
 		and String(ic.get("family", "")) == "poi")
 
 
+## The grid cell a mark stands in. This is the de-dup key `_draw_annotation_marks`
+## matches a generated POI glyph against a landmark ring with, and both sides of
+## that match go through this one function -- which is the whole point of it
+## existing.
+##
+## **Two conversions is what went wrong.** The ring side keyed with `int()`
+## (truncation) and the icon side looked up with `roundi()` (rounding). They
+## agree on every exact integer and disagree at every `.5`, so the pair was
+## correct only for as long as `icon_bridge/generate.rs::icon_candidates` kept
+## writing `l.x as f64` -- a landmark's own `usize` cell index, widened. The day
+## either side carried a fraction the de-dup would have stopped firing, the
+## landmark would have drawn twice again, and nothing would have gone red:
+## drawing one mark and drawing two are both "success" to every test in the
+## tree except a pixel probe. `_ringdedup_probe.gd` is that probe, and its
+## sub-cell case is this comment's assertion.
+##
+## **`floori`, and not because it makes the two sides agree.** Agreement is
+## cheap -- `roundi` on both sides would also agree, and would be wrong.
+## `_cell_to_screen` puts cell `c`'s centre at `c + 0.5` in the same continuous
+## space `_point_to_screen` reads directly, so cell `c` spans `[c, c+1)` and a
+## point at 12.7 is inside cell **12**. `roundi(12.7)` = 13 names a cell the
+## point is not in. And the sub-cell convention anyone is most likely to
+## introduce here is the cell *centre* -- `l.x as f64 + 0.5` -- which is exactly
+## the value `roundi` sends one cell up-left of its own landmark and `floori`
+## resolves correctly.
+##
+## Truncation and floor differ only for negatives, and `Landmark::x`/`y` are
+## `usize`, so this changes no cell any shipping world resolves to: it is the
+## same key for every value the engine currently produces. The probe's
+## integer-coordinate case is what says so.
+func _mark_cell(x: float, y: float) -> Vector2i:
+	return Vector2i(floori(x), floori(y))
+
+
+## Cells a ring will draw at, keyed by `_mark_cell`. Keyed off `_landmarks`,
+## not off the icons, because the ring needs `class` and `importance` and only
+## the landmark row carries them.
+##
+## Empty when Landmarks is off -- no ring draws, so no glyph can be shadowed by
+## one. The generated POI glyphs at those same cells are hidden by
+## `_icon_layer_hidden()` in that case, not by this.
+func _ringed_cells() -> Dictionary:
+	var ringed := {}
+	if _landmarks_visible:
+		for lm: Dictionary in _landmarks:
+			ringed[_mark_cell(float(lm.get("x", 0)), float(lm.get("y", 0)))] = true
+	return ringed
+
+
+## Whether a landmark ring already marks this icon's cell, so its own glyph is
+## suppressed -- the "which mark wins where both would have drawn" rule below,
+## factored out for the same reason `_icon_layer_hidden()` was: a named
+## predicate is a thing a probe can assert on directly, and this one's failure
+## mode (the de-dup silently stops firing) is invisible to everything else.
+##
+## `ringed` is `_ringed_cells()`'s result, passed in rather than rebuilt here:
+## the caller asks this once per icon and recomputing the set each time would
+## make the pass quadratic in a world's mark count.
+func _icon_shadowed_by_ring(ic: Dictionary, ringed: Dictionary) -> bool:
+	return (_icon_is_generated(ic)
+		and String(ic.get("family", "")) == "poi"
+		and ringed.has(_mark_cell(float(ic["x"]), float(ic["y"]))))
+
+
 ## §4.5.5's Icon tool and the landmark pass, drawn as ONE layer over the one
 ## collection they share -- owner ruling 14 (2026-09-06), *"one collection, two
 ## origins ... the renderer draws one layer"*.
@@ -2214,22 +2278,12 @@ func _icon_layer_hidden(ic: Dictionary) -> bool:
 ## re-run after the placement -- and dropping it would erase a mark for
 ## something the icon list still holds and the user can still select.
 func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
-	## Cells a ring will draw at. Keyed off `_landmarks`, not off the icons,
-	## because the ring needs `class` and `importance` and only the landmark row
-	## carries them.
-	var ringed := {}
-	if _landmarks_visible:
-		for lm: Dictionary in _landmarks:
-			ringed[Vector2i(int(lm.get("x", 0)), int(lm.get("y", 0)))] = true
+	var ringed := _ringed_cells()
 
 	for ic: Dictionary in _manual_icons:
 		if _icon_layer_hidden(ic):
 			continue
-		## `roundi` on a value the engine widened from a `usize`, so this is an
-		## exact match rather than a tolerance: `icon_candidates` writes
-		## `l.x as f64`, never a fraction.
-		if (_icon_is_generated(ic) and String(ic.get("family", "")) == "poi"
-				and ringed.has(Vector2i(roundi(float(ic["x"])), roundi(float(ic["y"]))))):
+		if _icon_shadowed_by_ring(ic, ringed):
 			continue
 		var pos := _point_to_screen(Vector2(ic["x"], ic["y"]), rect)
 		if not interior.has_point(pos):
