@@ -3,7 +3,11 @@ extends Node
 ##
 ## `world_data_window.gd`, `performance_window.gd`, `gen_info_dialog.gd` are
 ## fixed-size `AcceptDialog`s (760x620 / 560x420 / 560x480) that no design
-## canvas draws. Nothing was measuring whether their content fits those boxes
+## canvas draws. **`performance_window.gd` no longer exists** -- that no
+## canvas drew it is exactly why: `LARGE_ITEM_RULINGS.md` ruling 19
+## (2026-09-06) folded it away and moved its rows into `Preferences`. Its
+## numbers below are kept as the history that produced the ruling, not as a
+## description of the tree. Nothing was measuring whether their content fits those boxes
 ## at a density other than the one they were authored at.
 ##
 ## The hazard is `MISTAKES.md`'s *"read a layout that overflows the screen"*
@@ -124,7 +128,8 @@ func _under_tap(root: Node) -> Array:
 ## is what a scrollbar is for — so the walk stops there and takes the scroll's
 ## own rectangle. Without that cut, `world_data_window`'s 240-row table reports
 ## its whole 993 px column as overflow and the one window that actually cannot
-## scroll (`performance_window` on desktop) is lost in the noise.
+## scroll (`performance_window` on desktop -- deleted 2026-09-06, see the
+## header) is lost in the noise.
 func _extent(root: Node) -> Vector2:
 	var ext := Vector2.ZERO
 	var stack: Array = [root]
@@ -271,12 +276,9 @@ func _ready() -> void:
 	app.world_data_window.hide()
 	await _frames(4)
 
-	app.performance_window.open()
-	await _frames(10)
-	await _measure("performance", app.performance_window, Vector2i(560, 420))
-	_scroll_check("performance", app.performance_window, 560.0)
-	app.performance_window.hide()
-	await _frames(4)
+	## The `performance` case that stood here is gone: `LARGE_ITEM_RULINGS.md` ruling 19 (2026-09-06) folded `performance_window.gd`
+## away -- no diagnostics window exists in this design language.
+	## Its measurement stays in this file's header as history.
 
 	app.gen_info_dialog.open()
 	await _frames(10)

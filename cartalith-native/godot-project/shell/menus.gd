@@ -105,7 +105,6 @@ const ID_PREF_QUALITY := 53
 const ID_PREF_UNITS_KM := 54
 const ID_PREF_UNITS_MI := 55
 const ID_PREF_STORAGE := 56
-const ID_PREF_WORKING_SET := 57
 const ID_PREF_THEME_SYSTEM := 58
 const ID_PREF_CLEAR_CACHES := 59
 
@@ -341,6 +340,11 @@ var _atlas_stats_idx: int = -1
 ## §2.5 Memory: "Working set — read-only, `1.6 GB of 12 GB`." A disabled row
 ## refreshed in `about_to_popup`, tracked by index because it carries no id.
 var _working_set_row := -1
+## §2.5 Graphics: "Render quality — `performance · balanced · quality ·
+## ultra`." A submenu row, so index-tracked like `_undo_pref_row`. Held only
+## so `about_to_popup` can put the engine's recommendation on its tooltip --
+## see `_refresh_quality_row()` for why that sentence had to land somewhere.
+var _quality_pref_row := -1
 var _undo_budget_popup: PopupMenu
 var _undo_pref_row := -1   ## `Preferences ▸ Memory ▸ Undo history`'s own row; a
 	## submenu row carries no id, so its index is the only handle there is --
@@ -2400,6 +2404,7 @@ func _preferences(p: PopupMenu) -> void:
 		if _undo_pref_row >= 0 and _undo_pref_row < p.item_count:
 			p.set_item_tooltip(_undo_pref_row, _undo_pref_tip())
 		_refresh_gpu_retry_row(p)
+		_refresh_quality_row(p)
 		_refresh_working_set_row(p))
 	## PR-01/PR-02/PR-04/PR-05: the four §2.5 Performance rows the engine now
 	## backs. Each is a submenu rather than a dialog -- every one of them is a
@@ -2445,6 +2450,8 @@ func _preferences(p: PopupMenu) -> void:
 	_shell.style_popup(_quality_popup)
 	p.add_child(_quality_popup)
 	p.add_submenu_item("Render quality", "QualityTiers")
+	_quality_pref_row = p.item_count - 1
+	_refresh_quality_row(p)
 
 	_todo(p, "Anti-aliasing · anisotropy",
 		"SS2.5 asks for off / MSAA 2x / 4x / 8x and anisotropy 1-16. Both are 3D-viewport settings and there is no 3D viewport (DECISIONS.md section 4 defers it to Phase 3). The 2D map path composites whole rasters, where a sample count means nothing -- bolting MSAA onto it would be a control with no effect.")
@@ -2559,18 +2566,21 @@ func _preferences(p: PopupMenu) -> void:
 	## §2.5's Memory group has three items -- Undo history (above, a real
 	## gap), Working set and Clear caches -- but only the first ever made it
 	## into this menu; the other two were missing outright, not even as
-	## honest `_todo()`s, found in the 2026-08-19 GUI audit alongside the
-	## orphaned `PerformanceWindow` this now opens. Working set is real:
-	## `OS.get_static_memory_usage()`, the same source the menu bar's own
-	## `top_mem` readout already uses (`app.gd`'s `_wire_status()`).
-	## §2.5: "Working set — read-only, `1.6 GB of 12 GB`." The spec asks for an
-	## inline readout; this menu had only the dialog below it, so the one number
-	## §2.5 wanted on the row itself was two clicks away. Both now: the row is
-	## the spec's line, the dialog is `PerformanceWindow`, which carries more.
+	## honest `_todo()`s, found in the 2026-08-19 GUI audit. Working set is
+	## real: `OS.get_static_memory_usage()`, the same source the menu bar's
+	## own `top_mem` readout already uses (`app.gd`'s `_wire_status()`).
+	## §2.5: "Working set — read-only, `1.6 GB of 12 GB`." **A read row, and
+	## only a read row.** This used to be a pair -- the readout plus a
+	## `Working set…` row opening `PerformanceWindow` -- and
+	## `LARGE_ITEM_RULINGS.md` ruling 19 (2026-09-06) removed the window:
+	## *"The spec draws exactly two (§8 Asset library, §9 Data manager) ...
+	## `performance_window.gd` folds away -- ... since the *rows* move."* The
+	## opener went with it; what it carried that nothing else did is now on
+	## this row's own tooltip (`_refresh_working_set_row`) and on the Render
+	## quality row above.
 	_working_set_row = _readout(p, "Working set",
 		"This process's own allocations against the machine's physical RAM. Refreshed on every popup.")
 	_refresh_working_set_row(p)
-	_live(p, "Working set…", ID_PREF_WORKING_SET)
 	## PR-12, live 2026-08-24. There is now a real cache to clear: the
 	## persistent tile atlas (`bake_bridge.rs`), written by WORLD ▸ Generate ▸ Finalize ▸
 	## Bake. Clearing un-finalizes too -- a lock protecting nothing would
@@ -3167,10 +3177,32 @@ func _active_backend() -> String:
 ## §2.5 Memory: "Working set — read-only, `1.6 GB of 12 GB`."
 ##
 ## Numerator is `OS.get_static_memory_usage()`, the same source the menu bar's
-## `top_mem` slot and `PerformanceWindow` already read, so the three cannot
-## disagree. Denominator is `OS.get_memory_info()["physical"]`, which is `-1`
-## on any platform that will not report it -- in which case only the
-## numerator is printed rather than a fabricated total.
+## `top_mem` slot already reads, so the two cannot disagree. Denominator is
+## `OS.get_memory_info()["physical"]`, which is `-1` on any platform that will
+## not report it -- in which case only the numerator is printed rather than a
+## fabricated total.
+##
+## ## The renderer's own video memory rides on this row's tooltip
+##
+## `LARGE_ITEM_RULINGS.md` ruling 19 folded `performance_window.gd` away and
+## asked that each thing it showed get a row or a stated drop. Its Memory
+## section carried three of Godot's render monitors -- `RENDER_VIDEO_MEM_USED`,
+## `RENDER_TEXTURE_MEM_USED`, `RENDER_BUFFER_MEM_USED` -- and grepping the
+## whole `godot-project` for those three names on 2026-09-06 found them in
+## that one file and nowhere else, probes included. They land here because the
+## tooltip on this exact row was already **making a claim about them**: it read
+## *"Not GPU memory -- that is under Performance > Devices"*, and Devices is a
+## per-device checklist and a VRAM *budget*, not a measurement of what the
+## renderer is holding. The old sentence pointed at a place that does not
+## answer it; this one answers it in place.
+##
+## `GUI_GAP_REGISTER.md` §50 is why the pairing matters rather than being
+## trivia, and that reason came with the numbers rather than being left in the
+## deleted file: on the handset this row read **0.2 GB** while `dumpsys
+## meminfo` reported **818 MB** of TOTAL PSS for the same process at the same
+## moment. Neither the Rust allocations nor the GPU's textures live inside
+## Godot's static heap, so the numerator alone was never the figure that gets
+## the app killed.
 func _refresh_working_set_row(p: PopupMenu) -> void:
 	if _working_set_row < 0 or _working_set_row >= p.item_count:
 		return
@@ -3180,11 +3212,44 @@ func _refresh_working_set_row(p: PopupMenu) -> void:
 	if total > 0:
 		p.set_item_text(_working_set_row, "Working set   %s of %s" % [_gb(used), _gb(total)])
 		p.set_item_tooltip(_working_set_row,
-			"This process's own allocations against the machine's physical RAM. Not GPU memory -- that is under Performance > Devices. Working set... below opens the full breakdown.")
+			"This process's own allocations against the machine's physical RAM. " + _video_mem_line())
 	else:
 		p.set_item_text(_working_set_row, "Working set   %s" % _gb(used))
 		p.set_item_tooltip(_working_set_row,
-			"This process's own allocations. This platform reports no physical-RAM total (OS.get_memory_info() physical is -1), so the of-N half of SS2.5's line is left off rather than invented.")
+			"This process's own allocations. This platform reports no physical-RAM total (OS.get_memory_info() physical is -1), so the of-N half of SS2.5's line is left off rather than invented. " + _video_mem_line())
+
+## The second half of both tooltips above, shared because the sentence is the
+## same fact whichever branch printed the numerator -- and because writing it
+## twice is how the two drift.
+##
+## `String.humanize_size` rather than `_gb()`: these three are tens of
+## megabytes on a 2D shell, and `_gb()` floors to `0 MB` under a megabyte,
+## which would print a real buffer allocation as nothing.
+##
+## **A total of zero is dashed, not printed.** `0 B` is the most plausible
+## wrong number this row could carry -- it reads as a measurement rather than
+## as an absence, which is `MISTAKES.md`'s own "never encode no value as a
+## plausible value" row. Measured both ways on 2026-09-06 with
+## `_perfwin_probe.gd`, same build, same machine:
+##
+##   windowed    34.52 MiB total -- textures 26.28 MiB, buffers 8.24 MiB
+##   --headless   0 B    total -- textures  0 B,     buffers 0 B
+##
+## The dummy display server holds no render memory, so a running renderer
+## reporting a flat zero is the dead giveaway that nothing is rasterising --
+## the gate is that total, not `RenderingServer.get_rendering_device()`, which
+## is also null under `gl_compatibility` where the monitors are real
+## (`diagnostic_report.gd::_gpu_section` says the same thing about the same
+## call).
+static func _video_mem_line() -> String:
+	var total := int(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED))
+	if total <= 0:
+		return "Video memory is separate and outside this figure, and is not being reported: this session's display server is holding no render memory at all (Godot's own monitors read zero, which is what the headless dummy driver does -- a real window reports tens of MiB)."
+	return "Video memory is separate and outside this figure: %s in total -- textures %s, buffers %s (Godot's own render monitors)." % [
+		String.humanize_size(total),
+		String.humanize_size(int(Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED))),
+		String.humanize_size(int(Performance.get_monitor(Performance.RENDER_BUFFER_MEM_USED))),
+	]
 
 ## Coarse GB/MB for the two memory readouts. Same floor logic as `_mb()`, one
 ## unit up, because a working set is gigabytes and `1638 MB` is harder to read
@@ -3928,9 +3993,6 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 	if id == ID_PREF_STORAGE:
 		_host.open_storage_locations()
 		return
-	if id == ID_PREF_WORKING_SET:
-		_host.open_performance()
-		return
 	if id == ID_PREF_SHORTCUTS:
 		## `_host` is `app.gd`'s `DccApp`, which already owns one
 		## `ShortcutsDialog` instance (`Help ▸ Keyboard shortcuts…` reaches
@@ -4101,6 +4163,34 @@ func _on_units_choice(id: int) -> void:
 		return
 	if _host.viewport.has_method("refresh_scale_bar"):
 		_host.viewport.refresh_scale_bar()
+
+## `WorldGen::get_recommended_quality_tier` had exactly one consumer in the
+## whole project -- the Performance window `LARGE_ITEM_RULINGS.md` ruling 19
+## deleted on 2026-09-06 (`grep -rn recommended_quality_tier` on that day:
+## `engine_bridge.gd`'s forwarder, and `performance_window.gd`). The ruling
+## asks for a menu-row home or a stated drop; this is the home, and it is the
+## row §2.5 already draws rather than a new one.
+##
+## On the SUBMENU row, not on the four tier rows inside it: `command_index.gd`
+## recurses into a submenu and skips the row that owns it, so a tooltip here
+## changes no indexed title -- and the recommendation is one sentence about
+## the set, not four sentences about its members.
+##
+## Refreshed rather than set once: the tier is recommended from the machine
+## the app is on, and this shell runs on a phone where that answer is not the
+## desktop's.
+func _refresh_quality_row(p: PopupMenu) -> void:
+	if _quality_pref_row < 0 or _quality_pref_row >= p.item_count:
+		return
+	var rec := String(_bridge.recommended_quality_tier())
+	if rec == "":
+		## Not "none recommended" dressed up as a tier name: an empty string is
+		## a binding that answered nothing, and it is dashed with that reason.
+		p.set_item_tooltip(_quality_pref_row,
+			"Sample counts in the appearance pipeline. This build's engine returned no recommendation for this machine (WorldGen.get_recommended_quality_tier answered an empty string).")
+		return
+	p.set_item_tooltip(_quality_pref_row,
+		"Sample counts in the appearance pipeline. Recommended for this machine: %s -- currently %s." % [rec, _bridge.quality_tier()])
 
 func _on_quality(id: int) -> void:
 	var tiers := _bridge.quality_tiers()
@@ -4420,7 +4510,6 @@ func _refresh_open_windows() -> void:
 	for entry in [
 		["New world…", _host.new_world_dialog],
 		["World data tables", _host.world_data_window],
-		["Performance", _host.performance_window],
 		["Generation info", _host.gen_info_dialog],
 		["Data manager", _host.data_manager_window],
 		["Asset library", _host.asset_library_window],

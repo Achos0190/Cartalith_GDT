@@ -110,7 +110,6 @@ func _ready() -> void:
 		["FactionRoster", _app.faction_roster_window, "open", []],
 		["CityViewer", _app.city_viewer_window, "open", [0]],
 		["WorldData", _app.world_data_window, "open", []],
-		["Performance", _app.performance_window, "open", []],
 		["TravelLibrary", _app.travel_library_window, "open", []],
 		["Vault", _app.vault_window, "open_overview", []],
 		["DataManager", _app.data_manager_window, "open", []],

@@ -353,7 +353,6 @@ func _ready() -> void:
 		"FactionRoster": _app.faction_roster_window,
 		"PlaceEditor": _app.place_editor_window,
 		"Vault": _app.vault_window,
-		"Performance": _app.performance_window,
 		"WorldData": _app.world_data_window,
 		"GenInfo": _app.gen_info_dialog,
 		"NewWorld": _app.new_world_dialog,

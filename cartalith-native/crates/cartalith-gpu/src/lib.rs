@@ -27,9 +27,31 @@ mod timing_harness;
 pub use multi::*;
 
 const SHADER_SRC: &str = include_str!("../shaders/vnoise.wgsl");
-/// Secondary experiment (`init_gpu_f64`): same kernel, `f64` shader
-/// arithmetic, gated behind `wgpu::Features::SHADER_F64` (Vulkan-only,
-/// native-only, confirmed present on this session's real adapter).
+/// Secondary experiment: same kernel, `f64` shader arithmetic, gated behind
+/// `wgpu::Features::SHADER_F64` (Vulkan-only, native-only, confirmed present
+/// on this session's real adapter).
+///
+/// **Its one remaining consumer is a test**, and deliberately so:
+/// `f64_wgsl_is_not_implemented_by_naga_even_though_the_gpu_feature_exists`
+/// hands this source straight to `create_shader_module` under a validation
+/// error scope, to record that naga (wgpu 30's WGSL front end) implements no
+/// `enable f64;` directive at all — the adapter reports the feature and the
+/// shading language has no syntax to reach it. That is the finding the pilot
+/// produced, so the source stays.
+///
+/// The `pub fn init_gpu_f64()` that used to wrap it was **deleted 2026-09-06**
+/// (`LARGE_ITEM_RULINGS.md` ruling 22, and `UNWIRED_FUNCTIONS.md` question 8
+/// which it answers). It had zero callers anywhere in the workspace, and the
+/// test above is why it could not acquire one: under wgpu 30's WGSL front end
+/// every call fails at shader compilation whatever the adapter reports, and it
+/// is the front end and not the hardware that has to move for that to change.
+///
+/// `#[cfg(test)]` rather than `#[allow(dead_code)]`, because "test-only" is
+/// what it now is and the attribute should say so — losing the wrapper made
+/// this const dead in a `cargo build`, and silencing that with an `allow`
+/// would leave the next reader believing the shipping crate still compiles
+/// this shader.
+#[cfg(test)]
 const SHADER_SRC_F64: &str = include_str!("../shaders/vnoise_f64.wgsl");
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 1: the GPU-safe noise
 /// primitive (PCG3D-based `gpu_hash`/`gpu_vnoise`), NOT a port of the pilot's
@@ -392,17 +414,6 @@ pub struct GpuContext {
 /// only raised if adapter capability genuinely requires it.
 pub fn init_gpu() -> Result<GpuContext, GpuInitError> {
     init_gpu_with(SHADER_SRC, wgpu::Features::empty(), "vnoise (f32)", &ONE_STORAGE_OUT_LAYOUT)
-}
-
-/// Secondary pilot experiment: identical setup, but requests
-/// `Features::SHADER_F64` and uses the `f64`-arithmetic shader
-/// (`vnoise_f64.wgsl`) -- tests whether the CPU reference's
-/// f64-rounding-dependent `hash` formula is exactly reproducible on GPU
-/// when the (optional, Vulkan-only, native-only) feature is available.
-/// Returns `Err` cleanly if the adapter doesn't support it -- callers
-/// should treat that the same as "no GPU" (`HARDWARE_ACCELERATION.md` §27).
-pub fn init_gpu_f64() -> Result<GpuContext, GpuInitError> {
-    init_gpu_with(SHADER_SRC_F64, wgpu::Features::SHADER_F64, "vnoise (f64)", &ONE_STORAGE_OUT_LAYOUT)
 }
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 1: the GPU-safe noise

@@ -534,7 +534,10 @@ func _screen_sub(id: String) -> String:
 ## The canvas's `ELDRA · 1.6 GB` -- the world's name beside what it costs.
 ## Read off the live status slots rather than stored: `top_world` is written as
 ## `"ELDRA · <seed>"` by `app.gd`, so the name is its head, and `top_mem` is the
-## Performance window's own figure. Either half may be empty before a world
+## figure `app.gd::_wire_status` writes into `top_mem`. (**This said "the
+## Performance window's own figure" until 2026-09-06; that window is deleted and
+## the attribution was wrong anyway — `app.gd:739`'s `set_status("top_mem", ...)`
+## has always been the writer.**) Either half may be empty before a world
 ## exists, and an empty readout is drawn as nothing rather than as `· `.
 func _root_meta() -> String:
 	var parts := PackedStringArray()

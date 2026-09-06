@@ -3,7 +3,10 @@ extends Node
 ##
 ## Lane A reported `performance_window` content at 545 px in a 420 px box on
 ## desktop and laptop and 1088 px on tablet, and `gen_info_dialog` at 524 px in
-## a 480 px box on tablet. This measures the same two windows the same way at
+## a 480 px box on tablet. **`performance_window` was deleted 2026-09-06**
+## (`LARGE_ITEM_RULINGS.md` ruling 19), so only the second half still runs;
+## the first is kept here as the measurement, not as a live target. This
+## measures the same windows the same way at
 ## whichever build is on disk, so the SAME file can be run against `HEAD` and
 ## against the working tree and the two numbers compared.
 ##
@@ -90,10 +93,8 @@ func _ready() -> void:
 		% [size, DccTheme.is_touch(), DccTheme.is_tablet(),
 			DccTheme.role_px("fs_prose"), app.bridge.has_world])
 
-	app.open_performance()
-	await _frames(6)
-	await _report("performance", app.performance_window, Vector2(560, 420))
-	app.performance_window.hide()
+	## The `performance` report that stood here is gone: `LARGE_ITEM_RULINGS.md` ruling 19 (2026-09-06) folded `performance_window.gd`
+## away -- no diagnostics window exists in this design language.
 
 	app.open_gen_info()
 	await _frames(6)

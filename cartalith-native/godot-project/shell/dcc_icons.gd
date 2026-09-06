@@ -225,7 +225,13 @@ static var _cache: Dictionary = {}  ## "name@drawn@raster" -> ImageTexture
 	## same 12 px glyph is a 12-texel bitmap in a dock and a 44-texel one in a
 	## content-scaled window, and the two must not share a cache entry.
 
-## What the glyph cache actually holds, for the Performance window's Memory
+## What the glyph cache actually holds. **The Performance window's Memory group
+## was its only consumer, and that window was deleted 2026-09-06 (owner ruling 19:
+## the menu rows are the whole surface). `cache_stats()` therefore has ZERO
+## consumers project-wide today** — kept rather than deleted because it is cheap
+## and a diagnostics reader may want it, but a dead-code sweep would be right to
+## take it and should be told this first. Formerly for the Performance window's
+## Memory
 ## group. HD-02's finer raster is the one hi-DPI cost that could plausibly have
 ## been large, so it is reported rather than argued about: measured 2026-08-25
 ## on the OnePlus 6T at `_phone_scale` 2.748, **389.4 KiB with a world up**,

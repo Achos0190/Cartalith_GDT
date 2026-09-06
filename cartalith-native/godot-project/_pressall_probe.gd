@@ -174,7 +174,6 @@ func _ready() -> void:
 		["AssetLibrary", _app.asset_library_window, "open", []],
 		["Vault", _app.vault_window, "open_overview", []],
 		["WorldData", _app.world_data_window, "open", []],
-		["Performance", _app.performance_window, "open", []],
 		["LayersPopover", _app.layers_popover, "open", []],
 	]
 	for row in wins:

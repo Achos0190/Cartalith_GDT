@@ -136,6 +136,18 @@ static func _gpu_section(bridge: EngineBridge) -> String:
 	else:
 		lines.append("  backend of the last generate: not measured yet -- no GPU generate has completed this session.")
 
+	## **The stage NAMES, which had exactly one home and lost it.** The deleted
+	## Performance window (owner ruling 19, 2026-09-06) was the only surface that
+	## listed them; `resource_overlay.gd` renders the COUNT only ("on · 4 stages")
+	## and this section carried the backend but never the list. A verifier called
+	## that the one real capability the ruling costs, so it lands here rather than
+	## being dropped -- a report is where you look when the count is surprising.
+	var stages: Array = bridge.gpu_stages_used()
+	if not stages.is_empty():
+		lines.append("  stages dispatched to it: %s" % ", ".join(stages))
+	elif backend != "":
+		lines.append("  stages dispatched to it: none -- the backend opened and no stage was sent to it.")
+
 	var devices: Array = bridge.gpu_devices()
 	if devices.is_empty():
 		lines.append("  devices: none enumerated -- wgpu found no adapters, or Preferences > GPU > Devices has never been opened this session. Generation runs on the CPU either way.")

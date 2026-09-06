@@ -14,7 +14,6 @@ var menus := DccMenus.new()
 
 var new_world_dialog: NewWorldDialog
 var world_data_window: WorldDataWindow
-var performance_window: PerformanceWindow
 var resource_overlay: ResourceOverlay
 var gen_info_dialog: GenInfoDialog
 var shortcuts_dialog: ShortcutsDialog
@@ -443,10 +442,6 @@ func _ready() -> void:
 	faction_roster_window = FactionRosterWindow.new()
 	add_child(faction_roster_window)
 	faction_roster_window.setup(self, bridge)
-
-	performance_window = PerformanceWindow.new()
-	add_child(performance_window)
-	performance_window.setup(bridge)
 
 	gen_info_dialog = GenInfoDialog.new()
 	add_child(gen_info_dialog)
@@ -3137,9 +3132,6 @@ func open_vault(kind: String, entity_id: int, label: String) -> void:
 ## The same panel with no entity scope: the whole link store.
 func open_vault_overview() -> void:
 	vault_window.open_overview()
-
-func open_performance() -> void:
-	performance_window.open()
 
 func open_gen_info() -> void:
 	gen_info_dialog.open()

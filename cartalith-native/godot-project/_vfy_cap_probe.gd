@@ -237,23 +237,11 @@ func _ready() -> void:
 	gi.hide()
 	await _frames(2)
 
-	# ---- 6. performance window: content reachable ----------------------------
-	app.open_performance()
-	await _frames(6)
-	var pw = app.performance_window
-	var plab: Array = []
-	_labels(pw, plab)
-	_ck("PW-A: it still reads out", plab.size() >= 10, "%d labels" % plab.size())
-	var scrolls: Array = []
-	_find(pw, "ScrollContainer", scrolls)
-	_ck("PW-B: a scroller exists on the pointer path", scrolls.size() >= 1,
-		"%d ScrollContainer" % scrolls.size())
-	if scrolls.size() >= 1:
-		var sc: ScrollContainer = scrolls[0]
-		var inner: Control = sc.get_child(0)
-		print("VFY --    performance scroller: content %.0f px in a %.0f px viewport"
-			% [inner.size.y, sc.size.y])
-	pw.hide()
+	# ---- 6. performance window: gone ----------------------------------------
+	## PW-A and PW-B are retired, not skipped: `LARGE_ITEM_RULINGS.md` ruling 19 (2026-09-06) folded `performance_window.gd`
+## away -- no diagnostics window exists in this design language.
+	## What that window read out now lives on the `Preferences` rows
+	## `_perfwin_probe.gd` checks.
 
 	print("VFY %d failure(s)" % _fail)
 	get_tree().quit(1 if _fail > 0 else 0)

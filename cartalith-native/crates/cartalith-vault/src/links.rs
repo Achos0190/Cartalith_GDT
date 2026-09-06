@@ -50,8 +50,16 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// The three entity kinds this port can genuinely address
+/// The entity kinds this port can genuinely address
 /// (`MARKDOWN_VAULT_SCOPE.md` milestone 0's verification).
+///
+/// **Five of them, and this sentence used to say three.** `Faction` and
+/// `Culture` were both added on 2026-08-25, each with its own doc comment
+/// below, and the count above them was not moved with them — so the header
+/// disagreed with the variants it introduces for twelve days. Counted from
+/// the definition on 2026-09-06:
+/// `awk '/^pub enum EntityKind \{/,/^\}/' links.rs | grep -cE '^    [A-Z][A-Za-z]+,$'`
+/// → `5`. A sixth needs this number moved in the same change.
 ///
 /// §3 of the design also lists POIs and region labels. **POIs are not a
 /// ported concept** in this port at all — `civ_tools_bridge.rs`'s module doc
@@ -855,13 +863,50 @@ mod tests {
         assert_eq!(edited.status(true, Some(same), Some("bbbb")), LinkStatus::Stale, "a changed source outranks a local edit");
     }
 
+    /// Every variant's wire name, both directions.
+    ///
+    /// This loop covered **three of five** until 2026-09-06 — it was written
+    /// when `EntityKind` had three variants and was not extended when
+    /// `Faction` and `Culture` landed on 2026-08-25, so
+    /// `EntityKind::Faction`'s `as_str`/`parse` pair was asserted **nowhere in
+    /// the workspace** — `git grep 'parse("faction")' -- crates/` returned one
+    /// hit, the arm itself, and `git grep 'Faction.as_str()' -- crates/`
+    /// returned none. `vault_bridge.rs` covers culture in both directions and
+    /// settlement/continent through `parse` only; faction, neither.
+    ///
+    /// The strings are **literals**, not `k.as_str()` compared against itself.
+    /// The old form inverted `as_str` with `parse`, so it held under any
+    /// *consistent* rename: renaming `"province"` to `"provinces"` in both
+    /// arms together left it green, measured 2026-09-06, and the same mutant
+    /// is red against the table below.
     #[test]
     fn entity_keys_and_kinds_round_trip() {
-        for k in [EntityKind::Settlement, EntityKind::Province, EntityKind::Continent] {
-            assert_eq!(EntityKind::parse(k.as_str()), Some(k));
+        // Derived from the definition, not from memory. Adding a variant to
+        // `EntityKind` already breaks the build at three exhaustive matches --
+        // `template::suggested_path` in this crate, and
+        // `cartalith_godot::vault_bridge`'s `entity_values` and `entity_cell`
+        // -- so the compiler routes you to the resolution paths. It does not
+        // route you here: add the row in the same change, or the new kind's
+        // wire name goes unasserted the way faction's did.
+        let wire: &[(EntityKind, &str)] = &[
+            (EntityKind::Settlement, "settlement"),
+            (EntityKind::Province, "province"),
+            (EntityKind::Continent, "continent"),
+            (EntityKind::Faction, "faction"),
+            (EntityKind::Culture, "culture"),
+        ];
+        for (k, s) in wire {
+            assert_eq!(k.as_str(), *s, "as_str drifted from the wire name");
+            assert_eq!(EntityKind::parse(s), Some(*k), "parse does not invert as_str");
         }
         assert_eq!(EntityKind::parse("poi"), None, "POI is not a ported concept");
+        // `landmark` is not a variant: owner ruling 13 asks for one, and
+        // ruling 10's persistence -- the stable id it would be keyed by -- is
+        // not built. See the stability table in this module's own doc.
+        assert_eq!(EntityKind::parse("landmark"), None);
+        assert_eq!(EntityKind::parse("Settlement"), None, "the wire name is lowercase");
         assert_eq!(entity_key(EntityKind::Continent, 2), "continent:2");
+        assert_eq!(entity_key(EntityKind::Faction, 1), "faction:1");
     }
     /// `SAVEFILE_COMPAT.md` §13.3.6, and the reason it is a MUST.
     ///

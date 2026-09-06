@@ -1517,7 +1517,7 @@ static func phone_present(dlg: Window, host) -> bool:
 ##
 ## Measured on a OnePlus 6T (1080 x 2340, `phone_scale` 2.748) -- the real
 ## handset, not a `SubViewport` harness: the amber Close border on World data,
-## Gen info, Performance and the credits sheet all ran y 2185-2268 against a
+## Gen info, the (since-deleted) Performance window and the credits sheet all ran
 ## window ending at 2269. **84 px of the 121 px the floor asks for: 5.31 mm of
 ## 7.65.** The glyph sat at 2245, the centre of the *full* 121 px box, which is
 ## what proved it was clipped rather than merely short. New World's
@@ -1560,7 +1560,7 @@ static func phone_present(dlg: Window, host) -> bool:
 ##
 ## Measured on a OnePlus 6T (1080 x 2340, `phone_scale` 2.748) -- the real
 ## handset, not a `SubViewport` harness. Before: the amber Close border on World
-## data, Gen info, Performance and the credits sheet all ran y 2185-2268 against
+## data, Gen info, the (since-deleted) Performance window and the credits sheet
 ## a window ending at 2269, **84 px of the 121 px the floor asks for, 5.31 mm of
 ## 7.65**, with the glyph at 2245 -- the centre of the *full* 121 px box, which
 ## is what proved it was clipped rather than merely short. New World's

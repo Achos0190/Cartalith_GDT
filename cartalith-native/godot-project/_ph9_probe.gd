@@ -89,7 +89,7 @@ func _ready() -> void:
 	print("=== has_world=", app.bridge.has_world, " ===")
 	await _frames(6)
 
-	await _win("performance", func(): app.performance_window.open(), app.performance_window)
+	## Was a `performance` case here; `LARGE_ITEM_RULINGS.md` ruling 19 (2026-09-06) folded `performance_window.gd` away -- no diagnostics window exists in this design language.
 	await _win("gen_info", func(): app.gen_info_dialog.open(), app.gen_info_dialog)
 	await _win("world_data", func(): app.world_data_window.open(), app.world_data_window)
 	await _win("travel_library", func(): app.travel_library_window.open(), app.travel_library_window)

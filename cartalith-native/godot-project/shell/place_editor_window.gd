@@ -170,7 +170,7 @@ func setup(a, b: EngineBridge) -> void:
 	## and traits onto whatever now sits at the index -- PE-01's failure with a
 	## generate as the trigger.
 	##
-	## Rebuilt rather than closed, which is the shape three other windows in this
+	## Rebuilt rather than closed, which is the shape two other windows in this
 	## shell already use for the same pair of signals (`city_viewer_window`,
 	## `world_data_window`, `performance_window` all `if visible: reload`).
 	## Closing would also be wrong for the ambiguous half of `world_loaded`:

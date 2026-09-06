@@ -121,10 +121,9 @@ func _ready() -> void:
 	_p("world %s, %d settlements, %d factions" % [
 		str(_bridge.grid_size()), _bridge.settlements().size(), _bridge.get_factions().size()])
 
-	# ---- Performance -------------------------------------------------------
-	_app.performance_window.open()
-	await _report("performance", _app.performance_window)
-	_app.performance_window.hide()
+	# ---- Performance: gone -------------------------------------------------
+	## `LARGE_ITEM_RULINGS.md` ruling 19 (2026-09-06) folded `performance_window.gd`
+## away -- no diagnostics window exists in this design language.
 
 	# ---- World data --------------------------------------------------------
 	_app.open_world_data()

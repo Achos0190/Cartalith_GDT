@@ -269,10 +269,9 @@ func _sweep(res_tag: String) -> void:
 		app.open_world_data()
 		_open_window(app.world_data_window))
 
-	await _screen("performance", res_tag, func():
-		_close_overlays_and_windows()
-		app.open_performance()
-		_open_window(app.performance_window))
+	## The `performance` screenshot is retired: `LARGE_ITEM_RULINGS.md` ruling
+	## 19 (2026-09-06) folded `performance_window.gd` away -- no diagnostics
+	## window exists in this design language.
 
 	await _screen("gen_info", res_tag, func():
 		_close_overlays_and_windows()
