@@ -3078,10 +3078,17 @@ func _value_row(title: String, value: String) -> Control:
 ## the title instead of being pinned to the right in a mono label.
 ##
 ## `_trail_label()` neither wraps nor clips, and a `Label` reports its full text
-## width as its minimum size -- so putting "File ▸ New world… to begin" through
+## width as its minimum size -- so putting the `hint` slot's sentence through
 ## `_value_row()` would set this row's minimum width past the screen, inside a
 ## `ScrollContainer` whose horizontal scrolling is disabled. The subtitle slot
 ## already autowraps and already carries a sentence on every drill row.
+##
+## That sentence used to be quoted here as `"File ▸ New world… to begin"`. It is
+## `DccShell.new_world_route()` as of 2026-09-06 and reads **`MORE ▸ Project ▸
+## New world… to begin`** on this composition -- ten characters longer (17 -> 27), and on
+## the wrapping side of exactly the trap above. Re-measured rather than argued:
+## `_emptyphone_probe.tscn -- --force-touch --dismiss --tab more` reports zero
+## descendants of `_screen` whose combined minimum width exceeds 1080.
 func _note_row(title: String, text: String) -> Control:
 	return _row(title, text, null, null, Callable(), false)
 

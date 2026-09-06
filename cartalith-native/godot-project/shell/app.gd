@@ -602,7 +602,12 @@ func _ready() -> void:
 	_setup_autosave()
 
 	set_status("pass", "no world", "text_faint")
-	set_status("hint", "File ▸ New world… to begin", "text_ghost")
+	## The route differs by shell, so the sentence does -- `DccShell
+	## .new_world_route()` carries the measurement and the reason. On a phone
+	## this line is the *only* instruction an empty session ever gives, since
+	## the status bar it lives in is parked in the hidden `PhoneMenuModel` host
+	## and reaches the screen only as `phone_menu.gd`'s MORE ▸ STATUS ▸ `Next`.
+	set_status("hint", new_world_route() + " to begin", "text_ghost")
 	set_status("top_world", "—")
 
 	## The cold start. The reference opens onto a mandatory setup gate whose
@@ -3216,7 +3221,10 @@ func _close_world() -> void:
 	bridge.close_world()
 	current_project_path = ""
 	set_status("pass", "no world", "text_faint")
-	set_status("hint", "File ▸ New world… to begin", "text_ghost")
+	## Closing a world returns to the same empty state `_ready()` boots into,
+	## so it gets the same composition-aware route -- `DccShell
+	## .new_world_route()` for why the desktop wording is wrong on a handset.
+	set_status("hint", new_world_route() + " to begin", "text_ghost")
 	set_status("top_world", "—")
 	_refresh_save_status()
 

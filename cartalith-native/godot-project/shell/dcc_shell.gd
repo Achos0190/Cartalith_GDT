@@ -2282,6 +2282,41 @@ func is_phone() -> bool:
 func phone_scale() -> float:
 	return _phone_scale
 
+## **The route to a new world, named in the vocabulary of the composition the
+## user is actually looking at.**
+##
+## `File ▸ New world…` is right on desktop and tablet and is drawn nowhere at
+## all on a phone: `_build_phone_shell()` parks the entire `MenuBar` inside the
+## permanently hidden `PhoneMenuModel` host, and `phone_menu.gd`'s `ROOT_ROWS`
+## re-titles that menu **`Project`**. So every empty-state sentence carrying the
+## desktop path pointed a handset user at a surface that does not exist -- and
+## on a phone with no world those sentences are the *only* instruction the app
+## gives, since the status bar they normally live in is parked with the menu
+## bar and reaches the screen only as `phone_menu.gd`'s MORE ▸ STATUS ▸ `Next`
+## row.
+##
+## Measured 2026-09-06, 1080x2400 windowed, dark forced
+## (`_emptyphone_probe.tscn -- --force-touch --dismiss --tab more`): that row
+## read `Next / File ▸ New world… to begin` on a screen whose own list has no
+## File in it. The replacement is checked at the screen rather than derived --
+## `--screen project` draws `New world…` as the third row of PROJECT, from
+## `phone_menu.gd::_fill_project()`'s `_act(body, p, DccMenus.ID_NEW_WORLD, …)`.
+##
+## `static`, and off `DccTheme.is_phone()` rather than this instance's
+## `_phone`, for the reason `DccTheme.set_phone()`'s own comment gives: the
+## callers are windows and static widget factories that have no route to the
+## shell node. `DccShell._ready()` publishes it before anything can ask.
+##
+## **Six call sites, counted 2026-09-06 with**
+## `grep -rn 'New world… to begin' shell/ | grep -v '^[^:]*:[0-9]*:[[:space:]]*#'`
+## -- two in `app.gd` (boot and `_close_world()`), three in
+## `world_data_window.gd`, one in `faction_roster_window.gd`. All six phone-
+## reachable: both windows call `DccWidgets.phone_present()`. Kept in one place
+## so a seventh cannot drift; callers append their own trailing clause.
+static func new_world_route() -> String:
+	return "MORE ▸ Project ▸ New world…" if DccTheme.is_phone() \
+		else "File ▸ New world…"
+
 ## The node `Window ▸ Domain rail` shows and hides, for `DccApp`'s region map.
 ## Falls back to `rail_column` rather than returning null, so a composition that
 ## somehow never set it hides *something* real instead of crashing the menu.
@@ -4643,6 +4678,47 @@ func _build_phone_shell() -> void:
 	## The gap between the app bar and the tool sheet: nothing but map. The
 	## floating domain rail used to sit in it; the canvas moved the domains to
 	## the bottom bar, so the map now has the whole width back.
+	##
+	## **This node owns the phone's blank-row band, and the band is a map with
+	## no world in it.** Censused 2026-09-06 by `_emptyphone_probe.tscn` at
+	## 1080x2400 windowed, dark forced, blank = no pixel on the row above
+	## RGB(23,23,23) -- the same rule `_ph16band_probe.gd` counts by, and the two
+	## agree exactly. Per surface, no world and entry screen dismissed:
+	##
+	##   content gap (this node)  1 786 rows   1 556 blank   ← 87% of the screen's
+	##   bottom nav bar             169 rows      88 blank
+	##   status safe row             73 rows      48 blank
+	##   gesture inset               52 rows      42 blank
+	##   tool sheet                 173 rows      27 blank
+	##   app bar                    147 rows      26 blank
+	##                                        1 787 total
+	##
+	## Generate a world and this node goes to **0 blank**. **Three of the five
+	## surfaces are unchanged** -- nav 88, status 48, app bar 26 -- and the other
+	## two shrink with it: the tool sheet 27 -> 6 and the gesture inset 42 -> 11.
+	## The screen totals 179, which is the arithmetic of exactly those five.
+	## (An earlier draft of this comment said "every other row above is
+	## unchanged", which was false for two of the five it had just tabulated.)
+	## So the whole band is one surface with nothing to draw, and the residual
+	## 179 is the leading inside bars that are working correctly. **It is not a
+	## spacer, not a list built empty and not a container failing to collapse**
+	## -- the three causes worth hunting -- so there is no row here to remove.
+	##
+	## **And it is not the first screen either.** A cold boot with no world runs
+	## `app.gd::open_welcome()` → `phone_project_picker.gd`, which covers y
+	## 0..2348 and measures **212** blank rows; the 1 787 state is reachable only
+	## after the user dismisses that. On the default GENERATE tab the empty shell
+	## already carries `GENERATE WORLD` as an accent-filled primary in the tool
+	## sheet, so an empty-state signpost drawn into this gap would be a second
+	## route to a button already on screen. Considered and not built, 2026-09-06.
+	##
+	## Drawn is not wired, so that last sentence is a **pressed** button, not a
+	## read screenshot: `--pressgen` finds it in `_phone_tool_sheet` at
+	## 392 x 126 px (48 dp tall at this scale, over the 44 dp touch floor),
+	## `disabled=false`, and driving it with no world takes `bridge.has_world`
+	## false → true. The one thing the empty shell was missing was a *route in
+	## words* -- `set_status("hint", …)` named `File ▸ …`, a menu a handset does
+	## not draw. See `new_world_route()` above.
 	_phone_content_gap = Control.new()
 	_phone_content_gap.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	## **`IGNORE`, not `PASS`.** This was `PASS`, and `PASS` does not mean what

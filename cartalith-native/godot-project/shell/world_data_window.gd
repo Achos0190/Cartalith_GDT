@@ -383,7 +383,8 @@ func _rebuild_settlements() -> void:
 	var body := _settlements_body
 	_clear(body)
 	if not bridge.has_world:
-		DccWidgets.note(body, "No world generated -- File ▸ New world… to begin.")
+		DccWidgets.note(body, "No world generated -- %s to begin."
+			% DccShell.new_world_route())
 		return
 	var rows: Array = bridge.settlements().duplicate()
 	if _sort_by_pop:
@@ -436,7 +437,8 @@ func _rebuild_provinces() -> void:
 	var body := _provinces_body
 	_clear(body)
 	if not bridge.has_world:
-		DccWidgets.note(body, "No world generated -- File ▸ New world… to begin.")
+		DccWidgets.note(body, "No world generated -- %s to begin."
+			% DccShell.new_world_route())
 		return
 	var provinces := bridge.provinces()
 	var settlements := bridge.settlements()
@@ -477,7 +479,8 @@ func _rebuild_trade() -> void:
 	var body := _trade_body
 	_clear(body)
 	if not bridge.has_world:
-		DccWidgets.note(body, "No world generated -- File ▸ New world… to begin.")
+		DccWidgets.note(body, "No world generated -- %s to begin."
+			% DccShell.new_world_route())
 		return
 	var settlements := bridge.settlements()
 	var balances := bridge.trade_balances()

@@ -494,7 +494,8 @@ func _rebuild_list() -> void:
 	_clear(_list_body)
 	var factions := bridge.get_factions()
 	if factions.is_empty():
-		DccWidgets.note(_list_body, "No world generated -- File ▸ New world… to begin.")
+		DccWidgets.note(_list_body, "No world generated -- %s to begin."
+			% DccShell.new_world_route())
 		return
 	for f in factions:
 		var d: Dictionary = f

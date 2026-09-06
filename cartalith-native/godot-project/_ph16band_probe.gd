@@ -21,11 +21,28 @@ extends Node
 ##   --withworld   world generated, no route   -- the state the panel owns
 ##   --withroute   world + a committed route   -- the state a user works in
 ##
-## Measured 2026-09-03 at 1080x2400 -- blank rows / longest band:
-##   --nojp 1 494 / 1 078 · none 1 047 / 253 · --withworld 694 / 98
-##   · --withroute 291 / 66.
-## Opening the planner *removes* 447 blank rows from the no-world screen, so
-## the no-world band is the app's, not this panel's.
+## **Re-measured 2026-09-06 at 1080x2400 windowed, all four legs in one pass**
+## -- blank rows / longest band:
+##   --nojp 1 787 / 1 501 · none 995 / 253 · --withworld 642 / 98
+##   · --withroute 239 / 49.
+## Opening the planner *removes* 792 blank rows from the no-world screen, so
+## the no-world band is the app's, not this panel's -- the same conclusion the
+## 2026-09-03 run reached, by a wider margin.
+##
+## **The 2026-09-03 figures this header used to carry were 1 494 / 1 047 /
+## 694 / 291 and every one of them has moved**; they had been quoted onward
+## into a register row and into a lane brief. The longest bands held except
+## `--nojp` (1 078 → 1 501) and `--withroute` (66 → 49). Nothing in this probe
+## changed -- the shell under it did. Treat any blank-row figure older than the
+## current shell build as an anecdote and re-run the leg.
+##
+## Cross-checked the same day against `_emptyphone_probe.tscn`, which counts
+## blank rows by the same RGB(23,23,23) rule and additionally attributes each
+## one to the phone surface drawn there: independent agreement at 1 787 blank /
+## 1 712 uniform / longest 1 501 at y=335..1836, and that band is
+## `_phone_content_gap` -- the map, with no world in it. 1 556 of the 1 787 are
+## that one surface, and generating a world takes it to **0** with no other
+## surface moving.
 ##
 ## Also reports every descendant of `_center_panel` whose combined minimum
 ## width exceeds the screen -- the defect the register never caught, and the
