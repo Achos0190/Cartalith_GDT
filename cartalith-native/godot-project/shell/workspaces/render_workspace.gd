@@ -632,9 +632,38 @@ func _appearance_slider(parent: Control, key: String) -> void:
 		func(v: float): pending[0] = v / scale,
 		String(APPEARANCE_HELP.get(key, "")),
 		func():
+			## Read **before** the write, emitted **after** it: `MISTAKES.md`'s
+			## own rule, and the reason `was_dark` is a local rather than a
+			## second `appearance()` call inside the branch.
+			var was_dark := _relief_is_dark("colour_relief")
 			if bridge.set_appearance({key: pending[0]}) > 0:
-				_mark_custom()
-				_refresh_map())
+				## Colour relief's layer row is folded to a name and a state
+				## while the ramp contributes nothing -- in this dock and in
+				## `right_dock.gd`'s appended Layers section, which reads the
+				## same engine value. Crossing zero therefore changes what BOTH
+				## lists draw, and nothing else would tell either of them:
+				## `set_appearance` has no signal at all, and the right dock
+				## rebuilds on a selection, a tool arm, a workspace change, a
+				## project save and `layer_stack_changed` -- a strength drag is
+				## none of the first four. So the
+				## crossing goes through `layer_stack_changed`, which is already
+				## the one funnel both halves rebuild from -- and its listener
+				## in `_build_layer_stack()` does the `_mark_custom()` and
+				## `_refresh_map()` this branch therefore skips, rather than
+				## paying for a second full-map render on the same gesture.
+				##
+				## `_layer_host != null` is that listener's own existence
+				## test, not a convenience: `_build_layer_stack()` returns
+				## before creating either of them on a build without
+				## `layer_stack_api`, and handing the mark and the repaint to a
+				## funnel that was never connected would leave the map showing
+				## the previous strength.
+				if key == "ramp_strength" and _layer_host != null \
+						and was_dark != _relief_is_dark("colour_relief"):
+					bridge.layer_stack_changed.emit()
+				else:
+					_mark_custom()
+					_refresh_map())
 	_app_rows[key] = {"handle": handle, "scale": scale, "pending": pending}
 
 ## Pull every appearance row back from the engine -- after a Reset, where the
@@ -1057,26 +1086,32 @@ func _layer_row(parent: Control, d: Dictionary, index: int) -> void:
 		return
 
 	var id := String(d["id"])
-	var visible := bool(d["visible"])
 
-	## **A row can be wired and still move no pixels, and saying so is the whole
-	## point of this block.** `TerrainAppearance::ramp_strength` ships at `0.0`,
-	## and `LayerStack::composite` skips Colour relief entirely when the ramp
-	## contributes nothing (`None => continue`). So at the shipped default this
-	## row's dot, opacity, blend and reorder are all live controls over a layer
-	## that draws nothing — measured by a verifier as a byte-identical
-	## hillshade/colour-relief swap.
+	## **Folded, not disclosed.** `TerrainAppearance::ramp_strength` ships at
+	## `0.0`, and `LayerStack::composite` skips Colour relief entirely when the
+	## ramp contributes nothing (`None => continue`), so at the shipped default
+	## this row's dot, opacity, blend and reorder were four live controls over a
+	## layer that draws nothing.
 	##
-	## Disclosed rather than disabled: the controls still *work*, and they take
-	## effect the moment the ramp has a strength, so greying them out would be
-	## the opposite lie. This is the "dash it with its reason" idiom applied to
-	## a whole row instead of a field.
-	if id == "colour_relief" and float(bridge.appearance().get("ramp_strength", 0.0)) <= 0.0:
-		DccWidgets.note(parent,
-			"Colour relief draws nothing right now - Ramp strength is 0, so the "
-			+ "ramp contributes no colour and this row's settings have no visible "
-			+ "effect. Raise Ramp strength (Rendering - advanced) to see them.")
+	## **This block used to be a note explaining them, and that is the one end
+	## state it must not have twice.** Measured windowed 2026-09-06,
+	## `_rampstrength_probe.gd`, 192x121 over 400 km, seeds 1234 / 483920 /
+	## 4242: hiding the layer, dropping it to opacity 0.25, switching it to
+	## Multiply and moving it to the top each move **0 bytes** at strength 0.00
+	## and 39.2-55.4 % of them at 0.35. The note also sent the reader to
+	## *"Ramp strength (Rendering - advanced)"*, and there is no such control:
+	## the slider is labelled **Colour relief** (`render.rs`'s own `TUNABLE`
+	## label) and lives in the **Colour relief** section under Terrain
+	## appearance, three categories away from Rendering - advanced.
+	##
+	## Not folded here alone: `right_dock.gd`'s `_relief_is_dark` folds the same
+	## row in the same state, and `_appearance_slider` below emits
+	## `layer_stack_changed` when the strength crosses zero so both flip at once.
+	if _relief_is_dark(id):
+		_dark_layer_row(parent, String(d["label"]))
+		return
 
+	var visible := bool(d["visible"])
 	var tablet := DccTheme.is_tablet()
 	var readout_fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_SMALL
 
@@ -1157,6 +1192,52 @@ func _layer_row(parent: Control, d: Dictionary, index: int) -> void:
 		## rather than silently shown as the first entry, which would claim the
 		## picture is Normal when it is not.
 		DccWidgets.note(col, "Blend mode \"%s\" is not in this build's picker." % String(d["blend"]))
+
+## True only when this row is Colour relief **and the engine has said** its ramp
+## strength is zero.
+##
+## The `has()` matters and replaces a `get("ramp_strength", 0.0)` that was here
+## until 2026-09-06: `EngineBridge.appearance()` returns `{}` when the
+## appearance API is missing, so the old form read a build that cannot answer as
+## a build answering "0.0" and folded a row it knew nothing about. Absent is
+## unknown, never a value -- a build that cannot read the strength draws the
+## full row, which is the state this panel shipped with.
+func _relief_is_dark(id: String) -> bool:
+	if id != "colour_relief":
+		return false
+	var a: Dictionary = bridge.appearance()
+	return a.has("ramp_strength") and float(a["ramp_strength"]) <= 0.0
+
+## The folded row: the layer's name and its state, and nothing to operate.
+##
+## Still a row rather than an omission, for `_move_layer`'s sake as much as the
+## reader's: `index` and `_layers.size()` are the engine's own stack positions,
+## so a hidden row is still a position, and Hillshade's Down would swap it with
+## something the reader cannot see -- a gesture whose result is invisible rather
+## than absent. The drag reorder has the same problem and no target to drop on.
+func _dark_layer_row(parent: Control, label_text: String) -> void:
+	var tablet := DccTheme.is_tablet()
+	var fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_SMALL
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", DccTheme.role_px("dock_row_gap"))
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+	row.tooltip_text = "Colour relief is not drawing: its ramp strength is 0, " \
+		+ "so the renderer skips the layer and a dot, an opacity, a blend and " \
+		+ "an order over it would move no pixel. Raise the Colour relief " \
+		+ "slider under Terrain appearance and the full row comes back."
+	## The dash this shell writes for a field with no value, in the slot the
+	## visibility dot occupies on a live row -- not the "off" glyph, which would
+	## claim the layer had been hidden by hand.
+	var mark := DccTheme.mono_label("—", "text_ghost", fs)
+	if tablet:
+		mark.custom_minimum_size.x = DccTheme.role_px("row_min_h")
+	row.add_child(mark)
+	var name_label := DccTheme.mono_label(label_text, "text_ghost", fs)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.clip_text = true
+	row.add_child(name_label)
+	row.add_child(DccTheme.mono_label("not drawing", "text_ghost", fs))
+	parent.add_child(row)
 
 func _reorder_button(parent: Control, text: String, enabled: bool, fs: int,
 		tablet: bool, tip: String) -> Button:

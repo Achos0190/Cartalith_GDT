@@ -1663,8 +1663,23 @@ func _build_center_panel() -> void:
 	##
 	## AUTO stops the propagation and offers a scrollbar when a row genuinely
 	## does not fit, so every field stays reachable instead of being clipped
-	## off-screen. Desktop keeps DISABLED: a 1 684 px dock never triggered it,
-	## and a horizontal scrollbar there would be a regression, not a fix.
+	## off-screen. Desktop keeps DISABLED, because a horizontal scrollbar in a
+	## docked pane would be a regression, not a fix.
+	##
+	## **Two corrections, both from `_jpinsw_probe.gd` on 2026-09-06.** First,
+	## the sentence that stood here -- "a 1 684 px dock never triggered it" --
+	## was wrong: DISABLED was folding the inspector's own minimum in on desktop
+	## too, `inspector_scroll` measuring 585 px against a 405 px pane. Second,
+	## AUTO is now a **guard rather than a live scrollbar**: the two rows that
+	## demanded 1 396 and 1 265 px are `HFlowContainer`s as of the same date
+	## (see `_rebuild_inspector()`). Across three seeds x three stages each --
+	## nine samples, two of which land on a blocked stage, which draws a
+	## `BLOCKED:` row and no footer -- `_inspector_body` measures **733-826**
+	## and **0** nodes exceed the 1 080 px screen in any of them (25 nodes
+	## walked, 20 on a blocked stage). It stays AUTO because a longer biome or
+	## terrain name in
+	## the stage header -- the widest remaining row, 709-802 and content-driven
+	## -- can still reach the edge, and this is the containment for that.
 	inspector_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO \
 		if _phone else ScrollContainer.SCROLL_MODE_DISABLED
 	inspector_wrap.add_child(inspector_scroll)
@@ -2284,8 +2299,56 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 	_override_choice_row(grid, idx, ov, "vessel", "Vessel", PackedStringArray(_vessel_names()),
 		_inherit_label("vessel", s, r), cat == "land", "— land stage, no vessel applies.")
 
-	var actions := HBoxContainer.new()
-	actions.add_theme_constant_override("separation", 8)
+	## **`HFlowContainer`, and it is these three buttons that were the whole of
+	## the panel's 1 408 px minimum.** Measured 2026-09-06, `_jpinsw_probe.gd`,
+	## three seeds, 1 080 x 2 400 physical px at `phone_scale() = 2.62`
+	## (so 412 dp): `clear overrides` 415 + `copy to all land stages` 595 +
+	## `isolate stage` 370 + two 8 px gaps = **1 396** on all three seeds (the
+	## text is seed-independent), and `actions_pad`'s own 12 px `margin_left`
+	## makes the 1 408 that `_inspector_body` reported. The next widest row in
+	## the panel is the stage header at 709-802; every one of the fifteen
+	## override rows is 469-588. Two rows were setting the width for all of
+	## them -- 3 of the 25 nodes the probe walks exceeded the screen, and one of
+	## those 3 was `_inspector_body` inheriting from the other two.
+	##
+	## The tax was not theoretical: a `VBoxContainer` lays every child out at
+	## its own width, so all fifteen override rows were laid out `22..1406` on a
+	## 1 080 px screen. Every `OptionButton` spanned `376..1406` and every
+	## `SpinBox` `495..1406` -- **326 px, including the dropdown arrow and the
+	## spinner arrows, off the right edge** -- and the header's `overrides: N`
+	## sat entirely off-screen at `1278..1406`. Reaching any of it meant
+	## dragging the whole inspector sideways, which dragged the rows that
+	## already fitted off the *left*.
+	##
+	## Flowing this one group is the shell's own established answer, not an
+	## invention: `dcc_shell.gd`'s phone search chips are an `HFlowContainer`
+	## for the stated reason that "six chips do not fit one phone line and the
+	## sixth wrapping is the correct answer, not a horizontal scroll", and
+	## `dcc_widgets.gd::_tools_row()` is one for the same shape. It is a *button
+	## group*, not a data row -- nothing reflows into a per-field ladder, and no
+	## button's own text wraps: `DccWidgets.action()`'s `horizontal_parent`
+	## guard already names `HFlowContainer`, so each button keeps its full-label
+	## minimum and only the group wraps. At 1 080 px that is `[clear
+	## overrides][copy to all land stages]` on one line and `[isolate stage]` on
+	## the next.
+	##
+	## **Unconditional, and desktop was measured rather than divided by
+	## `phone_scale()`.** `_tools_row()`'s own "nothing changes on desktop" does
+	## NOT carry over to this row, and that is the point rather than a side
+	## effect. Desktop's `inspector_scroll` is `SCROLL_MODE_DISABLED`, so this
+	## row's 461 px minimum did not overflow its pane -- it **inflated** it, and
+	## that width then propagated into `col` beside the 642 px matrix. Same
+	## probe, same three seeds, 1 684 x 1 050: `_inspector_body` 557 -> **376**
+	## and `inspector_scroll` 585 -> **404**, the pane 405 px afterwards, and
+	## `isolate stage` wrapping onto a second line there too.
+	##
+	## What that does **not** fix, said rather than implied: `col` still
+	## measures 1 047 against a 910 px `_center_panel` on desktop afterwards.
+	## The remainder is `matrix_wrap`'s own `custom_minimum_size.x = 642`, which
+	## is a separate row and is not touched here.
+	var actions := HFlowContainer.new()
+	actions.add_theme_constant_override("h_separation", 8)
+	actions.add_theme_constant_override("v_separation", 8)
 	var actions_pad := MarginContainer.new()
 	actions_pad.add_theme_constant_override("margin_left", 12)
 	actions_pad.add_theme_constant_override("margin_top", 6)
@@ -2296,8 +2359,24 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 	DccWidgets.action(actions, "isolate stage", func(): _on_stage_clicked(idx, true))
 
 	_inspector_body.add_child(DccTheme.spacer())
-	var footer := HBoxContainer.new()
-	footer.add_theme_constant_override("separation", 20)
+	## The panel's second over-wide row and the only other one, for the same
+	## reason and with the same answer. Measured 2026-09-06 with the same probe
+	## and the same three seeds: five stat pairs at 265 + 178 + 126 + 160 + 456
+	## with four 20 px gaps = **1 265** at 412 dp on seed 483920 (1 248 and
+	## 1 265 on the other two -- only the `km/day` and `load` pairs move with
+	## the world), the widest being the fifth pair, `arrive` /
+	## `~day N (travel only)`, at 456 on its own. Wrapping that last pair onto
+	## a second line is what a stat strip does on a handset; the pairs stay
+	## atomic, so nothing is split across lines and no value leaves its label.
+	##
+	## `v_separation` 6 rather than the 20 the horizontal axis wants: 6 is this
+	## block's own vertical vocabulary (`footer_pad`'s and `actions_pad`'s
+	## `margin_top`), and 20 px between two lines of one strip reads as two
+	## strips. `custom_minimum_size.y = 26` stays a floor and the flow's own
+	## two-line minimum exceeds it.
+	var footer := HFlowContainer.new()
+	footer.add_theme_constant_override("h_separation", 20)
+	footer.add_theme_constant_override("v_separation", 6)
 	footer.custom_minimum_size.y = 26
 	var footer_pad := MarginContainer.new()
 	footer_pad.add_theme_constant_override("margin_left", 12)

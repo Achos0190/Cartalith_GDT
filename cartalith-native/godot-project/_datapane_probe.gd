@@ -395,8 +395,35 @@ func _no_invented_counts() -> void:
 			_eq("dashed chip '%s' is dimmed, not hidden" % k, c["ink"],
 				DccTheme.c("text_ghost"))
 	print("DP      %d dashed chip(s) of %d" % [dashed, chips.size()])
-	_check("rivers is dashed before a run -- no binding counts them",
-		chips.has("rivers") and String(chips["rivers"]["text"]).ends_with("—"))
+	## **This line used to read "rivers is dashed before a run -- no binding
+	## counts them", and it was red.** `EngineBridge.rivers(min_order)` landed
+	## and `GIS_GROUPS` carries `{"key":"rivers","carried":true}`, so the chip is
+	## legitimately no longer dashed -- the assertion was stale, not the code.
+	##
+	## **The seed is not what fixes it.** `_generate()` pins 40417 so the counts
+	## below are reproducible, but a *fixed expectation about rivers* would still
+	## be the wrong shape: `_gis_count("rivers")` dashes whenever `get_rivers(2)`
+	## answers empty, and a generated world can legitimately have no run reaching
+	## Strahler order 2. Pinning the seed would make this green on 40417 and red
+	## on the next fixture anyone writes.
+	##
+	## So this asserts the property that holds for **every** world: `rivers` is a
+	## carried group, so whichever of the two states it is in, the drawing has to
+	## match that state -- lit at `--wash2`/`--acc` when a count exists, a
+	## reason-carrying dash when none does. The lit state is the third of
+	## `_include_chips()`' three and nothing else in this probe pins it. The
+	## *number* is oracled against the written document in `pairs` below, in both
+	## directions, which is where the seed stops mattering at all.
+	_check("the rivers chip is drawn", chips.has("rivers"))
+	if chips.has("rivers"):
+		var rc: Dictionary = chips["rivers"]
+		if String(rc["text"]).ends_with("—"):
+			_check("dashed rivers chip says which absence it is",
+				String(rc["tip"]) != "", String(rc["text"]))
+		else:
+			_eq("counted rivers chip is lit -- export_geojson carries the layer",
+				[rc["bg"], rc["ink"]],
+				[DccTheme.c("accent_wash_2"), DccTheme.c("accent")])
 	_check("landmarks is drawn dim, not lit -- no GeoJSON layer carries it",
 		chips.has("landmarks")
 			and chips["landmarks"]["bg"] == DccTheme.c("sunken"))
@@ -430,17 +457,33 @@ func _no_invented_counts() -> void:
 
 	## The independent oracle: the chip numbers came from the shell's getters,
 	## these came from the file the engine wrote. A fabricated chip disagrees.
+	##
+	## `rivers` joined this list on 2026-09-06, and it is the one entry whose
+	## agreement is structural rather than merely expected: `rivers_now()` maps
+	## 1:1 over `split_river_polylines(trace_river_polylines(order, recv, gw, gh,
+	## 2), gw, None)` and `geojson_bridge.rs::export_geojson` builds `river_polys`
+	## from that same pair at `EXPORT_MIN_RIVER_ORDER = 2`, one feature per
+	## polyline. So the two numbers cannot differ unless one of those call sites
+	## is changed -- which is exactly what this is here to catch.
+	##
+	## **Both directions**, since a dashed chip is a claim too: for all four
+	## groups the chip dashes precisely when the list the exporter reads is
+	## empty, so a dash must mean zero features of that layer. A regression that
+	## made a chip dash while the document still carried the layer would pass a
+	## `continue` and fail this.
 	var pairs := {"settlements": "settlement", "ways": "way",
-		"provinces": "province"}
+		"provinces": "province", "rivers": "river"}
 	for group in pairs:
 		if not chips.has(group):
 			continue
 		var shown := String(chips[group]["text"])
+		var in_doc := int(layers.get(String(pairs[group]), 0))
 		if shown.ends_with("—"):
+			_eq("dashed chip '%s' means the document carries none" % group,
+				in_doc, 0)
 			continue
 		var n := int(shown.split(" ")[1])
-		_eq("chip '%s' matches the written document" % group, n,
-			int(layers.get(String(pairs[group]), -1)))
+		_eq("chip '%s' matches the written document" % group, n, in_doc)
 
 	# -- the receipt -------------------------------------------------------
 	await _frames(3)
@@ -458,9 +501,12 @@ func _no_invented_counts() -> void:
 	_check("the receipt carries an age, measured not stamped",
 		ago != null and ago.text.ends_with("s ago"),
 		"" if ago == null else ago.text)
-	## Rivers were dashed before the run and are counted in the document.
-	_check("rivers were written even though the chip could not count them",
-		layers.has("river"), str(layers.get("river", 0)))
+	## The line that stood here -- *"rivers were written even though the chip
+	## could not count them"* -- described the same stale state as the assertion
+	## above it, and `layers.has("river")` is seed-dependent in the same way (a
+	## world with no order-2 run writes no river feature and would turn it red).
+	## Removed rather than reworded: the `pairs` cross-check now covers rivers in
+	## both directions, which is strictly more than this ever asserted.
 
 func _gap_receipt() -> void:
 	print("[5] the absent state on a gap route")

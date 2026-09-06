@@ -98,13 +98,17 @@ func _tap_walk(app: Node, floor_px: float) -> int:
 			## `phone_fit()` has **not** touched -- the phone chrome `dcc_shell.gd`
 			## sizes through `_ptap()`, which is what this section was written to
 			## guard. Everything inside a fitted dock, sheet or window is excluded.
-			## Measured 2026-09-06 by widening this one line to STOP-or-PASS: the
-			## walk goes from **26 buttons to 323** and reports **155 violations**
-			## against the same 115 px floor -- 36 x 115 `CheckBox`es and 84 x 126
-			## `Button`s, the same un-floored-width class as the one fixed in this
-			## batch. Left narrow deliberately: that is a shell-wide backlog across
-			## many files, not something this probe can turn red on its own. **Do
-			## not read a pass here as "every phone button clears 44 dp".**
+			## Measured by widening this one line to STOP-or-PASS -- and **the figure
+			## has moved, so it is quoted here with both readings rather than as a
+			## standing fact.** An earlier pass on 2026-09-06 wrote *26 buttons to 323,
+			## 155 violations, 36 x 115 `CheckBox`es and 84 x 126 `Button`s*.
+			## Re-measured the same way later the same day, after the shell had moved:
+			## **336 buttons checked, 19 violations** against the same 115 px floor.
+			## Left narrow either way -- 19 is still a shell-wide backlog across many
+			## files, not something this probe can turn red on its own. **Do not read a
+			## pass here as "every phone button clears 44 dp"**, and do not read it as
+			## covering a *fitted* control at all: see `_fit_walk()` above for why it
+			## structurally cannot.
 			if bb.mouse_filter != Control.MOUSE_FILTER_STOP:
 				continue
 			## Same three exclusions as the walk at `dcc_shell.gd`'s own
@@ -152,6 +156,87 @@ func _tap_walk(app: Node, floor_px: float) -> int:
 		print("  SKIP -- no _phone_root")
 	print("  info BaseButtons checked (STOP filter, non-popup): ", checked)
 	return violations
+
+## **The complement of `_tap_walk()`, and the reason it exists is that
+## `_tap_walk()` goes blind on success.**
+##
+## What the STOP filter protects, traced rather than assumed: it is a *scope*
+## device in this probe and a *scroll* device in the shell, and the two got
+## coupled by accident. In `dcc_shell.gd::phone_fit()` the `PASS` assignment is
+## PH-05's fix -- `_scrolldrag_probe.gd` found that every point down the left
+## sheet that failed to flick was a `Button` or an `HSlider`, because a `STOP`
+## control ends Godot's event walk before the `ScrollContainer` above it sees
+## the drag; `PASS` still picks (so tooltips and hover survive) and forwards
+## what it does not handle, and `ScrollContainer`/`BaseButton` cancel the
+## pending press past the deadzone. In *this* probe the same constant was
+## chosen to keep the walk on the un-fitted phone chrome `_ptap()` sizes,
+## because widening it reports 155 violations of a shell-wide backlog this
+## probe cannot fix. Both reasons are good; together they mean **the moment
+## `phone_fit()` succeeds on a control, that control leaves `_tap_walk()`**.
+##
+## The defect, as disclosed: deleting `journey_planner_view.gd`'s width fix
+## entirely still yields `no tap-floor violations got=0` from `_tap_walk()`,
+## because the button is fitted either way and fitted means `PASS`. The whole
+## of that fix's coverage was four hand-written `_ok` lines naming one button;
+## delete those four and nothing turned red. **Measured here rather than
+## restated:** `_tap_walk()` checks 31 buttons with the planner open and this
+## walk finds the planner's centre panel holds exactly 1 fitted `BaseButton`
+## and 0 never-fitted ones -- so the two walks partition it, and the fitted
+## side had no walk at all. Mutating the floor to `* 1.5` turns this red at
+## `violations=1` while `_tap_walk()` stays at its own unrelated count;
+## mutating the meta key drops `checked` to 0 and turns the emptiness
+## assertion red. Both run 2026-09-06, restored in a `finally`.
+##
+## So this walks the other half of the partition -- `BaseButton`s carrying
+## `phone_fit()`'s own `_phone_fitted` meta -- and asserts the floor on them
+## structurally, over whatever the subtree happens to contain, rather than by
+## name. It cannot go blind the way the STOP walk does: a `phone_fit()` that
+## stopped fitting drops `checked` to 0, which is asserted separately, and a
+## fitted button under the floor is a violation whether or not anyone thought
+## to name it.
+##
+## Scoped to a subtree by the caller for the same reason `_tap_walk()` keeps
+## its narrow filter: run over the whole phone root this reports the same
+## shell-wide backlog, which is a real finding and not this probe's row.
+## Returns `[checked, violations]`.
+func _fit_walk(root: Node, floor_px: float) -> Array:
+	var all_controls: Array = []
+	_collect_controls(root, all_controls)
+	var checked := 0
+	var violations := 0
+	var hidden := 0
+	var unfitted := 0
+	for ctl in all_controls:
+		var c := ctl as Control
+		if not (c is BaseButton):
+			continue
+		if not c.has_meta("_phone_fitted"):
+			unfitted += 1
+			continue
+		## The same three popup-openers `_tap_walk()` exempts, for the same
+		## reason, and the same UNLAID rule: a zero axis is unmeasured, not
+		## too small.
+		if c is OptionButton or c is MenuButton or c is ColorPickerButton:
+			continue
+		## A hidden control's `size` is whatever it was last laid out at, which
+		## for a subtree that has never been shown is not a measurement of
+		## anything. Counted and reported rather than silently dropped, so the
+		## `checked` figure below can be read as what it is.
+		if not c.is_visible_in_tree():
+			hidden += 1
+			continue
+		var sz: Vector2 = c.size
+		if sz.x <= 0.5 or sz.y <= 0.5:
+			print("  UNLAID   ", c.get_path(), "  size=", sz)
+			continue
+		checked += 1
+		if sz.x < floor_px - 0.5 or sz.y < floor_px - 0.5:
+			violations += 1
+			print("  VIOLATION ", c.get_path(), "  size=", sz, "  floor=", floor_px)
+			print("            ", _describe(c))
+	print("  info phone-fitted BaseButtons: checked=", checked, " violations=",
+		violations, "  (hidden=", hidden, " never-fitted=", unfitted, ")")
+	return [checked, violations]
 
 func _ready() -> void:
 	## A clean slate for the coach-mark assertions below: this repo's own
@@ -319,6 +404,25 @@ func _ready() -> void:
 		jp_btn.icon != null and jp_btn.icon.get_height() > 15, true)
 	print("  info glyph raster height, planner open: ",
 		0 if jp_btn.icon == null else jp_btn.icon.get_height(), " px")
+
+	## **The structural half, and the answer to "delete those four lines and
+	## nothing turns red".** The four `_ok`s above name one button; this walks
+	## every phone-fitted `BaseButton` in the same subtree and applies the same
+	## floor, so a second icon-only button added to this panel tomorrow is
+	## covered by construction rather than by somebody remembering. See
+	## `_fit_walk()`'s header for why `_tap_walk()` structurally cannot see any
+	## of them.
+	##
+	## `checked > 0` is not decoration: it is the assertion that keeps this from
+	## going blind the way the STOP walk does. A `phone_fit()` that stopped
+	## stamping `_phone_fitted`, or a planner that stopped calling it, would
+	## empty this walk -- and an empty walk reports zero violations.
+	var fit_res: Array = _fit_walk(app.get("journey_planner_view").get("_center_panel"),
+		floor_px)
+	_ok("the fitted walk actually saw fitted buttons (it cannot pass empty)",
+		int(fit_res[0]) > 0, true)
+	_ok("every phone-fitted button in the planner clears the tap floor",
+		fit_res[1], 0)
 
 	app.call("select_domain_mode", dom0, mode0)
 	app.call("arm_tool", tool0)

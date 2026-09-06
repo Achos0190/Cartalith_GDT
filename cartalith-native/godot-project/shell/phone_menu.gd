@@ -1532,7 +1532,22 @@ func _fill_assets_grid(body: VBoxContainer, family_key: String) -> void:
 ##
 ## So **no assertion currently covers this value** -- it is held by the design
 ## spec alone. Said plainly rather than left as a coverage claim that would not
-## have gone red.
+## have gone red. Still true on 2026-09-06: `grep -rn ASSET_GRID_COLS` over the
+## whole `godot-project` tree, probes and scenes included, returns this line and
+## its one use above, and nothing else.
+##
+## **Where the assertion goes when someone writes it**, so the next pass does
+## not have to re-derive it: `_phonemore2_probe.gd`'s section 4 already opens
+## `assets-grid` on a family discovered live and holds the drawn body
+## (`pm._screen_body`) -- it asserts one cell per slot and stops there. The
+## missing half is `repeat(4,1fr)` itself, and it is two properties off the
+## drawing rather than a re-statement of this constant: the `GridContainer`
+## under that body has `columns == 4`, and every cell under it carries
+## `SIZE_EXPAND_FILL` (the `1fr`, which is what makes four columns four *equal*
+## columns rather than four content-sized ones). Asserting `ASSET_GRID_COLS ==
+## 4` here instead would be the constant-against-itself shape `MISTAKES.md`
+## already has an entry for -- the literal `4` has to come from §6.6, and the
+## columns have to be read off the built grid.
 const ASSET_GRID_COLS := 4
 
 ## One slot cell. A `Button`, deliberately -- **not** the `PanelContainer` +

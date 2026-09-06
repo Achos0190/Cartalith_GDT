@@ -102,6 +102,18 @@ func _initialize() -> void:
 		"after the build the engine holds ZERO appearance overrides -- no default stack was pushed")
 	_ok(_ids(bridge.layer_stack()) == shipped, "the stack is untouched: %s" % str(shipped))
 
+	## **From here on this probe asks for three DRAWN rows, and says so.**
+	## Since 2026-09-06 the Colour relief row folds to its name plus "not
+	## drawing" while `ramp_strength` is 0.0 -- which is the shipped default,
+	## so every count below (three headers, three pickers, three sliders,
+	## three opacity bars) was written for a state the default no longer
+	## produces. Relaxing them to two would delete the coverage the counts
+	## exist for: a missing picker would pass just as well. Asking for the
+	## state instead keeps every assertion, and 2b asserts the FOLD on its
+	## own terms so neither half can rot unnoticed.
+	bridge.set_appearance({"ramp_strength": 0.35})
+	ws._sync_layer_stack()
+
 	print("\n== 1. the rows are the engine's own, top-first ==")
 	var heads := _heads(ws._layer_host)
 	_ok(heads.size() == 3, "three header rows (got %d)" % heads.size())
@@ -152,6 +164,15 @@ func _initialize() -> void:
 	# the reorder buttons above do not cover them (`MISTAKES.md`, "covering some
 	# inputs of a thing, not all of them").
 	wg.reset_appearance()
+	## **The default folds a row, so this section states its own state.**
+	## Since 2026-09-06 the Colour relief row draws its name and "not
+	## drawing" instead of four controls while `ramp_strength` is 0.0, and
+	## `reset_appearance()` restores exactly that 0.0. Every count below was
+	## written for three drawn rows, so the fix is to ASK FOR three rows --
+	## not to relax the counts to two, which would delete the coverage the
+	## counts exist for and pass equally well if a picker went missing.
+	## The folded state is asserted on its own terms at the end of 2b.
+	bridge.set_appearance({"ramp_strength": 0.35})
 	ws._sync_layer_stack()
 	var picks: Array = _find(ws._layer_host, "OptionButton")
 	_ok(picks.size() == 3, "one blend picker per row (got %d)" % picks.size())
@@ -172,6 +193,16 @@ func _initialize() -> void:
 		"picking a blend mode reached the engine")
 	_ok(_find(ws._layer_host, "OptionButton").size() == 3,
 		"the rows survived being rebuilt from inside the picker's own signal")
+
+	## The other half of the same rule: at the shipped default the row folds,
+	## and a probe that only ever ran at 0.35 would not notice if it stopped.
+	bridge.set_appearance({"ramp_strength": 0.0})
+	ws._sync_layer_stack()
+	_ok(_find(ws._layer_host, "OptionButton").size() == 2,
+		"at ramp_strength 0.0 the dark row folds: 2 pickers, not 3 (got %d)"
+		% _find(ws._layer_host, "OptionButton").size())
+	bridge.set_appearance({"ramp_strength": 0.35})
+	ws._sync_layer_stack()
 
 	var sliders: Array = _find(ws._layer_host, "HSlider")
 	_ok(sliders.size() == 3, "one opacity slider per row (got %d)" % sliders.size())
@@ -195,6 +226,10 @@ func _initialize() -> void:
 
 	print("\n== 3. reorder is DATA, and the rows follow the engine ==")
 	wg.reset_appearance()
+	## `reset_appearance()` restores `ramp_strength` 0.0, which folds the
+	## Colour relief row -- re-ask for the three-row state this section
+	## counts (see the note above section 1).
+	bridge.set_appearance({"ramp_strength": 0.35})
 	ws._sync_layer_stack()
 	_buttons(_heads(ws._layer_host)[0])[2].pressed.emit()    # top row, Down
 	var moved := _ids(bridge.layer_stack())
@@ -234,6 +269,10 @@ func _initialize() -> void:
 
 	print("\n== 4. the right dock's appended section, and the two docks in step ==")
 	wg.reset_appearance()
+	## `reset_appearance()` restores `ramp_strength` 0.0, which folds the
+	## Colour relief row -- re-ask for the three-row state this section
+	## counts (see the note above section 1).
+	bridge.set_appearance({"ramp_strength": 0.35})
 	ws._sync_layer_stack()
 	var app: Node = load("res://shell/app.gd").new()
 	app._active_domain = "cartography"

@@ -1584,11 +1584,15 @@ func _draft_stack_live() -> bool:
 # **The editor is the left dock, not this.** `render_workspace.gd`'s
 # `_build_layer_stack()` owns the opacity slider and the blend picker; this is
 # §6's ordered list, so the two continuous values are readouts here and the two
-# discrete ones -- visibility and order -- are live. Two sliders over one
-# `set_layer_stack` is the "two pickers over one concept" shape this shell has
-# had to undo three times. Both halves read the engine fresh and both write
-# through `EngineBridge.set_layer_stack`, whose `layer_stack_changed` signal
-# rebuilds the other, so they cannot drift apart in either direction.
+# discrete ones -- visibility and order -- are live **on a row whose layer is
+# actually drawing** (see `_relief_is_dark`, which folds the one row that can be
+# inert). Two sliders over one `set_layer_stack` is the "two pickers over one
+# concept" shape this shell has had to undo three times. Both halves read the
+# engine fresh and both write through `EngineBridge.set_layer_stack`, whose
+# `layer_stack_changed` signal rebuilds the other, so they cannot drift apart in
+# either direction -- and `render_workspace.gd`'s ramp-strength slider emits that
+# same signal when it crosses zero, so the fold below flips in both docks at
+# once instead of going stale in whichever one the user is not looking at.
 
 func _append_layers(body: Control) -> void:
 	if app == null or bridge == null or not bridge.layer_stack_api:
@@ -1605,8 +1609,67 @@ func _append_layers(body: Control) -> void:
 		"The terrain raster's three categories, top drawn last. Opacity and "
 		+ "blend are set in Cartography - Layers; the dot and the order are live "
 		+ "here.")
+	if _relief_is_dark("colour_relief"):
+		DccWidgets.note(sec,
+			"Colour relief is folded to a name and a state because its ramp is "
+			+ "contributing nothing: at Colour relief 0 the renderer skips the "
+			+ "layer, so a dot, an opacity, a blend and an order over it would be four "
+			+ "controls that move no pixel. Raise it in Cartography - Terrain "
+			+ "appearance - Colour relief and the full row comes back here.")
 	DccWidgets.action(sec, "Layer properties...",
 		func(): app.select_domain_category("cartography", "Layers"))
+
+## True only when this row is Colour relief **and the engine has said** its ramp
+## strength is zero.
+##
+## `EngineBridge.appearance()` returns `{}` when the appearance API is missing,
+## and an absent key is *unknown*, never `0.0` -- a build that cannot read the
+## strength draws the full row, which is the honest fallback: a wrongly-folded
+## row hides four working controls, where a wrongly-drawn one is only the state
+## this dock shipped with.
+##
+## `<= 0.0` rather than `== 0.0`: `TUNABLE` clamps the value into `0.0..1.0`, so
+## nothing below zero can reach here, but `composite`'s own gate is "contributes
+## nothing" and this should not disagree with it over a sign.
+func _relief_is_dark(id: String) -> bool:
+	if id != "colour_relief" or bridge == null:
+		return false
+	var a: Dictionary = bridge.appearance()
+	return a.has("ramp_strength") and float(a["ramp_strength"]) <= 0.0
+
+## The folded row: the layer's name and its state, and nothing to operate.
+##
+## Deliberately still a row rather than an omission, for two reasons that are
+## about the list and not about this layer. A user looking for Colour relief in
+## the stack would find no trace of it at all -- the cost the fold has to pay,
+## and paying it with a name is cheaper than paying it with silence. And the
+## reorder buttons on the rows that remain step through the **engine's** stack
+## positions, so a hidden row is still a position: Hillshade's Down would swap
+## it with something the reader cannot see, which is a gesture whose result is
+## invisible rather than absent.
+func _dark_layer_row(parent: Control, label_text: String) -> void:
+	var tablet := DccTheme.is_tablet()
+	var fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 20
+	row.tooltip_text = "Colour relief is not drawing: its ramp strength is 0, " \
+		+ "so the renderer skips the layer entirely. Raise it in Cartography - " \
+		+ "Terrain appearance - Colour relief and this row's dot, opacity, " \
+		+ "blend and order come back."
+	## The dash this shell uses for a field with no value, in the slot the
+	## visibility dot occupies on a live row -- not the "off" glyph, which
+	## would claim the layer had been hidden by hand.
+	var mark := DccTheme.mono_label("—", "text_ghost", fs)
+	if tablet:
+		mark.custom_minimum_size.x = DccTheme.role_px("row_min_h")
+	row.add_child(mark)
+	var name_label := DccTheme.mono_label(label_text, "text_ghost", fs)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.clip_text = true
+	row.add_child(name_label)
+	row.add_child(DccTheme.mono_label("not drawing", "text_ghost", fs))
+	parent.add_child(row)
 
 ## One row: dot, name, opacity bar, blend name, and the two reorder buttons
 ## WCAG 2.2 SC 2.5.7 requires beside the left dock's drag.
@@ -1623,6 +1686,37 @@ func _layer_row(parent: Control, d: Dictionary, index: int, count: int) -> void:
 		return
 
 	var id := String(d["id"])
+
+	## **Folded, not disclosed** -- the judgement this row was sent back for.
+	##
+	## `TerrainAppearance::ramp_strength` ships at `0.0` and `LayerStack::
+	## composite` skips Colour relief whenever the ramp contributes nothing
+	## (`None => continue`), so at the shipped default the dot, the opacity bar,
+	## the blend readout and the two reorder buttons below are four live
+	## controls over a layer that draws nothing. Measured windowed 2026-09-06,
+	## `_rampstrength_probe.gd`, 192x121 grid over 400 km, seeds 1234 / 483920 /
+	## 4242: hiding the layer, dropping it to opacity 0.25, switching it to
+	## Multiply and moving it to the top of the stack each move **0 bytes** at
+	## strength 0.00 (max channel delta 0), and 39.2-55.4 % of them at 0.35.
+	##
+	## Two honest end states, and this is the one taken: the four controls are
+	## **removed** while the layer is dark, and what stays is the layer's name
+	## and its state -- this shell's own "dash the field with its reason" idiom,
+	## applied to a whole row instead of a field. Leaving them live and
+	## explaining them in a note is what shipped before and is the one end state
+	## this row must not have twice.
+	##
+	## The other end state -- a non-zero `ramp_strength` default, so the row
+	## controls something the moment a user sees it -- was **not** taken here
+	## and is reported rather than made: it is a `render.rs` change that moves
+	## every new world's picture, and `appearance_tiers.rs` pins the current
+	## value twice on purpose ("CA-02 must ship off", "the JS-parity path must
+	## never enter the ramp"), so it needs an owner and a re-baseline, not a
+	## shell edit.
+	if _relief_is_dark(id):
+		_dark_layer_row(parent, String(d["label"]))
+		return
+
 	var shown := bool(d["visible"])
 	var tablet := DccTheme.is_tablet()
 	var fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY

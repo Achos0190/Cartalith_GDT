@@ -19,6 +19,14 @@ class_name CartographyWorkspace
 ## rows are still whole overlays with a visibility switch each and no slot in
 ## the raster to order against; `_build_layer_gaps()` states that split.
 ##
+## **Two of those three carry controls at the shipped default, not three**
+## (2026-09-06). `TerrainAppearance::ramp_strength` ships at `0.0` and
+## `LayerStack::composite` skips Colour relief while its ramp contributes
+## nothing, so that row folds to its name and its state -- in this dock's stack
+## and in `right_dock.gd`'s appended Layers section, which reads the same engine
+## value. Raising the **Colour relief** slider under Terrain appearance restores
+## the full row in both. See `render_workspace.gd`'s `_relief_is_dark`.
+##
 ## §4.5.5's Icon and Label tools (`UNIFIED_TOOL_PLAN.md` milestone F) are wired
 ## here in full: `icon_bridge.rs`/`label_bridge.rs` are bound and tested, and
 ## `map_overlay.gd`'s `set_manual_icons`/`set_labels` already render whatever
@@ -491,9 +499,20 @@ func _build_layer_gaps(parent: Control) -> void:
 	## operator and the slot out of source and into data. Opacity, blend mode and
 	## order are live for those three above. What is still missing is the *other*
 	## thirteen rows of v3's stack, and they are missing for a different reason.
+	##
+	## **"Those three" is two at the shipped default** (2026-09-06): Colour
+	## relief's row folds to its name and its state while `ramp_strength` is
+	## `0.0`, because `LayerStack::composite` skips the layer and controls over
+	## it move no pixel -- measured at 0 bytes across three seeds. The note below
+	## says three because three is what the *stack* carries; the sentence added
+	## to it is what the reader sees when they look.
 	DccWidgets.note(sec,
 		"Per-layer opacity, blend mode and order (GUI_GAP_REGISTER.md CA-04) are "
 		+ "live for the terrain raster's three categories -- the stack above. "
+		+ "Colour relief's row is folded to a name and a state until its ramp has "
+		+ "a strength, because the renderer skips that layer while it contributes "
+		+ "nothing; the Colour relief slider under Terrain appearance brings the "
+		+ "row's controls back. "
 		+ "They are not live for the rest of the design's layer list, and that is "
 		+ "a different problem, not the same one half-finished: Water is a sibling "
 		+ "of Terrain rather than one of its children (sea colour folds its own "
