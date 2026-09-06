@@ -394,12 +394,44 @@ func _sweep() -> void:
 		await _screen("phone_search", func():
 			await _close()
 			app.open_find_on_map(), func(): return app)
+		## **Dumped from the overlay, not from `app` -- because `_dump_tree`'s
+		## `max_depth` is 7 and both overlays sit deeper than that.** Both are
+		## added to `_phone_root` (grep `_phone_root.add_child(_phone_overflow_
+		## pop)` and `_phone_root.add_child(_phone_menu)` in `dcc_shell.gd`), and
+		## the walk from `app` runs out of depth above them.
+		##
+		## Measured 2026-09-06, `--vp 1080x2400 --tag phone1080 --force-touch`,
+		## counting dump lines per screen block (the `=== ... ===` header itself
+		## excluded), with `func(): return app` as the root here versus the
+		## surface:
+		##
+		##   phone_overflow_popover   74 -> 24 lines
+		##   phone_overflow_root     102 -> 76 lines
+		##
+		## **The dumps got shorter and started containing the thing they are
+		## named for.** All 74 and all 102 of the old lines were shell chrome
+		## (`TIMELINE · 0 AD`, `⋮`, the scale readout) and **not one row of either
+		## overlay**; the 24 now are the popover's three rows -- `Save project |
+		## —`, `Theme | light`, `Close world`, the first two carrying the exact
+		## strings `_set_phone_overflow_open()` writes -- and the 76 are
+		## `PhoneMenu`'s `MORE` header and its scrolling row list.
+		##
+		## Same failure mode as the `_set_drawer_open` abort this file was
+		## repaired for, one layer quieter: the overlay **does** open --
+		## `_phonesweep_probe.gd`'s uncapped `_measure()` counts 21 tappable / 32
+		## labels for `overflow_popover` against 18 / 26 for `shell_at_rest` at
+		## the same size -- so the PNG was always of the right thing and only the
+		## *dump*, which is this probe's durable product, was of the shell at rest
+		## under an overlay's name. Rooting at the surface is what
+		## `phone_overflow_file` / `phone_overflow_prefs` below already do
+		## (`func(): return pm`).
 		await _screen("phone_overflow_popover", func():
 			await _close()
-			app._set_phone_overflow_open(true), func(): return app)
+			app._set_phone_overflow_open(true),
+			func(): return app.get("_phone_overflow_pop"))
 		await _screen("phone_overflow_root", func():
 			await _close()
-			app._set_overflow_open(true), func(): return app)
+			app._set_overflow_open(true), func(): return app.get("_phone_menu"))
 		## Drill one program menu deep, then one submenu deep -- L3 and L4.
 		var pm = app.get("_phone_menu")
 		if pm != null:

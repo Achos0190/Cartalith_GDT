@@ -224,28 +224,30 @@ static var _cache: Dictionary = {}  ## "name@drawn@raster" -> ImageTexture
 	## Keyed on the *rasterisation* size as well as the drawn one, because the
 	## same 12 px glyph is a 12-texel bitmap in a dock and a 44-texel one in a
 	## content-scaled window, and the two must not share a cache entry.
-
-## What the glyph cache actually holds. **The Performance window's Memory group
-## was its only consumer, and that window was deleted 2026-09-06 (owner ruling 19:
-## the menu rows are the whole surface). `cache_stats()` therefore has ZERO
-## consumers project-wide today** — kept rather than deleted because it is cheap
-## and a diagnostics reader may want it, but a dead-code sweep would be right to
-## take it and should be told this first. Formerly for the Performance window's
-## Memory
-## group. HD-02's finer raster is the one hi-DPI cost that could plausibly have
-## been large, so it is reported rather than argued about: measured 2026-08-25
-## on the OnePlus 6T at `_phone_scale` 2.748, **389.4 KiB with a world up**,
-## against 500.9 MiB of canvas vertex buffers in the same frame. See
-## `MEMORY_OPTIMIZATION_SCOPE.md`'s hi-DPI section for the full bisection.
-static func cache_stats() -> Dictionary:
-	var bytes := 0
-	for k in _cache.keys():
-		var t := _cache[k] as ImageTexture
-		if t != null:
-			var im := t.get_image()
-			if im != null:
-				bytes += im.get_width() * im.get_height() * 4
-	return {"entries": _cache.size(), "bytes": bytes}
+	##
+	## **What it costs, since that is the whole question HD-02 raised.** The
+	## finer raster the file header argues for is the one hi-DPI cost that
+	## could plausibly have been large, and it was measured rather than argued
+	## about: 2026-08-25 on the OnePlus 6T at `_phone_scale` 2.748, **65
+	## entries / 389.4 KiB with a world up**, against 500.9 MiB of canvas
+	## vertex buffers in the same frame. `MEMORY_OPTIMIZATION_SCOPE.md`'s
+	## hi-DPI section carries the full bisection.
+	##
+	## That figure used to be read live by `cache_stats()`, which walked this
+	## dictionary and returned `{entries, bytes}` for the Performance window's
+	## Memory group. **The window was deleted 2026-09-06 (owner ruling 19: the
+	## menu rows are the whole surface) and this function was deleted the same
+	## day**, leaving the measurement here, where the design decision it
+	## settled lives. Ruling 22's own test is which half of it a dead function
+	## is: `--good` / `--accH` stayed because being unused is *fidelity to the
+	## prototype*, `init_gpu_f64` went because it was residue with no caller.
+	## Nothing in the reference or the canvases has a glyph cache to be
+	## faithful to, so this was the second kind. The other honest end --
+	## `OUTSTANDING_WORK.md` offered "wire it into the diagnostic report or
+	## delete it" -- would put an eight-line reader back in
+	## `diagnostic_report.gd::manifest()`; the loop was
+	## `_cache[k].get_image()`, `w * h * 4` summed, and is cheaper to rewrite
+	## than to keep waiting for a consumer.
 
 ## Rasterise `name` and return a texture drawn in white, presenting at `px`.
 ## Tint it with `modulate` on whatever displays it -- never bake a colour in, or

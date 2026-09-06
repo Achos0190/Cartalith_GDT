@@ -244,8 +244,11 @@ func _sweep(res_tag: String) -> void:
 	## The picker's own two destinations survive as the dock sheets, and this
 	## sweep covers **one** of them: `_set_sheet_open("left", true)` appears
 	## twice below (the three `domain_*_leftsheet` screens and the flick test)
-	## and `"right"` appears nowhere -- `grep -n "_set_sheet_open" _phonesweep_
-	## probe.gd`, 2026-09-06, three hits, all `"left"`. Stated rather than fixed:
+	## and `"right"` appears nowhere -- `grep -c 'app\._set_sheet_open'
+	## _phonesweep_probe.gd`, 2026-09-06, **3**: the two opens above plus the
+	## flick test's `("left", false)` close. Grep the bare name instead and you
+	## get 5, because this paragraph matches itself twice -- which is why the
+	## command pasted here is anchored on `app.`. Stated rather than fixed:
 	## adding a right-sheet screen is a coverage decision for whoever owns this
 	## sweep, not a repair of a call that stopped resolving.
 	await _screen("search_overlay", res_tag, func():

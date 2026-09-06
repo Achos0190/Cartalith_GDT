@@ -1546,8 +1546,27 @@ func _build_timeline_expanded() -> void:
 	## The speed pill group. `DccWidgets.segment()`/`set_segment_on()` is this
 	## shell's own lit-one-of-a-set control, so the group reads like every other
 	## segmented row rather than like a second vocabulary invented here.
+	##
+	## **Floored here, because `segment()` applies the wrong tier to this one
+	## group.** `segment()` is §57's tier B and sets `role_px("chip_min_h")`
+	## (`[0, 34]`) -- correct for a mode chip, and `ROLE`'s own comment on
+	## `btn_min_h` names the tier-A set as *"Commit/discard, transport,
+	## **speed**"*. So the speed pills are tier A by the table's own words and
+	## were being built at tier B. Corrected at the call site rather than in
+	## `segment()`, which dozens of real mode chips share.
+	##
+	## **They drew 44 anyway, and that is the reason this is worth writing
+	## down rather than leaving alone.** `_tlfloor_probe.gd --tablet` measured
+	## every pill at 44.0 px before this floor existed: an `HBoxContainer`
+	## stretches its children to the row's height, and the row is 44 because
+	## `_tl_square()` floors the three transport squares. The drawn height was
+	## therefore borrowed from a *sibling* -- shrink or remove the transport and
+	## all three pills silently drop to 34 with nothing failing. The declared
+	## floor is now the same 44 the row draws.
 	for mult in TL_SPEEDS:
 		var seg := DccWidgets.segment(t, "×%d" % mult, tl_set_speed.bind(mult))
+		seg.custom_minimum_size.y = maxf(seg.custom_minimum_size.y,
+			float(DccTheme.role_px("btn_min_h")))
 		seg.tooltip_text = ("How far the year cursor moves per step, and per 600 ms of "
 			+ "playback: %d year%s." % [mult, "" if mult == 1 else "s"])
 		_tl_speed_segments[mult] = seg
@@ -1580,6 +1599,23 @@ func _build_timeline_expanded() -> void:
 		_tl_expanded = false
 		_fill_timeline_strip())
 	collapse.tooltip_text = "Collapse the timeline back to one row."
+	## **The narrowest target on the row, and the floor that reaches every other
+	## one misses it.** `text_button()` is borderless and sized by its own text,
+	## so a one-glyph `⌄` at `FS_MICRO` measures **7 px wide**: measured at both
+	## pointer and tablet by `_tlfloor_probe.gd` (7.0 x 24.0 px DESKTOP, 7.0 x
+	## 44.0 px TABLET before this line). The height was never the problem -- the
+	## `HBoxContainer` stretches it to the transport's 44 -- and the width is
+	## about a fifth of the floor.
+	##
+	## `text_button()` carries a tap floor of its own and it is `is_phone()`
+	## only, which is right where it is: it is the *phone* factory's floor
+	## (`PHONE_TAP_MIN * phone_scale`), and the phone never builds this row.
+	## Tablet has no equivalent -- `DccShell.tablet_fit()` is only ever called
+	## on `tool_options_row` -- so the floor is applied here, the same way and
+	## for the same reason `_tl_square()` applies it to the transport.
+	var chev_floor := float(DccTheme.role_px("btn_min_h"))
+	collapse.custom_minimum_size.x = maxf(collapse.custom_minimum_size.x, chev_floor)
+	collapse.custom_minimum_size.y = maxf(collapse.custom_minimum_size.y, chev_floor)
 
 	# Row 2 -- the scrub track.
 	col.add_child(_build_timeline_scrub())
@@ -1616,8 +1652,18 @@ func _tl_square(parent: Control, glyph: String, token: String, on_press: Callabl
 	## §57's tier A: transport is one of the three controls the tablet artboard
 	## floors at 44. `role_px` answers 0 on the desktop, which means "the design
 	## states no constraint" -- see `ROLE`'s own note -- so this only ever grows.
-	b.custom_minimum_size.y = maxf(b.custom_minimum_size.y,
-		float(DccTheme.role_px("btn_min_h")))
+	##
+	## **Both axes, and the width was the half that was missing.** This line
+	## floored `y` alone until 2026-09-06, and `_menu_square()` hands back
+	## `Vector2(MENU_CTL[1], MENU_CTL[1])` = 36 x 36 on touch -- so the square
+	## drew **36 x 44** at tablet while `Timeline.dc.html` board H draws all
+	## three of them at `width:44px;height:44px`. Measured, not reasoned about:
+	## `_tlfloor_probe.gd --tablet` read 36.0 x 44.0 px before this line and
+	## 44.0 x 44.0 after. A tap floor is a floor on the target, not on its
+	## taller axis, and 36 px is the axis a thumb actually misses.
+	var floor_px := float(DccTheme.role_px("btn_min_h"))
+	b.custom_minimum_size.y = maxf(b.custom_minimum_size.y, floor_px)
+	b.custom_minimum_size.x = maxf(b.custom_minimum_size.x, floor_px)
 	parent.add_child(b)
 	_tl_transport.append(b)
 	return b
@@ -1651,6 +1697,17 @@ func _tl_square(parent: Control, glyph: String, token: String, on_press: Callabl
 ## so it is the design's figure rather than an accident -- recorded because the
 ## previous occupant of this strip was `clip_text`ed for exactly this reason and
 ## the next reader will otherwise wonder why this one is not.
+##
+## **The figure, measured** (2026-09-06, `_tlfloor_probe.gd`, headless,
+## `timeline_row.get_combined_minimum_size().x` off the shipped row): **783 px
+## at DESKTOP**, **1155 px at TABLET**. "Around 850" above is an estimate and is
+## left as one; these two are readings. The tablet figure includes the +61 px
+## the touch floors on this row cost (transport 3 x 36 -> 3 x 44, chevron 7 ->
+## 44), and the row still fits at all three tablet widths sampled -- 2560, 1600
+## and 1400, where it is given 2532 / 1572 / 1372 px. **The timeline bar spans
+## the whole window and does not share its width with the docks**, which is why
+## the 400 + 400 tablet dock pair does not enter this sum; the "rail + docks"
+## arithmetic above is about the *window's* floor, not this row's space.
 func _build_timeline_layers(parent: Control) -> void:
 	for row in TL_LAYERS:
 		var id := String(row[0])

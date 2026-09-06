@@ -198,8 +198,33 @@ impl INode for WalkingSkeleton {
 
 #[godot_api]
 impl WalkingSkeleton {
-    /// Round-trips a value through Rust so GDScript can confirm the
-    /// extension is actually loaded, not just present on disk.
+    /// Round-trips a value through Rust so a caller can confirm the extension
+    /// is actually loaded, not just present on disk.
+    ///
+    /// **No GDScript caller, and the shell is not going to grow one.**
+    /// Re-derived 2026-09-06 over all 468 `#[func]`s against every `.gd` call
+    /// site in `godot-project/`: this is one of eight nothing reaches, and it
+    /// is the only one whose *class* is unreached too — `WalkingSkeleton`
+    /// appears in no `.tscn`, no `.gd` and no `project.godot` key. The
+    /// sentence above used to read "so GDScript can confirm", which invited
+    /// exactly the reading that a confirmation path exists somewhere.
+    ///
+    /// It does not, and does not need to. `EngineBridge` names the type at its
+    /// own `var world_gen: WorldGen = WorldGen.new()` member initialiser, so a
+    /// build where the extension did not load has no `WorldGen` identifier for
+    /// that script to resolve at all — the shell cannot reach a state where it
+    /// would need to ask. Whether it is the *right* library is the separate
+    /// question `EngineBridge._has()` answers, per binding, naming the missing
+    /// one in its warning. A `ping` forwarder would answer neither question
+    /// better, from a class no scene instantiates — a second dead end rather
+    /// than a fix.
+    ///
+    /// Kept as the Phase 0 smoke entry point the module doc above describes:
+    /// `godot --headless -s` a one-line script against a fresh export and
+    /// this is the cheapest proof the `.dll`/`.so` in it is loadable at all,
+    /// before any world exists to ask `WorldGen` about. That is a build-
+    /// verification tool, not shell surface, which is why it stays and why
+    /// nothing calls it.
     #[func]
     fn ping(&self) -> GString {
         GString::from("cartalith-godot: pong")
@@ -11426,8 +11451,28 @@ impl WorldGen {
         labels.delete(i)
     }
 
-    /// Drops every label and ends any edit session. A no-op before any
-    /// `generate()` call.
+    /// Drops every **hand-placed** label and ends any edit session. A no-op
+    /// before any `generate()` call.
+    ///
+    /// **The generated run survives this, and that used to be undisclosed.**
+    /// This line read "drops every label"; `LabelBridge::clear_all` clears
+    /// `self.labels` and `self.selection` and does not touch `self.generated`,
+    /// so `labels_render_list()` — which is `render_order()`, generated first
+    /// then hand-placed — keeps returning every label the pass placed. The
+    /// shell's own control agrees with the code rather than with the old
+    /// sentence: `cartography_workspace.gd`'s *Clear all labels* sits in the
+    /// **Region labels** section, counts `label_list()` (hand-placed only) in
+    /// its own caption, and its tooltip says "Removes all N placed labels".
+    ///
+    /// [`Self::labels_clear_generated`] is the other half, and **nothing calls
+    /// it** — no forwarder, no shell caller, no probe (re-derived 2026-09-06;
+    /// see `engine_bridge.gd`'s "Bindings with no forwarder" register for the
+    /// per-binding reasons). Wiring it here would be a behaviour change with a
+    /// UI consequence rather than a tidy-up: the pass re-runs only from
+    /// `_regenerate_labels()`, which fires on `generation_finished` and
+    /// `world_loaded` and on a class dial's release — so a *Clear all* that
+    /// also dropped the run would leave the user no route back to their
+    /// generated labels short of nudging a dial.
     #[func]
     fn label_clear_all(&mut self) {
         if let Some(labels) = self.labels.as_mut() {

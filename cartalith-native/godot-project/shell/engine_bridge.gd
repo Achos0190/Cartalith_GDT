@@ -364,6 +364,114 @@ func _has(method: String) -> bool:
 func missing_bindings() -> PackedStringArray:
 	return PackedStringArray(_missing_bindings.keys())
 
+# -- Bindings with no forwarder, and why ---------------------------------------
+#
+# `_has()` above catches the *stale binary* case: the engine is older than the
+# shell and a real binding is missing from it. This section is the other case,
+# and the two get confused. A `#[func]` this file carries no wrapper for is
+# invisible to the whole shell however healthy the `.dll` is, and the error a
+# caller gets says nothing about the engine at all:
+#
+#   Nonexistent function 'X' in base 'Node (EngineBridge)'
+#
+# That has been read as a stale build twice in one week. It is not; it is this
+# file being short a five-line wrapper, and the fix is here, not a rebuild.
+#
+# **Re-derived 2026-09-06.** All 468 `#[func]` attributes under
+# `crates/cartalith-godot/src/`, matched against every `.gd` file in
+# `godot-project/` -- probes included, 439 files when this was derived, a
+# count that moves as probes land, so re-derive rather than trust it. Method:
+# take every bare `#[func]` line and the `fn <name>` under it; cut every `.gd`
+# line at its first unquoted `#`; report each name with no `name(` and no
+# `"name"` left.
+# Run with and without the comment strip -- the two answers agree here, which
+# is what says no name is surviving only on a doc mention.
+#
+# Eight names come back, and they are NOT eight gaps. Two are reached by a
+# route the grep cannot see, three are engine surface with the reason already
+# written down beside them, three have no caller today. **A forwarder to a
+# function no screen calls is a second dead end, not a fix**, so none was
+# added. Per binding:
+#
+# REACHED, just not by name from GDScript -- adding a wrapper would duplicate
+# a call the engine already makes for us:
+#
+#   * `asset_library_document_json` -- `project_bridge.rs:2840`,
+#     `project_engine_built_documents()` composes it with the paint, sculpt and
+#     travel document builders, and THAT is forwarded below and called by
+#     `DccApp._project_documents()`. The assets slot reaches every save through
+#     it. (Its three siblings are additionally called direct by
+#     `_verifylanes_probe.gd`, which round-trips paint, sculpt and travel and
+#     skips assets -- a probe coverage gap, not a binding gap.)
+#   * `export_snapshot_png` -- `vault_bridge.rs:790`, inside `vault_snapshot`,
+#     which is forwarded below and called by `vault_window.gd::
+#     _generate_snapshot()`. Every §21 map snapshot goes through it.
+#
+# UNREACHED, with the reason already written down somewhere real -- open that
+# before re-flagging any of these. Two are at the definition, one is on a
+# shipping surface:
+#
+#   * `arc_label_line_width` (`ops_bridge.rs`) -- `map_overlay.gd::_draw_labels`
+#     keeps its own halo width: that file holds no bridge reference and the
+#     expression is inside a per-label draw loop, so a forwarder would add an
+#     FFI round trip per label per frame to save one multiplication. **Its own
+#     doc's grounds are stale and the conclusion is now stronger than they
+#     say.** That doc calls the GDScript copy "one constant apart" and quotes it
+#     as `maxi(1, int(font_px * 0.16))`; measured 2026-09-06, `map_overlay.gd`
+#     reads `float(lb.get("halo_em", LABEL_HALO_EM_FALLBACK))` and then
+#     `0 if halo_em <= 0.0 else int(maxf(1.0, font_px * halo_em))`. So 0.16 is
+#     only the fallback for a row with no class spec, and there is a zero-halo
+#     branch the engine function does not have (it would return 1 there, and the
+#     design's halo slider starts at 0 meaning "no halo"). Routing this through
+#     the binding would now CHANGE what is drawn, not just move the arithmetic.
+#   * `project_read_document` (`project_bridge.rs`) -- carries a "No shell
+#     caller, deliberately" section naming both candidate consumers and why
+#     each was declined. It is the one capability `project_open` structurally
+#     cannot offer (read one document, keep the current world).
+#   * `geojson_inspect` (`geojson_bridge.rs`) -- the reason is already on a
+#     **user-visible** surface: `data_manager_window.gd`'s GeoJSON import route
+#     carries a `reason` string saying the parser and this binding both exist,
+#     that its own doc scopes it to "validates and summarises rather than
+#     importing", and that nothing anywhere turns a parsed feature into a
+#     settlement, a way or a territory cell. A forwarder would let the shell
+#     summarise a file it still cannot ingest. The import path is the work; this
+#     is not the thing blocking it.
+#
+# UNREACHED, no caller today, and the missing piece is NOT the forwarder:
+#
+#   * `ping` (`WalkingSkeleton`, `lib.rs`) -- the Phase 0 load proof, on a class
+#     that appears in no `.tscn` and no `.gd`. This node proves the library
+#     loads by constructing `WorldGen`; `_has()` proves it is the right one.
+#   * `vault_landmark_entity_id` (`vault_bridge.rs`) -- owner ruling 13
+#     (2026-09-06) made `landmark` a vault entity kind and added this as the
+#     only way to turn a `Landmark::key()` into an `entity_id`. **The shell has
+#     no landmark to hand it.** `vault_window.open_for()` is reached from
+#     `place_editor_window.gd` (settlement) and `civilization_workspace.gd::
+#     _knowledge_row()` (faction, province, continent, culture); there is no
+#     per-landmark panel anywhere -- landmarks are drawn on the map
+#     (`viewport_host.gd` -> `overlay.set_landmarks`), counted in the Data
+#     manager and funnelled in `menus.gd`, and never selected as one entity.
+#     The surface comes first; the wrapper is four lines after it exists.
+#   * `labels_clear_generated` (`label_bridge/generate.rs`) -- drops the pass
+#     output and leaves hand-placed labels alone. Its own doc says to call it
+#     "when the world moves underneath it", and the three paths that move the
+#     world drop or replace the whole `LabelBridge` instead, so none of them
+#     needed it -- `absorb` assigns a fresh one, `release_world` and `load_save`
+#     both set it to `None` (`lib.rs`). The path that DOES leave
+#     a stale run is `sculpt_commit()` below, which emits only
+#     `sculpt_draft_changed` -- neither `generation_finished` nor
+#     `world_loaded` -- so `cartography_workspace.gd::_regenerate_labels()`
+#     does not re-run and the map keeps drawing labels placed against the
+#     pre-commit height field. **Clearing there is a UI decision, not a binding
+#     decision**: with no re-run route on that path a clear trades a stale run
+#     for a vanished one, which is the same shape as the `atlas_export_zip`
+#     note further down. Registered rather than wired.
+#
+# `WorldGen::label_clear_all` is NOT the missing caller and was checked: it
+# clears only the hand-placed collection, its shell button lives in the
+# "Region labels" section and counts `label_list()`, and its Rust doc was
+# corrected in the same pass for claiming it dropped every label.
+
 # -- The last-error record ----------------------------------------------------
 #
 # `LARGE_ITEM_RULINGS.md`'s "Build" ruling on `Report an issue` names five
