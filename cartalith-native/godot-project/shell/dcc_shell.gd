@@ -6503,6 +6503,44 @@ func _fill_scope_chips(row: HFlowContainer, res: Dictionary) -> void:
 		var b := DccWidgets.chip(row, "%s %s" % [p, String(sc["label"])], press,
 			on and not declined, _pscale(6), _pscale(2))
 		b.add_theme_font_size_override("font_size", _pfont(9))
+		## **§13's tap floor, phone only -- and it was missing for a day.**
+		## These chips shipped 2026-09-06 at **43 x (147..219) physical px** on
+		## a 1080 x 2340 / 412 dp handset (`_phone_scale` 2.6214), and
+		## `_phonechrome_probe.gd`'s tap-floor walk was printing
+		## `no tap-floor violations got=6` the whole time. They escape
+		## `phone_fit()`'s own floor because the search overlay is not a dock
+		## subtree -- it is hand-sized in `_ptap()`/`_pscale()` the way
+		## `_phone_list_row()`'s `_ptap(52)` is -- so the floor has to be
+		## written here, at the one place this shell builds them.
+		##
+		## **Both axes, and the width half is a no-op today rather than a
+		## guess.** Measured at both densities: the narrowest chip (`r routes`)
+		## is 147 px against the 115 px floor at 1080 px, and 56 dp against 44
+		## at 412 dp, so `custom_minimum_size.x` never binds and the wrap is
+		## unchanged -- 5 chips then 1, two lines, at both. Stated as a mutation
+		## rather than as an intention: replacing this line with
+		## `Vector2(0.0, tap)` leaves `_phonechrome_probe.gd` §4a byte-identical
+		## (all six chips still `*x115`, still two lines, still six result
+		## rows), while `Vector2(tap, 0.0)` turns two of its assertions red.
+		## It is set anyway because that is the shape `phone_fit()` settled on
+		## for every other tappable control in this shell (see its "Both axes
+		## unconditionally" block: the `if min_size.x > 0.0` guard there was the
+		## whole cause of 174 under-floor controls, not a contributing one), and
+		## a scope added with a shorter label would otherwise be small again in
+		## silence. **So no probe covers the width half, and cannot** -- there
+		## is no chip narrow enough to make it bind.
+		##
+		## **The declined `l` chip is floored too, and the reason is not
+		## symmetry.** Exempting it measures 65 dp for the row instead of 92 --
+		## a real saving, and still rejected: `FindOnMap.dc.html`'s own note
+		## says that scope "ships when a placed landmark has one identifying
+		## name", so `why` is a state this row loses, and an exemption keyed on
+		## `disabled` would put a live chip back under the floor the day it
+		## does, silently. It is also the only chip on line two, so at 17 dp it
+		## draws as a runt under a 44 dp line.
+		if _phone:
+			var tap := float(_ptap(DccTheme.PHONE_TAP_MIN))
+			b.custom_minimum_size = Vector2(tap, tap)
 		if declined:
 			b.disabled = true
 			b.tooltip_text = String(sc["why"])
@@ -6600,15 +6638,33 @@ func _build_phone_search_overlay() -> Control:
 	panel.offset_left = 0
 	panel.offset_right = 0
 	panel.offset_top = phone_content_insets().get("top", 0.0)
-	## **360 -> 460, because this pass put chrome inside a fixed box.** Measured
-	## by `_railfind_probe.gd` §K at 412x915, 2026-09-06: the chips row is 38 px
-	## and the count line 13 px, and with the separation they cost the result
-	## scroll 51 px. At 460 the scroll measures 340 px and holds 6 rows of
-	## `_ptap(52)`; at the old 360 those same two rows would have left 240 px, or
-	## 4. Adding chrome to a fixed-height sheet takes the space from whatever was
-	## below it, and here that is the entire result of searching -- so the sheet
-	## grows by more than the chrome rather than the list shrinking.
-	panel.offset_bottom = panel.offset_top + _pscale(460)
+	## **360 -> 460 -> 514, twice for the same reason: this pass put chrome
+	## inside a fixed box.** Measured by `_railfind_probe.gd` §K at 412x915,
+	## windowed, 2026-09-06. The chips row was 38 px and the count line 13, and
+	## with the separation they cost the result scroll 51 px, so 360 -> 460. The
+	## chips then took §13's tap floor (`_fill_scope_chips()`, whose own block
+	## carries the 43 px measurement that forced it) and the row went **38 -> 92
+	## px** -- still two lines of chips, now 44 dp tall instead of 17.
+	##
+	## At 460 that leaves the scroll 286 px, which is **5** rows of `_ptap(52)`,
+	## not 6. At 514 it measures 340 px and holds 6 again -- the same figure the
+	## previous raise bought, and the same rule: adding chrome to a fixed-height
+	## sheet takes the space from whatever was below it, and here that is the
+	## entire result of searching, so the sheet grows by the chrome rather than
+	## the list shrinking. §K's own `fits > 4` would have stayed green through
+	## the drop to 5 -- so the capacity is asserted **by number** in
+	## `_phonechrome_probe.gd` §4a, which is the probe that owns this defect;
+	## §K still prints it and is left as the second density's reading.
+	##
+	## It fits, with room, and at three densities rather than one -- panel
+	## widths and heights here are content-independent but the reserve above
+	## them (`_ptap(H_PHONE_APP_BAR)` + `_safe_top()`) is not. Read off the
+	## probes rather than divided out of one reading: `_phonechrome_probe.gd`
+	## §4a prints **top 220, bottom 1567 of 2340** at 1080x2340, and
+	## `_railfind_probe.gd` §K's `panel.size.y + panel.offset_top <=
+	## viewport.y` passes windowed at 412x915 (sheet 514), 1080x2340 (1347) and
+	## 1440x3168 (1797).
+	panel.offset_bottom = panel.offset_top + _pscale(514)
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)

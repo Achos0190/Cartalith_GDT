@@ -52,13 +52,18 @@ class_name ShortcutsDialog
 ## editable mode marks those rows' tooltip instead of pretending they bind.
 ##
 ## **Conflicts are shown, never blocked** (`GUI_GAP_REGISTER.md` §7.9 item 3,
-## Blender's rule over Photoshop's): rebinding a key already used by another
-## row in the SAME context (the only context this file can see -- see
-## `_conflict_within_menu()`) still applies the change and says which other
-## row now shares it. A key already meaningful in a DIFFERENT context (the
-## armed-tool ladder, a per-domain tool button, the Layers popover) is never
-## flagged at all -- the owner's own example, "the same key means different
-## things with a tool armed", is not a bug this dialog polices.
+## Blender's rule over Photoshop's): rebinding a key already used by other
+## rows in the SAME context (the only context this file can see -- see
+## `_conflicts_within_menu()`) still applies the change and names **every**
+## other row now sharing it, not just the first one found. Eighteen actions
+## route through `DccMenus._bind_accelerator`, so three-way sharing is
+## reachable in a handful of clicks, and a message naming one of two others
+## is a list silently truncated to its first element -- the same shape as
+## reporting a single sample as a measurement. A key already meaningful in a
+## DIFFERENT context (the armed-tool ladder, a per-domain tool button, the
+## Layers popover) is never flagged at all -- the owner's own example, "the
+## same key means different things with a tool armed", is not a bug this
+## dialog polices.
 
 var _app: Node
 var _list: VBoxContainer
@@ -74,7 +79,8 @@ var _status: Label
 ## Populated fresh by every `_rebuild()`, only for rows `_editable` actually
 ## draws a chip for. `id -> {"popup": PopupMenu, "index": int}` -- what a
 ## rebind or a reset needs to reach the live item again; `id -> String` the
-## row's own label, for a conflict message naming the OTHER row.
+## row's own label, for a conflict message naming every OTHER row that
+## already answers to the chord -- so the message is a list, not one name.
 var _capture_popups: Dictionary = {}
 var _capture_labels: Dictionary = {}
 var _capture_chips: Dictionary = {}
@@ -84,6 +90,9 @@ var _capture_chips: Dictionary = {}
 ## (so reopening the dialog, or resetting a row, can never leave a chip
 ## stuck reading "Press a key…" for an action that no longer exists at that
 ## popup/index).
+##
+## **Never assigned directly -- always through [`_set_capturing`]**, which
+## owns the `dialog_close_on_escape` half of the same state.
 var _capturing_id := -1
 
 ## Shortcuts that exist but have no menu row to read them from. Each carries
@@ -166,7 +175,7 @@ func _rebuild() -> void:
 	_capture_popups.clear()
 	_capture_labels.clear()
 	_capture_chips.clear()
-	_capturing_id = -1
+	_set_capturing(-1)
 
 	var found := 0
 	for entry in _collect_from_menus():
@@ -314,10 +323,28 @@ func _fixed_row(menu_name: String, accel: String, label: String) -> void:
 
 # -- Rebinding (editable mode only) --------------------------------------------
 
+## `_capturing_id` and `dialog_close_on_escape` are one state, so one function
+## writes both and no caller has to remember the second half.
+##
+## **Escape has to mean two different things here, and `AcceptDialog` only
+## knows one of them.** Idle, Escape closes the dialog, which is how a reader
+## gets out of a reference sheet and must keep working. Mid-capture, the
+## chip's own tooltip promises "Esc cancels" -- and `AcceptDialog` consumes
+## `ui_cancel` in `_input_from_window` whether or not `_unhandled_key_input`
+## below already handled it, so before this the promise was **half true**: the
+## capture did abort, and the whole dialog vanished with it, taking any
+## conflict line in `_status` along. Measured with real routed input rather
+## than reasoned about -- `_chordcap_probe.gd` §B pushes an `InputEventKey`
+## through the owning viewport and asserts `visible` afterwards; the same
+## assertion fails on the version before this function existed.
+func _set_capturing(id: int) -> void:
+	_capturing_id = id
+	dialog_close_on_escape = (id == -1)
+
 func _begin_capture(id: int) -> void:
 	if _capturing_id != -1 and _capturing_id != id:
 		_end_capture_visual(_capturing_id)
-	_capturing_id = id
+	_set_capturing(id)
 	_status.text = ""
 	var chip: Button = _capture_chips.get(id)
 	if chip != null:
@@ -348,17 +375,33 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		return
 	var id := _capturing_id
 	if event.keycode == KEY_ESCAPE:
-		_capturing_id = -1
+		_set_capturing(-1)
 		_end_capture_visual(id)
 		get_viewport().set_input_as_handled()
 		return
 	if event.keycode in [KEY_CTRL, KEY_SHIFT, KEY_ALT, KEY_META]:
 		return   ## a bare modifier -- keep waiting for the real key
+	## **An unmappable key must not be committed, because `0` is this dialog's
+	## own spelling of "no shortcut" and committing it DESTROYS the row.**
+	## `get_keycode_with_modifiers()` returns 0 for a key Godot cannot map, and
+	## `set_shortcut_binding(.., 0)` persists that as an override -- after which
+	## `_walk_popup` skips the row (it collects only `accel != 0`), so the entry
+	## leaves the generated table **and takes its own rebind chip with it**. Only
+	## Restore all brings it back. Found by a verifier 2026-09-06 by pushing a
+	## keycode-0 event at Undo, desktop and phone: `268435546 -> 0`, persisted,
+	## row gone. The probe assertion that should have caught it checked a FRESH
+	## boot, where no override exists, so it passed vacuously.
+	##
+	## Keep waiting rather than aborting: the user pressed something, and
+	## silently closing the capture would read as "it took it".
+	var accel: int = event.get_keycode_with_modifiers()
+	if accel == 0:
+		return
 	get_viewport().set_input_as_handled()
-	_commit_capture(id, event.get_keycode_with_modifiers())
+	_commit_capture(id, accel)
 
 func _commit_capture(id: int, accel: int) -> void:
-	_capturing_id = -1
+	_set_capturing(-1)
 	var pi: Dictionary = _capture_popups.get(id, {})
 	if pi.is_empty():
 		return
@@ -368,35 +411,59 @@ func _commit_capture(id: int, accel: int) -> void:
 	## The live reapply -- no restart, no menu rebuild. This one call is what
 	## makes the write above actually true the instant it happens.
 	popup.set_item_accelerator(index, accel)
-	var collide := _conflict_within_menu(id, accel)
-	if collide != -1:
-		## Blender's rule, not Photoshop's (`GUI_GAP_REGISTER.md` §7.9 item 3):
-		## shown, never blocked. Both rows still fire; which one a duplicate
-		## accelerator reaches first is Godot's popup match order, not this
-		## dialog's business to hide.
-		_status.text = "Also bound to \"%s\" -- both will fire until one of them changes." % String(_capture_labels.get(collide, "?"))
-	else:
-		_status.text = ""
+	## Blender's rule, not Photoshop's (`GUI_GAP_REGISTER.md` §7.9 item 3):
+	## shown, never blocked. Every one of these rows still fires; which one a
+	## duplicate accelerator reaches first is Godot's popup match order, not
+	## this dialog's business to hide -- so the reader is told the whole set
+	## and decides, rather than being handed the first name and left to
+	## discover the rest by pressing the key.
+	_status.text = _collision_text(_conflicts_within_menu(id, accel))
 	## Cheapest correct refresh: the row's own "reset" control just became
 	## live-or-not, and a second code path that patches one row in place
 	## would be a second place for that to drift from `_row()` itself.
 	_rebuild()
 
-## The other action already bound to `accel` in this same walk, or `-1`.
-## Scoped to `_capture_popups`' own ids on purpose -- they are, by
-## construction, exactly the ids `DccMenus.is_rebindable_shortcut()` knows
-## about, which is the entire "menu" context. A key meaningful in a
-## different context never appears here to begin with, so it can never be
-## reported as a conflict -- the owner's ruling, enforced by what this dict
-## does and does not contain rather than by a second check.
-func _conflict_within_menu(exclude_id: int, accel: int) -> int:
+## EVERY other action already bound to `accel` in this same walk, in menu
+## order; empty when the chord is unique. Scoped to `_capture_popups`' own
+## ids on purpose -- they are, by construction, exactly the ids
+## `DccMenus.is_rebindable_shortcut()` knows about, which is the entire
+## "menu" context. A key meaningful in a different context never appears here
+## to begin with, so it can never be reported as a conflict -- the owner's
+## ruling, enforced by what this dict does and does not contain rather than
+## by a second check.
+##
+## Returns a list rather than the first hit: this walk sees eighteen
+## rebindable actions and nothing stops three of them sharing a chord, at
+## which point "the other row" is not a thing that exists.
+func _conflicts_within_menu(exclude_id: int, accel: int) -> Array:
+	var out: Array = []
 	for other_id in _capture_popups.keys():
 		if other_id == exclude_id:
 			continue
 		var pi: Dictionary = _capture_popups[other_id]
 		if (pi["popup"] as PopupMenu).get_item_accelerator(int(pi["index"])) == accel:
-			return other_id
-	return -1
+			out.append(other_id)
+	return out
+
+## The status line for a conflict set -- `""` for none, so the caller can
+## assign it unconditionally and an empty line always means "no conflict"
+## rather than "not checked".
+##
+## The counting word is written from the set's real size (`both` for one
+## other, `all three` for two, `all N` beyond) because a fixed "both" in
+## front of three names is a sentence that contradicts its own list.
+func _collision_text(others: Array) -> String:
+	if others.is_empty():
+		return ""
+	var names := PackedStringArray()
+	for other_id in others:
+		names.append("\"%s\"" % String(_capture_labels.get(other_id, "?")))
+	var joined := String(names[0])
+	if names.size() > 1:
+		joined = ", ".join(names.slice(0, names.size() - 1)) + " and " + names[names.size() - 1]
+	var total := others.size() + 1
+	var how_many := "both" if total == 2 else ("all three" if total == 3 else "all %d" % total)
+	return "Also bound to %s -- %s will fire until one of them changes." % [joined, how_many]
 
 func _reset_one(id: int) -> void:
 	var pi: Dictionary = _capture_popups.get(id, {})

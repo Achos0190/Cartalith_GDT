@@ -435,6 +435,80 @@ func _ready() -> void:
 	var violations: int = _tap_walk(app, floor_px)
 	_ok("no tap-floor violations", violations, 0)
 
+	print("\n=== 4a: the six scope chips, by name, and what the sheet paid ===")
+	## **This section is named for a number nobody read.** `_tap_walk()` above
+	## printed `no tap-floor violations   got=6` from the day the Find-on-map
+	## scope chips shipped: the six `_fill_scope_chips()` buttons at 43 px
+	## against the 115 px floor, on screen, in a batch that was otherwise
+	## verified. The shell now floors them -- and re-running the walk is *not*
+	## enough coverage on its own, for two reasons worth writing down:
+	##
+	##   1. The walk only sees these chips because section 2 opened the search
+	##      overlay once. Nothing warms it in section 4, and an UNLAID control
+	##      is skipped, not failed -- so deleting section 2 would take the
+	##      chips out of the walk and leave it printing zero.
+	##   2. A `phone_fit()` reaching this subtree some day would flip them to
+	##      `MOUSE_FILTER_PASS` and drop them out of the STOP filter entirely,
+	##      which is the exact way `_tap_walk()` went blind on the Journey
+	##      planner (see `_fit_walk()`'s header).
+	##
+	## So the chips are asserted BY NAME here, both axes, and the two things
+	## the fix traded against each other are asserted as numbers rather than
+	## as inequalities: the wrap (two lines, which is the claim
+	## `journey_planner_view.gd` quotes from this shell) and the result
+	## capacity the sheet was grown from 460 to 514 to keep (six rows). An
+	## inequality is what let the drop from 6 rows to 5 stay green in
+	## `_railfind_probe.gd` §K's `fits > 4` while this was being written.
+	app.call("_set_search_open", true)
+	await _frames(10)
+	var s_overlay: Control = app.get("_phone_search_overlay")
+	var s_chips: Control = app.get("_phone_search_chips")
+	_ok("the search sheet is open", s_overlay != null and s_overlay.visible, true)
+	var chip_btns: Array = []
+	for c in s_chips.get_children():
+		if c is Button and not c.is_queued_for_deletion():
+			chip_btns.append(c)
+	_ok("all six scope chips are drawn", chip_btns.size(), 6)
+	var chip_low := 0
+	var chip_unlaid := 0
+	var chip_rows := {}
+	var chip_desc: PackedStringArray = []
+	for c in chip_btns:
+		var cb := c as Button
+		chip_rows[int(round(cb.position.y))] = true
+		chip_desc.append("%s %.0fx%.0f" % [cb.text.split(" ")[0], cb.size.x, cb.size.y])
+		if cb.size.x <= 0.5 or cb.size.y <= 0.5:
+			chip_unlaid += 1
+			print("  UNLAID chip ", cb.text, " size=", cb.size)
+		elif cb.size.x < floor_px - 0.5 or cb.size.y < floor_px - 0.5:
+			chip_low += 1
+			print("  UNDER FLOOR ", cb.text, " size=", cb.size, " floor=", floor_px)
+	print("  info scope chips: ", " · ".join(chip_desc), "   floor=", floor_px)
+	## A chip that never laid out has a size that measures nothing, so the
+	## floor check below would pass on it vacuously -- the same UNLAID rule
+	## both walks above use, asserted here rather than only printed.
+	_ok("every scope chip was laid out", chip_unlaid, 0)
+	_ok("no scope chip is under the tap floor (the `got=6` this is named for)",
+		chip_low, 0)
+	## Two lines, by distinct `position.y`. Flooring adds height and not width
+	## -- the narrowest chip's own content already clears the floor -- so the
+	## wrap must be exactly what it was. One line here would mean the chips
+	## shrank; three would mean the width floor started binding.
+	_ok("the chips still wrap onto two lines", chip_rows.size(), 2)
+	var s_panel: Control = s_overlay.get_child(s_overlay.get_child_count() - 1)
+	var s_results: Control = app.get("_phone_search_results")
+	var s_scroll: Control = s_results.get_parent()
+	var s_row_h: float = float(app.call("_ptap", 52))
+	var s_fits: int = int(s_scroll.size.y / s_row_h) if s_row_h > 0.0 else 0
+	print("  info sheet %.0f px (top %.0f, bottom %.0f of %d) · chips %.0f px · scroll %.0f px · row %.0f px"
+		% [s_panel.size.y, s_panel.offset_top, s_panel.size.y + s_panel.offset_top,
+			vp.size.y, s_chips.size.y, s_scroll.size.y, s_row_h])
+	_ok("the result scroll still holds six rows of _ptap(52)", s_fits, 6)
+	_ok("the sheet still fits above the bottom edge",
+		s_panel.size.y + s_panel.offset_top <= float(vp.size.y), true)
+	app.call("_set_search_open", false)
+	await _frames(2)
+
 	print("\n=== 5: exactly two coach marks, both marked seen after showing once ===")
 	var ids: Array = app.call("_coach_mark_ids")
 	_ok("exactly two coach marks are defined", ids.size(), 2)
