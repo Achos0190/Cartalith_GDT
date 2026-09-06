@@ -490,7 +490,6 @@ var _phone_clock_label: Label
 var _phone_battery_label: Label
 var _phone_side_clock_label: Label     ## Landscape's rotated-pocket twins of
 var _phone_side_battery_label: Label   ## the two above -- see `_build_phone_side_safe()`.
-var _phone_panel_picker: Control
 var _phone_menu_bar: Control    ## L1 of the phone disclosure tree -- the bottom
 	## bar. Named handle because `_phone_bottom_reserve()` has to measure it.
 var _phone_menu: PhoneMenu      ## L2-L5. Replaces the old `_phone_overflow`
@@ -860,11 +859,14 @@ func _pscale(px: float) -> int:
 ## (40 < 44); every other `_ptap()` call in this file already passes >= 44 and
 ## is bit-for-bit unchanged (verified: for px >= 44 and scale >= 1,
 ## `maxi(44, pscale(px))` and `pscale(maxf(44,px))` are the same value, since
-## `pscale(px) >= px >= 44` already). At scale 2.621 the app bar's ☰/▤/⌕ cells
+## `pscale(px) >= px >= 44` already). At scale 2.621 the app bar's glyph cells
 ## grow from 105 to `_pscale(44)` = 115 physical px (+10, ~9%) -- still well
 ## inside the app bar's own `_ptap(H_PHONE_APP_BAR)` = 147 px height, and the
-## three-cell-plus-wordmark row still fits its widest measured target (720 px
-## short side) with over 200 px to spare for "CARTALITH" + the seed subtitle.
+## row still fits its widest measured target (720 px short side) with room to
+## spare for "CARTALITH" + the seed subtitle. **That measurement was taken
+## against the four-cell row `☰ ⌕ ▤ ⋮`; ruling 20 has since cut it to `⌕ ⋮`
+## beside the world pill (`_build_phone_app_bar()`), so the headroom is larger
+## now, not smaller, and the figure above is left as the worst case it was.**
 ## No collision found; see `_phonechrome_probe.gd`'s tap-floor walk for the
 ## general assertion this fix needed and the old code would have failed.
 func _ptap(px: float) -> int:
@@ -4559,9 +4561,6 @@ func _build_phone_shell() -> void:
 	_phone_side_safe = _build_phone_side_safe()
 	_phone_root.add_child(_phone_side_safe)
 
-	_phone_panel_picker = _build_phone_panel_picker()
-	_phone_root.add_child(_phone_panel_picker)
-
 	## `⌕`'s destination. Built and added unconditionally -- unlike the app
 	## bar's cell, which only draws when `_has_place_search()` is true, this
 	## costs nothing sitting hidden and `open_find_on_map()` (called from
@@ -4749,80 +4748,129 @@ func _build_phone_side_safe() -> Control:
 	col.add_child(bot_pad)
 	return wrap
 
-## The app bar. `design/Cartalith Android Phone.dc.html` screen 01:
-## `height:56px;display:flex;align-items:center;gap:14px;padding:0 12px;
-## border-bottom:1px solid rgba(255,255,255,.09)`, carrying `☰` (16 px) / title
-## over seed / `⌕` / `⋮` in 40 dp cells.
+## The app bar: **`[world pill] · ⌕ · ⋮`**, three cells, owner ruling 20
+## (2026-09-06).
 ##
-## One of the canvas's four cells is still not built, for a stated reason, and
-## a second is now live where this comment used to say it could not be:
+## `design/dcc-environment-2026-08-31/Cartalith Android.dc.html:79-88` is the
+## drawing, and it is the newer of the two Android canvases, so `CLAUDE.md`'s
+## "the newer canvas wins" settles it against `design/Cartalith Android
+## Phone.dc.html` screen 01, which drew `☰ / title over seed / ⌕ / ⋮`:
 ##
-##   - **`⋮` is built now.** It used to be declined here, on the reasoning that
-##     the 2026-08-30 canvas drew it as a *contextual* overflow with nothing
-##     per-screen to put behind it. **That reason expired on 2026-08-31**, when
-##     `design/dcc-environment-2026-08-31/Cartalith Android.dc.html` defined it
-##     exactly: `hMenu` (`:89-95`, `:897`) opens a 230 dp popover carrying
-##     `Save project` + `savedAt`, `Theme` + `themeLabel`, and `Close world`.
-##     All three destinations already exist in this shell, and `CLAUDE.md`'s
-##     "the newer canvas wins" settles which drawing to build. It is *not* a
-##     duplicate of the MORE tab: MORE is the program-menu tree, this is three
+##   `gap:8px;padding:4px 10px 0` over a row of
+##   - the **world pill**: `flex:1;padding:8px 14px;border-radius:20px;
+##     background:{{pillBg}};border:1px solid var(--hair)`, carrying
+##     `{{worldName}}` (`500 11.5px Plex, letter-spacing:.2em, --ink`) over
+##     `{{worldMeta}}` (`9.5px Plex, --dim`),
+##   - `⌕` and `⋮`: `width:44px;height:44px;border-radius:22px` on the same
+##     `pillBg` fill and `--hair` border.
+##
+## ## The two cells that were here and are not
+##
+## **`☰` (domain drawer) and `▤` (panels) are gone, and the ruling's binding
+## condition was that nothing they reached goes with them.** Measured before
+## deleting either, not reasoned about, by `_appbar20_probe.gd` at 1080x2400
+## `--force-touch`:
+##
+## | pressed | reached |
+## |---|---|
+## | `☰` Domain panel | `left=true right=false picker=false` |
+## | `▤` Panels | the panel-picker overlay (`picker=true`) |
+## | picker ▸ Left panel | `left=true` |
+## | picker ▸ Right panel | `right=true` |
+##
+## So the destination set behind the pair is exactly **{left dock sheet, right
+## dock sheet}** — `▤` opened a *router*, not a destination of its own. Both
+## survive, on a route the same probe drove end to end through the drawn rows:
+## MORE ▸ `Window` ▸ `Left dock` flips `_left_sheet_open` false→true, and
+## `Right dock` flips `_right_sheet_open`. Ground truth off the live `MenuBar`
+## in the same run: `Left dock[on] · Right dock[on] · Timeline[on] · Status
+## bar[on] · Domain rail[on] · …` — every row enabled, so neither is a drawn
+## row with a disabled destination. `DccApp.toggle_region()` is what those two
+## rows reach, and its `is_phone()` branch routes both through
+## `_set_sheet_open()` rather than writing `visible` (its own comment says
+## why).
+##
+## The panel picker itself went with `▤` in the same pass: it was a two-row
+## chooser between those two sheets and `▤` was its only entry, so keeping it
+## would have left the built-and-unwired surface this file's own history keeps
+## finding. `MORE ▸ Window` carries both rows and one more (`Timeline`,
+## `Status bar`, `Domain rail`) than the picker ever did.
+##
+## ## What is still owed, so it is not read as built
+##
+## The canvas draws this row **floating over the map** (`position:absolute;
+## z-index:8`, no bar, no bottom rule) and splits the pill into a world *name*
+## over `seed · status`. This keeps the `PanelContainer` bar, its
+## `H_PHONE_APP_BAR` height and its bottom hairline, because the chrome column,
+## `phone_content_insets()` and `_apply_phone_orientation()` are all measured
+## against a bar that occupies height — that is stage 3 of the shell rebuild,
+## which is what the ruling says adopting this canvas scopes. And the shell has
+## no world *name* to put on the pill's first line: `ELDRA` is a literal in
+## `app.gd`'s `set_status("top_world", "ELDRA · %d" % seed)`, so the pill keeps
+## drawing `CARTALITH` over that slot rather than splitting a hardcoded string
+## in two and presenting half of it as a world's name.
+##
+## ## The two cells that stayed
+##
+##   - **`⋮`.** `design/dcc-environment-2026-08-31/Cartalith Android.dc.html`'s
+##     `hMenu` (`:89-95`, `:897`) opens a 230 dp popover carrying `Save
+##     project` + `savedAt`, `Theme` + `themeLabel`, and `Close world`. All
+##     three destinations already exist in this shell. It is *not* a duplicate
+##     of the MORE tab: MORE is the program-menu tree, this is three
 ##     document-level actions, which is the split the canvas itself draws by
 ##     giving the phone both.
-##   - **`⌕` is built now.** This comment used to say it had "no destination"
-##     because `menus.gd`'s Edit ▸ Find on map… was a disabled `_todo()` row
-##     reasoning "no search index yet" -- true when it was written and false
-##     the moment `shell/place_search.gd` landed, which left the sentence
-##     exactly as stale as the ones this session has been correcting all week
-##     elsewhere in this file. `open_find_on_map()` below is the real
-##     destination now, on both the phone (a full-width overlay, built here)
-##     and the desktop (`menus.gd`'s row calls `_host.open_find_on_map()`,
-##     which this file answers with an `AcceptDialog`). Drawn, not text: `⌕`
-##     (U+2315) is the one glyph `dcc_icons.gd`'s own header names as missing
-##     from Plex Mono's fallback chain, the same reason that file drew a
-##     `PATHS["search"]` icon instead of listing it in `SYMBOLS` -- so this
-##     cell is the one `_phone_bar_button()` call in this bar passing
-##     `icon_name` instead of a `SYMBOLS` glyph string. **Guarded**, the same
-##     way the cell disappears if `place_search.gd` is missing: no affordance
-##     with nothing behind it, in either direction.
-##   - **`▤`** was here and is the bottom bar's PANELS tab now.
+##   - **`⌕`.** `open_find_on_map()` below is the destination, on both the
+##     phone (a full-width overlay, built here) and the desktop (`menus.gd`'s
+##     row calls `_host.open_find_on_map()`, which this file answers with an
+##     `AcceptDialog`). Drawn, not text: `⌕` (U+2315) is the one glyph
+##     `dcc_icons.gd`'s own header names as missing from Plex Mono's fallback
+##     chain, the same reason that file drew a `PATHS["search"]` icon instead
+##     of listing it in `SYMBOLS` -- so this cell is the one
+##     `_phone_bar_button()` call in this bar passing `icon_name` instead of a
+##     `SYMBOLS` glyph string. **Guarded**, the same way the cell disappears if
+##     `place_search.gd` is missing: no affordance with nothing behind it, in
+##     either direction.
 func _build_phone_app_bar() -> PanelContainer:
 	var bar := PanelContainer.new()
 	bar.custom_minimum_size.y = _ptap(DccTheme.H_PHONE_APP_BAR)
 	bar.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"bottom": 1}))
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", _pscale(14))
+	## `gap:8px` and `padding:0 10px`, both the newer canvas's. They were 14 and
+	## 12, which is the 2026-08-30 canvas's four-cell row -- one cell fewer has
+	## more room, not less, so the numbers move with the drawing rather than
+	## being left where a wider row put them.
+	row.add_theme_constant_override("separation", _pscale(8))
 	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", _pscale(12))
-	pad.add_theme_constant_override("margin_right", _pscale(12))
+	pad.add_theme_constant_override("margin_left", _pscale(10))
+	pad.add_theme_constant_override("margin_right", _pscale(10))
 	pad.add_child(row)
 	bar.add_child(pad)
 
-	## The 412 canvas has **no side drawer**: its `02 Domain` screen is a
-	## full-screen drill with a `←`, and the shell's own full-height left dock
-	## sheet is that screen. So `☰` opens the sheet directly, and the 300 dp side
-	## sheet that used to list the three domains with their subtitles is gone --
-	## the bottom bar's three domain cells are the same three destinations, now
-	## with a glyph each, and carrying them twice was the duplication the canvas
-	## rules out.
-	row.add_child(_phone_bar_button(DccIcons.SYMBOLS["drawer"], "Domain panel",
-		func(): _set_sheet_open("left", true)))
-
+	## The world pill. A `PanelContainer` and not a bare `VBoxContainer` as
+	## before: the canvas gives this cell a fill, a hairline and a 20 dp radius,
+	## which is what separates it from the two glyph cells beside it now that
+	## there is no `☰` opening the row.
+	var pill := PanelContainer.new()
+	pill.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pill.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pill.add_theme_stylebox_override("panel",
+		_phone_bar_pill(_pscale(20), _pscale(14), _pscale(8)))
 	var title_col := VBoxContainer.new()
 	title_col.add_theme_constant_override("separation", 0)
 	title_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title_col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	## `font:500 12px 'IBM Plex Mono';letter-spacing:.2em;color:#e8ebec` -- .2em
-	## of 12 px is 2.4 px, and `spacing_glyph` is whole pixels, so 2. This was 3.
+	## `font:500 11.5px 'IBM Plex Mono';letter-spacing:.2em;color:var(--ink)`.
+	## .2em of 11.5 px is 2.3 px and `spacing_glyph` is whole pixels, so 2.
 	title_col.add_child(DccTheme.mono_label("CARTALITH", "text_bright", _pfont(12), 2, true))
 	## Reuses the same "top_world" status slot the desktop menu bar's readout
 	## cluster fills (`_wire_status()` in `app.gd` calls
 	## `set_status("top_world", "ELDRA · %d" % seed)`) -- no phone-aware
-	## branch needed in `app.gd` for this to stay live. `font:10px 'IBM Plex
-	## Mono';color:#6f7478`, untracked in the canvas.
+	## branch needed in `app.gd` for this to stay live. The canvas's
+	## `{{worldMeta}}` is `9.5px 'IBM Plex Mono';color:var(--dim)`.
 	var subtitle := DccTheme.mono_label("", "text_faint", _pfont(10), 0)
 	_status_labels["top_world"] = subtitle
 	title_col.add_child(subtitle)
-	row.add_child(title_col)
+	pill.add_child(title_col)
+	row.add_child(pill)
 
 	## `⌕`. Only if the index it opens actually exists -- see this function's
 	## own header and `_has_place_search()`. `place_search.gd` is a parallel,
@@ -4833,27 +4881,36 @@ func _build_phone_app_bar() -> PanelContainer:
 		row.add_child(_phone_bar_button("", "Search", func(): open_find_on_map(),
 			"text", "search"))
 
-	## **`▤` panels, restoring access the four-tab bar took away.**
-	## `_phone_panel_picker` is how the phone reaches the left and right dock
-	## content, and its ONLY entry used to be the PANELS cell in the bottom
-	## bar. Replacing that bar with MAP/GENERATE/PLAN/MORE left the picker
-	## built, alive and unreachable -- built-and-unwired, the defect class this
-	## repository keeps finding, introduced by me this session and caught on the
-	## device rather than by reading.
-	##
-	## `DCC_SHELL_SPEC.md` §13 puts it here anyway: the phone app bar is
-	## "☰ (domain drawer), title + seed, ▤ (panels), ⋯ (overflow menu)". So the
-	## fix and the spec agree.
-	row.add_child(_phone_bar_button(DccIcons.SYMBOLS["panels"], "Panels",
-		func(): _set_panel_picker_open(true)))
-
-	## `⋮`. See this function's own header for why it is here now and was not
-	## before. `overflow` is `⋯` in `DccIcons.SYMBOLS` -- the horizontal
-	## ellipsis the *bottom bar's* MORE cell traces -- so the vertical one the
-	## app bar draws is a literal, the same way `GLYPH_THEME` is.
+	## `⋮`. See this function's own header. `overflow` is `⋯` in
+	## `DccIcons.SYMBOLS` -- the horizontal ellipsis the *bottom bar's* MORE
+	## cell traces -- so the vertical one the app bar draws is a literal, the
+	## same way `GLYPH_THEME` is.
 	row.add_child(_phone_bar_button(GLYPH_OVERFLOW, "More actions",
 		func(): _set_phone_overflow_open(true)))
 	return bar
+
+## The canvas's `{{pillBg}}` box: `background:rgba(18,20,21,.92)` on dark and
+## `rgba(251,250,247,.92)` on light, `border:1px solid var(--hair)`, rounded.
+##
+## `raised` is the token both of those resolve to -- it is the surface one step
+## above `panel`, which is what the prototype's two literals are relative to
+## their own `--pan`. Taken as a token rather than as the literal so the
+## 2026-08-31 re-base's lesson holds: a baked colour cannot be remapped and
+## `DccTheme.remap()` matches it to nothing.
+##
+## The alpha in the prototype is the map showing through a *floating* bar. This
+## bar is not floating yet (see `_build_phone_app_bar()`'s "what is still
+## owed"), so there is nothing behind it to show through and the fill is opaque
+## -- a 0.92 alpha over an already-opaque bar would only mute the pill against
+## its own parent.
+func _phone_bar_pill(radius: int, pad_x: int, pad_y: int) -> StyleBoxFlat:
+	var sb := DccTheme.outline("line", "raised")
+	sb.set_corner_radius_all(radius)
+	sb.content_margin_left = pad_x
+	sb.content_margin_right = pad_x
+	sb.content_margin_top = pad_y
+	sb.content_margin_bottom = pad_y
+	return sb
 
 ## `⋮` U+22EE. Not in `DccIcons.SYMBOLS`, which carries `⋯` (`overflow`) for
 ## the bottom bar's MORE cell; the two are different marks on the same canvas
@@ -4861,10 +4918,17 @@ func _build_phone_app_bar() -> PanelContainer:
 ## `SystemFont` fallback like every other entry that Plex Mono has no glyph for.
 const GLYPH_OVERFLOW := "\u22ee"
 
-## One app-bar glyph cell. The canvas draws a `40x40` box at `color:#c8cbcd`
-## (`text`, not the `text_dim` this used) with `font:16px 'IBM Plex Mono'`; the
-## box is a *layout* cell with no background, so the hit target still floors at
-## the TARGETS card's 44 dp rather than shrinking to the drawn 40.
+## One app-bar glyph cell. `design/dcc-environment-2026-08-31/Cartalith
+## Android.dc.html:86-87` draws `width:44px;height:44px;border-radius:22px` on
+## the pill fill and hairline, `font:15px 'IBM Plex Mono';color:var(--body)`.
+##
+## **The box has a background now, and it did not before.** The 2026-08-30
+## canvas drew these as bare `40x40` *layout* cells with no fill, which is what
+## the previous version of this comment described; the newer canvas gives them
+## the same `{{pillBg}}` box it gives the world pill, and that is the whole
+## reason the three cells read as one row rather than as a title with two
+## glyphs floating beside it. `PHONE_ICON_BOX` stays 40 and `_ptap()` floors it
+## at the TARGETS card's 44 dp, so the drawn box is the canvas's 44 either way.
 ##
 ## **Not `flat`.** A `Button` with `flat = true` skips its `normal`/`hover`/
 ## `pressed` styleboxes outright, so the press feedback on the last two lines
@@ -4890,7 +4954,8 @@ func _phone_bar_button(glyph: String, tip: String, on_press: Callable,
 	b.focus_mode = Control.FOCUS_NONE
 	## **`accessibility_name`, not just a tooltip.** Godot raises a tooltip on
 	## hover, and a handset has no hover -- so on the one composition where these
-	## four cells (`☰`, `⌕`, `▤`, `⋮`) are the app's whole top bar, `tip` reached
+	## cells (`⌕` and `⋮`; `☰` and `▤` too, until ruling 20) are the app's whole
+	## top bar beside the world pill, `tip` reached
 	## nobody at all, and to a screen reader the button was a bare glyph or, for
 	## `⌕`, a `TextureRect` child with no text of any kind. `Control` carries
 	## `accessibility_name` in this Godot 4.7.1 build (checked against
@@ -4912,10 +4977,14 @@ func _phone_bar_button(glyph: String, tip: String, on_press: Callable,
 	b.add_theme_font_size_override("font_size", _pfont(16))
 	b.add_theme_font_override("font", DccTheme.mono())
 	b.add_theme_color_override("font_color", DccTheme.c(token))
-	b.add_theme_stylebox_override("normal", DccTheme.empty())
+	## `border-radius:22px` on all three drawn states, not just `normal`: a
+	## square hover or press wash on a round cell is the same defect as no
+	## feedback at all, one visual step milder.
+	var r := _pscale(22)
+	b.add_theme_stylebox_override("normal", _phone_bar_pill(r, 0, 0))
 	b.add_theme_stylebox_override("focus", DccTheme.empty())
-	b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
-	b.add_theme_stylebox_override("pressed", DccTheme.active_row(false))
+	b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft"), r))
+	b.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("accent_wash"), r))
 	b.pressed.connect(on_press)
 	return b
 
@@ -4934,12 +5003,14 @@ func _phone_bar_button(glyph: String, tip: String, on_press: Callable,
 ## and is the authority for domain content and naming, and it has three:
 ## `WORLD · CIVIL · CARTO` (INFRA merged into CIVIL, RENDER into CARTO, owner
 ## 2026-08-20). `DCC_SHELL_SCOPE.md`'s rule 1 -- "the newer canvas wins" --
-## resolves it: this bar takes **412's geometry and v3's content**. Five slots,
-## v3's three domains plus the two phone affordances the canvas's own fifth tab
-## and app bar establish: PANELS (both docks) and MORE (the program menu tree).
+## resolves it: this bar takes **412's geometry and v3's content**.
 ##
-## `MENU` was the fifth caption and is `MORE` now, which is the canvas's word
-## for that exact destination.
+## It had five slots when that was written -- v3's three domains plus PANELS
+## (both docks) and MORE -- and has **four** now: `PHONE_TABS` is the authority
+## a few lines below, and it reads MAP / GENERATE / PLAN / MORE. PANELS went
+## when the four-tab bar landed and its app-bar replacement `▤` went with
+## ruling 20; `MORE ▸ Window` carries both docks. `MENU` was the fifth caption
+## and is `MORE` now, which is the canvas's word for that exact destination.
 ##
 ## ## The glyph row
 ##
@@ -5663,16 +5734,21 @@ func _build_phone_gesture_inset() -> Control:
 	wrap.add_child(handle)
 	return wrap
 
-# -- Phone overlays: panel picker, overflow, dock sheets ------------------
+# -- Phone overlays: search, overflow, dock sheets ------------------------
 #
-# None of these four states are pictured in the mockup -- it ships exactly
-# one static screen, chrome closed. Their *triggers* (☰/▤/⋯) and their
-# *destination* (the reused dock/menu-bar/status-bar content) are spec'd;
+# None of these states are pictured in the mockup -- it ships exactly
+# one static screen, chrome closed. Their *triggers* (`⌕`/`⋮`, and `MORE ▸
+# Window ▸ Left dock`/`Right dock` for the two sheets) and their *destination*
+# (the reused dock/menu-bar/status-bar content) are spec'd;
 # the overlay presentation itself is this file's own construction, built to
 # the same visual language (colour tokens, hairlines, Plex Mono) as
 # everything else in `DccTheme`/`DccWidgets` rather than invented from
 # scratch. Said plainly because the rest of this file can cite a mockup line
-# for nearly every choice, and these four can't.
+# for nearly every choice, and these can't.
+#
+# This heading and that trigger list both read `panel picker` and `☰/▤/⋯`
+# until ruling 20 removed the picker and its glyph -- see the tombstone above
+# `_close_all_phone_overlays()`.
 
 ## A dimmed full-rect scrim that closes its overlay when tapped outside the
 ## panel placed on top of it. Named handler rather than an inline lambda --
@@ -5759,45 +5835,33 @@ func _phone_list_row(title: String, subtitle: String, on_press: Callable) -> Con
 	row.pressed.connect(on_press)
 	return row
 
-## The ☰ domain drawer -- a 300 dp side sheet listing the three `DOMAINS`
-## with their subtitles, plus `_pick_drawer_domain()` and `_set_drawer_open()`
-## -- was here and is **deleted** (2026-08-25, the 412 dp migration).
+## Two phone surfaces were here and are **deleted**, in two passes a fortnight
+## apart, and both for the same reason: a second, differently-shaped list of
+## destinations the phone already reaches.
 ##
-## `design/Cartalith Android Phone.dc.html` draws no drawer at any level. Its
-## `02 Domain` screen is a full-screen drill with a `←`, which is exactly what
-## this shell's full-height left dock sheet already is, so `☰` opens that
-## instead. The three domains the drawer listed are the bottom bar's own first
-## three cells -- with a glyph each as of this pass -- and a second,
-## differently-shaped list of the same three destinations was the duplication
-## that canvas's "More is a grouped list, not a duplicate menu bar" rule exists
-## to prevent.
-
-## ▤ panel picker: which dock to open as a full-height sheet. Anchored to the
-## bottom rather than the drawer's side-panel treatment, so ☰ and ▤ read as
-## two distinct affordances rather than the same drawer twice.
-func _build_phone_panel_picker() -> Control:
-	var overlay := _phone_overlay_scrim(func(): _set_panel_picker_open(false))
-
-	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", DccTheme.panel("raised", {"top": 1}))
-	panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	panel.offset_left = 0
-	panel.offset_right = 0
-	panel.offset_top = -_pscale(160)
-	panel.offset_bottom = -_safe_bottom()
-
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 0)
-	panel.add_child(col)
-	col.add_child(_phone_list_row("Left panel", "The active domain's workspace tools",
-		func(): _set_sheet_open("left", true)))
-	col.add_child(DccTheme.rule())
-	col.add_child(_phone_list_row("Right panel", "Layers and selection detail",
-		func(): _set_sheet_open("right", true)))
-
-	overlay.add_child(panel)
-	overlay.visible = false
-	return overlay
+##   - **The `☰` domain drawer** -- a 300 dp side sheet listing the three
+##     `DOMAINS` with their subtitles, plus `_pick_drawer_domain()` and
+##     `_set_drawer_open()` -- went on 2026-08-25 with the 412 dp migration.
+##     `design/Cartalith Android Phone.dc.html` draws no drawer at any level;
+##     its `02 Domain` screen is a full-screen drill with a `←`, which is what
+##     this shell's full-height left dock sheet already is. The three domains
+##     the drawer listed are the bottom bar's own first three cells.
+##   - **The `▤` panel picker** -- a bottom sheet with two rows, `Left panel`
+##     and `Right panel`, each opening the matching dock sheet -- went on
+##     2026-09-06 with owner ruling 20, which took `☰` and `▤` off the app bar
+##     (see `_build_phone_app_bar()`'s header for the drawing and for the
+##     reachability measurement that had to pass first). The picker was a
+##     router, `▤` was its only entry, and `MORE ▸ Window` already carries
+##     `Left dock` and `Right dock` as drawn, enabled rows -- driven end to end
+##     by `_appbar20_probe.gd`, which reads `_left_sheet_open` /
+##     `_right_sheet_open` back off the shell after tapping each one.
+##
+## `_set_sheet_open()` is untouched by either deletion and still has **seven**
+## call sites in three files -- `grep -rn "_set_sheet_open(" --include=*.gd
+## shell/ | grep -v "func _set_sheet_open" | grep -v ":[0-9]*:##"`, 2026-09-06:
+## the two sheet close buttons here, `PhoneMenu._open_left_sheet()`, and four
+## in `DccApp.toggle_region()` (its `ID_WIN_RESET` branch closes both sheets,
+## and its two phone rows toggle one each).
 
 # -- Phone overlay state ---------------------------------------------------
 #
@@ -5807,8 +5871,6 @@ func _build_phone_panel_picker() -> Control:
 # its own drill stack inside itself; from out here it is one more overlay.
 
 func _close_all_phone_overlays() -> void:
-	if _phone_panel_picker != null:
-		_phone_panel_picker.visible = false
 	if _phone_search_overlay != null:
 		_phone_search_overlay.visible = false
 	if _phone_overflow_pop != null:
@@ -5827,7 +5889,10 @@ func _close_all_phone_overlays() -> void:
 	## up here because this is the function that owns the answer. Every entry
 	## above is a `Control`; the Layers popover is a `PopupPanel`, which is a
 	## `Window`, and no Control walk has ever reached it. Measured by that pass:
-	## with the Layers sheet up, opening the ☰ overlay left **both** visible.
+	## with the Layers sheet up, opening the then-`☰` left-dock overlay left
+	## **both** visible. (`☰` went with ruling 20; the same overlap reaches the
+	## same sheet from `MORE ▸ Window ▸ Left dock` now, so the fix below is not
+	## a fix for a route that no longer exists.)
 	##
 	## `Popup` and deliberately not `Window`. A popover is transient -- going
 	## somewhere else is what dismisses it -- while an `AcceptDialog` is a modal
@@ -5842,10 +5907,6 @@ func _close_all_phone_overlays() -> void:
 		var pop := node as Popup
 		if pop != null and pop.visible:
 			pop.hide()
-
-func _set_panel_picker_open(open: bool) -> void:
-	_close_all_phone_overlays()
-	_phone_panel_picker.visible = open
 
 # -- ⋮ App-bar overflow (`06-phone.md` §4.3) --------------------------------
 #
@@ -6081,9 +6142,14 @@ func open_find_on_map() -> void:
 	else:
 		_open_desktop_find_on_map()
 
-## ▤-style full-width overlay, `_build_phone_panel_picker()`'s own pattern:
+## A full-width overlay on the shell's own phone-overlay pattern:
 ## `_phone_overlay_scrim()` for outside-tap dismissal, `_close_all_phone_
-## overlays()`/back-gesture participation, visible only while open.
+## overlays()`/back-gesture participation, visible only while open. (The
+## sentence this replaces cited `_build_phone_panel_picker()` as the pattern's
+## other user; that function was deleted with `▤` under ruling 20.
+## `_phone_overlay_scrim()` now has exactly two callers, this one and
+## `_build_phone_overflow()` -- `grep -n "_phone_overlay_scrim(" shell/*.gd`,
+## 2026-09-06, two call sites plus the definition.)
 ## Anchored under the app bar (`phone_content_insets().top`, the same figure
 ## `ViewportHost` reads to keep its own corner chrome clear of it) rather than
 ## the screen's true top edge, so the app bar -- and the `⌕` cell that opened
@@ -6975,8 +7041,7 @@ func _notification(what: int) -> void:
 	if _phone_menu != null and _phone_menu.go_back():
 		_haptic("back")
 		return
-	if (_phone_panel_picker != null and _phone_panel_picker.visible) \
-			or (_phone_search_overlay != null and _phone_search_overlay.visible) \
+	if (_phone_search_overlay != null and _phone_search_overlay.visible) \
 			or _left_sheet_open or _right_sheet_open:
 		_close_all_phone_overlays()
 		_haptic("back")

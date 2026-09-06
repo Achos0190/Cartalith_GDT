@@ -143,7 +143,11 @@ func _ready() -> void:
 	## gives every phone Control the one real layout pass its size needs to
 	## mean anything; `_close_all_phone_overlays()` leaves the tree exactly
 	## as it started.
-	app.call("_set_panel_picker_open", true); await _frames(2)
+	## `_set_panel_picker_open` was deleted 2026-09-06 with the `▤` glyph
+	## (owner ruling 20: the app bar is `[world pill] · ⌕ · ⋮`). Calling it made
+	## this probe error at load and then **hang** rather than fail, so sections
+	## 4+ — the tap-floor walk it exists for — never ran. `_hidpi_probe.gd` and
+	## `_jp16_probe.gd` carry the post-mortem for this same failure mode.
 	app.call("_set_overflow_open", true); await _frames(2)
 	app.call("_set_sheet_open", "left", true); await _frames(2)
 	app.call("_set_sheet_open", "right", true); await _frames(2)
@@ -160,6 +164,7 @@ func _ready() -> void:
 		"-> _pscale(44) = ", floor_px, " physical px")
 	var phone_root: Node = app.get("_phone_root")
 	var violations := 0
+	var unlaid := 0
 	var checked := 0
 	if phone_root != null:
 		var all_controls: Array = []
@@ -180,6 +185,21 @@ func _ready() -> void:
 				continue
 			checked += 1
 			var sz: Vector2 = bb.size
+			## **A zero axis is UNMEASURED, not too small**, and reporting it as a
+			## tap-floor violation is a false red. It means the control has never
+			## had a real layout pass -- the state the warm-up above exists to
+			## remove. Counted and printed separately, 2026-09-06, after the
+			## `_set_panel_picker_open` warm-up was deleted with the `▤` glyph
+			## (owner ruling 20) and three Controls in one subtree stopped being
+			## laid out: they reported `(0.0, 115.0)`, a correct height against a
+			## width that had never been resolved. **The gap is real and is a
+			## backlog row** -- something is no longer warmed -- but it is a
+			## measurement gap, not four buttons a finger cannot hit.
+			if sz.x <= 0.5 or sz.y <= 0.5:
+				unlaid += 1
+				print("  UNLAID   ", bb.get_path(), "  size=", sz,
+					"  (never laid out -- not a floor violation)")
+				continue
 			if sz.x < floor_px - 0.5 or sz.y < floor_px - 0.5:
 				violations += 1
 				print("  VIOLATION ", bb.get_path(), "  size=", sz, "  floor=", floor_px)

@@ -367,9 +367,39 @@ func _ready() -> void:
 	bridge.generation_finished.connect(func(ok: bool): if ok: TradeStore.clear())
 	bridge.world_loaded.connect(func(): TradeStore.clear())
 
+	## **`repaint NN ms`'s clock, and the bracket is the measurement.** See
+	## `_repaint_ms` in §11 for what the number means; this is where it is
+	## taken, and the position of these four lines is the whole mechanism.
+	##
+	## `ViewportHost.setup()` connects `generation_finished` and `world_loaded`
+	## to its own `refresh()` (`viewport_host.gd`, the two lines under
+	## `_bridge = bridge`), and Godot delivers a signal in **connection order**.
+	## Connecting one probe immediately before that call and one immediately
+	## after therefore encloses exactly the handlers registered in between --
+	## which, at these three statements, is `ViewportHost`'s and nothing else.
+	## Nothing is inserted between them; if anything ever is, it joins the
+	## bracket silently, so `_repaintbracket_probe.gd` walks
+	## `Signal.get_connections()` in order and asserts the enclosed set is
+	## exactly one connection whose object is the `ViewportHost`.
+	##
+	## Bracketing rather than timing inside `refresh()`: that method is
+	## `viewport_host.gd`'s, this pass did not own that file, and a bracket
+	## re-implements none of its logic -- it measures whatever the enclosed
+	## handler does, including the `if ok:` guard, without copying it here.
+	## Named methods, not the one-line lambdas this was written with:
+	## `Callable.get_method()` on a lambda reports its *enclosing* function, so
+	## a probe walking `get_connections()` could not tell the two apart and had
+	## to guess from position -- which is the very thing it exists to check.
+	bridge.generation_finished.connect(_repaint_open_if)
+	bridge.world_loaded.connect(_repaint_open)
+
 	viewport = ViewportHost.new()
 	viewport_content.add_child(viewport)
 	viewport.setup(bridge)
+
+	bridge.generation_finished.connect(_repaint_close_if)
+	bridge.world_loaded.connect(_repaint_close)
+
 	## §2.5's Tiled LOD mode is a preference, so it survives a restart -- and a
 	## preference the shell forgets on boot is the same lie as a menu row with
 	## nothing behind it. The default is `true`, so this is a no-op for anyone
@@ -770,17 +800,18 @@ func _wire_status() -> void:
 # middle of the bar always says what the map currently rests on. Autosave shows
 # `off` when autosave is off."
 #
-# **`repaint NN ms` is deliberately absent, and this is the comment that owes
-# the reader why.** It is blocked on the owner's open question 2 in
-# `UNWIRED_FUNCTIONS.md`: the prototype composites in one canvas pass and can
-# time it; this shell composites through `ViewportHost` plus
-# `map_overlay.gd` plus whatever overlays are live, and has no equivalent
-# single-pass timer to read. `grep -rn repaint shell/*.gd` finds prose and
-# nothing else. The field goes here, straight after the pass duration -- which
-# is now the composite's last field, since the autosave clock the answer put
-# behind it has moved to its own cell (below) -- once question 2 says what it
-# should measure.
+# **`repaint NN ms` is built, and the paragraph this replaces said it could not
+# be.** That paragraph was right about the obstacle and wrong to stop there: it
+# read "blocked on the owner's open question 2 in `UNWIRED_FUNCTIONS.md`",
+# reasoning that the prototype composites in one canvas pass and can time it
+# while this shell composites through `ViewportHost` plus `map_overlay.gd` plus
+# whatever overlays are live, "and has no equivalent single-pass timer to read".
+# **Owner ruling 21, 2026-09-06, answers question 2: the field measures
+# `_refresh_map()`'s WALL TIME** -- not frame time, not texture-upload time --
+# because that is the number a user can act on and the one this shell can
+# measure honestly without a rendering-server hook.
 #
+# It sits straight after the pass duration, which is where §2.2 draws it.
 # The pass duration is `bridge.last_generate_ms`, the same figure the `pass`
 # slot prints as `generated · 1.4s`.
 #
@@ -810,6 +841,126 @@ func _wire_status() -> void:
 
 var _mid_stage := ""           ## The last stage that has RESOLVED, `NN Name`.
 var _mid_running_stage := ""   ## The one currently running; not yet resolved.
+
+## `repaint NN ms` (owner ruling 21). **The wall time of the last map repaint
+## this shell measured**, in milliseconds.
+##
+## ## What it is the wall time OF
+##
+## `render_workspace.gd::_refresh_map()` is one line -- `app.viewport.refresh()`
+## -- so the thing the ruling names is `ViewportHost.refresh()`, and that method
+## is wholly synchronous GDScript: it pulls the colour, territory and province
+## textures off the bridge, pushes the civ roster, roads, sea routes and manual
+## routes into `MapOverlay`, re-reads faction colours and settlement traits,
+## sets the grid on the tool overlay, recomputes `_zoom_max`, and calls
+## `reset_view()` and `refresh_annotations()`. Every one of those has returned
+## by the time the call returns, so the wall time IS attributable -- there is
+## no async tail to miss.
+##
+## **What it deliberately does not include, stated because the difference is
+## the whole reason the field was blocked for a fortnight:** the GPU work that
+## draws the textures this call assigns. `refresh()` hands Godot new
+## `ImageTexture`s; the frame that rasterises them lands afterwards, on the
+## rendering server's own clock, and nothing in GDScript can read it. So this
+## is the shell's own repaint cost, not the screen's. Ruling 21 chose that
+## deliberately.
+##
+## ## Negative, not zero, when nothing has been measured
+##
+## `0` is a plausible reading of "the repaint was instant" on a small world;
+## `-1.0` cannot be mistaken for a measurement, and `_refresh_status_mid()`
+## omits the field entirely rather than printing a placeholder.
+## `_repaintbracket_probe.gd` drives **both** branches -- the sentinel must
+## omit the field and a real `0.0` must still draw `repaint 0 ms` -- because a
+## `>= 0.0` guard reads as obviously correct and would be worth nothing if the
+## sentinel were zero.
+##
+## ## What it costs, measured
+##
+## `godot --path . _repaintbracket_probe.tscn -- --nowelcome --runs 9`,
+## windowed, harness alone, one 2000 km world at grid 256x192, 2026-09-06:
+## **median 8.8 ms**, from five separate processes whose own medians were
+## 8.76 (8.65..9.12), 8.89 (8.49..9.06), 8.86 (8.42..9.00), 8.74 (8.57..8.89)
+## and 8.71 (8.58..8.93) -- each inside every other's bracket, which is the
+## check a median from one process cannot make and the reason three timings
+## have had to be withdrawn from this repository. The first call of each
+## process is reported separately and excluded (10.65 / 9.59 / 9.21 / 9.36 /
+## 9.31): it pays for first-touch allocation, and folding it in measures the
+## boot as well as the repaint.
+##
+## The real `generation_finished` path -- the bracket, not `repaint_map()` --
+## measured 11.05 / 9.38 / 9.75 / 9.61 / 9.67 ms across the same five, which is
+## the cold figure and not the warm one, as it should be: it is the first
+## repaint of a world that has just been built.
+##
+## Windowed and **not** `--headless`, deliberately: `ImageTexture.update()` is
+## a no-op under the dummy driver, so a headless run times a path the shipping
+## build does not take.
+##
+## The figure is grid-dependent -- it is dominated by pulling three whole
+## rasters off the bridge -- so quote the grid with it or do not quote it.
+##
+## ## The one repaint that does not reach this clock
+##
+## Two paths do: the bracket in `_ready()` (a generate that succeeded, and
+## every `world_loaded`), and `repaint_map()` below.
+##
+## The third does not. `RenderWorkspace._refresh_map()` is `app.viewport.
+## refresh()` written straight, and it has **11 call sites, all inside
+## `render_workspace.gd`** -- `grep -rn "_refresh_map()" --include=*.gd shell/
+## | grep -v "func _refresh_map" | grep -vE ":[0-9]+:[[:space:]]*##"`,
+## 2026-09-06, which also finds this comment's own mention one screen above and
+## nothing else outside that file. So a live appearance change (an NPR slider,
+## a grade, the display colour space) repaints **without** updating this figure,
+## and the bar goes on showing the previous repaint until the next generate,
+## load or recompute.
+##
+## The fix is one line -- `_refresh_map()`'s body becomes `app.repaint_map()`,
+## which is why that method is public -- in a file this pass was not granted.
+## Written here rather than left for a reader to find, because a stale duration
+## presented as current is exactly the defect class this repository keeps
+## finding.
+var _repaint_ms := -1.0
+var _repaint_t0 := 0   ## usec, non-zero only while a bracketed repaint is open.
+
+func _repaint_open() -> void:
+	_repaint_t0 = Time.get_ticks_usec()
+
+## The `generation_finished(ok)` halves of the bracket. The `ok` guard mirrors
+## `ViewportHost.setup()`'s own `if ok: refresh()`: a failed generate does not
+## repaint, so opening a clock on one would leave `_repaint_t0` set and hand
+## the *next* repaint a duration that started at the failure.
+func _repaint_open_if(ok: bool) -> void:
+	if ok:
+		_repaint_open()
+
+func _repaint_close_if(ok: bool) -> void:
+	if ok:
+		_repaint_close()
+
+func _repaint_close() -> void:
+	## A close with no open is not an error and must not write a figure: it is
+	## what happens if the bracket's first probe is ever disconnected while the
+	## second survives, and inventing a duration from `Time.get_ticks_usec()`
+	## alone would produce a number in the millions of ms.
+	if _repaint_t0 == 0:
+		return
+	_repaint_ms = float(Time.get_ticks_usec() - _repaint_t0) / 1000.0
+	_repaint_t0 = 0
+
+## The timed entry point for a repaint the shell drives directly, rather than
+## one that falls out of a bridge signal. `public` so the remaining direct
+## caller in `render_workspace.gd` can move onto it -- see `_repaint_ms`.
+##
+## Refreshes the composite itself: unlike the bracketed paths, nothing else is
+## going to call `_refresh_status_mid()` after this returns.
+func repaint_map() -> void:
+	if viewport == null:
+		return
+	_repaint_open()
+	viewport.refresh()
+	_repaint_close()
+	_refresh_status_mid()
 
 func _refresh_status_mid() -> void:
 	if not bridge.has_world and not bridge.generating:
@@ -843,6 +994,12 @@ func _refresh_status_mid() -> void:
 		## generation this session" in the same breath the `pass` slot beside
 		## it read "generating…".
 		parts.append("loaded — no generation this session")
+	## §2.2's `last pass 09 Ecology · 101 ms · repaint 84 ms` -- straight after
+	## the pass duration, and outside the branch above because a loaded world
+	## repaints too and its figure is as real as a generated one's. Omitted
+	## rather than zeroed while nothing has been measured; see `_repaint_ms`.
+	if _repaint_ms >= 0.0:
+		parts.append("repaint %d ms" % int(round(_repaint_ms)))
 	set_status("mid", " · ".join(parts), "text_ghost")
 
 ## SG-01's clock. A `Timer` and not a `_process` tick, and not a signal either:
@@ -966,11 +1123,14 @@ func _recompute_stale() -> void:
 		set_status("hint", "Recomputed %s in %.0f ms.%s" % [" · ".join(ran), float(r.get("ms", 0.0)),
 			(" Still stale: %s." % " · ".join(left)) if not left.is_empty() else ""], "text_ghost")
 		## The height/hydrology/climate fields moved, so the textures drawn from
-		## them are a frame behind. Same direct call `render_workspace.gd` makes
+		## them are a frame behind. Same repaint `render_workspace.gd` runs
 		## after a live appearance change -- not `world_loaded`, which means "a
 		## different world" and would clear the trade match with it.
-		if viewport != null:
-			viewport.refresh()
+		##
+		## Through `repaint_map()` rather than `viewport.refresh()` directly, so
+		## this repaint lands in `statusMid`'s `repaint NN ms` (ruling 21). The
+		## null guard moved inside it.
+		repaint_map()
 	refresh_staleness()
 
 ## `GUI_GAP_REGISTER.md` **SH-07**: the status bar's `atlas` slot, which

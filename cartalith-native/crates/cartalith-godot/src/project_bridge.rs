@@ -31,7 +31,7 @@
 //! | terrain rasters, grid, parameters | `cartalith-io` directly, from `WorldGen`'s own state |
 //! | settlements, factions, ways, provinces, continents, timeline, civ rasters | the DTOs below, from `CivData` |
 //! | labels, icons, region | the DTOs below, from the tool bridges |
-//! | landmark settings | `LandmarksDoc` below, from `WorldGen::landmark_store` |
+//! | landmark settings **and the last run's placements** | `LandmarksDoc` below, from `WorldGen::landmark_store` |
 //! | vault links | `vault_state_json()`/`vault_restore_state()`, the pair `vault_bridge.rs` already publishes |
 //! | anything GDScript owns | [`WorldGen::project_save_with_documents`]'s dictionary |
 //!
@@ -541,33 +541,173 @@ struct AppearanceDoc {
     npr: crate::render::Npr,
 }
 
-/// `entities/landmarks.json` -- the Landmark Generation dock's **settings**,
-/// and deliberately not its results.
+/// `entities/landmarks.json` -- the Landmark Generation dock's **settings and
+/// its last run's placements**.
 ///
-/// The split is not laziness. `LandmarkStore::last` is the output of
-/// `cartalith_civ::landmark::generate`, a pure function of the world, the
-/// settings and the seed (`LANDMARK_GENERATION_RESEARCH.md` §27), and the
-/// loader clears it on every open for a reason that would still hold if it
-/// were written: placements taken over the previous field must not be shown
-/// against a new one. Re-running the pass is one click and reproduces them
-/// exactly.
+/// ## The results half (owner ruling 10, 2026-09-06)
 ///
-/// The settings are the opposite: hand-entered configuration -- forty-nine
-/// caps, forty-nine armed flags, a crowding factor and four class radii --
-/// that no amount of recomputation brings back. Before this document existed
-/// they were **not saved at all** and were **never cleared**, so they leaked
-/// out of whichever project was open last into the next one, belonging to
-/// neither. Writing them here and resetting to `LandmarkSettings::default()`
-/// in `load_save`'s own reset closes both halves at once.
+/// `LARGE_ITEM_RULINGS.md`: *"Landmark persistence? → PERSIST in
+/// `entities/landmarks.json`. Consistent with the recorded finding that
+/// research §25's state transitions cannot be recomputed."*
+///
+/// **This doc comment used to argue the opposite**, and the argument was
+/// sound on its own terms and is superseded rather than wrong: `generate` is
+/// a pure function of the world, the settings and the seed, so re-running the
+/// pass reproduces a placement exactly. What it does not reproduce is
+/// anything a person or a later pass then *attaches* to that placement -- §25
+/// state, a name, a knowledge link -- and that is what a save has to carry.
+/// The ruling is the decision; this is the wiring.
+///
+/// A landmark is addressed by `cartalith_civ::landmark::Landmark::key()` --
+/// `"<kind>@<x>,<y>"`, composed from three members [`LandmarkDto`] carries.
+/// Not by `Landmark::id`, which is a position in the result vector and moves
+/// whenever a cap does.
+///
+/// ## The settings half, unchanged
+///
+/// Hand-entered configuration -- forty-nine caps, forty-nine armed flags, a
+/// crowding factor and four class radii -- that no amount of recomputation
+/// brings back. Before this document existed they were **not saved at all**
+/// and were **never cleared**, so they leaked out of whichever project was
+/// open last into the next one, belonging to neither. Writing them here and
+/// resetting to `LandmarkSettings::default()` in `load_save`'s own reset
+/// closes both halves at once.
+///
+/// ## Absent is absent
 ///
 /// Every field is `#[serde(default)]`, and `LandmarkSettings`' own
 /// `cap`/`is_armed` accessors already fall back to each kind's spec default
 /// for a key the map has no row for -- so a document written before a new
 /// landmark kind existed loads without inventing a value for it.
+///
+/// [`results`](Self::results) is `Option` and `skip_serializing_if`: a
+/// project whose landmark pass has never run writes **no `results` member at
+/// all**, rather than an empty run that would read as "it ran and placed
+/// nothing". A document written by the previous writer carries no `results`
+/// member either -- that writer had none to carry -- and loads as `None`,
+/// which is what `LandmarkStore::last` already means and what the panel
+/// already draws as `—`.
+/// `a_document_written_before_results_existed_keeps_its_settings` builds
+/// that document and asserts it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 struct LandmarksDoc {
     settings: LandmarkSettingsDto,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    results: Option<LandmarkRunDto>,
+}
+
+/// One `landmark_run()`'s output, as the archive carries it.
+///
+/// **`rejects` is not here**, and the omission is the same one
+/// `cartalith_civ::landmark::all_skipped` already makes for the same reason:
+/// an empty reject list is *"this result carries no reject rows"*, not
+/// *"nothing was rejected"*, and the funnels below keep the true totals in
+/// `rejected_constraint`/`rejected_score`/`rejected_spacing`/`rejected_cap`
+/// either way. What decided it is size against purpose: the list is a tuning
+/// overlay bounded at `REJECT_LIST_MAX_PER_KIND` (256) **per kind**, and one
+/// real world -- 256 x 192, terrain seed 24601, default settings, measured
+/// 2026-09-06 -- carries **2 902 reject rows against 250 placements**, an
+/// order of magnitude more JSON than the entities the slot is named for, for
+/// a diagnostic of a run the reader is not in. One world is one sample; the
+/// ratio is what the decision rests on, not the figure.
+/// `landmark_rejects()` therefore returns nothing for a loaded project until
+/// the pass is run again, which is the honest state and not a claim.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+struct LandmarkRunDto {
+    landmarks: Vec<LandmarkDto>,
+    /// One per row of `cartalith_civ::landmark::kinds()`, which is what
+    /// `LandmarkResult::funnels`' own contract requires. A row this build has
+    /// no entry for is rebuilt as `LandmarkLimit::Unrecorded` -- see
+    /// [`LandmarkRunDto::into_result`].
+    funnels: Vec<LandmarkFunnelDto>,
+    seconds: f64,
+}
+
+/// One placed landmark.
+///
+/// **Three members are deliberately absent, and each for its own reason.**
+///
+/// * `id` -- a position in the result vector, re-derived on load exactly as
+///   `generate` derives it (`k + 1` over the restored order). Writing it
+///   would put an unstable number in the format and give the list two orders
+///   that could disagree.
+/// * `class` -- a property of the *kind*, not of the placement
+///   (`LandmarkKindSpec::class`). Writing it per row would be writing one
+///   compile-time table two hundred and fifty times; `kind_spec()` resolves
+///   it, and a `kind` that does not resolve costs the row rather than being
+///   guessed into a class, which is the rule `IconDto` above already applies
+///   to an unknown icon family.
+/// * `seed` -- a 64-bit hash, which `SAVEFILE_COMPAT.md` §14.1 permits in
+///   neither form: not as a number (above 2^53) and not as a string ("there
+///   are no string-encoded integers anywhere in this format and none should
+///   be added"). It is recomputed by
+///   `cartalith_civ::landmark::seed_for(world_seed, gw, kind, x, y)`, whose
+///   own doc records the one thing that does not survive -- a
+///   `GENERATOR_VERSION` bump.
+///
+/// `elevation_m` names its unit, the way `length_km` does in `WaysDoc`: the
+/// engine's field is `Landmark::elevation` and is documented as metres above
+/// sea level, and the format's reader should not have to find that out.
+///
+/// **The three floats can move by one ULP on the first save-open cycle** and
+/// are stable from the second on. That is a property of every `f64` in this
+/// archive rather than of this document -- `serde_json` is built here without
+/// `float_roundtrip`, so its parser is the fast one -- and it is measured and
+/// bounded in `an_open_save_cycle_reaches_a_fixed_point`, which found 34 of
+/// 128 placements affected on a real world and the document a fixed point
+/// from the second write. Nothing here rounds or truncates on purpose.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct LandmarkDto {
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    x: usize,
+    #[serde(default)]
+    y: usize,
+    #[serde(default)]
+    elevation_m: f64,
+    #[serde(default)]
+    score: f64,
+    #[serde(default)]
+    importance: f64,
+    #[serde(default)]
+    causal: Vec<String>,
+}
+
+/// One kind's funnel -- §5's "why fewer than I asked for" counters.
+///
+/// Carried in full rather than recomputed, because they cannot be: the
+/// candidate counts and the four reject buckets are products of a walk over a
+/// world, and `LandmarkFunnel`'s own documented identity
+/// (`candidates == rejected_constraint + rejected_score + rejected_spacing +
+/// rejected_cap + placed`) has to keep closing after a round trip. It is
+/// asserted after one in `a_landmark_run_survives_a_document_round_trip`.
+///
+/// `limit` is `LandmarkLimit::as_str()`'s machine token, read back through
+/// `LandmarkLimit::from_key`. A token this build does not know becomes
+/// `Unrecorded`, never a guess -- that variant exists for exactly this.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct LandmarkFunnelDto {
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    candidates: usize,
+    #[serde(default)]
+    rejected_constraint: usize,
+    #[serde(default)]
+    rejected_score: usize,
+    #[serde(default)]
+    rejected_spacing: usize,
+    #[serde(default)]
+    rejected_cap: usize,
+    #[serde(default)]
+    cap: usize,
+    #[serde(default)]
+    placed: usize,
+    #[serde(default)]
+    limit: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -630,6 +770,161 @@ impl LandmarkSettingsDto {
         }
         crate::landmark_bridge::set_cross_competition(&mut out, self.cross_type_competition);
         out
+    }
+}
+
+impl From<&cartalith_civ::landmark::LandmarkResult> for LandmarkRunDto {
+    fn from(r: &cartalith_civ::landmark::LandmarkResult) -> Self {
+        Self {
+            landmarks: r
+                .landmarks
+                .iter()
+                // `SAVEFILE_COMPAT.md` §14.1: `NaN` and the infinities are
+                // not valid numbers in this format. Dropping the row is
+                // §6.4a's own escalation -- "the array element it sits in"
+                // -- and it is also self-defence: `serde_json` *refuses* to
+                // serialize a non-finite float, and `insert_doc` swallows
+                // that into "the slot is absent", so one poisoned elevation
+                // would silently cost the whole document, settings and all.
+                .filter(|l| l.elevation.is_finite() && l.score.is_finite() && l.importance.is_finite())
+                .map(|l| LandmarkDto {
+                    kind: l.kind.clone(),
+                    x: l.x,
+                    y: l.y,
+                    elevation_m: l.elevation,
+                    score: l.score,
+                    importance: l.importance,
+                    causal: l.causal.clone(),
+                })
+                .collect(),
+            funnels: r
+                .funnels
+                .iter()
+                .map(|f| LandmarkFunnelDto {
+                    kind: f.kind.clone(),
+                    candidates: f.candidates,
+                    rejected_constraint: f.rejected_constraint,
+                    rejected_score: f.rejected_score,
+                    rejected_spacing: f.rejected_spacing,
+                    rejected_cap: f.rejected_cap,
+                    cap: f.cap,
+                    placed: f.placed,
+                    limit: f.limit.as_str().to_string(),
+                })
+                .collect(),
+            seconds: if r.seconds.is_finite() { r.seconds } else { 0.0 },
+        }
+    }
+}
+
+impl LandmarkRunDto {
+    /// Back to the engine type. `world_seed`, `gw` and `gh` come from the
+    /// archive that carried this document, so every derived value belongs to
+    /// the world it is being restored onto.
+    ///
+    /// Three things a row can fail, and all three cost the row rather than
+    /// the document (`SAVEFILE_COMPAT.md` §6.4a):
+    ///
+    /// * a `kind` that is not in `cartalith_civ::landmark::kinds()` -- there
+    ///   is no class, no spec and no seed for it;
+    /// * a cell outside `gw x gh` -- an archive is untrusted input, and a
+    ///   landmark at `(9000, 3)` on a 512-wide grid is not a landmark;
+    /// * a non-finite number, which §14.1 does not allow in the format.
+    ///
+    /// Like `IconDto`'s unresolvable family, the drops are counted by the
+    /// caller rather than announced: `landmarks()` returns what survived, and
+    /// its length against the file's is the count.
+    ///
+    /// `id` is re-derived here, `k + 1` over the surviving order -- the same
+    /// two lines `generate` runs at the end of its own pass. It is a
+    /// position, and this is the position.
+    fn into_result(
+        self,
+        world_seed: u64,
+        gw: usize,
+        gh: usize,
+    ) -> cartalith_civ::landmark::LandmarkResult {
+        use cartalith_civ::landmark::{
+            kind_spec, kinds, seed_for, Landmark, LandmarkFunnel, LandmarkLimit, LandmarkResult,
+        };
+
+        let mut landmarks: Vec<Landmark> = self
+            .landmarks
+            .into_iter()
+            .filter_map(|d| {
+                let spec = kind_spec(&d.kind)?;
+                if d.x >= gw || d.y >= gh {
+                    return None;
+                }
+                if !(d.elevation_m.is_finite() && d.score.is_finite() && d.importance.is_finite()) {
+                    return None;
+                }
+                Some(Landmark {
+                    id: 0,
+                    seed: seed_for(world_seed, gw, &d.kind, d.x, d.y)?,
+                    kind: d.kind,
+                    class: spec.class,
+                    x: d.x,
+                    y: d.y,
+                    elevation: d.elevation_m,
+                    score: d.score,
+                    importance: d.importance,
+                    causal: d.causal,
+                })
+            })
+            .collect();
+        for (k, lm) in landmarks.iter_mut().enumerate() {
+            lm.id = k as u64 + 1;
+        }
+
+        // `LandmarkResult::funnels` is "one entry per row of `kinds()`, **in
+        // table order**", which is a contract the panel walks its own rows
+        // against -- so the list is rebuilt from `kinds()` and filled from
+        // the document, never taken from the document's order.
+        let funnels = kinds()
+            .iter()
+            .map(|k| {
+                match self.funnels.iter().find(|f| f.kind == k.key) {
+                    Some(f) => LandmarkFunnel {
+                        kind: k.key.to_string(),
+                        candidates: f.candidates,
+                        rejected_constraint: f.rejected_constraint,
+                        rejected_score: f.rejected_score,
+                        rejected_spacing: f.rejected_spacing,
+                        rejected_cap: f.rejected_cap,
+                        cap: f.cap,
+                        placed: f.placed,
+                        // An unknown token is not a reason to invent one.
+                        limit: LandmarkLimit::from_key(&f.limit)
+                            .unwrap_or(LandmarkLimit::Unrecorded),
+                    },
+                    // A kind this build has and the writing build did not.
+                    // Every counter is genuinely unknown, so every counter is
+                    // zero -- which keeps the funnel's own identity closed --
+                    // and `Unrecorded` says why instead of picking one of the
+                    // six measured reasons.
+                    None => LandmarkFunnel {
+                        kind: k.key.to_string(),
+                        candidates: 0,
+                        rejected_constraint: 0,
+                        rejected_score: 0,
+                        rejected_spacing: 0,
+                        rejected_cap: 0,
+                        cap: 0,
+                        placed: 0,
+                        limit: LandmarkLimit::Unrecorded,
+                    },
+                }
+            })
+            .collect();
+
+        LandmarkResult {
+            landmarks,
+            funnels,
+            // Not carried; `LandmarkRunDto`'s own doc comment says why.
+            rejects: Vec::new(),
+            seconds: self.seconds,
+        }
     }
 }
 
@@ -1502,12 +1797,21 @@ impl WorldGen {
         // forty-nine caps and forty-nine armed flags derived from each
         // kind's own spec -- so "absent" and "at defaults" are the same
         // state and writing the block costs a few hundred bytes for a
-        // document the user can then diff. The retained *run* is not
-        // written; `LandmarksDoc`'s own doc comment says why.
+        // document the user can then diff.
+        //
+        // The retained run is written **only when there is one** (owner
+        // ruling 10, 2026-09-06). `LandmarkStore::last` is `None` before any
+        // pass and after every `invalidate()`, and that state has its own
+        // meaning the panel draws as `—`; `skip_serializing_if` keeps it out
+        // of the file rather than writing an empty run that would read as
+        // "it ran and placed nothing".
         insert_doc(
             &mut documents,
             SLOT_LANDMARKS,
-            &LandmarksDoc { settings: LandmarkSettingsDto::from(&self.landmark_store.settings) },
+            &LandmarksDoc {
+                settings: LandmarkSettingsDto::from(&self.landmark_store.settings),
+                results: self.landmark_store.last.as_ref().map(LandmarkRunDto::from),
+            },
         );
 
         // The vault's own serialized store, verbatim (§13.3) -- through
@@ -1615,8 +1919,17 @@ impl WorldGen {
     ///   list is therefore informational -- "this archive holds N payloads a
     ///   newer build wrote" -- and no longer a warning a Save command has to
     ///   put in front of the user.
-    /// - `restored` names the engine-owned payloads that were applied —
-    ///   `civ`, `labels`, `icons`, `ways`, `region`, `appearance`, `vault`.
+    /// - `restored` names the engine-owned payloads that were applied, in
+    ///   push order: `civ`, `landmark settings`, `landmarks`, `labels`,
+    ///   `icons`, `ways`, `region`, `appearance`, `vault`, `paint layers`,
+    ///   `sculpt draft`.
+    ///
+    ///   **Eleven, and this list said seven.** It was written before the
+    ///   landmark, paint and sculpt restores existed and was not moved with
+    ///   them; a caller reading it would have concluded a payload that does
+    ///   come back does not. Counted 2026-09-06 with `grep -n 'restored.push'
+    ///   project_bridge.rs`, which returns eleven lines, and `landmarks` is
+    ///   the one this pass added.
     ///
     /// A loaded project is **not** regenerable: every path that needs the
     /// tectonic substrate still requires a freshly generated world. See
@@ -1675,6 +1988,27 @@ impl WorldGen {
         if let Some(Ok(doc)) = data.parse::<LandmarksDoc>(SLOT_LANDMARKS) {
             self.landmark_store.settings = doc.settings.into_settings();
             restored.push("landmark settings");
+            // Owner ruling 10. `load_save` a few dozen lines above called
+            // `LandmarkStore::invalidate()`, and its comment gives the reason:
+            // *"a landmark sits at grid coordinates over terrain readings
+            // taken from the previous field"*. That reason is satisfied here
+            // and not evaded -- these placements came out of **this** archive,
+            // over the field `load_save` has just installed, at the grid
+            // dimensions it has just set. `load_save` reached on its own (a
+            // flat reference archive, an HTML-app export) restores nothing
+            // here and keeps the cleared store, which is still right for it.
+            if let Some(run) = doc.results {
+                self.landmark_store.last = Some(run.into_result(
+                    // The same expression `landmark_run()` uses to widen the
+                    // seed, so a restored seed and a re-run one agree bit for
+                    // bit. `load_save` sets `self.seed` from `save.params`,
+                    // so it is this archive's seed and not the last world's.
+                    self.seed as u64,
+                    self.gw.max(0) as usize,
+                    self.gh.max(0) as usize,
+                ));
+                restored.push("landmarks");
+            }
         }
 
         if let Some(Ok(doc)) = data.parse::<LabelsDoc>(SLOT_LABELS) {
@@ -3711,10 +4045,289 @@ mod tests {
         crate::landmark_bridge::set_cross_competition(&mut tuned, false);
         assert_ne!(tuned, LandmarkSettings::default(), "the fixture must differ from the default, or this proves nothing");
 
-        let doc = LandmarksDoc { settings: LandmarkSettingsDto::from(&tuned) };
+        let doc = LandmarksDoc {
+            settings: LandmarkSettingsDto::from(&tuned),
+            results: None,
+        };
         let text = serde_json::to_string(&doc).expect("serializes");
+        // A store that has never run writes no `results` member at all --
+        // "it has not run" and "it ran and placed nothing" are different
+        // claims and the format keeps them different.
+        assert!(!text.contains("results"), "an empty run reached the document: {text}");
         let back: LandmarksDoc = serde_json::from_str(&text).expect("parses");
         assert_eq!(back.settings.into_settings(), tuned);
+        assert!(back.results.is_none());
+    }
+
+    /// A real world's landmark pass, through the document and back.
+    ///
+    /// Generated rather than hand-built: the members under test are a
+    /// forty-nine-row funnel table and a couple of hundred placements with
+    /// causal chains on them, and a fixture typed by hand would agree with
+    /// whatever this file believes rather than with what `generate` emits.
+    #[test]
+    fn a_landmark_run_survives_a_document_round_trip() {
+        use cartalith_civ::landmark::{kinds, LandmarkLimit};
+
+        let (r, seed) = sample_landmark_run();
+        assert!(r.landmarks.len() > 50, "only {} placed; a thin fixture proves little", r.landmarks.len());
+
+        let doc = LandmarksDoc {
+            settings: LandmarkSettingsDto::from(&cartalith_civ::landmark::LandmarkSettings::default()),
+            results: Some(LandmarkRunDto::from(&r)),
+        };
+        let text = serde_json::to_string_pretty(&doc).expect("serializes");
+        let back: LandmarksDoc = serde_json::from_str(&text).expect("parses");
+        let out = back.results.expect("the run is in the document").into_result(
+            seed,
+            SAMPLE_GW,
+            SAMPLE_GH,
+        );
+
+        assert_eq!(out.landmarks.len(), r.landmarks.len(), "a placement was dropped");
+        for (a, b) in out.landmarks.iter().zip(&r.landmarks) {
+            // Everything the format stores as an integer or a string comes
+            // back exact, **including the seed**, which the archive does not
+            // store at all and which `seed_for` rebuilds. The three floats
+            // are compared to a tolerance for the reason
+            // `an_open_save_cycle_reaches_a_fixed_point` measures.
+            assert_eq!(
+                (a.id, &a.kind, a.class, a.x, a.y, &a.causal, a.seed),
+                (b.id, &b.kind, b.class, b.x, b.y, &b.causal, b.seed),
+                "a placement changed across the round trip"
+            );
+            assert!(within_one_ulp(a.elevation, b.elevation), "{} elevation", a.key());
+            assert!(within_one_ulp(a.score, b.score), "{} score", a.key());
+            assert!(within_one_ulp(a.importance, b.importance), "{} importance", a.key());
+        }
+        // The funnels are integers and one token each, so they are exact.
+        assert_eq!(out.funnels, r.funnels, "a funnel changed across the round trip");
+        assert!(within_one_ulp(out.seconds, r.seconds));
+        // The `rejects` list is deliberately not carried; everything else is.
+        assert!(out.rejects.is_empty());
+        assert!(!r.rejects.is_empty(), "the fixture has no rejects, so the omission is untested");
+
+        // `LandmarkFunnel`'s own documented identity, after the trip.
+        for f in &out.funnels {
+            assert_eq!(
+                f.candidates,
+                f.rejected_constraint + f.rejected_score + f.rejected_spacing + f.rejected_cap + f.placed,
+                "the funnel arithmetic stopped closing for {}",
+                f.kind
+            );
+        }
+        assert_eq!(out.funnels.len(), kinds().len());
+        for (f, k) in out.funnels.iter().zip(kinds()) {
+            assert_eq!(f.kind, k.key, "the funnel table left `kinds()` order");
+            assert_ne!(f.limit, LandmarkLimit::Unrecorded, "{}: a measured run came back unmeasured", f.kind);
+        }
+        // The id is a position and is re-derived as one.
+        for (k, lm) in out.landmarks.iter().enumerate() {
+            assert_eq!(lm.id, k as u64 + 1);
+        }
+        // And the identity the whole exercise is for.
+        let keys: std::collections::BTreeSet<String> = out.landmarks.iter().map(|l| l.key()).collect();
+        assert_eq!(keys.len(), out.landmarks.len());
+        assert_eq!(keys, r.landmarks.iter().map(|l| l.key()).collect());
+    }
+
+    /// §14.1, over a document with a real world's numbers in it. The existing
+    /// `every_id_the_format_writes_is_a_safe_integer` walks `civ_documents`
+    /// only, so `entities/landmarks.json` was outside it -- and this document
+    /// is the one that had a 64-bit hash in reach.
+    #[test]
+    fn the_landmark_document_writes_no_integer_past_2_53() {
+        const MAX_SAFE: u64 = 9_007_199_254_740_991;
+        let (r, _) = sample_landmark_run();
+        let doc = LandmarksDoc {
+            settings: LandmarkSettingsDto::from(&cartalith_civ::landmark::LandmarkSettings::default()),
+            results: Some(LandmarkRunDto::from(&r)),
+        };
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&doc).expect("serializes")).unwrap();
+        fn walk(v: &serde_json::Value, worst: &mut u64) {
+            match v {
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_u64() {
+                        *worst = (*worst).max(i);
+                    }
+                }
+                serde_json::Value::Array(a) => a.iter().for_each(|x| walk(x, worst)),
+                serde_json::Value::Object(o) => o.values().for_each(|x| walk(x, worst)),
+                _ => {}
+            }
+        }
+        let mut worst = 0u64;
+        walk(&v, &mut worst);
+        assert!(worst <= MAX_SAFE, "an integer past Number.MAX_SAFE_INTEGER reached the archive: {worst}");
+        // And the one that would have: no `seed` member anywhere.
+        assert!(
+            !serde_json::to_string(&doc).unwrap().contains("\"seed\""),
+            "the 64-bit seed reached the format"
+        );
+    }
+
+    /// The non-destruction half of owner ruling 10, and the one this batch
+    /// could most easily have broken: a document written **before** the
+    /// `results` member existed must still bring its settings back.
+    ///
+    /// The fixture is the exact text the previous writer produced -- one
+    /// `settings` object and nothing else -- rather than an empty document,
+    /// because `MISTAKES.md`'s own backward-compatibility rule is that a
+    /// fixture of empty collections proves nothing about the installed base.
+    #[test]
+    fn a_document_written_before_results_existed_keeps_its_settings() {
+        use cartalith_civ::landmark::LandmarkSettings;
+        let mut tuned = LandmarkSettings::default();
+        let key = cartalith_civ::landmark::kinds()[0].key.to_string();
+        crate::landmark_bridge::set_cap(&mut tuned, &key, 17);
+        crate::landmark_bridge::set_crowding(&mut tuned, 2.25);
+        crate::landmark_bridge::set_class_radius(&mut tuned, "local", 3.5);
+        crate::landmark_bridge::set_cross_competition(&mut tuned, false);
+        assert_ne!(tuned, LandmarkSettings::default());
+
+        // Serialized through the *old* shape: `LandmarkSettingsDto` alone
+        // under a `settings` key, which is byte for byte what the writer
+        // before this change emitted.
+        let legacy = format!(
+            "{{\n  \"settings\": {}\n}}",
+            serde_json::to_string(&LandmarkSettingsDto::from(&tuned)).unwrap()
+        );
+        assert!(!legacy.contains("results"));
+
+        let back: LandmarksDoc = serde_json::from_str(&legacy).expect("an older document still parses");
+        // Absent is absent: no run is invented for a document that has none.
+        assert!(back.results.is_none());
+        // Re-serialising it does not grow a `results` member, so opening an
+        // old project and saving it does not write a run that never ran.
+        let again = serde_json::to_string(&back).unwrap();
+        assert!(!again.contains("results"), "{again}");
+        assert_eq!(back.settings.into_settings(), tuned, "the settings did not survive");
+    }
+
+    /// The three ways a row can be untrusted, each costing the row and not
+    /// the document (`SAVEFILE_COMPAT.md` §6.4a).
+    #[test]
+    fn an_untrusted_landmark_row_costs_the_row() {
+        use cartalith_civ::landmark::kinds;
+        let good = kinds().iter().find(|k| k.buildable).expect("a buildable kind").key;
+        let text = format!(
+            r#"{{"settings":{{}},"results":{{"landmarks":[
+                {{"kind":"{good}","x":4,"y":5,"elevation_m":100.0,"score":0.5,"importance":0.5}},
+                {{"kind":"not_a_landmark_kind","x":6,"y":7}},
+                {{"kind":"{good}","x":9000,"y":5}},
+                {{"kind":"{good}","x":4,"y":9000}}
+            ],"funnels":[],"seconds":0.25}}}}"#
+        );
+        let doc: LandmarksDoc = serde_json::from_str(&text).expect("parses");
+        let out = doc.results.expect("results present").into_result(41, 64, 64);
+        assert_eq!(out.landmarks.len(), 1, "{:?}", out.landmarks);
+        assert_eq!(out.landmarks[0].key(), format!("{good}@4,5"));
+        assert_eq!(out.landmarks[0].id, 1, "the surviving row is renumbered from 1");
+        assert_eq!(
+            out.landmarks[0].seed,
+            cartalith_civ::landmark::seed_for(41, 64, good, 4, 5).expect("a known kind"),
+            "the recomputed seed is not the generator's"
+        );
+        // An empty funnel list is still rebuilt to the full table, and every
+        // row says it does not know rather than picking a measured reason.
+        assert_eq!(out.funnels.len(), kinds().len());
+        for f in &out.funnels {
+            assert_eq!(f.limit, cartalith_civ::landmark::LandmarkLimit::Unrecorded, "{}", f.kind);
+            assert_eq!(f.candidates, 0);
+        }
+    }
+
+    /// **An open/save cycle settles on the second write, and this measures
+    /// where.** `serde_json` is built here without its `float_roundtrip`
+    /// feature (`crates/cartalith-godot/Cargo.toml` asks for `serde_json =
+    /// "1.0.151"` and nothing else), so its parser is the fast one and a
+    /// `f64` read back can land **one ULP** from the one written.
+    ///
+    /// Measured 2026-09-06 on `sample_landmark_run` (192 x 144, seed
+    /// 24601): **34 of its 128 placements** carry a float that moves on the
+    /// first write-read cycle, and the document is a fixed point from the
+    /// second write on -- 40 005 bytes, then 39 986
+    /// bytes three times running. The value that moves is the shortest
+    /// decimal for a neighbouring double, so it stops moving as soon as one
+    /// has been written.
+    ///
+    /// The fixed point is the property that matters and the one asserted: a
+    /// project opened and saved repeatedly does not walk. This is a property
+    /// of every float in this archive, not of landmarks -- `suitability`,
+    /// `length_km` and `territory_opacity` all go through the same parser --
+    /// and it is measured here because this is the first document to carry
+    /// generated `f64`s in quantity.
+    #[test]
+    fn an_open_save_cycle_reaches_a_fixed_point() {
+        let (r, _) = sample_landmark_run();
+        assert!(r.landmarks.len() > 50);
+        let mut dto = LandmarkRunDto::from(&r);
+        let mut texts: Vec<String> = Vec::new();
+        for _ in 0..3 {
+            let t = serde_json::to_string(&dto).unwrap();
+            dto = serde_json::from_str(&t).unwrap();
+            texts.push(t);
+        }
+        assert_eq!(texts[1], texts[2], "the document is still moving on the third write");
+
+        // The move itself, so that a change to the parser or its features is
+        // visible here rather than silent. Not a fixed count: what is being
+        // asserted is that floats are the only thing that moves, and that
+        // each moves by at most one ULP.
+        let back: LandmarkRunDto = serde_json::from_str(&texts[0]).unwrap();
+        let mut moved = 0usize;
+        for (a, b) in back.landmarks.iter().zip(&r.landmarks) {
+            assert_eq!((&a.kind, a.x, a.y, &a.causal), (&b.kind, b.x, b.y, &b.causal));
+            for (x, y) in [
+                (a.elevation_m, b.elevation),
+                (a.score, b.score),
+                (a.importance, b.importance),
+            ] {
+                assert!(within_one_ulp(x, y), "{x} and {y} are more than one ULP apart");
+                if x != y {
+                    moved += 1;
+                }
+            }
+        }
+        assert!(moved > 0, "nothing moved, so this test is not measuring the parser it names");
+    }
+
+    /// `a == b`, or the two are adjacent doubles. Written as a relative
+    /// tolerance at `f64::EPSILON` rather than by bit-twiddling because the
+    /// values under test are `0..1` scores and metre elevations, where the
+    /// two agree.
+    fn within_one_ulp(a: f64, b: f64) -> bool {
+        a == b || (a - b).abs() <= a.abs().max(b.abs()) * f64::EPSILON
+    }
+
+    const SAMPLE_GW: usize = 192;
+    const SAMPLE_GH: usize = 144;
+
+    /// A real terrain pass with a real landmark run over it, and the world
+    /// seed the run was given, so a caller can rebuild the seeds the same way
+    /// `project_open` does.
+    fn sample_landmark_run() -> (cartalith_civ::landmark::LandmarkResult, u64) {
+        use cartalith_civ::landmark::{LandmarkInputs, LandmarkSettings};
+        const WORLD_SEED: u64 = 24601;
+        let p = cartalith_engine::WorldParams::defaults(SAMPLE_GW, SAMPLE_GH, WORLD_SEED as i32);
+        let ws = cartalith_engine::generate_terrain(&p);
+        let mut inp = LandmarkInputs::new(
+            &ws.field,
+            SAMPLE_GW,
+            SAMPLE_GH,
+            ws.sea_level,
+            p.world,
+            p.map_width_km,
+        );
+        inp.flow = Some(&ws.flow_discharge);
+        inp.channel = ws.channels.as_ref().map(|c| c.chan.as_slice());
+        inp.recv = ws.channels.as_ref().map(|c| c.recv.as_slice());
+        inp.order = ws.stream_order.as_deref();
+        inp.volcanism = Some(&ws.volcanic_field);
+        inp.resistance = Some(&ws.resistance_field);
+        let r = cartalith_civ::landmark::generate(&inp, &LandmarkSettings::default(), WORLD_SEED);
+        (r, WORLD_SEED)
     }
 
     #[test]
