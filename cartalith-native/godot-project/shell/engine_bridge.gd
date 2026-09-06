@@ -2056,6 +2056,52 @@ func redo_last() -> bool:
 	mark_world_dirty()
 	return world_gen.redo_last()
 
+## **Every** undone step still on the redo tail, in the order `redo_last()`
+## would re-apply them: element 0 is `redo_label()`, element 1 is what a second
+## press would put back. So a history panel drawing oldest-first can append this
+## array straight after the last committed row and the ordinals continue.
+##
+## Empty exactly when `redo_available()` is `false` -- `RedoTail::labels()`
+## carries the same `is_current()` gate `RedoTail::label()` does, so the list
+## and the single label can never disagree about whether there is anything to
+## redo. Also empty against a cdylib older than this binding, which is what
+## keeps the panel's undone rows off the screen rather than drawing an
+## unnamed one.
+##
+## **Not `undo_stats()["redo_depth"]`, and a caller must not count that
+## instead.** That readout is raw buffer occupancy for `Preferences ▸ Memory`
+## and is deliberately not gated on `redo_available()`, so a tail invalidated
+## by a new commit still reports the bytes it is holding while offering
+## nothing. The two agree exactly while `redo_available()` is `true`, which is
+## the only state in which undone rows are drawn at all -- so the agreement is
+## a coincidence of that state, not a licence to swap one for the other.
+func redo_labels() -> PackedStringArray:
+	if not _has("redo_labels"):
+		return PackedStringArray()
+	return world_gen.redo_labels()
+
+## Throw the redo tail away without committing anything -- the artboard's
+## `✕ discard the N undone steps` row. Returns how many steps went, so the
+## caller names the number it just acted on rather than re-reading and hoping.
+## `0` against an older cdylib, and `0` when there was no live tail.
+##
+## Touches the tail and nothing else: not the height field, not the undo stack,
+## not the ledger. That is what separates it from `clear_undo()` above, which
+## drops the backward half too and is a `Preferences ▸ Memory` control.
+##
+## **Deliberately no `mark_world_dirty()`, unlike `undo_last()`/`redo_last()`
+## either side of it.** Those two write the height field. This one changes no
+## world state, and nothing the project `.zip` carries names the redo tail:
+## `grep -n 'undo\|redo' crates/cartalith-godot/src/project_bridge.rs`
+## (2026-09-06) returns two prose lines about `PassBuffer::discard` and no
+## field. So marking would put an unsaved-changes star on the title bar over a
+## change no save can record -- the reason `set_color_space()` further up does
+## not mark either.
+func discard_redo_tail() -> int:
+	if not _has("discard_redo_tail"):
+		return 0
+	return int(world_gen.discard_redo_tail())
+
 ## `depth`, `max_steps`, `bytes`, `budget_bytes`, `step_bytes`, `label` --
 ## the reference's `#undoMem` readout as data. Empty dictionary on an older
 ## cdylib.

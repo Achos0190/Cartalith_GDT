@@ -1706,20 +1706,105 @@ pub fn civ_recovery_growth_step(
 /// reference lines 20596-20604: only `territory`/`places`/`ways` are ever read into a snapshot,
 /// `TIMELINE_SCOPE.md` milestone 4's own framing of this).
 ///
-/// `territory` is a dense per-cell `Vec<i32>` clone of `CivData::territory`, not the reference's
-/// sparse `[i, factionId, ...]` pair encoding (reference `civSnapshotSave` line 20598). That
-/// encoding exists to shrink the reference's own `.zip`/JSON save payload -- a concern this
-/// in-memory Rust struct doesn't share (`TIMELINE_SCOPE.md` §9 defers persisting `civTimeline` to
-/// disk at all, and its own §9 "Snapshot cap" note already accepts a bounded per-year memory cost
-/// as the deliberate tradeoff for this feature). Disclosed deviation, not a silent one --
-/// [`civ_snapshot_load`] reproduces the reference's own "fill with 0, then paint what the
-/// snapshot recorded" restore semantics regardless of storage shape.
+/// `territory` used to be a dense per-cell `Vec<i32>` clone of `CivData::territory` -- one whole
+/// raster per recorded year, whatever the year before it held. **Owner ruling 27 (2026-09-06)
+/// ended that**: it is now a [`TerritoryFrame`], which records the cells whose owner *changed*
+/// and inherits the rest. The reference's own `civSnapshotSave` (line 20598) also stores a sparse
+/// `[i, factionId, ...]` pair list, but for a different reason and against a different baseline --
+/// it is sparse against *unowned*, once, to shrink its `.zip`; this is sparse against the
+/// *previous recorded year*, which is the redundancy the ruling names ("if a position doesn't
+/// change for 50 years that's 50 datapoints we do not need").
+///
+/// Measured before the change, on this machine, 2 048 x 1 311 (the shipped default world),
+/// host-polled resident memory: **10.32 MiB per recorded year**, of which the raster is
+/// 10.24 MiB and `settlements`+`ways` together are ~84 KB. One default collapse run records 11
+/// years and cost **113 MiB**. See this module's [`civ_territory_at`] for the reconstruction, and
+/// [`TERRITORY_KEYFRAME_INTERVAL`] for what bounds a scrub.
+///
+/// [`civ_snapshot_load`] still reproduces the reference's own "fill with 0, then paint what the
+/// snapshot recorded" restore semantics regardless of storage shape -- that is the contract, and
+/// it did not move.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimelineSnapshot {
     pub year: i64,
-    pub territory: Vec<i32>,
+    pub territory: TerritoryFrame,
     pub settlements: Vec<NamedSettlement>,
     pub ways: Vec<Way>,
+}
+
+/// How many consecutive [`TerritoryFrame::Delta`] entries may follow one
+/// [`TerritoryFrame::Key`] before [`civ_snapshot_save`] is forced to record a whole raster again.
+///
+/// **This is a scrub-cost bound, not a compression choice.** Reconstructing year *N*
+/// ([`civ_territory_at`]) clones the nearest earlier keyframe and replays every delta between it
+/// and *N*, so with no keyframes at all a late year would replay from the beginning of the
+/// timeline -- which is exactly what makes a dragged year cursor unusable. The interval caps that
+/// replay at this many deltas.
+///
+/// **64, measured.** At the shipped default world the raster clone alone is 10.24 MiB, and a full
+/// 64-delta chain where *every* delta is the largest one this encoder will store (just under half
+/// the cells, the point past which it writes a keyframe instead) reconstructs in the low
+/// milliseconds -- see this module's `keyframe_interval_bounds_the_scrub` test, which measures the
+/// worst chain this constant admits rather than a typical one. Against memory, the interval is
+/// what bounds the pathological case: a timeline written in year order at this port's own
+/// 2 000-entry cap holds at most `2000 / 64` = 31 keyframes.
+///
+/// **It bounds the run at write time, and an insert can lengthen an existing one.** Recording a
+/// year *between* two entries that already form a delta chain adds one link to that chain without
+/// re-encoding everything after it. Each such insert costs one extra replay step; reaching a
+/// chain materially longer than the interval takes as many mid-chain inserts. Stated rather than
+/// claimed away: the guarantee is on what this encoder writes, not on what a later insert leaves.
+pub const TERRITORY_KEYFRAME_INTERVAL: usize = 64;
+
+/// One recorded year's territory raster: either the whole thing, or the cells that differ from
+/// another recorded year's.
+///
+/// **The base year is explicit, not positional.** A `Delta` names the year it is a difference
+/// against, so a frame means the same thing wherever it sits in the timeline -- cloning one from
+/// year A into year B reproduces A's raster at B, which is what a caller carrying territory
+/// forward unchanged actually wants. A positional "difference against whatever precedes me"
+/// encoding would silently change meaning on every insert, and `civ_snapshot_save` inserts.
+///
+/// **What still has to be repaired on a write:** overwriting or removing year *Y* invalidates the
+/// frame of the entry *immediately after* it, because that entry's base is `Y` and `Y`'s raster
+/// just moved. [`civ_snapshot_save`] and [`civ_timeline_remove`] both materialise that successor
+/// before touching `Y` and re-encode it afterwards, so its reconstructed raster is preserved
+/// byte-for-byte -- and because it is preserved, every entry further along the chain stays valid
+/// without being touched. Nothing else in the timeline can name `Y` as a base.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerritoryFrame {
+    /// The whole raster, one `i32` per cell, row-major -- what every entry used to hold.
+    Key(Vec<i32>),
+    /// `(cell index, new owner)` for every cell whose owner differs from `base_year`'s
+    /// reconstructed raster, ascending by index. An **empty** `cells` is the common case and the
+    /// point of the ruling: it means this year's territory is identical to `base_year`'s.
+    Delta { base_year: i64, cells: Vec<(u32, i32)> },
+}
+
+impl TerritoryFrame {
+    /// The frame a year with no territory at all carries -- a zero-length raster, which is what
+    /// `TimelineDoc`'s own "a year recorded no territory" case (`SAVEFILE_COMPAT.md` §10.2)
+    /// deserialises to and what [`civ_snapshot_load`] reads as "paint nothing".
+    ///
+    /// A `Key` of length zero rather than an empty `Delta`: "there is no raster here" is a
+    /// statement about this year, not a claim that it matches some other year.
+    pub fn empty() -> Self {
+        TerritoryFrame::Key(Vec::new())
+    }
+
+    /// Whether this frame stands on its own (`Key`) rather than depending on another year.
+    pub fn is_key(&self) -> bool {
+        matches!(self, TerritoryFrame::Key(_))
+    }
+
+    /// The bytes this frame's own heap allocation holds -- what the ruling's memory claim is
+    /// actually about. Excludes the enum's inline size, which is per-entry and constant.
+    pub fn heap_bytes(&self) -> usize {
+        match self {
+            TerritoryFrame::Key(k) => k.len() * std::mem::size_of::<i32>(),
+            TerritoryFrame::Delta { cells, .. } => cells.len() * std::mem::size_of::<(u32, i32)>(),
+        }
+    }
 }
 
 /// `_civYearDiff`'s return shape (reference lines 20580-20595), minus `curEntry`/`prevEntry` --
@@ -1797,6 +1882,20 @@ pub fn civ_year_diff(timeline: &[TimelineSnapshot], year: i64) -> YearDiff {
 /// (`civ_tools_bridge::drop_settlement`) -- see this module's own top-of-file doc comment for the
 /// full decision. By the time anything reaches this function, every settlement/way it's handed
 /// already carries a real `tid`.
+///
+/// **It still takes a whole raster and it still stores the whole truth** -- owner ruling 27
+/// changed only how that truth is *held*. The `Vec<i32>` handed in is encoded to a
+/// [`TerritoryFrame`] against the chronologically-previous recorded year; `civ_territory_at(…,
+/// year)` returns exactly the vec that was passed, for every year, always.
+///
+/// **This is meant to be the only encoder** -- the keyframe run-length and the successor repair
+/// below are correct only if one function owns them, so a raster must not be turned into a frame
+/// anywhere else. Checked on 2026-09-06 with
+/// `git grep -n -E "\.territory = |territory: (cartalith_civ::timeline::)?TerritoryFrame"
+/// -- 'crates/*'`: every hit outside this function's own three assignments is either a
+/// `#[cfg(test)]` literal building a fixture by hand, or `CivData::territory` (the live grid,
+/// a different field with the same name). That is what was searched and what it found -- not a
+/// guarantee that a future caller cannot add one.
 pub fn civ_snapshot_save(
     timeline: &mut Vec<TimelineSnapshot>,
     year: i64,
@@ -1804,20 +1903,209 @@ pub fn civ_snapshot_save(
     settlements: Vec<NamedSettlement>,
     ways: Vec<Way>,
 ) {
+    // Sorted FIRST, not last: everything below reasons about "the entry before this year" and
+    // "the entry after it", and both are position queries. The reference sorts after its own
+    // write (line 20605); sorting first and inserting in place is the same postcondition.
+    timeline.sort_by_key(|s| s.year);
+
+    // The successor's frame is a difference against THIS year's raster, which is about to move.
+    // Materialise what it currently reconstructs to, before anything is written.
+    let succ = timeline
+        .iter()
+        .position(|s| s.year > year)
+        .filter(|&i| !timeline[i].territory.is_key());
+    let succ_raster = succ.and_then(|i| civ_territory_at(timeline, timeline[i].year));
+
+    let frame = encode_territory_frame(timeline, year, territory);
     match timeline.iter_mut().find(|s| s.year == year) {
         Some(existing) => {
-            existing.territory = territory;
+            existing.territory = frame;
             existing.settlements = settlements;
             existing.ways = ways;
         }
         None => timeline.push(TimelineSnapshot {
             year,
-            territory,
+            territory: frame,
             settlements,
             ways,
         }),
     }
     timeline.sort_by_key(|s| s.year);
+
+    if let (Some(_), Some(raster)) = (succ, succ_raster) {
+        // Re-found by year, not reused by index: the insert above may have shifted it.
+        if let Some(i) = timeline.iter().position(|s| s.year > year) {
+            let y = timeline[i].year;
+            let frame = encode_territory_frame(timeline, y, raster);
+            timeline[i].territory = frame;
+        }
+    }
+}
+
+/// Picks a [`TerritoryFrame`] for `raster` at `year`, against whatever `timeline` already holds
+/// at the chronologically-previous recorded year. `timeline` must already be sorted; `year` may
+/// or may not already have an entry (this is called for both an overwrite and an insert, and the
+/// entry at `year` itself is never consulted -- only the one before it).
+///
+/// Five conditions force a [`TerritoryFrame::Key`], and each is a case where a delta would be
+/// wrong or would not pay:
+///
+/// 1. **No earlier recorded year.** There is nothing to be a difference against.
+/// 2. **The earlier year's raster does not reconstruct** (a chain this function's own invariants
+///    say cannot happen -- but reading it back as "no change" would be the plausible-looking
+///    noise `SAVEFILE_COMPAT.md` §18.4 is written against, so it stores the truth instead).
+/// 3. **A different cell count.** A grid resize makes "cell 12 changed" meaningless.
+/// 4. **More than `u32::MAX` cells** -- past what a delta's index can address. Unreachable at the
+///    8 192 resolution preset (67 M cells), guarded rather than assumed.
+/// 5. **The delta is not smaller.** `(u32, i32)` is 8 bytes against 4 for a cell, so a delta pays
+///    only below half the cells; past that a keyframe is both smaller and cheaper to read.
+///
+/// And one more that is about time rather than size: a run of [`TERRITORY_KEYFRAME_INTERVAL`]
+/// deltas since the last keyframe forces the next one, which is what bounds a scrub.
+fn encode_territory_frame(
+    timeline: &[TimelineSnapshot],
+    year: i64,
+    raster: Vec<i32>,
+) -> TerritoryFrame {
+    let Some(prev) = timeline.iter().rev().find(|s| s.year < year) else {
+        return TerritoryFrame::Key(raster);
+    };
+    if raster.len() > u32::MAX as usize {
+        return TerritoryFrame::Key(raster);
+    }
+    // Deltas since the last keyframe, counted backwards from `prev` inclusive. `>=` and not `>`:
+    // `prev` itself being the interval-th delta means this write is the one that must break the
+    // run.
+    let run = timeline
+        .iter()
+        .rev()
+        .skip_while(|s| s.year > prev.year)
+        .take_while(|s| !s.territory.is_key())
+        .count();
+    if run >= TERRITORY_KEYFRAME_INTERVAL {
+        return TerritoryFrame::Key(raster);
+    }
+    let Some(base) = civ_territory_at(timeline, prev.year) else {
+        return TerritoryFrame::Key(raster);
+    };
+    if base.len() != raster.len() {
+        return TerritoryFrame::Key(raster);
+    }
+    let mut cells: Vec<(u32, i32)> = Vec::new();
+    for (i, (&b, &v)) in base.iter().zip(raster.iter()).enumerate() {
+        if b != v {
+            cells.push((i as u32, v));
+        }
+    }
+    // 8 bytes a cell against 4: a delta touching half the raster is already the same size, and
+    // one touching more is bigger. `* 2` rather than a byte comparison so the two `size_of`s
+    // cannot drift apart from the constant.
+    if cells.len() * std::mem::size_of::<(u32, i32)>()
+        >= raster.len() * std::mem::size_of::<i32>()
+    {
+        return TerritoryFrame::Key(raster);
+    }
+    cells.shrink_to_fit();
+    TerritoryFrame::Delta { base_year: prev.year, cells }
+}
+
+/// `year`'s entry, by binary search where the timeline is sorted (which every write path in this
+/// module keeps it) and by a linear scan otherwise.
+///
+/// **This exists because the linear scan was the whole cost.** [`civ_territory_at`] walks up to
+/// [`TERRITORY_KEYFRAME_INTERVAL`] links, and a `find` per link made a reconstruction
+/// O(interval x entries) -- measured on a 2 048 x 1 311 world with a real painted change per
+/// year, a year-cursor drag went from a **1.64 ms** median at 200 recorded years to **3.30 ms**
+/// at 400, with a 23.6 ms worst sample. Linear in the chain, quadratic in the timeline. The
+/// `Err` arm keeps the function honest for a caller holding an unsorted slice: it costs an
+/// O(entries) scan only when the binary search misses, which on a sorted timeline means the year
+/// is genuinely absent.
+fn civ_timeline_find(timeline: &[TimelineSnapshot], year: i64) -> Option<&TimelineSnapshot> {
+    match timeline.binary_search_by_key(&year, |s| s.year) {
+        Ok(i) => Some(&timeline[i]),
+        Err(_) => timeline.iter().find(|s| s.year == year),
+    }
+}
+
+/// The whole territory raster `year` recorded, rebuilt from its [`TerritoryFrame`] chain -- the
+/// exact `Vec<i32>` that was handed to [`civ_snapshot_save`] for that year, which is the property
+/// owner ruling 27 makes the test.
+///
+/// `None` for a year with no entry -- and also, deliberately, for a chain that cannot be walked
+/// (a base year that is not recorded, or a cycle). Those are corruption, not "no territory": a
+/// reader that got an empty raster back would paint an unowned world over a world with owners and
+/// nothing would fail. [`civ_snapshot_load`]'s own contract already distinguishes the two.
+///
+/// Cost is one raster clone plus at most [`TERRITORY_KEYFRAME_INTERVAL`] delta replays.
+pub fn civ_territory_at(timeline: &[TimelineSnapshot], year: i64) -> Option<Vec<i32>> {
+    // Walk back to a keyframe, collecting the deltas to replay. Bounded by the timeline's own
+    // length: a chain longer than that has a cycle in it, whatever produced it.
+    let mut chain: Vec<&TimelineSnapshot> = Vec::new();
+    let mut want = year;
+    loop {
+        let snap = civ_timeline_find(timeline, want)?;
+        chain.push(snap);
+        match &snap.territory {
+            TerritoryFrame::Key(_) => break,
+            TerritoryFrame::Delta { base_year, .. } => {
+                // A valid chain cannot be longer than the timeline, so anything past that is a
+                // cycle. **Only the tight side of this bound is tested**: `a_cycle_terminates_
+                // instead_of_hanging` proves a cycle answers `None`, and the long-chain tests
+                // prove a valid chain of the full length survives (a mutant tightening this to
+                // `len()/2` is killed by three of them). A mutant *loosening* it to `len()*4`
+                // survives -- it still terminates and still answers `None`, it just walks four
+                // times as far over input that is already corrupt. Said rather than implied.
+                if chain.len() > timeline.len() {
+                    return None;
+                }
+                want = *base_year;
+            }
+        }
+    }
+    let TerritoryFrame::Key(key) = &chain.last()?.territory else {
+        return None;
+    };
+    let mut out = key.clone();
+    for snap in chain.iter().rev().skip(1) {
+        let TerritoryFrame::Delta { cells, .. } = &snap.territory else {
+            return None;
+        };
+        for &(i, v) in cells {
+            // An out-of-range index is the same class of corruption as a broken chain, and the
+            // same answer: refuse, rather than reconstruct a raster that is almost right.
+            *out.get_mut(i as usize)? = v;
+        }
+    }
+    Some(out)
+}
+
+/// Removes `year`'s entry, keeping every remaining year's reconstructed raster byte-identical.
+///
+/// The plain `Vec::remove` this replaces was correct while every entry carried its own whole
+/// raster. It is not any more: the entry after `year` may be a difference *against* `year`, and
+/// dropping `year` would leave it naming a base that no longer exists -- [`civ_territory_at`]
+/// would answer `None` for it and every year after it in the same chain. So the successor is
+/// materialised first and re-encoded against its new predecessor afterwards.
+///
+/// `false` when `year` was never recorded, matching the reference's own no-op
+/// (`civRemoveYear`, lines 20635-20641). Restoring the cursor is the caller's job, as before.
+pub fn civ_timeline_remove(timeline: &mut Vec<TimelineSnapshot>, year: i64) -> bool {
+    let Some(idx) = timeline.iter().position(|s| s.year == year) else {
+        return false;
+    };
+    let succ = timeline
+        .get(idx + 1)
+        .filter(|s| !s.territory.is_key())
+        .map(|s| s.year);
+    let succ_raster = succ.and_then(|y| civ_territory_at(timeline, y));
+    timeline.remove(idx);
+    if let (Some(y), Some(raster)) = (succ, succ_raster) {
+        if let Some(i) = timeline.iter().position(|s| s.year == y) {
+            let frame = encode_territory_frame(timeline, y, raster);
+            timeline[i].territory = frame;
+        }
+    }
+    true
 }
 
 /// `civSnapshotLoad`'s territory-restore half (reference lines 20607-20614): fills `territory`
@@ -1825,20 +2113,24 @@ pub fn civ_snapshot_save(
 /// `settlements`/`ways` -- those stay the single always-current, always-editable arrays (reference
 /// comment lines 20559-20561), matching `TIMELINE_SCOPE.md`'s own emphasis (success criterion 2).
 ///
-/// Unlike the reference's sparse `[i, factionId, ...]` encoding, this port's
-/// [`TimelineSnapshot::territory`] is already a dense per-cell array the same length as the live
-/// grid, so "paint what the snapshot recorded" is a direct copy, not a decode loop -- see that
-/// field's own doc comment on this simplification. A snapshot recorded against a different-sized
-/// grid than the live `territory` (never reachable via this port's own callers, since a fresh
+/// **Since owner ruling 27 this IS a decode loop** -- [`civ_territory_at`] walks the year's
+/// [`TerritoryFrame`] chain back to a keyframe and replays it. The paragraph here used to say the
+/// opposite ("a direct copy, not a decode loop"), which was true of the whole-raster-per-year
+/// shape it described. What did not change: a snapshot recorded against a different-sized grid
+/// than the live `territory` (never reachable via this port's own callers, since a fresh
 /// `generate()` always clears the timeline -- `TIMELINE_SCOPE.md` §1 Cluster D -- but not
 /// re-validated here) copies only the overlapping prefix rather than panicking; an index-length
 /// mismatch is a caller bug, matching this crate's general preference (e.g. [`civ_gravity_migrate`]'s
 /// own doc comment) for not runtime-guarding a contract only the caller can violate.
+///
+/// A year with no entry leaves `territory` zeroed, as before. So does a year whose chain is
+/// broken -- and that is the one case where zeroing hides something, which is why
+/// [`civ_territory_at`] exists as the answer a caller can actually test against `None`.
 pub fn civ_snapshot_load(timeline: &[TimelineSnapshot], year: i64, territory: &mut [i32]) {
     territory.fill(0);
-    if let Some(snap) = timeline.iter().find(|s| s.year == year) {
-        let n = territory.len().min(snap.territory.len());
-        territory[..n].copy_from_slice(&snap.territory[..n]);
+    if let Some(snap) = civ_territory_at(timeline, year) {
+        let n = territory.len().min(snap.len());
+        territory[..n].copy_from_slice(&snap[..n]);
     }
 }
 
@@ -2843,7 +3135,9 @@ mod tests {
         );
         assert_eq!(timeline.len(), 2);
         let y100 = timeline.iter().find(|s| s.year == 100).unwrap();
-        assert_eq!(y100.territory, vec![9, 9, 9]);
+        // Through the reconstruction, not off the field: since owner ruling 27 the field holds a
+        // `TerritoryFrame`, and what the caller handed in is what `civ_territory_at` returns.
+        assert_eq!(civ_territory_at(&timeline, 100).unwrap(), vec![9, 9, 9]);
         assert_eq!(y100.settlements[0].name, "Alpha Renamed");
     }
 
@@ -2966,5 +3260,394 @@ mod tests {
             civ_resync_next_tid_with_timeline(&live_settlements, &live_ways, &timeline),
             13
         );
+    }
+
+    // ---------- owner ruling 27: the timeline stores mutations, not snapshots ----------
+    //
+    // Every test below grades ONE property: replay to year N and get back, byte for byte, the
+    // raster that was saved for year N. The ruling states it as the thing to test ("a delta
+    // chain that drifts is worse than the redundancy it replaces"), and it is what makes the
+    // encoding an implementation detail rather than a behaviour change.
+
+    const RW: usize = 40;
+    const RH: usize = 30;
+    const RN: usize = RW * RH;
+
+    /// A raster that differs from `base` at `changes` cells, deterministically -- the "mutation"
+    /// the ruling's unit is. Spread by a stride rather than laid down as a prefix, so a delta's
+    /// indices are not all in one run: a run is what a spatial encoding would flatter, and this
+    /// is a temporal one.
+    fn mutate(base: &[i32], changes: usize, tag: i32) -> Vec<i32> {
+        let mut out = base.to_vec();
+        for k in 0..changes {
+            let i = (k * 7 + 3) % RN;
+            out[i] = tag + k as i32;
+        }
+        out
+    }
+
+    /// The old shape, kept alongside as the oracle: what a full snapshot per year would have
+    /// held. Every reconstruction test below compares against this, not against itself.
+    fn save_and_remember(
+        timeline: &mut Vec<TimelineSnapshot>,
+        oracle: &mut Vec<(i64, Vec<i32>)>,
+        year: i64,
+        raster: Vec<i32>,
+    ) {
+        match oracle.iter_mut().find(|(y, _)| *y == year) {
+            Some(slot) => slot.1 = raster.clone(),
+            None => oracle.push((year, raster.clone())),
+        }
+        oracle.sort_by_key(|(y, _)| *y);
+        civ_snapshot_save(timeline, year, raster, Vec::new(), Vec::new());
+    }
+
+    fn assert_exact(timeline: &[TimelineSnapshot], oracle: &[(i64, Vec<i32>)]) {
+        assert_eq!(
+            timeline.iter().map(|s| s.year).collect::<Vec<_>>(),
+            oracle.iter().map(|(y, _)| *y).collect::<Vec<_>>(),
+            "the recorded years themselves must match the oracle"
+        );
+        for (year, want) in oracle {
+            let got = civ_territory_at(timeline, *year)
+                .unwrap_or_else(|| panic!("year {year} did not reconstruct at all"));
+            assert_eq!(&got, want, "year {year} reconstructed a different raster");
+        }
+    }
+
+    /// Reconstruction by an independent route -- walks from the first keyframe FORWARD applying
+    /// every delta in year order, rather than from the nearest one backwards the way
+    /// [`civ_territory_at`] does. A test that reconstructs the same way the code does can only
+    /// ever agree with it.
+    fn timeline_oracle_at(timeline: &[TimelineSnapshot], year: i64) -> Vec<i32> {
+        let mut out: Vec<i32> = Vec::new();
+        for s in timeline.iter().filter(|s| s.year <= year) {
+            match &s.territory {
+                TerritoryFrame::Key(k) => out = k.clone(),
+                TerritoryFrame::Delta { cells, .. } => {
+                    for &(i, v) in cells {
+                        out[i as usize] = v;
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn every_recorded_year_replays_to_exactly_the_raster_that_was_saved() {
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        let mut oracle: Vec<(i64, Vec<i32>)> = Vec::new();
+        let mut cur = vec![0i32; RN];
+        for t in 0..40i64 {
+            // A mix the ruling's own framing calls for: years that change nothing at all (the
+            // "50 years we do not need"), years that change a handful of cells, and one that
+            // repaints most of the map.
+            cur = match t % 5 {
+                0 => cur.clone(),
+                4 => mutate(&cur, RN * 3 / 4, 900 + t as i32),
+                _ => mutate(&cur, 6, t as i32 * 10),
+            };
+            save_and_remember(&mut timeline, &mut oracle, t * 10, cur.clone());
+        }
+        assert_exact(&timeline, &oracle);
+
+        // And the encoding actually did something: the years that changed nothing store no cells
+        // at all, which is the ruling in one assertion.
+        let empty = timeline
+            .iter()
+            .filter(|s| {
+                matches!(&s.territory, TerritoryFrame::Delta { cells, .. } if cells.is_empty())
+            })
+            .count();
+        assert!(
+            empty >= 7,
+            "expected the unchanged years to store empty deltas, got {empty}"
+        );
+    }
+
+    #[test]
+    fn a_repaint_bigger_than_half_the_raster_is_stored_whole_instead() {
+        // The size condition in `encode_territory_frame`, pinned from both sides with literals
+        // rather than against the `size_of`s it is written from. 8 bytes a delta cell against 4
+        // a raster cell, so half the cells is the crossing point.
+        // Two timelines, not two years of one: the encoder compares against the PREVIOUS
+        // recorded year, so a second case appended to the first would be diffed against the
+        // first case's raster and measure nothing.
+        let base = vec![0i32; RN];
+        let mut under: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(&mut under, 0, base.clone(), Vec::new(), Vec::new());
+        civ_snapshot_save(
+            &mut under,
+            10,
+            mutate(&base, RN / 2 - 1, 5),
+            Vec::new(),
+            Vec::new(),
+        );
+        assert!(
+            !under.iter().find(|s| s.year == 10).unwrap().territory.is_key(),
+            "599 of 1 200 cells: 4 792 delta bytes against a 4 800-byte raster, so it pays"
+        );
+
+        let mut over: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(&mut over, 0, base.clone(), Vec::new(), Vec::new());
+        civ_snapshot_save(
+            &mut over,
+            10,
+            mutate(&base, RN / 2 + 1, 5),
+            Vec::new(),
+            Vec::new(),
+        );
+        assert!(
+            over.iter().find(|s| s.year == 10).unwrap().territory.is_key(),
+            "601 of 1 200 cells: 4 808 delta bytes against 4 800, so it does not"
+        );
+        // And the tie: 600 of 1 200 cells is 4 800 delta bytes against a 4 800-byte raster,
+        // exactly equal. It goes to the keyframe -- the same size, and cheaper to read back.
+        let mut tie: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(&mut tie, 0, base.clone(), Vec::new(), Vec::new());
+        civ_snapshot_save(&mut tie, 10, mutate(&base, RN / 2, 5), Vec::new(), Vec::new());
+        assert!(
+            tie.iter().find(|s| s.year == 10).unwrap().territory.is_key(),
+            "600 of 1 200 cells: 4 800 delta bytes against 4 800, a tie, and a tie is stored whole"
+        );
+
+        // Both still reconstruct, whichever branch was taken.
+        assert_eq!(
+            civ_territory_at(&under, 10).unwrap(),
+            mutate(&base, RN / 2 - 1, 5)
+        );
+        assert_eq!(
+            civ_territory_at(&over, 10).unwrap(),
+            mutate(&base, RN / 2 + 1, 5)
+        );
+    }
+
+    #[test]
+    fn keyframe_interval_bounds_the_scrub() {
+        // Two-sided literal pin on TERRITORY_KEYFRAME_INTERVAL. Asserting against the constant
+        // would hold for every value of it (`MISTAKES.md`), so these are counts: 64 changing
+        // saves after the first keyframe fill exactly one interval, and the 65th must break it.
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        let mut cur = vec![0i32; RN];
+        civ_snapshot_save(&mut timeline, 0, cur.clone(), Vec::new(), Vec::new());
+        for t in 1..=64i64 {
+            cur = mutate(&cur, 6, t as i32 * 10);
+            civ_snapshot_save(&mut timeline, t, cur.clone(), Vec::new(), Vec::new());
+        }
+        assert_eq!(
+            timeline.iter().filter(|s| s.territory.is_key()).count(),
+            1,
+            "64 deltas fit under one keyframe"
+        );
+        cur = mutate(&cur, 6, 650);
+        civ_snapshot_save(&mut timeline, 65, cur.clone(), Vec::new(), Vec::new());
+        assert_eq!(
+            timeline.iter().filter(|s| s.territory.is_key()).count(),
+            2,
+            "the 65th must force a second keyframe"
+        );
+        assert!(
+            timeline
+                .iter()
+                .find(|s| s.year == 65)
+                .unwrap()
+                .territory
+                .is_key()
+        );
+
+        // The scrub itself, graded on work rather than on wall time: a threshold in
+        // milliseconds on a shared machine is the single-sample shape `MISTAKES.md` names, and
+        // the work is what the interval actually bounds.
+        let worst = civ_territory_at(&timeline, 64).expect("the deepest year must reconstruct");
+        assert_eq!(
+            worst,
+            timeline_oracle_at(&timeline, 64),
+            "the deepest year must still be exact"
+        );
+        let replayed: usize = (1..=64)
+            .map(
+                |y| match &timeline.iter().find(|s| s.year == y).unwrap().territory {
+                    TerritoryFrame::Delta { cells, .. } => cells.len(),
+                    TerritoryFrame::Key(_) => 0,
+                },
+            )
+            .sum();
+        assert!(
+            replayed <= 64 * 6,
+            "a scrub to the deepest year replays at most one interval of deltas, got {replayed}"
+        );
+    }
+
+    #[test]
+    fn overwriting_a_year_keeps_every_other_year_exact() {
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        let mut oracle: Vec<(i64, Vec<i32>)> = Vec::new();
+        let mut cur = vec![0i32; RN];
+        for t in 0..6i64 {
+            cur = mutate(&cur, 5, t as i32 * 100);
+            save_and_remember(&mut timeline, &mut oracle, t * 10, cur.clone());
+        }
+        // Re-save the middle year with something else entirely. Year 30's frame is a delta
+        // against year 20, so year 20 moving under it is the invalidation this must survive.
+        let replacement = mutate(&vec![0i32; RN], RN / 3, 7777);
+        save_and_remember(&mut timeline, &mut oracle, 20, replacement);
+        assert_exact(&timeline, &oracle);
+    }
+
+    #[test]
+    fn inserting_a_year_between_two_recorded_ones_keeps_every_year_exact() {
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        let mut oracle: Vec<(i64, Vec<i32>)> = Vec::new();
+        let mut cur = vec![0i32; RN];
+        for t in 0..6i64 {
+            cur = mutate(&cur, 5, t as i32 * 100);
+            save_and_remember(&mut timeline, &mut oracle, t * 100, cur.clone());
+        }
+        save_and_remember(&mut timeline, &mut oracle, 250, mutate(&cur, 9, 4242));
+        save_and_remember(&mut timeline, &mut oracle, 50, mutate(&cur, 40, 313));
+        assert_exact(&timeline, &oracle);
+    }
+
+    #[test]
+    fn removing_a_year_keeps_every_remaining_year_exact() {
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        let mut oracle: Vec<(i64, Vec<i32>)> = Vec::new();
+        let mut cur = vec![0i32; RN];
+        for t in 0..8i64 {
+            cur = mutate(&cur, 5, t as i32 * 100);
+            save_and_remember(&mut timeline, &mut oracle, t * 10, cur.clone());
+        }
+        // The keyframe itself, and then a link in the middle of what is left. Removing the
+        // keyframe is the case a plain `Vec::remove` would break outright: every year after it
+        // is a delta whose base has just vanished.
+        assert!(timeline[0].territory.is_key());
+        assert!(civ_timeline_remove(&mut timeline, 0));
+        oracle.retain(|(y, _)| *y != 0);
+        assert_exact(&timeline, &oracle);
+
+        assert!(civ_timeline_remove(&mut timeline, 40));
+        oracle.retain(|(y, _)| *y != 40);
+        assert_exact(&timeline, &oracle);
+
+        assert!(
+            !civ_timeline_remove(&mut timeline, 9999),
+            "an unrecorded year is a no-op"
+        );
+    }
+
+    #[test]
+    fn a_grid_resize_is_stored_whole_rather_than_as_a_meaningless_delta() {
+        // "cell 12 changed" says nothing across a resize, so the encoder must refuse to delta.
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(&mut timeline, 0, vec![1i32; RN], Vec::new(), Vec::new());
+        civ_snapshot_save(&mut timeline, 10, vec![2i32; RN * 2], Vec::new(), Vec::new());
+        assert!(
+            timeline
+                .iter()
+                .find(|s| s.year == 10)
+                .unwrap()
+                .territory
+                .is_key()
+        );
+        assert_eq!(civ_territory_at(&timeline, 0).unwrap(), vec![1i32; RN]);
+        assert_eq!(civ_territory_at(&timeline, 10).unwrap(), vec![2i32; RN * 2]);
+    }
+
+    #[test]
+    fn a_broken_chain_answers_none_rather_than_a_plausible_raster() {
+        // `SAVEFILE_COMPAT.md` §18.4's rule, applied to the in-memory shape: the failure this
+        // design must not have is a reader that gets back something that looks fine. Built by
+        // hand, because nothing this crate exposes can produce it.
+        let timeline = vec![TimelineSnapshot {
+            year: 10,
+            territory: TerritoryFrame::Delta {
+                base_year: 0,
+                cells: vec![(1, 5)],
+            },
+            settlements: Vec::new(),
+            ways: Vec::new(),
+        }];
+        assert_eq!(
+            civ_territory_at(&timeline, 10),
+            None,
+            "a missing base is not an empty raster"
+        );
+        assert_eq!(
+            civ_territory_at(&timeline, 999),
+            None,
+            "and neither is a missing year"
+        );
+
+        // An index past the end of the keyframe is the same class of corruption.
+        let ragged = vec![
+            TimelineSnapshot {
+                year: 0,
+                territory: TerritoryFrame::Key(vec![0i32; 4]),
+                settlements: Vec::new(),
+                ways: Vec::new(),
+            },
+            TimelineSnapshot {
+                year: 10,
+                territory: TerritoryFrame::Delta {
+                    base_year: 0,
+                    cells: vec![(99, 5)],
+                },
+                settlements: Vec::new(),
+                ways: Vec::new(),
+            },
+        ];
+        assert_eq!(civ_territory_at(&ragged, 10), None);
+        // And `civ_snapshot_load` leaves the live grid zeroed rather than half-painted.
+        let mut live = vec![9i32; 4];
+        civ_snapshot_load(&ragged, 10, &mut live);
+        assert_eq!(live, vec![0i32; 4]);
+    }
+
+    #[test]
+    fn a_cycle_terminates_instead_of_hanging() {
+        let timeline = vec![
+            TimelineSnapshot {
+                year: 0,
+                territory: TerritoryFrame::Delta {
+                    base_year: 10,
+                    cells: Vec::new(),
+                },
+                settlements: Vec::new(),
+                ways: Vec::new(),
+            },
+            TimelineSnapshot {
+                year: 10,
+                territory: TerritoryFrame::Delta {
+                    base_year: 0,
+                    cells: Vec::new(),
+                },
+                settlements: Vec::new(),
+                ways: Vec::new(),
+            },
+        ];
+        assert_eq!(civ_territory_at(&timeline, 10), None);
+    }
+
+    #[test]
+    fn a_timeline_of_unchanged_years_costs_one_raster_and_not_fifty() {
+        // The ruling's own sentence, as a number: "if a position doesn't change for 50 years
+        // that's 50 datapoints we do not need."
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        let raster = mutate(&vec![0i32; RN], RN / 4, 11);
+        for t in 0..50i64 {
+            civ_snapshot_save(&mut timeline, t, raster.clone(), Vec::new(), Vec::new());
+        }
+        let held: usize = timeline.iter().map(|s| s.territory.heap_bytes()).sum();
+        let old_shape = 50 * RN * std::mem::size_of::<i32>();
+        assert_eq!(
+            held,
+            RN * std::mem::size_of::<i32>(),
+            "one keyframe and 49 empty deltas"
+        );
+        assert_eq!(held * 50, old_shape);
+        for t in 0..50i64 {
+            assert_eq!(civ_territory_at(&timeline, t).unwrap(), raster);
+        }
     }
 }

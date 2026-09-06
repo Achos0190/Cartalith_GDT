@@ -3774,8 +3774,8 @@ const HISTORY_GLYPH := {"height": "▲", "recorded": "·", "floor": "◼"}
 ## (`design/proposed-2026-09-05/Main.dc.html`): the boundary sits *between* two
 ## rows, so a newest-first list would have to draw it before the rows it
 ## separates. See `_committed_rule()` for what the boundary can and cannot
-## know, and `_history_undone()` for the one thing the artboard draws that the
-## engine cannot supply.
+## know, and `_history_undone()` for the undone tail that continues below the
+## cursor.
 ##
 ## Three glyphs, and the text says the same thing the glyph does -- a row is
 ## never distinguished by colour alone:
@@ -3792,6 +3792,16 @@ const HISTORY_GLYPH := {"height": "▲", "recorded": "·", "floor": "◼"}
 func _build_history(body: Control) -> void:
 	var rows: Array = bridge.undo_ledger()
 	var stats := bridge.undo_stats()
+	## The undone tail, read **once** and recorded before anything is drawn.
+	## `_process()` compares this record against the live tail and rebuilds when
+	## they part, so it has to be written on every path through this function --
+	## including the `rows.is_empty()` branch below, which draws no undone rows
+	## and has still answered the question. Recorded here rather than inside
+	## `_history_undone()` for that reason: that function returns early on an
+	## empty tail and would leave the record stale, and a stale record makes the
+	## poll rebuild every frame.
+	var undone: PackedStringArray = bridge.redo_labels()
+	_history_drawn_undone = undone
 
 	## The draft tier. `sculpt_list_stamps()` is the only draft this shell has
 	## that survives across a dock rebuild; Paint's and Territory's live in
@@ -3852,7 +3862,7 @@ func _build_history(body: Control) -> void:
 		if _saved_seq >= 0 and not drawn_rule:
 			## Every row is in the file -- the boundary is below the last one.
 			_committed_rule(sec)
-		_history_undone(sec, rows.size())
+		_history_undone(sec, rows.size(), undone)
 		if _saved_seq < 0:
 			DccWidgets.note(sec,
 				"No COMMITTED rule: nothing has been saved this session, and the ledger "
@@ -3872,22 +3882,31 @@ func _build_history(body: Control) -> void:
 		+ "height snapshot occupies the budget, which is Preferences ▸ Memory ▸ "
 		+ "Undo history.")
 
-	## The artboard's footnote, corrected against the engine on two counts and
-	## the corrections are the point:
+	## The artboard's `✕ discard the N undone steps` row, drawn below the list
+	## and above the footnote exactly as the artboard orders them. See
+	## `_history_discard()`; it draws nothing when there is no tail.
+	_history_discard(body, undone)
+
+	## The artboard's footnote, carried with one correction rather than the two
+	## this comment used to hold. **The `✕ discard` bullet is gone because the
+	## claim behind it is:** it said *"there is no binding for it -- `clear_undo()`
+	## is the only control over these buffers and it clears the undo stack too"*,
+	## which was true until `WorldGen::discard_redo_tail()` landed on 2026-09-06.
+	## That `#[func]` touches the tail and nothing else, so the row is now drawn
+	## and does exactly what it says.
 	##
-	## * *"steps below it are undone, not deleted"* -- they ARE deleted from the
-	##   ledger. See `_history_undone()` for the two call sites that do it.
-	## * *"✕ discard the N undone steps"* -- there is no binding for it.
-	##   `clear_undo()` is the only control over these buffers and it clears
-	##   the undo stack too, which is not what that button offers. The row is
-	##   not drawn rather than wired to something that would do more than it
-	##   says; the tail is dropped by the next committed operation anyway
-	##   (`RedoTail::at_undo_depth`).
+	## What still needs saying is the ledger half: *"steps below it are undone,
+	## not deleted"* is true of the redo tail and **false of `undo_ledger()`**,
+	## which drops them -- `undo_last()` calls `ledger.pop_newest_height()` and
+	## `undo_revert_to()` calls `ledger.truncate_to(seq)`. The rows are drawn
+	## from the tail instead (`_history_undone()`), so the panel matches the
+	## artboard; the sentence below says which store they are surviving in,
+	## because that is what decides how long they last.
 	DccWidgets.note(body,
-		"Click a step to move the cursor there. Undone steps leave this list -- the "
-		+ "engine's ledger drops them and only their height snapshots survive, on the "
-		+ "redo tail, until the next committed operation. Reverting past COMMITTED "
-		+ "asks first.")
+		"Click a step to move the cursor there, undone steps included. An undone step "
+		+ "leaves the engine's ledger and survives on the redo tail, named and "
+		+ "clickable here, until the next committed operation drops the whole tail. "
+		+ "Reverting past COMMITTED asks first.")
 
 ## The approved row (`Main.dc.html`): two-digit ordinal, state pip, label,
 ## trailing meta. Clicking it moves the cursor -- which for a reversible row is
@@ -3979,59 +3998,224 @@ func _committed_rule(parent: Control) -> void:
 		("saved %d min ago" % mins if mins < 60 else "saved %d h ago" % int(mins / 60))
 	_caption_row(parent, "committed", age)
 
-## Everything the cursor has stepped *off*, which is the one place this panel
-## cannot draw what the artboard draws -- and the reason is the engine's, not
-## the layout's.
+## Everything the cursor has stepped *off*, one named row per step, continuing
+## the ordinals of the committed rows above -- the artboard's `07 add label ·
+## "Ashen Reach"` / `08 move label`, which sit below the cursor band in exactly
+## this ink.
 ##
-## The artboard says undone rows "are not deleted". **`undo_ledger()` deletes
-## them**: `undo_last()` calls `self.ledger.pop_newest_height()` and
-## `undo_revert_to()` calls `self.ledger.truncate_to(seq)`, so an undone
-## operation leaves the ledger entirely. What survives is `RedoTail`, which
-## holds the height snapshots but only ever names **one** label --
-## `redo_label()` is `RedoTail::label()`, `HeightUndo::next_label()`, the top of
-## the tail. So one undone row can be drawn honestly and the rest can only be
-## counted. They are counted, not named: a generated name here would be the
-## fabricated row this panel exists to avoid.
-func _history_undone(parent: Control, committed_rows: int) -> void:
-	if not bridge.redo_available():
+## **This drew one row by name and counted the rest until 2026-09-06, and the
+## reason it did is gone.** `redo_label()` is `RedoTail::label()` and names only
+## the top of the tail; there was no accessor for the others, so the rest could
+## only be counted and a generated name would have been the fabricated row this
+## panel exists to avoid. `WorldGen::redo_labels()` now returns the whole tail.
+## Nothing is retained to make that work -- the tail has always been a
+## `HeightUndo` holding one labelled snapshot per undone step, and only the read
+## was missing, so undo semantics and the save format are untouched.
+##
+## **The ledger still deletes them, and that is not a contradiction.**
+## `undo_last()` calls `ledger.pop_newest_height()` and `undo_revert_to()` calls
+## `ledger.truncate_to(seq)`, so an undone operation leaves `undo_ledger()`
+## entirely and the loop over `rows` above cannot draw it. These rows come from
+## the tail instead. The artboard's *"undone, not deleted"* is a statement about
+## the tail's lifetime, and it is accurate about that.
+##
+## `labels[i]` is what the i-th press of Redo re-applies, so the array order
+## **is** the oldest-first continuation this list needs and nothing is reversed
+## here: element 0 sits immediately under the cursor because one Redo makes it
+## the new cursor row.
+##
+## **Bounded by the tail's own byte budget, not by how much was undone.** A step
+## whose snapshot has been evicted is neither named here nor redoable, so this
+## is what the engine can still give back rather than a record of what happened
+## -- the same thing the `reversible` flag says about the rows above.
+##
+## `labels` is the caller's read rather than a second one. `_build_history()`
+## records it as `_history_drawn_undone` before drawing and `_process()` rebuilds
+## when the live tail stops matching it, so re-reading here would put the poll's
+## reference and the drawn rows one call apart. `labels.is_empty()` is also the
+## `redo_available()` gate this used to open with: `RedoTail::labels()` carries
+## the same `is_current()` check `RedoTail::label()` does, so the list is empty
+## exactly when there is nothing to redo.
+##
+## The trailing `undone` word stays, though the artboard distinguishes these
+## rows by ink alone: this panel's own rule, stated at `HISTORY_GLYPH`, is that
+## nothing in it is distinguished by colour alone.
+func _history_undone(parent: Control, committed_rows: int, labels: PackedStringArray) -> void:
+	if labels.is_empty():
 		return
-	var depth := int(bridge.undo_stats().get("redo_depth", 0))
-	var label := String(bridge.redo_label())
 	var tablet := DccTheme.is_tablet()
 	var small := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY
 	var micro := DccTheme.role_px("fs_dock_header") if tablet else DccTheme.FS_MICRO
 
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation",
-		DccTheme.role_px("dock_row_gap") if tablet else 9)
-	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.mouse_filter = Control.MOUSE_FILTER_STOP
-	row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	row.tooltip_text = ("Undone. Click to move the cursor forward and put it back. "
-		+ "The next committed operation drops the whole tail.")
-	row.gui_input.connect(func(ev: InputEvent):
-		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT \
-				and (ev as InputEventMouseButton).pressed:
-			app.redo_last())
-	parent.add_child(row)
-	var idx := DccTheme.mono_label("%02d" % (committed_rows + 1), "text_ghost", micro)
-	idx.custom_minimum_size.x = 18
-	idx.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(idx)
-	row.add_child(_pip(false, "text_ghost"))
-	var l := DccTheme.mono_label(label if label != "" else "—", "text_ghost", small)
-	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	row.add_child(l)
-	row.add_child(DccTheme.mono_label("undone", "text_ghost", micro))
+	for i in range(labels.size()):
+		## How many presses of Redo reaching this row costs -- captured by value
+		## into the click handler below, which is what GDScript lambdas do with
+		## a local at the moment they are created.
+		var steps := i + 1
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation",
+			DccTheme.role_px("dock_row_gap") if tablet else 9)
+		## The same floor `_history_row()` and `_caption_row()` take, so the
+		## clickable rows in this list are all one height: `role_px("row_min_h")`
+		## is 44 at touch density and these rows are targets there.
+		row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.mouse_filter = Control.MOUSE_FILTER_STOP
+		row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		row.tooltip_text = ("Undone. Click to move the cursor here: %d step%s re-applied. "
+			% [steps, "" if steps == 1 else "s"]
+			+ "The next committed operation drops the whole tail.")
+		row.gui_input.connect(func(ev: InputEvent):
+			if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT \
+					and (ev as InputEventMouseButton).pressed:
+				_redo_to(steps))
+		parent.add_child(row)
+		var idx := DccTheme.mono_label("%02d" % (committed_rows + steps), "text_ghost", micro)
+		idx.custom_minimum_size.x = 18
+		idx.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(idx)
+		row.add_child(_pip(false, "text_ghost"))
+		var text := String(labels[i])
+		var l := DccTheme.mono_label(text if text != "" else "—", "text_ghost", small)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		row.add_child(l)
+		row.add_child(DccTheme.mono_label("undone", "text_ghost", micro))
 
-	if depth > 1:
-		DccWidgets.note(parent,
-			"%d further undone step%s: the redo tail holds their height snapshots but "
-			% [depth - 1, "" if depth == 2 else "s"]
-			+ "names only the next one (RedoTail::label()), so they are counted here "
-			+ "and not listed. Nothing is invented to fill the rows.")
+## Step the cursor forward `steps` presses of Redo -- what clicking the i-th
+## undone row means, since `redo_labels()[i]` is the i-th press.
+##
+## Only the last press goes through `app.redo_last()`, which repaints the map
+## and calls `refresh_history()`; the ones before it go straight to the bridge.
+## So a click on the third undone row costs one repaint and one dock rebuild
+## rather than three of each, and `bridge.redo_last()` is the same engine call
+## the wrapper wraps -- `app.gd`'s own note says the wrapper adds two repaint
+## lines and the status text, not a different operation.
+##
+## Stops early if the engine refuses. `redo_one` clears the tail rather than
+## half-applying when a snapshot's length no longer matches the live grid, so
+## `redo_available()` can go false mid-walk; the final `app.redo_last()` then
+## reports "Nothing to redo" and rebuilds, which is the honest end of a walk
+## that could not finish.
+func _redo_to(steps: int) -> void:
+	for _i in range(steps - 1):
+		if not bridge.redo_available() or not bridge.redo_last():
+			break
+	app.redo_last()
+
+## The artboard's `✕ discard the 2 undone steps`, drawn below the list and above
+## the footnote where the artboard puts it, opened by the same `--div` rule.
+##
+## **Wired to `WorldGen::discard_redo_tail()`, which touches the tail and
+## nothing else** -- not the height field, not the undo stack, not the ledger.
+## That is what makes this row honest where `clear_undo()` would not have been:
+## `clear_undo()` drops the backward half too, which is more than the button
+## offers, and is a `Preferences ▸ Memory` control instead.
+##
+## The count comes from the same array the rows above were drawn from, so the
+## caption and the list cannot disagree.
+##
+## **One deviation from the artboard, deliberately.** It draws `.danger` as a
+## chip sized to its own text (`align-self:flex-start`); this is a full-width
+## `DccWidgets.action` with `block` ink, which is the shell's own vocabulary for
+## a destructive text affordance in this dock -- `✕ delete label` in
+## `_build_anno_selected()` is the same two lines. Sizing it to its text would
+## mean turning off the factory's `AUTOWRAP_WORD_SMART`, and a `Button`'s
+## minimum width is then its whole label inside a 304 px dock whose
+## `ScrollContainer` has its horizontal axis disabled: `MISTAKES.md`'s
+## disabled-axis trap, which `DccWidgets.action()`'s own note calls its fourth
+## instance in this shell.
+##
+## **No confirmation, and that is the artboard too.** Its footnote asks first
+## for exactly one gesture -- *"reverting above COMMITTED asks first"* -- and
+## this is not that gesture: it destroys no committed work and no height field,
+## only the offer to walk forward again, which the next edit destroys anyway
+## (`RedoTail::at_undo_depth`). `_confirm_revert()` stays the one confirmation
+## in this panel.
+func _history_discard(parent: Control, labels: PackedStringArray) -> void:
+	if labels.is_empty():
+		return
+	parent.add_child(_soft_rule())
+	var n := labels.size()
+	var b := DccWidgets.action(parent, "✕ discard the %d undone step%s" % [
+		n, "" if n == 1 else "s"], _on_history_discard)
+	b.add_theme_color_override("font_color", DccTheme.c("block"))
+	b.tooltip_text = ("Throw the redo tail away. The height field, the undo stack and "
+		+ "the ledger are untouched -- only the offer to step forward again goes, and "
+		+ "the next committed operation would drop it anyway.")
+
+## `discard_redo_tail()` returns how many steps went, so the status line names
+## what actually happened rather than what was printed on the button. The two
+## agree unless the tail was invalidated between the draw and the click, which
+## is the one case worth telling the user about -- and `_process()` should have
+## taken the row off screen before that click was possible.
+##
+## No repaint: the height field did not move. `_rebuild()` alone, because the
+## rows this drew are now gone.
+func _on_history_discard() -> void:
+	var n := bridge.discard_redo_tail()
+	if app != null:
+		if n > 0:
+			app.set_status("pass", "discarded %d undone step%s" % [
+				n, "" if n == 1 else "s"], "text_dim")
+		else:
+			app.set_status("hint",
+				"Nothing to discard -- a committed operation had already dropped the tail.",
+				"text_ghost")
+	_rebuild()
+
+## What `redo_labels()` answered the last time `_build_history()` drew. Empty
+## before the first History build, which is also what is on screen then.
+var _history_drawn_undone := PackedStringArray()
+
+## The undone rows' invalidation backstop, and the reason it is a poll rather
+## than a signal.
+##
+## A new committed operation drops the redo tail -- `RedoTail::at_undo_depth`
+## stops matching `undo.depth()` -- so rows drawn from it stop being an offer
+## the instant one lands, and a stale undone list is worse than none: it invites
+## a click that cannot work.
+##
+## **`refresh_history()` is not what catches that.** Its three callers, walked
+## 2026-09-06 with `grep -rn refresh_history --include=*.gd .`, are `app.gd`'s
+## `undo_last()` and `redo_last()` and `menus.gd`'s redo; none is a commit. Two
+## of the engine's three `self.undo.push` sites are covered anyway, by accident
+## rather than by design, and the accident is measured rather than assumed:
+## `carve_fjords()` emits `world_loaded`, which `setup()` connects straight to
+## `_rebuild`, and `sculpt_commit()` emits `sculpt_draft_changed`, whose
+## deferred `_sculpt_draft_backstop` sees the stamp count fall to 0 and rebuilds.
+##
+## **The third is not covered, and it is a real shell path.**
+## `world_workspace.gd::_run_erode()` calls `bridge.world_gen.erode_op()`
+## *directly* -- past every wrapper in `engine_bridge.gd`, so no signal fires --
+## and never touches this dock. With HISTORY open, an erosion pass left the
+## undone rows drawn and clickable against a tail the engine had already
+## dropped. `_redodock_probe.gd` T3 drives exactly that path, and asserts the
+## rows are still there on the frame of the edit and gone four frames later, so
+## the removal is attributable to this function and to nothing else.
+##
+## **Polled rather than wired to those three sites.** No signal covers all
+## three, the coverage two of them have is incidental to signals emitted for
+## other reasons, and a fourth push site added later would break a wired list
+## silently. Asking `redo_labels()` itself cannot fall out of step with its own
+## definition.
+##
+## Costs one `bool` across the boundary per frame while HISTORY is the live
+## context and nothing at all otherwise, and rebuilds only when the answer
+## moved -- the emit-on-change shape `EngineBridge._process()` already uses for
+## the generation stage. The record it compares against is written by
+## `_build_history()` on every path, so a rebuild always converges.
+func _process(_delta: float) -> void:
+	if _context != CTX_HISTORY or bridge == null or app == null:
+		return
+	## `redo_labels()` is empty exactly when `redo_available()` is false, so the
+	## common case -- no tail at all -- costs a bool and allocates no array.
+	if not bridge.redo_available():
+		if not _history_drawn_undone.is_empty():
+			_rebuild()
+		return
+	if bridge.redo_labels() != _history_drawn_undone:
+		_rebuild()
 
 ## Linear revert, confirmed when it discards more than the row itself --
 ## `DCC_SHELL_SPEC.md` §7.1's own choice of Photoshop's linear history over

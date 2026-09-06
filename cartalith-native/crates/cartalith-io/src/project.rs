@@ -33,7 +33,9 @@
 //!
 //! 1. **Every raster's length is checked against `GW*GH` on the way in and
 //!    on the way out.** A raster entry carries no length of its own, so a
-//!    short one is not a parse error; it is a truncated world.
+//!    short one is not a parse error; it is a truncated world. The same
+//!    check covers the optional stored LOD tiles against their own
+//!    `tile_w * tile_h` ([`LodTiles`]), for the same reason.
 //! 2. **Integral floats are coerced to integers before any schema sees a
 //!    document** ([`coerce_integral_floats`]). `SAVEFILE_COMPAT.md` §14.2
 //!    is the rule; `GUI_GAP_REGISTER.md` KV-04 is what forgetting it cost —
@@ -353,13 +355,194 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
 /// grids and a snapshot is a past one (`SAVEFILE_COMPAT.md` §5.1).
 pub const HISTORY_TERRITORY_PREFIX: &str = "history/territory/";
 
+/// `cartography/tiles/` — the prefix the **optional** stored LOD tile
+/// pyramid sits under (owner ruling 28, 2026-09-06: *"the LOD tiles should
+/// be stored in the save, or at least optional to include"*).
+///
+/// The name already existed as the archive's canonical *foreign* example
+/// (`SAVEFILE_COMPAT.md` §6.2's round-trip test uses
+/// `cartography/tiles/0/0/0.png`), and this promotes one shape of it to a
+/// first-class slot family. It is a **prefix** rather than a registered
+/// slot for the same reason `history/territory/` is: the address —
+/// `<z>/<col>/<row>` — is part of the name, so it is validated structurally
+/// (by this module's own `lod_tile_id`) rather than by lookup in a fixed
+/// list.
+pub const LOD_TILE_PREFIX: &str = "cartography/tiles/";
+
+/// The stored pyramid's own index — **written by [`write_project`] itself**,
+/// never by a caller, because the part of it that matters
+/// ([`LodTiles::source_key`]) has to be computed from the archive's own
+/// heightmap or it is not a check, it is a claim.
+///
+/// Deliberately absent from [`DOCUMENT_SLOTS`], which is what makes a
+/// caller-supplied `cartography/tiles/index.json` a
+/// [`SaveError::UnknownSlot`] instead of a second, disagreeing index.
+pub const LOD_TILE_INDEX: &str = "cartography/tiles/index.json";
+
+/// The `.u8` element extension every stored tile carries, for the reason
+/// §8 gives for the rasters: a payload with no header carries its element
+/// width in its name. A tile is one byte per pixel.
+const LOD_TILE_EXT: &str = ".u8";
+
+/// One stored LOD tile pyramid: what it was made from, how big one tile is,
+/// and the tiles themselves.
+///
+/// # This is a **cache**, and the archive treats it as one
+///
+/// `SAVEFILE_COMPAT.md` §16.1 refused to store a pyramid at all and gave
+/// three reasons. Ruling 28 overrode the decision, not the reasons, and two
+/// of them are still true and are handled here rather than argued away:
+///
+/// - **It is enormous.** Measured on three real 2048×1311 worlds, in the
+///   archive, deflated: levels 0-5 cost 4.40 / 4.79 / 5.12 MiB and levels
+///   0-6 cost 21.87 / 23.58 / 27.75 MiB, against a whole archive of 24.9 MiB
+///   for that grid (§18.1). A six-level pyramid roughly **doubles the file**.
+///   So the slot is optional, `None` is what [`ProjectWrite::new`] builds,
+///   and the depth is the caller's to choose.
+/// - **It goes stale invisibly** — §16.1's own words, *"a reader cannot
+///   cheaply tell which is older"*. It can now: [`LodTiles::source_key`] is
+///   computed by the writer from the heightmap it is writing, and
+///   [`read_project`] recomputes it from the heightmap it just read.
+///   A mismatch **drops every tile with a warning** rather than handing back
+///   a pyramid drawn over a world that has since been re-sculpted. Ruling 28:
+///   *"prefer dropping them to drawing them."*
+///
+/// The third reason — that a pyramid is derived and can always be rebuilt —
+/// is exactly why dropping is safe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LodTiles {
+    /// FNV-1a-64 hex over everything the tile synthesizer reads from the
+    /// world: the heightmap, the grid, the seed and the sea level. See
+    /// [`lod_source_key`] for why those five and nothing else.
+    ///
+    /// **Checked on both sides, and the write side is the half that was
+    /// missing.** [`write_project`] computes the key it stores from the
+    /// heightmap it is writing — but if this field is **non-empty** it is first
+    /// read as a claim about which world these tiles came from, and a
+    /// disagreement drops the pyramid instead of stamping it with the new
+    /// world's key. Leaving it **empty** still means *"I built these for the
+    /// world I am handing you"* and is trusted, which is the contract a fresh
+    /// producer wants; carrying a key forward from a read is what makes the
+    /// check fire.
+    pub source_key: String,
+    /// Whatever the producer calls itself and its constants. Stored verbatim
+    /// and returned verbatim; this crate never interprets it.
+    ///
+    /// It exists because [`source_key`](Self::source_key) covers the *world*
+    /// and nothing else. A tile is also a function of its producer's own
+    /// constants — tile size, the encoding's fixed point, the octave
+    /// schedule — and a build that changes one of those would otherwise
+    /// decode last week's tiles with this week's shader. The container
+    /// cannot know those values, so the producer names itself and **the
+    /// caller compares** before using the tiles.
+    pub producer: String,
+    /// One tile's pixel dimensions, the same for every level of a pyramid
+    /// (a level's tile *footprint* shrinks; its pixel size does not).
+    ///
+    /// Stored so that the length guard this format applies to every other
+    /// headerless payload applies here too: a tile entry that is not exactly
+    /// `tile_w * tile_h` bytes is a truncated tile, not a parse error, and
+    /// nothing else in the archive would catch it.
+    pub tile_w: usize,
+    pub tile_h: usize,
+    /// `(z, col, row)` -> that tile's bytes, one per pixel, row-major.
+    ///
+    /// [`cartalith_spatial::pyramid::ChunkId`] rather than a tuple for the
+    /// reason `atlas.rs` already gives: the pyramid geometry, the atlas key
+    /// and the portable manifest all address a tile with this exact value,
+    /// and a second copy of it here would have to agree by convention.
+    pub tiles: BTreeMap<cartalith_spatial::pyramid::ChunkId, Vec<u8>>,
+}
+
+/// `cartography/tiles/<z>/<col>/<row>.u8` -> its address, or `None` for
+/// anything else under the prefix.
+///
+/// Structural, like the `history/territory/<year>.i32` branch beside it, and
+/// strict for the same reason: an entry under this prefix that does not parse
+/// is somebody *else's* payload — `cartography/tiles/0/0/0.png` is the entry
+/// §6.2's round-trip fixture uses — so it must fall through to
+/// [`ProjectData::foreign`] and be carried unchanged rather than be adopted
+/// and then dropped.
+fn lod_tile_id(name: &str) -> Option<cartalith_spatial::pyramid::ChunkId> {
+    let rest = name.strip_prefix(LOD_TILE_PREFIX)?.strip_suffix(LOD_TILE_EXT)?;
+    let mut parts = rest.split('/');
+    let z = parts.next()?;
+    let col = parts.next()?;
+    let row = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    // `str::parse::<u32>` rejects a leading `+`, a leading `-` and a leading
+    // zero is accepted -- so `00/0/0.u8` would parse to the same id as
+    // `0/0/0.u8`. Refused rather than aliased: two entry names for one tile
+    // is the duplicate `ZipWriter` refuses outright on the way back out.
+    for part in [z, col, row] {
+        if part.len() > 1 && part.starts_with('0') {
+            return None;
+        }
+    }
+    Some(cartalith_spatial::pyramid::ChunkId::new(
+        z.parse().ok()?,
+        col.parse().ok()?,
+        row.parse().ok()?,
+    ))
+}
+
+fn lod_tile_entry(id: cartalith_spatial::pyramid::ChunkId) -> String {
+    format!("{LOD_TILE_PREFIX}{}/{}/{}{LOD_TILE_EXT}", id.z, id.col, id.row)
+}
+
+/// The cache key a stored pyramid is checked against — FNV-1a-64 over the
+/// world the tiles were synthesized from.
+///
+/// # Why these five inputs and no others
+///
+/// Derived from the **signature** of the synthesizer, not from a guess about
+/// what matters: `cartalith_godot::lod_bridge::synthesize_tile_rgba` takes
+/// `(field, gw, gh, z, col, row, seed, sea)`. `z`/`col`/`row` are the tile's
+/// own address and travel in its entry name, which leaves the heightmap, the
+/// two grid dimensions, the seed and the sea level — all five here.
+///
+/// Everything else the synthesizer reads is a compile-time constant of the
+/// producer (`TILE_PX`, `z_base()`, the shade-ratio fixed point, the sun
+/// azimuth, `AmplifyOpts::default()`), which is what
+/// [`LodTiles::producer`] covers. `map_width_km`, `wrap_x` and `origin` are
+/// **not** inputs — no argument of `synthesize_tile_rgba` carries them and
+/// `AmplifyOpts` has no field for either — so hashing them would invalidate
+/// a valid cache on a metadata edit.
+///
+/// FNV-1a-64 because this workspace already hashes fields with it in a dozen
+/// golden tests and it needs no dependency. It is not a cryptographic hash
+/// and does not need to be: the thing it defends against is a *changed*
+/// world, not a forged one.
+pub fn lod_source_key(params: &SaveParams, heightmap: &[f32]) -> String {
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut h = OFFSET;
+    let mut eat = |bytes: &[u8]| {
+        for &b in bytes {
+            h ^= b as u64;
+            h = h.wrapping_mul(PRIME);
+        }
+    };
+    eat(&(params.gw as u64).to_le_bytes());
+    eat(&(params.gh as u64).to_le_bytes());
+    eat(&(params.seed as i64).to_le_bytes());
+    eat(&params.sea_level.to_bits().to_le_bytes());
+    for v in heightmap {
+        eat(&v.to_le_bytes());
+    }
+    format!("{h:016x}")
+}
+
 fn raster_slot(path: &str) -> Option<RasterSlot> {
     RASTER_SLOTS.iter().copied().find(|s| s.path == path)
 }
 
 /// Whether `name` is an entry **this build produces and consumes itself** —
 /// the manifest, `params.json`, the two human-facing extras, any registered
-/// document slot, any registered raster, or a `history/territory/<year>.i32`.
+/// document slot, any registered raster, a `history/territory/<year>.i32`,
+/// or the stored LOD pyramid's index and tiles.
 ///
 /// One function because both directions must agree exactly: [`read_project`]
 /// files everything else under [`ProjectData::foreign`], and [`write_project`]
@@ -367,14 +550,21 @@ fn raster_slot(path: &str) -> Option<RasterSlot> {
 /// writes from the live model. Two hand-kept lists would drift, and the drift
 /// would show up as a **failed save** -- `ZipWriter` refuses a duplicate entry
 /// name rather than writing one.
+///
+/// The two LOD branches are deliberately the *narrow* shape and not the whole
+/// `cartography/tiles/` prefix: `cartography/tiles/0/0/0.png` — the entry
+/// §6.2's round-trip test uses — is still somebody else's payload and is
+/// still carried foreign, unchanged.
 fn is_own_entry(name: &str) -> bool {
     name == PROJECT_MANIFEST
         || name == "params.json"
         || name == "README.md"
         || name == "preview.png"
+        || name == LOD_TILE_INDEX
         || DOCUMENT_SLOTS.contains(&name)
         || raster_slot(name).is_some()
         || (name.starts_with(HISTORY_TERRITORY_PREFIX) && name.ends_with(".i32"))
+        || lod_tile_id(name).is_some()
 }
 
 /// One project, ready to be written.
@@ -403,6 +593,17 @@ pub struct ProjectWrite<'a> {
     pub documents: BTreeMap<String, String>,
     /// Recorded year -> that year's territory raster.
     pub history_territory: BTreeMap<i64, Vec<i32>>,
+    /// The optional stored LOD tile pyramid (owner ruling 28). `None` writes
+    /// no `cartography/tiles/` entries at all, which is what
+    /// [`ProjectWrite::new`] builds and what the measurement behind ruling 28
+    /// recommends as the default — see [`LodTiles`] for the bytes.
+    ///
+    /// **Omitting it on a re-save deletes a pyramid the archive carried**,
+    /// exactly as leaving [`ProjectWrite::history_territory`] empty drops the
+    /// recorded years. That is correct for a cache and would not be for
+    /// authored data; it is the reason this slot holds only derived pixels
+    /// and no setting a user typed.
+    pub lod_tiles: Option<LodTiles>,
     pub preview_png: Option<Vec<u8>>,
     /// Entries this build does not model, carried through from
     /// [`ProjectData::foreign`] and re-emitted **verbatim** — the first of
@@ -446,6 +647,7 @@ impl<'a> ProjectWrite<'a> {
             rasters: BTreeMap::new(),
             documents: BTreeMap::new(),
             history_territory: BTreeMap::new(),
+            lod_tiles: None,
             preview_png: None,
             foreign: BTreeMap::new(),
             readme: None,
@@ -483,6 +685,8 @@ This archive is a Cartalith project, not a plain image export.
     annotations/      labels, icons and the selected region -- marks on the map
     library/          setting-level definitions that outlive any one world
     drafts/           uncommitted edits
+    cartography/      optional cached zoom tiles -- derived from rasters/,
+                      often absent, and safe to delete
     appearance.json   how the map is drawn
     vault.json        links out to an external Markdown vault
     preview.png       a thumbnail; not map data
@@ -570,6 +774,21 @@ pub struct ProjectData {
     /// parsed map already holds and is small beside the rasters beside it.
     pub document_text: BTreeMap<String, String>,
     pub history_territory: BTreeMap<i64, Vec<i32>>,
+    /// The stored LOD tile pyramid, **only if it still describes this
+    /// world** (owner ruling 28). `None` when the archive carried none, and
+    /// also `None` when it carried one whose [`LodTiles::source_key`] does
+    /// not match the heightmap that was just read — a stale pyramid is
+    /// dropped, with a line in [`ProjectData::warnings`] saying so, because
+    /// ruling 28's own instruction is to *"prefer dropping them to drawing
+    /// them"*.
+    ///
+    /// **Matching the key is necessary and not sufficient.** It says the
+    /// tiles were made from this terrain; it says nothing about whether they
+    /// were made by *this build's* synthesizer. Compare
+    /// [`LodTiles::producer`] against your own before drawing one — this
+    /// crate cannot, because the constants that go into it live in the
+    /// producer.
+    pub lod_tiles: Option<LodTiles>,
     pub preview_png: Option<Vec<u8>>,
     /// Entries this build does not know (`SAVEFILE_COMPAT.md` §6.3), keyed
     /// by archive entry name, **with their raw bytes**. Not an error and not
@@ -720,6 +939,30 @@ pub fn write_project<W: Write + Seek>(
             });
         }
     }
+    // The same guard the rasters get, for the same reason: a tile carries no
+    // length of its own, so a short one is not a parse error, it is a
+    // truncated picture. `tile_w * tile_h` is checked here rather than
+    // inferred from the first tile, so a pyramid of uniformly-wrong tiles
+    // still fails.
+    if let Some(lod) = &project.lod_tiles {
+        let per_tile = lod.tile_w.checked_mul(lod.tile_h).unwrap_or(0);
+        if per_tile == 0 {
+            return Err(SaveError::RasterLength {
+                entry: LOD_TILE_INDEX.to_string(),
+                expected: 1,
+                got: 0,
+            });
+        }
+        for (id, bytes) in &lod.tiles {
+            if bytes.len() != per_tile {
+                return Err(SaveError::RasterLength {
+                    entry: lod_tile_entry(*id),
+                    expected: per_tile,
+                    got: bytes.len(),
+                });
+            }
+        }
+    }
 
     let mut writer = zip::ZipWriter::new(sink);
     let opts = zip_opts();
@@ -772,6 +1015,50 @@ pub fn write_project<W: Write + Seek>(
     for (year, values) in &project.history_territory {
         writer.start_file(format!("{HISTORY_TERRITORY_PREFIX}{year}.i32"), opts)?;
         Raster::I32(values.clone()).write_to(&mut writer)?;
+    }
+
+    // The optional pyramid. Its index is written from here and not from the
+    // caller's `documents` map on purpose: `source_key` is computed from the
+    // heightmap this very call is writing, so the archive cannot leave with a
+    // key that describes some other world's terrain.
+    //
+    // **That guarantee is necessary and was not sufficient, and this block used
+    // to claim it was.** Computing the key here makes the index agree with the
+    // heightmap *whatever bytes the caller handed over* — so a caller holding
+    // pre-sculpt tiles did not get caught, it got its stale tiles **stamped
+    // with the new world's key** and read back later with an empty warning
+    // list. A verifier built exactly that archive on 2026-09-06 and the reader
+    // accepted it, because the reader can only catch an index that disagrees
+    // with its own archive's heightmap, which this writer made impossible to
+    // produce.
+    //
+    // So a **non-empty** `source_key` is now read as a claim and checked. Empty
+    // still means "I built these for the world I am handing you" and is
+    // trusted, which is the documented contract for a fresh producer. A
+    // disagreement **drops the pyramid** rather than failing the save — ruling
+    // 28's *"prefer dropping them to drawing them"*, and the pyramid is derived,
+    // so nothing is lost that cannot be rebuilt.
+    //
+    // **What is still owed: `write_project` has no warnings channel**, so this
+    // drop is silent. Nothing assigns `ProjectWrite::lod_tiles` yet, so no
+    // caller can hit it today; give it a warning before the save path is wired.
+    if let Some(lod) = project.lod_tiles.as_ref().filter(|lod| {
+        lod.source_key.is_empty() || lod.source_key == lod_source_key(project.params, &f.heightmap)
+    }) {
+        writer.start_file(LOD_TILE_INDEX, opts)?;
+        writer.write_all(
+            &serde_json::to_vec_pretty(&serde_json::json!({
+                "source_key": lod_source_key(project.params, &f.heightmap),
+                "producer": lod.producer,
+                "tile_w": lod.tile_w,
+                "tile_h": lod.tile_h,
+            }))
+            .expect("a Value always serializes"),
+        )?;
+        for (id, bytes) in &lod.tiles {
+            writer.start_file(lod_tile_entry(*id), opts)?;
+            writer.write_all(bytes)?;
+        }
     }
 
     if let Some(png) = &project.preview_png {
@@ -1225,19 +1512,81 @@ fn read_tree(
         }
     }
 
+    let params = SaveParams { gw, gh, seed, map_width_km, sea_level, world, origin };
+
+    // --- cartography/tiles/ — the optional pyramid, checked before it is
+    // handed back -------------------------------------------------------
+    //
+    // Absent is the normal case and is not a warning. Present-but-stale is a
+    // warning and costs the tiles, never the world: ruling 28's "prefer
+    // dropping them to drawing them", implemented where a caller cannot skip
+    // it rather than documented where a caller has to remember it.
+    let lod_tiles = read_entry_bytes(archive, LOD_TILE_INDEX).and_then(|bytes| {
+        let index = match bytes.map_err(|e| e.to_string()).and_then(|b| {
+            serde_json::from_slice::<serde_json::Value>(strip_bom(&b)).map_err(|e| e.to_string())
+        }) {
+            Ok(v) => v,
+            Err(e) => {
+                warnings.push(format!("{LOD_TILE_INDEX}: skipped ({e}) -- stored LOD tiles dropped"));
+                return None;
+            }
+        };
+        let stored_key = index.get("source_key").and_then(|v| v.as_str()).unwrap_or("");
+        let live_key = lod_source_key(&params, &heightmap);
+        if stored_key != live_key {
+            warnings.push(format!(
+                "{LOD_TILE_PREFIX}: the stored tiles were made from a different world \
+                 (key {stored_key}, this one is {live_key}) -- dropped rather than drawn"
+            ));
+            return None;
+        }
+        let dim = |k: &str| index.get(k).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let (tile_w, tile_h) = (dim("tile_w"), dim("tile_h"));
+        let per_tile = tile_w.checked_mul(tile_h).unwrap_or(0);
+        if per_tile == 0 {
+            warnings.push(format!(
+                "{LOD_TILE_INDEX}: no usable tile size ({tile_w}x{tile_h}) -- stored LOD tiles dropped"
+            ));
+            return None;
+        }
+        let mut tiles = BTreeMap::new();
+        for name in all_names.iter() {
+            let Some(id) = lod_tile_id(name) else { continue };
+            let bytes = match read_entry_bytes(archive, name) {
+                Some(Ok(b)) => b,
+                Some(Err(e)) => {
+                    warnings.push(format!("{name}: skipped ({e})"));
+                    continue;
+                }
+                None => continue,
+            };
+            if bytes.len() != per_tile {
+                warnings.push(format!(
+                    "{name}: expected {per_tile} bytes for a {tile_w}x{tile_h} tile, got {} -- skipped",
+                    bytes.len()
+                ));
+                continue;
+            }
+            tiles.insert(id, bytes);
+        }
+        Some(LodTiles {
+            source_key: live_key,
+            producer: index
+                .get("producer")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            tile_w,
+            tile_h,
+            tiles,
+        })
+    });
+
     let preview_png = read_entry_bytes(archive, "preview.png").and_then(|r| r.ok());
 
     Ok(ProjectData {
         save: SaveData {
-            params: SaveParams {
-                gw,
-                gh,
-                seed,
-                map_width_km,
-                sea_level,
-                world,
-                origin,
-            },
+            params,
             fields: SaveFields {
                 heightmap,
                 temperature,
@@ -1254,6 +1603,7 @@ fn read_tree(
         documents,
         document_text,
         history_territory,
+        lod_tiles,
         preview_png,
         foreign,
         warnings,
@@ -1270,6 +1620,9 @@ fn read_flat(archive: &mut zip::ZipArchive<impl Read + Seek>) -> Result<ProjectD
         documents: BTreeMap::new(),
         document_text: BTreeMap::new(),
         history_territory: BTreeMap::new(),
+        // The flat layout has no pyramid and no place to put one -- §15 is
+        // read-only and predates the slot entirely.
+        lod_tiles: None,
         preview_png: None,
         // The flat layout has always carried entries no reader wanted (a
         // baked atlas, `map.png`, a README) and §6.3 has always said to
@@ -1299,6 +1652,7 @@ fn strip_bom(bytes: &[u8]) -> &[u8] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cartalith_spatial::pyramid::ChunkId;
     use std::io::Cursor;
 
     fn sample(gw: usize, gh: usize) -> (SaveParams, SaveFields) {
@@ -1576,7 +1930,7 @@ mod tests {
     /// `PROJECT_MANIFEST` against `PROJECT_MANIFEST` is the self-referential
     /// shape that let `MIN_REGION_WORLD_AXIS` survive its own mutation.
     #[test]
-    fn is_own_entry_covers_all_seven_branches_and_no_more() {
+    fn is_own_entry_covers_all_nine_branches_and_no_more() {
         for owned in [
             "project.json",              // PROJECT_MANIFEST
             "params.json",
@@ -1586,6 +1940,8 @@ mod tests {
             "drafts/paint.json",         // DOCUMENT_SLOTS, the slot this pass made restore
             "rasters/heightmap.f32",     // raster_slot
             "history/territory/1200.i32", // the prefix + extension pair
+            "cartography/tiles/index.json", // LOD_TILE_INDEX, ruling 28
+            "cartography/tiles/7/106/93.u8", // lod_tile_id
         ] {
             assert!(is_own_entry(owned), "{owned} is this build's own entry");
         }
@@ -1602,6 +1958,16 @@ mod tests {
             "history/territory/1200.json", // right prefix, wrong extension
             "history/territory.i32",     // right extension, not under the prefix
             "vendor/notes.txt",          // plainly someone else's
+            // The `cartography/tiles/` prefix is shared, not claimed, and
+            // §6.2's own round-trip fixture is exactly the first of these.
+            "cartography/tiles/0/0/0.png", // right prefix, another encoding
+            "cartography/tiles/index.jsonx",
+            "cartography/tiles/2/1.u8",   // too few address parts
+            "cartography/tiles/2/1/0/0.u8", // too many
+            "cartography/tiles/00/0/0.u8", // a second name for tile 0/0/0
+            "cartography/tiles/-1/0/0.u8", // not a level
+            "cartography/tiles/2//0.u8",  // an empty part
+            "cartography/tiles.u8",       // right extension, not under the prefix
         ] {
             assert!(!is_own_entry(foreign), "{foreign} must be carried as foreign");
         }
@@ -1649,6 +2015,470 @@ mod tests {
             "an entry this build cannot read must survive being re-saved by it"
         );
         assert_eq!(back.save.fields, fields, "and the world must be unharmed");
+    }
+
+    // -- cartography/tiles/: owner ruling 28's optional stored pyramid ----
+
+    /// **The hole a verifier opened on 2026-09-06, now closed and pinned.**
+    ///
+    /// `write_project` computes the stored `source_key` from the heightmap it
+    /// is writing. On its own that made the *archive* self-consistent and made
+    /// stale tiles **undetectable**: hand the writer pre-sculpt tiles beside a
+    /// sculpted heightmap and it stamped them with the new world's key, so the
+    /// reader — which can only catch an index disagreeing with its own
+    /// archive — read them back with an **empty warnings list**.
+    ///
+    /// A non-empty `source_key` is now a claim, and a false one costs the
+    /// pyramid rather than the map. Empty stays trusted: that is the contract a
+    /// fresh producer writes against, and `a_pyramid` above relies on it.
+    #[test]
+    fn stale_tiles_are_dropped_by_the_writer_not_restamped() {
+        let (params, fields) = sample(6, 4);
+        let mut sculpted = fields.clone();
+        sculpted.heightmap[0] += 1.0; // one cell is a different world
+
+        let stale_key = lod_source_key(&params, &fields.heightmap);
+        let live_key = lod_source_key(&params, &sculpted.heightmap);
+        assert_ne!(stale_key, live_key, "the fixture must actually be two worlds");
+
+        let mut pyr = a_pyramid(4, 3, 1);
+        pyr.source_key = stale_key.clone();
+
+        let mut write = ProjectWrite::new(&params, &sculpted);
+        write.lod_tiles = Some(pyr.clone());
+        let back = read_project(Cursor::new(&write_to_vec(&write))).expect("the save still opens");
+
+        assert!(
+            back.lod_tiles.is_none(),
+            "tiles claiming another world must not be written; restamping them is what made              this undetectable on the read side"
+        );
+        assert_eq!(back.save.fields, sculpted, "and dropping them must not touch the world");
+
+        // The trusted path still works, so the check costs a fresh producer
+        // nothing: an empty key means "built for the world you are handing me".
+        let mut fresh = ProjectWrite::new(&params, &sculpted);
+        fresh.lod_tiles = Some(a_pyramid(4, 3, 1));
+        let kept = read_project(Cursor::new(&write_to_vec(&fresh))).expect("opens");
+        let kept = kept.lod_tiles.expect("an empty key is trusted and the pyramid is kept");
+        assert_eq!(kept.source_key, live_key, "and it is stamped with the world it shipped beside");
+    }
+
+    fn a_pyramid(tile_w: usize, tile_h: usize, levels: i32) -> LodTiles {
+        let mut tiles = BTreeMap::new();
+        for z in 0..=levels {
+            let n = 1u32 << z;
+            for col in 0..n {
+                for row in 0..n {
+                    // Distinct content per tile, so a test that mixed two
+                    // addresses up could not pass on identical bytes.
+                    let seed = (z as u8).wrapping_mul(37).wrapping_add(col as u8 * 11 + row as u8);
+                    tiles.insert(
+                        ChunkId::new(z as u32, col, row),
+                        (0..tile_w * tile_h).map(|i| seed.wrapping_add(i as u8)).collect(),
+                    );
+                }
+            }
+        }
+        LodTiles {
+            source_key: String::new(), // the writer computes it
+            producer: "lod/shade-ratio/256/1".to_string(),
+            tile_w,
+            tile_h,
+            tiles,
+        }
+    }
+
+    /// The promotion itself: a pyramid written into the archive comes back
+    /// byte for byte, under its own addresses, with its producer intact.
+    #[test]
+    fn a_stored_pyramid_round_trips() {
+        let (params, fields) = sample(8, 6);
+        let mut p = ProjectWrite::new(&params, &fields);
+        let lod = a_pyramid(4, 3, 2);
+        p.lod_tiles = Some(lod.clone());
+        let back = read_project(Cursor::new(&write_to_vec(&p))).expect("the archive reads");
+
+        let got = back.lod_tiles.expect("the pyramid survived");
+        assert_eq!(got.tiles.len(), 1 + 4 + 16, "every tile of levels 0..=2");
+        assert_eq!(got.tiles, lod.tiles, "the bytes must come back unchanged");
+        assert_eq!((got.tile_w, got.tile_h), (4, 3));
+        assert_eq!(got.producer, "lod/shade-ratio/256/1");
+        assert_eq!(got.source_key, lod_source_key(&params, &fields.heightmap));
+        assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+        // And the tiles are the writer's, not the foreign carrier's.
+        assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
+    }
+
+    /// No pyramid is the default and is not a warning: [`ProjectWrite::new`]
+    /// writes none, and an archive without one opens silently.
+    #[test]
+    fn no_pyramid_is_the_default_and_writes_no_entries() {
+        let (params, fields) = sample(4, 4);
+        let buf = write_to_vec(&ProjectWrite::new(&params, &fields));
+        let mut r = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+        let names: Vec<String> = (0..r.len())
+            .map(|i| r.by_index_raw(i).unwrap().name().to_string())
+            .collect();
+        assert!(
+            !names.iter().any(|n| n.starts_with(LOD_TILE_PREFIX)),
+            "an off-by-default slot must write nothing: {names:?}"
+        );
+        let back = read_project(Cursor::new(&buf)).expect("the archive reads");
+        assert!(back.lod_tiles.is_none());
+        assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+    }
+
+    /// Ruling 28's actual requirement: *"silently drawing a stale tile over a
+    /// re-sculpted world is the failure to design against -- prefer dropping
+    /// them to drawing them."*
+    ///
+    /// The fixture is the exact user gesture -- same project, same seed, same
+    /// grid, one sculpted cell -- so the *only* thing that can catch it is
+    /// the heightmap term of the key.
+    #[test]
+    fn a_pyramid_from_another_world_is_dropped_not_drawn() {
+        let (params, fields) = sample(8, 6);
+        let mut p = ProjectWrite::new(&params, &fields);
+        p.lod_tiles = Some(a_pyramid(4, 3, 1));
+        let buf = write_to_vec(&p);
+
+        // Re-write the same archive with one cell of terrain moved, carrying
+        // the tiles across verbatim -- what a build that stored the pyramid
+        // and forgot to re-synthesize it would produce.
+        let mut sculpted = fields.clone();
+        sculpted.heightmap[17] += 0.25;
+        let stale = {
+            let mut w = Vec::new();
+            let mut r = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+            let fresh = {
+                let mut q = ProjectWrite::new(&params, &sculpted);
+                q.lod_tiles = None;
+                write_to_vec(&q)
+            };
+            {
+                let mut zw = zip::ZipWriter::new(Cursor::new(&mut w));
+                let mut base = zip::ZipArchive::new(Cursor::new(&fresh)).unwrap();
+                for i in 0..base.len() {
+                    zw.raw_copy_file(base.by_index_raw(i).unwrap()).unwrap();
+                }
+                for i in 0..r.len() {
+                    let e = r.by_index_raw(i).unwrap();
+                    if e.name().starts_with(LOD_TILE_PREFIX) {
+                        zw.raw_copy_file(e).unwrap();
+                    }
+                }
+                zw.finish().unwrap();
+            }
+            w
+        };
+
+        let back = read_project(Cursor::new(&stale)).expect("the world still opens");
+        assert!(
+            back.lod_tiles.is_none(),
+            "tiles made from a different heightmap must not be handed back"
+        );
+        assert_eq!(back.save.fields, sculpted, "and the world itself is unharmed");
+        assert!(
+            back.warnings.iter().any(|w| w.contains("different world")),
+            "dropping must be reported, not silent: {:?}",
+            back.warnings
+        );
+    }
+
+    /// The key's inputs, derived from `synthesize_tile_rgba`'s signature and
+    /// then exercised **one at a time** -- the preflight rule for a cache
+    /// key. A term left out of the hash is invisible until a user's map is
+    /// drawn with the wrong relief, and nothing else in the suite would see
+    /// it.
+    #[test]
+    fn every_input_the_synthesizer_reads_moves_the_key() {
+        let (params, fields) = sample(6, 5);
+        let base = lod_source_key(&params, &fields.heightmap);
+
+        let mut gw = params.clone();
+        gw.gw += 1;
+        let mut gh = params.clone();
+        gh.gh += 1;
+        let mut seed = params.clone();
+        seed.seed += 1;
+        let mut sea = params.clone();
+        sea.sea_level += 0.001;
+        for (what, p) in [("gw", &gw), ("gh", &gh), ("seed", &seed), ("sea_level", &sea)] {
+            assert_ne!(
+                lod_source_key(p, &fields.heightmap),
+                base,
+                "{what} is an input of the tile synthesizer and must move the key"
+            );
+        }
+
+        let mut moved = fields.heightmap.clone();
+        moved[7] += 0.0001;
+        assert_ne!(lod_source_key(&params, &moved), base, "a sculpted cell must move the key");
+        // A cell *swapped* with another, not changed in value: an order-blind
+        // hash (a sum, an xor of whole words) passes everything above and
+        // fails here.
+        let mut swapped = fields.heightmap.clone();
+        swapped.swap(3, 9);
+        assert_ne!(swapped, fields.heightmap, "the fixture must actually differ");
+        assert_ne!(lod_source_key(&params, &swapped), base, "the key must depend on cell order");
+
+        // And the two things that are NOT inputs: no argument of
+        // `synthesize_tile_rgba` carries them, so hashing them would throw a
+        // valid cache away on a metadata edit.
+        let mut km = params.clone();
+        km.map_width_km += 100.0;
+        let mut wrap = params.clone();
+        wrap.world = !wrap.world;
+        for (what, p) in [("map_width_km", &km), ("wrap_x", &wrap)] {
+            assert_eq!(
+                lod_source_key(p, &fields.heightmap),
+                base,
+                "{what} is not an input of the tile synthesizer and must not invalidate a cache"
+            );
+        }
+    }
+
+    /// The length guard the rest of the format's headerless payloads get. A
+    /// tile carries no length of its own, so a short one is a truncated
+    /// picture rather than a parse error.
+    #[test]
+    fn a_tile_of_the_wrong_size_is_refused_at_write_time() {
+        let (params, fields) = sample(4, 4);
+        let mut p = ProjectWrite::new(&params, &fields);
+        let mut lod = a_pyramid(4, 3, 0);
+        lod.tiles.insert(ChunkId::new(1, 0, 0), vec![0u8; 11]);
+        p.lod_tiles = Some(lod);
+        let mut sink = Cursor::new(Vec::new());
+        match write_project(&mut sink, &p) {
+            Err(SaveError::RasterLength { entry, expected, got }) => {
+                assert_eq!(entry, "cartography/tiles/1/0/0.u8");
+                assert_eq!((expected, got), (12, 11));
+            }
+            other => panic!("a short tile must be refused: {other:?}"),
+        }
+    }
+
+    /// A tile size of zero would make every tile "the right length" and turn
+    /// the guard above into a no-op, so it is refused before the archive is
+    /// opened rather than checked per tile.
+    #[test]
+    fn a_pyramid_with_no_tile_size_is_refused_at_write_time() {
+        let (params, fields) = sample(4, 4);
+        for (w, h) in [(0, 3), (4, 0), (0, 0)] {
+            // The empty map is the case the guard exists for: with tiles
+            // present, the per-tile length check would reject a zero size
+            // anyway (it fails on the first tile), so a fixture that always
+            // carries tiles cannot tell the two apart -- measured, the guard
+            // survived its own mutation until this loop covered both.
+            for tiles in [true, false] {
+                let mut p = ProjectWrite::new(&params, &fields);
+                let mut lod = a_pyramid(4, 3, 0);
+                lod.tile_w = w;
+                lod.tile_h = h;
+                if !tiles {
+                    lod.tiles.clear();
+                }
+                p.lod_tiles = Some(lod);
+                let mut sink = Cursor::new(Vec::new());
+                match write_project(&mut sink, &p) {
+                    Err(SaveError::RasterLength { entry, .. }) => {
+                        assert_eq!(entry, LOD_TILE_INDEX, "a {w}x{h} size is the index's fault");
+                    }
+                    other => panic!("a {w}x{h} tile size must be refused: {other:?}"),
+                }
+            }
+        }
+    }
+
+    /// An index this reader cannot use costs the tiles and nothing else — and
+    /// says so, because the alternative is a pyramid silently half-read.
+    #[test]
+    fn an_unusable_index_drops_the_tiles_and_reports_it() {
+        let (params, fields) = sample(8, 6);
+        let mut p = ProjectWrite::new(&params, &fields);
+        p.lod_tiles = Some(a_pyramid(4, 3, 1));
+        let buf = write_to_vec(&p);
+
+        // The expected warning is asserted per case, not just "something
+        // mentioning tiles": a reader that fell through an unparseable index
+        // would still drop the tiles, on the *key* check, and a laxer
+        // assertion could not tell a real guard from that accident.
+        for (what, index, expect) in [
+            ("unparseable", "{not json", "index.json: skipped"),
+            (
+                "no tile size",
+                r#"{"source_key":"x","producer":"p"}"#,
+                "no usable tile size (0x0)",
+            ),
+            (
+                "zero tile size",
+                r#"{"source_key":"x","producer":"p","tile_w":0,"tile_h":3}"#,
+                "no usable tile size (0x3)",
+            ),
+        ] {
+            // The key is written by `write_project`, so a fixture that wants
+            // to reach the *size* checks has to carry the real one.
+            let real = lod_source_key(&params, &fields.heightmap);
+            let text = index.replace("\"x\"", &format!("\"{real}\""));
+            let mut edited = Vec::new();
+            {
+                let mut r = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+                let mut w = zip::ZipWriter::new(Cursor::new(&mut edited));
+                for i in 0..r.len() {
+                    let e = r.by_index_raw(i).unwrap();
+                    if e.name() == LOD_TILE_INDEX {
+                        continue;
+                    }
+                    w.raw_copy_file(e).unwrap();
+                }
+                w.start_file(LOD_TILE_INDEX, zip_opts()).unwrap();
+                w.write_all(text.as_bytes()).unwrap();
+                w.finish().unwrap();
+            }
+            let back = read_project(Cursor::new(&edited)).expect("the world still opens");
+            assert!(back.lod_tiles.is_none(), "{what}: the tiles must be dropped");
+            assert!(
+                back.warnings.iter().any(|w| w.contains(expect)),
+                "{what}: expected a warning containing {expect:?}, got {:?}",
+                back.warnings
+            );
+            // And **only** that reason. Every one of these fixtures carries a
+            // heightmap the tiles really were made from, so telling the user
+            // their world changed would be a wrong cause dressed as a
+            // freshly-checked one -- and it is what a reader that dropped the
+            // early return would report, since an index it could not parse
+            // produces an empty key that matches nothing.
+            assert!(
+                !back.warnings.iter().any(|w| w.contains("different world")),
+                "{what}: a broken index must not be reported as a changed world: {:?}",
+                back.warnings
+            );
+            assert_eq!(back.save.fields, fields, "{what}: and the world is unharmed");
+        }
+    }
+
+    /// The same guard from the other side: a tile that was truncated *after*
+    /// the archive was written costs itself and nothing else (§6.4).
+    #[test]
+    fn a_truncated_tile_costs_only_itself() {
+        let (params, fields) = sample(8, 6);
+        let mut p = ProjectWrite::new(&params, &fields);
+        p.lod_tiles = Some(a_pyramid(4, 3, 1));
+        let buf = write_to_vec(&p);
+
+        let mut damaged = Vec::new();
+        {
+            let mut r = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+            let mut w = zip::ZipWriter::new(Cursor::new(&mut damaged));
+            for i in 0..r.len() {
+                let e = r.by_index_raw(i).unwrap();
+                if e.name() == "cartography/tiles/1/0/1.u8" {
+                    continue;
+                }
+                w.raw_copy_file(e).unwrap();
+            }
+            w.start_file("cartography/tiles/1/0/1.u8", zip_opts()).unwrap();
+            w.write_all(&[0u8; 5]).unwrap();
+            w.finish().unwrap();
+        }
+
+        let back = read_project(Cursor::new(&damaged)).expect("the world still opens");
+        let got = back.lod_tiles.expect("the rest of the pyramid survives");
+        assert_eq!(got.tiles.len(), 1 + 4 - 1, "only the damaged tile is missing");
+        assert!(!got.tiles.contains_key(&ChunkId::new(1, 0, 1)));
+        assert!(
+            back.warnings.iter().any(|w| w.contains("cartography/tiles/1/0/1.u8")),
+            "{:?}",
+            back.warnings
+        );
+    }
+
+    /// The foreign path stays the fallback, which is what makes this a
+    /// promotion rather than a land grab: `cartography/tiles/0/0/0.png` --
+    /// the entry §6.2's round-trip fixture uses -- is still somebody else's
+    /// payload, carried unchanged **beside** a stored pyramid of this build's
+    /// own.
+    #[test]
+    fn a_foreign_tile_under_the_same_prefix_is_still_carried() {
+        let (params, fields) = sample(8, 6);
+        let mut p = ProjectWrite::new(&params, &fields);
+        p.lod_tiles = Some(a_pyramid(4, 3, 1));
+        let buf = write_to_vec(&p);
+
+        let alien: Vec<u8> = vec![0x89, b'P', b'N', b'G', 0xFF, 0x00];
+        let mut newer = Vec::new();
+        {
+            let mut r = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+            let mut w = zip::ZipWriter::new(Cursor::new(&mut newer));
+            for i in 0..r.len() {
+                w.raw_copy_file(r.by_index_raw(i).unwrap()).unwrap();
+            }
+            for name in [
+                "cartography/tiles/0/0/0.png", // a different encoding
+                "cartography/tiles/2/1.u8",    // too few address parts
+                "cartography/tiles/00/0/0.u8", // a second name for tile 0/0/0
+            ] {
+                w.start_file(name, zip_opts()).unwrap();
+                w.write_all(&alien).unwrap();
+            }
+            w.finish().unwrap();
+        }
+
+        let back = read_project(Cursor::new(&newer)).expect("the archive opens");
+        for name in [
+            "cartography/tiles/0/0/0.png",
+            "cartography/tiles/2/1.u8",
+            "cartography/tiles/00/0/0.u8",
+        ] {
+            assert_eq!(back.foreign.get(name), Some(&alien), "{name} must be carried, not adopted");
+        }
+        assert_eq!(back.lod_tiles.as_ref().expect("ours survives too").tiles.len(), 5);
+
+        // And re-saving keeps both halves, with no duplicate name.
+        let mut again = ProjectWrite::new(&params, &fields);
+        again.foreign = back.foreign.clone();
+        again.lod_tiles = back.lod_tiles.clone();
+        let round = read_project(Cursor::new(&write_to_vec(&again))).expect("the re-save opens");
+        assert_eq!(round.foreign, back.foreign);
+        assert_eq!(round.lod_tiles, back.lod_tiles);
+    }
+
+    /// The index is the writer's, not a caller's: it carries a key computed
+    /// from the heightmap being written, so a hand-supplied one would be a
+    /// claim rather than a check.
+    #[test]
+    fn the_pyramid_index_is_not_a_caller_writable_slot() {
+        let (params, fields) = sample(4, 4);
+        let mut p = ProjectWrite::new(&params, &fields);
+        p.document("cartography/tiles/index.json", "{}");
+        let mut sink = Cursor::new(Vec::new());
+        assert!(matches!(
+            write_project(&mut sink, &p),
+            Err(SaveError::UnknownSlot(s)) if s == "cartography/tiles/index.json"
+        ));
+    }
+
+    /// The determinism rule [`a_project_written_twice_is_byte_identical`]
+    /// asserts, extended over the slot that adds thousands of entries: a
+    /// `BTreeMap` keyed by `ChunkId` iterates in `(z, col, row)` order, so
+    /// two saves of one pyramid are the same bytes.
+    #[test]
+    fn a_stored_pyramid_writes_in_a_stable_order() {
+        let (params, fields) = sample(5, 3);
+        let mut p = ProjectWrite::new(&params, &fields);
+        p.lod_tiles = Some(a_pyramid(3, 2, 2));
+        assert_eq!(write_to_vec(&p), write_to_vec(&p));
+
+        let buf = write_to_vec(&p);
+        let mut r = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+        let tiles: Vec<String> = (0..r.len())
+            .map(|i| r.by_index_raw(i).unwrap().name().to_string())
+            .filter(|n| n.ends_with(".u8") && n.starts_with(LOD_TILE_PREFIX))
+            .collect();
+        let mut sorted = tiles.clone();
+        sorted.sort_by_key(|n| lod_tile_id(n).expect("every written tile parses"));
+        assert_eq!(tiles, sorted, "tiles must be written in address order");
+        assert_eq!(tiles.first().map(String::as_str), Some("cartography/tiles/0/0/0.u8"));
     }
 
     /// The collision rule in [`ProjectWrite::foreign`]: a name the writer

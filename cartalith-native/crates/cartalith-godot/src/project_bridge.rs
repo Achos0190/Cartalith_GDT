@@ -1531,28 +1531,30 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize) -> Option<CivDat
         .parse(SLOT_TIMELINE)
         .and_then(|r| r.ok())
         .unwrap_or_default();
-    let mut timeline: Vec<cartalith_civ::timeline::TimelineSnapshot> = timeline_doc
-        .years
-        .iter()
-        .map(|y| cartalith_civ::timeline::TimelineSnapshot {
-            year: y.year,
+    // §10.1: sorted ascending, unique. Enforced here rather than trusted,
+    // because the year cursor walks this list by index -- and, since owner
+    // ruling 27, because `civ_snapshot_save` encodes each year against the
+    // one before it and would otherwise be handed them out of order.
+    let mut years: Vec<&TimelineYearDto> = timeline_doc.years.iter().collect();
+    years.sort_by_key(|y| y.year);
+    years.dedup_by_key(|y| y.year);
+    let mut timeline: Vec<cartalith_civ::timeline::TimelineSnapshot> = Vec::new();
+    for y in years {
+        cartalith_civ::timeline::civ_snapshot_save(
+            &mut timeline,
+            y.year,
             // A snapshot with no stored territory raster is legal (§10.2)
             // and is an empty vec, which is what a reader of `territory`
             // must already tolerate for a year recorded before territory
             // existed.
-            territory: data
-                .history_territory
+            data.history_territory
                 .get(&y.year)
                 .cloned()
                 .unwrap_or_default(),
-            settlements: y.settlements.iter().map(dto_to_settlement).collect(),
-            ways: y.ways.iter().map(dto_to_road).collect(),
-        })
-        .collect();
-    // §10.1: sorted ascending, unique. Enforced here rather than trusted,
-    // because the year cursor walks this list by index.
-    timeline.sort_by_key(|s| s.year);
-    timeline.dedup_by_key(|s| s.year);
+            y.settlements.iter().map(dto_to_settlement).collect(),
+            y.ways.iter().map(dto_to_road).collect(),
+        );
+    }
 
     // Milestone 4's reseed, at the one place in this port where a recorded
     // history is attached to a counter that was derived without it.
@@ -1783,11 +1785,20 @@ impl WorldGen {
                     Raster::F32(civ.dens.clone()),
                 );
             }
+            // Reconstructed, not copied out: owner ruling 27 made
+            // `TimelineSnapshot::territory` a delta chain in memory. **The
+            // archive shape did not move** -- §10.2's
+            // `history/territory/<year>.i32` still gets one whole raster per
+            // recorded year, so no `format_version` bump and no fail-loud
+            // marker is owed here. The on-disk half of ruling 27 is a
+            // separate change; see this batch's report.
             for snap in &civ.timeline {
-                if snap.territory.len() == n {
-                    write
-                        .history_territory
-                        .insert(snap.year, snap.territory.clone());
+                if let Some(raster) =
+                    cartalith_civ::timeline::civ_territory_at(&civ.timeline, snap.year)
+                {
+                    if raster.len() == n {
+                        write.history_territory.insert(snap.year, raster);
+                    }
                 }
             }
         }
@@ -3433,7 +3444,7 @@ mod tests {
             next_tid: 22,
             timeline: vec![cartalith_civ::timeline::TimelineSnapshot {
                 year: 120,
-                territory: vec![3; 12],
+                territory: cartalith_civ::timeline::TerritoryFrame::Key(vec![3; 12]),
                 settlements: Vec::new(),
                 ways: Vec::new(),
             }],
@@ -3492,10 +3503,12 @@ mod tests {
             );
         }
         for snap in &civ.timeline {
-            if snap.territory.len() == n {
-                write
-                    .history_territory
-                    .insert(snap.year, snap.territory.clone());
+            if let Some(raster) =
+                cartalith_civ::timeline::civ_territory_at(&civ.timeline, snap.year)
+            {
+                if raster.len() == n {
+                    write.history_territory.insert(snap.year, raster);
+                }
             }
         }
 
@@ -3532,7 +3545,7 @@ mod tests {
         // the fixture would test nothing.
         civ.timeline.push(cartalith_civ::timeline::TimelineSnapshot {
             year: 240,
-            territory: Vec::new(),
+            territory: cartalith_civ::timeline::TerritoryFrame::empty(),
             settlements: vec![ghost],
             ways: Vec::new(),
         });
@@ -4639,22 +4652,27 @@ mod tests {
         // §10.1. The year cursor walks this list by index, so a file whose
         // years arrived out of order would scrub backwards.
         let mut civ = sample_civ();
+        // Built out of order on purpose, and with `Key` frames rather than through
+        // `civ_snapshot_save`, because a writer that hands the reader an unsorted timeline is
+        // exactly what §10.1 is about. Every frame here stands on its own, so no delta chain is
+        // being relied on to survive the shuffle -- the reconstruction assertions below are
+        // reading three independent rasters.
         civ.timeline = vec![
             cartalith_civ::timeline::TimelineSnapshot {
                 year: 300,
-                territory: vec![1; 12],
+                territory: cartalith_civ::timeline::TerritoryFrame::Key(vec![1; 12]),
                 settlements: vec![],
                 ways: vec![],
             },
             cartalith_civ::timeline::TimelineSnapshot {
                 year: 100,
-                territory: vec![2; 12],
+                territory: cartalith_civ::timeline::TerritoryFrame::Key(vec![2; 12]),
                 settlements: vec![],
                 ways: vec![],
             },
             cartalith_civ::timeline::TimelineSnapshot {
                 year: 200,
-                territory: vec![3; 12],
+                territory: cartalith_civ::timeline::TerritoryFrame::Key(vec![3; 12]),
                 settlements: vec![],
                 ways: vec![],
             },
@@ -4664,9 +4682,17 @@ mod tests {
             back.timeline.iter().map(|s| s.year).collect::<Vec<_>>(),
             vec![100, 200, 300]
         );
-        // ...and each year kept its own raster, not its neighbour's.
-        assert_eq!(back.timeline[0].territory, vec![2; 12]);
-        assert_eq!(back.timeline[2].territory, vec![1; 12]);
+        // ...and each year kept its own raster, not its neighbour's. Read through the
+        // reconstruction, since owner ruling 27 made the stored frame a delta chain -- the
+        // reader re-encodes on the way in, so `back`'s 200 and 300 are deltas against 100.
+        assert_eq!(
+            cartalith_civ::timeline::civ_territory_at(&back.timeline, 100).unwrap(),
+            vec![2; 12]
+        );
+        assert_eq!(
+            cartalith_civ::timeline::civ_territory_at(&back.timeline, 300).unwrap(),
+            vec![1; 12]
+        );
     }
 
     #[test]

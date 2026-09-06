@@ -438,6 +438,194 @@ fn synthesize_tile_rgba_with_z_base(
     Some((rgba, out_w, out_h))
 }
 
+// ---------------------------------------------------------------------------
+// Storing a pyramid in the project archive — owner ruling 28, 2026-09-06
+//
+// The five functions below are `pub` and, as of 2026-09-06, have **no caller
+// outside this file's own tests**, so a plain `cargo build -p cartalith-godot`
+// reports each of them "is never used". That is accurate and is left visible
+// on purpose: they are the producer half of ruling 28, and the `#[func]` plus
+// `project_bridge.rs` save path that consumes them is the next step, not part
+// of this pass.
+//
+// **This note is here so a dead-code sweep reads it before deleting them** —
+// the same protection ruling 22 required for `--good`/`--accH`, and for the
+// same reason: without a recorded reason, a sweep removing them is right by
+// its own rule. An `#[allow(dead_code)]` was the alternative and was refused,
+// because the warning is a true signal that the slot is built and unwired,
+// and silencing it would make "wired" and "unwired" look the same.
+// ---------------------------------------------------------------------------
+
+/// One tile's storable form: the shade-ratio byte per pixel, without the two
+/// duplicate channels and the constant alpha [`synthesize_tile_rgba`] pads it
+/// out to.
+///
+/// **Lossless by construction, not by luck.** That function writes the same
+/// byte into R, G and B and leaves A at `255` for one stated reason — a
+/// caller that ignores `lod_tile.gdshader` sees a plausible grey mask rather
+/// than a colour cast — so three of every four bytes are recoverable from the
+/// first. [`mask_to_rgba`] is the exact inverse, and the round trip is
+/// asserted on real synthesized tiles rather than assumed.
+///
+/// It is also the whole difference between a storable slot and an unstorable
+/// one. Measured on three real 2048×1311 worlds, levels 0..=6, in the
+/// archive: these masks deflate to **21.9 / 23.6 / 27.8 MiB**; the same tiles
+/// as RGB PNGs are **65.2 / 69.9 / 81.1 MiB** — **2.9-3.0× larger** — because
+/// a PNG carries its own deflate, so the container never sees the
+/// three-identical-channels redundancy.
+pub fn tile_mask(rgba: &[u8]) -> Vec<u8> {
+    rgba.chunks_exact(4).map(|px| px[0]).collect()
+}
+
+/// [`tile_mask`]'s inverse — a stored tile back in the `RGBA8` shape
+/// `Image::create_from_data` takes.
+pub fn mask_to_rgba(mask: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(mask.len() * 4);
+    for &b in mask {
+        out.extend_from_slice(&[b, b, b, 255]);
+    }
+    out
+}
+
+/// What this build's tile synthesizer calls itself, for
+/// `cartalith_io::project::LodTiles::producer`.
+///
+/// The archive's own key covers the *world* — the heightmap, the grid, the
+/// seed and the sea level, which are `synthesize_tile_rgba`'s four
+/// world-derived arguments. It cannot cover the producer's **constants**,
+/// which is what this is for: a build that moves `TILE_PX`, the shade-ratio
+/// fixed point (which `lod_tile.gdshader` hardcodes on the decode side) or
+/// the octave schedule would otherwise decode last week's tiles with this
+/// week's shader and tint a map that has not changed.
+///
+/// **What is derived and what is not, separately.** Every constant this
+/// module and [`AmplifyOpts::default`] contribute is interpolated in, so
+/// changing one changes the id with nothing to remember. The leading `v1` is
+/// **not** derived: it covers the *arithmetic* — `shade_tile`, the ratio
+/// reduction, `pyramid_tile`'s own content — which can change with no
+/// constant moving, and it has to be bumped by hand when it does.
+///
+/// The interpolation itself is not test-covered and cannot be: no test can
+/// vary a `const`, so `px={TILE_PX}` and the literal `px=256` are the same
+/// string to any assertion. The test beside this one covers *membership* —
+/// a constant dropped from the id — and says so.
+///
+/// `AmplifyOpts::default()`'s `seed` and `sea` are deliberately absent:
+/// [`synthesize_tile_rgba`] overrides both from the live world, so the
+/// defaults are never used and the live values are the archive key's job.
+pub fn tile_producer_id() -> String {
+    let o = AmplifyOpts::default();
+    format!(
+        "cartalith-lod/v1;px={TILE_PX};zb={};mid={SHADE_RATIO_MID};gain={SHADE_RATIO_GAIN};\
+         exag={EXAG};az={SUN_AZ_DEG};freq={};amp={};ridged={};k={}",
+        z_base(),
+        o.detail_freq,
+        o.detail_amp,
+        o.ridged,
+        o.zoom_detail_k,
+    )
+}
+
+/// The **raw** bytes a stored pyramid of levels `0..=z_max` occupies, before
+/// the archive's deflate — `sum(4^z) * tile_w * tile_h`.
+///
+/// Exact and instant: it synthesizes nothing, so a save dialog can show the
+/// cost before the user commits to paying it (ruling 28: *"off, with the
+/// size shown at save time"*). `None` for a `z_max` [`tile_bounds`] itself
+/// would reject.
+///
+/// **The stored figure is smaller and is content-dependent, so it is not
+/// returned from here.** Measured on three real 2048×1311 worlds
+/// (`measure_a_stored_pyramid`): levels 0-5 deflate to **8.1-9.4%** of this
+/// number and levels 0-6 to **10.0-12.7%** — the band widens with depth
+/// because deeper tiles carry more sub-cell detail and compress less. A
+/// single ratio baked in here would be a model presented as a measurement.
+pub fn pyramid_mask_bytes(gw: usize, gh: usize, z_max: i32) -> Option<u64> {
+    if gw < 2 || gh < 2 || !(0..=MAX_LEVEL).contains(&z_max) {
+        return None;
+    }
+    let (w, h) = tile_size_px(gw, gh, 0);
+    Some(cartalith_spatial::pyramid::pyramid_tile_count(z_max) * (w * h) as u64)
+}
+
+/// Synthesizes every tile of levels `0..=z_max` as storable masks — the
+/// **producer** ruling 28 found this port did not have, because
+/// [`synthesize_tile_rgba`] makes tiles on demand and the atlas cache is
+/// deferred at `LOD_TILING_INTEGRATION_SCOPE.md` M3, so nothing held a tile
+/// set to write.
+///
+/// Returns `(tile_w, tile_h, tiles)` in exactly the shape
+/// `cartalith_io::project::LodTiles` takes. `None` on the same preconditions
+/// [`synthesize_tile_rgba`] rejects, plus a `z_max` outside `0..=`[`MAX_LEVEL`].
+///
+/// One size covers the whole pyramid because [`tile_size_px`] is
+/// level-independent: a level changes a tile's *footprint*, not its pixel
+/// count. This loop does **not** re-check that per tile — a guard here proved
+/// unreachable under a mutation run, and the format layer already enforces it
+/// where it matters: `write_project` refuses any tile that is not exactly
+/// `tile_w * tile_h` bytes, naming the tile
+/// (`a_tile_of_the_wrong_size_is_refused_at_write_time`).
+///
+/// # This is O(4^z_max) and the caller has to mean it
+///
+/// Levels `0..=6` over a real 2048×1311 world took **14.3 s** — one sample,
+/// release, this machine, `measure_a_stored_pyramid`'s own print. It is an
+/// order of magnitude, not a benchmark: each level is 4× the tiles of the one
+/// before, so the shape (seconds at 6, minutes past 7) is the useful part and
+/// no depth makes it cheap. That is the other half of why the slot is off by
+/// default.
+///
+/// No progress callback and no cancellation: this is deliberately the plain
+/// loop, and the caller that wires it to a save dialog is the right place for
+/// both — the same split `bake_all_tiles` already draws.
+///
+/// # Invalidation is two problems, and only one of them lives in the archive
+///
+/// **Across a save**, the archive owns it: `cartalith_io::project` computes a
+/// `source_key` from the heightmap it writes, recomputes it from the heightmap
+/// it reads, and drops the tiles on a mismatch. `StageGraph` structurally
+/// cannot do that half — every stage in a fresh `StageGraph::new` starts at
+/// version 0, so two different worlds' graphs are indistinguishable and none
+/// of it survives a process.
+///
+/// **Within a session**, `cartalith_spatial::StageGraph` is the mechanism and
+/// no second one should be invented: `WorldGen.stages` already marks
+/// `PipelineStage::Height` on every path that moves terrain — `sculpt_commit`,
+/// `carve_fjords`, `erode`, `undo`, `redo` — so a stored or in-memory tile set
+/// is stale exactly when `any_stale`/the height stage's version says it is.
+/// Whatever wires this into the save should drop the set on that signal rather
+/// than on a heuristic. **A note for that lane, from reading the shell rather
+/// than from this crate:** `viewport_host.gd` clears its live tiles in
+/// `refresh()` (a new `generate()`/`load_save()`) and on `_set_lod_active(false)`,
+/// and the sculpt-commit path deliberately does not call `refresh()` — it
+/// assigns `map_view.texture` directly (`world_workspace.gd`, and its own
+/// comment says why) — so a commit at a fixed zoom is a case worth checking
+/// before assuming the in-session half is already covered.
+pub fn synthesize_pyramid_masks(
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    z_max: i32,
+    seed: i32,
+    sea: f64,
+) -> Option<(usize, usize, std::collections::BTreeMap<ChunkId, Vec<u8>>)> {
+    if !(0..=MAX_LEVEL).contains(&z_max) {
+        return None;
+    }
+    let (tile_w, tile_h) = tile_size_px(gw, gh, 0);
+    let mut tiles = std::collections::BTreeMap::new();
+    for z in 0..=z_max {
+        let n = tiles_per_axis(z) as i32;
+        for col in 0..n {
+            for row in 0..n {
+                let (rgba, _, _) = synthesize_tile_rgba(field, gw, gh, z, col, row, seed, sea)?;
+                tiles.insert(ChunkId::new(z as u32, col as u32, row as u32), tile_mask(&rgba));
+            }
+        }
+    }
+    Some((tile_w, tile_h, tiles))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -780,4 +968,244 @@ mod tests {
         assert_eq!(a, b);
     }
 
+    // -- storing a pyramid: the round trip, the id, and the real cost -----
+
+    #[test]
+    fn a_stored_mask_is_the_synthesized_tile_exactly() {
+        // The claim that makes a 1-byte-per-pixel slot legitimate: three of
+        // every four bytes `synthesize_tile_rgba` writes are recoverable from
+        // the first. Asserted over real tiles, not a hand-built buffer -- and
+        // over several, since a tile whose ratio is uniformly 1.0 would pass
+        // on a constant mask.
+        let field = relief_field(256, 256);
+        let mut distinct = std::collections::BTreeSet::new();
+        for (z, col, row) in [(0, 0, 0), (2, 1, 2), (4, 5, 9)] {
+            let (rgba, w, h) = synthesize_tile_rgba(&field, 256, 256, z, col, row, 7, 0.42).unwrap();
+            let mask = tile_mask(&rgba);
+            assert_eq!(mask.len(), w * h);
+            assert_eq!(
+                mask_to_rgba(&mask),
+                rgba,
+                "the stored form must be lossless at ({z},{col},{row})"
+            );
+            distinct.extend(mask.iter().copied());
+        }
+        assert!(
+            distinct.len() > 4,
+            "the fixture's tiles carry only {} distinct bytes -- a constant mask would pass this vacuously",
+            distinct.len()
+        );
+    }
+
+    /// **What this establishes and what it cannot.** It establishes that
+    /// every constant a stored tile depends on is *named* in the id, which is
+    /// the failure that actually happens — a constant added and left out. It
+    /// does **not** establish that each is interpolated rather than
+    /// transcribed: replacing `px={TILE_PX}` with the literal `px=256`
+    /// produces a byte-identical string and survives this test (measured
+    /// under a mutation run, 2026-09-06), because no test can vary a `const`.
+    /// That half is verified by reading the one format string in
+    /// [`tile_producer_id`], not by an assertion, and is stated here rather
+    /// than claimed as coverage it does not have.
+    #[test]
+    fn the_producer_id_names_every_constant_a_stored_tile_depends_on() {
+        let id = tile_producer_id();
+        let o = AmplifyOpts::default();
+        for (what, needle) in [
+            ("tile size", format!("px={TILE_PX}")),
+            ("z_base", format!("zb={}", z_base())),
+            ("fixed-point midpoint", format!("mid={SHADE_RATIO_MID}")),
+            ("fixed-point gain", format!("gain={SHADE_RATIO_GAIN}")),
+            ("exaggeration", format!("exag={EXAG}")),
+            ("sun azimuth", format!("az={SUN_AZ_DEG}")),
+            ("detail frequency", format!("freq={}", o.detail_freq)),
+            ("detail amplitude", format!("amp={}", o.detail_amp)),
+            ("zoom detail k", format!("k={}", o.zoom_detail_k)),
+        ] {
+            assert!(id.contains(&needle), "{what} is not in the producer id: {id}");
+        }
+        // And the two that must NOT be: `synthesize_tile_rgba` overrides both
+        // from the live world, so the defaults are never used -- keying the
+        // cache on them would invalidate on a value nothing reads.
+        assert!(!id.contains(&format!("seed={}", o.seed)), "{id}");
+        assert!(!id.contains(&format!("sea={}", o.sea)), "{id}");
+        // The hand-bumped half, asserted so a reader knows it is not derived.
+        assert!(id.starts_with("cartalith-lod/v1;"), "{id}");
+    }
+
+    #[test]
+    fn a_synthesized_pyramid_holds_every_tile_of_every_level() {
+        let field = relief_field(128, 96);
+        let (tw, th, tiles) = synthesize_pyramid_masks(&field, 128, 96, 2, 7, 0.42).unwrap();
+        assert_eq!((tw, th), (256, 191), "one tile is 256 x round(256*95/127) px");
+        assert_eq!(tiles.len(), 1 + 4 + 16);
+        // Every tile is the one `synthesize_tile_rgba` would have produced on
+        // demand -- the property the whole cache rests on.
+        for z in 0..=2 {
+            let n = tiles_per_axis(z);
+            for col in 0..n {
+                for row in 0..n {
+                    let id = ChunkId::new(z as u32, col, row);
+                    let mask = tiles.get(&id).expect("every address of every level");
+                    assert_eq!(mask.len(), tw * th);
+                    let (rgba, _, _) = synthesize_tile_rgba(
+                        &field, 128, 96, z, col as i32, row as i32, 7, 0.42,
+                    )
+                    .unwrap();
+                    assert_eq!(*mask, tile_mask(&rgba), "tile {id:?} disagrees with on-demand synthesis");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_pyramid_is_refused_wherever_a_single_tile_would_be() {
+        let field = relief_field(64, 64);
+        assert!(synthesize_pyramid_masks(&field, 64, 64, -1, 7, 0.42).is_none());
+        assert!(synthesize_pyramid_masks(&field, 64, 64, MAX_LEVEL + 1, 7, 0.42).is_none());
+        assert!(synthesize_pyramid_masks(&field, 1, 1, 0, 7, 0.42).is_none());
+        assert!(synthesize_pyramid_masks(&field[..10], 64, 64, 0, 7, 0.42).is_none());
+        assert!(pyramid_mask_bytes(1, 1, 0).is_none());
+        assert!(pyramid_mask_bytes(64, 64, MAX_LEVEL + 1).is_none());
+        assert!(pyramid_mask_bytes(64, 64, -1).is_none());
+    }
+
+    #[test]
+    fn the_size_estimate_is_what_the_producer_actually_makes() {
+        // A "size shown at save time" that disagrees with the save is worse
+        // than none, so the estimate is checked against real bytes rather
+        // than against its own formula.
+        let field = relief_field(128, 96);
+        for z_max in 0..=2 {
+            let (_, _, tiles) = synthesize_pyramid_masks(&field, 128, 96, z_max, 7, 0.42).unwrap();
+            let real: u64 = tiles.values().map(|t| t.len() as u64).sum();
+            assert_eq!(pyramid_mask_bytes(128, 96, z_max), Some(real), "at z_max {z_max}");
+        }
+        // A literal rather than the formula restated. A 128x96 world's tile
+        // aspect is (128-1)/(96-1) = 127/95, so `tile_dims` gives 256 x
+        // round(256*95/127) = 256x191 px at every level, and levels 0..=1 are
+        // five of them. Hand-computing 192 here is what this assertion caught.
+        assert_eq!(pyramid_mask_bytes(128, 96, 1), Some(5 * 256 * 191));
+    }
+
+    // -- what a stored pyramid actually costs ------------------------------
+
+    fn env_usize(key: &str, default: usize) -> usize {
+        std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    }
+
+    /// Owner ruling 28 asks for measured bytes before any default is written
+    /// into the UI. This is that measurement, kept runnable rather than
+    /// reported once: it generates a real world, runs the **shipping**
+    /// producer ([`synthesize_pyramid_masks`]) over it, and reports the bytes
+    /// **as the archive would hold them** -- every tile written into a real
+    /// deflate zip and read back for its compressed size, not a codec
+    /// measured in isolation.
+    ///
+    /// It measures the RGB-PNG alternative in the same pass, which is what
+    /// settled the encoding: a PNG's own deflate never sees the redundancy
+    /// the container's does, so the same pyramid costs ~2.9x more.
+    ///
+    /// ```text
+    /// cargo test -p cartalith-godot --release --lib -- --ignored --nocapture measure_a_stored_pyramid
+    /// CARTALITH_LOD_GW=2048 CARTALITH_LOD_GH=1311 CARTALITH_LOD_ZMAX=6 CARTALITH_LOD_SEED=24601 ...
+    /// ```
+    ///
+    /// What it printed, 2026-09-06, release, three real 2048x1311 worlds
+    /// (seeds 1337 / 987654 / 24601), deflated **inside the archive**:
+    ///
+    /// | levels | stored | against the 24.9 MiB whole archive at this grid |
+    /// |---|---|---|
+    /// | 0..=5 | 4.40 .. 5.12 MiB | ~19% |
+    /// | 0..=6 | 21.87 .. 27.75 MiB | **88% .. 111%** |
+    #[test]
+    #[ignore = "generates a real world and synthesizes a whole pyramid; run explicitly"]
+    fn measure_a_stored_pyramid() {
+        use std::io::Write as _;
+        let gw = env_usize("CARTALITH_LOD_GW", 512);
+        let gh = env_usize("CARTALITH_LOD_GH", 384);
+        let zmax = env_usize("CARTALITH_LOD_ZMAX", 3) as i32;
+        let seed = env_usize("CARTALITH_LOD_SEED", 24601) as i32;
+
+        let mut p = cartalith_engine::WorldParams::defaults(gw, gh, seed);
+        p.map_width_km = 800.0;
+        let t = std::time::Instant::now();
+        let ws = cartalith_engine::generate_terrain(&p);
+        println!("generate_terrain {gw}x{gh} seed {seed}: {:.2}s", t.elapsed().as_secs_f64());
+        let lo = ws.field.iter().copied().fold(f32::INFINITY, f32::min);
+        let hi = ws.field.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        assert!(hi - lo > 0.2, "the generated world is nearly flat: [{lo}, {hi}]");
+
+        let t_all = std::time::Instant::now();
+        let (tw, th, tiles) =
+            synthesize_pyramid_masks(&ws.field, gw, gh, zmax, seed, ws.sea_level)
+                .expect("the pyramid synthesizes");
+        println!(
+            "{} tiles of {tw}x{th}px, synth {:.2}s",
+            tiles.len(),
+            t_all.elapsed().as_secs_f64()
+        );
+        let raw_total = pyramid_mask_bytes(gw, gh, zmax).expect("a real world has an estimate");
+        assert_eq!(
+            raw_total,
+            tiles.values().map(|t| t.len() as u64).sum::<u64>(),
+            "the save-time estimate must be the real byte count"
+        );
+
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        let stored = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        let mut buf = Vec::new();
+        {
+            let mut w = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+            for (id, mask) in &tiles {
+                w.start_file(format!("mask/{}/{}/{}.u8", id.z, id.col, id.row), opts).unwrap();
+                w.write_all(mask).unwrap();
+                let png = cartalith_assets::raster::encode_png_rgb8(
+                    tw as u32,
+                    th as u32,
+                    mask.iter().flat_map(|&b| [b, b, b]).collect(),
+                )
+                .expect("the tile encodes");
+                w.start_file(format!("png/{}/{}/{}.png", id.z, id.col, id.row), stored).unwrap();
+                w.write_all(&png).unwrap();
+            }
+            w.finish().unwrap();
+        }
+
+        let mut r = zip::ZipArchive::new(std::io::Cursor::new(&buf)).unwrap();
+        let mut mask_z = vec![0u64; zmax as usize + 1];
+        let mut png_z = vec![0u64; zmax as usize + 1];
+        for i in 0..r.len() {
+            let e = r.by_index_raw(i).unwrap();
+            let name = e.name().to_string();
+            let z: usize = name.split('/').nth(1).unwrap().parse().unwrap();
+            if name.starts_with("mask/") {
+                mask_z[z] += e.compressed_size();
+            } else {
+                png_z[z] += e.compressed_size();
+            }
+        }
+        let mib = |b: u64| b as f64 / (1024.0 * 1024.0);
+        println!("level | tiles | raw mask | deflated in-zip | RGB PNG stored");
+        for z in 0..=zmax as usize {
+            let n = 1u64 << z;
+            println!(
+                "  z{z} | {:>7} | {:>8.2} MiB | {:>8.2} MiB | {:>8.2} MiB",
+                n * n,
+                mib(n * n * (tw * th) as u64),
+                mib(mask_z[z]),
+                mib(png_z[z])
+            );
+        }
+        let deflated: u64 = mask_z.iter().sum();
+        println!(
+            "TOTAL 0..={zmax}: raw {:.2} MiB, deflated {:.2} MiB ({:.1}% of raw), RGB PNG {:.2} MiB",
+            mib(raw_total),
+            mib(deflated),
+            100.0 * deflated as f64 / raw_total as f64,
+            mib(png_z.iter().sum::<u64>())
+        );
+    }
 }

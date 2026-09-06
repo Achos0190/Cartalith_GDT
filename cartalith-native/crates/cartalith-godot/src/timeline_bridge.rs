@@ -50,6 +50,7 @@
 use cartalith_civ::timeline::{
     CollapseCharacter, CollapsePlace, SimulateMode, SimulateTimelineOpts, SimulateWorldParams,
     TimelineSnapshot, TimelineStepStats, civ_simulate_timeline, civ_snapshot_save,
+    civ_territory_at,
 };
 use cartalith_civ::{NamedSettlement, SettlementPlacement, Way};
 
@@ -333,9 +334,17 @@ pub fn run_collapse_simulation(
     // is actually distinguishable from "just use the live grid", see this function's
     // own test `territory_and_ways_carry_forward_unchanged_from_the_nearest_prior_entry`),
     // or the live snapshot this call itself just captured there.
-    let anchor = timeline.iter().filter(|s| s.year <= req.start_year).max_by_key(|s| s.year);
+    //
+    // `civ_territory_at`, not `a.territory.clone()`, since owner ruling 27: the anchor's
+    // `territory` is a `TerritoryFrame` now, and what this needs is the raster it reconstructs
+    // to. The `None` arm is still the reference's own unreachable fallback, unchanged.
+    let anchor = timeline
+        .iter()
+        .filter(|s| s.year <= req.start_year)
+        .max_by_key(|s| s.year)
+        .map(|a| (a.year, a.ways.clone()));
     let (terr0, ways0): (Vec<i32>, Vec<Way>) = match anchor {
-        Some(a) => (a.territory.clone(), a.ways.clone()),
+        Some((y, ways)) => (civ_territory_at(timeline, y).unwrap_or_default(), ways),
         None => (Vec::new(), live_ways.to_vec()),
     };
 
@@ -377,14 +386,13 @@ pub fn run_collapse_simulation(
                 report.grew += s.grew;
             }
         }
-        match timeline.iter_mut().find(|s| s.year == year) {
-            Some(existing) => {
-                existing.territory = terr0.clone();
-                existing.settlements = named;
-                existing.ways = ways0.clone();
-            }
-            None => timeline.push(TimelineSnapshot { year, territory: terr0.clone(), settlements: named, ways: ways0.clone() }),
-        }
+        // Through `civ_snapshot_save` since owner ruling 27, replacing an overwrite-or-push pair
+        // that did the same thing by hand. It is the only encoder of a `TerritoryFrame`, and this
+        // is the loop the ruling is most about: territory is carried forward *unchanged* here
+        // ("collapse doesn't redraw political borders"), so every step used to store another
+        // whole copy of `terr0` -- 10.24 MiB apiece at the shipped default world, measured. Each
+        // now stores an empty delta against the step before it.
+        civ_snapshot_save(timeline, year, terr0.clone(), named, ways0.clone());
     }
     timeline.sort_by_key(|s| s.year);
     report.end_year = req.start_year + i64::from(steps) * i64::from(step_years);
@@ -393,6 +401,7 @@ pub fn run_collapse_simulation(
 
 #[cfg(test)]
 mod tests {
+    use cartalith_civ::timeline::TerritoryFrame;
     use super::*;
     use cartalith_civ::SettlementKind;
 
@@ -518,13 +527,13 @@ mod tests {
         let dens = vec![5.0f32; GW * GH];
         let field = vec![0.6f32; GW * GH];
         let world = world_params(&dens, &field);
-        let mut timeline = vec![TimelineSnapshot { year: 20, territory: vec![7; GW * GH], settlements: settlements.clone(), ways: Vec::new() }];
+        let mut timeline = vec![TimelineSnapshot { year: 20, territory: TerritoryFrame::Key(vec![7; GW * GH]), settlements: settlements.clone(), ways: Vec::new() }];
         let req = CollapseSimRequest { severity: 0.0, start_year: 0, duration: 30, step_years: 10, ..CollapseSimRequest::default() };
 
         let outcome = run_collapse_simulation(&mut timeline, 0, &settlements, &[], &[0; GW * GH], &world, &req);
         assert_eq!(outcome, CollapseSimOutcome::NeedsConfirmation { clobber_years: vec![20] });
         assert_eq!(timeline.len(), 1, "an unconfirmed run must not touch the timeline at all");
-        assert_eq!(timeline[0].territory, vec![7; GW * GH], "the pre-existing year 20 entry must be untouched");
+        assert_eq!(civ_territory_at(&timeline, 20).unwrap(), vec![7; GW * GH], "the pre-existing year 20 entry must be untouched");
 
         let confirmed = CollapseSimRequest { confirm_overwrite: true, ..req };
         let outcome2 = run_collapse_simulation(&mut timeline, 0, &settlements, &[], &[0; GW * GH], &world, &confirmed);
@@ -551,7 +560,7 @@ mod tests {
         // painted territory at the simulation's own start year must survive a run
         // that starts from it, even if the live grid has since been edited further).
         let anchor_territory = vec![9i32; GW * GH];
-        let mut timeline = vec![TimelineSnapshot { year: 0, territory: anchor_territory.clone(), settlements: settlements.clone(), ways: Vec::new() }];
+        let mut timeline = vec![TimelineSnapshot { year: 0, territory: TerritoryFrame::Key(anchor_territory.clone()), settlements: settlements.clone(), ways: Vec::new() }];
         let live_territory = vec![3i32; GW * GH]; // deliberately different from the anchor
         let req = CollapseSimRequest { severity: 0.0, start_year: 0, duration: 10, step_years: 10, ..CollapseSimRequest::default() };
 
@@ -561,12 +570,14 @@ mod tests {
         // clobber) the pre-existing year-0 anchor entry this test is really checking.
         let outcome = run_collapse_simulation(&mut timeline, 500, &settlements, &[], &live_territory, &world, &req);
         let CollapseSimOutcome::Ran(_) = outcome else { panic!("expected Ran, got {outcome:?}") };
-        let y10 = timeline.iter().find(|s| s.year == 10).unwrap();
-        assert_eq!(y10.territory, anchor_territory, "territory must carry forward from the recorded start-year entry, not the live grid");
+        // Read through `civ_territory_at`, not off the field: since owner ruling 27 the carried-
+        // forward raster is stored as an EMPTY delta against the year before it, which is the
+        // whole point of the ruling -- and reading the field directly would now assert the
+        // encoding rather than the value.
+        assert_eq!(civ_territory_at(&timeline, 10).unwrap(), anchor_territory, "territory must carry forward from the recorded start-year entry, not the live grid");
         // And the pre-existing year-0 entry itself must be untouched (not
         // overwritten with live state) -- the guard's whole point.
-        let y0 = timeline.iter().find(|s| s.year == 0).unwrap();
-        assert_eq!(y0.territory, anchor_territory);
+        assert_eq!(civ_territory_at(&timeline, 0).unwrap(), anchor_territory);
     }
 
     #[test]
@@ -575,7 +586,7 @@ mod tests {
         let dens = vec![5.0f32; GW * GH];
         let field = vec![0.6f32; GW * GH];
         let world = world_params(&dens, &field);
-        let mut timeline = vec![TimelineSnapshot { year: 0, territory: vec![0; GW * GH], settlements: vec![settlement(1, 3, 3, SettlementKind::Village, 111, "Stale")], ways: Vec::new() }];
+        let mut timeline = vec![TimelineSnapshot { year: 0, territory: TerritoryFrame::Key(vec![0; GW * GH]), settlements: vec![settlement(1, 3, 3, SettlementKind::Village, 111, "Stale")], ways: Vec::new() }];
         let req = CollapseSimRequest { severity: 0.0, start_year: 50, duration: 10, step_years: 10, ..CollapseSimRequest::default() };
 
         // active_year=0 must be re-snapshotted from the LIVE settlements (pop 500,

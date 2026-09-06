@@ -354,15 +354,30 @@ struct CivData {
     /// `TIMELINE_SCOPE.md` milestone 4's own recorded-year history -- the
     /// reference's `civTimeline` (reference line 14756: `let civTimeline=[]`).
     /// Empty until the first `civ_add_year`/`civ_run_collapse_simulation`
-    /// call (the latter is milestone 5's job, not built yet). Every entry's
-    /// `settlements`/`ways` are frozen COPIES made at save time
-    /// (`cartalith_civ::timeline::civ_snapshot_save`) -- `settlements`/`ways`
-    /// above stay the single always-current, always-editable arrays, exactly
-    /// as the reference's own `state.places`/`civWays` do (reference lines
-    /// 20559-20561). Capped at `TIMELINE_MAX_YEARS` entries -- `TIMELINE_
-    /// SCOPE.md` §9's own "Snapshot cap" decision, a deliberate deviation
-    /// from the reference's unbounded storage
-    /// (`MEMORY_OPTIMIZATION_SCOPE.md`'s existing budget discipline).
+    /// call. Every entry's `settlements`/`ways` are frozen COPIES made at
+    /// save time (`cartalith_civ::timeline::civ_snapshot_save`) --
+    /// `settlements`/`ways` above stay the single always-current,
+    /// always-editable arrays, exactly as the reference's own
+    /// `state.places`/`civWays` do (reference lines 20559-20561).
+    ///
+    /// **Territory is not a copy any more** (owner ruling 27, 2026-09-06):
+    /// each entry's `territory` is a `cartalith_civ::timeline::
+    /// TerritoryFrame`, which records the cells whose owner changed and
+    /// inherits the rest. Read it with `civ_territory_at`, and write it
+    /// only through `civ_snapshot_save` -- see that type's own doc comment
+    /// for why nothing else may.
+    ///
+    /// **`TIMELINE_MAX_YEARS` binds `civ_add_year` and NOT the simulator.**
+    /// This used to say "capped at `TIMELINE_MAX_YEARS` entries" flatly,
+    /// which is false and was measured false on 2026-09-06: a collapse
+    /// request of 5 000 steps recorded **5 001** years, because
+    /// `timeline_bridge::run_collapse_simulation` pushes one entry per step
+    /// with no cap check at all. `civ_add_year` does enforce it (2 500
+    /// requested, 2 000 recorded, same run). Where the cap belongs on the
+    /// simulator path is a policy question and an open row, not something
+    /// this comment should imply is already settled -- `TIMELINE_SCOPE.md`
+    /// §9's "Snapshot cap" decision and `MEMORY_OPTIMIZATION_SCOPE.md`'s
+    /// budget discipline are what it would be settled against.
     timeline: Vec<cartalith_civ::timeline::TimelineSnapshot>,
     /// `TIMELINE_SCOPE.md` milestone 4's active-year cursor -- the
     /// reference's `civYear` (reference line 14757: `let civYear=0`). `0`
@@ -1067,18 +1082,28 @@ impl CivData {
             .iter()
             .filter(|s| s.year <= year)
             .max_by_key(|s| s.year);
+        // Through `civ_snapshot_save` rather than a direct `push` since owner ruling 27: that is
+        // the only function allowed to build a `TerritoryFrame`, because it is the only one that
+        // knows the keyframe run and repairs the entry after the insert. The carry-forward is
+        // unchanged in what it *means* -- the new year starts life holding exactly the nearest
+        // earlier year's raster, which is now recorded as an empty delta rather than a second
+        // 10 MiB copy of it.
         let (territory, settlements, ways) = match prev {
-            Some(p) => (p.territory.clone(), p.settlements.clone(), p.ways.clone()),
+            Some(p) => (
+                cartalith_civ::timeline::civ_territory_at(&self.timeline, p.year)
+                    .unwrap_or_default(),
+                p.settlements.clone(),
+                p.ways.clone(),
+            ),
             None => (Vec::new(), Vec::new(), Vec::new()),
         };
-        self.timeline
-            .push(cartalith_civ::timeline::TimelineSnapshot {
-                year,
-                territory,
-                settlements,
-                ways,
-            });
-        self.timeline.sort_by_key(|s| s.year);
+        cartalith_civ::timeline::civ_snapshot_save(
+            &mut self.timeline,
+            year,
+            territory,
+            settlements,
+            ways,
+        );
         self.civ_goto_year(year);
     }
 
@@ -1090,10 +1115,12 @@ impl CivData {
     /// sorted by construction (every write path above sorts), so `.first()`
     /// is always the earliest remaining year.
     fn civ_remove_year(&mut self, year: i64) {
-        let Some(idx) = self.timeline.iter().position(|s| s.year == year) else {
+        // `civ_timeline_remove`, not `Vec::remove`, since owner ruling 27: the entry after this
+        // one may be a delta *against* it, and dropping the base would leave that entry (and
+        // every entry chained behind it) unable to reconstruct at all.
+        if !cartalith_civ::timeline::civ_timeline_remove(&mut self.timeline, year) {
             return;
-        };
-        self.timeline.remove(idx);
+        }
         if self.year == year {
             let next_year = self.timeline.first().map(|s| s.year).unwrap_or(0);
             self.civ_goto_year(next_year);
@@ -1243,7 +1270,12 @@ mod civ_timeline_tests {
         // year never loses the currently-active year's state").
         let y0 = civ.timeline.iter().find(|s| s.year == 0).unwrap();
         assert_eq!(y0.settlements.len(), 2, "year 0 must carry the Bravo edit");
-        assert_eq!(y0.territory, vec![1, 0, 2]);
+        // Through the reconstruction since owner ruling 27 -- `territory` is a `TerritoryFrame`
+        // now, and what a caller is owed is the raster, not the encoding.
+        assert_eq!(
+            cartalith_civ::timeline::civ_territory_at(&civ.timeline, 0).unwrap(),
+            vec![1, 0, 2]
+        );
 
         // The live arrays themselves are untouched by any of this -- only
         // `territory` changes on a goto (civGotoYear never touches
@@ -1260,7 +1292,17 @@ mod civ_timeline_tests {
         let y500 = civ.timeline.iter().find(|s| s.year == 500).unwrap();
         assert_eq!(y500.settlements.len(), 1);
         assert_eq!(y500.settlements[0].name, "Alpha");
-        assert_eq!(y500.territory, vec![7, 7, 7]);
+        assert_eq!(
+            cartalith_civ::timeline::civ_territory_at(&civ.timeline, 500).unwrap(),
+            vec![7, 7, 7]
+        );
+        // ...and it carried forward as an EMPTY delta, not a second copy of the raster. This is
+        // the ruling's own case ("if a position doesn't change for 50 years that's 50 datapoints
+        // we do not need"), asserted on the encoding because that is what the change IS.
+        assert_eq!(
+            y500.territory,
+            cartalith_civ::timeline::TerritoryFrame::Delta { base_year: 0, cells: Vec::new() }
+        );
     }
 
     #[test]

@@ -280,6 +280,10 @@ library/                              setting-level definitions — see §12
 drafts/                               uncommitted edits — see §12
   paint.json                  MAY
   sculpt.json                 MAY
+
+cartography/                          derived pixels, cached — see §16.1
+  tiles/index.json            MAY     what the tiles were made from
+  tiles/<z>/<col>/<row>.u8    MAY     one deep-zoom tile, one byte per pixel
 ```
 
 **Five of these rows read `reserved` until 2026-09-03 and were wrong.**
@@ -290,6 +294,15 @@ table entirely while being a registered slot with a live writer. A table that
 calls a written slot reserved is not a harmless lag: `reserved` invites the
 second implementation to claim the name for something else, which is the exact
 collision §5 exists to prevent.
+
+**`cartography/` is `MAY` and is not yet reached by any shipping code path,
+and those are two different statements.** The reader and writer are built and
+tested (§16.1, §17); what does not exist yet is the call that hands
+`write_project` a tile set — this port's tiles are synthesized on demand for
+the camera, and the producer is not wired into the save. So an archive written
+by this build today carries no `cartography/` entries at all. It is listed
+here rather than as `reserved` because the name is claimed, the shape is
+normative, and a second implementation writing it would be conforming.
 
 ### 5.1 Why each boundary falls where it does
 
@@ -347,9 +360,23 @@ documents with no family, and a directory holding one file is noise. If either
 grows a second sibling it becomes a directory, and that will be a
 `format_version` change.
 
-**There is no `atlas/`, no `cartography/`, and no `tiles/`.** The owner's own
-example of the failure is resolved by deleting the concept rather than by
-picking a winner between two homes for it — see §16.1.
+**`cartography/` — "is it a picture the archive can throw away and redraw?"**
+
+**This paragraph read "There is no `atlas/`, no `cartography/`, and no
+`tiles/`" until owner ruling 28 (2026-09-06), and that is no longer true.**
+The owner's original example of the failure — *"not atlas and cartography and
+both storing map tiles"* — was resolved by deleting the concept from the
+archive; the ruling put one shape of it back, optionally. What survives
+unchanged is the half the owner's instruction was actually about: **there is
+still exactly one home.** There is no `atlas/`, and `cartography/` holds
+derived pixels and nothing else — no geometry, no settings, nothing a user
+typed. A payload belongs here only if deleting the whole directory costs the
+project nothing but time.
+
+That test is what keeps this from becoming the second tile folder. `rasters/`
+holds one value per grid cell and is the world; `cartography/` holds a
+rendering of `rasters/` at a zoom level and is a cache. See §16.1 for the
+optionality, the size, and the staleness rule.
 
 ---
 
@@ -1799,26 +1826,88 @@ read whole, and neither is merged into a live object.
 Each of these is a decision with a reason, recorded so that a second
 implementation does not "fix" it by adding a folder.
 
-### 16.1 The baked atlas and the tile pyramid — not in the archive at all
+### 16.1 The tile pyramid — **optional since owner ruling 28**; the baked atlas, still not stored
 
-This is the owner's own example of the problem ("not atlas and cartography and
-both storing map tiles"), and it is resolved by **deleting the concept from the
-archive** rather than by choosing between two homes for it.
+**This subsection said "not in the archive at all" and no longer does.** Owner,
+2026-09-06: *"the LOD tiles should be stored in the save, or at least optional
+to include."* What changed is the decision; the three reasons behind it were
+re-checked one at a time rather than dropped, and two of them are still true
+and are now **mechanisms in the format** instead of arguments against it.
 
-Three reasons, all sufficient alone:
+1. **It is derived** — unchanged, and it is what makes the rest safe. Every
+   tile is a rendering of `rasters/`, so a reader may drop the whole directory
+   at any time and lose nothing but the time to re-synthesize.
+2. **It is enormous** — unchanged, and **measured** rather than asserted (see
+   §18.5). This is why the slot is optional, why the depth is the writer's
+   choice, and why a writer is expected to show the size before it is paid.
+3. **It goes stale invisibly** — *"a reader cannot cheaply tell which is
+   older"*. **It can now**: `cartography/tiles/index.json` carries a
+   `source_key` computed from the heightmap the archive was written with, and a
+   reader recomputes it from the heightmap it just read. On a mismatch the
+   tiles are **dropped, not drawn** — the ruling's own instruction, and the
+   only behaviour that is safe when the alternative is a stale relief drawn
+   over a re-sculpted world.
 
-1. **It is derived.** Every tile is a rendering of `rasters/`. Nothing in a
-   pyramid cannot be rebuilt from what the archive already holds.
-2. **It is enormous.** A full pyramid over a large world is orders of magnitude
-   larger than the rasters it was derived from — the archive would be dominated
-   by data that is not the project.
-3. **It goes stale invisibly.** An archive holding both an edited heightmap and
-   a pyramid baked before the edit is internally inconsistent, and a reader
-   cannot cheaply tell which is older.
+#### `cartography/tiles/index.json`
 
-A pyramid is a **cache**, and belongs where caches belong: outside the project
-file, keyed so that reopening the same world finds it. `project.json` carries
-`world.seed` and the grid dimensions, which is everything a cache key needs.
+Written by whoever writes the tiles; **absent when there are no tiles**, which
+is the normal case. All four members are REQUIRED when it is present, and a
+reader that cannot find or parse it MUST drop every tile under
+`cartography/tiles/` rather than guess.
+
+```json
+{
+  "source_key": "8b17c0e5d3a94f22",
+  "producer":   "cartalith-lod/v1;px=256;zb=4;mid=128;gain=256;...",
+  "tile_w":     256,
+  "tile_h":     164
+}
+```
+
+- **`source_key`** — an opaque hex digest of the world the tiles were made
+  from. This document does not standardise the hash, because both sides of the
+  comparison are written by the same implementation and a second implementation
+  is free to use its own; what it standardises is the **rule**: the key MUST
+  depend on every world-derived input the tile synthesizer reads, and a reader
+  MUST recompute it and drop the tiles on any mismatch. This port's inputs are
+  the heightmap, `grid_width`, `grid_height`, `seed` and `sea_level`, and its
+  digest is FNV-1a-64. `map_width_km` and `wrap_x` are deliberately **not**
+  inputs — no part of the synthesis reads them, and hashing them would discard
+  a valid cache on a metadata edit.
+- **`producer`** — an opaque string naming the writer and its own constants
+  (tile size, encoding, detail schedule). A reader MUST drop the tiles unless
+  it produced this exact string itself. The key above covers the *world*; this
+  covers the *renderer*, and neither substitutes for the other.
+- **`tile_w`, `tile_h`** — one tile's pixel dimensions, the same for every
+  level (a level changes a tile's **footprint**, not its pixel count). Every
+  tile entry MUST be exactly `tile_w * tile_h` bytes; a shorter one is a
+  truncated tile and MUST be skipped, exactly as §8's rasters are.
+
+#### `cartography/tiles/<z>/<col>/<row>.u8`
+
+One tile: **one byte per pixel**, row-major, no header and no length prefix —
+the same bare-dump rule §8 gives the rasters, and the same reason the extension
+names the element type. `z` is the pyramid level, `col`/`row` the tile's index
+within that level's `2^z × 2^z` grid. Leading zeros are not permitted in any of
+the three, so one tile has exactly one name.
+
+The payload is one channel because this port's tiles *are* one channel — a
+relief-detail shade multiplier the renderer applies over the base raster. **A
+producer whose tiles are colour pictures must not squeeze them in here**: it
+needs its own extension under the same prefix, and §6.3's unknown-entry rule
+carries anything unrecognised through untouched. `cartography/tiles/0/0/0.png`
+is already exactly that case — it is the entry §6.2's own round-trip fixture
+uses — and remains a foreign entry. (The reference's *baked atlas* is also
+PNG, but under a path of its own outside the archive entirely; it is a
+different payload, not this one in another format.)
+
+#### The baked atlas is still not stored
+
+Unchanged, and for reason 2 taken to its conclusion: the atlas is the *whole
+map* baked to a chosen depth, ahead of time, as colour PNGs, and it belongs
+outside the project file — keyed so that reopening the same world finds it.
+`project.json` carries `world.seed`, `world.origin` and the grid dimensions,
+which is everything that cache key needs.
 
 ### 16.2 Settlement placement inputs
 
@@ -1910,6 +1999,16 @@ be discarded by clicking elsewhere is stored.
   GDScript-owned payloads reach the archive through a document channel rather
   than through a schema in Rust, so a payload the shell owns needs no engine
   change to be persisted.
+- **§16.1's `cartography/tiles/` is the one slot whose index this crate writes
+  itself**, rather than accepting from a caller. `ProjectWrite::lod_tiles` is
+  `Option<LodTiles>` and `None` by construction; `write_project` computes
+  `source_key` from the heightmap it is writing and `read_project` recomputes
+  it from the heightmap it just read, dropping the tiles and warning on a
+  mismatch. A caller cannot skip that check, which is the point — the
+  alternative was a rule each caller had to remember. The producer half
+  (`cartalith-godot`'s `lod_bridge::synthesize_pyramid_masks`,
+  `tile_producer_id`, `pyramid_mask_bytes`) is the caller's, because the
+  constants a `producer` string has to name live there.
 - ~~**`annotations/icons.json` has no `origin` member**~~ — **IT DOES, as of
   2026-09-06. The bullet below is kept because its migration rule is now the
   shipped behaviour and was written before the member existed, which is why it
@@ -2155,3 +2254,58 @@ values a property this port tests against the reference engine, and a save
 that returns a different float than it was given would break that on the load
 path as well as the save path. Costed and deliberately not built; moving that
 bar is an owner decision.
+
+### 18.5 What a stored tile pyramid costs — measured, 2026-09-06
+
+**Non-normative**, and the evidence behind §16.1's "it is enormous" and behind
+this port's decision to ship the slot **off by default**. Owner ruling 28 asks
+for exactly this: *"measure a real pyramid before writing a default into the
+UI."*
+
+Three real generated worlds at **2048 × 1311** (seeds 1337 / 987654 / 24601),
+every tile produced by the shipping synthesizer and written into a real
+deflate archive, then read back for its **compressed** size — not a codec
+measured in isolation. Reproduce with
+`cargo test -p cartalith-godot --release --lib -- --ignored --nocapture
+measure_a_stored_pyramid` and the `CARTALITH_LOD_*` environment overrides its
+own doc comment lists.
+
+| Levels | Tiles | Raw (1 B/px) | **Stored** | vs. the 24.9 MiB archive at this grid (§18.1) |
+|---|---|---|---|---|
+| 0..=3 | 85 | 3.40 MiB | 0.16 .. 0.18 MiB | under 1% |
+| 0..=4 | 341 | 13.65 MiB | 0.81 .. 0.89 MiB | 3.3% .. 3.6% |
+| 0..=5 | 1 365 | 54.65 MiB | **4.40 .. 5.12 MiB** | 18% .. 21% |
+| 0..=6 | 5 461 | 218.65 MiB | **21.87 .. 27.75 MiB** | **88% .. 111%** |
+
+Only the 0..=5 and 0..=6 stored figures are printed as totals by the harness;
+the two shallower rows are sums of its per-level lines, so they carry that
+rounding.
+
+**Four findings, and each changes something.**
+
+1. **A six-level pyramid roughly doubles the file.** §18.1's *"any change that
+   does not move the three float grids is optimising nothing"* is still true of
+   every *other* slot; this is the one that outgrows them. Each further level
+   is ~5× the last — level 7 extrapolates past 100 MiB — so no fixed depth
+   covers the zoom range the compositor can actually reach: `level_for_zoom`
+   returns up to 10, and a 2048-wide world at this port's `ZOOM_MAX_FLOOR = 64`
+   asks for level 8 at 32 screen pixels per grid cell, deeper on a wider
+   viewport. **Storing "the pyramid" is not an option at any depth; storing a
+   bounded prefix of it is.**
+2. **The 4/3 rule holds for raw bytes and not for stored ones.** Ruling 28's
+   *"a pyramid is ~4/3 of its base level"* is exactly right uncompressed
+   (218.65 / 164.00 = 1.333). Compressed it is **1.23-1.26×** across the three
+   worlds, because the deeper levels carry more sub-cell detail and compress
+   less well — the base level alone is 80-82% of the stored total, not 75%.
+3. **Deflate does far better on a bare mask than PNG does.** The same tiles as
+   RGB PNGs, stored uncompressed in the container, are **65.18 / 69.92 / 81.10
+   MiB** at levels 0..=6 — **2.9-3.0× larger** than the same tiles as `.u8`. A
+   PNG carries its own deflate, so the container never sees the
+   three-identical-channels redundancy, and per-tile streams cannot share a
+   dictionary. This is why the format stores a single-channel bare dump rather
+   than an image.
+4. **The compression ratio is depth-dependent, so a single number would be a
+   model.** Levels 0..=5 deflate to 8.1-9.4% of raw; 0..=6 to 10.0-12.7%. A
+   writer showing an estimate should quote the raw figure (exact, and free —
+   it is `sum(4^z) × tile_w × tile_h`) with the measured band, not a fixed
+   ratio.
