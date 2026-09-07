@@ -74,8 +74,9 @@ var _debug_layer: TextureRect     ## The Layers popover's field raster. See `set
 var _debug_view := "off"          ## Which view `_debug_layer` currently holds.
 
 var _scale_label: Label
-## §5.4's graphical rule -- `ENV:915-916` draws the km label and a ruled bar as
-## one `flex-direction:column;gap:3px` stack, and only the label existed here.
+## §5.4's graphical rule -- `ENV:914-916` draws the km label and a ruled bar as
+## one `flex-direction:column;gap:3px` stack (the column is `ENV:914`, the label
+## `:915`, the bar `:916`), and only the label existed here.
 var _scale_rule: Control
 var _readout_label: Label
 ## `render_workspace.gd`'s active Map style preset name (or "Custom" once a
@@ -983,37 +984,71 @@ func _engine_readable() -> bool:
 ## this port dropped it: `_style_readout` alone answered "which preset", never
 ## "which field am I looking at".
 ##
-## The two canvases disagree about the rest of the line and the newer wins
-## (owner ruling 2026-08-25), except where the newer says something this port has
-## no referent for: it has no zoom *percentage* (this camera's `_zoom` is a
-## multiplier with its own `ZOOM_MIN`/`_zoom_max`, not the prototype's `view.s`
-## against a fixed 4096² world), so `z%.1f` stays. The style preset stays too --
-## it is the older canvas's, it is live state with a real writer
-## (`set_style_readout()`), and dropping a working readout to match a canvas that
-## simply has no preset concept would be the fold losing something.
-## **Two more of the older canvas's properties retired 2026-09-07, and they
-## were the two the paragraphs above never named.** Both are real citations,
-## not inventions -- `grep -c` over `design/Cartalith DCC Shell.dc.html` returns
-## **6** occurrences of the literal `2D · equirect · z 5.2`, drawn over a second
-## line reading `relief · atlas preset`. So the shipped `"2D · … \n%s"` was that
-## artboard transcribed. The paragraphs above applied the owner's 2026-08-25
-## ruling to the readout's *content* and stopped there:
+## **`z%.1f` retired 2026-09-07, and the comment that defended it deleted in the
+## same edit -- it was false about the canvas.** It read: this port "has no zoom
+## *percentage* ... `_zoom` is a multiplier ... not the prototype's `view.s`
+## against a fixed 4096² world". Opened at the symbol instead of paraphrased,
+## the prototype's writer is `cartalith-dcc-parts.js:221` --
+## `'zoom '+Math.round(v.s*100)+'%'` -- and `view.s` is clamped by
+## `Math.min(4,Math.max(0.12,…))` at `ENV:1736` (wheel) and `ENV:1716` (pinch).
+## **No world size enters either.** `view.s` is a plain camera-scale multiplier,
+## the same kind of quantity as `_zoom`, so the referent the comment said was
+## missing is the one this file already has.
 ##
-##   - the leading `2D · `. `ENV:914` has no such token, and it could not carry
-##     information here anyway -- `tool_bar.gd:605` states the fact it depends
-##     on, "this shell has no 3D view", so the prefix has exactly one value.
-##   - the `\n`. `ENV:914` is a **single** right-anchored span
+## The one real difference is what `1.0` *means*, stated rather than papered
+## over: `view.s` is px per world cell and the prototype opens at `0.34`
+## (`ENV:1245`), so its own rest view reads `zoom 34%`; `_zoom == 1` is the
+## letterbox-fit rect here, and since the owner's 2026-08-23 cover ruling
+## `reset_view()` opens **above** it. **Neither surface reads 100% at rest, and
+## this comment said the port did until `_zoomhud_probe.tscn` measured it**: 1.0831
+## -> `zoom 108%` at 1920x1080 over a 256x192 grid. Different anchor, identical
+## arithmetic. Two further consequences of porting the writer literally, both
+## accepted rather than smoothed: the span runs `40%` (`ZOOM_MIN`) to
+## `_zoom_max` = `max(64, ceil(width_km / 5))`, so `6400%` at the floor and
+## `40000%` on the 2000 km world the probe generates, against the prototype's
+## own `400%` cap; and `roundi()` is `Math.round` here because `_zoom` is
+## positive throughout, where the two would disagree on `.5` ties.
+##
+## **Two of the older canvas's properties retired 2026-09-07.** Both were real
+## citations, not inventions -- `grep -c` over `design/Cartalith DCC Shell
+## .dc.html` returns **6** occurrences of the literal `2D · equirect · z 5.2`,
+## drawn over a second line reading `relief · atlas preset`. So the shipped
+## `"2D · … \n%s"` was that artboard transcribed:
+##
+##   - the leading `2D · `. `ENV:913` has no such token, and it could not carry
+##     information here anyway -- `tool_bar.gd`'s `3D distance` tooltip states
+##     the fact it depends on, "this shell has no 3D view", so the prefix has
+##     exactly one value. (Cited as `tool_bar.gd:605` until 2026-09-07; the
+##     string is at `:623` today, which is why this now names the symbol.)
+##   - the `\n`. `ENV:913` is a **single** right-anchored span
 ##     (`equirect · <zoom> · {{ vpField }}`); the second line doubled the scrim
 ##     area this chrome spends on the map for four tokens of text.
 ##
-## The preset joins the line as a fourth `·` segment rather than being dropped,
-## which is the same call the paragraph above makes for the same reason, and is
-## omitted rather than printed as a bare separator when `set_style_readout("")`
-## empties it -- `MISTAKES.md`'s "never encode no value as a plausible value".
+## **The fourth `·` segment (the style preset) is DRIFT, not a disclosed
+## departure -- ruled 2026-09-07 and left in place for one batch only.** The
+## clause that kept it said dropping it would "match a canvas that simply has no
+## preset concept". `ENV` has one: `ENV:1476` builds
+## `presetChips:['Atlas','Parchment','Physical','Ink']` off `ca().preset`, and
+## `ca().edited` is exactly this port's `"Custom"`. It also *places* it, twice
+## and never in the viewport corner: the lit chip in the CARTO dock, and -- once
+## edited -- the **status bar**, via `statusExtra()` at `ENV:1571`
+## (`'style edited — layers differ from preset '+…`), which `ENV:1853` feeds to
+## the `statusMsg` drawn at `ENV:1219`. So the newer canvas did not omit the
+## preset; it put it somewhere else, and under the owner's 2026-08-25 ruling
+## that placement wins.
+## Nor is anything lost by removing it: `render_workspace.gd` already lights the
+## owning tile and shows `_custom_note` on divergence. It is still drawn below
+## because deleting it strands `set_style_readout()` and its two call sites in
+## `render_workspace.gd` -- a file this lane does not own -- and a live-looking
+## writer with no effect is worse than a disclosed extra segment. Removing all
+## four together is the follow-up; `GUI_GAP_REGISTER.md`'s closed
+## top-right-readout row is the prose that will need correcting with it.
+## Until then it is omitted rather than printed as a bare separator when
+## `set_style_readout("")` empties it.
 func _update_zoom_readout() -> void:
 	if not _engine_readable():
 		return
-	var line := "equirect · z%.1f · %s" % [_zoom, _vp_field]
+	var line := "equirect · zoom %d%% · %s" % [roundi(_zoom * 100.0), _vp_field]
 	if _style_readout != "":
 		line += " · %s" % _style_readout
 	_readout_label.text = line
@@ -1157,7 +1192,7 @@ func _apply_safe_insets() -> void:
 	var r := float(_safe_insets.get("right", 10.0))
 	var b := float(_safe_insets.get("bottom", 10.0))
 
-	## §5.4 is a two-item column (`ENV:915`, `flex-direction:column;gap:3px`):
+	## §5.4 is a two-item column (`ENV:914`, `flex-direction:column;gap:3px`):
 	## the label on top, the ruled bar under it, both flush to the bottom-left
 	## inset. The label therefore floats `tick + gap` higher than it used to,
 	## and `stack` is 0 on the phone, where `_scale_rule` is hidden because that
@@ -1621,7 +1656,7 @@ const HUD_PAD_Y := 4
 const HUD_RADIUS := 6
 ## §5.2's top-left cluster `gap:8px`.
 const VP_CONTEXT_GAP := 8
-## §5.4's column gap, `gap:3px` at `ENV:915` and again at `TAB:449` -- the one
+## §5.4's column gap, `gap:3px` at `ENV:914` and again at `TAB:449` -- the one
 ## figure of the scale bar the two canvases agree on, which is why it is a
 ## constant here and the width and tick are a `role_px` pair.
 const SCALE_BAR_GAP := 3
@@ -1631,12 +1666,56 @@ const SCALE_BAR_GAP := 3
 ## and nothing drew a bar, so the corner carried a distance with no visual
 ## referent for it.
 ##
-## The two canvases mirror each other and both are honoured: the pointer bar is
+## The two canvases mirror each other and both are drawn: the pointer bar is
 ## `--sec` with the rule on the bottom row and 5 px ticks rising from it
 ## (`height:1px` box, ticks `bottom:0;height:5px`, so they overhang upward); the
 ## touch bar is `--dim` with the rule on the top row and 4 px ticks hanging
 ## below it (`height:4px` box drawn as `border-top`+`border-left`+`border-right`).
 ## Same shape, opposite side, different ink -- reproduced rather than averaged.
+##
+## **This is a SPLIT AUTHORITY, disclosed 2026-09-07 rather than left to read as
+## a resolved choice, and the recommendation is to end it at `ENV:916`.**
+## Measured 2026-09-07, not asserted: `grep -c 'TAB:' shell/dcc_theme.gd`
+## returns **1** (line `:979`), and that one citation governs exactly the two
+## rows below it, `w_scale_bar` and `h_scale_tick`. `grep -rl 'TAB:' shell/`
+## returns **2 files** -- that one and this one. (A hit *count* is not quotable
+## here: this paragraph is itself in the grep's path and moved it from 3 to 6
+## the moment it was written. `dcc_theme.gd`'s 1 is the stable number.) So the
+## scale bar is the only place in the shipping shell that reads
+## `Cartalith Tablet.dc.html` at all,
+## **in a table whose own header declines that canvas** pending an owner ruling
+## and gives three reasons why one lane cannot make it. Two rows adopting one of
+## its figures is that ruling being made by omission, in the row nobody reads.
+##
+## Why `ENV:916` should win both columns, and not just by default:
+##
+##   - `ENV` is not silent at touch here. `width:120px` is a **markup literal**,
+##     and `densStr` (`ENV:1819`) overrides `--tool`, `--row`, `--btnH`, `--ctl`
+##     and **seventeen more** (21 tokens, counted 2026-09-07 off `ENV:1819`'s
+##     touch branch) while touching nothing about this box -- so the
+##     governing canvas positively draws 120x1 in `--sec` at *both* densities.
+##     That is the same argument `FAB_RADIUS` below already makes for
+##     `border-radius:8px`, and it is a statement, not an absence.
+##   - `TAB:451`'s 84x4 was drawn for a composition this shell does not build:
+##     a 232/320 portrait-landscape dock split, a horizontal `--railH:56` rail,
+##     and a palette where (per `dcc_theme.gd`'s own count) 12 of the 17 shared
+##     tokens differ and three hairlines are opaque where this file's are white
+##     alpha. Lifting one figure out of that drawing into a shell laid out at
+##     `ENV`'s densities is a fragment, not conformance -- and `--dim` here is
+##     `ENV`'s `--dim`, not the tablet canvas's.
+##   - A future tablet ruling then moves *one* pair of rows deliberately,
+##     instead of finding two already moved.
+##
+## Not made here, and deliberately not made by halves: the constants live in
+## `dcc_theme.gd` (another lane's file this batch), and flipping only the ink and
+## tick direction in this function would draw an 84x4 bar in `--sec` with ticks
+## rising -- neither canvas. The whole edit is three files and lands together:
+## `ROLE` rows to `[120, 120]` / `[5, 5]`; the `touch` branch and `ink` below
+## deleted so both densities take the `--sec`, ticks-up form; and
+## `_fixahud_probe.gd`'s `want_w` / `want_t` (which pin 84 / 4) moved with them.
+## One consequence to state rather than discover: `_bar_km()` scales with
+## `role_px("w_scale_bar")`, so a touch bar 120/84 = 1.43x wider names 1.43x
+## more km. The label moves with the bar; that is the bar working, not a defect.
 func _draw_scale_rule() -> void:
 	var w := float(DccTheme.role_px("w_scale_bar"))
 	var tick := float(DccTheme.role_px("h_scale_tick"))

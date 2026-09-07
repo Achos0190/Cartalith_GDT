@@ -698,6 +698,15 @@ func _ready() -> void:
 		_build_phone_shell()
 	else:
 		_build_desktop_shell()
+	## DS-03's width invariant, at the one point where both docks exist in
+	## either composition -- see `dock_fit()` for what it does, why it is
+	## density-independent unlike the two walks beside it, and the measurement.
+	## The immediate call covers the dock chrome `_build_left_dock()` already
+	## attached, which the hook cannot revisit; the hook covers every workspace
+	## panel, all of which arrive later.
+	if left_dock != null and right_dock != null:
+		_run_dock_fit()
+		get_tree().node_added.connect(_on_dock_node_added)
 
 	get_tree().root.size_changed.connect(_on_window_resized)
 	_select_domain(_active_domain)
@@ -2589,6 +2598,120 @@ func _run_phone_dock_fit() -> void:
 	for dock in [left_dock, right_dock]:
 		if dock != null:
 			phone_fit(dock, _phone_scale)
+
+## **DS-03's width half, and the only one of the three dock walks in this file
+## that is not a density rule.** The owner's ruling is "keep everything, reflow
+## only"; `_ds03fit_probe.gd` asserts its consequence, that no dock panel may
+## force its dock wider than the dock is. `civilization/planner` did, at both
+## pointer densities, and had been red in the tree unread.
+##
+## **The mechanism, at its symbol.** `DccWidgets.choice()` leaves
+## `OptionButton.fit_to_longest_item` at Godot's default `true`, so a dropdown
+## reports the width of the longest item in its **list**, not of the item it is
+## **showing**. One of the planner's, `journey_planner_view.gd::_choice_field()`
+## for "Desert water", shows "Auto" (59 px) and reserves its list entry
+## "Established Caravan Route" (185 px) -- sampled, not established as the
+## widest; the number that matters is the whole panel's, below. Measured with
+## `_ldwidth_probe.gd`, 1920 x 1080, one boot:
+##
+##   left dock                                          404   `--ldW` = 372
+##   left_dock_body                                     397   budget 365
+##   the same body, `fit_to_longest_item` off on its 24
+##   expanding dropdowns                                364   dock -> 372
+##
+## 365 is 372 minus the dock's own furniture: `_build_left_dock()` carves a
+## 6 px `_dock_drag_handle()` and a 1 px right border OUT of the reserved
+## width rather than adding to it. The other nine rail nodes measure 216..323
+## against that 365, so the token is not tight and the planner is the outlier.
+## Same probe `--force-touch` at 2560 x 1600: 455 against `W_DOCK_TABLET` 400.
+##
+## **Why a dock walk and not the factory.** `fit_to_longest_item` is right
+## wherever a dropdown competes for width with siblings and the row may grow --
+## `phone_fit()`'s `wide` branch keeps it for exactly that case, the phone tool
+## sheet, where turning it off once collapsed PAINT ▸ Class onto its drop-down
+## arrow (see that function's header). A dock is the opposite: the canvas draws
+## it `flex:none` at a fixed `--ldW` (`ENV:25`, `ENV:304`), so a control
+## reserving width it is not showing does not avoid a reflow, it *forces* one.
+## The rule is therefore scoped to the two docks rather than written into
+## `choice()`, which serves both shapes. `tool_options_row` is outside both
+## docks and this walk never reaches it.
+##
+## **And only a control that expands** -- the same guard `phone_fit()` applies
+## to `Button` and `Label`: one sized by its own text and not expanding has
+## nothing else to take a width from, so removing its content minimum
+## collapses it. All 24 of the planner's are `SIZE_EXPAND_FILL` (`choice()`
+## sets it), so the guard costs nothing there and protects an ad hoc dropdown
+## elsewhere.
+##
+## Density-independent: 372, `LAPTOP`'s 330 and `W_DOCK_TABLET`'s 400 are all
+## fixed columns, and the narrow ones need this more, not less.
+##
+## No meta flag, unlike `phone_fit()`: that pass *multiplies* and must not run
+## twice, this one writes a constant `false` and is idempotent by nature.
+func dock_fit(node: Node) -> void:
+	for child in node.get_children():
+		if child is OptionButton \
+				and ((child as OptionButton).size_flags_horizontal & Control.SIZE_EXPAND) != 0:
+			var ob := child as OptionButton
+			ob.fit_to_longest_item = false
+			## **`fit_to_longest_item = false` on its own is not enough, and
+			## the miss is a transition rather than a state.** Without
+			## `fit_to_longest_item` a `Button`'s minimum tracks the text it is
+			## *currently* showing, so the dock fits until the reader picks the
+			## long option and then re-opens. Driven rather than reasoned
+			## about: `_dockfit_probe.gd` puts every dock dropdown on its widest
+			## item at once and measured the left dock at **389** against 372
+			## with only the line above. Both properties below take the text
+			## out of the minimum, and **each is individually sufficient** --
+			## mutated separately, both survived; mutated together, the probe
+			## goes red at 389 again. Both are set anyway, because that is the
+			## pair `phone_fit()` already applies to every expanding `Button`,
+			## of which this is one, and one vocabulary for one shape is worth
+			## more than the line saved. Safe here for `phone_fit()`'s own
+			## reason: the control expands, so it still draws at the row's full
+			## leftover and only the overflow is trimmed.
+			ob.clip_text = true
+			ob.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		dock_fit(child)
+
+## Same shape as `_on_phone_node_added()` above and for the same reason: every
+## workspace panel is rebuilt from a signal at some point after boot, so a
+## one-shot pass over a dock would be correct for about a second, and
+## `node_added` is the only hook that sees all of them without this file
+## knowing which panels exist. Coalesced onto one deferred pass per frame.
+##
+## **The `Control` breadth is not load-bearing, and that is recorded so it is
+## not re-derived.** Mutated to `node is OptionButton`, both density legs of
+## `_ds03fit_probe` still PASS, so the narrower filter is a live option; it is
+## kept wide only to match the two sibling hooks. The three parts that ARE
+## load-bearing were each mutated alone and each returned the original 404
+## against 372: clearing `fit_to_longest_item`, `dock_fit()`'s `SIZE_EXPAND`
+## guard, and this connect.
+##
+## **What the fix does not reach**, so it is not mistaken for headroom:
+## `_ldwidth_probe.gd` measures the planner at 364 against a 365 budget, +1
+## where its nine siblings have +42..+149. 28 px of that is a second
+## `ScrollContainer` nested inside the dock's own
+## (`journey_planner_view.gd::_build_left_panel()`), whose scrollbar duplicates
+## the dock's. Filed separately rather than bundled into a width fix.
+var _dock_fit_pending := false
+
+func _on_dock_node_added(node: Node) -> void:
+	if _dock_fit_pending or not (node is Control):
+		return
+	var p: Node = node.get_parent()
+	while p != null:
+		if p == left_dock or p == right_dock:
+			_dock_fit_pending = true
+			_run_dock_fit.call_deferred()
+			return
+		p = p.get_parent()
+
+func _run_dock_fit() -> void:
+	_dock_fit_pending = false
+	for dock in [left_dock, right_dock]:
+		if dock != null:
+			dock_fit(dock)
 
 ## Read by dialogs that have to present themselves differently on a phone
 ## (`open_project_dialog.gd`); `_phone`/`_phone_scale` stay private because
