@@ -185,7 +185,26 @@ static func _drivers_walk(node: Node, floor_w: float, depth: int) -> void:
 				extra = "  [h_scroll=%d ← DISABLED folds the child's min outward]" % (ctl as ScrollContainer).horizontal_scroll_mode
 			elif ctl is OptionButton:
 				extra = "  [fit_to_longest_item=%s]" % str((ctl as OptionButton).fit_to_longest_item)
+			## Name the row, not just the container. "An `HBoxContainer` is 290 px"
+			## is not something a person can act on; "the row reading Sea level is
+			## 290 px" is. Container classes carry no text, so pull the first text
+			## from a descendant — which is what a reader would call the row.
+			if txt == "":
+				txt = _first_text(ctl)
 			print("  %s%s  min=%.1f  %s%s" % [
 				"  ".repeat(depth), ctl.get_class(), m,
 				("\"" + txt.left(44) + "\"") if txt != "" else ctl.name, extra])
 		_drivers_walk(ctl, floor_w, depth + 1)
+
+## The first non-empty text under `node`, breadth-ish, for naming a row.
+static func _first_text(node: Node) -> String:
+	for child in node.get_children():
+		if child is Control and "text" in child:
+			var t := str(child.get("text")).strip_edges()
+			if t != "":
+				return t
+	for child in node.get_children():
+		var deeper := _first_text(child)
+		if deeper != "":
+			return deeper
+	return ""
