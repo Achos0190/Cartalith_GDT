@@ -1686,6 +1686,70 @@ mod tests {
         buf
     }
 
+    /// Everything about an archive the format promises is deterministic,
+    /// with the one part it promises is **not** deliberately left out.
+    ///
+    /// `SAVEFILE_COMPAT.md` §16 records that this writer populates every zip
+    /// entry's timestamp **from the clock** rather than leaving the 1980 DOS
+    /// epoch, and treats that stamp as one of the two mechanisms answering
+    /// *"when was this saved"* -- it even quotes a measured example. So two
+    /// saves of one project are not byte-identical and were never meant to
+    /// be, and the two determinism tests that compared raw bytes were
+    /// **flaky by construction**: DOS time has two-second resolution, so a
+    /// pair of writes that straddles a tick differs at the local header's
+    /// mod-time field, byte 10. It stood because a write takes microseconds,
+    /// which makes the window small rather than absent. It was caught in the
+    /// wild on 2026-09-07, where it also cost more than one test: the
+    /// failure fail-fasts the workspace run, skipping 57 targets, and the
+    /// truncated total (100 result lines, 2 387 passed) reads exactly like a
+    /// healthy one.
+    ///
+    /// **This is not a new decision, it is an existing one applied one level
+    /// down.** `a_project_written_twice_has_identical_content` already
+    /// excludes JSON's `created` on the stated grounds that *"a timestamp is
+    /// the one member that must differ between two saves"*. The container's
+    /// own stamp is the same member wearing the container's clothes.
+    ///
+    /// What remains compared is entry **order**, **name**, **CRC-32** and
+    /// both sizes.
+    ///
+    /// **What that does and does not buy, measured rather than asserted.**
+    /// Mutating the CRC out of the tuple leaves both tests green -- and so
+    /// would mutating any other field out. That is not a hole opened here:
+    /// a test that compares two runs of one writer can only catch a writer
+    /// that is *unstable between runs*, never one that is *stably wrong*,
+    /// and the raw-byte comparison this replaces had exactly the same blind
+    /// spot. Correctness of the ordering is pinned separately and directly,
+    /// by `a_stored_pyramid_writes_in_a_stable_order`'s own
+    /// `assert_eq!(tiles, sorted)` against a re-sorted copy. Say what this
+    /// helper covers -- run-to-run stability -- and not a word more.
+    /// The non-emptiness guard is not decoration. Mutated to return
+    /// `Vec::new()`, this helper leaves **both** determinism tests green:
+    /// `assert_eq!` over two empty vectors is a tautology, and neither test
+    /// looks at anything else. That is the silently-empty-golden-output trap
+    /// this repository has been bitten by in four subsystems, so the shape
+    /// is asserted here, once, where both callers get it.
+    fn content_fingerprint(buf: &[u8]) -> Vec<(String, u32, u64, u64)> {
+        let mut r = zip::ZipArchive::new(Cursor::new(buf)).expect("the writer produces a zip");
+        let out: Vec<(String, u32, u64, u64)> = (0..r.len())
+            .map(|i| {
+                let e = r.by_index_raw(i).expect("every index is readable");
+                (e.name().to_string(), e.crc32(), e.size(), e.compressed_size())
+            })
+            .collect();
+        assert!(
+            !out.is_empty(),
+            "an archive this writer produced always carries entries -- an empty \
+             fingerprint would make both determinism tests pass vacuously"
+        );
+        assert!(
+            out.iter().any(|(n, ..)| n == "project.json"),
+            "project.json is written unconditionally; its absence means the \
+             fingerprint is reading something other than a project archive"
+        );
+        out
+    }
+
     #[test]
     fn an_empty_project_round_trips() {
         let (params, fields) = sample(7, 5);
@@ -2458,16 +2522,19 @@ mod tests {
         ));
     }
 
-    /// The determinism rule [`a_project_written_twice_is_byte_identical`]
+    /// The determinism rule [`a_project_written_twice_has_identical_content`]
     /// asserts, extended over the slot that adds thousands of entries: a
     /// `BTreeMap` keyed by `ChunkId` iterates in `(z, col, row)` order, so
-    /// two saves of one pyramid are the same bytes.
+    /// two saves of one pyramid carry the same content in the same order.
     #[test]
     fn a_stored_pyramid_writes_in_a_stable_order() {
         let (params, fields) = sample(5, 3);
         let mut p = ProjectWrite::new(&params, &fields);
         p.lod_tiles = Some(a_pyramid(3, 2, 2));
-        assert_eq!(write_to_vec(&p), write_to_vec(&p));
+        assert_eq!(
+            content_fingerprint(&write_to_vec(&p)),
+            content_fingerprint(&write_to_vec(&p))
+        );
 
         let buf = write_to_vec(&p);
         let mut r = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
@@ -3011,7 +3078,7 @@ mod tests {
     }
 
     #[test]
-    fn a_project_written_twice_is_byte_identical() {
+    fn a_project_written_twice_has_identical_content() {
         // Not cosmetic: a save that differs run to run defeats every
         // version-control and sync workflow the owner might put a project
         // directory into.
@@ -3022,6 +3089,13 @@ mod tests {
         p.history_territory.insert(3, vec![1; 15]);
         // `created` is provenance and is deliberately excluded: a
         // timestamp is the one member that must differ between two saves.
-        assert_eq!(write_to_vec(&p), write_to_vec(&p));
+        // The zip container's own per-entry stamp is that same member one
+        // level down -- see `content_fingerprint`, which is why this
+        // compares content and not raw bytes, and why the test was renamed
+        // rather than left claiming more than it checks.
+        assert_eq!(
+            content_fingerprint(&write_to_vec(&p)),
+            content_fingerprint(&write_to_vec(&p))
+        );
     }
 }

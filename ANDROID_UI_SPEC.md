@@ -22,6 +22,8 @@ that owns two of the four files.
 and MORE are stubs to be filled by the lanes that own them — extend this file,
 do not replace it.
 
+**Extended 2026-09-07 (second pass):** §1.14 (the slider gesture arbitration) and §6 (the NEW WORLD modal, and the one place this build deliberately departs from the canvas on an owner ruling). MAP, PLAN and MORE are still stubs.
+
 ---
 
 ## 0. How to read the canvas
@@ -436,6 +438,9 @@ the handset `9608b26b` (ONEPLUS_A6013, 1080x2340 @ 450 dpi).
 | group state `stale` / `resolved` | plus a third, **`no world`** | before the first generate neither of the two is true |
 | `last run · HH:MM` | `last run · N.N s`, `—` before a run | nothing records a wall-clock time for the last generate; the elapsed total IS measured (`_stage_elapsed_ms`) |
 | — (no equivalent) | `ADVANCED` sub-caption inside a group | the desktop's `ADVANCED_KEYS` fold has no canvas form; the 9 keys are drawn inline rather than dropped |
+| `Min stream order` dashed as *"belongs to Cartography's map modes"* | dashed with the true reason | **the reason named a home that does not exist.** Corrected 2026-09-07: the drawn rivers are a flow-area tint inside the terrain raster (`render.rs`, `WET_AREA_LO`/`WET_AREA_HI` over upstream drainage area), not the polylines `get_rivers(min_order)` returns, so there is no order in the image to filter on. `STAGES[6]["gap"]` carried the same wrong home and was corrected with it |
+| `Rivers in biome view` dashed as *"a Cartography layer option"* | dashed with the true reason | same class: `cartography_workspace.gd`'s own note says the biome view's rivers are that same baked tint *"with no parameter to switch it off"*. The row asserted the opposite of the file it pointed at |
+| `Archetype` routed to *"File ▸ New world"* | the route now leads somewhere | **the reason was true of the desktop and false of the phone** — `archetype_input` was built into `new_world_dialog.gd`'s `struct_sec`, parented to the `rest` container that file hides on a handset. Closed by lifting the control onto the phone card (§6), not by rewording the row |
 
 ### 1.12 Three defects the desktop probe could not see
 
@@ -488,6 +493,76 @@ Every act below is `adb shell input tap/swipe` at coordinates read off an
   map badge `SCULPT · DRAFT`
 - `adb logcat -d -s godot | grep -i "SCRIPT ERROR"` — none
 
+### 1.14 The slider gesture, and the floor that made it worse (2026-09-07)
+
+**Found on glass on a verifier's first swipe: Ocean depth `0.60` → `0.14` in one
+vertical gesture, stage 03 marked stale, and nothing on screen saying so.**
+
+Two mechanisms, and the first is the one that surprises:
+
+1. **Godot's `Slider` writes the value on touch-DOWN.** `Slider::gui_input`
+   calls `set_as_ratio()` from the press position and only then arms its grab,
+   so the jump had already happened before there was any motion to classify. A
+   fix aimed only at the drag would have left it exactly as it was.
+2. `_pg_open_gestures()` gives every `Range` `MOUSE_FILTER_STOP` — right for the
+   horizontal drag, wrong for the vertical one — and **§1.11's own 44 dp floor
+   widened the band that consumes it from 32 dp to 44 dp.** A correct change
+   that made an existing hazard measurably worse. `MISTAKES.md`: *a floor is a
+   hit area, and a bigger hit area catches more than you meant.*
+
+**The fix is arbitration, not a smaller target.** `WorldWorkspace.PgSlider` —
+an inner class, and now what every `Range` in this column is — holds the gesture
+until it has travelled `_pg_px(8)`, Android's own
+`ViewConfiguration.getScaledTouchSlop()`, then gives it to the axis it travelled
+furthest along. Vertical drives the ancestor `ScrollContainer.scroll_vertical`
+and **never touches `value`**; horizontal writes exactly as before; a tap that
+never resolves keeps Godot's jump-to-the-tap, applied at release once it is
+known to be a tap. `_gui_input` is the seam that makes withholding possible:
+`Control::_call_gui_input` runs the script's `_gui_input` **before** the C++
+`Slider::gui_input`, and `accept_event()` aborts the rest of that chain.
+
+Two costs, stated rather than hidden:
+
+- **A fling that begins on a slider carries no inertia.** The scroll is driven
+  by writing `scroll_vertical` rather than by re-propagating the event, because
+  `ScrollContainer`'s own touch drag arms on the `InputEventScreenTouch` press —
+  which by classification time has been swallowed. Every other pixel of the
+  sheet keeps the native fling.
+- **A gesture that ends with the value unchanged emits no `drag_ended`**, so it
+  cannot mark a stage stale. A deliberate tightening, and half of what the
+  report was about.
+
+`_family` exists because `project.godot` leaves
+`input_devices/pointing/emulate_mouse_from_touch` at its default `true`, so one
+finger delivers `InputEventScreenTouch`/`ScreenDrag` **and** an emulated
+`InputEventMouseButton`/`MouseMotion`; latching to the family that opened the
+gesture is what stops every delta being counted twice.
+
+Both slider sites in the `_pg_*` block were converted — `_pg_range_field()`'s
+parameter rows and `_pg_sculpt_slider()`'s brush globals. **Named as symbols,
+and not as a grep, deliberately:** this paragraph originally pasted
+`grep -n "HSlider.new()" workspaces/world_workspace.gd` with a quoted count
+of two, and that command stopped reproducing the moment it was written — the
+substitution it documents removed both matches, so the only line it returns
+today is the comment quoting its own string. A symbol survives the edit that
+a command measuring the file cannot.
+
+`_nwsize_probe.gd` covers the arbitration at 1080×2340 / 1440×3168 /
+720×1600 / 380×800 — **covers, not pins, and the difference was measured
+rather than assumed.** Mutating `slop` upward to `_pg_px(400)` kills five
+checks; mutating it **down to `0.0` leaves the probe green**. A zero slop
+makes the first pixel of motion choose the axis, so a one-pixel sideways
+wobble during a scroll writes the parameter — which is the precise hazard
+the constant exists to prevent. **The shipped value is right and the test
+does not hold it from below**; closing that needs a check that swipes with a
+small deliberate cross-axis jitter. Filed rather than claimed. What the
+probe does establish, at all four densities:
+a vertical swipe starting **on** a slider leaves `planet.g` byte-identical,
+scrolls, emits **zero** `drag_ended` and leaves `_stale_from_stage` at `-1`; a
+horizontal drag on the same slider writes and emits **exactly one**. The engine
+value is what is asserted, not the node's — a first parameter write legitimately
+rebuilds the column and frees the slider under test.
+
 ---
 
 ## 2. MAP — `tabIsMap`  *(stub)*
@@ -516,5 +591,114 @@ Template bytes 57 003 – 63 400. Not inventoried by this pass.
 ## 5. Overlays  *(stub)*
 
 `menuOpen` (9 568), `searchOpen` (65 711), `searchEmpty` (66 863), `inspOpen`
-(68 006), `modalOpen` (70 413), `gridOn` (62 182), plus the `scrPicker` project
+(68 006), `gridOn` (62 182), plus the `scrPicker` project
 picker (3 525 – 6 537). Not inventoried by this pass.
+
+`modalOpen` (70 413) IS inventoried — §6 below.
+
+---
+
+## 6. NEW WORLD modal — `modalOpen`
+
+Template bytes 70 413 onward. **This is the one place in this file where the
+canvas is deliberately not followed, and the reason is a standing rule rather
+than a judgement call.**
+
+### 6.1 What the canvas draws
+
+`NAME` (a text input), `SEED` with a `44 × 42` dice at radius 12, `EXTENT` as
+two `min-height:42px` radius-14 chips, then `CANCEL` and `CREATE WORLD` at
+`46 dp` / radius 23 with the create at `flex:1.4`. **No width field, no
+resolution, no archetype.** Card `max-width:360px`, radius 22, `padding:18px
+16px 16px`, over a `rgba(0,0,0,.45)` scrim padded `22px`.
+
+### 6.2 Why this build draws more, and on whose authority
+
+**Owner, 2026-09-07, holding the APK: *"even the initial or new map setup
+doesn't allow for a km/size input"*, reported as a defect.** Verified before
+acting: the canvas modal and the card this shell shipped **agreed with each
+other**, and the owner overruled both. `CLAUDE.md`'s standing rule settles it —
+*an owner decision is newer than any canvas.* Recorded here and in
+`new_world_dialog.gd::_build()` so the next reader does not diff it against the
+canvas and "fix" it back.
+
+### 6.3 Per control, what came across and what did not
+
+| Control | On the card | Reason |
+|---|---|---|
+| **Map width** (preset) | **yes** | the thing the owner named. `width_km / grid_w` is the one quotient every distance, grade, route length and settlement spacing is derived from; creation-time only; 800 km was silently the only answer a handset could give |
+| **Width (km)** (free entry) | **yes** | the km half of the same value. `_refresh_dimensions()` already keeps preset ↔ km in step both ways, so they are one value with two faces, not two sources of truth |
+| **Resolution** | yes (already was) | the other half of that quotient; `DCC_SHELL_SPEC.md` §2.1 names it for this command even though §6.7 does not draw it |
+| **Archetype** | **yes** | creation-time in the strongest sense — `request()["archetype"]` decides **which generation call runs**, which no dial on the GENERATE sheet can express. It also had **no other route on a phone at all**, which is why that sheet's row was a dead end (§1.11) |
+| Grid columns | no | it is the **same number** as Resolution (`_on_resolution_selected` writes it, `_refresh_dimensions` writes the dropdown back). Two views of one value inside 360 dp is `MISTAKES.md`'s "second route to a control the user already has one to" |
+| Aspect | no | the extent chips already pick both of the reference's own aspects — it hardcodes 2:1 in world mode and 1.5625:1 otherwise, and `_update_extent_state()` moves between exactly those two. The other five ratios are this port's addition, and a wrong one yields a differently-shaped map rather than a broken one |
+| Grid rows | no | derived from aspect; only editable as a hand-typed override |
+| Derived readout (Grid / Extent / Cell size / Aspect) | **yes** | it is what makes the pair legible: `Width (km) 40 075` over `Resolution 512` is 78 km per cell, and nothing else on the card would say so |
+| NAME | **no, and not because of this pass** | the canvas draws it; `request()` carries no name and `EngineBridge.generate()` takes none, so a name field would be a control the engine cannot back. Unchanged by this pass, and left as a gap for whoever adds world naming |
+
+### 6.4 Measured
+
+`_nwsize_probe.gd`, four viewports, `fail=0` at each:
+
+| Viewport | scale | screen | card | window content min |
+|---|---|---|---|---|
+| 1080×2340 | 2.621 | 412 dp | **360 × 688 dp** | 400 dp |
+| 1440×3168 | 3.495 | 412 dp | 360 × 688 dp | 400 dp |
+| 720×1600 | 1.748 | 412 dp | 360 × 688 dp | 400 dp |
+| 380×800 | 1.000 | 380 dp | 336 × 689 dp | 384 dp |
+
+688 dp of card on 893 dp of usable height at 1080×2340 — it fits with no
+scrolling, confirmed on glass. Every tappable control on the card clears 44 dp
+**on both axes** at all four.
+
+**One pre-existing measurement, with its attribution.** At a 380 dp screen the
+window's content minimum lands **4 dp over** (384 against 380). The card's own
+content wants **331 dp** against a 336 dp card, so the lifted controls are not
+the cause: the excess is the dialog chrome around the card, and
+`PHONE_CARD_INSET` counts §6.7's scrim padding without counting the
+`AcceptDialog`'s own margins (chrome measures 40 dp at a 412 dp screen and 48 at
+380 — not a constant, which is why no constant fixes it). Below any mainstream
+handset; recorded, not patched, because shrinking the card on every device to
+fix a sub-380 dp case is the worse trade.
+
+### 6.5 On-glass evidence
+
+Handset `9608b26b` (ONEPLUS_A6013), 1080×2340 @ 450 dpi, `--export-debug
+"Android"` → `builds/android/Cartalith-0907b.apk`, `adb install -r`. Every act
+is `adb shell input tap/swipe` at coordinates read off an `adb exec-out
+screencap`; nothing calls into the app.
+
+- **boot state asserted before anything was touched**: project picker, `no
+  saved worlds yet — create one below`, `+ NEW WORLD` / `OPEN PROJECT .ZIP…`
+- tap `+ NEW WORLD` → the card: `§ SEED 53996` + dice, `§ EXTENT REGION|WORLD`,
+  `§ SIZE & RESOLUTION` with `Map width Province · 800 km`, `Width (km) 800`,
+  `Resolution 2K`, the derived block `2048 × 1311 cells (2.68 M cells)` /
+  `800 km × 512 km` / `0.391 km per cell, square` / `1.562 : 1 · landscape`,
+  then `§ WORLD STRUCTURE Archetype Classic` and both advisories — all on one
+  screen, no scrolling
+- tap `Map width` → the 7-row popup at the tap floor; tap `Continent · 12 000
+  km` → `Width (km) 12000`, derived `12000 km × 7682 km`, `5.9 km per cell`
+- tap `Archetype` → `Classic / Earth-like / Supercontinent / Archipelago /
+  Volcanic / Rift`; tap `Archipelago` → it takes
+- set `Local · 200 km` + `512`, tap `Create` → a world of small islands, and
+  `03 World structure`'s five dials read the Archipelago preset
+  (`Continentality 0.15`, `Fragmentation 0.90`, `Tectonic energy 0.80`,
+  `Ocean depth 0.30`, `Hotspot density 0.50`) — the lifted control reaching
+  `generate_world_structure_sized`, not merely drawing
+- **the swipe, on the control the report named**: a vertical swipe starting
+  **on** the Gravity slider scrolls the sheet and leaves `1.00g`,
+  `01 Planet · resolved` and `GENERATE WORLD` untouched; a horizontal drag on
+  the same slider gives `2.00g`, `01 Planet · stale` and `REGENERATE 01 → 10`;
+  a vertical swipe starting on **Ocean depth** leaves it at `0.30`; a swipe the
+  other way (down) scrolls back and leaves it at `0.30` still
+- `07 Hydrology` → the corrected `Min stream order` dash reads on glass
+- tap the GENERATE sheet's `Archetype  New world ›` row → the card opens with
+  `Archetype Archipelago` on it. **The route no longer dead-ends.**
+- `adb logcat -d -s godot | grep -c "SCRIPT ERROR"` → **0**
+
+`project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
+Godot invocation, and `git diff -- project.godot` empty. No Rust changed this
+pass (`git status --porcelain -- '*.rs'` empty); the APK carries the existing
+`target/aarch64-linux-android/android-dev/libcartalith_godot.so`, mtime
+2026-09-02 03:38.
+

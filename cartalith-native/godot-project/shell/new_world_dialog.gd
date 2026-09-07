@@ -222,17 +222,22 @@ func setup(b: EngineBridge) -> void:
 ## sections, built in the same order, into the same container they always were.
 ##
 ## `rest` is HIDDEN on a phone rather than not built, and that is the
-## load-bearing half. Counted, not estimated: `request()` reads **three** of
-## its controls directly (`width_input`, `grid_w_input`, `grid_h_input`; it is
-## the second of those that `heightmap_grid_summary()` reads again), and it
-## posts **four** more values — `_villages`, `_metropolis`, `_biome_k`,
-## `_recovery_phase` — whose only writers other than construction are those
-## hidden controls' own handlers and `_sync_from_engine()`. A phone build that
-## skipped them would post this dialog's construction-time defaults back into
-## the engine on every Create, which is the exact defect
-## `_sync_from_engine()`'s own biome-K clause below records, one control at a
-## time. An invisible child contributes nothing to a `BoxContainer`'s minimum
-## size, so the hidden form cannot widen the card either.
+## load-bearing half. Re-counted 2026-09-07, in the same edit that moved the
+## width pair and the archetype onto the card, because this paragraph's own
+## numbers are what the move changes: `request()` still reads **two** of the
+## hidden controls directly (`grid_w_input` — which `heightmap_grid_summary()`
+## reads again — and `grid_h_input`), and it posts **four** more values,
+## `_villages`, `_metropolis`, `_biome_k` and `_recovery_phase`, whose only
+## writers other than construction are those hidden controls' own handlers and
+## `_sync_from_engine()`. (`width_input` was the third of that first group and
+## is now on the card; `aspect_input` was never in `request()` at all, but
+## `_derived_grid_h()` reads it, so it is hidden rather than dropped for the
+## same reason.) A phone build that skipped them would post this dialog's
+## construction-time defaults back into the engine on every Create, which is
+## the exact defect `_sync_from_engine()`'s own biome-K clause below records,
+## one control at a time. An invisible child contributes nothing to a
+## `BoxContainer`'s minimum size, so the hidden form cannot widen the card
+## either.
 func _build(body: VBoxContainer) -> void:
 	var card := body
 	var rest := body
@@ -257,15 +262,65 @@ func _build(body: VBoxContainer) -> void:
 	if _phone:
 		_build_extent_chips(card)
 
+	## **The phone card carries the world's SIZE, and that is an owner ruling
+	## made over the canvas -- not a drift from it.**
+	##
+	## Owner, 2026-09-07, holding the APK: *"even the initial or new map setup
+	## doesn't allow for a km/size input"*, reported as a defect. Checked before
+	## acting rather than assumed: §6.7's modal (`design/
+	## Cartalith-Android-2026-09-07.dc.html`, the `modalOpen` block) draws NAME,
+	## SEED with a dice, EXTENT as two chips, CANCEL and CREATE WORLD -- and no
+	## width field, no resolution, no archetype. So **the canvas and the card
+	## this file shipped agreed with each other**, and the owner overruled both.
+	## `CLAUDE.md`'s standing rule is what settles it: *an owner decision is
+	## newer than any canvas*. Recorded here because the next reader will
+	## otherwise diff this against §6.7 and "fix" it back.
+	##
+	## Which of `size_sec`'s four controls came across, and why each:
+	##
+	## * **Map width** (preset) and **Width (km)** -- YES, both. This is the
+	##   thing the owner named. A 200 km world and a 12 000 km world are
+	##   different products, not different preferences: `width_km / grid_w` is
+	##   the one quotient every distance, grade, route length and settlement
+	##   spacing in the engine is derived from, it is creation-time only
+	##   (`NOTE_CREATION_ONLY`), and 800 km was silently the only answer a
+	##   handset could give. The preset dropdown is the tap-only route and the
+	##   km spin box is the free entry; `_refresh_dimensions()` already keeps
+	##   the two in step in both directions, so they are one value with two
+	##   faces rather than two sources of truth.
+	## * **Grid columns** -- NO. It is the *same number* as Resolution, which is
+	##   already on the card: `_on_resolution_selected()` writes `grid_w_input`
+	##   and `_refresh_dimensions()` writes `resolution_input` back. Two views
+	##   of one value inside 360 dp is the defect `MISTAKES.md` records as "add
+	##   a second route to a control the user already has one to", and a custom
+	##   column count is a desktop refinement, not a phone one.
+	## * **Aspect** -- NO, and this one is a judgement rather than a duplicate.
+	##   The extent chips the card already draws pick both of the reference's
+	##   own aspects and nothing else exists in the reference to lose: it
+	##   hardcodes 2:1 in world mode and 1.5625:1 otherwise (this control's own
+	##   tooltip below says so), and `_update_extent_state()` moves the
+	##   selection between exactly those two. The other five ratios are this
+	##   port's addition, and a wrong one yields a differently-shaped map rather
+	##   than a broken one -- a preference, which is what a small form drops.
+	## * **Grid rows** -- NO, for Grid columns' reason and more so: it is
+	##   derived from aspect and only editable as a hand-typed override.
+	##
+	## The derived readout comes across with them, because it is what makes the
+	## pair legible: `Width (km) 40 075` over `Resolution 512` is 78 km per
+	## cell, and nothing else on the card would say so.
+	var card_size_sec: VBoxContainer = null
+	if _phone:
+		card_size_sec = DccWidgets.section(card, "Size & resolution")
 	var size_sec := DccWidgets.section(rest, "Map width & resolution")
+	var width_parent: VBoxContainer = card_size_sec if _phone else size_sec
 	var size_labels: Array = []
 	for preset: Dictionary in SIZE_PRESETS:
 		size_labels.append(String(preset["label"]))
 	size_labels.append("Custom")
-	size_preset_input = DccWidgets.choice(size_sec, "Map width", size_labels, 1,
+	size_preset_input = DccWidgets.choice(width_parent, "Map width", size_labels, 1,
 		_on_size_preset_selected,
 		"Real-world width of the map. Creation-time only, same as the reference: changing it silently rescales every derived distance, grade, route length and settlement spacing.")
-	width_input = DccWidgets.number(size_sec, "Width (km)", 1.0, 100000.0, 1.0, 800.0,
+	width_input = DccWidgets.number(width_parent, "Width (km)", 1.0, 100000.0, 1.0, 800.0,
 		func(_v: float): _refresh_dimensions())
 
 	var res_labels: Array = []
@@ -280,9 +335,12 @@ func _build(body: VBoxContainer) -> void:
 	## only path that ever sizes a grid, and a handset is the device least able
 	## to afford the difference. `dimension_warning_label` moves with it, so
 	## the 4K/8K cost is still disclosed where the choice is made.
-	var res_parent := size_sec
-	if _phone:
-		res_parent = DccWidgets.section(card, "Resolution")
+	##
+	## (It shared the card with nothing when that was written. It now sits in
+	## the same `Size & resolution` section as the width pair above, because
+	## width and resolution are the two halves of one quotient and a separate
+	## header for each of them on a 360 dp card is two headers.)
+	var res_parent: VBoxContainer = card_size_sec if _phone else size_sec
 	resolution_input = DccWidgets.choice(res_parent, "Resolution", res_labels, RESOLUTION_DEFAULT_INDEX,
 		_on_resolution_selected,
 		"The reference's own 512/1K/2K/4K/8K segment. Sets the grid WIDTH only; grid height follows below.")
@@ -300,11 +358,33 @@ func _build(body: VBoxContainer) -> void:
 		_on_grid_h_changed,
 		"A call argument to generate_sized(), not a stored parameter: changing it reallocates every field in the pipeline.")
 
-	_build_derived_panel(size_sec)
+	_build_derived_panel(width_parent)
 	dimension_warning_label = DccWidgets.note(res_parent, "")
 	dimension_warning_label.add_theme_color_override("font_color", DccTheme.c("stale"))
 
-	var struct_sec := DccWidgets.section(rest, "World structure")
+	## **Archetype comes across too, and it closes a route that dead-ended.**
+	##
+	## `world_workspace.gd`'s phone GENERATE sheet draws `Archetype` as a
+	## tappable row whose stated reason is *"Pick it in File ▸ New world"*
+	## (`PHONE_GEN_ABSENT`, stage 2). That reason was true of the desktop form
+	## and **false of the phone**, because this control was built into
+	## `struct_sec` -- which is parented to the hidden `rest` -- so the row
+	## opened a dialog that did not have it.
+	##
+	## Lifting it is the right half of that pair rather than rewording the
+	## reason, and it passes the same test the four size controls above were
+	## put to. It is creation-time only in the strongest sense of the phrase:
+	## `_on_archetype_selected()` seeds five dials that stay editable
+	## afterwards, but `request()["archetype"]` is what decides **which
+	## generation call runs** (`generate_world_structure_sized` against the
+	## plain path), and no dial on the GENERATE sheet can express that. It is
+	## not a duplicate of anything on the card, and unlike Aspect it has no
+	## other route on a handset at all -- so rewording the reason would have
+	## left the phone permanently unable to build anything but a Classic world.
+	##
+	## The five-dial note goes with it: it is what tells a phone user that the
+	## choice is a starting point and not a lock.
+	var struct_sec := DccWidgets.section(card if _phone else rest, "World structure")
 	var archetype_labels: Array = ["Classic"]
 	for name in _archetype_names:
 		archetype_labels.append(String(ARCHETYPE_LABELS.get(String(name), String(name).capitalize())))

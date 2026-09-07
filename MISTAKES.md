@@ -125,6 +125,10 @@ its rule before you start.
 | **Quote a byte or character offset into a document** | **Say which, and re-measure before you say it — or drop the number and name the symbol.** I quoted six canvas offsets, a lane said they were ~330 low, and I "corrected" the row by labelling mine *character* offsets and the lane’s *byte* offsets. **Both halves were invented.** Measured three ways, the real byte-minus-character delta is **52 to 126, never ~330**; my numbers came from a copy read with newline translation on, so they were a third thing entirely. **A manufactured explanation makes an unseekable number read as a measured one, which is worse than the wrong number alone.** Offsets in a UTF-8 file with CRLF have three values and none of them is "the offset". **Grep the symbol and name the guard it sits under.** |
 | **Raise a touch target to the 44 dp floor** | **Ask what the enlarged control now intercepts.** This batch floored fourteen sliders from 32 dp to 44 dp — correct, and it widened the band in which a vertical scroll gesture starting on a slider is consumed as a **value write**: Ocean depth went 0.60 → 0.14 in one swipe with nothing on screen saying so. **A floor is a hit area, and a bigger hit area catches more than you meant.** Where a draggable control lives inside a scroller, the floor obliges you to arbitrate the gesture too. **Do not answer it by shrinking the target back.** |
 | **Record a glyph substitution** | **The deviations table must agree with the byte that shipped.** A pass parsed the font cmap correctly — U+2684 and U+FF0B absent, U+2212 present — and then wrote *"U+2212 present and used"* into the table while the code shipped ASCII `-`. **The table whose only job is to record departures asserted the opposite of the code**, so the one real departure was the one it hid. Visible on glass: a short high hyphen beside a full-height plus. **Check the call site, not the cmap, before writing the row.** |
+| **Assert that two runs produce identical output** | **Compare what the format promises is stable, and exclude what it promises is not — including the CONTAINER’s metadata, not just your own.** Two save-writer tests asserted `write_to_vec(&p) == write_to_vec(&p)`. `SAVEFILE_COMPAT.md` §16 records that this writer deliberately stamps every zip entry **from the clock**; DOS time has 2-second resolution, so a pair of writes straddling a tick differs at byte 10 and the test fails. **Flaky by construction, and it stood for months because a write takes microseconds** — the window is small, not absent. One of the tests already excluded JSON’s `created` for exactly this reason and did not carry the thought one level down. |
+| **See a suspiciously round test total** | **`cargo test --workspace` FAIL-FASTS: one failure skips the rest and the truncated total looks healthy.** When a flaky io test fired, the run reported **100 result lines / 2 387 passed** — no failure visible in a tail, and a plausible number. The true floor is **157 lines / 3 253 passed**. **Count the result lines against the expected count BEFORE reading any total** (the rule already here, ×3), and **use `--no-fail-fast` when you need the whole picture**. A skipped target reports nothing at all, which is quieter than a failure. |
+| **Write a test helper that returns a collection** | **Assert it is non-empty, in the helper.** A fingerprint helper added to fix the determinism tests was mutated to return `Vec::new()` and **both tests stayed green** — `assert_eq!` over two empty vectors is a tautology. Caught by mutating it rather than by reading it. This is the silently-empty-golden-output trap that has now bitten **five** subsystems here. |
+| **Paste a `grep` and its result into a comment** | **A command that measures the file will stop reproducing the moment the file changes — name the SYMBOL instead.** A comment pasted `grep -n "HSlider.new()" world_workspace.gd`, 2026-09-07: two`. The very substitution it documented removed both matches, so today the grep returns exactly one line: **the comment quoting its own string**. A reader following the citation gets a self-reference in place of a count. |
 
 ### [2026-09-03] Believing a backlog row instead of re-opening it ×15
 
@@ -602,3 +606,49 @@ existing hazard worse, which is a thing to look for whenever a hit area grows.
 And the phone’s Archetype row dashes with *"Pick it in File ▸ New world"* while
 that dialog hides its Archetype control on a phone: a reason true about the
 desktop and false about the device it is printed on.
+
+### [2026-09-07] A flaky save test that hid 57 targets, and a helper that passed on nothing
+
+**The find.** A verifier ran `cargo test --workspace` and got **100 result
+lines / 2 387 passed**. The floor is 157 / 3 253. Nothing in a tail said so:
+`cargo test` fail-fasts, and one failing target **skips 57 others silently**.
+The total that comes back is not wrong-looking, it is just small — which is
+the same trap as a truncated total, arriving by a different route.
+
+**The cause.** `cartalith-io`’s two determinism tests asserted
+`write_to_vec(&p) == write_to_vec(&p)` — raw bytes. But `SAVEFILE_COMPAT.md`
+§16 records, with a measured example, that this writer **populates every zip
+entry’s timestamp from the clock** rather than leaving the 1980 DOS epoch, and
+argues that stamp is one of two mechanisms answering *"when was this saved"*.
+DOS time has two-second resolution, so two writes straddling a tick differ at
+the local header’s mod-time field. First differing byte: offset 10.
+
+**Which side was wrong mattered, and the document settled it.** The obvious fix
+— pin `last_modified_time` to the epoch — would have deleted a documented
+feature to make a test pass. The tests were the wrong side: they asserted a
+determinism the format explicitly does not promise. One of them **already** had
+the right instinct, excluding JSON’s `created` because *"a timestamp is the one
+member that must differ between two saves"* — it simply never carried that one
+level down, to the container’s own stamp. So the fix is an existing decision
+applied consistently, not a new one, and it needed no ruling.
+
+**Then the fix nearly shipped vacuous.** The replacement compares a
+`content_fingerprint` — entry order, name, CRC-32, both sizes. Mutated to
+return `Vec::new()`, **both tests stayed green**: `assert_eq!` over two empty
+vectors proves nothing, and neither test looks at anything else. That is the
+silently-empty-golden-output trap, now five subsystems deep. The helper asserts
+its own non-emptiness and the presence of `project.json`, and mutating the
+range to `0..0` now kills both tests.
+
+**And the honest limit, stated because measuring it was cheap.** Mutating the
+CRC out of the tuple leaves both tests green too — and so would removing any
+other field. That is not a hole opened here: **a test that compares two runs of
+one writer can only catch a writer unstable BETWEEN runs, never one stably
+wrong**, and the raw-byte comparison had the identical blind spot. Ordering
+correctness is pinned separately and directly, by the pyramid test’s own
+`assert_eq!(tiles, sorted)`. The comment says that rather than implying the
+fingerprint covers more than it does.
+
+**Verified after**: 157 result lines, 3 253 passed, 0 failed, 28 ignored — and
+the default fail-fast run now reaches 157 lines too, which it could not while
+the flake was live.
