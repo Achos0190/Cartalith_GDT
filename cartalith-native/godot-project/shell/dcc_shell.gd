@@ -736,6 +736,35 @@ func _build_desktop_shell() -> void:
 	shell.add_child(timeline_bar)
 	shell.add_child(_build_status_bar())
 
+	## **A tablet is a touch device and this composition never treated it as
+	## one.** `_build_phone_shell()` connects `node_added` so every panel a
+	## workspace attaches later gets `phone_fit()`; the tablet ran the same
+	## desktop shell with no equivalent, so `DccWidgets.touch_slider()` and
+	## `touch_release_button()` -- both attached inside `phone_fit()` -- never
+	## reached it. Measured at `--force-touch --vp 800x1280` (which
+	## `_compute_layout_mode()` reports `phone=false tablet=true`), at boot,
+	## before this call existed: **224** unarbitrated writable `Range` inside a
+	## live vertical scroller (`_rangeswipe_probe.gd --census-only`) and **27**
+	## unarbitrated touch-DOWN controls (`_gestclass_probe.gd --census-only`).
+	##
+	## Connected here, at the end of `_build_desktop_shell()`, for the reason
+	## the phone's own connect states: both docks have to exist first, or the
+	## handler walks toward a null.
+	##
+	## **The hook does all of the measured work and the immediate call does
+	## none of it**, and that is stated rather than implied because the obvious
+	## reading is the other way round. Mutated both ways, same probe and frame:
+	## hook alone **10**, boot walk alone **224** -- every panel a workspace
+	## attaches arrives after this function returns, so a one-shot walk here
+	## sees only chrome. The boot call is kept for that chrome (the menu bar,
+	## the tool-options row, the rail, the timeline and the status bar are
+	## outside both docks and the hook never revisits them) and it contributes
+	## **0** to this census, which counts only what sits inside a live vertical
+	## scroller.
+	if DccTheme.is_tablet():
+		tablet_arbitrate(self)
+		get_tree().node_added.connect(_on_tablet_node_added)
+
 func _scaled(px: int) -> int:
 	## §13: tablet scales every fixed height, with a 44 px floor on anything
 	## tappable. Windows is pointer-first and takes the raw value. Phone does
@@ -1077,14 +1106,39 @@ func _build_menu_bar() -> Control:
 	pad.add_child(row)
 	bar.add_child(pad)
 
-	var wordmark := DccTheme.mono_label("CARTALITH", "text_bright", DccTheme.FS_MENU, 3, true)
+	## **Re-anchored 2026-09-07 against the live canvas, which says none of what
+	## the four figures here used to say.** `Cartalith DCC Environment.dc.html`
+	## line 57, quoted whole because every term of it was wrong in this file:
+	##
+	##     font:var(--m1) 'IBM Plex Mono',monospace;letter-spacing:.18em;
+	##     color:var(--acc);margin:0 12px 0 4px
+	##
+	## - `var(--m1)` is **10 px** pointer and **12 px** touch (`ENV:25` /
+	##   `ENV:1819`). This drew `FS_MENU` = 12 at both, so the desktop wordmark
+	##   was 20 % over and the tablet one was right by coincidence.
+	## - the declaration carries **no weight**, so it is regular 400. This drew
+	##   `medium = true`.
+	## - `.18em` is 1.8 px at 10 and 2.16 px at 12; Godot spacing is an integer,
+	##   so **2** at both densities. This drew 3.
+	## - `var(--acc)` is the amber `#e0a34a`. This drew `text_bright`, a
+	##   near-white -- the single most visible of the four.
+	##
+	## `DccTheme.ROLE`'s own `fs_wordmark` is `[12, 15]` and documents itself as
+	## *"`font:500 12px` .26em → `500 15px`"*, which is the canvas retired on
+	## 2026-08-23; it has no consumer and is not read here. Naming it would have
+	## replaced one stale figure with another.
+	var wordmark := DccTheme.mono_label("CARTALITH", "accent",
+		DccTheme.FS_MENU if DccTheme.is_tablet() else DccTheme.FS_TINY, 2)
 	row.add_child(wordmark)
-	## `margin-right:22px` on the canvas's own wordmark, and nothing else --
-	## the reserved 150 px this used to claim opened a 74 px hole between
-	## CARTALITH and File where the canvas has 22 px, which is the first thing
-	## the eye lands on and the first thing that read as "not the design".
+	## `margin:0 12px 0 4px`. The 4 px left margin is already paid by the pad
+	## above: the canvas bar is `padding:0 10px` (`ENV:56`) and 10 + 4 = the 14
+	## this `MarginContainer` sets. The right margin is **12**, and was 22 here
+	## behind a comment that asserted the canvas said 22 -- it does not, and the
+	## error was invisible because a comment naming a canvas reads as a
+	## measurement. The 22 is still correct one clause down, where the readout
+	## loop uses it to stand in for `ENV`'s own `margin-left:8px` plus gap.
 	var wordmark_gap := Control.new()
-	wordmark_gap.custom_minimum_size.x = 22
+	wordmark_gap.custom_minimum_size.x = 12
 	row.add_child(wordmark_gap)
 
 	menu_bar_row = HBoxContainer.new()
@@ -1126,8 +1180,27 @@ func _build_menu_bar() -> Control:
 	## The readout cluster: world, pass state, and the three cost meters. §11
 	## keeps these in the menu bar because they describe the *program's* load,
 	## not the world's content.
+	##
+	## **The canvas draws ONE cell here, and it is a departure that is now
+	## stated rather than silent.** `ENV:103-104` is `<span style="flex:1">`
+	## then a single `{{ worldLabel }}`; `res`, `cpu`, `gpu` and `mem` are this
+	## shell's own. They are **kept**, because deleting them is a capability
+	## loss with no other desktop home: `grep -rn top_cpu --include=*.gd` puts
+	## their only other reader in `phone_menu.gd`'s MORE ▸ STATUS list (rows
+	## `top_res`/`top_cpu`/`top_gpu`/`top_mem`, `phone_menu.gd:305-312`), which
+	## is a phone surface. `app.gd:773-774` writes `top_res` and `top_mem` on
+	## every generate, and `menus.gd:3287` reads `top_mem` back so the two
+	## cannot disagree. Removing them needs an owner ruling and a home for the
+	## four figures, not a lane's edit.
+	##
+	## What IS corrected here is the type, which had no such justification:
+	## `ENV:104` is `font:var(--m1)` -- 10 px pointer, 12 px touch -- in
+	## `var(--dim)` `#8d9296`. This drew `FS_READOUT` (a flat 11 at both
+	## densities) in `text_faint` `#6f7478`, so every cell was a rung too big
+	## on the desktop and a rung too dark everywhere.
+	var readout_fs: int = DccTheme.FS_MENU if DccTheme.is_tablet() else DccTheme.FS_TINY
 	for slot in ["world", "res", "cpu", "gpu", "mem"]:
-		var l := DccTheme.mono_label("", "text_faint", DccTheme.FS_READOUT, 1)
+		var l := DccTheme.mono_label("", "text_dim", readout_fs, 1)
 		_status_labels["top_" + slot] = l
 		row.add_child(l)
 		var gap := Control.new()
@@ -1936,218 +2009,13 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 			## it has, because a finger has no cursor to find the handle with.
 			if ctl is HSlider:
 				DccWidgets.phone_slider(ctl as HSlider, unit)
-				## **And the gesture arbitration, which is the other half of the
-				## same sentence.** `DccWidgets.PgSlider` withholds the press
-				## until the gesture has travelled 8 dp and then gives it to the
-				## axis it travelled furthest along, because Godot's own
-				## `Slider::gui_input` sets the value on touch-DOWN -- so a
-				## vertical swipe that happens to begin on a slider rewrites the
-				## parameter instead of scrolling the sheet. Measured on glass:
-				## Ocean depth `0.60` -> `0.14` in one gesture, silently.
-				##
-				## Attached HERE rather than at each factory because a live
-				## census of the phone tree at 1080x2340
-				## (`_rangeswipe_probe.gd --census-only`) counted 247 `Range`
-				## nodes, **245 writable and inside a live vertical scroller, of
-				## which 3 arbitrated** -- and the other 242 are built by six
-				## different files. This walk already reaches all but two of
-				## them (`phone_menu.gd` and `world_workspace.gd` attach their
-				## own; neither surface is one `phone_fit()` walks).
-				## `8.0 * unit` is a distance TRAVELLED, so it takes the same
-				## `unit` the tap floor above takes and is deliberately not
-				## floored at 44: a slop is not a hit area.
-				DccWidgets.touch_slider(ctl as HSlider, 8.0 * unit)
-			## **A drag that starts on a row has to reach the scroll above it.**
-			## `dcc_widgets.gd` builds every row as an `HBoxContainer`, and a
-			## `Control` picks by default (`MOUSE_FILTER_STOP`), which ends the
-			## event walk right there -- Godot delivers a GUI event to the picked
-			## control and then up its parents, stopping at the first `STOP`. On a
-			## pointer that costs nothing, because scrolling is the wheel. On a
-			## phone it is the whole gesture: the left dock sheet could only be
-			## scrolled by catching its 4 px scrollbar, which on a 400 ppi panel
-			## is about a millimetre, so the NPR Painter block below the fold was
-			## effectively unreachable. Found by driving the real handset -- a
-			## flick on the rows did nothing, the same flick on the scrollbar
-			## worked.
-			##
-			## `PASS`, not `IGNORE`: a `PASS` control is still picked, so the
-			## row keeps its own tooltip and hover, and only *forwards* what it
-			## does not handle. Layout containers only -- a `PanelContainer` is
-			## excluded because several in this shell (`phone_menu.gd`'s rows,
-			## the roster's folded bar) carry their own `gui_input` and must
-			## keep stopping the event they consume.
-			if (ctl is BoxContainer or ctl is MarginContainer) \
-					and ctl.mouse_filter == Control.MOUSE_FILTER_STOP:
-				ctl.mouse_filter = Control.MOUSE_FILTER_PASS
-			## PH-05's last hole, found by re-running the flick sweep at
-			## `_phone_scale` 2.748 rather than at the 393 dp reference every earlier
-			## probe used: 6 of 8 points down the left sheet scrolled 329 px and two
-			## did not. One is an `HSlider`, which is deliberate and is explained
-			## below. The other is a **bare `Control`** -- `DccTheme.spacer()` and the
-			## fixed-width gaps beside it -- which defaults to `MOUSE_FILTER_STOP` and
-			## so ends the event walk on a node that exists only to take up room.
-			##
-			## Matched on the exact class rather than `is Control`, because every
-			## control in this shell is one; and skipped if anything is listening on
-			## `gui_input`, since a plain `Control` with a handler (a scrim, a drag
-			## handle) is picking on purpose. A spacer with neither has nothing to
-			## consume the event it is currently swallowing.
-			if ctl.get_class() == "Control" and ctl.get_script() == null \
-					and ctl.mouse_filter == Control.MOUSE_FILTER_STOP \
-					and ctl.get_signal_connection_list("gui_input").is_empty():
-				ctl.mouse_filter = Control.MOUSE_FILTER_PASS
-			## PH-05, the other half of the same sentence -- and the half that was
-			## actually load-bearing. A `Container` already defaults to `PASS`
-			## (measured, 4.7.1: `MOUSE_FILTER_PASS`, not the `Control` default the
-			## comment above assumed), so the rows were never the blocker. **A
-			## `Button` is.** `_scrolldrag_probe.gd` flicked twenty points down the
-			## left sheet: every point that failed to scroll was a `Button` or an
-			## `HSlider`, and from the accordion down the sheet is nothing *but*
-			## buttons -- the L2 `category()` headers, the L4 `group()` headers, every
-			## `action()`. That is the "a flick on the content does nothing" the
-			## handset found, and it is why the scrollbar still worked: only the
-			## content was covered.
-			##
-			## `PASS` is safe on a button *because* `ScrollContainer` and `BaseButton`
-			## already cooperate: past the deadzone the scroll propagates
-			## `NOTIFICATION_SCROLL_BEGIN`, which cancels the button's pending press.
-			## Measured, all four cases: a clean tap fires, a 2 px and a 6 px wobble
-			## still fire, an eight-sample flick scrolls 96 px and fires nothing.
-			##
-			## An `HSlider` is deliberately **not** included, and the reason
-			## written here until 2026-09-07 -- *"a drag that starts on a slider
-			## means 'move this slider', on every touch platform there is"* --
-			## was refuted on glass. It is true of the HORIZONTAL drag and false
-			## of the vertical one, and Godot makes it worse than a
-			## misclassification: `Slider::gui_input` calls `set_as_ratio()` from
-			## the PRESS position, so the value has already jumped before there
-			## is any motion to classify. `MOUSE_FILTER_PASS` would not have
-			## fixed that either -- a `PASS` control is still picked and still
-			## runs its own `gui_input`. The arbitration happens inside the
-			## control instead (`DccWidgets.touch_slider()`, attached a few lines
-			## above), which needs the `STOP` this clause leaves in place.
-			##
-			## **A `BaseButton` that opens its popup on *press* is converted
-			## rather than excluded, and that is a change from what stood here
-			## until 2026-09-07.** The old reason -- *"such a control pops
-			## mid-flick, the popup grabs the drag, and the gesture then
-			## neither scrolls nor is undone (measured on `OptionButton`: popup
-			## open, scroll 0)"* -- was a correct measurement of `PASS` alone,
-			## and `PASS` alone is not the fix. It leaves `action_mode` at
-			## `ACTION_MODE_BUTTON_PRESS`, so the popup still opens under the
-			## finger and the scroll it now forwards is a scroll of the popup.
-			##
-			## `DccWidgets.touch_release_button()`, called just below, moves
-			## `action_mode` to RELEASE **and** takes the control to `PASS` in
-			## the same step -- so by the time this clause runs, a converted
-			## dropdown is already `PASS` and this `if` is a no-op for it. The
-			## exclusion list stays for the ones it did NOT convert: a dropdown
-			## with no vertical scroller above it (the census's `scroller=none`
-			## rows -- one in `asset_library_window.gd`, one in
-			## `city_viewer_window.gd`, and the seven `MenuButton`s of the menu
-			## bar) keeps opening on press, because there is nothing there for a
-			## vertical gesture to mean instead.
-			##
-			## `ColorPickerButton` is excluded on its own footing and not by
-			## association: it measures `action_mode == 1` (RELEASE) on 4.7.1,
-			## so it is not the touch-DOWN defect at all. It stays `STOP`
-			## because whether that blocks a scroll under it is a separate
-			## question, and no probe in this pass could stage a visible one.
-			if ctl is BaseButton and ctl.mouse_filter == Control.MOUSE_FILTER_STOP \
-					and not (ctl is OptionButton or ctl is MenuButton \
-						or ctl is ColorPickerButton):
-				ctl.mouse_filter = Control.MOUSE_FILTER_PASS
-			## **The other half of the same sentence, and the half that makes
-			## the clause above safe to widen.** Godot's `OptionButton` and
-			## `MenuButton` ship `action_mode == ACTION_MODE_BUTTON_PRESS`
-			## (measured on 4.7.1, against `CheckBox` 1, `ColorPickerButton` 1
-			## and `Button` 1), so their popup opens on touch-DOWN, before there
-			## is any motion to classify -- the §1.14 slider defect one class
-			## over. `_gestclass_probe.gd` at 1080x2340, before this call
-			## existed: a jittered vertical swipe on a left-dock
-			## `DccWidgets.choice()` row took `sel=7 -> sel=3` with the sheet
-			## not moving, and the same swipe on the New World card left its
-			## popup standing open.
-			##
-			## **The census, with its state named, because the state is most of
-			## the number.** `_gestclass_probe.gd --census-only` at 1080x2340,
-			## with this call neutered, counts unarbitrated touch-DOWN controls
-			## inside a live vertical scroller as:
-			##
-			##   world-less boot          **22** = 18 `OptionButton` + 4 `LineEdit`
-			##   after tapping PLAN       **38** = 34 + 4
-			##   after a generate         **44** = 40 + 4
-			##
-			## With it in place, **4** in every one of those states, all
-			## `LineEdit`. So this converts **40** dropdowns, not the 18 a
-			## world-less boot can see -- the same understatement §1.15's
-			## slider census recorded about itself and which cost that pass
-			## four uncovered sites. The 18 break down 10 left sheet, 6 New
-			## World card, 2 in `asset_library_window.gd`'s slicer modal (an
-			## unscripted `AcceptDialog`, fitted by its own `phone_fit` call).
-			##
-			## The 4 `LineEdit`s are left alone: they write no value, they take
-			## FOCUS from the press (and on Android raise the soft keyboard
-			## over the sheet the swipe was scrolling), and no state this probe
-			## could stage put a visible one inside a scroller -- so the change
-			## would have been unmeasurable. Reported, not changed.
-			##
-			## Placed in `phone_fit()` for the reason `touch_slider()` above is:
-			## the population is built by five different files and this walk
-			## already reaches every one of them.
-			if ctl is BaseButton:
-				DccWidgets.touch_release_button(ctl as BaseButton)
-			## **The third member of the same family, and the one the paragraph
-			## above deferred.** That note said the 4 `LineEdit`s were "left
-			## alone … no state this probe could stage put a visible one inside
-			## a scroller -- so the change would have been unmeasurable". A
-			## verifier then staged one: a jittered vertical swipe on the New
-			## World card's **Seed** field gives scroll `0 -> 0` with its
-			## internal `SpinBoxLineEdit` focused, while the label column at the
-			## same `y` scrolls `0 -> 62`. On Android that focus raises the soft
-			## keyboard over the sheet the swipe was trying to scroll.
-			##
-			## Neither switch above is the switch here -- a `LineEdit` has no
-			## `action_mode`, and the `SpinBoxLineEdit` rows are **already
-			## `MOUSE_FILTER_PASS` and still eat the swipe**, because
-			## `LineEdit::gui_input` accepts every left press. The lever is
-			## `focus_mode`, measured against three alternatives in
-			## `DccWidgets.PgField`'s own table.
-			##
-			## **Two call sites, not one**, and the second is the reason the
-			## first is not enough: a `SpinBox`'s field is an INTERNAL child,
-			## and this walk iterates `get_children()`, which excludes internal
-			## children -- so **12 of the 16 hazardous fields at boot** are
-			## unreachable from the `ctl is LineEdit` branch and have to be asked
-			## for by name. (20 after PLAN or MORE, 24 with a world loaded; the
-			## ratio at maximum is 20 of 24. This said "12 of 34", and **no state
-			## produces 34** -- it was 16 plus the 18 hidden `PopupMenu` search
-			## fields, which the same change taught the census to exclude.)
-			if ctl is LineEdit:
-				DccWidgets.touch_focus_field(ctl as LineEdit, 8.0 * unit)
-			elif ctl is SpinBox:
-				DccWidgets.touch_focus_field(
-					(ctl as SpinBox).get_line_edit(), 8.0 * unit)
-			## `TextEdit` is deliberately not in that list. It is the other
-			## touch-DOWN text class, but it carries its OWN vertical scroll, so
-			## "give the vertical to the ancestor" is the wrong answer for it
-			## and no state this pass could stage put one inside a live
-			## scroller. **Stated precisely, because the first version of this
-			## line overstated it:** `--census-only` reports exactly ONE
-			## `TextEdit` in every state -- `gen_info_dialog.gd`'s, with
-			## `scroller=none` and `live=false` -- not zero. The claim the
-			## exclusion rests on is the narrower one and it holds: no
-			## `TextEdit` sits inside a live vertical scroller. Reported, not
-			## changed.
-			## That deadzone is not a default -- Godot's is **0**, at which the ~2 px
-			## of wobble in a real thumb tap already counts as a drag and silently
-			## eats the press. Without this, the fix above would trade "the sheet does
-			## not scroll" for "the buttons do not press". Scaled with the rest of the
-			## subtree, so it is the same physical distance in a dock (unscaled,
-			## `unit` = `_phone_scale`) as in a content-scaled window (`unit` = 1.0).
-			if ctl is ScrollContainer:
-				(ctl as ScrollContainer).scroll_deadzone = maxi(
-					PHONE_SCROLL_DEADZONE, int(round(PHONE_SCROLL_DEADZONE * unit)))
+			## Everything from here to the `ScrollContainer` deadzone -- and
+			## the `touch_slider()` call that used to sit in the `HSlider`
+			## branch above -- moved into `_touch_arbitrate()` below, verbatim,
+			## so the tablet can reach the same body. Nothing between the two
+			## old positions was executable (lines 1960-1978 were comment), so
+			## the order this runs in is unchanged.
+			_touch_arbitrate(ctl, unit)
 			## An `OptionButton`'s list is a `PopupMenu`, which is a `Window` and
 			## not a `Control` -- so it is not in this walk and inherits none of
 			## the above. Left alone its rows came out at ~21 dp inside a
@@ -2232,6 +2100,254 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 				DccWidgets.oversample(pop, _phone_magnify(unit))
 		phone_fit(child, unit, wide)
 
+## **The gesture arbitration, extracted so the tablet can have it too.**
+##
+## Every clause below answers one question -- *what does a touch that begins
+## on this control mean?* -- and none of them sizes anything. That is the whole
+## reason this is a separate body from `phone_fit()`'s sizing work and from
+## `tablet_fit()`'s: `GUI_GAP_REGISTER.md` §57 refuted `is_touch()` as a
+## predicate for **sizing** (it is true on a phone, "and the 412 canvas asks
+## for things a tablet must not get"), and every one of its three refutations
+## is about a figure or a `unit`. None of them touches gesture classification,
+## which is a property of the *input device* and identical on both.
+##
+## **The gap this closes, measured before the change** -- `--force-touch --vp
+## 800x1280`, which `_compute_layout_mode()` classifies `phone=false
+## tablet=true` (aspect .625, over `_PHONE_ASPECT_MAX`):
+##
+## | probe | at boot | what it means on glass |
+## |---|---|---|
+## | `_rangeswipe_probe.gd --census-only` | **224** unarbitrated writable `Range` in a live vertical scroller (214 of them `left_dock sheet`) | a vertical flick that starts on a slider rewrites the parameter, silently |
+## | `_gestclass_probe.gd --census-only` | **27** unarbitrated touch-DOWN (16 `OptionButton`, 7 `SpinBoxLineEdit`, 4 `LineEdit`) | a flick that starts on a dropdown opens its popup and then picks from it |
+##
+## Those are the same two defects `phone_fit()` was extended to close on
+## 2026-09-07, on a composition that is just as touch-only -- a tablet has no
+## wheel and no hover either. The tablet simply never ran the walk that carries
+## them: `tablet_fit()` had **one** call site (`tool_options_row`), and the
+## `node_added` hook that keeps the phone's docks fitted is connected inside
+## `_build_phone_shell()` and nowhere else.
+##
+## `unit` is a multiplier on *travelled distance*, not on a hit area, and it is
+## **1.0 on a tablet** for the same reason `_scaled()` reads a table rather than
+## a scale factor: the tablet composition lays out in physical pixels with no
+## `content_scale_factor`, so 8 authored px is 8 real px there. The phone passes
+## `_phone_scale` down a dock and `1.0` inside a content-scaled `Window`, and
+## both routes still reach this function unchanged.
+func _touch_arbitrate(ctl: Control, unit: float) -> void:
+	if ctl is HSlider:
+		## **And the gesture arbitration, which is the other half of the
+		## same sentence.** `DccWidgets.PgSlider` withholds the press
+		## until the gesture has travelled 8 dp and then gives it to the
+		## axis it travelled furthest along, because Godot's own
+		## `Slider::gui_input` sets the value on touch-DOWN -- so a
+		## vertical swipe that happens to begin on a slider rewrites the
+		## parameter instead of scrolling the sheet. Measured on glass:
+		## Ocean depth `0.60` -> `0.14` in one gesture, silently.
+		##
+		## Attached HERE rather than at each factory because a live
+		## census of the phone tree at 1080x2340
+		## (`_rangeswipe_probe.gd --census-only`) counted 247 `Range`
+		## nodes, **245 writable and inside a live vertical scroller, of
+		## which 3 arbitrated** -- and the other 242 are built by six
+		## different files. This walk already reaches all but two of
+		## them (`phone_menu.gd` and `world_workspace.gd` attach their
+		## own; neither surface is one `phone_fit()` walks).
+		## `8.0 * unit` is a distance TRAVELLED, so it takes the same
+		## `unit` the tap floor above takes and is deliberately not
+		## floored at 44: a slop is not a hit area.
+		DccWidgets.touch_slider(ctl as HSlider, 8.0 * unit)
+	## **A drag that starts on a row has to reach the scroll above it.**
+	## `dcc_widgets.gd` builds every row as an `HBoxContainer`, and a
+	## `Control` picks by default (`MOUSE_FILTER_STOP`), which ends the
+	## event walk right there -- Godot delivers a GUI event to the picked
+	## control and then up its parents, stopping at the first `STOP`. On a
+	## pointer that costs nothing, because scrolling is the wheel. On a
+	## phone it is the whole gesture: the left dock sheet could only be
+	## scrolled by catching its 4 px scrollbar, which on a 400 ppi panel
+	## is about a millimetre, so the NPR Painter block below the fold was
+	## effectively unreachable. Found by driving the real handset -- a
+	## flick on the rows did nothing, the same flick on the scrollbar
+	## worked.
+	##
+	## `PASS`, not `IGNORE`: a `PASS` control is still picked, so the
+	## row keeps its own tooltip and hover, and only *forwards* what it
+	## does not handle. Layout containers only -- a `PanelContainer` is
+	## excluded because several in this shell (`phone_menu.gd`'s rows,
+	## the roster's folded bar) carry their own `gui_input` and must
+	## keep stopping the event they consume.
+	if (ctl is BoxContainer or ctl is MarginContainer) \
+			and ctl.mouse_filter == Control.MOUSE_FILTER_STOP:
+		ctl.mouse_filter = Control.MOUSE_FILTER_PASS
+	## PH-05's last hole, found by re-running the flick sweep at
+	## `_phone_scale` 2.748 rather than at the 393 dp reference every earlier
+	## probe used: 6 of 8 points down the left sheet scrolled 329 px and two
+	## did not. One is an `HSlider`, which is deliberate and is explained
+	## below. The other is a **bare `Control`** -- `DccTheme.spacer()` and the
+	## fixed-width gaps beside it -- which defaults to `MOUSE_FILTER_STOP` and
+	## so ends the event walk on a node that exists only to take up room.
+	##
+	## Matched on the exact class rather than `is Control`, because every
+	## control in this shell is one; and skipped if anything is listening on
+	## `gui_input`, since a plain `Control` with a handler (a scrim, a drag
+	## handle) is picking on purpose. A spacer with neither has nothing to
+	## consume the event it is currently swallowing.
+	if ctl.get_class() == "Control" and ctl.get_script() == null \
+			and ctl.mouse_filter == Control.MOUSE_FILTER_STOP \
+			and ctl.get_signal_connection_list("gui_input").is_empty():
+		ctl.mouse_filter = Control.MOUSE_FILTER_PASS
+	## PH-05, the other half of the same sentence -- and the half that was
+	## actually load-bearing. A `Container` already defaults to `PASS`
+	## (measured, 4.7.1: `MOUSE_FILTER_PASS`, not the `Control` default the
+	## comment above assumed), so the rows were never the blocker. **A
+	## `Button` is.** `_scrolldrag_probe.gd` flicked twenty points down the
+	## left sheet: every point that failed to scroll was a `Button` or an
+	## `HSlider`, and from the accordion down the sheet is nothing *but*
+	## buttons -- the L2 `category()` headers, the L4 `group()` headers, every
+	## `action()`. That is the "a flick on the content does nothing" the
+	## handset found, and it is why the scrollbar still worked: only the
+	## content was covered.
+	##
+	## `PASS` is safe on a button *because* `ScrollContainer` and `BaseButton`
+	## already cooperate: past the deadzone the scroll propagates
+	## `NOTIFICATION_SCROLL_BEGIN`, which cancels the button's pending press.
+	## Measured, all four cases: a clean tap fires, a 2 px and a 6 px wobble
+	## still fire, an eight-sample flick scrolls 96 px and fires nothing.
+	##
+	## An `HSlider` is deliberately **not** included, and the reason
+	## written here until 2026-09-07 -- *"a drag that starts on a slider
+	## means 'move this slider', on every touch platform there is"* --
+	## was refuted on glass. It is true of the HORIZONTAL drag and false
+	## of the vertical one, and Godot makes it worse than a
+	## misclassification: `Slider::gui_input` calls `set_as_ratio()` from
+	## the PRESS position, so the value has already jumped before there
+	## is any motion to classify. `MOUSE_FILTER_PASS` would not have
+	## fixed that either -- a `PASS` control is still picked and still
+	## runs its own `gui_input`. The arbitration happens inside the
+	## control instead (`DccWidgets.touch_slider()`, attached a few lines
+	## above), which needs the `STOP` this clause leaves in place.
+	##
+	## **A `BaseButton` that opens its popup on *press* is converted
+	## rather than excluded, and that is a change from what stood here
+	## until 2026-09-07.** The old reason -- *"such a control pops
+	## mid-flick, the popup grabs the drag, and the gesture then
+	## neither scrolls nor is undone (measured on `OptionButton`: popup
+	## open, scroll 0)"* -- was a correct measurement of `PASS` alone,
+	## and `PASS` alone is not the fix. It leaves `action_mode` at
+	## `ACTION_MODE_BUTTON_PRESS`, so the popup still opens under the
+	## finger and the scroll it now forwards is a scroll of the popup.
+	##
+	## `DccWidgets.touch_release_button()`, called just below, moves
+	## `action_mode` to RELEASE **and** takes the control to `PASS` in
+	## the same step -- so by the time this clause runs, a converted
+	## dropdown is already `PASS` and this `if` is a no-op for it. The
+	## exclusion list stays for the ones it did NOT convert: a dropdown
+	## with no vertical scroller above it (the census's `scroller=none`
+	## rows -- one in `asset_library_window.gd`, one in
+	## `city_viewer_window.gd`, and the seven `MenuButton`s of the menu
+	## bar) keeps opening on press, because there is nothing there for a
+	## vertical gesture to mean instead.
+	##
+	## `ColorPickerButton` is excluded on its own footing and not by
+	## association: it measures `action_mode == 1` (RELEASE) on 4.7.1,
+	## so it is not the touch-DOWN defect at all. It stays `STOP`
+	## because whether that blocks a scroll under it is a separate
+	## question, and no probe in this pass could stage a visible one.
+	if ctl is BaseButton and ctl.mouse_filter == Control.MOUSE_FILTER_STOP \
+			and not (ctl is OptionButton or ctl is MenuButton \
+				or ctl is ColorPickerButton):
+		ctl.mouse_filter = Control.MOUSE_FILTER_PASS
+	## **The other half of the same sentence, and the half that makes
+	## the clause above safe to widen.** Godot's `OptionButton` and
+	## `MenuButton` ship `action_mode == ACTION_MODE_BUTTON_PRESS`
+	## (measured on 4.7.1, against `CheckBox` 1, `ColorPickerButton` 1
+	## and `Button` 1), so their popup opens on touch-DOWN, before there
+	## is any motion to classify -- the §1.14 slider defect one class
+	## over. `_gestclass_probe.gd` at 1080x2340, before this call
+	## existed: a jittered vertical swipe on a left-dock
+	## `DccWidgets.choice()` row took `sel=7 -> sel=3` with the sheet
+	## not moving, and the same swipe on the New World card left its
+	## popup standing open.
+	##
+	## **The census, with its state named, because the state is most of
+	## the number.** `_gestclass_probe.gd --census-only` at 1080x2340,
+	## with this call neutered, counts unarbitrated touch-DOWN controls
+	## inside a live vertical scroller as:
+	##
+	##   world-less boot          **22** = 18 `OptionButton` + 4 `LineEdit`
+	##   after tapping PLAN       **38** = 34 + 4
+	##   after a generate         **44** = 40 + 4
+	##
+	## With it in place, **4** in every one of those states, all
+	## `LineEdit`. So this converts **40** dropdowns, not the 18 a
+	## world-less boot can see -- the same understatement §1.15's
+	## slider census recorded about itself and which cost that pass
+	## four uncovered sites. The 18 break down 10 left sheet, 6 New
+	## World card, 2 in `asset_library_window.gd`'s slicer modal (an
+	## unscripted `AcceptDialog`, fitted by its own `phone_fit` call).
+	##
+	## The 4 `LineEdit`s are left alone: they write no value, they take
+	## FOCUS from the press (and on Android raise the soft keyboard
+	## over the sheet the swipe was scrolling), and no state this probe
+	## could stage put a visible one inside a scroller -- so the change
+	## would have been unmeasurable. Reported, not changed.
+	##
+	## Placed in `phone_fit()` for the reason `touch_slider()` above is:
+	## the population is built by five different files and this walk
+	## already reaches every one of them.
+	if ctl is BaseButton:
+		DccWidgets.touch_release_button(ctl as BaseButton)
+	## **The third member of the same family, and the one the paragraph
+	## above deferred.** That note said the 4 `LineEdit`s were "left
+	## alone … no state this probe could stage put a visible one inside
+	## a scroller -- so the change would have been unmeasurable". A
+	## verifier then staged one: a jittered vertical swipe on the New
+	## World card's **Seed** field gives scroll `0 -> 0` with its
+	## internal `SpinBoxLineEdit` focused, while the label column at the
+	## same `y` scrolls `0 -> 62`. On Android that focus raises the soft
+	## keyboard over the sheet the swipe was trying to scroll.
+	##
+	## Neither switch above is the switch here -- a `LineEdit` has no
+	## `action_mode`, and the `SpinBoxLineEdit` rows are **already
+	## `MOUSE_FILTER_PASS` and still eat the swipe**, because
+	## `LineEdit::gui_input` accepts every left press. The lever is
+	## `focus_mode`, measured against three alternatives in
+	## `DccWidgets.PgField`'s own table.
+	##
+	## **Two call sites, not one**, and the second is the reason the
+	## first is not enough: a `SpinBox`'s field is an INTERNAL child,
+	## and this walk iterates `get_children()`, which excludes internal
+	## children -- so **12 of the 16 hazardous fields at boot** are
+	## unreachable from the `ctl is LineEdit` branch and have to be asked
+	## for by name. (20 after PLAN or MORE, 24 with a world loaded; the
+	## ratio at maximum is 20 of 24. This said "12 of 34", and **no state
+	## produces 34** -- it was 16 plus the 18 hidden `PopupMenu` search
+	## fields, which the same change taught the census to exclude.)
+	if ctl is LineEdit:
+		DccWidgets.touch_focus_field(ctl as LineEdit, 8.0 * unit)
+	elif ctl is SpinBox:
+		DccWidgets.touch_focus_field(
+			(ctl as SpinBox).get_line_edit(), 8.0 * unit)
+	## `TextEdit` is deliberately not in that list. It is the other
+	## touch-DOWN text class, but it carries its OWN vertical scroll, so
+	## "give the vertical to the ancestor" is the wrong answer for it
+	## and no state this pass could stage put one inside a live
+	## scroller. **Stated precisely, because the first version of this
+	## line overstated it:** `--census-only` reports exactly ONE
+	## `TextEdit` in every state -- `gen_info_dialog.gd`'s, with
+	## `scroller=none` and `live=false` -- not zero. The claim the
+	## exclusion rests on is the narrower one and it holds: no
+	## `TextEdit` sits inside a live vertical scroller. Reported, not
+	## changed.
+	## That deadzone is not a default -- Godot's is **0**, at which the ~2 px
+	## of wobble in a real thumb tap already counts as a drag and silently
+	## eats the press. Without this, the fix above would trade "the sheet does
+	## not scroll" for "the buttons do not press". Scaled with the rest of the
+	## subtree, so it is the same physical distance in a dock (unscaled,
+	## `unit` = `_phone_scale`) as in a content-scaled window (`unit` = 1.0).
+	if ctl is ScrollContainer:
+		(ctl as ScrollContainer).scroll_deadzone = maxi(
+			PHONE_SCROLL_DEADZONE, int(round(PHONE_SCROLL_DEADZONE * unit)))
+
 # -- §13 Tablet interior ------------------------------------------------------
 #
 # `UNWIRED_FUNCTIONS.md`'s "the tablet interior walk -- nothing reads `ROLE`",
@@ -2262,6 +2378,65 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 ## Idempotent, matching `phone_fit()`'s own `_PHONE_FIT_META` pattern -- safe
 ## to call more than once over the same subtree.
 const _TABLET_FIT_META := "_tablet_fitted"
+
+## **The tablet's own reach to `_touch_arbitrate()`, kept separate from the
+## sizing walk above on purpose.**
+##
+## `tablet_fit()` floors heights and font sizes; this classifies gestures. They
+## are wired apart because their blast radius is not the same: the sizing walk
+## has one call site (`tool_options_row`) and widening *it* to both docks would
+## re-float ~700 nodes' minimum heights and label sizes inside a fixed 400 px
+## dock -- a layout change nothing in this pass measured. The arbitration
+## changes `mouse_filter`, `action_mode`, `focus_mode`, `scroll_deadzone` and a
+## slider's script, and moves no pixel at rest.
+##
+## Gated on `is_tablet()` rather than `is_touch()` for the reason `tablet_fit()`
+## gives one screen up, and belt-and-braces: the phone reaches the identical
+## body through `phone_fit()` with its own `unit`, and must never be walked
+## twice with a different one.
+##
+## `unit` is 1.0 and is passed explicitly rather than defaulted, so a caller
+## cannot acquire the phone's scale by omission.
+func tablet_arbitrate(node: Node) -> void:
+	if not DccTheme.is_tablet():
+		return
+	_touch_arbitrate_walk(node, 1.0)
+
+## Idempotent by the same meta pattern `phone_fit()` and `tablet_fit()` use.
+## Its own key, not theirs: a node the sizing walk has already visited still
+## needs arbitrating, and vice versa.
+const _TOUCH_ARB_META := "_touch_arbitrated"
+
+func _touch_arbitrate_walk(node: Node, unit: float) -> void:
+	for child in node.get_children():
+		if child is Control and not child.has_meta(_TOUCH_ARB_META):
+			child.set_meta(_TOUCH_ARB_META, true)
+			_touch_arbitrate(child as Control, unit)
+		_touch_arbitrate_walk(child, unit)
+
+## The tablet half of `_on_phone_node_added()`, and the reason the census
+## number was 224 rather than 0: every workspace panel is attached to a dock
+## long after `_build_desktop_shell()` returns, so a one-shot walk at boot
+## would arbitrate the chrome and none of the content. Same coalescing as the
+## phone's -- one deferred pass per frame however many nodes arrive.
+var _tablet_arb_pending := false
+
+func _on_tablet_node_added(node: Node) -> void:
+	if _tablet_arb_pending or not (node is Control):
+		return
+	var p: Node = node.get_parent()
+	while p != null:
+		if p == left_dock or p == right_dock:
+			_tablet_arb_pending = true
+			_run_tablet_dock_arbitrate.call_deferred()
+			return
+		p = p.get_parent()
+
+func _run_tablet_dock_arbitrate() -> void:
+	_tablet_arb_pending = false
+	for dock in [left_dock, right_dock]:
+		if dock != null:
+			tablet_arbitrate(dock)
 
 ## Walks `node`'s descendants and floors whatever a `DccWidgets`/`right_dock.gd`
 ## /`layers_popover.gd` factory did not already size: any `BaseButton`,
@@ -4655,15 +4830,40 @@ func _wire_status_progress() -> void:
 ## The `top_*` slots are menu-bar labels registered into the same dictionary and
 ## are deliberately left out of the omission pass: they are a different strip
 ## with a different layout, and hiding one would reflow the menu bar.
-func set_status(slot: String, text: String, token: String = "text_faint") -> void:
+## **The default ink is per-strip, and until 2026-09-07 it was not.** Every
+## write here stamps a `font_color` override, so a build-time token on one of
+## these labels survives exactly until the first `set_status()` call -- and
+## `app.gd:611` writes `set_status("top_world", "—")` during boot. The menu
+## bar's readouts were therefore drawn in the status bar's ink no matter what
+## `_build_menu_bar()` asked for, which is why correcting the construction site
+## alone moved nothing: caught by `_canvasfig_probe.gd`, which asserts the ink
+## on the LIVE label rather than at construction, four cells passing and
+## `top_world` -- the one slot boot writes -- failing.
+##
+## The two strips are two different canvas rows and the canvas gives them
+## different inks: `ENV:104` (menu bar) is `color:var(--dim)`, `ENV:1222`
+## (status bar, `statusKeys`) is `color:var(--faint)`. A single default cannot
+## be right for both, so the default is resolved from the slot's own strip.
+## An explicit `token` argument still wins, which is what the status bar's
+## severity writers (`accent` for `autosave failed`) depend on.
+const _STATUS_TOP_PREFIX := "top_"
+
+static func _status_default_token(slot: String) -> String:
+	return "text_dim" if slot.begins_with(_STATUS_TOP_PREFIX) else "text_faint"
+
+func set_status(slot: String, text: String, token: String = "") -> void:
 	if not _status_labels.has(slot):
 		push_error("DccShell: no status slot '%s'" % slot)
 		return
+	var ink: String = token if token != "" else _status_default_token(slot)
 	var l: Label = _status_labels[slot]
 	l.text = text
-	l.add_theme_color_override("font_color", DccTheme.c(token))
+	l.add_theme_color_override("font_color", DccTheme.c(ink))
 	if slot == "autosave":
-		_paint_status_dot(token)
+		## `ink`, not `token` -- an omitted argument is now the empty string,
+		## and `DccTheme.c("")` is not a colour. The dot must follow whatever
+		## the label was actually painted with, which is what `ink` is.
+		_paint_status_dot(ink)
 	if _status_cells.has(slot) or STATUS_TAIL_SLOTS.has(slot):
 		_apply_status_omission()
 
@@ -5595,14 +5795,17 @@ func _refresh_phone_tabs() -> void:
 			(lbl as Label).add_theme_color_override("font_color",
 				DccTheme.c("accent" if on else "text_dim"))
 		if pill != null and is_instance_valid(pill):
-			## `rgba(224,163,74,.16)` verbatim from the candidate, NOT the
-			## `accent_wash` token. That token is 8% (`#e0a34a14`), which is
-			## the desktop's active-menu wash and is effectively invisible
-			## behind a 14 px glyph on `#121314` -- checked on the handset, the
-			## pill did not read at all at 8%. The candidate chose twice that
-			## for this surface and it is right for it.
-			var box := DccTheme.flat(Color(DccTheme.c("accent"), 0.16))
-			box.set_corner_radius_all(_pscale(14))
+			## **`.14` and radius `13`, from `AND:600` + `AND:1460` + `AND:31`,
+			## not the `.16` / `14` this took from a candidate.** NOT the
+			## `accent_wash` token either: that is 9% (`ENV:25`), the desktop's
+			## active-menu wash, and it is effectively invisible behind a 14 px
+			## glyph on `#121314` -- checked on the handset, the pill did not
+			## read at all at that weight. `--wash` in the ANDROID palette is a
+			## different figure from `--wash` in the PC one (`.14` against
+			## `.09`), which is why this cannot simply read the shared token --
+			## and the measured objection does not apply to `.14`.
+			var box := DccTheme.flat(Color(DccTheme.c("accent"), 0.14))
+			box.set_corner_radius_all(_pscale(13))
 			(pill as PanelContainer).add_theme_stylebox_override("panel",
 				box if on else DccTheme.empty())
 
@@ -5638,7 +5841,11 @@ func _phone_bar_cell(caption: String, glyph: String, tip: String,
 	b.pressed.connect(on_press)
 
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", _pscale(4))
+	## `AND:599`: `gap:3px` between the pill and the caption, not 4. The 4 came
+	## from `candidates/Android Chrome B.dc.html`, which this cell is anchored
+	## to in three more places below -- all three re-checked in the same pass
+	## and all three moved.
+	col.add_theme_constant_override("separation", _pscale(3))
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
@@ -5648,12 +5855,20 @@ func _phone_bar_cell(caption: String, glyph: String, tip: String,
 	## transform, which here is 1, so this is the real raster size too.
 	var ic := DccIcons.rect(glyph, _pscale(14), "text_dim")
 	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	## The glyph sits in a pill that only the ACTIVE tab fills --
-	## `candidates/Android Chrome B.dc.html`: `padding:5px 16px;
-	## border-radius:14px; background:rgba(224,163,74,.16)`. Lighting only the
-	## caption (what the bar did before) left four labels of equal weight and no
-	## sense of where you are. Empty stylebox until `_refresh_phone_tabs()`
-	## fills it, so an inactive tab is byte-identical to what it drew before.
+	## The glyph sits in a pill that only the ACTIVE tab fills. Lighting only
+	## the caption (what the bar did before) left four labels of equal weight
+	## and no sense of where you are. Empty stylebox until
+	## `_refresh_phone_tabs()` fills it, so an inactive tab is byte-identical to
+	## what it drew before.
+	##
+	## **Re-anchored 2026-09-07 from the candidate to the shipped canvas.** This
+	## cited `candidates/Android Chrome B.dc.html`: `padding:5px 16px;
+	## border-radius:14px; background:rgba(224,163,74,.16)`. The live
+	## `Cartalith Android.dc.html` line 600 is `padding:4px 16px;
+	## border-radius:13px; background:{{ t.bg }}`, and `t.bg` for the active tab
+	## resolves at line 1460 to `var(--wash)` = `rgba(224,163,74,.14)` (line 31).
+	## So all three of the candidate's numbers moved by one rung, and only the
+	## 16 px horizontal padding survived. A candidate is not the canvas.
 	var pill := PanelContainer.new()
 	pill.add_theme_stylebox_override("panel", DccTheme.empty())
 	pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -5661,8 +5876,8 @@ func _phone_bar_cell(caption: String, glyph: String, tip: String,
 	var pill_pad := MarginContainer.new()
 	pill_pad.add_theme_constant_override("margin_left", _pscale(16))
 	pill_pad.add_theme_constant_override("margin_right", _pscale(16))
-	pill_pad.add_theme_constant_override("margin_top", _pscale(5))
-	pill_pad.add_theme_constant_override("margin_bottom", _pscale(5))
+	pill_pad.add_theme_constant_override("margin_top", _pscale(4))
+	pill_pad.add_theme_constant_override("margin_bottom", _pscale(4))
 	pill_pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pill_pad.add_child(ic)
 	pill.add_child(pill_pad)
@@ -5755,7 +5970,12 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	## prototype the grab region is the header block and is nowhere near the
 	## limit. Filed as an open question for `DESIGN_HANDOFF.md` rather than
 	## answered from this file.
-	_phone_sheet_grab.custom_minimum_size.y = _pscale(24)
+	## **20, from `AND:177`** -- `<div style="height:20px;display:flex;
+	## align-items:center;justify-content:center">` around the 42x4 pill. The
+	## paragraph above says "what no canvas settles is how tall a *headerless*
+	## sheet's grab region is"; the shipped Android canvas settles it, and the
+	## 24 here was the reasoned estimate that sentence licensed.
+	_phone_sheet_grab.custom_minimum_size.y = _pscale(20)
 	_phone_sheet_grab.mouse_filter = Control.MOUSE_FILTER_STOP
 	_phone_sheet_grab.gui_input.connect(_on_phone_sheet_grab_input)
 	var handle := ColorRect.new()
@@ -5766,16 +5986,23 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	## rather than in value -- `text_ghost` at the alpha this handle already
 	## carried, unchanged.
 	##
-	## The newest canvas paints this pill `var(--bord)`, which its §0.3 table
-	## gives as `rgba(255,255,255,.16)` dark / `rgba(0,0,0,.20)` light -- a
-	## *lighter* weight than either the candidate's `.25` or the `0.55` shipped
-	## here. **Left alone on purpose.** An alpha on a shared token is a
-	## relationship, not a value: this pill sits on the sheet's `raised` ground
-	## in both palettes, and re-weighting it is a contrast change that has to be
-	## computed for light and dark both. That is a token pass, not a detent
-	## pass; recorded here so the next one has the three candidate weights in
-	## one place.
-	handle.color = Color(DccTheme.c("text_ghost"), 0.55)
+	## **The objection above is answered rather than overruled, 2026-09-07.** It
+	## read: the newest canvas paints this pill `var(--bord)`, *"but an alpha on
+	## a shared token is a relationship, not a value … re-weighting it is a
+	## contrast change that has to be computed for light and dark both. That is
+	## a token pass, not a detent pass."* True of a hand-written
+	## `Color(1,1,1,0.16)`, which is what was being weighed. It is not true of
+	## the **token**: `DccTheme.DARK["border"]` is already `Color(1,1,1,0.16)`
+	## and `LIGHT["border"]` is `Color(0,0,0,0.20)` -- character for character
+	## the two values `Cartalith Android.dc.html` gives `--bord` (line 31 dark,
+	## line 1469 light). So both palettes are computed, by the canvas, and
+	## reading the token keeps `remap()` working, which was the whole reason a
+	## literal was refused.
+	##
+	## `AND:177` is the row this pill sits in and it is unambiguous:
+	## `height:20px … width:42px;height:4px;border-radius:2px;
+	## background:var(--bord)`.
+	handle.color = DccTheme.c("border")
 	## 42 x 4, the newest canvas's own figure -- see the grab row above for the
 	## three-way provenance and why the row's height did not move with it.
 	var hw := _pscale(42)
@@ -6172,8 +6399,13 @@ func _build_phone_gesture_inset() -> Control:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	wrap.add_child(bg)
 	var handle := ColorRect.new()
-	handle.color = Color(DccTheme.c("text_ghost"), 0.6)  ## Token-derived: see the
-		## tool sheet's own handle for why a literal white is wrong here.
+	## `AND:605`: `width:112px;height:4px;border-radius:2px;background:var(
+	## --bord)`. `border` is that token in both palettes (`DccTheme.DARK` /
+	## `LIGHT`, `#ffffff29` / `#00000033`), so this is the canvas value and is
+	## still token-derived -- see the tool sheet's own handle for the argument
+	## that a literal white would break `remap()`, and for why reading the
+	## token is not the same thing as writing the literal.
+	handle.color = DccTheme.c("border")
 	var hw := _pscale(DccTheme.W_PHONE_GESTURE_HANDLE)
 	var hh := _pscale(4)
 	handle.set_anchors_preset(Control.PRESET_CENTER)

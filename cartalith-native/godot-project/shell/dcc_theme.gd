@@ -772,6 +772,64 @@ const LAPTOP := {
 # (24 → 36), `--btnH` (28 → 44), `--row` (28 → 44) and `--g` (10 → 12, which is
 # dead in the prototype and deliberately not imported — see the palette header).
 #
+# **A SECOND, LARGER DISAGREEMENT, measured 2026-09-07: there is a whole
+# tablet canvas this table has never been read against.**
+#
+# Every tablet figure above is homed to `ENV:1819`'s `densStr` -- the *PC*
+# canvas's touch branch. `design/mcp-2026-09-07/Cartalith Tablet.dc.html`, which
+# the owner named the same day ("Implement: Tablet"), draws its own and they are
+# not the same tablet. Its `valsShell()` writes
+# `--menuH:52px;--railH:56px;--railW:52px;--sbH:28px;--tap:44px;--ctl:36px;
+# --row:48px;--rowD:44px;--rCtl:12px;--rPan:16px` plus a portrait/landscape
+# split `--ldW/--rdW: 232px | 320px` and `--m0/--m1/--m2: 12/11/9.5 | 12.5/11.5/10`.
+# Against `ENV`'s touch column, token by token:
+#
+# | token | `ENV:1819` (this table's source) | `Cartalith Tablet.dc.html` |
+# |---|---|---|
+# | `--railW` | 48 | **52** |
+# | `--sbH` | 36 | **28** |
+# | `--row` | 44 | **48** (plus a second `--rowD:44`) |
+# | `--ldW` / `--rdW` | 400 / 400 | **232 portrait, 320 landscape** |
+# | `--m1` / `--m2` | 12 / 11 | **11 / 9.5** portrait, **11.5 / 10** landscape |
+# | — | no counterpart | `--railH:56` (a **horizontal** rail under the menu bar) |
+# | — | no counterpart | `--rCtl:12px` / `--rPan:16px` (radii, against §11's radius-0 rule) |
+# | `--tbH` 56, `--btnH` 44, `--tool` 44, `--pad` 16, `--fs` 14 | present | **absent** |
+#
+# The palette disagrees too, and by more than the metrics. Counted rather than
+# estimated -- both token blocks parsed and compared this session: of the tokens
+# both canvases declare, **5 agree and 12 differ**, with 7 more declared by only
+# one side. The three that cannot be reconciled by a value are the hairlines:
+# `--hair #232628`, `--div #1e2123` and `--bor #2c3033` are **opaque** where this
+# file's `line`/`line_soft`/`border` are `Color(1, 1, 1, .10/.07/.16)`. A white
+# alpha composites differently over `--pan` than over `--sur`; an opaque hex does
+# not. **No alpha value reproduces them**, so this is a structural change to
+# `DARK`, not a re-tune of three numbers. Also differing: `--sur`, `--pan`,
+# `--ink`, `--dis`, `--ins`, `--accInk`, `--good`, `--wash2` and `--shadow`; and
+# `--map` and `--tst` have no token here at all.
+#
+# **Not resolved here, and not resolvable by one lane.** Three reasons, stated
+# so the next reader does not re-derive them:
+#
+#   1. It needs an owner ruling on which canvas governs a tablet. `CLAUDE.md`'s
+#      "the newer canvas wins" does not decide it -- both were imported from the
+#      owner's project on the same day, and they are not two drafts of one
+#      drawing but two drawings of different form factors that overlap.
+#   2. A third palette is not a `c()` branch. `dcc_shell.gd`'s `rebuild_theme()`
+#      remaps live colours through `old_pal = DccTheme.DARK if was_dark else
+#      LIGHT`; a tablet palette that `c()` returned but that call did not know
+#      about would leave every repainted node reading the desktop values.
+#   3. The horizontal `--railH:56` rail and the 232/320 portrait-landscape dock
+#      split are **layout**, not tokens -- and the honest version of "this does
+#      not exist" is narrower than it first looks. `DccShell` *does* track
+#      orientation: `_compute_layout_mode()` sets `_landscape` on every resize
+#      and re-lays the shell when it flips. **Every consumer of it is a
+#      `_phone_*` surface**, so the machinery a tablet split needs is already
+#      built and simply is not reached from the tablet composition. `DccTheme`
+#      itself has no orientation predicate at all -- `is_touch()`,
+#      `is_tablet()` and `is_phone()` are the whole vocabulary here -- so a
+#      232/320 pair could not be expressed as a `ROLE` row even if it were
+#      ruled on; `ROLE` is a two-column table and this is a third column.
+#
 # **What guards this table:** `_roleresolve_probe.tscn`, added 2026-09-03. Until
 # then every property below was carried by this prose alone. It pins the
 # predicate (an `is_touch()` "simplification" would hand the phone the tablet
@@ -889,11 +947,50 @@ const ROLE := {
 	"fs_hero": [26, 30],
 	"fs_hero_2": [22, 26],
 
+	## `--tool`, 30 -> **44** (`ENV:25` / `ENV:1819`). The viewport's Layers
+	## button (`ENV:900`), sized `width:var(--tool);height:var(--tool)` and read
+	## by `viewport_host.gd`'s `_layers_btn` since 2026-09-07.
+	##
+	## **This row read `[36, 36]` and sat under the "Pinned" heading below,
+	## annotated "the layers button, `36×36` in both artboards".** Both halves
+	## were false against the canvas the rest of this table is homed to, and the
+	## heading made the error look deliberate -- "pinned" asserts that the two
+	## columns agreeing is a measured fact, and here it was an artefact of a
+	## retired artboard. Nothing consumed it, so nothing contradicted it:
+	## `_layers_btn` carried its own `44 if _touch else 26` literal pair, which
+	## agreed with neither column nor with `--tool`. `grep -rn 'w_fab' --include=*.gd`
+	## over the whole project on 2026-09-07 returned this row, that button and
+	## `_roleresolve_probe.gd` -- three lines, no third opinion.
+	##
+	## `--tool` is the *same* token as `h_rail_head` below is homed to
+	## (`ENV:284`'s rail chevron cell), and both now read `[30, 44]`. That is
+	## the canvas agreeing with itself, not a duplicate: the two rows answer
+	## different callers, exactly as this table's own header describes for the
+	## region-box rows.
+	"w_fab": [30, 44],
+	## The **graphical** scale bar under the viewport's km label, which this
+	## port did not draw at all until 2026-09-07 -- `viewport_host.gd` built the
+	## text and stopped. Both canvases draw the rule and they draw it
+	## differently, so this is a measured pair and not a scaled one:
+	##
+	##   - `ENV:916`: `width:120px;height:1px;background:var(--sec)`, with two
+	##     `width:1px;height:5px` end ticks in the same ink, `bottom:0` inside a
+	##     1 px box -- so they rise *above* the rule.
+	##   - `TAB:451`: `width:84px;height:4px` drawn as `border-top` +
+	##     `border-left` + `border-right`, 1 px, in `var(--dim)` -- the same
+	##     figure mirrored, ticks hanging *below*.
+	##
+	## The phone canvas draws no scale bar at all (`grep` for a `scaleLab` ref
+	## over `Cartalith Android.dc.html` returns nothing), which is why
+	## `viewport_host.gd` gates the rule on `is_phone()` rather than reading a
+	## third column that would have to be invented.
+	"w_scale_bar": [120, 84],
+	"h_scale_tick": [5, 4],
+
 	# — Pinned. Listed rather than omitted, because "the canvas draws this the
 	#   same at both sizes" is a measured fact and a caller that guesses will
 	#   scale it. §11's letter-spacings are pinned too and are not figures this
 	#   table carries — `mono()` takes them as an argument.
-	"w_fab": [36, 36],             ## The layers button, `36×36` in both artboards.
 	"hairline": [1, 1],
 	"active_underline": [1, 2],    ## The one border that is *not* pinned: the
 		## open menu-bar title's underline, `1px` → `2px solid #e0a34a`.
@@ -928,6 +1025,43 @@ const ROLE := {
 ## `TOUCH_SCALE`, its *interior* through `ROLE`; phone is a distinct
 ## composition, because none of the desktop regions survive phone width
 ## unchanged.
+## ─────────────────────────────────────────────────────────────────────────
+## **SUPERSESSION NOTICE, 2026-09-07. Every figure below is a true citation to
+## a canvas the owner has since replaced. Do not "correct" them one at a time;
+## the whole block needs one owner ruling.**
+##
+## `design/Cartalith Android Phone.dc.html` is what the paragraphs below quote,
+## and it says what they say -- checked literal by literal this session, not
+## assumed. On 2026-09-07 the owner named a *different* phone canvas,
+## `design/mcp-2026-09-07/Cartalith Android.dc.html`, imported live from the
+## project the same day ("Implement: Smartphone"). The two draw different
+## phones, and these are the differences that reach a constant here:
+##
+## | figure | 412 canvas (the 2026-08-25 ruling) | `Cartalith Android.dc.html` |
+## |---|---|---|
+## | status row | `height:28px;padding:0 16px` | `height:max(env(safe-area-inset-top),30px);padding:0 18px` (`AND:78`) |
+## | app bar | `height:56px;gap:14px;padding:0 12px;border-bottom:1px rgba(255,255,255,.09)` | **no fixed height**, `gap:8px;padding:4px 10px 0`, no border (`AND:79`) |
+## | app-bar buttons | `40x40`, no background, leading ☰ | `44x44;border-radius:22px`, filled, `border:1px solid var(--hair)`, **both trailing**, ⌕ then ⋮ (`AND:87-88`) |
+## | bottom nav | `height:64px;background:#131516;border-top .09`, **five** `flex:1` cells, `gap:4px`, caption `9.5px/.1em` | 84 px total, `background:var(--pan2)`, `border-top:var(--hair2)` (.07), **four** cells, `gap:3px`, caption `9.5px/.12em`, pill `padding:4px 16px;border-radius:13px` (`AND:596-604`) |
+## | gesture row | `height:20px`, handle `rgba(255,255,255,.22)` | `max(env(safe-area-inset-bottom),18px)`, handle `var(--bord)` = `.16` (`AND:604`) |
+## | landscape | **none exists** -- `grep -c "landscape\|portrait\|rotate"` over the 412 canvas is **0** | an explicit branch: 72 px left rail, `--pan2`, 1 px `--hair2` right border, `gap:6`, `padding-top:40`, cells `60x56` r16, glyph 14, caption `8.5px/.08em` (`AND:607-617`) |
+## | slider | row `height:32px`, thumb `22x22` r11 | `input[type=range]{height:22px}`, thumb `20x20` r10 (`AND:10`) |
+##
+## **This is a canvas-supersession question, not a defect list.** A 2026-09-07
+## diff pass read six of these constants as "undisclosed departures dressed as
+## citations" -- a comment naming a canvas that no longer says what it claims.
+## That grading is wrong on the mechanism and it matters, because the two
+## conclusions send a lane to opposite places: nothing here drifted from its
+## source, and a lane told the comments are stale would rewrite prose that is
+## accurate while leaving the values, which are the half that actually moved.
+##
+## Values are left alone deliberately. Six of them are consumed by
+## `dcc_shell.gd`'s phone composition, adopting the new canvas is a layout
+## change and not a token change (four cells against five, an app bar with no
+## height, a landscape rail that does not exist here), and `CLAUDE.md`'s "the
+## newer canvas wins" is a tie-break between *drawings* -- it does not by
+## itself overturn a dated owner ruling that named a file. Ask.
+## ─────────────────────────────────────────────────────────────────────────
 const PHONE_REF_SHORT := 412.0   ## The canvas's own short-side width -- the
 	## scale of "1 phone dp" that every constant below is authored at.
 	## `DccShell._phone_scale` maps it onto the real device's short side.

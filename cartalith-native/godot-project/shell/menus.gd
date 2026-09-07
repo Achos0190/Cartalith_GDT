@@ -2322,7 +2322,39 @@ func _on_assets(id: int) -> void:
 ## `.geojson` on Export ▸ GIS and `map + atlas` on Export ▸ World Data, neither
 ## of which appears in `Cartalith DCC Shell.dc.html`, `Cartalith Menu Structure
 ## v2.dc.html` or `v3.dc.html` (`grep -c` = 0 in all three, 2026-09-07). The
-## labels themselves *are* the canvas's, all fifteen.
+## labels themselves *are* the canvas's, all fifteen -- **`DCC shell tablet
+## 2560`'s. The canvas that governs this shell draws a different menu.**
+##
+## Measured 2026-09-07 against `cartalith-dcc-parts.js`, the method body behind
+## `design/mcp-2026-09-07/Cartalith DCC Environment.dc.html` (the owner's PC
+## canvas, imported live from the project the same day). Its `id==='data'` arm
+## builds, in order: IMPORT `Maps · heightmaps (PNG · TIFF)` / `GIS / GeoJSON` /
+## `World data (.zip · fields)`; EXPORT `Maps (image · tiles)` / `GIS / GeoJSON`
+## / `World data` / `Assets (pack .zip)`; SOURCES `External sources` /
+## `Source registry`; CONVERSION `Coordinate systems (EPSG)` /
+## `Format conversion`; VALIDATION `Check data · 3 warnings` /
+## `Repair / normalize`. Against `DataManagerWindow.ROUTES`:
+##
+##   - **Case.** Every multi-word label here is Title Case (`World Data`,
+##     `External Sources`, `Source Registry`, `Check Data`,
+##     `Repair / Normalize`); the governing canvas is sentence case throughout.
+##   - **Three rows this shell has and that canvas does not**: Import > Assets,
+##     Sources > Connected Sources, Validation > Definitions.
+##   - **One row it merges**: `Maps · heightmaps (PNG · TIFF)` is one
+##     destination there and two here (`Maps`, `Heightmaps`).
+##   - CONVERSION's absence here is **correct and already ruled** -- owner,
+##     2026-08-20, the paragraph above. The canvas is the stale party on that
+##     one, which is worth stating precisely because everything else in this
+##     list runs the other way.
+##
+## **Not changed here.** The case is a one-line-per-row edit and safe; the three
+## extra rows and the merge are not -- each is a live destination
+## `open_data_manager_route()` reaches, so "conform to the canvas" means
+## deleting reachable capability, which needs an owner ruling and an inventory,
+## not a rename pass. Doing only the halves that are safe would leave this menu
+## conforming in typography and not in content, which is a worse state to audit
+## than the honest one. Recorded so the next reader does not re-measure it, and
+## so this paragraph stops claiming a conformance it does not have.
 ##
 ## One thing the canvas has that a `PopupMenu` cannot draw: its badge is a
 ## right-aligned second column in `13px 'IBM Plex Mono';color:#6f7478`. Godot's

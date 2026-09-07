@@ -101,19 +101,37 @@ func rebuild() -> void:
 
 # -- Composition ---------------------------------------------------------------
 
-## **Two ruled 38 px rows, not two unruled ones inside a 34 px bar.**
+## **Two ruled 38 px rows, not two unruled ones inside a one-row bar.**
 ##
 ## `GUI_GAP_REGISTER.md` §51 row 61 recorded this as an owner call, because the
-## two canvases disagree: `DCC shell 1920` draws the tool options bar as **one**
+## two canvases disagreed: `DCC shell 1920` drew the tool options bar as **one**
 ## `height:34px` row, and `Cartalith Paint Toolbar.dc.html` draws **two**, each
 ## `height:38px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10)`.
-## `DCC_SHELL_SCOPE.md`'s rule 1 settles it: the Paint Toolbar is the later
+## `DCC_SHELL_SCOPE.md`'s rule 1 settled it: the Paint Toolbar is the later
 ## artboard and draws a component the other does not, so it wins. This built the
 ## two rows already -- at 22 and 24-28 px, with a 4 px gap and no rule.
 ##
-## The shell's bar keeps its own 34 px minimum, which is the *idle* row
-## `DCC shell 1920` draws and what `app.gd` fills when no tool is armed; the
-## two rows below push past it when a tool is.
+## **Re-read against the governing canvas 2026-09-07, and two of the three
+## figures above are stale.** `Cartalith DCC Environment.dc.html` -- the canvas
+## the owner's 2026-08-25 ruling makes the newer authority, and the one every
+## `ROLE` row is homed to -- draws this bar at `ENV:149` as
+## `height:var(--tbH);gap:10px;padding:0 var(--pad);border-bottom:1px solid
+## var(--hair)`, and `--tbH` is **40** (`ENV:25`) / **56** (`ENV:1819`). So:
+##
+##   - The **34** in the paragraph above is a retired artboard's number twice
+##     over. `ROLE.h_tool_options` has read `[40, 56]` off `ENV` since
+##     2026-08-31, and `dcc_shell.gd:1714` sets the bar's minimum from it -- so
+##     the sentence that used to end this comment, "the shell's bar keeps its
+##     own 34 px minimum", described nothing in the tree. Removed rather than
+##     re-worded: `role_px("h_tool_options")` is the figure, and quoting it
+##     here would be a second source of truth for it.
+##   - The **one-row/two-row disagreement is now three-way**, and the newest
+##     party is back on one row. The two rows stay because they are an owner
+##     call and an owner decision outranks a canvas -- but the ruling was made
+##     against `DCC shell 1920`, not against this canvas, so it is available to
+##     be re-taken and that is a decision for the owner, not for this file.
+##
+## `BAR_ROW_H` itself is unchanged and still the Paint Toolbar's own 38.
 const BAR_ROW_H := 38
 
 func _build(row: HBoxContainer) -> void:

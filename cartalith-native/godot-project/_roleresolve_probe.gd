@@ -110,8 +110,12 @@ func _ready() -> void:
 		print("     desktop %3d -> %s" % [d, str(col[d])])
 	## Pinned as a literal, not as `col.size()` compared to itself. 12 was
 	## measured off `ROLE` on 2026-09-03; section 57 reported "at least five",
-	## which was a floor rather than a count.
-	_ok("collisions in ROLE", col.size(), 12)
+	## which was a floor rather than a count. **11 since 2026-09-07**: `w_fab`
+	## was corrected from a retired artboard's `[36, 36]` to `ENV`'s own
+	## `--tool` `[30, 44]`, which retires the desktop-36 collision (`w_fab` 36
+	## against `h_menu_bar` 52) without creating one at 30 -- `h_rail_head` is
+	## homed to the same token and already answered 44 there.
+	_ok("collisions in ROLE", col.size(), 11)
 	## The rows that carry the argument, each asserted as the literal pair the
 	## canvas draws. Merging any of these back into one answer is exactly the
 	## regression that re-exhausts the key space.
@@ -125,7 +129,6 @@ func _ready() -> void:
 		14: [18, 22],       ## grid+rail gaps / bar x-padding
 		22: [24, 26],       ## timeline gap / readout gap + hero2
 		26: [30, 36],       ## hero type / status bar height
-		36: [36, 52],       ## FAB pinned / menu bar height
 		40: [48, 56],       ## rail width / tool-options height -- section 57's row
 		70: [88, 90],       ## timeline height / slider track width
 	}
@@ -149,8 +152,12 @@ func _ready() -> void:
 	## The other direction, and it matters more: these four look like bugs in a
 	## diff. `TABLET[40]` is the rail and `ROLE.h_tool_options` is the bar;
 	## making them agree is how DS-03 gets silently undone by someone tidying.
+	## `w_fab` was in this list until 2026-09-07 as `["w_fab", 36, 36]`. It is
+	## not a collision any more and was never a real one: the 36 came from an
+	## artboard `ENV` retired, and the token the canvas actually sizes that
+	## button with is `--tool`. Asserted below instead, as an *agreement*.
 	for row in [["h_tool_options", 40, 56], ["slider_track_w", 70, 90],
-			["w_fab", 36, 36], ["fs_hero", 26, 30]]:
+			["fs_hero", 26, 30]]:
 		var k: String = row[0]
 		var d: int = row[1]
 		var want: int = row[2]
@@ -172,6 +179,7 @@ func _ready() -> void:
 		["--railW", "w_rail", 40, 48],
 		["--sbH", "h_status", 26, 36],
 		["--tool", "h_rail_head", 30, 44],
+		["--tool", "w_fab", 30, 44],   ## `ENV:900`, the viewport Layers button
 		["--ldW", "w_left_dock", 372, 400],
 		["--rdW", "w_right_dock", 304, 400],
 		["--pop", "w_menu_popup", 300, 380],

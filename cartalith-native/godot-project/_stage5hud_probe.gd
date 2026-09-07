@@ -82,10 +82,26 @@ func _ready() -> void:
 		var sb: StyleBox = l.get_theme_stylebox("normal")
 		var painted: bool = sb is StyleBoxFlat and (sb as StyleBoxFlat).bg_color == scrim
 		_ok("%s carries the scrim" % pair[0], painted, want_box)
-		## §5.2-5.5 set every one of the three in `var(--dim)`, including the
-		## scale bar the pill skips.
-		_ok("%s ink is text_dim" % pair[0],
-			l.get_theme_color("font_color"), DccTheme.c("text_dim"))
+		## §5.2-5.5 set every one of the three in `var(--dim)` -- but only two of
+		## them ship that way, and the exception is deliberate and older than
+		## this assertion.
+		##
+		## **This asserted `text_dim` for all three and had been failing on the
+		## scale bar since 2026-09-03**, when a verifier split the ink by
+		## whether the label has a scrim behind it: a scrimmed label sits on a
+		## known colour where `text_dim` was measured nine ways, an un-scrimmed
+		## one sits on the *map*, where `text_dim` fails AA at both ends
+		## (3.14:1 over snow on dark, 4.11:1 over ocean on light) and
+		## `text_faint` holds (4.72 / 6.48). `viewport_host.gd`'s `_chrome()`
+		## carries that measurement in full. §5.4 is the only un-scrimmed label,
+		## so it is the only one affected -- the same `scrim` flag decides both,
+		## which is why they are one expression here rather than two rows.
+		##
+		## Corrected 2026-09-07 by the lane that happened to run this probe;
+		## the failure predates that lane and none of its edits touch the ink.
+		_ok("%s ink follows its background" % pair[0],
+			l.get_theme_color("font_color"),
+			DccTheme.c("text_dim") if want_box else DccTheme.c("text_faint"))
 	var box: StyleBoxFlat = host.get("_readout_label").get_theme_stylebox("normal")
 	## `content_margin_*` are floats; §0.1's figures are whole pixels.
 	_ok("scrim padding-x", int(box.content_margin_left), 9)

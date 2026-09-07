@@ -12,7 +12,7 @@ form-factor canvases plus the libraries they import.
 | `Cartalith Android.dc.html` | **Smartphone** | *"Implement: Smartphone"* |
 | `support.js` | the **dc-runtime** — parses and mounts a `.dc.html` | |
 | `cartalith-dcc-parts.js` | heavy method bodies for DCC Environment + Tablet | |
-| `landmark-glyphs.js` | **NOT YET FETCHED** — `window.LM_GLYPHS`, needed by all three | |
+| `landmark-glyphs.js` | `window.LM_GLYPHS`, needed by all three — **fetched 2026-09-07**, 20 232 B, 49 glyph keys | |
 
 ## The thing that unblocked this
 
@@ -62,27 +62,70 @@ handshake never completes under headless. **Do not spend time re-trying that.**
   raised by a local `python -m http.server` binding a socket. **The HTTP server
   is not needed** — `file://` works for these standalone documents. Don't start
   one. If a prompt is already up, close it before capturing.
-- **`landmark-glyphs.js` is not on disk yet.** Fetch it with `DesignSync`
-  (`method: get_file`, `path: landmark-glyphs.js`) and write it here. It
-  defines `window.LM_GLYPHS`; `cartalith-dcc-parts.js` *references* that global
-  but does not define it, so without the file every landmark icon is missing.
+- **`landmark-glyphs.js` is here now** (fetched 2026-09-07 with `DesignSync`,
+  20 232 B, 49 keys; all three canvases report `LM_GLYPHS = 49` at runtime and
+  the glyphs draw in every capture). Keep it: `cartalith-dcc-parts.js`
+  *references* that global but does not define it, so deleting the file blanks
+  every landmark icon.
 
-## An unresolved discrepancy — do not guess which canvas is authoritative
+## RESOLVED: there is only ONE Android canvas
 
-There are **two different Android canvases** in this repository:
+This section previously said two different Android canvases existed and told
+the next reader to diff them. **They are the same document.** Two lanes and the
+re-check each established it independently:
 
-| Path | Bytes | sha256 |
-|---|---|---|
-| `design/mcp-2026-09-07/Cartalith Android.dc.html` (live project) | 168 836 | `c1e4d5ec…` |
-| `design/dcc-environment-2026-08-31/Cartalith Android.dc.html` | 168 836 | `c1e4d5ec…` |
-| `design/Cartalith-Android-2026-09-07.dc.html` (owner attachment) | 170 327 | `5f626c41…` |
+| Path | Bytes | CR bytes | sha256 after stripping CRs |
+|---|---|---|---|
+| `design/Cartalith-Android-2026-09-07.dc.html` | 170 327 | **1 491** | `c1e4d5ec…` |
+| `design/mcp-2026-09-07/Cartalith Android.dc.html` | 168 836 | **0** | `c1e4d5ec…` |
 
-The live project's file is **byte-identical to the Aug-31 copy**. The 2026-09-07
-attachment — which every GENERATE-screen decision so far was built against, and
-which `ANDROID_UI_SPEC.md` cites throughout — is **a different, larger file**.
+**170 327 − 168 836 = 1 491 = the line count.** The delta is exactly the CRLF
+line endings; normalised, the two hash identically and `diff` is empty. Both
+were rendered and pixel-diffed across six matched states: **0 differing pixels
+on all six.**
 
-**Diff them before building, and say which one each conclusion rests on.** The
-owner named the project file, and an owner instruction is newer than a vendored
-copy; but the attachment is newer by date and is what the shipped work matched.
-This is exactly the kind of ambiguity that has produced a wrong build from a
-right-looking anchor in this project before.
+**The framing was mine and it was wrong** — I compared sizes and hashes and
+concluded "larger and different content" without normalising line endings, when
+a byte delta that exactly equals the line count is the signature of precisely
+that. **There is no side to pick.**
+
+## Capture with CDP, not with the window-capture script
+
+`capture_window.ps1` is kept because its *reason* is right — a capture must
+contain only the thing under test, never the owner's other windows. But
+**Chrome DevTools Protocol `Page.captureScreenshot` with an explicit clip
+satisfies that reason strictly better, and lifts a hard ceiling:**
+
+This machine has a single **1680×1050** screen (work area 1680×1002, ~971 px of
+usable client height). **Six of the fourteen canvas frames cannot be
+photographed at 1:1 as a window at all** — 1920×1080, 2560×1600, 1600×2560,
+800×1280 and 900×1440 all exceed it. The window recipe would have silently
+produced scaled or cropped references for nearly half the work.
+
+**Size the viewport so the canvas's own zoom resolves to 1.0** before clipping:
+the PC canvas uses `min(1, (innerWidth-36)/frameWidth)` and the tablet canvas
+`min(1, (iw-40)/fw, (ih-150)/fh)`. At 1.0 the mapping is **1 canvas px = 1 dp =
+1 Godot px = 1 captured px** (this desktop is 96 dpi at 100%, so no dpi
+conversion enters anywhere).
+
+## The shipped side: SubViewport probes, not a window
+
+For the same ceiling reason, **"Godot windowed at a matching viewport" is not
+possible for the large frames.** Use the committed `SubViewport` probes, which
+are not clamped to the desktop:
+`_ph412_probe.tscn -- --vp WxH --tag T [--force-touch]` for any frame, and
+`_emptyphone_probe.tscn -- --force-touch --vp 412x892 [--dismiss|--world]
+[--tab map|gen|plan|more]` for phone states.
+
+**Which composition a frame lands in is decided by
+`DccShell._compute_layout_mode()`**, and aspect alone decides it off a real
+device: `_phone` needs `min/max < 0.6`; `is_tablet()` is `_touch and not
+_phone`; `_is_tablet_sized()` returns false off-device; `_touch` is false
+without `--force-touch`. So 1920×1080 and 1366×768 take **no flag** (desktop),
+while every tablet and phone frame needs `--force-touch`.
+
+**Two traps worth carrying.** The shipped desktop and tablet captures carry **no
+world** — chrome, docks, rail, type and colour are all present, only the map is
+empty. And `_ph412_probe` hides `open_project_dialog` but **not**
+`phone_project_picker`, so at phone sizes all three of its shots are the picker;
+only its first shot is the viewport.

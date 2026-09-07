@@ -74,6 +74,9 @@ var _debug_layer: TextureRect     ## The Layers popover's field raster. See `set
 var _debug_view := "off"          ## Which view `_debug_layer` currently holds.
 
 var _scale_label: Label
+## §5.4's graphical rule -- `ENV:915-916` draws the km label and a ruled bar as
+## one `flex-direction:column;gap:3px` stack, and only the label existed here.
+var _scale_rule: Control
 var _readout_label: Label
 ## `render_workspace.gd`'s active Map style preset name (or "Custom" once a
 ## manual edit or a loaded named look diverges from all five), pushed in via
@@ -503,11 +506,39 @@ func _ready() -> void:
 	## §9's chrome, all corner-anchored so it survives any dock width.
 	## `false` on the scale bar: §5.4 gives it the ink and no pill.
 	_scale_label = _chrome(Control.PRESET_BOTTOM_LEFT, HORIZONTAL_ALIGNMENT_LEFT, false)
+	## §5.4's rule, the half of the scale bar this port never drew. See
+	## `_draw_scale_rule()` for the geometry and `_update_scale_bar()` for what
+	## had to change about the label's *meaning* once a rule exists to bind it
+	## to. Added before `_layers_btn` so it sits under the popover, and
+	## `MOUSE_FILTER_IGNORE` because it is 120 x 5 px of chrome over a map that
+	## owns every gesture in that corner.
+	_scale_rule = Control.new()
+	_scale_rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_scale_rule.set_anchors_preset(Control.PRESET_BOTTOM_LEFT, true)
+	_scale_rule.grow_horizontal = Control.GROW_DIRECTION_END
+	_scale_rule.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_scale_rule.visible = not DccTheme.is_phone()
+	_scale_rule.draw.connect(_draw_scale_rule)
+	add_child(_scale_rule)
 	_readout_label = _chrome(Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 	_coords_label = _chrome(Control.PRESET_BOTTOM_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 
 	_layers_btn = Button.new()
-	_layers_btn.flat = true
+	## **`flat = true` until 2026-09-07, and that suppressed the whole box.**
+	## `Button` guards every state's stylebox draw with `if (!flat)`, which
+	## `_apply_touch_scale()`'s own comment below already records paying for
+	## once on a handset ("the pills were invisible over the terrain with only
+	## their glyphs showing") -- and it fixed it *only on touch*, deliberately,
+	## leaving the pointer branch drawing a bare glyph. So the desktop button
+	## had no background and no border, while `ENV:900` gives it both at both
+	## densities. The `flat(panel, 3)` box it carried was never drawn at all.
+	##
+	## `modulate` moves to white with it: `modulate` multiplies everything the
+	## control draws, so tinting the glyph that way would have tinted the fill
+	## underneath it too. The glyph is tinted through `icon_normal_color`
+	## instead, which is the same swap `_apply_touch_scale()` makes for the same
+	## reason.
+	_layers_btn.flat = false
 	_layers_btn.focus_mode = Control.FOCUS_NONE
 	_layers_btn.icon = DccIcons.get_icon("layers", 15)
 	## Icon-only, so `icon_alignment`'s `LEFT` default would hang the glyph off
@@ -521,12 +552,40 @@ func _ready() -> void:
 	## OnePlus 6T history that found this class of bug.
 	_layers_btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_layers_btn.tooltip_text = "Layers"
-	_layers_btn.modulate = DccTheme.c("text_dim")
+	_layers_btn.modulate = Color.WHITE
+	for st in ["icon_normal_color", "icon_hover_color", "icon_pressed_color",
+			"icon_focus_color"]:
+		_layers_btn.add_theme_color_override(st, DccTheme.c("text_dim"))
 	_layers_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
-	var hit := 44 if _touch else 26
+	## `ENV:900` draws this button as `width:var(--tool);height:var(--tool);
+	## border-radius:8px;background:{{layersBtnBg}};border:1px solid var(--hair)`,
+	## and `--tool` is **30 px** at `ENV:25` / **44 px** at `ENV:1819`'s
+	## `densStr`. This shipped 26/44 with `flat(panel, 3)` and no border at all:
+	## four pixels short at pointer density, the wrong radius at both, and
+	## missing the one hairline that separates it from the map behind it.
+	##
+	## Sized off `role_px("w_fab")` rather than a literal pair, which is what
+	## put a *consumer* behind that row for the first time -- it read `[36, 36]`
+	## and was reachable from nothing but `_roleresolve_probe.gd`, so neither
+	## column had ever been compared against the canvas it claimed to come from.
+	var hit := DccTheme.role_px("w_fab")
 	_layers_btn.custom_minimum_size = Vector2(hit, hit)
-	_layers_btn.add_theme_stylebox_override("normal",
-		DccTheme.flat(DccTheme.c("panel"), 3))
+	## All four states, not `normal` alone: with `flat` off, any state left
+	## unset falls through to the project theme's own `Button` box, which is not
+	## this design. The canvas gives the button exactly two appearances
+	## (`layersBtnBg`, closed and open) and no hover rule, so hover keeps the
+	## closed box and the two pressed states take the open one -- a press here
+	## *is* the thing that opens the popover.
+	## `disabled` is in the list even though this button is never disabled:
+	## `Button::get_minimum_size()` takes the **largest** of every state box, so
+	## one un-overridden state's content margins set the control's width. Left
+	## out, the project theme's own `disabled` box laid this button at 35 x 30
+	## against a 30 x 30 minimum -- measured by `_fixahud_probe.gd`, which is
+	## the only reason it was noticed at all.
+	for st in ["normal", "hover", "focus", "disabled"]:
+		_layers_btn.add_theme_stylebox_override(st, _layers_box(false))
+	for st in ["pressed", "hover_pressed"]:
+		_layers_btn.add_theme_stylebox_override(st, _layers_box(true))
 	_layers_btn.pressed.connect(func(): layers_button_pressed.emit())
 	add_child(_layers_btn)
 
@@ -884,8 +943,10 @@ func reset_view() -> void:
 ## projection, the active field and the style preset, not grid size and extent
 ## (those are
 ## `_bridge.grid_size()`/`last_width_km`/`last_height_km`, and already have a
-## home: the WORLD dock readout and the Sample panel). "2D" and "equirect" are
-## not live lookups; they are honest constants, not filler -- this port has no
+## home: the WORLD dock readout and the Sample panel). **"2D" is gone as of
+## 2026-09-07 -- see the retirement note below `_engine_readable()`; "equirect"
+## stays.** It is a constant here and it is also what the *newer* canvas draws
+## (`ENV:914`), so it is not filler -- this port has no
 ## camera projection to switch and works in one flat km grid throughout
 ## (`DCC_SHELL_SPEC.md` §2.4's own "this port works in one flat km projection
 ## throughout"). The zoom, the **field** (`_vp_field`, added by GUI replacement
@@ -930,10 +991,32 @@ func _engine_readable() -> bool:
 ## it is the older canvas's, it is live state with a real writer
 ## (`set_style_readout()`), and dropping a working readout to match a canvas that
 ## simply has no preset concept would be the fold losing something.
+## **Two more of the older canvas's properties retired 2026-09-07, and they
+## were the two the paragraphs above never named.** Both are real citations,
+## not inventions -- `grep -c` over `design/Cartalith DCC Shell.dc.html` returns
+## **6** occurrences of the literal `2D · equirect · z 5.2`, drawn over a second
+## line reading `relief · atlas preset`. So the shipped `"2D · … \n%s"` was that
+## artboard transcribed. The paragraphs above applied the owner's 2026-08-25
+## ruling to the readout's *content* and stopped there:
+##
+##   - the leading `2D · `. `ENV:914` has no such token, and it could not carry
+##     information here anyway -- `tool_bar.gd:605` states the fact it depends
+##     on, "this shell has no 3D view", so the prefix has exactly one value.
+##   - the `\n`. `ENV:914` is a **single** right-anchored span
+##     (`equirect · <zoom> · {{ vpField }}`); the second line doubled the scrim
+##     area this chrome spends on the map for four tokens of text.
+##
+## The preset joins the line as a fourth `·` segment rather than being dropped,
+## which is the same call the paragraph above makes for the same reason, and is
+## omitted rather than printed as a bare separator when `set_style_readout("")`
+## empties it -- `MISTAKES.md`'s "never encode no value as a plausible value".
 func _update_zoom_readout() -> void:
 	if not _engine_readable():
 		return
-	_readout_label.text = "2D · equirect · z%.1f · %s\n%s" % [_zoom, _vp_field, _style_readout]
+	var line := "equirect · z%.1f · %s" % [_zoom, _vp_field]
+	if _style_readout != "":
+		line += " · %s" % _style_readout
+	_readout_label.text = line
 
 ## `render_workspace.gd` owns the Map style preset (the five chips plus
 ## "Custom") as its own UI-only state -- nothing in the engine tracks "the
@@ -1067,18 +1150,34 @@ func _apply_touch_scale(scale: float) -> void:
 ## `get_minimum_size()` every call sidesteps the growth direction machinery
 ## entirely instead of trying to keep it fed a correct baseline.
 func _apply_safe_insets() -> void:
-	if _scale_label == null:
+	if _scale_label == null or _scale_rule == null:
 		return  ## Not built yet -- `_ready()` applies the default once itself.
 	var l := float(_safe_insets.get("left", 10.0))
 	var t := float(_safe_insets.get("top", 10.0))
 	var r := float(_safe_insets.get("right", 10.0))
 	var b := float(_safe_insets.get("bottom", 10.0))
 
+	## §5.4 is a two-item column (`ENV:915`, `flex-direction:column;gap:3px`):
+	## the label on top, the ruled bar under it, both flush to the bottom-left
+	## inset. The label therefore floats `tick + gap` higher than it used to,
+	## and `stack` is 0 on the phone, where `_scale_rule` is hidden because that
+	## canvas draws no bar at all.
+	var tick := float(DccTheme.role_px("h_scale_tick")) if _scale_rule.visible else 0.0
+	var stack := tick + (float(SCALE_BAR_GAP) if _scale_rule.visible else 0.0)
+
+	var bar_w := float(DccTheme.role_px("w_scale_bar"))
+	_scale_rule.custom_minimum_size = Vector2(bar_w, tick)
+	_scale_rule.offset_left = l
+	_scale_rule.offset_right = l + bar_w
+	_scale_rule.offset_top = -b - tick
+	_scale_rule.offset_bottom = -b
+	_scale_rule.queue_redraw()
+
 	var scale_size := _scale_label.get_minimum_size()
 	_scale_label.offset_left = l
 	_scale_label.offset_right = l + scale_size.x
-	_scale_label.offset_top = -b - scale_size.y
-	_scale_label.offset_bottom = -b
+	_scale_label.offset_top = -b - stack - scale_size.y
+	_scale_label.offset_bottom = -b - stack
 
 	var readout_size := _readout_label.get_minimum_size()
 	_readout_label.offset_right = -r
@@ -1106,6 +1205,17 @@ func _apply_safe_insets() -> void:
 	## §46 and §48 both measured -- and there it is a flat 26 px flat button with
 	## no pill to sit tangent to anything.
 	_layers_btn.position = Vector2(maxf(l, float(NAVPAD_EDGE)) if _touch else l, t)
+	## **Size, not just position.** This button is positioned directly rather
+	## than by a container, so its rect is whatever was baked into its offsets
+	## the first time it was laid out and Godot only ever clamps a size *up* to
+	## the minimum -- never back down when the minimum shrinks. Measured by
+	## `_fixahud_probe.gd` at **35 x 30** against a 30 x 30
+	## `custom_minimum_size` and a 30 x 30 `get_combined_minimum_size()`: five
+	## pixels of a stale bake that nothing in the layout pass could reclaim, and
+	## invisible to any check that reads the minimum instead of the rect.
+	## `ENV:900` gives the box one square size at each density and this is where
+	## that gets asserted on the control.
+	_layers_btn.size = _layers_btn.custom_minimum_size
 
 	## §5.2's cluster: `display:flex; align-items:center; gap:8px`. Centred on the
 	## button rather than top-aligned with it -- the button is a 26/44 px square
@@ -1511,6 +1621,65 @@ const HUD_PAD_Y := 4
 const HUD_RADIUS := 6
 ## §5.2's top-left cluster `gap:8px`.
 const VP_CONTEXT_GAP := 8
+## §5.4's column gap, `gap:3px` at `ENV:915` and again at `TAB:449` -- the one
+## figure of the scale bar the two canvases agree on, which is why it is a
+## constant here and the width and tick are a `role_px` pair.
+const SCALE_BAR_GAP := 3
+
+## `ENV:916` / `TAB:451`, the ruled bar under the km label. **Neither the rule
+## nor the ticks existed before 2026-09-07**; `_update_scale_bar()` wrote text
+## and nothing drew a bar, so the corner carried a distance with no visual
+## referent for it.
+##
+## The two canvases mirror each other and both are honoured: the pointer bar is
+## `--sec` with the rule on the bottom row and 5 px ticks rising from it
+## (`height:1px` box, ticks `bottom:0;height:5px`, so they overhang upward); the
+## touch bar is `--dim` with the rule on the top row and 4 px ticks hanging
+## below it (`height:4px` box drawn as `border-top`+`border-left`+`border-right`).
+## Same shape, opposite side, different ink -- reproduced rather than averaged.
+func _draw_scale_rule() -> void:
+	var w := float(DccTheme.role_px("w_scale_bar"))
+	var tick := float(DccTheme.role_px("h_scale_tick"))
+	var touch := DccTheme.is_touch()
+	var ink: Color = DccTheme.c("text_dim") if touch else DccTheme.c("text_secondary")
+	_scale_rule.draw_rect(Rect2(0.0, 0.0 if touch else tick - 1.0, w, 1.0), ink)
+	_scale_rule.draw_rect(Rect2(0.0, 0.0, 1.0, tick), ink)
+	_scale_rule.draw_rect(Rect2(w - 1.0, 0.0, 1.0, tick), ink)
+
+## `ENV:900`'s `border-radius:8px` on the Layers button. Written at both
+## densities because the canvas writes it at both -- `densStr` (`ENV:1819`)
+## overrides `--tool` and nothing else about this box.
+const FAB_RADIUS := 8
+
+## `ENV:1959`: `layersBtnBg: s.layersOpen ? 'var(--wash2)' : 'var(--pan)'`, over
+## `border:1px solid var(--hair)`. `--wash2` is `accent_wash_2`, the armed
+## weight `DccTheme`'s own token comment describes as "a control that is armed
+## and will act on the next click, as against one that is merely current" --
+## which is exactly what an open popover's trigger is.
+func _layers_box(open: bool) -> StyleBoxFlat:
+	var sb := DccTheme.flat(
+		DccTheme.c("accent_wash_2") if open else DccTheme.c("panel"), FAB_RADIUS)
+	sb.border_color = DccTheme.c("line")
+	sb.set_border_width_all(1)
+	return sb
+
+## Called by `layers_popover.gd` on both edges of its own visibility, so the
+## trigger carries the canvas's open state instead of looking identical whether
+## the popover is up or not.
+##
+## Guarded on `_touch_scale > 1.0`, which is the exact question -- *has
+## `_apply_touch_scale()` repainted this button?* -- rather than the near-miss
+## `_touch`. That function repaints through `_navpad_paint()` for the handset
+## legibility fix its own comment records, and writing a second `normal` box
+## over that would undo it; but it opens `if is_equal_approx(scale,
+## _touch_scale)` against a `_touch_scale` that starts at `1.0`, so **a tablet
+## never reaches it** and keeps the box built above. Guarding on `_touch` would
+## therefore have skipped the open weight on the one touch composition that can
+## still show it. Same trap `icon_alignment` fell into six lines up.
+func set_layers_open(open: bool) -> void:
+	if _layers_btn == null or _touch_scale > 1.0:
+		return
+	_layers_btn.add_theme_stylebox_override("normal", _layers_box(open))
 
 static func _hud_scrim_box() -> StyleBoxFlat:
 	var sb := DccTheme.flat(DccTheme.c("hud_scrim"), HUD_RADIUS)
@@ -2076,19 +2245,69 @@ func layers_button_rect() -> Rect2i:
 ## one decimal instead of none -- more informative, for the same reason
 ## `format_adaptive()`'s own doc comment gives, and not a behaviour this
 ## label's few callers depend on.
+## **The label's meaning changed on 2026-09-07, because a rule now exists for
+## it to label.** `cartalith-dcc-parts.js:222` is the canvas's own writer --
+## `scaleLabRef.textContent = fmtKm(120 / v.s * 2.5)` -- so the figure printed
+## above the bar is *the distance the bar itself spans*, not the distance across
+## the viewport. Printing "800 km across" over a 120 px rule would have asserted
+## that 120 px is 800 km, which is the one thing a scale bar must not say.
+##
+## Two segments in, one out, and the drop is stated rather than left implied:
+##
+##   - **`… / cell` stays.** The canvas has no per-cell segment, so this is a
+##     departure, kept because it has no other live home: `grep -rn "per cell"`
+##     over the shell finds it only in `new_world_dialog.gd:889`, which a
+##     *loaded* world never opens. It is also zoom-invariant, so it says
+##     something the bar cannot.
+##   - **`… across` goes.** It was this label's answer to "how deep am I", and
+##     the paragraph above records it being added for exactly that. A ruled bar
+##     answers the same question better -- its own label falls as you zoom in --
+##     and the viewport span is what the bar is *for*. The `lodSpanKm()` divide
+##     it was built on is still here; it is now one term of `_bar_km()`.
+##
+## `_bar_km()` does not reuse that divide directly. `_width_km / _zoom` treats
+## the viewport width as the map width, which is only true when the map is not
+## letterboxed; a scale bar has to be right in both cases, so it goes through
+## the same fitted `drawn_w` / `px_per_cell` pair `right_dock.gd`'s
+## `_river_pick_radius_cells()` already uses to turn screen px into cells.
 func _update_scale_bar() -> void:
+	if _scale_label == null or _scale_rule == null:
+		return  ## Called from `reset_view()`, which `_ready()` reaches before
+		        ## the chrome is built on at least one path.
 	if _width_km <= 0.0:
 		_scale_label.text = ""
+		_scale_rule.visible = false   ## An unlabelled rule is a false scale.
 		return
-	var span := _width_km / maxf(1.0, _zoom)
 	var gw := _bridge.grid_size().x
-	if gw <= 0:
-		_scale_label.text = "%s across" % DccUnits.format_adaptive(span)
+	var bar := _bar_km()
+	if gw <= 0 or bar <= 0.0:
+		## No grid, so no px-per-cell and no bar: fall back to the pre-2026-09-07
+		## viewport-span text, and hide the rule rather than draw one that
+		## nothing has measured.
+		_scale_label.text = "%s across" % DccUnits.format_adaptive(
+			_width_km / maxf(1.0, _zoom))
+		_scale_rule.visible = false
 		return
+	_scale_rule.visible = not DccTheme.is_phone()
 	## Cells are square in km, so one quotient describes both axes.
 	var per_cell := _width_km / float(gw)
-	_scale_label.text = "%s across  ·  %s / cell" % [
-		DccUnits.format_adaptive(span), DccUnits.format_adaptive(per_cell)]
+	_scale_label.text = "%s  ·  %s / cell" % [
+		DccUnits.format_adaptive(bar), DccUnits.format_adaptive(per_cell)]
+	_apply_safe_insets()
+
+## The km spanned by `role_px("w_scale_bar")` screen pixels of map, at this
+## zoom. Zero when there is no world, no grid or no laid-out viewport, which is
+## the signal `_update_scale_bar()` uses to hide the rule instead of labelling
+## it with a number it could not compute.
+func _bar_km() -> float:
+	var gs := _bridge.grid_size() if _bridge != null else Vector2i.ZERO
+	if gs.x <= 0 or gs.y <= 0 or size.x <= 0.0 or size.y <= 0.0:
+		return 0.0
+	var drawn_w := minf(size.x, size.y * float(gs.x) / float(gs.y))
+	var px_per_cell := drawn_w * maxf(0.01, _zoom) / float(gs.x)
+	if px_per_cell <= 0.0:
+		return 0.0
+	return float(DccTheme.role_px("w_scale_bar")) * (_width_km / float(gs.x)) / px_per_cell
 
 ## Public so `menus.gd`'s Units radio can repaint this label the instant the
 ## setting changes. Zoom and pan already call `_update_scale_bar()` on their

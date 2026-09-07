@@ -479,6 +479,14 @@ func open() -> void:
 		_phone_fit()
 		return
 	var r := host.layers_button_rect()
+	## `ENV:1959` gives the trigger two appearances -- `layersBtnBg` is
+	## `var(--wash2)` while this popover is up and `var(--pan)` otherwise -- and
+	## the shipped button looked identical either way. Connected here rather
+	## than in `viewport_host.gd` because `popup_hide` is *this* window's
+	## signal; `CONNECT_ONE_SHOT` so a reopen does not stack a second copy, and
+	## re-armed on the next `open()` by this same line.
+	popup_hide.connect(func(): host.set_layers_open(false), CONNECT_ONE_SHOT)
+	host.set_layers_open(true)
 	popup(Rect2i(Vector2i(r.position.x, r.position.y + r.size.y + 4),
 		Vector2i(DccTheme.role_px("w_popover"), 0)))
 
