@@ -2811,10 +2811,19 @@ func _build_faction(body: Control) -> void:
 	## already reads for the CIVIL ▸ Territory options row. Reads — only when
 	## the faction has committed no territory (an empty dict, not a zeroed
 	## one, so a genuine zero-cells faction doesn't read as "not read here").
+	## `format_area`, not `format`: the linear factor squared, so 100 km² is
+	## 38.6 mi² and not 62.1. Cells and contested cells are counts and carry no
+	## unit, so only the middle term moves. **This is the same sentence, off the
+	## same call, as `civilization_workspace.gd::_tool_options_territory()` --
+	## the two are drawn from one dictionary and must not be able to disagree
+	## about their unit.** That pair is why this line was converted here rather
+	## than left to the whole-file `right_dock.gd` pass: it was the one raw-km
+	## site whose twin had already moved.
 	var stats := bridge.civ_faction_territory_stats(_faction_id)
 	_field(sec, "Territory",
-		("%d cells · %.0f km² · %d contested" % [
-			int(stats.get("claimed_cells", 0)), float(stats.get("area_km2", 0.0)),
+		("%d cells · %s · %d contested" % [
+			int(stats.get("claimed_cells", 0)),
+			DccUnits.format_area(float(stats.get("area_km2", 0.0))),
 			int(stats.get("contested_cells", 0))]) if not stats.is_empty() else "—",
 		"" if not stats.is_empty() else
 			"civ_faction_territory_stats() returned nothing for this faction -- no committed territory yet.",

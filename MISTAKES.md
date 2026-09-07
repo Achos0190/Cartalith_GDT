@@ -120,6 +120,8 @@ its rule before you start.
 | **Verify anything phone-shaped** | **`--force-touch` on the desktop is not the phone, and `pressed.emit()` is not a finger.** A whole session of probes reported a healthy phone shell; the owner picked up the APK and could not find the generation menu or use the journey planner within minutes. Synthesised input is injected **downstream** of `MOUSE_FILTER`, scrims, gesture handlers and hit areas, so a control unreachable by touch still passes | **See with `adb exec-out screencap`, act with `adb shell input tap/swipe`** at coordinates read off that image, and navigate from launch tapping only what is visible. Desktop probes are for regression, never for reachability |
 | **Claim a screen "works" on a phone** | **Separate "it renders", "it can be operated" and "it can be FOUND".** Probes proved the journey planner fits a 1080 px screen and clears the tap floor; the owner still could not use it. Those are three claims and only the first two were ever tested — reachability was never tested at all | State which of the three you measured. A route nobody can find is a defect even when every control behind it is perfect |
 | **Find a screen that is mostly blank** | **Ask what is IN it before ruling on how big it is.** A lane measured a phone sheet at 1 003 rows holding one horizontal strip — 933 blank empty, 912 blank *with a world* — and deferred it because the detent fraction is transcribed from the prototype and 'changing a transcribed detent needs an owner ruling'. Right measurement, wrong conclusion: **a correct detent over empty content is still an empty screen**, and the owner hit exactly that defect days later | When blankness survives the state change that should fill it (912 vs 933 with and without a world), the container is not the fault. Report what the screen is missing, not its dimensions |
+| **Conclude a batch has finished** | **A run directory you cannot find is not a run that has stopped.** I searched `~/.claude` for the workflow’s run folder, found nothing, saw two of three lanes’ diffs in the tree, and closed the batch out — **while the third lane and the verifier were still working.** The commit landed mid-verification, and the verifier said so: from that point `git diff` was empty for everything and **stopped being evidence**. Its findings survived only because the content happened to be identical. **Wait for the completion notification, or check the task list. Never infer completion from the filesystem, and never from "the lanes I know about have reported".** |
+| **Write "still X" or "routes NONE" into the backlog** | **Re-measure it in the same breath — do not copy the brief’s number into the row.** I narrowed a units row to *"the journey planner still routes NONE"* and committed it. The planner had been converted a commit earlier: `grep -c DccUnits` = **34**, with a probe asserting its headers. The same row carried *"the measure tool converts 4 of its 7 modes; area, radius and section do not"* — there are **six** modes and **all three of those convert**. Both claims came from the brief I had written, not from the code. **A backlog row is the thing the next pass reads instead of measuring; a stale one costs a whole lane.** The grep that would have caught both took four seconds. |
 
 ### [2026-09-03] Believing a backlog row instead of re-opening it ×15
 
@@ -505,3 +507,50 @@ claim, then check the instruction can produce it.**
 
 **Verification:** Re-read each prompt for a foreign lane's heading before
 launching.
+
+### [2026-09-07] Two of my own, one hour apart: a batch closed early and a row copied from a brief
+
+**What happened.** Batch `wwz9r4i2t` had three lanes and a verifier. Two lanes’
+diffs were in the tree; the third had filed nothing. I looked for the workflow’s
+run directory under `~/.claude`, found none, and read that as "the run is over".
+It was not. I closed the batch, updated `OUTSTANDING_WORK.md` and committed
+`9ae7fad` **while the verifier was mid-run**. It caught me: *"9ae7fad landed
+MID-VERIFICATION, committing the exact lane diff I was verifying … from that
+point `git diff` was empty for everything and stopped being evidence."* Nothing
+was invalidated, because the committed content was byte-identical to what it had
+already opened — which is luck, not method. The third lane then filed a full
+report twenty minutes later: eight findings, six of them defects nobody had seen.
+
+**The second one is worse, because it shipped.** In that same commit I narrowed a
+units row to *"the journey planner still routes NONE"*. The planner had been
+converted in `88bf297`, one commit earlier, and carries 34 `DccUnits` calls with a
+79-check probe asserting its column headers. The row also repeated *"the measure
+tool converts 4 of its 7 modes; area, radius and section do not"*. `MEASURE_MODES`
+has **six** entries and `_measure_readout()` routes **all three** of those through
+`DccUnits`; the two that do not convert are `vertical` (metres, with a written
+reason) and `bearing` (degrees). A lane refused that sentence in its report and
+said exactly why it mattered: it *"would have sent me to build a helper that
+exists."* I had written the sentence into the brief, the lane refuted it, and I
+then copied it out of the brief and into the backlog anyway.
+
+**Root cause, and it is one cause, not two.** Both come from treating a document I
+wrote as evidence about the tree. The run directory stood in for the run; the
+brief stood in for the code. **A file I authored is a claim, exactly like any
+other claim in this project** — `CLAUDE.md` has said so since the audit that
+created it, and this is the same failure at one remove: I was the author, so I
+did not check.
+
+**Rules.** Wait for the completion notification before closing a batch — the
+filesystem is not the task list, and "the lanes I know about have reported" is not
+"the batch is done". And re-run the measurement in the same breath as writing a
+"still X" into the backlog, especially when the number came from a brief and most
+especially when a lane already refuted it. The grep that would have caught both
+took four seconds.
+
+**Also fixed in the same pass**, since the corrections travel together: the
+register’s `CA-07` reason claimed font *family, weight and case* all have no field
+in the engine’s label model. **Family does** — `MapLabel::font`, `set_font`,
+`font_or_default()`, a `LabelStyleSnapshot` round-trip, and `lib.rs` saying in as
+many words that sending the literal string already works. Weight and case genuinely
+have none. The `(B)` classification survives, but on the **renderer**, which is
+what that row’s own Blocked-by cell said from the start.
