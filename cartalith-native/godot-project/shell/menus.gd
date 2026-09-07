@@ -647,7 +647,7 @@ func _file(p: PopupMenu) -> void:
 		p.set_item_disabled(autosave_idx, not can_write)
 		p.set_item_checked(autosave_idx, DccSettings.autosave_enabled())
 		p.set_item_tooltip(autosave_idx,
-			"Writes a backup beside the project (world.zip -> world.autosave.zip) every %d minutes while it has unsaved changes. Never overwrites the project itself."
+			"Writes a backup beside the project (world.ctl -> world.autosave.ctl) every %d minutes while it has unsaved changes. Never overwrites the project itself."
 				% DccSettings.autosave_minutes())
 		p.set_item_disabled(autosave_int_idx, not can_write)
 		p.set_item_text(autosave_int_idx, "Autosave interval   %s" % _autosave_summary())

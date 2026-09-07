@@ -213,7 +213,12 @@ func _refresh() -> void:
 		DccWidgets.note(_list, "no saved worlds yet — create one below")
 
 	DccWidgets.action(_list, "+ New world", _on_new_world, true)
-	DccWidgets.action(_list, "Open project .zip…", _on_open_zip, false)
+	## The phone’s own copy of the desktop picker’s button, and it has to move
+	## with it: this is the label the owner photographed still reading ".ZIP"
+	## after the rename landed. Two buttons, two files, one string — the class
+	## of miss a grep for the CONSTANT would never find, because the label is a
+	## literal in each.
+	DccWidgets.action(_list, "Open project .ctl…", _on_open_zip, false)
 
 	var foot := DccTheme.mono_label(
 		"Cartalith · build %s" % DccShell.build_id(), "text_ghost", DccTheme.FS_MICRO, 1)

@@ -93,7 +93,7 @@ class_name OpenProjectDialog
 ## **Where the three routes went.** The reference's own setup gate (reference
 ## HTML lines 657-666) offers three peer choices -- generate, load a `.zip`,
 ## import a heightmap -- and the picker canvas draws only the first two, as
-## `＋ New world…` and `Open project .zip…`. There is no drawn home for the
+## `＋ New world…` and `Open project .ctl…`. There is no drawn home for the
 ## heightmap route, so rather than drop the only cold-start way in for a
 ## heightmap it takes a third button in the same row, in the row's own
 ## secondary treatment. That is the one element on this screen the canvas does
@@ -535,7 +535,7 @@ func _build_scopes() -> Control:
 		## exists anywhere in the workspace, so the chip is present (the
 		## design draws it) and inert (nothing can answer it).
 		{"id": "shared", "label": "Shared",
-			"reason": "No shared or remote project concept exists in this port — projects are local .zip saves only."},
+			"reason": "No shared or remote project concept exists in this port — projects are local .ctl saves only."},
 	]:
 		var scope: Dictionary = entry
 		var b := Button.new()
@@ -679,7 +679,13 @@ func _build_picker() -> Control:
 	_picker_button(actions, "%s New world…" % DccIcons.SYMBOLS["add"], true, func():
 		hide()
 		_host.open_new_world())
-	_picker_button(actions, "Open project .zip…", false, _browse_from_disk)
+	## **The label names the extension this build WRITES.** It read
+	## "Open project .zip…" until 2026-09-07 and was caught on glass one
+	## screenshot after the rename landed -- a button still advertising the old
+	## extension while Save-as produced the new one. The picker opens BOTH
+	## (`PROJECT_EXTENSIONS`), so the label names the one a person will have
+	## just made rather than listing the pair.
+	_picker_button(actions, "Open project .ctl…", false, _browse_from_disk)
 	## The reference gate's third choice, which the canvas does not draw. See
 	## this file's header; visibility is re-asked every `_refresh()`, because
 	## `setup()` runs while `app.gd` is still standing the bridge up.
@@ -967,7 +973,8 @@ func _build_import_tile() -> Control:
 	var glyph := DccIcons.rect("import", 26, "accent")
 	glyph.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	col.add_child(glyph)
-	var line := DccTheme.label("Drop a .zip save\nor click to browse a folder",
+	## Names the extension this build writes; the handler accepts both.
+	var line := DccTheme.label("Drop a .ctl save\nor click to browse a folder",
 		"accent", DccTheme.FS_BODY)
 	line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(line)
@@ -1166,7 +1173,11 @@ func _on_files_dropped(files: PackedStringArray) -> void:
 			hide()
 			_host.open_recent_project(String(f))
 			return
-	_say("that is not a .zip save")
+	## **Names both, because both open.** A message saying ".ctl" alone would
+	## be a false rejection reason for someone dropping a pre-2026-09-07 save,
+	## which is exactly the "dash a field with a reason" trap in `MISTAKES.md`:
+	## the reason is a claim and gets verified like any other.
+	_say("that is not a .ctl or .zip save")
 
 ## `files_dropped` is a *window* signal, so a drop lands on whichever
 ## composition is up -- and the gallery's foot is not on screen in welcome

@@ -301,7 +301,7 @@ const PANE_PURPOSE := {
 	"import_maps": "read a tile set back into the world — no importer exists",
 	"import_heightmap": "a PNG becomes the elevation field, with a tectonic substrate inferred under it",
 	"import_gis": "read a FeatureCollection back into places, ways and territory — the parser exists, the ingest does not",
-	"import_world": "a .zip project archive replaces the whole world — the same loader as File ▸ Open project…",
+	"import_world": "a .ctl project archive replaces the whole world — the same loader as File ▸ Open project…",
 	"import_assets": "routes to Assets ▸ Import asset pack .zip…",
 	"export_maps": "the Region-select marquee as a zipped grid of height and colour tiles",
 	"export_gis": "every generated entity as one document — settlements, ways, rivers, territory, provinces",
@@ -366,7 +366,7 @@ const ROUTES: Array[Dictionary] = [
 	{"group": "Import", "id": "import_gis", "label": "GIS / GeoJSON", "badge": "", "kind": "gap",
 		"sub": "no importer",
 		"reason": "The parser exists and the ingest does not, and those are different things. cartalith_io::parse_geojson reads a FeatureCollection back into geometry and properties, and WorldGen::geojson_inspect is a real #[func] over it that reports a document's feature count, layers, geometry types, CRS claim and bounds -- but its own doc says it \"validates and summarises rather than importing\", and it has no GDScript caller: EngineBridge carries export_geojson and nothing else. Nothing anywhere turns a parsed feature into a settlement, a way or a territory cell, which is the half that would make this route real. (Re-checked 2026-09-05; this row previously read \"No GeoJSON import path exists\", which stopped being true when the parser landed.)"},
-	{"group": "Import", "id": "import_world", "label": "World Data", "badge": ".zip", "kind": "live",
+	{"group": "Import", "id": "import_world", "label": "World Data", "badge": ".ctl", "kind": "live",
 		"sub": "same loader as File ▸ Open project…"},
 	{"group": "Import", "id": "import_assets", "label": "Assets", "badge": "→ Assets", "kind": "route",
 		"sub": "routes to the Assets menu"},
@@ -1565,7 +1565,7 @@ func _include_chips(row: Control) -> void:
 func _gis_count(key: String) -> Dictionary:
 	if _bridge == null or not _bridge.has_world:
 		return {"why": "No world is loaded."}
-	var civ_absent := "None, and that is one of two states this window cannot tell apart: a generated world always has some, and a loaded .zip save carries no civilisation layer at all (SAVEFILE_COMPAT.md, and GEOJSON_CIV_NOTE above). Either way there is nothing of this group to write."
+	var civ_absent := "None, and that is one of two states this window cannot tell apart: a generated world always has some, and a loaded save carries no civilisation layer at all (SAVEFILE_COMPAT.md, and GEOJSON_CIV_NOTE above). Either way there is nothing of this group to write."
 	match key:
 		"settlements":
 			var n: int = _bridge.settlements().size()
@@ -1670,7 +1670,7 @@ func _pattern_prose(col: Control, route: Dictionary) -> void:
 					"This build's GDExtension predates the heightmap-import binding (WorldGen::import_heightmap). Rebuild cartalith-godot to enable it.")
 		"import_world":
 			DccWidgets.note(col,
-				"Opens the same .zip project picker as File ▸ Open project… -- routed here per §9, not reimplemented.")
+				"Opens the same .ctl project picker as File ▸ Open project… -- routed here per §9, not reimplemented.")
 		"import_assets":
 			DccWidgets.note(col,
 				"Routes to Assets ▸ Import asset pack .zip… -- §2.4's own table calls this item a shortcut, not a second implementation.")
@@ -2933,7 +2933,7 @@ func _build_output_column(col: Control) -> void:
 
 	var pack_row := _row(col, "Packaging")
 	_segments(pack_row, [
-		{"text": ".zip", "enabled": true},
+		{"text": ".ctl", "enabled": true},
 		{"text": "folder", "enabled": false, "tip": PACKAGING_NOTE},
 		{"text": "MBTiles", "enabled": false, "tip": PACKAGING_NOTE},
 	], 0, func(_i: int): pass)
