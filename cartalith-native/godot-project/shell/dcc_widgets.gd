@@ -1564,21 +1564,14 @@ class PgSlider extends HSlider:
 
 	## Resolved on first use rather than in `_ready()`, so it cannot depend on
 	## whether this node was parented before or after its own ancestors were.
-	##
-	## **The nearest scroller that actually scrolls vertically**, not merely the
-	## nearest one: a `ScrollContainer` with `vertical_scroll_mode` DISABLED has
-	## no gesture to claim, and treating it as one would eat a vertical drag and
-	## give it nowhere to go.
+	## The lookup itself is `DccWidgets.vertical_scroller_above()` -- shared
+	## with `touch_release_button()` below, because two gesture fixes that
+	## disagree about what counts as "a scroller above me" is exactly the drift
+	## this file keeps finding.
 	func _scroll() -> ScrollContainer:
 		if not _looked:
 			_looked = true
-			var n: Node = get_parent()
-			while n != null:
-				if n is ScrollContainer and (n as ScrollContainer).vertical_scroll_mode \
-						!= ScrollContainer.SCROLL_MODE_DISABLED:
-					_scroller = n as ScrollContainer
-					break
-				n = n.get_parent()
+			_scroller = DccWidgets.vertical_scroller_above(self)
 		return _scroller
 
 	func _scroll_now() -> int:
@@ -1606,6 +1599,109 @@ static func touch_slider(s: HSlider, slop_px: float) -> bool:
 		return false
 	s.set_script(PgSlider)
 	s.set("slop", maxf(1.0, slop_px))
+	return true
+
+## **The nearest ancestor `ScrollContainer` that actually scrolls vertically**,
+## or `null`. Not merely the nearest one: a `ScrollContainer` with
+## `vertical_scroll_mode` DISABLED has no vertical gesture to claim, and
+## treating it as one would take a vertical drag away from a control and give
+## it nowhere to go.
+##
+## Shared by `PgSlider._scroll()` and `touch_release_button()` below -- the one
+## question both fixes ask, asked once. `_gestclass_probe.gd` and
+## `_rangeswipe_probe.gd` each restate it independently, deliberately, so a
+## census does not depend on the code under test to describe itself.
+static func vertical_scroller_above(n: Node) -> ScrollContainer:
+	var p: Node = n.get_parent()
+	while p != null:
+		if p is ScrollContainer and (p as ScrollContainer).vertical_scroll_mode \
+				!= ScrollContainer.SCROLL_MODE_DISABLED:
+			return p as ScrollContainer
+		p = p.get_parent()
+	return null
+
+## **A dropdown opens its popup on touch-DOWN, and on a phone that means a
+## vertical swipe that happens to begin on one opens the popup instead of
+## scrolling -- and then the same gesture picks an item out of it.**
+##
+## Measured 2026-09-07 with `_gestclass_probe.gd` at 1080x2340, before this
+## function existed: a jittered vertical swipe starting on a left-dock
+## `DccWidgets.choice()` row took `sel=7 -> sel=3` with the sheet not moving a
+## pixel, and the same swipe on the New World card's Archetype dropdown left
+## its six-item popup standing open. It is the §1.14 slider defect one class
+## over -- silent, not merely annoying -- and the main loop found it on glass
+## on exactly the surface that must be scrolled to reach CREATE WORLD.
+##
+## **No second gesture arbiter, and that is the point.** `PgSlider` exists
+## because `Slider` has no say in when it acts: `Slider::gui_input` calls
+## `set_as_ratio()` from the press and `MOUSE_FILTER_PASS` does not stop it,
+## since a `PASS` control is still picked and still runs its own handler. A
+## `BaseButton` is not in that position -- **`action_mode` is the engine's own
+## supported way to say "act on release"** -- so the fix here is a property and
+## a mouse filter, not a subclass. Reusing `PgSlider`'s classification would
+## have meant a second arbiter that can drift from the first, and would have
+## cost the native fling, which this does not.
+##
+## Both halves are needed and neither is sufficient:
+##
+## * `ACTION_MODE_BUTTON_RELEASE` stops the popup opening under the finger, so
+##   there is a gesture left to classify at all.
+## * `MOUSE_FILTER_PASS` lets the press reach the `ScrollContainer` above, so
+##   it arms its own touch drag -- and past the deadzone that scroll posts
+##   `NOTIFICATION_SCROLL_BEGIN`, which is what cancels the button's pending
+##   press. That cooperation is stock Godot and is already load-bearing here
+##   for every plain `Button` in the left sheet (PH-05).
+##
+## **The in-tree control that proves the shape**: `CheckBox` is already
+## `action_mode == ACTION_MODE_BUTTON_RELEASE` and already `PASS`, and the same
+## probe leg measures a jittered vertical swipe starting on one leaving
+## `button_pressed` alone, scrolling the sheet `222 -> 1020`, and a tap at the
+## identical point still toggling it. That is this combination, measured, on
+## this build, on a control nobody had to change.
+##
+## **Two gates**, both carried over from `PgSlider`'s own widening:
+##
+## * already `ACTION_MODE_BUTTON_RELEASE` -> nothing to do, and say so by
+##   returning `false`. `ColorPickerButton` measures `1` (RELEASE) on 4.7.1 and
+##   is not this defect; whether its `MOUSE_FILTER_STOP` blocks a scroll is a
+##   separate question, unmeasured here and deliberately not changed.
+## * no vertical-scrolling ancestor -> stock behaviour. There is nothing to
+##   arbitrate against, so a press-to-open dropdown should keep opening on
+##   press.
+##
+##   **This gate is load-bearing and it is NOT what leaves the menu bar
+##   alone** -- that attribution was written here and is wrong. Measured
+##   2026-09-07: **0 of the 7 `MenuButton`s carry `_phone_fitted`**, so
+##   `phone_fit()` never walks the menu bar and this function is never called
+##   on one; inverting the gate leaves all seven stock anyway. What the gate
+##   actually protects is `asset_library_window.gd`'s `scroller=none`
+##   dropdown, which the inverted mutation wrongly converts. The `scroller=none`
+##   census row for the `MenuButton`s is true and was doing no work in the
+##   argument -- two facts standing next to each other read as cause and
+##   effect.
+##
+## **Pinned from both directions**, 2026-09-07, by a Python harness that
+## replaces exact literals here, restores in a `finally` and hashes the file
+## before and after (`SAME`, no residue):
+##
+## | mutation | `_gestclass_probe` at 1080x2340 |
+## |---|---|
+## | shipped | GREEN, census hazard 4 |
+## | `action_mode` back to `..._PRESS` | 4 FAIL, hazard 22 -- the whole defect |
+## | `mouse_filter` back to `STOP` | 2 FAIL, hazard 4 -- the value is safe and **the sheet still does not scroll** |
+## | the scroller gate inverted (`!= null`) | 4 FAIL, hazard 22 |
+##
+## The middle row is the one worth reading: it is why both writes are here.
+##
+## Returns whether it changed anything, so a walk can count what it converted.
+static func touch_release_button(b: BaseButton) -> bool:
+	if b == null or b.action_mode == BaseButton.ACTION_MODE_BUTTON_RELEASE:
+		return false
+	if vertical_scroller_above(b) == null:
+		return false
+	b.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	if b.mouse_filter == Control.MOUSE_FILTER_STOP:
+		b.mouse_filter = Control.MOUSE_FILTER_PASS
 	return true
 
 ## A filled circle as an `ImageTexture`, drawn rather than loaded because this

@@ -133,6 +133,10 @@ its rule before you start.
 | **Report a census as the enumeration of a hazard** | **A live-tree walk is a LOWER BOUND taken in one state — name the state.** A census reported 247 `Range` nodes and 242 hazards, from a **world-less** boot. On that boot `tl_available()` is false, so a whole screen draws `_missing_row("Year")` and **four slider sites the walk’s own code inventory had named contributed nothing** — they are converted on a code walk and exercised by no probe. Worse, the committed probe **labelled that census "the Year slider’s screen"**, which asserts it walked a surface it had reached and found empty. |
 | **Fix a gesture hazard for one control class** | **Ask which OTHER class has the same shape before closing it.** `PgSlider` fixed every `Range` on the phone — and a vertical swipe starting on an `OptionButton` still opens its popup instead of scrolling, on a card that must be scrolled to reach its primary button and whose surface is mostly dropdowns and spin boxes. **The hazard is the gesture, not the widget**; an inventory built from one base class ends where that class ends. |
 | **Trust an on-glass result** | **Read logcat for the stale-library warning first.** Every Android export in this session carried the `android-dev` `.so`, and the app says so on every cold boot: *"the loaded GDExtension has no `WorldGen.<fn>()` … the native library is older than the shell"*, three functions deep with full backtraces. Shell-side work (layout, gestures) is unaffected. **Any on-glass claim about a native-backed feature is not safe** while that warning is in the log — and nobody had been reading it. |
+| **Walk a Godot scene tree to count anything** | **`get_children(true)` — the default omits INTERNAL children and they are not padding.** A gesture census read **4 401** nodes where the tree holds **5 512**. What it hid was the class the probe existed to count: 12 `SpinBoxLineEdit` and a `TabBar`, all acting on press, all live under live vertical scrollers, **absent from both the before and the after numbers**. A `SpinBox`’s editable field, a `TabContainer`’s bar and a `ScrollContainer`’s bars are all internal. |
+| **Rule a control class OUT of a hazard** | **Say which question you answered.** A pass cleared `SpinBox` by measuring that a swipe does not STEP its value — true, and the wrong question. The hazard is that the press takes FOCUS: the swipe scrolls `0 → 0` while the label column beside it scrolls `0 → 62`, and on Android focus raises the soft keyboard over the sheet. **"Not this mechanism" is not "not a hazard"**, and a negative control only clears the mechanism it tested. |
+| **Write "this defect is milder"** | **Severity is a measurement, not a reading of the mechanism.** I filed a dropdown hazard as *"milder … nothing changes silently — the user sees a popup and can dismiss it"*, from watching a popup appear. Measured: a jittered vertical swipe takes **`sel=7 → sel=3` with the popup closed again at the end** — the press opens it under the finger, the drag travels its item list, the release picks what is beneath. **Identical to the slider defect, and silent.** The lane refused the claim in its report; a brief that had been believed would have shipped it as a lesser row. |
+| **Explain why something was left untouched** | **Check the mechanism reaches it at all before crediting a gate.** A comment credited the "no vertical scroller" gate with leaving the phone menu bar’s seven `MenuButton`s stock. Measured: **0 of the 7 carry `_phone_fitted`** — `phone_fit()` never walks the menu bar, so the function is never called on them, and inverting the gate leaves all seven stock anyway. The gate is load-bearing for a different control. **Two true facts standing next to each other read as cause and effect.** |
 
 ### [2026-09-03] Believing a backlog row instead of re-opening it ×15
 
@@ -700,3 +704,52 @@ from one base class and read as covering the gesture. **Each is a true
 measurement generalised one step past what it measured.** The habit that catches
 all three is the same: say what you observed, name the state you observed it in,
 and let the scope of the claim stop where the observation did.
+
+### [2026-09-07] The probe undercounted the class it existed to count
+
+**A good batch, and every one of its four refutations is a claim that was one
+step wider than its measurement.**
+
+**The load-bearing one.** The gesture census walked the tree with
+`get_children()`. That omits internal children: 4 401 nodes against 5 512.
+Hidden in the gap were 12 `SpinBoxLineEdit` and a `TabBar` — `LineEdit`-derived,
+acting on press, live, under live vertical scrollers — **absent from both the
+before and the after census numbers**. The probe built to enumerate a hazard
+class could not see part of that class, and the walk is one keyword from
+correct. Fixed; the corrected census reports `SpinBoxLineEdit` ×5 and `LineEdit`
+×18 under live scrollers where the report said 4.
+
+**And the thing it hid is a real defect that a previous pass had "cleared".**
+`SpinBox` was ruled out of the slider hazard by measuring that a swipe does not
+step its value. True — and the wrong question. On the New World card a jittered
+vertical swipe on the Seed field gives **scroll `0 → 0` with the internal
+`SpinBoxLineEdit` focused**, while the label column at the same `y` scrolls
+`0 → 62`. On Android that focus raises the soft keyboard over the sheet. A
+negative control clears the mechanism it tested and nothing else.
+
+**My own contribution was a severity claim.** I filed the dropdown row saying it
+was *"milder … nothing changes silently — the user sees a popup and can dismiss
+it"*. I had watched a popup appear and reasoned from the mechanism. The lane
+measured it instead: `sel=7 → sel=3`, popup closed again at the end, sheet
+unmoved — the press opens the list under the finger, the drag travels it, the
+release picks whatever is beneath. **It is the slider defect exactly and it is
+silent.** It refused my sentence in its report, which is the behaviour that
+keeps briefs honest; had it believed me, a silent data-loss row would have been
+filed as a cosmetic one.
+
+**The fourth is the cheapest and the most human.** A comment credited the
+"no vertical scroller" gate with protecting the menu bar’s seven `MenuButton`s.
+Both facts in that sentence are true — they have no scroller, and the gate
+exists — and the causal link is invented: **0 of the 7 carry `_phone_fitted`**,
+so `phone_fit()` never walks the menu bar and the function is never called on
+them. Inverting the gate leaves all seven stock. It protects a different
+control. Two true facts standing next to each other read as cause and effect.
+
+**What the batch got right is worth copying.** It walked EIGHT named states
+including a world-loaded one — the direct lesson from the previous census being
+a lower bound — and it paid: 22 hazards at a world-less boot, 44 after a
+generate, so 40 dropdowns were converted rather than the 18 a world-less boot
+can see. And it **departed from my brief and was right to**: I said reuse
+`PgSlider`’s arbitration, and a `BaseButton` has `action_mode`, the engine’s own
+switch, where a `Slider` has nothing. Two property writes, no shared
+classification code to drift, and the native fling kept.

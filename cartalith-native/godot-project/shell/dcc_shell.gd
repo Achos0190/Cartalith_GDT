@@ -2027,13 +2027,76 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 			## control instead (`DccWidgets.touch_slider()`, attached a few lines
 			## above), which needs the `STOP` this clause leaves in place.
 			##
-			## Neither are the three `BaseButton`s that open a `Popup` on *press* --
-			## and not for symmetry: such a control pops mid-flick, the popup grabs
-			## the drag, and the gesture then neither scrolls nor is undone (measured
-			## on `OptionButton`: popup open, scroll 0). Their rows still scroll from
-			## the label beside them.
-			if ctl is BaseButton and ctl.mouse_filter == Control.MOUSE_FILTER_STOP 					and not (ctl is OptionButton or ctl is MenuButton 						or ctl is ColorPickerButton):
+			## **A `BaseButton` that opens its popup on *press* is converted
+			## rather than excluded, and that is a change from what stood here
+			## until 2026-09-07.** The old reason -- *"such a control pops
+			## mid-flick, the popup grabs the drag, and the gesture then
+			## neither scrolls nor is undone (measured on `OptionButton`: popup
+			## open, scroll 0)"* -- was a correct measurement of `PASS` alone,
+			## and `PASS` alone is not the fix. It leaves `action_mode` at
+			## `ACTION_MODE_BUTTON_PRESS`, so the popup still opens under the
+			## finger and the scroll it now forwards is a scroll of the popup.
+			##
+			## `DccWidgets.touch_release_button()`, called just below, moves
+			## `action_mode` to RELEASE **and** takes the control to `PASS` in
+			## the same step -- so by the time this clause runs, a converted
+			## dropdown is already `PASS` and this `if` is a no-op for it. The
+			## exclusion list stays for the ones it did NOT convert: a dropdown
+			## with no vertical scroller above it (the census's `scroller=none`
+			## rows -- one in `asset_library_window.gd`, one in
+			## `city_viewer_window.gd`, and the seven `MenuButton`s of the menu
+			## bar) keeps opening on press, because there is nothing there for a
+			## vertical gesture to mean instead.
+			##
+			## `ColorPickerButton` is excluded on its own footing and not by
+			## association: it measures `action_mode == 1` (RELEASE) on 4.7.1,
+			## so it is not the touch-DOWN defect at all. It stays `STOP`
+			## because whether that blocks a scroll under it is a separate
+			## question, and no probe in this pass could stage a visible one.
+			if ctl is BaseButton and ctl.mouse_filter == Control.MOUSE_FILTER_STOP \
+					and not (ctl is OptionButton or ctl is MenuButton \
+						or ctl is ColorPickerButton):
 				ctl.mouse_filter = Control.MOUSE_FILTER_PASS
+			## **The other half of the same sentence, and the half that makes
+			## the clause above safe to widen.** Godot's `OptionButton` and
+			## `MenuButton` ship `action_mode == ACTION_MODE_BUTTON_PRESS`
+			## (measured on 4.7.1, against `CheckBox` 1, `ColorPickerButton` 1
+			## and `Button` 1), so their popup opens on touch-DOWN, before there
+			## is any motion to classify -- the §1.14 slider defect one class
+			## over. `_gestclass_probe.gd` at 1080x2340, before this call
+			## existed: a jittered vertical swipe on a left-dock
+			## `DccWidgets.choice()` row took `sel=7 -> sel=3` with the sheet
+			## not moving, and the same swipe on the New World card left its
+			## popup standing open.
+			##
+			## **The census, with its state named, because the state is most of
+			## the number.** `_gestclass_probe.gd --census-only` at 1080x2340,
+			## with this call neutered, counts unarbitrated touch-DOWN controls
+			## inside a live vertical scroller as:
+			##
+			##   world-less boot          **22** = 18 `OptionButton` + 4 `LineEdit`
+			##   after tapping PLAN       **38** = 34 + 4
+			##   after a generate         **44** = 40 + 4
+			##
+			## With it in place, **4** in every one of those states, all
+			## `LineEdit`. So this converts **40** dropdowns, not the 18 a
+			## world-less boot can see -- the same understatement §1.15's
+			## slider census recorded about itself and which cost that pass
+			## four uncovered sites. The 18 break down 10 left sheet, 6 New
+			## World card, 2 in `asset_library_window.gd`'s slicer modal (an
+			## unscripted `AcceptDialog`, fitted by its own `phone_fit` call).
+			##
+			## The 4 `LineEdit`s are left alone: they write no value, they take
+			## FOCUS from the press (and on Android raise the soft keyboard
+			## over the sheet the swipe was scrolling), and no state this probe
+			## could stage put a visible one inside a scroller -- so the change
+			## would have been unmeasurable. Reported, not changed.
+			##
+			## Placed in `phone_fit()` for the reason `touch_slider()` above is:
+			## the population is built by five different files and this walk
+			## already reaches every one of them.
+			if ctl is BaseButton:
+				DccWidgets.touch_release_button(ctl as BaseButton)
 			## That deadzone is not a default -- Godot's is **0**, at which the ~2 px
 			## of wobble in a real thumb tap already counts as a drag and silently
 			## eats the press. Without this, the fix above would trade "the sheet does
