@@ -210,8 +210,22 @@ copied out of the table:
 | `--railH` | 56 | *(no role — see §2.2)* | `tool_options_row` 55 px |
 | `--railW` | 52 | `w_rail` **48** | `rail_column` 47 px |
 | `--sbH` | 28 | `h_status` **36** | `status_row` 35 px |
-| `--ldW` | 232 ▯ / 320 ▭ | `w_left_dock` **400** | `left_dock` 400 px, every frame |
-| `--rdW` | 232 ▯ / 320 ▭ | `w_right_dock` **400** | `right_dock` 400 px, every frame |
+| `--ldW` | 232 ▯ / 320 ▭ | `w_left_dock` **232** in portrait | `left_dock` **331 px** — the role resolves to 232 and a CHILD forces 331; see the correction below |
+| `--rdW` | 232 ▯ / 320 ▭ | `w_right_dock` **232** in portrait | `right_dock` **232 px** — canvas-exact |
+
+> **CORRECTED 2026-09-07 (evening). These two rows read "400 px, every frame"**
+> and that is not what the build does. `_tabspec_probe` at `--force-touch --vp
+> 800x1280` reports `w_left_dock=232  w_right_dock=232`, `right_dock w=232.0`
+> and `left_dock w=331.0` with `min.x=331.0`.
+>
+> **So the portrait machinery is not missing — it works.** `TABLET_PORTRAIT`
+> and `DccShell.set_portrait(not _landscape)` deliver the canvas figure, the
+> right dock is canvas-exact, and only the left dock is over — by 99 px, forced
+> by a child rather than by its role.
+>
+> **That matters for scoping the tablet work:** the dock split does not need to
+> be built, it needs one over-wide child found. **99 of the 285 px portrait
+> overflow is this one dock.**
 | `--tap` | 44 | `_ttap()` floors to `max(44, round(px × TOUCH_SCALE))`, `TOUCH_SCALE = 1.53` | — |
 | `--ctl` | 36 | `ROLE`'s control rung, 24 → 36 | — |
 | `--row` / `--rowD` | 48 / 44 | `ROLE`'s row, 28 → **44** (one figure, not two) | — |
