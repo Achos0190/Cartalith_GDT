@@ -253,6 +253,10 @@ var _active := false
 var _left_panel: VBoxContainer
 var _left_route_section: VBoxContainer
 var _left_party_body: VBoxContainer
+## True while `_show()` is the reason the phone's left dock sheet is up, so
+## `_hide()` closes that sheet and only that sheet -- never one the user opened
+## themselves. See `_show()`'s own block for why this view opens it at all.
+var _phone_sheet_opened := false
 var _auto_obs: Dictionary = {}   ## JP-15: field_key (String) -> OptionButton, the party form's own "Auto" fields -- refreshed post-compute by `_refresh_auto_labels()` rather than rebuilt, so a live numeric edit elsewhere in the form never loses focus.
 ## JP-16: the fodder-ceiling advisory under "Supplies carried", refreshed in
 ## place by `_refresh_pack_range_note()` for exactly the reason `_auto_obs`
@@ -338,6 +342,82 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 ## same one-way flow every other tool already uses.
 func open() -> void:
 	app.arm_tool("journey")
+	## **Re-assert this view's own region, because a second open does not.**
+	## `arm_tool()` early-returns when the tool is already armed, so it emits no
+	## `tool_armed`, `_recompute_visibility()` stops at `should_show == _active`
+	## and `_show()` never runs. That would be harmless if opening were
+	## idempotent, and it is not: every entry point reaches
+	## `app.gd::open_journey_planner()`, which calls `select_domain_mode(
+	## "civilization", "planner")` **first**, and `_select_domain()` re-shows
+	## `_workspace_panels["civilization"]` on its way through -- the exact panel
+	## `_show()` hides. Re-opening an already-open planner therefore put the
+	## CIVIL dock back over this view's own controls.
+	##
+	## Caught on glass 2026-09-07 and only there: PLAN -> close the sheet ->
+	## PLAN again returned the `TOOLS`/`Civilizations`/`Factions` dock instead of
+	## `§ JOURNEYS` and the party form. Invisible on desktop, where the two
+	## panels share a dock that is always open and the civ panel simply appears
+	## *below* the planner's rather than instead of it.
+	##
+	## The three visibility writes only, not a second `_show()`: `_compute()`
+	## and `_rebuild_party_form()` would re-run for a repaint that changed
+	## nothing, and this is the hot path for every PLAN tap.
+	if _active:
+		var civ_reopen: Control = app._workspace_panels.get("civilization")
+		if civ_reopen != null:
+			civ_reopen.visible = false
+		_left_panel.visible = true
+		_center_panel.visible = true
+	## **Every control this view has lives in the left dock, and on a phone that
+	## dock is a sheet that starts closed** -- `dcc_shell.gd::
+	## _build_phone_shell()` builds it `visible = false`. `_build_left_panel()`
+	## parents `_left_panel` (the `Journeys` list AND the whole party form --
+	## TRAVELER, SEASON & WEATHER, CARRIAGE, ROUTE, STOPS) into
+	## `app.left_dock_body`, so `_show()`'s `_left_panel.visible = true` was
+	## putting this view's entire control surface inside a hidden sheet.
+	##
+	## **What that looked like on the owner's OnePlus 6T** (2026-09-07, driven
+	## on glass by `adb` tap from a cold launch with a world generated, never by
+	## calling a function to get there): tapping PLAN painted `_center_panel`
+	## and nothing else -- route map, `ROUTE TOTALS`, `PROFILE - STAGE
+	## SELECTOR` and `STOPS - LAYOVER DAYS`, each reading "no committed route
+	## selected", and no control anywhere on screen to select one with. The tool
+	## sheet's route picker opened and held exactly one entry, `(no committed
+	## route)`. The party form was reachable only by MORE -> scrolling past a
+	## heading that reads `NOT ON THE MORE LIST` -> `Window` -> `Left dock`:
+	## six taps ending in a menu whose name says nothing about journeys. That is
+	## the owner report "the planner doesn't seem to be functioning", and it is
+	## why a desktop probe never caught it -- `_left_panel.visible` is `true`
+	## throughout, and on desktop the dock it hangs in is always on screen.
+	##
+	## **`phone_menu.gd` already states the rule** in `_go_civilization()`'s
+	## header -- "on a phone the dock is a sheet that is closed -- so a bare
+	## `select_domain()` ... is a menu row that appears to do nothing" -- and
+	## both it and `_go_simulation()` call `_open_left_sheet()`.
+	## `_go_journey_planner()` and `dcc_shell.gd::_pick_phone_tab()`'s `plan`
+	## branch are the two routes that never did.
+	##
+	## **Here rather than in either caller, and here rather than in `_show()`.**
+	## Every entry point converges on this function -- the PLAN tab, the CIVIL
+	## rail node, `phone_menu.gd`'s `Open journey planner` row,
+	## `right_dock.gd`'s `Logistics` and `Plan a journey`,
+	## `infrastructure_workspace.gd`'s button and `Shift+J` -- so one line fixes
+	## all seven and a route added later inherits it. `_show()` looks like the
+	## tidier home and is the wrong one: `arm_tool()` early-returns when the
+	## tool is already armed, so re-opening an already-open planner emits no
+	## `tool_armed` and `_recompute_visibility()` returns at `should_show ==
+	## _active` without reaching `_show()`. Hooked there, tapping PLAN again
+	## after closing the sheet would leave the controls unreachable a second
+	## time -- verified on glass before this was moved.
+	##
+	## `left_dock` is non-null whenever `_phone` is true (`is_phone()` implies
+	## `_build_phone_shell()` ran and built it), but it is asserted rather than
+	## assumed: `_phone` comes from `is_phone()`, which a bare `DccShell` under
+	## `--force-touch` also answers true, and `_set_sheet_open()` writes
+	## `left_dock.visible` unguarded.
+	if _phone and app.left_dock != null:
+		_phone_sheet_opened = true
+		app._set_sheet_open("left", true)
 
 func _recompute_visibility() -> void:
 	var should_show := _bound and app.armed_tool == "journey" and app.active_domain() == "civilization"
@@ -423,6 +503,25 @@ func _show() -> void:
 	_phone_refit()
 
 func _hide() -> void:
+	## Close the phone's left dock sheet if `open()` was what raised it. Leaving
+	## it up would strand the next domain's dock over the map on a PLAN -> MAP
+	## tap -- `_pick_phone_tab()` closes `PhoneMenu` on every tab press but
+	## never a dock sheet, so nothing else would.
+	##
+	## **The flag means "this view opened it", not "this view still owns it",
+	## and the difference is a real case rather than a quibble:** the sheet's
+	## own `x` (`dcc_shell.gd::_sheet_close_button()`) goes straight to
+	## `_set_sheet_open()` without passing through here, so after a close the
+	## flag is still set. A user who then reopens the dock themselves via
+	## `MORE -> Window -> Left dock` and switches domain gets it closed by this
+	## line. Left that way deliberately: a domain switch repoints the dock at
+	## the new domain's panel regardless, so what this closes is not the sheet
+	## the user was reading. Stated rather than claimed away -- an earlier
+	## draft of this comment asserted the opposite and the code never did it.
+	if _phone_sheet_opened:
+		_phone_sheet_opened = false
+		if app.left_dock != null:
+			app._set_sheet_open("left", false)
 	_left_panel.visible = false
 	_center_panel.visible = false
 	app.viewport.visible = true

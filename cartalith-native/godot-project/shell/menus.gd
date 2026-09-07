@@ -2470,6 +2470,92 @@ func _build_vault_rows(p: PopupMenu) -> void:
 
 # -- §2.5 Preferences ---------------------------------------------------------
 
+## **Owner specification, 2026-09-07, and it outranks both the canvas and
+## `DCC_SHELL_SPEC.md` §2.5** -- recorded here at the call site so the next
+## conformance pass does not revert it as an unsourced addition. Owner, on the
+## device: *"in the preferences menu we should show what options have been
+## selected. For the preferences I'd say make the text of the selected option
+## bold in the overview."*
+##
+## **Per-item bold is not achievable on a `PopupMenu`, and that was measured
+## rather than assumed** (`_prefbold_probe.gd`, 4.7.1):
+##
+## * 25 `set_item_*` methods, and **none** names a font, weight or style.
+## * the only per-item properties an instance exposes are `text`, `icon`,
+##   `checkable`, `checked`, `id`, `disabled` and `separator`.
+## * the only font levers are whole-popup theme overrides --
+##   `theme_override_fonts/font` and `font_separator`, plus their sizes -- and
+##   a whole-popup bold bolds every row, which is the opposite of the ask.
+##
+## So the three per-item levers that exist are text, icon and indent. This
+## takes **text**, and it takes the *wider* reading of "the overview": the
+## parent Preferences row carries its group's current value, so the selection
+## is visible **without opening the submenu at all**. The narrower reading --
+## bold the selected row inside each submenu -- is the one the engine refuses;
+## it would need `PopupMenu` replaced by a custom-drawn list, which is a much
+## larger change than an owner sentence authorises.
+##
+## **Not a new vocabulary**: `GPU acceleration   WebGPU · on` is built three
+## screens up by this same `about_to_popup` handler, with exactly this
+## separator. This generalises that row's shape to every value group.
+##
+## `%s` from the submenu, never from a table here: the value shown is the text
+## of the submenu's own checked item, so a group whose labels change cannot
+## drift from its readout. The alternative -- a `match` over each setting --
+## is the "second parameter table" defect this project keeps finding.
+const PREF_VALUE_SEP := "   "
+
+## The authored label of each stamped row, keyed by its submenu's node name --
+## which is unique and stable, unlike an index into a popup whose row count
+## depends on which engine APIs this build has. Captured the first time a row
+## is stamped, so re-stamping on the next `about_to_popup` appends to the
+## label rather than to the last readout.
+var _pref_row_labels := {}
+
+## The text of a group's sole checked item, or `""` when there is not exactly
+## one. **Empty is returned rather than a guess**, and the caller omits the
+## readout entirely when it gets one: a submenu whose own `about_to_popup`
+## refresher has never run may carry no check at all, and rendering that as a
+## plausible-looking value is precisely the "no value encoded as a value"
+## failure `MISTAKES.md` opens with. Two checked is treated the same way --
+## a group that cannot say which one is selected should not claim one.
+func _sole_checked_text(sub: PopupMenu) -> String:
+	var found := ""
+	var n := 0
+	for j in sub.item_count:
+		if sub.is_item_separator(j) or not sub.is_item_checked(j):
+			continue
+		n += 1
+		found = sub.get_item_text(j)
+	return found if n == 1 else ""
+
+## Walk the Preferences popup's own submenu rows and stamp each with its
+## group's current value. Rows with no submenu are untouched -- the check
+## items, the dialogs and the actions are not value groups.
+##
+## Safe to re-run: `_pref_row_labels` holds the authored label, so this is
+## idempotent however many times `about_to_popup` fires.
+##
+## **This cannot disturb the searchable command index.** `command_index.gd`'s
+## `_walk_popup()` recurses into a submenu and `continue`s *before* it reads a
+## row's text, so a parent row's wording has never been indexed as a command --
+## checked at that function rather than assumed, because `MISTAKES.md`'s
+## "move a command off the menu bar" row is exactly this hazard one class over.
+func _stamp_pref_values(p: PopupMenu) -> void:
+	for i in p.item_count:
+		var sub_name := p.get_item_submenu(i)
+		if sub_name == "":
+			continue
+		var sub := p.get_node_or_null(NodePath(sub_name))
+		if not (sub is PopupMenu):
+			continue
+		if not _pref_row_labels.has(sub_name):
+			_pref_row_labels[sub_name] = p.get_item_text(i)
+		var base: String = _pref_row_labels[sub_name]
+		var picked := _sole_checked_text(sub as PopupMenu)
+		p.set_item_text(i, base if picked == ""
+			else base + PREF_VALUE_SEP + picked)
+
 func _preferences(p: PopupMenu) -> void:
 	## `use_gpu` is a plain entry in the engine's own flat parameter table
 	## (`params.rs`) -- `bridge.param_set("use_gpu", ...)` is the whole
@@ -2529,7 +2615,8 @@ func _preferences(p: PopupMenu) -> void:
 			p.set_item_tooltip(_undo_pref_row, _undo_pref_tip())
 		_refresh_gpu_retry_row(p)
 		_refresh_quality_row(p)
-		_refresh_working_set_row(p))
+		_refresh_working_set_row(p)
+		_stamp_pref_values(p))
 	## PR-01/PR-02/PR-04/PR-05: the four §2.5 Performance rows the engine now
 	## backs. Each is a submenu rather than a dialog -- every one of them is a
 	## small fixed choice, and a modal for four radio lists would be more
@@ -2698,6 +2785,15 @@ func _preferences(p: PopupMenu) -> void:
 	_undo_budget_popup.add_item("Clear undo history now", ID_PREF_UNDO_CLEAR)
 	_undo_budget_popup.id_pressed.connect(_on_undo_budget)
 	_undo_budget_popup.about_to_popup.connect(_refresh_undo_budget_menu)
+	## Refreshed at build time as well as on `about_to_popup`, matching the
+	## atlas pattern this file already cites as its model. Two reasons, and
+	## the second is new: `CommandIndex` needs the rows populated before the
+	## submenu is ever opened, and so does `_stamp_pref_values()` -- a group
+	## with no check yet shows no value at all, by design, so a group whose
+	## refresher only ever runs on open would read as having no setting.
+	## Measured by `_prefvalue_probe.gd`: 8 of 15 groups carried a value
+	## before these three calls existed.
+	_refresh_undo_budget_menu()
 	_shell.style_popup(_undo_budget_popup)
 	p.add_child(_undo_budget_popup)
 	p.add_submenu_item("Undo history", "UndoBudget")
@@ -2883,6 +2979,15 @@ func _build_relief_exag_menu(p: PopupMenu) -> void:
 		"render.rs's own exag: 3.4, which is what this build renders with when nothing is stored here. It is not one of the three rungs on purpose -- rounding the shipped default onto the nearest one would change every untouched install's render the moment this preference existed.")
 	_exag_popup.id_pressed.connect(_on_relief_exag)
 	_exag_popup.about_to_popup.connect(_refresh_relief_exag_menu)
+	## Refreshed at build time as well as on `about_to_popup`, matching the
+	## atlas pattern this file already cites as its model. Two reasons, and
+	## the second is new: `CommandIndex` needs the rows populated before the
+	## submenu is ever opened, and so does `_stamp_pref_values()` -- a group
+	## with no check yet shows no value at all, by design, so a group whose
+	## refresher only ever runs on open would read as having no setting.
+	## Measured by `_prefvalue_probe.gd`: 8 of 15 groups carried a value
+	## before these three calls existed.
+	_refresh_relief_exag_menu()
 	p.add_child(_exag_popup)
 	p.add_submenu_item("Relief exaggeration", "ReliefExag")
 	p.set_item_tooltip(p.item_count - 1,
@@ -3613,6 +3718,15 @@ func _build_tiled_lod_menu(p: PopupMenu) -> void:
 	_tiled_lod_popup.add_item("Leave deep detail", ID_LOD_LEAVE_NOW)
 	_tiled_lod_popup.id_pressed.connect(_on_tiled_lod)
 	_tiled_lod_popup.about_to_popup.connect(_refresh_tiled_lod_menu)
+	## Refreshed at build time as well as on `about_to_popup`, matching the
+	## atlas pattern this file already cites as its model. Two reasons, and
+	## the second is new: `CommandIndex` needs the rows populated before the
+	## submenu is ever opened, and so does `_stamp_pref_values()` -- a group
+	## with no check yet shows no value at all, by design, so a group whose
+	## refresher only ever runs on open would read as having no setting.
+	## Measured by `_prefvalue_probe.gd`: 8 of 15 groups carried a value
+	## before these three calls existed.
+	_refresh_tiled_lod_menu()
 	p.add_child(_tiled_lod_popup)
 	p.add_submenu_item("Tiled LOD", "TiledLod")
 

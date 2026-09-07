@@ -2443,6 +2443,16 @@ func _open_left_sheet() -> void:
 ## cycle reason `_go_travel_library_kind()` gives, and it is the same call
 ## `DccShell._pick_phone_tab()` makes for the PLAN tab -- so this row and that
 ## tab land on one view, not two.
+##
+## **No `_open_left_sheet()` here, unlike `_go_civilization()` and
+## `_go_simulation()` above, and the omission is deliberate as of 2026-09-07.**
+## It used to be an oversight with the same symptom their headers describe: the
+## planner's whole control column lives in `app.left_dock_body`, so this row and
+## the PLAN tab both landed on `_center_panel` alone -- four result groups all
+## reading "no committed route selected" and nothing to select one with. The fix
+## went into `journey_planner_view.gd::open()` instead -- the one function all
+## seven entry points converge on, this row included -- so adding a second
+## opener here would only close and reopen the sheet it has already put up.
 func _go_journey_planner() -> void:
 	close()
 	if _shell.has_method("open_journey_planner"):

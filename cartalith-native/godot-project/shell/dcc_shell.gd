@@ -6144,7 +6144,39 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	## paragraph above says "what no canvas settles is how tall a *headerless*
 	## sheet's grab region is"; the shipped Android canvas settles it, and the
 	## 24 here was the reasoned estimate that sentence licensed.
-	_phone_sheet_grab.custom_minimum_size.y = _pscale(20)
+	##
+	## **`_ptap()`, not `_pscale()`, and that is the owner-reported defect,
+	## 2026-09-07.** Owner, on the device: *"it seems an issue with dragging the
+	## drawer up in the sculpt menu."* `_sheetgrab_probe.gd` at 1080x2340 drove
+	## a ten-rung ladder of whole drags through the SubViewport's own hit-test
+	## and measured the live band -- the offsets from the handle's centre that
+	## actually raise the sheet -- as **exactly the grab row and nothing more**:
+	## raised at -26/-12/0/+12 px, dead at +-26 px and beyond, a target
+	## **19.84 dp** tall. `_detent_probe.gd` reports PASS on the same build
+	## because it presses the handle's exact CENTRE; a centre press can never
+	## see the width of the target it hits.
+	##
+	## 19.84 dp is under half the **44 dp** floor `phone_fit()` applies to every
+	## other tappable thing in this shell (`DccTheme.PHONE_TAP_MIN`, the
+	## canvas's own TARGETS card) and well under Android's 48 dp. The paragraph
+	## further up already flagged 24.03 dp as below both and filed it as an open
+	## question for `DESIGN_HANDOFF.md`; the `AND:177` read then took it to 20.
+	##
+	## `_ptap()` is this file's own answer to exactly this question --
+	## `_pscale(maxf(DccTheme.PHONE_TAP_MIN, px))` -- so the canvas's authored
+	## **20 stays the figure in the source** and the shell's tap floor is what
+	## reaches the screen, the same way every other phone target here is sized.
+	## The pill is a `PRESET_CENTER` `ColorRect`, so it stays 42 x 4 dp and
+	## stays centred; nothing drawn moves except the invisible hit row.
+	##
+	## **The cost, stated rather than discovered later:** `peek` is 66 dp and is
+	## unchanged, so the sheet body at `peek` goes 45.78 dp -> ~22 dp. Nothing
+	## fitted there today anyway -- `tool_options_row` measures 48 dp against a
+	## 45.78 dp viewport, i.e. it was already clipped and already relying on the
+	## body's `SCROLL_MODE_AUTO`. `peek` is a sliver by design ("still there,
+	## out of the way"), and at a sliver the handle is the part that has to
+	## work.
+	_phone_sheet_grab.custom_minimum_size.y = _ptap(20)
 	_phone_sheet_grab.mouse_filter = Control.MOUSE_FILTER_STOP
 	_phone_sheet_grab.gui_input.connect(_on_phone_sheet_grab_input)
 	var handle := ColorRect.new()
