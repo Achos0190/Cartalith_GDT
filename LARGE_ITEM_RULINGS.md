@@ -704,3 +704,57 @@ change it there.
 **Until the canvas is corrected the shell keeps drawing `ENV:1354` as written**,
 and `_cklight_probe` continues to pin it — so the current behaviour cannot drift
 while the question is open. **Do not "fix" this in `dcc_widgets.gd`.**
+
+---
+
+## 2026-09-07 (late) — the two tablet exceptions, so "100%" has a meaning
+
+**Context.** The owner checked the tablet and found it still shows the PC
+layout. `TABLET_UI_SPEC.md` had parked adoption behind *"an owner decision that
+has not been made"* — a decision that had in fact been given the same day. Of
+the canvas’s items, §4.2 named exactly **two as not adoptable**, and those two
+decide what "match 100%" can mean on tablet. Both are now ruled.
+
+### Ruling D — `Run stage NN` is DRAWN, and runs the whole pipeline
+
+**The question.** The canvas draws a run button per pipeline stage. **The
+engine has no partial recompute** — one `generate()` resolves all ten stages
+together, and they share state.
+
+**Ruled: draw the buttons as the canvas draws them, wired to a FULL run**, with
+that stage’s result brought into view. Visually 100%, no engine work.
+
+**The obligation this creates, and it is the whole reason the ruling is written
+down: the affordance implies a capability the engine does not have.** Each
+button MUST carry a tooltip saying it recomputes the whole pipeline — stages are
+not independent. **A control that silently does something larger than its label
+says is the defect this project keeps finding**, so this one says it out loud.
+
+**Explicitly NOT ruled: partial recompute is not being built.** It was offered
+and declined as Phase-scale — it needs a per-stage dependency graph, cache
+invalidation, and golden re-verification per stage, and would want its own scope
+document. **Do not re-propose it as part of a tablet pass.**
+
+### Ruling E — the tablet shows the ENGINE’s stage names, not the canvas’s
+
+**The question.** The canvas names its ten stages differently from
+`progress.rs::STAGE_NAMES`, which `_assert_stage_names()` actively guards
+against drift.
+
+**Ruled: keep the engine’s names.** A recorded, deliberate departure from the
+canvas’s labels.
+
+**Why this is the conservative answer rather than the lazy one.** The guard
+stays meaningful, the golden fixtures are untouched, and — the part that decides
+it — **a user reading a progress bar sees the same words the logs and the error
+messages use.** A display-name mapping would have kept the guard working on ids
+while making the UI and the logs disagree, which is a debugging cost paid every
+time something goes wrong, forever, to win a resemblance.
+
+**Renaming the engine’s stages was also declined:** it touches `progress.rs`,
+the guard, every golden fixture carrying a stage name, and the documents quoting
+them — **and it changes strings the HTML reference produced, which is the parity
+baseline this whole port is measured against.**
+
+**So "100% on tablet" now means: every layout and style, with these two named
+exceptions, both recorded at their call sites.**
