@@ -221,6 +221,71 @@ Dated, because this is what a returning session needs and it is exactly what
 went missing from the old file. Commits are from `git log`; each claim below was
 re-checked against the tree rather than copied from the commit message.
 
+### 2026-09-03 – 2026-09-06
+
+**Not written up here, and that is a gap rather than a quiet period** — read
+`git log` for these four days. They are named so a returning session does not
+read the jump from 09-02 to 09-07 as nothing having happened.
+
+### 2026-09-07
+
+**A full day on the GUI, driven by the owner's standing priority and by defects
+they found on the handset.** Seven multi-agent batches, then a long main-loop
+stretch once the weekly budget ran low. Backlog moved 113 → 146 → **132**: it
+rose while the parity audit converted "nobody has checked this" into rows, then
+fell as those rows closed. **Read a rise here as *more known*, not *more
+broken*.**
+
+**The three canvases arrived and became the definition of done.** The owner
+supplied PC, Tablet and Android through the `claude_design` MCP; they are
+imported verbatim to `design/mcp-2026-09-07/`. A `.dc.html` is a complete HTML
+document and renders standalone in **headed** Chrome — the canvas editor never
+renders headless. `TABLET_UI_SPEC.md` and `ANDROID_UI_SPEC.md` were written
+from them. The owner's words: *"All designs layouts and styles should match
+100%"*, with the before/mid/after checks **waived at parity**.
+
+**What the owner reported on glass, and what each turned out to be.** Every one
+had a green desktop probe behind it, and in each case the probe was right about
+what it measured:
+
+- **The journey planner did not function.** Not a missing feature: its entire
+  control surface hangs in `app.left_dock_body`, a phone sheet built
+  `visible = false`. `_left_panel.visible` was `true` throughout, so every probe
+  passed while measuring a panel nobody could see. Fixed at `open()`, the one
+  function all seven entry points converge on.
+- **The sculpt drawer would not drag.** A **19.84 dp** grab row against a 44 dp
+  floor — not gesture arbitration, which was my hypothesis and was wrong.
+  `_detent_probe` passed because it presses the handle's exact centre.
+- **Preferences showed no selection.** Desktop now stamps the value on 10 of 15
+  parent rows; the phone chip takes Medium plus the accent ink.
+- **The file browser could not reach the owner's files, on both platforms.** PC
+  had no `..` row and no drive list, so it could not leave `C:`. Android landed
+  in the app sandbox. Both fixed; Android file-picking now goes through SAF and
+  `Werk.zip` opens.
+- **The picker tiles were a colour gradient.** They are the map now, rendered
+  from the archive's own heightmap — **no save-format change was needed**,
+  because `SAVEFILE_COMPAT.md` already makes the heightmap and sea level MUST.
+
+**A regression I shipped, and the probe that shipped asserting it.** `e830112`
+right-aligned `number()`'s field citing the canvas's `ENV:351` — a **52 px
+readout span**, where this field is `SIZE_EXPAND_FILL` at 388 px, so a 36 px
+number moved 343 px from its label. The same commit added
+`_inputfill_probe:165` asserting that alignment, so **the probe was green on the
+regression it existed to catch.** Both corrected.
+
+**All sixteen non-conforming dialogs now reach the phone**, converted in the
+main loop at no lane cost. The phone path is a **three-call protocol** —
+`phone_window` at build, `phone_fit` after the body, `phone_present` instead of
+`popup_centered` — and callers got it *partly* right in both directions.
+
+**An APK went to the D: drive**, release path, `8bcb0dce…`, hash-verified at the
+destination and on the handset, booting with 0 script errors.
+
+**Verification.** Every batch had an adversarial verifier except one, whose
+verifier died on a session limit; that debt was discharged by the next batch's
+verifier and is recorded. The cargo floor held all day at **157 result lines /
+3 253 passed / 0 failed / 28 ignored**.
+
 ### 2026-09-02
 
 Four parallel workflows (33 agents). Every claim below was re-verified against
@@ -624,6 +689,18 @@ committed tree.
 
 ## What is left
 
+**Recounted 2026-09-07 (evening): 132 items.** Run
+`scratchpad/count_outstanding.py` rather than trusting this paragraph — it
+counts rows in the NUMBERED sections and skips the archive sections, which are
+deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for
+six days and 58 commits**, which is the regression `CLAUDE.md` names: a status
+recorded anywhere but here goes stale here.
+
+**§4 is now empty.** The twenty open owner decisions were all answered — the
+last three on 2026-09-07 (`LARGE_ITEM_RULINGS.md`: Android file-picking to SAF;
+the Preferences chip keeps Medium and gains the accent; the invisible OFF switch
+track is a canvas defect and the shell must NOT be patched around it).
+
 The full list is **`OUTSTANDING_WORK.md`** (assembled 2026-08-31; recount
 2026-09-01 morning after eight `§1` items closed or narrowed; a same-day
 second pass then closed two more — Paint brush falloff and GUI replacement
@@ -635,10 +712,10 @@ answers "what is left" without a second read:
 
 | | Count | Where |
 |---|---:|---|
-| In flight — code exists, uncommitted or partial | 3 | `OUTSTANDING_WORK.md` §1 |
-| Ready to start — nothing blocks them | 99 | §2 |
-| Blocked — a named blocker | 33 | §3 |
-| Open owner decisions — not work yet | 20 | §4 |
+| In flight — code exists, uncommitted or partial | 2 | `OUTSTANDING_WORK.md` §1 |
+| Ready to start — nothing blocks them | 106 | §2 |
+| Blocked — a named blocker | 24 | §3 |
+| Open owner decisions — not work yet | 0 | §4 |
 | Declined / shelved — kept so nobody re-proposes them | 23 entries, 3 groups | §5 |
 
 **155 outstanding items** (was 168 that morning, then 164 after four of §1's

@@ -132,6 +132,12 @@ its rule before you start.
 | **Write a commit message** | It is a **claim about its own diff**. Diff the staged set against every claim — each probe named as passing must be IN it | `git show --stat`; a named file that is not there is a false claim, and `a2682de` shipped two |
 | **Re-run a probe as evidence** | Check it could RUN. `_nwclip_probe` prints `fail=0` on desktop because `is_phone()` needs touch — **a probe that cannot answer must not report a pass** | Non-empty output AND a positive control that fires; make it exit non-zero when it cannot run |
 | **Write a mechanism into a brief** | Measure it first. I wrote *"`DirAccess` cannot reach shared storage on Android"*; with zero permissions it lists 16 dirs and writes fine — **only FILE listing is filtered** | State the measurement that produced it, or label it a candidate |
+| **Write or accept a probe’s exit status** | **A probe must not report success its own output contradicts.** `_tabfit_probe` printed `overflow=285.0` and exited **0**, because its assertions were all on a sub-surface | Give "assertions held but the surface fails" its OWN exit code (3), distinct from an assertion failure (1) |
+| **Close a backlog row** | **A struck row left in a NUMBERED section still counts.** Striking four in place moved the headline by zero | Move it to an archive section (deliberately unnumbered), then re-run the counter |
+| **Run `--check-only`** | From the **`godot-project` root**, never a subdirectory. From `shell/` it reports *parse errors that do not exist*, because `res://` resolves nothing | Two errors on `app.gd` from `shell/`, zero from the root. **Suspect your invocation before the code** |
+| **Call `phone_window()` on a dialog with its own verb** | It sets `ok_button_text = "Close"`. Set the caller’s text **AFTER** it, or the primary action is renamed **on phones only** — where the dropped title bar makes that button the only thing naming it | Hit three times in one day: *"Write to Markdown"*, *"Create"*, *"Clear 412 MB"*. `DccWidgets.confirm()` orders it correctly for free |
+| **File a row saying "this needs a bigger fix"** | That is a **claim about the code**, and it went wrong twice in one day — the SAF caller audit (four of seven consumers ended in Rust `std::fs`, so the answer was to make the audit unnecessary) and the "second remedy" for a `dialog_text` dialog (text-plus-a-verb IS `confirm()`’s shape) | Re-open it at its symbol before scheduling the big version. **Both rows were written from the SHAPE of the code rather than from what it needed** |
+| **Chain a shell command after `grep -c`** | `grep -c` **exits 1 when the count is 0**, so `&&` silently drops everything after it — the count prints and the rest of the command never runs | Append `\|\| true`, or check the count as data rather than as an exit status |
 
 ## Why each rule exists
 | **Verify anything phone-shaped** | **`--force-touch` on the desktop is not the phone, and `pressed.emit()` is not a finger.** A whole session of probes reported a healthy phone shell; the owner picked up the APK and could not find the generation menu or use the journey planner within minutes. Synthesised input is injected **downstream** of `MOUSE_FILTER`, scrims, gesture handlers and hit areas, so a control unreachable by touch still passes | **See with `adb exec-out screencap`, act with `adb shell input tap/swipe`** at coordinates read off that image, and navigate from launch tapping only what is visible. Desktop probes are for regression, never for reachability |
@@ -873,3 +879,27 @@ hypothesis and report a clean elimination as a good outcome.** Keep doing that:
 **label the candidate as a candidate, and say plainly that eliminating it is
 worth more than a plausible fix.** A brief that states a cause as fact converts
 the lane from an investigator into a confirmer.
+
+### A check that cannot fail is not a check
+
+**Four distinct mechanisms, all found on 2026-09-07, all reporting green.**
+The family is worth naming because each looked different and none was a bug in
+the code under test:
+
+- **It never ran.** `_nwclip_probe` printed `fail=0` on any desktop, because
+  `is_phone()` needs touch no desktop run supplies. So the `CREATE WORLD` clip
+  fix had **no standing guard at all**.
+- **It measured the wrong surface.** `_tabfit_probe` asserted only on the dock
+  row and exited 0 while printing `overflow=285.0` on the same screen.
+- **It asserted the defect.** `_inputfill_probe:165` was added by the same
+  commit that shipped the regression, pinning the broken alignment — **the same
+  claim written twice**, and green on exactly what it existed to catch.
+- **It could not see the class of thing that was wrong.** A stylebox test
+  cannot see a modulate; a centre press cannot see target width;
+  `get_global_rect()` cannot see a clip.
+
+**The generative test, before trusting any probe: name the class of defect it
+CANNOT see, and name what would make it go red.** If neither has an answer, it
+is decoration. Two of these were fixed by giving the failure its own exit code
+rather than by adding assertions — **the cheapest repair is usually to make the
+existing output binding.**
