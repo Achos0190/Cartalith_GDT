@@ -2947,7 +2947,8 @@ func _pg_rebuild() -> void:
 ## one**, and a vertical swipe beginning on a slider rewrote the parameter
 ## instead of scrolling (Ocean depth `0.60` -> `0.14` in one gesture, found on
 ## glass). The filter is unchanged -- the arbitration happens *inside* the
-## control now, in `PgSlider`, which is what every `Range` in this column
+## control now, in `DccWidgets.PgSlider`, which is what every `Range` in this
+## column
 ## actually is. Read that class before changing anything here: it needs the
 ## `STOP` this line sets.
 ##
@@ -3473,176 +3474,23 @@ func _pg_toggle_field(parent: Control, key: String, info: Dictionary,
 		## so the press finishes first.
 		_pg_rebuild.call_deferred())
 
-## **A drag that starts on a slider belongs to the axis it is actually moving
-## along, and until this class existed the slider took it either way.**
+## **`PgSlider` moved to `dcc_widgets.gd` on 2026-09-07 and is now
+## `DccWidgets.PgSlider`.**
 ##
-## Found on glass on the first swipe of a verification pass: Ocean depth went
-## `0.60` -> `0.14` in one vertical gesture, stage 03 was marked stale, and
-## nothing on screen said so.
+## It was written here, for the two `_pg_*` sliders below, and that was the
+## whole of its reach. A live census of the phone tree at 1080x2340
+## (`_rangeswipe_probe.gd --census-only`) then counted **247 `Range` nodes, of
+## which 245 are writable and inside a live vertical scroller and exactly 3
+## arbitrated** -- these. The other **242** are 214 `DccWidgets.slider()` rows
+## in the left-dock sheet, the 12 `DccWidgets.number()` spin boxes the journey
+## planner's form adds to it, and 16 more across four phone-presented windows;
+## every one of them had the defect this class closes.
 ##
-## Two mechanisms combine, and the first is the one that surprises:
-##
-## 1. **Godot's `Slider` writes the value on touch-DOWN, not on drag.**
-##    `Slider::gui_input` calls `set_as_ratio()` from the press position and
-##    only then arms its grab, so the jump had already happened before there
-##    was any motion to classify. Withholding the press is therefore
-##    load-bearing here, not a refinement of the drag handling -- classifying
-##    the drag alone would have left the touch-down jump exactly as it was.
-## 2. `_pg_open_gestures()` gives every `Range` `MOUSE_FILTER_STOP`, which is
-##    correct for the horizontal drag and wrong for the vertical one -- and
-##    `_pg_range_field()`'s own 44 dp touch floor widened the band that
-##    consumes it from 32 dp to 44 dp. A floor is a hit area, and a bigger hit
-##    area catches more than you meant, so raising it obliged this.
-##    **The answer is not to shrink the row back under the floor**: that trades
-##    a silent data change for a control a finger cannot hit, and both are
-##    defects.
-##
-## The rule is Android's own: hold the gesture until it has travelled `slop`,
-## then give it to whichever axis it travelled furthest along. Vertical scrolls
-## and **never touches `value`**; horizontal writes exactly as before; a tap
-## that never resolves keeps Godot's own jump-to-the-tap, applied at release
-## once it is known to be a tap rather than before it is known to be anything.
-##
-## `_gui_input` is the seam that makes withholding possible.
-## `Control::_call_gui_input` runs the script's `_gui_input` **before** the C++
-## `Slider::gui_input`, and `accept_event()` aborts the rest of that chain --
-## so this subclass can decide whether the slider it is attached to ever sees
-## the event. Every pointer event it recognises is accepted, and `_apply_x()`
-## below is what stands in for the suppressed built-in.
-##
-## The scroll is driven by writing the ancestor `ScrollContainer.scroll_vertical`
-## rather than by letting the event propagate up, and that follows from the
-## same withholding: `ScrollContainer`'s touch drag arms on the
-## `InputEventScreenTouch` press, which by classification time has been
-## swallowed, so forwarding only the later drags would scroll nothing. The cost
-## is stated rather than hidden -- a fling that **begins on a slider** does not
-## carry inertia. Every other pixel of the sheet still does, which is what
-## `_pg_open_gestures()` bought.
-##
-## `_family` exists because `project.godot` leaves
-## `input_devices/pointing/emulate_mouse_from_touch` at its default `true`
-## (checked 2026-09-07; the file's own comment says so), so one finger delivers
-## `InputEventScreenTouch`/`ScreenDrag` **and** an emulated
-## `InputEventMouseButton`/`MouseMotion`. Latching to the family that opened
-## the gesture is what stops every delta being counted twice.
-class PgSlider extends HSlider:
-	## Android's own `ViewConfiguration.getScaledTouchSlop()` is 8 dp. Set by
-	## the builder, which is the thing that knows `_pg_px()`; the default is the
-	## unscaled fallback for anything that forgets.
-	var slop := 8.0
-
-	var _scroller: ScrollContainer
-	var _looked := false
-	var _family := 0            ## 0 idle, 1 touch, 2 mouse.
-	var _verdict := 0           ## 0 undecided, 1 slider, -1 scroller.
-	var _origin := Vector2.ZERO ## Press point, scroll-compensated (see `_track`).
-	var _origin_scroll := 0
-	var _press_value := 0.0
-
-	func _gui_input(event: InputEvent) -> void:
-		var family := 0
-		var kind := 0           ## 1 press, 2 move, 3 release.
-		var pos := Vector2.ZERO
-		if event is InputEventScreenTouch:
-			family = 1
-			kind = 1 if (event as InputEventScreenTouch).pressed else 3
-			pos = (event as InputEventScreenTouch).position
-		elif event is InputEventScreenDrag:
-			family = 1
-			kind = 2
-			pos = (event as InputEventScreenDrag).position
-		elif event is InputEventMouseButton:
-			var mb := event as InputEventMouseButton
-			## Wheel, and every other button, stay the base class's business --
-			## returning without accepting lets `Slider::gui_input` run.
-			if mb.button_index != MOUSE_BUTTON_LEFT:
-				return
-			family = 2
-			kind = 1 if mb.pressed else 3
-			pos = mb.position
-		elif event is InputEventMouseMotion:
-			var mm := event as InputEventMouseMotion
-			if (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) == 0:
-				return
-			family = 2
-			kind = 2
-			pos = mm.position
-		else:
-			return
-		accept_event()
-		if _family != 0 and family != _family:
-			return              ## The emulated twin of the gesture in progress.
-		if kind == 1:
-			_family = family
-			_verdict = 0
-			_press_value = value
-			_origin_scroll = _scroll_now()
-			_origin = _track(pos)
-			return
-		if _family == 0:
-			return              ## A drag or a release with no press of ours.
-		var d := _track(pos) - _origin
-		if kind == 2:
-			if _verdict == 0:
-				if maxf(absf(d.x), absf(d.y)) < slop:
-					return
-				_verdict = -1 if absf(d.y) > absf(d.x) else 1
-			if _verdict > 0:
-				_apply_x(pos.x)
-			elif _scroll() != null:
-				_scroller.scroll_vertical = _origin_scroll - int(round(d.y))
-			return
-		if _verdict == 0:
-			_apply_x(pos.x)     ## A tap: Godot's own jump-to-the-tap, deferred.
-		## Only a gesture that actually moved the value announces itself.
-		## `_pg_range_field()` and `_pg_sculpt_slider()` both write the engine
-		## from `drag_ended`, and `_pg_after_param_write()` marks the stage
-		## stale off the same signal -- so a scroll, and a tap that lands on the
-		## value the slider already held, now write nothing and mark nothing.
-		if _verdict >= 0 and not is_equal_approx(value, _press_value):
-			drag_ended.emit(true)
-		_family = 0
-		_verdict = 0
-
-	## The finger's position in a frame that does not move when the scroller
-	## does. `event.position` is local to this control, and this control slides
-	## up the screen as the scroll it is driving advances -- so a delta taken
-	## from raw local coordinates feeds itself and the list runs away under the
-	## finger. `y - scroll_vertical` cancels exactly that term: the control's
-	## global y is `C - scroll` for a constant `C`, so `pos.y - scroll` is
-	## `finger_y - C` and the difference of two of them is pure finger travel.
-	## `x` needs no such treatment -- this sheet's `ScrollContainer` has its
-	## horizontal axis disabled.
-	func _track(pos: Vector2) -> Vector2:
-		return Vector2(pos.x, pos.y - float(_scroll_now()))
-
-	## `Slider::gui_input`'s own arithmetic, since this class is what replaces
-	## it: the grabber's width is dead travel, half of it at each end.
-	func _apply_x(x: float) -> void:
-		var g := 0.0
-		var tex: Texture2D = get_theme_icon("grabber")
-		if tex != null:
-			g = float(tex.get_width())
-		var area := size.x - g
-		if area <= 0.0:
-			return
-		set_as_ratio(clampf((x - g * 0.5) / area, 0.0, 1.0))
-
-	## Resolved on first use rather than in `_ready()`, so it cannot depend on
-	## whether this node was parented before or after its own ancestors were.
-	func _scroll() -> ScrollContainer:
-		if not _looked:
-			_looked = true
-			var n: Node = get_parent()
-			while n != null:
-				if n is ScrollContainer:
-					_scroller = n as ScrollContainer
-					break
-				n = n.get_parent()
-		return _scroller
-
-	func _scroll_now() -> int:
-		return _scroll().scroll_vertical if _scroll() != null else 0
+## Read `DccWidgets.PgSlider` for the mechanism, the three gates it now applies
+## (disabled slider, no vertical scroller, non-left button) and why `slop` is
+## pinned from below as well as above. `DccShell.phone_fit()` attaches it to
+## everything it walks; the two builders below still construct it directly,
+## because this sheet is not one of the surfaces `phone_fit()` reaches.
 
 ## `f.isRange`: a `[label ......... value]` line, then `[-] [slider] [+]` with
 ## the steppers at 38 x 38 and radius 14.
@@ -3675,11 +3523,11 @@ func _pg_range_field(parent: Control, key: String, info: Dictionary,
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", _pg_px(8))
 	wrap.add_child(row)
-	## `PgSlider`, not `HSlider` -- see that class for the vertical-swipe defect
-	## it exists to close. `_pg_px(8)` is Android's 8 dp touch slop in this
-	## surface's own pixels, which is `_pscale`'s job and not `_ptap`'s: it is a
+	## `DccWidgets.PgSlider`, not `HSlider` -- see that class for the
+	## vertical-swipe defect it exists to close. `_pg_px(8)` is Android's 8 dp
+	## touch slop in this surface's own pixels, which is `_pscale`'s job and not `_ptap`'s: it is a
 	## distance travelled, not a target to be floored at 44.
-	var slider := PgSlider.new()
+	var slider := DccWidgets.PgSlider.new()
 	slider.slop = float(_pg_px(8))
 	slider.min_value = lo
 	slider.max_value = hi
@@ -3946,7 +3794,8 @@ func _pg_sculpt_slider(parent: Control, spec: Dictionary, value: float) -> void:
 	## `ScrollContainer` and were reached by the same vertical swipe. Found by
 	## enumerating the sheet's `Range`s rather than by hitting it a second
 	## time: **`_pg_range_field()` and this function are the two sites in the
-	## `_pg_*` block that construct a slider**, and both take `PgSlider`.
+	## `_pg_*` block that construct a slider**, and both take
+	## `DccWidgets.PgSlider`.
 	##
 	## That sentence replaced a pasted `grep -n "HSlider.new()"` and its
 	## quoted count of two. The paste stopped reproducing the moment it was
@@ -3955,7 +3804,7 @@ func _pg_sculpt_slider(parent: Control, spec: Dictionary, value: float) -> void:
 	## string, and a reader following it gets a self-reference rather than a
 	## count. Name the symbols; a symbol survives the edit that a command
 	## measuring the file cannot.
-	var s := PgSlider.new()
+	var s := DccWidgets.PgSlider.new()
 	s.slop = float(_pg_px(8))
 	s.min_value = float(spec.get("min", 0.0))
 	s.max_value = float(spec.get("max", 1.0))

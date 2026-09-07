@@ -2760,6 +2760,24 @@ func _slider_row(label: String, display: String, lo: float, hi: float, value: fl
 	## The grab region, not the drawn track: a 4 dp rail is not a touch target,
 	## and the slider's own height is what the finger has to find.
 	s.custom_minimum_size.y = _pt(44)
+	## **And the gesture arbitration, because this screen scrolls.** Every row
+	## this function builds lands in `_screen_scroll`, whose
+	## `vertical_scroll_mode` is `SCROLL_MODE_AUTO` -- so without this a vertical
+	## swipe that begins on the Year cursor, the Crowding dial or a landmark cap
+	## rewrites that value instead of scrolling, and Godot's `Slider::gui_input`
+	## does it on the touch-DOWN, before there is any motion to classify.
+	##
+	## Attached here rather than by `DccShell.phone_fit()`, which is where the
+	## other 242 hazardous sliders get it: `PhoneMenu` is parented to
+	## `_phone_root` and not to `left_dock`/`right_dock`, so
+	## `_on_phone_node_added()` never routes it to `_run_phone_dock_fit()` and
+	## no `phone_fit()` call site names this file. Checked rather than assumed --
+	## `grep -n phone_fit shell/phone_menu.gd` is empty, 2026-09-07.
+	##
+	## `_ps(8)`, not `_pt(8)`: 8 dp of TRAVEL in this screen's own pixels. `_pt`
+	## is the tap-target floor and applying it to a slop would demand 44 dp of
+	## movement before a drag was believed.
+	DccWidgets.touch_slider(s, float(_ps(8)))
 	s.value_changed.connect(func(v: float):
 		if fmt.is_valid():
 			val.text = String(fmt.call(v))

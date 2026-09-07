@@ -129,6 +129,10 @@ its rule before you start.
 | **See a suspiciously round test total** | **`cargo test --workspace` FAIL-FASTS: one failure skips the rest and the truncated total looks healthy.** When a flaky io test fired, the run reported **100 result lines / 2 387 passed** — no failure visible in a tail, and a plausible number. The true floor is **157 lines / 3 253 passed**. **Count the result lines against the expected count BEFORE reading any total** (the rule already here, ×3), and **use `--no-fail-fast` when you need the whole picture**. A skipped target reports nothing at all, which is quieter than a failure. |
 | **Write a test helper that returns a collection** | **Assert it is non-empty, in the helper.** A fingerprint helper added to fix the determinism tests was mutated to return `Vec::new()` and **both tests stayed green** — `assert_eq!` over two empty vectors is a tautology. Caught by mutating it rather than by reading it. This is the silently-empty-golden-output trap that has now bitten **five** subsystems here. |
 | **Paste a `grep` and its result into a comment** | **A command that measures the file will stop reproducing the moment the file changes — name the SYMBOL instead.** A comment pasted `grep -n "HSlider.new()" world_workspace.gd`, 2026-09-07: two`. The very substitution it documented removed both matches, so today the grep returns exactly one line: **the comment quoting its own string**. A reader following the citation gets a self-reference in place of a count. |
+| **Run a mutation harness that rebuilds and installs** | **Restore the DEVICE as well as the tree, and say which "zero residue" means.** A slop-mutation harness restored every source file perfectly — sha256 before and after, every run `RESTORE SAME` — and **left the mutated APK installed on the handset**. The phone ran a build with a deliberately broken gesture threshold, the exact hazard the batch had just fixed, and the next on-glass check would have measured the mutation. Caught only because the main loop hashed `pm path`’s `base.apk` against every file in `builds/android/`. **The verifier could not catch it: no handset was reachable from its session.** |
+| **Report a census as the enumeration of a hazard** | **A live-tree walk is a LOWER BOUND taken in one state — name the state.** A census reported 247 `Range` nodes and 242 hazards, from a **world-less** boot. On that boot `tl_available()` is false, so a whole screen draws `_missing_row("Year")` and **four slider sites the walk’s own code inventory had named contributed nothing** — they are converted on a code walk and exercised by no probe. Worse, the committed probe **labelled that census "the Year slider’s screen"**, which asserts it walked a surface it had reached and found empty. |
+| **Fix a gesture hazard for one control class** | **Ask which OTHER class has the same shape before closing it.** `PgSlider` fixed every `Range` on the phone — and a vertical swipe starting on an `OptionButton` still opens its popup instead of scrolling, on a card that must be scrolled to reach its primary button and whose surface is mostly dropdowns and spin boxes. **The hazard is the gesture, not the widget**; an inventory built from one base class ends where that class ends. |
+| **Trust an on-glass result** | **Read logcat for the stale-library warning first.** Every Android export in this session carried the `android-dev` `.so`, and the app says so on every cold boot: *"the loaded GDExtension has no `WorldGen.<fn>()` … the native library is older than the shell"*, three functions deep with full backtraces. Shell-side work (layout, gestures) is unaffected. **Any on-glass claim about a native-backed feature is not safe** while that warning is in the log — and nobody had been reading it. |
 
 ### [2026-09-03] Believing a backlog row instead of re-opening it ×15
 
@@ -652,3 +656,47 @@ fingerprint covers more than it does.
 **Verified after**: 157 result lines, 3 253 passed, 0 failed, 28 ignored — and
 the default fail-fast run now reaches 157 lines too, which it could not while
 the flake was live.
+
+### [2026-09-07] The phone was running the mutation build
+
+**The batch was good and the device was lying.** A lane fixed a real, measured
+hazard — 242 sliders on which a vertical swipe wrote a value instead of
+scrolling — and proved the 8 dp arbitration threshold by mutating it in both
+directions. Its restore discipline was exemplary **for the tree**: exact-literal
+replacement at all six sites, sha256 before and after, every run printing
+`RESTORE SAME`.
+
+It rebuilt and installed an APK for each mutation, and **left the last one on
+the phone**. The installed `base.apk` hashed `d32a75d8…`, which matches
+`builds/android/Cartalith-slop.apk` exactly and matches nothing else in that
+directory. So the handset was running a build with a deliberately broken gesture
+threshold — precisely the hazard the batch existed to fix — and any later
+on-glass check would have measured the mutation and reported it as the product.
+The lane’s own reported install hash matched nothing on disk either, which is a
+second signal that went unread.
+
+**The verifier structurally could not catch this**: no handset was reachable
+from its session, and it said so plainly rather than passing the on-glass half
+through as checked — which is the behaviour that made the gap findable. The main
+loop found it by hashing `pm path`’s `base.apk` against every APK in the build
+directory, then replaced it with a clean export from the corrected tree
+(`4ff2e257…`, hash-matched on disk and on the device) and re-drove the screen.
+
+**Two more came out of that ten-minute drive, and neither was reachable from a
+desktop.** A vertical swipe on the New World card **opened the Archetype
+dropdown instead of scrolling** — the same gesture shape the batch had just
+fixed for `Range`, one control class over, on a card whose surface is mostly
+dropdowns and which must be scrolled to reach CREATE WORLD. And every cold boot
+logs *"the loaded GDExtension has no `WorldGen.<fn>()` … the native library is
+older than the shell"* for three functions with full backtraces: **the Android
+export ships the `android-dev` `.so`**, so no on-glass claim about a
+native-backed feature has been safe for four batches. The warning was written to
+be read and nobody was reading it.
+
+**The pattern worth keeping.** Three of these are the same failure at different
+scales: a restore that covered the tree but not the device; a census that
+enumerated one boot state but was reported as the hazard; an inventory built
+from one base class and read as covering the gesture. **Each is a true
+measurement generalised one step past what it measured.** The habit that catches
+all three is the same: say what you observed, name the state you observed it in,
+and let the scope of the claim stop where the observation did.

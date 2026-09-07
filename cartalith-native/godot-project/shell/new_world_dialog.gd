@@ -72,6 +72,40 @@ const PHONE_CARD_RADIUS := 22
 const PHONE_CARD_MIN_W := 240   ## A floor, so a narrow viewport yields a card rather than a sliver.
 const PHONE_CHIP_RADIUS := 14   ## §6.7's extent chips.
 
+## §6.7's action row, read off `design/Cartalith-Android-2026-09-07.dc.html`
+## (the `modalOpen` block) rather than taken from a summary:
+##
+##   <div style="display:flex;gap:10px;padding-top:16px">
+##     <div … style="flex:1;min-height:46px;border-radius:23px;…;
+##                   color:var(--sec);background:var(--chip)">CANCEL</div>
+##     <div … style="flex:1.4;min-height:46px;border-radius:23px;…;
+##                   color:var(--accInk);background:var(--acc)">CREATE WORLD</div>
+##   </div>
+##
+## Both `font:500 10.5px 'IBM Plex Mono'` with `letter-spacing:.14em`.
+const PHONE_ACTION_H := 46
+const PHONE_ACTION_RADIUS := 23
+const PHONE_ACTION_GAP := 10
+const PHONE_ACTION_TOP := 16
+## `flex:1` and `flex:1.4`. A Godot `HBoxContainer` shares surplus width by
+## `size_flags_stretch_ratio` among its `SIZE_EXPAND` children, which is what
+## CSS `flex-grow` does with the free space after content -- the same
+## distribution, not merely a similar one, once both children are `EXPAND_FILL`.
+const PHONE_CANCEL_FLEX := 1.0
+const PHONE_CREATE_FLEX := 1.4
+## `10.5px`, rounded up. `Control.add_theme_font_size_override()` takes an int,
+## so the half pixel is not expressible; recorded in `ANDROID_UI_SPEC.md`
+## **§6.6** rather than left as a silent difference. `.14em` of 10.5 px is
+## 1.47 px of tracking, which `DccTheme.mono()` takes as a whole pixel.
+##
+## This line said §1.11 when it shipped, which is the GENERATE column's
+## deviations table and carries no such row -- the modal's departures live in
+## its own §6.6. The lane's report said §6.6 and the comment was not moved with
+## it, which is the cheapest kind of citation to get wrong and the hardest to
+## notice: a section number is not checkable by reading the sentence it sits in.
+const PHONE_ACTION_FS := 11
+const PHONE_ACTION_TRACKING := 1
+
 const EXTENT_NOTE_REGION := "Region — a framed area of a world. The map's north and south edge latitudes are set in the Climate stage. X does not wrap. Any aspect ratio is physically fine here."
 const EXTENT_NOTE_WORLD := "Whole world -- a seamless equirectangular sheet: X wraps a full 360° of longitude and Y spans 180° of latitude, pole to pole. 2:1 is the ratio that keeps the graticule true; anything else stretches it against the terrain. Advisory, not enforced -- pick any size you want."
 
@@ -118,6 +152,10 @@ var _dim_syncing := false
 ## desktop and tablet, which is what makes `_set_extent_chips()` a no-op there.
 var _card: PanelContainer
 var _extent_chips: Array[Button] = []
+## §6.7's own action row, phone only. `null` on desktop and tablet, where
+## `AcceptDialog`'s button row is the right control and is left alone.
+var _phone_cancel: Button
+var _phone_create: Button
 
 func setup(b: EngineBridge) -> void:
 	bridge = b
@@ -140,8 +178,25 @@ func setup(b: EngineBridge) -> void:
 	## unlike the three civ windows, this dialog's own OK button is not a way
 	## out, it is "generate a world". Without this, opening New world on a
 	## handset would be a one-way door.
+	##
+	## **On a phone the way out is §6.7's own CANCEL, drawn inside the card,
+	## and `AcceptDialog`'s button row is hidden entirely.** It used to be
+	## `add_cancel_button("Cancel")`, which put `[Create] [Cancel]` in the
+	## dialog's footer at a REPORTED 59 x 44 and 60 x 44 dp (carried from an
+	## earlier pass, not re-measured, and a verifier could not reproduce them
+	## from this file at HEAD -- treat them as a quotation) against a 360 dp card -- about
+	## a third of the width the artboard draws, in the opposite order, and 44
+	## high where §6.7 says 46. The order came from Godot: `AcceptDialog` owns
+	## its OK button and `add_cancel_button()` appends beside it, so the
+	## primary is first on this platform. **"It is what `AcceptDialog` does" is
+	## a mechanism, not a reason** -- and a phone wants the destructive-safe
+	## action first and the primary as a full-width target regardless. So the
+	## row is built by `_build_phone_actions()` and the footer is dropped;
+	## `get_ok_button()` still exists (an `AcceptDialog` requires it) and is
+	## simply never shown, which is why `confirmed` is still the signal
+	## `_on_create()` hangs off.
 	if _phone:
-		add_cancel_button("Cancel")
+		get_ok_button().visible = false
 
 	## One column rather than the margin directly, so the phone header has
 	## somewhere to sit: an `AcceptDialog` gives its *first* content child the
@@ -426,6 +481,63 @@ func _build(body: VBoxContainer) -> void:
 	if _phone:
 		DccWidgets.note(card, NOTE_CREATION_ONLY)
 		DccWidgets.note(card, NOTE_APPEARANCE_KEPT)
+		_build_phone_actions(card)
+
+## §6.7's action row: CANCEL left at `flex:1`, CREATE WORLD right at `flex:1.4`,
+## both spanning the card at `min-height:46px` and `border-radius:23px`.
+##
+## **Not `DccWidgets.phone_pill()`**, which is the 412 canvas's *other* button
+## treatment -- a 48 dp pill that is either accent-filled or outlined. §6.7
+## draws neither outline: CANCEL is a `--chip` wash (`rgba(255,255,255,.05)` on
+## dark, which is exactly `Color(c("text_bright"), 0.05)`) with `--sec` ink, and
+## CREATE WORLD is `--acc` with `--accInk`. Two washes, no border, and a 46 dp
+## height rather than 48. Built here rather than added to `phone_pill()` so the
+## shell's own pill treatment is untouched.
+func _build_phone_actions(card: Control) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", PHONE_ACTION_GAP)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_top", PHONE_ACTION_TOP)
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_child(row)
+	card.add_child(pad)
+	_phone_cancel = _phone_action(row, "CANCEL", false, PHONE_CANCEL_FLEX)
+	_phone_create = _phone_action(row, "CREATE WORLD", true, PHONE_CREATE_FLEX)
+	## `hide()` before the work, and `_on_create()` by name rather than
+	## `confirmed.emit()`: the signal is connected in `setup()` and emitting it
+	## from here would run the same handler through one more indirection with
+	## nothing gained. `hide()` first because `generate()` is the long call and the
+	## modal has no business staying up over it.
+	_phone_cancel.pressed.connect(hide)
+	_phone_create.pressed.connect(func():
+		hide()
+		_on_create())
+
+func _phone_action(row: Control, caption: String, primary: bool,
+		flex: float) -> Button:
+	var b := Button.new()
+	b.text = caption
+	b.focus_mode = Control.FOCUS_NONE
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.size_flags_stretch_ratio = flex
+	b.custom_minimum_size.y = PHONE_ACTION_H
+	b.add_theme_font_override("font", DccTheme.mono(PHONE_ACTION_TRACKING, true))
+	b.add_theme_font_size_override("font_size", PHONE_ACTION_FS)
+	var fill := DccTheme.c("accent") if primary else Color(DccTheme.c("text_bright"), 0.05)
+	var ink := DccTheme.c("accent_ink") if primary else DccTheme.c("text_secondary")
+	## The pressed/hover state is a lift on the same wash rather than a second
+	## colour, so a finger that lands and lifts sees one thing move.
+	var lit := DccTheme.c("accent_hover") if primary \
+		else Color(DccTheme.c("text_bright"), 0.11)
+	for sb_name in ["normal", "disabled"]:
+		b.add_theme_stylebox_override(sb_name, DccTheme.flat(fill, PHONE_ACTION_RADIUS))
+	for sb_name in ["hover", "pressed"]:
+		b.add_theme_stylebox_override(sb_name, DccTheme.flat(lit, PHONE_ACTION_RADIUS))
+	b.add_theme_stylebox_override("focus", DccTheme.empty())
+	for key in ["font_color", "font_hover_color", "font_pressed_color"]:
+		b.add_theme_color_override(key, ink)
+	row.add_child(b)
+	return b
 
 ## §6.7's card. The window around it is `DccWidgets.phone_present()`'s
 ## full-screen fill -- `app.gd` makes that call and owns it -- so what is
@@ -449,6 +561,26 @@ func _phone_card(parent: Control) -> VBoxContainer:
 	sb.border_color = DccTheme.c("border")
 	sb.set_border_width_all(1)
 	_card.add_theme_stylebox_override("panel", sb)
+	## **A drag that starts on the card has to reach the scroll above it.**
+	## PH-05's rule, in the one place `DccShell.phone_fit()` cannot apply it:
+	## that walk converts a `BoxContainer`/`MarginContainer` at
+	## `MOUSE_FILTER_STOP` to `PASS` and **excludes `PanelContainer`**, because
+	## several in this shell carry their own `gui_input`. This one does not, and
+	## a `PanelContainer` really does default to `STOP` where every other
+	## `Container` defaults to `PASS` -- measured, not assumed:
+	## `_nwaction_probe.gd` prints the filter chain from the card's last
+	## advisory `Label` upward and it read
+	## `Label=2 -> VBoxContainer=1 -> MarginContainer=1 -> PanelContainer=0
+	##  -> CenterContainer=1 -> VBoxContainer=1 -> ScrollContainer=1`.
+	## The `0` is this node, and it ended the event walk before the scroller.
+	##
+	## It cost nothing while the card fitted (688 dp of card in a 702 dp
+	## viewport). §6.7's action row is 46 dp plus 16 dp of `padding-top`, which
+	## takes the card to **752 dp** and puts CREATE WORLD 50 dp below the fold --
+	## so from this pass on the card must be scrollable or the primary action is
+	## unreachable. Found on glass: a real `adb shell input swipe` on the card
+	## moved **zero pixels**.
+	_card.mouse_filter = Control.MOUSE_FILTER_PASS
 	center.add_child(_card)
 
 	## §6.7's `padding:18px 16px 16px`.

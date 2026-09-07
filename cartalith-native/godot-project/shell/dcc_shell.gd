@@ -1936,6 +1936,27 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 			## it has, because a finger has no cursor to find the handle with.
 			if ctl is HSlider:
 				DccWidgets.phone_slider(ctl as HSlider, unit)
+				## **And the gesture arbitration, which is the other half of the
+				## same sentence.** `DccWidgets.PgSlider` withholds the press
+				## until the gesture has travelled 8 dp and then gives it to the
+				## axis it travelled furthest along, because Godot's own
+				## `Slider::gui_input` sets the value on touch-DOWN -- so a
+				## vertical swipe that happens to begin on a slider rewrites the
+				## parameter instead of scrolling the sheet. Measured on glass:
+				## Ocean depth `0.60` -> `0.14` in one gesture, silently.
+				##
+				## Attached HERE rather than at each factory because a live
+				## census of the phone tree at 1080x2340
+				## (`_rangeswipe_probe.gd --census-only`) counted 247 `Range`
+				## nodes, **245 writable and inside a live vertical scroller, of
+				## which 3 arbitrated** -- and the other 242 are built by six
+				## different files. This walk already reaches all but two of
+				## them (`phone_menu.gd` and `world_workspace.gd` attach their
+				## own; neither surface is one `phone_fit()` walks).
+				## `8.0 * unit` is a distance TRAVELLED, so it takes the same
+				## `unit` the tap floor above takes and is deliberately not
+				## floored at 44: a slop is not a hit area.
+				DccWidgets.touch_slider(ctl as HSlider, 8.0 * unit)
 			## **A drag that starts on a row has to reach the scroll above it.**
 			## `dcc_widgets.gd` builds every row as an `HBoxContainer`, and a
 			## `Control` picks by default (`MOUSE_FILTER_STOP`), which ends the
@@ -1993,8 +2014,18 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 			## Measured, all four cases: a clean tap fires, a 2 px and a 6 px wobble
 			## still fire, an eight-sample flick scrolls 96 px and fires nothing.
 			##
-			## An `HSlider` is deliberately **not** included: a drag that starts on a
-			## slider means "move this slider", on every touch platform there is.
+			## An `HSlider` is deliberately **not** included, and the reason
+			## written here until 2026-09-07 -- *"a drag that starts on a slider
+			## means 'move this slider', on every touch platform there is"* --
+			## was refuted on glass. It is true of the HORIZONTAL drag and false
+			## of the vertical one, and Godot makes it worse than a
+			## misclassification: `Slider::gui_input` calls `set_as_ratio()` from
+			## the PRESS position, so the value has already jumped before there
+			## is any motion to classify. `MOUSE_FILTER_PASS` would not have
+			## fixed that either -- a `PASS` control is still picked and still
+			## runs its own `gui_input`. The arbitration happens inside the
+			## control instead (`DccWidgets.touch_slider()`, attached a few lines
+			## above), which needs the `STOP` this clause leaves in place.
 			##
 			## Neither are the three `BaseButton`s that open a `Popup` on *press* --
 			## and not for symmetry: such a control pops mid-flick, the popup grabs

@@ -510,9 +510,10 @@ Two mechanisms, and the first is the one that surprises:
    that made an existing hazard measurably worse. `MISTAKES.md`: *a floor is a
    hit area, and a bigger hit area catches more than you meant.*
 
-**The fix is arbitration, not a smaller target.** `WorldWorkspace.PgSlider` —
-an inner class, and now what every `Range` in this column is — holds the gesture
-until it has travelled `_pg_px(8)`, Android's own
+**The fix is arbitration, not a smaller target.** `DccWidgets.PgSlider` —
+written as an inner class of `world_workspace.gd` on 2026-09-07 and **moved to
+`dcc_widgets.gd` the same day, once the census in §1.15 showed how narrow its
+reach was** — holds the gesture until it has travelled `_pg_px(8)`, Android's own
 `ViewConfiguration.getScaledTouchSlop()`, then gives it to the axis it travelled
 furthest along. Vertical drives the ancestor `ScrollContainer.scroll_vertical`
 and **never touches `value`**; horizontal writes exactly as before; a tap that
@@ -547,21 +548,181 @@ substitution it documents removed both matches, so the only line it returns
 today is the comment quoting its own string. A symbol survives the edit that
 a command measuring the file cannot.
 
-`_nwsize_probe.gd` covers the arbitration at 1080×2340 / 1440×3168 /
-720×1600 / 380×800 — **covers, not pins, and the difference was measured
-rather than assumed.** Mutating `slop` upward to `_pg_px(400)` kills five
-checks; mutating it **down to `0.0` leaves the probe green**. A zero slop
-makes the first pixel of motion choose the axis, so a one-pixel sideways
-wobble during a scroll writes the parameter — which is the precise hazard
-the constant exists to prevent. **The shipped value is right and the test
-does not hold it from below**; closing that needs a check that swipes with a
-small deliberate cross-axis jitter. Filed rather than claimed. What the
-probe does establish, at all four densities:
+**The slop is now pinned from both directions, and it was not before.**
+`_nwsize_probe.gd` swipes a *perfectly* vertical path (`delta.x == 0`), which is
+a gesture no thumb makes; that leg **covers** the arbitration and cannot hold
+the constant from below. `_rangeswipe_probe.gd::_jitter()` closes it: a path
+whose first three samples travel further sideways than down —
+`(3,1) (6,2) (5,4)` px, the pivot a thumb makes before it slides — then 468 px
+straight down. Measured 2026-09-07 with a Python harness that replaces exact
+literals at all four slop sites, restores in a `finally` and hashes every file
+before and after (all four `SAME`, zero residue):
+
+| slop | `_rangeswipe_probe` | `_nwsize_probe` |
+|---|---|---|
+| `8` (shipped) | **GREEN** | GREEN |
+| mutated **down to `0`** (`touch_slider`'s own `maxf(1.0, …)` floor mutated to `0.0` with it, so it really is zero) | **5 FAIL** — `left dock: … leaves the value byte-identical (0.3 vs 0.13)`, no `drag_ended`, does scroll; and the GENERATE sheet's two | **GREEN** — reproducing exactly the gap this closes |
+| mutated **up to `400`** | **5 FAIL** — the same five, now because nothing ever resolves and the sheet does not scroll | 5 FAIL |
+
+`0.3 → 0.13` in the DOWN column is the original defect, reproduced by
+measurement on a *different* surface from the one the owner hit. §1.14's earlier
+sentence — *"covers, not pins"* — is discharged rather than restated. What
+`_nwsize_probe.gd` still establishes on its own, at all four densities:
 a vertical swipe starting **on** a slider leaves `planet.g` byte-identical,
 scrolls, emits **zero** `drag_ended` and leaves `_stale_from_stage` at `-1`; a
 horizontal drag on the same slider writes and emits **exactly one**. The engine
 value is what is asserted, not the node's — a first parameter write legitimately
 rebuilds the column and frees the slider under test.
+
+### 1.15 The same hazard everywhere it lives — the census (2026-09-07)
+
+§1.14 fixed **three sliders**. This is what a walk of the live tree found.
+
+**How the inventory was taken**, because `MISTAKES.md` says an enumeration walks
+the code and then asks the designs, never the other way round:
+
+1. Every `Range` subclass constructed anywhere in `shell/`
+   (`grep -n 'HSlider.new()\|VSlider.new()\|SpinBox.new()\|ProgressBar.new()'`),
+   **plus the three factories a grep for `.new()` cannot see** —
+   `DccWidgets.slider()`, `DccWidgets.number()` and
+   `phone_menu.gd::_slider_row()`. Counted in the same edit that writes it:
+   `grep -rn 'DccWidgets.slider(' shell/ --include=*.gd | grep -v
+   ':[0-9]*:[[:space:]]*#' | wc -l` is **41**, and the same for `number(` is
+   **13**, 2026-09-07.
+2. Then `_rangeswipe_probe.gd --census-only`, which boots the real phone shell,
+   walks `get_tree().root`, and for every `Range` reports its nearest
+   `ScrollContainer` ancestor, that scroller's `vertical_scroll_mode`, whether
+   the node carries the arbitration script, and which surface it is in. The
+   probe navigates by tapping visible captions; the two exceptions
+   (`_set_sheet_open`, `layers_popover.open()`) are staging calls and say so in
+   the log.
+
+**Before, at 1080×2340: 247 `Range` nodes. 245 of them are writable and sit
+inside a live vertical scroller, and exactly 3 of those 245 arbitrate the
+gesture — so 242 do not.** (The other two `Range`s have no scroller above them
+at all and are not a hazard; the count is 247 once PLAN has built the planner's
+form, 235 at boot before it exists.)
+
+**247 is a LOWER BOUND taken in ONE state, and this paragraph did not say so
+until a verifier measured it.** The census walks a **world-less** boot. On that
+boot `tl_available()` is `false`, so `phone_menu.gd::_fill_sim()` draws
+`_missing_row("Year")` and **all four `_slider_row()` sites contribute nothing**
+— the probe reaches MORE ▸ Simulation and finds no `Range` there at all. Its own
+census label used to read *"the Year slider's screen"*, which is a claim about
+what was walked; it now names what was found. **So the four `_slider_row()`
+sliders are converted on the strength of a code walk and are exercised by no
+probe**, and a world-loaded boot would raise every number here. The 242 is what
+was observed, not what exists.
+
+| Surface | Count | Class | Hazard? |
+|---|---|---|---|
+| left-dock sheet | **214** | `HSlider` (`DccWidgets.slider()`) | **yes** — this is where the owner would hit it next |
+| left-dock sheet (PLAN) | 12 | `SpinBox` (`DccWidgets.number()`) | no — measured, below |
+| GENERATE sheet | 3 | `DccWidgets.PgSlider` | already fixed, §1.14 |
+| `new_world_dialog.gd` | 2 + 5 | `HSlider` + `SpinBox` | **yes** (the sliders) |
+| `asset_library_window.gd` | 1 + 2 | `HSlider` + `SpinBox` | **yes** (the scrolled slider) |
+| `asset_library_window.gd` | 1 | `HSlider`, **no scroller** | **no** — nothing to arbitrate against |
+| `layers_popover.gd` | 1 | `HSlider` | **yes** |
+| a phone-presented `AcceptDialog` | 5 | `SpinBox` | no |
+| phone root (`_phone_sim_slider`) | 1 | `HSlider`, **no scroller** | **no** |
+
+**After: 24, and all 24 are `SpinBox`.** Every `Slider` inside a live vertical
+scroller on the phone now arbitrates. Identical at every phone density measured
+— 1080×2340 (`_phone_scale` 2.621), 1440×3168 (3.495) and 720×1600 (1.748) all
+report 13 unarbitrated at boot, 25 once PLAN has built the planner form, 24 once
+the Layers popover has been opened, and `fail=0` on every swipe leg.
+
+**Three fixes, not one**, because no single seam reaches all of them:
+
+- `DccShell.phone_fit()` calls `DccWidgets.touch_slider(ctl, 8.0 * unit)` beside
+  the `phone_slider()` call it already made. **Of the 242, exactly 218 are
+  `Slider`s** (214 in the left-dock sheet, 2 in the New World card, 1 in the
+  asset library, 1 in the Layers popover) **and this one call converted all
+  218**, because `_on_phone_node_added()` already routes every dock descendant
+  through this walk and every phone-presented window is fitted by it. The other
+  24 are `SpinBox`es — measured below, and not a hazard. `touch_slider()` attaches by `set_script()` and **skips any
+  slider that already carries one**, so the `_pg_*` three are untouched.
+- `phone_menu.gd::_slider_row()` attaches its own. `PhoneMenu` is parented to
+  `_phone_root`, not to a dock, so `phone_fit()` never reaches it — checked, not
+  assumed: `grep -n phone_fit shell/phone_menu.gd` is empty. Its Year cursor,
+  Crowding dial and landmark caps all sit in `_screen_scroll`
+  (`vertical_scroll_mode = AUTO`).
+- `world_workspace.gd`'s two `_pg_*` builders keep constructing `PgSlider`
+  directly; that sheet is not one `phone_fit()` walks either.
+
+**Three gates were added to the class in the same edit**, because widening it
+from 3 sliders to every slider on the phone raised questions the narrow version
+never had to answer:
+
+| Gate | Why | Would have broken |
+|---|---|---|
+| `editable == false` → stock behaviour | the original checked nothing | four surfaces disable a slider (`cartography_workspace.gd:2632`, `civilization_workspace.gd:4589`, `world_workspace.gd:1471`/`:1555`); a *disabled* slider would have become writable by a drag |
+| no vertical-scrolling ancestor → stock behaviour | there is nothing to arbitrate against | the two `scroller=none` sliders in the table above would have lost their vertical drag for no gain |
+| `drag_started` re-emitted when the verdict resolves to *slider* | the class suppresses the press that Godot emits it from | `civilization_workspace.gd:4590` is the shell's only `drag_started` consumer — it records whether a landmark-cap drag began at the `off` stop, and §2.1's *"drag up from `off` and the slider resumes at 40"* would have stopped working silently |
+
+**`SpinBox` is a `Range` and is NOT a hazard here — measured, with a control.**
+Godot's `SpinBox::gui_input` does step the value on press and drag it after, but
+it only ever receives what its `LineEdit` child does not, and in this shell the
+child covers the control. `_rangeswipe_probe.gd::_spinbox_leg()` measures the child's
+rect and then drives a real press-and-jittered-swipe at 3, 8 and 18 px in from
+the right edge of a live planner `SpinBox`.
+
+**The strip is not zero-width** — `its LineEdit covers 899x154 of 917x154 —
+uncovered strip 18 px wide` at 1440×3168, and `409x77 of 427x77`, again 18, at
+720×1600 — so the taps at inset 3 and 8 land inside it. And still: `4.0 → 4.0`
+on the swipe at all three insets, **and the plain tap at the same x does not
+step the value either**. That tap is the control, and it is what turns "the
+drag did nothing" into "the gesture does not reach `SpinBox::gui_input` on this
+build". Reported as a finding, with its measurement; not as coverage, and not
+with a cause this pass did not establish.
+
+**On glass** — handset `9608b26b` (ONEPLUS_A6013), 1080×2340 @ 450 dpi,
+`--export-debug "Android"` → `builds/android/Cartalith-slop.apk`, installed
+sha256 `8839d339…3de8ada` matching the file (first build; the second build
+after the `PanelContainer` fix was installed the same way). Boot state asserted
+**before any input**: the project picker with `no saved worlds yet — create one
+below`, `+ NEW WORLD`, `OPEN PROJECT .ZIP…`, `build b1d30162c8e9`. Every act
+below is `adb shell input` at a coordinate read off an `adb exec-out screencap`;
+nothing calls into the app.
+
+The surface driven is the **Layers popover's `Opacity` slider** — a
+`DccWidgets.slider()` row, i.e. one of the 218 this pass converted, not one of
+the three §1.14 had already done.
+
+| Gesture | Result |
+|---|---|
+| plain vertical swipe starting **on the track at 24% of its length**, `input swipe 720 1869 720 2280` | the popover **scrolls** and `Opacity` stays **100%**, thumb still at the right stop. Before this pass Godot's touch-DOWN `set_as_ratio()` would have written ~24% |
+| **jittered** vertical swipe, `input motionevent DOWN/MOVE×12/UP` along `(3,1) (6,2) (5,4) … (-4,380)` — the on-glass form of `_jitter()` | same: scrolls, `Opacity` **100%** |
+| horizontal drag on the same slider, `input swipe 820 1869 700 1869 600` | **100% → 5%**, and the diff bounding box is `(645,1840)-(1002,1898)` — the slider row and nothing else |
+| horizontal drag back, `700 → 900` | **5% → 100%** |
+
+**One observation from that pass, reported and not fixed**, because it is
+`phone_slider()`'s and not this hazard's: a drag beginning at x ≥ **870**
+physical px moved **zero pixels** (`ImageChops.difference` bbox `None`) while
+one at 820 wrote. The drawn track+thumb spans 663–900 px at the 100% stop, so
+the last ~30 px of the drawn thumb is outside the control's own 78 dp hit area —
+`center_grabber` lets the grabber overhang the `custom_minimum_size` the factory
+sets. Measured, cause not proven; recorded here rather than attributed.
+
+**Not fixed, and why:**
+
+- **Tablet — and it is not a small number.** The same probe at 800×1280
+  reports `phone=false tablet=true` and **224 unarbitrated writable `Range`
+  nodes inside a live vertical scroller**, before and after. `tablet_fit()` is
+  the tablet walk and it has exactly two call sites (`dcc_shell.gd`'s
+  `tool_options_row`, and one in `app.gd`), so it is not the seam `phone_fit()`
+  is — nothing routes a tablet's dock content through it. Attaching at
+  `DccWidgets.slider()` on `is_touch()` would reach most of them in one line,
+  and is deliberately **not** done here: it would change tablet behaviour this
+  pass has measured the hazard on but not the fix, and `GUI_GAP_REGISTER.md` §57
+  refuted an earlier `is_touch()` reach-across on exactly that ground. Filed
+  with its number so the next pass has one.
+- **The 24 `SpinBox`es**, on the measurement above.
+- **`layers_popover.gd`'s slider needed nothing of its own.** The boot census
+  showed it unarbitrated, which is a real state and a transient one: that file's
+  `_phone_fit()` returns early until `phone_present()` has run inside `open()`.
+  Opening the popover in the probe drops the count 25 → 24. Recorded because
+  "the census saw it red" would otherwise read as a gap.
 
 ---
 
@@ -647,9 +808,16 @@ canvas and "fix" it back.
 | 720×1600 | 1.748 | 412 dp | 360 × 688 dp | 400 dp |
 | 380×800 | 1.000 | 380 dp | 336 × 689 dp | 384 dp |
 
-688 dp of card on 893 dp of usable height at 1080×2340 — it fits with no
+688 dp of card on 893 dp of usable height at 1080×2340 — it fitted with no
 scrolling, confirmed on glass. Every tappable control on the card clears 44 dp
 **on both axes** at all four.
+
+**That fit claim expired on 2026-09-07 and the row below records what
+replaced it.** §6.7's action row adds 46 dp plus 16 dp of `padding-top`, so the
+card is **752 dp** and the form's `ScrollContainer` viewport is 702 dp at
+1080×2340 (716 at 1440×3168, 725 at 720×1600). The card now scrolls — see
+§6.6 — and it could not, until the same pass fixed the `PanelContainer` that
+was eating every drag.
 
 **One pre-existing measurement, with its attribution.** At a 380 dp screen the
 window's content minimum lands **4 dp over** (384 against 380). The card's own
@@ -696,9 +864,136 @@ screencap`; nothing calls into the app.
   `Archetype Archipelago` on it. **The route no longer dead-ends.**
 - `adb logcat -d -s godot | grep -c "SCRIPT ERROR"` → **0**
 
+**2026-09-07, the action row (§6.6), same handset, build `b1d30162c8e9`.** Boot
+state asserted before any input (picker, `no saved worlds yet — create one
+below`):
+
+- tap `+ NEW WORLD` (538, 393) → the card, with `CANCEL` and `CREATE WORLD`
+  **clipped at the card's bottom edge** — the 50 dp of overflow §6.6 measures
+- swipe on the card, `input swipe 540 1700 540 1250 400` → the card scrolls
+  (diff bbox `(57,246)-(1028,2086)`) and the row comes fully into view:
+  **CANCEL** on the left as a chip wash, **CREATE WORLD** on the right filled
+  accent and visibly wider, both radius-23 pills spanning the card. Against the
+  **first** build of the same pass the identical swipe moved **zero pixels**
+  (bbox `None`), which is the `PanelContainer=0` §6.6 records
+- tap `CANCEL` (273, 1966) → the modal dismisses to the shell. **The touch path
+  through a phone-presented `AcceptDialog` is a claim only the handset can
+  make**, and this is it: the desktop probe cannot press these buttons at all
+
 `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
 Godot invocation, and `git diff -- project.godot` empty. No Rust changed this
 pass (`git status --porcelain -- '*.rs'` empty); the APK carries the existing
 `target/aarch64-linux-android/android-dev/libcartalith_godot.so`, mtime
 2026-09-02 03:38.
 
+
+### 6.6 The action row — built, and the departures left (2026-09-07)
+
+**Read off the canvas rather than taken from a brief**
+(`design/Cartalith-Android-2026-09-07.dc.html`, the `modalOpen` block, the last
+`<div>` of the card):
+
+```
+<div style="display:flex;gap:10px;padding-top:16px">
+  <div … style="flex:1;min-height:46px;border-radius:23px;…
+                color:var(--sec);background:var(--chip)">CANCEL</div>
+  <div … style="flex:1.4;min-height:46px;border-radius:23px;…
+                color:var(--accInk);background:var(--acc)">CREATE WORLD</div>
+</div>
+```
+
+Both `font:500 10.5px 'IBM Plex Mono'`, `letter-spacing:.14em`.
+
+**What shipped until this pass was `AcceptDialog`'s own footer**:
+`get_ok_button().text = "Create"` plus `add_cancel_button("Cancel")`, laid out
+`[Create] [Cancel]` — primary first, **reported as** `59 × 44` and `60 × 44` dp
+(**carried from an earlier pass and NOT re-measured here; a verifier could not
+reproduce them — with only this file at HEAD it found no visible `Create` or
+`Cancel` in the dialog tree at 1080×2340, so treat the two figures as an
+unverified quotation rather than a measurement**) against a 360 dp
+card. Three departures at once: the order inverted, about a third of the width
+the artboard spans, and 44 dp where §6.7 says 46.
+
+**The order was Godot's, and that is a mechanism rather than a reason.**
+`AcceptDialog` owns its OK button and `add_cancel_button()` appends beside it,
+so on this platform the primary comes first whatever the design says. Opened
+before choosing, per the brief: honouring the artboard means not using that
+convention. The row is built inside the card by
+`new_world_dialog.gd::_build_phone_actions()` and `AcceptDialog`'s footer is
+hidden — `get_ok_button().visible = false`, and the `add_cancel_button()` call
+is gone. `confirmed` is still the signal `_on_create()` hangs off, so the
+desktop and tablet path is byte-identical; the OK button simply never shows on a
+phone. A full-width primary is also the better finger target, which is the
+independent reason the same choice would have been right anyway.
+
+**Not `DccWidgets.phone_pill()`.** That is the 412 canvas's *other* button
+treatment — a 48 dp pill, accent-filled or outlined. §6.7 draws neither outline:
+CANCEL is a `--chip` wash with `--sec` ink, CREATE WORLD is `--acc` with
+`--accInk`, and both are 46 dp, not 48. Building it here leaves the shell's own
+pill treatment untouched.
+
+**Measured** — `_nwaction_probe.gd`, `fail=0` at each of 1080×2340 (scale
+2.621), 1440×3168 (3.495) and 720×1600 (1.748). Identical dp at all three,
+because `_fit_phone_card()` clamps the card to §6.7's `max-width:360px` on every
+mainstream handset:
+
+| | canvas | measured |
+|---|---|---|
+| order | CANCEL left | CANCEL at x 39, CREATE WORLD at x 180 |
+| `flex:1` : `flex:1.4` | 1.40 | 131 dp : 185 dp = **1.41** |
+| `min-height` | 46 | **46.0 dp** both |
+| `border-radius` | 23 | **23** both |
+| `gap` | 10 px | **10.0 dp** |
+| spans the card | — | 326 dp of a 360 dp card (16 dp padding each side) |
+| footer | — | `AcceptDialog`'s OK button not in the tree's visible set; no stray `Create`/`Cancel`/`Close` |
+
+**The departures**, recorded rather than left silent. This table said *"the one
+departure"* and a verifier found two more by reading the colours off the canvas
+rather than off §0.1's palette map, whose "exact" row for these two inks is
+itself wrong and predates this batch:
+
+| Canvas says | This build | Why |
+|---|---|---|
+| `font: 500 10.5px 'IBM Plex Mono'` | **11 px**, `DccTheme.mono(1, true)` | `Control.add_theme_font_size_override()` takes an **int**; a half pixel is not expressible. `.14em` of 10.5 px is 1.47 px of tracking, which the same API takes as a whole pixel — so the tracking is 1 |
+| CANCEL ink `--sec` `#8d9296` | `#a9adb0` | **Not deliberate.** §0.1's palette map calls this pairing exact and it is not. Pre-existing, so not a regression of this batch — but the "one departure" sentence above was, and it hid this one |
+| CREATE WORLD ink `--accInk` `#16130c` | `#141005` | Same root as the row above: the token map, not the action row. Fix both at §0.1 and this table loses two rows |
+
+**The row pushed the card past its scroller, and that surfaced a bug that was
+already there.** `MISTAKES.md`: *content added below the fold evicts content
+that was above it* — so the card was measured before and after. It went **688 →
+752 dp** against a 702 dp viewport, putting CREATE WORLD's bottom edge 50 dp
+below the fold. The first on-glass check was therefore a swipe on the card,
+and it moved **zero pixels**: `ImageChops.difference` between the screencap
+before and after an `adb shell input swipe 540 1700 540 1300 350` returned
+`bbox = None`.
+
+The cause is not the row. `_nwaction_probe.gd` prints the `mouse_filter` chain
+from the card's last advisory `Label` up to the scroller, and it read
+
+```
+Label=2 -> VBoxContainer=1 -> MarginContainer=1 -> PanelContainer=0
+       -> CenterContainer=1 -> VBoxContainer=1 -> ScrollContainer=1
+```
+
+— `0` is `MOUSE_FILTER_STOP`, and it is `_phone_card()`'s own `PanelContainer`.
+**A `PanelContainer` defaults to `STOP` where every other `Container` defaults
+to `PASS`**, and `DccShell.phone_fit()`'s PH-05 conversion deliberately excludes
+`PanelContainer` because several in this shell carry their own `gui_input`. This
+one does not. It cost nothing while 688 fitted inside 702; from this pass on it
+would have made the primary action unreachable. Fixed at the card
+(`_card.mouse_filter = MOUSE_FILTER_PASS`), asserted by that chain having no
+`=0` in it, at all three densities.
+
+**Two candidates were weighed and one is recorded as refused.** Pinning the
+action row *outside* the scroller would put it below the card's rounded panel,
+which is a bigger departure from the drawing than 50 dp of scroll; the artboard
+draws the row as the card's last child. Shrinking the card back under 702 dp
+means dropping one of the two advisories, and §6.3 keeps both deliberately —
+*"a smaller form is a smaller set of controls; dropping a warning because the
+artboard is narrower is a different thing."*
+
+**What the probe cannot say.** `MISTAKES.md`: synthetic input cannot reach a
+control inside a phone-presented `AcceptDialog` — `gui_get_hovered_control()`
+stays null at `content_scale_factor` 2.62. So the dialog is opened by a staging
+call and the two buttons are asserted on geometry and on having a `pressed`
+connection, never on "a finger can press them". That claim is §6.5's, on glass.
