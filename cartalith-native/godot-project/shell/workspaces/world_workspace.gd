@@ -2162,13 +2162,27 @@ func _on_sculpt_seed_dice() -> void:
 ## right call under this port's own rule that a control doing nothing is
 ## drawn disabled with its real reason, not drawn as a working-looking button
 ## that silently does less than it appears to.
+##
+## **Re-verified 2026-09-08 (falloff-control audit).** `_build_brush_globals`'s
+## own `falloff` dropdown, built since this note was last worded, IS §5.5's
+## segmented control -- same four names (`Smooth`/`Linear`/`Sharp`/`Constant`),
+## same `Smooth` default -- backed by `sculpt.rs`'s `Falloff` enum and read by
+## `SculptStamp::apply_into` at three sites (`g.falloff.coverage(t)`). The
+## note below used to say plain "custom Falloff", which read as the whole
+## control still being unbacked; it now names only the hand-drawn curve
+## beyond those four presets, which really has no engine behind it --
+## `Falloff`'s own doc comment argues against ever adding one (Blender 5
+## converted hand-authored curves back to its built-in Smooth preset).
 func _build_sculpt_unbuilt_note(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(sec,
-		"Brush shape (8 falloff shapes, Import brush, custom Falloff), Stroke & grid " +
+		"Brush shape (8 shape chips, Import brush, a hand-drawn falloff curve), Stroke & grid " +
 		"(Add point / Duplicate / Rotate / Scale / Tilt / Push / Pull / Align control-point " +
 		"editing) and Actions (Flip X/Y, Rot Left/Right, Flatten) have no engine behind them. " +
-		"The design's own prototype mocks these too (04-left-dock.md §5.5-§5.6: every one of " +
+		"Falloff's four named presets (Smooth/Linear/Sharp/Constant) are not on this list -- " +
+		"they are built and live as their own dropdown in Brush & noise · global above; only a " +
+		"hand-drawn curve beyond those four remains unbuilt. " +
+		"The design's own prototype mocks the rest too (04-left-dock.md §5.5-§5.6: every one of " +
 		"its 13 Stroke & grid chips just toasts \"edits the stamp control points, not the " +
 		"heightfield (mock)\") -- new, unscoped design work, not a port gap.")
 

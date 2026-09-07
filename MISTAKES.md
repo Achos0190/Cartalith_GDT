@@ -173,6 +173,8 @@ its rule before you start.
 | **Trust a probe that reads `user://`** | **A probe must set up the state it asserts on, or declare and clear it.** Two sessions ran `_nwsize_probe` on a byte-identical tree with the same `.dll`: one got **fail=1 twice**, the other **fail=0 twice**. Neither is flaky — they read different persisted state. `cartalith_settings.cfg` carries a `[recent] paths` list and a `projects=…/Worlds` root, probe runs WRITE it, and whether the project picker is presented depends on it. **A probe that reads what its siblings wrote can go green for reasons unrelated to the code.** |
 | **Blame persisted state for a probe that disagrees between sessions** | **Check the DISPLAY DRIVER first — `--headless` is a different application.** I named `cartalith_settings.cfg` as the cause because its mtime happened to fall inside a run window. Measured: `RenderingServer.frame_post_draw` fires **0 of 240 frames headless** and **239 of 240 windowed**, and `app.gd::_open_welcome_when_drawn()` awaits it — so headless never presents the project picker and the probe asserts against the main shell. `user://` was then ruled out properly, by running four settings states and getting `fail=0` in all four. **An mtime inside a window is a coincidence, not a mechanism.** |
 | **Fix a touch hazard on a text field** | **The lever is `focus_mode`, and the two obvious ones cannot work — know why before reaching for them.** `Viewport::_gui_input_event` grabs focus **before** `_gui_call_input`, so `accept_event()` in `_gui_input` never gets the chance; and `MOUSE_FILTER_PASS` forwards nothing because `LineEdit::gui_input` accepts every left press. That is why fields already set to `PASS` were as stuck as the `STOP` ones. **A five-way table settled it in one run**; three of the five rows were the plausible fixes, and all three failed. |
+| **Assert that a converted value CHANGED** | **Inequality plus a suffix is satisfied by relabelling.** Reconstruct the expected NUMBER from the converter itself (`DccUnits.to_unit()`), never from a typed constant — a mutant that kept the km value and appended `mi` passed all three of the probe’s original checks |
+| **Fix a formatting inconsistency you just exposed** | **Check which side is non-conformant before picking one.** Two styles side by side usually means one was ALREADY wrong, and `design/**.dc.html` decides which, not taste and not majority |
 
 ### [2026-09-03] Believing a backlog row instead of re-opening it ×15
 
@@ -906,3 +908,49 @@ CANNOT see, and name what would make it go red.** If neither has an answer, it
 is decoration. Two of these were fixed by giving the failure its own exit code
 rather than by adding assertions — **the cheapest repair is usually to make the
 existing output binding.**
+
+### [2026-09-08] The probe passed the exact defect it was written for
+
+`_unitsflip_probe` was written to police the right dock’s unit conversion.
+Its three Position checks asserted that the drawn string **ends in `mi`**, that
+it **ends in `km`** in the other mode, and that the **two strings differ**.
+
+**All three are satisfied by relabelling.** A mutant that skipped the
+conversion and appended the wrong suffix — `" 15.6 · 9.8 mi"`, a kilometre
+number wearing a mile label — **passed A1, A2 and A3.** That is precisely the
+bug the row existed for, and the probe could not see it.
+
+The fix is not a fourth string assertion. **A3b/A3c reconstruct the expected
+number by calling `DccUnits.to_unit()` on the raw kilometres at probe time**, so
+the assertion tracks the converter instead of pinning a literal that a rounding
+change would break. The same mutant now fails A3b
+(`drawn= 15.6 · 9.8 mi want=9.71,6.07`) while A1–A3 still pass — which is the
+demonstration, not the claim.
+
+**The pattern, and it is the fifth of its family this week:** the checks tested
+the part of the output that is cheap to get right (the label) and not the part
+the work was about (the value). **Ask what a lazy wrong implementation would
+look like, then check that the probe rejects it** — a suffix test rejects nothing.
+
+A smaller model wrote this probe. **The shipped conversion was correct; only
+the proof was weak** — worth knowing before scaling lane models down, and an
+argument for keeping the verifier on the stronger model rather than the lanes.
+
+### [2026-09-08] Two separators in one panel, and only one of them was new
+
+The units sweep left River drawing *“Discharge 4,200”* above *“Catchment
+3 500 km²”*. The obvious reading — that the change introduced an inconsistency
+— is wrong. `DccUnits._group_thousands()` had emitted **spaces** all along;
+`right_dock.gd::_thousands()` had emitted **commas** all along; the sweep merely
+put the two adjacent for the first time.
+
+**The canvas settles it, rather than taste or majority.**
+`Cartalith DCC Environment.dc.html` writes `4 210`, `1 840`, `2 210`,
+`120 000`, `38 000` and `6 400` — spaces throughout, and every comma in the file
+is inside `rgba(...)`. So the helper the sweep did **not** touch was the defect,
+and the one it did touch was already conformant.
+
+**Two things follow.** *Exposing* an inconsistency is not *causing* one — check
+both sides’ history before attributing it, or you will "fix" the conformant
+half. And when parity with a reference is the definition of done, **the
+reference is the tie-breaker for cosmetics too**, not only for layout.

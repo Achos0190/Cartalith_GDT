@@ -1833,7 +1833,7 @@ func _build_sample(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Sample")
 	var valid: bool = bridge.has_world
 	_sample_pos = _field(sec, "Position", "—",
-		"Cursor position in km from the map's north-west corner, X then Y. " +
+		("Cursor position in %s from the map's north-west corner, X then Y. " % DccUnits.suffix()) +
 		"Printed to %d decimal%s for this world: a cell is %s across, and no " %
 			[_coord_decimals(), "" if _coord_decimals() == 1 else "s", _cell_km_text()] +
 		"reading in this port distinguishes two points inside one cell, so the " +
@@ -2568,7 +2568,7 @@ func _build_route(body: Control) -> void:
 	## this getter rounds to -- that fallback stays for any caller still
 	## passing a dict from before `km` was emitted.
 	var km := float(e.get("km", 0.0))
-	_field(sec, "Length", ("%.1f km" % km) if km > 0.0 else _route_length_text(pts))
+	_field(sec, "Length", (DccUnits.format(km, 1)) if km > 0.0 else _route_length_text(pts))
 
 	var unreachable := ["Stages", "Vessels", "Cost trace", "Per-stage overrides", "Daily stages"]
 	for f in unreachable:
@@ -2585,7 +2585,7 @@ func _route_length_text(pts: PackedVector2Array) -> String:
 		cells += pts[i - 1].distance_to(pts[i])
 	var gw := bridge.grid_size().x
 	if gw > 0 and bridge.last_width_km > 0.0:
-		return "%.0f km" % (cells * bridge.last_width_km / float(gw))
+		return DccUnits.format(cells * bridge.last_width_km / float(gw))
 	return "%.0f cells" % cells
 
 # -- River --------------------------------------------------------------
@@ -2655,7 +2655,7 @@ func _build_river(body: Control) -> void:
 	_field(sec, "At the mouth", "%s" % _thousands(float(_river.get("mouth_discharge", 0.0))),
 		"Flow accumulation at the outlet cell specifically -- what leaves this " +
 		"river. See the Discharge row for why the two differ.")
-	_field(sec, "Catchment", "%s km²" % _thousands(float(_river.get("catchment_km2", 0.0))),
+	_field(sec, "Catchment", DccUnits.format_area(float(_river.get("catchment_km2", 0.0))),
 		"The Discharge reading as an area, at this world's cell size. It is " +
 		"rainfall-WEIGHTED, not a plain cell count: compute_flow seeds each cell " +
 		"with its rainfall rescaled so the mean seed is exactly 1.0, so a wetter- " +
@@ -2682,7 +2682,7 @@ func _build_river(body: Control) -> void:
 			"river_width_scale_k widens it as the map's real extent shrinks, on " +
 			"purpose, so a river stays legible on a 50 km sheet. The converted " +
 			"figure beside it is the ground distance that symbol covers, which is " +
-			"why it can read in kilometres.")
+			"why it reads in whichever unit Preferences ▸ Units is set to.")
 	else:
 		_field(sec, "Channel (drawn)", "—",
 			"The width law (channel_disc) needs positive flow at the cell it is " +
@@ -3375,19 +3375,19 @@ func _build_measure_area(body: Control) -> void:
 		return
 	var r := _measure_result
 	var sec := DccWidgets.section(body, "Measure · area")
-	_accent_readout(sec, "Area · projected", "%s km²" % _thousands(float(r.get("projected_km2", 0.0))),
+	_accent_readout(sec, "Area · projected", DccUnits.format_area(float(r.get("projected_km2", 0.0))),
 		"The exact shoelace figure over the ring's own vertices (polyArea, reference line 28290) times the map's km per cell. Never an estimate.",
 		true)
-	DccWidgets.note(sec, "true surface %s km² · %d vertices" % [
-		_thousands(float(r.get("true_surface_km2", 0.0))), int(r.get("vertices", 0))])
-	_field(sec, "Perimeter", "%.0f km" % float(r.get("perimeter_km", 0.0)))
-	_field(sec, "Water subtracted", "−%s km²" % _thousands(float(r.get("water_km2", 0.0))),
+	DccWidgets.note(sec, "true surface %s · %d vertices" % [
+		DccUnits.format_area(float(r.get("true_surface_km2", 0.0))), int(r.get("vertices", 0))])
+	_field(sec, "Perimeter", DccUnits.format(float(r.get("perimeter_km", 0.0))))
+	_field(sec, "Water subtracted", "−%s" % DccUnits.format_area(float(r.get("water_km2", 0.0))),
 		"Ocean and lake cells inside the ring." if bool(r.get("water_from_civ", false)) else
 			"No civilisation layer for this world, so water here means \"below sea level\" -- it counts no lake standing above the waterline.")
-	_field(sec, "Land area", "%s km²" % _thousands(float(r.get("land_km2", 0.0))))
+	_field(sec, "Land area", DccUnits.format_area(float(r.get("land_km2", 0.0))))
 	_field(sec, "Centroid", "%.0f E · %.0f N" % [float(r.get("centroid_x", 0.0)), float(r.get("centroid_y", 0.0))],
 		"polyCentroid (reference line 28291) -- area-weighted, in grid cells.")
-	_field(sec, "Bounding box", "%.0f × %.0f km" % [float(r.get("bbox_w_km", 0.0)), float(r.get("bbox_h_km", 0.0))])
+	_field(sec, "Bounding box", "%s × %s" % [DccUnits.format(float(r.get("bbox_w_km", 0.0))), DccUnits.format(float(r.get("bbox_h_km", 0.0)))])
 	_field(sec, "Mean elevation", "%.0f m" % float(r.get("mean_elev_m", 0.0)))
 	var stride := int(r.get("stride", 1))
 	DccWidgets.note(sec, ("%d cells tested, every one inside the ring." % int(r.get("sampled_cells", 0))) if stride <= 1 else
@@ -3400,10 +3400,10 @@ func _build_measure_radius(body: Control) -> void:
 		return
 	var r := _measure_result
 	var sec := DccWidgets.section(body, "Measure · radius")
-	_accent_readout(sec, "Radius", "%.0f km" % float(r.get("radius_km", 0.0)), "", true)
-	_field(sec, "Diameter", "%.0f km" % float(r.get("diameter_km", 0.0)))
-	_field(sec, "Circumference", "%.0f km" % float(r.get("circumference_km", 0.0)))
-	_field(sec, "Enclosed area", "%s km²" % _thousands(float(r.get("area_km2", 0.0))),
+	_accent_readout(sec, "Radius", DccUnits.format(float(r.get("radius_km", 0.0))), "", true)
+	_field(sec, "Diameter", DccUnits.format(float(r.get("diameter_km", 0.0))))
+	_field(sec, "Circumference", DccUnits.format(float(r.get("circumference_km", 0.0))))
+	_field(sec, "Enclosed area", DccUnits.format_area(float(r.get("area_km2", 0.0))),
 		"πr² on the map plane. It is not clipped to the coastline -- use Area for a ring that follows real ground.")
 	_build_measure_actions(body)
 
@@ -3531,11 +3531,12 @@ func _build_measure_section(body: Control) -> void:
 	var samples: Array = r.get("samples", [])
 
 	var sec := DccWidgets.section(body, "Section line")
-	_accent_readout(sec, "Length", "%.0f km" % float(r.get("length_km", 0.0)), "", true)
+	_accent_readout(sec, "Length", DccUnits.format(float(r.get("length_km", 0.0))), "", true)
 	_field(sec, "Bearing", "%03d°" % int(round(float(r.get("bearing_deg", 0.0)))))
-	_field(sec, "3D length", "%.0f km" % float(r.get("length_3d_km", 0.0)),
+	_field(sec, "3D length", DccUnits.format(float(r.get("length_3d_km", 0.0))),
 		"Following the sampled ground rather than the map plane.")
-	_field(sec, "Samples · spacing", "%d · %.0f m" % [samples.size(), float(r.get("spacing_m", 0.0))])
+	_field(sec, "Samples · spacing", "%d · %s" % [samples.size(),
+		DccUnits.format(float(r.get("spacing_m", 0.0)) / 1000.0, 1)])
 
 	var st := DccWidgets.section(body, "Profile statistics")
 	_field(st, "min · max", "%.0f m · %.0f m" % [float(stats.get("min_m", 0.0)), float(stats.get("max_m", 0.0))])
@@ -3545,7 +3546,7 @@ func _build_measure_section(body: Control) -> void:
 	_field(st, "net Δ", "%+.0f m" % float(stats.get("net_m", 0.0)))
 	_field(st, "mean · max slope", "%.1f° · %.1f°" % [
 		float(stats.get("mean_slope_deg", 0.0)), float(stats.get("max_slope_deg", 0.0))])
-	_field(st, "above 2 000 m", "%.0f km" % float(stats.get("above_2000m_km", 0.0)))
+	_field(st, "above 2 000 m", DccUnits.format(float(stats.get("above_2000m_km", 0.0))))
 	_field(st, "river crossings", str(int(stats.get("river_crossings", 0))))
 	_field(st, "ridge crossings", str(int(stats.get("ridge_crossings", 0))),
 		"A local maximum standing at least 100 m above the lower of the two valleys flanking it. That prominence floor is this port's own -- nothing in the reference defines a ridge crossing.")
@@ -3558,7 +3559,7 @@ func _build_measure_section(body: Control) -> void:
 	else:
 		for c in crossings:
 			var cd: Dictionary = c
-			_field(cr, "%.0f km" % float(cd.get("km", 0.0)), String(cd.get("label", "")),
+			_field(cr, DccUnits.format(float(cd.get("km", 0.0))), String(cd.get("label", "")),
 				"%.0f m at this crossing." % float(cd.get("elev_m", 0.0)))
 		## **Corrected with §2.2's binding.** This read "no river entity crosses
 		## the GDExtension boundary (see this dock's own River context), so
@@ -4471,10 +4472,11 @@ func _build_wildlife(body: Control) -> void:
 	## would be exactly the fabricated data this pass exists to keep out.
 	var cx := int(rec.get("cx", 0))
 	var cy := int(rec.get("cy", 0))
-	## `_coord_texts()` answers `[km position, cell index]` -- this shell has no
-	## lat/lon readout anywhere, so the artboard's `49.2°N 12.8°E` is drawn in
-	## the units the dock's own coordinate row already uses rather than in a
-	## geographic frame the engine does not define.
+	## `_coord_texts()` answers `[position in the Units preference, cell index]`
+	## -- this shell has no lat/lon readout anywhere, so the artboard's
+	## `49.2°N 12.8°E` is drawn in the units the dock's own coordinate row
+	## already uses rather than in a geographic frame the engine does not
+	## define.
 	var coords: Array = _coord_texts(float(cx), float(cy), true)
 	sec.add_child(DccTheme.mono_label(
 		"%s · cell %s" % [coords[0], coords[1]], "text_faint",
@@ -4489,9 +4491,9 @@ func _build_wildlife(body: Control) -> void:
 	## no adjacency, and nothing in `cartalith-civ` computes region-to-region
 	## neighbours. Counting them would need a new `#[func]` over `region_id`.
 	sec.add_child(DccTheme.mono_label(
-		"%s · %s km² · %d cells · neighbours —" % [
+		"%s · %s · %d cells · neighbours —" % [
 			String(rec.get("biome_name", "Unknown")),
-			_thousands(float(rec.get("area_km2", 0.0))), int(rec.get("cells", 0))],
+			DccUnits.format_area(float(rec.get("area_km2", 0.0))), int(rec.get("cells", 0))],
 		"text_faint",
 		DccTheme.role_px("fs_dock_header") if DccTheme.is_tablet() else DccTheme.FS_MICRO))
 	sec.add_child(_soft_rule())
@@ -4637,6 +4639,23 @@ func _wildlife_species_row(parent: Control, e: Dictionary, top: float) -> void:
 		+ "species record carries no such class.")
 
 ## `Number.toLocaleString()` (reference line 8265's own km² formatting).
+## **A thin space, not a comma -- the canvas’s own separator.**
+##
+## This emitted commas while `DccUnits._group_thousands()` (behind
+## `format_area`) emits spaces, and the units sweep of 2026-09-08 put the two
+## styles side by side in one panel: River drew "Discharge 4,200" above
+## "Catchment 3 500 km²"; Territory drew "Claimed cells" above "Area".
+##
+## **The canvas decides which is wrong, rather than taste.**
+## `Cartalith DCC Environment.dc.html` writes `4 210`, `1 840`, `2 210`,
+## `120 000`, `38 000` and `6 400` -- spaces throughout, and the only commas
+## in the file are inside `rgba(...)`. So `DccUnits` was conformant and this
+## helper was the odd one out; the mixed panel merely made a pre-existing
+## non-conformance visible.
+##
+## Checked before changing: no probe pins a comma-formatted string from this
+## file. Counts (population, claimed cells) keep using this helper -- they are
+## not distances and must not go through `DccUnits`.
 func _thousands(v: float) -> String:
 	var s := "%d" % int(round(v))
 	var neg := s.begins_with("-")
@@ -4645,7 +4664,7 @@ func _thousands(v: float) -> String:
 	var out := ""
 	for i in range(s.length()):
 		if i > 0 and (s.length() - i) % 3 == 0:
-			out += ","
+			out += "\u202f"
 		out += s[i]
 	return ("-" + out) if neg else out
 
@@ -5470,7 +5489,7 @@ func _build_territory(body: Control) -> void:
 		_accent_readout(sec, "Claimed cells", _thousands(float(stats.get("claimed_cells", 0))),
 			"civ_faction_territory_stats() over the committed territory raster -- redrawn at arm, commit and " +
 			"discard, not per paint dab (see this section's own header note).")
-		_field(sec, "Area", "%s km²" % _thousands(float(stats.get("area_km2", 0.0))))
+		_field(sec, "Area", DccUnits.format_area(float(stats.get("area_km2", 0.0))))
 		_field(sec, "Contested", str(int(stats.get("contested_cells", 0))), "Cells more than one faction has claimed.")
 
 	DccWidgets.note(sec,
@@ -6289,7 +6308,8 @@ func _cell_km() -> float:
 		return 0.0
 	return bridge.last_width_km / float(gw)
 
-## How many decimals a km coordinate may honestly carry **for this world**.
+## How many decimals a coordinate, in whatever unit is on screen, may
+## honestly carry **for this world**.
 ##
 ## Every raster in this port is per-cell; nothing it can be asked -- elevation,
 ## biome, slope, territory -- distinguishes two points inside one cell. So the
@@ -6309,7 +6329,13 @@ func _coord_decimals() -> int:
 	var km := _cell_km()
 	if km <= 0.0:
 		return 0
-	return clampi(int(ceil(-log(km) / log(10.0))), 0, 3)
+	## The rule is "no larger than one cell IN THE UNIT SHOWN" -- converting
+	## the printed value without re-deriving decimals here would let a step
+	## that was <= one cell in km read as > one cell once mi/nmi shrinks the
+	## cell's own number (1.5 km/cell rounds to the nearest 1 km, 2/3 of the
+	## cell; the same 0-decimal rule over the converted 0.93 mi/cell would
+	## round to the nearest 1 mi, wider than the cell it is meant to bound).
+	return clampi(int(ceil(-log(DccUnits.to_unit(km)) / log(10.0))), 0, 3)
 
 ## The cell size as the `Position` row's tooltip states it, at whatever
 ## precision the number itself needs to be legible.
@@ -6317,9 +6343,13 @@ func _cell_km_text() -> String:
 	var km := _cell_km()
 	if km <= 0.0:
 		return "of unknown size"
-	if km >= 1.0:
-		return "%.2f km" % km
-	return "%d m" % int(round(km * 1000.0))
+	## Metres is km's own subunit and stays km-mode-only: mi/nmi have no
+	## equivalent this shell prints (feet, yards), so a sub-1-unit cell in
+	## those modes reports through DccUnits like everything else rather than
+	## inventing a subdivision nothing else here uses.
+	if DccSettings.units_mode() == "km" and km < 1.0:
+		return "%d m" % int(round(km * 1000.0))
+	return "%.2f %s" % [DccUnits.to_unit(km), DccUnits.suffix()]
 
 ## Pad to a fixed character count so the pair keeps its columns in a mono
 ## label. Cosmetic only -- the row's *width* is already nailed down by
@@ -6343,10 +6373,14 @@ func _coord_texts(gx: float, gy: float, valid: bool) -> Array:
 		## A loaded save with no recorded extent: the cell index is still real,
 		## the km figure would be invented.
 		return ["—", cell]
+	## Converted once, here -- the canonical `km`/cell stays what `_cell_km()`
+	## and the staleness/decimal math above use, and only this row's own
+	## printed pair moves with the Units preference.
+	var u := DccUnits.to_unit(km)
 	var fmt := "%%.%df" % _coord_decimals()
-	var kw := (fmt % maxf(bridge.last_width_km, bridge.last_height_km)).length()
-	return ["%s · %s km" % [
-		_coord_pad(fmt % (gx * km), kw), _coord_pad(fmt % (gy * km), kw)], cell]
+	var kw := (fmt % DccUnits.to_unit(maxf(bridge.last_width_km, bridge.last_height_km))).length()
+	return ["%s · %s %s" % [
+		_coord_pad(fmt % (gx * u), kw), _coord_pad(fmt % (gy * u), kw), DccUnits.suffix()], cell]
 
 func _nearest_settlement_text(gx: float, gy: float, valid: bool) -> String:
 	if not valid:
