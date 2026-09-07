@@ -8,8 +8,28 @@ project; the owner's word for it, per `design/mcp-2026-09-07/CAPTURE.md`:
 
 **This file is an inventory, not an implementation plan, and no shell code was
 written by the pass that produced it.** The tablet canvas describes a
-*different shell* from the one this project ships, and **adopting it is an
-owner decision that has not been made.** This file exists so that decision can
+*different shell* from the one this project ships.
+
+> **CORRECTION, 2026-09-07 (evening). This paragraph used to end "and adopting
+> it is an owner decision that has not been made", and that was wrong when it
+> was written.** The decision had been given the same day, by the instruction
+> that delivered this canvas: *"All designs layouts and styles should match
+> 100%. Check all designs, pc, tablet and phone."*
+>
+> **The consequence was measurable and the owner found it: the tablet still
+> ships the PC layout.** `ANDROID_UI_SPEC.md` drove a full day of phone work;
+> this file drove none, because it declared itself inventory-only and parked
+> adoption behind a question nobody had been asked.
+>
+> **What the shell implements instead is ruling DS-03** (2026-09-03, *"keep
+> everything; reflow only"*) — a **content** answer about which controls leave,
+> made four days before this canvas existed. Read as settling the tablet's
+> *shape*, it yields the PC composition, reflowed.
+>
+> **Two items in §4.2 remain genuinely not adoptable** — per-stage recompute and
+> the canvas's ten stage names — so "100% on tablet" has named exceptions that
+> do need a ruling. **That is a much smaller question than the one this
+> paragraph asked, and it should have been put to the owner on the day.** This file exists so that decision can
 be made from measured facts. Where it says "cost", that is what a change would
 touch — not a recommendation that it be spent.
 
