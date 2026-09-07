@@ -1489,14 +1489,12 @@ func _confirm_destructive(title: String, body: String, ok_text: String, skip_whe
 	if skip_when_empty:
 		on_confirm.call()
 		return
-	var dlg := ConfirmationDialog.new()
-	dlg.title = title
-	dlg.dialog_text = body
-	dlg.get_ok_button().text = ok_text
-	dlg.confirmed.connect(func(): on_confirm.call(); dlg.queue_free())
-	dlg.canceled.connect(dlg.queue_free)
-	app.add_child(dlg)
-	dlg.popup_centered()
+	## `DccWidgets.confirm()`, and this is the highest-leverage of the sixteen
+	## conversions because it is a SHARED helper -- every destructive action in
+	## this workspace reaches the phone correctly by this one edit, rather than
+	## by sixteen. See `right_dock.gd::_confirm_revert` for what the hand-built
+	## form measured as: 29 dp against a 44 dp floor, at desktop scale.
+	DccWidgets.confirm(app, title, body, ok_text, on_confirm)
 
 ## The reference's Auto-populate world (`#civAutoPopulateBtn`), stage 1 of the
 ## civ-authoring ruling's five.
@@ -6295,15 +6293,14 @@ func _tl_show_confirm(result: Dictionary) -> void:
 	var parts: Array[String] = []
 	for y in years:
 		parts.append(_tl_format_year(int(y)))
-	var dlg := ConfirmationDialog.new()
-	dlg.title = "Overwrite recorded years?"
-	dlg.dialog_text = "Simulation will overwrite %d existing timeline year%s (%s).\n\nContinue?" % [
-		years.size(), "" if years.size() == 1 else "s", ", ".join(parts)]
-	dlg.get_ok_button().text = "Overwrite"
-	dlg.confirmed.connect(func(): _tl_run_simulation(true); dlg.queue_free())
-	dlg.canceled.connect(dlg.queue_free)
-	app.add_child(dlg)
-	dlg.popup_centered()
+	## `DccWidgets.confirm()` -- see `_confirm_destructive` above. This one does
+	## not route through that helper because it predates it and because its
+	## confirm arm passes an argument (`_tl_run_simulation(true)`), which the
+	## helper's `skip_when_empty` shape does not carry.
+	DccWidgets.confirm(app, "Overwrite recorded years?",
+		"Simulation will overwrite %d existing timeline year%s (%s).\n\nContinue?" % [
+			years.size(), "" if years.size() == 1 else "s", ", ".join(parts)],
+		"Overwrite", func(): _tl_run_simulation(true))
 
 ## Reference's own `civSimOut` innerHTML (lines 24940-24949), ported field-
 ## for-field -- `fmt()`'s k/M abbreviation is skipped (this port's numbers

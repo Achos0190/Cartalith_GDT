@@ -899,20 +899,20 @@ func _confirm_remove() -> void:
 	if bridge.civ_faction_count() <= 1:
 		app.set_status("hint", "One faction plus Unclaimed is the floor — nothing to remove.", "accent")
 		return
-	var dlg := ConfirmationDialog.new()
-	dlg.title = "Remove the last faction?"
-	dlg.dialog_text = "Remove faction %d?\n\nAny settlements and territory using it will revert to Unclaimed." % bridge.civ_faction_count()
-	dlg.get_ok_button().text = "Remove"
-	dlg.confirmed.connect(func():
-		if bridge.civ_remove_faction():
-			_selected = mini(_selected, bridge.civ_faction_count())
-			_fits = bridge.civ_faction_terrain_fits()
-			roster_changed.emit()
-			_rebuild()
-		dlg.queue_free())
-	dlg.canceled.connect(dlg.queue_free)
-	app.add_child(dlg)
-	dlg.popup_centered()
+	## `DccWidgets.confirm()` -- see `right_dock.gd::_confirm_revert` for what a
+	## hand-built `ConfirmationDialog` measures as on a phone. `get_ok_button()
+	## .text` and `ok_button_text` are the same property by two routes; the
+	## helper takes the text and sets it before the window is presented, which
+	## the button-object route cannot guarantee.
+	DccWidgets.confirm(app, "Remove the last faction?",
+		"Remove faction %d?\n\nAny settlements and territory using it will revert to Unclaimed." % bridge.civ_faction_count(),
+		"Remove",
+		func():
+			if bridge.civ_remove_faction():
+				_selected = mini(_selected, bridge.civ_faction_count())
+				_fits = bridge.civ_faction_terrain_fits()
+				roster_changed.emit()
+				_rebuild())
 
 
 func _set_field(key: String, value: String) -> void:

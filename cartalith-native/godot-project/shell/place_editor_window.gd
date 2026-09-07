@@ -865,22 +865,18 @@ func confirm_delete(index: int) -> void:
 	if index < 0 or index >= all.size():
 		return
 	var name := String((all[index] as Dictionary).get("name", "this place"))
-	var dlg := ConfirmationDialog.new()
-	dlg.title = "Delete place?"
-	dlg.dialog_text = "Delete %s?\n\nProvinces, trade balances, roads and territory were computed before this edit and are not recomputed by the delete itself. The Civilization dock's Settlements ▸ Recompute civilisation rebuilds them against the current roster and terrain." % name
-	dlg.get_ok_button().text = "Delete"
-	dlg.confirmed.connect(func():
-		if bridge.civ_delete_settlement(index):
-			place_deleted.emit()
-			if index == _index:
-				_index = -1
-				hide()
-			else:
-				_rebuild()
-		dlg.queue_free())
-	dlg.canceled.connect(dlg.queue_free)
-	app.add_child(dlg)
-	dlg.popup_centered()
+	## `DccWidgets.confirm()` -- see `right_dock.gd::_confirm_revert`.
+	DccWidgets.confirm(app, "Delete place?",
+		"Delete %s?\n\nProvinces, trade balances, roads and territory were computed before this edit and are not recomputed by the delete itself. The Civilization dock's Settlements ▸ Recompute civilisation rebuilds them against the current roster and terrain." % name,
+		"Delete",
+		func():
+			if bridge.civ_delete_settlement(index):
+				place_deleted.emit()
+				if index == _index:
+					_index = -1
+					hide()
+				else:
+					_rebuild())
 
 
 func _build_footer() -> void:

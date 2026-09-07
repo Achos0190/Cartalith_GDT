@@ -4405,24 +4405,25 @@ func _reverts_past_committed(seq: int) -> bool:
 	return saved_seq >= 0 and seq <= saved_seq
 
 func _confirm_revert(seq: int, steps: int) -> void:
-	var dlg := ConfirmationDialog.new()
-	dlg.dialog_text = ("Revert to this state?
-
-%d committed operation%s after it will be "
-		+ "discarded. History here is linear -- there is no branch to come back to.") % [
+	## `DccWidgets.confirm()`, not a hand-built `ConfirmationDialog`. This site
+	## was the verifier's known-bad specimen for `phone_protocol_grade()`:
+	## unmodified it graded `fails:shape,present,tap worst=29dp('Revert')` at
+	## 638x136 with `content_scale_factor` 1.0000 -- a desktop dialog shown on a
+	## phone, its primary button at two thirds of the 44 dp floor.
+	##
+	## The question moves out of the body and becomes the title, because that is
+	## what the phone body draws as its header (`_phone_dialog_body()`); leaving
+	## it inside the prose would render it twice on the phone and namelessly on
+	## the desktop, which is why every other confirm site here already splits
+	## them that way.
+	var body := ("%d committed operation%s after it will be discarded. History "
+		+ "here is linear -- there is no branch to come back to.") % [
 			steps - 1, "" if steps == 2 else "s"]
 	if _reverts_past_committed(seq):
-		dlg.dialog_text += ("
-
-Some of them are in the project as last saved: this "
+		body += ("\n\nSome of them are in the project as last saved: this "
 			+ "reverts past the COMMITTED rule, and the rule goes with them.")
-	dlg.ok_button_text = "Revert"
-	dlg.confirmed.connect(func():
-		_do_revert(seq)
-		dlg.queue_free())
-	dlg.canceled.connect(func(): dlg.queue_free())
-	app.add_child(dlg)
-	dlg.popup_centered()
+	DccWidgets.confirm(app, "Revert to this state?", body, "Revert",
+		func(): _do_revert(seq))
 
 func _do_revert(seq: int) -> void:
 	var done := bridge.undo_revert_to(seq)
