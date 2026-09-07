@@ -625,3 +625,82 @@ image for an external viewer* — one flat raster, deliberately not tiled, and t
 owner scoped it that way on the same day. Tiled output going to the save path
 takes nothing away from it: they are different artefacts with different
 destinations, and the export menu keeps the one it already has.
+
+---
+
+## 2026-09-07 — three rulings from the GUI parity work
+
+All three were put to the owner with the measurement that raised them, and all
+three were answered the same day. **Two are code; the third deliberately is
+not.**
+
+### Ruling A — Android file-picking goes through SAF
+
+**The question.** Opening a project `.zip` on Android lands in the user’s real
+Documents and lists **zero files** — a 3.5 MB `Werk.zip` sits there, invisible.
+The two available mechanisms are exactly complementary, measured with **zero
+permissions**: the in-shell `DirAccess` browser lists directories fine and
+**cannot see a file another uid wrote**; SAF
+(`DisplayServer.file_dialog_show`, `FEATURE_NATIVE_DIALOG_FILE = true`) browses
+the whole device but its **directory** URI is unusable by `DirAccess` (err 31),
+so it cannot back a storage root.
+
+**Ruled: route file-picking to SAF.** `choose_file()` — Open project, import
+asset pack, choose sprite sheet — goes through Android’s own picker.
+**Folder-picking KEEPS the in-shell browser** it was just given, which is what
+closed the owner’s original complaint. Two mechanisms, split by mode, each on
+the side it actually works.
+
+**What this obliges.** `OPEN_FILE` returns a `content://` document URI.
+**`FileAccess` and `ZIPReader` both accept it — measured, err=0 and an exact
+byte length** — but the CALLERS do not know that: `app.gd`'s
+`_on_open_zip()`/`_on_import_pack()` and `asset_library_window.gd` treat the
+return as a filesystem path. **Audit every caller before shipping it**, and
+expect anything doing `get_base_dir()`, `path_join()` or a `dir_exists` check on
+the result to need a branch.
+
+**Explicitly NOT ruled: `MANAGE_EXTERNAL_STORAGE` is not being added.** It was
+offered and declined. It would let one browser serve both modes, and it needs
+`export_presets.cfg` (guarded), a manual "All files access" grant the user
+currently **cannot** give because the toggle is greyed out, and a Play Store
+justification. **Do not re-propose it as a shortcut.**
+
+### Ruling B — the selected Preferences chip keeps Medium and gains the accent
+
+**The question.** The owner asked for the selected option to be **bold**. What
+shipped is IBM Plex Mono **Medium (500)** — measured at **+3.3% ink**, real and
+repeatable and subtle. True Bold (700) means a fourth face.
+
+**Ruled: keep Medium, and add the accent ink to the selected chip.**
+
+**The reason is layout, and it is the whole point of the ruling.** Medium’s
+advance is **identical to Regular at 93.00**, so nothing re-flows. A Bold face
+has a wider advance and would re-flow **every chip row** — and chip rows on the
+phone are exactly where this project’s clipping defects have been appearing
+(`CREATE WORLD` at 7 of 46 dp painted, the SAVE foot’s primary button
+off-screen). **Colour costs no layout at all**, so it buys legibility for free.
+
+**This supersedes the literal reading of the owner’s own earlier wording**
+(*"make the text of the selected option bold"*) — by the owner, with the
+trade-off in front of them. **Record it at the call site** or a later
+conformance pass will read the accent as drift and remove it.
+
+### Ruling C — the invisible OFF switch track is a CANVAS defect, not a shell one
+
+**The question.** On the light palette an OFF switch is a lone dark knob: its
+track is `#f4f2ee` against a `#fbfaf7` ground, **1.03:1**, so the track is
+invisible and the control does not read as a switch. **`ENV:1354` specifies
+exactly this**, so changing the shell would be a deviation from the reference.
+
+**Ruled: take it back to the designer. Fix the REFERENCE, not the shell.**
+
+**So this is the one ruling that produces no code change, and that is
+deliberate.** Parity with the canvases is the standing definition of done for
+GUI work; patching the shell around a canvas defect would put the two out of
+step and guarantee a later conformance pass reverts it. **Same principle that
+settled the radius question:** one source of truth, and when it is wrong you
+change it there.
+
+**Until the canvas is corrected the shell keeps drawing `ENV:1354` as written**,
+and `_cklight_probe` continues to pin it — so the current behaviour cannot drift
+while the question is open. **Do not "fix" this in `dcc_widgets.gd`.**
