@@ -772,28 +772,47 @@ static func action(parent: Control, text: String, on_press: Callable,
 	b.add_theme_font_size_override("font_size",
 		DccTheme.role_px("fs_readout") if act_tablet else DccTheme.FS_SMALL)
 	b.add_theme_font_override("font", DccTheme.mono(1))
-	var edge := "accent" if primary else "border"
+	## **Filled, rounded, four distinct states** -- this block was the whole of
+	## the owner's 2026-09-07 "all buttons and inputs are visually not the same".
+	##
+	## What stood here drew `DccTheme.outline(edge)`: a hairline rectangle with
+	## `Color(0, 0, 0, 0)` for a fill and, because `outline()` never calls
+	## `set_corner_radius_*`, square corners. The canvas draws neither. It fills
+	## (`var(--acc)` primary, `var(--ins)` secondary), it rounds (8 px pointer,
+	## `--rCtl:12px` tablet), and it puts **no border on either variant** -- 0 of
+	## its `--ins` chips carry a `border:` declaration. See
+	## `DccTheme.button_box()` for every measurement and for why the fix could
+	## not go in `outline()`, which 30 sites share and only four of them buttons.
+	##
+	## The colour half lives here rather than in the factory because Godot takes
+	## font colours as per-state overrides on the `Button`; the two halves are
+	## one design and must be read together.
+	##
+	## Ink follows the fill, which is the actual repair: primary text was
+	## `c("accent")` -- amber on nothing -- and is now `accent_ink` on the amber
+	## ground, the pairing the canvas writes as `color:var(--accInk)` and which
+	## measures **8.60:1** dark / 4.30:1 light. Secondary is `--sec` =
+	## `text_secondary` (7.58:1 / 8.87:1). The hover ink is measured too, not
+	## invented: the canvas's `style-hover` on an `--ins` chip is
+	## `color:var(--acc)`, so a secondary hovers to accent and a primary holds
+	## `accent_ink` while its *fill* lifts.
+	##
+	## **`disabled` no longer shares a box with `normal`.** That sharing is why a
+	## disabled action read as an enabled one, which is a correctness defect
+	## rather than a cosmetic one: nothing on screen distinguished a control you
+	## could press from one you could not.
 	b.add_theme_color_override("font_color",
-		DccTheme.c("accent") if primary else DccTheme.c("text"))
-	b.add_theme_color_override("font_hover_color", DccTheme.c(
-		"accent_hover" if primary else "text_bright"))
+		DccTheme.c("accent_ink") if primary else DccTheme.c("text_secondary"))
+	b.add_theme_color_override("font_hover_color",
+		DccTheme.c("accent_ink") if primary else DccTheme.c("accent"))
+	b.add_theme_color_override("font_pressed_color",
+		DccTheme.c("accent_ink") if primary else DccTheme.c("accent"))
 	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
 	var pad_x := DccTheme.role_px("btn_pad_x") if act_tablet else 10
 	var pad_y := DccTheme.role_px("btn_pad_y") if act_tablet else 4
-	var rest := DccTheme.outline(edge)
-	rest.content_margin_left = pad_x
-	rest.content_margin_right = pad_x
-	rest.content_margin_top = pad_y
-	rest.content_margin_bottom = pad_y
-	b.add_theme_stylebox_override("normal", rest)
-	b.add_theme_stylebox_override("disabled", rest)
-	var lit := DccTheme.outline(edge, "accent_wash" if primary else "line_soft")
-	lit.content_margin_left = pad_x
-	lit.content_margin_right = pad_x
-	lit.content_margin_top = pad_y
-	lit.content_margin_bottom = pad_y
-	b.add_theme_stylebox_override("hover", lit)
-	b.add_theme_stylebox_override("pressed", lit)
+	for state in ["normal", "hover", "pressed", "disabled"]:
+		b.add_theme_stylebox_override(state,
+			DccTheme.button_box(primary, state, pad_x, pad_y))
 	b.pressed.connect(on_press)
 	parent.add_child(b)
 	return b
@@ -823,25 +842,22 @@ static func modal_button(parent: Control, text: String, on_press: Callable,
 	var modal_h := float(DccTheme.role_px("btn_min_h")) if DccTheme.is_tablet() else 30.0
 	b.custom_minimum_size = Vector2(0, modal_h)
 	b.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
-	var token := "accent" if primary else "border"
-	var fg := "accent" if primary else "text"
-	b.add_theme_color_override("font_color", DccTheme.c(fg))
-	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	## Same repair as `action()`, and for the same reason: the paragraph above
+	## already says these two are "the same chip at two sizes", so when `action()`
+	## became a filled rounded button this had to move with it or the modals would
+	## have become the only square hairline buttons left in the shell. It keeps
+	## its own 18/8 padding -- that is the "two sizes" half of the claim and it is
+	## unchanged -- and takes the shared fill, radius and four-state model.
+	b.add_theme_color_override("font_color",
+		DccTheme.c("accent_ink") if primary else DccTheme.c("text_secondary"))
+	b.add_theme_color_override("font_hover_color",
+		DccTheme.c("accent_ink") if primary else DccTheme.c("accent"))
+	b.add_theme_color_override("font_pressed_color",
+		DccTheme.c("accent_ink") if primary else DccTheme.c("accent"))
 	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
-	var rest := DccTheme.outline(token)
-	rest.content_margin_left = 18
-	rest.content_margin_right = 18
-	rest.content_margin_top = 8
-	rest.content_margin_bottom = 8
-	b.add_theme_stylebox_override("normal", rest)
-	b.add_theme_stylebox_override("pressed", rest)
-	b.add_theme_stylebox_override("disabled", rest)
-	var hover := DccTheme.outline(token, "accent_wash" if primary else "line_soft")
-	hover.content_margin_left = 18
-	hover.content_margin_right = 18
-	hover.content_margin_top = 8
-	hover.content_margin_bottom = 8
-	b.add_theme_stylebox_override("hover", hover)
+	for state in ["normal", "hover", "pressed", "disabled"]:
+		b.add_theme_stylebox_override(state,
+			DccTheme.button_box(primary, state, 18, 8))
 	b.pressed.connect(on_press)
 	parent.add_child(b)
 	return b

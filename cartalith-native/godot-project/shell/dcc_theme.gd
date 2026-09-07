@@ -955,6 +955,30 @@ const ROLE := {
 	"chip_pad_y": [3, 9],
 	"btn_pad_x": [11, 18],         ## Action button: `padding:3px 11px` → `9px 18px`.
 	"btn_pad_y": [3, 9],
+	## The action button's corner radius, and **the row that retires §11's
+	## radius-0 rule for buttons.** Both figures are canvas literals, measured
+	## rather than reasoned:
+	##
+	## * **8** -- `design/mcp-2026-09-07/Cartalith DCC Environment.dc.html`
+	##   writes `border-radius:8px` inline on every action chip it draws
+	##   (`background:var(--acc);color:var(--accInk)` on the primary,
+	##   `background:var(--ins);color:var(--sec)` on the secondary). 76 of them.
+	## * **12** -- `Cartalith Tablet.dc.html` does not use 8 anywhere. Its
+	##   buttons are `border-radius:var(--rCtl)`, and that canvas defines
+	##   `--rCtl:12px`. Its 2 px radii are all slider *tracks*
+	##   (`width:{{ ...Pct }}`), not controls, so they are not this figure.
+	##
+	## **A phone deliberately gets the desktop 8**, per `role_px()`'s own header:
+	## the phone consumes `PHONE_*`, not `ROLE`, and `pill()` already carries the
+	## 412 canvas's 24 px fully-rounded target. This row is not that one.
+	##
+	## §11's "radius 0 everywhere" is cited in `outline()` above and was true of
+	## the artboards it was written against. Both current canvases have moved off
+	## it -- the PC canvas alone draws 81 `border-radius:999px` pills and 76
+	## `8px` corners -- so the shell was faithfully implementing a rule the design
+	## had abandoned. Every conformance pass missed it because they ranked
+	## palette tokens and dock widths, and a corner radius is neither.
+	"btn_radius": [8, 12],
 
 	# — Density-varying widths and the two hero type rungs, all new with the
 	#   2026-08-31 re-base. They live here rather than as top-level constants
@@ -1396,6 +1420,88 @@ static func pill(primary: bool, radius: int, pad_x: int, pad_y: int) -> StyleBox
 		sb.border_color = c("border")
 		sb.set_border_width_all(1)
 	sb.set_corner_radius_all(radius)
+	sb.content_margin_left = pad_x
+	sb.content_margin_right = pad_x
+	sb.content_margin_top = pad_y
+	sb.content_margin_bottom = pad_y
+	return sb
+
+## The **desktop and tablet action button**, filled, at the canvas's own
+## corner radius. `pill()`'s sibling: same job, other composition.
+##
+## ### Why this is a new factory and not a change to `outline()`
+##
+## `outline()` has **30 call sites across nine files** (`grep -rn
+## "DccTheme.outline("`), and only four of them are buttons. The rest are path
+## wells, gallery tiles, asset cards, a `LineEdit` focus ring, the right dock's
+## bar background, folder rows and modal cards. Giving `outline()` a fill and a
+## radius to fix the buttons would have repainted every one of them -- rounding
+## the dock furniture and filling boxes whose whole purpose is that they are
+## hairline-on-nothing. That is a blanket edit this project has had to revert
+## before, so the change lives here instead, where only buttons can reach it.
+##
+## ### What the canvas actually draws
+##
+## Measured in `design/mcp-2026-09-07/Cartalith DCC Environment.dc.html`, and
+## every figure below is a literal from that file:
+##
+## | | primary | secondary |
+## |---|---|---|
+## | fill | `var(--acc)` = `accent` | `var(--ins)` = `sunken` |
+## | ink | `var(--accInk)` = `accent_ink` | `var(--sec)` = `text_secondary` |
+## | border | **none** | **none** (0 of the `--ins` chips carry `border:`) |
+## | radius | `8px` | `8px` |
+##
+## The token mapping is exact in both halves of the palette, checked value for
+## value: `--ins` is `#191c1e`/`#eceae4` = `sunken`, `--sec` is
+## `#a9adb0`/`#3d3f39` = `text_secondary`. Nothing here needed a new colour.
+##
+## ### The four states, and where each came from
+##
+## The shipped button had **two** boxes for four states (`normal`==`disabled`,
+## `hover`==`pressed`), which is why a disabled button read as an enabled one.
+##
+## * **normal** -- measured, the table above.
+## * **hover** -- measured. The canvas carries `style-hover` attributes: an
+##   `--ins`-filled chip's is `style-hover="color:var(--acc)"`, so a secondary
+##   button hovers by moving its *ink* to accent and holding its fill. The
+##   primary lifts its fill to `accent_hover`, which is the same move the
+##   canvas's own stylesheet makes (`a:hover{color:#f0bd72}`, `--accH`), and it
+##   is directional per theme: lighter in dark, darker in light.
+## * **pressed** -- **derived**, and said so: the canvas has no pressed state
+##   for a filled button. The primary drops back from `accent_hover` to
+##   `accent` (a press is always preceded by a hover on a pointer, so the
+##   pull-back is the visible event), and the secondary takes
+##   `accent_wash_2` -- the canvas's own `--wash2`, its "this control is
+##   engaged" ground -- *blended onto* `sunken` rather than used raw, because
+##   `--wash2` is 16 % alpha and a translucent box would lose the `--ins`
+##   ground over whatever panel the button happens to sit on.
+## * **disabled** -- measured, from the canvas's undo/redo pair, which is the
+##   one control it draws in both states: `background:var(--ins)` is held and
+##   the ink alone drops to `var(--dis)` = `text_ghost`. Extending that to a
+##   *primary* disabled button (fill falls to `sunken` too, rather than staying
+##   amber) is the derivation, and it is the one that matters: a disabled
+##   button keeping a full accent fill would stay the loudest thing on screen.
+##   Measured, the drop is real -- `text_ghost` on `sunken` is 2.86:1 dark and
+##   2.29:1 light, against 7.58:1 and 8.87:1 for the enabled secondary on the
+##   same ground. WCAG exempts inactive components from a contrast floor, so
+##   failing AA here is the intent rather than a defect.
+##
+## Ink is **not** set here, exactly as `pill()` does not set it: Godot takes
+## font colours as per-state overrides on the `Button` itself, so the caller
+## owns them and the two must be read together. See `DccWidgets.action()`.
+static func button_box(primary: bool, state: String, pad_x: int, pad_y: int,
+		radius: int = -1) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	if state == "disabled":
+		sb.bg_color = c("sunken")
+	elif primary:
+		sb.bg_color = c("accent_hover") if state == "hover" else c("accent")
+	elif state == "pressed":
+		sb.bg_color = c("sunken").blend(c("accent_wash_2"))
+	else:
+		sb.bg_color = c("sunken")
+	sb.set_corner_radius_all(role_px("btn_radius") if radius < 0 else radius)
 	sb.content_margin_left = pad_x
 	sb.content_margin_right = pad_x
 	sb.content_margin_top = pad_y
