@@ -795,6 +795,24 @@ static func number(parent: Control, label_text: String, minimum: float, maximum:
 	## **No `SpinBox` constant is touched.** `field_and_buttons_separation`,
 	## `buttons_width` and `set_min_buttons_width_from_icons` are the three
 	## that would move the field's rect, and this pass is paint.
+	style_spin(sb)
+	row.add_child(sb)
+	return sb
+
+## Paint a `SpinBox` the way the canvas draws one. Extracted from `number()`,
+## which was its only caller and therefore its only beneficiary.
+##
+## **The extraction is the fix.** `journey_planner_view.gd` builds four bare
+## `SpinBox.new()`s inside custom rows -- a checkbox beside a field, which
+## `number()`'s own row shape cannot express -- so they never reached this
+## paint and took the stale project theme instead: measured at 81x29 on a
+## `#f4f2ee` ground beside the 170x24 `#eceae4` chips this function produces.
+##
+## That is the third instance of one mistake in this shell: `_picker_button()`,
+## the private window constructions, and now these. **"Every X" keeps meaning
+## "every X that goes through the factory we knew about"**, and the remedy is
+## the same each time -- make the paint callable without the layout.
+static func style_spin(sb: SpinBox) -> void:
 	var spin_x := DccTheme.role_px("chip_pad_x")
 	var spin_y := DccTheme.role_px("chip_pad_y")
 	var le := sb.get_line_edit()
@@ -844,8 +862,6 @@ static func number(parent: Control, label_text: String, minimum: float, maximum:
 				"_background_disabled"]:
 			sb.add_theme_stylebox_override(side + slot, DccTheme.empty())
 	_palette_watch(sb, func() -> void: _paint_spin_arrows(sb))
-	row.add_child(sb)
-	return sb
 
 ## The action a group commits with. §4 and §7 both put it *inside* the group it
 ## belongs to, never floating at the panel foot.

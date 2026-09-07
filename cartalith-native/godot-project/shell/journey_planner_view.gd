@@ -994,6 +994,14 @@ func _animal_pair(parent: Control, label_text: String, key_a: String, key_b: Str
 	row.add_child(l)
 	for key in [key_a, key_b]:
 		var sb := SpinBox.new()
+		## `DccWidgets.style_spin()` -- the paint `number()` applies, without
+		## `number()`'s row. These four sit inside custom rows (a checkbox beside
+		## the field) that the factory's own shape cannot express, so they never
+		## reached it and took the stale project theme instead: measured at 81x29
+		## on a `#f4f2ee` ground beside the 170x24 `#eceae4` chips their siblings
+		## draw. Alignment was already right, so this is ground, height and
+		## radius only.
+		DccWidgets.style_spin(sb)
 		sb.min_value = 0
 		sb.max_value = 2000
 		sb.step = 1
@@ -2225,6 +2233,8 @@ func _rebuild_stops(plan: Dictionary) -> void:
 		chip.size_flags_stretch_ratio = stretch
 		chip.add_child(DccTheme.mono_label(String(d.get("name", "?")), "text_dim", DccTheme.FS_SMALL))
 		var sb := SpinBox.new()
+		## `style_spin()` -- see the first of these four above.
+		DccWidgets.style_spin(sb)
 		sb.min_value = 0
 		sb.max_value = 365
 		sb.step = 1
@@ -2448,6 +2458,8 @@ func _override_number_row(parent: Control, idx: int, ov: Dictionary, field: Stri
 	row.add_child(cb)
 	var base_v := float(_plan_values.get(field, 0.0))
 	var sb := SpinBox.new()
+	## `style_spin()` -- see the first of these four above.
+	DccWidgets.style_spin(sb)
 	sb.min_value = minimum
 	sb.max_value = maximum
 	sb.step = step
@@ -2855,6 +2867,8 @@ func _rebuild_matrix(plan: Dictionary) -> void:
 		grid.add_child(pace_ob)
 
 		var hrs_sb := SpinBox.new()
+		## `style_spin()` -- see the first of these four above.
+		DccWidgets.style_spin(hrs_sb)
 		hrs_sb.min_value = 0
 		hrs_sb.max_value = 16
 		hrs_sb.step = 0.5
