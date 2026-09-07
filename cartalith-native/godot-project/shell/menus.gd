@@ -732,7 +732,29 @@ func _refresh_recent_worlds() -> void:
 		return
 	for i in recents.size():
 		var path := String(recents[i])
-		_recent_popup.add_item(path.get_file(), i)
+		## **The world, not the file.** These read `__diagreview_project__.zip`
+		## until 2026-09-07 -- a filename with its extension -- where the
+		## 2026-08-31 canvas draws `VHAREN REACH — 129384 · 5 d ago`: name, seed,
+		## age.
+		##
+		## `OpenProjectDialog.project_meta()` is public precisely so a second
+		## caller does not write a second `ZIPReader` walk -- its own header says
+		## so, for `phone_project_picker.gd` -- and it caches on path+mtime, so
+		## rebuilding this submenu on every `about_to_popup` re-opens nothing.
+		##
+		## **The secondary-text half of the canvas row stays impossible**: a
+		## `PopupMenu` item has no second line, which is why the full path is
+		## still the tooltip rather than a subtitle. The label half was never
+		## blocked by that, and is what this fixes.
+		var meta: Dictionary = OpenProjectDialog.project_meta(path)
+		var label := path.get_file().get_basename()
+		var seed_s := String(meta.get("seed", ""))
+		if seed_s != "" and seed_s != "seed unread":
+			label += "  —  %s" % seed_s
+		var edited := String(meta.get("edited", ""))
+		if edited != "":
+			label += "  ·  %s" % edited
+		_recent_popup.add_item(label, i)
 		_recent_popup.set_item_tooltip(i, path)
 
 func _on_recent_world(id: int) -> void:
