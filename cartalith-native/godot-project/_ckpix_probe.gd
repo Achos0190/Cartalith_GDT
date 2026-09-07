@@ -180,24 +180,35 @@ func _ready() -> void:
 	dis_on.disabled = true
 	var dis_off := DccWidgets.toggle(col, "DisOff", false, func(_v): pass)
 	dis_off.disabled = true
-	var dis_fix := DccWidgets.toggle(col, "DisFix", true, func(_v): pass)
-	dis_fix.disabled = true
-	dis_fix.add_theme_color_override("checkbox_checked_color", Color(1, 1, 1))
-	dis_fix.add_theme_color_override("checkbox_unchecked_color", Color(1, 1, 1))
+	## The mutation, and it replaces a check that has served its purpose. Until
+	## the fix landed this slot held a `dis_fix` switch that forced the pair to
+	## white by hand, beside an assertion that `dis_on` was NOT `#5f6468` --
+	## i.e. that the defect was present. `_paint_switch()` now sets that pair
+	## on every switch, so the two would be identical and the old assertion
+	## would assert the bug back. What survives is the half that can still
+	## fail: force the checked colour to RED on a disabled switch and watch the
+	## disabled knob follow it. That is the proof the two identity lines are
+	## load-bearing rather than inert -- these names really do drive the
+	## `*_disabled` icon slots, so removing them hands the slots back to
+	## `dark_theme.tres`.
+	var dis_mut := DccWidgets.toggle(col, "DisMut", true, func(_v): pass)
+	dis_mut.disabled = true
+	dis_mut.add_theme_color_override("checkbox_checked_color", Color(1, 0, 0))
 	await _frames(6)
 	_img = _vp.get_texture().get_image()
 	var d1 := _sample(dis_on, "dis on ")
 	var d2 := _sample(dis_off, "dis off")
-	var d3 := _sample(dis_fix, "dis fix")
+	var d3 := _sample(dis_mut, "dis mut")
 	## `_switch(enabled=false)` bakes track `sunken` #191c1e, knob
 	## `text_ghost` #5f6468 -- `DccTheme.DARK`'s own values, pinned here as
 	## the literals they are.
-	_ok(not _near(d1["knob"], "#5f6468"),
-		"the resource's modulate reaches the DISABLED icons too (knob %s, not #5f6468)"
-			% _hex(d1["knob"]))
-	_ok(_near(d3["knob"], "#5f6468"),
-		"the SAME two overrides restore the disabled knob -- two lines, not four")
-	print("  (disabled off knob = ", _hex(d2["knob"]), ")")
+	_ok(_near(d1["knob"], "#5f6468"),
+		"the DISABLED knob is the baked #5f6468, untinted (got %s)" % _hex(d1["knob"]))
+	_ok(_near(d2["knob"], "#5f6468"),
+		"the disabled OFF knob is #5f6468 too (got %s)" % _hex(d2["knob"]))
+	_ok(d3["knob"].g < 0.10 and d3["knob"].b < 0.10,
+		"forcing checked_color=red on a DISABLED switch still moves it (g=%.3f b=%.3f) -- the two lines are live"
+			% [d3["knob"].g, d3["knob"].b])
 
 	print("\n[RESULT] fails=", fails)
 	get_tree().quit(1 if fails > 0 else 0)

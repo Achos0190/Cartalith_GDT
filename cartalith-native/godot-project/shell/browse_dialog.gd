@@ -178,6 +178,9 @@ func _build(dialog_title: String, footnote: String) -> void:
 	outer.add_child(DccTheme.rule())
 	outer.add_child(_build_breadcrumb())
 	outer.add_child(_build_path_well())
+	var places := _build_places()
+	if places != null:
+		outer.add_child(places)
 
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -324,6 +327,55 @@ func _pin_crumbs() -> void:
 			return
 	_crumb_scroll.scroll_horizontal = int(_crumb_scroll.get_h_scroll_bar().max_value)
 
+## The places strip: one tap to each root the process can actually open.
+##
+## This exists because the breadcrumb is not a way *out* of anywhere -- it only
+## walks the ancestors of where you already are, and on Android those ancestors
+## are unreadable two segments up. Before this row the only route from the
+## landing folder to the user's own files was to know an absolute path and type
+## it into the well by hand, which is precisely the "it just accepts a path"
+## the browser was supposed to have replaced.
+##
+## Returns `null` rather than an empty bar when there is nothing worth showing
+## (one place is the folder you are already in), so no shell draws a strip that
+## cannot take it anywhere.
+func _build_places() -> Control:
+	var places := _places()
+	if places.size() < 2:
+		return null
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	for pl in places:
+		var b := Button.new()
+		b.text = String(pl["label"])
+		b.tooltip_text = String(pl["path"])
+		b.flat = true
+		b.focus_mode = Control.FOCUS_NONE
+		b.add_theme_font_override("font", DccTheme.mono())
+		b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+		b.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+		b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+		b.add_theme_stylebox_override("normal", DccTheme.empty())
+		b.add_theme_stylebox_override("hover", DccTheme.empty())
+		var dest := String(pl["path"])
+		b.pressed.connect(func(): navigate(dest))
+		row.add_child(b)
+	## Scrolls for the same reason the breadcrumb does: five places do not fit
+	## a 1080 px phone at this font, and a clipped row that cannot be reached
+	## is the defect this whole strip is here to remove.
+	var scroll := ScrollContainer.new()
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.get_h_scroll_bar().visible = false
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.custom_minimum_size.y = 22
+	## Flat. A `ScrollContainer` takes the theme's panel, which here is the same
+	## bordered well the path field draws -- shipped once and it read as a second
+	## typeable field sitting under the real one.
+	scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+	scroll.add_child(row)
+	return _pad(scroll, 28, 2, 28, 10)
+
 func _build_path_well() -> Control:
 	_path_edit = LineEdit.new()
 	_path_edit.add_theme_font_override("font", DccTheme.mono())
@@ -395,14 +447,25 @@ func _build_foot(footnote: String) -> Control:
 		row.add_child(DccTheme.mono_label("name", "text_ghost", DccTheme.FS_TINY))
 		_name_edit = LineEdit.new()
 		_name_edit.text = _default_name
-		_name_edit.custom_minimum_size.x = 260
+		## 260 is the desktop field width, and on a phone it is a hard *floor*:
+		## with the label, both buttons, the separations and the 28 px padding
+		## either side it drives the foot past a 1080 px screen. Measured on the
+		## handset -- `Cancel` clipped at the right edge and `Save`, the primary
+		## action, off-screen entirely, so the save flow could be opened and not
+		## completed. Phones get a floor small enough to fit and `EXPAND_FILL` to
+		## claim what is left, which is the job the spacer does on desktop; the
+		## desktop branch is untouched, so that layout is unchanged.
+		_name_edit.custom_minimum_size.x = 120 if _phone else 260
+		if _phone:
+			_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_name_edit.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
 		_name_edit.add_theme_stylebox_override("normal", _well())
 		_name_edit.add_theme_stylebox_override("focus", DccTheme.outline("accent"))
 		_name_edit.text_changed.connect(func(_t: String): _refresh_primary())
 		_name_edit.text_submitted.connect(func(_t: String): _confirm())
 		row.add_child(_name_edit)
-		row.add_child(DccTheme.spacer())
+		if not _phone:
+			row.add_child(DccTheme.spacer())
 	else:
 		row.add_child(_foot_note)
 	DccWidgets.modal_button(row, "Cancel", func(): hide())
@@ -420,14 +483,78 @@ func _build_foot(footnote: String) -> Control:
 # ---------------------------------------------------------------------------
 
 ## Godot exposes no home-directory call. `USERPROFILE` is the Windows
-## variable, `HOME` the POSIX one; the user data dir is the fallback that
-## always exists (Android in particular has neither variable).
+## variable, `HOME` the POSIX one; Android has neither.
+##
+## **Android does not fall back to the user data dir any more, and the reason
+## is measured.** That dir is the app-private sandbox
+## (`/data/data/<pkg>/files`), and opening a picker there strands the user:
+## on a OnePlus 6T, Android 15, with this APK's *zero* declared permissions,
+## it lists only `Cache/`, `shader_cache/` and the settings file, and the
+## breadcrumb cannot climb out because `/data` and `/data/data` both fail to
+## open with error 31. From the outside that is indistinguishable from "there
+## is no file browser" -- which is exactly how it was reported.
+##
+## Shared storage needs no permission for what this dialog does. Same device,
+## same run: `/storage/emulated/0` listed 16 directories, `Documents` and
+## `Download` both listed their subfolders, and both accepted `make_dir` plus
+## a `FileAccess.WRITE` that read back byte-identical. So Documents is the
+## landing, not the sandbox -- and the sandbox stays one tap away in
+## `_places()`, because the four storage roots still default into it.
+##
+## Documents rather than the storage root itself: `/storage/emulated/0`
+## refuses `make_dir` at its top level (error 1, Android reserves it), so
+## landing there would put `＋ New folder…` one tap from a guaranteed failure.
 static func home_dir() -> String:
 	for key in ["USERPROFILE", "HOME"]:
 		var v := OS.get_environment(key)
 		if v != "" and DirAccess.dir_exists_absolute(v):
 			return v.simplify_path()
+	if OS.get_name() == "Android":
+		var docs := OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS)
+		if docs != "" and DirAccess.open(docs) != null:
+			return docs
 	return OS.get_user_data_dir()
+
+## The one-tap jump targets under the path well.
+##
+## **Every entry is verified openable before it is offered.** `OS.get_system_dir`
+## happily reports a path the process cannot read -- and a dead row in a picker
+## is worse than a missing one, because the user cannot tell a permission wall
+## from a bug. `DirAccess.open() != null` is the test; anything that fails it
+## is dropped silently.
+##
+## `/storage` is the concrete case that made this a rule rather than a nicety:
+## it looks like the obvious root of the two paths above it and it is *not*
+## openable (error 31 on the test device), so deriving "device storage" by
+## trimming a path would have offered exactly one broken row.
+static func _places() -> Array:
+	var out: Array = []
+	var seen := {}
+	var add := func(label: String, path: String):
+		if path == "" or seen.has(path):
+			return
+		if DirAccess.open(path) == null:
+			return
+		seen[path] = true
+		out.append({"label": label, "path": path})
+	if OS.get_name() == "Android":
+		var docs := OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS)
+		## The volume root is Documents' parent, not a literal: the emulated-0
+		## spelling is not guaranteed and `/storage` itself cannot be opened.
+		add.call("⌂ Device", docs.get_base_dir() if docs != "" else "")
+		add.call("Documents", docs)
+		add.call("Downloads", OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS))
+		add.call("Pictures", OS.get_system_dir(OS.SYSTEM_DIR_PICTURES))
+		## Last, and named for what it is. The storage roots still default here,
+		## so a user who has not moved them must be able to get back.
+		add.call("App storage", OS.get_user_data_dir())
+	else:
+		add.call("⌂ Home", home_dir())
+		add.call("Documents", OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS))
+		add.call("Downloads", OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS))
+		add.call("Desktop", OS.get_system_dir(OS.SYSTEM_DIR_DESKTOP))
+		add.call("App storage", OS.get_user_data_dir())
+	return out
 
 func navigate(dir: String) -> void:
 	var target := dir.simplify_path()

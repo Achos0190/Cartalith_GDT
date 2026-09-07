@@ -466,6 +466,15 @@ const HEIGHTMAP_FORMAT_NOTE := "TIFF is absent, and deliberately: the reference'
 ## canvas's own row is a four-way `0–4 / 0–6 / 0–8 / custom` zoom segment; this
 ## is the same control over the dimension this export actually has.
 const GRID_CHOICES: Array[int] = [2, 4, 8]
+
+## The two file names `setup()` derives from the exports root, named once
+## because four sites use each of them: `setup()`'s pre-fill, the picker's
+## default name, and -- since 2026-09-07 -- `_reroot_defaults()`, which has to
+## recognise a pre-fill it did not write in order to leave a hand-picked
+## destination alone. Two spellings of "region-tiles.zip" that drift apart make
+## a moved exports root silently strand `_tx_dest` in the old folder.
+const TX_DEFAULT_NAME := "region-tiles.zip"
+const GIS_DEFAULT_NAME := "world.geojson"
 const TILE_SIZES: Array[int] = [256, 512, 1024]
 
 # ---------------------------------------------------------------------------
@@ -615,12 +624,12 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 	## `wrap_controls = false`, which this window already set for its own reason
 	## above.
 	_phone = DccWidgets.phone_window(self, host)
-	_tx_dest = DccSettings.storage_root("exports").path_join("region-tiles.zip")
+	_tx_dest = DccSettings.storage_root("exports").path_join(TX_DEFAULT_NAME)
 	## Pre-filled exactly as `_tx_dest` is, so the pattern pane's TO row has a
 	## real path to draw rather than a dash on first open. Neither default is
 	## overwrite-guarded on the *write* -- both guard at pick time -- which is
 	## unchanged by this pass and stated here rather than left to be discovered.
-	_gis_dest = DccSettings.storage_root("exports").path_join("world.geojson")
+	_gis_dest = DccSettings.storage_root("exports").path_join(GIS_DEFAULT_NAME)
 	_build()
 	## `1.0`: `phone_present()` applies the scale once as `content_scale_factor`.
 	if _phone:
@@ -2335,6 +2344,15 @@ func _build_wd_output_column(col: Control, api: bool) -> void:
 	var dest_row := _row(col, "Folder")
 	_well_label(dest_row, DccSettings.storage_root("exports"),
 		"DccSettings' own exports root -- the same folder Export ▸ Maps and Export ▸ GIS write into.")
+	## The owner, 2026-09-07, of this window and of Storage locations: *"it just
+	## accepts a path, it doesn't open a file explorer or browser to manually
+	## navigate and appoint."* Measured on this route the same day: it was the
+	## one destination well of the three in this window with **no button beside
+	## it** (`export_maps` has `Choose…`, `export_gis` has `Browse…`), so the
+	## only way to move where World Data writes was File ▸ Storage locations, a
+	## different surface. The well already said it *is* the exports root; this
+	## makes the row that says so able to change it.
+	DccWidgets.chip(dest_row, "Browse…", func(): _pick_exports_root(), false, 8, 3)
 
 	var est := _wd_estimate()
 	if api and not est.is_empty():
@@ -2379,6 +2397,41 @@ func _build_wd_footer(api: bool) -> void:
 "
 		+ "Does NOT include an open Sculpt draft: that is uncommitted state, so commit it first "
 		+ "if you want it in the export.")
+
+## The World Data route's `Folder` row picker. Unlike the other two
+## destinations in this window it does not hold a path of its own: the row
+## draws `DccSettings.storage_root("exports")`, so choosing here writes the
+## setting -- the same one `app.gd::_browse_root()` writes from File ▸ Storage
+## locations, and persisted the same way, immediately and with no confirm step.
+##
+## Writing a *shared* setting from a route pane is what makes
+## `_reroot_defaults()` necessary; see its own comment.
+func _pick_exports_root() -> void:
+	var was := DccSettings.storage_root("exports")
+	DccBrowseDialog.choose_folder(self, "Choose the exports folder", was,
+		"every route in this window that writes without asking writes here",
+		func(path: String):
+			if path == was:
+				return
+			DccSettings.set_storage_root("exports", path)
+			_reroot_defaults(was, path)
+			_rebuild_world_data())
+
+## `setup()` pre-fills `_tx_dest` and `_gis_dest` from the exports root and
+## then caches them for the window's whole life, so moving the root leaves both
+## pointing into the folder it used to be -- two views of one setting that
+## disagree, which is the failure this project keeps re-finding.
+##
+## Each is re-derived here **only while it still holds exactly what `setup()`
+## put there**. A destination the user picked with its own `Choose…` / `Browse…`
+## is an answer, not a default, and moving the root must not silently overwrite
+## it. The pair below is the whole list: `setup()` derives two fields from that
+## root and no other cache reads it.
+func _reroot_defaults(old_root: String, new_root: String) -> void:
+	if _tx_dest == old_root.path_join(TX_DEFAULT_NAME):
+		_tx_dest = new_root.path_join(TX_DEFAULT_NAME)
+	if _gis_dest == old_root.path_join(GIS_DEFAULT_NAME):
+		_gis_dest = new_root.path_join(GIS_DEFAULT_NAME)
 
 func _wd_estimate() -> Dictionary:
 	if not _raster_api():
@@ -2934,7 +2987,7 @@ func _pick_destination() -> void:
 	DccBrowseDialog.choose_save_path(self, "Export tiles .zip", "zip",
 		_tx_dest.get_base_dir() if _tx_dest != "" else DccSettings.storage_root("exports"),
 		"one .zip of %d tiles; nothing is written until you press Export" % (_tx_cols * _tx_rows),
-		_tx_dest.get_file() if _tx_dest != "" else "region-tiles.zip",
+		_tx_dest.get_file() if _tx_dest != "" else TX_DEFAULT_NAME,
 		func(path: String): _overwrite_guard(path, func():
 			_tx_dest = path
 			_rebuild_tile_export()
@@ -2962,7 +3015,7 @@ func _pick_geojson_destination() -> void:
 	DccBrowseDialog.choose_save_path(self, "Export GeoJSON", "geojson",
 		_gis_dest.get_base_dir() if _gis_dest != "" else DccSettings.storage_root("exports"),
 		"one FeatureCollection describing the whole world; nothing is written until you press Export",
-		_gis_dest.get_file() if _gis_dest != "" else "world.geojson",
+		_gis_dest.get_file() if _gis_dest != "" else GIS_DEFAULT_NAME,
 		func(path: String): _overwrite_guard(path, func():
 			_gis_dest = path
 			_rebuild_gis()
