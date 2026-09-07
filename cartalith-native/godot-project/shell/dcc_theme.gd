@@ -1072,6 +1072,22 @@ const ROLE := {
 	## over `Cartalith Android.dc.html` returns nothing), which is why
 	## `viewport_host.gd` gates the rule on `is_phone()` rather than reading a
 	## third column that would have to be invented.
+	## **The authority question these two raised is settled.** They were flagged
+	## as an inconsistency because this table homes every touch figure to
+	## `ENV:1819` — the PC canvas's own touch branch — while the touch column
+	## here comes from `TAB:451`, in a file that (at the time) declined the
+	## tablet canvas pending an owner ruling.
+	##
+	## **That ruling came on 2026-09-07: all three canvases are the target, and
+	## `TABLET_UI_SPEC.md`'s "adoption has not been decided" was corrected the
+	## same evening.** So a tablet figure sourced from the tablet canvas is now
+	## the CORRECT authority rather than an exception to one — and it was
+	## already disclosed above, with both line citations, which is what the
+	## backlog row asked for.
+	##
+	## `ENV:916` stays the pointer source because it writes `width:120px` as a
+	## literal, so the PC canvas draws 120×1 at both densities and reading it
+	## for touch would have been the real error.
 	"w_scale_bar": [120, 84],
 	"h_scale_tick": [5, 4],
 
