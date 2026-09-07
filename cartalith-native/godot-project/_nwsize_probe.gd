@@ -245,6 +245,61 @@ func _ready() -> void:
 	_check(not app.new_world_dialog.visible,
 		"boot: the New World dialog is not already open")
 
+	## **Two sessions disagreed about this probe at the same commit with the
+	## same `.dll` and the same arguments -- `fail=1` twice for one, `fail=0`
+	## twice for the other -- and the cause is neither of them.**
+	##
+	## `app.gd::_open_welcome_when_drawn()` awaits
+	## `RenderingServer.frame_post_draw` before calling `open_welcome()`, and
+	## **that signal never fires under `--headless`**: measured 2026-09-07 with
+	## a two-line harness, `false` after 240 frames on `display=headless` and
+	## `true` on `display=Windows`. So a headless run boots the shell with
+	## `is_phone() == true` and never presents the picker at all, and leg 1 then
+	## reports `+ NEW WORLD` missing while listing main-shell captions -- which
+	## is exactly the failing session's log. The difference was the display
+	## driver, not this machine's `user://`.
+	##
+	## Ruled out by measurement rather than by argument, because
+	## `cartalith_settings.cfg` was the obvious suspect: its `[recent] paths`
+	## holds ten `.zip`s that OTHER probes wrote, and the picker draws a card
+	## for each one still on disk, which really does move this tile
+	## (`24,758` with worlds listed, `24,126` with none). Four states were run
+	## -- the machine's real file, no file at all, ten present worlds, and an
+	## empty recent list -- and **all four give `fail=0` windowed**. The layout
+	## moves; the assertion does not.
+	##
+	## So the isolation this probe needed was never a settings question:
+	##
+	## 1. **Refuse to run where the precondition cannot hold.** `MISTAKES.md`:
+	##    the harness must force the condition its threshold was written for and
+	##    refuse to run otherwise.
+	## 2. **Stage the picker rather than race for it.** Everything leg 1
+	##    measures is the card's CONTENT; none of it is a claim that the boot
+	##    timing works, and a probe that silently depends on a signal it never
+	##    names is the shape this batch was sent to remove.
+	## 3. **Declare the inherited state** so a `fail=0` is attributable to a
+	##    known picker, not to whichever sibling last wrote the recent list.
+	if DisplayServer.get_name() == "headless":
+		_log("ABORT --headless: `RenderingServer.frame_post_draw` never fires")
+		_log("  there, so `app.gd::_open_welcome_when_drawn()` never calls")
+		_log("  `open_welcome()` and the phone project picker is never")
+		_log("  presented. Every check below would measure the main shell.")
+		_log("  Run this probe WINDOWED. RESULT %s fail=abort" % _tag)
+		get_tree().quit(2)
+		return
+	var recent: Array = DccSettings.recent_projects()
+	var on_disk := 0
+	for p in recent:
+		if FileAccess.file_exists(String(p)):
+			on_disk += 1
+	_log("  user:// state this run inherits: %d recent paths, %d still on disk"
+		% [recent.size(), on_disk])
+	if app.phone_project_picker != null and not app.phone_project_picker.visible:
+		_log("  (the picker was not up after boot; staging it with")
+		_log("   `open_welcome()` -- see the note above)")
+		app.open_welcome()
+		await _frames(10)
+
 	await _leg_card()
 	await _leg_gestures()
 

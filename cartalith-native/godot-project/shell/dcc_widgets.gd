@@ -1704,6 +1704,230 @@ static func touch_release_button(b: BaseButton) -> bool:
 		b.mouse_filter = Control.MOUSE_FILTER_PASS
 	return true
 
+## **A text field is the third member of the touch-DOWN family, and neither of
+## the two fixes above reaches it.** Measured by a verifier on the New World
+## card: a jittered vertical swipe on the **Seed** field gives scroll `0 -> 0`
+## with its internal `SpinBoxLineEdit` focused, while the label column at the
+## same `y` scrolls `0 -> 62`. On Android that focus raises the soft keyboard
+## over the sheet the swipe was trying to scroll.
+##
+## **`action_mode` is not the switch and neither is `mouse_filter`, and both
+## were measured rather than reasoned about.** A `LineEdit` is not a
+## `BaseButton`, so it has no `action_mode` at all; and the census rows that
+## matter most -- `SpinBoxLineEdit` in `AcceptDialog`, `new_world_dialog.gd`
+## and `asset_library_window.gd` -- are **already `MOUSE_FILTER_PASS` and still
+## eat the swipe**. A five-way table on a stock `LineEdit` in a live
+## `ScrollContainer`, 4.7.1, one jittered vertical swipe each, each field
+## scrolled into view first so the push is known to pick it:
+##
+## | configuration | scroll | focused by the swipe |
+## |---|---|---|
+## | stock | no | **yes** -- the defect |
+## | `accept_event()` in `_gui_input` | no | **yes** |
+## | `mouse_filter = PASS` alone | no | **yes** |
+## | `focus_mode = FOCUS_NONE` | no | no |
+## | `FOCUS_NONE` + this class driving the scroll | **yes** (200 -> 400) | no |
+##
+## Row two is the one that decides the design. **`accept_event()` cannot stop
+## the focus**, because `Viewport::_gui_input_event` grabs focus for the
+## control under a left press *before* it calls `_gui_call_input` -- so the
+## grab has already happened by the time any `_gui_input` runs, script or C++.
+## `focus_mode` is what the viewport reads there, so `focus_mode` is the lever.
+## Row three is why `MOUSE_FILTER_PASS` is not: `LineEdit::gui_input` calls
+## `accept_event()` on every left press (the engine's own comment says it is
+## handled "even when the LineEdit is not editable"), and `PASS` forwards only
+## what a control does **not** accept -- which is exactly why the `PASS`
+## `SpinBoxLineEdit` rows in the census are as stuck as the `STOP` ones.
+##
+## So this class is `PgSlider`'s shape with a different lever: it withholds the
+## press, classifies the gesture after `slop`, drives the ancestor
+## `ScrollContainer` itself on a vertical, and takes focus only once the
+## gesture is known to be a tap. `focus_mode` is parked at `FOCUS_NONE` between
+## gestures and restored for exactly as long as the field is focused.
+##
+## **Two costs, stated rather than hidden**, both the same shape as
+## `PgSlider`'s lost fling:
+##
+## * **A tap puts the caret at the end of the text, not under the finger.**
+##   The press that would have positioned it is the press this class swallows,
+##   and 4.7.1 exposes no pixel-to-column call to put it back
+##   (`ClassDB.class_get_method_list("LineEdit")` has `set_caret_column` and
+##   `get_scroll_offset` and nothing between them). End-of-text is the
+##   non-destructive choice: it is where a keyboard-focused field already puts
+##   it, and typing appends rather than overwrites. A field that asks for
+##   `select_all_on_focus` keeps that instead -- `grab_focus()` does it and
+##   this leaves the selection alone.
+## * **Drag-to-select inside the field is not available on the phone.** A
+##   horizontal verdict resolves to a tap rather than to a selection drag,
+##   because the press it would have started was withheld.
+##
+## **Gated on a vertical-scrolling ancestor, and that gate is load-bearing
+## here in a way it is not for the two fixes above**: `focus_mode` is written
+## at attach time, so a field with nothing to arbitrate against must not be
+## attached at all -- parking `FOCUS_NONE` on it would leave a field that
+## cannot be focused by anything. `touch_focus_field()` below is where that is
+## checked. The `scroller=none` text fields the census counts (the phone root,
+## `open_project_dialog.gd`, `travel_library_window.gd`,
+## `world_data_window.gd`, `layers_popover.gd`, one in
+## `asset_library_window.gd`, and 47 engine-internal ones) are left stock.
+##
+## **`editable` is deliberately NOT a gate**, and that is a difference from
+## `PgSlider` rather than an oversight. There the harm is writing a disabled
+## control's value; here the harm is eating the scroll, which a read-only field
+## does exactly as much as an editable one -- and a read-only field raises no
+## keyboard, so converting it is strictly an improvement. The two `live=false`
+## `LineEdit`s the census finds in an `AcceptDialog` are in that position.
+class PgField extends LineEdit:
+	## Android's `ViewConfiguration.getScaledTouchSlop()`, in the pixels the
+	## surface lays out in. Set by the attacher, which is what knows the
+	## density; the default is the unscaled fallback.
+	var slop := 8.0
+	## `focus_mode` as the field's builder left it, restored for the duration
+	## of a focus and parked at `FOCUS_NONE` again on `focus_exited`.
+	var stock_focus := Control.FOCUS_ALL
+
+	var _scroller: ScrollContainer
+	var _looked := false
+	var _family := 0            ## 0 idle, 1 touch, 2 mouse. See `PgSlider`.
+	var _verdict := 0           ## 0 undecided, 1 field, -1 scroller.
+	var _origin := Vector2.ZERO
+	var _origin_scroll := 0
+
+	func _gui_input(event: InputEvent) -> void:
+		## Nothing to arbitrate against -> hand the event back untouched. The
+		## attacher refuses this case, so reaching it means the tree changed
+		## under us; stock behaviour is the safe answer either way.
+		if _scroll() == null:
+			return
+		var family := 0
+		var kind := 0           ## 1 press, 2 move, 3 release.
+		var pos := Vector2.ZERO
+		if event is InputEventScreenTouch:
+			family = 1
+			kind = 1 if (event as InputEventScreenTouch).pressed else 3
+			pos = (event as InputEventScreenTouch).position
+		elif event is InputEventScreenDrag:
+			family = 1
+			kind = 2
+			pos = (event as InputEventScreenDrag).position
+		elif event is InputEventMouseButton:
+			var mb := event as InputEventMouseButton
+			## Right-click is the context menu and the wheel is the wheel;
+			## returning without accepting lets `LineEdit::gui_input` have them.
+			if mb.button_index != MOUSE_BUTTON_LEFT:
+				return
+			family = 2
+			kind = 1 if mb.pressed else 3
+			pos = mb.position
+		elif event is InputEventMouseMotion:
+			var mm := event as InputEventMouseMotion
+			if (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) == 0:
+				return
+			family = 2
+			kind = 2
+			pos = mm.position
+		else:
+			## Keys, IME and everything else stay the base class's business --
+			## a focused field must still type.
+			return
+		accept_event()
+		if _family != 0 and family != _family:
+			return              ## The emulated twin of the gesture in progress.
+		if kind == 1:
+			_family = family
+			_verdict = 0
+			_origin_scroll = _scroll_now()
+			_origin = _track(pos)
+			return
+		if _family == 0:
+			return
+		var d := _track(pos) - _origin
+		if kind == 2:
+			if _verdict == 0:
+				if maxf(absf(d.x), absf(d.y)) < slop:
+					return
+				_verdict = -1 if absf(d.y) > absf(d.x) else 1
+			if _verdict < 0:
+				_scroller.scroll_vertical = _origin_scroll - int(round(d.y))
+			return
+		## A tap, or a horizontal that resolved to the field: this is the
+		## deferred half of the press that was withheld.
+		if _verdict >= 0:
+			_take_focus()
+		_family = 0
+		_verdict = 0
+
+	func _take_focus() -> void:
+		if stock_focus == Control.FOCUS_NONE:
+			return              ## Its builder did not want it focusable.
+		focus_mode = stock_focus
+		grab_focus()
+		## `grab_focus()` runs `select_all_on_focus` itself; overwriting the
+		## caret afterwards would silently undo it.
+		if not select_all_on_focus:
+			caret_column = text.length()
+
+	## Park `focus_mode` again the moment the field stops being focused, so the
+	## next swipe that begins on it is arbitrated rather than focused. Connected
+	## by `touch_focus_field()`, because `set_script()` on a node already in the
+	## tree does not re-run `_ready()`.
+	func _relock() -> void:
+		focus_mode = Control.FOCUS_NONE
+
+	## Identical to `PgSlider._track()` and for the identical reason: this
+	## control slides up the screen as the scroll it is driving advances, so a
+	## delta taken from raw local coordinates feeds itself.
+	func _track(pos: Vector2) -> Vector2:
+		var sc := _scroll()
+		if sc == null:
+			return pos
+		return Vector2(pos.x - float(sc.scroll_horizontal),
+			pos.y - float(sc.scroll_vertical))
+
+	func _scroll() -> ScrollContainer:
+		if not _looked:
+			_looked = true
+			_scroller = DccWidgets.vertical_scroller_above(self)
+		return _scroller
+
+	func _scroll_now() -> int:
+		return _scroll().scroll_vertical if _scroll() != null else 0
+
+## Give an already-built text field the arbitration above.
+##
+## Returns whether it was attached, so a walk can count what it changed.
+## Skipped for a field that already carries a script, exactly as
+## `touch_slider()` is, because `set_script()` would replace it.
+##
+## **The scroller is checked HERE and not lazily**, which is the one place this
+## differs from `touch_slider()`. `PgSlider` can defer the question to its
+## first event because everything it does happens inside `_gui_input`; this
+## class writes `focus_mode` at attach time, and a field parked at
+## `FOCUS_NONE` with no scroller to arbitrate against would simply be a field
+## that can no longer be focused.
+##
+## `SpinBox`'s field is an **internal** child, so `DccShell.phone_fit()`'s
+## `get_children()` walk never reaches it -- the `SpinBox` call site passes
+## `get_line_edit()` explicitly. **12 of the 16 hazardous fields at boot**
+## are in that position -- 20 of 24 at maximum, with a world loaded. This
+## said "12 of 34"; **no state produces 34**. That figure was 16 plus the
+## 18 hidden `PopupMenu` incremental-search fields, which are unreachable
+## by any gesture and which this same change taught the census to report
+## separately rather than count.
+static func touch_focus_field(le: LineEdit, slop_px: float) -> bool:
+	if le == null or le.get_script() != null:
+		return false
+	if vertical_scroller_above(le) == null:
+		return false
+	var stock: int = le.focus_mode
+	le.set_script(PgField)
+	le.set("slop", maxf(1.0, slop_px))
+	le.set("stock_focus", stock)
+	le.focus_mode = Control.FOCUS_NONE
+	if not le.focus_exited.is_connected(Callable(le, "_relock")):
+		le.focus_exited.connect(Callable(le, "_relock"))
+	return true
+
 ## A filled circle as an `ImageTexture`, drawn rather than loaded because this
 ## shell ships no bitmaps and a theme switch has to be able to redraw it.
 ## Antialiased by a one-pixel coverage ramp at the rim; anything cheaper reads

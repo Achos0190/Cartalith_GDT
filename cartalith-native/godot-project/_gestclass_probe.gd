@@ -235,11 +235,44 @@ func _consumes_drag(n: Control) -> bool:
 ## half -- mutation M2 showed neither alone is sufficient -- so a node that
 ## carries both is arbitrated by definition rather than by a marker somebody
 ## has to remember to set.
+##
+## The `LineEdit` arm asks the same question the same way: `PgField` is the
+## only thing in the project that gives a text field a script exposing both
+## `slop` and `stock_focus`, and `focus_mode` is not usable as the test because
+## the class deliberately restores it for as long as the field is focused.
+## `get()` on a property a node does not have returns `null`, so this is a
+## property probe and not a marker anybody has to remember to set.
 func _arbitrated(n: Control) -> bool:
 	if n is BaseButton:
 		return (n as BaseButton).action_mode == BaseButton.ACTION_MODE_BUTTON_RELEASE \
 			and n.mouse_filter == Control.MOUSE_FILTER_PASS
+	if n is LineEdit:
+		return n.get_script() != null and n.get("slop") != null \
+			and n.get("stock_focus") != null
 	return false
+
+## **A control whose own `visible` is `false` cannot be the start of a gesture
+## at all**, so it is not a hazard however its other properties read.
+## `Viewport::gui_find_control` skips a hidden control, so nothing can be
+## picked there.
+##
+## This exists because the first census counted **65 `LineEdit`s inside
+## `PopupMenu` windows** -- 18 of them under a live vertical scroller -- and
+## reported them as hazards. They are not this shell's: every one is
+## `PopupMenu`'s own incremental-search box, one per popup, chain
+## `MenuButton/PopupMenu/PanelContainer/VBoxContainer/LineEdit`, measured
+## `visible=false is_visible_in_tree=false text=""` on 4.7.1 in the boot state.
+## The engine shows it only while a keyboard is typing into an open menu, and
+## `phone_fit()` never walks a `PopupMenu` in any case (it is a `Window`, not a
+## `Control`). Counting them made the text-field hazard read 22 when the
+## shell's own share of it is 4.
+##
+## **`self.visible`, deliberately, not `is_visible_in_tree()`.** Nearly every
+## row in this census lives in a window that is closed at boot, so the
+## in-tree test would zero the whole inventory and call the defect gone. This
+## asks only whether the node has been hidden in its own right.
+func _self_hidden(n: Control) -> bool:
+	return not n.visible
 
 func _census(where: String) -> Dictionary:
 	var rows: Dictionary = {}
@@ -248,6 +281,8 @@ func _census(where: String) -> Dictionary:
 	var total := 0
 	var per_class: Dictionary = {}
 	var eat_class: Dictionary = {}
+	var hidden_n := 0
+	var hide_class: Dictionary = {}
 	for n in _all(get_tree().root):
 		if not (n is Control) or n is Range:
 			continue
@@ -270,18 +305,22 @@ func _census(where: String) -> Dictionary:
 		var am := -1
 		if c is BaseButton:
 			am = (c as BaseButton).action_mode
-		var key := "%s | %s | scroller=%s | down=%s | filter=%s | arb=%s | live=%s" % [
+		var hidden := _self_hidden(c)
+		var key := "%s | %s | scroller=%s | down=%s | filter=%s | arb=%s | live=%s | vis=%s" % [
 			_surface_of(c), c.get_class(),
 			("none" if sc == null else ("vDISABLED" if not scrolls else "vSCROLLS")),
 			("YES(am=%d)" % am) if down else ("no(am=%d)" % am if am >= 0 else "no"),
 			_FILTER[c.mouse_filter],
 			("yes" if _arbitrated(c) else "NO"),
-			str(live)]
+			str(live), ("HIDDEN" if hidden else "shown")]
 		rows[key] = int(rows.get(key, 0)) + 1
-		if scrolls and live and down and not _arbitrated(c):
+		if hidden:
+			hidden_n += 1
+			hide_class[c.get_class()] = int(hide_class.get(c.get_class(), 0)) + 1
+		elif scrolls and live and down and not _arbitrated(c):
 			hazard += 1
 			per_class[c.get_class()] = int(per_class.get(c.get_class(), 0)) + 1
-		elif scrolls and live and eats:
+		elif scrolls and live and eats and not _arbitrated(c):
 			## **The second mechanism, reported separately.** A control that
 			## acts on RELEASE is not the §1.14 defect -- nothing is written
 			## silently -- but a `MOUSE_FILTER_STOP` one still ends the event
@@ -289,6 +328,18 @@ func _census(where: String) -> Dictionary:
 			## patch of the sheet cannot be scrolled at all. PH-05 converted
 			## most `BaseButton`s to `PASS` for this reason; whatever is left
 			## here is what that conversion does not reach.
+			##
+			## **`not _arbitrated(c)` was added when `PgField` landed**, and
+			## without it the count goes **205 -> 209**: a `PgField` keeps
+			## `MOUSE_FILTER_STOP` and so still ends the event walk, but it
+			## drives the ancestor's `scroll_vertical` itself, which is the
+			## whole point of it. Counting the four converted `LineEdit`s here
+			## would have reported the fix as **four** new eaters.
+			##
+			## This comment first said `206 -> 209` and `three new eaters`,
+			## which disagrees with its own arithmetic -- the delta has to
+			## equal the number of converted fields, and it is four. Measured
+			## by mutating this guard out: 205 with it, 209 without.
 			eaters += 1
 			eat_class[c.get_class()] = int(eat_class.get(c.get_class(), 0)) + 1
 	_log("-- census (%s): %d non-Range candidates" % [where, total])
@@ -300,7 +351,11 @@ func _census(where: String) -> Dictionary:
 		% [hazard, _tally(per_class)])
 	_log("   RELEASE-acting but MOUSE_FILTER_STOP in a live vertical scroller: %d  [%s]"
 		% [eaters, _tally(eat_class)])
-	return {"total": total, "hazard": hazard, "eaters": eaters}
+	## Reported, never silently dropped -- a count that vanishes from a census
+	## is indistinguishable from a defect that was fixed.
+	_log("   hidden in their own right, so unreachable by any gesture: %d  [%s]"
+		% [hidden_n, _tally(hide_class)])
+	return {"total": total, "hazard": hazard, "eaters": eaters, "hidden": hidden_n}
 
 func _tally(d: Dictionary) -> String:
 	var pk: Array = d.keys()
@@ -520,6 +575,40 @@ func _ready() -> void:
 					await _frames(4)
 			else:
 				_check(false, "the New World card draws an OptionButton in its scroller")
+			## **Leg 1b -- the field the verifier actually measured**, and the
+			## reason `SpinBox` needed a call site of its own. The card's Seed
+			## row is a `SpinBox`, so the control a finger lands on is its
+			## INTERNAL `SpinBoxLineEdit` -- which `phone_fit()`'s
+			## `get_children()` walk cannot see. The state read is focus,
+			## because that is what raises the soft keyboard over the sheet;
+			## the caret rides along so a regression in `_take_focus()` shows
+			## up here rather than only on glass.
+			var sb := _first_visible(dlg, "SpinBox") as SpinBox
+			if sb != null:
+				var fld := sb.get_line_edit()
+				await _gesture_leg("New World SpinBox field (Seed)", fld,
+					func(): return "focus=%s caret=%d" % [str(fld.has_focus()),
+						fld.caret_column])
+				## The half a focus check cannot see: a tap must leave the
+				## field ready to type, which means `focus_mode` back off
+				## `FOCUS_NONE`. Read BEFORE `release_focus()`, because
+				## `PgField._relock()` parks it again on `focus_exited` -- which
+				## is the point of it, and would make this check read its own
+				## teardown if the order were the other way round.
+				_check(fld.focus_mode != Control.FOCUS_NONE
+						or not _arbitrated(fld),
+					"New World Seed: the tap left the field focusable (focus_mode=%d)"
+						% int(fld.focus_mode))
+				fld.release_focus()
+				await _frames(4)
+				## And the mirror: losing focus must re-park it, or only the
+				## first swipe on a field is ever arbitrated.
+				_check(fld.focus_mode == Control.FOCUS_NONE
+						or not _arbitrated(fld),
+					"New World Seed: losing focus re-parks focus_mode (=%d)"
+						% int(fld.focus_mode))
+			else:
+				_check(false, "the New World card draws a SpinBox in its scroller")
 		if dlg.has_method("hide"):
 			dlg.hide()
 		await _frames(6)
@@ -667,13 +756,55 @@ func _ready() -> void:
 			le = _first_visible(get_tree().root, "LineEdit") as LineEdit
 			if le != null:
 				_log("   (found a visible LineEdit by opening the asset library)")
+		if le == null:
+			## **The one the census DOES place in the left sheet.**
+			## `journey_planner_view.gd` builds it, and that form does not exist
+			## until PLAN has been selected -- the same world-less
+			## understatement §1.15 recorded about its own slider census, which
+			## is why this stages the state rather than reporting the class
+			## absent. Tapped by caption, so it exercises the route a finger
+			## takes rather than calling a builder.
+			if app.asset_library_window != null and app.asset_library_window.visible:
+				app.asset_library_window.hide()
+				await _frames(6)
+			if await _tap_caption("PLAN"):
+				await _frames(20)
+				app._set_sheet_open("left", true)
+				await _frames(10)
+				le = _first_visible(get_tree().root, "LineEdit") as LineEdit
+				if le != null:
+					_log("   (found a visible LineEdit by selecting PLAN)")
 		if le != null:
 			await _gesture_leg("left dock LineEdit", le,
 				func(): return "focus=%s caret=%d" % [str(le.has_focus()), le.caret_column])
 			le.release_focus()
 		else:
+			## **A named gap, not a silent skip.** `MISTAKES.md`: a probe that
+			## reports "not found" says nothing about whether the thing exists.
+			## Every `LineEdit` the census counted is listed here with the
+			## reason this leg could not push at it, so the next pass stages the
+			## right surface instead of re-deriving which one.
 			_log("   (no LineEdit visible with a live vertical scroller in this")
-			_log("    state -- a staging gap, NOT an absence: the census counts 4)")
+			_log("    state -- a staging gap, NOT an absence. Every candidate,")
+			_log("    with the reason it was rejected:)")
+			for n in _all(get_tree().root):
+				if not (n is LineEdit) or n is Range:
+					continue
+				var c := n as LineEdit
+				var sc := _scroller_of(c)
+				var why := ""
+				if not c.visible:
+					why = "hidden in its own right (engine-internal, or a closed panel)"
+				elif not c.is_visible_in_tree():
+					why = "an ancestor is hidden"
+				elif sc == null:
+					why = "no ScrollContainer above it"
+				elif sc.vertical_scroll_mode == ScrollContainer.SCROLL_MODE_DISABLED:
+					why = "its scroller's vertical axis is DISABLED"
+				else:
+					why = "REACHABLE -- this leg's finder is what missed it"
+				_log("      %-42s arb=%s  %s"
+					% [_surface_of(c), ("yes" if _arbitrated(c) else "NO"), why])
 		if app.asset_library_window != null and app.asset_library_window.visible:
 			app.asset_library_window.hide()
 			await _frames(4)

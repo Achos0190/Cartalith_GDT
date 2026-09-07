@@ -2097,6 +2097,48 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 			## already reaches every one of them.
 			if ctl is BaseButton:
 				DccWidgets.touch_release_button(ctl as BaseButton)
+			## **The third member of the same family, and the one the paragraph
+			## above deferred.** That note said the 4 `LineEdit`s were "left
+			## alone … no state this probe could stage put a visible one inside
+			## a scroller -- so the change would have been unmeasurable". A
+			## verifier then staged one: a jittered vertical swipe on the New
+			## World card's **Seed** field gives scroll `0 -> 0` with its
+			## internal `SpinBoxLineEdit` focused, while the label column at the
+			## same `y` scrolls `0 -> 62`. On Android that focus raises the soft
+			## keyboard over the sheet the swipe was trying to scroll.
+			##
+			## Neither switch above is the switch here -- a `LineEdit` has no
+			## `action_mode`, and the `SpinBoxLineEdit` rows are **already
+			## `MOUSE_FILTER_PASS` and still eat the swipe**, because
+			## `LineEdit::gui_input` accepts every left press. The lever is
+			## `focus_mode`, measured against three alternatives in
+			## `DccWidgets.PgField`'s own table.
+			##
+			## **Two call sites, not one**, and the second is the reason the
+			## first is not enough: a `SpinBox`'s field is an INTERNAL child,
+			## and this walk iterates `get_children()`, which excludes internal
+			## children -- so **12 of the 16 hazardous fields at boot** are
+			## unreachable from the `ctl is LineEdit` branch and have to be asked
+			## for by name. (20 after PLAN or MORE, 24 with a world loaded; the
+			## ratio at maximum is 20 of 24. This said "12 of 34", and **no state
+			## produces 34** -- it was 16 plus the 18 hidden `PopupMenu` search
+			## fields, which the same change taught the census to exclude.)
+			if ctl is LineEdit:
+				DccWidgets.touch_focus_field(ctl as LineEdit, 8.0 * unit)
+			elif ctl is SpinBox:
+				DccWidgets.touch_focus_field(
+					(ctl as SpinBox).get_line_edit(), 8.0 * unit)
+			## `TextEdit` is deliberately not in that list. It is the other
+			## touch-DOWN text class, but it carries its OWN vertical scroll, so
+			## "give the vertical to the ancestor" is the wrong answer for it
+			## and no state this pass could stage put one inside a live
+			## scroller. **Stated precisely, because the first version of this
+			## line overstated it:** `--census-only` reports exactly ONE
+			## `TextEdit` in every state -- `gen_info_dialog.gd`'s, with
+			## `scroller=none` and `live=false` -- not zero. The claim the
+			## exclusion rests on is the narrower one and it holds: no
+			## `TextEdit` sits inside a live vertical scroller. Reported, not
+			## changed.
 			## That deadzone is not a default -- Godot's is **0**, at which the ~2 px
 			## of wobble in a real thumb tap already counts as a drag and silently
 			## eats the press. Without this, the fix above would trade "the sheet does
