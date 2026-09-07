@@ -6,10 +6,23 @@ class_name PhoneProjectPicker
 ## lives in the owner's Claude Design project, not this repo) states its first
 ## decision verbatim: *"Entry: project picker (recent worlds grid: Eldra + 2
 ## others, New world, Open .zip)."* Built from the `scrPicker` screen in
-## `design/android-2026-08-30/Cartalith Android.dc.html` (lines 34-60): a
+## `design/mcp-2026-09-07/Cartalith Android.dc.html` (lines 34-61): a
 ## header reading `worlds on this device · ~/Cartalith/Worlds`, a vertical
 ## stack of world cards, a `+ NEW WORLD` action, an `OPEN PROJECT .ZIP…`
 ## action and a build-line footer.
+##
+## **Re-anchored 2026-09-07 from `design/android-2026-08-30/`, and the one
+## change is not one this file reads.** `diff` of the two files' `scrPicker`
+## blocks reports a single substantive line: the status strip grew from
+## `height:30px` to `height:max(env(safe-area-inset-top),30px)`. That strip
+## is prototype chrome -- a mock `9:41 / LTE ▮▮ 84%` bar this port does not
+## draw, because Android draws the real one -- and the keep-clear it stands
+## for is already `DccWidgets.phone_head()`'s 44 dp inset below. Every
+## figure this file takes from the canvas (the one-column card stack, the
+## `+ NEW WORLD` and `OPEN PROJECT .ZIP…` actions, the build footer) is
+## unchanged between the two. The `android-2026-08-30/README.md` pointer
+## above is left alone deliberately: it is the route to the owner's locked
+## `ANDROID_UI_SPEC.md`, which the newer capture directory does not carry.
 ##
 ## **Phone only, by construction, not by a runtime check.** `app.gd` builds
 ## this node at all only inside `if is_phone():` -- `dcc_shell.gd`'s own

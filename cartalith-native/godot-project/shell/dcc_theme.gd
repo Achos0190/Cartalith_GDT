@@ -1508,6 +1508,45 @@ static func button_box(primary: bool, state: String, pad_x: int, pad_y: int,
 	sb.content_margin_bottom = pad_y
 	return sb
 
+## The **input field's** well: a dropdown's closed box, a spin box's number
+## field, a search field. Its ground is `button_box(false, ...)` above, and
+## that is a fact about the design rather than a shortcut taken here -- the PC
+## canvas draws its `<input>` (`ENV:222`, `ENV:498`, `ENV:1101`, `ENV:1118`)
+## and its dropdown chip (`ENV:522`) as
+##
+##   background:var(--ins); border:none; border-radius:8px; outline:none
+##
+## which is, declaration for declaration, what it writes on a *secondary
+## button*. So there is exactly one place the `--ins` chip is defined and this
+## is not it. Extending `button_box()` with a `field` flag would have been the
+## same four colour lines behind a branch that never diverges; a second copy of
+## them would have been worse again, and is how `DccTheme` grows a palette that
+## disagrees with itself.
+##
+## ### What a field has that a button does not
+##
+## **`focus`.** Both canvases write `outline:none` on every input, which
+## suppresses a browser default rather than designing a state, so a keyboard
+## user is left with a caret and nothing else. That is survivable in a browser
+## and not here: every `Button` this shell builds is `FOCUS_NONE`, so fields
+## are the only focusable controls in it. The derivation, said out loud -- hold
+## the `--ins` ground and add the shell's own engaged edge, a 1 px `accent`
+## border. It costs **no layout**, because `button_box()` sets all four content
+## margins explicitly and a `StyleBoxFlat`'s border only grows a control when
+## they are left unset.
+##
+## **`read_only`.** Measured, not derived: the canvas holds the `--ins` ground
+## and drops the ink alone, which is the same move `button_box("disabled")`
+## already makes, so it maps onto that state instead of getting one of its own.
+static func field_box(state: String, pad_x: int, pad_y: int,
+		radius: int = -1) -> StyleBoxFlat:
+	var ground := "disabled" if state == "read_only" else state
+	var sb := button_box(false, ground, pad_x, pad_y, radius)
+	if state == "focus":
+		sb.border_color = c("accent")
+		sb.set_border_width_all(1)
+	return sb
+
 static func flat(color: Color, radius: int = 0) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = color

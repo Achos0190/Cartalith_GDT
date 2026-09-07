@@ -4,6 +4,21 @@ class_name OpenProjectDialog
 ## File ▸ Open project…, drawn from the "Open project dialog 1920" screen in
 ## `design/Cartalith DCC Shell.dc.html`.
 ##
+## **That canvas is superseded, and nothing in the current set redraws this
+## screen.** `design/mcp-2026-09-07/` is the live canvas set (PC, Tablet,
+## Android); grepped 2026-09-07, `All worlds` appears **0** times in the PC
+## and Tablet canvases and the string `gallery grid — thumbnails, not a
+## tree list` only in `Cartalith DCC Shell.dc.html`. So the citation is kept
+## rather than moved or deleted: it names the last canvas that actually drew
+## the gallery, which is the honest source for every figure in the table
+## below, and a figure with no source is worse than one with a dated source.
+## What the current set *does* draw is the cold-start picker in
+## §"Welcome mode" below -- a different composition, cited separately
+## there. **If the gallery is ever redrawn, this comment and the table under
+## it are what a conformance pass must re-measure**; until then, treat every
+## gallery figure here as last-verified against the 08-23 artboard and not
+## as current-canvas conformance.
+##
 ## The screen is emphatically **not** a file browser. Its own inline comment
 ## says so -- *"gallery grid — thumbnails, not a tree list"* -- and every part
 ## of it is world-shaped rather than disk-shaped: a search well that offers to
@@ -51,9 +66,9 @@ class_name OpenProjectDialog
 ##
 ## ## Welcome mode -- a second composition, not a re-titled gallery
 ##
-## `open_welcome()` shows the **cold-start picker** the 2026-08-31 environment
-## canvas boots into (`design/dcc-environment-2026-08-31/Cartalith DCC
-## Environment.dc.html`, `state.scr = 'picker'`): a vertically centred column
+## `open_welcome()` shows the **cold-start picker** the environment canvas
+## boots into (`design/mcp-2026-09-07/Cartalith DCC Environment.dc.html`
+## lines 28-53, `state.scr = 'picker'`): a vertically centred column
 ## of a wordmark, up to three world cards, a row of peer action buttons and one
 ## foot line. `app.gd`'s `_ready` opens it once when no world exists; phone
 ## goes to `phone_project_picker.gd` instead and never reaches this.
@@ -98,6 +113,15 @@ class_name OpenProjectDialog
 ## every world `DRAFT` or every world `ATLAS BAKED`. The slot is not empty:
 ## `CURRENT` already occupies it, at the same 8 px inset, and that badge is
 ## real. If a save ever records its own stage ledger, this is where it goes.
+##
+## **Re-anchored 2026-09-07, and the figures did not move.** This section
+## used to cite `design/dcc-environment-2026-08-31/`, which the
+## `design/mcp-2026-09-07/` set supersedes. `diff` of the two files' picker
+## blocks (both lines 28-53) is **empty** -- byte-identical -- so every
+## measurement below is re-anchored to the current canvas unchanged, and
+## none of them needed correcting. The one figure this port *did* move on
+## 2026-09-07 is the action row's corner radius, which is no longer the
+## canvas's literal 8 on a tablet; see `_picker_button()`.
 ##
 ## **Where each figure comes from.** Stated by the canvas: the 40 px frame
 ## padding, the 34 px inter-block gap, `CARTALITH` at `500 20px` mono with
@@ -572,6 +596,15 @@ func _build_picker() -> Control:
 	actions.add_theme_constant_override("h_separation", 10)
 	actions.add_theme_constant_override("v_separation", 10)
 	actions.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## **Which of the two variants each button is, and why.** The canvas
+	## states it for the first two and they are not a judgement call:
+	## `hPickNew` is `background:var(--acc);color:var(--accInk);font-weight:
+	## 600` -- the one filled slab on the screen -- and `hPickZip` is
+	## `background:var(--ins);color:var(--sec)`. Creating a world is what
+	## this screen is *for*; opening one that already exists is the peer
+	## route, and the cards above it are the faster way to do the same
+	## thing, so the canvas gives it the quieter chip. One primary per
+	## screen is also the rule the rest of this shell keeps.
 	_picker_button(actions, "%s New world…" % DccIcons.SYMBOLS["add"], true, func():
 		hide()
 		_host.open_new_world())
@@ -579,6 +612,12 @@ func _build_picker() -> Control:
 	## The reference gate's third choice, which the canvas does not draw. See
 	## this file's header; visibility is re-asked every `_refresh()`, because
 	## `setup()` runs while `app.gd` is still standing the bridge up.
+	##
+	## Secondary, and the variant is the *reason* this button is allowed to
+	## exist at all: it is the one element here the canvas does not draw, so
+	## it takes the treatment its drawn sibling already has rather than a
+	## third one invented for it. A second amber slab would give a derived
+	## affordance more weight than the two the design actually specifies.
 	_picker_import_btn = _picker_button(actions, "Import a heightmap…", false, func():
 		hide()
 		_host.open_heightmap_import())
@@ -616,23 +655,61 @@ func _build_picker() -> Control:
 	col.add_child(foot)
 	return frame
 
-## The canvas's action pill: `min-height:var(--btnH);padding:6px 18px;
-## border-radius:8px`, `background:var(--acc);color:var(--accInk)` on the
-## primary and `background:var(--ins);color:var(--sec)` on the rest. Radius 8
-## overrides §11's "radius 0 everywhere", which is a rule about the desktop
-## *shell*; this screen's own canvas answers the question differently and is
-## the newer of the two.
+## The canvas's action row, drawn by the same `DccTheme.button_box()` factory
+## `DccWidgets.action()` and `DccWidgets.modal_button()` take. This is the
+## **third** button path the owner's 2026-09-07 *"all buttons and inputs are
+## visually not the same"* covers: it goes through neither of those two, so
+## repointing them left it behind -- on the first screen a user ever sees,
+## beside nothing else to compare it against.
 ##
-## Height is the one figure not taken from the canvas -- see the header. The
-## hover is derived too: the canvas gives these buttons none, so the secondary
-## borrows the accent border its own sibling card hovers with
-## (`style-hover="border-color:var(--acc)"`), which is the only hover
-## vocabulary this screen has.
+## **Measured in `design/mcp-2026-09-07/Cartalith DCC Environment.dc.html`
+## lines 46-49**, the current canvas for this screen (`scr:'picker'`):
 ##
-## Measured pairs, both palettes: primary ink on accent 8.60:1 dark / 4.30:1
-## light; secondary `--sec` on `--ins` 7.58:1 / 8.87:1; secondary hover ink
-## 14.29:1 / 15.62:1. The light primary is the shell-wide `accent_ink`-on-
-## `accent` pair, below 4.5:1 and reported rather than locally patched.
+## * primary   `min-height:var(--btnH);padding:6px 18px;border-radius:8px;
+##   background:var(--acc);color:var(--accInk);font-weight:600`
+## * secondary `min-height:var(--btnH);padding:6px 18px;border-radius:8px;
+##   background:var(--ins);color:var(--sec)`
+##
+## **Neither carries a `border:` declaration**, which is what the block that
+## stood here had to stop drawing.
+##
+## `6px 18px` stays a literal, because this screen's own canvas states its
+## padding. The radius does not: it takes `button_box()`'s default,
+## `role_px("btn_radius")` = 8 pointer / 12 tablet, because the tablet canvas
+## writes every control corner as `--rCtl:12px` and contains no 8 at all. That
+## is the owner's 2026-09-07 *"the radius should follow the newest designs"*,
+## and it is the one figure this change moves on a tablet.
+##
+## ### What sharing the factory repairs, beyond looking the same
+##
+## The block that stood here built **two** boxes for four states -- `normal ==
+## pressed == disabled` -- so a disabled route was pixel-identical to a live
+## one, and it overrode `font_color` and `font_hover_color` only, leaving
+## `pressed` and `disabled` ink to Godot's stock `Button` theme (a near-white
+## that lands on the primary's amber ground). Both are the defect `action()`
+## was fixed for last; `button_box()` supplies all four boxes and the three
+## overrides below complete the ink.
+##
+## The secondary hover also stops inventing a border. It borrowed a 1 px accent
+## edge from the sibling *card*'s `style-hover="border-color:var(--acc)"`; the
+## canvas's own `--ins` chip hovers `style-hover="color:var(--acc)"` -- fill
+## held, ink to accent -- which is the nearer vocabulary and is what the rest
+## of the shell now does.
+##
+## Height is still the one figure not taken from the canvas: `--btnH` is 28 and
+## `PICKER_BTN_H` is the 44 px target floor, for the reason the header gives.
+##
+## Contrast, computed over the canvas's own two palettes (`--ins` `#191c1e` /
+## `#eceae4`, `--acc` `#e0a34a` / `#a4650f`, `--sec` `#a9adb0` / `#3d3f39`):
+## primary ink on accent **8.60:1** dark / **4.30:1** light; secondary rest
+## **7.58:1** / **8.87:1**; secondary hover and pressed ink **7.75:1** /
+## **3.93:1**; disabled **2.86:1** / **2.29:1**. Two are reported rather than
+## locally patched: the light primary and the light accent hover are both the
+## shell-wide `accent`/`accent_ink` pairs `DccWidgets.action()` already uses
+## everywhere, so a local override here would make this screen the odd one out
+## in the direction the owner just asked us to stop. The disabled pair is
+## deliberate -- WCAG exempts inactive controls, and `button_box()`'s own
+## header explains why the drop is the point.
 func _picker_button(parent: Control, text: String, primary: bool, on_press: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
@@ -642,19 +719,13 @@ func _picker_button(parent: Control, text: String, primary: bool, on_press: Call
 	b.add_theme_color_override("font_color",
 		DccTheme.c("accent_ink") if primary else DccTheme.c("text_secondary"))
 	b.add_theme_color_override("font_hover_color",
-		DccTheme.c("accent_ink") if primary else DccTheme.c("text_bright"))
-	var rest := DccTheme.pill(primary, 8, 18, 6)
-	var hover := DccTheme.pill(primary, 8, 18, 6)
-	if primary:
-		hover.bg_color = DccTheme.c("accent_hover")
-	else:
-		rest.bg_color = DccTheme.c("sunken")
-		rest.set_border_width_all(0)
-		hover.bg_color = DccTheme.c("sunken")
-		hover.border_color = DccTheme.c("accent")
-	for state in ["normal", "pressed", "disabled"]:
-		b.add_theme_stylebox_override(state, rest)
-	b.add_theme_stylebox_override("hover", hover)
+		DccTheme.c("accent_ink") if primary else DccTheme.c("accent"))
+	b.add_theme_color_override("font_pressed_color",
+		DccTheme.c("accent_ink") if primary else DccTheme.c("accent"))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	for state in ["normal", "hover", "pressed", "disabled"]:
+		b.add_theme_stylebox_override(state,
+			DccTheme.button_box(primary, state, 18, 6))
 	b.pressed.connect(on_press)
 	parent.add_child(b)
 	return b

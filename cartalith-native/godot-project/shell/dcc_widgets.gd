@@ -469,6 +469,40 @@ static func slider(parent: Control, label_text: String, minimum: float, maximum:
 		s.drag_ended.connect(func(_value_changed: bool): on_release.call())
 	return {"row": row, "slider": s, "readout": readout, "format": fmt}
 
+# ---------------------------------------------------------------------------
+# **The inputs had no styling of their own until 2026-09-07**, which is the
+# input half of the owner's "all buttons and inputs are visually not the same".
+# `choice()`, `toggle()` and `number()` each called `OptionButton.new()` /
+# `CheckBox.new()` / `SpinBox.new()`, set a font size, and stopped -- not one
+# `add_theme_stylebox_override` between the three -- so fill, border, corner
+# radius and padding all came from `res://theme/dark_theme.tres`, whose own
+# header dates it **2026-08-17** and says it was "authored against the mockup".
+# That is the same mechanism the owner named for the buttons, one layer down.
+#
+# Measured against `design/mcp-2026-09-07/`, that resource's `SB_FieldNormal`
+# is wrong in four ways at once:
+#
+# | | `dark_theme.tres` | canvas |
+# |---|---|---|
+# | fill | `#1a1b1d` | `var(--ins)`: `#191c1e` dark, `#eceae4` light |
+# | border | 1 px `rgba(255,255,255,.14)` | **none** |
+# | radius | 4 | `8px` pointer (`ENV:522`), `--rCtl:12px` tablet |
+# | padding | `10px 6px` | `3px 9px` (`ENV:522`) |
+#
+# The fill is the one that is not merely off by three values. `#1a1b1d` is
+# **not a `DccTheme` token** -- `sunken` is `#191c1e` -- so
+# `DccShell._recolor_project_theme()`'s reverse lookup returns null for it and
+# leaves it alone on a palette flip. Every field in the shell therefore stayed
+# a near-black slab on the **light** palette, which is the preference this
+# machine runs.
+#
+# Giving the widgets their own boxes retires that resource for them without
+# touching `project.godot`, which this pass may not edit. Ground comes from
+# `DccTheme.field_box()`; see its header for why it is a sibling of
+# `button_box()` rather than an extension of it, and `DccTheme.outline()` is
+# not touched here for the same reason the button pass did not touch it.
+# ---------------------------------------------------------------------------
+
 ## `CheckBox`/`OptionButton` are both `BaseButton` in Godot 4, so they are real
 ## tap targets in their own right, not just row furniture -- floored to
 ## `role_px("btn_min_h")` on tablet for the same reason `action()` is (tier A:
@@ -484,6 +518,18 @@ static func toggle(parent: Control, label_text: String, value: bool,
 	if DccTheme.is_tablet():
 		cb.custom_minimum_size.y = DccTheme.role_px("btn_min_h")
 	cb.toggled.connect(func(v: bool): on_change.call(v))
+	## **Paint.** `dark_theme.tres` points all four `CheckBox` styleboxes at
+	## `SB_FieldDisabled` -- one bordered, rounded, 10x6-padded slab, identical
+	## in every state -- so a toggle carried a *field's* chrome it is not a
+	## field, and had no hover feedback at all because normal and hover were
+	## the same resource. The canvas draws no box behind a toggle row.
+	##
+	## `StyleBoxEmpty` rather than a transparent `StyleBoxFlat`: it holds no
+	## colour, so it cannot go stale on a palette flip and needs no entry in
+	## `DccShell._THEME_STYLEBOX_OVERRIDES`, which this pass may not edit.
+	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled", "focus"]:
+		cb.add_theme_stylebox_override(state, DccTheme.empty())
+	_palette_watch(cb, func() -> void: _paint_switch(cb))
 	## **The spacer goes BEFORE the box, and the label is allowed to grow.**
 	##
 	## `_row` clips its label to `ROW_LABEL_W` (132) and every other control
@@ -523,6 +569,44 @@ static func choice(parent: Control, label_text: String, options: Array, selected
 	for o in options:
 		ob.add_item(String(o))
 	ob.selected = selected
+	## **Paint.** A closed dropdown is the canvas's `--ins` chip exactly --
+	## `ENV:522` is `min-height:var(--ctl);border-radius:8px;
+	## background:var(--ins);padding:3px 9px` -- so its ground is
+	## `DccTheme.field_box()` and its padding is `chip_pad_x`/`chip_pad_y`,
+	## whose pointer half (9/3) is that declaration verbatim and whose tablet
+	## half (16/9) is already the canvas-derived touch figure.
+	##
+	## **Ink is one step brighter than a button's, and that is the design.** A
+	## dropdown shows a *value* (`color:var(--ink)` on the chip's own label
+	## span) where a secondary button shows a *label* (`color:var(--sec)`).
+	## Hover moves to `var(--acc)`, the `style-hover` the canvas puts on every
+	## `--ins` chip, and disabled drops to `var(--dis)` over a held ground --
+	## the undo/redo pair's own measured behaviour.
+	##
+	## **The caret is the stock `arrow` under `modulate_arrow`, not a drawn
+	## texture, and the trade is stated.** That constant makes `OptionButton`
+	## paint its arrow in the current draw mode's *font colour*, so the caret
+	## follows `font_color`/`font_hover_color` -- both names
+	## `DccShell._recolor_subtree()` walks -- and survives a palette flip with
+	## no repaint hook at all. What it costs: the canvas draws the caret one
+	## step dimmer than the value (`color:var(--faint)`, `ENV:525`) and this
+	## draws them at the same ink. An `ImageTexture` caret would match that and
+	## then go stale, exactly as `_style_popup_marks()`'s marks do.
+	var chip_x := DccTheme.role_px("chip_pad_x")
+	var chip_y := DccTheme.role_px("chip_pad_y")
+	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+		ob.add_theme_stylebox_override(state,
+			DccTheme.field_box(state, chip_x, chip_y))
+	ob.add_theme_color_override("font_color", DccTheme.c("text_bright"))
+	ob.add_theme_color_override("font_hover_color", DccTheme.c("accent"))
+	ob.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
+	ob.add_theme_color_override("font_focus_color", DccTheme.c("text_bright"))
+	ob.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	ob.add_theme_constant_override("modulate_arrow", 1)
+	## **`fit_to_longest_item` is not touched.** `DccShell.dock_fit()` and
+	## `phone_fit()` clear it on expanding dropdowns inside a dock and leave it
+	## set everywhere else; it is load-bearing in three places and none of them
+	## is paint.
 	ob.item_selected.connect(func(i: int): on_change.call(i))
 	style_popup(ob.get_popup())
 	row.add_child(ob)
@@ -687,6 +771,50 @@ static func number(parent: Control, label_text: String, minimum: float, maximum:
 	if DccTheme.is_tablet():
 		sb.custom_minimum_size.y = DccTheme.role_px("btn_min_h")
 	sb.value_changed.connect(func(v: float): on_change.call(v))
+	## **Paint.** A `SpinBox` is the worst-hit of the three, because it stacks
+	## *two* of the stale theme's boxes: `SB_FieldNormal` on its `LineEdit` and
+	## another behind each arrow, so a number row drew a bordered slab inside a
+	## bordered slab. It was also the only control in `_row()` with **no font
+	## size set at all**, so its field alone took the resource's 13 px while
+	## every sibling in the same row is 11.
+	##
+	## `get_line_edit()` is the field, and touching only its theme is
+	## deliberate: `DccWidgets.touch_focus_field()` attaches a script and
+	## rewires `focus_mode` on that same node from `DccShell`, and the two are
+	## disjoint -- no property either one sets is read by the other.
+	##
+	## The arrows get `StyleBoxEmpty`, which is both the canvas's composition
+	## (`ENV:348` draws its stepper glyph on the `--ins` ground, not on a box
+	## of its own) and the palette-safe choice, since an empty box holds no
+	## colour to go stale. Their ink rides on `*_icon_modulate` -- `var(--sec)`
+	## at rest, `var(--acc)` engaged, `var(--dis)` disabled, all off that same
+	## canvas row -- and those eight names are *not* in
+	## `DccShell._THEME_COLOR_OVERRIDES`, which is what `_palette_watch()` is
+	## for.
+	##
+	## **No `SpinBox` constant is touched.** `field_and_buttons_separation`,
+	## `buttons_width` and `set_min_buttons_width_from_icons` are the three
+	## that would move the field's rect, and this pass is paint.
+	var spin_x := DccTheme.role_px("chip_pad_x")
+	var spin_y := DccTheme.role_px("chip_pad_y")
+	var le := sb.get_line_edit()
+	for state in ["normal", "focus", "read_only"]:
+		le.add_theme_stylebox_override(state,
+			DccTheme.field_box(state, spin_x, spin_y))
+	le.add_theme_font_override("font", DccTheme.mono(0))
+	le.add_theme_font_size_override("font_size",
+		DccTheme.role_px("fs_readout") if DccTheme.is_tablet() else DccTheme.FS_TINY)
+	le.add_theme_color_override("font_color", DccTheme.c("text_bright"))
+	le.add_theme_color_override("font_uneditable_color", DccTheme.c("text_ghost"))
+	le.add_theme_color_override("font_placeholder_color", DccTheme.c("text_faint"))
+	le.add_theme_color_override("caret_color", DccTheme.c("accent"))
+	## `text-align:right` on the canvas's numeric readout (`ENV:351`).
+	le.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	for side in ["up", "down"]:
+		for slot in ["_background", "_background_hovered", "_background_pressed",
+				"_background_disabled"]:
+			sb.add_theme_stylebox_override(side + slot, DccTheme.empty())
+	_palette_watch(sb, func() -> void: _paint_spin_arrows(sb))
 	row.add_child(sb)
 	return sb
 
@@ -1980,6 +2108,113 @@ static func touch_focus_field(le: LineEdit, slop_px: float) -> bool:
 		le.focus_exited.connect(Callable(le, "_relock"))
 	return true
 
+## **Repaint-on-palette-flip**, for the two inputs whose appearance is carried
+## by something `DccShell`'s recolour walks cannot reach: an `ImageTexture`
+## (nothing can reach inside one -- `_style_popup_marks()` above carries the
+## same exposure and says so) and the `*_icon_modulate` colour family, which is
+## not in `_THEME_COLOR_OVERRIDES`. Both lists live in `dcc_shell.gd`, which
+## this pass does not own.
+##
+## `Theme.emit_changed()` is the last thing `DccShell._recolor_project_theme()`
+## does, so every `Control` in the tree gets `theme_changed` on a flip, and
+## this is the cheapest hook that already exists.
+##
+## **The guard is the palette itself rather than a re-entrancy flag**, and the
+## order below is the whole reason it terminates: `painter` sets theme
+## overrides and *each one re-emits `theme_changed`*, so the handler is
+## guaranteed to be called from inside itself. Writing the meta before the
+## paint means the re-entrant call finds it already equal to the live palette
+## and returns. The first paint runs before the connection exists, so it cannot
+## recurse at all.
+const PALETTE_META := "dcc_palette_dark"
+
+static func _palette_watch(ctl: Control, painter: Callable) -> void:
+	ctl.set_meta(PALETTE_META, DccTheme.is_dark())
+	painter.call()
+	ctl.theme_changed.connect(func() -> void:
+		if bool(ctl.get_meta(PALETTE_META, DccTheme.is_dark())) == DccTheme.is_dark():
+			return
+		ctl.set_meta(PALETTE_META, DccTheme.is_dark())
+		painter.call())
+
+static func _paint_switch(cb: CheckBox) -> void:
+	var touch := DccTheme.is_touch()
+	var w := 40 if touch else 30
+	var h := 22 if touch else 17
+	var knob := 18 if touch else 13
+	cb.add_theme_icon_override("checked", _switch(w, h, knob, true))
+	cb.add_theme_icon_override("unchecked", _switch(w, h, knob, false))
+	cb.add_theme_icon_override("checked_disabled", _switch(w, h, knob, true, false))
+	cb.add_theme_icon_override("unchecked_disabled", _switch(w, h, knob, false, false))
+
+static func _paint_spin_arrows(sb: SpinBox) -> void:
+	for side in ["up", "down"]:
+		sb.add_theme_color_override(side + "_icon_modulate",
+			DccTheme.c("text_secondary"))
+		sb.add_theme_color_override(side + "_hover_icon_modulate",
+			DccTheme.c("accent"))
+		sb.add_theme_color_override(side + "_pressed_icon_modulate",
+			DccTheme.c("accent"))
+		sb.add_theme_color_override(side + "_disabled_icon_modulate",
+			DccTheme.c("text_ghost"))
+
+## **The canvas's toggle is a switch, not a check box.** Read off the PC
+## artboard, which draws it in three places (`ENV:76`, `ENV:365`, `ENV:846`)
+## with one state table (`ENV:1354`, `ENV:1838`):
+##
+##   track  width:30px;height:17px;border-radius:999px;background:{{ togBg }}
+##   knob   width:13px;height:13px;border-radius:50%;top:2px;left:{{ togX }}px
+##   togBg  v ? var(--acc) : var(--sur)        togX  v ? 15 : 2
+##   knob   background:var(--ink)
+##
+## `CheckBox` draws its state from four theme *icons*, so the switch arrives as
+## a texture the same way `_style_popup_marks()`'s marks do. Nothing about the
+## node changes: still a `BaseButton`, still the tap target `toggle()`'s header
+## sizes, still `button_pressed`. Only what it paints.
+##
+## **The touch pair is borrowed, and labelled as borrowed.**
+## `Cartalith Tablet.dc.html` contains no switch at all (`grep togBg` returns
+## nothing in it), so there is no tablet literal to read;
+## `Cartalith Android.dc.html` draws `width:40px;height:22px` with an `18px`
+## knob at `top:2px` (`AND:311`, `AND:440`, `AND:521`). **Geometry only.** That
+## canvas's own colours -- `--chip` off, `--accInk`/`--sec` knob -- are not
+## borrowed with it, because the PC canvas is the one `DccTheme`'s palette is
+## derived from and mixing the two gives a toggle that matches neither.
+##
+## `left:2px` / `left:15px` on a 30 px track with a 13 px knob is 2 px of inset
+## at both ends, which is what generalises to the 40/18 pair rather than the
+## two literals themselves.
+static func _switch(w: int, h: int, knob: int, on: bool,
+		enabled: bool = true) -> ImageTexture:
+	var track := DccTheme.c("accent") if on else DccTheme.c("bg")
+	var pin := DccTheme.c("text_bright")
+	if not enabled:
+		track = DccTheme.c("sunken")
+		pin = DccTheme.c("text_ghost")
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var r := h * 0.5
+	var half := Vector2(w, h) * 0.5
+	var kx: float = (w - 2.0 - knob * 0.5) if on else (2.0 + knob * 0.5)
+	var kc := Vector2(kx, h * 0.5)
+	for y in h:
+		for x in w:
+			var p := Vector2(x + 0.5, y + 0.5)
+			## Signed distance to a rounded rectangle, so the pill's ends are
+			## antialiased by the same one-pixel coverage ramp `_round_dot()`
+			## uses. `half - r` collapses to the spine when `r == h / 2`.
+			var q := Vector2(absf(p.x - half.x) - (half.x - r),
+				absf(p.y - half.y) - (half.y - r))
+			var d: float = Vector2(maxf(q.x, 0.0), maxf(q.y, 0.0)).length() \
+				+ minf(maxf(q.x, q.y), 0.0) - r
+			var cover: float = clampf(0.5 - d, 0.0, 1.0)
+			if cover <= 0.0:
+				continue
+			var kcov: float = clampf(knob * 0.5 - (p - kc).length() + 0.5, 0.0, 1.0)
+			var rgb := track.lerp(pin, kcov)
+			img.set_pixel(x, y, Color(rgb.r, rgb.g, rgb.b, cover))
+	return ImageTexture.create_from_image(img)
+
 ## A filled circle as an `ImageTexture`, drawn rather than loaded because this
 ## shell ships no bitmaps and a theme switch has to be able to redraw it.
 ## Antialiased by a one-pixel coverage ramp at the rim; anything cheaper reads
@@ -1996,16 +2231,43 @@ static func _round_dot(px: int, color: Color) -> ImageTexture:
 				img.set_pixel(x, y, Color(color.r, color.g, color.b, a * color.a))
 	return ImageTexture.create_from_image(img)
 
-## An outlined text field -- the canvas's Tile size / World bounds /
-## Destination wells and the Asset library's search.
+## A text field -- the canvas's Tile size / World bounds / Destination wells
+## and the Asset library's search.
+##
+## **Filled, borderless, rounded** -- corrected 2026-09-07 with the rest of the
+## inputs. What stood here was `box(border, "", px, py)`: a hairline rectangle
+## over nothing, square-cornered because `DccTheme.outline()` never sets a
+## corner radius. The canvas draws the opposite of all three, in four places:
+##
+##   ENV:222 / ENV:498 / ENV:1101 / ENV:1118
+##   background:var(--ins);border:none;border-radius:8px;
+##   min-height:var(--ctl);padding:2..4px 11px;color:var(--ink);outline:none
+##
+## **This one can be fixed in place where `DccTheme.outline()` could not**, and
+## the difference is the whole test the button pass used: `grep -rn
+## "DccWidgets.well("` returns 12 call sites and all 12 are `LineEdit`s. There
+## is no non-field caller to repaint by accident, so the blast radius is the
+## control this change is about.
+##
+## `px`/`py` are untouched on purpose -- every caller either takes the 9/4
+## default or passes its own, and moving them moves layout at all 12 sites.
+## The canvas's `11px` is a horizontal figure this pass does not spend its
+## invariance budget on.
+##
+## Ink moves `text` -> `text_bright`, which is the canvas's `color:var(--ink)`
+## on every one of those four inputs; `text` is `--body`, one step down.
 static func well(le: Control, px: int = 9, py: int = 4, accent: bool = false) -> void:
-	var token := "accent" if accent else "border"
-	le.add_theme_stylebox_override("normal", box(token, "", px, py))
-	le.add_theme_stylebox_override("focus", box("accent", "", px, py))
-	le.add_theme_stylebox_override("read_only", box("line_soft", "", px, py))
+	var norm := DccTheme.field_box("normal", px, py)
+	if accent:
+		norm.border_color = DccTheme.c("accent")
+		norm.set_border_width_all(1)
+	le.add_theme_stylebox_override("normal", norm)
+	le.add_theme_stylebox_override("focus", DccTheme.field_box("focus", px, py))
+	le.add_theme_stylebox_override("read_only",
+		DccTheme.field_box("read_only", px, py))
 	le.add_theme_font_override("font", DccTheme.mono(0))
 	le.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
-	le.add_theme_color_override("font_color", DccTheme.c("text"))
+	le.add_theme_color_override("font_color", DccTheme.c("text_bright"))
 	le.add_theme_color_override("font_placeholder_color", DccTheme.c("text_ghost"))
 	le.add_theme_color_override("font_uneditable_color", DccTheme.c("text_ghost"))
 	le.add_theme_color_override("caret_color", DccTheme.c("accent"))
