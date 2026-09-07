@@ -2217,6 +2217,7 @@ func _open_pack_metadata() -> void:
 	DccWidgets.note(body,
 		"Written into pack.json on the next Export pack .zip. Schema and packaging are the exporter's and are not editable here.")
 	d.add_child(body)
+	_phone_title(d, body)
 	d.ok_button_text = "Save"
 	d.confirmed.connect(func():
 		var ok := _bridge.as_set_pack_info(
@@ -4220,6 +4221,34 @@ func _import_atlas() -> void:
 ## again. `Assets ▸ Clear library…` is marked destructive and does confirm;
 ## this one is at least as destructive and did not. The freed-bytes figure the
 ## old handler only printed *afterwards* is what the prompt shows *first*.
+
+## Give a hand-built dialog its title back on a phone.
+##
+## `DccWidgets.phone_window()` sets `borderless`, and that is deliberate: the
+## embedded window's title bar is drawn by the PARENT viewport at the parent's
+## scale, so it does not grow with `content_scale_factor` and its close box
+## lands at about 5 dp. The documented consequence is that each window carries
+## its own titled header inside the content -- and the three dialogs in this
+## file that build a `body` did not, so on a phone they opened with no name at
+## all, the destructive "Clear cached tiles?" among them.
+##
+## Wrapping rather than prepending, because `phone_head()` appends to the
+## container it is given and `body` already holds its content by this point;
+## re-ordering children after the fact is the fragile version of this.
+##
+## `vault_window.gd` and `cartography_workspace.gd` solve the same problem
+## inline at their single sites. Three sites in one file earns a helper.
+func _phone_title(d: AcceptDialog, body: Control) -> void:
+	if not _host.is_phone():
+		return
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 0)
+	d.remove_child(body)
+	d.add_child(wrap)
+	DccWidgets.phone_head(wrap, d.title, "")
+	wrap.add_child(body)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
 func _clear_caches() -> void:
 	var st: Dictionary = _bridge.atlas_status()
 	var chunks := int(st.get("chunks", 0))
@@ -4227,33 +4256,36 @@ func _clear_caches() -> void:
 	if chunks <= 0:
 		_host.set_status("hint", "nothing baked for this world — no cache to clear", "text_dim")
 		return
-	var d := ConfirmationDialog.new()
-	d.title = "Clear cached tiles?"
-	d.dialog_text = ("Deletes %d baked chunk%s (%s) for this world.\n\n"
-		+ "The world itself, its parameters and every edit are untouched -- only the "
-		+ "rendered tile pyramid goes, and it can be baked again from WORLD > Finalize. "
-		+ "%s") % [chunks, "" if chunks == 1 else "s", freed,
-			"This world is finalized; clearing releases that lock, because a lock protecting nothing would strand it read-only."
-				if bool(st.get("finalized", false)) else ""]
-	d.ok_button_text = "Clear %s" % freed
-	d.confirmed.connect(func():
-		var n := _bridge.atlas_clear()
-		_host.set_status("hint", "cleared %d baked chunk%s (%s)" % [
-			n, "" if n == 1 else "s", freed], "text_dim")
-		if _host.has_method("refresh_atlas_status"):
-			_host.refresh_atlas_status()
-		_refresh_atlas_cache_menu()
-		_refresh_tile_size_menu()
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	if _host.is_phone():
-		DccWidgets.phone_window(d, _host)
-	_host.add_child(d)
-	## Call two -- see `_open_pack_metadata` above for why.
-	if _host.is_phone():
-		_host.phone_fit(d, 1.0)
-	if not DccWidgets.phone_present(d, _host):
-		d.popup_centered()
+	## `DccWidgets.confirm()`. This site was the awkward one of the four -- the
+	## other three build a `body` VBox a `phone_head()` can head, and this one
+	## used `dialog_text` with no container at all, so it looked like it needed
+	## a second remedy. It does not: text-plus-a-verb IS `confirm()`'s shape,
+	## and the helper builds the phone body, draws the header, runs the fit and
+	## presents it.
+	##
+	## It also disarms the ordering trap for free: `confirm()` sets the caller's
+	## `ok_text` AFTER `phone_window()`, which sets `ok_button_text` to
+	## "Close". Written by hand here, "Clear 412 MB" would have become
+	## "Close" on phones only -- on the most destructive prompt in this file,
+	## whose whole point is naming what it is about to delete.
+	DccWidgets.confirm(_host, "Clear cached tiles?",
+		("Deletes %d baked chunk%s (%s) for this world.
+
+"
+			+ "The world itself, its parameters and every edit are untouched -- only the "
+			+ "rendered tile pyramid goes, and it can be baked again from WORLD > Finalize. "
+			+ "%s") % [chunks, "" if chunks == 1 else "s", freed,
+				"This world is finalized; clearing releases that lock, because a lock protecting nothing would strand it read-only."
+					if bool(st.get("finalized", false)) else ""],
+		"Clear %s" % freed,
+		func():
+			var n := _bridge.atlas_clear()
+			_host.set_status("hint", "cleared %d baked chunk%s (%s)" % [
+				n, "" if n == 1 else "s", freed], "text_dim")
+			if _host.has_method("refresh_atlas_status"):
+				_host.refresh_atlas_status()
+			_refresh_atlas_cache_menu()
+			_refresh_tile_size_menu())
 
 func _on_preferences(id: int, p: PopupMenu) -> void:
 	if id == ID_PREF_STORAGE:
@@ -4885,6 +4917,7 @@ func _prompt_save_layout() -> void:
 	body.add_child(clash)
 	_layout_readout(body, _capture_layout())
 	d.add_child(body)
+	_phone_title(d, body)
 	## `layouts()` rather than the `_layout_names` the submenu drew: that array
 	## is only as fresh as the last `_refresh_layouts_menu()`, the same reason
 	## `_prompt_forget_layout()` re-reads its own list at open.
@@ -4946,6 +4979,7 @@ func _prompt_forget_layout() -> void:
 	DccWidgets.note(body,
 		"Removes the stored snapshot only. Nothing on screen moves, and the built-in Default is unaffected.")
 	d.add_child(body)
+	_phone_title(d, body)
 	d.ok_button_text = "Forget"
 	d.confirmed.connect(func():
 		var i := ob.selected
