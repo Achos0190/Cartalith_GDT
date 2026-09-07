@@ -430,6 +430,25 @@ func _build() -> void:
 	_sculpt_body = VBoxContainer.new()
 	_sculpt_body.add_theme_constant_override("separation", 0)
 	_sculpt_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## **Owner instruction, 2026-09-07: the sculpt tools must appear ONLY when
+	## the sculpt menu is accessed.** They were on screen whenever the Terrain
+	## block was, armed or not, because this body carried no initial state and
+	## nothing toggled it. This overrides the design recorded twenty lines up
+	## (*"the mode hides the category, it does not re-home the body"*), and the
+	## override is written here so a later conformance pass does not restore
+	## the old behaviour by citing that comment.
+	##
+	## **`_paint_body` below is NOT the precedent it looks like.** It is set
+	## `false` here and never set true anywhere in this file, because Biome
+	## paint's controls live in the RIGHT dock (`_on_tool_armed` calls
+	## `right_dock_ctrl.show_paint()`); that body is vestigial, not
+	## hidden-until-armed. Copying it would have hidden the sculpt controls
+	## permanently.
+	##
+	## Derived from the armed tool rather than hardcoded `false`, because
+	## `_build_categories()` re-runs on rebuild and a hardcoded false would
+	## blank the panel underneath someone mid-stroke.
+	_sculpt_body.visible = (str(app.armed_tool) == "sculpt")
 
 	## Biome paint stays a panel of its own, shown whenever the Biome-paint
 	## tool is armed -- the same "arming a tool never changes the workspace"
@@ -2328,6 +2347,12 @@ func _sculpt_escape() -> void:
 ## leaving both Sculpt and Paint hides the brush cursor, which only either of
 ## those two tools ever shows.
 func _on_tool_armed(id: String) -> void:
+	## The owner's rule, applied on BOTH edges. `MISTAKES.md`: *"the disarm
+	## path is the obvious one and the arm-another-tool path is the one that
+	## gets missed"* — a single equality covers both, where an `if id ==
+	## "sculpt": show` would only cover arming.
+	if is_instance_valid(_sculpt_body):
+		_sculpt_body.visible = (id == "sculpt")
 	if id != "sculpt" and not _sculpt_stroke_points.is_empty():
 		bridge.sculpt_cancel_stroke()
 		_sculpt_stroke_points = PackedVector2Array()
