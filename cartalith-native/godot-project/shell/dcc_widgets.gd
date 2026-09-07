@@ -2745,6 +2745,301 @@ static func pad(parent: Control, l: int, t: int, r: int, b: int) -> MarginContai
 	return m
 
 # ---------------------------------------------------------------------------
+# Grading a window against the phone protocol -- and the two helpers that make
+# a call site pass it by construction
+#
+# Reaching the phone correctly was three calls spread across build time and
+# open time: `phone_window()` before the body, `DccShell.phone_fit(dlg, 1.0)`
+# after it, `phone_present()` instead of `popup_centered()`. A call site can
+# complete none of them, some of them, or -- twice in this tree -- the WRONG
+# ones: `vault_window.gd::_compare_dialog` and `::_preview_dialog` both call
+# `phone_fit()` without `phone_window()`, so the fit they perform is wrong
+# rather than absent, and nothing caught it.
+#
+# **The rule encoded below is deliberately NOT "all three calls ran".** It is
+# the three things a hand can feel, measured off the drawn window:
+#
+#   1. phone-SHAPED     -- `wrap_controls` off and the unscaled title bar gone
+#                          (what `phone_window()` does)
+#   2. phone-PRESENTED  -- filling the screen above the gesture inset, at the
+#                          handset content scale, with the desktop
+#                          `min_size`/`max_size` cleared (what
+#                          `phone_present()` does)
+#   3. every tappable control at or above §13's 44 dp floor **and inside the
+#      window's own client rect**
+#
+# Stating (3) as the floor rather than as "`phone_fit()` ran" is the whole
+# reason this grades correctly, and it is why `modal_present()` can go on
+# skipping `phone_fit()`: a `modal_card()`'s buttons are floored at
+# construction by `_modal_btn()`, so the card clears the floor by a different
+# route. A conformance check written against the call list would have failed
+# the one path that is already right.
+#
+# `_phoneproto_probe.gd` is the proof this discriminates: it builds one
+# specimen per known-bad shape found in the census and asserts each is graded
+# `fails:` before asserting the two helpers below are graded `ok`.
+# ---------------------------------------------------------------------------
+
+## `DccShell.phone_fit()`'s own idempotence flag, by its literal name. Read
+## here only to report *how* a window got its tap floor -- never to decide
+## whether it has one. The probe checks the literal still matches by calling
+## `phone_fit()` and watching the flag appear, not by comparing it against the
+## constant it was copied from.
+const PHONE_FIT_META := "_phone_fitted"
+
+## Every tappable descendant, INCLUDING internal children. `get_children()`
+## skips `AcceptDialog`'s own button bar, which is exactly how a shipped OK
+## button stayed 29 dp through four windows.
+static func _tappables(n: Node, out: Array, fitted: Array) -> void:
+	for c in n.get_children(true):
+		if c is Control and (c as Control).has_meta(PHONE_FIT_META):
+			fitted.append(c)
+		if c is BaseButton or c is LineEdit or c is SpinBox or c is TextEdit:
+			out.append(c)
+		_tappables(c, out, fitted)
+
+## Grades an **open, laid-out** window against the three points above.
+##
+## `verdict` is `desktop` when the host is not a phone (there is nothing to
+## grade), `gone` when the window has been freed, `ok`, or `fails:` followed by
+## the failing legs -- `shape`, `present`, `tap` -- comma separated.
+##
+## `backwards` is the partly-right case the census found and the reason this
+## function exists: `phone_fit()` ran but the window was never phone-shaped.
+static func phone_protocol_grade(dlg: Window, host) -> Dictionary:
+	var out := {"verdict": "desktop", "shaped": false, "presented": false,
+		"tap_ok": false, "fit_ran": false, "backwards": false,
+		"worst": 0.0, "worst_name": "", "offscreen": 0, "tappables": 0}
+	if dlg == null or not is_instance_valid(dlg):
+		out["verdict"] = "gone"
+		return out
+	if host == null or not host.has_method("is_phone") or not host.is_phone():
+		return out
+
+	## Both halves, because either alone has another explanation: `modal_card()`
+	## sets `borderless` on every platform, and a caller can turn
+	## `wrap_controls` off by hand for the growth bug without ever meeting the
+	## phone. Only the pair is `phone_window()`'s signature.
+	out["shaped"] = (not dlg.wrap_controls) and dlg.borderless
+
+	var scale: float = host.phone_scale()
+	var screen: Vector2 = host.get_viewport_rect().size
+	var gesture := int(round(DccTheme.H_PHONE_GESTURE * scale))
+	out["presented"] = dlg.position == Vector2i.ZERO \
+		and dlg.size.x == int(screen.x) \
+		and dlg.size.y == maxi(1, int(screen.y) - gesture) \
+		and absf(dlg.content_scale_factor - scale) < 0.001 \
+		and dlg.min_size == Vector2i.ZERO and dlg.max_size == Vector2i.ZERO
+
+	## The window's own client rect, in the CONTENT units its children are laid
+	## out in -- `Window.size` is physical and `content_scale_factor` divides
+	## it. `get_global_rect()` is unclipped, so a window that popped wider than
+	## the viewport would otherwise report every control "shown" while it sits
+	## off the screen.
+	var csf := maxf(0.001, dlg.content_scale_factor)
+	var client := Rect2(Vector2.ZERO, Vector2(dlg.size) / csf)
+	var tapped: Array = []
+	var fitted: Array = []
+	_tappables(dlg, tapped, fitted)
+	out["fit_ran"] = not fitted.is_empty()
+	out["backwards"] = bool(out["fit_ran"]) and not bool(out["shaped"])
+	var worst := 1e9
+	var worst_name := ""
+	var off := 0
+	var seen := 0
+	for c in tapped:
+		var ctl := c as Control
+		if ctl == null or not ctl.is_visible_in_tree():
+			continue
+		seen += 1
+		if ctl.size.y < worst:
+			worst = ctl.size.y
+			worst_name = String(ctl.name)
+			if ctl is Button and (ctl as Button).text != "":
+				worst_name = (ctl as Button).text
+		if not client.encloses(ctl.get_global_rect()):
+			off += 1
+	out["tappables"] = seen
+	out["offscreen"] = off
+	out["worst"] = 0.0 if worst > 1e8 else worst
+	out["worst_name"] = worst_name
+	## No tappable control at all is not a pass by default -- it means the
+	## window was measured before it laid out, which is a probe defect and must
+	## not read as conformance.
+	out["tap_ok"] = seen > 0 and worst >= float(DccTheme.PHONE_TAP_MIN) and off == 0
+
+	if bool(out["shaped"]) and bool(out["presented"]) and bool(out["tap_ok"]):
+		out["verdict"] = "ok"
+	else:
+		var miss := PackedStringArray()
+		if not bool(out["shaped"]):
+			miss.append("shape")
+		if not bool(out["presented"]):
+			miss.append("present")
+		if not bool(out["tap_ok"]):
+			miss.append("tap")
+		out["verdict"] = "fails:" + ",".join(miss)
+	return out
+
+## One line for a log. `phone_protocol_grade()` returns the numbers; this is
+## the only place they are formatted, so a probe and a future call site cannot
+## disagree about what a grade reads like.
+static func phone_protocol_line(tag: String, g: Dictionary) -> String:
+	return "%-26s %-22s shaped=%d present=%d tap=%d fit_ran=%d backwards=%d worst=%.0fdp(%s) off=%d n=%d" % [
+		tag, String(g.get("verdict", "?")), int(bool(g.get("shaped", false))),
+		int(bool(g.get("presented", false))), int(bool(g.get("tap_ok", false))),
+		int(bool(g.get("fit_ran", false))), int(bool(g.get("backwards", false))),
+		float(g.get("worst", 0.0)), String(g.get("worst_name", "")),
+		int(g.get("offscreen", 0)), int(g.get("tappables", 0))]
+
+## Frees the dialog once, on either answer, and runs the caller's callback
+## after it -- the shape all six text-only sites write out by hand, three of
+## them with a subtly different one (`visibility_changed`, a bare `queue_free`
+## bind, a `confirmed` that frees only on the success branch).
+static func _wire_dismiss(dlg: AcceptDialog, on_confirm: Callable,
+		on_cancel: Callable) -> void:
+	var dismiss := func():
+		if is_instance_valid(dlg) and not dlg.is_queued_for_deletion():
+			dlg.queue_free()
+	dlg.confirmed.connect(func():
+		dismiss.call()
+		if on_confirm.is_valid():
+			on_confirm.call())
+	dlg.canceled.connect(func():
+		dismiss.call()
+		if on_cancel.is_valid():
+			on_cancel.call())
+
+## The borderless phone body a `phone_window()`ed dialog needs: the header it
+## traded its title bar for, and a scroller under it. Returns the column a
+## caller fills.
+##
+## The scroller's horizontal axis is DISABLED, which folds its child's minimum
+## width into its own -- right here, because a 393 dp column is the whole width
+## there is, and the column below it is the only sibling, so there is nothing
+## beside it to overflow.
+static func _phone_dialog_body(dlg: AcceptDialog, title: String) -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	dlg.add_child(col)
+	phone_head(col, title, "")
+	var m := pad(col, 16, 14, 16, 14)
+	m.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	m.add_child(scroll)
+	var inner := VBoxContainer.new()
+	inner.add_theme_constant_override("separation", 8)
+	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(inner)
+	return inner
+
+## The text-only confirmation, protocol-complete.
+##
+## Six sites in this shell hand-build exactly this shape and **not one of the
+## six reaches the phone at all**: `faction_roster_window.gd::_confirm_remove`,
+## `place_editor_window.gd::confirm_delete`, `right_dock.gd::_confirm_revert`,
+## `civilization_workspace.gd::_confirm_destructive` and `::_tl_show_confirm`,
+## `world_workspace.gd::_confirm_discard`.
+##
+## Still a stock `ConfirmationDialog` and not a `modal_card()`, deliberately.
+## `menus.gd::_open_pack_metadata`'s own audit note settles that question for
+## this shell: converting OS chrome to the card "changes what a user sees,
+## which is an owner call, not an audit's". Nothing here changes what a
+## **desktop** user sees; the phone body is the defect being fixed.
+##
+## Two traps a hand-written call site cannot see, both absorbed here:
+##   * `phone_window()` assigns `ok_button_text = "Close"`, which is right for
+##     a one-way window and wrong for a two-way question -- so `ok_text` is
+##     written AFTER it, never before. Every one of the six names its answer
+##     ("Remove", "Delete", "Revert", "Overwrite"), and that wording rule is
+##     the first thing a naive conversion loses.
+##   * `phone_window()` drops the decoration, taking the OS title bar and with
+##     it `title`. On a phone the question therefore carries its own
+##     `phone_head()`; on desktop the stock `dialog_text` path is untouched.
+static func confirm(host: Node, title: String, text: String, ok_text: String,
+		on_confirm: Callable, on_cancel: Callable = Callable(),
+		width: int = 380) -> ConfirmationDialog:
+	var dlg := ConfirmationDialog.new()
+	dlg.title = title
+	var phone := phone_window(dlg, host)
+	dlg.ok_button_text = ok_text
+	if phone:
+		modal_prose(_phone_dialog_body(dlg, title), text)
+	else:
+		dlg.dialog_text = text
+		dlg.min_size = Vector2i(width, 0)
+	host.add_child(dlg)
+	_wire_dismiss(dlg, on_confirm, on_cancel)
+	if phone and host.has_method("phone_fit"):
+		host.phone_fit(dlg, 1.0)
+	if not phone_present(dlg, host):
+		dlg.popup_centered()
+	return dlg
+
+## The one-field prompt, protocol-complete. Three sites hand-build it and none
+## of the three reaches the phone: `journey_planner_view.gd::_save_journey` and
+## `::_capture_preset`, `cartography_workspace.gd::_prompt_label_name`.
+##
+## Returns `{"dialog", "field", "body"}`. `body` is handed back rather than
+## kept private because two of the three sites append a row this helper has no
+## business knowing about -- a live name-clash warning, a persistence note --
+## and a helper that made them give those up would not be adopted.
+##
+## `on_submit` receives the **trimmed** text and runs only when it is not
+## empty, which is what all three sites already do by hand. Enter in the field
+## commits, which two of the three had and one did not.
+static func prompt(host: Node, title: String, field_label: String,
+		initial: String, ok_text: String, on_submit: Callable,
+		hint: String = "", width: int = 360) -> Dictionary:
+	var dlg := ConfirmationDialog.new()
+	dlg.title = title
+	var phone := phone_window(dlg, host)
+	dlg.ok_button_text = ok_text
+	var body: VBoxContainer
+	if phone:
+		body = _phone_dialog_body(dlg, title)
+	else:
+		body = VBoxContainer.new()
+		body.add_theme_constant_override("separation", 6)
+		dlg.add_child(body)
+		dlg.min_size = Vector2i(width, 0)
+	if field_label != "":
+		body.add_child(DccTheme.label(field_label, "text_dim", DccTheme.FS_SMALL))
+	var le := LineEdit.new()
+	le.text = initial
+	le.select_all_on_focus = true
+	well(le)
+	body.add_child(le)
+	if hint != "":
+		note(body, hint)
+	host.add_child(dlg)
+
+	var submit := func():
+		var typed := le.text.strip_edges()
+		if is_instance_valid(dlg) and not dlg.is_queued_for_deletion():
+			dlg.hide()
+			dlg.queue_free()
+		if typed != "" and on_submit.is_valid():
+			on_submit.call(typed)
+	dlg.confirmed.connect(submit)
+	## A focused `LineEdit` consumes Enter before the dialog's own default
+	## button ever sees it -- the same reason `modal_choices()` stamps
+	## `MODAL_DEFAULT_META` for a card with a field in it.
+	le.text_submitted.connect(func(_t: String): submit.call())
+	dlg.canceled.connect(func():
+		if is_instance_valid(dlg) and not dlg.is_queued_for_deletion():
+			dlg.queue_free())
+
+	if phone and host.has_method("phone_fit"):
+		host.phone_fit(dlg, 1.0)
+	if not phone_present(dlg, host):
+		dlg.popup_centered()
+	le.grab_focus.call_deferred()
+	return {"dialog": dlg, "field": le, "body": body}
+
+# ---------------------------------------------------------------------------
 # The modal card
 #
 # `design/proposed-2026-09-05/Modal.dc.html`, approved by the owner 2026-09-05
@@ -2882,7 +3177,22 @@ static func modal_card(host: Node, title: String, variant: int = MODAL_CONFIRM,
 	var closer := Button.new()
 	closer.text = "✕"
 	closer.focus_mode = Control.FOCUS_NONE
-	closer.custom_minimum_size = Vector2(MODAL_CTL, MODAL_CTL)
+	## **`--ctl:24px` is the artboard's desktop figure, and on a phone it is 24
+	## *dp* against §13's 44 dp floor** -- the same trap `_modal_btn()` already
+	## handles for the action row, on the one control in this card nobody gave
+	## the same treatment. Nothing else was ever going to reach it either:
+	## `modal_present()` deliberately does not call `DccShell.phone_fit()`,
+	## because the card's buttons are floored at construction instead, and this
+	## box was not one of them. Measured at **24 dp** on a 1080 x 2400 handset
+	## by `_phoneproto_probe.gd` before this line existed -- the card was the
+	## only "conformant" path in the census that the probe graded `fails:tap`.
+	##
+	## Phone only. `_modal_btn()` has a third, tablet density
+	## (`role_px("btn_min_h")`); a square icon box is not a text button and
+	## that figure has not been measured here, so the tablet keeps the
+	## artboard's 24 rather than inheriting an untested number.
+	var closer_px := DccTheme.PHONE_TAP_MIN if DccTheme.is_phone() else MODAL_CTL
+	closer.custom_minimum_size = Vector2(closer_px, closer_px)
 	closer.add_theme_font_override("font", DccTheme.mono(0))
 	closer.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
 	closer.add_theme_color_override("font_color", DccTheme.c("text_faint"))

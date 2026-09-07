@@ -29,6 +29,32 @@ own commit introduced; a lane that measured a desktop `PopupMenu` and declared
 the owner’s request impossible while the owner was holding a phone; and, twice,
 **my own claim that nothing else was writing the tree.**
 
+## Budget posture (owner, 2026-09-07, at 9% of the weekly limit)
+
+**When the weekly budget is tight, lanes are the wrong first economy — cut the
+work that does not need a lane at all.** Three moves, in the order they pay:
+
+1. **Mechanical work fully specified at its symbols belongs in the MAIN LOOP,
+   not in a lane.** A lane costs a full context to re-derive what a previous
+   lane already wrote down. When a report says *"the conversions are mechanical
+   and ready"* and names each site, apply them directly and run the existing
+   probe as the check. **That is the single largest saving available here.**
+2. **Prefer ONE lane on genuinely uncertain work over two on adjacent work.**
+   Two lanes are worth it when the two jobs are independent enough that neither
+   waits; they are waste when the second is a variation of the first.
+3. **Never cut the verifier.** It has found a real defect in every batch it has
+   run and a defect in the brief itself in twenty-eight consecutive batches.
+   **A cheap batch nobody checked is not cheap** — `09ff8e2` shipped unverified
+   when a session limit killed its verifier, and paying that debt cost a place
+   in the NEXT batch's verifier brief.
+
+**And never kill a verifier that is already running to save budget.** Its lanes
+are already paid for; stopping it discards their output and leaves a debt that
+costs more to discharge later than the verifier would have cost to finish.
+
+**Report spend honestly when asked.** Recent batches have run roughly 600k–1M
+subagent tokens each; that is the number that matters, not the lane count.
+
 Keep lanes **file-disjoint**: assign by crate or by directory, and where two rows
 want the same file, serialize them across batches rather than forbidding the edit
 (forbidding it stranded corrections twice, and a concurrent read produced a false

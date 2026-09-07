@@ -529,7 +529,14 @@ var _checks_last: Dictionary = {}
 var _pane_title: Label
 var _pane_sub: Label
 var _pane_body: VBoxContainer     ## cleared and rebuilt per route
-var _pane_footer: HBoxContainer
+## **`Container`, because it is not the same class at every density.** An
+## `HBoxContainer` on a pointer or tablet, an `HFlowContainer` on a handset --
+## see `_build_pane()` for the measurement. Every one of the eleven call sites
+## that fills it only ever calls `add_child`, `get_children` and `remove_child`,
+## so none of them notices; the type here is the only place the difference has
+## to be admitted. Declaring it `HBoxContainer` and assigning a flow container
+## to it is a hard runtime error in GDScript, not a warning.
+var _pane_footer: Container
 var _foot_dest: Label
 var _foot_last_run: Label
 var _status_left: Label
@@ -1016,8 +1023,66 @@ func _build_pane() -> Control:
 
 	wrap.add_child(DccTheme.rule())
 	var foot_pad := DccWidgets.pad(wrap, PANE_PAD_X, 11, PANE_PAD_X, 11)
-	_pane_footer = HBoxContainer.new()
-	_pane_footer.add_theme_constant_override("separation", 12)
+	## **The handset footer WRAPS; the pointer and tablet one does not.**
+	##
+	## An `HBoxContainer` demands the sum of its children as a hard minimum, and
+	## that is what the pane footer was at every density. Measured with
+	## `_panemin_probe.tscn -- --force-touch --vp 500x1080`, `export_world`'s
+	## three chips are 171 + 125 + 145 = 441 px plus 36 px of separation, plus
+	## the note's own 1 px = **478**, against the **376 px** this pane has:
+	## the window is laid out in its own content-scaled space, **412 px** wide
+	## at the narrowest handset this shell claims, less `PANE_PAD_X` twice.
+	## A `Control` cannot be laid below its combined minimum, so the row grew
+	## 102 px past the pane and took the window's whole contents minimum with
+	## it. Only `export_world` exceeded the room; the next widest footer was
+	## `export_maps` at 364, 12 px inside it.
+	##
+	## **376, not 464.** An earlier reading of this compared the row's demand,
+	## which is in the window's 412 px content space, against the OS window's
+	## 500 physical px, and made the shortfall look like 14 px. See
+	## `_panemin_probe.gd`'s `_client_rect()` for the correction and for how the
+	## conflation announced itself: the pane measured the same 393 px wide at
+	## `--vp 500x1080` and at `--vp 1080x2340`, being one dp layout at two
+	## scales, while the checks compared it against 500 and against 1080.
+	##
+	## `FOOT_NOTE_MIN_W` cannot reach this and deliberately does not try: see
+	## `_footer_note()`, where applying the 160 px floor on a handset was
+	## measured putting the route's own picker at `shown=0.000`. **The floor
+	## that fixes the desktop breaks the phone**, and the chips are 477 px with
+	## or without a note.
+	##
+	## So the row is allowed a second line instead. `HFlowContainer`'s minimum
+	## width is its **widest single child**, not the sum -- 171 px here -- because
+	## one-per-line is a layout it can produce; measured on an isolated container
+	## before it was relied on, and `_panemin_probe`'s `footer terms` line now
+	## prints the row sum and the container's own demand side by side so the
+	## difference is visible per route rather than argued. Nothing is truncated,
+	## nothing moves off screen, and the note keeps its `SIZE_EXPAND_FILL`: a
+	## flow container honours expand within a line, so the note still absorbs
+	## line 1's slack and the chips still finish flush on the row's right edge.
+	##
+	## **What it costs, stated rather than left to be found.** A flow container's
+	## minimum HEIGHT is its worst case -- every child stacked -- so the handset
+	## footer's vertical minimum goes from one row to as many rows as there are
+	## chips (measured 44 -> 167 px at `export_world`). That is affordable only
+	## because there is room: this window's whole contents minimum on a handset
+	## is 339 px tall against a 1056 px window at 500x1080, the narrowest case.
+	## It is **not** affordable at pointer density, where the window promises to
+	## work at 640 px tall and the footer fits on one line anyway -- which is why
+	## this is a handset branch and not a replacement.
+	##
+	## `separation` is a `BoxContainer` constant and means nothing to a flow
+	## container; the two it reads are `h_separation` and `v_separation`. Setting
+	## the wrong one is silent.
+	if _phone:
+		var flow := HFlowContainer.new()
+		flow.add_theme_constant_override("h_separation", 12)
+		flow.add_theme_constant_override("v_separation", 8)
+		_pane_footer = flow
+	else:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		_pane_footer = row
 	foot_pad.add_child(_pane_footer)
 
 	return wrap
@@ -1867,23 +1932,38 @@ func _footer_note(text: String) -> void:
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	## **Pointer and tablet only.** `FOOT_NOTE_MIN_W`'s ceiling is derived from
-	## the 736 px this row has at `min_size.x`; a handset's route pane is the
-	## whole 393 dp screen less padding, and the same 160 px there is 39 % of
-	## the row. Measured 2026-09-07 at `--force-touch --vp 500x1080`: with the
-	## floor applied, `export_maps`' footer asks 523 px against 464 px of room
-	## and the window's contents minimum reaches 673 against a 500 px screen,
-	## which puts the route's own picker at `shown=0.000`. Without it the same
-	## row asks 364 and fits. §13 already has an answer for the note there --
-	## `DccShell.phone_fit()` sets `clip_text` on any `Label` carrying
-	## `SIZE_EXPAND`, which this one now does and did not before -- so the trim
-	## still happens on a handset; only the floor stands down.
+	## the 736 px this row has at `min_size.x`; a handset's route pane is
+	## 376 px wide once `PANE_PAD_X` is paid twice, and the same 160 px there is
+	## 43 % of the row. The reason it stands down was that an `HBoxContainer`
+	## **adds** the floor to the chips beside it, so a floored note pushed the
+	## route's own picker off the screen.
 	##
-	## What that costs, stated rather than left to be found: on a handset the
-	## note can be squeezed to nothing, because `export_world`'s three chips
-	## alone are 477 px against 464 px of pane. That is a chip-wrapping problem
-	## in the handset footer and it predates this change (the note was 594 px
-	## there before it); a floor that fixes the note by pushing the chips and
-	## the body's own picker off the screen is not a fix.
+	## **That reason expired on 2026-09-07, in the same batch, and the carve-out
+	## is left standing anyway rather than changed on a lane's own authority.**
+	## The handset footer is now an `HFlowContainer` (see `_build_pane()`), whose
+	## minimum is its **widest child** and not the sum -- so a 160 px note is
+	## absorbed instead of added. Measured, floor forced on, `--force-touch
+	## --vp 500x1080`, one route per run so the pane sits at its true width:
+	##
+	##   export_world   note min 1 -> 160, DRAWN 7 px -> 192 px, footer demand
+	##                  171 either way, 2 wrapped lines, `fail=0` either way
+	##   export_gis     note min 1 -> 160, drawn 302 px both ways, demand
+	##                  94 -> 160, still inside the 376 px room
+	##   full sweep     `fail=5` with the floor and `fail=5` without -- the same
+	##                  five, every one of them a pane-BODY overflow
+	##
+	## So the floor now costs nothing on a handset and buys back a note that is
+	## otherwise **7 px of ellipsis** on the route whose whole job is to say
+	## where the file goes. Turning it on is a user-visible behaviour change on
+	## a surface this lane was told not to touch, so it is recorded here as a
+	## measurement and left for whoever owns that call. Do not repeat the old
+	## justification: it was true of an `HBoxContainer` footer and is not true
+	## of this one.
+	##
+	## §13's own answer for the note is unchanged either way --
+	## `DccShell.phone_fit()` sets `clip_text` on any `Label` carrying
+	## `SIZE_EXPAND`, which this one does -- so the trim still happens on a
+	## handset whatever the floor does.
 	if not _phone:
 		l.custom_minimum_size.x = FOOT_NOTE_MIN_W
 	## A trimmed tail is only acceptable because the whole string is still

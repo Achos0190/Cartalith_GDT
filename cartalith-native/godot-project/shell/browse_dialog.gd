@@ -93,10 +93,271 @@ static func choose_folder(host: Node, dialog_title: String, start_dir: String,
 
 ## Pick a file whose extension is in `extensions` (`["zip"]`, no dot).
 ## `on_choose` matches `FileDialog.file_selected`.
+##
+## **On Android this is not this dialog at all** -- owner ruling A, 2026-09-07
+## (`LARGE_ITEM_RULINGS.md`): *file*-picking goes through the OS document
+## picker, and *folder*-picking keeps this browser. The split is measured
+## rather than stylistic, and the two mechanisms are exactly complementary
+## with **zero permissions granted**:
+##
+##   * `DirAccess` lists shared storage's **directories** fine and cannot see
+##     a **file another uid wrote**. Verified on glass 2026-09-07 before this
+##     change: `Open project -- browse` landed in `/storage/emulated/0/Documents`
+##     and drew `Werk` and `the Shattered Realm` and **no rows for files**,
+##     with a real 3 493 626-byte `Werk.zip` sitting beside them and `Open`
+##     disabled. That is the owner's original complaint, exactly.
+##   * SAF sees every one of them -- and its `OPEN_DIR` returns a tree URI
+##     `DirAccess` refuses with **error 31**, which is why folders did *not*
+##     move and why `MANAGE_EXTERNAL_STORAGE` was offered and declined.
+##
+## Returns `null` on that path: there is no `DccBrowseDialog` to hand back.
+## Checked repo-wide 2026-09-07 -- every non-probe `choose_file` call site
+## discards the return (`app.gd` x2, `asset_library_window.gd` x2, `menus.gd`,
+## `open_project_dialog.gd`, `phone_project_picker.gd`), and the probes that
+## do read it run on desktop, where this branch is not taken.
 static func choose_file(host: Node, dialog_title: String, extensions: PackedStringArray,
 		start_dir: String, footnote: String, on_choose: Callable) -> DccBrowseDialog:
+	if _saf_file_picking():
+		_saf_choose_file(host, dialog_title, extensions, start_dir, on_choose)
+		return null
 	return _spawn(host, dialog_title, PickKind.FILES, extensions, start_dir,
 		footnote, on_choose)
+
+# ---------------------------------------------------------------------------
+# Android: the OS document picker (owner ruling A)
+# ---------------------------------------------------------------------------
+
+## **Branches on the platform, deliberately -- not on the feature flag.**
+## `FEATURE_NATIVE_DIALOG_FILE` is true on Windows and on Linux too, and this
+## shell's whole premise is that it draws its own chrome: keying off the flag
+## alone would silently replace the desktop picker with the OS one, which is
+## the regression the ruling's "desktop must not regress" is about.
+##
+## The flag is still consulted, and only as an **availability** check on the
+## side that has already been chosen: an Android build whose `DisplayServer`
+## cannot raise the picker falls back to the in-shell browser rather than to
+## nothing at all.
+static func _saf_file_picking() -> bool:
+	return OS.get_name() == "Android" \
+		and DisplayServer.has_feature(DisplayServer.FEATURE_NATIVE_DIALOG_FILE)
+
+## Raise Android's own document picker and hand the caller a path it can use.
+##
+## `start_dir` is passed through as the picker's opening hint **and** used as
+## the copy destination -- see `_saf_materialise()` for why a copy happens at
+## all. Android ignores the hint (SAF opens wherever the user last was); the
+## destination half is what the argument is really doing here.
+static func _saf_choose_file(host: Node, dialog_title: String,
+		extensions: PackedStringArray, start_dir: String, on_choose: Callable) -> void:
+	var exts := PackedStringArray()
+	var globs := PackedStringArray()
+	for e in extensions:
+		var clean := String(e).to_lower().trim_prefix(".")
+		if clean == "":
+			continue
+		exts.append(clean)
+		globs.append("*.%s" % clean)
+	var filters := PackedStringArray()
+	if not globs.is_empty():
+		filters.append("%s ; %s" % [", ".join(globs), ", ".join(exts).to_upper()])
+	## Second, never first. Godot turns each filter into a MIME type for
+	## `EXTRA_MIME_TYPES`, and a provider that reports an unexpected type for a
+	## file would otherwise hide it with no way for the user to say "show me
+	## anyway". The typed filter still opens selected, so the default view is
+	## the narrow one.
+	filters.append("*.* ; All files")
+	var err := DisplayServer.file_dialog_show(dialog_title, start_dir, "", false,
+		DisplayServer.FILE_DIALOG_MODE_OPEN_FILE, filters,
+		func(ok: bool, picked: PackedStringArray, _filter_index: int):
+			print("[saf] callback ok=%s n=%d %s" % [ok, picked.size(),
+				String(picked[0]) if not picked.is_empty() else ""])
+			if not ok or picked.is_empty():
+				return
+			var local := _saf_materialise(String(picked[0]), exts, start_dir)
+			if local == "":
+				_saf_say(host, "could not read the file that was picked")
+				return
+			if on_choose.is_valid():
+				on_choose.call(local))
+	if err != OK:
+		## Not silence: the picker failing to raise is indistinguishable from a
+		## dead button otherwise, and the in-shell browser is still a real
+		## answer for anything inside the app's own storage.
+		print("[saf] file_dialog_show refused (err %d) -- falling back" % err)
+		_spawn(host, dialog_title, PickKind.FILES, extensions, start_dir,
+			"the device picker was unavailable", on_choose)
+
+## Copy a `content://` document to a real file and return that path.
+##
+## **This is the whole reason ruling A is a caller audit.** Godot's own
+## `FileAccess` and `ZIPReader` read a document URI (measured: `err == 0` and
+## the exact byte length), but **not one consumer on the other side of
+## `on_choose` is Godot**. All four readers a `choose_file` result reaches are
+## Rust, and every one of them opens with `std::fs`, which knows nothing about
+## Android's content resolver:
+##
+## | reader | opens with |
+## |---|---|
+## | `project_bridge.rs::project_open` | `std::fs::File::open` |
+## | `lib.rs::load_save` | `std::fs::File::open` |
+## | `lib.rs::load_asset_pack` | `std::fs::read` |
+## | `lib.rs::import_heightmap` | `std::fs::read` |
+##
+## Handing any of them a URI is the "picker whose result is dropped" the
+## ruling names. Copying first is the only fix that does not reach into the
+## engine crate, and it is also what a native Android app does with a SAF
+## pick, so the caller-side contract is unchanged: **`on_choose` still
+## receives an absolute filesystem path**, and `get_base_dir()`,
+## `path_join()`, `get_file()`, `file_exists()` all keep working on it.
+##
+## The copy lands in `dest_dir` -- the caller's own `start_dir`, which is
+## already the right home for the kind of file being picked
+## (`storage_root("projects")` for a save, `storage_root("asset_packs")` for a
+## pack). That is deliberate and it is the difference between *importing* the
+## file and *hiding* it: the app's own gallery, recent list, Save and the
+## in-shell browser all find it afterwards. **What it is NOT is a link back to
+## the original** -- edits are saved to the copy, because the writers are the
+## same `std::fs` list above and Android grants no filesystem write to another
+## uid's file.
+static func _saf_materialise(uri: String, extensions: PackedStringArray,
+		dest_dir: String) -> String:
+	var src := FileAccess.open(uri, FileAccess.READ)
+	if src == null:
+		print("[saf] FileAccess refused %s (err %d)" % [uri, FileAccess.get_open_error()])
+		return ""
+	var size := src.get_length()
+	var dir := dest_dir
+	if dir == "" or not DirAccess.dir_exists_absolute(dir):
+		## `storage_root("projects")` does not exist until the first save, and
+		## on a fresh install that is exactly when this runs. Creating it is
+		## what the first save would have done anyway.
+		if dir != "" and DirAccess.make_dir_recursive_absolute(dir) != OK:
+			dir = ""
+		if dir == "":
+			dir = OS.get_user_data_dir()
+	var name := _saf_local_name(uri, extensions)
+	var dest := dir.path_join(name)
+	## Never clobber, and never litter either. Re-picking the same document is
+	## the common case (it is how a person reopens a project), so a name that is
+	## taken by a file of the **same length** is taken as that same document and
+	## reused; anything else gets a suffix. Bounded, because a `while` around a
+	## filesystem predicate is how a picker hangs.
+	var n := 2
+	while FileAccess.file_exists(dest) and n < 100:
+		var seen := FileAccess.open(dest, FileAccess.READ)
+		## Length was the whole test here until the verifier measured what that
+		## costs: a document with the **same name and the same byte length but
+		## different content** was reused, and the caller received the OLD file.
+		## Source first byte `0x5A`, delivered first byte `0x41` -- the person
+		## opens a different document than the one they picked, silently, and
+		## every downstream error message is then about the wrong file.
+		##
+		## So length is now the cheap pre-filter it should always have been, and
+		## the bytes decide. `_saf_same_bytes()` only runs when the lengths
+		## already match, which is the re-pick case this reuse exists for.
+		if seen != null and seen.get_length() == size \
+				and _saf_same_bytes(uri, dest, size):
+			print("[saf] reusing %s (%d bytes)" % [dest, size])
+			return dest
+		var ext := name.get_extension()
+		dest = dir.path_join("%s-%d%s" % [name.get_basename(), n,
+			("." + ext) if ext != "" else ""])
+		n += 1
+	var out := FileAccess.open(dest, FileAccess.WRITE)
+	if out == null:
+		## Not a failure -- a wrong destination, and the distinction is the
+		## whole bug. `dest_dir` is the caller's own `start_dir`, and two of the
+		## seven callers pass `_picker_start_dir()` -> `home_dir()`, which on
+		## Android resolves into **shared storage**. Shared storage EXISTS, so
+		## the `dir_exists_absolute` test above passes it, and it is **not
+		## writable at zero permissions** -- which is this whole feature's
+		## premise. The open then failed and the person was told "could not read
+		## the file that was picked" about a file that had read perfectly.
+		##
+		## Existence was the wrong question. The materialised copy is a cache of
+		## a picked document, so app-private storage is always a correct home
+		## for it; fall back there rather than refusing.
+		var fallback := OS.get_user_data_dir().path_join(name)
+		if fallback != dest:
+			print("[saf] %s is not writable (err %d) -- falling back to %s" % [
+				dest, FileAccess.get_open_error(), fallback])
+			dest = fallback
+			out = FileAccess.open(dest, FileAccess.WRITE)
+	if out == null:
+		print("[saf] cannot write %s (err %d)" % [dest, FileAccess.get_open_error()])
+		return ""
+	while not src.eof_reached():
+		out.store_buffer(src.get_buffer(1 << 20))
+	out.close()
+	## Length, not existence. A short read on a content stream produces a file
+	## that exists and is truncated, and `ZIPReader` would report that as "not
+	## a Cartalith save" -- a wrong sentence about a correct file.
+	var check := FileAccess.open(dest, FileAccess.READ)
+	if check == null or check.get_length() != size:
+		print("[saf] copy is %d of %d bytes -- refusing" % [
+			0 if check == null else check.get_length(), size])
+		return ""
+	print("[saf] copied %s -> %s (%d bytes)" % [uri, dest, size])
+	return dest
+
+## Do a picked document and an existing local copy hold the same bytes?
+##
+## Called only when the two already agree on length, so the common case this
+## guards -- reopening the same project -- is the only one that pays for it.
+## Compares in 1 MiB chunks rather than hashing, because that uses exactly the
+## two calls already proven to work on a `content://` URI (`FileAccess.open`
+## plus `get_buffer`); `get_sha256()` on a document URI is untested here and a
+## wrong answer from it would reintroduce the defect it exists to prevent.
+##
+## **Fails closed.** Anything unexpected -- either handle refusing to open, a
+## short read, a length that moved between the two opens -- returns `false`, so
+## the caller copies afresh. A needless copy costs disk; a wrong reuse hands
+## someone the wrong document.
+static func _saf_same_bytes(uri: String, dest: String, size: int) -> bool:
+	var a := FileAccess.open(uri, FileAccess.READ)
+	var b := FileAccess.open(dest, FileAccess.READ)
+	if a == null or b == null:
+		return false
+	if a.get_length() != size or b.get_length() != size:
+		return false
+	while not a.eof_reached():
+		if a.get_buffer(1 << 20) != b.get_buffer(1 << 20):
+			return false
+	## `b` must be spent too: a trailing tail on the local copy with an
+	## identical declared length would mean one of the two lied about its size.
+	return b.eof_reached()
+
+## The local file name for a picked document.
+##
+## A document URI is not a path and its tail is not always a name:
+## `ExternalStorageProvider` spells one document
+## `content://.../document/primary%3ADocuments%2FWerk.zip`, whose decoded tail
+## really is `Werk.zip`, while `DownloadsProvider` spells another
+## `content://.../document/msf%3A1000000123`, whose tail is an opaque row id.
+## The extension is the test: a tail that does not end in one of the
+## extensions the caller asked for is not a name, and a stamped one is used
+## instead of a plausible-looking `msf:1000000123`.
+static func _saf_local_name(uri: String, extensions: PackedStringArray) -> String:
+	var tail := uri.uri_decode().replace("\\", "/").get_file()
+	if tail != "" and (extensions.is_empty()
+			or extensions.has(tail.get_extension().to_lower())):
+		return tail
+	var ext := String(extensions[0]) if not extensions.is_empty() else "bin"
+	return "imported-%d.%s" % [Time.get_unix_time_from_system(), ext]
+
+## Say a failure where the person can see it. The phone hides the status
+## region, which is why `app.gd`'s own failure reports pair `set_status` with
+## a toast -- the same pairing, for the same reason.
+static func _saf_say(host: Node, line: String) -> void:
+	push_warning("Cartalith: " + line)
+	var shell := _shell_of(host)
+	if shell == null:
+		return
+	if shell.has_method("set_status"):
+		shell.set_status("hint", line, "accent")
+	if shell.has_method("is_phone") and shell.is_phone() \
+			and shell.has_method("_show_phone_toast"):
+		shell._show_phone_toast(line, null, 4.0)
 
 ## Choose *where to write* a new file. `default_name` fills the foot's name
 ## field (with `extension` appended if it carries none); `on_choose` is called

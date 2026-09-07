@@ -2680,10 +2680,24 @@ func _load_project(path: String) -> void:
 	## The distinction is one `file_exists` and it is worth making, because the
 	## two have different answers: a missing file is the list's problem and a
 	## refused one is the save's.
-	if not FileAccess.file_exists(path):
-		set_status("hint", "%s is no longer on disk" % path.get_file(), "accent")
-	else:
-		set_status("hint", "could not open %s — the engine refused the save" % path.get_file(), "accent")
+	##
+	## **And it has to be said where the person is looking.** Both sentences
+	## went only to `set_status`, and on a handset the status region is hidden
+	## inside the `More` list -- the same phone-invisibility the success branch
+	## above was already fixed for, on the same function, three lines up.
+	## Measured on glass 2026-09-07: opening the owner's own `Werk.zip` (a real
+	## 3.5 MB archive that is not a Cartalith save) through the new Android
+	## document picker failed correctly, said `missing zip entry: params.json`
+	## in the log, and showed the person **nothing at all**.
+	##
+	## Ruling A is why this now matters rather than merely being untidy: SAF is
+	## the first route this shell has ever had to a file it did not write, so
+	## "that .zip is not a Cartalith save" stopped being a rare answer.
+	var refusal := ("%s is no longer on disk" % path.get_file()) \
+		if not FileAccess.file_exists(path) \
+		else ("could not open %s — the engine refused the save" % path.get_file())
+	set_status("hint", refusal, "accent")
+	_show_phone_toast(refusal, null, 5.0)
 
 ## `Data ▸ Recent worlds` submenu entries all call this (`menus.gd`'s
 ## `_on_recent_world`) -- the exact same load path `open_project_picker()`'s

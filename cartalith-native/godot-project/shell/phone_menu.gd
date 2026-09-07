@@ -2764,31 +2764,101 @@ func _chip(text: String, on: bool, on_press: Callable) -> Button:
 	## `DccTheme.mono()`'s second argument has selected `FONT_MONO_MED` since it
 	## was written, so the whole change is `on` in the line below.
 	##
-	## Weight, not just colour, because the accent alone is not enough on this
-	## surface: `accent_ink` on an `accent` pill is a *contrast* cue, and a
-	## group whose chips wrap onto two lines (Undo history's five, VRAM
-	## budget's eight) is read by scanning, where a heavier stem lands before
-	## the fill does. Plex Mono Medium is metrically identical to Regular, so
-	## nothing in `_chips()`'s flow layout moves -- the chip does not resize and
-	## the row does not reflow when the selection changes.
+	## Weight is the half of the cue that costs no layout, and that is why it
+	## survived the ruling below: **Plex Mono Medium's advance is identical to
+	## Regular's**, so a group whose chips wrap onto two lines (Undo history's
+	## five, VRAM budget's eight) does not re-flow when the selection moves.
+	## Measured rather than asserted -- `_chipink_probe.gd` reads
+	## `get_string_size()` for both faces over all 38 chip labels this screen
+	## draws, flips each live chip's face under it, and builds a
+	## selected/unselected pair over one identical string: 0 px on every one.
 	b.add_theme_font_override("font", DccTheme.mono(0, on))
 	b.add_theme_font_size_override("font_size", _ps(10))
-	## `accent_ink`, not `bg`: the on-chip's background IS `c("accent")`, and
-	## `DccTheme.pill()`'s own comment names `accent_ink` as the ink that reads
-	## on it in both palettes. The off-chip sits on the screen's `bg` panel and
-	## so takes an ordinary text token.
-	b.add_theme_color_override("font_color",
-		DccTheme.c("accent_ink" if on else "text_dim"))
+	## **The accent, and it is not `accent_ink` -- `LARGE_ITEM_RULINGS.md`
+	## ruling B, owner, 2026-09-07.** Recorded at the call site because the
+	## ruling says to: *"Record it at the call site or a later conformance pass
+	## will read the accent as drift and remove it."*
+	##
+	## The owner asked for the selected option to read **bold**. True Bold (700)
+	## means a fourth face and a wider advance, which would re-flow every chip
+	## row -- and phone chip rows are where this project's clipping defects have
+	## appeared. So the ruling **keeps Medium and adds the accent ink**:
+	## *"Colour costs no layout at all, so it buys legibility for free."*
+	##
+	## **Which token: `accent`, not `accent_ink`.** The canvas's own chip helper
+	## for these screens gives a selected chip accent TYPE over a wash, never
+	## reversed type over a slab -- `design/mcp-2026-09-07/Cartalith
+	## Android.dc.html:1356`:
+	##
+	##     const chip=(on)=>({bord:on?'var(--acc)':'var(--hair)',
+	##                        col:on?'var(--acc)':'var(--sec)',
+	##                        bg:on?'var(--wash)':'transparent'});
+	##
+	## consumed at `AND:1362` (`opts:(r.opts||[]).map(v=>({v,...chip(v===r.cur)}))`)
+	## as the MORE screens' `seg` options, which is exactly this row. `--acc` is
+	## `#e0a34a` / `#a4650f` (`AND:31` / `AND:1469`) and `--accInk` is declared
+	## in those same two lines -- so the canvas has both and spends `--accInk`
+	## somewhere other than a chip's text.
+	##
+	## **The fill had to move with it, and that is a measurement rather than a
+	## preference:** accent type on an accent slab is **1.00:1**. The ink cannot
+	## change without the ground under it -- see `_chip_box()`.
+	var ink := DccTheme.c("accent") if on else DccTheme.c("text_dim")
+	b.add_theme_color_override("font_color", ink)
 	b.add_theme_color_override("font_hover_color",
-		DccTheme.c("accent_ink" if on else "text_bright"))
-	b.add_theme_color_override("font_pressed_color",
-		DccTheme.c("accent_ink" if on else "text_bright"))
+		ink if on else DccTheme.c("text_bright"))
+	## **The press flash is the on-state now, for both chips.** It used to be
+	## `pill(true)` + `accent_ink` whatever the chip's state, so tapping an
+	## unselected chip showed a filled amber slab for the press and then settled
+	## into a washed chip -- two different appearances for one selection.
+	## Pressing now previews the state the tap is about to produce.
+	##
+	## **`pill(true)` is not gone from this file**, and the claim is worth being
+	## exact about rather than sweeping: `_asset_cell()` still presses an asset
+	## slot into a filled pill. That is a momentary press state on a tile, not a
+	## `seg` on-state, so §7 does not reach it and this pass leaves it alone.
+	b.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
 	var pad := _ps(13)
-	b.add_theme_stylebox_override("normal", DccTheme.pill(on, _ps(20), pad, _ps(9)))
-	b.add_theme_stylebox_override("hover", DccTheme.pill(on, _ps(20), pad, _ps(9)))
-	b.add_theme_stylebox_override("pressed", DccTheme.pill(true, _ps(20), pad, _ps(9)))
+	b.add_theme_stylebox_override("normal", _chip_box(on, pad))
+	b.add_theme_stylebox_override("hover", _chip_box(on, pad))
+	b.add_theme_stylebox_override("pressed", _chip_box(true, pad))
 	b.pressed.connect(on_press)
 	return b
+
+## The chip's box: `DccTheme.pill()`'s geometry, the **washed** on-state's
+## colours.
+##
+## `DccWidgets.set_segment_on()` has built exactly this for every desktop and
+## tablet segment since 2026-09-06 -- `accent_wash_2` fill, `accent` ink,
+## `accent` border -- under the owner's §7 ruling in `LARGE_ITEM_RULINGS.md`:
+## *"Resolved to the WASHED treatment — `accent_wash_2` fill, `accent` ink,
+## border"*. This file was the one `seg` surface left drawing the **filled**
+## alternative, which is what `GUI_GAP_REGISTER.md` §48 (DS-02) removed
+## shell-wide and what `dcc_widgets.gd::set_mode_segment_on()` reserves for the
+## tool bar's three SCULPT / PAINT / MEASURE segments *"and nothing else"*.
+##
+## **Not a call to `set_segment_on()`.** That function carries its own 8/3
+## padding and its square-cornered `box()`; a phone chip is a fully rounded
+## 44 dp target at radius `_ps(20)`, and the ruling's whole point is that
+## nothing about the chip's geometry moves. Only the three colours are shared.
+##
+## **`accent_wash_2` (.16) and not `accent_wash` (.09)**, because this is a
+## segment on-state, which is the line `dcc_theme.gd`'s own token comment draws
+## between the two: `var(--wash2)` is 36 uses in the desktop prototype and every
+## one a segment or toggle on-state, `var(--wash)` is 13 and every one a hover
+## or a list-row selection. **The Android canvas cannot settle that on its own**
+## -- it declares a single `--wash`, `rgba(224,163,74,.14)` at `AND:31` and
+## `rgba(164,101,15,.10)` at `AND:1469`, and spends it on both jobs because it
+## has no `--wash2` to spend. The shell's two weights bracket those two figures.
+##
+## The fill is transparent-black rather than absent on the off chip, and the
+## border is `c("border")` there, both straight from `pill(false)`.
+func _chip_box(on: bool, pad: int) -> StyleBoxFlat:
+	var sb := DccTheme.pill(false, _ps(20), pad, _ps(9))
+	if on:
+		sb.bg_color = DccTheme.c("accent_wash_2")
+		sb.border_color = DccTheme.c("accent")
+	return sb
 
 ## §6.6's `range`: a label, a right-hand display, and a full-width slider with
 ## no steppers. Used **only** where the underlying quantity really is

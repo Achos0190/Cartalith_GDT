@@ -17,18 +17,55 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _panemin_probe.tscn -- --vp 1152x648
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _panemin_probe.tscn -- --vp 1680x1010
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _panemin_probe.tscn -- --vp 1024x640
+##   ... -- --force-touch --vp 1600x1000    tablet
+##   ... -- --force-touch --vp 500x1080     the narrowest handset this shell claims
 ##
 ## Flags this probe actually reads, grepped from the body below:
 ##   `--vp WxH`     OS window size in px. Default `1152x648`, the project's own.
 ##   `--tag NAME`   prefix on every line. Default `panemin`.
 ##   `--route ID`   walk only this route id. Default: every entry in `ROUTES`.
 ##   `--verbose`    print the full over-width chain per route, not just the leaf.
+##   `--force-touch` not read here -- `dcc_shell.gd` reads it -- but accepted, or
+##                 the run would abort on it and no touch pass could be taken.
 ## Any other `--flag` aborts rather than being silently ignored -- the header is
 ## a claim about this file's own code and is checked by `_reject_unknown_args`.
 ##
-## **Windowed on purpose.** No pixel is read here, so `--headless` would not be
-## vacuous the way it is for a texture probe -- but an embedded `Window` clamps
-## against the real screen, and the dummy driver's screen is not this machine's.
+## **Windowed, and `--headless` is refused rather than merely discouraged.**
+##
+## The claim this header used to make -- *"no pixel is read here, so `--headless`
+## would not be vacuous the way it is for a texture probe"* -- was false about
+## this probe's own code: `_ink_control()` reads the framebuffer, and `_grab()`
+## does it by `await RenderingServer.frame_post_draw`, a signal the dummy display
+## driver never emits. So a headless run does not go vacuous and it does not
+## finish either: the coroutine **suspends forever** after the last route, and
+## `get_tree().quit()` at the bottom of `_ready()` is never reached.
+##
+## Measured 2026-09-07 **on the version of this file that preceded the guard
+## below**, `--headless --vp 1152x648`, twice: **104 `OK` lines and then
+## nothing**, no `RESULT`, killed by `timeout` at 180 s with exit **124**. The
+## same command windowed printed **113 `OK` lines** and exited **0** in 10 s.
+## The nine that never ran were the ones that come after the route loop -- the
+## ink control, the counterfactual, the A/B summary, this lane's own footer
+## claim, and the **positive control**, which is the only assertion in the file
+## that proves the measurement is able to fail at all. So a headless run was not
+## "everything passed and then it hung": it stopped short, and the part it
+## stopped short of is the part that gives the other 104 their authority.
+##
+## Those two counts are history and are deliberately not restated as current:
+## the guard makes the headless number unreproducible, and this file has grown
+## assertions since. The current windowed run at `--vp 1152x648` is **143 `OK`,
+## 0 `FAIL`, 15 `SKIP`**, exit 0, 10 s.
+##
+## The shutdown noise a killed run prints -- leaked `NavMeshGeometryParser2D`/`3D`
+## RIDs, `A Thread object is being destroyed without its completion having been
+## realized`, `Unreferenced static string` -- is emitted by Godot *after* the
+## `SIGTERM`, on its way out. It is a **consequence** of the kill, not the cause
+## of the stall, and reading it as the cause points a fix at RID cleanup that
+## would change nothing. `_ready()` now aborts with exit 2 before any of it.
+##
+## The remaining reason to stay windowed is unchanged: an embedded `Window`
+## clamps against the real screen, and the dummy driver's screen is not this
+## machine's.
 
 var app: Node
 var _tag := "panemin"
@@ -53,15 +90,44 @@ func _skip(why: String) -> void:
 	_skipped += 1
 	_log("  SKIP %s" % why)
 
+## **The window's client rect in the space its own child `Control`s are laid out
+## in, which on a handset is NOT `Window.size`.**
+##
+## `DccWidgets.phone_present()` sets `content_scale_mode =
+## CONTENT_SCALE_MODE_CANVAS_ITEMS` and `content_scale_factor =
+## host.phone_scale()`, so a phone window's 2D space is its physical size
+## divided by that factor while `Window.size`, `Window.position` and the
+## framebuffer stay in physical pixels. Every rect this probe reads --
+## `get_global_rect()` on anything inside the window, `get_contents_minimum_size()`,
+## `custom_minimum_size` -- is in the scaled space.
+##
+## Comparing those against `win.size.x` was wrong in the permissive direction at
+## every handset leg, and the tell was in this probe's own output: the pane's
+## right edge measured **393** at `--vp 500x1080` and **393** again at
+## `--vp 1080x2340`, because both are the same ~411 dp layout at two different
+## scales -- while the checks were comparing it against 500 and against 1080.
+## That is `MISTAKES.md`'s "the same box three times and called it three
+## densities", plus a bound 21 % (at 500) to 163 % (at 1080) too generous.
+##
+## `Window.get_visible_rect()` is the engine's own answer in the scaled space,
+## so no arithmetic here can drift from what the layout used. It is the identity
+## on every non-phone window, where `content_scale_factor` is left at 1.0.
+func _client_rect(win: Window) -> Rect2:
+	return win.get_visible_rect()
+
+func _client_w(win: Window) -> float:
+	return _client_rect(win).size.x
+
 ## The width this window is actually promising to work at. `min_size.x` on a
 ## pointer or tablet build; on a phone that is 0 -- the phone window is the
-## screen -- so the screen is the promise there, and the caller is told which it
-## got rather than silently comparing against -288.
+## screen -- so the screen is the promise there, **measured in the space the
+## pane is laid out in**, and the caller is told which it got rather than
+## silently comparing against -288.
 func _promised_w(win: Window) -> float:
-	return float(win.min_size.x) if win.min_size.x > 0 else float(win.size.x)
+	return float(win.min_size.x) if win.min_size.x > 0 else _client_w(win)
 
 func _promise_name(win: Window) -> String:
-	return "declared min_size.x" if win.min_size.x > 0 else "the phone window's own width"
+	return "declared min_size.x" if win.min_size.x > 0 else "the phone window's own laid-out width"
 
 ## Everything the route pane does NOT get: the routes rail plus the pane's own
 ## horizontal padding. **The rail is only a term on a pointer or tablet.** §13
@@ -70,9 +136,13 @@ func _promise_name(win: Window) -> String:
 ## `size_flags_vertical = SIZE_EXPAND_FILL` instead of the
 ## `custom_minimum_size.x = W_RAIL` the pointer branch sets -- so on a handset
 ## the rail sits ABOVE the pane and takes none of its width. Subtracting 252 px
-## there charged the pane for a column it does not sit beside: it made a 500 dp
-## handset look like it had 212 px of footer room when it has 464, and turned
-## five routes red for 12 px that do not exist.
+## there charged the pane for a column it does not sit beside, and turned five
+## routes red for 12 px that do not exist.
+##
+## **The room figure this returns a chrome for is `_promised_w()`'s**, which is
+## now the window's laid-out client width rather than its physical size -- so
+## the handset's footer room is `412 - 36 = 376` px, not the `464` an earlier
+## version of this comment quoted off a 500 px OS window. See `_client_rect()`.
 func _chrome_w(w: Node) -> float:
 	var pad := float(w.PANE_PAD_X) * 2.0
 	return pad if DccTheme.is_phone() else float(w.W_RAIL) + pad
@@ -121,7 +191,11 @@ func _visible_rect(c: Control) -> Rect2:
 		if n is Control:
 			r = r.intersection((n as Control).get_global_rect())
 		elif n is Window:
-			r = r.intersection(Rect2(Vector2.ZERO, Vector2((n as Window).size)))
+			## `get_visible_rect()`, not `Vector2(size)` -- see `_client_rect()`.
+			## On a content-scaled handset window the two differ by the phone
+			## scale, and the physical one is the permissive direction: it made a
+			## control 163 % past the pane's real right edge intersect cleanly.
+			r = r.intersection(_client_rect(n as Window))
 			break
 		if r.size.x <= 0.0 or r.size.y <= 0.0:
 			return Rect2(r.position, Vector2.ZERO)
@@ -159,7 +233,18 @@ func _widest_chain(n: Control, floor_px: float, depth: int = 0) -> Array:
 	var d := depth
 	while cur != null and d < 40:
 		var m := cur.get_combined_minimum_size()
-		out.append("%s(%s)=%.0f" % [cur.name, cur.get_class(), m.x])
+		## The leaf's own text, when it has any. A chain that ends
+		## `@Label@5821(Label)=316` names a node id that will not exist on the
+		## next run and tells whoever reads it nothing about which row to open;
+		## `"…/exports/cartalith_world.geojson"` is the same finding, addressable.
+		var txt := ""
+		if cur is Label:
+			txt = (cur as Label).text
+		elif cur is Button:
+			txt = (cur as Button).text
+		if txt != "":
+			txt = ' "%s"' % (txt.substr(0, 44) + ("…" if txt.length() > 44 else ""))
+		out.append("%s(%s)=%.0f%s" % [cur.name, cur.get_class(), m.x, txt])
 		var best: Control = null
 		var best_x := -1.0
 		for ch in cur.get_children():
@@ -174,23 +259,46 @@ func _widest_chain(n: Control, floor_px: float, depth: int = 0) -> Array:
 		d += 1
 	return out
 
-## Sum of a horizontal box's children's minimum widths plus separations -- the
-## same arithmetic the container itself does, printed so a row's total can be
-## attributed to a term rather than to the row.
-func _hbox_terms(h: BoxContainer) -> String:
-	var sep := float(h.get_theme_constant("separation"))
+## The horizontal separation constant, by container class. `BoxContainer` calls
+## it `separation`; `FlowContainer` has **two**, `h_separation` and
+## `v_separation`, and asking a flow container for `separation` returns whatever
+## the default theme happens to carry under that name rather than the number it
+## actually lays out with. Reading the wrong one silently changes every term
+## printed below, which is the sort of quiet arithmetic error a probe exists to
+## not make.
+func _h_sep(c: Container) -> float:
+	return float(c.get_theme_constant("h_separation" if c is FlowContainer else "separation"))
+
+## Two numbers that are the same for an `HBoxContainer` and deliberately are not
+## for an `HFlowContainer`:
+##
+##   ROW SUM  what the children would cost laid end to end -- what an
+##            `HBoxContainer` demands, and what the pane footer demanded at
+##            every density until the handset footer was allowed to wrap.
+##   DEMAND   `get_combined_minimum_size().x`, what this container actually
+##            asks its parent for. A wrapping row asks for its **widest single
+##            child**, because one-per-line is a layout it can produce.
+##
+## Printing both is the whole measurement behind the wrap: the fix does not make
+## the chips narrower, it stops their sum from being a hard minimum.
+func _hbox_terms(h: Container) -> String:
+	var sep := _h_sep(h)
 	var parts: Array = []
 	var total := 0.0
+	var widest := 0.0
 	var n := 0
 	for ch in h.get_children():
 		if ch is Control and (ch as Control).is_visible_in_tree():
 			var m := (ch as Control).get_combined_minimum_size().x
 			parts.append("%s:%.0f" % [(ch as Control).get_class(), m])
 			total += m
+			widest = maxf(widest, m)
 			n += 1
 	if n > 1:
 		total += sep * float(n - 1)
-	return "%s = %.0f (sep %.0f x %d)" % [" + ".join(parts), total, sep, maxi(0, n - 1)]
+	return "%s | row sum = %.0f (sep %.0f x %d), widest child %.0f, %s DEMAND = %.0f" % [
+		" + ".join(parts), total, sep, maxi(0, n - 1), widest,
+		h.get_class(), h.get_combined_minimum_size().x]
 
 ## The footer note's floor, checked from **both** sides and against numbers this
 ## probe derives rather than against `FOOT_NOTE_MIN_W` itself -- an assertion
@@ -203,7 +311,7 @@ func _hbox_terms(h: BoxContainer) -> String:
 ##   floor    a literal 120 px, which is "writes into C:/Users/Vi…" and enough
 ##            to tell one note from another. Drop the constant to the 1 px a
 ##            trimmed `Label` reports and this goes red.
-func _footer_note_legs(w: Node, win: Window, route: String, foot: BoxContainer) -> void:
+func _footer_note_legs(w: Node, win: Window, route: String, foot: Container) -> void:
 	var note: Label = null
 	var chips := 0.0
 	var n := 0
@@ -216,26 +324,34 @@ func _footer_note_legs(w: Node, win: Window, route: String, foot: BoxContainer) 
 				chips += (ch as Control).get_combined_minimum_size().x
 	if note == null:
 		return
-	var sep := float(foot.get_theme_constant("separation"))
+	var sep := _h_sep(foot)
 	chips += sep * float(maxi(0, n - 1))
 	var promise := _promised_w(win)
 	var room := promise - _chrome_w(w)
 	var note_min := note.get_combined_minimum_size().x
 	var drawn := note.get_global_rect().size.x
-	_log("    note min=%.0f drawn=%.0f  chips+sep=%.0f  room at %s (%.0f - %.0f chrome)=%.0f"
-		% [note_min, drawn, chips, _promise_name(win), promise, _chrome_w(w), room])
-	## Premise: this is a claim about the NOTE's floor, so it is only meaningful
-	## where a zero-width note would have fitted. On a 500 dp handset
-	## `export_world`'s three chips alone are 477 px against 212 px of room --
-	## the row cannot fit whatever the note does, and failing it here would file
-	## a chip-width defect under a footer-note fix.
-	if chips > room:
-		_skip("%s: note-floor leg unsatisfiable -- the chips alone are %.0f px against %.0f px of room, so no note width fits"
-			% [route, chips, room])
-	else:
-		_check(note_min + chips <= room + 0.5,
-			"%s: the footer note's floor still leaves the chips their width at %s (%.0f + %.0f <= %.0f)"
-				% [route, _promise_name(win), note_min, chips, room])
+	var demand := foot.get_combined_minimum_size().x
+	_log("    note min=%.0f drawn=%.0f  chips+sep=%.0f  DEMAND=%.0f  room at %s (%.0f - %.0f chrome)=%.0f"
+		% [note_min, drawn, chips, demand, _promise_name(win), promise, _chrome_w(w), room])
+	## **The row's own demand, at every density, and it is not the sum.**
+	##
+	## The leg this replaced added the note's minimum to the chips' and compared
+	## that against the room -- correct arithmetic for an `HBoxContainer`, and
+	## the wrong question the moment the handset footer became an
+	## `HFlowContainer`. It also carried a `chips > room` **skip**, which stood
+	## down on exactly the route the wrap exists to fix (`export_world` at
+	## 500 dp: chips 477, room 464). A skip that fires precisely where the fix
+	## does its work cannot see the fix land, and would have gone on standing
+	## down afterwards with the row measuring 171.
+	##
+	## So ask the container what it demands. That is one expression for both
+	## shapes: an `HBoxContainer` answers with the sum, an `HFlowContainer` with
+	## its widest child, and either way it is the number that travels up the
+	## pane to the window. Measured against the room the pane actually has --
+	## `min_size.x` on a pointer or tablet, the screen on a handset.
+	_check(demand <= room + 0.5,
+		"%s: the footer row's own demand fits the pane at %s (%s asks %.0f <= %.0f)"
+			% [route, _promise_name(win), foot.get_class(), demand, room])
 	## Both floor legs are claims about `FOOT_NOTE_MIN_W`, which `_footer_note()`
 	## deliberately does not apply on a handset -- 160 px is 39 % of a 393 dp
 	## pane there, and applying it puts the route's own picker off the screen.
@@ -271,17 +387,104 @@ func _footer_note_legs(w: Node, win: Window, route: String, foot: BoxContainer) 
 	## edge must still land on the pane's right padding.
 	var edges: Array = []
 	var last_right := 0.0
+	var spills := 0
+	var fr := foot.get_global_rect()
+	## **Lines are counted by the x axis, not by y.** Counting distinct
+	## `position.y` values said `lines=2` for every route at every density,
+	## including single-line pointer rows -- because a flow (and a box) centres
+	## children of unequal height within one line, so the 14 px note sits at
+	## y 660 beside 44 px chips at y 645 and looks like a second row. A new line
+	## is a child whose left edge does not advance.
+	var line_count := 0
+	var prev_x := INF
 	for ch in foot.get_children():
 		if ch is Control and (ch as Control).is_visible_in_tree():
 			var g := (ch as Control).get_global_rect()
-			edges.append("%s[%.0f..%.0f]" % [(ch as Control).get_class(), g.position.x, g.end.x])
+			edges.append("%s[%.0f..%.0f]@y%.0f" % [(ch as Control).get_class(), g.position.x, g.end.x, g.position.y])
 			last_right = maxf(last_right, g.end.x)
-	_log("    footer laid: %s | row right edge %.0f, pane right edge %.0f (pad %d)"
-		% [" ".join(edges), last_right,
-			foot.get_global_rect().end.x, w.PANE_PAD_X])
-	_check(absf(last_right - foot.get_global_rect().end.x) < 1.5,
+			if g.position.x <= prev_x:
+				line_count += 1
+			prev_x = g.position.x
+			if g.position.x < fr.position.x - 0.5 or g.end.x > fr.end.x + 0.5:
+				spills += 1
+	_log("    footer laid: %s | widest line right edge %.0f, pane right edge %.0f (pad %d), lines=%d"
+		% [" ".join(edges), last_right, fr.end.x, w.PANE_PAD_X, line_count])
+	## **Two claims, and the wrap only touches the second.**
+	##
+	## The first is that removing `spacer()` did not leave the chips floating in
+	## the middle of the row: the note is a left-aligned `SIZE_EXPAND_FILL`
+	## `Label` and is now doing the spacer's job, so the row must still reach
+	## its own right edge. `last_right` is a **max over every child**, not the
+	## last child, so it survives wrapping unchanged -- the first line still
+	## fills, because the note absorbs that line's slack. Measured on an
+	## isolated `HFlowContainer` before this was relied on: an EXPAND_FILL label
+	## plus 171/125/145 px chips in a 464 px row lays the label at 0..144, two
+	## chips to 464 exactly, and the third onto line 2.
+	_check(absf(last_right - fr.end.x) < 1.5,
 		"%s: the chips still sit on the row's right edge without the spacer (%.0f vs %.0f)"
-			% [route, last_right, foot.get_global_rect().end.x])
+			% [route, last_right, fr.end.x])
+	## The second is what the wrap actually buys, and it is a per-child claim
+	## rather than a claim about a total: a wrapped chip has to land **inside**
+	## the row, not merely change which line it is on. A chip that spills is the
+	## failure mode this replaced -- `export_world`'s third chip ran to 502 px
+	## against a 464 px pane at 500 dp -- and counting spills catches it whether
+	## the row wraps or not.
+	_check(spills == 0,
+		"%s: every footer child is laid INSIDE the row across all %d line(s) (%d spilled past %.0f..%.0f)"
+			% [route, line_count, spills, fr.position.x, fr.end.x])
+	## **The two separations, pinned as DRAWN GAPS against literals.**
+	##
+	## `12` and `8` are the numbers `_build_pane()` writes, and an assertion made
+	## against `_pane_footer`'s own theme constants would hold for every value of
+	## them. So measure the gaps the layout actually produced instead: the space
+	## between two chips on one line is `h_separation`, and the space between the
+	## bottom of one line and the top of the next is `v_separation`. Move either
+	## constant in either direction and these go red.
+	##
+	## `12` is checked at every density -- the pointer `HBoxContainer` and the
+	## handset `HFlowContainer` are deliberately set to the same horizontal
+	## spacing, so one literal covers both branches and a future edit cannot let
+	## them drift apart silently. `8` exists only where a row wrapped, so its leg
+	## states plainly that it did not run rather than passing on an empty set.
+	var lines: Array = []
+	for ch in foot.get_children():
+		if ch is Control and (ch as Control).is_visible_in_tree():
+			var g := (ch as Control).get_global_rect()
+			if lines.is_empty() or g.position.x <= (lines[lines.size() - 1] as Array).back().position.x:
+				lines.append([g])
+			else:
+				(lines[lines.size() - 1] as Array).append(g)
+	var h_gaps: Array = []
+	for ln in lines:
+		var arr: Array = ln
+		for i in range(1, arr.size()):
+			h_gaps.append(roundf((arr[i] as Rect2).position.x - (arr[i - 1] as Rect2).end.x))
+	if h_gaps.is_empty():
+		_skip("%s: h-gap leg -- this route's footer lays a single child, so there is no gap to measure" % route)
+	else:
+		var bad_h := 0
+		for g in h_gaps:
+			if absf(float(g) - 12.0) > 0.5:
+				bad_h += 1
+		_check(bad_h == 0, "%s: chips on one line are 12 px apart as drawn (gaps %s)" % [route, str(h_gaps)])
+	if lines.size() < 2:
+		_skip("%s: v-gap leg -- this footer fits on one line here, so no wrap gap exists to measure" % route)
+	else:
+		var v_gaps: Array = []
+		for i in range(1, lines.size()):
+			var prev_bottom := -1e9
+			for g in (lines[i - 1] as Array):
+				prev_bottom = maxf(prev_bottom, (g as Rect2).end.y)
+			var next_top := 1e9
+			for g in (lines[i] as Array):
+				next_top = minf(next_top, (g as Rect2).position.y)
+			v_gaps.append(roundf(next_top - prev_bottom))
+		var bad_v := 0
+		for g in v_gaps:
+			if absf(float(g) - 8.0) > 0.5:
+				bad_v += 1
+		_check(bad_v == 0, "%s: wrapped footer lines are 8 px apart as drawn (%d lines, gaps %s)"
+			% [route, lines.size(), str(v_gaps)])
 
 	var foot_before := foot.get_combined_minimum_size().x
 	var kept_text := note.text
@@ -338,7 +541,7 @@ func _grab() -> Image:
 		return null
 	return t.get_image()
 
-func _ink_control(win: Window, route: String, foot: BoxContainer) -> void:
+func _ink_control(win: Window, route: String, foot: Container) -> void:
 	var note: Label = null
 	for ch in foot.get_children():
 		if ch is Label:
@@ -360,12 +563,45 @@ func _ink_control(win: Window, route: String, foot: BoxContainer) -> void:
 		_skip("%s: no ink reading -- the note's drawn rect is %.0fx%.0f, so there is nothing on screen to measure"
 			% [route, vis.size.x, vis.size.y])
 		return
-	var r := Rect2(vis.position + Vector2(win.position), vis.size)
 	await _frames(3)
 	var before := await _grab()
 	if before == null:
 		_check(false, "%s: the framebuffer is readable (windowed, not headless)" % route)
 		return
+	## **Three coordinate spaces, and this reading used to conflate two of them.**
+	##
+	##   1. inside `win`  -- what `vis` is in. Scaled by `content_scale_factor`
+	##                       on a handset (`DccWidgets.phone_present()`), 1:1
+	##                       everywhere else.
+	##   2. the root viewport -- what `win.position` is in.
+	##   3. the framebuffer -- what `Image.get_pixel()` addresses.
+	##
+	## The old line was `vis.position + Vector2(win.position)`, which adds a
+	## space-2 offset to a space-1 rect and hands the sum to space 3. On a
+	## pointer window all three coincide and it was right by accident. On a
+	## handset it is not: measured at `--force-touch --vp 500x1080`, the window
+	## is 500 physical px across and its own 2D space is **412**, a factor of
+	## 1.214; at `--vp 1080x2340` the same 412 dp layout is scaled by 2.62.
+	##
+	## The consequence was a control that could not move. At 1080x2340 the
+	## reading came back **0 ink with text and 0 ink blanked** -- it was sampling
+	## a flat patch of background 60 % of the way short of the note -- and at
+	## 500x1080 **146 and 146**, the same handful of edge pixels either way.
+	## Both would have been read as "the note does not render".
+	##
+	## It never surfaced before this batch because the handset note was 1 px
+	## wide and the degenerate-rect guard above skipped the whole reading.
+	## Letting the footer wrap gave the note a real box, and that box was the
+	## first thing ever to reach this code at a scale other than 1.
+	var win_scale := float(win.size.x) / maxf(1.0, _client_w(win))
+	var root_vis: Vector2 = get_viewport().get_visible_rect().size
+	var fb_scale := float(before.get_width()) / maxf(1.0, root_vis.x)
+	var r := Rect2(
+		(Vector2(win.position) + vis.position * win_scale) * fb_scale,
+		vis.size * win_scale * fb_scale)
+	if absf(win_scale - 1.0) > 0.001 or absf(fb_scale - 1.0) > 0.001:
+		_log("    (window content scale %.3f, framebuffer/viewport scale %.3f -- note rect %s in window space maps to %s)"
+			% [win_scale, fb_scale, str(vis), str(r)])
 	var ink_before := _ink_in(before, r)
 	var kept := note.text
 	note.text = ""
@@ -402,7 +638,7 @@ func _ink_control(win: Window, route: String, foot: BoxContainer) -> void:
 ## does not hold is not a finding, it is an unsatisfiable check -- so the break
 ## is asserted only where the pre-fix minimum actually exceeded the window, and
 ## the run as a whole asserts that at least one route did.
-func _ab(w: Node, win: Window, route: String, foot: BoxContainer, post_min: float) -> void:
+func _ab(w: Node, win: Window, route: String, foot: Container, post_min: float) -> void:
 	var note: Label = null
 	for ch in foot.get_children():
 		if ch is Label:
@@ -452,14 +688,14 @@ func _ab(w: Node, win: Window, route: String, foot: BoxContainer, post_min: floa
 	## its `Browse…` still draws at 821..891, because the overflow lands to the
 	## right of it -- guarding on the total put a second unsatisfiable check
 	## here after the first one was corrected.
-	if pre_edge > float(win.size.x) + 0.5:
+	if pre_edge > _client_w(win) + 0.5:
 		_pre_broke += 1
 		_check(pre_shown < 0.999,
-			"%s: the PRE-FIX footer still breaks the picker, so the check above can fail (right edge %.0f > window %d, shown=%.3f)"
-				% [route, pre_edge, win.size.x, pre_shown])
+			"%s: the PRE-FIX footer still breaks the picker, so the check above can fail (right edge %.0f > client %.0f, shown=%.3f)"
+				% [route, pre_edge, _client_w(win), pre_shown])
 	else:
-		_log("      (no picker leg: pre-fix right edge %.0f is inside this %d px window; the route's %.0f px of overflow lands elsewhere in the row)"
-			% [pre_edge, win.size.x, maxf(0.0, pre_min.x - float(win.size.x))])
+		_log("      (no picker leg: pre-fix right edge %.0f is inside this %.0f px client area; the route's %.0f px of overflow lands elsewhere in the row)"
+			% [pre_edge, _client_w(win), maxf(0.0, pre_min.x - _client_w(win))])
 	foot.remove_child(spacer)
 	spacer.queue_free()
 	note.size_flags_horizontal = keep_flags
@@ -491,7 +727,7 @@ func _ab(w: Node, win: Window, route: String, foot: BoxContainer, post_min: floa
 ## is embedded in reports its own children as perfectly inside *itself* -- the
 ## clip that matters has moved one level out, which is the same reason
 ## `_visible_rect()` has to carry the `Window` term at all.
-func _counterfactual(w: Node, win: Window, foot: BoxContainer) -> void:
+func _counterfactual(w: Node, win: Window, foot: Container) -> void:
 	## Premise: `_popup_full()` is what turns `min_size` into a window size, and
 	## on a phone its FIRST line returns before it sizes anything (§13 gives the
 	## handset the whole screen). Raising a minimum that nothing reads measures
@@ -569,6 +805,18 @@ func _ready() -> void:
 	if not _reject_unknown_args():
 		get_tree().quit(2)
 		return
+	## **Refuse rather than hang.** See the header: `_grab()` awaits
+	## `RenderingServer.frame_post_draw` and the dummy driver never emits it, so
+	## a headless run suspends after the last route with no `RESULT` and no
+	## positive control, and a `timeout` then reports 124 -- an exit code that
+	## says "this probe failed" about a probe that never finished asking. Exit 2
+	## is this file's existing "could not run" code, the same one an unknown
+	## flag gets.
+	if DisplayServer.get_name() == "headless":
+		_log("ABORT --headless: `_ink_control()` reads the framebuffer via `await RenderingServer.frame_post_draw`,")
+		_log("      which the dummy driver never emits. Run this probe WINDOWED. Exit 2 = could not run.")
+		get_tree().quit(2)
+		return
 	var parts: PackedStringArray = _arg("--vp", "1152x648").split("x")
 	if parts.size() != 2:
 		_log("ABORT --vp wants WxH")
@@ -617,9 +865,9 @@ func _ready() -> void:
 		if foot_min > _worst_foot:
 			_worst_foot = foot_min
 			_worst_foot_route = route
-		var room := float(win.size.x)
-		_log("route %-12s contents_min.x=%7.1f  pane_body_min.x=%7.1f  pane_footer_min.x=%7.1f  window=%d  over=%+.0f"
-			% [route, cmin.x, body_min, foot_min, win.size.x, cmin.x - room])
+		var room := _client_w(win)
+		_log("route %-12s contents_min.x=%7.1f  pane_body_min.x=%7.1f  pane_footer_min.x=%7.1f  client_w=%.0f  over=%+.0f"
+			% [route, cmin.x, body_min, foot_min, room, cmin.x - room])
 		## **Walk from the WINDOW's own root child, not from `_pane_body`.**
 		## The first cut of this probe walked the body and reported a 546 px
 		## leaf under a 1372 px total -- the body is not where the width comes
@@ -635,8 +883,14 @@ func _ready() -> void:
 			var chain := _widest_chain(top, 1.0)
 			_log("    widest leaf: %s" % chain[chain.size() - 1])
 			_log("    chain: %s" % " > ".join(chain))
-		if foot is BoxContainer:
-			_log("    footer terms: %s" % _hbox_terms(foot as BoxContainer))
+		## **`Container`, not `BoxContainer`.** The handset footer is an
+		## `HFlowContainer`, which derives from `FlowContainer` and NOT from
+		## `BoxContainer` -- so a `foot is BoxContainer` gate here would have gone
+		## quietly false on the phone the moment the wrap landed, taking the
+		## footer terms, the note legs and the A/B reconstruction with it and
+		## leaving a green run that had stopped testing the thing that changed.
+		if foot is Container:
+			_log("    footer terms: %s" % _hbox_terms(foot as Container))
 			## **`await`, and it is load-bearing.** This became a coroutine when
 			## the path-length leg was added, and calling a coroutine without
 			## `await` starts it and returns -- so it sat suspended at its own
@@ -646,7 +900,7 @@ func _ready() -> void:
 			## the fix produces. It reported the fix failing its own headline
 			## property on all three export routes. Diagnosed by printing the
 			## four properties instead of reasoning about Godot's Label.
-			await _footer_note_legs(w, win, route, foot as BoxContainer)
+			await _footer_note_legs(w, win, route, foot as Container)
 		## Every picker on this route, drawn rect against the VISIBLE rect.
 		for b in _pickers(w, []):
 			var btn := b as Button
@@ -663,49 +917,49 @@ func _ready() -> void:
 			## `--force-touch --vp 1080x2340`. So the horizontal test is the one
 			## asserted everywhere; `shown` is asserted where nothing has
 			## scrolled it away.
-			_check(own.position.x >= -0.5 and own.end.x <= float(win.size.x) + 0.5,
-				"%s: %s is inside the window HORIZONTALLY (%.0f..%.0f vs 0..%d)"
-					% [route, btn.text, own.position.x, own.end.x, win.size.x])
+			_check(own.position.x >= -0.5 and own.end.x <= room + 0.5,
+				"%s: %s is inside the window HORIZONTALLY (%.0f..%.0f vs 0..%.0f)"
+					% [route, btn.text, own.position.x, own.end.x, room])
 			if DccTheme.is_phone():
 				_skip("%s: %s full-area leg -- a handset pane scrolls vertically, so shown=%.3f is a scroll position"
 					% [route, btn.text, sh])
 			else:
 				_check(sh > 0.999,
-					"%s: %s is fully drawn inside the window (shown=%.3f, right edge %.0f vs window %d)"
-						% [route, btn.text, sh, own.end.x, win.size.x])
+					"%s: %s is fully drawn inside the window (shown=%.3f, right edge %.0f vs client %.0f)"
+						% [route, btn.text, sh, own.end.x, room])
 		_check(cmin.x <= room + 0.5,
-			"%s: the route's contents fit the window it opens at (%.0f <= %d)"
-				% [route, cmin.x, win.size.x])
+			"%s: the route's contents fit the window it opens at (%.0f <= %.0f)"
+				% [route, cmin.x, room])
 		## Only the routes that actually carry a picker -- the A/B's assertion
 		## is about a picker being pushed off the edge, and a route with none
 		## would make it unsatisfiable.
-		if foot is BoxContainer and not _pickers(w, []).is_empty():
-			await _ab(w, win, route, foot as BoxContainer, cmin.x)
+		if foot is Container and not _pickers(w, []).is_empty():
+			await _ab(w, win, route, foot as Container, cmin.x)
 
 	## The pixel reading, on the route that carries the longest note -- the one
 	## the trim actually bites on. Geometry has already said the box is there.
 	if _only == "" or _only == "export_world":
 		w.open_route("export_world")
 		await _frames(8)
-		await _ink_control(win, "export_world", w._pane_footer as BoxContainer)
-		await _counterfactual(w, win, w._pane_footer as BoxContainer)
+		await _ink_control(win, "export_world", w._pane_footer as Container)
+		await _counterfactual(w, win, w._pane_footer as Container)
 
 	## **A guard that cannot fail is not a guard.** Every per-route picker leg is
 	## premise-guarded, so at a wide viewport all of them correctly stand down --
 	## and the run would then be green having proved nothing about the fix. This
 	## says out loud which of the two cases this run is, and requires the break
 	## to have been demonstrated whenever the pre-fix minimum could reach it.
-	_log("A/B: worst PRE-FIX minimum %.0f px, window %d, routes whose picker it broke: %d"
-		% [_pre_worst, win.size.x, _pre_broke])
+	_log("A/B: worst PRE-FIX minimum %.0f px, client %.0f, routes whose picker it broke: %d"
+		% [_pre_worst, _client_w(win), _pre_broke])
 	_check(_pre_worst > float(win.min_size.x) + 0.5,
 		"the PRE-FIX state really did exceed the window's DECLARED minimum (%.0f > %d)"
 			% [_pre_worst, win.min_size.x])
-	if _pre_worst > float(win.size.x) + 0.5:
+	if _pre_worst > _client_w(win) + 0.5:
 		_check(_pre_broke > 0,
 			"this run DID exercise the defect (%d route(s) broken before the fix)" % _pre_broke)
 	else:
-		_log("  note: %d px is wider than the worst pre-fix minimum (%.0f), so this run"
-			% [win.size.x, _pre_worst])
+		_log("  note: %.0f px of client area is wider than the worst pre-fix minimum (%.0f), so this run"
+			% [_client_w(win), _pre_worst])
 		_log("        shows the fix is harmless here, NOT that it is needed here.")
 
 	## **A READING, not an assertion.** The declared minimum has two numbers and
@@ -752,20 +1006,23 @@ func _ready() -> void:
 				_worst_body, _worst_body_route, _worst_foot, _worst_foot_route,
 				"; a BODY failure is pre-existing and outside the footer fix"
 					if driver == "BODY" else ""])
-	## The phone is a reading, not this lane's claim. `_worst_foot` there is
-	## 637 px of which the note is 160 and the three `export_world` chips are
-	## 477: deleting the note outright would still leave 765 px against a 393 dp
-	## pane, so the note is not what breaks the handset and asserting it here
-	## would file a chip-width defect under a footer-note fix.
-	if DccTheme.is_phone():
-		_log("  READING (phone, not asserted): footer %.0f + chrome %.0f vs a %.0f px window."
-			% [_worst_foot, chrome, _promised_w(win)])
-		_log("    The note contributes %d of that; the chips are the rest and are pre-existing."
-			% w.FOOT_NOTE_MIN_W)
-	else:
-		_check(_worst_foot + chrome <= _promised_w(win) + 0.5,
-			"THIS LANE'S CLAIM: the footer never decides the window's width above %s (%.0f + %.0f <= %.0f, widest at %s)"
-				% [_promise_name(win), _worst_foot, chrome, _promised_w(win), _worst_foot_route])
+	## **Asserted at every density now, the handset included.**
+	##
+	## This used to stand down on a phone and print a reading instead, and the
+	## reason given was true at the time: the note was not what broke the
+	## handset, the three `export_world` chips were, at 477 px against 464 px of
+	## pane. A footer-note fix could not answer a chip-width defect, so it did
+	## not pretend to.
+	##
+	## The chips are now in an `HFlowContainer` on a handset and wrap, so the
+	## row's demand is its widest single chip rather than their sum, and the
+	## claim becomes satisfiable at that density -- measured 478 -> 171 at
+	## `export_world`, 500 dp. Leaving it as a reading here would be the
+	## `_nwclip_probe` shape in reverse: a check that stood down for a good
+	## reason, kept standing down after the reason expired.
+	_check(_worst_foot + chrome <= _promised_w(win) + 0.5,
+		"THIS LANE'S CLAIM: the footer never decides the window's width above %s (%.0f + %.0f <= %.0f, widest at %s)"
+			% [_promise_name(win), _worst_foot, chrome, _promised_w(win), _worst_foot_route])
 
 	## **Positive control.** A measurement that cannot see a clip cannot fail,
 	## and every green line above would be vacuous. A throwaway control is
@@ -774,7 +1031,7 @@ func _ready() -> void:
 	## is doing any work.
 	var spy := ColorRect.new()
 	spy.size = Vector2(200.0, 20.0)
-	spy.position = Vector2(float(win.size.x) - 20.0, 40.0)
+	spy.position = Vector2(_client_w(win) - 20.0, 40.0)
 	spy.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	win.add_child(spy)
 	await _frames(3)
