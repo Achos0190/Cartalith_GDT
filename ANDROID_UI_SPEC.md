@@ -1084,7 +1084,22 @@ rows — `_go_civilization()` and `_go_simulation()` — so **no MORE row opens 
 for furniture rather than for the tools behind it.
 
 **Measure is worse, and this one was measured rather than reasoned.**
-`app.arm_tool("measure")` is reached only from `tool_bar.gd::_select_mode()`,
+`app.arm_tool("measure")` has **three** call sites, not one, and the
+conclusion below survives that while this sentence did not. The generic call
+in `tool_bar.gd::_select_mode()`, plus two literal ones in `global_tools.gd` —
+`set_measure_mode()` at :195, called from `tool_bar.gd` :559/:593 and so still
+inside the same circle, and `recall_measurement()` at :147, called from
+`right_dock.gd:3332::_on_measure_recall`, which **is** a genuinely different
+entry point. **It cannot be a FIRST entry to Measure** — `_on_measure_recall`
+returns early unless `_saved_measurements` is non-empty, and nothing can be
+saved before the tool has been armed once. So the trap holds; the count did
+not. **Corrected 2026-09-07 after a re-check, because a reader who verifies
+"only from" finds three sites and stops trusting the paragraph** — and the
+paragraph is right. (The same passage cited `grep -in measure shell/menus.gd`
+as finding one comment; it finds **20** lines, all prose or an unrelated
+readout.)
+
+Reached from `tool_bar.gd::_select_mode()`,
 whose `SCULPT / PAINT / MEASURE` segment `DccToolBar._build()` draws — and
 `_build` fills `tool_options_row` only while one of those three is *already
 armed* (`_on_tool_armed` returns early otherwise). So the one control that arms
