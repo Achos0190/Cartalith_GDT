@@ -89,6 +89,14 @@ func _ready() -> void:
 	## Prints the chain of descendants whose own combined minimum meets or
 	## exceeds the dock's, which is what makes one of them the driver rather
 	## than a passenger.
+	## The dock's OWN floor, printed beside the role it should have taken.
+	## `_build_left_dock()` does `left_dock.custom_minimum_size.x = _left_width`,
+	## and `_left_width` is a cached var, not a live role read -- so it can hold
+	## a figure from whichever band was current when it was last resolved.
+	print("  [floor] _left_width=%s  _right_width=%s  role_left=%s  role_right=%s  ld_cms=%.1f" % [
+		str(app.get("_left_width")), str(app.get("_right_width")),
+		str(DccTheme.role_px("w_left_dock")), str(DccTheme.role_px("w_right_dock")),
+		(app.left_dock as Control).custom_minimum_size.x])
 	_drivers("left_dock", app.left_dock, want_dock)
 	_drivers("right_dock", app.right_dock, want_dock)
 
@@ -162,8 +170,19 @@ static func _drivers_walk(node: Node, floor_w: float, depth: int) -> void:
 					txt = str(ctl.call("get_text")).strip_edges()
 				elif "text" in ctl:
 					txt = str(ctl.get("text")).strip_edges()
-				print("  %s%s  min=%.1f  vis=%s  %s" % [
+				## **Both flags, and they are different facts.** A container's
+				## minimum counts a child by the child's OWN `visible`; a child with
+				## `visible == true` inside a hidden parent still contributes to that
+				## parent. `is_visible_in_tree()` is false the moment ANY ancestor is
+				## hidden -- including the dock itself while collapsed -- so reading
+				## it alone says "invisible" about nodes that are sizing the layout.
+				##
+				## Printing only the tree flag produced exactly that wrong reading
+				## here on 2026-09-07, and it is the mirror of the planner defect:
+				## there `.visible` was true while `is_visible_in_tree()` was false
+				## and a probe believed the first; here a probe believed the second.
+				print("  %s%s  min=%.1f  own_vis=%s  in_tree=%s  %s" % [
 					"  ".repeat(depth), ctl.get_class(), m,
-					str(ctl.is_visible_in_tree()),
+					str(ctl.visible), str(ctl.is_visible_in_tree()),
 					("\"" + txt.left(46) + "\"") if txt != "" else ctl.name])
 		_drivers_walk(child, floor_w, depth + 1)

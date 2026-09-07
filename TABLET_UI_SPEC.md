@@ -224,8 +224,17 @@ copied out of the table:
 > by a child rather than by its role.
 >
 > **That matters for scoping the tablet work:** the dock split does not need to
-> be built, it needs one over-wide child found. **99 of the 285 px portrait
-> overflow is this one dock.**
+> be built. The role, the cached width and the dock's own floor all read 232
+> (`[floor] _left_width=232.0 role_left=232 ld_cms=232.0`), so the 331 is
+> `get_minimum_size()` — the panel's CONTENT — and one contributor has to be
+> found. **99 of the 285 px portrait overflow is this one dock.**
+>
+> **Two diagnoses were filed and retracted before this one, both by me, both
+> within an hour**: that the role was not applied (it is), and that hidden
+> workspace panels were sizing it (they are `own_vis=false` and cannot). The
+> second came from a probe printing `is_visible_in_tree()` where the container
+> minimum uses the child's own `visible` — the mirror of the planner defect.
+> `_tabspec_probe` now prints both flags.
 | `--tap` | 44 | `_ttap()` floors to `max(44, round(px × TOUCH_SCALE))`, `TOUCH_SCALE = 1.53` | — |
 | `--ctl` | 36 | `ROLE`'s control rung, 24 → 36 | — |
 | `--row` / `--rowD` | 48 / 44 | `ROLE`'s row, 28 → **44** (one figure, not two) | — |
