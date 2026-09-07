@@ -980,6 +980,34 @@ of the four chips have nothing to select and must be dashed with that reason.
 engine is rendering with, and `reset_appearance()` returns **how many overrides
 it dropped**, which is exactly "has this been edited since the preset".
 
+### 2.4a The closing footnote — the fourth top-level child, and the block's only line-height
+
+**Added 2026-09-07. §2 inventoried three of `tabIsMap`'s four top-level
+children and stopped.** Canvas line 240, verbatim:
+
+```html
+<div style="font:9.5px/1.6 'IBM Plex Mono',monospace;color:var(--faint);padding:0 2px">Presentation only — nothing here alters world data or marks a generation stage stale.</div>
+```
+
+| | |
+|---|---|
+| Font | `9.5px/1.6 'IBM Plex Mono'` |
+| Colour | `var(--faint)` |
+| Padding | `0 2px` |
+| Position | Fourth and last top-level child of `tabIsMap`, inside the sheet |
+
+**Its `1.6` is the only line-height in the entire MAP block**, which is
+precisely the kind of value an inventory exists to carry: a reader porting this
+section has no other source for it, and a single-instance figure is the one most
+likely to be dropped.
+
+**Why it went missing is worth more than the node.** §2.6 quotes the *shipped*
+caption — a different string — in the place a comparison would have happened, so
+**the one section that could have caught the omission compared the build to
+itself.** The lane read the code and the spec; nobody read the canvas. It was
+found by reading `Cartalith Android.dc.html` line by line rather than by
+checking the inventory against anything.
+
 ### 2.5 The three MAP overlays drawn outside the sheet
 
 All three are `valsMap()`'s, all three sit over the map canvas, and all three
