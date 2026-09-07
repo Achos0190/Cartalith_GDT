@@ -186,6 +186,7 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
 | `TERRAIN_ARCHITECTURE_RESEARCH.md` | owner-supplied; tiling/LOD/clipmaps, mostly Phase-3-or-later |
 | `HETEROGENEOUS_COMPUTE_RESEARCH.md` | owner-supplied; hardware-tiered scheduling, mostly not yet applicable |
 | `TERRAIN_APPEARANCE_RESEARCH.md` | owner-supplied; the source for `TERRAIN_APPEARANCE_SCOPE.md` |
+| `HYDROLOGY_CLASSIFICATION_RESEARCH.md` | owner-supplied, imported verbatim 2026-09-08 — lake/sea/marine-basin classification by hydrological **topology** rather than surface area. **It contradicts what the engine does today**: `build_water_bodies` calls the *largest* below-sea component the ocean and every other one a lake, which is size-primary and has no connectivity, basin-topology or map-boundary state. Changing it is a **golden re-baseline** (it is `buildWaterBodies`, reference line 5753) and needs an owner ruling |
 | `LANDMARK_GENERATION_RESEARCH.md` | owner-supplied, imported verbatim 2026-08-30; a geographic-causality framework for landmark placement (TPI, viewshed, least-cost path, Poisson-disc, spatial interaction) — see `LANDMARK_GENERATION_SCOPE.md` for what of it this port already has |
 | **Directories** | |
 | `cartalith-native/` | the Cargo workspace (16 crates) and the Godot project |
