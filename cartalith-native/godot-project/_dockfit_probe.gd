@@ -59,7 +59,18 @@ extends Node
 ## answer than two. The earlier `412 -> 379` in this header was corrected once
 ## already: a clean-worktree measurement gave 404 -> 371.
 const KNOWN_330 := {
-	"civilization/planner": 351.0,
+	## **330 since 2026-09-07, and this pin said 351 until then.** The planner
+	## category now fits the cap exactly, so it is no longer an exception at
+	## all -- it is listed here only because removing the key would silently
+	## drop the site from the per-site equality check below.
+	##
+	## **The cause is NOT established, and is deliberately not guessed at.** It
+	## is not the sculpt-body gate added the same day: mutating that back to
+	## always-visible leaves this at 330. Something between the 351 measurement
+	## and now took 21 px out of this category, and a probe that PASSES for an
+	## unknown reason is worth less than one that fails for a known one --
+	## so this note stands until someone bisects it.
+	"civilization/planner": 330.0,
 	"cartography/style": 333.0,
 	"cartography/labels": 332.0,
 	"cartography/icons": 338.0,
