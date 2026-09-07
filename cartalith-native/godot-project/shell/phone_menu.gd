@@ -2614,9 +2614,65 @@ func _expand_sub(body: VBoxContainer, p: PopupMenu, node: String, label: String,
 				"press": func(): _activate(sub, idx, true)})
 		else:
 			rest.append(j)
-	_chips(body, label, chips)
+	_chips(body, _unstamped(label, chips), chips)
 	for j in rest:
 		_add(body, _popup_row(sub, j))
+
+## `label` with the value the chip row below it is about to light removed.
+##
+## **The same value was being drawn twice.** `menus.gd::_stamp_pref_values()`
+## rewrites every Preferences submenu ROW to `base + PREF_VALUE_SEP + picked`,
+## so a desktop popup can show a group's setting without opening it. `_rest_of()`
+## then hands that rewritten text straight down as this screen's caption -- and
+## the chip row underneath already draws `picked` in the accent. The screen read
+## `Tiled LOD   Auto on zoom` over an accented `Auto on zoom` chip, for eight of
+## the ten groups on it.
+##
+## **Theme and Units escaped it, and that escape is the shape of this fix.**
+## `_fill_prefs()` calls `_expand_sub()` for those two with a caption of its own
+## -- `"Theme"`, `"Units"` -- and never reads the popup's text at all. Everything
+## else arrives through `_rest_of()`, whose whole point is that it does not name
+## the rows it draws, so it cannot be the place that knows which suffix is a
+## readout. Stripping here, where the chips are already in hand, keeps that
+## property: `_rest_of()` stays a walk over `menus.gd`'s own order.
+##
+## Keyed to `PREF_VALUE_SEP` **and** to an ON chip's own label, taken from the
+## `chips` array rather than re-read from the submenu -- so what is stripped
+## cannot disagree with what is drawn. A group with no checked chip
+## (`Relief exaggeration`, whose chips are commands rather than a radio set) is
+## stamped by nothing and so trimmed by nothing.
+##
+## **The match is a prefix in EITHER direction, and that is not defensive
+## slack.** `_stamp_pref_values()` runs on the Preferences popup's own
+## `about_to_popup`, which `_menu_popup()` fires *before* `_expand_sub()` fires
+## the submenu's -- so on the first render of a screen the parent row is stamped
+## from submenu text that the submenu's own refresher has not written yet. With
+## a world loaded, `menus.gd::_refresh_undo_budget_menu()` rewrites `256 MB` to
+## `256 MB — 5 steps here`, and the caption read `Undo history   256 MB` over a
+## lit `256 MB — 5 steps here` chip: the same value twice, in two different
+## wordings, which an equality test cannot see. Found by generating a world in
+## the probe rather than by reading the code -- with no world the refresher
+## takes its `step <= 0` branch, writes the short form, and the defect is
+## invisible. The reverse (a stamp longer than the chip, after a world is
+## dropped) is the same fault mirrored, hence `or`.
+##
+## Not `_rest_of()`'s `_popup_row()` path: a submenu drawn as an ordinary drill
+## row has no chips under it, so there the stamped value is the only readout
+## there is and removing it would delete information rather than deduplicate it.
+func _unstamped(label: String, chips: Array) -> String:
+	var cut := label.rfind(DccMenus.PREF_VALUE_SEP)
+	if cut <= 0:
+		return label
+	var tail := label.substr(cut + DccMenus.PREF_VALUE_SEP.length())
+	if tail == "":
+		return label
+	for c in chips:
+		if not bool(c["on"]):
+			continue
+		var picked := String(c["label"])
+		if picked.begins_with(tail) or tail.begins_with(picked):
+			return label.substr(0, cut)
+	return label
 
 ## May this submenu be drawn inline as chips?
 ##
@@ -2700,7 +2756,22 @@ func _chip(text: String, on: bool, on_press: Callable) -> Button:
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size.y = _pt(44)
-	b.add_theme_font_override("font", DccTheme.mono(0))
+	## **Medium when selected.** The owner asked for the chosen option to read
+	## bold in the overview, and this was answered "not achievable" -- an answer
+	## that measured the DESKTOP `PopupMenu`, where it is true: none of its 25
+	## `set_item_*` methods carries a font, a weight or a style. This screen is
+	## not a `PopupMenu`. It is a `Button` that already sets its own face, and
+	## `DccTheme.mono()`'s second argument has selected `FONT_MONO_MED` since it
+	## was written, so the whole change is `on` in the line below.
+	##
+	## Weight, not just colour, because the accent alone is not enough on this
+	## surface: `accent_ink` on an `accent` pill is a *contrast* cue, and a
+	## group whose chips wrap onto two lines (Undo history's five, VRAM
+	## budget's eight) is read by scanning, where a heavier stem lands before
+	## the fill does. Plex Mono Medium is metrically identical to Regular, so
+	## nothing in `_chips()`'s flow layout moves -- the chip does not resize and
+	## the row does not reflow when the selection changes.
+	b.add_theme_font_override("font", DccTheme.mono(0, on))
 	b.add_theme_font_size_override("font_size", _ps(10))
 	## `accent_ink`, not `bg`: the on-chip's background IS `c("accent")`, and
 	## `DccTheme.pill()`'s own comment names `accent_ink` as the ink that reads

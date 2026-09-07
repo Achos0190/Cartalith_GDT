@@ -156,6 +156,13 @@ var _extent_chips: Array[Button] = []
 ## `AcceptDialog`'s button row is the right control and is left alone.
 var _phone_cancel: Button
 var _phone_create: Button
+## The three nodes `_fit_phone_card_height()` works between, phone only.
+## `_outer_scroll` is the form scroller `setup()` builds for every density and
+## is the only one of the three that is non-null on desktop and tablet.
+var _outer_scroll: ScrollContainer
+var _card_scroll: ScrollContainer   ## The card's own scrolling band.
+var _card_form: VBoxContainer       ## What scrolls inside it.
+var _card_actions: VBoxContainer    ## The card's outer column; holds the pinned row.
 
 func setup(b: EngineBridge) -> void:
 	bridge = b
@@ -240,6 +247,7 @@ func setup(b: EngineBridge) -> void:
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	root.add_child(scroll)
+	_outer_scroll = scroll
 
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", 2)
@@ -271,6 +279,15 @@ func setup(b: EngineBridge) -> void:
 		## for exactly that reason. Re-measuring on every open covers the same
 		## ground from the one signal this dialog already listens to.
 		about_to_popup.connect(_fit_phone_card)
+		## **The height is not measurable from `about_to_popup`.** That signal
+		## fires from inside `Window.popup()` *before* the new rect is applied
+		## (the paragraph over `_fit_phone_card()` records the same trap for the
+		## width, and solves it by measuring the HOST viewport instead). The
+		## height has no host-side equivalent -- it depends on this window's own
+		## margins, its `phone_head` and the gesture inset -- so it is taken off
+		## the scroller once the layout it belongs to exists. `resized` is the
+		## signal that says exactly that, and it fires again on rotation.
+		scroll.resized.connect(_fit_phone_card_height)
 
 ## `card` is what §6.7's phone card holds and `rest` is what it does not. On
 ## desktop and tablet **both are `body`**, so the sections below are the same
@@ -481,7 +498,9 @@ func _build(body: VBoxContainer) -> void:
 	if _phone:
 		DccWidgets.note(card, NOTE_CREATION_ONLY)
 		DccWidgets.note(card, NOTE_APPEARANCE_KEPT)
-		_build_phone_actions(card)
+		## `_card_actions`, not `card`: `card` is the band that scrolls and the
+		## action row is the band that must not. See `_phone_card()`.
+		_build_phone_actions(_card_actions)
 
 ## §6.7's action row: CANCEL left at `flex:1`, CREATE WORLD right at `flex:1.4`,
 ## both spanning the card at `min-height:46px` and `border-radius:23px`.
@@ -576,10 +595,15 @@ func _phone_card(parent: Control) -> VBoxContainer:
 	##
 	## It cost nothing while the card fitted (688 dp of card in a 702 dp
 	## viewport). §6.7's action row is 46 dp plus 16 dp of `padding-top`, which
-	## takes the card to **752 dp** and puts CREATE WORLD 50 dp below the fold --
-	## so from this pass on the card must be scrollable or the primary action is
-	## unreachable. Found on glass: a real `adb shell input swipe` on the card
-	## moved **zero pixels**.
+	## took the card to **752 dp** and put CREATE WORLD 50 dp below the fold.
+	## Found on glass: a real `adb shell input swipe` on the card moved **zero
+	## pixels**.
+	##
+	## **The card no longer overflows** -- `_fit_phone_card_height()` caps it --
+	## so this filter is not what makes the primary action reachable any more.
+	## It is still required, and for the original reason: the FORM inside the
+	## card is what scrolls now, and a drag that starts on the card's padding
+	## still has to reach `_card_scroll` rather than die on this panel.
 	_card.mouse_filter = Control.MOUSE_FILTER_PASS
 	center.add_child(_card)
 
@@ -591,12 +615,43 @@ func _phone_card(parent: Control) -> VBoxContainer:
 	pad.add_theme_constant_override("margin_bottom", 16)
 	_card.add_child(pad)
 
+	## **The card is two bands, not one column, and that is the first-run fix.**
+	##
+	## Everything used to be one `VBoxContainer` inside the outer scroller, so
+	## the card grew to its content (752 dp measured) inside a 702 dp viewport
+	## and §6.7's action row -- the last 62 dp of it -- was simply below the
+	## fold. The pass above made the card draggable so the row could be reached;
+	## a cold launch by hand then found the real defect, which is that
+	## **nothing says so**: a tap on the visible orange sliver left the screen
+	## pixel-identical, and a first-time user meets that before reaching a world.
+	##
+	## So the form scrolls and the row does not. `_card_scroll` is capped to
+	## whatever is left after the panel's padding and the row
+	## (`_fit_phone_card_height()`), which keeps the card inside the viewport by
+	## construction rather than by any content being short enough -- and keeps
+	## the row where §6.7 draws it, inside the card, rather than detaching it
+	## into a footer below.
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 2)
+	col.add_theme_constant_override("separation", 0)
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pad.add_child(col)
+	_card_actions = col
+
+	_card_scroll = ScrollContainer.new()
+	## Same reason the outer scroller disables it: the form's width is §6.7's
+	## `max-width:360px` minus the padding, and a horizontal scrollbar under a
+	## 360 dp card would be a second way to lose a control off the edge.
+	_card_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_card_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(_card_scroll)
+
+	_card_form = VBoxContainer.new()
+	_card_form.add_theme_constant_override("separation", 2)
+	_card_form.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_card_scroll.add_child(_card_form)
+
 	_fit_phone_card()
-	return col
+	return _card_form
 
 ## `min(360, screen - 2x22)`, in the window's own content-scale units -- §6.7's
 ## `max-width` and its scrim padding, together.
@@ -628,6 +683,54 @@ func _fit_phone_card() -> void:
 	var dp := int(host.get_viewport_rect().size.x / scale)
 	_card.custom_minimum_size.x = float(
 		clampi(dp - 2 * PHONE_CARD_INSET, PHONE_CARD_MIN_W, PHONE_CARD_MAX_W))
+
+## **The card's height, so its action row cannot leave the viewport.**
+##
+## `_card_scroll` is the only elastic thing in the card, so capping it caps the
+## card: the panel's `18/16` padding and the pinned action row are fixed, and
+## `_card`'s minimum is therefore `chrome + cap` -- at most the scroller it sits
+## in. `CenterContainer` then draws it at exactly that, and the outer scroller
+## has nothing left to scroll.
+##
+## **`chrome` is read off the live tree, not added up from the constants.** It
+## is the card's own minimum less the band being capped, so `PHONE_ACTION_H`,
+## `PHONE_ACTION_TOP`, the panel's padding and the stylebox's own margins are
+## all counted whatever they become. Adding them here would be a second copy of
+## the geometry that goes stale the first time one of them moves.
+##
+## **No new minimum escapes.** `_card_scroll`'s vertical mode is AUTO, so the
+## form's height does not fold into it (`MISTAKES.md`: only a DISABLED axis
+## does that), and the value written below is `<= avail - chrome` by
+## construction, so the card can never demand more height than the scroller
+## already has. The horizontal axis is untouched -- the card's width minimum is
+## still `_fit_phone_card()`'s clamp above and nothing here contributes to it.
+func _fit_phone_card_height() -> void:
+	if _card == null or _card_scroll == null or _card_form == null:
+		return
+	if _outer_scroll == null:
+		return
+	## **`size.y` is not the room.** A `ScrollContainer` lays its child inside
+	## its own panel stylebox, and the shell's is `6 px` top and bottom
+	## (measured: `_nwclip_probe.gd` prints the frame). Capping against the
+	## outer figure left the card 12 dp too tall -- CREATE WORLD cleared the
+	## edge but the card's rounded bottom border was cut, which reads as *more
+	## content below* and is the affordance this fix exists to remove.
+	var frame := 0.0
+	var sb := _outer_scroll.get_theme_stylebox("panel")
+	if sb != null:
+		frame = sb.get_minimum_size().y
+	var avail := _outer_scroll.size.y - frame
+	if avail <= 0.0:
+		return
+	var chrome := _card.get_combined_minimum_size().y \
+		- _card_scroll.get_combined_minimum_size().y
+	var want := _card_form.get_combined_minimum_size().y
+	var capped := minf(want, maxf(0.0, avail - chrome))
+	## Guarded so an assignment that changes nothing does not queue a layout
+	## pass -- `custom_minimum_size` notifies unconditionally, and this runs
+	## from `resized`.
+	if absf(_card_scroll.custom_minimum_size.y - capped) > 0.5:
+		_card_scroll.custom_minimum_size.y = capped
 
 ## §6.7's dice button -- `44 x 42`, radius 12, glyph `⚄` -- drawn with
 ## `DccIcons`' own `dice` mark rather than U+2684. That is `dcc_icons.gd`'s

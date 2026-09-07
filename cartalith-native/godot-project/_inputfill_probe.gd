@@ -162,7 +162,21 @@ func _ready() -> void:
 		eq("spin field pad_x", flat(le, "normal").content_margin_left, PX)
 		eq("spin field ink", hx(le.get_theme_color("font_color")), INK[theme])
 		eq("spin caret", hx(le.get_theme_color("caret_color")), ACC[theme])
-		eq("spin readout right-aligned", le.alignment, HORIZONTAL_ALIGNMENT_RIGHT)
+		## LEFT, and this pin is the second half of a defect worth stating.
+		## `e830112` shipped `number()` right-aligning its field AND this line
+		## asserting it, so the probe went green on the regression it was
+		## supposed to catch and would have led a later session to "fix" the
+		## correct alignment by reverting it. Found by the verifier, not by the
+		## sweep -- `--check-only` and a passing probe both agreed with it.
+		##
+		## The canvas backs LEFT. `ENV:351` -- the `text-align:right` that
+		## `e830112` cited -- is a `width:52px;flex:none` readout SPAN with no
+		## ground, sitting between a slider and the row edge; right-aligning 52
+		## px moves digits a few px. `number()`'s field is `SIZE_EXPAND_FILL`
+		## (388 px in New World, 170 in the planner), so the same declaration
+		## pushed the ink 343 px from its own label. The two real `<input>`s,
+		## `ENV:222` and `ENV:498`, set no `text-align` at all.
+		eq("spin readout left-aligned", le.alignment, HORIZONTAL_ALIGNMENT_LEFT)
 		## `outline:none` on the canvas's input, so focus holds the ground and
 		## adds the shell's own engaged edge -- the one derived field state.
 		eq("spin focus holds ground", hx(flat(le, "focus").bg_color), INS[theme])

@@ -808,8 +808,37 @@ static func number(parent: Control, label_text: String, minimum: float, maximum:
 	le.add_theme_color_override("font_uneditable_color", DccTheme.c("text_ghost"))
 	le.add_theme_color_override("font_placeholder_color", DccTheme.c("text_faint"))
 	le.add_theme_color_override("caret_color", DccTheme.c("accent"))
-	## `text-align:right` on the canvas's numeric readout (`ENV:351`).
-	le.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	## See `well()` for why `font_selected_color` is set by hand: the default
+	## theme's white glyph on the light palette's `#d3bb99` selection band
+	## measured 1.26:1.
+	_palette_watch(le, func() -> void:
+		le.add_theme_color_override("font_selected_color",
+			DccTheme.c("text_bright")))
+	## **Left, and `ENV:351` is why it is not right.** This line used to read
+	## `le.alignment = HORIZONTAL_ALIGNMENT_RIGHT`, justified by "`text-align:
+	## right` on the canvas's numeric readout (`ENV:351`)". That declaration is
+	## real and the borrowing was not: `ENV:351` is
+	##
+	##   width:52px;flex:none;text-align:right;font:var(--m1) 'IBM Plex Mono'
+	##
+	## -- a **52 px fixed-width readout span with no ground at all**, sitting
+	## between a slider and the row edge. Right-aligning a 52 px span moves its
+	## digits by a few pixels. This field is a `SIZE_EXPAND_FILL` input:
+	## measured in the New World dialog it is **388 px wide**, so the same
+	## declaration moved a 36 px number 343 px away from its own label and left
+	## the box it sits in empty. That is the owner's "minuscule glyph in the
+	## bottom-right corner of an oversized empty box", and the frame that was
+	## reported lost is the ground of a chip with nothing in it but corner.
+	##
+	## What a `SpinBox` *is* on the canvas is the `--ins` chip its dropdown
+	## sibling is (`ENV:522`), whose value sits at the left and whose caret
+	## sits at the right; the canvas's two real `<input>`s (`ENV:222`,
+	## `ENV:498`) set no `text-align` at all. `DccWidgets.well()` -- every
+	## other text field in this shell -- likewise leaves it default. So the
+	## number now starts where the dropdown's value starts, one row above it,
+	## and `_numglass_probe` asserts exactly that relationship rather than a
+	## pixel column that any width change would move.
+	le.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	for side in ["up", "down"]:
 		for slot in ["_background", "_background_hovered", "_background_pressed",
 				"_background_disabled"]:
@@ -2146,6 +2175,33 @@ static func _paint_switch(cb: CheckBox) -> void:
 	cb.add_theme_icon_override("unchecked", _switch(w, h, knob, false))
 	cb.add_theme_icon_override("checked_disabled", _switch(w, h, knob, true, false))
 	cb.add_theme_icon_override("unchecked_disabled", _switch(w, h, knob, false, false))
+	## **Identity modulate, and it has to be per-instance.** Godot 4.7's
+	## `CheckBox` tints its icon with `checkbox_checked_color` /
+	## `checkbox_unchecked_color`, which `res://theme/dark_theme.tres` sets and
+	## which therefore reached these four textures *after* they were drawn --
+	## so `e830112`'s stylebox proof measured zero movement while the switch on
+	## the screen was the wrong colour. Measured by `_ckpix_probe`: the ON knob
+	## arrived `#cc9644` instead of the canvas `--ink` `#e8ebec`, and the
+	## disabled knob `#53401e` instead of `#5f6468`.
+	##
+	## **Two names cover four slots.** The same probe's `[5]` block forces only
+	## this pair on a *disabled* switch and gets `#5f6468` back exactly, so
+	## `checked_disabled` and `unchecked_disabled` modulate from these two as
+	## well and there is nothing to add for them.
+	##
+	## **Not a theme item, and that is not a style preference.** Two reasons,
+	## both measured. (1) Seven bare `CheckBox.new()` sites --
+	## `journey_planner_view.gd` 2444/2482/2487 and `travel_library_window.gd`
+	## 844/868/900/931 -- draw Godot's own check glyph and *need* the tint
+	## kept; one theme item cannot be both an identity and a tint. (2)
+	## `_cklight_probe`'s `[4]` block runs the shipping
+	## `DccShell._recolor_project_theme()` path over pure white and watches it
+	## come back rewritten, because white has no exact-RGBA token and falls
+	## into the RGB-only pass against `line` = `Color(1,1,1,.10)`. A white
+	## entry in the resource would not survive one palette flip. Here it is a
+	## literal on the instance, so `_palette_watch()` re-asserts it unchanged.
+	cb.add_theme_color_override("checkbox_checked_color", Color(1, 1, 1))
+	cb.add_theme_color_override("checkbox_unchecked_color", Color(1, 1, 1))
 
 static func _paint_spin_arrows(sb: SpinBox) -> void:
 	for side in ["up", "down"]:
@@ -2271,6 +2327,20 @@ static func well(le: Control, px: int = 9, py: int = 4, accent: bool = false) ->
 	le.add_theme_color_override("font_placeholder_color", DccTheme.c("text_ghost"))
 	le.add_theme_color_override("font_uneditable_color", DccTheme.c("text_ghost"))
 	le.add_theme_color_override("caret_color", DccTheme.c("accent"))
+	## **Selected text, and the eighth colour item.** `selection_color` comes
+	## from `dark_theme.tres` as `accent` at `a=0.35` and does follow the
+	## palette; `font_selected_color` does **not** -- it is `#ffffff` out of
+	## Godot's own default theme, which nothing in this shell remaps. On the
+	## light palette that puts white glyphs on the pale tan band the accent
+	## composites to: `_cklight_probe` measured the band at `#d3bb99` and the
+	## brightest glyph at `#f6f1ea`, **1.26:1**, i.e. selecting text made it
+	## disappear. Holding the field's own ink through the selection is the
+	## same move the canvas makes for `::selection` nowhere at all -- it draws
+	## no selection state -- so this is derived, and derived the cheap way:
+	## the ink that already reads on this ground keeps reading on a wash of it.
+	_palette_watch(le, func() -> void:
+		le.add_theme_color_override("font_selected_color",
+			DccTheme.c("text_bright")))
 
 ## Borderless, ghost -- the only place in a window a button carries no outline.
 static func text_button(parent: Control, text: String, on_press: Callable) -> Button:

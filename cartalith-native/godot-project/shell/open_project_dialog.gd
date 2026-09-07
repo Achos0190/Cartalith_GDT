@@ -53,13 +53,20 @@ class_name OpenProjectDialog
 ## - **Shared** is a disclosed gap. Nothing in this port has any notion of a
 ##   shared, multi-user or remote project; the chip is drawn as the mockup
 ##   draws it, disabled, saying so on hover.
-## - **Thumbnails are generated, not stored.** A `.zip` save carries
-##   `params.json` plus raw fields (`SAVEFILE_COMPAT.md`) and no preview
-##   image, so there is nothing to show. Rather than four identical grey
-##   rectangles, each tile takes a radial gradient hued from a hash of its own
-##   path -- stable per world, distinct between worlds, and honest about being
-##   an identicon rather than a render. When the port grows a thumbnail on
-##   save, this is the one function to replace.
+## - **Thumbnails are generated, not stored -- and since 2026-09-07 they are a
+##   render of the world, not an identicon.** The owner's words: *"Currently the
+##   tiles are with a color gradient, I'd like that to be a smaller version of
+##   the map."* This bullet used to say a `.zip` carries *"no preview image, so
+##   there is nothing to show"*, and **that conclusion was wrong from the
+##   premise up**: a save needs no preview image, because it already carries
+##   everything needed to draw its own coastline. `SAVEFILE_COMPAT.md` makes
+##   `rasters/heightmap.f32` a MUST (§8, refuse-if-absent) and
+##   `world.grid_width`, `world.grid_height` and `world.sea_level` MUSTs (§7,
+##   all three refuse-if-absent). Every conforming archive is therefore
+##   self-drawing, with no new zip entry and no `format_version` bump.
+##   `thumbnail()` is that render; `identicon()` stays, unchanged, as the
+##   fallback for an archive that cannot supply the four (§6.4a's damage
+##   ladder, a mid-write file, or a foreign `.zip` the gallery still lists).
 ## - **Seed and edit time are real.** The time is the file's own mtime; the
 ##   seed is read out of the save's `params.json` (`state.tect.seed`), which
 ##   is display metadata, not a computation -- nothing downstream reads it.
@@ -971,14 +978,13 @@ func _build_tile(path: String, meta: Dictionary, picker: bool = false) -> Contro
 	col.add_theme_constant_override("separation", 0)
 	wrap.add_child(col)
 
-	## The generated identicon. See this file's header for why there is no
-	## real thumbnail to draw.
+	## The world's own map, or the identicon behind it -- see `thumbnail()`.
 	var thumb := Control.new()
 	thumb.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	thumb.custom_minimum_size.y = PICKER_THUMB_H if picker else 128
 	thumb.clip_contents = true
 	var tex := TextureRect.new()
-	tex.texture = identicon(path)
+	tex.texture = thumbnail(path)
 	tex.set_anchors_preset(Control.PRESET_FULL_RECT)
 	tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	tex.stretch_mode = TextureRect.STRETCH_SCALE
@@ -1247,10 +1253,271 @@ static func _relative_time(unix: int) -> String:
 		return "edited %d weeks ago" % int(delta / 604800.0)
 	return "edited " + Time.get_date_string_from_unix_time(unix)
 
+# ---------------------------------------------------------------------------
+# Tile art -- the world's own coastline, and the identicon behind it
+# ---------------------------------------------------------------------------
+
+## The tile art's pixel size. Deliberately the same 96x72 `identicon()` has
+## always produced, so swapping a render in behind the fallback moves **no**
+## laid-out size: both call sites hand the texture to a `TextureRect` with
+## `EXPAND_IGNORE_SIZE` + `STRETCH_SCALE`, which scales whatever it is given to
+## the slot the tile gives it. That also makes the source aspect a non-question
+## -- the slot's aspect is what shows either way -- so the whole map is sampled
+## into the tile rather than letterboxed, which is mildly anamorphic for a
+## non-4:3 world and is what fills the tile the way the mockup draws it filled.
+const THUMB_W := 96
+const THUMB_H := 72
+
+## `cartalith_terrain::tile_render::SEA` (reference 8330), deepest first,
+## carried over as 0-1 `Color` so `set_pixel` and `Color.lerp()` can be used
+## directly. The 0-255 source numbers are left visible in the expression so
+## this reads against the Rust constant rather than against a rounded copy.
+const HYPSO_SEA: Array[Color] = [
+	Color(10 / 255.0, 28 / 255.0, 46 / 255.0),
+	Color(26 / 255.0, 86 / 255.0, 140 / 255.0),
+	Color(70 / 255.0, 140 / 255.0, 196 / 255.0),
+]
+
+## `cartalith_terrain::tile_render::LAND` (reference 8331), split into its two
+## halves because GDScript has no tuple: `HYPSO_LAND_AT[i]` is the stop's
+## normalised height and `HYPSO_LAND_RGB[i]` its colour.
+const HYPSO_LAND_AT: Array[float] = [0.0, 0.18, 0.38, 0.58, 0.78, 1.0]
+const HYPSO_LAND_RGB: Array[Color] = [
+	Color(47 / 255.0, 122 / 255.0, 68 / 255.0),
+	Color(111 / 255.0, 154 / 255.0, 58 / 255.0),
+	Color(201 / 255.0, 178 / 255.0, 74 / 255.0),
+	Color(150 / 255.0, 112 / 255.0, 72 / 255.0),
+	Color(140 / 255.0, 140 / 255.0, 140 / 255.0),
+	Color(248 / 255.0, 248 / 255.0, 250 / 255.0),
+]
+
+## Where a rendered tile is kept between sessions. See `thumbnail()`.
+const THUMB_CACHE_DIR := "user://thumbs"
+
+## `"<path-hash>-<mtime>"` -> the texture for it, for the length of the
+## session. Same shape and same reasoning as `_meta_cache` above: the gallery
+## rebuilds every tile on every keystroke in the search well, and re-reading a
+## world's heightmap per keystroke is not something a memory of one texture per
+## world should be traded for.
+static var _thumb_cache: Dictionary = {}
+
+## The tile's art: a render of the world the save actually contains, falling
+## back to `identicon()` for any save that cannot supply one.
+##
+## **Why this is buildable without touching the save format.** Every conforming
+## archive already carries its own coastline: `SAVEFILE_COMPAT.md` §8 makes
+## `rasters/heightmap.f32` a MUST and §7 makes `world.grid_width`,
+## `world.grid_height` and `world.sea_level` MUSTs, all four refuse-if-absent.
+## Checked against a real save on 2026-09-07, not just against the document.
+##
+## **Why it is not `build_color_texture()`.** That is the map renderer, and it
+## needs the whole engine state loaded -- a full project load per tile, for a
+## gallery of them. This takes the cheap path the LOD tiler already takes:
+## `render_height_tile_rgba`'s hypsometric ramp (`_hypso()` below), which is
+## the reference's own *Relief* colouring, run against the save's own
+## `sea_level`. Land/sea and the elevation ramp are what make a tile read as
+## *this* world; the material palettes are not, and they are what costs a load.
+##
+## **Two levels of cache, because the raw read is the expensive part.**
+## Inflating `rasters/heightmap.f32` costs `GW x GH x 4` bytes -- ~10 MB for a
+## 2048x1311 world -- to draw 96x72 pixels, and doing that per tile per gallery
+## open is the thing that would make this a regression instead of a feature.
+## `_thumb_cache` covers the session; `user://thumbs` covers the restart. Both
+## are keyed on the path **and its mtime**, which is the same invalidation
+## `project_meta()` uses and which the tile already pays for -- `_relative_time`
+## reads the identical `FileAccess.get_modified_time()` for its "edited 4 min
+## ago" caption -- so a re-saved world re-renders and nothing else does.
+static func thumbnail(path: String) -> Texture2D:
+	var key := "%s-%d" % [path.sha256_text().substr(0, 16), FileAccess.get_modified_time(path)]
+	if _thumb_cache.has(key):
+		return _thumb_cache[key]
+	var tex: Texture2D = null
+	var file := THUMB_CACHE_DIR.path_join(key + ".png")
+	## `FileAccess.file_exists()` first, and not as a micro-optimisation:
+	## `Image.load_from_file()` on an absent path pushes two engine errors of
+	## its own before returning `null`, so the miss path -- which is every tile
+	## of the first gallery open -- would otherwise write 30 stack traces into
+	## `user://logs/godot.log`, the file `diagnostic_report.gd` collects.
+	var cached := Image.load_from_file(file) if FileAccess.file_exists(file) else null
+	if cached != null and cached.get_width() == THUMB_W and cached.get_height() == THUMB_H:
+		tex = ImageTexture.create_from_image(cached)
+	else:
+		var img := _render_thumbnail(path)
+		if img != null:
+			tex = ImageTexture.create_from_image(img)
+			_store_thumbnail(key, img)
+	## The fallback, and it is cached under the same key on purpose: a damaged
+	## or foreign archive must not be re-opened and re-rejected on every
+	## keystroke either. A **re-save** changes the mtime, so the key changes and
+	## a world that was mid-write when it was first seen gets another chance.
+	if tex == null:
+		tex = identicon(path)
+	_thumb_cache[key] = tex
+	return tex
+
+## The render itself, or `null` for anything that is not a world this can draw.
+##
+## Both archive layouts are read, because the gallery lists both: the tree
+## layout `project.json` names (`SAVEFILE_COMPAT.md` §7/§8) and the **flat**
+## layout of §15, whose grid lives in `params.json` as `GW`/`GH`/
+## `state.seaLevel` with the raster at the archive root. §15's own mapping
+## table is where those four names come from.
+##
+## Every refusal below is a refusal `SAVEFILE_COMPAT.md` already states -- an
+## unreadable zip, a missing or unparsable manifest, a non-positive grid (§7:
+## *"Refuse. Zero or negative is refused too"*), an absent heightmap, or one
+## whose length is not `GW x GH x 4` (§8.1: *"the reader MUST refuse the
+## archive"*). None of them is an error here, because a picker that throws
+## instead of drawing a tile is worse than one drawing a gradient.
+static func _render_thumbnail(path: String) -> Image:
+	var zip := ZIPReader.new()
+	if zip.open(path) != OK:
+		return null
+	var gw := 0
+	var gh := 0
+	## `NAN`, not `0.0`. A `sea_level` of 0.0 is a **conforming** value (§7:
+	## *"number in [0,1]"*) that paints an all-land tile, so defaulting to it
+	## would answer an archive that never said where its coastline is with a
+	## confident, wrong coastline -- `MISTAKES.md`: never encode "no value" as a
+	## plausible value. §7's own table says `sea_level`: *"Refuse. It is the
+	## coastline. A default would silently redraw it."* `NAN` is the one float
+	## that fails the range test below, so the refusal is the range test.
+	var sea := NAN
+	var entry := ""
+	if zip.file_exists("project.json"):
+		var head = JSON.parse_string(zip.read_file("project.json").get_string_from_utf8())
+		if head is Dictionary:
+			var world = (head as Dictionary).get("world", {})
+			if world is Dictionary:
+				gw = int((world as Dictionary).get("grid_width", 0))
+				gh = int((world as Dictionary).get("grid_height", 0))
+				sea = float((world as Dictionary).get("sea_level", NAN))
+				entry = "rasters/heightmap.f32"
+	elif zip.file_exists("params.json"):
+		var flat = JSON.parse_string(zip.read_file("params.json").get_string_from_utf8())
+		if flat is Dictionary:
+			gw = int((flat as Dictionary).get("GW", 0))
+			gh = int((flat as Dictionary).get("GH", 0))
+			var state = (flat as Dictionary).get("state", {})
+			if state is Dictionary:
+				sea = float((state as Dictionary).get("seaLevel", NAN))
+			entry = "heightmap.f32"
+	## `not (sea >= 0.0 and sea <= 1.0)`, written that way round on purpose:
+	## NAN fails both comparisons, so the absent case and an out-of-range case
+	## are refused by the same clause.
+	if gw < 1 or gh < 1 or entry == "" or not (sea >= 0.0 and sea <= 1.0) \
+			or not zip.file_exists(entry):
+		zip.close()
+		return null
+	var bytes := zip.read_file(entry)
+	zip.close()
+	if bytes.size() != gw * gh * 4:
+		return null
+
+	## Nearest-neighbour, not an average of the cells a tile pixel covers.
+	## The field being reduced is read through a threshold at `sea` -- averaging
+	## a coast's cells lands the mean between the two sides of that threshold
+	## and paints shoreline that is neither, which is exactly the detail the
+	## owner is asking to see.
+	##
+	## **The two `mini()` bounds never bind, and are kept anyway.** The largest
+	## index either axis produces is `int((THUMB_H - 1) * gh / THUMB_H)`, which
+	## is below `gh` for every `gh >= 1` -- so raising the ceiling to `gh` is a
+	## mutation nothing can detect, and the mutation pass reports it as the one
+	## survivor of 45 rather than pretending otherwise. Lowering it to `gh - 2`
+	## *is* caught, by a world exactly 96x72 where the index does reach the
+	## bound. They stay because what they guard is an index into a raw byte
+	## buffer: `decode_float()` past the end returns a silent `0.0`, which would
+	## paint a wrong pixel rather than fail, and the cost of the guard is two
+	## tokens on a loop that runs 6 912 times per world, once.
+	var img := Image.create(THUMB_W, THUMB_H, false, Image.FORMAT_RGB8)
+	for ty in THUMB_H:
+		var sy: int = mini(int(float(ty) * gh / THUMB_H), gh - 1)
+		var row: int = sy * gw
+		for tx in THUMB_W:
+			var sx: int = mini(int(float(tx) * gw / THUMB_W), gw - 1)
+			img.set_pixel(tx, ty, _hypso(bytes.decode_float((row + sx) * 4), sea))
+	return img
+
+## `cartalith_terrain::tile_render::hypso` (reference 8332): a normalised
+## height to its map colour. Below `sea`, a two-segment ramp through
+## `HYPSO_SEA` driven by relative depth; above it, the `HYPSO_LAND_*` stops
+## interpolated on height renormalised into `[0,1]`.
+##
+## The three guards are the reference's, kept rather than tidied: `sea <= 0`
+## reads the shallowest sea colour, `1 - sea <= 0` reads the lowest land
+## colour, and a zero-width land interval divides by 1 instead of by 0.
+##
+## **Which of them a conforming save can actually reach, measured rather than
+## assumed** -- the first version of this comment claimed all three and a probe
+## falsified it. §7 allows `sea_level` anywhere in `[0,1]`, so `1 - sea <= 0`
+## is reachable: at `sea_level` 1.0 a cell of exactly 1.0 takes the land branch
+## with a zero-width range and must read `HYPSO_LAND_RGB[0]`. `sea <= 0` is
+## **not** reachable from a conforming raster, because it is only consulted on
+## the `v < sea` branch and §8 makes the heightmap `[0,1]`; it is kept because
+## that range is a MUST a length-correct but corrupt raster can still break,
+## and because dropping a reference guard is not this port's call to make.
+##
+## **The hillshade half of `render_height_tile_rgba` is deliberately not here,
+## and that is a decision rather than an omission.** Its `exag` (3.4) scales a
+## finite difference between **adjacent cells**; this samples every `GW/96`th
+## cell, so the same difference is taken across ~21 cells on a 2048-wide world
+## and the shade would come out over-driven by that stride -- differently per
+## world, since the stride is the world's own width. Correcting it would mean
+## dividing `exag` by a stride nothing in the reference divides it by. The ramp
+## alone is what carries the coastline and the elevation banding at 96x72;
+## relief detail at that size is sub-pixel.
+##
+## Clamped on the way out because the depth ramp is deliberately unclamped
+## upstream -- `hypso_extrapolates_below_the_palette_rather_than_clamping` in
+## `tile_render.rs` pins that a deep enough `v` drives it past `SEA[0]` into
+## negative channels, and it is the clamped **store** that makes it harmless.
+static func _hypso(v: float, sea: float) -> Color:
+	if v < sea:
+		var d := 0.0 if sea <= 0.0 else (sea - v) / sea
+		var c := HYPSO_SEA[2].lerp(HYPSO_SEA[1], d / 0.5) if d < 0.5 \
+			else HYPSO_SEA[1].lerp(HYPSO_SEA[0], (d - 0.5) / 0.5)
+		return c.clamp()
+	var r := 0.0 if (1.0 - sea) <= 0.0 else (v - sea) / (1.0 - sea)
+	for i in HYPSO_LAND_AT.size() - 1:
+		if r <= HYPSO_LAND_AT[i + 1]:
+			var span: float = HYPSO_LAND_AT[i + 1] - HYPSO_LAND_AT[i]
+			var t: float = (r - HYPSO_LAND_AT[i]) / (1.0 if span == 0.0 else span)
+			return HYPSO_LAND_RGB[i].lerp(HYPSO_LAND_RGB[i + 1], t).clamp()
+	return HYPSO_LAND_RGB[HYPSO_LAND_RGB.size() - 1]
+
+## Write one rendered tile to `user://thumbs`, and drop the same world's older
+## ones while there.
+##
+## The key's first half is the path's SHA-256 prefix rather than
+## `String.hash()`: a 32-bit hash collision between two worlds would put one
+## world's map on the other's tile, which is the quiet kind of wrong this
+## project has paid for before, and 64 bits of digest costs the same nothing.
+## The second half is the mtime, so a re-save writes a **new** file rather than
+## overwriting the old one -- hence the prune, which is what keeps the cache
+## bounded by the number of worlds rather than by the number of saves.
+##
+## Every failure here is ignored on purpose. A read-only or full `user://` must
+## cost the next open its render time, not its tile.
+static func _store_thumbnail(key: String, img: Image) -> void:
+	DirAccess.make_dir_recursive_absolute(THUMB_CACHE_DIR)
+	if img.save_png(THUMB_CACHE_DIR.path_join(key + ".png")) != OK:
+		return
+	var prefix := key.split("-")[0] + "-"
+	for f in DirAccess.get_files_at(THUMB_CACHE_DIR):
+		if String(f).begins_with(prefix) and String(f) != key + ".png":
+			DirAccess.remove_absolute(THUMB_CACHE_DIR.path_join(String(f)))
+
 ## A stable, per-world radial wash. Hue from the path's hash so the same world
 ## always reads the same colour and two worlds rarely collide; saturation and
 ## value are fixed low, because these tiles sit behind an accent selection
 ## border and must never compete with it.
+##
+## **Since 2026-09-07 this is the fallback, not the tile art.** `thumbnail()`
+## above draws the world's own coastline and calls this only when the archive
+## cannot supply one. It is kept, rather than deleted, because that case is
+## real: §6.4a's damage ladder, a file caught mid-write, and any foreign `.zip`
+## the projects folder happens to contain all still get a tile.
 ##
 ## Public alongside `project_meta()` above, for the same reason: the phone
 ## picker's cards want the identical stable-per-world art, not a second hash

@@ -1349,6 +1349,31 @@ static func remap(value: Color, old_pal: Dictionary) -> Variant:
 			return c(token)
 	for token in old_pal:
 		var tv: Color = old_pal[token]
+		## **An OPAQUE value never matches a translucent token.** Without this
+		## line the RGB-only pass reads pure white as `line` -- `Color(1,1,1,
+		## .10)` in `DARK` -- and hands back the LIGHT `line`'s RGB at the
+		## original alpha, so an opaque white flips to opaque **black**.
+		## Measured by `_cklight_probe`'s `[4]` block, which calls this
+		## function and printed `#000000` until this guard landed. The reverse
+		## holds on the light palette, where `line` is `Color(0,0,0,.14)` and
+		## an opaque black would flip to white.
+		##
+		## That is not a hypothetical trap: `dcc_shell.gd` carries three
+		## separate comments (at `_measure_ink`'s white, the phone scrim, and
+		## the export overlay) explaining that a literal white "would break
+		## `remap()`" and deriving from a token instead. The workaround was
+		## right; the false positive it worked around is fixed here.
+		##
+		## **The legitimate case is the other direction and it still runs.**
+		## The pass exists so a resource entry that used a token's hue at a
+		## different opacity follows the palette -- `LineEdit/selection_color`
+		## is `accent` at `a=0.35` against an opaque `accent` token, and
+		## `dark_theme.tres` holds four such accent derivatives plus three
+		## white hairlines at .05/.06/.14/.20 against `line`'s .10. Every one
+		## of those has a **translucent value**, so none is touched by this
+		## guard; only an opaque value claiming a translucent token is.
+		if value.a >= 1.0 and tv.a < 1.0:
+			continue
 		if is_equal_approx(tv.r, value.r) and is_equal_approx(tv.g, value.g) \
 				and is_equal_approx(tv.b, value.b):
 			var nc: Color = c(token)

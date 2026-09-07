@@ -61,7 +61,7 @@ class_name PhoneProjectPicker
 ## below filters it to paths still on disk, exactly like `open_project_dialog
 ## .gd::_paths()`'s `"recent"` branch, and shows an honest "no saved worlds
 ## yet" row rather than three worlds nobody generated. Per-card seed and
-## edited-time are `OpenProjectDialog.project_meta()` / `.identicon()`, made
+## edited-time are `OpenProjectDialog.project_meta()` / `.thumbnail()`, made
 ## public on that file rather than re-read here a second way -- the same real
 ## `params.json` seed and file mtime the desktop gallery's own tiles show. The
 ## mockup's per-world state chip and its `2 048² · 1.6 GB` figures are
@@ -228,10 +228,17 @@ func _refresh() -> void:
 	if _phone:
 		_host.phone_fit(self, 1.0)
 
-## One world card: the same stable per-world identicon and the same real
-## seed/edited-time `OpenProjectDialog.project_meta()` already reads for the
-## desktop gallery, in the locked spec's one-column card shape rather than
-## that dialog's 4-column grid.
+## One world card: the same tile art and the same real seed/edited-time
+## `OpenProjectDialog` already reads for the desktop gallery, in the locked
+## spec's one-column card shape rather than that dialog's 4-column grid.
+##
+## The art is `thumbnail()` -- a render of the world's own coastline off its
+## `rasters/heightmap.f32` and `sea_level`, cached per path+mtime, falling back
+## to the old per-world identicon for an archive that cannot supply one. Called
+## rather than reimplemented for the reason the rest of this header gives: one
+## world must not read as two different pictures depending on which screen
+## opened it, and the phone is the screen where a re-render per card would be
+## felt first.
 func _build_world_row(path: String) -> Control:
 	var meta := OpenProjectDialog.project_meta(path)
 	var current := _host != null and _host.current_project_path == path
@@ -255,7 +262,7 @@ func _build_world_row(path: String) -> Control:
 	wrap.add_child(col)
 
 	var thumb := TextureRect.new()
-	thumb.texture = OpenProjectDialog.identicon(path)
+	thumb.texture = OpenProjectDialog.thumbnail(path)
 	thumb.custom_minimum_size.y = 92
 	thumb.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	thumb.stretch_mode = TextureRect.STRETCH_SCALE

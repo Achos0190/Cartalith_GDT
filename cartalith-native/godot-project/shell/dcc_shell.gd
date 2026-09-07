@@ -3732,6 +3732,68 @@ func set_right_dock_title(text: String) -> void:
 
 # -- §6 Docks -----------------------------------------------------------------
 
+## **`--ctl`, the canvas's control square.** `24px` on the pointer densities
+## (`ENV:25`) and `36px` on the touch one (`ENV:1819`'s `densStr`); the tablet
+## canvas's own `valsShell()` writes `--ctl:36px` too, so both touch canvases
+## agree and this is one of the few tokens the 2026-09-07 re-base did not split.
+## Read here rather than through `role_px()` because it has no `ROLE` row --
+## `dcc_theme.gd`'s token table lists `--ctl` among the four `densStr` tokens
+## with none, and adding one is an owner ruling on which canvas governs the
+## interior, not a lane's edit.
+const CTL_PX := 24
+const CTL_PX_TOUCH := 36
+## The two literal paddings in the dock-header blocks. Literal `px` in the
+## canvas, not tokens -- only the horizontal `var(--pad)` moves with density --
+## so they do not scale.
+const DOCK_HEAD_PAD_TOP := 8
+const DOCK_HEAD_PAD_BOTTOM_LEFT := 0    ## `ENV:305`: `padding:8px var(--pad) 0`
+const DOCK_HEAD_PAD_BOTTOM_RIGHT := 6   ## `ENV:948`: `padding:8px var(--pad) 6px`
+
+## **A dock header's band, derived rather than pinned -- and the two docks are
+## not the same height.**
+##
+## Both headers were built to `_scaled(34)` under a comment claiming *"the
+## canvas gives both dock headers `height:34px`"*. **`height:34px` does not
+## occur in the canvas at all** -- `grep -c 'height:34px'` over
+## `mcp-2026-09-07/Cartalith DCC Environment.dc.html` returns **0**, and over
+## its Tablet sibling too.
+##
+## **Where the 34 actually came from, since it was not invented.** The
+## superseded `design/Cartalith DCC Shell.dc.html` draws its **menu bar** at
+## `height:34px` with a `border-bottom` (its lines 222 and 440), and the comment
+## said so in its own second sentence: *"the same band the menu bar and the tool
+## options bar get, so the three horizontal rules across the top of the shell
+## line up as one rhythm."* The menu bar was then re-based to **36** on the
+## current canvas -- `dcc_theme.gd`'s `H_MENU_BAR` records `--menuH` as
+## *"34 -> 36 (`ENV:25`)"* -- and the two headers that had copied it were left
+## behind. `MISTAKES.md`'s re-base row is exactly this: every *relationship*
+## built on the old value goes unverified, and no test sees it. What made it
+## unrecoverable by reading was the citation: the figure kept pointing at "the
+## canvas" after "the canvas" had become a different file.
+##
+## Fixing it also uncovers the half the single pasted figure hid -- the current
+## canvas authors no height for either header, it authors *padding around a
+## `var(--ctl)` square*, and the two paddings differ.
+##
+##   `ENV:305`  left  `gap:8px;padding:8px var(--pad) 0`    -> 8 + 24 + 0 = **32**
+##   `ENV:948`  right `gap:8px;padding:8px var(--pad) 6px`  -> 8 + 24 + 6 = **38**
+##
+## and on touch, where `--ctl` is 36, **44** and **50**. `dcc_theme.gd`'s
+## `TABLET` table already carried the correct reading of `ENV:305` in prose
+## ("the prototype authors no height at all") while this file asserted the
+## opposite four lines from the value; its `34: 52` row is now unreachable from
+## here and is left for whoever owns that table to retire.
+##
+## Neither block carries a `border-bottom`: `ENV:305`'s is on the TOOLS block
+## two siblings below (`ENV:317`) and `ENV:948`'s next sibling is the scroll
+## body. The `DccTheme.rule()` both docks draw under the header is therefore a
+## second inheritance from the same superseded canvas -- where every 34 px band
+## *did* carry one -- measured in this pass and deliberately **not** changed:
+## it is the same re-base, it wants the same ruling, and removing a rule moves
+## the whole dock's rhythm.
+func _dock_head_h(pad_bottom: int) -> int:
+	return DOCK_HEAD_PAD_TOP + (CTL_PX_TOUCH if _touch else CTL_PX) + pad_bottom
+
 ## `as_sheet`: §13's phone treatment -- "docks become full-height sheets, one
 ## at a time". The header swaps its collapse chevron for a close button and
 ## the dock stops claiming a fixed desktop width, but the body underneath
@@ -3763,12 +3825,13 @@ func _build_left_dock(as_sheet: bool = false) -> Control:
 		left_dock.add_child(body_row)
 
 	var head := HBoxContainer.new()
-	## 34 px, not 26: the canvas gives both dock headers `height:34px` -- the
-	## same band the menu bar and the tool options bar get, so the three
-	## horizontal rules across the top of the shell line up as one rhythm.
-	## 26 is `H_STATUS`, borrowed here by mistake, and it left the dock title
-	## sitting 4 px proud of the tool options bar beside it.
-	head.custom_minimum_size.y = _ptap(44) if as_sheet else _scaled(34)
+	## `ENV:305` -- see `_dock_head_h()` for why this is 32 and not the 34 the
+	## comment here used to claim. The sheet figure is `PHONE_TAP_MIN` and is
+	## **not** an `ENV` number: the phone canvas draws no dock header at all,
+	## only a bottom sheet with a 20 px grab band over a 38 px control row
+	## (`Cartalith Android.dc.html:177-184`), which is a different chrome.
+	head.custom_minimum_size.y = _ptap(44) if as_sheet \
+		else _dock_head_h(DOCK_HEAD_PAD_BOTTOM_LEFT)
 	left_dock_title = DccTheme.header("WORLD", "")
 	head.add_child(left_dock_title)
 	head.add_child(DccTheme.spacer())
@@ -3836,12 +3899,12 @@ func _build_right_dock(as_sheet: bool = false) -> Control:
 	## pattern `left_dock_title` already follows for the domain name.
 	right_dock_title = DccTheme.header("SAMPLE", "")
 	var head := HBoxContainer.new()
-	## 34 px, not 26: the canvas gives both dock headers `height:34px` -- the
-	## same band the menu bar and the tool options bar get, so the three
-	## horizontal rules across the top of the shell line up as one rhythm.
-	## 26 is `H_STATUS`, borrowed here by mistake, and it left the dock title
-	## sitting 4 px proud of the tool options bar beside it.
-	head.custom_minimum_size.y = _ptap(44) if as_sheet else _scaled(34)
+	## `ENV:948` -- 38, six px taller than the left dock's 32, because this
+	## block's padding is `8px var(--pad) 6px` where the left's is
+	## `8px var(--pad) 0`. See `_dock_head_h()`; the two were built to one wrong
+	## number and the difference between them is the half that stayed hidden.
+	head.custom_minimum_size.y = _ptap(44) if as_sheet \
+		else _dock_head_h(DOCK_HEAD_PAD_BOTTOM_RIGHT)
 	if as_sheet:
 		head.add_child(right_dock_title)
 		head.add_child(DccTheme.spacer())
