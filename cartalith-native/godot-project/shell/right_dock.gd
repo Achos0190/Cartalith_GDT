@@ -1846,7 +1846,8 @@ func _build_sample(body: Control) -> void:
 	_sample_elev = _accent_readout(sec, "Elevation", "—",
 		"Metres above sea level at the cursor cell, from WorldState::field through " +
 		"metersPerUnit()'s own anchoring (1 - seaLevel maps to peak altitude). " +
-		"Negative below the waterline, which is the honest reading for an ocean cell.")
+		"Negative below the waterline, which is the honest reading for an ocean cell.",
+		true)
 
 	## §1.4's staleness gate. Read once for the whole panel -- `_stale_now()`
 	## caches, but a dozen calls to it would still be a dozen dictionary lookups
@@ -3036,7 +3037,10 @@ func _faction_colour_row(parent: Control, roster: Dictionary) -> void:
 	var tablet := DccTheme.is_tablet()
 	var fs := DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
+	## Follows `_field()` rather than carrying its own figure -- this builder's
+	## own doc above says it exists to match that row's value column, so it
+	## takes that row's `ENV:961` gap with it.
+	row.add_theme_constant_override("separation", ROW_GAP)
 	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
 	var l := DccTheme.label("Colour", "text_dim", fs)
 	l.custom_minimum_size.x = _FIELD_LABEL_W
@@ -3153,7 +3157,8 @@ func _build_measure_distance(body: Control) -> void:
 		return
 	var sec := DccWidgets.section(body, "Measure · distance")
 	_accent_readout(sec, "Total length", DccUnits.format(float(_measure_result.get("total_km", 0.0))),
-		"Summed leg by leg, each leg through cartalith_spatial::measure -- the same km scale every route length in this port uses.")
+		"Summed leg by leg, each leg through cartalith_spatial::measure -- the same km scale every route length in this port uses.",
+		true)
 	DccWidgets.note(sec, "%d segment%s · %d points" % [
 		segments.size(), "" if segments.size() == 1 else "s",
 		int(_measure_result.get("point_count", 0))])
@@ -3179,7 +3184,8 @@ func _build_measure_bearing(body: Control) -> void:
 	var b := float(seg.get("bearing_deg", 0.0))
 	var sec := DccWidgets.section(body, "Measure · bearing")
 	_accent_readout(sec, "Bearing", "%03d°" % int(round(b)),
-		"Grid y increases southward in every raster in this port, so 0° is north (-y), 90° east (+x), compass-clockwise.")
+		"Grid y increases southward in every raster in this port, so 0° is north (-y), 90° east (+x), compass-clockwise.",
+		true)
 	_field(sec, "Reciprocal", "%03d°" % int(round(fmod(b + 180.0, 360.0))))
 	_field(sec, "Distance", DccUnits.format(float(seg.get("km", 0.0)), 1))
 	_build_measure_derived(body)
@@ -3370,7 +3376,8 @@ func _build_measure_area(body: Control) -> void:
 	var r := _measure_result
 	var sec := DccWidgets.section(body, "Measure · area")
 	_accent_readout(sec, "Area · projected", "%s km²" % _thousands(float(r.get("projected_km2", 0.0))),
-		"The exact shoelace figure over the ring's own vertices (polyArea, reference line 28290) times the map's km per cell. Never an estimate.")
+		"The exact shoelace figure over the ring's own vertices (polyArea, reference line 28290) times the map's km per cell. Never an estimate.",
+		true)
 	DccWidgets.note(sec, "true surface %s km² · %d vertices" % [
 		_thousands(float(r.get("true_surface_km2", 0.0))), int(r.get("vertices", 0))])
 	_field(sec, "Perimeter", "%.0f km" % float(r.get("perimeter_km", 0.0)))
@@ -3393,7 +3400,7 @@ func _build_measure_radius(body: Control) -> void:
 		return
 	var r := _measure_result
 	var sec := DccWidgets.section(body, "Measure · radius")
-	_accent_readout(sec, "Radius", "%.0f km" % float(r.get("radius_km", 0.0)), "")
+	_accent_readout(sec, "Radius", "%.0f km" % float(r.get("radius_km", 0.0)), "", true)
 	_field(sec, "Diameter", "%.0f km" % float(r.get("diameter_km", 0.0)))
 	_field(sec, "Circumference", "%.0f km" % float(r.get("circumference_km", 0.0)))
 	_field(sec, "Enclosed area", "%s km²" % _thousands(float(r.get("area_km2", 0.0))),
@@ -3432,7 +3439,7 @@ func _build_measure_vertical(body: Control) -> void:
 	_accent_readout(sec, "Δ vertical", "%+.0f m" % float(r.get("delta_m", 0.0)),
 		"The height difference between the two clicked cells, B minus A. Metres in both "
 		+ "unit modes: DccUnits converts a linear map distance, and an elevation delta is "
-		+ "not one.")
+		+ "not one.", true)
 	DccWidgets.note(sec, "A %s m → B %s m · %s apart" % [
 		_thousands(float(r.get("p1_elev_m", 0.0))), _thousands(float(r.get("p2_elev_m", 0.0))),
 		DccUnits.format(float(r.get("horizontal_km", 0.0)), 1)])
@@ -3524,7 +3531,7 @@ func _build_measure_section(body: Control) -> void:
 	var samples: Array = r.get("samples", [])
 
 	var sec := DccWidgets.section(body, "Section line")
-	_accent_readout(sec, "Length", "%.0f km" % float(r.get("length_km", 0.0)), "")
+	_accent_readout(sec, "Length", "%.0f km" % float(r.get("length_km", 0.0)), "", true)
 	_field(sec, "Bearing", "%03d°" % int(round(float(r.get("bearing_deg", 0.0)))))
 	_field(sec, "3D length", "%.0f km" % float(r.get("length_3d_km", 0.0)),
 		"Following the sampled ground rather than the map plane.")
@@ -4874,7 +4881,8 @@ func _build_paint(body: Control) -> void:
 	var total := int(counts.get("total", 0))
 	_accent_readout(sec, "Painted cells", _thousands(float(total)),
 		"paint_painted_counts() for the active layer -- the composite of every committed dab and whatever is " +
-		"still in the draft, the same figure the left-dock Biome paint panel's own Legend group totals.")
+		"still in the draft, the same figure the left-dock Biome paint panel's own Legend group totals.",
+		true)
 	var pending := bridge.paint_draft_count()
 	DccWidgets.note(sec, "Nothing pending across any layer." if pending == 0 else
 		("%d dab%s pending across every layer, not just %s -- Commit/Discard below act on all three at once " +
@@ -4942,8 +4950,13 @@ func _paint_swatch_colors(layer: String) -> Array:
 func _paint_legend_row(parent: Control, label_text: String, count: int, swatch: Dictionary, value_index: int) -> void:
 	var tablet := DccTheme.is_tablet()
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+	## **Not `_field()`'s row, and the canvas says so twice.** `ENV:1044` draws
+	## the paint legend as `min-height:var(--row);...;gap:9px` -- a full
+	## `--row` (28), where every key/value row in this dock is `--row - 6`
+	## (22), and a 9 px gap where those are 10. It is a pickable list row, not
+	## a reading. Both figures were 8/22, borrowed from `_field()`.
+	row.add_theme_constant_override("separation", PAINT_ROW_GAP)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else H_ROW
 	if not swatch.is_empty():
 		var sw := ColorRect.new()
 		sw.color = Color8(int(swatch.get("r", 0)), int(swatch.get("g", 0)), int(swatch.get("b", 0)))
@@ -6155,7 +6168,21 @@ func _field(parent: Control, label_text: String, value_text: String,
 		label_w: int = _FIELD_LABEL_W) -> Label:
 	var tablet := DccTheme.is_tablet()
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
+	## `gap:10px`, a markup literal on the key/value row (`ENV:961`) and the
+	## same literal on every other key/value row this dock draws -- measure
+	## (`ENV:982`), region (`ENV:990`), place (`ENV:1120`), territory
+	## (`ENV:1133`) and way (`ENV:1166`) all write `gap:10px`, so this is one
+	## figure and not five. It was 8. `--g` is also 10 at the base density but
+	## is **not** what the canvas cites here: on touch `--g` goes to 12
+	## (`ENV:1819`) while these rows keep the literal, so reading the token
+	## would silently widen the tablet.
+	row.add_theme_constant_override("separation", ROW_GAP)
+	## `min-height:calc(var(--row) - 6px)` = 28 - 6 (`ENV:961`). Already
+	## conformant on the pointer band before this pass -- stated because
+	## "still 22" is a measurement. **The touch band deliberately is not**:
+	## `calc(--row - 6)` is 38 there and `row_min_h` is 44, because 44 dp is the
+	## tap floor and 38 would put every reading row under it. Disclosed rather
+	## than converged.
 	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
 	row.tooltip_text = tooltip
 	var label_fs := DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL
@@ -6180,9 +6207,12 @@ func _field(parent: Control, label_text: String, value_text: String,
 ## §6: "elevation (large accent readout)". The only such readout the dock
 ## has. Returns the value `Label` so `on_cursor_sampled` can write metres
 ## into it in place, the same way every other Sample row is updated.
-func _accent_readout(parent: Control, label_text: String, value_text: String, tooltip: String) -> Label:
+func _accent_readout(parent: Control, label_text: String, value_text: String,
+		tooltip: String, divider: bool = false) -> Label:
 	var wrap := VBoxContainer.new()
-	wrap.add_theme_constant_override("separation", 0)
+	## `gap:2px` between the caption and the number (`ENV:955`, and the same
+	## figure again at `ENV:971` and `ENV:1039`). It was 0.
+	wrap.add_theme_constant_override("separation", HERO_GAP)
 	wrap.tooltip_text = tooltip
 	var caption_fs := DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL
 	wrap.add_child(DccTheme.label(label_text, "text_dim", caption_fs))
@@ -6203,7 +6233,42 @@ func _accent_readout(parent: Control, label_text: String, value_text: String, to
 	v.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	wrap.add_child(v)
 	parent.add_child(wrap)
+	if divider:
+		parent.add_child(_hero_divider())
 	return v
+
+# -- The hero block's own geometry (`ENV:955`) --------------------------------
+#
+# Measured against the PC canvas 2026-09-07. The canvas closes a hero block
+# with `padding-bottom:10px; border-bottom:1px solid var(--div);
+# margin-bottom:9px` -- `ENV:955` (sample), `ENV:971` (measure), `ENV:1039`
+# (paint), and `ENV:997` in the stamp counter's row form. `--div`, not
+# `--hair`, which is why this draws `_soft_rule()` and not `DccTheme.rule()`.
+# Nothing in this dock drew it.
+
+const HERO_GAP := 2          ## `ENV:955` `gap:2px`, caption to number.
+const HERO_RULE_ABOVE := 10  ## `ENV:955` `padding-bottom:10px`.
+const HERO_RULE_BELOW := 9   ## `ENV:955` `margin-bottom:9px`.
+## `DccWidgets.section()`'s body `separation`, which Godot inserts on BOTH
+## sides of the divider node. Subtracted below so the DRAWN gaps are the
+## canvas's 10 and 9 rather than 12 and 11 -- `_rdconform_probe.gd` asserts the
+## drawn distances, not these constants, for exactly that reason.
+const SECTION_BODY_SEP := 2
+const ROW_GAP := 10          ## `ENV:961` `gap:10px`, the key/value row.
+const PAINT_ROW_GAP := 9     ## `ENV:1044` `gap:9px`, the paint legend row.
+const H_ROW := 28            ## `--row` (`ENV:25`). Touch 44 via `row_min_h`.
+
+## **Opt-in, because three of this file's twelve accent readouts are not hero
+## blocks in the canvas at all.** Territory (`ENV:1133`) and Way (`ENV:1166`)
+## are plain key/value rows with a `500 20px` accent value and no rule under
+## them, and the river panel has no canvas counterpart to take one from. A
+## divider built into the factory would have drawn three the canvas denies.
+func _hero_divider() -> MarginContainer:
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_top", HERO_RULE_ABOVE - SECTION_BODY_SEP)
+	m.add_theme_constant_override("margin_bottom", HERO_RULE_BELOW - SECTION_BODY_SEP)
+	m.add_child(_soft_rule())
+	return m
 
 # -- Coordinate readout ----------------------------------------------------
 #

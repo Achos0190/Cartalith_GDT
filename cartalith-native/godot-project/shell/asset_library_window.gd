@@ -886,9 +886,51 @@ static func _rule_soft() -> Control:
 	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return r
 
-## §11: no fills, radius 0, a 2 px rule with the travelled part in accent.
-## Same treatment `DccWidgets` gives its dock sliders; repeated rather than
-## reached into, because that one is private to its own row builder.
+## **Re-anchored 2026-09-07, and the figure it used to quote is wrong.**
+##
+## This comment read *"§11: no fills, radius 0, a 2 px rule with the travelled
+## part in accent"*. §11 is the superseded radius rule the owner retired on
+## 2026-09-07 (*"the radius should follow the newest designs"*), so the
+## citation was re-measured against the live set before being re-pointed --
+## and the newest designs do not draw this control the way either the old
+## citation or the code below says.
+##
+## **Measured in `design/mcp-2026-09-07/`.** Every slider track in both
+## desktop-class canvases is one string, and there is no second variant:
+##
+##   <span onPointerDown=… style="…;height:var(--ctl);…;touch-action:none">
+##     <span style="flex:1;height:4px;border-radius:2px;background:var(--ins)">
+##       <span style="…;border-radius:2px;background:var(--acc);width:…%">
+##
+## `Cartalith DCC Environment.dc.html` **21** of them, `Cartalith Tablet.dc.html`
+## **11**, and each file's only other `height:2px` is not a slider. So the
+## canvas says **4 px tall, radius 2, ground `--ins` (= `sunken`), travelled
+## part `--acc` at the same radius** -- at *both* densities.
+##
+## **What the code draws instead, and why it is left alone.** 2 px, radius 0,
+## ground `line`. That is not this file's invention: it is byte-for-byte what
+## `DccWidgets._style_slider()` gives every dock parameter row in the shell,
+## off `DccTheme.ROLE["slider_track_h"]` (`[2, 3]`). Measured by
+## `_wincensus_probe.gd` on the built tree, this window's two sliders read
+## `track=2` at pointer and `track=2` at tablet, where the dock's read 2 and 3.
+##
+## **So there are two gaps and they are not the same size**, and only one of
+## them is this file's:
+##
+## 1. `ROLE["slider_track_h"]`'s pair disagrees with the canvas at both ends
+##    (2 and 3 against a measured 4), as do the radius and the ground token.
+##    That is one constant and one shared factory in `dcc_theme.gd` /
+##    `dcc_widgets.gd`, and it is where the fix belongs: repainting the two
+##    sliders in this window to the canvas alone would make the asset library
+##    the only place in the app drawing a 4 px rounded track, which is the
+##    direction the owner's *"visually not the same"* asked us to stop going.
+##    **Reported, not patched here.**
+## 2. This copy does not read the tablet half of the pair at all -- the shared
+##    factory takes `role_px("slider_track_h")` when `is_tablet()`, this one
+##    is a literal 1 + 1. It is left matching the shared factory's *pointer*
+##    output rather than half-corrected onto a constant that item 1 says is
+##    itself wrong; whichever way `slider_track_h` is resolved, this call site
+##    should be reading it and not restating it.
 static func _style_slider(s: HSlider) -> void:
 	var track := StyleBoxFlat.new()
 	track.bg_color = DccTheme.c("line")
@@ -1185,13 +1227,35 @@ func _build_window_bar() -> Control:
 	_sort_button.add_item("Sort: slot order")
 	_sort_button.add_item("Sort: name")
 	_sort_button.focus_mode = Control.FOCUS_NONE
-	_sort_button.add_theme_font_override("font", DccTheme.mono(0))
+	## **Through `_style_option()`, which this block used to reimplement.**
+	## `_wincensus_probe.gd` on the built tree, before this change:
+	##
+	##   'Sort: slot order'  box-:["disabled"]
+	##                       ink-:["font_pressed_color","font_disabled_color"]
+	##
+	## against the slicer's two `OptionButton`s in this same file, which go
+	## through `_style_option()` and carry both -- **two treatments of one
+	## control class inside one window**, which is the owner's 2026-09-07
+	## *"all buttons and inputs are visually not the same"* in miniature. The
+	## copy here was written first and `_style_option()` was extracted from it
+	## for the slicer without this site being repointed, the same way
+	## `_picker_button()` survived the "fix every button" pass.
+	##
+	## Two lines follow the call rather than being folded into it, and both are
+	## departures kept **because they are geometry or an improvement**, stated
+	## rather than silently lost:
+	##
+	## * `FS_SMALL`, not the factory's `FS_TINY`. This chip sits in the window
+	##   bar beside `FS_SMALL` chips, not in the slicer's 66 px label column,
+	##   and dropping it a step measured 140 -> 133 px wide at pointer.
+	## * `font_hover_color`, which `_style_option()` does not set. Removing it
+	##   would be a regression for the sake of uniformity; the honest direction
+	##   is the factory gaining it, which is a change to a shared helper that
+	##   the slicer's two dropdowns would also take and that this pass did not
+	##   measure there.
+	_style_option(_sort_button, false)
 	_sort_button.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
-	_sort_button.add_theme_color_override("font_color", DccTheme.c("text"))
 	_sort_button.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
-	for sb_name in ["normal", "pressed", "focus"]:
-		_sort_button.add_theme_stylebox_override(sb_name, _box("line", "", 9, 4))
-	_sort_button.add_theme_stylebox_override("hover", _box("line", "line_soft", 9, 4))
 	_sort_button.item_selected.connect(func(i: int): _sort_mode = i; _refresh_grid())
 	DccWidgets.style_popup(_sort_button.get_popup())
 	row.add_child(_sort_button)
@@ -3371,6 +3435,43 @@ func _build_slicer_modal() -> void:
 	_slicer_chroma_color.edit_alpha = false
 	_slicer_chroma_color.custom_minimum_size = Vector2(38, 22)
 	_slicer_chroma_color.focus_mode = Control.FOCUS_NONE
+	## **The one control in this window that carried no override of any kind.**
+	## `_wincensus_probe.gd`, before this block:
+	##
+	##   ColorPickerButton  box-:["normal","hover","pressed","disabled"]
+	##                      ink-:[all four]
+	##
+	## -- so it drew Godot's stock rounded slab around the swatch, in a modal
+	## where its own row neighbour (a `SpinBox`) is a `_well()` and the two
+	## rows under it are `_style_option()` dropdowns. `ColorPickerButton` is a
+	## `BaseButton`, so the four states are the same four, and the outline is
+	## the same `_box("line", "", …)` those siblings take: the swatch is the
+	## value and the hairline is the well around it, which is this canvas's own
+	## treatment for a bordered value everywhere else in the file.
+	##
+	## `px`/`py` are **2, not the `_well()` default 9/4, and the reason first
+	## written here was wrong.** It claimed 9 px of margin would push the
+	## control's own minimum past the authored 38 px and move the row.
+	## `_winconform_probe.gd` mutated it both ways -- `_box("line","",0,0)`
+	## and `_box("line","",9,4)` -- and the laid-out control stayed **38 x 22**
+	## in both, because `custom_minimum_size` above is the larger term and the
+	## margins never bind. Both mutants survived, which is what surfaced it.
+	##
+	## So the figure is not a geometry constraint; it is the inset between the
+	## hairline and the swatch, and 2 is derived rather than measured: no
+	## canvas in `design/mcp-2026-09-07/` draws a colour swatch anywhere, so
+	## there is nothing to take a literal from, and this keeps the border
+	## legible as a border rather than as a ring the swatch is painted over.
+	## It is pinned in the probe so a change is deliberate.
+	##
+	## This is a local repair and it is deliberately not generalised: the other
+	## three `ColorPickerButton`s in the shell (`right_dock.gd`,
+	## `faction_roster_window.gd`, `workspaces/cartography_workspace.gd`) are
+	## equally stock and are outside this lane's files. **Reported, and the
+	## honest home for it is a `DccWidgets.swatch()` none of the four have.**
+	for cp_state in ["normal", "hover", "pressed", "disabled"]:
+		_slicer_chroma_color.add_theme_stylebox_override(cp_state,
+			_box("line", "", 2, 2))
 	_slicer_chroma_color.color_changed.connect(func(_c: Color): _refresh_slicer_summary())
 	chroma_row.add_child(_slicer_chroma_color)
 	_slicer_chroma_tol = SpinBox.new()

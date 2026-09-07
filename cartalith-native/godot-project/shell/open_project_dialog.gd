@@ -411,17 +411,64 @@ func _build_head() -> Control:
 		"text_ghost", DccTheme.FS_SMALL)
 	row.add_child(_subtitle_label)
 	row.add_child(DccTheme.spacer())
+	row.add_child(_head_close())
+	return _pad(row, 30, 22, 30, 16)
+
+## **The fourth button path in this file, found the way `_picker_button()` was.**
+##
+## `_wincensus_probe.gd` walks the built tree and reports every control carrying
+## no theme override of its own. On this dialog it returned, at both densities:
+##
+##   '✕'  flat=true min=0x0 size=34x35  box-:["normal","hover","pressed",
+##                                            "disabled"]
+##                                      ink-:["font_pressed_color",
+##                                            "font_disabled_color"]
+##
+## **Four styleboxes missing, not one** -- `flat = true` suppresses stylebox
+## drawing outright (`data_manager_window.gd::_rail_row()` records the same
+## measurement from the other side: *"a flat Button draws no stylebox at all"*),
+## so this control had no rest ground, **no hover ground**, and no pressed
+## ground, while the two sibling windows' way out is a `DccWidgets.chip()` with
+## all four. And `font_pressed_color` fell through to Godot's stock `Button`
+## theme -- a near-white that lands on the light palette's own panel, so the
+## glyph vanished for the duration of the press **on the theme this project
+## prefers**. Exactly the pair of defects `_picker_button()` was fixed for last
+## batch, on the other composition of the same dialog.
+##
+## **No factory covers a window-header closer**, which is why the two passes
+## that repointed `action()`, `modal_button()` and `_picker_button()` all went
+## past this one. The vocabulary it now matches is `DccWidgets.modal_card()`'s
+## own inline closer, the shell's single existing answer for this control:
+## a `MODAL_CTL` box, `empty` at rest and pressed, and a `MODAL_INSET_RADIUS`
+## `line_soft` ground on hover. Every symbol it needs is public.
+##
+## **Two figures are deliberately NOT modal_card's**, and both are geometry
+## this pass is not allowed to move:
+##
+## * `FS_MODAL_TITLE`, not `FS_SMALL`. The glyph sits beside a
+##   `FS_MODAL_TITLE` window title here, where `modal_card()`'s sits beside a
+##   `FS_MICRO` tracked caps line. Measured before this change at 34 x 35;
+##   `MODAL_CTL` (24) is a *minimum* under that, so it floors without growing.
+## * `text_ghost` at rest, not `text_faint`. No canvas in the current set draws
+##   this screen's head (see this file's own header), so the rest ink has no
+##   source to move it to and stays where it was.
+func _head_close() -> Button:
 	var close := Button.new()
 	close.text = DccIcons.SYMBOLS["cross"]
-	close.flat = true
 	close.focus_mode = Control.FOCUS_NONE
+	close.custom_minimum_size = Vector2(DccWidgets.MODAL_CTL, DccWidgets.MODAL_CTL)
 	close.add_theme_font_override("font", DccTheme.mono())
 	close.add_theme_font_size_override("font_size", DccTheme.FS_MODAL_TITLE)
 	close.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
 	close.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	close.add_theme_color_override("font_pressed_color", DccTheme.c("text_bright"))
+	close.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	for state in ["normal", "pressed", "disabled"]:
+		close.add_theme_stylebox_override(state, DccTheme.empty())
+	close.add_theme_stylebox_override("hover",
+		DccTheme.flat(DccTheme.c("line_soft"), DccWidgets.MODAL_INSET_RADIUS))
 	close.pressed.connect(func(): hide())
-	row.add_child(close)
-	return _pad(row, 30, 22, 30, 16)
+	return close
 
 func _build_toolbar() -> Control:
 	var row := HBoxContainer.new()

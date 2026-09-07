@@ -2560,19 +2560,42 @@ func _fill_religion(parent: Control) -> void:
 ## still deliberate. It is this shell's one lit-segment vocabulary and DS-02's
 ## ruling about filled accent surfaces sits behind it, so the factory is used
 ## as it stands rather than restyled here for one category.
+const SEG_TRACK_PAD := 2   ## `ENV:838` `padding:2px` on the segment track.
+const SEG_CHIP_GAP := 0    ## `ENV:838`/`ENV:1087`/`ENV:311` -- chips abut.
+
 func _religion_segments(parent: Control) -> void:
 	var pad := MarginContainer.new()
 	pad.add_theme_constant_override("margin_left", 14)
 	pad.add_theme_constant_override("margin_right", 12)
 	pad.add_theme_constant_override("margin_top", 10)
 	var track := PanelContainer.new()
-	## Radius from the artboard's own `border-radius:14px`; no `DccTheme` role
-	## carries a corner radius, because §11's rule for the desktop artboards is
-	## radius 0 and `pill()` is the phone's exception. Stated rather than
-	## routed through a role that does not exist.
-	track.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c("sunken"), 14))
+	## **Re-anchored 2026-09-07: the figure held, the reason for it did not.**
+	## 14 is now `ENV:838` -- the current PC canvas's own wrapping segment
+	## track, `background:var(--ins);border-radius:14px;padding:2px`, which is
+	## this control's shape exactly (a `--ins` track holding pill chips). The
+	## citation it replaces argued from §11's "radius 0 for the desktop
+	## artboards", and that is the stale document: the owner ruled 2026-09-07
+	## *"The radius should follow the newest designs"*, and the newest design
+	## draws **no** `border-radius:0` anywhere -- counted, not asserted, off
+	## `Cartalith DCC Environment.dc.html`: 81 x 999px, 76 x 8px, 47 x 2px,
+	## and this single 14. No `DccTheme` role carries a corner radius, so the
+	## figure is still written here rather than routed through one that does
+	## not exist.
+	var box := DccTheme.flat(DccTheme.c("sunken"), 14)
+	## `padding:2px` on the track (`ENV:838`). It was 0, so the chips sat
+	## tangent to the track edge and the lit pill had no ring of `--ins` around
+	## it on three sides.
+	box.content_margin_left = SEG_TRACK_PAD
+	box.content_margin_right = SEG_TRACK_PAD
+	box.content_margin_top = SEG_TRACK_PAD
+	box.content_margin_bottom = SEG_TRACK_PAD
+	track.add_theme_stylebox_override("panel", box)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 4)
+	## The chips abut inside the track: `ENV:838`'s `sc-for` writes no gap, and
+	## neither does the interp track at `ENV:1087` nor the left dock's mode
+	## switch at `ENV:311`. It was 4, which drew two stripes of track colour
+	## between three chips that the canvas draws touching.
+	row.add_theme_constant_override("separation", SEG_CHIP_GAP)
 	track.add_child(row)
 	pad.add_child(track)
 	parent.add_child(pad)
