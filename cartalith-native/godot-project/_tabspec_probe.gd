@@ -78,6 +78,20 @@ func _ready() -> void:
 	_w("right_dock", app.right_dock, want_dock)
 	_w("viewport_area", app.viewport_area, 0.0)
 
+	## **Which child is forcing the left dock past its own role?**
+	##
+	## Added 2026-09-07. The role resolves to the canvas figure and the RIGHT
+	## dock draws it exactly; the left dock draws 331 with a minimum of 331. So
+	## the question is not "is the role applied" but "what inside refuses to
+	## fit", and a dock-level total cannot answer that -- the same reason
+	## `_panemin_probe` walks DOWN rather than arguing with a window total.
+	##
+	## Prints the chain of descendants whose own combined minimum meets or
+	## exceeds the dock's, which is what makes one of them the driver rather
+	## than a passenger.
+	_drivers("left_dock", app.left_dock, want_dock)
+	_drivers("right_dock", app.right_dock, want_dock)
+
 	print("[fit]")
 	var shell: Control = app.shell if "shell" in app else null
 	if shell == null:
@@ -118,3 +132,38 @@ func _ready() -> void:
 	print("  TOUCH_SCALE=%.2f" % DccTheme.TOUCH_SCALE)
 	print("=== end %s ===" % _tag)
 	get_tree().quit()
+
+## Walk `node`, printing every descendant whose combined minimum width is at
+## least the container's own -- the ones that could be setting it. A leaf with
+## a minimum below the dock's cannot be the cause, so listing everything would
+## bury the answer.
+##
+## Prints the class and the text where a control has one, because "which
+## Label" is not an answer a person can act on and "the Label reading
+## 'Established Caravan Route'" is.
+static func _drivers(tag: String, root: Node, want: float) -> void:
+	if root == null:
+		return
+	var have: float = (root as Control).get_combined_minimum_size().x
+	print("[drivers] %s min=%.1f want=%.1f over=%.1f" % [tag, have, want, have - want])
+	if have <= want + 0.5:
+		print("  (within its role -- nothing to blame)")
+		return
+	_drivers_walk(root, have, 0)
+
+static func _drivers_walk(node: Node, floor_w: float, depth: int) -> void:
+	for child in node.get_children():
+		if child is Control:
+			var ctl := child as Control
+			var m: float = ctl.get_combined_minimum_size().x
+			if m >= floor_w - 0.5:
+				var txt := ""
+				if ctl.has_method("get_text"):
+					txt = str(ctl.call("get_text")).strip_edges()
+				elif "text" in ctl:
+					txt = str(ctl.get("text")).strip_edges()
+				print("  %s%s  min=%.1f  vis=%s  %s" % [
+					"  ".repeat(depth), ctl.get_class(), m,
+					str(ctl.is_visible_in_tree()),
+					("\"" + txt.left(46) + "\"") if txt != "" else ctl.name])
+		_drivers_walk(child, floor_w, depth + 1)
