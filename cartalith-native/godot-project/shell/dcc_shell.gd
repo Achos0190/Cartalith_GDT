@@ -2492,6 +2492,29 @@ func _run_tablet_dock_arbitrate() -> void:
 	for dock in [left_dock, right_dock]:
 		if dock != null:
 			tablet_arbitrate(dock)
+			## **And FIT it, which this hook did not do until 2026-09-07.**
+			##
+			## `tablet_fit()` ran once, from the deferred pass in
+			## `register_workspace()`, so anything a REBUILD created afterwards
+			## was never reached -- `_rebuild_label_panel()` and
+			## `_rebuild_label_edit_form()` being the ones that kept surfacing.
+			## Three consecutive batches found the same shape and fixed the
+			## instances: an `edit` button at 44x29, its `x` at 27x29, a colour
+			## well at 60x24, all against a 44 dp floor. **Fixing instances
+			## does not stop a fitter that only runs at boot from missing the
+			## next rebuild.**
+			##
+			## Free to hang here: the arbitration hook is already debounced
+			## through `_tablet_arb_pending` and already scoped to the two
+			## docks, and `_tablet_fit_walk()` marks every Control it visits
+			## with `_TABLET_FIT_META` and skips it thereafter -- so this is
+			## idempotent by construction and costs a walk, not a re-fit.
+			##
+			## Still height-only. Flooring width here would grow whatever
+			## fixed-width bar contains a control, which is the self-inflicted
+			## overflow `tablet_fit()`'s own header says to report rather than
+			## cause -- so the `x` at 27 px WIDE stays a per-site fix.
+			tablet_fit(dock)
 
 ## Walks `node`'s descendants and floors whatever a `DccWidgets`/`right_dock.gd`
 ## /`layers_popover.gd` factory did not already size: any `BaseButton`,
