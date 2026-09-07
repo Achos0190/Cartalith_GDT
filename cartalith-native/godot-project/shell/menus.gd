@@ -560,14 +560,27 @@ func _file(p: PopupMenu) -> void:
 	_refresh_autosave_menu()
 	_live(p, "Revert to last save", ID_REVERT)
 	var revert_idx := p.item_count - 1
+	## **Close sits here, directly after Revert, and this position has now moved
+	## twice -- so the reasoning is written down rather than the conclusion.**
+	##
+	## It was moved to the END of the menu on the authority of the artboard
+	## `DCC Cartography style 1920`, which draws the storage band *between*
+	## Revert and Close. **That artboard was last touched 2026-08-23.**
+	## `design/dcc-environment-2026-08-31/cartalith-dcc-parts.js` (committed
+	## `660cbef`) draws `Revert to last save` → `Close project` → `sep()` →
+	## `STORAGE LOCATIONS`, and it is eight days newer.
+	##
+	## The owner's standing rule settles it: **when two design canvases
+	## disagree, the newer one wins.** Checked before moving: the three
+	## 2026-09-07 canvases do not draw the File menu open at all, so they do not
+	## supersede either -- the 08-31 parts file is the newest artefact that
+	## actually states this order.
+	_live(p, "Close project", ID_CLOSE, KEY_MASK_CTRL | KEY_W)
+	var close_idx := p.item_count - 1
+	p.add_separator()
 
-	## **The canvas's own band, and its own order** (`DCC Cartography style
-	## 1920`, the one artboard that draws File open). Storage sits *between*
-	## Revert and Close, under a `STORAGE LOCATIONS` label, with the four roots
-	## listed read-only above the two actions -- and `Close project ⌘W` is the
-	## last item in the menu, not the middle one. The shell had Close directly
-	## after Revert and the storage pair below it, which is the canvas's order
-	## inverted.
+	## The storage band follows, under its own `STORAGE LOCATIONS` label, with
+	## the four roots listed read-only above the two actions.
 	p.add_separator("STORAGE LOCATIONS")
 	## `padding:2px 14px 8px;font:10px 'IBM Plex Mono';color:#6f7478` with the
 	## path in `#8d9296`: four read-only rows, not a control. Rebuilt on every
@@ -607,9 +620,6 @@ func _file(p: PopupMenu) -> void:
 	p.set_item_tooltip(show_idx,
 		"Reveals the project's folder in the OS file manager. Disabled until a project has been opened this session.")
 
-	p.add_separator()
-	_live(p, "Close project", ID_CLOSE, KEY_MASK_CTRL | KEY_W)
-	var close_idx := p.item_count - 1
 	## §2.1's static note: imports do not live in File. The canvas sets it in
 	## `9.5px 'IBM Plex Mono';color:#5f6468;line-height:1.6` and lets it **wrap
 	## over two lines**; a `PopupMenu` item cannot wrap, and a `PopupMenu` sizes
