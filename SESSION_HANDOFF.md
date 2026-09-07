@@ -15,13 +15,19 @@ of work done. Use at most 3 agents at a time. Every time a batch is done, update
 the outstanding work file before starting the next. The goal is complete when the
 whole list has been finished.**
 
-**Three build lanes, plus the verifier** (owner, 2026-09-05 — the current
-instruction; the count has moved 3 -> 2 -> 4 -> 2 -> 3 over two days, so **read
-this line rather than a batch's precedent**). Three concurrent build lanes, then
-the verifier — never four at once. The
-adversarial verifier has found a real defect in **every** batch it has run,
-including a defect in the brief itself in twenty-one consecutive batches, so it
-is never one of the three the count refers to and is never the thing cut.
+**Two build lanes, plus the verifier** (owner, 2026-09-07 — the current
+instruction, given twice that day and the reason stated: token burn). **The count
+has now moved 3 → 2 → 4 → 2 → 3 → 2 → 4 → 2 across four days, so read THIS LINE
+rather than a batch’s precedent, and re-read it after every owner message** — it
+has changed mid-session more than once.
+
+**The verifier is never one of the lanes the count refers to, and is never the
+thing cut.** It has found a real defect in **every** batch it has run, and a
+defect in the brief itself in twenty-eight consecutive batches. Recent examples
+of what only it caught: a probe that shipped asserting the very regression its
+own commit introduced; a lane that measured a desktop `PopupMenu` and declared
+the owner’s request impossible while the owner was holding a phone; and, twice,
+**my own claim that nothing else was writing the tree.**
 
 Keep lanes **file-disjoint**: assign by crate or by directory, and where two rows
 want the same file, serialize them across batches rather than forbidding the edit
@@ -41,13 +47,39 @@ fail at signing, that is normal, and verify the `.so` inside the APK is the one
 just built), and a menu-by-menu design-conformance audit using **Fable 5.1 at
 Ultracode, minimum 2 agents** (owner, 2026-09-04).
 
-**The design audit was re-ordered by the owner the same day: it runs BEFORE the
-rest of the outstanding list, not after GUI work completes.** Its fixes are
-**Opus 5 at Ultracode, with Fable 5.1 where the call is a design judgment**
-rather than mechanical conformance — the model holding the design context
-decides what conformance means, the other applies it. **The APK build keeps its
-original trigger** and does not start early; say so rather than quietly deciding
-GUI work is finished.
+**The design audit HAS RUN and is no longer the gate.** The owner supplied three
+live canvases through the `claude_design` MCP on 2026-09-07 — imported verbatim
+to `design/mcp-2026-09-07/` (PC, Tablet, Android, plus `support.js` and the
+capture recipe in `CAPTURE.md`). **A `.dc.html` is a complete HTML document and
+renders standalone in HEADED Chrome; the canvas editor never renders headless**
+(five configurations were tried). `TABLET_UI_SPEC.md` and `ANDROID_UI_SPEC.md`
+were written from them.
+
+**What replaced it is the standing definition of done for GUI work, in the
+owner’s words (2026-09-07):**
+
+> *"All designs layouts and styles should match 100%. Check all designs, pc,
+> tablet and phone. Check - build - check again all checks against visual
+> information and code information from the Claude design instance."*
+
+> *"As soon as we reach 100% parity with the reference for the result I’ll waive
+> the 100% checks between before, mid and after."*
+
+**So the before/mid/after discipline is scaffolding the owner has already agreed
+to drop at parity — it is not the goal. The reference is.** Where the canvases
+and a project document disagree, **the canvases win**: `DCC_SHELL_SPEC.md` §11
+still says *"Radius 0 everywhere"* and was superseded by owner ruling
+(*"The radius should follow the newest designs"*, 2026-09-07).
+
+**Defects the owner reports ON GLASS outrank every conformance row.** They have
+been right every time and have found in minutes what full sessions of green
+probes did not — see `MISTAKES.md`’s *"The probe could not see the class of thing
+that was wrong"*. **Take them first, and diagnose before fixing**: "it renders",
+"it can be operated" and "it can be FOUND" are three different measurements.
+
+**The APK build keeps its original trigger** and does not start early — though
+the owner has asked for an interim drop directly, twice; do it when asked and
+say so rather than quietly deciding GUI work is finished.
 
 **Commit per verified batch** (owner, 2026-09-03). One commit per batch, after its
 verifier reports — not before. Two constraints follow and neither is optional:
@@ -58,6 +90,13 @@ verifier reports — not before. Two constraints follow and neither is optional:
 - **Explicit paths only** — never `git add -A` / `-a`, never `git commit -- <paths>`.
   A batch's lanes and the main loop edit the tree concurrently; a blanket add
   captures whatever a lane happened to be mid-write on.
+
+**Every agent brief’s "standing rules" block must be DERIVED FROM `MISTAKES.md`,
+not written from memory.** Owner instruction, 2026-09-07, after `MISTAKES.md`
+went nine commits without an update while the rules were being retyped from
+recall into each brief. Open the preflight table, take the rows that match what
+the batch is about to do, and paste those. **A rule you remember but cannot find
+in that table is a rule you have not filed yet — file it first.**
 
 Set this with `/goal` so it persists across check-ins.
 
@@ -191,11 +230,18 @@ files it does not own.
 
 ---
 
-## Owner priority for GUI work (standing, 2026-09-03)
+## Owner priority for GUI work
+
+**0. Anything the owner reported on glass, first — ahead of all of these**
+(2026-09-07, and it has outranked the list every time it has come up).
+
+Then the standing 2026-09-03 order:
 
 1. Rows blocked on **other work** first.
 2. Then the **unblocked** rows.
-3. Then rows blocked on a **design that does not exist**.
+3. Then rows blocked on a **design that does not exist** — **note that this
+   class has largely emptied**, since the three live canvases now cover PC,
+   tablet and phone.
 4. Rows blocked on the **owner** → ask, with `AskUserQuestion`.
 
 ## Live owner rulings (2026-09-03, full text in `LARGE_ITEM_RULINGS.md`)

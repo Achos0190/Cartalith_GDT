@@ -115,6 +115,20 @@ its rule before you start.
 | **Tell a lane a field has no engine behind it** | **Open the setter, the emitter and the drawer before writing it.** A brief said `halo` had no engine and should be dashed "prominently". It is fully live — `set_field` accepts it, the render list emits `halo_em` for generated *and* hand-placed rows, and the overlay strokes it. Obeying would have shipped a false reason on the one field that keeps a label legible over terrain | Three symbols, not one: where it is set, where it crosses, where it is drawn. Say in the brief that the lane may overturn you |
 | **Floor a control that a rebuild creates** | **`tablet_fit()` floors HEIGHT only and runs ONCE from a deferred pass**, so anything a later `_rebuild_*` builds is reached by neither fitter. Three batches running have found the same shape — a 22 px field, a 7 px chevron, then `edit` 44×29 / `×` 27×29 / a colour well 60×24 | Floor at the call site for anything built after first layout, on **both axes**, and measure at tablet as well as phone. The general fix is a fitter that runs on rebuild |
 | **Report that a feature does not exist** | **One grep is not an absence proof — search for the CONCEPT, not a string you imagined.** I told the owner twice that no km/mi toggle exists anywhere in `shell/*.gd`, having grepped `miles\|km/mi`. It ships as a three-way radio (`Preferences ▸ Units`, km/mi/nmi) because the code says `DccUnits.label("mi")` — the string I searched for was never going to appear | Grep the domain word (`units`, `unit_mode`), the settings key, and the menu label separately; then open the symbol. An absence claim is the one kind no single search can establish |
+| **Write a probe that PRESSES a control** | Press its **edges**, not its centre. **A centre press cannot see the width of the target it hits** | Shrink the control below the floor; a centre-pressing probe still passes |
+| **Assert a control is present, sized or reachable** | `get_global_rect()` reports a child’s **UNCLIPPED** rect. Assert the **drawn rect against its container’s VISIBLE rect** | A control 15% painted must FAIL; keep a positive control that fires |
+| **Assert a widget’s appearance** | A **stylebox-shaped test cannot see a modulate**, and headless returns a null texture. **Render it and read the pixels** | Force the colour to red; the probe must move |
+| **Prove a style is independent of a stale theme** | **Independence is not correctness.** Zero movement under a hostile theme rewrite says nothing inherits — nothing about alignment, centring or minimum size | Assert the drawn VALUE against a canvas literal as well |
+| **Add a probe in the same commit that changes the behaviour** | That is the **same claim written twice**, not evidence. A probe earns authority by **failing on the state before the change** | Run it against the pre-change file; if it passes, it pins nothing |
+| **Assert a drawn colour** | Never against `DccTheme.c(token)` — **both sides move together on a flip**, so it sees a wrong token but never a wrong value. Pin the canvas literal with its `ENV:` line | Flip the palette; a token-vs-token check cannot fail |
+| **Set a palette inside a probe** | **After** the shell boots. `apply_theme()` before instantiating `app.tscn` is **inert** — the boot re-applies the saved mode | Assert a value that DIFFERS between palettes before trusting the leg |
+| **Measure ink or a glyph in a capture** | Taking the **brightest pixel** is a dark-palette habit. On light the brightest thing is the **ground** | Take the pixel furthest from the band in luminance, inside its own bbox |
+| **Answer "can the user do X?"** | Measure the widget **the owner touches**, not the one the brief names. A desktop `PopupMenu` and the phone’s `Button` chips are different classes with different answers | Name the surface and the density you measured on |
+| **Reach a screen inside a probe** | **Never call a function to navigate.** Tap what is visible from launch. Separate **it renders** / **it can be operated** / **it can be FOUND** | A control can be visible, sized and tappable inside a container that is invisible |
+| **Find a figure the canvas does not contain** | Check the **superseded** canvas before calling it invented. `height:34px` is 0 in the current canvases and **32** in the replaced one | `grep -c` both; an inherited figure is a re-anchor, not a deletion |
+| **Say which renderer the shell uses** | It boots **`gl_compatibility`** (`project.godot:101`), not Vulkan. Either is a real rasteriser; **headless is not** | `--rendering-driver vulkan` forces Vulkan if a leg needs it |
+| **Cite an `ENV:` line** | **Open it.** A radius census cited `ENV:912` for a control; `ENV:912` is a bare closing `</div>` | Quote the declaration you are citing, not just its number |
+| **Dispatch a second workflow while a verifier is running** | Don’t — or **state in the verifier’s brief exactly what else may write, and name the files** | Have the verifier snapshot md5s and report drift; two caught this |
 
 ## Why each rule exists
 | **Verify anything phone-shaped** | **`--force-touch` on the desktop is not the phone, and `pressed.emit()` is not a finger.** A whole session of probes reported a healthy phone shell; the owner picked up the APK and could not find the generation menu or use the journey planner within minutes. Synthesised input is injected **downstream** of `MOUSE_FILTER`, scrims, gesture handlers and hit areas, so a control unreachable by touch still passes | **See with `adb exec-out screencap`, act with `adb shell input tap/swipe`** at coordinates read off that image, and navigate from launch tapping only what is visible. Desktop probes are for regression, never for reachability |
@@ -815,3 +829,44 @@ explains it?" — which is the behaviour the brief should have had.
 **The rule, and it generalises past this project:** a screening metric needs a
 known-good and a known-bad reading before it is used once, and both belong in
 its label. Anything else is a glance dressed as a measurement.
+
+### The probe could not see the class of thing that was wrong
+
+**This is the dominant failure of 2026-09-07, and it happened five times in one
+day with five different mechanisms.** Every defect the owner found by hand had a
+**green probe** behind it, and in each case the probe was **right about what it
+measured**:
+
+- `_jpinsw_probe` reported *0 rows over 1080 px, 0 of 23 tappables under the
+  floor*. True — **of a panel nobody could see.** The planner’s controls hang in
+  `app.left_dock_body`, a phone sheet built `visible = false`, so
+  `_left_panel.visible` was `true` the whole time while
+  `is_visible_in_tree()` was false.
+- `_detent_probe` PASSED on a grab handle measuring **19.84 dp** against a 44 dp
+  floor, because **it presses the handle’s exact centre.**
+- The input-fill probe passed on a `CheckBox` whose icons Godot **modulates**
+  with two theme colours a stylebox test cannot reach.
+- Every check passed `CREATE WORLD` at **7 of 46 dp painted**, because
+  `get_global_rect()` reports an **unclipped** rect.
+- `_inputfill_probe:165` was **green on the regression it existed to catch**,
+  because the same commit shipped both.
+
+**The generative rule: before trusting a probe, name the class of defect it
+CANNOT see.** If you cannot name one, you have not understood the probe. And
+never merge the three claims — **it renders**, **it can be operated**, **it can
+be FOUND** are three measurements, and the third is the one that keeps failing.
+
+### A candidate hypothesis in a brief is a liability, not a head start
+
+**Three consecutive briefs of mine handed a lane a named cause, and all three
+were wrong** — the sculpt drawer was not gesture arbitration (it was a 19.84 dp
+target), and both PC file-browser candidates were false, **one structurally
+impossible** (`wrap_controls = true` means a `Window` never draws under
+`get_contents_minimum_size()`, so hard label minimums cannot clip a button off
+its own dialog).
+
+The lanes were right each time **because the brief told them to treat it as a
+hypothesis and report a clean elimination as a good outcome.** Keep doing that:
+**label the candidate as a candidate, and say plainly that eliminating it is
+worth more than a plausible fix.** A brief that states a cause as fact converts
+the lane from an investigator into a confirmer.
