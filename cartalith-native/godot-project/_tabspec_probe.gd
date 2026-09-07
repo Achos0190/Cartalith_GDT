@@ -157,32 +157,35 @@ static func _drivers(tag: String, root: Node, want: float) -> void:
 	if have <= want + 0.5:
 		print("  (within its role -- nothing to blame)")
 		return
-	_drivers_walk(root, have, 0)
+	## Threshold on WANT, not on `have`: the container is already over, so
+	## filtering at its own minimum hides every contributor below it.
+	_drivers_walk(root, want, 0)
 
+## **Walk only the CONTRIBUTING subtree.** A container's minimum counts a child
+## by that child's own `visible`, so a hidden child contributes nothing and
+## neither does anything beneath it -- descending into one prints nodes that
+## cannot be the cause, which is how a wrong answer was filed twice on
+## 2026-09-07. Threshold on the TARGET width, not on the container's current
+## minimum: filtering at the symptom hides every contributor smaller than it.
 static func _drivers_walk(node: Node, floor_w: float, depth: int) -> void:
 	for child in node.get_children():
-		if child is Control:
-			var ctl := child as Control
-			var m: float = ctl.get_combined_minimum_size().x
-			if m >= floor_w - 0.5:
-				var txt := ""
-				if ctl.has_method("get_text"):
-					txt = str(ctl.call("get_text")).strip_edges()
-				elif "text" in ctl:
-					txt = str(ctl.get("text")).strip_edges()
-				## **Both flags, and they are different facts.** A container's
-				## minimum counts a child by the child's OWN `visible`; a child with
-				## `visible == true` inside a hidden parent still contributes to that
-				## parent. `is_visible_in_tree()` is false the moment ANY ancestor is
-				## hidden -- including the dock itself while collapsed -- so reading
-				## it alone says "invisible" about nodes that are sizing the layout.
-				##
-				## Printing only the tree flag produced exactly that wrong reading
-				## here on 2026-09-07, and it is the mirror of the planner defect:
-				## there `.visible` was true while `is_visible_in_tree()` was false
-				## and a probe believed the first; here a probe believed the second.
-				print("  %s%s  min=%.1f  own_vis=%s  in_tree=%s  %s" % [
-					"  ".repeat(depth), ctl.get_class(), m,
-					str(ctl.visible), str(ctl.is_visible_in_tree()),
-					("\"" + txt.left(46) + "\"") if txt != "" else ctl.name])
-		_drivers_walk(child, floor_w, depth + 1)
+		if not (child is Control):
+			_drivers_walk(child, floor_w, depth)
+			continue
+		var ctl := child as Control
+		if not ctl.visible:
+			continue   ## contributes nothing, and nor does its subtree
+		var m: float = ctl.get_combined_minimum_size().x
+		if m > floor_w + 0.5:
+			var txt := ""
+			if "text" in ctl:
+				txt = str(ctl.get("text")).strip_edges()
+			var extra := ""
+			if ctl is ScrollContainer:
+				extra = "  [h_scroll=%d ← DISABLED folds the child's min outward]" % (ctl as ScrollContainer).horizontal_scroll_mode
+			elif ctl is OptionButton:
+				extra = "  [fit_to_longest_item=%s]" % str((ctl as OptionButton).fit_to_longest_item)
+			print("  %s%s  min=%.1f  %s%s" % [
+				"  ".repeat(depth), ctl.get_class(), m,
+				("\"" + txt.left(44) + "\"") if txt != "" else ctl.name, extra])
+		_drivers_walk(ctl, floor_w, depth + 1)
