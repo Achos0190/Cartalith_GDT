@@ -3335,6 +3335,16 @@ func _confirm(prompt_title: String, body: String, ok_text: String,
 ## is the "Select folder dialog 1920" browser with its file rows live rather
 ## than dimmed -- so no stock `FileDialog` survives on this path either.
 func open_asset_pack_picker() -> void:
+	## **`.zip`, and it stays `.zip` by owner ruling F (2026-09-07):** *"For
+	## assetpacks let’s keep the zip and formatting as is (identical to the
+	## html)."* Given right after project saves became `.ctl`, so the
+	## consistency sweep this invites has already been declined.
+	##
+	## **The binding half is the FORMAT, not the extension.** A pack written
+	## here must stay readable by the HTML app and vice versa, so its entry
+	## names, layout and metadata must not drift toward this port’s
+	## conventions. `SAVEFILE_COMPAT.md` governs PROJECT archives and says so;
+	## a pack is not one.
 	DccBrowseDialog.choose_file(self, "Import asset pack", PackedStringArray(["zip"]),
 		DccSettings.storage_root("asset_packs"),
 		"asset packs read from %s" % DccSettings.storage_root("asset_packs"),

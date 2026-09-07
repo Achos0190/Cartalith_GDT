@@ -758,3 +758,40 @@ baseline this whole port is measured against.**
 
 **So "100% on tablet" now means: every layout and style, with these two named
 exceptions, both recorded at their call sites.**
+
+---
+
+## 2026-09-07 (late) — Ruling F: asset packs keep `.zip` AND their format
+
+**Owner: *"For assetpacks let’s keep the zip and formatting as is (identical to
+the html)."*** Given immediately after the project extension became `.ctl`, and
+it settles the obvious follow-on question before anyone asks it.
+
+**Two separate things are ruled here, and the second is the one that binds:**
+
+1. **The extension stays `.zip`.** Asset packs are a different artefact from a
+   project save. `.ctl` was adopted so the project picker stops offering
+   archives the reader will refuse; a pack picker has no such problem.
+2. **The FORMAT stays identical to the HTML app’s.** This is the constraint,
+   not the filename. **A pack written here must remain readable by the HTML
+   app and vice versa**, so nothing about the entry names, the layout or the
+   metadata may drift toward this port’s conventions.
+
+**What this forbids, stated because a tidy-minded pass would otherwise do it:**
+renaming pack exports to `.ctl` "for consistency"; folding pack entries into
+the project archive’s naming scheme; or applying `SAVEFILE_COMPAT.md`’s rules to
+a pack — **that document governs project archives and says so; a pack is not
+one.**
+
+**Already true in the tree, and that is why this ruling costs nothing.** The
+`.ctl` change deliberately split the ten GDScript sites into two populations
+and left five alone: asset packs (`app.gd:3338`,
+`asset_library_window.gd:1282`/`:3213`/`:3226`), the atlas cache
+(`menus.gd:4174`/`:4201`) and tile export (`data_manager_window.gd:3152`).
+**The ruling confirms a decision rather than reversing one — which is the good
+case, and worth recording precisely because nothing has to change.**
+
+**The atlas cache and tile exports are NOT covered by this ruling.** They kept
+`.zip` on the same reasoning — different artefacts — but the owner spoke only of
+asset packs, and their format is this port’s own rather than the HTML app’s. Do
+not extend the interoperability half to them without asking.
