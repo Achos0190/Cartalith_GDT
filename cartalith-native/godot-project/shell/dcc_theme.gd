@@ -953,7 +953,24 @@ const ROLE := {
 	"slider_track_h": [2, 3],
 	"chip_pad_x": [9, 16],         ## Mode segment: `padding:3px 9px` → `9px 16px`.
 	"chip_pad_y": [3, 9],
-	"btn_pad_x": [11, 18],         ## Action button: `padding:3px 11px` → `9px 18px`.
+	## **The `3px 11px` this comment used to cite is a PILL, not a button** --
+	## measured 2026-09-07: every instance in the PC canvas carries
+	## `border-radius:999px` (the `add`/`subtract` mode chips at `ENV:255-256`,
+	## the breakpoint targets at `ENV:202`). It was attributed to the action
+	## button and is not one.
+	##
+	## What the canvas actually gives a control of the button's own shape
+	## (`border-radius:8px`), as a census rather than a single pick: **8 of 18
+	## use `padding:2px 12px`**, then 5 at `2px 9px`, 2 at `3px 10px`, 2 at
+	## `0 14px`, 1 at `2px 13px`. `padding:4px 12px` -- the figure the backlog
+	## row quoted -- occurs 4 times in the file and on none of them.
+	##
+	## These values are NOT applied yet and this comment does not claim they
+	## are: `action()` resolves 10/4 on pointer and this key is read only on
+	## tablet. Moving them is a layout change with a named regression history
+	## (the 265 px tool bar, DS-03's eight over-wide minimums), so it needs
+	## `_ds03fit_probe` and `_ds03shot_probe` as guards, not a sweep.
+	"btn_pad_x": [11, 18],         ## Tablet only; see the census above.
 	"btn_pad_y": [3, 9],
 	## The action button's corner radius, and **the row that retires §11's
 	## radius-0 rule for buttons.** Both figures are canvas literals, measured
