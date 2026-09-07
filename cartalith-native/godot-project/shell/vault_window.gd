@@ -767,10 +767,26 @@ func _compare_dialog(lid: String, rel: String, ops: Array, too_large: bool) -> v
 	var dlg := AcceptDialog.new()
 	dlg.title = "Compare — %s" % rel.get_file()
 	dlg.size = Vector2i(680, 640)
+	## `phone_window()` FIRST, and this site is why the protocol is worth
+	## naming. It had the second and third calls -- `app.phone_fit(dlg, 1.0)`
+	## and a bare `popup_centered()` -- and not the first, so the fit ran
+	## against a window that had never been shaped for a phone. **That is worse
+	## than omitting it**: an absent fit leaves a desktop dialog, a fit without
+	## the shaping produces a scaled-up desktop dialog and looks deliberate.
+	##
+	## It also sets `ok_button_text` to "Close", which is what this dialog
+	## already wanted, so the `get_ok_button()` line below it stays correct on
+	## both platforms rather than being overwritten on one.
+	var phone := DccWidgets.phone_window(dlg, app)
 	dlg.get_ok_button().text = "Close"
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 6)
 	dlg.add_child(col)
+	## `phone_window()` drops the decoration, so the title has to be drawn
+	## inside the content or the dialog opens nameless -- see its own header,
+	## "each window carries its own titled header inside the content".
+	if phone:
+		DccWidgets.phone_head(col, dlg.title, "")
 	DccWidgets.note(col,
 		("%s as it reads on disk right now, against your working copy. " % rel.get_file())
 		+ "\"+\" lines are only in your working copy — Reload source would discard them. "
@@ -806,9 +822,13 @@ func _compare_dialog(lid: String, rel: String, ops: Array, too_large: bool) -> v
 	dlg.confirmed.connect(dlg.queue_free)
 	dlg.canceled.connect(dlg.queue_free)
 	app.add_child(dlg)
-	if _phone:
+	if phone:
 		app.phone_fit(dlg, 1.0)
-	dlg.popup_centered()
+	## `phone_present()` is the third call, and it returns false off-phone --
+	## so `popup_centered()` is the desktop path rather than a fallback that
+	## also fires on a phone and fights the presentation.
+	if not DccWidgets.phone_present(dlg, app):
+		dlg.popup_centered()
 
 
 ## `ops` collapsed to context around each change — `diff -U3`'s own idea: a
@@ -1298,10 +1318,23 @@ func _preview_dialog(dialog_title: String, preview: String, note: String,
 	var dlg := ConfirmationDialog.new()
 	dlg.title = dialog_title
 	dlg.size = Vector2i(620, 620)
+	## `phone_window()` first -- the same missing first call as `_compare_dialog`
+	## above, and the file's own comment below already knew: it records that
+	## `_floor_dialog_bar` "runs from `phone_window()` for this window and has
+	## never run for these preview dialogs".
+	##
+	## Order matters HERE in a way it did not there: `phone_window()` sets
+	## `ok_button_text` to "Close", and this dialog's caller supplies its own
+	## ("Write to Markdown"). Setting the caller's text AFTER the call is what
+	## keeps the verb; doing it before would have silently renamed the primary
+	## action on phones only.
+	var phone := DccWidgets.phone_window(dlg, app)
 	dlg.get_ok_button().text = ok_text
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 6)
 	dlg.add_child(col)
+	if phone:
+		DccWidgets.phone_head(col, dialog_title, "")
 	DccWidgets.note(col, note)
 	var te := TextEdit.new()
 	te.text = preview
@@ -1336,9 +1369,13 @@ func _preview_dialog(dialog_title: String, preview: String, note: String,
 	## bar is `DccWidgets._floor_dialog_bar`'s job, which runs from
 	## `phone_window()` for this window and has never run for these preview
 	## dialogs — unchanged by this pass, and not verified on a handset here.
-	if _phone:
+	if phone:
 		app.phone_fit(dlg, 1.0)
-	dlg.popup_centered()
+	## Third call. `phone_present()` returns false off-phone, so the
+	## desktop keeps `popup_centered()` as its own path rather than as a
+	## fallback that would also fire on a phone.
+	if not DccWidgets.phone_present(dlg, app):
+		dlg.popup_centered()
 
 
 # -- "Confirm always", and where it is turned back off ----------------------
