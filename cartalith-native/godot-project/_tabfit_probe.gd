@@ -145,5 +145,28 @@ func _ready() -> void:
 		if row != null:
 			print("  %-18s min.x=%7.1f" % [pair[0], row.get_combined_minimum_size().x])
 	print("  right_dock right edge x=%.1f" % [rd.global_position.x + rd.size.x])
-	print("=== end tabfit fails=%d ===" % _fail)
-	get_tree().quit()
+
+	## **The residual is now in the EXIT STATUS, not only in the prose.**
+	##
+	## This probe's assertions are all on the dock row, so it reported
+	## `fails=0` and exit 0 at 800x1280 **while the shell laid out at 1085 and
+	## the frame overflowed by 285 px**. It printed `overflow=285.0` two lines
+	## above and argued the split in its own header -- so a READER was told and
+	## an automated sweep was not, and the sweep is what schedules work.
+	##
+	## Exit 3, distinct from the assertion failure exit, because the two mean
+	## different things: 1 is "a dock assertion is wrong", 3 is "every
+	## assertion held and the surface still does not fit". The same shape
+	## `_nwclip_probe` took on 2026-09-07 when it stopped reporting a pass it
+	## could not earn -- **a probe must not report success its own output
+	## contradicts.**
+	var residual := maxf(0.0, shell_vb.size.x - float(vw))
+	print("=== end tabfit fails=%d residual_overflow=%.1f ===" % [_fail, residual])
+	if _fail > 0:
+		get_tree().quit(1)
+	elif residual > 0.5:
+		print("TABFIT RESIDUAL: dock assertions all held, but the shell overflows"
+			+ " its frame by %.1f px -- see the header's residual section." % residual)
+		get_tree().quit(3)
+	else:
+		get_tree().quit(0)

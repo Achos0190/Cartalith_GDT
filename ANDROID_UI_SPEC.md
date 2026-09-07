@@ -916,6 +916,19 @@ What it must not become is a radio over `ViewportHost.set_layer_visible()`:
 *visibility flags on drawn furniture*, a different mechanism from an overlay,
 and the canvas's "Political" is the `control` overlay, not those two.
 
+**And `Relief` is a name collision, which this section guarded the mechanism
+against without ever naming.** The canvas's **Relief** base radio maps to
+engine id **`off`** — the plain base map — and that mapping is correct. But the
+engine *also* carries a row literally called **`relief`**: "Local relief",
+`analysis::local_relief()`, max−min height over a 25 km window, sitting in the
+Surface group beside slope, aspect and `tpi_multi`.
+
+So a lane wiring this by id, reasonably, would set the overlay to `relief` and
+get **shaded local relief instead of the base map** — and the screen would look
+plausibly wrong rather than obviously broken, which is the expensive kind. The
+prose above forbids the wrong *mechanism*; it did not warn about the right
+mechanism reached with the wrong *id*. **Relief → `off`, never `relief`.**
+
 ### 2.4 STYLE — `stylePresets`, `ramps`, `styleCustom`
 
 Header row: `display:flex; align-items:baseline; gap:10px; padding:2px 2px 8px`;
