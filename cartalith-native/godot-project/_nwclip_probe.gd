@@ -29,12 +29,26 @@ extends Node
 ##   godot --headless --path . _nwclip_probe.tscn -- --force-touch --vp 1440x3168 --tag p1440
 ##   godot --headless --path . _nwclip_probe.tscn -- --force-touch --vp 720x1600  --tag p720
 ##
+## **`--force-touch` is required, not optional.** Without it `DccTheme.is_phone()`
+## is false on any desktop run -- `dcc_shell.gd` derives `_touch` from real touch
+## hardware or that flag -- §6.7's card is never built, and there is nothing to
+## measure. Until 2026-09-07 this probe printed `RESULT fail=0` and exited 0 in
+## that case, so the `CREATE WORLD` clip fix had no standing guard: every run
+## that forgot the flag came back green at any resolution. It now aborts.
+##
 ## Flags this probe actually reads, grepped from the body below:
 ##   `--vp WxH`      SubViewport size in physical px. Default 1080x2340.
 ##   `--tag NAME`    prefix on every output line. Default `nwclip`.
-##   `--force-touch` NOT read here -- `dcc_shell.gd` reads it out of
-##                   `OS.get_cmdline_user_args()`.
+##   `--force-touch` read TWICE: `dcc_shell.gd` reads it out of
+##                   `OS.get_cmdline_user_args()` to turn touch on, and
+##                   `_ready()` below reads it again to tell the two abort
+##                   causes apart (flag missing vs. flag present but the `--vp`
+##                   resolved to tablet).
 ## Any other `--flag` aborts rather than being silently ignored.
+##
+## Exit codes: `0` every leg passed, `1` a leg failed, `2` the probe could not
+## run and asserted nothing -- an unknown flag, a malformed `--vp`, or a
+## composition that is not the phone.
 
 var app: Node
 var _vp: SubViewport
@@ -129,9 +143,40 @@ func _ready() -> void:
 	await _frames(6)
 	_log("viewport %dx%d  phone=%s  scale=%.3f" %
 		[_vp.size.x, _vp.size.y, app.is_phone(), app.phone_scale()])
+	## **A probe that cannot answer must not report a pass.**
+	##
+	## This branch used to print `RESULT fail=0 (not a phone)` and `quit(0)`.
+	## `DccTheme.is_phone()` needs `_touch`, `_touch` needs real touch hardware
+	## or `--force-touch`, and no desktop run supplies the first -- so every run
+	## anyone made without remembering that flag came back green, at any
+	## resolution, having built nothing to measure. Measured 2026-09-07 at both
+	## 1680x1010 and 1080x2340: `phone=false ... fail=0`, twice, on a build
+	## whose §6.7 card the probe never instantiated. That is not a guard on the
+	## `CREATE WORLD` clip fix; it is a guard-shaped hole.
+	##
+	## `_nwsize_probe.gd` already refuses `--headless` this way for its own
+	## reason. Same convention: `quit(2)`, and no `fail=` count -- a run that
+	## did not happen has no failure count to report.
 	if not app.is_phone():
-		_log("RESULT %s fail=0 (not a phone: §6.7's card is not built here)" % _tag)
-		get_tree().quit(0)
+		var forced := "--force-touch" in OS.get_cmdline_user_args()
+		_log("ABORT this run is not the phone composition, so §6.7's card was")
+		_log("  never built and nothing below could be measured.")
+		if not forced:
+			_log("  Cause: no `--force-touch`. `DccShell._ready()` sets `_touch`")
+			_log("  from `DisplayServer.is_touchscreen_available() and")
+			_log("  OS.has_feature(\"mobile\")` OR that flag, and a desktop run")
+			_log("  satisfies neither half of the first. Re-run with:")
+			_log("    -- --force-touch --vp 1080x2340")
+		else:
+			_log("  Cause: `--force-touch` WAS passed and the shell still chose")
+			_log("  a non-phone composition at %dx%d -- `_compute_layout_mode()`"
+				% [_vp.size.x, _vp.size.y])
+			_log("  splits phone from tablet on the boot viewport, so a landscape")
+			_log("  or tablet-sized `--vp` lands on the wrong one. Use a portrait")
+			_log("  handset size, e.g. `--vp 1080x2340`.")
+		_log("  RESULT %s fail=abort (touch=%s phone=%s)"
+			% [_tag, DccTheme.is_touch(), app.is_phone()])
+		get_tree().quit(2)
 		return
 
 	## Staging call, disclosed. See the header for why there is no press here.
@@ -243,5 +288,56 @@ func _ready() -> void:
 	else:
 		_check(false, "the card exposes `_card_form` and `_card_scroll` to measure against")
 
+	await _negative_control(dlg, create)
+
 	_log("RESULT %s fail=%d" % [_tag, _fail])
 	get_tree().quit(1 if _fail > 0 else 0)
+
+## **The CREATE WORLD leg, run against the state it was written to catch.**
+##
+## The positive control above proves `_painted_rect()` can see *a* clip. This
+## proves the specific assertion on `CREATE WORLD` can go red, by rebuilding the
+## defect: `new_world_dialog.gd::_fit_phone_card_height()` caps
+## `_card_scroll.custom_minimum_size.y` at `avail - chrome`, and before that cap
+## existed the card asked for the form's full height and overflowed the
+## scroller. Removing the cap here reproduces exactly that -- the header's
+## "702 dp tall holding 752 dp of card".
+##
+## The `resized` connection is broken for the duration and restored after,
+## because the cap is re-applied from it and would undo the reconstruction
+## mid-measurement. Everything is put back and the restoration is asserted: a
+## control that leaves the dialog broken is a defect, not a control.
+func _negative_control(dlg: Window, create: Button) -> void:
+	var outer: ScrollContainer = dlg.get("_outer_scroll")
+	var card_scroll: Control = dlg.get("_card_scroll")
+	var form: Control = dlg.get("_card_form")
+	if outer == null or card_scroll == null or form == null:
+		_check(false, "negative control: the dialog exposes the three nodes the cap works between")
+		return
+	var cap := Callable(dlg, "_fit_phone_card_height")
+	var was_connected := outer.resized.is_connected(cap)
+	if was_connected:
+		outer.resized.disconnect(cap)
+	var kept := card_scroll.custom_minimum_size.y
+	## What the pre-cap code left: the form's own full height, uncapped.
+	card_scroll.custom_minimum_size.y = form.get_combined_minimum_size().y
+	await _frames(8)
+	var full := create.get_global_rect()
+	var seen := _painted_rect(create)
+	_log("  [negative control] cap removed (card scroll %.0f -> %.0f):"
+		% [kept, card_scroll.custom_minimum_size.y])
+	_log("    CREATE WORLD rect y %.0f..%.0f  painted y %.0f..%.0f  (%.0f of %.0f dp)"
+		% [full.position.y, full.end.y, seen.position.y, seen.end.y, seen.size.y, full.size.y])
+	_check(seen.size.y < full.size.y - 1.0,
+		"the CREATE WORLD leg CAN fail: without the height cap the button is cut (%.0f of %.0f dp)"
+			% [seen.size.y, full.size.y])
+	card_scroll.custom_minimum_size.y = kept
+	if was_connected:
+		outer.resized.connect(cap)
+	await _frames(8)
+	var back := _painted_rect(create)
+	_check(absf(back.size.y - create.get_global_rect().size.y) < 1.0
+			and absf(card_scroll.custom_minimum_size.y - kept) < 0.5
+			and outer.resized.is_connected(cap) == was_connected,
+		"the negative control put the dialog back (painted %.0f dp, cap %.0f, resized wired=%s)"
+			% [back.size.y, card_scroll.custom_minimum_size.y, outer.resized.is_connected(cap)])

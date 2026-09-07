@@ -184,6 +184,26 @@ const COL_GAP := 34         ## `gap:0 34px` between the two pane columns
 const RAIL_PAD_X := 14
 const RAIL_INDENT := 24     ## `padding:5px 14px 5px 24px` on a route row
 
+## The width the pane footer's note keeps for itself when the action chips have
+## taken everything else. **This is a floor on a control that is otherwise
+## `SIZE_EXPAND_FILL` beside chips that are not**, which is the shape
+## `MISTAKES.md` records as making a trimmed `Label` vanish outright: an
+## ellipsised `Label` reports a minimum width of 1, and 1 px is what it then
+## gets. See `_footer_note()` for the measurement that made this row a
+## constraint rather than a nicety.
+##
+## The ceiling on it is arithmetic, not taste, and it is why 160 rather than
+## 250: at the window's own declared `min_size.x` of 1024 the footer row has
+## `1024 - W_RAIL - PANE_PAD_X * 2` = 736 px, and the widest chip set in the
+## window (`export_world`'s three, 441 px plus 48 px of separation = 489)
+## leaves 247. Anything above that puts the footer back in front of the pane
+## body as the window's binding minimum, which is the defect this constant was
+## added to end. 160 also stays under the widest *body* minimum measured across
+## all fifteen routes (698 px, `export_maps`), so the body stays the constraint
+## and a future route may add a control without the footer silently deciding
+## the window's width.
+const FOOT_NOTE_MIN_W := 160
+
 # ---------------------------------------------------------------------------
 # The route-pane PATTERN, read off `design/proposed-2026-09-05/DataPane.dc.html`
 # (owner-approved 2026-09-05, *"I like the layouts as proposed, implement
@@ -1802,11 +1822,76 @@ func _pattern_actions(route: Dictionary) -> void:
 		disabled.disabled = true
 		disabled.tooltip_text = String(route.get("reason", ""))
 
+## **The footer note is the widest thing in this window, and it decided the
+## window's width until 2026-09-07.**
+##
+## Measured before this change, `_panemin_probe.tscn -- --vp 1152x648`, all
+## fifteen routes: the pane *body* asks for at most 698 px (`export_maps`), but
+## three of this helper's eleven call sites interpolate an absolute filesystem
+## path -- `export_world` "writes into <exports root>" rendered **594 px**,
+## `export_maps` **684**, `export_gis` **666** -- and a plain `Label` reports
+## every one of those pixels as a hard minimum. `_pane_footer` is an
+## `HBoxContainer`, so that minimum adds to the chips beside it (`export_world`:
+## 594 + 171 + 125 + 145 + 48 of separation = **1083**) and travels straight up
+## the pane's `VBoxContainer` to the window, whose contents minimum came out at
+## **1372 px** against a declared `min_size.x` of **1024**.
+##
+## A `Control` cannot be laid out below its combined minimum, so the window's
+## root container came out wider than the frame drawing it and everything past
+## 1152 px was simply off the window. Measured, not inferred: `export_world`'s
+## `Browse…` drew at x 1291..1354 inside a 1152 px window and scored
+## `shown=0.000` against its containers' visible rects, `export_maps`' `Choose…`
+## at 1259..1322, the same. **The button was never the defect** -- the pane was
+## wider than any window it is allowed to open in, and both pickers happened to
+## sit in the part that fell off the edge.
+##
+## **Raising `min_size` instead would not have fixed it, and this was measured
+## rather than assumed** -- see `_popup_full()`, which pops at
+## `maxi(viewport.x, min_size.x)`. A 1372 px declared minimum pops a 1372 px
+## sub-window inside a 1152 px viewport, and the picker moves from *clipped by
+## the window* to *outside the application*. `shown` stays 0.000 either way.
+##
+## So the note gives up its claim on the width instead. It is the one thing in
+## the row that is prose rather than an action: it expands into whatever the
+## chips leave, trims with an ellipsis when that is not enough, and keeps the
+## untrimmed text on its own tooltip so nothing is actually lost. The
+## `FOOT_NOTE_MIN_W` floor is what stops the trim from going all the way to the
+## 1 px a trimmed `Label` reports as its minimum.
+##
+## The `spacer()` that used to follow is gone with it: a left-aligned Label that
+## fills the row *is* the spacer, and two `SIZE_EXPAND_FILL` siblings would have
+## split the slack and given the note half of what it can use.
 func _footer_note(text: String) -> void:
 	var l := DccTheme.mono_label(text, "text_faint", DccTheme.FS_TINY)
 	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	## **Pointer and tablet only.** `FOOT_NOTE_MIN_W`'s ceiling is derived from
+	## the 736 px this row has at `min_size.x`; a handset's route pane is the
+	## whole 393 dp screen less padding, and the same 160 px there is 39 % of
+	## the row. Measured 2026-09-07 at `--force-touch --vp 500x1080`: with the
+	## floor applied, `export_maps`' footer asks 523 px against 464 px of room
+	## and the window's contents minimum reaches 673 against a 500 px screen,
+	## which puts the route's own picker at `shown=0.000`. Without it the same
+	## row asks 364 and fits. §13 already has an answer for the note there --
+	## `DccShell.phone_fit()` sets `clip_text` on any `Label` carrying
+	## `SIZE_EXPAND`, which this one now does and did not before -- so the trim
+	## still happens on a handset; only the floor stands down.
+	##
+	## What that costs, stated rather than left to be found: on a handset the
+	## note can be squeezed to nothing, because `export_world`'s three chips
+	## alone are 477 px against 464 px of pane. That is a chip-wrapping problem
+	## in the handset footer and it predates this change (the note was 594 px
+	## there before it); a floor that fixes the note by pushing the chips and
+	## the body's own picker off the screen is not a fix.
+	if not _phone:
+		l.custom_minimum_size.x = FOOT_NOTE_MIN_W
+	## A trimmed tail is only acceptable because the whole string is still
+	## reachable. `Label`'s default `mouse_filter` is `IGNORE`, so the tooltip
+	## needs `STOP` to ever appear -- the same pairing `_col_header()` makes.
+	l.tooltip_text = text
+	l.mouse_filter = Control.MOUSE_FILTER_STOP
 	_pane_footer.add_child(l)
-	_pane_footer.add_child(DccTheme.spacer())
 
 # ---------------------------------------------------------------------------
 # Validation ▸ Definitions -- DM-10

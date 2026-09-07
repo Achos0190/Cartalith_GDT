@@ -3409,28 +3409,83 @@ func open_travel_library(kind: String = "") -> void:
 ## One dialog, one row per root, each with its own Browse… button that
 ## writes back to `DccSettings` immediately on pick -- no separate confirm
 ## step, the readout itself is the committed value.
+## **Hand-built, and therefore fitted by nothing.** Until 2026-09-07 this
+## function built a raw `AcceptDialog` and `popup_centered()`ed it, so none of
+## the three fit passes -- `DccShell.phone_fit()`, `dock_fit()`, `tablet_fit()`
+## -- ever touched it and the window carried no `content_scale_factor` either.
+## Measured on glass at 1080 x 2400 `--force-touch` (`_dlgscale_probe.gd`,
+## tap-driven from launch through MORE > Project > Change locations…): a
+## 680 x 340 window on a 1080 px screen, `content_scale_factor` 1.0000, and
+## `Browse…` **26 physical px tall against a 115 px floor** (44 dp x 2.6214).
+## That is the ~7 px text the owner photographed.
+##
+## The fix is not new geometry, it is the shell's own dialog path, which every
+## other free-floating window in this file already uses:
+## `DccWidgets.phone_window()` before the body, `DccShell.phone_fit(d, 1.0)`
+## after it, `DccWidgets.phone_present()` instead of a bare `popup_centered()`.
+## The desktop composition is unchanged -- see `wrap_controls` below, which is
+## the one place the shared helper needs telling.
 func open_storage_locations() -> void:
 	var d := AcceptDialog.new()
 	d.title = "Storage locations"
 	d.size = Vector2i(680, 340)
+	var phone := DccWidgets.phone_window(d, self)
+	## `phone_window()` turns `wrap_controls` off unconditionally, and its
+	## header explains why: a window that grows to its content walks off a
+	## handset screen. **This dialog depends on that growth on desktop** -- it
+	## declares 340 px of height and has always drawn taller than that, four
+	## rows plus two wrapped notes. So the phone gets the ScrollContainer that
+	## replaces the growth, and the pointer build keeps the behaviour it
+	## shipped with rather than gaining a scrollbar it never had.
+	d.wrap_controls = not phone
+	add_child(d)
+
+	## One content child: `AcceptDialog` hands its FIRST child the whole rect
+	## and lays every later sibling on top of it.
+	var host := VBoxContainer.new()
+	host.add_theme_constant_override("separation", 0)
+	d.add_child(host)
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", 8)
-	add_child(d)
-	d.add_child(body)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if phone:
+		## Borderless on a handset, so the title bar that named this window is
+		## gone; the header inside the content is what replaces it, and unlike
+		## the bar it scales.
+		DccWidgets.phone_head(host, "Storage locations", "one folder picker per root")
+		var scroll := ScrollContainer.new()
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		host.add_child(scroll)
+		scroll.add_child(body)
+	else:
+		host.add_child(body)
 
 	body.add_child(DccTheme.label(
 		"One folder picker per root. Each change saves immediately.", "text_ghost", DccTheme.FS_MICRO))
 	body.add_child(DccTheme.rule())
 
 	for key in DccSettings.ROOT_KEYS:
-		var row := HBoxContainer.new()
+		## Side by side on a pointer, stacked on a handset. This is the one
+		## thing a content scale cannot fix and `phone_window()`'s own header
+		## names it: 140 px of label plus an absolute path plus a Browse button
+		## inside a 412 dp column leaves the readout nothing to be read in.
+		var row: BoxContainer = VBoxContainer.new() if phone else HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
-		row.custom_minimum_size.y = 24
 		var lbl := DccTheme.mono_label(String(DccSettings.ROOT_LABELS[key]), "text_dim", DccTheme.FS_SMALL)
-		lbl.custom_minimum_size.x = 140
+		if not phone:
+			row.custom_minimum_size.y = 24
+			lbl.custom_minimum_size.x = 140
 		row.add_child(lbl)
 		var readout := DccTheme.mono_label(DccSettings.storage_root(key), "text", DccTheme.FS_SMALL)
-		readout.clip_text = true
+		if phone:
+			## The whole path, wrapped: the column is full width here, there is
+			## vertical room, and the body scrolls. `clip_text` stays the
+			## desktop answer because there the readout shares a row with a
+			## fixed-width label and a button.
+			readout.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
+		else:
+			readout.clip_text = true
 		readout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(readout)
 		DccWidgets.action(row, "Browse…", func(): _browse_root(key, readout))
@@ -3447,17 +3502,32 @@ func open_storage_locations() -> void:
 				"The tile atlas baked by WORLD ▸ Generate ▸ Finalize lives here. Moving this root leaves the existing chunks in place and starts the new location empty; clear the old one from Preferences ▸ Memory ▸ Clear caches before you move it if you want the space back.",
 				"text_ghost", DccTheme.FS_MICRO)
 			cache_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			cache_note.custom_minimum_size.x = 560
+			## Desktop only, and this is load-bearing rather than tidying: a
+			## `ScrollContainer` with an axis DISABLED folds its child's minimum
+			## into its own on that axis, and a `Window` cannot be narrower than
+			## its content. A 560 px measure inside a 412 dp column would push
+			## the whole window wider than the screen with no scrollbar anywhere
+			## to reveal it.
+			if not phone:
+				cache_note.custom_minimum_size.x = 560
 			body.add_child(cache_note)
 
 	var footnote := DccTheme.label(
 		"Defaults derive from OS.get_user_data_dir() -- §2.1's own \"~/Cartalith/...\" paths are macOS-flavored prose that does not hold on every platform this shell runs on.",
 		"text_ghost", DccTheme.FS_MICRO)
 	footnote.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	footnote.custom_minimum_size.x = 620
+	if not phone:   ## See `cache_note` above for why a hard measure cannot go here.
+		footnote.custom_minimum_size.x = 620
 	body.add_child(footnote)
 
-	d.popup_centered()
+	## `1.0`, not `phone_scale()`: `phone_present()` below applies the scale once
+	## as the window's `content_scale_factor`, and applying it again here would
+	## square it. What this pass adds is the §13 tap floor, which a content
+	## scale cannot give -- it maps 26 authored px onto 26 *dp*.
+	if phone:
+		phone_fit(d, 1.0)
+	if not DccWidgets.phone_present(d, self):
+		d.popup_centered()
 
 ## The storage-locations rows' own Browse… button. This is the call site
 ## "Select folder dialog 1920" was drawn for -- the mockup even titles itself
@@ -3682,13 +3752,46 @@ func _present_credits() -> void:
 		return
 	_credits_dialog.popup_centered()
 
+## The second instance of `open_storage_locations()`'s defect, in the same file
+## and reached the same way: MORE ▸ Help & about ▸ About, which
+## `phone_menu.gd::_fill_help()` draws through `_rest_of()` over the real Help
+## popup. Measured on glass before the fix (`_dlgscale_probe.gd`): a 270 x 100
+## window, `content_scale_factor` 1.0000, `OK` **29 physical px** against the
+## same 115 px floor.
+##
+## `dialog_text` cannot survive the phone branch, and that is not a style
+## preference: it is an `AcceptDialog` **internal** child, so `phone_fit()` --
+## which walks `get_children()` -- has no route to it, exactly as that dialog's
+## button bar had none. On a handset the same two lines are drawn as real
+## content instead, under the header that replaces the title bar
+## `phone_window()` takes away.
 func open_about() -> void:
 	var d := AcceptDialog.new()
 	d.title = "About Cartalith"
-	d.dialog_text = "Cartalith — native port of Cartalith Gen1 v2.10.\nGodot %s · %s" % [
+	var body := "Cartalith — native port of Cartalith Gen1 v2.10.\nGodot %s · %s" % [
 		Engine.get_version_info().string, OS.get_name()]
+	var phone := DccWidgets.phone_window(d, self)
+	## This window declares no size at all -- on desktop it has only ever been
+	## as big as `wrap_controls` grew it around `dialog_text`, so turning that
+	## off (which `phone_window()` does for every platform) would leave the
+	## pointer build a default-sized box with the text clipped inside it. The
+	## phone does not need the growth: `phone_present()` fills the screen.
+	d.wrap_controls = not phone
 	add_child(d)
-	d.popup_centered()
+	if phone:
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 0)
+		d.add_child(col)
+		DccWidgets.phone_head(col, "About", "build & platform")
+		var pad := DccWidgets.pad(col, 16, 12, 16, 12)
+		var l := DccTheme.label(body, "text", DccTheme.FS_BODY)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		pad.add_child(l)
+		phone_fit(d, 1.0)
+	else:
+		d.dialog_text = body
+	if not DccWidgets.phone_present(d, self):
+		d.popup_centered()
 
 ## The five `Window ▸` region rows plus `Reset layout`.
 ##
