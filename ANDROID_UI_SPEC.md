@@ -24,6 +24,15 @@ do not replace it.
 
 **Extended 2026-09-07 (second pass):** §1.14 (the slider gesture arbitration) and §6 (the NEW WORLD modal, and the one place this build deliberately departs from the canvas on an owner ruling). MAP, PLAN and MORE are still stubs.
 
+**Extended 2026-09-07 (MAP lane):** §2 in full — `tabIsMap`'s four sections and
+the three tool overlays it drives outside the sheet, each measured against the
+engine symbol that would back it, plus a hit-tested reachability pass
+(`_mapinv_probe.gd`). It corrects the stub it replaces on two counts: every byte
+offset on this page anchors the `sc-if` attribute and so runs **16 low**, and
+four of the nine blocks the stub filed under MAP are `valsOver()`'s and belong
+to §5. **No shell code was written by that lane.** PLAN and MORE are still
+stubs.
+
 ---
 
 ## 0. How to read the canvas
@@ -726,12 +735,402 @@ sets. Measured, cause not proven; recorded here rather than attributed.
 
 ---
 
-## 2. MAP — `tabIsMap`  *(stub)*
+## 2. MAP — `tabIsMap`
 
-Template bytes 21 103 – 26 332. Sub-blocks: `measureOn` (11 480),
-`labelDraftOn` (12 499), `wayOn` (13 779), `undoOn` (14 929), `histOpen`
-(15 632), `simStrip` (16 543), `coachOn` (17 986), `iconOn` (22 017),
-`styleCustom` (24 392). Not inventoried by this pass.
+**Inventoried 2026-09-07.** Template lines 188–241 of
+`design/Cartalith-Android-2026-09-07.dc.html`; state and handlers in
+`valsMap()`, line 905. Every number below is the canvas's own, read off the
+element it is written on.
+
+### 2.0 The offsets in this section's own stub were wrong by a constant, and four of the nine blocks are not MAP's
+
+The stub this section replaces listed `tabIsMap` at bytes 21 103–26 332 with
+nine sub-blocks. Both halves of that needed correcting, and the corrections are
+different in kind.
+
+**The number.** Every stub offset is exactly **16 bytes low**, uniformly, from
+`menuOpen` (9 568) to `modalOpen` (70 413). It is not a unit error — both
+figures are byte offsets in the same UTF-8 file — it is a different **anchor**:
+the stub reports the start of the `sc-if value="{{ ` attribute, and
+`grep -bo <symbol>` reports the start of the symbol token, and
+`sc-if value="{{ ` is 16 characters. Verified by
+`dd bs=1 skip=21103 count=45`, which reads `sc-if value="{{ tabIsMap }}" hint-`.
+So `tabIsMap`'s guard opens at byte 21 103 and its symbol at 21 119; **this
+section cites line numbers instead**, per §0's own "grep the symbol, never seek
+the offset".
+
+**The structure, which the numbers were hiding.** Seven of the nine listed
+sub-blocks sit at byte offsets *below* `tabIsMap`'s own start, and that is
+because they are **not inside it**. Indentation resolves it — the template is
+indented consistently and `sc-if` nesting reads straight off it:
+
+| Block | Line | Indent | Where it really lives |
+|---|---|---|---|
+| `measureOn` | 102 | 12 | map canvas, **outside** the sheet |
+| `labelDraftOn` | 111 | 12 | map canvas, outside the sheet |
+| `wayOn` | 121 | 12 | map canvas, outside the sheet |
+| `undoOn` | 132 | 12 | map canvas, outside the sheet |
+| `histOpen` | 138 | 16 | inside `undoOn` |
+| `simStrip` | 148 | 12 | map canvas, outside the sheet |
+| `coachOn` | 161 | 12 | map canvas, outside the sheet |
+| **`tabIsMap`** | **188** | **16** | inside the sheet body |
+| `iconOn` | 196 | 20 | **inside `tabIsMap`** |
+| `styleCustom` | 223 | 22 | **inside `tabIsMap`** |
+
+So only **two** of the nine are `tabIsMap` sub-blocks. The other seven are
+floating chrome over the map surface, siblings of the sheet, and they split
+again by *which* `vals*` function feeds them:
+
+- **`measureOn`, `labelDraftOn`, `wayOn` are MAP's** — `valsMap()` computes all
+  three from `s.tool` and `s.labelDraft` / `s.wayDraft`. They are drawn outside
+  the sheet because arming a MAP tool drops the sheet to a peek (below), so the
+  tool's own readout has to live somewhere the sheet is not. **Inventoried
+  here**, §2.5, because MAP owns their state even though MAP does not contain
+  them.
+- **`undoOn`, `histOpen`, `simStrip`, `coachOn` are not MAP's at all** —
+  `valsOver()` computes them from `s.undoStack`, `s.sim` and `s.coach`, none of
+  which MAP touches. They belong in **§5 Overlays** with `menuOpen`,
+  `searchOpen` and `inspOpen`, and are **out of scope here**; §2.7 records only
+  what this build already has for them, so the §5 lane starts from a fact.
+
+### 2.1 Column and header
+
+`tabIsMap`'s own wrapper is `display:flex; flex-direction:column; gap:14px`
+inside the sheet scroller (`flex:1; overflow-y:auto; overscroll-behavior:contain;
+padding:2px 14px 24px`). **Note `gap:14px`, not GENERATE's `12px`.**
+
+Sheet header (§0.4's shared block, line 176): `titles.map = ['MAP',
+'layers · style · annotation']` (line 1466). `sheetBack` is
+`(tab==='more' && moreDepth) || (tab==='plan' && planDepth)` — **false for MAP
+always**, so MAP never draws a back circle, only the title and the ✕.
+
+### 2.2 TOOLS — `mapTools`, `hTool`, `iconOn`
+
+Caption: `TOOLS · ARMING DROPS THE SHEET TO A PEEK`, `9.5px mono`,
+`letter-spacing:.2em`, `var(--dim)`, `padding:6px 2px 8px`. Chip row is
+`display:flex; gap:8px; flex-wrap:wrap`.
+
+`mapTools` (line 907) is four entries and no more:
+
+| id | label | glyph |
+|---|---|---|
+| `inspect` | `INSPECT` | `➤` |
+| `measure` | `MEASURE` | `⟟` |
+| `label` | `LABEL` | `⌖` |
+| `icon` | `ICON` | `◇` |
+
+Chip: `min-height:44px`, `padding:0 16px`, `border-radius:22px`, `gap:8px`,
+`font:10px 'IBM Plex Mono'`, `letter-spacing:.12em`; text is `"{glyph} {label}"`.
+On/off from `chip(on)` (line 906): border `var(--acc)`/`var(--hair)`, ink
+`var(--acc)`/`var(--sec)`, background `var(--wash)`/`var(--chip)`. `s.tool`
+starts `'inspect'` (line 714).
+
+`hTool` verbatim (line 922):
+
+```
+hTool: e => { const t = e.currentTarget.dataset.tool; this._haptic('arm');
+  this.setState({tool:t, detent: t==='inspect' ? this.state.detent : 'peek'},
+                () => this._snapSheet()) }
+```
+
+**Three behaviours in one line, and the caption names the middle one:** a
+haptic on arm (`_haptic('arm')` = 10 ms, line 749); arming anything but Inspect
+**collapses the sheet to `peek`**; and Inspect leaves the detent alone.
+
+`iconOn` = `s.tool === 'icon'` (line 919). When on, a variant strip appends
+under the chips: `display:flex; gap:8px; padding-top:10px`, four cells each
+`48 × 44`, `border-radius:16px`, `font:15px mono`, same `chip()` on/off, then
+a `flex:1` hint reading `tap the map to stamp` in `9.5px mono var(--faint)`.
+`iconVars` (line 908) is `diamond ◇`, `circle ○`, `triangle △`, `square □`.
+
+**Engine.** All four tools are real and all four are registered:
+
+- `inspect` — `app.gd`'s default; `app.arm_tool("inspect")`.
+- `measure` — `global_tools.gd` registers click/escape/backspace handlers for
+  it; `EngineBridge.measure_begin` / `measure_add_point` / `measure_result` /
+  `measure_clear`, plus `measure_section` / `measure_area` / `measure_radius` /
+  `measure_vertical` for the four modes in `GlobalTools.MEASURE_MODES`.
+- `label` — `cartography_workspace.gd::_on_label_click` / `_on_label_drag` /
+  `_on_label_release`; `EngineBridge.label_create(gx, gy, text)` is exactly the
+  canvas's `hLabelAdd`.
+- `icon` — same file's `_on_icon_click` / `_on_icon_drag` / `_on_icon_release`;
+  `EngineBridge.icon_arm(family, variant, scale, rotation, jitter)`.
+
+**Engine cannot back the four `iconVars` as drawn.** The canvas's vocabulary is
+four abstract shapes; this engine's is
+`CartographyWorkspace.ICON_FAMILIES` — a family key plus a **positional**
+variant index, mirroring `cartalith-assets/src/slots.rs`'s
+`PACK_SETTLEMENT_SLOTS` / `PACK_ICON_SLOTS` / `PACK_POI_SLOTS`, whose order is
+load-bearing (`icon_bridge::resolve_variant` indexes by position). There is no
+diamond/circle/triangle/square set anywhere in it, and
+`_arm_icon_from_ui()` returns early unless `bridge.has_asset_pack()`. A
+four-cell strip is buildable as *the armed family's first four slots*; it is
+not buildable as the canvas's four shapes. **With no asset pack loaded the
+strip has nothing to draw at all** — dash it with that reason, and the reason
+has to be true on the handset, which is the case §0's own rule was written for.
+
+### 2.3 LAYERS — `layerGroups`, `hLayer`
+
+Caption `LAYERS`, `9.5px mono`, `letter-spacing:.2em`, `var(--dim)`,
+`padding:2px 2px 6px`. Each group is a `padding-bottom:6px` block with a name
+row (`9px mono`, `letter-spacing:.18em`, `var(--faint)`, `padding:6px 2px 4px`)
+over its rows.
+
+Row: `display:flex; align-items:center; gap:12px; min-height:46px;
+padding:0 12px; border-radius:14px`. Three spans — dot (`11px mono`), label
+(`flex:1`), note (`9.5px mono var(--faint)`). On/off from `row()` (line 909):
+dot `●`/`○`, dot ink `var(--acc)`/`var(--faint)`, label ink
+`var(--ink)`/`var(--body)`, row background `var(--wash)`/`transparent`.
+
+**The note slot is drawn and always empty.** `row(kind,id,label,on,note)` takes
+a fifth argument and all eight call sites pass four, so `r.note` is `''`
+everywhere in the prototype. It is a slot, not content.
+
+`layerGroups` (line 910), and what each row resolves to in this engine —
+**every one measured live** by `_mapinv_probe.gd` §6 against
+`LayersPopover._rows`:
+
+| Group | Row | `kind` | Engine id in `sample_bridge.rs::LAYER_GROUPS` | Present |
+|---|---|---|---|---|
+| `SURFACE · BASE` | Relief | `base` | `off` — "No overlay (base map)" | yes |
+| | Biome | `base` | `bclass` — "Biomes", `CART_BIOME_COLS` | yes |
+| | Political | `base` | `control` — "Political control" | yes |
+| `TERRAIN FIELDS · OVERLAY` | Elevation | `ov` | `elevation` | yes |
+| | Slope | `ov` | `slope` | yes |
+| | Flow accumulation | `ov` | `flow` — "River flow" | yes |
+| `CLIMATE · OVERLAY` | Temperature | `ov` | `temp` | yes |
+| | Rainfall | `ov` | `rain` | yes |
+
+Eight for eight. The popover carries **43** rows in total, so the canvas's
+eight are a curated subset, not the whole picker.
+
+`hLayer` (line 925): `kind==='base'` **sets** `s.base` (a radio); anything else
+**toggles** `s.overlay` to the id or to `null`. Both set `this.dirty`.
+
+**The one place the canvas's model and the engine's do not line up.** The canvas
+holds *two independent slots* — a base radio and a nullable overlay — and this
+engine has **one** overlay switch whose `off` value *is* the base map. Relief /
+Biome / Political as a three-way radio over that single switch is faithful.
+What it must not become is a radio over `ViewportHost.set_layer_visible()`:
+`provinces` and `territory` (`CartographyWorkspace.POLITICAL_LAYERS`) are
+*visibility flags on drawn furniture*, a different mechanism from an overlay,
+and the canvas's "Political" is the `control` overlay, not those two.
+
+### 2.4 STYLE — `stylePresets`, `ramps`, `styleCustom`
+
+Header row: `display:flex; align-items:baseline; gap:10px; padding:2px 2px 8px`;
+`STYLE` in `9.5px mono`, `letter-spacing:.2em`, `var(--dim)`; and when
+`styleCustom` is set, `custom — edited since preset` in `9px mono var(--warn)`.
+
+**Presets** — `display:flex; gap:8px; flex-wrap:wrap; padding-bottom:12px`;
+each `min-height:42px`, `padding:0 16px`, `border-radius:21px`,
+`font:10px mono`, `letter-spacing:.12em`, same `chip()` colours, and lit only
+when `s.stylePreset===p.id && !s.styleCustom`. Four ids: `atlas ATLAS`,
+`parchment PARCHMENT`, `physical PHYSICAL`, `ink INK`.
+
+**Ramps** — caption `COLOUR RAMP · TERRAIN`, `9px mono`,
+`letter-spacing:.18em`, `var(--faint)`, `padding:0 2px 6px`. Column
+`gap:7px`. Row `min-height:44px`, `padding:0 10px`, `border-radius:14px`,
+`gap:12px`, `border:1px solid` `var(--acc)`/`var(--hair)`, background
+`var(--wash)`/`transparent`; swatch `flex:1; height:14px; border-radius:7px`;
+name `10px mono`, `width:76px`, ink `var(--acc)`/`var(--sec)`.
+
+`hPreset` sets the preset and clears `styleCustom`; `hRamp` sets the ramp and
+**sets** `styleCustom` — that is the whole of the "custom" model.
+
+**Engine — ramps: exact, nine for nine.** `render.rs::RAMP_PRESETS` is
+`Earth, Elevation, Atlas, Mono, Imhof, Ice, Dark ice, Desert, Dark atlas` and
+the canvas's `RAMPS` keys are the same nine strings **in the same order**.
+Read back live through `EngineBridge.ramp_presets()` on 2026-09-07:
+`["Earth", "Elevation", "Atlas", "Mono", "Imhof", "Ice", "Dark ice", "Desert",
+"Dark atlas"]`. `load_ramp_preset(name)` applies one; `color_ramp()` returns the
+stops. **The gradients are not.** The canvas's swatches are illustrative CSS
+hex; the engine's stops are different values (`Earth` starts `(152,168,116)`,
+the canvas `#2c4a5e`). Draw the swatch from `color_ramp()` — never from the
+canvas's hex, which would put a picture of a ramp above the ramp it selects.
+
+**Engine — style presets: two of four have a name, and no build ships any.**
+The engine's named looks are `render.rs::LOOK_TIER` / `LOOK_VIBRANT` /
+`LOOK_ANTIQUE` — three, read back live as
+`["Quality tier", "Natural Vibrant", "Antique Parchment"]`
+(`EngineBridge.looks()` / `look()` / `set_look()`). PARCHMENT maps to
+`Antique Parchment`; PHYSICAL is plausibly `Natural Vibrant`, and that is a
+judgement, not a match. **ATLAS and INK have no engine look, and NPR is not
+one either** — `set_npr()` takes a key/value `Dictionary`, not a named style,
+so there is no `"Ink"` to select. The user-preset API does exist
+(`save_appearance_preset` / `load_appearance_preset` / `peek_appearance_preset`
+over `user://appearance_presets`, `preset_api == true` measured), so four named
+presets are *shippable* — but nothing ships them today, so as of this pass two
+of the four chips have nothing to select and must be dashed with that reason.
+
+`styleCustom` is derivable rather than absent: `appearance()` returns what the
+engine is rendering with, and `reset_appearance()` returns **how many overrides
+it dropped**, which is exactly "has this been edited since the preset".
+
+### 2.5 The three MAP overlays drawn outside the sheet
+
+All three are `valsMap()`'s, all three sit over the map canvas, and all three
+exist because `hTool` drops the sheet to a peek when a tool arms. Anchors:
+`chromeLeft = land ? 72 : 0`; `dockBottom = (land ? 14 : 98) + s.kb`;
+`fabBottom = land ? 18 : 104`; `undoLeft = land ? 86 : 12`.
+
+**`measureOn`** = `s.tool === 'measure'` (line 102). Pill at `top:92px`,
+`z-index:9`, `margin:0 10px`, `gap:10px`, `padding:9px 13px`,
+`border-radius:16px`, `background:{{pillBg}}`, `border:1px solid var(--hair)`.
+Contents: `MEASURE` (`10px mono`, `.14em`, `var(--acc)`); `measTotal`
+(`11px mono var(--ink)`); `{measN} pts · tap map to add` (`9.5px mono
+var(--dim)`); `CLEAR` (`10px mono var(--sec)`, `padding:6px 4px`); `DONE`
+(`10px mono var(--acc)`, same padding). `hMeasDone` disarms to `inspect`,
+clears the points and toasts `Measured X along N segments`. The prototype's
+total is a straight `Math.hypot` sum in world units through `fmtKm()`.
+
+**`labelDraftOn`** = `!!s.labelDraft` (line 111). Card at `bottom:{{dockBottom}}`,
+`z-index:11`, `padding:0 12px`; inner `gap:10px`, `padding:10px 12px`,
+`border-radius:18px`, `background:var(--pan)`, `border:1px solid var(--bord)`,
+`box-shadow:0 8px 22px rgba(0,0,0,.35)`. `LABEL` (`9.5px mono .14em
+var(--acc)`); an `<input>` at `flex:1`, `border-radius:12px`, `padding:10px 12px`,
+`12px mono`, placeholder `label text…`; `✕` (`10px mono var(--sec)`,
+`padding:8px 2px`); `ADD` (`500 10px mono .12em`, ink `var(--accInk)` on
+`var(--acc)`, `border-radius:14px`, `padding:9px 13px`). `hLabelAdd` trims,
+pushes an undo entry `label · <text>`, and drops the draft.
+
+**`wayOn`** = `s.tool==='way' && s.wayDraft.length > 0` (line 121). Same anchor
+and card, `gap:12px`, `padding:10px 14px`. `WAY`; `{wayN} pts · {wayLen}`
+(`11px mono var(--ink)`); a `flex:1` spacer; `CANCEL` (`10px mono var(--sec)`);
+`COMMIT` (styled as `ADD`). `hWayCommit` refuses under 2 points, pushes undo
+`way · <len>`, and toasts `Way committed · X — routes can now use it`.
+
+**Note `way` is not one of the four `mapTools`.** `_tapAct` (line 813) handles
+five tools — `measure`, `label`, `icon`, `settlement`/`poi`, `way` — and the MAP
+chip row offers four of them. In the prototype `way`, `settlement` and `poi`
+are armed from elsewhere; in this build they are CIVIL's, which is where MORE
+already puts them. Do not add a fifth chip to MAP on the strength of `_tapAct`.
+
+**Engine.** `measure_*` as above. Labels: `label_create` / `label_move` /
+`label_select` / `label_delete` / `label_clear_all` / `label_list`. Ways:
+`way_begin(way_type)` / `way_append_point(gx, gy)` / `way_commit()` /
+`way_discard()` — a one-for-one match for COMMIT and CANCEL. All three
+readouts are backed; **none of the three floating cards exists**, because this
+build puts every one of those readouts in the right dock instead (§2.6).
+
+### 2.6 What this build has today, and where — measured, not read off the code
+
+`_mapinv_probe.gd` / `_mapinv_probe.tscn` (this lane's own, added at the
+`godot-project` root), run headless at 1080 × 2340 with `--force-touch`.
+Reachability is measured by **hit-testing the GUI tree** at each control's own
+centre, not by reading `.visible`: a control can be visible and still sit under
+an opaque sibling.
+
+Boot state: tab `gen`, detent `peek`, tool `inspect`, domain `world`. 31
+pressables in the tree, **13 finger-reachable and enabled**.
+
+Tapping MAP (through the real GUI tree, on the tab cell's own rect): tab `map`,
+detent `half`, domain `cartography`, tool still `inspect`, sheet **609.0 px =
+232.32 dp**, tool scroller shown, GENERATE column hidden. And then:
+
+> **The MAP sheet contains two `Label`s and three `Control`s. That is the whole
+> of it.** `CARTOGRAPHY · STYLE`, and a paragraph beginning *"presentation only
+> — no control here marks a generation stage stale…"*.
+
+That text is `app.gd::_on_workspace_changed()`'s `"cartography"` arm —
+`_tool_options_simple("CARTOGRAPHY · " + active_mode("cartography").to_upper(),
+…)` — matched against the probe's captured strings, not
+`cartography_workspace.gd::_show_style_tool_options()`, which writes a *shorter*
+near-duplicate and fires from `_on_any_tool_armed`'s default branch instead. Two
+writers, one row; tapping MAP is a domain switch, so `app.gd`'s wins. Either
+way it is the canvas's closing footnote **with the four sections above it
+missing**, and it is verbatim the owner's *"one line that barely scrolls
+properly and a lot of white space"* — the same defect §1 found on GENERATE, in
+the same sheet, from the same cause.
+
+Per canvas surface:
+
+| Surface | State | Where it is instead |
+|---|---|---|
+| TOOLS chip row | **does not exist** | Icon and Label are `DccWidgets.tools_block` rows in the **cartography left dock** (line 294); Measure is a `MODES` segment inside `tool_bar.gd`, which only draws once Measure is already armed |
+| `iconOn` variant strip | **does not exist** | `_build_icon_tool_options_row()` / `_build_icon_brush_controls()`, same dock |
+| LAYERS | **built, elsewhere** | `LayersPopover`, opened from `ViewportHost._layers_btn`; all 8 canvas ids present among 43 rows |
+| STYLE presets | **does not exist** | nothing selects a named look on the phone |
+| Colour ramp | **built, elsewhere** | cartography left dock (CA-02), over `bridge.ramp_presets()` |
+| `styleCustom` note | **does not exist** | — |
+| Footnote | **built** | the only thing in the sheet |
+| `measureOn` pill | **does not exist** | right dock measure context + `section_strip.gd` |
+| `labelDraftOn` card | **does not exist** | right dock `CTX_ANNO` |
+| `wayOn` card | **does not exist** | CIVIL dock — MORE's own row says *"taps append waypoints · commit from the dock"* |
+
+### 2.7 Reachability — the owner's actual complaint, measured
+
+*"Nothing from map, generate, plan or more really leads to a deeper menu."*
+For MAP that is not an impression; it is what the tree does.
+
+**With MAP lit, a finger can press seven things, and four of them are the tab
+bar.** Measured list: `Layers`, `Search`, `⋮`, and the four tab cells.
+
+| Canvas surface | Reachable from launch by tapping only what is visible? |
+|---|---|
+| INSPECT / MEASURE / LABEL / ICON | **No — none of the four.** `_mapinv_probe.gd` §5 finds no hit-testable control whose text or tooltip names any of them |
+| Icon variants | No — behind Icon |
+| Layer rows | **Yes** — `Layers` button, top-left of the viewport, hit-tested true. Not where the canvas draws them |
+| Colour ramp | **No** — cartography left dock, and on a phone the left dock is a hidden sheet |
+| Style presets | No — nothing selects a look |
+| Measure / label / way readouts | No — behind tools that cannot be armed |
+
+**The paths that do exist, and how long they are.** Icon and Label live in the
+cartography left dock. `PhoneMenu._open_left_sheet()` is called from exactly two
+rows — `_go_civilization()` and `_go_simulation()` — so **no MORE row opens the
+*cartography* dock**. What remains is `MORE ▸ Window ▸ Left dock`, a
+`PopupMenu` check item named after a desktop region
+(`menus.gd::WIN_REGION_LABELS[ID_WIN_LEFT]`). Three taps, and the row is named
+for furniture rather than for the tools behind it.
+
+**Measure is worse, and this one was measured rather than reasoned.**
+`app.arm_tool("measure")` is reached only from `tool_bar.gd::_select_mode()`,
+whose `SCULPT / PAINT / MEASURE` segment `DccToolBar._build()` draws — and
+`_build` fills `tool_options_row` only while one of those three is *already
+armed* (`_on_tool_armed` returns early otherwise). So the one control that arms
+Measure sits inside the panel that only appears once Measure is armed. Probe §8
+tried to break that circle from the phone and could not; **no visible `MEASURE`
+chip exists in any of the three states**:
+
+| State | `MEASURE` chip visible | armed tool | tool scroller |
+|---|---|---|---|
+| MAP lit | no | `inspect` | shown |
+| after `arm_tool("paint")` | no | `paint` | **hidden** |
+| …then re-tap MAP | no | `paint` | shown |
+
+The middle row is the mechanism. Arming Paint — the nearest thing to a phone
+entry point, since Paint *is* in the WORLD dock's own TOOLS block — selects the
+WORLD domain, which runs `_phone_tab_for_domain("world")` → `gen`, which runs
+`_refresh_phone_gen_panel()`, which **hides the tool scroller** the segment was
+just built into. Re-tapping MAP shows the scroller again and
+`_on_workspace_changed("cartography")` overwrites the segment with the style
+caption on the way. It is in no menu either: `grep -in measure shell/menus.gd`
+finds one comment and no item.
+
+**And raising the sheet buries the navigation.** Before the MAP tap, `Zoom out`,
+`Zoom in`, `Pan mode` and `Reset view` all hit-test true. After it — with the
+sheet at `half`, 609 px — all four are **not hit-testable**: the sheet covers
+`ViewportHost._navpad`. The canvas has the same collision and resolves it by
+anchoring the FAB column at `fabBottom` above `dockBottom`, both of which move
+with the sheet. Nothing here moves.
+
+### 2.8 Out of scope for this pass, deliberately
+
+- **`undoOn`, `histOpen`, `simStrip`, `coachOn`** — `valsOver()`'s, not MAP's
+  (§2.0). Recorded for §5's lane so it does not start from the stub's wrong
+  filing: all four already exist in this shell — `DccShell._phone_undo_chip`
+  (visible only while `bridge.can_undo()`), `_phone_undo_pop` behind a
+  `PHONE_UNDO_HOLD_SEC = 0.45` long-press, `_phone_sim_strip` with
+  `_phone_sim_speeds` and `_phone_sim_transport`, and
+  `_maybe_show_coach_marks()` at boot. The canvas's `simStrip` slider is
+  `min=-400 max=1200 step=1` with `×1 / ×10 / ×100` and a 600 ms play tick.
+- **The sample chip** (`chipRef` / `hChipTap` / `chipLine1` / `chipLine2`,
+  line 69) — inside `mapHostRef`, opens the inspector; that is §5's `inspOpen`.
+- **The map canvas itself** — pan/pinch/rotate, the scale bar, `sampleData()`.
+  The prototype's is a mock; this build's is real, and comparing them is a
+  different pass.
+- **No shell code was written.** This lane's deliverable is this section plus
+  `_mapinv_probe.gd`; `godot-project/shell/` was not touched.
 
 ## 3. PLAN — `tabIsPlan`  *(stub)*
 
@@ -754,6 +1153,14 @@ Template bytes 57 003 – 63 400. Not inventoried by this pass.
 `menuOpen` (9 568), `searchOpen` (65 711), `searchEmpty` (66 863), `inspOpen`
 (68 006), `gridOn` (62 182), plus the `scrPicker` project
 picker (3 525 – 6 537). Not inventoried by this pass.
+
+**Four more belong here and were mis-filed under §2**, resolved 2026-09-07 —
+`undoOn`, `histOpen` (inside it), `simStrip` and `coachOn` are `valsOver()`'s,
+not `valsMap()`'s, and none of the four is inside `tabIsMap`. §2.0 has the
+resolution and §2.8 records what this shell already has for each, so this
+section's lane does not start from the wrong filing. **Every byte offset on
+this page is 16 low** — it anchors the `sc-if value="{{ ` attribute, not the
+symbol; see §2.0.
 
 `modalOpen` (70 413) IS inventoried — §6 below.
 

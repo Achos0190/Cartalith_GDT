@@ -158,6 +158,88 @@ func _all(root: Node) -> Array:
 	_walk(root, out)
 	return out
 
+## **Every attached `PgSlider`/`PgField` in the tree carries a configured
+## `slop`.**
+##
+## This exists because both classes DECLARED `var slop := 8.0` and **neither
+## default was reachable**: `touch_slider()`, `touch_focus_field()` and both
+## `PgSlider.new()` sites in `world_workspace.gd` (`_pg_range_field()`,
+## `_pg_sculpt_slider()`) assign on the next line. Measured 2026-09-07 by
+## mutating each default to `400.0` and to `0.0`: four runs, four greens. The
+## declarations were removed rather than asserted -- a fallback that absorbs a
+## construction site which forgot reports nothing, and 8 unscaled px is
+## plausible enough to hide the mistake for a release.
+##
+## An unset `slop` is now `0.0`, which is first-pixel classification, which is
+## the defect both classes exist to close. **This walk is what makes that
+## loud**, and it is strictly more coverage than the default it replaced: the
+## default was one number nothing read, this is every live instance.
+##
+## **`1.0` is the attachers' own floor, not a threshold picked here**: both
+## write `maxf(1.0, slop_px)`, and the two direct constructions write
+## `_pg_px(8)` -- 21 px at 1080x2340. Nothing legitimate lands between 0 and
+## 1, so this separates "configured" from "never written" rather than grading
+## the value.
+##
+## **Three values are correct here and the spread is not a defect.** Measured
+## 2026-09-07 at 1080x2340: 239 attachments, `20.97=215  21.00=3  8.00=21`.
+## `8.0 * unit` is a distance TRAVELLED "in whatever pixels the surface lays
+## out in" (`touch_slider()`'s own words), so it lands in three spaces --
+## `8.0 * _phone_scale` from the root `phone_fit()` (20.97), `_pg_px(8)`'s
+## rounded int from `world_workspace.gd`'s two `PgSlider.new()` sites (21), and
+## a bare 8 from the window-hosted `phone_fit(self, 1.0)` calls, which
+## `dcc_shell.gd`'s own note at its `tablet_fit()` header says are 22 of ~25
+## call sites and which pass `1.0` because the `Window` has already applied
+## `content_scale_factor` once -- so 8 in that window's content space is 21
+## physical px, the same distance. The tally is logged so the next reader sees
+## the three populations instead of re-deriving this.
+##
+## Reported with its population, because **a walk that finds nothing passes
+## vacuously**. On a phone that is itself a failure: `phone_fit()` has run by
+## the time this is called, so zero attachments means the walk, the attacher
+## or the fit is broken. On desktop `phone_fit()` never runs and zero is the
+## correct answer, so the population check is asked only of a phone.
+func _slop_walk() -> void:
+	var seen := 0
+	var bad := 0
+	var lo := 1.0e30
+	var hi := -1.0e30
+	var by_val: Dictionary = {}
+	for n in _all(get_tree().root):
+		if not (n is Range or n is LineEdit):
+			continue
+		var c := n as Control
+		## The same property probe `_arbitrated()` uses, and for the same
+		## reason: `PgSlider` and `PgField` are the only things in this project
+		## that give a `Range` or a `LineEdit` a script exposing `slop`, and
+		## `get()` on a property a node does not have returns `null`.
+		if c.get_script() == null or c.get("slop") == null:
+			continue
+		var s := float(c.get("slop"))
+		seen += 1
+		lo = minf(lo, s)
+		hi = maxf(hi, s)
+		var vk := "%.2f" % s
+		by_val[vk] = int(by_val.get(vk, 0)) + 1
+		if s < 1.0:
+			bad += 1
+			_log("   UNCONFIGURED slop=%.3f  %s  %s"
+				% [s, c.get_class(), _surface_of(c)])
+	var vks: Array = by_val.keys()
+	vks.sort()
+	var tally := ""
+	for k in vks:
+		tally += " %s=%d" % [k, by_val[k]]
+	_log("-- slop walk: %d attached PgSlider/PgField, slop %.2f..%.2f, unconfigured=%d  [%s]"
+		% [seen, (0.0 if seen == 0 else lo), (0.0 if seen == 0 else hi), bad,
+			tally.strip_edges()])
+	_check(bad == 0,
+		"every attached PgSlider/PgField carries a configured slop (%d of %d below 1.0)"
+			% [bad, seen])
+	if app != null and app.is_phone():
+		_check(seen > 0,
+			"the slop walk found instances, so it is not passing vacuously (%d)" % seen)
+
 func _scroller_of(n: Node) -> ScrollContainer:
 	var p: Node = n.get_parent()
 	while p != null:
@@ -607,6 +689,54 @@ func _ready() -> void:
 						or not _arbitrated(fld),
 					"New World Seed: losing focus re-parks focus_mode (=%d)"
 						% int(fld.focus_mode))
+				## **The caret placement is a STATED COST of `PgField`, and until
+				## this leg landed NOTHING asserted it.** The leg above reads the
+				## caret into its readout string, which is not the same thing:
+				## `_take_focus()`'s `caret_column = text.length()` mutated to `0`
+				## left that leg green, because its comparison is
+				## `focus=false caret=6` against `focus=true caret=0` and the
+				## `focus` half already differs. A documented cost that nothing
+				## asserts drifts silently, which is the whole reason it was worth
+				## writing down.
+				##
+				## **The caret is pushed off the end first**, and that is
+				## load-bearing rather than tidy: `LineEdit::set_text()` already
+				## leaves the caret at the end (measured -- the Seed field reads
+				## `caret=6` before any tap), so asserting the end position on a
+				## field nobody has disturbed would pass whether `_take_focus()`
+				## wrote it or not. Moving it to 0 and asserting it comes back is
+				## what makes the assignment the thing under test.
+				##
+				## `select_all_on_focus` is excluded because `_take_focus()`
+				## deliberately leaves the caret alone in that case -- asserting
+				## end-of-text there would pin the opposite of the code's contract.
+				if _arbitrated(fld) and not fld.select_all_on_focus:
+					_check(fld.text.length() > 0,
+						"New World Seed: the field carries text, so the caret check is not vacuous (%d chars)"
+							% fld.text.length())
+					var sc2 := _scroller_of(fld)
+					if sc2 != null:
+						sc2.ensure_control_visible(fld)
+						await _frames(6)
+					fld.caret_column = 0
+					await _frames(2)
+					var c0 := fld.caret_column
+					_check(c0 == 0,
+						"New World Seed: the caret really was pushed off the end first (%d)" % c0)
+					var at2 := _screen_pt(fld, fld.size * 0.5)
+					var under2 := await _hovered_under(fld, at2)
+					_check(under2.begins_with(fld.get_class()),
+						"New World Seed: the caret leg's tap point picks the field (under=%s)"
+							% under2)
+					await _tap_at(at2)
+					await _frames(4)
+					_log("   caret %d -> %d of %d after a second tap"
+						% [c0, fld.caret_column, fld.text.length()])
+					_check(fld.caret_column == fld.text.length(),
+						"New World Seed: a tap parks the caret at END-OF-TEXT (%d of %d) -- the stated cost of the withheld press"
+							% [fld.caret_column, fld.text.length()])
+					fld.release_focus()
+					await _frames(4)
 			else:
 				_check(false, "the New World card draws a SpinBox in its scroller")
 		if dlg.has_method("hide"):
@@ -810,6 +940,11 @@ func _ready() -> void:
 			await _frames(4)
 		app._set_sheet_open("left", false)
 		await _frames(4)
+
+	## Last, so it sees the largest population: every surface this run opened
+	## has had `phone_fit()` run over it by now, and the nodes stay in the tree
+	## after their sheet closes.
+	_slop_walk()
 
 	if _flag("--census-only"):
 		_log("RESULT %s fail=%d (census only)" % [_tag, _fail])

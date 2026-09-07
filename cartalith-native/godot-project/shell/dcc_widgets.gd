@@ -1411,9 +1411,37 @@ static func phone_slider(s: HSlider, unit: float) -> void:
 ##   Godot's own handling untouched.
 ## * a non-left mouse button, or a wheel -> stock behaviour, as before.
 class PgSlider extends HSlider:
-	## Android's own `ViewConfiguration.getScaledTouchSlop()` is 8 dp. Set by
-	## the attacher, which is the thing that knows the density; the default is
-	## the unscaled fallback for anything that forgets.
+	## Android's own `ViewConfiguration.getScaledTouchSlop()` is 8 dp, in the
+	## pixels the surface lays out in.
+	##
+	## **Deliberately carries no default, and `PgField.slop` lost the identical
+	## one in the same change.** Every way in supplies it: `touch_slider()`
+	## below takes it as a required argument, and the two `PgSlider.new()` sites
+	## -- `world_workspace.gd::_pg_range_field()` and `::_pg_sculpt_slider()` --
+	## each assign `_pg_px(8)` on the line after the constructor. So a declared
+	## `:= 8.0` was never reached by anything, and read as coverage it did not
+	## give: mutated to `400.0` AND to `0.0` it left `_rangeswipe_probe.gd`
+	## green both ways, and `PgField`'s left `_gestclass_probe.gd` green both
+	## ways (measured 2026-09-07, four runs).
+	##
+	## **What replaces it is an assertion, not a quieter fallback**, because
+	## `8.0` was the wrong kind of safety net -- it would have absorbed a
+	## construction site that forgot, and reported nothing.
+	## `_gestclass_probe.gd::_slop_walk()` walks the live phone tree and
+	## requires every attached `PgSlider` and `PgField` to carry `slop >= 1.0`,
+	## so a site that forgets now fails a probe. The cost of the removal is
+	## stated rather than hidden: an unset `slop` is `0.0`, which is stock
+	## first-pixel classification, which is the defect this class exists to
+	## close -- that is exactly what `_slop_walk()` is looking for.
+	##
+	## **The two arrangements were measured against each other**, because
+	## "the default hides a forgetful site" is a claim and not an argument.
+	## Deleting `touch_slider()`'s own `s.set("slop", ...)` line -- one
+	## construction path that forgets -- fails the walk with 218 of 239
+	## unconfigured. Re-running that IDENTICAL mutation with `:= 8.0` put back
+	## passes, `fail=0`, with the walk reporting `8.00=235`: every phone slider
+	## silently arbitrating at 8 unscaled px instead of the 21 it was fitted
+	## for, and nothing on screen or in any probe saying so.
 	##
 	## **Pinned from below as well as above.** `_rangeswipe_probe.gd`'s
 	## `_jitter()` leg swipes vertically with the sideways wobble a real thumb
@@ -1421,7 +1449,7 @@ class PgSlider extends HSlider:
 	## gesture the classifier sees, so the first pixel picks the horizontal axis
 	## and the parameter is written. A pure-vertical swipe cannot see that --
 	## which is why `_nwsize_probe.gd`'s five checks all survive `slop = 0`.
-	var slop := 8.0
+	var slop: float
 
 	var _scroller: ScrollContainer
 	var _looked := false
@@ -1779,9 +1807,17 @@ static func touch_release_button(b: BaseButton) -> bool:
 ## `LineEdit`s the census finds in an `AcceptDialog` are in that position.
 class PgField extends LineEdit:
 	## Android's `ViewConfiguration.getScaledTouchSlop()`, in the pixels the
-	## surface lays out in. Set by the attacher, which is what knows the
-	## density; the default is the unscaled fallback.
-	var slop := 8.0
+	## surface lays out in. Set by `touch_focus_field()`, which is the only way
+	## a field becomes a `PgField` and which takes the value as a required
+	## argument -- so **this carries no default either**. It was removed in the
+	## same change as `PgSlider.slop`'s and for the same reason, which is the
+	## point: house style had the identical dead default in both classes, and
+	## fixing one would have left the next reader believing the other was
+	## deliberate. A declared `:= 8.0` here was unreachable -- mutated to
+	## `400.0` and to `0.0` it left `_gestclass_probe.gd` green both ways
+	## (2026-09-07). `_slop_walk()` in that probe is what asserts it now; read
+	## `PgSlider.slop` for why an assertion beats a fallback here.
+	var slop: float
 	## `focus_mode` as the field's builder left it, restored for the duration
 	## of a focus and parked at `FOCUS_NONE` again on `focus_exited`.
 	var stock_focus := Control.FOCUS_ALL

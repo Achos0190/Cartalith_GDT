@@ -1,0 +1,1491 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><script src="./landmark-glyphs.js"></script><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"><style>html,body{margin:0;background:#0a0b0c}:focus-visible{outline:2px solid #e0a34a;outline-offset:2px}a{color:#e0a34a}a:hover{color:#f0bd72}@keyframes tIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@keyframes pIn{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:none}}input[type=range]{-webkit-appearance:none;appearance:none;height:22px;background:transparent;margin:0}input[type=range]::-webkit-slider-runnable-track{height:3px;background:var(--hair,rgba(255,255,255,.14));border-radius:2px}input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:10px;background:var(--acc,#e0a34a);margin-top:-8.5px;border:none}</style></helmet>
+
+<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px 12px 40px;font:12px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:#8d9296">
+  <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;justify-content:center">
+    <span style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.24em;color:#e8ebec">CARTALITH · ANDROID ENVIRONMENT</span>
+    <span style="font:10.5px 'IBM Plex Mono',monospace;color:#6f7478">interactive — drag · pinch · rotate · long-press · edge-swipe</span>
+  </div>
+
+  <sc-if value="{{ showStrip }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center">
+      <sc-for list="{{ devices }}" as="d" hint-placeholder-count="4">
+        <div onClick="{{ hDev }}" data-w="{{ d.w }}" data-h="{{ d.h }}" data-label="{{ d.label }}" style="padding:8px 14px;border-radius:16px;cursor:pointer;font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em;border:1px solid {{ d.bord }};color:{{ d.col }};background:{{ d.bg }}">{{ d.label }}</div>
+      </sc-for>
+      <div style="width:1px;height:20px;background:rgba(255,255,255,.14);flex:none"></div>
+      <div onClick="{{ hOrient }}" style="padding:8px 14px;border-radius:16px;cursor:pointer;font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em;border:1px solid rgba(255,255,255,.16);color:#c8cbcd;flex:none">{{ orientLabel }}</div>
+      <div style="flex-basis:100%;height:0"></div>
+      <div style="font:10px 'IBM Plex Mono',monospace;color:#5f6468;text-align:center">{{ dimsLabel }}</div>
+    </div>
+  </sc-if>
+
+  <div style="width:412px;height:892px;border-radius:30px;border:1px solid rgba(255,255,255,.16);overflow:hidden;position:relative;background:#101112;flex:none;{{ frameOverride }}">
+    <div style="position:absolute;inset:0;--sur:#0d0e0f;--pan:#15171a;--pan2:#121314;--ink:#e8ebec;--body:#c8cbcd;--sec:#8d9296;--dim:#6f7478;--faint:#5f6468;--acc:#e0a34a;--accInk:#16130c;--hair:rgba(255,255,255,.10);--hair2:rgba(255,255,255,.07);--bord:rgba(255,255,255,.16);--wash:rgba(224,163,74,.14);--chip:rgba(255,255,255,.05);--chipOn:rgba(255,255,255,.10);--warn:#e0a840;--block:#c26a60;--good:#8fae7d;--water:#7d9dae;font:13px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">
+      <div style="position:absolute;inset:0;background:var(--sur);{{ themeVars }}">
+
+        <sc-if value="{{ scrPicker }}" hint-placeholder-val="{{ true }}">
+          <div style="position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden">
+            <div style="height:max(env(safe-area-inset-top),30px);flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font:10px 'IBM Plex Mono',monospace;color:var(--dim)"><span>9:41</span><span style="letter-spacing:.14em">LTE ▮▮ 84%</span></div>
+            <div style="padding:22px 20px 14px;flex:none">
+              <div style="font:500 15px 'IBM Plex Mono',monospace;letter-spacing:.3em;color:var(--ink)">CARTALITH</div>
+              <div style="padding-top:5px;font:10.5px 'IBM Plex Mono',monospace;color:var(--dim)">worlds on this device · ~/Cartalith/Worlds</div>
+            </div>
+            <div style="flex:1;overflow-y:auto;padding:0 14px 20px;display:flex;flex-direction:column;gap:10px">
+              <sc-for list="{{ pickerWorlds }}" as="w" hint-placeholder-count="3">
+                <div onClick="{{ hPickWorld }}" data-name="{{ w.name }}" data-seed="{{ w.seed }}" data-status="{{ w.status }}" style="border:1px solid var(--bord);border-radius:20px;overflow:hidden;cursor:pointer;background:var(--pan2)">
+                  <div style="height:92px;background:{{ w.thumb }};display:flex;align-items:flex-end;padding:10px 14px">
+                    <span style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:{{ w.chipCol }};background:{{ w.chipBg }};padding:4px 9px;border-radius:11px">{{ w.state }}</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:12px;padding:12px 14px">
+                    <div style="flex:1;min-width:0">
+                      <div style="font:500 12.5px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--ink)">{{ w.name }}</div>
+                      <div style="padding-top:3px;font:10px 'IBM Plex Mono',monospace;color:var(--dim)">{{ w.meta }}</div>
+                    </div>
+                    <span style="color:var(--faint);font:14px 'IBM Plex Mono',monospace">›</span>
+                  </div>
+                </div>
+              </sc-for>
+              <div onClick="{{ hNewWorld }}" style="min-height:58px;border:1px dashed var(--bord);border-radius:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;color:var(--acc);font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.18em">＋ NEW WORLD</div>
+              <div onClick="{{ hOpenZip }}" style="min-height:50px;border-radius:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;color:var(--sec);font:10.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;background:var(--chip)">OPEN PROJECT .ZIP…</div>
+              <div style="text-align:center;font:9.5px 'IBM Plex Mono',monospace;color:var(--faint);padding-top:6px">Cartalith Mobile 0.9 · build 2611</div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ scrApp }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:0;overflow:hidden">
+
+            <div ref="{{ mapHostRef }}" style="position:absolute;top:0;{{ mapInset }};overflow:hidden;touch-action:none;cursor:grab;background:#12161b">
+              <canvas ref="{{ canvasRef }}" style="width:100%;height:100%;display:block"></canvas>
+              <div style="position:absolute;left:0;right:0;top:0;height:110px;pointer-events:none;background:linear-gradient(180deg,{{ scrimCol }} 0%,transparent 100%)"></div>
+              <div ref="{{ chipRef }}" style="position:absolute;left:-999px;top:-999px;z-index:6;display:{{ chipDisp }}">
+                <div onClick="{{ hChipTap }}" style="transform:translate(14px,-50%);padding:9px 13px;border-radius:14px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 6px 18px rgba(0,0,0,.4);cursor:pointer;white-space:nowrap">
+                  <div style="font:10.5px 'IBM Plex Mono',monospace;color:var(--ink)">{{ chipLine1 }}</div>
+                  <div style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ chipLine2 }}</div>
+                </div>
+              </div>
+            </div>
+
+            <div style="position:absolute;left:{{ chromeLeft }}px;right:0;top:0;pointer-events:none;z-index:8">
+              <div style="height:max(env(safe-area-inset-top),30px);display:flex;align-items:center;justify-content:space-between;padding:0 18px;font:10px 'IBM Plex Mono',monospace;color:{{ statusCol }}"><span>9:41</span><span style="letter-spacing:.14em">LTE ▮▮ 84%</span></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 10px 0">
+                <div style="pointer-events:auto;flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:20px;background:{{ pillBg }};border:1px solid var(--hair)">
+                  <div style="flex:1;min-width:0">
+                    <div style="font:500 11.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ worldName }}</div>
+                    <div style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ worldMeta }}</div>
+                  </div>
+                </div>
+                <div onClick="{{ hSearchOpen }}" style="pointer-events:auto;width:44px;height:44px;flex:none;border-radius:22px;background:{{ pillBg }};border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;font:15px 'IBM Plex Mono',monospace;color:var(--body);cursor:pointer">⌕</div>
+                <div onClick="{{ hMenu }}" style="pointer-events:auto;width:44px;height:44px;flex:none;border-radius:22px;background:{{ pillBg }};border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;font:15px 'IBM Plex Mono',monospace;color:var(--body);cursor:pointer">⋮</div>
+              </div>
+              <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="pointer-events:auto;position:absolute;right:10px;top:86px;width:230px;border-radius:18px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 14px 34px rgba(0,0,0,.45);overflow:hidden;padding:6px 0">
+                  <div onClick="{{ hMenuSave }}" style="display:flex;justify-content:space-between;align-items:center;min-height:44px;padding:0 16px;cursor:pointer"><span style="color:var(--body)">Save project</span><span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--faint)">{{ savedAt }}</span></div>
+                  <div onClick="{{ hMenuTheme }}" style="display:flex;justify-content:space-between;align-items:center;min-height:44px;padding:0 16px;cursor:pointer"><span style="color:var(--body)">Theme</span><span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--acc)">{{ themeLabel }}</span></div>
+                  <div onClick="{{ hMenuPicker }}" style="display:flex;align-items:center;min-height:44px;padding:0 16px;cursor:pointer;color:var(--body)">Close world</div>
+                </div>
+              </sc-if>
+            </div>
+
+            <div style="position:absolute;right:12px;bottom:{{ fabBottom }}px;z-index:9;display:flex;flex-direction:column;gap:10px">
+              <div onClick="{{ h3D }}" style="width:48px;height:48px;border-radius:24px;background:{{ pillBg }};border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;font:12.5px 'IBM Plex Mono',monospace;color:var(--acc);cursor:pointer">{{ vpLabel }}</div>
+              <div onClick="{{ hRecenter }}" style="width:48px;height:48px;border-radius:24px;background:{{ pillBg }};border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;font:16px 'IBM Plex Mono',monospace;color:var(--body);cursor:pointer">⌖</div>
+            </div>
+            <sc-if value="{{ measureOn }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:{{ chromeLeft }}px;top:92px;z-index:9;margin:0 10px;display:flex;align-items:center;gap:10px;padding:9px 13px;border-radius:16px;background:{{ pillBg }};border:1px solid var(--hair)">
+                <span style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:var(--acc)">MEASURE</span>
+                <span style="font:11px 'IBM Plex Mono',monospace;color:var(--ink)">{{ measTotal }}</span>
+                <span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ measN }} pts · tap map to add</span>
+                <span onClick="{{ hMeasClear }}" style="font:10px 'IBM Plex Mono',monospace;color:var(--sec);cursor:pointer;padding:6px 4px">CLEAR</span>
+                <span onClick="{{ hMeasDone }}" style="font:10px 'IBM Plex Mono',monospace;color:var(--acc);cursor:pointer;padding:6px 4px">DONE</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{ labelDraftOn }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:{{ chromeLeft }}px;right:0;bottom:{{ dockBottom }}px;z-index:11;padding:0 12px">
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:18px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 8px 22px rgba(0,0,0,.35)">
+                  <span style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:var(--acc);flex:none">LABEL</span>
+                  <input value="{{ labelText }}" onInput="{{ hLabelText }}" placeholder="label text…" style="flex:1;min-width:0;background:var(--chip);border:1px solid var(--hair);border-radius:12px;padding:10px 12px;color:var(--ink);font:12px 'IBM Plex Mono',monospace;outline:none">
+                  <span onClick="{{ hLabelCancel }}" style="font:10px 'IBM Plex Mono',monospace;color:var(--sec);cursor:pointer;padding:8px 2px">✕</span>
+                  <span onClick="{{ hLabelAdd }}" style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--accInk);background:var(--acc);border-radius:14px;padding:9px 13px;cursor:pointer">ADD</span>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ wayOn }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:{{ chromeLeft }}px;right:0;bottom:{{ dockBottom }}px;z-index:11;padding:0 12px">
+                <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:18px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 8px 22px rgba(0,0,0,.35)">
+                  <span style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:var(--acc)">WAY</span>
+                  <span style="font:11px 'IBM Plex Mono',monospace;color:var(--ink)">{{ wayN }} pts · {{ wayLen }}</span>
+                  <span style="flex:1"></span>
+                  <span onClick="{{ hWayCancel }}" style="font:10px 'IBM Plex Mono',monospace;color:var(--sec);cursor:pointer;padding:8px 2px">CANCEL</span>
+                  <span onClick="{{ hWayCommit }}" style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--accInk);background:var(--acc);border-radius:14px;padding:9px 13px;cursor:pointer">COMMIT</span>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ undoOn }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:{{ undoLeft }}px;bottom:{{ fabBottom }}px;z-index:9">
+                <div onPointerDown="{{ hUndoDown }}" onPointerUp="{{ hUndoUp }}" onPointerLeave="{{ hUndoLeave }}" style="display:flex;align-items:center;gap:8px;padding:11px 15px;border-radius:22px;background:{{ pillBg }};border:1px solid var(--hair);cursor:pointer;user-select:none">
+                  <span style="font:13px 'IBM Plex Mono',monospace;color:var(--acc)">↶</span>
+                  <span style="font:10px 'IBM Plex Mono',monospace;color:var(--body)">{{ undoLabel }}</span>
+                </div>
+                <sc-if value="{{ histOpen }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;left:0;bottom:52px;width:220px;border-radius:16px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 12px 30px rgba(0,0,0,.45);overflow:hidden;padding:4px 0">
+                    <div style="padding:8px 14px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--dim)">EDIT HISTORY · TAP TO ROLL BACK</div>
+                    <sc-for list="{{ histRows }}" as="h" hint-placeholder-count="2">
+                      <div onClick="{{ hHistPick }}" data-i="{{ h.i }}" style="min-height:40px;display:flex;align-items:center;padding:0 14px;cursor:pointer;font:10.5px 'IBM Plex Mono',monospace;color:var(--body)">{{ h.label }}</div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+            <sc-if value="{{ simStrip }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:{{ chromeLeft }}px;right:0;bottom:{{ dockBottom }}px;z-index:10;padding:0 10px">
+                <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:18px;background:{{ pillBg }};border:1px solid var(--hair)">
+                  <span onClick="{{ hSimPlay }}" style="width:38px;height:38px;flex:none;border-radius:19px;background:var(--wash);display:flex;align-items:center;justify-content:center;font:13px 'IBM Plex Mono',monospace;color:var(--acc);cursor:pointer">{{ simGlyph }}</span>
+                  <span style="font:11px 'IBM Plex Mono',monospace;color:var(--ink);flex:none">YEAR {{ simYear }}</span>
+                  <input type="range" min="-400" max="1200" step="1" value="{{ simYear }}" onInput="{{ hSimYear }}" style="flex:1;min-width:0">
+                  <sc-for list="{{ simSpeeds }}" as="sp" hint-placeholder-count="3">
+                    <span onClick="{{ hSimSpeed }}" data-v="{{ sp.v }}" style="font:9.5px 'IBM Plex Mono',monospace;color:{{ sp.col }};cursor:pointer;padding:6px 3px">{{ sp.label }}</span>
+                  </sc-for>
+                  <span onClick="{{ hSimClose }}" style="font:11px 'IBM Plex Mono',monospace;color:var(--sec);cursor:pointer;padding:6px 2px">✕</span>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ coachOn }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:{{ chromeLeft }}px;right:0;bottom:{{ coachBottom }}px;z-index:9;display:flex;justify-content:center;padding:0 20px;pointer-events:none">
+                <div style="pointer-events:auto;display:flex;align-items:center;gap:12px;padding:10px 16px;border-radius:18px;background:{{ pillBg }};border:1px solid var(--hair);animation:tIn .3s ease">
+                  <span style="font:10px/1.5 'IBM Plex Mono',monospace;color:var(--body)">{{ coachText }}</span>
+                  <span onClick="{{ hCoachDismiss }}" style="font:11px 'IBM Plex Mono',monospace;color:var(--dim);cursor:pointer;padding:4px">✕</span>
+                </div>
+              </div>
+            </sc-if>
+            <div style="position:absolute;left:{{ chromeLeft }}px;right:0;bottom:{{ toastBottom }}px;z-index:22;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none">
+              <sc-for list="{{ toasts }}" as="to" hint-placeholder-count="0">
+                <div style="max-width:86%;padding:10px 16px;border-radius:16px;background:{{ pillBg }};border:1px solid var(--bord);font:10.5px/1.5 'IBM Plex Mono',monospace;color:var(--ink);animation:tIn .25s ease;text-align:center">{{ to.msg }}</div>
+              </sc-for>
+            </div>
+
+            <div ref="{{ sheetRef }}" style="z-index:12;display:flex;flex-direction:column;background:var(--pan);box-shadow:0 -10px 30px rgba(0,0,0,.35);{{ sheetStyle }}">
+              <div ref="{{ grabRef }}" style="flex:none;touch-action:none;cursor:grab">
+                <div style="height:20px;display:flex;align-items:center;justify-content:center"><div style="width:42px;height:4px;border-radius:2px;background:var(--bord)"></div></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:0 14px 10px">
+                  <sc-if value="{{ sheetBack }}" hint-placeholder-val="{{ false }}"><div onClick="{{ hBack }}" style="width:38px;height:38px;flex:none;border-radius:19px;background:var(--chip);display:flex;align-items:center;justify-content:center;font:15px 'IBM Plex Mono',monospace;color:var(--body);cursor:pointer">←</div></sc-if>
+                  <div style="flex:1;min-width:0">
+                    <div style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ sheetTitle }}</div>
+                    <div style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ sheetSub }}</div>
+                  </div>
+                  <div onClick="{{ hSheetClose }}" style="width:38px;height:38px;flex:none;border-radius:19px;background:var(--chip);display:flex;align-items:center;justify-content:center;font:13px 'IBM Plex Mono',monospace;color:var(--sec);cursor:pointer">✕</div>
+                </div>
+              </div>
+              <div style="flex:1;overflow-y:auto;overscroll-behavior:contain;padding:2px 14px 24px">
+                <sc-if value="{{ tabIsMap }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-direction:column;gap:14px">
+                  <div>
+                    <div style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim);padding:6px 2px 8px">TOOLS · ARMING DROPS THE SHEET TO A PEEK</div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap">
+                      <sc-for list="{{ mapTools }}" as="t" hint-placeholder-count="4">
+                        <div onClick="{{ hTool }}" data-tool="{{ t.id }}" style="min-height:44px;padding:0 16px;border-radius:22px;display:flex;align-items:center;gap:8px;cursor:pointer;font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em;border:1px solid {{ t.bord }};color:{{ t.col }};background:{{ t.bg }}">{{ t.glyph }} {{ t.label }}</div>
+                      </sc-for>
+                    </div>
+                    <sc-if value="{{ iconOn }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;gap:8px;padding-top:10px">
+                        <sc-for list="{{ iconVars }}" as="v" hint-placeholder-count="4">
+                          <div onClick="{{ hIconVar }}" data-v="{{ v.id }}" style="width:48px;height:44px;border-radius:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;font:15px 'IBM Plex Mono',monospace;border:1px solid {{ v.bord }};color:{{ v.col }};background:{{ v.bg }}">{{ v.glyph }}</div>
+                        </sc-for>
+                        <div style="flex:1;display:flex;align-items:center;font:9.5px 'IBM Plex Mono',monospace;color:var(--faint)">tap the map to stamp</div>
+                      </div>
+                    </sc-if>
+                  </div>
+                  <div>
+                    <div style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim);padding:2px 2px 6px">LAYERS</div>
+                    <sc-for list="{{ layerGroups }}" as="g" hint-placeholder-count="3">
+                      <div style="padding-bottom:6px">
+                        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--faint);padding:6px 2px 4px">{{ g.name }}</div>
+                        <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="3">
+                          <div onClick="{{ hLayer }}" data-kind="{{ r.kind }}" data-id="{{ r.id }}" style="display:flex;align-items:center;gap:12px;min-height:46px;padding:0 12px;border-radius:14px;cursor:pointer;background:{{ r.bg }}">
+                            <span style="font:11px 'IBM Plex Mono',monospace;color:{{ r.dotCol }}">{{ r.dot }}</span>
+                            <span style="flex:1;color:{{ r.col }}">{{ r.label }}</span>
+                            <span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--faint)">{{ r.note }}</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div>
+                    <div style="display:flex;align-items:baseline;gap:10px;padding:2px 2px 8px">
+                      <span style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim)">STYLE</span>
+                      <sc-if value="{{ styleCustom }}" hint-placeholder-val="{{ false }}"><span style="font:9px 'IBM Plex Mono',monospace;color:var(--warn)">custom — edited since preset</span></sc-if>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;padding-bottom:12px">
+                      <sc-for list="{{ stylePresets }}" as="p" hint-placeholder-count="4">
+                        <div onClick="{{ hPreset }}" data-id="{{ p.id }}" style="min-height:42px;padding:0 16px;border-radius:21px;display:flex;align-items:center;cursor:pointer;font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em;border:1px solid {{ p.bord }};color:{{ p.col }};background:{{ p.bg }}">{{ p.label }}</div>
+                      </sc-for>
+                    </div>
+                    <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--faint);padding:0 2px 6px">COLOUR RAMP · TERRAIN</div>
+                    <div style="display:flex;flex-direction:column;gap:7px">
+                      <sc-for list="{{ ramps }}" as="r" hint-placeholder-count="5">
+                        <div onClick="{{ hRamp }}" data-id="{{ r.id }}" style="display:flex;align-items:center;gap:12px;min-height:44px;padding:0 10px;border-radius:14px;cursor:pointer;border:1px solid {{ r.bord }};background:{{ r.rowBg }}">
+                          <div style="flex:1;height:14px;border-radius:7px;background:{{ r.bg }}"></div>
+                          <span style="font:10px 'IBM Plex Mono',monospace;color:{{ r.col }};width:76px">{{ r.id }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <div style="font:9.5px/1.6 'IBM Plex Mono',monospace;color:var(--faint);padding:0 2px">Presentation only — nothing here alters world data or marks a generation stage stale.</div>
+                </div></sc-if>
+                <sc-if value="{{ tabIsGen }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-direction:column;gap:12px">
+                  <div style="display:flex;gap:8px">
+                    <div onClick="{{ hGenModePipe }}" style="flex:1;min-height:44px;border-radius:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;border:1px solid {{ pipeBord }};color:{{ pipeCol }};background:{{ pipeBg }}">PIPELINE</div>
+                    <div onClick="{{ hGenModeSculpt }}" style="flex:1;min-height:44px;border-radius:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;border:1px solid {{ scBord }};color:{{ scCol }};background:{{ scBg }}">SCULPT</div>
+                  </div>
+
+                  <sc-if value="{{ isPipe }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:16px;background:var(--chip)">
+                      <span style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim)">SEED</span>
+                      <span style="flex:1;font:500 13px 'IBM Plex Mono',monospace;color:var(--ink)">{{ genSeed }}</span>
+                      <div onClick="{{ hDice }}" style="width:42px;height:40px;border-radius:14px;background:var(--wash);display:flex;align-items:center;justify-content:center;color:var(--acc);cursor:pointer;font:14px 'IBM Plex Mono',monospace">⚄</div>
+                    </div>
+                    <sc-if value="{{ genRunning }}" hint-placeholder-val="{{ false }}">
+                      <div style="border:1px solid var(--acc);border-radius:18px;padding:13px 14px;display:flex;flex-direction:column;gap:9px">
+                        <div style="display:flex;justify-content:space-between;align-items:baseline">
+                          <span style="font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:var(--acc)">{{ progTitle }}</span>
+                          <span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim)">{{ progPct }}</span>
+                        </div>
+                        <div style="height:5px;border-radius:3px;background:var(--chip);overflow:hidden"><div style="height:100%;border-radius:3px;background:var(--acc);width:{{ progW }}"></div></div>
+                        <sc-for list="{{ progLog }}" as="l" hint-placeholder-count="3">
+                          <div style="font:9.5px 'IBM Plex Mono',monospace;color:{{ l.col }}">{{ l.t }}</div>
+                        </sc-for>
+                        <div onClick="{{ hCancelGen }}" style="align-self:flex-end;padding:8px 14px;border-radius:16px;background:var(--chip);color:var(--sec);font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em;cursor:pointer">CANCEL</div>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ genIdle }}" hint-placeholder-val="{{ true }}">
+                      <sc-if value="{{ staleOn }}" hint-placeholder-val="{{ false }}">
+                        <div style="padding:11px 14px;border:1px solid rgba(224,168,64,.4);border-radius:14px;font:10px/1.6 'IBM Plex Mono',monospace;color:var(--warn)">{{ staleNote }}</div>
+                      </sc-if>
+                      <div onClick="{{ hGenerate }}" style="min-height:52px;border-radius:26px;background:var(--acc);color:var(--accInk);display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.18em">{{ genBtnLabel }}</div>
+                      <div style="display:flex;justify-content:space-between;font:9.5px 'IBM Plex Mono',monospace;color:var(--faint);padding:0 4px"><span>last run · {{ genLastRun }}</span><span>10 stages · dependency order</span></div>
+                    </sc-if>
+                    <sc-for list="{{ genGroups }}" as="g" hint-placeholder-count="4">
+                      <div style="border:1px solid var(--hair2);border-radius:18px;overflow:hidden">
+                        <div onClick="{{ hGenGroup }}" data-id="{{ g.id }}" style="display:flex;align-items:center;gap:10px;min-height:50px;padding:0 14px;cursor:pointer">
+                          <span style="font:9.5px 'IBM Plex Mono',monospace;color:{{ g.numCol }};width:22px">{{ g.num }}</span>
+                          <span style="flex:1;color:var(--ink);font-size:12.5px">{{ g.name }}</span>
+                          <span style="font:9px 'IBM Plex Mono',monospace;color:var(--faint)">{{ g.state }}</span>
+                          <span style="color:var(--faint);font:11px 'IBM Plex Mono',monospace">{{ g.chev }}</span>
+                        </div>
+                        <sc-if value="{{ g.open }}" hint-placeholder-val="{{ false }}">
+                          <div style="border-top:1px solid var(--hair2);padding:6px 14px 12px;display:flex;flex-direction:column;gap:2px">
+                            <sc-for list="{{ g.fields }}" as="f" hint-placeholder-count="3">
+                              <sc-if value="{{ f.isSeg }}" hint-placeholder-val="{{ false }}">
+                                <div style="padding:8px 0 4px">
+                                  <div style="font:10px 'IBM Plex Mono',monospace;color:var(--sec);padding-bottom:7px">{{ f.label }}</div>
+                                  <div style="display:flex;gap:6px;flex-wrap:wrap">
+                                    <sc-for list="{{ f.opts }}" as="o" hint-placeholder-count="3">
+                                      <div onClick="{{ hGenSeg }}" data-key="{{ f.key }}" data-v="{{ o.v }}" data-stage="{{ f.stage }}" style="min-height:38px;padding:0 13px;border-radius:19px;display:flex;align-items:center;cursor:pointer;font:10px 'IBM Plex Mono',monospace;border:1px solid {{ o.bord }};color:{{ o.col }};background:{{ o.bg }}">{{ o.v }}</div>
+                                    </sc-for>
+                                  </div>
+                                </div>
+                              </sc-if>
+                              <sc-if value="{{ f.isRange }}" hint-placeholder-val="{{ false }}">
+                                <div style="padding:7px 0 3px">
+                                  <div style="display:flex;justify-content:space-between;align-items:baseline;padding-bottom:2px">
+                                    <span style="font:10px 'IBM Plex Mono',monospace;color:var(--sec)">{{ f.label }}</span>
+                                    <span style="font:11px 'IBM Plex Mono',monospace;color:var(--ink)">{{ f.disp }}</span>
+                                  </div>
+                                  <div style="display:flex;align-items:center;gap:8px">
+                                    <div onClick="{{ hGenStep }}" data-key="{{ f.key }}" data-d="-1" data-stage="{{ f.stage }}" style="width:38px;height:38px;flex:none;border-radius:14px;background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--sec);cursor:pointer;font:14px 'IBM Plex Mono',monospace">−</div>
+                                    <input type="range" min="{{ f.min }}" max="{{ f.max }}" step="{{ f.step }}" value="{{ f.val }}" onInput="{{ hGenRange }}" data-key="{{ f.key }}" data-stage="{{ f.stage }}" style="flex:1;min-width:0">
+                                    <div onClick="{{ hGenStep }}" data-key="{{ f.key }}" data-d="1" data-stage="{{ f.stage }}" style="width:38px;height:38px;flex:none;border-radius:14px;background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--sec);cursor:pointer;font:14px 'IBM Plex Mono',monospace">＋</div>
+                                  </div>
+                                </div>
+                              </sc-if>
+                              <sc-if value="{{ f.isTog }}" hint-placeholder-val="{{ false }}">
+                                <div onClick="{{ hGenTog }}" data-key="{{ f.key }}" data-stage="{{ f.stage }}" style="display:flex;align-items:center;gap:12px;min-height:44px;cursor:pointer">
+                                  <span style="flex:1;font:10px 'IBM Plex Mono',monospace;color:var(--sec)">{{ f.label }}</span>
+                                  <div style="width:40px;height:22px;border-radius:11px;background:{{ f.togBg }};position:relative;transition:background .15s"><div style="position:absolute;top:2px;width:18px;height:18px;border-radius:9px;background:{{ f.knobBg }};{{ f.knobPos }};transition:left .15s,right .15s"></div></div>
+                                </div>
+                              </sc-if>
+                            </sc-for>
+                          </div>
+                        </sc-if>
+                      </div>
+                    </sc-for>
+                    <div style="font:9.5px/1.6 'IBM Plex Mono',monospace;color:var(--faint);padding:0 2px">Editing a stage marks everything downstream stale. Volcanism (05) and Resources (10) run with defaults. GPU, LOD and render quality live under MORE ▸ Preferences.</div>
+                  </sc-if>
+
+                  <sc-if value="{{ isSculpt }}" hint-placeholder-val="{{ false }}">
+                    <div style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim);padding:2px 2px 0">GEOLOGICAL FEATURE</div>
+                    <div style="display:flex;gap:7px;flex-wrap:wrap">
+                      <sc-for list="{{ sculptFeatures }}" as="f" hint-placeholder-count="6">
+                        <div onClick="{{ hFeature }}" data-id="{{ f.id }}" style="min-height:42px;padding:0 13px;border-radius:21px;display:flex;align-items:center;gap:7px;cursor:pointer;font:10px 'IBM Plex Mono',monospace;border:1px solid {{ f.bord }};color:{{ f.col }};background:{{ f.bg }}">
+                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="{{ f.d }}"></path></svg>
+                          {{ f.id }}
+                        </div>
+                      </sc-for>
+                    </div>
+                    <div style="font:9.5px/1.5 'IBM Plex Mono',monospace;color:var(--faint)">{{ featHint }}</div>
+                    <div style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim);padding:6px 2px 0">PRESETS</div>
+                    <div style="display:flex;gap:7px;flex-wrap:wrap">
+                      <sc-for list="{{ sculptPresets }}" as="p" hint-placeholder-count="4">
+                        <div onClick="{{ hSPreset }}" data-id="{{ p.id }}" data-f="{{ p.f }}" style="min-height:38px;padding:0 12px;border-radius:19px;display:flex;align-items:center;cursor:pointer;font:9.5px 'IBM Plex Mono',monospace;border:1px solid {{ p.bord }};color:{{ p.col }};background:{{ p.bg }}">{{ p.id }}</div>
+                      </sc-for>
+                    </div>
+                    <div style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim);padding:6px 2px 0">BRUSH · GLOBAL</div>
+                    <sc-for list="{{ brushFields }}" as="f" hint-placeholder-count="3">
+                      <div style="padding:2px 0">
+                        <div style="display:flex;justify-content:space-between;padding-bottom:2px">
+                          <span style="font:10px 'IBM Plex Mono',monospace;color:var(--sec)">{{ f.label }}</span>
+                          <span style="font:11px 'IBM Plex Mono',monospace;color:var(--ink)">{{ f.disp }}</span>
+                        </div>
+                        <input type="range" min="{{ f.min }}" max="{{ f.max }}" step="{{ f.step }}" value="{{ f.val }}" onInput="{{ hBrush }}" data-key="{{ f.key }}" style="width:100%">
+                      </div>
+                    </sc-for>
+                    <div onClick="{{ hAddStamp }}" style="min-height:48px;border-radius:24px;border:1px dashed var(--acc);color:var(--acc);display:flex;align-items:center;justify-content:center;cursor:pointer;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em">＋ ADD DRAFT STAMP (MOCK STROKE)</div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <span style="flex:1;font:10px 'IBM Plex Mono',monospace;color:{{ stampCol }}">{{ stampNote }}</span>
+                      <div onClick="{{ hDiscard }}" style="padding:11px 14px;border-radius:18px;background:var(--chip);color:var(--sec);font:10px 'IBM Plex Mono',monospace;cursor:pointer">DISCARD</div>
+                      <div onClick="{{ hCommit }}" style="padding:11px 16px;border-radius:18px;background:var(--acc);color:var(--accInk);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;cursor:pointer">✓ COMMIT</div>
+                    </div>
+                    <div style="font:9.5px/1.6 'IBM Plex Mono',monospace;color:var(--faint)">Strokes accumulate as live procedural stamps; nothing touches the heightfield until commit, which re-runs erosion → hydrology → climate once. Locked while finalized.</div>
+                  </sc-if>
+                </div></sc-if>
+                <sc-if value="{{ tabIsPlan }}" hint-placeholder-val="{{ false }}"><sc-if value="{{ planRoot }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex;flex-direction:column;gap:12px">
+                    <div style="border:1px solid {{ verBord }};border-radius:20px;padding:14px 15px;display:flex;flex-direction:column;gap:8px;background:{{ verBg }}">
+                      <div style="display:flex;align-items:center;gap:10px">
+                        <span style="font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:{{ verCol }};border:1px solid {{ verBord }};border-radius:11px;padding:4px 10px">{{ verState }}</span>
+                        <span style="flex:1"></span>
+                        <span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--faint)">confidence ± {{ verConf }} d</span>
+                      </div>
+                      <div><span style="font:500 34px 'IBM Plex Mono',monospace;color:var(--ink)">{{ verDays }}</span><span style="font:12px 'IBM Plex Mono',monospace;color:var(--dim)"> calendar days</span></div>
+                      <div style="font:10px 'IBM Plex Mono',monospace;color:var(--sec)">{{ verSplit }}</div>
+                      <div style="font:10.5px/1.6 'IBM Plex Mono',monospace;color:{{ verCol }}">{{ verReason }}</div>
+                      <sc-if value="{{ verActsOn }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;gap:7px;flex-wrap:wrap;padding-top:2px">
+                          <sc-for list="{{ verActs }}" as="a" hint-placeholder-count="2">
+                            <div onClick="{{ hVerdictAct }}" data-id="{{ a.id }}" style="min-height:38px;padding:0 13px;border-radius:19px;display:flex;align-items:center;cursor:pointer;font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.08em;border:1px solid var(--bord);color:var(--ink);background:var(--chip)">{{ a.label }}</div>
+                          </sc-for>
+                        </div>
+                      </sc-if>
+                    </div>
+                    <div>
+                      <div style="display:flex;align-items:baseline;justify-content:space-between;padding:2px 2px 8px">
+                        <span style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim)">ROUTE · VHAL SERAI → PORT AMRE</span>
+                        <span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--faint)">{{ routeTotal }}</span>
+                      </div>
+                      <div style="display:flex;flex-direction:column;gap:6px">
+                        <sc-for list="{{ stageRows }}" as="st" hint-placeholder-count="6">
+                          <div onClick="{{ hStageRow }}" data-i="{{ st.i }}" style="display:flex;align-items:center;gap:11px;min-height:52px;padding:0 12px;border-radius:16px;cursor:pointer;border:1px solid {{ st.bord }};background:{{ st.bg }}">
+                            <span style="font:9.5px 'IBM Plex Mono',monospace;color:{{ st.dotCol }}">{{ st.dot }}</span>
+                            <div style="flex:1;min-width:0">
+                              <div style="font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ st.name }}</div>
+                              <div style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ st.sub }}</div>
+                            </div>
+                            <div style="text-align:right">
+                              <div style="font:11px 'IBM Plex Mono',monospace;color:var(--ink)">{{ st.days }}</div>
+                              <div style="font:9px 'IBM Plex Mono',monospace;color:{{ st.ovCol }}">{{ st.ovNote }}</div>
+                            </div>
+                            <span style="color:var(--faint)">›</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </div>
+                    <div>
+                      <div style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim);padding:2px 2px 8px">PARTY FORM</div>
+                      <div style="display:flex;flex-direction:column;gap:8px">
+                        <sc-for list="{{ partyGroups }}" as="g" hint-placeholder-count="5">
+                          <div style="border:1px solid var(--hair2);border-radius:18px;overflow:hidden">
+                            <div onClick="{{ hPlanGroup }}" data-id="{{ g.id }}" style="display:flex;align-items:center;gap:10px;min-height:50px;padding:0 14px;cursor:pointer">
+                              <span style="flex:1;color:var(--ink);font-size:12.5px">{{ g.name }}</span>
+                              <span style="font:9px 'IBM Plex Mono',monospace;color:var(--faint)">{{ g.note }}</span>
+                              <span style="color:var(--faint);font:11px 'IBM Plex Mono',monospace">{{ g.chev }}</span>
+                            </div>
+                            <sc-if value="{{ g.open }}" hint-placeholder-val="{{ false }}">
+                              <div style="border-top:1px solid var(--hair2);padding:6px 14px 12px;display:flex;flex-direction:column;gap:2px">
+                                <sc-for list="{{ g.fields }}" as="f" hint-placeholder-count="4">
+                                  <sc-if value="{{ f.isSeg }}" hint-placeholder-val="{{ false }}">
+                                    <div style="padding:8px 0 4px;{{ f.dimStyle }}">
+                                      <div style="display:flex;justify-content:space-between;padding-bottom:7px"><span style="font:10px 'IBM Plex Mono',monospace;color:var(--sec)">{{ f.label }}</span><span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--warn)">{{ f.note }}</span></div>
+                                      <div style="display:flex;gap:6px;flex-wrap:wrap">
+                                        <sc-for list="{{ f.opts }}" as="o" hint-placeholder-count="3">
+                                          <div onClick="{{ hPartySeg }}" data-key="{{ f.key }}" data-v="{{ o.v }}" style="min-height:38px;padding:0 12px;border-radius:19px;display:flex;align-items:center;cursor:pointer;font:10px 'IBM Plex Mono',monospace;border:1px solid {{ o.bord }};color:{{ o.col }};background:{{ o.bg }}">{{ o.v }}</div>
+                                        </sc-for>
+                                      </div>
+                                    </div>
+                                  </sc-if>
+                                  <sc-if value="{{ f.isRange }}" hint-placeholder-val="{{ false }}">
+                                    <div style="padding:7px 0 3px;{{ f.dimStyle }}">
+                                      <div style="display:flex;justify-content:space-between;align-items:baseline;padding-bottom:2px">
+                                        <span style="font:10px 'IBM Plex Mono',monospace;color:var(--sec)">{{ f.label }}</span>
+                                        <span style="font:11px 'IBM Plex Mono',monospace;color:var(--ink)">{{ f.disp }}</span>
+                                      </div>
+                                      <div style="display:flex;align-items:center;gap:8px">
+                                        <div onClick="{{ hPartyStep }}" data-key="{{ f.key }}" data-d="-1" style="width:38px;height:38px;flex:none;border-radius:14px;background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--sec);cursor:pointer;font:14px 'IBM Plex Mono',monospace">−</div>
+                                        <input type="range" min="{{ f.min }}" max="{{ f.max }}" step="{{ f.step }}" value="{{ f.val }}" onInput="{{ hPartyRange }}" data-key="{{ f.key }}" style="flex:1;min-width:0">
+                                        <div onClick="{{ hPartyStep }}" data-key="{{ f.key }}" data-d="1" style="width:38px;height:38px;flex:none;border-radius:14px;background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--sec);cursor:pointer;font:14px 'IBM Plex Mono',monospace">＋</div>
+                                      </div>
+                                      <div style="font:9px 'IBM Plex Mono',monospace;color:var(--warn);padding-top:2px">{{ f.note }}</div>
+                                    </div>
+                                  </sc-if>
+                                  <sc-if value="{{ f.isTog }}" hint-placeholder-val="{{ false }}">
+                                    <div onClick="{{ hPartyTog }}" data-key="{{ f.key }}" style="display:flex;align-items:center;gap:12px;min-height:44px;cursor:pointer;{{ f.dimStyle }}">
+                                      <span style="flex:1;font:10px 'IBM Plex Mono',monospace;color:var(--sec)">{{ f.label }}</span>
+                                      <span style="font:9px 'IBM Plex Mono',monospace;color:var(--faint)">{{ f.note }}</span>
+                                      <div style="width:40px;height:22px;border-radius:11px;background:{{ f.togBg }};position:relative"><div style="position:absolute;top:2px;width:18px;height:18px;border-radius:9px;background:{{ f.knobBg }};{{ f.knobPos }}"></div></div>
+                                    </div>
+                                  </sc-if>
+                                </sc-for>
+                              </div>
+                            </sc-if>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </div>
+                    <div>
+                      <div style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim);padding:2px 2px 8px">RESULTS</div>
+                      <div style="display:flex;flex-direction:column;gap:8px">
+                        <sc-for list="{{ resGroups }}" as="g" hint-placeholder-count="5">
+                          <div style="border:1px solid var(--hair2);border-radius:18px;overflow:hidden">
+                            <div onClick="{{ hResGroup }}" data-id="{{ g.id }}" style="display:flex;align-items:center;gap:10px;min-height:48px;padding:0 14px;cursor:pointer">
+                              <span style="flex:1;color:var(--ink);font-size:12px">{{ g.name }}</span>
+                              <span style="font:10px 'IBM Plex Mono',monospace;color:{{ g.sumCol }}">{{ g.sum }}</span>
+                              <span style="color:var(--faint);font:11px 'IBM Plex Mono',monospace">{{ g.chev }}</span>
+                            </div>
+                            <sc-if value="{{ g.open }}" hint-placeholder-val="{{ false }}">
+                              <div style="border-top:1px solid var(--hair2);padding:4px 14px 10px">
+                                <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="4">
+                                  <div style="display:flex;justify-content:space-between;gap:12px;min-height:34px;align-items:center">
+                                    <span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ r.k }}</span>
+                                    <span style="font:10.5px 'IBM Plex Mono',monospace;color:{{ r.col }};text-align:right">{{ r.v }}</span>
+                                  </div>
+                                </sc-for>
+                                <sc-if value="{{ g.barOn }}" hint-placeholder-val="{{ false }}">
+                                  <div style="height:6px;border-radius:3px;background:var(--chip);overflow:hidden;margin:6px 0 4px;position:relative">
+                                    <div style="height:100%;border-radius:3px;background:{{ g.barCol }};width:{{ g.barW }}"></div>
+                                    <div style="position:absolute;top:0;bottom:0;left:90%;width:1.5px;background:var(--warn)"></div>
+                                  </div>
+                                  <div style="font:8.5px 'IBM Plex Mono',monospace;color:var(--faint)">overload threshold at 90%</div>
+                                </sc-if>
+                              </div>
+                            </sc-if>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </div>
+                    <div style="font:9.5px/1.6 'IBM Plex Mono',monospace;color:var(--faint);padding:0 2px">Auto fields show auto · resolved value. The route line and the selected stage are highlighted on the map behind this sheet.</div>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ planStage }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;flex-direction:column;gap:12px">
+                    <div style="border:1px solid var(--hair);border-radius:18px;padding:12px 14px">
+                      <div style="font:500 12.5px 'IBM Plex Mono',monospace;color:var(--ink)">{{ ovStageName }}</div>
+                      <div style="padding-top:4px;font:10px 'IBM Plex Mono',monospace;color:var(--dim)">{{ ovStageSub }}</div>
+                      <div style="padding-top:2px;font:10px 'IBM Plex Mono',monospace;color:{{ ovStageCol }}">{{ ovStageNote }}</div>
+                    </div>
+                    <div style="display:flex;gap:7px;flex-wrap:wrap">
+                      <div onClick="{{ hOvClearAll }}" style="min-height:38px;padding:0 13px;border-radius:19px;display:flex;align-items:center;cursor:pointer;font:9.5px 'IBM Plex Mono',monospace;border:1px solid var(--hair);color:var(--sec);background:var(--chip)">CLEAR OVERRIDES</div>
+                      <div onClick="{{ hCopyLand }}" style="min-height:38px;padding:0 13px;border-radius:19px;display:flex;align-items:center;cursor:pointer;font:9.5px 'IBM Plex Mono',monospace;border:1px solid var(--hair);color:var(--sec);background:var(--chip)">COPY TO ALL LAND STAGES</div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:2px">
+                      <sc-for list="{{ ovFields }}" as="f" hint-placeholder-count="8">
+                        <div style="border-left:2px solid {{ f.edgeCol }};padding-left:12px;margin:3px 0;{{ f.dimStyle }}">
+                          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0 2px">
+                            <span style="font:10px 'IBM Plex Mono',monospace;color:var(--sec)">{{ f.label }}</span>
+                            <span style="display:flex;gap:10px;align-items:baseline">
+                              <span style="font:9px 'IBM Plex Mono',monospace;color:{{ f.stateCol }}">{{ f.stateNote }}</span>
+                              <sc-if value="{{ f.isSet }}" hint-placeholder-val="{{ false }}"><span onClick="{{ hOvClear }}" data-key="{{ f.key }}" style="font:9px 'IBM Plex Mono',monospace;color:var(--sec);cursor:pointer;padding:4px 2px">CLEAR</span></sc-if>
+                            </span>
+                          </div>
+                          <sc-if value="{{ f.isSeg }}" hint-placeholder-val="{{ false }}">
+                            <div style="display:flex;gap:6px;flex-wrap:wrap;padding:2px 0 6px">
+                              <sc-for list="{{ f.opts }}" as="o" hint-placeholder-count="3">
+                                <div onClick="{{ hOvSeg }}" data-key="{{ f.key }}" data-v="{{ o.v }}" style="min-height:36px;padding:0 11px;border-radius:18px;display:flex;align-items:center;cursor:pointer;font:9.5px 'IBM Plex Mono',monospace;border:1px solid {{ o.bord }};color:{{ o.col }};background:{{ o.bg }}">{{ o.v }}</div>
+                              </sc-for>
+                            </div>
+                          </sc-if>
+                          <sc-if value="{{ f.isRange }}" hint-placeholder-val="{{ false }}">
+                            <div style="display:flex;align-items:center;gap:8px;padding:2px 0 6px">
+                              <input type="range" min="{{ f.min }}" max="{{ f.max }}" step="{{ f.step }}" value="{{ f.val }}" onInput="{{ hOvRange }}" data-key="{{ f.key }}" style="flex:1;min-width:0">
+                              <span style="font:10.5px 'IBM Plex Mono',monospace;color:var(--ink);width:84px;text-align:right">{{ f.disp }}</span>
+                            </div>
+                          </sc-if>
+                          <sc-if value="{{ f.isTog }}" hint-placeholder-val="{{ false }}">
+                            <div onClick="{{ hOvTog }}" data-key="{{ f.key }}" style="display:flex;align-items:center;gap:12px;min-height:40px;cursor:pointer">
+                              <span style="flex:1;font:10.5px 'IBM Plex Mono',monospace;color:var(--ink)">{{ f.disp }}</span>
+                              <div style="width:40px;height:22px;border-radius:11px;background:{{ f.togBg }};position:relative"><div style="position:absolute;top:2px;width:18px;height:18px;border-radius:9px;background:{{ f.knobBg }};{{ f.knobPos }}"></div></div>
+                            </div>
+                          </sc-if>
+                        </div>
+                      </sc-for>
+                    </div>
+                    <div style="font:9.5px/1.6 'IBM Plex Mono',monospace;color:var(--faint)">A blank field inherits the party form · an auto field shows its resolved value · a field that cannot apply to this stage is disabled with the reason.</div>
+                  </div>
+                </sc-if></sc-if>
+                <sc-if value="{{ tabIsMore }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-direction:column;gap:2px">
+                  <sc-for list="{{ moreRows }}" as="r" hint-placeholder-count="8">
+                    <sc-if value="{{ r.isHead }}" hint-placeholder-val="{{ false }}"><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--faint);padding:14px 4px 6px">{{ r.label }}</div></sc-if>
+                    <sc-if value="{{ r.isNav }}" hint-placeholder-val="{{ false }}">
+                      <div onClick="{{ hMoreTap }}" data-to="{{ r.to }}" data-act="{{ r.act }}" data-label="{{ r.label }}" style="display:flex;align-items:center;gap:12px;min-height:52px;padding:0 12px;border-radius:16px;cursor:pointer;background:{{ r.bg }}">
+                        <span style="font:12px 'IBM Plex Mono',monospace;color:{{ r.glyphCol }};width:18px;text-align:center">{{ r.glyph }}</span>
+                        <div style="flex:1;min-width:0">
+                          <div style="color:var(--ink);font-size:12.5px">{{ r.label }}</div>
+                          <div style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.sub }}</div>
+                        </div>
+                        <span style="font:9px 'IBM Plex Mono',monospace;color:{{ r.badgeCol }}">{{ r.badge }}</span>
+                        <span style="color:var(--faint)">›</span>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ r.isAct }}" hint-placeholder-val="{{ false }}">
+                      <div onClick="{{ hMoreTap }}" data-act="{{ r.act }}" style="display:flex;align-items:center;justify-content:center;gap:10px;min-height:48px;margin:5px 0;padding:0 16px;border-radius:24px;cursor:pointer;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.14em;{{ r.actStyle }}">{{ r.label }}</div>
+                    </sc-if>
+                    <sc-if value="{{ r.isTog }}" hint-placeholder-val="{{ false }}">
+                      <div onClick="{{ hMoreTog }}" data-key="{{ r.key }}" style="display:flex;align-items:center;gap:12px;min-height:50px;padding:0 12px;cursor:pointer">
+                        <div style="flex:1;min-width:0"><div style="color:var(--body);font-size:12px">{{ r.label }}</div><div style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ r.sub }}</div></div>
+                        <div style="width:44px;height:24px;border-radius:12px;background:{{ r.togBg }};position:relative;flex:none"><div style="position:absolute;top:2px;width:20px;height:20px;border-radius:10px;background:{{ r.knobBg }};{{ r.knobPos }}"></div></div>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ r.isSeg }}" hint-placeholder-val="{{ false }}">
+                      <div style="padding:8px 4px 6px">
+                        <div style="font:10px 'IBM Plex Mono',monospace;color:var(--sec);padding-bottom:7px">{{ r.label }}</div>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap">
+                          <sc-for list="{{ r.opts }}" as="o" hint-placeholder-count="3">
+                            <div onClick="{{ hMoreSeg }}" data-key="{{ r.key }}" data-v="{{ o.v }}" style="min-height:40px;padding:0 13px;border-radius:20px;display:flex;align-items:center;cursor:pointer;font:10px 'IBM Plex Mono',monospace;border:1px solid {{ o.bord }};color:{{ o.col }};background:{{ o.bg }}">{{ o.v }}</div>
+                          </sc-for>
+                        </div>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ r.isRange }}" hint-placeholder-val="{{ false }}">
+                      <div style="padding:8px 4px 4px">
+                        <div style="display:flex;justify-content:space-between;padding-bottom:2px"><span style="font:10px 'IBM Plex Mono',monospace;color:var(--sec)">{{ r.label }}</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--ink)">{{ r.disp }}</span></div>
+                        <input type="range" min="{{ r.min }}" max="{{ r.max }}" step="{{ r.step }}" value="{{ r.val }}" onInput="{{ hMoreRange }}" data-key="{{ r.key }}" style="width:100%">
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ r.isRead }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;justify-content:space-between;gap:12px;min-height:42px;align-items:center;padding:0 12px;border-bottom:1px solid var(--hair2)">
+                        <span style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--dim)">{{ r.label }}</span>
+                        <span style="font:10.5px 'IBM Plex Mono',monospace;color:{{ r.valCol }};text-align:right">{{ r.val }}</span>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ r.isInfo }}" hint-placeholder-val="{{ false }}"><div style="font:9.5px/1.6 'IBM Plex Mono',monospace;color:var(--faint);padding:8px 4px">{{ r.label }}</div></sc-if>
+                  </sc-for>
+                  <sc-if value="{{ gridOn }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;padding:10px 4px 8px">
+                      <span style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim)">{{ gridHead }}</span>
+                      <span style="font:9px 'IBM Plex Mono',monospace;color:var(--faint)">tap a slot</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+                      <sc-for list="{{ gridCells }}" as="c" hint-placeholder-count="8">
+                        <div onClick="{{ hMoreCell }}" data-i="{{ c.i }}" style="aspect-ratio:1;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;border:1px solid {{ c.bord }};background:{{ c.bg }}">
+                          <span style="font:17px 'IBM Plex Mono',monospace;color:{{ c.col }}">{{ c.glyph }}</span>
+                          <span style="font:8.5px 'IBM Plex Mono',monospace;color:var(--faint)">{{ c.code }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                </div></sc-if>
+              </div>
+            </div>
+
+            <sc-if value="{{ portrait }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:0;right:0;bottom:0;height:84px;z-index:14;background:var(--pan2);border-top:1px solid var(--hair2);display:flex;flex-direction:column">
+                <div style="flex:1;display:flex;padding:4px 6px 0">
+                  <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+                    <div onClick="{{ hTab }}" data-tab="{{ t.id }}" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;color:{{ t.col }}">
+                      <div style="padding:4px 16px;border-radius:13px;background:{{ t.bg }};font:14px 'IBM Plex Mono',monospace">{{ t.g }}</div>
+                      <span style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.12em">{{ t.label }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="height:max(env(safe-area-inset-bottom),18px);flex:none;display:flex;align-items:center;justify-content:center"><div style="width:112px;height:4px;border-radius:2px;background:var(--bord)"></div></div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ landscape }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:0;top:0;bottom:0;width:72px;z-index:14;background:var(--pan2);border-right:1px solid var(--hair2);display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:40px">
+                <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+                  <div onClick="{{ hTab }}" data-tab="{{ t.id }}" style="width:60px;height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;color:{{ t.col }};border-radius:16px;background:{{ t.bg }}">
+                    <span style="font:14px 'IBM Plex Mono',monospace">{{ t.g }}</span>
+                    <span style="font:8.5px 'IBM Plex Mono',monospace;letter-spacing:.08em">{{ t.label }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ searchOpen }}" hint-placeholder-val="{{ false }}">
+              <div onClick="{{ hSearchClose }}" style="position:absolute;inset:0;z-index:24;background:rgba(0,0,0,.35)"></div>
+              <div style="position:absolute;left:{{ chromeLeft }}px;right:0;top:0;z-index:25;padding:34px 10px 0">
+                <div style="border-radius:20px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 16px 40px rgba(0,0,0,.5);overflow:hidden">
+                  <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--hair2)">
+                    <span style="font:14px 'IBM Plex Mono',monospace;color:var(--dim)">⌕</span>
+                    <input value="{{ searchQ }}" onInput="{{ hSearchQ }}" placeholder="find places · labels · routes…" style="flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--ink);font:13px 'IBM Plex Mono',monospace">
+                    <span onClick="{{ hSearchClose }}" style="font:11px 'IBM Plex Mono',monospace;color:var(--sec);cursor:pointer;padding:8px 4px">✕</span>
+                  </div>
+                  <sc-if value="{{ searchEmpty }}" hint-placeholder-val="{{ false }}">
+                      <div style="padding:22px 16px;text-align:center;font:10.5px/1.7 'IBM Plex Mono',monospace;color:var(--faint)">no match for “{{ searchQ }}”<br></br><span style="color:var(--dim)">search covers places, labels, routes — not terrain</span></div>
+                    </sc-if>
+                    <sc-for list="{{ searchRows }}" as="r" hint-placeholder-count="4">
+                    <div onClick="{{ hSearchPick }}" data-x="{{ r.x }}" data-y="{{ r.y }}" data-n="{{ r.n }}" style="display:flex;align-items:center;gap:12px;min-height:48px;padding:0 16px;cursor:pointer;border-bottom:1px solid var(--hair2)">
+                      <span style="font:11px 'IBM Plex Mono',monospace;color:var(--acc)">{{ r.glyph }}</span>
+                      <span style="flex:1;color:var(--body)">{{ r.n }}</span>
+                      <span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--faint)">{{ r.kind }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ inspOpen }}" hint-placeholder-val="{{ false }}">
+              <div onClick="{{ hInspClose }}" style="position:absolute;inset:0;z-index:26;background:rgba(0,0,0,.3)"></div>
+              <div style="position:absolute;top:0;bottom:0;right:0;width:{{ inspW }}px;z-index:27;background:var(--pan);border-left:1px solid var(--bord);box-shadow:-14px 0 34px rgba(0,0,0,.4);animation:pIn .24s ease;display:flex;flex-direction:column">
+                <div style="flex:none;display:flex;align-items:center;gap:10px;padding:16px 16px 8px">
+                  <div style="flex:1">
+                    <div style="font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc)">SAMPLE · INSPECTOR</div>
+                    <div style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ inspCoords }}</div>
+                  </div>
+                  <div onClick="{{ hInspClose }}" style="width:38px;height:38px;border-radius:19px;background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--sec);cursor:pointer;font:13px 'IBM Plex Mono',monospace">✕</div>
+                </div>
+                <div style="flex:none;padding:6px 16px 14px;border-bottom:1px solid var(--hair2)">
+                  <span style="font:500 30px 'IBM Plex Mono',monospace;color:var(--ink)">{{ inspElev }}</span>
+                  <span style="font:12px 'IBM Plex Mono',monospace;color:var(--dim)"> m elevation</span>
+                </div>
+                <div style="flex:1;overflow-y:auto;padding:6px 0 20px">
+                  <sc-for list="{{ inspRows }}" as="r" hint-placeholder-count="8">
+                    <div style="display:flex;justify-content:space-between;gap:14px;min-height:40px;align-items:center;padding:0 16px;border-bottom:1px solid var(--hair2)">
+                      <span style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:var(--dim)">{{ r.k }}</span>
+                      <span style="font:11px 'IBM Plex Mono',monospace;color:var(--ink);text-align:right">{{ r.v }}</span>
+                    </div>
+                  </sc-for>
+                  <div style="padding:14px 16px;font:9.5px/1.6 'IBM Plex Mono',monospace;color:var(--faint)">swipe in from the right map edge to reopen · fields from stale stages read —</div>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ modalOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;inset:0;z-index:30;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:22px">
+                <div style="width:100%;max-width:360px;border-radius:22px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 20px 50px rgba(0,0,0,.55);padding:18px 16px 16px">
+                  <div style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc);padding-bottom:12px">NEW WORLD</div>
+                  <div style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);padding-bottom:5px">NAME</div>
+                  <input value="{{ modalName }}" onInput="{{ hModalName }}" placeholder="world name…" style="width:100%;box-sizing:border-box;background:var(--chip);border:1px solid var(--hair);border-radius:12px;padding:11px 12px;color:var(--ink);font:12px 'IBM Plex Mono',monospace;outline:none">
+                  <div style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);padding:12px 0 5px">SEED</div>
+                  <div style="display:flex;gap:8px">
+                    <input value="{{ modalSeed }}" onInput="{{ hModalSeed }}" style="flex:1;min-width:0;background:var(--chip);border:1px solid var(--hair);border-radius:12px;padding:11px 12px;color:var(--ink);font:12px 'IBM Plex Mono',monospace;outline:none">
+                    <div onClick="{{ hModalDice }}" style="width:44px;height:42px;border-radius:12px;background:var(--chip);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:var(--body);cursor:pointer;font:14px 'IBM Plex Mono',monospace">⚄</div>
+                  </div>
+                  <div style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);padding:12px 0 6px">EXTENT</div>
+                  <div style="display:flex;gap:8px">
+                    <sc-for list="{{ modalExtents }}" as="x" hint-placeholder-count="2">
+                      <div onClick="{{ hModalExtent }}" data-v="{{ x.v }}" style="flex:1;min-height:42px;border-radius:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;font:10.5px 'IBM Plex Mono',monospace;letter-spacing:.1em;border:1px solid {{ x.bord }};color:{{ x.col }};background:{{ x.bg }}">{{ x.label }}</div>
+                    </sc-for>
+                  </div>
+                  <div style="display:flex;gap:10px;padding-top:16px">
+                    <div onClick="{{ hModalCancel }}" style="flex:1;min-height:46px;border-radius:23px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--sec);font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;background:var(--chip)">CANCEL</div>
+                    <div onClick="{{ hModalCreate }}" style="flex:1.4;min-height:46px;border-radius:23px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--accInk);font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;background:var(--acc)">CREATE WORLD</div>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+      </div>
+    </div>
+  </div>
+  <div style="max-width:560px;text-align:center;font:10px/1.6 'IBM Plex Mono',monospace;color:#5f6468">Deep flows: map gestures · generator run · journey planner. All other menus navigable with mock actions. Chrome direction B · DCC palette · sharp at any dp size.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;deviceStrip&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Presentation&quot;},&quot;startIn&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;picker&quot;,&quot;map&quot;],&quot;default&quot;:&quot;picker&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Presentation&quot;},&quot;coachMarks&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Presentation&quot;}}">
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this.mapHostRef=React.createRef();this.canvasRef=React.createRef();this.sheetRef=React.createRef();this.grabRef=React.createRef();this.chipRef=React.createRef();
+    this.PLACES=[{n:'Vhal Serai',x:620,y:2620,c:'city'},{n:'Kess Ford',x:760,y:2470,c:'town'},{n:'Thornwood',x:915,y:2350,c:'town'},{n:'High Saddle',x:1050,y:2210,c:'waypost'},{n:'Grey Vale',x:1215,y:2135,c:'village'},{n:'Lakemouth',x:1370,y:2050,c:'town'},{n:'Port Amre',x:1450,y:1930,c:'city'},{n:'Qet Oasis',x:2300,y:3100,c:'oasis'}];
+    this.STAGES=[{name:'Vhal Serai → Kess Ford',terr:'plains',biome:'steppe',km:118,asc:240,water:false},{name:'Kess Ford → Thornwood',terr:'forest',biome:'temperate',km:92,asc:410,water:false},{name:'Thornwood → High Saddle',terr:'mountain',biome:'montane',km:64,asc:1180,water:false},{name:'High Saddle → Grey Vale',terr:'hills',biome:'montane',km:77,asc:0,water:false},{name:'Grey Vale → Lakemouth',terr:'plains',biome:'temperate',km:103,asc:0,water:false},{name:'Lakemouth → Port Amre',terr:'water',biome:'lake',km:46,asc:0,water:true}];
+    this.GENSTAGES=['Planet','Extent & scale','World structure','Tectonics','Volcanism & impacts','Erosion','Hydrology','Climate','Ecology & biomes','Resources & soils'];
+    this.view={cx:1035,cy:2270,s:0.42,r:0};
+    this.ptrs=new Map();this.gest=null;this.lastTap={t:0,x:0,y:0};this.tapTimer=null;this.lpTimer=null;this.edgeCand=false;this.gestCount=0;this.dirty=true;this._bound=false;this.sheetDrag=null;this.holdTimer=null;
+    let coach='0';try{coach=localStorage.getItem('cartalith.coach')||'0'}catch(e){}
+    this.state={
+      scr:(this.props.startIn??'picker')==='map'?'app':'picker',dev:{w:412,h:892,label:'412'},land:false,light:false,
+      world:{name:'ELDRA',seed:'483920',status:'finalized · atlas'},savedAt:'14:02',
+      tab:null,detent:'half',moreStack:['root'],planView:'root',genMode:'pipe',
+      tool:'inspect',iconVar:'diamond',
+      base:'relief',overlay:null,stylePreset:'atlas',ramp:'Earth',styleCustom:false,
+      labels:[],icons:[],ways:[],userPlaces:[],measurePts:[],labelDraft:null,wayDraft:[],
+      samplePin:null,menuOpen:false,search:{open:false,q:''},modal:null,modalF:{name:'',seed:'',extent:'region'},
+      sim:{strip:false,playing:false,year:412,speed:1,layers:{Climate:true,Population:true,Economy:false,Politics:true,Infrastructure:false,Warfare:false}},
+      undoStack:[],histOpen:false,coach:coach==='done'?'done':0,toasts:[],
+      inspector:{open:false,d:null},units:'km',
+      set:{gpu:true,workers:12,quality:'balanced',aa:'MSAA 4×',lod:true,undoDepth:5,autosave:true,autoInt:'5 min',cache:'1.2 GB'},
+      gen:{open:{g1:true,g2:false,g3:false,g4:false,g6:false,g7:false,g8:false,g9:false},params:{gravity:1.0,dayLen:24,tilt:23.4,res:'2048',seaLevel:42,peakAlt:4000,archetype:'Earthlike',continentality:0.30,fragmentation:0.50,plates:14,drift:1.0,energy:0.60,eroStrength:0.60,streamPower:0.45,riverDensity:0.50,streamOrder:3,eqTemp:28,poleTemp:-18,rainfall:1.0,ecotone:0.50,riversBiome:true},running:false,prog:null,stale:null,lastRun:'—',feature:'Mountains',sPreset:null,brush:{size:64,hard:0.35,inten:1.0},stamps:0},
+      plan:{sel:0,open:{route:true,traveler:true,season:false,carriage:false,cond:false,stops:false,rTime:true,rLoad:false,rSupply:false,rCost:false,rVessel:false},
+        party:{groupSize:12,pace:'Steady',hours:8,cargo:900,supplies:10,carryFood:true,grazing:'normal',foraging:'modest',season:'autumn',weather:'auto',drift:true,rest:'auto',carriage:'auto',mode:'baggage train',mount:'horse',vessel:'river barge',donkeys:0,mules:6,camels:0,horses:8,carts:2,wagons:0,travois:0,sleds:0,promote:true,road:'tracks',infra:'fords+ferries',dWater:'auto',closures:true},
+        ov:[{},{},{},{},{},{}],lay:{'Kess Ford':0,'Thornwood':1,'Grey Vale':0,'Lakemouth':2}}
+    };
+  }
+  componentDidMount(){
+    this._raf=requestAnimationFrame(this._loop=()=>{this._drawIf();this._raf=requestAnimationFrame(this._loop)});
+    this._onKey=(e)=>{if(e.key==='Escape')this._esc()};window.addEventListener('keydown',this._onKey);
+    try{history.pushState({cart:1},'')}catch(e){}
+    this._onPop=()=>{const s=this.state;const deep=!!(s.modal||s.search.open||s.menuOpen||s.inspector.open||s.tab);
+      if(deep){this._esc();this._haptic('back');try{history.pushState({cart:1},'')}catch(e){}}};
+    window.addEventListener('popstate',this._onPop);
+    if(window.visualViewport){this._onVV=()=>{const vv=window.visualViewport;
+      const kb=Math.max(0,Math.round(window.innerHeight-vv.height-vv.offsetTop));
+      if(kb!==(this.state.kb||0))this.setState({kb})};window.visualViewport.addEventListener('resize',this._onVV)}
+    try{const raw=localStorage.getItem('cartalith.shell');if(raw){const v=JSON.parse(raw);
+      const d=[{label:'360',w:360,h:800},{label:'412',w:412,h:892},{label:'480',w:480,h:1040},{label:'TABLET 800',w:800,h:1280}].find(x=>x.label===v.dev);
+      const p={};if(d)p.dev=d;if(typeof v.light==='boolean')p.light=v.light;if(v.units)p.units=v.units;
+      if(Object.keys(p).length)this.setState(p,()=>{this._sizeCanvas();this._snapSheet();this.dirty=true})}}catch(e){}
+    this._bindAll();
+  }
+  componentWillUnmount(){cancelAnimationFrame(this._raf);window.removeEventListener('keydown',this._onKey);window.removeEventListener('popstate',this._onPop);if(window.visualViewport&&this._onVV)window.visualViewport.removeEventListener('resize',this._onVV);if(this._ro)this._ro.disconnect()}
+  componentDidUpdate(){this._bindAll();
+    try{const s=this.state;const v=JSON.stringify({dev:s.dev.label,light:s.light,units:s.units});
+      if(v!==this._pv){this._pv=v;localStorage.setItem('cartalith.shell',v)}}catch(e){}}
+  // §4.9 haptics — one table, called from the four moments that earn one
+  _haptic(kind){const MS={sample:12,detent:8,arm:10,verdict:[14,40,14],back:6,blocked:[20,60,20]}[kind];
+    this._lastHaptic=kind;try{if(navigator.vibrate&&MS!=null)navigator.vibrate(MS)}catch(e){}}
+  _esc(){const s=this.state;if(s.modal)this.setState({modal:null});else if(s.search.open)this.setState({search:{open:false,q:''}});else if(s.menuOpen)this.setState({menuOpen:false});else if(s.inspector.open)this.setState({inspector:{open:false,d:s.inspector.d}});else if(s.tab)this.setState({tab:null})}
+  toast(msg){const t={id:Date.now()+Math.random(),msg};this.setState(s=>({toasts:[...s.toasts,t]}));setTimeout(()=>this.setState(s=>({toasts:s.toasts.filter(x=>x.id!==t.id)})),2600)}
+  pushUndo(label,revert){this.setState(s=>({undoStack:[...s.undoStack,{label,revert}]}))}
+  doUndo(toIdx){this.setState(s=>{let st=[...s.undoStack];const n=toIdx==null?st.length-1:toIdx;while(st.length>n){const e=st.pop();try{e.revert()}catch(x){}}return{undoStack:st,histOpen:false}},()=>{this.dirty=true})}
+  // ---- map binding & gestures ----
+  _bindAll(){
+    const host=this.mapHostRef.current;
+    if(host&&!this._bound){this._bound=true;
+      this._ro=new ResizeObserver(()=>{this._sizeCanvas()});this._ro.observe(host);this._sizeCanvas();
+      host.addEventListener('pointerdown',e=>this._pd(e));host.addEventListener('pointermove',e=>this._pm(e));
+      host.addEventListener('pointerup',e=>this._pu(e));host.addEventListener('pointercancel',e=>this._pu(e));
+      host.addEventListener('wheel',e=>{e.preventDefault();const r=host.getBoundingClientRect();this._zoomAt(Math.pow(1.0016,-e.deltaY),e.clientX-r.left,e.clientY-r.top)},{passive:false});
+    }
+    if(!host&&this._bound){this._bound=false;if(this._ro){this._ro.disconnect();this._ro=null}}
+    const grab=this.grabRef.current;
+    if(grab&&!grab._wired){grab._wired=true;
+      grab.addEventListener('pointerdown',e=>this._sd(e));grab.addEventListener('pointermove',e=>this._sm(e));grab.addEventListener('pointerup',e=>this._su(e));grab.addEventListener('pointercancel',e=>this._su(e));
+    }
+  }
+  _sizeCanvas(){const host=this.mapHostRef.current,cv=this.canvasRef.current;if(!host||!cv)return;const dpr=window.devicePixelRatio||1;cv.width=Math.max(1,host.clientWidth*dpr);cv.height=Math.max(1,host.clientHeight*dpr);this.dirty=true}
+  _rect(){return this.mapHostRef.current.getBoundingClientRect()}
+  toWorld(px,py){const host=this.mapHostRef.current,v=this.view;const W=host.clientWidth,H=host.clientHeight;let x=px-W/2,y=py-H/2;const c=Math.cos(-v.r),s2=Math.sin(-v.r);const rx=x*c-y*s2,ry=x*s2+y*c;return{x:rx/v.s+v.cx,y:ry/v.s+v.cy}}
+  toScreen(wx,wy){const host=this.mapHostRef.current,v=this.view;const W=host.clientWidth,H=host.clientHeight;let x=(wx-v.cx)*v.s,y=(wy-v.cy)*v.s;const c=Math.cos(v.r),s2=Math.sin(v.r);return{x:x*c-y*s2+W/2,y:x*s2+y*c+H/2}}
+  _pd(e){const host=this.mapHostRef.current;try{host.setPointerCapture(e.pointerId)}catch(x){}const r=this._rect();const p={x:e.clientX-r.left,y:e.clientY-r.top,sx:e.clientX-r.left,sy:e.clientY-r.top,t:performance.now()};this.ptrs.set(e.pointerId,p);
+    if(this.state.menuOpen)this.setState({menuOpen:false});
+    if(this.ptrs.size===1){this.edgeCand=p.x>host.clientWidth-28;this.moved=false;
+      this.lpTimer=setTimeout(()=>{if(!this.moved&&this.ptrs.size===1){this._sample(this.toWorld(p.x,p.y));this.ptrs.clear();this._coachHit('lp')}},480);
+    }else if(this.ptrs.size===2){clearTimeout(this.lpTimer);const a=[...this.ptrs.values()];const d=Math.hypot(a[1].x-a[0].x,a[1].y-a[0].y),ang=Math.atan2(a[1].y-a[0].y,a[1].x-a[0].x);
+      this.gest={d0:d,a0:ang,v0:{...this.view},mid0:this.toWorld((a[0].x+a[1].x)/2,(a[0].y+a[1].y)/2)}}
+  }
+  _pm(e){const p=this.ptrs.get(e.pointerId);if(!p)return;const r=this._rect();const nx=e.clientX-r.left,ny=e.clientY-r.top;
+    if(this.ptrs.size===1&&!this.gest){const dx=nx-p.x,dy=ny-p.y;const tot=Math.hypot(nx-p.sx,ny-p.sy);
+      if(tot>10){this.moved=true;clearTimeout(this.lpTimer)}
+      if(this.edgeCand&&nx-p.sx<-60){this.edgeCand=false;this.ptrs.clear();this._openInspector();return}
+      if(this.moved&&!this.edgeCand){const v=this.view;const c=Math.cos(-v.r),s2=Math.sin(-v.r);v.cx-=(dx*c-dy*s2)/v.s;v.cy-=(dx*s2+dy*c)/v.s;this.dirty=true;this._coachHit('pan')}
+      p.x=nx;p.y=ny;
+    }else if(this.ptrs.size===2&&this.gest){p.x=nx;p.y=ny;const a=[...this.ptrs.values()];const d=Math.hypot(a[1].x-a[0].x,a[1].y-a[0].y),ang=Math.atan2(a[1].y-a[0].y,a[1].x-a[0].x);
+      const g=this.gest,v=this.view;v.s=Math.min(14,Math.max(0.07,g.v0.s*d/Math.max(20,g.d0)));v.r=g.v0.r+(ang-g.a0);
+      const host=this.mapHostRef.current,W=host.clientWidth,H=host.clientHeight;const mx=(a[0].x+a[1].x)/2,my=(a[0].y+a[1].y)/2;
+      const c=Math.cos(-v.r),s2=Math.sin(-v.r);const rx=(mx-W/2)*c-(my-H/2)*s2,ry=(mx-W/2)*s2+(my-H/2)*c;
+      v.cx=g.mid0.x-rx/v.s;v.cy=g.mid0.y-ry/v.s;this.dirty=true;this._coachHit('pinch')}
+  }
+  _pu(e){const p=this.ptrs.get(e.pointerId);this.ptrs.delete(e.pointerId);clearTimeout(this.lpTimer);
+    if(this.ptrs.size<2)this.gest=this.ptrs.size===1?null:this.gest&&null;
+    if(!p)return;const dt=performance.now()-p.t;const dist=Math.hypot(p.x-p.sx,p.y-p.sy);
+    if(dt<280&&dist<10&&this.ptrs.size===0&&!this.gestEnded){const now=performance.now();
+      if(now-this.lastTap.t<300&&Math.hypot(p.sx-this.lastTap.x,p.sy-this.lastTap.y)<34){clearTimeout(this.tapTimer);this.lastTap={t:0,x:0,y:0};this._zoomAnim(1.7,p.sx,p.sy)}
+      else{this.lastTap={t:now,x:p.sx,y:p.sy};const w=this.toWorld(p.sx,p.sy);this.tapTimer=setTimeout(()=>this._tapAct(w),240)}}
+  }
+  _zoomAt(f,px,py){const v=this.view;const w=this.toWorld(px,py);v.s=Math.min(14,Math.max(0.07,v.s*f));const host=this.mapHostRef.current,W=host.clientWidth,H=host.clientHeight;const c=Math.cos(-v.r),s2=Math.sin(-v.r);const rx=(px-W/2)*c-(py-H/2)*s2,ry=(px-W/2)*s2+(py-H/2)*c;v.cx=w.x-rx/v.s;v.cy=w.y-ry/v.s;this.dirty=true}
+  _zoomAnim(f,px,py){const v0=this.view.s,t0=performance.now();const step=()=>{const k=Math.min(1,(performance.now()-t0)/240);const e=1-Math.pow(1-k,3);const target=v0*f;const cur=this.view.s;const want=v0+(target-v0)*e;this._zoomAt(want/cur,px,py);if(k<1)requestAnimationFrame(step)};requestAnimationFrame(step)}
+  _coachHit(kind){if(this.state.coach===0&&(kind==='pan'||kind==='pinch')){this._coachN=(this._coachN||0)+1;if(this._coachN>6)this.setState({coach:1})}else if(this.state.coach===1&&kind==='lp'){this._coachDone()}}
+  _coachDone(){try{localStorage.setItem('cartalith.coach','done')}catch(e){};this.setState({coach:'done'})}
+  _sample(w){this.setState({samplePin:{x:w.x,y:w.y}});this.dirty=true}
+  sampleData(w){const h=(x,y,k)=>{const v=Math.sin(x*.013+k*7.1)*Math.cos(y*.011+k*3.7)+Math.sin((x+y)*.006+k);return v/2};
+    const e=Math.max(-410,Math.round(900+1400*h(w.x,w.y,1)+600*h(w.x*2.3,w.y*1.7,2)));
+    const slope=Math.abs(Math.round(14*h(w.x,w.y,3)*10)/10);const temp=Math.round((22-e*0.0065-Math.abs(w.y-2048)*0.004)*10)/10;
+    const rain=Math.max(60,Math.round(900+700*h(w.x,w.y,5)));const biome=e<0?'coastal water':e>1600?'montane':rain>1100?'temperate forest':rain>700?'steppe':'dry shrubland';
+    const plates=['P-04 continental','P-07 continental','P-11 oceanic'];const lith=['granite','sandstone','basalt','schist'];
+    const near=this.PLACES.map(p=>({p,d:Math.hypot(p.x-w.x,p.y-w.y)})).sort((a,b)=>a.d-b.d)[0];
+    return{x:Math.round(w.x),y:Math.round(w.y),elev:e,slope,aspect:Math.round(360*Math.abs(h(w.x,w.y,8))),plate:plates[Math.abs(Math.round(h(w.x,w.y,4)*10))%3],lith:lith[Math.abs(Math.round(h(w.x,w.y,6)*10))%4],temp,rain,biome,drain:e<0?'—':'Kess basin',soil:e<0?'—':'loam · 1.2 m',near:near.p.n,nearD:Math.round(near.d)}}
+  _openInspector(){const s=this.state;const w=s.samplePin||{x:this.view.cx,y:this.view.cy};this.setState({inspector:{open:true,d:this.sampleData(w)}})}
+  _tapAct(w){const s=this.state,t=s.tool;this.dirty=true;
+    if(t==='measure'){this.setState(st=>({measurePts:[...st.measurePts,w]}));return}
+    if(t==='label'){this.setState({labelDraft:{x:w.x,y:w.y,text:''}});return}
+    if(t==='icon'){const ic={x:w.x,y:w.y,v:s.iconVar};this.setState(st=>({icons:[...st.icons,ic]}));this.pushUndo('icon '+s.iconVar,()=>this.setState(st=>({icons:st.icons.filter(i=>i!==ic)})));return}
+    if(t==='settlement'||t==='poi'){const n=(t==='poi'?'POI ':'New town ')+(s.userPlaces.length+1);const pl={x:w.x,y:w.y,n,c:t==='poi'?'poi':'town',user:true};this.setState(st=>({userPlaces:[...st.userPlaces,pl]}));this.pushUndo(t+' · '+n,()=>this.setState(st=>({userPlaces:st.userPlaces.filter(p=>p!==pl)})));this.toast(n+' placed — staleness: none (annotation)');return}
+    if(t==='way'){this.setState(st=>({wayDraft:[...st.wayDraft,w]}));return}
+    if(s.samplePin)this.setState({samplePin:null});
+  }
+  // ---- sheet drag ----
+  _detH(det){const host=this.mapHostRef.current;const H=host?host.clientHeight+ (this.state.land?0:0):this.state.dev.h-84;const fh=this.state.land?this.frameH():this.frameH()-84;const full=fh-96;const half=Math.round(fh*0.46);return det==='peek'?66:det==='half'?half:full}
+  frameW(){const d=this.state.dev;return this.state.land?d.h:d.w}
+  frameH(){const d=this.state.dev;return this.state.land?d.w:d.h}
+  _sd(e){if(this.state.land)return;e.preventDefault();try{this.grabRef.current.setPointerCapture(e.pointerId)}catch(x){}this.sheetDrag={y0:e.clientY,h0:this._detH(this.state.detent)};const sh=this.sheetRef.current;if(sh)sh.style.transition='none'}
+  _sm(e){if(!this.sheetDrag)return;const sh=this.sheetRef.current;if(!sh)return;const h=Math.max(40,Math.min(this.frameH()-90,this.sheetDrag.h0-(e.clientY-this.sheetDrag.y0)));sh.style.height=h+'px';this.sheetDrag.h=h}
+  _su(e){if(!this.sheetDrag)return;const h=this.sheetDrag.h??this.sheetDrag.h0;this.sheetDrag=null;const sh=this.sheetRef.current;if(sh)sh.style.transition='height .28s cubic-bezier(.3,.9,.3,1)';
+    const opts=[['peek',this._detH('peek')],['half',this._detH('half')],['full',this._detH('full')]];let best='half',bd=1e9;for(const[k,v]of opts){const d=Math.abs(v-h);if(d<bd){bd=d;best=k}}
+    if(h<44)this.setState({tab:null});else{this.setState({detent:best});if(sh)sh.style.height=this._detH(best)+'px'}}
+  // ---- canvas draw ----
+  _drawIf(){if(!this.dirty)return;this.dirty=false;this._draw()}
+  _styleP(){const p=this.state.stylePreset;return p==='parchment'?{bg:'#d9cfb6',minor:'rgba(80,60,30,.13)',major:'rgba(80,60,30,.26)',ink:'rgba(60,45,22,.75)',acc:'#8a5a18',place:'#3d2f16'}:p==='physical'?{bg:'#16211b',minor:'rgba(170,215,180,.08)',major:'rgba(170,215,180,.16)',ink:'rgba(190,220,195,.55)',acc:'#9ec27a',place:'#d9e8d2'}:p==='ink'?{bg:'#0b0c0d',minor:'rgba(255,255,255,.10)',major:'rgba(255,255,255,.20)',ink:'rgba(255,255,255,.6)',acc:'#e8ebec',place:'#f0f2f3'}:{bg:'#12161b',minor:'rgba(185,205,230,.09)',major:'rgba(185,205,230,.17)',ink:'rgba(195,210,230,.55)',acc:'#e0a34a',place:'#e6ebf2'}}
+  _draw(){const host=this.mapHostRef.current,cv=this.canvasRef.current;if(!host||!cv)return;const ctx=cv.getContext('2d');const dpr=window.devicePixelRatio||1;const W=host.clientWidth,H=host.clientHeight;const v=this.view,P=this._styleP();
+    ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);ctx.fillStyle=P.bg;ctx.fillRect(0,0,W,H);
+    const s=this.state;
+    if(s.base==='biome'){ctx.fillStyle='rgba(110,165,95,.055)';ctx.fillRect(0,0,W,H)}else if(s.base==='political'){ctx.fillStyle='rgba(150,115,205,.06)';ctx.fillRect(0,0,W,H)}
+    ctx.save();ctx.translate(W/2,H/2);ctx.rotate(v.r);ctx.scale(v.s,v.s);ctx.translate(-v.cx,-v.cy);
+    const rad=Math.hypot(W,H)/2/v.s;const x0=Math.max(0,v.cx-rad),x1=Math.min(4096,v.cx+rad),y0=Math.max(0,v.cy-rad),y1=Math.min(4096,v.cy+rad);
+    const lw=k=>k/v.s;
+    ctx.lineWidth=lw(1);ctx.strokeStyle=P.minor;ctx.beginPath();for(let x=Math.ceil(x0/128)*128;x<=x1;x+=128){ctx.moveTo(x,y0);ctx.lineTo(x,y1)}for(let y=Math.ceil(y0/128)*128;y<=y1;y+=128){ctx.moveTo(x0,y);ctx.lineTo(x1,y)}ctx.stroke();
+    ctx.lineWidth=lw(1.4);ctx.strokeStyle=P.major;ctx.beginPath();for(let x=Math.ceil(x0/512)*512;x<=x1;x+=512){ctx.moveTo(x,Math.max(0,y0));ctx.lineTo(x,Math.min(4096,y1))}for(let y=Math.ceil(y0/512)*512;y<=y1;y+=512){ctx.moveTo(x0,y);ctx.lineTo(x1,y)}ctx.stroke();
+    ctx.lineWidth=lw(2);ctx.strokeStyle=P.major;ctx.strokeRect(0,0,4096,4096);
+    if(s.overlay){ctx.save();ctx.lineWidth=lw(1);ctx.strokeStyle='rgba(224,163,74,.10)';ctx.beginPath();for(let d=Math.ceil((x0+y0)/96)*96;d<=x1+y1;d+=96){ctx.moveTo(d-y1,y1);ctx.lineTo(d-y0,y0)}ctx.stroke();ctx.restore()}
+    ctx.fillStyle=P.ink;ctx.font=`${11/v.s}px 'IBM Plex Mono',monospace`;for(let x=Math.ceil(x0/512)*512;x<=x1;x+=512){ctx.fillText(String(x),x+6/v.s,Math.max(y0,0)+16/v.s)}
+    // route
+    const rp=this.PLACES.slice(0,7);ctx.lineWidth=lw(2.4);ctx.strokeStyle=P.acc;ctx.globalAlpha=.85;ctx.beginPath();rp.forEach((p,i)=>{i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y)});ctx.stroke();ctx.globalAlpha=1;
+    if(s.tab==='plan'){const i=this.state.plan.sel;ctx.lineWidth=lw(5);ctx.strokeStyle=P.acc;ctx.beginPath();ctx.moveTo(rp[i].x,rp[i].y);ctx.lineTo(rp[i+1].x,rp[i+1].y);ctx.stroke()}
+    // ways
+    ctx.setLineDash([10/v.s,7/v.s]);ctx.lineWidth=lw(1.6);ctx.strokeStyle=P.ink;for(const wy of s.ways){ctx.beginPath();wy.forEach((p,i)=>{i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y)});ctx.stroke()}
+    if(s.wayDraft.length){ctx.strokeStyle=P.acc;ctx.beginPath();s.wayDraft.forEach((p,i)=>{i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y)});ctx.stroke()}
+    ctx.setLineDash([]);
+    // places
+    const allP=[...this.PLACES,...s.userPlaces];ctx.font=`${11/v.s}px 'IBM Plex Mono',monospace`;
+    for(const p of allP){const r=(p.c==='city'?5.5:p.c==='poi'?3.6:4.4)/v.s;ctx.fillStyle=p.user?P.acc:P.place;if(p.c==='poi'){ctx.save();ctx.translate(p.x,p.y);ctx.rotate(Math.PI/4);ctx.fillRect(-r,-r,2*r,2*r);ctx.restore()}else{ctx.beginPath();ctx.arc(p.x,p.y,r,0,7);ctx.fill()}ctx.fillStyle=P.ink;ctx.fillText(p.n||p.name||'',p.x+9/v.s,p.y+4/v.s)}
+    // stops diamonds
+    ctx.fillStyle=P.acc;for(const p of rp){const r=2.6/v.s;ctx.save();ctx.translate(p.x,p.y);ctx.rotate(Math.PI/4);ctx.strokeStyle=P.bg;ctx.lineWidth=lw(1);ctx.fillRect(-r,-r,2*r,2*r);ctx.restore()}
+    // labels
+    for(const L of s.labels){ctx.fillStyle=P.acc;ctx.font=`500 ${13/v.s}px 'IBM Plex Mono',monospace`;ctx.fillText(L.text,L.x,L.y)}
+    ctx.font=`${11/v.s}px 'IBM Plex Mono',monospace`;
+    // icons
+    for(const ic of s.icons){const r=6/v.s;ctx.strokeStyle=P.acc;ctx.lineWidth=lw(1.5);if(ic.v==='diamond'){ctx.save();ctx.translate(ic.x,ic.y);ctx.rotate(Math.PI/4);ctx.strokeRect(-r,-r,2*r,2*r);ctx.restore()}else if(ic.v==='circle'){ctx.beginPath();ctx.arc(ic.x,ic.y,r,0,7);ctx.stroke()}else if(ic.v==='triangle'){ctx.beginPath();ctx.moveTo(ic.x,ic.y-r);ctx.lineTo(ic.x+r,ic.y+r);ctx.lineTo(ic.x-r,ic.y+r);ctx.closePath();ctx.stroke()}else{ctx.strokeRect(ic.x-r,ic.y-r,2*r,2*r)}}
+    // landmarks — generated marks, 49-glyph set via Path2D
+    const lmk=this.lm();
+    if(lmk.marks&&window.LM_GLYPHS){if(!this._lmPaths)this._lmPaths={};
+      ctx.strokeStyle=P.place;ctx.globalAlpha=.85;
+      const gk=1.05/v.s;
+      for(const m of lmk.marks){const g=window.LM_GLYPHS[m.type];if(!g)continue;
+        let ps=this._lmPaths[m.type];if(!ps){ps=g.ds.map(d2=>new Path2D(d2));this._lmPaths[m.type]=ps}
+        ctx.save();ctx.translate(m.x-8*gk,m.y-8*gk);ctx.scale(gk,gk);ctx.lineWidth=1.2;ctx.lineCap='round';ctx.lineJoin='round';
+        for(const p2 of ps)ctx.stroke(p2);ctx.restore()}
+      ctx.globalAlpha=1}
+    // measure
+    if(s.measurePts.length){ctx.strokeStyle=P.acc;ctx.lineWidth=lw(1.8);ctx.setLineDash([6/v.s,5/v.s]);ctx.beginPath();s.measurePts.forEach((p,i)=>{i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y)});ctx.stroke();ctx.setLineDash([]);
+      ctx.fillStyle=P.acc;for(let i=0;i<s.measurePts.length;i++){const p=s.measurePts[i];ctx.beginPath();ctx.arc(p.x,p.y,3.4/v.s,0,7);ctx.fill();if(i){const q=s.measurePts[i-1];const d=Math.hypot(p.x-q.x,p.y-q.y);ctx.fillText(this.fmtKm(d),(p.x+q.x)/2+6/v.s,(p.y+q.y)/2)}}}
+    // sample pin
+    if(s.samplePin){const p=s.samplePin,r=7/v.s;ctx.save();ctx.translate(p.x,p.y);ctx.rotate(Math.PI/4);ctx.strokeStyle=P.acc;ctx.lineWidth=lw(2);ctx.strokeRect(-r,-r,2*r,2*r);ctx.restore()}
+    ctx.restore();
+    // screen-space furniture
+    ctx.fillStyle=P.ink;ctx.font=`10px 'IBM Plex Mono',monospace`;
+    const kmPer100=100/v.s;const nice=[10,20,50,100,200,500,1000,2000];let pick=nice.find(n=>n/kmPer100*100>=64)||2000;const px=pick/kmPer100*100/ (100/100);const barW=pick*v.s;
+    ctx.fillRect(14,H-26,barW,2);ctx.fillRect(14,H-31,2,7);ctx.fillRect(14+barW-2,H-31,2,7);ctx.fillText(this.fmtKm(pick),14,H-34);
+    ctx.textAlign='right';ctx.fillText(`${Math.round(v.cx)} E · ${Math.round(v.cy)} N · ${Math.round(v.s*100)}% · ${s.base}${s.overlay?' + '+s.overlay:''}`,W-12,H-16);ctx.textAlign='left';
+    // sample chip DOM position
+    const chip=this.chipRef.current;if(chip){if(s.samplePin){const sp=this.toScreen(s.samplePin.x,s.samplePin.y);chip.style.left=sp.x+'px';chip.style.top=sp.y+'px'}else{chip.style.left='-999px'}}
+  }
+  fmtKm(km){const u=this.state.units;const val=u==='mi'?km*0.621371:km;const r=val>=100?Math.round(val):Math.round(val*10)/10;return `${r.toLocaleString('en-US')} ${u}`}
+  // ---- handlers (chrome) ----
+  hs(){return{
+    hDev:e=>{const d=e.currentTarget.dataset;this.setState({dev:{w:+d.w,h:+d.h,label:d.label}},()=>{this._sizeCanvas();this._snapSheet()})},
+    hOrient:()=>this.setState(s=>({land:!s.land}),()=>{this._sizeCanvas();this._snapSheet()}),
+    hPickWorld:e=>{const d=e.currentTarget.dataset;this.setState({scr:'app',world:{name:d.name,seed:d.seed,status:d.status},coach:this.state.coach==='done'?'done':0});this.dirty=true},
+    hNewWorld:()=>this.setState({modal:'new',modalF:{name:'',seed:String(Math.floor(Math.random()*900000+100000)),extent:'region'}}),
+    hOpenZip:()=>this.toast('File picker — mock. Archives load from ~/Cartalith/Worlds.'),
+    hTab:e=>{const t=e.currentTarget.dataset.tab;this.setState(s=>{if(s.tab===t)return{tab:null};return{tab:t,detent:s.detent==='peek'?'half':s.detent}},()=>{this._snapSheet();this.dirty=true})},
+    hSheetClose:()=>this.setState({tab:null}),
+    hBack:()=>{const s=this.state;if(s.tab==='more'&&s.moreStack.length>1)this.setState({moreStack:s.moreStack.slice(0,-1)});else if(s.tab==='plan'&&s.planView!=='root')this.setState({planView:'root'},()=>{this.dirty=true})},
+    hMenu:()=>this.setState(s=>({menuOpen:!s.menuOpen})),
+    hMenuSave:()=>{const t=new Date();const hh=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0');this.setState({savedAt:hh,menuOpen:false});this.toast('Project saved · '+hh)},
+    hMenuTheme:()=>this.setState(s=>({light:!s.light,menuOpen:false})),
+    hMenuPicker:()=>this.setState({menuOpen:false,scr:'picker',tab:null}),
+    hSearchOpen:()=>this.setState({search:{open:true,q:''},menuOpen:false}),
+    hChipTap:()=>this._openInspector(),
+  }}
+  _snapSheet(){const sh=this.sheetRef.current;if(sh&&this.state.tab&&!this.state.land){const h=this._detH(this.state.detent);if(sh.style.height!==h+'px')this._haptic('detent');sh.style.height=h+'px'}}
+  valsMap(){
+    const s=this.state;const chip=(on)=>({bord:on?'var(--acc)':'var(--hair)',col:on?'var(--acc)':'var(--sec)',bg:on?'var(--wash)':'var(--chip)'});
+    const mapTools=[{id:'inspect',label:'INSPECT',glyph:'➤'},{id:'measure',label:'MEASURE',glyph:'⟟'},{id:'label',label:'LABEL',glyph:'⌖'},{id:'icon',label:'ICON',glyph:'◇'}].map(t=>({...t,...chip(s.tool===t.id)}));
+    const iconVars=[{id:'diamond',glyph:'◇'},{id:'circle',glyph:'○'},{id:'triangle',glyph:'△'},{id:'square',glyph:'□'}].map(v=>({...v,...chip(s.iconVar===v.id)}));
+    const row=(kind,id,label,on,note)=>({kind,id,label,note:note||'',on,dot:on?'●':'○',dotCol:on?'var(--acc)':'var(--faint)',col:on?'var(--ink)':'var(--body)',bg:on?'var(--wash)':'transparent'});
+    const layerGroups=[
+      {name:'SURFACE · BASE',rows:[row('base','relief','Relief',s.base==='relief'),row('base','biome','Biome',s.base==='biome'),row('base','political','Political',s.base==='political')]},
+      {name:'TERRAIN FIELDS · OVERLAY',rows:[row('ov','elevation','Elevation',s.overlay==='elevation'),row('ov','slope','Slope',s.overlay==='slope'),row('ov','flow','Flow accumulation',s.overlay==='flow')]},
+      {name:'CLIMATE · OVERLAY',rows:[row('ov','temperature','Temperature',s.overlay==='temperature'),row('ov','rainfall','Rainfall',s.overlay==='rainfall')]}];
+    const stylePresets=[{id:'atlas',label:'ATLAS'},{id:'parchment',label:'PARCHMENT'},{id:'physical',label:'PHYSICAL'},{id:'ink',label:'INK'}].map(p=>({...p,...chip(s.stylePreset===p.id&&!s.styleCustom)}));
+    const RAMPS={'Earth':'linear-gradient(90deg,#2c4a5e,#4a7a52,#8aa05a,#c9b57a,#e8e0c8)','Elevation':'linear-gradient(90deg,#1d3557,#457b9d,#a8dadc,#f1faee,#e63946)','Atlas':'linear-gradient(90deg,#33415c,#5c677d,#979dac,#d9dcd6,#f5f3ef)','Mono':'linear-gradient(90deg,#111,#555,#999,#ddd)','Imhof':'linear-gradient(90deg,#5a7d8c,#8fa98a,#c9c489,#e6d3a3,#f2ead9)','Ice':'linear-gradient(90deg,#274060,#5a7fa8,#a8c6de,#e8f1f8)','Dark ice':'linear-gradient(90deg,#0d1b2a,#1b3a5c,#3c6e91,#89b6d5)','Desert':'linear-gradient(90deg,#7a4a2b,#b07d46,#d9b380,#f0e0bd)','Dark atlas':'linear-gradient(90deg,#0e1116,#232a36,#48526a,#8892aa)'};
+    const ramps=Object.keys(RAMPS).map(id=>({id,bg:RAMPS[id],on:s.ramp===id,bord:s.ramp===id?'var(--acc)':'var(--hair)',rowBg:s.ramp===id?'var(--wash)':'transparent',col:s.ramp===id?'var(--acc)':'var(--sec)'}));
+    let mt=0;for(let i=1;i<s.measurePts.length;i++)mt+=Math.hypot(s.measurePts[i].x-s.measurePts[i-1].x,s.measurePts[i].y-s.measurePts[i-1].y);
+    let wl=0;for(let i=1;i<s.wayDraft.length;i++)wl+=Math.hypot(s.wayDraft[i].x-s.wayDraft[i-1].x,s.wayDraft[i].y-s.wayDraft[i-1].y);
+    return {mapTools,iconVars,iconOn:s.tool==='icon',layerGroups,stylePresets,ramps,styleCustom:s.styleCustom,
+      measureOn:s.tool==='measure',measTotal:this.fmtKm(mt),measN:String(s.measurePts.length),
+      labelDraftOn:!!s.labelDraft,labelText:s.labelDraft?s.labelDraft.text:'',
+      wayOn:s.tool==='way'&&s.wayDraft.length>0,wayN:String(s.wayDraft.length),wayLen:this.fmtKm(wl),
+      hTool:e=>{const t=e.currentTarget.dataset.tool;this._haptic('arm');this.setState({tool:t,detent:t==='inspect'?this.state.detent:'peek'},()=>this._snapSheet())},
+      hIconVar:e=>this.setState({iconVar:e.currentTarget.dataset.v}),
+      hLayer:e=>{const d=e.currentTarget.dataset;if(d.kind==='base')this.setState({base:d.id},()=>{this.dirty=true});else this.setState(st=>({overlay:st.overlay===d.id?null:d.id}),()=>{this.dirty=true})},
+      hPreset:e=>{this.setState({stylePreset:e.currentTarget.dataset.id,styleCustom:false},()=>{this.dirty=true})},
+      hRamp:e=>{this.setState({ramp:e.currentTarget.dataset.id,styleCustom:true},()=>{this.dirty=true})},
+      hMeasClear:()=>{this.setState({measurePts:[]},()=>{this.dirty=true})},
+      hMeasDone:()=>{const n=s.measurePts.length;this.setState({tool:'inspect',measurePts:[]},()=>{this.dirty=true});if(n>1)this.toast('Measured '+this.fmtKm(mt)+' along '+(n-1)+' segments')},
+      hLabelText:e=>{const v=e.target.value;this.setState(st=>({labelDraft:{...st.labelDraft,text:v}}))},
+      hLabelCancel:()=>this.setState({labelDraft:null}),
+      hLabelAdd:()=>{const d=this.state.labelDraft;if(!d||!d.text.trim()){this.setState({labelDraft:null});return}const L={x:d.x,y:d.y,text:d.text.trim()};this.setState(st=>({labels:[...st.labels,L],labelDraft:null}),()=>{this.dirty=true});this.pushUndo('label · '+L.text,()=>this.setState(st=>({labels:st.labels.filter(x=>x!==L)}),()=>{this.dirty=true}))},
+      hWayCancel:()=>this.setState({wayDraft:[]},()=>{this.dirty=true}),
+      hWayCommit:()=>{const w=this.state.wayDraft;if(w.length<2){this.setState({wayDraft:[]});return}this.setState(st=>({ways:[...st.ways,w],wayDraft:[]}),()=>{this.dirty=true});this.pushUndo('way · '+this.fmtKm(wl),()=>this.setState(st=>({ways:st.ways.filter(x=>x!==w)}),()=>{this.dirty=true}));this.toast('Way committed · '+this.fmtKm(wl)+' — routes can now use it')},
+    };
+  }
+  _genFieldDefs(){return [
+    {id:'g1',num:'01',name:'Planet',stage:1,fields:[
+      {key:'gravity',label:'Gravity',min:0.5,max:2,step:0.01,unit:' g'},
+      {key:'dayLen',label:'Day length',min:6,max:48,step:1,unit:' h'},
+      {key:'tilt',label:'Axial tilt',min:0,max:45,step:0.1,unit:'°'}]},
+    {id:'g2',num:'02',name:'Extent & scale',stage:2,fields:[
+      {key:'res',label:'Working resolution',seg:['512','1024','2048','4096']},
+      {key:'seaLevel',label:'Sea level',min:0,max:100,step:1,unit:' %'},
+      {key:'peakAlt',label:'Peak altitude',min:1000,max:9000,step:100,unit:' m'}]},
+    {id:'g3',num:'03',name:'World structure',stage:3,fields:[
+      {key:'archetype',label:'Archetype',seg:['Earthlike','Supercontinent','Islands','Rift']},
+      {key:'continentality',label:'Continentality',min:0,max:1,step:0.01},
+      {key:'fragmentation',label:'Fragmentation',min:0,max:1,step:0.01}]},
+    {id:'g4',num:'04',name:'Tectonics',stage:4,fields:[
+      {key:'plates',label:'Plates',min:4,max:30,step:1},
+      {key:'drift',label:'Drift',min:0.2,max:3,step:0.05,unit:' ×'},
+      {key:'energy',label:'Tectonic energy',min:0,max:1,step:0.01}]},
+    {id:'g6',num:'06',name:'Erosion',stage:6,fields:[
+      {key:'eroStrength',label:'Erosion strength',min:0,max:1,step:0.01},
+      {key:'streamPower',label:'Stream-power carve',min:0,max:1,step:0.01}]},
+    {id:'g7',num:'07',name:'Hydrology',stage:7,fields:[
+      {key:'riverDensity',label:'River density',min:0,max:1,step:0.01},
+      {key:'streamOrder',label:'Min stream order',min:1,max:8,step:1}]},
+    {id:'g8',num:'08',name:'Climate',stage:8,fields:[
+      {key:'eqTemp',label:'Equator temp',min:10,max:40,step:1,unit:' °C'},
+      {key:'poleTemp',label:'Pole temp',min:-40,max:5,step:1,unit:' °C'},
+      {key:'rainfall',label:'Rainfall',min:0.2,max:2,step:0.05,unit:' ×'}]},
+    {id:'g9',num:'09',name:'Ecology & biomes',stage:9,fields:[
+      {key:'ecotone',label:'Ecotone sharpness',min:0,max:1,step:0.01},
+      {key:'riversBiome',label:'Rivers in biome view',tog:true}]}
+  ]}
+  _markStale(stage){this.setState(st=>({gen:{...st.gen,stale:st.gen.stale==null?stage:Math.min(st.gen.stale,stage)}}))}
+  _setGenParam(key,val,stage){this.setState(st=>({gen:{...st.gen,params:{...st.gen.params,[key]:val}}}));this._markStale(stage)}
+  _runGen(){
+    const from=this.state.gen.stale??1;
+    this.setState(st=>({gen:{...st.gen,running:true,prog:{i:from-1,pct:0,log:[]}}}));
+    clearInterval(this._genInt);
+    let i=from-1,pct=0;
+    this._genInt=setInterval(()=>{
+      pct+=14+Math.random()*22;
+      if(pct>=100){
+        const name=this.GENSTAGES[i];
+        const line={t:('0'+(i+1)).slice(-2)+' '+name+' — resolved · '+(0.4+Math.random()*2.2).toFixed(1)+' s',col:'var(--dim)'};
+        i++;pct=0;
+        if(i>=10){clearInterval(this._genInt);const t=new Date();const hh=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0');
+          this.setState(st=>({gen:{...st.gen,running:false,prog:null,stale:null,lastRun:hh},world:{...st.world,status:'stages 01–10 resolved'}}));this.dirty=true;this.toast('World regenerated — stages '+('0'+from).slice(-2)+' → 10 resolved');return}
+        this.setState(st=>({gen:{...st.gen,prog:{i,pct:0,log:[...st.gen.prog.log.slice(-2),line]}}}));
+      } else this.setState(st=>({gen:{...st.gen,prog:{...st.gen.prog,pct}}}));
+    },260);
+  }
+  valsGen(){
+    const s=this.state,g=s.gen,P=g.params;const chip=(on)=>({bord:on?'var(--acc)':'var(--hair)',col:on?'var(--acc)':'var(--sec)',bg:on?'var(--wash)':'transparent'});
+    const groups=this._genFieldDefs().map(def=>{
+      const open=!!g.open[def.id];
+      const fields=def.fields.map(f=>{
+        const val=P[f.key];
+        if(f.seg)return{key:f.key,stage:String(def.stage),label:f.label,isSeg:true,isRange:false,isTog:false,opts:f.seg.map(v=>({v,...chip(String(val)===v)}))};
+        if(f.tog)return{key:f.key,stage:String(def.stage),label:f.label,isTog:true,isSeg:false,isRange:false,togBg:val?'var(--acc)':'var(--chip)',knobBg:val?'var(--accInk)':'var(--sec)',knobPos:val?'right:2px':'left:2px'};
+        const disp=(f.step<1?(+val).toFixed(2):Math.round(val).toLocaleString('en-US'))+(f.unit||'');
+        return{key:f.key,stage:String(def.stage),label:f.label,isRange:true,isSeg:false,isTog:false,min:f.min,max:f.max,step:f.step,val,disp};
+      });
+      const stale=g.stale!=null&&def.stage>=g.stale;
+      return{id:def.id,num:def.num,name:def.name,open,fields,chev:open?'⌄':'›',numCol:stale?'var(--warn)':'var(--faint)',state:stale?'stale':'resolved'};
+    });
+    const prog=g.prog;const from=g.stale??1;
+    return {
+      isPipe:s.genMode==='pipe',isSculpt:s.genMode==='sculpt',
+      pipeBord:s.genMode==='pipe'?'var(--acc)':'var(--hair)',pipeCol:s.genMode==='pipe'?'var(--acc)':'var(--sec)',pipeBg:s.genMode==='pipe'?'var(--wash)':'transparent',
+      scBord:s.genMode==='sculpt'?'var(--acc)':'var(--hair)',scCol:s.genMode==='sculpt'?'var(--acc)':'var(--sec)',scBg:s.genMode==='sculpt'?'var(--wash)':'transparent',
+      hGenModePipe:()=>this.setState({genMode:'pipe'}),hGenModeSculpt:()=>this.setState({genMode:'sculpt'}),
+      genSeed:s.world.seed,genGroups:groups,genRunning:g.running,genIdle:!g.running,
+      staleOn:g.stale!=null,staleNote:'Stage '+('0'+(g.stale||1)).slice(-2)+' edited — stages '+('0'+(g.stale||1)).slice(-2)+' → 10 are stale. Fields owned by stale stages read — until re-run.',
+      genBtnLabel:g.stale!=null&&g.lastRun!=='—'?'REGENERATE '+('0'+from).slice(-2)+' → 10':'GENERATE WORLD',genLastRun:g.lastRun,
+      progTitle:prog?('0'+(prog.i+1)).slice(-2)+' · '+this.GENSTAGES[prog.i]:'',progPct:prog?Math.round((prog.i*100+Math.min(prog.pct,100))/10)+'%':'',progW:prog?Math.min(prog.pct,100)+'%':'0%',progLog:prog?prog.log:[],
+      hDice:()=>{const seed=String(Math.floor(Math.random()*900000+100000));this.setState(st=>({world:{...st.world,seed}}));this._markStale(1)},
+      hGenGroup:e=>{const id=e.currentTarget.dataset.id;this.setState(st=>({gen:{...st.gen,open:{...st.gen.open,[id]:!st.gen.open[id]}}}))},
+      hGenSeg:e=>{const d=e.currentTarget.dataset;this._setGenParam(d.key,d.v,+d.stage)},
+      hGenTog:e=>{const d=e.currentTarget.dataset;this._setGenParam(d.key,!P[d.key],+d.stage)},
+      hGenRange:e=>{const d=e.target.dataset;this._setGenParam(d.key,+e.target.value,+d.stage)},
+      hGenStep:e=>{const d=e.currentTarget.dataset;const def=this._genFieldDefs().flatMap(x=>x.fields.map(f=>({...f,stage:x.stage}))).find(f=>f.key===d.key);if(!def)return;const nv=Math.min(def.max,Math.max(def.min,+P[d.key]+def.step*+d.d));this._setGenParam(d.key,Math.round(nv*100)/100,def.stage)},
+      hGenerate:()=>this._runGen(),
+      hCancelGen:()=>{clearInterval(this._genInt);this.setState(st=>({gen:{...st.gen,running:false,prog:null}}));this.toast('Generation cancelled — nothing was written')},
+      ...this.valsSculpt()
+    };
+  }
+  valsSculpt(){
+    const s=this.state,g=s.gen;const chip=(on)=>({bord:on?'var(--acc)':'var(--hair)',col:on?'var(--acc)':'var(--sec)',bg:on?'var(--wash)':'transparent'});
+    const FE={Mountains:['M2 12 L6 5 L9 9 L12 3 L14 12','stroke — Height 0.42 · Peak sharpness 1.5 · Ruggedness 0.55'],Hills:['M2 11 Q5 7 8 11 T14 11','stroke — Amplitude 0.11 · Rolling freq 1.4 · Softness 0.7'],Ridge:['M2 12 L8 4 L14 12 M8 4 L8 12','stroke — Height 0.15 · Width 0.28 · Detail 1.5'],Plateau:['M2 12 L5 6 L11 6 L14 12 M5 6 L11 6','stroke · set — Rise 0.26 · Terraces 4 · never lowers terrain'],Cliff:['M2 5 L8 5 L8 12 L14 12','stroke — Rise 0.22 · Steepness 0.75 · high side left'],Canyon:['M2 4 L6 4 L7 11 L9 11 L10 4 L14 4','stroke · negative — Depth 0.18 · Walls 0.7 · Meander 0.35'],Valley:['M2 5 Q8 14 14 5','stroke · negative — Depth 0.14 · Width 0.85 · Meander 0.3'],River:['M2 8 Q5 5 8 8 T14 8','stroke · set — Width 7 px · Depth 0.09 · writes riverMask'],Lake:['M3 9 Q8 13 13 9 Q8 6 3 9','radial — Depth 0.13 · Shore 0.25 · fills lakeMask'],Basin:['M3 7 Q8 12 13 7 M5 6 Q8 9 11 6','stroke · negative — Depth 0.1 · endorheic, no outlet'],Coastline:['M2 10 L4 8 L6 10 L8 7 L10 10 L12 8 L14 10','stroke · set — Amount 0.85 · pulls toward sea level'],Volcano:['M4 12 L7 5 L9 5 L12 12 M7 5 L8 7 L9 5','radial — Cone 0.45 · Crater 0.5 · Radius 110 px'],Freehand:['M3 13 L11 4 L13 6 L5 13 Z','continuous drag — Raise · Lower · Smooth · Amount 0.12']};
+    const sculptFeatures=Object.keys(FE).map(id=>({id,d:FE[id][0],...chip(g.feature===id)}));
+    const PRE=[['Rolling Hills','Hills'],['Alps','Mountains'],['Rockies','Mountains'],['Badlands','Canyon'],['Volcanic Isle','Volcano'],['Mesa','Plateau'],['Karst','Hills'],['Glacial Valley','Valley']];
+    const sculptPresets=PRE.map(([id,f])=>({id,f,...chip(g.sPreset===id)}));
+    const B=g.brush;
+    const brushFields=[{key:'size',label:'Brush size',min:6,max:200,step:1,val:B.size,disp:B.size+' px · '+this.fmtKm(B.size*2)},{key:'hard',label:'Hardness',min:0,max:1,step:0.01,val:B.hard,disp:B.hard.toFixed(2)},{key:'inten',label:'Intensity',min:0,max:1.5,step:0.01,val:B.inten,disp:B.inten.toFixed(2)+' ×'}];
+    return {
+      sculptFeatures,sculptPresets,brushFields,featHint:FE[g.feature][1],
+      stampCol:g.stamps?'var(--acc)':'var(--faint)',stampNote:g.stamps?g.stamps+' draft stamp'+(g.stamps>1?'s':'')+' — uncommitted':'no draft stamps',
+      hFeature:e=>this.setState(st=>({gen:{...st.gen,feature:e.currentTarget.dataset.id,sPreset:null}})),
+      hSPreset:e=>{const d=e.currentTarget.dataset;this.setState(st=>({gen:{...st.gen,sPreset:d.id,feature:d.f}}));this.toast(d.id+' — parameters seeded for '+d.f+' (preset never paints)')},
+      hBrush:e=>{const k=e.target.dataset.key,v=+e.target.value;this.setState(st=>({gen:{...st.gen,brush:{...st.gen.brush,[k]:v}}}))},
+      hAddStamp:()=>{this.setState(st=>({gen:{...st.gen,stamps:st.gen.stamps+1}}));this.pushUndo('stamp · '+this.state.gen.feature,()=>this.setState(st=>({gen:{...st.gen,stamps:Math.max(0,st.gen.stamps-1)}})))},
+      hCommit:()=>{const n=this.state.gen.stamps;if(!n){this.toast('Nothing to commit — add a stroke first');return}this.setState(st=>({gen:{...st.gen,stamps:0}}));this._markStale(6);this.toast('Baked '+n+' stamp'+(n>1?'s':'')+' — erosion → hydrology → climate re-run once')},
+      hDiscard:()=>{this.setState(st=>({gen:{...st.gen,stamps:0}}));this.toast('Draft discarded — heightfield untouched')},
+    };
+  }
+  _eff(i,k){const o=this.state.plan.ov[i];return(o&&o[k]!==undefined)?o[k]:this.state.plan.party[k]}
+  _journey(){
+    const s=this.state,p=s.plan.party;
+    const paceBase={Easy:18,Steady:24,Forced:30};const terrF={plains:1,forest:.8,hills:.75,mountain:.55,water:1};
+    const seasonW={spring:.85,summer:1,autumn:.9,winter:.7};const wF={clear:1,rain:.85,storm:.6,snow:.5};
+    const roadF={paved:1.15,tracks:1,trail:.9,none:.8};const forageMul={none:1,modest:.85,active:.7};
+    const RESUPPLY=['Kess Ford','Thornwood','Lakemouth'];
+    const per=[];let blocked=null;
+    this.STAGES.forEach((st,i)=>{
+      const pace=this._eff(i,'pace'),hrs=+this._eff(i,'hours'),weather=this._eff(i,'weather'),road=this._eff(i,'road'),closures=this._eff(i,'closures');
+      const wf=weather==='auto'?seasonW[this._eff(i,'season')]??.9:wF[weather]??1;
+      let days,kmd;
+      if(st.water){kmd=60;days=st.km/60+0.5}
+      else{kmd=paceBase[pace]*(hrs/8)*(terrF[st.terr]??1)*wf*(roadF[road]??1);days=st.km/Math.max(4,kmd);days*=1+st.asc/2000}
+      let block=null;
+      if(!st.water&&st.terr==='mountain'&&closures&&this._eff(i,'season')==='winter')block='seasonal closure';
+      per.push({days,kmd:st.water?60:kmd,block});
+      if(block&&!blocked)blocked={i,why:block};
+    });
+    const cargo=+p.cargo;const supplies=+p.supplies;const gs=+p.groupSize;
+    const suppliesKg=p.carryFood?supplies*gs*1.8:0;const load=cargo+suppliesKg;
+    const animals=+p.donkeys+ +p.mules+ +p.camels+ +p.horses;
+    const cap=+p.donkeys*60+ +p.mules*80+ +p.camels*140+ +p.horses*90+ +p.carts*400+ +p.wagons*800+ +p.travois*40+ +p.sleds*120;
+    const capPct=cap>0?load/cap:9;
+    let speedPen=1;if(capPct>0.9)speedPen=0.85;if(capPct>1.15&&!p.promote)speedPen=0.7;
+    per.forEach(x=>{if(!x.block)x.days/=speedPen});
+    const travel=per.reduce((a,x)=>a+x.days,0);
+    const restEvery=p.rest==='auto'?7:+String(p.rest).replace(/\D/g,'')||7;
+    const rest=Math.floor(travel/restEvery);
+    const lay=Object.values(s.plan.lay).reduce((a,b)=>a+ +b,0);
+    const total=travel+rest+lay;
+    // supply gaps
+    let gap=0,cur=0,gapWhere='';let curStart='Vhal Serai';let gapStart='';
+    this.STAGES.forEach((st,i)=>{cur+=per[i].days;const end=st.name.split('→')[1].trim();
+      if(RESUPPLY.includes(end)||i===this.STAGES.length-1){if(cur>gap){gap=cur;gapWhere=curStart+' → '+end;gapStart=curStart}cur=0;curStart=end}});
+    const effGap=gap*(forageMul[p.foraging]??1);
+    const carried=p.carryFood?supplies:2;
+    // cost
+    const food=Math.round(0.4*gs*total),fodder=Math.round(0.3*animals*total),wages=Math.round(0.5*gs*total);
+    const ferry=Math.round(this.STAGES.filter(x=>x.water).reduce((a,x)=>a+x.km,0)*0.6);
+    const tolls=p.road==='paved'?26:12;const upkeep=Math.round(0.12*animals*total);
+    const cost=food+fodder+wages+ferry+tolls+upkeep;
+    const kmTot=this.STAGES.reduce((a,x)=>a+x.km,0);
+    let state='feasible',reason='All stages passable. Longest supply run '+gapWhere+' at '+effGap.toFixed(1)+' effective days against '+carried+' carried.',acts=[];
+    if(blocked){state='impossible';reason='High Saddle is closed by seasonal closures in winter. Depart in another season, ignore closures, or re-route land-only.';acts=[{id:'seasonAutumn',label:'DEPART AUTUMN'},{id:'closuresOff',label:'IGNORE CLOSURES'}]}
+    else if(capPct>1.15){state='impossible';reason='Load '+Math.round(load)+' kg exceeds carry capacity '+Math.round(cap)+' kg by more than 15%. Shed cargo or add carriers.';acts=[{id:'cargoDown',label:'CARGO −25%'},{id:'mulesUp',label:'+4 MULES'}]}
+    else if(effGap>carried){state='feasible — strained';reason='Supply gap '+gapWhere+' runs '+effGap.toFixed(1)+' effective days but only '+carried+' days are carried. Add supplies, forage harder, or plan a resupply layover.';acts=[{id:'suppliesUp',label:'SUPPLIES +6 D'},{id:'forageUp',label:'FORAGING ACTIVE'}]}
+    else if(capPct>0.9){state='feasible — strained';reason='Load sits at '+Math.round(capPct*100)+'% of capacity — speed penalty applied to every land stage.';acts=[{id:'cargoDown',label:'CARGO −25%'},{id:'mulesUp',label:'+4 MULES'}]}
+    return{per,blocked,travel,rest,lay,total,load,cap,capPct,gap,effGap,gapWhere,carried,animals,cost,food,fodder,wages,ferry,tolls,upkeep,kmTot,state,reason,acts,suppliesKg};
+  }
+  _partyDefs(){return [
+    {id:'traveler',name:'Traveler',fields:[
+      {key:'groupSize',label:'Group size',min:1,max:200,step:1,unit:' people'},
+      {key:'pace',label:'Pace',seg:['Easy','Steady','Forced']},
+      {key:'hours',label:'Hours per day (land)',min:4,max:12,step:0.5,unit:' h'},
+      {key:'cargo',label:'Trade cargo',min:0,max:5000,step:25,unit:' kg'},
+      {key:'supplies',label:'Supplies carried',min:0,max:60,step:1,unit:' days',note:'fodder ceiling: a mule carries ~9 days of its own fodder at this grazing'},
+      {key:'carryFood',label:'Carry food',tog:true,note:'off = live off the land'},
+      {key:'grazing',label:'Grazing',seg:['none','sparse','normal','rich']},
+      {key:'foraging',label:'Foraging',seg:['none','modest','active']}]},
+    {id:'season',name:'Season & weather',fields:[
+      {key:'season',label:'Season at departure',seg:['spring','summer','autumn','winter']},
+      {key:'weather',label:'Weather',seg:['auto','clear','rain','storm','snow'],note:'auto = weighted by the season'},
+      {key:'drift',label:'Season drift during journey',tog:true},
+      {key:'rest',label:'Rest days',seg:['auto','1 in 5','1 in 7','1 in 10']}]},
+    {id:'carriage',name:'Carriage',fields:[
+      {key:'carriage',label:'Carriage',seg:['auto','manual'],note:'auto computes counts terrain × biome, km-weighted'},
+      {key:'mode',label:'Transport mode',seg:['walking','baggage train','wagon train','riders']},
+      {key:'mount',label:'Mount',seg:['horse','pony','camel','mule']},
+      {key:'vessel',label:'Vessel',seg:['river barge','coaster','raft']},
+      {key:'donkeys',label:'Donkeys',min:0,max:60,step:1,auto:true},
+      {key:'mules',label:'Mules',min:0,max:60,step:1,auto:true},
+      {key:'camels',label:'Camels',min:0,max:60,step:1,auto:true},
+      {key:'horses',label:'Horses',min:0,max:60,step:1,auto:true},
+      {key:'carts',label:'Carts',min:0,max:20,step:1,auto:true},
+      {key:'wagons',label:'Wagons',min:0,max:20,step:1,auto:true},
+      {key:'travois',label:'Travois',min:0,max:20,step:1,auto:true},
+      {key:'sleds',label:'Sleds',min:0,max:20,step:1,auto:true},
+      {key:'promote',label:'Auto-promote Walking → Baggage train when overloaded',tog:true}]},
+    {id:'cond',name:'Route conditions',fields:[
+      {key:'road',label:'Road quality',seg:['paved','tracks','trail','none']},
+      {key:'infra',label:'Infrastructure',seg:['none','fords','fords+ferries','full']},
+      {key:'dWater',label:'Desert water',seg:['auto','oasis chain','carry all']},
+      {key:'closures',label:'Respect seasonal closures',tog:true}]},
+    {id:'stops',name:'Stops · layover days',fields:Object.keys(this.state.plan.lay).map(n=>({key:'lay:'+n,label:n,min:0,max:14,step:1,unit:' d',lay:true}))}
+  ]}
+  _setParty(k,v){if(k.startsWith('lay:')){const n=k.slice(4);this.setState(st=>({plan:{...st.plan,lay:{...st.plan.lay,[n]:v}}}))}else this.setState(st=>({plan:{...st.plan,party:{...st.plan.party,[k]:v}}}))}
+  valsPlan(){
+    const s=this.state,p=s.plan.party;const J=this._journey();const chip=(on)=>({bord:on?'var(--acc)':'var(--hair)',col:on?'var(--acc)':'var(--sec)',bg:on?'var(--wash)':'transparent'});
+    const fd=(v,d)=>v>=100?Math.round(v).toLocaleString('en-US'):(Math.round(v*10)/10).toFixed(d==null?1:d);
+    const vc=J.state==='impossible'?'var(--block)':J.state==='feasible'?'var(--good)':'var(--warn)';
+    const stageRows=this.STAGES.map((st,i)=>{const ov=Object.keys(s.plan.ov[i]).length;const pr=J.per[i];const sel=s.plan.sel===i;const bl=!!pr.block;
+      return{i:String(i),name:st.name,sub:st.terr+' · '+st.biome+' · '+this.fmtKm(st.km)+(st.asc?' · +'+st.asc+' m':''),days:bl?'—':fd(pr.days)+' d',
+        dot:bl?'✕':st.water?'≈':'●',dotCol:bl?'var(--block)':st.water?'var(--water)':sel?'var(--acc)':'var(--faint)',
+        ovNote:ov?ov+' override'+(ov>1?'s':''):'inherits',ovCol:ov?'var(--acc)':'var(--faint)',
+        bord:bl?'var(--block)':sel?'var(--acc)':'var(--hair2)',bg:sel?'var(--wash)':'transparent'}});
+    const auto=p.carriage==='auto';
+    const partyGroups=this._partyDefs().map(g=>{const open=!!s.plan.open[g.id];
+      const fields=g.fields.map(f=>{
+        const val=f.lay?s.plan.lay[f.key.slice(4)]:p[f.key];
+        const dim=f.auto&&auto?'opacity:.55;pointer-events:none':'';
+        if(f.seg)return{key:f.key,label:f.label,note:f.note||'',isSeg:true,isRange:false,isTog:false,dimStyle:dim,opts:f.seg.map(v=>({v,...chip(String(val)===v)}))};
+        if(f.tog)return{key:f.key,label:f.label,note:f.note||'',isTog:true,isSeg:false,isRange:false,dimStyle:dim,togBg:val?'var(--acc)':'var(--chip)',knobBg:val?'var(--accInk)':'var(--sec)',knobPos:val?'right:2px':'left:2px'};
+        const disp=(f.auto&&auto?'auto · ':'')+Math.round(val).toLocaleString('en-US')+(f.unit||'');
+        return{key:f.key,label:f.label,note:f.key==='supplies'?f.note:'',isRange:true,isSeg:false,isTog:false,dimStyle:dim,min:f.min,max:f.max,step:f.step,val,disp};
+      });
+      const notes={traveler:p.groupSize+' · '+p.pace.toLowerCase(),season:p.season+' · '+p.weather,carriage:auto?'auto · '+J.animals+' animals':'manual',cond:p.road,stops:J.lay+' layover d'};
+      return{id:g.id,name:g.name,open,fields,chev:open?'⌄':'›',note:notes[g.id]||''};
+    });
+    const money=(v)=>v.toLocaleString('en-US')+' cr';
+    const resGroups=[
+      {id:'rTime',name:'Time',sum:fd(J.total,0)+' d',rows:[{k:'TRAVEL',v:fd(J.travel)+' d'},{k:'REST',v:J.rest+' d'},{k:'LAYOVERS',v:J.lay+' d'},{k:'MEAN · BEST · WORST',v:fd(J.total,0)+' · '+fd(J.total*0.92,0)+' · '+fd(J.total*1.14,0)},{k:'ARRIVAL SEASON',v:p.drift?(J.total>80?'winter':p.season):p.season}]},
+      {id:'rLoad',name:'Load',sum:Math.round(J.capPct*100)+'%',bar:true,rows:[{k:'CARGO',v:Math.round(p.cargo)+' kg'},{k:'SUPPLIES',v:Math.round(J.suppliesKg)+' kg'},{k:'CAPACITY',v:Math.round(J.cap)+' kg'},{k:'CARRIERS',v:J.animals+' animals · '+(+p.carts+ +p.wagons)+' vehicles'},{k:'SPEED PENALTY',v:J.capPct>0.9?'× 0.85':'none',col:J.capPct>0.9?'var(--warn)':undefined}]},
+      {id:'rSupply',name:'Supply reach',sum:J.effGap>J.carried?'gap!':'ok',sumCol:J.effGap>J.carried?'var(--warn)':'var(--good)',rows:[{k:'CARRIED',v:J.carried+' d'},{k:'LONGEST GAP',v:fd(J.effGap)+' d · '+J.gapWhere,col:J.effGap>J.carried?'var(--warn)':undefined},{k:'FORAGING OFFSET',v:'× '+({none:1,modest:.85,active:.7}[p.foraging])},{k:'RESUPPLY AT',v:'Kess Ford · Thornwood · Lakemouth'}]},
+      {id:'rCost',name:'Cost',sum:money(J.cost),rows:[{k:'FOOD · FODDER',v:money(J.food)+' · '+money(J.fodder)},{k:'WAGES',v:money(J.wages)},{k:'TOLLS · FERRY',v:money(J.tolls)+' · '+money(J.ferry)},{k:'ANIMAL UPKEEP',v:money(J.upkeep)},{k:'PER KM · PER DAY',v:(J.cost/J.kmTot).toFixed(1)+' · '+(J.cost/J.total).toFixed(1)+' cr'}]},
+      {id:'rVessel',name:'Vessels',sum:'1 leg',rows:[{k:'LAKEMOUTH → PORT AMRE',v:p.vessel},{k:'HOLD USED',v:Math.round(J.load/40)+'%'},{k:'SAILING WINDOW',v:p.season==='winter'?'closed — winter':'open · '+p.season,col:p.season==='winter'?'var(--block)':undefined}]}
+    ].map(g=>({...g,open:!!s.plan.open[g.id],chev:s.plan.open[g.id]?'⌄':'›',sumCol:g.sumCol||'var(--dim)',rows:g.rows.map(r=>({...r,col:r.col||'var(--ink)'})),barOn:!!g.bar&&!!s.plan.open[g.id],barW:Math.min(100,Math.round(J.capPct*100))+'%',barCol:J.capPct>0.9?'var(--warn)':'var(--acc)'}));
+    return {
+      planRoot:s.planView==='root',planStage:s.planView==='stage',
+      verState:J.state.toUpperCase(),verCol:vc,verBord:vc,verBg:J.state==='impossible'?'rgba(194,106,96,.07)':J.state==='feasible'?'transparent':'rgba(224,168,64,.06)',
+      verDays:J.state==='impossible'?'—':fd(J.total,0),verConf:fd(J.total*0.11,0),
+      verSplit:fd(J.travel)+' travel · '+J.rest+' rest · '+J.lay+' layover',
+      verReason:J.reason,verActs:J.acts,verActsOn:J.acts.length>0,
+      routeTotal:this.fmtKm(J.kmTot)+' · 7 stops',stageRows,partyGroups,resGroups,
+      hVerdictAct:e=>{const id=e.currentTarget.dataset.id;
+        if(id==='seasonAutumn')this._setParty('season','autumn');else if(id==='closuresOff')this._setParty('closures',false);
+        else if(id==='suppliesUp')this._setParty('supplies',Math.min(60,+p.supplies+6));else if(id==='forageUp')this._setParty('foraging','active');
+        else if(id==='cargoDown')this._setParty('cargo',Math.round(p.cargo*0.75));else if(id==='mulesUp')this._setParty('mules',+p.mules+4);
+        this.toast('Applied — verdict recomputed')},
+      hStageRow:e=>{this.setState(st=>({plan:{...st.plan,sel:+e.currentTarget.dataset.i},planView:'stage'}),()=>{this.dirty=true})},
+      hPlanGroup:e=>{const id=e.currentTarget.dataset.id;this.setState(st=>({plan:{...st.plan,open:{...st.plan.open,[id]:!st.plan.open[id]}}}))},
+      hResGroup:e=>{const id=e.currentTarget.dataset.id;this.setState(st=>({plan:{...st.plan,open:{...st.plan.open,[id]:!st.plan.open[id]}}}))},
+      hPartySeg:e=>{const d=e.currentTarget.dataset;this._setParty(d.key,d.v)},
+      hPartyTog:e=>{const k=e.currentTarget.dataset.key;this._setParty(k,!p[k])},
+      hPartyRange:e=>{const k=e.target.dataset.key;this._setParty(k,+e.target.value)},
+      hPartyStep:e=>{const d=e.currentTarget.dataset;const def=this._partyDefs().flatMap(g=>g.fields).find(f=>f.key===d.key);if(!def)return;const cur=d.key.startsWith('lay:')?s.plan.lay[d.key.slice(4)]:+p[d.key];this._setParty(d.key,Math.min(def.max,Math.max(def.min,cur+def.step*+d.d)))},
+      ...this.valsOvStage(J,chip,fd)
+    };
+  }
+  valsOvStage(J,chip,fd){
+    const s=this.state;const i=s.plan.sel;const st=this.STAGES[i];const ov=s.plan.ov[i];const p=s.plan.party;const pr=J.per[i];
+    const DEFS=[{key:'mode',label:'Travel mode',seg:['walking','baggage train','wagon train','riders'],na:st.water},{key:'groupSize',label:'Group size',min:1,max:200,step:1,unit:' people'},{key:'cargo',label:'Cargo',min:0,max:5000,step:25,unit:' kg'},{key:'pace',label:'Pace',seg:['Easy','Steady','Forced'],na:st.water},{key:'hours',label:'Hours per day',min:4,max:12,step:0.5,unit:' h',na:st.water},{key:'weather',label:'Weather',seg:['auto','clear','rain','storm','snow']},{key:'carryFood',label:'Carry food',tog:true},{key:'supplies',label:'Supplies days',min:0,max:60,step:1,unit:' d'},{key:'grazing',label:'Grazing',seg:['none','sparse','normal','rich'],na:st.water},{key:'foraging',label:'Foraging',seg:['none','modest','active'],na:st.water},{key:'road',label:'Road quality',seg:['paved','tracks','trail','none'],na:st.water},{key:'infra',label:'Infrastructure',seg:['none','fords','fords+ferries','full'],na:st.water},{key:'mount',label:'Mount',seg:['horse','pony','camel','mule'],na:st.water},{key:'dWater',label:'Desert water',seg:['auto','oasis chain','carry all'],na:st.biome!=='desert'&&true?st.biome!=='desert':false},{key:'vessel',label:'Vessel',seg:['river barge','coaster','raft'],na:!st.water}];
+    const ovFields=DEFS.map(f=>{
+      const isSet=ov[f.key]!==undefined;const val=isSet?ov[f.key]:p[f.key];
+      const na=f.key==='dWater'?st.biome!=='desert':(f.na===true);
+      const naWhy=f.key==='vessel'?'land stage':f.key==='dWater'?'not a desert stage':'water leg';
+      const base={key:f.key,label:f.label,isSet,edgeCol:isSet?'var(--acc)':'var(--hair2)',dimStyle:na?'opacity:.45;pointer-events:none':'',
+        stateNote:na?'— · '+naWhy:isSet?'override set':(f.key==='weather'&&val==='auto')?'Auto ('+(p.season==='winter'?'snow-weighted':p.season)+')':'Inherit ('+String(p[f.key])+')',
+        stateCol:na?'var(--faint)':isSet?'var(--acc)':'var(--faint)'};
+      if(f.seg)return{...base,isSeg:true,isRange:false,isTog:false,opts:f.seg.map(v=>({v,...chip(String(val)===v&&!na)}))};
+      if(f.tog)return{...base,isTog:true,isSeg:false,isRange:false,disp:f.label+' · '+(val?'on':'off'),togBg:val?'var(--acc)':'var(--chip)',knobBg:val?'var(--accInk)':'var(--sec)',knobPos:val?'right:2px':'left:2px'};
+      return{...base,isRange:true,isSeg:false,isTog:false,min:f.min,max:f.max,step:f.step,val,disp:Math.round(val).toLocaleString('en-US')+(f.unit||'')};
+    });
+    const nOv=Object.keys(ov).length;
+    const setOv=(k,v)=>{this.setState(stt=>{const o=[...stt.plan.ov];o[i]={...o[i],[k]:v};return{plan:{...stt.plan,ov:o}}})};
+    return{ovStageName:'STAGE '+(i+1)+' · '+st.name,
+      ovStageSub:st.terr+' · '+st.biome+' · '+this.fmtKm(st.km)+' · ascent +'+st.asc+' m · '+nOv+' override'+(nOv===1?'':'s'),
+      ovStageNote:pr.block?'BLOCKED — '+pr.block:fd(pr.days)+' days · '+fd(pr.kmd)+' km/day · arrives day '+fd(J.per.slice(0,i+1).reduce((a,x)=>a+x.days,0),0),
+      ovStageCol:pr.block?'var(--block)':'var(--sec)',ovFields,
+      hOvSeg:e=>{const d=e.currentTarget.dataset;setOv(d.key,d.v)},
+      hOvTog:e=>{const k=e.currentTarget.dataset.key;const cur=ov[k]!==undefined?ov[k]:p[k];setOv(k,!cur)},
+      hOvRange:e=>{const k=e.target.dataset.key;setOv(k,+e.target.value)},
+      hOvClear:e=>{const k=e.currentTarget.dataset.key;this.setState(stt=>{const o=[...stt.plan.ov];const c={...o[i]};delete c[k];o[i]=c;return{plan:{...stt.plan,ov:o}}})},
+      hOvClearAll:()=>{this.setState(stt=>{const o=[...stt.plan.ov];o[i]={};return{plan:{...stt.plan,ov:o}}});this.toast('Overrides cleared — stage inherits the party form')},
+      hCopyLand:()=>{this.setState(stt=>{const o=stt.plan.ov.map((x,j)=>this.STAGES[j].water?x:{...ov});return{plan:{...stt.plan,ov:o}}});this.toast('Copied '+nOv+' override'+(nOv===1?'':'s')+' to all land stages')},
+    };
+  }
+  _moreTitle(){const id=this.state.moreStack[this.state.moreStack.length-1];const T={landmarks:['LANDMARKS','caps · spacing · one run'],'lm-fam':[(this.state.lmFam||'PHYSICAL'),'zero = off · a cap is a ceiling, not a quota'],root:['MORE','program · data · preferences'],project:['PROJECT','files · autosave · storage'],civ:['CIVILIZATION','settlement · POI · way tools'],data:['DATA MANAGER','import · export · sources · conversion · validation'],'data-tiles':['EXPORT ▸ MAPS ▸ TILE PYRAMID','leaflet · XYZ · baked atlas L0–L3'],'data-io':['DATA ROUTE',(this.state.dataRoute||{dir:'IMPORT',what:'Maps'}).dir+' ▸ '+(this.state.dataRoute||{what:'Maps'}).what],assets:['ASSET LIBRARY','24 families · 72 of 113 filled'],'assets-grid':['ASSET LIBRARY','family · '+(this.state.assetFam||'Places')],'asset-slot':['SLOT INSPECTOR',(this.state.assetFam||'Places')+' · slot '+((this.state.assetSlot??0)+1)],travel:['TRAVEL LIBRARY','classifications & constraints — feeds the planner'],'travel-item':['TRAVEL LIBRARY',(this.state.travelSel||'Horse')],sim:['SIMULATION','timeline · layers'],prefs:['PREFERENCES','application · performance · graphics'],help:['HELP & ABOUT','Cartalith Mobile 0.9'],gestures:['GESTURE REFERENCE','the whole touch vocabulary']};return T[id]||['MORE','']}
+  LMFAMS(){if(this._lmf)return this._lmf;
+    const T=(name,cls,o)=>({id:name.toLowerCase().replace(/[^a-z]+/g,'-'),name,cls,...o});
+    this._lmf=[
+      {id:'physical',label:'PHYSICAL',glyph:'▲',types:[T('Peak','REG',{cap:12,base:14,cand:640,noview:1}),T('Ridge','REG',{cap:0,was:8}),T('Saddle','LOC',{cap:0,was:5}),T('Cliff','LOC',{cap:0,was:20}),T('Gorge','REG',{cap:8,base:6,cand:410,fixed:'no terrain'}),T('Cave','LOC',{cap:0,was:12}),T('Waterfall','REG',{cap:40,base:11,cand:1284}),T('Spring','LOC',{cap:0,was:30}),T('Lake','REG',{cap:20,base:12,cand:520}),T('Delta','REG',{cap:0,was:3}),T('River confluence','LOC',{cap:30,base:24,cand:960}),T('Volcanic feature','CON',{cap:0,was:2,noview:1}),T('Rock formation','LOC',{cap:0,was:16}),T('Glacial feature','REG',{cap:0,was:6}),T('Ancient forest','REG',{cap:16,base:9,cand:300,fixed:'candidates'})]},
+      {id:'transportation',label:'TRANSPORTATION',glyph:'⌒',types:[T('Mountain pass','REG',{cap:12,base:9,cand:88}),T('River crossing','LOC',{cap:0,was:20}),T('Ford','LOC',{cap:20,base:8,cand:340,fixed:'no terrain'}),T('Bridge site','LOC',{cap:0,was:12}),T('Road junction','LOC',{cap:0,was:8}),T('Caravan station','LOC',{cap:0,was:6}),T('Portage','LOC',{cap:0,was:4}),T('Harbour','REG',{cap:8,base:4,cand:60,fixed:'candidates'})]},
+      {id:'economic',label:'ECONOMIC',glyph:'▦',types:[T('Mine','LOC',{cap:12,base:6,cand:520}),T('Quarry','LOC',{cap:5,base:3,cand:280,fixed:'no terrain'}),T('Salt works','LOC',{cap:0,was:4}),T('Resource extraction site','LOC',{cap:0,was:8}),T('Market site','LOC',{cap:0,was:6}),T('Trade depot','LOC',{cap:0,was:5})]},
+      {id:'military',label:'MILITARY',glyph:'▥',types:[T('Fort','REG',{cap:12,base:10,cand:240,noview:1}),T('Watchtower','LOC',{cap:30,base:15,cand:680,noview:1}),T('Fortified pass','REG',{cap:5,base:8,cand:44}),T('Fortified crossing','LOC',{cap:0,was:6}),T('Battlefield','CUL',{cap:0,was:10}),T('Border marker','LOC',{cap:8,base:3,cand:90,fixed:'candidates',noview:1})]},
+      {id:'religious',label:'RELIGIOUS · CULTURAL',glyph:'∩',types:[T('Shrine','CUL',{cap:50,base:18,cand:1420}),T('Temple','CUL',{cap:8,base:7,cand:120}),T('Sacred grove','CUL',{cap:12,base:8,cand:380,fixed:'no terrain'}),T('Sacred mountain','CON',{cap:3,base:5,cand:22,noview:1}),T('Pilgrimage site','CUL',{cap:0,was:6}),T('Tomb','CUL',{cap:8,base:5,cand:210,fixed:'candidates'}),T('Monument','CUL',{cap:0,was:8}),T('Ceremonial site','CUL',{cap:0,was:7})]},
+      {id:'historical',label:'HISTORICAL',glyph:'‖',types:[T('Ruin','CUL',{cap:20,base:5,cand:600}),T('Abandoned settlement','CUL',{cap:8,base:3,cand:150}),T('Ancient road','CUL',{cap:3,base:1,cand:40,fixed:'candidates'}),T('Historic battlefield','CUL',{cap:0,was:6}),T('Destroyed fortress','CUL',{cap:0,was:4}),T('Historic crossing','CUL',{cap:0,was:5})]}];
+    return this._lmf}
+  LM_LADDER(){return[0,1,2,3,5,8,12,20,30,50,80,120,200]}
+  LMD(){if(this._lmd)return this._lmd;const types={};
+    this.LMFAMS().forEach(f=>f.types.forEach(t=>{types[t.id]={armed:t.cap>0,cap:t.cap>0?t.cap:(t.was||8)}}));
+    this._lmd={types,crowd:1,compete:true,lastRun:'—',edited:false,run:null,res:this.lmCompute(types,1,true),marks:this.lmMarks(types,1,true)};return this._lmd}
+  lm(){return this.state.lm||this.LMD()}
+  setLm(patch,cb){this.setState({lm:{...this.lm(),...patch}},cb)}
+  lmCompute(types,crowd,compete){const res={};
+    this.LMFAMS().forEach(f=>f.types.forEach(t=>{const st=types[t.id];
+      if(!st.armed){res[t.id]={placed:0,reason:''};return}
+      const base=t.base!=null?t.base:Math.max(1,Math.round((t.was||6)*0.6));
+      const room=Math.max(1,Math.round(base/Math.pow(crowd,1.6)*(compete?1:1.35)));
+      let placed,reason;
+      if(t.fixed==='no terrain'){placed=Math.min(st.cap,base);reason=placed>=st.cap?'at cap':'no terrain'}
+      else if(t.fixed==='candidates'){placed=Math.min(st.cap,base);reason=placed>=st.cap?'at cap':'candidates'}
+      else{placed=Math.min(st.cap,room);reason=placed>=st.cap?'at cap':'spacing'}
+      res[t.id]={placed,reason}}));
+    return res}
+  lmMarks(types,crowd,compete){const res=this.lmCompute(types,crowd,compete);const marks=[];const h=(a,b)=>{const n=Math.sin(a*127.1+b*311.7)*43758.5453;return n-Math.floor(n)};
+    let k=0;this.LMFAMS().forEach(f=>f.types.forEach(t=>{const n=res[t.id].placed;
+      for(let i=0;i<n;i++){k++;marks.push({x:200+h(k,i+1)*3700,y:200+h(i+2,k)*3700,type:t.name})}}));
+    return marks}
+  lmRun(){const lm=this.lm();if(lm.run)return;clearInterval(this._lmInt);let pct=0;
+    this.setLm({run:{pct:0}});
+    this._lmInt=setInterval(()=>{pct+=9+Math.random()*14;
+      if(pct>=100){clearInterval(this._lmInt);this._lmInt=null;
+        const t=new Date();const hh=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0');
+        const res=this.lmCompute(this.lm().types,this.lm().crowd,this.lm().compete);
+        const marks=this.lmMarks(this.lm().types,this.lm().crowd,this.lm().compete);
+        this.setLm({run:null,res,marks,lastRun:hh,edited:false},()=>{this.dirty=true});
+        const total=Object.values(res).reduce((a,x)=>a+x.placed,0);
+        this.toast('Landmark pass — '+total+' placed · spacing gave the restraint')}
+      else this.setLm({run:{pct}})},130)}
+  _travelData(){return{
+    'ANIMALS':[['Horse','mount · pack 90 kg · 24 km/d base · grazing normal'],['Pony','mount · pack 70 kg · sure-footed · montane ok'],['Mule','pack 80 kg · fodder ceiling ~9 d · stubborn'],['Camel','pack 140 kg · arid specialist · water every 5 d'],['Ox','draft only · 2 per cart · slow']],
+    'VEHICLES':[['Cart','2 draft · 400 kg · needs track or better'],['Wagon','4 draft · 800 kg · needs road'],['Travois','1 animal · 40 kg · any terrain'],['Sled','snow only · 120 kg']],
+    'VESSELS':[['River barge','hold 4 t · river & lake · crew 3'],['Coaster','hold 12 t · coastal · crew 6 · sailing windows'],['Raft','hold 0.8 t · downstream only']],
+    'PARTIES':[['Merchant caravan','12 · steady · baggage train · 900 kg'],['Royal courier','3 · forced · riders · 40 kg'],['Pilgrim band','28 · easy · 300 kg · 14 d supplies']]}}
+  _moreAct(act){
+    const s=this.state;
+    if(act==='new')this.setState({modal:'new',modalF:{name:'',seed:String(Math.floor(Math.random()*900000+100000)),extent:'region'}});
+    else if(act==='zip')this.toast('File picker — mock. Archives load from ~/Cartalith/Worlds.');
+    else if(act==='save'){const t=new Date();const hh=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0');this.setState({savedAt:hh});this.toast('Project saved · '+hh)}
+    else if(act==='saveas')this.toast('Save as… — the new path becomes the project path (mock)');
+    else if(act.startsWith('world:')){const name=act.slice(6);this.setState(st=>({world:{name,seed:name==='VHAREN REACH'?'129384':'774201',status:name==='VHAREN REACH'?'stages 01–07 resolved':'draft · stage 03'},moreStack:['root'],tab:null}));this.toast(name+' loaded');this.dirty=true}
+    else if(act==='clearPlaced'){const snap={l:s.labels,i:s.icons,w:s.ways,u:s.userPlaces};this.setState({labels:[],icons:[],ways:[],userPlaces:[]},()=>{this.dirty=true});this.pushUndo('clear placed',()=>this.setState({labels:snap.l,icons:snap.i,ways:snap.w,userPlaces:snap.u},()=>{this.dirty=true}));this.toast('Placed annotation cleared')}
+    else if(act==='openPlan')this.setState({tab:'plan',planView:'root'},()=>{this._snapSheet();this.dirty=true});
+    else if(act==='lmRun')this.lmRun();
+    else if(act.startsWith('lmAll:')){const on=act.slice(6)==='on';const lm=this.lm();const fam=this.LMFAMS().find(f=>f.label===(s.lmFam||'PHYSICAL'))||this.LMFAMS()[0];
+      const types={...lm.types};fam.types.forEach(t=>{types[t.id]={...types[t.id],armed:on}});this.setLm({types,edited:true})}
+    else if(act.startsWith('arm:')){const t=act.slice(4);this.setState({tool:t,tab:null});this.toast('Tool armed — tap the map to place. Undo chip appears after each drop.')}
+    else if(act==='check')this.toast('Check data — 0 errors · 8 warnings (6 missing icon slots, 2 unnamed rivers)');
+    else if(act==='repair')this.toast('Repair / normalize — 2 fixes applied, report in Source Registry');
+    else if(act==='exportTiles'){this.toast('Rendering tile pyramid — baked atlas L0–L3, no re-gen…');setTimeout(()=>this.toast('Export complete · leaflet-preview.html + style.json emitted'),1800)}
+    else if(act==='clearCache'){this.setState(st=>({set:{...st.set,cache:'0.0 GB'}}));this.toast('Atlas + field caches cleared — project data untouched')}
+    else if(act==='credits')this.toast('Credits & academic principles — full text in the desktop build');
+    else if(act==='report')this.toast('Report an issue — opens the tracker (mock)');
+    else if(act==='packExport')this.toast('pack.json schema 2 + PNGs → STORED zip (mock)');
+    else if(act==='csv')this.toast('Import table .csv — column mapping opens on desktop (mock)');
+    else if(act.startsWith('preset:')){const n=act.slice(7);const P={'Merchant caravan':{groupSize:12,pace:'Steady',mode:'baggage train',cargo:900,supplies:10,horses:8,mules:6,carts:2},'Royal courier':{groupSize:3,pace:'Forced',mode:'riders',cargo:40,supplies:5,horses:6,mules:0,carts:0},'Pilgrim band':{groupSize:28,pace:'Easy',mode:'baggage train',cargo:300,supplies:14,horses:0,mules:2,carts:1}}[n];if(P){this.setState(st=>({plan:{...st.plan,party:{...st.plan.party,...P}},tab:'plan',planView:'root'}),()=>this._snapSheet());this.toast(n+' loaded into the planner')}}
+  }
+  _moreScreens(){
+    const s=this.state;const T=s.tile||{scheme:'XYZ',size:'256',retina:true,skip:true,zmax:5};
+    const head=l=>({t:'head',label:l});const info=l=>({t:'info',label:l});const read=(l,v,c)=>({t:'read',label:l,val:v,valCol:c});
+    const nav=(l,sub,to,glyph,badge,badgeCol)=>({t:'nav',label:l,sub,to,glyph:glyph||'▸',badge:badge||'',badgeCol:badgeCol||'var(--faint)'});
+    const actR=(l,act,primary)=>({t:'act',label:l,act,actStyle:primary?'background:var(--acc);color:var(--accInk)':'background:var(--chip);color:var(--sec)'});
+    const tog=(l,sub,key,on)=>({t:'tog',label:l,sub,key,on});
+    const seg=(l,key,opts,cur)=>({t:'seg',label:l,key,opts,cur});
+    const rng=(l,key,min,max,step,val,disp)=>({t:'range',label:l,key,min,max,step,val,disp});
+    const tilesBase=Math.round(Math.pow(4,T.zmax)*1.37);const tiles=T.skip?Math.round(tilesBase*0.66):tilesBase;
+    const sizeMB=Math.round(tiles*(T.size==='512'?0.11:0.059)*(T.retina?1.9:1));
+    const mins=Math.max(1,Math.round(tiles/1650*(T.retina?1.8:1)));
+    const famList=[['Places','10 / 12'],['Buildings','7 / 16'],['Walls & gates','4 / 8'],['Trees & cover','14 / 16'],['Rock & scree','6 / 10'],['Textures','8 / 12'],['Hachure & hatch','3 / 6'],['Compass & frame','5 / 6'],['Label plaques','4 / 8'],['Ship & sea marks','6 / 9'],['Map furniture','5 / 10']];
+    const td=this._travelData();const tt=s.travelTab||'ANIMALS';
+    const lmS=this.lm();const LAD=this.LM_LADDER();
+    const lmPlacedT=Object.values(lmS.res).reduce((a,x)=>a+x.placed,0);
+    const lmArmedT=Object.values(lmS.types).filter(x=>x.armed);
+    const lmCaps=lmArmedT.reduce((a,x)=>a+x.cap,0);
+    const lmRoom=Math.round(210/Math.pow(lmS.crowd,1.6)*(lmS.compete?1:1.35));
+    const lmFamObj=this.LMFAMS().find(f=>f.label===(s.lmFam||'PHYSICAL'))||this.LMFAMS()[0];
+    const SC={
+      root:[nav('Project','save · recent · storage','project','⧉'),nav('Civilization','settlement · POI · way tools','civ','◍'),nav('Data manager','import · export · sources · validation','data','⇅'),nav('Asset library','24 families','assets','▦','72 / 113','var(--acc)'),nav('Travel library','animals · vehicles · vessels · parties','travel','≋'),nav('Simulation','year '+s.sim.year+' · '+(s.sim.playing?'running':'paused'),'sim','◷'),nav('Preferences','theme · units · performance · graphics','prefs','⚙'),nav('Help & about','0.9 · build 2611','help','?'),
+        head('STATUS'),read('WORLD',s.world.name+' · '+s.world.seed),read('STATE',s.world.status),read('LAST AUTOSAVE',s.savedAt+' · every '+s.set.autoInt),read('UNDO DEPTH',String(s.set.undoDepth))],
+      project:[actR('SAVE PROJECT','save',true),actR('SAVE AS…','saveas'),actR('＋ NEW WORLD…','new'),actR('OPEN PROJECT .ZIP…','zip'),
+        head('RECENT WORLDS'),{t:'nav',label:'VHAREN REACH',sub:'129384 · stages 01–07 · 5 d ago',act:'world:VHAREN REACH',glyph:'◍',badge:'',badgeCol:''},{t:'nav',label:'KESSA',sub:'774201 · draft · 3 w ago',act:'world:KESSA',glyph:'◍',badge:'',badgeCol:''},
+        head('AUTOSAVE'),tog('Autosave','status bar reports the last write','autosave',s.set.autosave),seg('Interval','autoInt',['off','1 min','5 min','15 min'],s.set.autoInt),
+        head('STORAGE LOCATIONS'),read('PROJECTS','~/Cartalith/Worlds'),read('TILE ATLAS','~/Cartalith/Cache/atlas'),read('ASSET PACKS','~/Cartalith/Packs'),read('EXPORTS','~/Cartalith/Exports'),info('Imports live under Data ▸ Import · asset packs under Asset library. Moving the atlas root invalidates the cache.')],
+      civ:[info('Arming a tool closes this sheet — tap the map to place. Esc or a new tool disarms.'),
+        {t:'nav',label:'Settlement',sub:'tap drops a place · class town · snap to water',act:'arm:settlement',glyph:'⌂',badge:s.tool==='settlement'?'ARMED':'',badgeCol:'var(--acc)'},
+        {t:'nav',label:'Point of interest',sub:'tap drops a POI · diamond marker',act:'arm:poi',glyph:'◇',badge:s.tool==='poi'?'ARMED':'',badgeCol:'var(--acc)'},
+        {t:'nav',label:'Way',sub:'taps append waypoints · commit from the floating card',act:'arm:way',glyph:'∥',badge:s.tool==='way'?'ARMED':'',badgeCol:'var(--acc)'},
+        read('TERRITORY PAINT','desktop parity — not in this prototype','var(--faint)'),
+        {t:'nav',label:'Landmark generation',sub:'49 types · 6 families · cap + spacing',to:'landmarks',glyph:'◈',badge:lmPlacedT+' placed',badgeCol:'var(--acc)'},
+        actR('OPEN JOURNEY PLANNER ➔','openPlan',true),
+        head('PLACED THIS SESSION'),read('SETTLEMENTS · POI',String(s.userPlaces.length)),read('WAYS',String(s.ways.length)),read('LABELS · ICONS',s.labels.length+' · '+s.icons.length),actR('CLEAR PLACED','clearPlaced')],
+      data:[head('IMPORT'),nav('Maps','georeferenced image','data-io','▸'),nav('Heightmaps','PNG · TIFF · 16-bit','data-io','▸'),nav('GIS / GeoJSON','features → layers','data-io','▸'),nav('World data','.zip · fields','data-io','▸'),
+        head('EXPORT'),nav('Maps · tile pyramid','leaflet · XYZ · retina','data-tiles','▸',T.zmax+' levels','var(--acc)'),nav('GIS / GeoJSON','places · ways · territories','data-io','▸'),nav('World data','full archive','data-io','▸'),actR('EXPORT ASSET PACK .ZIP','packExport'),
+        head('SOURCES'),read('EXTERNAL SOURCES','2 linked'),read('CONNECTED SOURCES','Markdown vault · 412 notes'),read('SOURCE REGISTRY','14 entries'),
+        head('CONVERSION'),nav('Coordinate systems','EPSG:3857 · 4326 · custom','data-io','▸'),nav('Format conversion','tables · rasters','data-io','▸'),actR('IMPORT TABLE .CSV…','csv'),
+        head('VALIDATION'),actR('CHECK DATA','check',true),actR('REPAIR / NORMALIZE','repair')],
+      'data-tiles':[seg('Scheme','tile:scheme',['XYZ','TMS','WMTS'],T.scheme),seg('Tile size','tile:size',['256','512'],T.size),rng('Zoom levels 0 → N','tile:zmax',1,8,1,T.zmax,'0 – '+T.zmax),tog('Retina @2x','doubles render cost','tile:retina',T.retina),tog('Skip all-ocean tiles','−34% of the pyramid','tile:skip',T.skip),
+        head('ESTIMATE'),read('TILES',tiles.toLocaleString('en-US')+(T.skip?' after ocean skip':'')),read('SIZE','~'+sizeMB.toLocaleString('en-US')+' MB'),read('RENDER TIME','~'+mins+' min · source: baked atlas L0–L3'),
+        actR('EXPORT '+tiles.toLocaleString('en-US')+' TILES','exportTiles',true),info('Destination ~/Cartalith/Exports · emits leaflet-preview.html + style.json + attribution.')],
+      'data-io':[info('Route configuration is desktop-parity mock in this prototype. The route exists so nothing on the phone is unreachable.'),read('CRS','EPSG:3857'),read('WORLD BOUNDS','region select tool writes these fields'),actR('CHOOSE FILE…','zip',true)],
+      assets:famList.map(f=>({t:'nav',label:f[0],sub:'',act:'',to:'assets-grid',glyph:'▦',badge:f[1],badgeCol:f[1][0]===f[1].slice(-2,-1)?'var(--faint)':'var(--acc)',fam:f[0]})).concat([head('COLLECTIONS'),read('UNASSIGNED IMPORTS','3','var(--acc)'),info('Import image… and pack .zip live here on desktop; slots compile to the live pack with Apply.')]),
+      'asset-slot':[read('FILE','capital-star.png · 512×512 · 84 KB'),read('SCALE','118% · fit · reset'),read('ANCHOR','base'),read('VARIANTS','×3'),read('TAGS','capital · star · settlement'),actR('REPLACE…','zip'),actR('+ VARIANT','zip'),info('Preview backgrounds and batch actions are desktop-parity.')],
+      travel:[seg('Type','travelTab',['ANIMALS','VEHICLES','VESSELS','PARTIES'],tt)].concat(td[tt].map(x=>({t:'nav',label:x[0],sub:x[1],to:'travel-item',glyph:'≋',badge:'',badgeCol:'',sel:x[0]}))).concat([info('An information layer only — entries become selectable options in the journey planner.')]),
+      'travel-item':(()=>{const n=s.travelSel||'Horse';const d=Object.values(td).flat().find(x=>x[0]===n)||['','—'];const isParty=(td['PARTIES']||[]).some(x=>x[0]===n);
+        return [read('ENTRY',n),read('CLASS',isParty?'party set-up':'classification'),read('CONSTRAINTS',d[1]),read('SOURCE','Travel library · project data')].concat(isParty?[actR('LOAD INTO PLANNER ➔','preset:'+n,true)]:[info('Selectable as mount / vehicle / vessel in the planner party form.')])})(),
+      sim:[tog('Transport strip on map','mini scrub above the nav bar','simStrip',s.sim.strip),rng('Year','simYear',-400,1200,1,s.sim.year,'YEAR '+s.sim.year),seg('Speed','simSpeed',['×1','×10','×100'],'×'+s.sim.speed),
+        head('SIMULATION LAYERS')].concat(Object.keys(s.sim.layers).map(k=>tog(k,'','simLayer:'+k,s.sim.layers[k]))).concat([info('Generation is not time-based — the timeline drives simulation layers only.')]),
+      landmarks:[info('caps total '+lmCaps+' · room for about '+lmRoom+' at this spacing · last run placed '+lmPlacedT),
+        rng('Crowding','lmCrowd',0.25,2,0.05,lmS.crowd,'× '+lmS.crowd.toFixed(2)+' · REG keeps '+this.fmtKm(34*lmS.crowd)),
+        tog('Types compete with each other','off lets a shrine sit beside a waterfall · on keeps every landmark clear of every other one','lmCompete',lmS.compete)]
+        .concat([head('FAMILIES')])
+        .concat(this.LMFAMS().map(f=>{const armed=f.types.filter(t=>lmS.types[t.id].armed).length;const placed=f.types.reduce((a,t)=>a+lmS.res[t.id].placed,0);
+          return {t:'nav',label:f.label,sub:armed+' of '+f.types.length+' armed · '+placed+' placed',to:'lm-fam',glyph:f.glyph}}))
+        .concat([actR(lmS.run?('PLACING… '+Math.min(99,Math.round(lmS.run.pct))+'%'):'RUN LANDMARK PASS','lmRun',true),
+          info((lmS.edited?'caps edited since the last run — results are stale until you run · ':'last run '+lmS.lastRun+' · ')+'a cap is a ceiling, not a quota — the spacing calculation gives the restraint')]),
+      'lm-fam':lmFamObj.types.map(t=>{const st=lmS.types[t.id];const r=lmS.res[t.id];
+          const idx=st.armed?LAD.reduce((best,v2,i2)=>Math.abs(v2-st.cap)<Math.abs(LAD[best]-st.cap)?i2:best,0):0;
+          return[rng(t.name+' · '+t.cls+(t.noview?' · no viewshed':''),'lm:'+t.id,0,12,1,idx,st.armed?st.cap+' max':'off · was '+st.cap),
+            st.armed?read('↳ LAST RUN',r.placed+' placed · '+r.reason,r.reason==='at cap'?'var(--acc)':'var(--dim)'):null].filter(Boolean)})
+        .reduce((a,x)=>a.concat(x),[])
+        .concat([actR('ARM ALL','lmAll:on'),actR('ALL OFF','lmAll:off'),
+          info('the slider is one gesture — zero disarms the type and remembers its number; drag up and it resumes. '+(lmFamObj.types.some(t=>t.noview)?'no viewshed = scores without the visibility term; the engine has no viewshed analysis yet.':''))]),
+      prefs:[seg('Theme','theme',['dark','light'],s.light?'light':'dark'),seg('Units','units',['km','mi'],s.units),
+        head('PERFORMANCE'),tog('GPU acceleration','WebGPU · '+(s.set.gpu?'on':'off — CPU tile passes'),'gpu',s.set.gpu),rng('CPU worker threads','workers',1,16,1,s.set.workers,s.set.workers+' of 16'),
+        head('GRAPHICS'),seg('Render quality','quality',['performance','balanced','quality','ultra'],s.set.quality),seg('Anti-aliasing','aa',['off','MSAA 2×','MSAA 4×','MSAA 8×'],s.set.aa),
+        head('TILES & LOD'),tog('Tiled LOD','auto on zoom','lod',s.set.lod),read('ATLAS CACHE',s.set.cache+' · 85 tiles'),actR('CLEAR CACHES…','clearCache'),
+        head('MEMORY'),rng('Undo history','undoDepth',1,50,1,s.set.undoDepth,s.set.undoDepth+' steps'),
+        head('TOUCH'),nav('Gesture reference','the whole touch vocabulary','gestures','☰')],
+      help:[read('VERSION','Cartalith Mobile 0.9 · build 2611'),read('ENGINE','shared with desktop · WebGPU'),nav('Gesture reference','pan · pinch · rotate · sample','gestures','☰'),actR('CREDITS & ACADEMIC PRINCIPLES','credits'),actR('REPORT AN ISSUE','report'),info('The phone reorganises rather than truncates: every desktop function is reachable through MAP · GENERATE · PLAN · MORE.')],
+      gestures:[read('DRAG','pan the map'),read('PINCH','zoom'),read('TWO FINGERS','rotate'),read('DOUBLE-TAP','zoom in'),read('LONG-PRESS','sample terrain → pin + chip'),read('EDGE-SWIPE ←','inspector panel'),read('SHEET HANDLE','drag between peek · half · full'),read('TAB RE-TAP','close the sheet'),read('↶ CHIP','tap undo · hold history')]
+    };
+    return SC;
+  }
+  valsMore(){
+    const s=this.state;const chip=(on)=>({bord:on?'var(--acc)':'var(--hair)',col:on?'var(--acc)':'var(--sec)',bg:on?'var(--wash)':'transparent'});
+    const id=s.moreStack[s.moreStack.length-1];
+    const rows=(this._moreScreens()[id]||[]).map(r=>({
+      ...r,isHead:r.t==='head',isNav:r.t==='nav',isAct:r.t==='act',isTog:r.t==='tog',isSeg:r.t==='seg',isRange:r.t==='range',isRead:r.t==='read',isInfo:r.t==='info',
+      bg:'transparent',glyphCol:r.badge==='ARMED'?'var(--acc)':'var(--faint)',valCol:r.valCol||'var(--ink)',
+      togBg:r.on?'var(--acc)':'var(--chip)',knobBg:r.on?'var(--accInk)':'var(--sec)',knobPos:r.on?'right:2px':'left:2px',
+      opts:(r.opts||[]).map(v=>({v,...chip(v===r.cur)})),
+      to:r.to||'',act:r.act||''
+    }));
+    const gridOn=id==='assets-grid'&&s.tab==='more';
+    const fam=s.assetFam||'Places';
+    const glyphs=['◆','▲','●','▪','◈','✦'];
+    const gridCells=gridOn?Array.from({length:12},(_,i)=>{const filled=i<(fam==='Places'?10:fam==='Trees & cover'?11:7);const on=(s.assetSlot??-1)===i;
+      return{i:String(i),code:fam[0].toUpperCase()+'-'+String(i+1).padStart(2,'0'),glyph:filled?glyphs[i%6]:'',col:on?'var(--acc)':'var(--body)',bord:on?'var(--acc)':'var(--hair)',bg:filled?'var(--chip)':'repeating-linear-gradient(45deg,var(--chip),var(--chip) 6px,transparent 6px,transparent 12px)'}}):[];
+    return {
+      moreRows:rows,gridOn,gridHead:(fam+' · slots').toUpperCase(),gridCells,
+      hMoreTap:e=>{const d=e.currentTarget.dataset;
+        if(d.to){this.setState(st=>({moreStack:[...st.moreStack,d.to]}));
+          if(d.to==='assets-grid')this.setState({assetFam:d.label});
+          if(d.to==='travel-item')this.setState({travelSel:d.label});
+          if(d.to==='lm-fam')this.setState({lmFam:d.label});
+        } else if(d.act)this._moreAct(d.act)},
+      hMoreCell:e=>{this.setState(st=>({assetSlot:+e.currentTarget.dataset.i,moreStack:[...st.moreStack,'asset-slot']}))},
+      hMoreTog:e=>{const k=e.currentTarget.dataset.key;
+        if(k==='lmCompete'){this.setLm({compete:!this.lm().compete,edited:true});return}
+        if(k==='autosave')this.setState(st=>({set:{...st.set,autosave:!st.set.autosave}}));
+        else if(k==='gpu')this.setState(st=>({set:{...st.set,gpu:!st.set.gpu}}));
+        else if(k==='lod')this.setState(st=>({set:{...st.set,lod:!st.set.lod}}));
+        else if(k==='simStrip'){const on=!this.state.sim.strip;this.setState(st=>({sim:{...st.sim,strip:on}}));if(on)this.toast('Transport strip on the map — close this sheet to scrub')}
+        else if(k.startsWith('simLayer:')){const n=k.slice(9);this.setState(st=>({sim:{...st.sim,layers:{...st.sim.layers,[n]:!st.sim.layers[n]}}}))}
+        else if(k==='tile:retina'||k==='tile:skip'){const kk=k.slice(5);this.setState(st=>{const T={scheme:'XYZ',size:'256',retina:true,skip:true,zmax:5,...(st.tile||{})};T[kk]=!T[kk];return{tile:T}})}},
+      hMoreSeg:e=>{const d=e.currentTarget.dataset;const k=d.key,v=d.v;
+        if(k==='theme')this.setState({light:v==='light'});
+        else if(k==='units')this.setState({units:v},()=>{this.dirty=true});
+        else if(k==='autoInt')this.setState(st=>({set:{...st.set,autoInt:v}}));
+        else if(k==='quality')this.setState(st=>({set:{...st.set,quality:v}}));
+        else if(k==='aa')this.setState(st=>({set:{...st.set,aa:v}}));
+        else if(k==='travelTab')this.setState({travelTab:v});
+        else if(k==='simSpeed')this.setState(st=>({sim:{...st.sim,speed:+v.slice(1)}}));
+        else if(k.startsWith('tile:')){const kk=k.slice(5);this.setState(st=>({tile:{scheme:'XYZ',size:'256',retina:true,skip:true,zmax:5,...(st.tile||{}),[kk]:v}}))}},
+      hMoreRange:e=>{const k=e.target.dataset.key,v=+e.target.value;
+        if(k==='lmCrowd'){this.setLm({crowd:+v.toFixed(2),edited:true});return}
+        if(k.startsWith('lm:')){const id=k.slice(3);const LAD2=this.LM_LADDER();const cap=LAD2[Math.round(v)];const lm2=this.lm();const cur=lm2.types[id];
+          this.setLm({types:{...lm2.types,[id]:cap===0?{...cur,armed:false}:{armed:true,cap}},edited:true});return}
+        if(k==='workers')this.setState(st=>({set:{...st.set,workers:v}}));
+        else if(k==='undoDepth')this.setState(st=>({set:{...st.set,undoDepth:v}}));
+        else if(k==='simYear')this.setState(st=>({sim:{...st.sim,year:v}}));
+        else if(k==='tile:zmax')this.setState(st=>({tile:{scheme:'XYZ',size:'256',retina:true,skip:true,zmax:5,...(st.tile||{}),zmax:v}}))},
+    };
+  }
+  valsOver(){
+    const s=this.state;const land=s.land;
+    const q=s.search.q.toLowerCase();
+    const searchRows=[...this.PLACES.map(p=>({n:p.n,x:p.x,y:p.y,kind:p.c,glyph:'◍'})),...s.userPlaces.map(p=>({n:p.n,x:p.x,y:p.y,kind:p.c,glyph:'◍'})),...s.labels.map(l=>({n:l.text,x:l.x,y:l.y,kind:'label',glyph:'⌖'})),{n:'Vhal Serai → Port Amre',x:1035,y:2270,kind:'route',glyph:'➔'}].filter(r=>!q||r.n.toLowerCase().includes(q)).slice(0,8);
+    const d=s.inspector.d;
+    const inspRows=d?[{k:'SLOPE · ASPECT',v:d.slope+'° · '+d.aspect+'°'},{k:'PLATE',v:d.plate},{k:'LITHOLOGY',v:d.lith},{k:'TEMPERATURE',v:d.temp+' °C'},{k:'PRECIPITATION',v:d.rain+' mm/yr'},{k:'DRAINAGE',v:d.drain},{k:'BIOME',v:d.biome},{k:'SOIL',v:d.soil},{k:'NEAREST SETTLEMENT',v:d.near+' · '+this.fmtKm(d.nearD)}]:[];
+    const stack=s.undoStack;const histRows=stack.map((e,i)=>({label:(i+1)+' · '+e.label,i:String(i)})).reverse().slice(0,6);
+    const coachTexts=['Drag to pan · pinch to zoom · two fingers to rotate','Long-press samples the terrain · swipe in from the right edge for the inspector'];
+    const coachEnabled=(this.props.coachMarks??true)&&s.scr==='app';
+    const dockBottom=(land?14:98)+(s.kb||0);
+    return {
+      fabBottom:land?18:104,undoLeft:land?86:12,dockBottom,coachBottom:dockBottom+2,toastBottom:dockBottom+64,
+      vpLabel:s.vp3d?'3D':'2D',
+      h3D:()=>{this.setState(st=>({vp3d:!st.vp3d}));this.toast(s.vp3d?'2D viewport':'3D viewport — mock · relief exaggeration in Preferences ▸ Graphics')},
+      hRecenter:()=>{this.view.cx=1035;this.view.cy=2270;this.view.s=0.42;this.view.r=0;this.dirty=true},
+      undoOn:stack.length>0,undoLabel:stack.length?stack[stack.length-1].label:'',histOpen:s.histOpen,histRows,
+      hUndoDown:()=>{this._held=false;this.holdTimer=setTimeout(()=>{this._held=true;this.setState({histOpen:true})},520)},
+      hUndoUp:()=>{clearTimeout(this.holdTimer);if(!this._held&&!s.histOpen)this.doUndo();else if(!this._held)this.setState({histOpen:false})},
+      hUndoLeave:()=>clearTimeout(this.holdTimer),
+      hHistPick:e=>this.doUndo(+e.currentTarget.dataset.i),
+      simStrip:s.sim.strip,simGlyph:s.sim.playing?'⏸':'▶',simYear:String(s.sim.year),
+      simSpeeds:[1,10,100].map(v=>({v:String(v),label:'×'+v,col:s.sim.speed===v?'var(--acc)':'var(--faint)'})),
+      hSimPlay:()=>{const on=!this.state.sim.playing;this.setState(st=>({sim:{...st.sim,playing:on}}));clearInterval(this._simInt);if(on)this._simInt=setInterval(()=>this.setState(st=>({sim:{...st.sim,year:Math.min(1200,st.sim.year+st.sim.speed)}})),600)},
+      hSimYear:e=>{const v=+e.target.value;this.setState(st=>({sim:{...st.sim,year:v}}))},
+      hSimSpeed:e=>{const v=+e.currentTarget.dataset.v;this.setState(st=>({sim:{...st.sim,speed:v}}))},
+      hSimClose:()=>{clearInterval(this._simInt);this.setState(st=>({sim:{...st.sim,strip:false,playing:false}}))},
+      coachOn:coachEnabled&&(s.coach===0||s.coach===1),coachText:coachTexts[s.coach]||'',
+      hCoachDismiss:()=>{if(this.state.coach===0)this.setState({coach:1});else this._coachDone()},
+      toasts:s.toasts,
+      searchOpen:s.search.open,searchQ:s.search.q,searchRows,searchEmpty:!!q&&searchRows.length===0,
+      hSearchQ:e=>{const v=e.target.value;this.setState(st=>({search:{...st.search,q:v}}))},
+      hSearchClose:()=>this.setState({search:{open:false,q:''}}),
+      hSearchPick:e=>{const d2=e.currentTarget.dataset;this.view.cx=+d2.x;this.view.cy=+d2.y;this.view.s=Math.max(this.view.s,1.1);this.dirty=true;this.setState({search:{open:false,q:''},samplePin:{x:+d2.x,y:+d2.y}});this.toast('Panned to '+d2.n)},
+      inspOpen:s.inspector.open,inspW:Math.min(340,Math.round(this.frameW()*0.82)),
+      inspCoords:d?d.x.toLocaleString('en-US')+' km E · '+d.y.toLocaleString('en-US')+' km N':'',
+      inspElev:d?d.elev.toLocaleString('en-US'):'',inspRows,
+      hInspClose:()=>this.setState(st=>({inspector:{...st.inspector,open:false}})),
+      modalOpen:s.modal==='new',modalName:s.modalF.name,modalSeed:s.modalF.seed,
+      modalExtents:[{v:'region',label:'REGION'},{v:'world',label:'WORLD'}].map(x=>({...x,on:s.modalF.extent===x.v,bord:s.modalF.extent===x.v?'var(--acc)':'var(--hair)',col:s.modalF.extent===x.v?'var(--acc)':'var(--sec)',bg:s.modalF.extent===x.v?'var(--wash)':'transparent'})),
+      hModalName:e=>{const v=e.target.value;this.setState(st=>({modalF:{...st.modalF,name:v}}))},
+      hModalSeed:e=>{const v=e.target.value;this.setState(st=>({modalF:{...st.modalF,seed:v}}))},
+      hModalDice:()=>this.setState(st=>({modalF:{...st.modalF,seed:String(Math.floor(Math.random()*900000+100000))}})),
+      hModalExtent:e=>{const v=e.currentTarget.dataset.v;this.setState(st=>({modalF:{...st.modalF,extent:v}}))},
+      hModalCancel:()=>this.setState({modal:null}),
+      hModalCreate:()=>{const f=this.state.modalF;const name=(f.name||'UNTITLED').toUpperCase();this.setState(st=>({modal:null,scr:'app',world:{name,seed:f.seed,status:'empty · generate to begin'},labels:[],icons:[],ways:[],userPlaces:[],measurePts:[],samplePin:null,gen:{...st.gen,stale:1,lastRun:'—'}}));this.view.cx=2048;this.view.cy=2048;this.view.s=0.18;this.dirty=true;this.toast('World created — open GENERATE to run stages 01–10')},
+    };
+  }
+  renderVals(){
+    const s=this.state;const land=s.land;const fw=this.frameW(),fh=this.frameH();
+    const devices=[{label:'360',w:360,h:800},{label:'412',w:412,h:892},{label:'480',w:480,h:1040},{label:'TABLET 800',w:800,h:1280}].map(d=>({...d,on:s.dev.label===d.label,bord:s.dev.label===d.label?'#e0a34a':'rgba(255,255,255,.16)',col:s.dev.label===d.label?'#e0a34a':'#8d9296',bg:s.dev.label===d.label?'rgba(224,163,74,.12)':'transparent'}));
+    const pickerWorlds=[
+      {name:'ELDRA',seed:'483920',status:'finalized · atlas',meta:'483920 · 2 048² · edited 2 d ago · 1.6 GB',state:'FINALIZED',thumb:'linear-gradient(140deg,#2a3140 0%,#1a2230 52%,#141a24 100%)',chipBg:'rgba(224,163,74,.16)',chipCol:'#e0a34a'},
+      {name:'VHAREN REACH',seed:'129384',status:'stages 01–07 resolved',meta:'129384 · 1 024² · edited 5 d ago · 410 MB',state:'IN PROGRESS',thumb:'linear-gradient(140deg,#31402a 0%,#22301a 52%,#1a2414 100%)',chipBg:'rgba(255,255,255,.10)',chipCol:'#c8cbcd'},
+      {name:'KESSA',seed:'774201',status:'draft · stage 03',meta:'774201 · 512² · edited 3 w ago · 88 MB',state:'DRAFT',thumb:'linear-gradient(140deg,#402a31 0%,#301a22 52%,#24141a 100%)',chipBg:'rgba(255,255,255,.10)',chipCol:'#c8cbcd'}];
+    const tabs=[{id:'map',g:'▤',label:'MAP'},{id:'gen',g:'⌗',label:'GENERATE'},{id:'plan',g:'➔',label:'PLAN'},{id:'more',g:'⋯',label:'MORE'}].map(t=>({...t,on:s.tab===t.id,col:s.tab===t.id?'var(--acc)':'var(--sec)',bg:s.tab===t.id?'var(--wash)':'transparent'}));
+    const navH=land?0:84;const sheetOpen=!!s.tab;
+    let sheetStyle;
+    if(land){sheetStyle=`position:absolute;top:0;bottom:0;right:0;width:${sheetOpen?Math.min(440,Math.round(fw*0.46)):0}px;border-left:1px solid var(--hair);transition:width .28s cubic-bezier(.3,.9,.3,1);border-radius:0`}
+    else{sheetStyle=`position:absolute;left:0;right:0;bottom:${navH}px;height:${sheetOpen?this._detH(s.detent):0}px;border-radius:22px 22px 0 0;transition:height .28s cubic-bezier(.3,.9,.3,1)`}
+    const mt=this._moreTitle();
+    const titles={map:['MAP','layers · style · annotation'],gen:['GENERATE',s.genMode==='pipe'?'pipeline · seed '+s.world.seed:'sculpt · draft stamps'],plan:[s.planView==='stage'?'PLAN · STAGE '+(s.plan.sel+1):'PLAN','journey · Vhal Serai → Port Amre'],more:mt};
+    const tt=s.tab?titles[s.tab]:['',''];
+    const light=s.light;
+    const themeVars=light?'--warn:#9a6a12;--block:#a04437;--good:#4e6f3f;--water:#3f6675;--sur:#f4f2ee;--pan:#fbfaf7;--pan2:#eceae4;--ink:#111210;--body:#23241f;--sec:#3d3f39;--dim:#6b6f6a;--faint:#8d9088;--acc:#a4650f;--accInk:#f7f4ee;--hair:rgba(0,0,0,.14);--hair2:rgba(0,0,0,.08);--bord:rgba(0,0,0,.20);--wash:rgba(164,101,15,.10);--chip:rgba(0,0,0,.05);--chipOn:rgba(0,0,0,.10);background:var(--sur)':'';
+    const sd=s.samplePin?this.sampleData(s.samplePin):null;
+    const moreDepth=s.moreStack.length>1;const planDepth=s.planView!=='root';
+    return {
+      mapHostRef:this.mapHostRef,canvasRef:this.canvasRef,sheetRef:this.sheetRef,grabRef:this.grabRef,chipRef:this.chipRef,
+      showStrip:this.props.deviceStrip??true,
+      devices,orientLabel:land?'LANDSCAPE ⤾':'PORTRAIT ⤾',dimsLabel:`${fw} × ${fh} dp`,
+      frameOverride:`width:${fw}px;height:${fh}px`,themeVars,
+      scrPicker:s.scr==='picker',scrApp:s.scr==='app',pickerWorlds,
+      mapInset:land?'left:72px;right:0;bottom:0':'left:0;right:0;bottom:84px',
+      chromeLeft:land?72:0,scrimCol:light?'rgba(244,242,238,.85)':'rgba(10,11,12,.72)',statusCol:light?'#3d3f39':'#a9adb0',pillBg:light?'rgba(251,250,247,.92)':'rgba(18,20,21,.92)',
+      worldName:s.world.name,worldMeta:s.world.seed+' · '+s.world.status,menuOpen:s.menuOpen,savedAt:s.savedAt,themeLabel:light?'light':'dark',
+      chipDisp:s.samplePin?'block':'none',chipLine1:sd?`${sd.elev.toLocaleString('en-US')} m · ${sd.biome}`:'',chipLine2:sd?`${sd.temp} °C · slope ${sd.slope}° · tap for inspector ›`:'',
+      tabs,portrait:s.scr==='app'&&!land,landscape:s.scr==='app'&&land,
+      sheetStyle,sheetTitle:tt[0],sheetSub:tt[1],sheetBack:(s.tab==='more'&&moreDepth)||(s.tab==='plan'&&planDepth),
+      tabIsMap:s.tab==='map',tabIsGen:s.tab==='gen',tabIsPlan:s.tab==='plan',tabIsMore:s.tab==='more',
+      ...this.hs(),...this.valsMap(),...this.valsGen(),...this.valsPlan(),...this.valsMore(),...this.valsOver()
+    };
+  }
+}
+</script>
+</body>
+</html>

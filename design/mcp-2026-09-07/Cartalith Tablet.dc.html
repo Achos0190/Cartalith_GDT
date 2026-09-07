@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><script src="./cartalith-dcc-parts.js"></script><script src="./landmark-glyphs.js"></script><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet"><style>html,body{margin:0;background:#0a0b0c}*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}:focus-visible{outline:2px solid #e0a34a;outline-offset:2px}::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:rgba(140,145,150,.3);border-radius:4px}a{color:#e0a34a}a:hover{color:#f0bd72}</style></helmet>
+<div style="min-height:100vh;background:#0a0b0c;padding:18px 16px 30px;display:flex;flex-direction:column;align-items:center;gap:14px;font-family:'IBM Plex Mono',monospace">
+
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;max-width:1150px">
+    <span style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296">CARTALITH · TABLET</span>
+    <span style="font:10px 'IBM Plex Mono',monospace;color:#5d6165">desktop shell at arm's length · tools live in the rail · both docks stay docked</span>
+    <span style="width:1px;height:16px;background:#2a2d30"></span>
+    <span style="display:flex;gap:3px;flex-wrap:wrap">
+      <sc-for list="{{ frames }}" as="f" hint-placeholder-count="6">
+        <span onClick="{{ hFrame }}" data-id="{{ f.id }}" style="padding:5px 11px;border-radius:999px;cursor:pointer;font:10px 'IBM Plex Mono',monospace;background:{{ f.bg }};color:{{ f.col }}">{{ f.label }}</span>
+      </sc-for>
+    </span>
+    <span onClick="{{ hTheme }}" style="padding:5px 11px;border-radius:999px;cursor:pointer;font:10px 'IBM Plex Mono',monospace;background:#17191b;color:#8d9296">{{ themeLabel }}</span>
+  </div>
+
+  <div style="width:{{ zw }}px;height:{{ zh }}px;flex:none;position:relative">
+  <div style="position:absolute;top:0;left:0;transform:scale({{ zoom }});transform-origin:top left;width:{{ fw }}px;height:{{ fh }}px;border-radius:22px;border:1px solid rgba(255,255,255,.14);background:#111213;overflow:hidden;position:relative;box-shadow:0 30px 90px rgba(0,0,0,.6)">
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;background:var(--sur);{{ themeVars }};font:var(--m1) 'IBM Plex Mono',monospace;color:var(--body)">
+
+      <sc-if value="{{ scrPicker }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:1;display:flex;flex-direction:column;min-height:0;padding:34px 40px;overflow-y:auto">
+          <div style="font:500 var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.3em;color:var(--acc)">CARTALITH</div>
+          <div style="font:400 26px 'IBM Plex Mono',monospace;color:var(--ink);padding:10px 0 4px">Open a world</div>
+          <div style="font:var(--m1) 'IBM Plex Mono',monospace;color:var(--faint);padding-bottom:22px">{{ pickerSub }}</div>
+          <div style="display:grid;grid-template-columns:repeat({{ pickCols }},1fr);gap:14px">
+            <div onClick="{{ hNewWorld }}" style="border:1px dashed var(--bor);border-radius:16px;min-height:186px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;cursor:pointer;background:var(--pan)">
+              <span style="font:300 30px 'IBM Plex Mono',monospace;color:var(--acc)">+</span>
+              <span style="font:var(--m1) 'IBM Plex Mono',monospace;letter-spacing:.14em;color:var(--sec)">NEW WORLD</span>
+              <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis)">seed · size · plates</span>
+            </div>
+            <sc-for list="{{ worlds }}" as="w" hint-placeholder-count="5">
+              <div onClick="{{ hOpenWorld }}" data-name="{{ w.name }}" style="border:1px solid var(--hair);border-radius:16px;min-height:186px;cursor:pointer;background:var(--pan);display:flex;flex-direction:column;overflow:hidden">
+                <div style="height:96px;background:{{ w.thumb }};position:relative">
+                  <span style="position:absolute;top:9px;right:10px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.14em;padding:2px 8px;border-radius:999px;background:rgba(0,0,0,.42);color:{{ w.stateCol }}">{{ w.state }}</span>
+                </div>
+                <div style="padding:11px 13px;display:flex;flex-direction:column;gap:4px">
+                  <span style="font:500 var(--m0) 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--ink)">{{ w.name }}</span>
+                  <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ w.meta }}</span>
+                  <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dim)">{{ w.status }}</span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ scrApp }}" hint-placeholder-val="{{ false }}">
+        <div style="height:var(--menuH);flex:none;display:flex;align-items:center;gap:4px;padding:0 10px 0 6px;border-bottom:1px solid var(--hair);background:var(--pan);position:relative;z-index:60">
+          <span onClick="{{ hMenu }}" data-id="OVERFLOW" style="width:var(--tap);height:var(--tap);display:grid;place-items:center;border-radius:var(--rCtl);cursor:pointer;background:{{ ovBg }};color:{{ ovCol }};font-size:15px">☰</span>
+          <sc-for list="{{ menus }}" as="m" hint-placeholder-count="3">
+            <span onClick="{{ hMenu }}" data-id="{{ m.id }}" style="min-height:var(--tap);padding:0 14px;display:flex;align-items:center;border-radius:var(--rCtl);cursor:pointer;background:{{ m.bg }};color:{{ m.col }};font:var(--m1) 'IBM Plex Mono',monospace;letter-spacing:.1em">{{ m.id }}</span>
+          </sc-for>
+          <span style="flex:1"></span>
+          <span style="font:var(--m1) 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--sec)">{{ projName }}</span>
+          <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis)">{{ projMeta }}</span>
+          <span onClick="{{ hTheme }}" style="width:var(--tap);height:var(--tap);display:grid;place-items:center;border-radius:var(--rCtl);cursor:pointer;color:var(--faint)">{{ themeGlyph }}</span>
+          <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:calc(100% + 4px);left:{{ menuX }}px;min-width:300px;max-width:390px;background:var(--pan);border:1px solid var(--bor);border-radius:var(--rPan);box-shadow:var(--shadow);padding:7px 0;max-height:560px;overflow-y:auto">
+              <sc-for list="{{ menuRows }}" as="r" hint-placeholder-count="7">
+                <sc-if value="{{ r.isSep }}" hint-placeholder-val="{{ false }}"><div style="height:1px;background:var(--div);margin:5px 0"></div></sc-if>
+                <sc-if value="{{ r.isHead }}" hint-placeholder-val="{{ false }}"><div style="padding:7px 16px 3px;font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dis)">{{ r.label }}</div></sc-if>
+                <sc-if value="{{ r.isItem }}" hint-placeholder-val="{{ true }}">
+                  <div onClick="{{ hMenuAct }}" data-a="{{ r.a }}" style="min-height:var(--tap);display:flex;align-items:center;gap:10px;padding:0 16px 0 {{ r.ind }}px;cursor:pointer;color:{{ r.col }}">
+                    <span style="flex:1">{{ r.label }}</span>
+                    <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis)">{{ r.sc }}</span>
+                    <span style="color:var(--faint)">{{ r.glyph }}</span>
+                  </div>
+                </sc-if>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="height:var(--railH);flex:none;display:flex;align-items:center;gap:8px;padding:0 8px;border-bottom:1px solid var(--hair);background:var(--pan);position:relative;z-index:50">
+          <span style="display:flex;gap:3px;flex:none">
+            <sc-for list="{{ tools }}" as="t" hint-placeholder-count="5">
+              <span onClick="{{ hTool }}" data-id="{{ t.id }}" title="{{ t.name }}" style="width:var(--tap);height:var(--tap);display:grid;place-items:center;border-radius:var(--rCtl);cursor:pointer;background:{{ t.bg }};color:{{ t.col }}"><span dangerouslySetInnerHTML="{{ t.svg }}" style="display:flex"></span></span>
+            </sc-for>
+          </span>
+          <span style="width:1px;height:22px;background:var(--div);flex:none"></span>
+          <span style="flex:1;min-width:0;overflow-x:auto;overflow-y:hidden;display:flex;align-items:center;gap:8px;padding:2px 0">
+            <sc-if value="{{ optBrush }}" hint-placeholder-val="{{ false }}">
+              <span style="display:flex;align-items:center;gap:6px;flex:none"><span style="color:var(--faint)">size</span><span onPointerDown="{{ hBrSize }}" style="width:120px;height:var(--tap);display:flex;align-items:center;cursor:pointer;touch-action:none"><span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--acc);width:{{ brSizePct }}"></span><span style="position:absolute;top:-5px;margin-left:-7px;width:14px;height:14px;border-radius:50%;background:var(--ink);left:{{ brSizePct }}"></span></span></span><span style="color:var(--ink);width:80px;flex:none">{{ brSizeDisp }}</span></span>
+              <span style="display:flex;align-items:center;gap:6px;flex:none"><span style="color:var(--faint)">hardness</span><span onPointerDown="{{ hBrHard }}" style="width:84px;height:var(--tap);display:flex;align-items:center;cursor:pointer;touch-action:none"><span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--acc);width:{{ brHardPct }}"></span><span style="position:absolute;top:-5px;margin-left:-7px;width:14px;height:14px;border-radius:50%;background:var(--ink);left:{{ brHardPct }}"></span></span></span><span style="color:var(--ink);width:34px;flex:none">{{ brHardDisp }}</span></span>
+              <span style="width:1px;height:22px;background:var(--div);flex:none"></span>
+              <span style="display:flex;gap:3px;flex:none">
+                <sc-for list="{{ shapeChips }}" as="c" hint-placeholder-count="8"><span onClick="{{ hShape }}" data-id="{{ c.id }}" style="min-height:var(--ctl);padding:0 11px;border-radius:999px;cursor:pointer;display:flex;align-items:center;background:{{ c.bg }};color:{{ c.col }}">{{ c.id }}</span></sc-for>
+              </span>
+            </sc-if>
+            <sc-if value="{{ optFeat }}" hint-placeholder-val="{{ false }}">
+              <span style="width:1px;height:22px;background:var(--div);flex:none"></span>
+              <span style="display:flex;gap:3px;flex:none">
+                <sc-for list="{{ featChips }}" as="c" hint-placeholder-count="6"><span onClick="{{ hFeat }}" data-id="{{ c.id }}" style="min-height:var(--ctl);padding:0 12px;border-radius:999px;cursor:pointer;display:flex;align-items:center;background:{{ c.bg }};color:{{ c.col }}">{{ c.label }}</span></sc-for>
+              </span>
+            </sc-if>
+            <sc-if value="{{ optMeas }}" hint-placeholder-val="{{ false }}">
+              <span style="display:flex;gap:3px;flex:none">
+                <sc-for list="{{ measChips }}" as="c" hint-placeholder-count="5"><span onClick="{{ hMeasSub }}" data-id="{{ c.id }}" style="min-height:var(--ctl);padding:0 13px;border-radius:999px;cursor:pointer;display:flex;align-items:center;background:{{ c.bg }};color:{{ c.col }}">{{ c.label }}</span></sc-for>
+              </span>
+              <sc-if value="{{ measIsSection }}" hint-placeholder-val="{{ false }}">
+                <span style="width:1px;height:22px;background:var(--div);flex:none"></span>
+                <span style="color:var(--faint);flex:none">field</span>
+                <span style="display:flex;gap:3px;flex:none">
+                  <sc-for list="{{ secChips }}" as="c" hint-placeholder-count="5"><span onClick="{{ hSecField }}" data-id="{{ c.id }}" style="min-height:var(--ctl);padding:0 11px;border-radius:999px;cursor:pointer;display:flex;align-items:center;background:{{ c.bg }};color:{{ c.col }}">{{ c.id }}</span></sc-for>
+                </span>
+              </sc-if>
+              <span style="color:var(--dim);flex:none">{{ measHint }}</span>
+            </sc-if>
+            <sc-if value="{{ optPlain }}" hint-placeholder-val="{{ true }}">
+              <span style="color:var(--dis);flex:none">{{ plainHint }}</span>
+            </sc-if>
+          </span>
+          <span style="width:1px;height:22px;background:var(--div);flex:none"></span>
+          <span style="display:flex;gap:3px;flex:none">
+            <span onClick="{{ hUndo }}" style="width:var(--tap);height:var(--tap);display:grid;place-items:center;border-radius:var(--rCtl);cursor:pointer;color:{{ undoCol }};font-size:15px">↶</span>
+            <span onClick="{{ hRedo }}" style="width:var(--tap);height:var(--tap);display:grid;place-items:center;border-radius:var(--rCtl);cursor:pointer;color:{{ redoCol }};font-size:15px">↷</span>
+          </span>
+        </div>
+
+        <div style="flex:1;display:flex;min-height:0">
+          <div style="width:var(--railW);flex:none;border-right:1px solid var(--hair);background:var(--pan);display:flex;flex-direction:column;align-items:center;padding:7px 0;gap:4px">
+            <sc-for list="{{ domains }}" as="d" hint-placeholder-count="3">
+              <span onClick="{{ hDomain }}" data-id="{{ d.id }}" title="{{ d.id }}" style="width:38px;height:44px;border-radius:var(--rCtl);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;background:{{ d.bg }};color:{{ d.col }}"><span dangerouslySetInnerHTML="{{ d.svg }}" style="display:flex"></span><span style="font:8px 'IBM Plex Mono',monospace;letter-spacing:.08em">{{ d.short }}</span></span>
+            </sc-for>
+            <span style="flex:1"></span>
+            <span style="font:8px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--dis);writing-mode:vertical-rl;padding-bottom:8px">{{ railFoot }}</span>
+          </div>
+
+          <div style="width:var(--ldW);flex:none;border-right:1px solid var(--hair);background:var(--pan);display:flex;flex-direction:column;min-height:0">
+            <div style="flex:none;min-height:var(--tap);display:flex;align-items:center;gap:5px;padding:5px 10px;border-bottom:1px solid var(--hair);flex-wrap:wrap">
+              <sc-for list="{{ crumbs }}" as="c" hint-placeholder-count="2">
+                <span onClick="{{ hCrumb }}" data-i="{{ c.i }}" style="cursor:pointer;font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.14em;color:{{ c.col }};padding:3px 0">{{ c.label }}</span>
+                <sc-if value="{{ c.more }}" hint-placeholder-val="{{ false }}"><span style="color:var(--dis);font:var(--m2) 'IBM Plex Mono',monospace">›</span></sc-if>
+              </sc-for>
+            </div>
+            <div style="flex:1;overflow-y:auto;min-height:0">
+              <sc-if value="{{ ldPipe }}" hint-placeholder-val="{{ true }}">
+                <sc-for list="{{ stages }}" as="st" hint-placeholder-count="10">
+                  <div style="border-bottom:1px solid var(--div)">
+                    <div onClick="{{ hStage }}" data-n="{{ st.n }}" style="min-height:var(--row);display:flex;align-items:center;gap:9px;padding:6px 12px;cursor:pointer">
+                      <span style="width:20px;flex:none;font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis)">{{ st.num }}</span>
+                      <span style="width:7px;height:7px;border-radius:50%;flex:none;background:{{ st.dot }}"></span>
+                      <span style="flex:1;color:{{ st.col }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ st.name }}</span>
+                      <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:{{ st.stCol }}">{{ st.state }}</span>
+                      <span style="color:var(--faint);transform:rotate({{ st.chev }})">▸</span>
+                    </div>
+                    <sc-if value="{{ st.open }}" hint-placeholder-val="{{ false }}">
+                      <div style="padding:4px 12px 12px;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--div)">
+                        <div style="font:var(--m2)/1.6 'IBM Plex Mono',monospace;color:var(--dis)">{{ st.needs }}</div>
+                        <sc-for list="{{ st.grid }}" as="g" hint-placeholder-count="2">
+                          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                            <sc-for list="{{ g.cells }}" as="c" hint-placeholder-count="2">
+                              <div onClick="{{ hStageTog }}" data-k="{{ c.k }}" style="min-height:var(--rowD);border-radius:var(--rCtl);background:{{ c.bg }};display:flex;flex-direction:column;justify-content:center;gap:1px;padding:5px 10px;cursor:pointer">
+                                <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ c.label }}</span>
+                                <span style="color:{{ c.col }}">{{ c.val }}</span>
+                              </div>
+                            </sc-for>
+                          </div>
+                        </sc-for>
+                        <sc-for list="{{ st.sliders }}" as="f" hint-placeholder-count="3">
+                          <div style="display:flex;flex-direction:column;gap:2px">
+                            <div style="display:flex;align-items:baseline"><span style="flex:1;color:var(--sec)">{{ f.label }}</span><span style="font:var(--m1) 'IBM Plex Mono',monospace;color:{{ f.valCol }}">{{ f.disp }}</span></div>
+                            <span onPointerDown="{{ hStageSlide }}" data-k="{{ f.k }}" style="height:var(--rowD);display:flex;align-items:center;cursor:pointer;touch-action:none"><span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:{{ f.fill }};width:{{ f.pct }}"></span><span style="position:absolute;top:-5px;margin-left:-7px;width:14px;height:14px;border-radius:50%;background:var(--ink);left:{{ f.pct }}"></span></span></span>
+                          </div>
+                        </sc-for>
+                        <div style="display:flex;gap:6px">
+                          <span onClick="{{ hRunStage }}" data-n="{{ st.n }}" style="flex:1;min-height:var(--row);border-radius:var(--rCtl);background:var(--acc);color:var(--accInk);display:flex;align-items:center;justify-content:center;cursor:pointer;font-weight:500">Run stage {{ st.num }}</span>
+                          <span onClick="{{ hResetStage }}" style="min-height:var(--row);padding:0 14px;border-radius:var(--rCtl);background:var(--ins);color:var(--sec);display:flex;align-items:center;cursor:pointer">reset</span>
+                        </div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+                <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
+                  <span onClick="{{ hRunAll }}" style="min-height:var(--row);border-radius:var(--rCtl);background:var(--acc);color:var(--accInk);display:flex;align-items:center;justify-content:center;cursor:pointer;font-weight:500;position:relative;overflow:hidden"><sc-if value="{{ runOn }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;left:0;top:0;bottom:0;background:rgba(0,0,0,.2);width:{{ runPct }}"></span></sc-if><span style="position:relative">{{ runLabel }}</span></span>
+                  <span style="font:var(--m2)/1.6 'IBM Plex Mono',monospace;color:var(--dis)">{{ pipeNote }}</span>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ ldSculpt }}" hint-placeholder-val="{{ false }}">
+                <sc-if value="{{ scNoDrill }}" hint-placeholder-val="{{ true }}">
+                  <div style="padding:11px 12px;display:flex;flex-direction:column;gap:9px;border-bottom:1px solid var(--div)">
+                    <div style="font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--faint)">{{ sfTitle }}</div>
+                    <sc-for list="{{ sfParams }}" as="f" hint-placeholder-count="4">
+                      <div style="display:flex;flex-direction:column;gap:2px">
+                        <div style="display:flex;align-items:baseline"><span style="flex:1;color:var(--sec)">{{ f.label }}</span><span style="font:var(--m1) 'IBM Plex Mono',monospace;color:var(--ink)">{{ f.disp }}</span></div>
+                        <span onPointerDown="{{ hSfSlide }}" data-k="{{ f.k }}" style="height:var(--rowD);display:flex;align-items:center;cursor:pointer;touch-action:none"><span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--acc);width:{{ f.pct }}"></span><span style="position:absolute;top:-5px;margin-left:-7px;width:14px;height:14px;border-radius:50%;background:var(--ink);left:{{ f.pct }}"></span></span></span>
+                      </div>
+                    </sc-for>
+                    <sc-if value="{{ sfHasSide }}" hint-placeholder-val="{{ true }}">
+                      <div style="display:flex;flex-direction:column;gap:5px">
+                        <span style="color:var(--sec)">high side</span>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                          <span onClick="{{ hSide }}" data-v="left" style="min-height:var(--rowD);border-radius:var(--rCtl);display:flex;align-items:center;justify-content:center;cursor:pointer;background:{{ sideLBg }};color:{{ sideLCol }}">left of stroke</span>
+                          <span onClick="{{ hSide }}" data-v="right" style="min-height:var(--rowD);border-radius:var(--rCtl);display:flex;align-items:center;justify-content:center;cursor:pointer;background:{{ sideRBg }};color:{{ sideRCol }}">right of stroke</span>
+                        </div>
+                        <span style="font:var(--m2)/1.5 'IBM Plex Mono',monospace;color:var(--dis)">relative to the direction you draw — ticks mark the high side</span>
+                      </div>
+                    </sc-if>
+                    <div style="font:var(--m2)/1.5 'IBM Plex Mono',monospace;color:var(--dis)">{{ pressureNote }}</div>
+                  </div>
+                  <div style="padding:10px 12px 6px;display:flex;align-items:center;gap:8px">
+                    <span style="font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--faint)">STAMP STACK</span>
+                    <span style="flex:1"></span>
+                    <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis)">{{ stampCount }}</span>
+                  </div>
+                  <sc-if value="{{ noStamps }}" hint-placeholder-val="{{ true }}">
+                    <div style="padding:6px 12px 14px;font:var(--m2)/1.6 'IBM Plex Mono',monospace;color:var(--dis)">draw on the map to commit a stamp — every stroke stays editable here</div>
+                  </sc-if>
+                  <sc-for list="{{ stamps }}" as="st" hint-placeholder-count="0">
+                    <div onClick="{{ hStampDrill }}" data-i="{{ st.i }}" style="min-height:var(--rowD);display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--div);cursor:pointer;background:{{ st.selBg }}">
+                      <span onClick="{{ hStampVis }}" data-i="{{ st.i }}" style="width:13px;height:13px;border-radius:4px;flex:none;border:1px solid var(--bor);background:{{ st.visBg }}"></span>
+                      <span style="flex:1;color:{{ st.col }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ st.label }}</span>
+                      <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis)">{{ st.meta }}</span>
+                      <span style="color:var(--faint)">›</span>
+                    </div>
+                  </sc-for>
+                </sc-if>
+                <sc-if value="{{ scDrill }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding:11px 12px;display:flex;flex-direction:column;gap:9px">
+                    <div style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ dsMeta }}</div>
+                    <sc-for list="{{ dsRows }}" as="r" hint-placeholder-count="4">
+                      <div style="display:flex;align-items:baseline;gap:10px;min-height:var(--rowD)"><span style="flex:1;color:var(--sec)">{{ r.k }}</span><span style="font:var(--m1) 'IBM Plex Mono',monospace;color:var(--ink)">{{ r.v }}</span></div>
+                    </sc-for>
+                    <sc-if value="{{ dsSide }}" hint-placeholder-val="{{ false }}">
+                      <span onClick="{{ hStampFlip }}" style="min-height:var(--row);border-radius:var(--rCtl);background:var(--ins);color:var(--acc);display:flex;align-items:center;justify-content:center;cursor:pointer">⇅ flip high side · {{ dsSideVal }}</span>
+                    </sc-if>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                      <span onClick="{{ hStampVisD }}" style="min-height:var(--row);border-radius:var(--rCtl);background:var(--ins);color:var(--sec);display:flex;align-items:center;justify-content:center;cursor:pointer">{{ dsVisLabel }}</span>
+                      <span onClick="{{ hStampDel }}" style="min-height:var(--row);border-radius:var(--rCtl);background:var(--ins);color:#c05a4a;display:flex;align-items:center;justify-content:center;cursor:pointer">delete</span>
+                    </div>
+                  </div>
+                </sc-if>
+              </sc-if>
+
+              <sc-if value="{{ ldCivCats }}" hint-placeholder-val="{{ false }}">
+                <sc-for list="{{ civCats }}" as="c" hint-placeholder-count="4">
+                  <div onClick="{{ hCivCat }}" data-id="{{ c.id }}" style="min-height:var(--row);display:flex;align-items:center;gap:9px;padding:6px 12px;border-bottom:1px solid var(--div);cursor:pointer">
+                    <span style="color:{{ c.col }};transform:rotate({{ c.chev }})">▸</span>
+                    <span style="flex:1;font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.16em;color:{{ c.col }}">{{ c.label }}</span>
+                    <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ c.count }}</span>
+                  </div>
+                  <sc-if value="{{ c.isLandmarks }}" hint-placeholder-val="{{ false }}">
+                    <div style="border-bottom:1px solid var(--div)">
+                      <sc-if value="{{ lmRoot }}" hint-placeholder-val="{{ true }}">
+                        <div style="padding:10px 12px;display:flex;flex-direction:column;gap:9px;border-bottom:1px solid var(--div)">
+                          <div style="font:var(--m2)/1.6 'IBM Plex Mono',monospace;color:var(--sec)">{{ lmHeadroom }}</div>
+                          <div style="display:flex;flex-direction:column;gap:2px">
+                            <div style="display:flex;align-items:baseline"><span style="flex:1;color:var(--sec)">crowding</span><span style="font:var(--m1) 'IBM Plex Mono',monospace;color:var(--ink)">{{ lmCrowdDisp }}</span></div>
+                            <span onPointerDown="{{ hLmCrowd }}" style="height:var(--rowD);display:flex;align-items:center;cursor:pointer;touch-action:none"><span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--acc);width:{{ lmCrowdPct }}"></span><span style="position:absolute;top:-5px;margin-left:-7px;width:14px;height:14px;border-radius:50%;background:var(--ink);left:{{ lmCrowdPct }}"></span></span></span>
+                            <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ lmCrowdKm }}</span>
+                          </div>
+                          <div onClick="{{ hLmCompete }}" style="min-height:var(--rowD);display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+                            <span style="width:32px;height:18px;border-radius:999px;flex:none;position:relative;background:{{ lmCompeteBg }};margin-top:1px"><span style="position:absolute;top:2px;width:14px;height:14px;border-radius:50%;background:var(--ink);left:{{ lmCompeteX }}px"></span></span>
+                            <span style="display:flex;flex-direction:column"><span style="color:var(--body)">types compete</span><span style="font:var(--m2)/1.5 'IBM Plex Mono',monospace;color:var(--dis)">on keeps every landmark clear of every other one</span></span>
+                          </div>
+                        </div>
+                        <sc-for list="{{ lmFams }}" as="f" hint-placeholder-count="6">
+                          <div onClick="{{ hLmFam }}" data-id="{{ f.id }}" style="min-height:var(--row);display:flex;align-items:center;gap:9px;padding:6px 12px;border-bottom:1px solid var(--div);cursor:pointer">
+                            <span dangerouslySetInnerHTML="{{ f.glyph }}" style="display:flex;color:var(--sec);flex:none"></span>
+                            <span style="flex:1;display:flex;flex-direction:column"><span style="font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--body)">{{ f.label }}</span><span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ f.sub }}</span></span>
+                            <span style="color:var(--faint)">›</span>
+                          </div>
+                        </sc-for>
+                        <div style="padding:11px 12px;display:flex;flex-direction:column;gap:8px">
+                          <sc-if value="{{ lmStale }}" hint-placeholder-val="{{ false }}"><span style="font:var(--m2)/1.5 'IBM Plex Mono',monospace;color:var(--acc)">caps edited — results are stale until you run</span></sc-if>
+                          <span onClick="{{ hLmRun }}" style="min-height:var(--row);border-radius:var(--rCtl);background:var(--acc);color:var(--accInk);display:flex;align-items:center;justify-content:center;cursor:pointer;font-weight:500;position:relative;overflow:hidden"><sc-if value="{{ lmRunning }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;left:0;top:0;bottom:0;background:rgba(0,0,0,.2);width:{{ lmRunPct }}"></span></sc-if><span style="position:relative">{{ lmRunLabel }}</span></span>
+                          <span style="font:var(--m2)/1.6 'IBM Plex Mono',monospace;color:var(--dis)">{{ lmFoot }}</span>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ lmInFam }}" hint-placeholder-val="{{ false }}">
+                        <sc-for list="{{ lmRows }}" as="t" hint-placeholder-count="0">
+                          <div style="padding:7px 12px 9px;border-bottom:1px solid var(--div);display:flex;flex-direction:column;gap:4px">
+                            <div style="display:flex;align-items:center;gap:7px">
+                              <span dangerouslySetInnerHTML="{{ t.glyph }}" style="display:flex;color:{{ t.nameCol }};flex:none"></span>
+                              <span style="flex:1;color:{{ t.nameCol }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.name }}</span>
+                              <span style="font:8.5px 'IBM Plex Mono',monospace;color:var(--dis);flex:none">{{ t.badge }}</span>
+                              <span onPointerDown="{{ hLmHold }}" data-name="{{ t.name }}" style="width:28px;height:28px;border-radius:9px;flex:none;display:grid;place-items:center;cursor:pointer;background:{{ t.holdBg }};color:{{ t.holdCol }};font-size:12px" title="hold, then tap the map">✛</span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px">
+                              <span onPointerDown="{{ hLmCap }}" data-id="{{ t.id }}" style="flex:1;height:var(--rowD);display:flex;align-items:center;cursor:pointer;touch-action:none"><span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--acc);width:{{ t.capPct }}"></span><span style="position:absolute;top:-5px;margin-left:-7px;width:14px;height:14px;border-radius:50%;background:var(--ink);left:{{ t.capPct }}"></span></span></span>
+                              <span style="width:62px;flex:none;text-align:right;font:var(--m1) 'IBM Plex Mono',monospace;color:{{ t.nameCol }}">{{ t.capDisp }}</span>
+                            </div>
+                            <sc-if value="{{ t.armed }}" hint-placeholder-val="{{ false }}">
+                              <div onClick="{{ hLmFunnel }}" data-id="{{ t.id }}" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                                <span style="flex:1;height:2px;border-radius:1px;background:var(--ins);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:1px;background:var(--dim);width:{{ t.placedPct }}"></span></span>
+                                <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:{{ t.reasonCol }};white-space:nowrap">{{ t.placedLine }}</span>
+                              </div>
+                            </sc-if>
+                            <sc-if value="{{ t.funnelOpen }}" hint-placeholder-val="{{ false }}">
+                              <div style="border:1px solid var(--bor);border-radius:var(--rCtl);padding:9px 11px;display:flex;flex-direction:column;gap:4px;background:var(--ins)">
+                                <sc-for list="{{ t.funnel }}" as="r" hint-placeholder-count="5">
+                                  <div style="display:flex;align-items:baseline;gap:8px"><span style="flex:1;font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ r.k }}</span><span style="font:var(--m2) 'IBM Plex Mono',monospace;color:{{ r.col }};white-space:pre">{{ r.v }}</span></div>
+                                </sc-for>
+                                <span style="font:var(--m2)/1.5 'IBM Plex Mono',monospace;color:var(--dis)">facts, not prose — the engine returns the integers</span>
+                              </div>
+                            </sc-if>
+                            <sc-if value="{{ t.off }}" hint-placeholder-val="{{ false }}"><span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis)">{{ t.wasNote }}</span></sc-if>
+                          </div>
+                        </sc-for>
+                        <div style="padding:11px 12px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                          <span onClick="{{ hLmBulk }}" data-v="on" style="min-height:var(--row);border-radius:var(--rCtl);background:var(--ins);color:var(--sec);display:flex;align-items:center;justify-content:center;cursor:pointer">arm all</span>
+                          <span onClick="{{ hLmBulk }}" data-v="off" style="min-height:var(--row);border-radius:var(--rCtl);background:var(--ins);color:var(--dim);display:flex;align-items:center;justify-content:center;cursor:pointer">all off</span>
+                        </div>
+                        <div style="padding:0 12px 14px;font:var(--m2)/1.6 'IBM Plex Mono',monospace;color:var(--dis)">{{ lmFamFoot }}</div>
+                      </sc-if>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ c.isFactions }}" hint-placeholder-val="{{ false }}">
+                    <div style="border-bottom:1px solid var(--div)">
+                      <sc-for list="{{ factions }}" as="fa" hint-placeholder-count="5">
+                        <div onClick="{{ hFaction }}" data-id="{{ fa.id }}" style="min-height:var(--row);display:flex;align-items:center;gap:9px;padding:6px 12px;border-top:1px solid var(--div);cursor:pointer">
+                          <span style="width:9px;height:9px;border-radius:3px;flex:none;background:{{ fa.sw }}"></span>
+                          <span style="flex:1;color:var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ fa.name }}</span>
+                          <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ fa.meta }}</span>
+                          <span style="color:var(--faint)">›</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ c.isInfra }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding:11px 12px;display:flex;flex-direction:column;gap:9px;border-bottom:1px solid var(--div)">
+                      <div style="font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--faint)">ROUTE CLASSES</div>
+                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                        <sc-for list="{{ wayClasses }}" as="w" hint-placeholder-count="4">
+                          <div onClick="{{ hWayClass }}" data-id="{{ w.id }}" style="min-height:var(--rowD);border-radius:var(--rCtl);background:{{ w.bg }};display:flex;flex-direction:column;justify-content:center;padding:5px 10px;cursor:pointer">
+                            <span style="color:{{ w.col }}">{{ w.label }}</span>
+                            <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ w.meta }}</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                      <div style="font:var(--m2)/1.6 'IBM Plex Mono',monospace;color:var(--dis)">arm the Way tool in the rail, then tap along the map — routes snap to passes and fords</div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ c.isPlanner }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding:12px;display:flex;flex-direction:column;gap:9px;border-bottom:1px solid var(--div)">
+                      <div style="font:var(--m2)/1.6 'IBM Plex Mono',monospace;color:var(--sec)">{{ planTeaser }}</div>
+                      <span onClick="{{ hOpenPlanner }}" style="min-height:var(--row);border-radius:var(--rCtl);background:var(--acc);color:var(--accInk);display:flex;align-items:center;justify-content:center;cursor:pointer;font-weight:500">Open planner ➔</span>
+                      <span style="font:var(--m2)/1.6 'IBM Plex Mono',monospace;color:var(--dis)">the planner is a full-screen workspace — it leaves the shell and comes back with ‹ SHELL</span>
+                    </div>
+                  </sc-if>
+                </sc-for>
+              </sc-if>
+
+              <sc-if value="{{ ldCartoCats }}" hint-placeholder-val="{{ false }}">
+                <sc-for list="{{ cartoCats }}" as="c" hint-placeholder-count="4">
+                  <div onClick="{{ hCartoCat }}" data-id="{{ c.id }}" style="min-height:var(--row);display:flex;align-items:center;gap:9px;padding:6px 12px;border-bottom:1px solid var(--div);cursor:pointer">
+                    <span style="color:{{ c.col }};transform:rotate({{ c.chev }})">▸</span>
+                    <span style="flex:1;font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.16em;color:{{ c.col }}">{{ c.label }}</span>
+                    <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ c.count }}</span>
+                  </div>
+                  <sc-if value="{{ c.isStyle }}" hint-placeholder-val="{{ false }}">
+                    <div style="border-bottom:1px solid var(--div);padding:6px 0">
+                      <sc-for list="{{ layers }}" as="l" hint-placeholder-count="7">
+                        <div style="min-height:var(--rowD);display:flex;align-items:center;gap:9px;padding:4px 12px">
+                          <span onClick="{{ hLayerVis }}" data-id="{{ l.id }}" style="width:13px;height:13px;border-radius:4px;flex:none;border:1px solid var(--bor);background:{{ l.bg }};cursor:pointer"></span>
+                          <span style="flex:1;color:{{ l.col }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ l.label }}</span>
+                          <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis)">{{ l.op }}</span>
+                        </div>
+                      </sc-for>
+                      <div style="padding:8px 12px 4px;font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--faint)">RAMP</div>
+                      <div style="padding:0 12px 10px;display:flex;flex-direction:column;gap:6px">
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                          <sc-for list="{{ ramps }}" as="r" hint-placeholder-count="6">
+                            <span onClick="{{ hRamp }}" data-id="{{ r.id }}" style="min-height:var(--rowD);border-radius:var(--rCtl);cursor:pointer;display:flex;align-items:center;gap:7px;padding:0 9px;background:{{ r.bg }};color:{{ r.col }}"><span style="width:22px;height:8px;border-radius:3px;flex:none;background:{{ r.grad }}"></span>{{ r.id }}</span>
+                          </sc-for>
+                        </div>
+                        <span style="font:var(--m2)/1.5 'IBM Plex Mono',monospace;color:var(--dis)">not wired — a ramp sets the legend and the export LUT; the viewport keeps its built-in relief ramp in this build</span>
+                      </div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ c.isLabels }}" hint-placeholder-val="{{ false }}">
+                    <div style="border-bottom:1px solid var(--div);padding:6px 0 10px">
+                      <sc-for list="{{ labClasses }}" as="k" hint-placeholder-count="5">
+                        <div onClick="{{ hLabClass }}" data-id="{{ k.id }}" style="min-height:var(--rowD);display:flex;align-items:center;gap:9px;padding:4px 12px;cursor:pointer">
+                          <span style="width:10px;height:10px;border-radius:3px;flex:none;background:{{ k.sw }}"></span>
+                          <span style="flex:1;color:{{ k.col }}">{{ k.label }}</span>
+                          <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ k.count }}</span>
+                        </div>
+                      </sc-for>
+                      <div style="padding:8px 12px 0;display:flex;flex-direction:column;gap:8px">
+                        <div style="font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--faint)">{{ labSelTitle }}</div>
+                        <sc-for list="{{ labFields }}" as="f" hint-placeholder-count="3">
+                          <div style="display:flex;flex-direction:column;gap:2px">
+                            <div style="display:flex;align-items:baseline"><span style="flex:1;color:var(--sec)">{{ f.label }}</span><span style="font:var(--m1) 'IBM Plex Mono',monospace;color:var(--ink)">{{ f.disp }}</span></div>
+                            <span onPointerDown="{{ hLabField }}" data-k="{{ f.k }}" style="height:var(--rowD);display:flex;align-items:center;cursor:pointer;touch-action:none"><span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--acc);width:{{ f.pct }}"></span><span style="position:absolute;top:-5px;margin-left:-7px;width:14px;height:14px;border-radius:50%;background:var(--ink);left:{{ f.pct }}"></span></span></span>
+                          </div>
+                        </sc-for>
+                        <div onClick="{{ hLabColl }}" style="min-height:var(--rowD);display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+                          <span style="width:32px;height:18px;border-radius:999px;flex:none;position:relative;background:{{ labCollBg }};margin-top:1px"><span style="position:absolute;top:2px;width:14px;height:14px;border-radius:50%;background:var(--ink);left:{{ labCollX }}px"></span></span>
+                          <span style="display:flex;flex-direction:column"><span style="color:var(--body)">collision culling</span><span style="font:var(--m2)/1.5 'IBM Plex Mono',monospace;color:var(--dis)">{{ labCollNote }}</span></span>
+                        </div>
+                      </div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ c.isIcons }}" hint-placeholder-val="{{ false }}">
+                    <div style="border-bottom:1px solid var(--div);padding:10px 12px;display:flex;flex-direction:column;gap:9px">
+                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                        <sc-for list="{{ icoFams }}" as="f" hint-placeholder-count="4"><span onClick="{{ hIcoFam }}" data-id="{{ f.id }}" style="min-height:var(--rowD);border-radius:var(--rCtl);cursor:pointer;display:flex;align-items:center;justify-content:center;background:{{ f.bg }};color:{{ f.col }}">{{ f.id }}</span></sc-for>
+                      </div>
+                      <div style="font:var(--m2)/1.6 'IBM Plex Mono',monospace;color:var(--sec)">{{ icoSlotLine }}</div>
+                      <sc-for list="{{ icoFields }}" as="f" hint-placeholder-count="2">
+                        <div style="display:flex;flex-direction:column;gap:2px">
+                          <div style="display:flex;align-items:baseline"><span style="flex:1;color:var(--sec)">{{ f.label }}</span><span style="font:var(--m1) 'IBM Plex Mono',monospace;color:var(--ink)">{{ f.disp }}</span></div>
+                          <span onPointerDown="{{ hIcoField }}" data-k="{{ f.k }}" style="height:var(--rowD);display:flex;align-items:center;cursor:pointer;touch-action:none"><span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--acc);width:{{ f.pct }}"></span><span style="position:absolute;top:-5px;margin-left:-7px;width:14px;height:14px;border-radius:50%;background:var(--ink);left:{{ f.pct }}"></span></span></span>
+                        </div>
+                      </sc-for>
+                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                        <sc-for list="{{ icoRules }}" as="r" hint-placeholder-count="3">
+                          <div onClick="{{ hIcoRule }}" data-id="{{ r.id }}" style="min-height:var(--rowD);border-radius:var(--rCtl);background:{{ r.bg }};display:flex;align-items:center;padding:0 10px;cursor:pointer;color:{{ r.col }}">{{ r.label }}</div>
+                        </sc-for>
+                      </div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ c.isTerrain }}" hint-placeholder-val="{{ false }}">
+                    <div style="border-bottom:1px solid var(--div);padding:10px 12px;display:flex;flex-direction:column;gap:9px">
+                      <sc-for list="{{ terFields }}" as="f" hint-placeholder-count="3">
+                        <div style="display:flex;flex-direction:column;gap:2px">
+                          <div style="display:flex;align-items:baseline"><span style="flex:1;color:var(--sec)">{{ f.label }}</span><span style="font:var(--m1) 'IBM Plex Mono',monospace;color:var(--ink)">{{ f.disp }}</span></div>
+                          <span onPointerDown="{{ hTerField }}" data-k="{{ f.k }}" style="height:var(--rowD);display:flex;align-items:center;cursor:pointer;touch-action:none"><span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--acc);width:{{ f.pct }}"></span><span style="position:absolute;top:-5px;margin-left:-7px;width:14px;height:14px;border-radius:50%;background:var(--ink);left:{{ f.pct }}"></span></span></span>
+                        </div>
+                      </sc-for>
+                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                        <sc-for list="{{ terSegs }}" as="g" hint-placeholder-count="2">
+                          <div onClick="{{ hTerSeg }}" data-k="{{ g.k }}" style="min-height:var(--rowD);border-radius:var(--rCtl);background:{{ g.bg }};display:flex;flex-direction:column;justify-content:center;padding:5px 10px;cursor:pointer">
+                            <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ g.label }}</span><span style="color:{{ g.col }}">{{ g.val }}</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                      <div style="font:var(--m2)/1.6 'IBM Plex Mono',monospace;color:var(--dis)">relief exaggeration applies to the 3D view — the 2D map is unaffected</div>
+                    </div>
+                  </sc-if>
+                </sc-for>
+              </sc-if>
+            </div>
+          </div>
+
+          <div style="flex:1;position:relative;min-width:0;background:var(--map);overflow:hidden">
+            <canvas ref="{{ canvasRef }}" style="position:absolute;inset:0;width:100%;height:100%;display:block;cursor:{{ mapCursor }};touch-action:none"></canvas>
+            <div style="position:absolute;bottom:12px;left:12px;display:flex;flex-direction:column;gap:3px;pointer-events:none">
+              <span ref="{{ scaleLabRef }}" style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dim)">250 km</span>
+              <span style="width:84px;height:4px;border-top:1px solid var(--dim);border-left:1px solid var(--dim);border-right:1px solid var(--dim)"></span>
+            </div>
+            <sc-if value="{{ armedChip }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;top:12px;left:50%;transform:translateX(-50%);background:var(--acc);color:var(--accInk);padding:7px 15px;border-radius:999px;font:var(--m1) 'IBM Plex Mono',monospace;box-shadow:var(--shadow);pointer-events:none">{{ armedLabel }}</div>
+            </sc-if>
+            <sc-if value="{{ toastOn }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);background:var(--tst);color:var(--ink);padding:9px 17px;border-radius:var(--rCtl);font:var(--m1) 'IBM Plex Mono',monospace;box-shadow:var(--shadow);max-width:80%;text-align:center">{{ toastMsg }}</div>
+            </sc-if>
+          </div>
+
+          <div style="width:var(--rdW);flex:none;border-left:1px solid var(--hair);background:var(--pan);display:flex;flex-direction:column;min-height:0">
+            <div style="flex:none;min-height:var(--tap);display:flex;align-items:center;gap:8px;padding:5px 12px;border-bottom:1px solid var(--hair)">
+              <span style="font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--acc)">{{ rdTitle }}</span>
+              <span style="flex:1"></span>
+              <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis)">{{ rdSub }}</span>
+            </div>
+            <div style="flex:1;overflow-y:auto;min-height:0">
+              <sc-if value="{{ rdSample }}" hint-placeholder-val="{{ true }}">
+                <sc-if value="{{ noSample }}" hint-placeholder-val="{{ true }}">
+                  <div style="padding:16px 13px;font:var(--m2)/1.7 'IBM Plex Mono',monospace;color:var(--dis)">tap anywhere on the map to sample it — elevation, terrain, climate, hydrology, geology and biome for that cell. Long-press does the same as a right-click.</div>
+                </sc-if>
+                <sc-for list="{{ sampleGroups }}" as="g" hint-placeholder-count="0">
+                  <div style="border-bottom:1px solid var(--div);padding:9px 13px 11px;display:flex;flex-direction:column;gap:5px">
+                    <span style="font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--faint)">{{ g.title }}</span>
+                    <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="3">
+                      <div style="display:flex;align-items:baseline;gap:9px;min-height:22px"><span style="flex:1;font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ r.k }}</span><span style="font:var(--m1) 'IBM Plex Mono',monospace;color:{{ r.col }};text-align:right">{{ r.v }}</span></div>
+                    </sc-for>
+                  </div>
+                </sc-for>
+              </sc-if>
+              <sc-if value="{{ rdMeasure }}" hint-placeholder-val="{{ false }}">
+                <div style="padding:11px 13px;display:flex;flex-direction:column;gap:3px;border-bottom:1px solid var(--div)">
+                  <span style="font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--faint)">{{ mBigLabel }}</span>
+                  <span style="font:500 26px 'IBM Plex Mono',monospace;color:var(--acc)">{{ mBig }}</span>
+                  <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ mBigSub }}</span>
+                </div>
+                <sc-if value="{{ mSecOn }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding:10px 13px;border-bottom:1px solid var(--div);display:flex;flex-direction:column;gap:6px">
+                    <div style="display:flex;align-items:baseline"><span style="flex:1;font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--acc)">PROFILE A → B</span><span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis)">{{ mSecField }}</span></div>
+                    <div style="display:flex;gap:8px;height:300px">
+                      <div style="width:44px;flex:none;display:flex;flex-direction:column;justify-content:space-between;font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis);padding:2px 0"><span>A</span><span>{{ mSecHalf }}</span><span>B</span></div>
+                      <div style="flex:1;position:relative;border-left:1px solid var(--div);min-width:0">
+                        <svg viewBox="0 0 100 400" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+                          <line x1="33" y1="0" x2="33" y2="400" stroke="{{ mSecGrid }}" stroke-width="0.6"></line>
+                          <line x1="66" y1="0" x2="66" y2="400" stroke="{{ mSecGrid }}" stroke-width="0.6"></line>
+                          <path d="{{ mSecPath }}" fill="{{ mSecFill }}" stroke="{{ mSecLine }}" stroke-width="1" vector-effect="non-scaling-stroke"></path>
+                        </svg>
+                      </div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis)"><span>{{ mSecMin }}</span><span>{{ mSecMax }}</span></div>
+                  </div>
+                </sc-if>
+                <sc-for list="{{ mSegs }}" as="r" hint-placeholder-count="0">
+                  <div style="display:flex;align-items:baseline;gap:9px;padding:3px 13px;min-height:24px"><span style="width:20px;font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ r.i }}</span><span style="flex:1;font:var(--m1) 'IBM Plex Mono',monospace;color:var(--sec)">{{ r.len }}</span><span style="font:var(--m1) 'IBM Plex Mono',monospace;color:var(--dim)">{{ r.bear }}</span></div>
+                </sc-for>
+                <div style="padding:8px 13px 0;display:flex;flex-direction:column;gap:4px">
+                  <sc-for list="{{ mStats }}" as="r" hint-placeholder-count="0">
+                    <div style="display:flex;align-items:baseline;gap:9px;min-height:22px"><span style="flex:1;font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ r.k }}</span><span style="font:var(--m1) 'IBM Plex Mono',monospace;color:{{ r.col }}">{{ r.v }}</span></div>
+                  </sc-for>
+                </div>
+                <div style="padding:11px 13px 14px;display:flex;flex-direction:column;gap:8px">
+                  <sc-if value="{{ mIsArea }}" hint-placeholder-val="{{ false }}">
+                    <span onClick="{{ hMeasWater }}" style="min-height:var(--row);border-radius:var(--rCtl);display:flex;align-items:center;justify-content:center;cursor:pointer;background:{{ mWaterBg }};color:{{ mWaterCol }}">subtract water</span>
+                  </sc-if>
+                  <span onClick="{{ hMeasClear }}" style="min-height:var(--row);border-radius:var(--rCtl);background:var(--ins);color:var(--sec);display:flex;align-items:center;justify-content:center;cursor:pointer">clear</span>
+                  <span style="font:var(--m2)/1.6 'IBM Plex Mono',monospace;color:var(--dis)">{{ mFoot }}</span>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+        </div>
+
+        <sc-if value="{{ tlShow }}" hint-placeholder-val="{{ false }}">
+          <div onClick="{{ hTl }}" style="height:var(--sbH);flex:none;display:flex;align-items:center;gap:12px;padding:0 12px;border-top:1px solid var(--hair);background:var(--pan);cursor:pointer">
+            <span style="color:var(--faint);transform:rotate({{ tlChev }})">▸</span>
+            <span style="font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--sec)">TIMELINE</span>
+            <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ tlSummary }}</span>
+          </div>
+        </sc-if>
+        <sc-if value="{{ tlOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="height:118px;flex:none;border-top:1px solid var(--hair);background:var(--pan);padding:9px 12px;display:flex;flex-direction:column;gap:7px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--acc)">TIMELINE</span>
+              <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis)">not wired — these record which simulation layer you want; no layer renders yet</span>
+              <span style="flex:1"></span>
+              <span onClick="{{ hTl }}" style="cursor:pointer;color:var(--faint);padding:0 6px">⌄</span>
+            </div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              <sc-for list="{{ tlLayers }}" as="l" hint-placeholder-count="6"><span onClick="{{ hTlLayer }}" data-id="{{ l.id }}" style="min-height:var(--ctl);padding:0 12px;border-radius:999px;cursor:pointer;display:flex;align-items:center;background:{{ l.bg }};color:{{ l.col }}">{{ l.id }}</span></sc-for>
+            </div>
+            <div style="flex:1;display:flex;align-items:center;gap:9px">
+              <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint);width:52px">yr {{ tlYear }}</span>
+              <span onPointerDown="{{ hTlScrub }}" style="flex:1;height:var(--tap);display:flex;align-items:center;cursor:pointer;touch-action:none"><span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--acc);width:{{ tlPct }}"></span><span style="position:absolute;top:-5px;margin-left:-7px;width:14px;height:14px;border-radius:50%;background:var(--ink);left:{{ tlPct }}"></span></span></span>
+            </div>
+          </div>
+        </sc-if>
+
+        <div style="height:var(--sbH);flex:none;display:flex;align-items:center;gap:14px;padding:0 12px;border-top:1px solid var(--hair);background:var(--pan);font:var(--m2) 'IBM Plex Mono',monospace">
+          <span style="color:var(--sec)">{{ statusLeft }}</span>
+          <span style="flex:1;text-align:center;color:var(--faint)">{{ statusMid }}</span>
+          <span style="color:var(--dis)">{{ statusRight }}</span>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ scrPlanner }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div style="height:var(--menuH);flex:none;display:flex;align-items:center;gap:11px;padding:0 12px;border-bottom:1px solid var(--hair);background:var(--pan)">
+            <span onClick="{{ hPlanBack }}" style="min-height:var(--tap);padding:0 13px 0 9px;display:flex;align-items:center;gap:7px;border-radius:var(--rCtl);cursor:pointer;background:var(--ins);color:var(--sec)">‹ <span style="font:var(--m1) 'IBM Plex Mono',monospace">SHELL</span></span>
+            <span style="font:var(--m1) 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--acc)">JOURNEY PLANNER</span>
+            <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ planSub }}</span>
+            <span style="flex:1"></span>
+            <span style="font:var(--m1) 'IBM Plex Mono',monospace;color:{{ planVerdictCol }}">{{ planVerdict }}</span>
+          </div>
+          <div style="flex:1;display:flex;min-height:0">
+            <div style="width:var(--ldW);flex:none;border-right:1px solid var(--hair);background:var(--pan);overflow-y:auto">
+              <sc-for list="{{ planGroups }}" as="g" hint-placeholder-count="4">
+                <div style="border-bottom:1px solid var(--div)">
+                  <div onClick="{{ hPlanGroup }}" data-id="{{ g.id }}" style="min-height:var(--row);display:flex;align-items:center;gap:9px;padding:6px 12px;cursor:pointer">
+                    <span style="color:var(--faint);transform:rotate({{ g.chev }})">▸</span>
+                    <span style="flex:1;font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.16em;color:{{ g.col }}">{{ g.label }}</span>
+                    <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ g.summary }}</span>
+                  </div>
+                  <sc-if value="{{ g.open }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding:2px 12px 11px;display:flex;flex-direction:column;gap:7px;border-top:1px solid var(--div)">
+                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                        <sc-for list="{{ g.cells }}" as="c" hint-placeholder-count="4">
+                          <div style="min-height:var(--rowD);border-radius:var(--rCtl);background:var(--ins);display:flex;flex-direction:column;justify-content:center;padding:5px 10px">
+                            <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ c.k }}</span>
+                            <span style="color:var(--body)">{{ c.v }}</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                      <sc-for list="{{ g.sliders }}" as="f" hint-placeholder-count="0">
+                        <div style="display:flex;flex-direction:column;gap:2px">
+                          <div style="display:flex;align-items:baseline"><span style="flex:1;color:var(--sec)">{{ f.label }}</span><span style="font:var(--m1) 'IBM Plex Mono',monospace;color:var(--ink)">{{ f.disp }}</span></div>
+                          <span onPointerDown="{{ hPlanSlide }}" data-k="{{ f.k }}" style="height:var(--rowD);display:flex;align-items:center;cursor:pointer;touch-action:none"><span style="flex:1;height:4px;border-radius:2px;background:var(--ins);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--acc);width:{{ f.pct }}"></span><span style="position:absolute;top:-5px;margin-left:-7px;width:14px;height:14px;border-radius:50%;background:var(--ink);left:{{ f.pct }}"></span></span></span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:var(--sur)">
+              <div style="flex:none;padding:11px 16px 6px;display:flex;align-items:baseline;gap:12px">
+                <span style="font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--faint)">DISTANCE SPINE</span>
+                <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--dis)">{{ spineNote }}</span>
+              </div>
+              <div style="flex:none;height:172px;padding:0 16px;position:relative">
+                <svg viewBox="0 0 1000 160" preserveAspectRatio="none" style="width:100%;height:100%">
+                  <path d="{{ spinePath }}" fill="{{ spineFill }}" stroke="{{ spineLine }}" stroke-width="1.4" vector-effect="non-scaling-stroke"></path>
+                  <sc-for list="{{ spineMarks }}" as="k" hint-placeholder-count="4">
+                    <line x1="{{ k.x }}" y1="0" x2="{{ k.x }}" y2="160" stroke="{{ k.col }}" stroke-width="1" vector-effect="non-scaling-stroke"></line>
+                  </sc-for>
+                </svg>
+              </div>
+              <div style="flex:none;display:flex;padding:0 16px 10px;gap:4px">
+                <sc-for list="{{ planStages }}" as="st" hint-placeholder-count="4">
+                  <span onClick="{{ hPlanStage }}" data-i="{{ st.i }}" style="flex:1;min-height:var(--rowD);border-radius:var(--rCtl);cursor:pointer;display:flex;flex-direction:column;justify-content:center;padding:5px 9px;background:{{ st.bg }};overflow:hidden">
+                    <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:{{ st.col }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ st.name }}</span>
+                    <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ st.meta }}</span>
+                  </span>
+                </sc-for>
+              </div>
+              <div style="flex:1;min-height:0;overflow:auto;border-top:1px solid var(--hair)">
+                <div style="display:flex;min-height:var(--row);align-items:center;gap:0;padding:0 16px;border-bottom:1px solid var(--div);background:var(--pan)">
+                  <sc-for list="{{ matrixHead }}" as="h" hint-placeholder-count="7">
+                    <span style="width:{{ h.w }};flex:none;font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.1em;color:{{ h.col }}">{{ h.label }}</span>
+                  </sc-for>
+                </div>
+                <sc-for list="{{ matrixRows }}" as="r" hint-placeholder-count="4">
+                  <div style="display:flex;min-height:var(--rowD);align-items:center;padding:0 16px;border-bottom:1px solid var(--div)">
+                    <sc-for list="{{ r.cells }}" as="c" hint-placeholder-count="7">
+                      <span style="width:{{ c.w }};flex:none;font:var(--m1) 'IBM Plex Mono',monospace;color:{{ c.col }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:6px">{{ c.v }}</span>
+                    </sc-for>
+                  </div>
+                </sc-for>
+                <div style="padding:10px 16px 16px;font:var(--m2)/1.6 'IBM Plex Mono',monospace;color:var(--dis)">lit columns are overrides you set · blank inherits the model · problem stages pin above route order</div>
+              </div>
+            </div>
+
+            <div style="width:var(--rdW);flex:none;border-left:1px solid var(--hair);background:var(--pan);overflow-y:auto">
+              <div style="padding:11px 13px;border-bottom:1px solid var(--div);display:flex;flex-direction:column;gap:3px">
+                <span style="font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--faint)">TOTAL</span>
+                <span style="font:500 26px 'IBM Plex Mono',monospace;color:var(--acc)">{{ planTotal }}</span>
+                <span style="font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ planTotalSub }}</span>
+              </div>
+              <sc-for list="{{ planResults }}" as="g" hint-placeholder-count="4">
+                <div style="border-bottom:1px solid var(--div);padding:9px 13px 11px;display:flex;flex-direction:column;gap:5px">
+                  <span style="font:var(--m2) 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--faint)">{{ g.title }}</span>
+                  <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="3">
+                    <div style="display:flex;align-items:baseline;gap:9px;min-height:22px"><span style="flex:1;font:var(--m2) 'IBM Plex Mono',monospace;color:var(--faint)">{{ r.k }}</span><span style="font:var(--m1) 'IBM Plex Mono',monospace;color:{{ r.col }};text-align:right">{{ r.v }}</span></div>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1240,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  constructor(p){super(p);
+    this.canvasRef=React.createRef();this.scaleLabRef=React.createRef();
+    this.view={x:2048,y:2048,s:0.19};this.dirty=true;
+    this.state={scr:'picker',frame:'t1600',light:false,proj:'ELDRA',
+      domain:'WORLD',worldMode:'pipeline',civCat:'landmarks',cartoCat:'style',
+      tool:'inspect',menu:null,sub:null,drill:null,openStage:null,
+      sc:{feature:'cliff',side:'left',biome:'steppe',brush:{size:64,hard:0.5,shape:'round'},stamps:[],sel:null},
+      lm:null,meas:{sub:'distance',field:'Elevation',pts:[],done:false,water:true},
+      sample:null,armed:null,
+      tl:{open:false,year:840,layers:{Climate:true,Population:true,Economy:false,Politics:false,Infrastructure:false,Warfare:false}},
+      undo:[],redo:[],toast:null,savedAt:'14:02',pressure:true,units:'km'};
+  }
+  componentDidMount(){this._raf=requestAnimationFrame(this._loop=()=>{if(this.dirty){this.dirty=false;this.paint()}this._raf=requestAnimationFrame(this._loop)});
+    this._ro=new ResizeObserver(()=>{this._size();this.dirty=true});
+    this._onKey=e=>this._key(e);window.addEventListener('keydown',this._onKey);
+    this._size();this._bind();this.dirty=true}
+  componentDidUpdate(){this._size();this._bind()}
+  componentWillUnmount(){cancelAnimationFrame(this._raf);window.removeEventListener('keydown',this._onKey);if(this._ro)this._ro.disconnect();clearTimeout(this._tt)}
+  LMFAMS(...a){return window.CDCC.LMFAMS.apply(this,a)}
+  lmCompute(...a){return window.CDCC.lmCompute.apply(this,a)}
+  lmMarks(...a){return window.CDCC.lmMarks.apply(this,a)}
+  lmRun(...a){return window.CDCC.lmRun.apply(this,a)}
+  _h(a,b){const n=Math.sin(a*12.9898+b*78.233)*43758.5453;return n-Math.floor(n)}
+  _fbm(x,y){let v=0,amp=0.5,fx=x/620,fy=y/620;
+    for(let o=0;o<5;o++){const xi=Math.floor(fx),yi=Math.floor(fy);const tx=fx-xi,ty=fy-yi;
+      const sx=tx*tx*(3-2*tx),sy=ty*ty*(3-2*ty);
+      const a=this._h(xi,yi),b=this._h(xi+1,yi),c=this._h(xi,yi+1),d=this._h(xi+1,yi+1);
+      v+=amp*((a*(1-sx)+b*sx)*(1-sy)+(c*(1-sx)+d*sx)*sy);amp*=0.5;fx*=2.03;fy*=2.03}
+    return v}
+  _elev(x,y){return Math.round(-620+Math.pow(Math.max(0,this._fbm(x,y)*1.34),1.45)*5400)}
+  sampleData(x,y){const base=window.CDCC.sampleData.apply(this,[x,y]);
+    const e=this._elev(x,y);const ex=this._elev(x+6,y),ey=this._elev(x,y+6);
+    const slope=Math.min(60,Math.hypot(ex-e,ey-e)/6*3.4);
+    return{...base,elev:e,slope:slope.toFixed(1),
+      aspect:Math.round((Math.atan2(ey-e,ex-e)*180/Math.PI+360)%360),
+      biome:e<0?'ocean':e<180?'coastal marsh':e<700?(base.precip>900?'temperate forest':'steppe'):e<1800?'montane forest':e<3000?'alpine':'ice cap'}}
+  CAD(...a){return window.CDCC.CAD.apply(this,a)}
+  FRAMES(){return[{id:'t1280',label:'10″ 1280×800',w:1280,h:800},{id:'t1440',label:'11″ 1440×900',w:1440,h:900},{id:'t1600',label:'13″ 1600×1000',w:1600,h:1000},{id:'t800',label:'10″ ▯ 800×1280',w:800,h:1280},{id:'t900',label:'11″ ▯ 900×1440',w:900,h:1440},{id:'t2560',label:'2560×1600',w:2560,h:1600}]}
+  frame(){return this.FRAMES().find(f=>f.id===this.state.frame)||this.FRAMES()[2]}
+  isPortrait(){const f=this.frame();return f.h>f.w}
+  _zoom(){const f=this.frame();const w=Math.max(560,(window.innerWidth||1240)-40);
+    const h=Math.max(520,(window.innerHeight||900)-150);
+    return +Math.min(1,w/f.w,h/f.h).toFixed(4)}
+  fmtKm(k){const v=this.state.units==='mi'?k*0.621:k;const u=this.state.units==='mi'?' mi':' km';
+    return(v<10?v.toFixed(1):Math.round(v).toLocaleString('en-US'))+u}
+  toast(m){clearTimeout(this._tt);this.setState({toast:m});this._tt=setTimeout(()=>this.setState({toast:null}),2600)}
+  sc(){return this.state.sc}
+  setSc(p,cb){this.setState({sc:{...this.state.sc,...p}},cb)}
+  ms(){return this.state.meas}
+  setMs(p,cb){this.setState({meas:{...this.state.meas,...p}},cb)}
+  lm(){return this.state.lm||this.LMD()}
+  setLm(p,cb){this.setState({lm:{...this.lm(),...p}},cb)}
+  LMD(){if(this._lmd)return this._lmd;const types={};
+    this.LMFAMS().forEach(f=>f.types.forEach(t=>{types[t.id]={armed:t.cap>0,cap:t.cap>0?t.cap:(t.was||8)}}));
+    this._lmd={types,crowd:1,compete:true,lastRun:'—',edited:false,run:null,hand:[],
+      radii:{CON:120,REG:34,LOC:12,CUL:8},res:this.lmCompute(types,1,true),marks:this.lmMarks(types,1,true)};
+    return this._lmd}
+  LM_LADDER(){return[0,1,2,3,5,8,12,20,30,50,80,120,200]}
+  pushUndo(label){this.setState(s=>({undo:[...s.undo,label].slice(-50),redo:[]}))}
+  _haptic(k){const MS={sample:12,arm:10,detent:8,place:14}[k];try{if(navigator.vibrate&&MS)navigator.vibrate(MS)}catch(e){}}
+  _undo(){const s=this.state;if(!s.undo.length){this.toast('Nothing to undo');return}
+    const l=s.undo[s.undo.length-1];this.setState({undo:s.undo.slice(0,-1),redo:[...s.redo,l]});this.toast('Undo — '+l)}
+  _redo(){const s=this.state;if(!s.redo.length){this.toast('Nothing to redo');return}
+    const l=s.redo[s.redo.length-1];this.setState({redo:s.redo.slice(0,-1),undo:[...s.undo,l]});this.toast('Redo — '+l)}
+  _slide(e,fn){const el=e.currentTarget;const r=el.getBoundingClientRect();
+    const go=ev=>fn(Math.max(0,Math.min(1,(ev.clientX-r.left)/r.width)));
+    go(e);try{el.setPointerCapture(e.pointerId)}catch(x){}
+    const mv=ev=>go(ev);const up=()=>{el.removeEventListener('pointermove',mv);el.removeEventListener('pointerup',up)};
+    el.addEventListener('pointermove',mv);el.addEventListener('pointerup',up)}
+  _measCap(sub){return sub==='bearing'||sub==='radius'||sub==='section'?2:99}
+  _size(){const c=this.canvasRef.current;if(!c)return;
+    if(this._ro&&this._roT!==c){try{this._ro.disconnect();this._ro.observe(c)}catch(x){}this._roT=c}
+    const r=c.getBoundingClientRect();const d=window.devicePixelRatio||1;
+    const w=Math.round(r.width*d),h=Math.round(r.height*d);
+    if(w&&h&&(c.width!==w||c.height!==h)){c.width=w;c.height=h;this.dirty=true}}
+  _bind(){const c=this.canvasRef.current;if(!c||c._b)return;c._b=1;
+    c.addEventListener('pointerdown',e=>this._pd(e));
+    c.addEventListener('pointermove',e=>this._pm(e));
+    c.addEventListener('pointerup',e=>this._pu(e));
+    c.addEventListener('pointercancel',e=>this._pu(e));
+    c.addEventListener('contextmenu',e=>{e.preventDefault();this._sample(this._w(e));this.toast('Long-press = right-click — sampled here')});
+    c.addEventListener('wheel',e=>{e.preventDefault();const k=Math.exp(-e.deltaY*0.0016);
+      this.view.s=Math.max(0.05,Math.min(3,this.view.s*k));this.dirty=true;this.forceUpdate()},{passive:false})}
+  _w(e){const c=this.canvasRef.current;const r=c.getBoundingClientRect();const v=this.view;
+    return{x:v.x+(e.clientX-r.left-r.width/2)/v.s,y:v.y+(e.clientY-r.top-r.height/2)/v.s}}
+  _pdist(){const k=Object.keys(this._pts||{});if(k.length<2)return 0;
+    const a=this._pts[k[0]],b=this._pts[k[1]];return Math.hypot(a.x-b.x,a.y-b.y)}
+  _pd(e){const c=this.canvasRef.current;try{c.setPointerCapture(e.pointerId)}catch(x){}
+    this._pts=this._pts||{};this._pts[e.pointerId]={x:e.clientX,y:e.clientY};
+    if(Object.keys(this._pts).length>=2){this._pinch={d:this._pdist(),s:this.view.s,x:this.view.x,y:this.view.y};this._stroke=null;clearTimeout(this._lp);return}
+    const w=this._w(e);const s=this.state;
+    this._down={x:e.clientX,y:e.clientY,vx:this.view.x,vy:this.view.y,moved:false,w};
+    if(s.armed){this._placeArmed(w);return}
+    if(s.tool==='sculpt'||s.tool==='biome'){this._stroke=[w];this._pr=e.pressure||0.5;return}
+    if(s.tool==='measure'){const m=this.ms();const cap=this._measCap(m.sub);
+      if(m.done||m.pts.length>=cap)this.setMs({pts:[w],done:false},()=>{this.dirty=true});
+      else{const pts=[...m.pts,w];this.setMs({pts,done:pts.length>=cap},()=>{this.dirty=true})}
+      return}
+    this._lp=setTimeout(()=>{this._sample(w);this._lp=null},420)}
+  _pm(e){if(this._pts&&this._pts[e.pointerId])this._pts[e.pointerId]={x:e.clientX,y:e.clientY};
+    if(this._pinch){const d=this._pdist();if(d>4){this.view.s=Math.max(0.05,Math.min(3,this._pinch.s*d/this._pinch.d));this.dirty=true;this.forceUpdate()}return}
+    if(this.state.tool==='sculpt'&&e.pointerType==='pen'&&!this._stroke){this._hover=this._w(e);this.dirty=true}
+    const d=this._down;if(!d)return;
+    const dx=e.clientX-d.x,dy=e.clientY-d.y;
+    if(!d.moved&&Math.hypot(dx,dy)>6){d.moved=true;clearTimeout(this._lp);this._lp=null}
+    if(!d.moved)return;
+    if(this._stroke){this._stroke.push(this._w(e));this._pr=e.pressure||this._pr;this.dirty=true;return}
+    if(this.state.tool==='pan'||this.state.tool==='inspect'){this.view.x=d.vx-dx/this.view.s;this.view.y=d.vy-dy/this.view.s;this.dirty=true}}
+  _pu(e){clearTimeout(this._lp);this._lp=null;
+    if(this._pts)delete this._pts[e.pointerId];
+    if(!this._pts||Object.keys(this._pts).length<2)this._pinch=null;
+    const d=this._down;
+    if(this._stroke&&this._stroke.length>1)this._commitStroke();
+    this._stroke=null;
+    if(d&&!d.moved&&!this.state.armed&&!['measure','sculpt','biome'].includes(this.state.tool))this._sample(d.w);
+    this._down=null}
+  _sample(w){const sd=this.sampleData(Math.round(w.x),Math.round(w.y));
+    this.setState({sample:{...sd,x:Math.round(w.x),y:Math.round(w.y)}},()=>{this.dirty=true});this._haptic('sample')}
+  _commitStroke(){const s=this.state;const sc=this.sc();
+    let len=0;for(let i=1;i<this._stroke.length;i++)len+=Math.hypot(this._stroke[i].x-this._stroke[i-1].x,this._stroke[i].y-this._stroke[i-1].y);
+    const pr=s.pressure?(this._pr||0.5):0.5;
+    const st={i:sc.stamps.length,type:s.tool==='biome'?'biome · '+sc.biome:sc.feature,
+      pts:this._stroke,bs:Math.round(sc.brush.size*(s.pressure?0.55+pr:1)),len:len*2.5,vis:true,
+      side:sc.feature==='cliff'&&s.tool==='sculpt'?sc.side:undefined,pr:+pr.toFixed(2),
+      strength:+(0.5+pr*0.5).toFixed(2)};
+    this.pushUndo('sculpt '+st.type);
+    this.setSc({stamps:[...sc.stamps,st],sel:st.i},()=>{this.dirty=true})}
+  _placeArmed(w){const a=this.state.armed;const lm=this.lm();this._haptic('place');
+    if(a.kind==='landmark'){this.pushUndo('place '+a.value);
+      this.setLm({hand:[...lm.hand,{x:w.x,y:w.y,type:a.value}]},()=>{this.dirty=true});
+      this.toast(a.value+' placed by hand — exempt from the cap')}
+    else{this.pushUndo('place '+a.value);this.toast(a.value+' placed')}}
+  _key(e){const s=this.state;if(s.scr!=='app')return;
+    if(e.key==='Escape'){if(s.armed)this.setState({armed:null});else if(s.menu)this.setState({menu:null,sub:null});
+      else if(s.drill)this.setState({drill:null});else if(this.ms().pts.length)this.setMs({pts:[],done:false},()=>{this.dirty=true});return}
+    if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?this._redo():this._undo();return}
+    if(e.metaKey||e.ctrlKey)return;
+    const K={v:'inspect',m:'measure',r:'pan',b:'biome',f:'sculpt',l:'label',i:'icon',s:'settlement',p:'poi',t:'territory',w:'way'};
+    const t=K[e.key.toLowerCase()];
+    if(t&&this._toolsFor(s.domain).some(x=>x[0]===t))this.setState({tool:t,armed:null})}
+  _toolsFor(d){const T={
+    WORLD:[['inspect','Inspect'],['pan','Pan'],['measure','Measure'],['sculpt','Sculpt'],['biome','Biome paint']],
+    CIVIL:[['inspect','Inspect'],['pan','Pan'],['measure','Measure'],['settlement','Settlement'],['poi','POI'],['territory','Territory'],['way','Way']],
+    CARTO:[['inspect','Inspect'],['pan','Pan'],['measure','Measure'],['label','Label'],['icon','Icon']]};
+    return T[d]||T.WORLD}
+  _svg(p){return{__html:'<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>'}}
+  _toolIcon(id){const P={inspect:'<path d="M3 2.5 12 8 8.2 9 6.6 13z"></path>',
+    pan:'<path d="M8 2.4v11.2M2.4 8h11.2M8 2.4 6.3 4.2M8 2.4l1.7 1.8M8 13.6l-1.7-1.8M8 13.6l1.7-1.8M2.4 8l1.8-1.7M2.4 8l1.8 1.7M13.6 8l-1.8-1.7M13.6 8l-1.8 1.7"></path>',
+    measure:'<path d="M1.8 12.2 12.2 1.8"></path><circle cx="2.4" cy="11.6" r="1.2" fill="currentColor"></circle><circle cx="11.6" cy="2.4" r="1.2" fill="currentColor"></circle>',
+    sculpt:'<path d="M1.8 11.6 8 5.4M9.2 2.2l3 3-2.6 2.6-3-3z"></path>',
+    biome:'<path d="M2.2 12.2h4l6-6-3-3-6 6z"></path>',
+    settlement:'<path d="M2.6 13V7l5.4-4 5.4 4v6z"></path><path d="M6.4 13V9.4h3.2V13"></path>',
+    poi:'<path d="M8 14s4.4-4.6 4.4-8A4.4 4.4 0 0 0 3.6 6c0 3.4 4.4 8 4.4 8z"></path><circle cx="8" cy="6" r="1.5"></circle>',
+    territory:'<path d="M2.2 4.4 6 3l4 1.8 3.8-1.4v8.4L10 13.2l-4-1.8-3.8 1.4z"></path>',
+    way:'<path d="M2.2 12.8c3-1 3-9 5.8-9s2.8 8 5.8 9" stroke-dasharray="2.4 1.8"></path>',
+    label:'<path d="M2.2 3.2h11.6v6H6.4l-3 3v-3H2.2z"></path>',
+    icon:'<path d="M8 2.4 9.7 6.2 13.8 6.7l-3.1 2.8.9 4.1L8 11.7l-3.6 1.9.9-4.1-3.1-2.8 4.1-.5z"></path>'};
+    return this._svg(P[id]||P.inspect)}
+  _domIcon(id){const P={WORLD:'<circle cx="8" cy="8" r="5.4"></circle><path d="M2.6 8h10.8M8 2.6c1.8 2 1.8 8.8 0 10.8M8 2.6c-1.8 2-1.8 8.8 0 10.8"></path>',
+    CIVIL:'<path d="M2.6 13V7l4-3 4 3v6z"></path><path d="M10.6 13V9.2h2.8V13"></path>',
+    CARTO:'<path d="M2.2 4.2 6 2.8l4 1.8 3.8-1.4v9L10 13.6l-4-1.8-3.8 1.4z"></path><path d="M6 2.8v9M10 4.6v9"></path>'};
+    return this._svg(P[id])}
+  paint(){const c=this.canvasRef.current;if(!c||!c.width)return;const ctx=c.getContext('2d');
+    const d=window.devicePixelRatio||1;const W=c.width/d,H=c.height/d;const v=this.view;const L=this.state.light;
+    ctx.setTransform(d,0,0,d,0,0);ctx.clearRect(0,0,W,H);
+    const wx=x=>(x-v.x)*v.s+W/2, wy=y=>(y-v.y)*v.s+H/2;
+    const h=(a,b)=>this._h(a,b);
+    const cell=Math.max(8,Math.min(48,Math.round(6/v.s)));
+    const x0=Math.floor((v.x-W/2/v.s)/cell)*cell,x1=v.x+W/2/v.s;
+    const y0=Math.floor((v.y-H/2/v.s)/cell)*cell,y1=v.y+H/2/v.s;
+    const sz=Math.ceil(cell*v.s)+1;
+    for(let x=x0;x<x1;x+=cell)for(let y=y0;y<y1;y+=cell){
+      const e=this._elev(x,y);let col;
+      const sh=1+((this._elev(x-cell,y-cell)-e)/900);
+      if(e<0)col=L?'hsl(203 30% '+(60+e/22).toFixed(0)+'%)':'hsl(203 36% '+(18+e/70).toFixed(0)+'%)';
+      else if(e<900)col=L?'hsl(96 20% '+(72-e/70).toFixed(0)+'%)':'hsl(96 15% '+(26+e/95).toFixed(0)+'%)';
+      else if(e<2600)col=L?'hsl(42 25% '+(74-e/150).toFixed(0)+'%)':'hsl(40 17% '+(32+e/210).toFixed(0)+'%)';
+      else col=L?'hsl(38 14% '+(88-e/900).toFixed(0)+'%)':'hsl(36 10% '+(46+e/760).toFixed(0)+'%)';
+      ctx.fillStyle=col;ctx.globalAlpha=1;ctx.fillRect(Math.floor(wx(x)),Math.floor(wy(y)),sz,sz);
+      if(e>0){ctx.fillStyle=sh<1?'rgba(0,0,0,'+Math.min(.34,(1-sh)*0.5).toFixed(3)+')':'rgba(255,255,255,'+Math.min(.16,(sh-1)*0.3).toFixed(3)+')';ctx.fillRect(Math.floor(wx(x)),Math.floor(wy(y)),sz,sz)}
+    }
+    const acc=L?'#a4650f':'#e0a34a';
+    const lm=this.lm();
+    if(window.LM_GLYPHS){if(!this._gp)this._gp={};
+      const all=[].concat((lm.marks||[]).map(m=>({m,hand:false})),(lm.hand||[]).map(m=>({m,hand:true})));
+      for(const it of all){const m=it.m;const g=window.LM_GLYPHS[m.type];if(!g)continue;
+        const px=wx(m.x),py=wy(m.y);if(px<-16||py<-16||px>W+16||py>H+16)continue;
+        let ps=this._gp[m.type];if(!ps){ps=g.ds.map(dd=>new Path2D(dd));this._gp[m.type]=ps}
+        ctx.save();ctx.translate(px-8,py-8);
+        ctx.strokeStyle=it.hand?acc:(L?'#3d3f39':'#a9adb0');ctx.lineWidth=it.hand?1.5:1.15;
+        ctx.lineCap='round';ctx.lineJoin='round';for(const p of ps)ctx.stroke(p);ctx.restore()}}
+    const sc=this.sc();ctx.lineCap='round';ctx.lineJoin='round';
+    const drawStroke=(pts,bs,seld,side,type)=>{
+      ctx.strokeStyle=acc;ctx.globalAlpha=seld?0.32:0.15;ctx.lineWidth=Math.max(2,bs*v.s);
+      ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(wx(p.x),wy(p.y)):ctx.moveTo(wx(p.x),wy(p.y)));ctx.stroke();
+      ctx.globalAlpha=seld?1:0.62;ctx.lineWidth=1.3;
+      ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(wx(p.x),wy(p.y)):ctx.moveTo(wx(p.x),wy(p.y)));ctx.stroke();
+      if(type==='cliff'&&pts.length>1){const sgn=side==='right'?-1:1;
+        for(let j=1;j<pts.length;j++){const ax=wx(pts[j-1].x),ay=wy(pts[j-1].y),bx=wx(pts[j].x),by=wy(pts[j].y);
+          const dx=bx-ax,dy=by-ay;const ln=Math.hypot(dx,dy);if(ln<14)continue;
+          const nx=dy/ln*sgn,ny=-dx/ln*sgn;const mx=(ax+bx)/2,my=(ay+by)/2;
+          ctx.beginPath();ctx.moveTo(mx,my);ctx.lineTo(mx+nx*9,my+ny*9);ctx.stroke()}}
+      ctx.globalAlpha=1};
+    (sc.stamps||[]).forEach(st=>{if(st.vis!==false)drawStroke(st.pts,st.bs,sc.sel===st.i,st.side,st.type)});
+    if(this._stroke&&this._stroke.length>1)drawStroke(this._stroke,sc.brush.size*(this.state.pressure?0.55+(this._pr||0.5):1),true,sc.side,sc.feature);
+    if(this._hover&&this.state.tool==='sculpt'&&!this._stroke){
+      ctx.strokeStyle=acc;ctx.globalAlpha=.5;ctx.lineWidth=1;
+      ctx.beginPath();ctx.arc(wx(this._hover.x),wy(this._hover.y),Math.max(4,sc.brush.size*v.s/2),0,7);ctx.stroke();ctx.globalAlpha=1}
+    const m=this.ms();const mp=m.pts;
+    if(mp.length&&this.state.tool==='measure'){ctx.strokeStyle=acc;ctx.lineWidth=1.5;
+      if(m.sub==='area'&&mp.length>2){ctx.globalAlpha=.1;ctx.fillStyle=acc;ctx.beginPath();mp.forEach((p,i)=>i?ctx.lineTo(wx(p.x),wy(p.y)):ctx.moveTo(wx(p.x),wy(p.y)));ctx.closePath();ctx.fill();ctx.globalAlpha=1;ctx.stroke()}
+      else if(m.sub==='radius'&&mp.length>1){const r=Math.hypot(mp[1].x-mp[0].x,mp[1].y-mp[0].y)*v.s;
+        ctx.beginPath();ctx.arc(wx(mp[0].x),wy(mp[0].y),r,0,7);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(wx(mp[0].x),wy(mp[0].y));ctx.lineTo(wx(mp[1].x),wy(mp[1].y));ctx.stroke()}
+      else{ctx.beginPath();mp.forEach((p,i)=>i?ctx.lineTo(wx(p.x),wy(p.y)):ctx.moveTo(wx(p.x),wy(p.y)));ctx.stroke()}
+      ctx.fillStyle=L?'#111210':'#e8ebec';mp.forEach(p=>{ctx.beginPath();ctx.arc(wx(p.x),wy(p.y),4,0,7);ctx.fill()});
+      ctx.fillStyle=acc;ctx.font='11px IBM Plex Mono, monospace';
+      if(m.sub==='section'&&mp.length>1){ctx.fillText('A',wx(mp[0].x)+8,wy(mp[0].y)-8);ctx.fillText('B',wx(mp[1].x)+8,wy(mp[1].y)-8)}
+      else for(let i=1;i<mp.length;i++){const a=mp[i-1],b=mp[i];
+        ctx.fillText(this.fmtKm(Math.hypot(b.x-a.x,b.y-a.y)*2.5),(wx(a.x)+wx(b.x))/2+7,(wy(a.y)+wy(b.y))/2-7)}}
+    const sm=this.state.sample;
+    if(sm){const px=wx(sm.x),py=wy(sm.y);ctx.strokeStyle=acc;ctx.lineWidth=1.4;
+      ctx.beginPath();ctx.arc(px,py,9,0,7);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(px-14,py);ctx.lineTo(px-11,py);ctx.moveTo(px+11,py);ctx.lineTo(px+14,py);
+      ctx.moveTo(px,py-14);ctx.lineTo(px,py-11);ctx.moveTo(px,py+11);ctx.lineTo(px,py+14);ctx.stroke()}
+    const sl=this.scaleLabRef.current;if(sl)sl.textContent=this.fmtKm(84/v.s*2.5)}
+  secSample2(){const mp=this.ms().pts;if(mp.length<2)return null;
+    const a=mp[0],b=mp[1];const n=120;const f=this.ms().field;const vals=[];
+    for(let i=0;i<=n;i++){const t=i/n;const sd=this.sampleData(Math.round(a.x+(b.x-a.x)*t),Math.round(a.y+(b.y-a.y)*t));
+      vals.push(f==='Terrain'?+sd.slope:f==='Climate'?sd.temp:f==='Hydrology'?sd.precip:f==='Geology'?Math.round(sd.resist*100):Math.max(sd.elev,0))}
+    const min=Math.min.apply(null,vals),max=Math.max.apply(null,vals);const rng=Math.max(max-min,1);
+    let d='M0,0 ';vals.forEach((v2,i)=>{d+='L'+((v2-min)/rng*100).toFixed(1)+','+(i/n*400).toFixed(1)+' '});d+='L0,400 Z';
+    const unit=f==='Terrain'?'°':f==='Climate'?' °C':f==='Hydrology'?' mm':f==='Geology'?'':' m';
+    return{d,min,max,unit,len:Math.hypot(b.x-a.x,b.y-a.y)*2.5,mean:Math.round(vals.reduce((x,y)=>x+y,0)/vals.length)}}
+  valsShell(){const s=this.state;const f=this.frame();const port=this.isPortrait();const L=s.light;
+    const T=L
+      ?'--sur:#efece6;--pan:#f6f4f0;--map:#e6e3dc;--ink:#141513;--body:#2b2d2a;--sec:#4d5049;--dim:#6b6e67;--faint:#82857e;--dis:#9b9e97;--hair:#d9d5cc;--div:#e2ded5;--bor:#cdc8bd;--ins:#e7e3da;--wash2:rgba(164,101,15,.13);--acc:#a4650f;--accInk:#ffffff;--tst:#f6f4f0;--warn:#9a6a12;--good:#4e6f3f;--shadow:0 12px 34px rgba(0,0,0,.16)'
+      :'--sur:#0f1011;--pan:#141618;--map:#0c0d0e;--ink:#f0f2f3;--body:#c8cbcd;--sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#565b5f;--hair:#232628;--div:#1e2123;--bor:#2c3033;--ins:#1c1f21;--wash2:rgba(224,163,74,.15);--acc:#e0a34a;--accInk:#12140f;--tst:#1c1f21;--warn:#e0a34a;--good:#7ea86a;--shadow:0 14px 40px rgba(0,0,0,.5)';
+    const dens=port?'--ldW:232px;--rdW:232px;--m0:12px;--m1:11px;--m2:9.5px':'--ldW:320px;--rdW:320px;--m0:12.5px;--m1:11.5px;--m2:10px';
+    const sc=this.sc();const m=this.ms();const lm=this.lm();
+    const isBrush=s.tool==='sculpt'||s.tool==='biome';
+    const SHAPES=['round','soft','flat','ridge','noise','square','fan','chisel'];
+    const FEAT=[['cliff','Cliff'],['ridge','Ridge'],['valley','Valley'],['plateau','Plateau'],['basin','Basin'],['dune','Dune']];
+    const MEAS=[['distance','Distance'],['bearing','Bearing'],['area','Area'],['radius','Radius'],['section','Cross-section']];
+    const mHints={distance:'tap drops points',bearing:'two points, A then B',area:'tap vertices',radius:'centre, then edge',section:'tap A, then B — profile reads right'};
+    const lmPlaced=Object.values(lm.res).reduce((a,x)=>a+x.placed,0)+(lm.hand||[]).length;
+    const crumb=[s.domain];
+    if(s.domain==='WORLD')crumb.push(s.worldMode==='sculpt'?'SCULPT':'PIPELINE');
+    if(s.domain==='CIVIL')crumb.push({landmarks:'LANDMARKS',factions:'FACTIONS',infra:'WAYS & ROUTES',planner:'PLANNER'}[s.civCat]);
+    if(s.domain==='CARTO')crumb.push({style:'LAYERS & STYLE',labels:'LABELS',icons:'ICONS',terrain:'TERRAIN'}[s.cartoCat]);
+    if(s.drill)crumb.push(s.drill.label);
+    return{
+      frames:this.FRAMES().map(x=>({id:x.id,label:x.label,bg:s.frame===x.id?'#e0a34a':'#17191b',col:s.frame===x.id?'#12140f':'#8d9296'})),
+      hFrame:e=>this.setState({frame:e.currentTarget.dataset.id},()=>{this._size();this.dirty=true}),
+      fw:f.w,fh:f.h,zoom:this._zoom(),zw:Math.round(f.w*this._zoom()),zh:Math.round(f.h*this._zoom()),
+      themeVars:T+';'+dens+';--menuH:52px;--railH:56px;--railW:52px;--sbH:28px;--tap:44px;--ctl:36px;--row:48px;--rowD:44px;--rCtl:12px;--rPan:16px',
+      themeLabel:L?'light':'dark',themeGlyph:L?'☾':'☀',
+      hTheme:()=>this.setState({light:!L},()=>{this.dirty=true}),
+      scrPicker:s.scr==='picker',scrApp:s.scr==='app',scrPlanner:s.scr==='planner',
+      pickerSub:'6 tablet frames · '+f.label+' · '+(port?'portrait, docks 232 dp':'landscape, docks 320 dp'),
+      pickCols:port?2:3,
+      worlds:[{name:'ELDRA',meta:'118402 · 4096² · edited 2 d ago · 214 MB',state:'LIVE',status:'resolved · stage 10',thumb:'linear-gradient(140deg,#2b3f4a,#5d6b4e 45%,#b9a878)',stateCol:'#e0a34a'},
+        {name:'KESSA',meta:'774201 · 512² · edited 3 w ago · 88 MB',state:'DRAFT',status:'draft · stage 03',thumb:'linear-gradient(140deg,#3a3d42,#6b6558 60%,#8d8271)',stateCol:'#8d9296'},
+        {name:'VHAL SERAI',meta:'220514 · 2048² · edited 6 d ago · 156 MB',state:'LIVE',status:'resolved · stage 08',thumb:'linear-gradient(140deg,#243642,#4e6f5c 50%,#cbb78d)',stateCol:'#e0a34a'},
+        {name:'THORNWOOD',meta:'908133 · 1024² · edited 2 mo ago · 61 MB',state:'ARCHIVE',status:'archived',thumb:'linear-gradient(140deg,#2a3330,#3f5145 55%,#7d8a6d)',stateCol:'#6f7478'},
+        {name:'HIGH SADDLE',meta:'441907 · 2048² · edited 5 d ago · 132 MB',state:'LIVE',status:'stale from 07',thumb:'linear-gradient(140deg,#33333a,#5a5a63 50%,#a9a396)',stateCol:'#e0a34a'}],
+      hOpenWorld:e=>this.setState({scr:'app',proj:e.currentTarget.dataset.name},()=>{this._size();this._bind();this.dirty=true}),
+      hNewWorld:()=>this.toast('New world — seed, size and plate count, then stage 01'),
+      projName:s.proj,projMeta:'4096² · seed 118402',
+      menus:['File','World','Data'].map(id=>({id,bg:s.menu===id?'var(--ins)':'transparent',col:s.menu===id?'var(--ink)':'var(--sec)'})),
+      ovBg:s.menu==='OVERFLOW'?'var(--ins)':'transparent',ovCol:s.menu==='OVERFLOW'?'var(--ink)':'var(--sec)',
+      hMenu:e=>{const id=e.currentTarget.dataset.id;this.setState({menu:s.menu===id?null:id,sub:null})},
+      menuOpen:!!s.menu,menuX:s.menu==='OVERFLOW'?6:s.menu==='File'?56:s.menu==='World'?132:216,
+      menuRows:this._menuRows(),hMenuAct:e=>this._menuAct(e.currentTarget.dataset.a),
+      tools:this._toolsFor(s.domain).map(t=>({id:t[0],name:t[1],svg:this._toolIcon(t[0]),
+        bg:s.tool===t[0]?'var(--acc)':'transparent',col:s.tool===t[0]?'var(--accInk)':'var(--sec)'})),
+      hTool:e=>{this.setState({tool:e.currentTarget.dataset.id,armed:null});this._haptic('arm')},
+      optBrush:isBrush,optFeat:s.tool==='sculpt',optMeas:s.tool==='measure',optPlain:!isBrush&&s.tool!=='measure',
+      plainHint:s.tool==='inspect'?'tap samples · drag pans · two fingers or wheel zooms · long-press = right-click'
+        :s.tool==='pan'?'drag pans · pinch zooms'
+        :'tap the map to place · hold a dock chip and tap to split-tap place',
+      brSizePct:Math.round((sc.brush.size-6)/194*100)+'%',
+      brSizeDisp:sc.brush.size+' px · '+this.fmtKm(sc.brush.size*2.5),
+      hBrSize:e=>this._slide(e,p=>this.setSc({brush:{...this.sc().brush,size:Math.round((6+p*194)/2)*2}})),
+      brHardPct:Math.round(sc.brush.hard*100)+'%',brHardDisp:sc.brush.hard.toFixed(2),
+      hBrHard:e=>this._slide(e,p=>this.setSc({brush:{...this.sc().brush,hard:+p.toFixed(2)}})),
+      shapeChips:SHAPES.map(id=>({id,bg:sc.brush.shape===id?'var(--wash2)':'var(--ins)',col:sc.brush.shape===id?'var(--acc)':'var(--sec)'})),
+      hShape:e=>this.setSc({brush:{...this.sc().brush,shape:e.currentTarget.dataset.id}}),
+      featChips:FEAT.map(x=>({id:x[0],label:x[1],bg:sc.feature===x[0]?'var(--wash2)':'var(--ins)',col:sc.feature===x[0]?'var(--acc)':'var(--sec)'})),
+      hFeat:e=>this.setSc({feature:e.currentTarget.dataset.id}),
+      measChips:MEAS.map(x=>({id:x[0],label:x[1],bg:m.sub===x[0]?'var(--wash2)':'var(--ins)',col:m.sub===x[0]?'var(--acc)':'var(--sec)'})),
+      hMeasSub:e=>this.setMs({sub:e.currentTarget.dataset.id,pts:[],done:false},()=>{this.dirty=true}),
+      measIsSection:m.sub==='section',
+      secChips:['Elevation','Terrain','Climate','Hydrology','Geology'].map(id=>({id,bg:m.field===id?'var(--wash2)':'var(--ins)',col:m.field===id?'var(--acc)':'var(--sec)'})),
+      hSecField:e=>this.setMs({field:e.currentTarget.dataset.id},()=>{this.dirty=true}),
+      measHint:mHints[m.sub],
+      undoCol:s.undo.length?'var(--sec)':'var(--dis)',redoCol:s.redo.length?'var(--sec)':'var(--dis)',
+      hUndo:()=>this._undo(),hRedo:()=>this._redo(),
+      domains:['WORLD','CIVIL','CARTO'].map(id=>({id,short:id.slice(0,3),svg:this._domIcon(id),
+        bg:s.domain===id?'var(--wash2)':'transparent',col:s.domain===id?'var(--acc)':'var(--dim)'})),
+      hDomain:e=>{const id=e.currentTarget.dataset.id;const T2=this._toolsFor(id);
+        this.setState({domain:id,drill:null,armed:null,tool:T2.some(x=>x[0]===s.tool)?s.tool:'inspect'})},
+      railFoot:s.domain==='WORLD'?(s.worldMode==='sculpt'?'SCULPT':'10 / 10'):s.domain==='CIVIL'?s.civCat.toUpperCase():s.cartoCat.toUpperCase(),
+      crumbs:crumb.map((label,i)=>({i,label,more:i<crumb.length-1,col:i===crumb.length-1?'var(--acc)':'var(--faint)'})),
+      hCrumb:e=>{if(+e.currentTarget.dataset.i<crumb.length-1)this.setState({drill:null})},
+      canvasRef:this.canvasRef,scaleLabRef:this.scaleLabRef,
+      mapCursor:s.armed?'copy':s.tool==='pan'?'grab':'crosshair',
+      armedChip:!!s.armed,armedLabel:s.armed?'placing '+s.armed.value+' — tap the map · release the chip to end':'',
+      toastOn:!!s.toast,toastMsg:s.toast||'',
+      rdTitle:s.tool==='measure'?(m.sub==='section'?'CROSS-SECTION':'MEASURE'):'SAMPLE',
+      rdSub:s.tool==='measure'?m.sub:(s.sample?s.sample.x+' · '+s.sample.y:'tap the map'),
+      tlShow:s.domain==='CIVIL'&&!s.tl.open,tlOpen:s.domain==='CIVIL'&&s.tl.open,tlChev:'0deg',
+      tlSummary:'yr '+s.tl.year+' · '+Object.values(s.tl.layers).filter(Boolean).length+' of 6 layers armed',
+      hTl:()=>this.setState({tl:{...s.tl,open:!s.tl.open}}),
+      tlLayers:Object.keys(s.tl.layers).map(id=>({id,bg:s.tl.layers[id]?'var(--wash2)':'var(--ins)',col:s.tl.layers[id]?'var(--acc)':'var(--dim)'})),
+      hTlLayer:e=>{const id=e.currentTarget.dataset.id;this.setState({tl:{...this.state.tl,layers:{...this.state.tl.layers,[id]:!this.state.tl.layers[id]}}})},
+      tlYear:s.tl.year,tlPct:Math.round(s.tl.year/1600*100)+'%',
+      hTlScrub:e=>this._slide(e,p=>this.setState({tl:{...this.state.tl,year:Math.round(p*1600)}})),
+      statusLeft:s.proj+' · '+s.tool+' · '+f.w+'×'+f.h+' dp',
+      statusMid:'last pass 10 Ecology · 108 ms · repaint 84 ms · autosave '+s.savedAt,
+      statusRight:lmPlaced+' landmarks · '+(sc.stamps||[]).length+' stamps',
+      planSub:'Vhal Serai → Kess Ford → Thornwood · 4 stages',
+      planVerdict:'STRAINED',planVerdictCol:'var(--warn)',
+      hPlanBack:()=>this.setState({scr:'app'},()=>{this._size();this._bind();this.dirty=true})
+    }}
+  _menuRows(){const s=this.state;const R=[];
+    const it=(label,a,o)=>R.push({isItem:true,label,a:a||'',sc:(o&&o.sc)||'',glyph:(o&&o.glyph)||'',ind:(o&&o.ind)||16,col:(o&&o.danger)?'#c05a4a':'var(--body)'});
+    const sep=()=>R.push({isSep:true});const head=l=>R.push({isHead:true,label:l});
+    const M=s.menu;
+    if(M==='File'){it('New world…','mock:New world — seed, size, plates');it('Open…','mock:Open');it('Recent','sub:recent',{glyph:'▸'});
+      if(s.sub==='recent')['ELDRA','KESSA','VHAL SERAI','THORNWOOD'].forEach(n=>it(n,'mock:Opened '+n,{ind:36}));
+      sep();it('Save','mock:Saved 14:02',{sc:'⌘S'});it('Save as…','mock:Save as');it('Revert to saved','mock:Reverted');
+      sep();it('Export map…','mock:Export map — PNG, GeoTIFF, SVG',{sc:'⇧⌘E'});it('Export data…','mock:Export data');
+      sep();it('Close world','mock:Closed',{danger:1})}
+    else if(M==='World'){head('GENERATION');it('Run pipeline','mock:Pipeline running — stage 01',{sc:'⌘R'});
+      it('Run from stale','mock:Running from stage 07');it('Reset to seed…','mock:Reset to seed',{danger:1});
+      sep();head('WORKSPACE');it('Generation pipeline','wm:pipeline',{glyph:s.worldMode==='pipeline'?'●':''});
+      it('Sculpt','wm:sculpt',{glyph:s.worldMode==='sculpt'?'●':''});
+      sep();it('Seed & size…','mock:Seed 118402 · 4096²');it('Plate settings…','mock:14 plates · convergent bias 0.4')}
+    else if(M==='Data'){head('LIBRARIES');it('Travel library…','mock:Travel library',{sc:'⇧L'});it('Data manager…','mock:Data manager');
+      sep();head('EXPORT');it('Export CSV…','mock:CSV export');it('Export GeoJSON…','mock:GeoJSON export');
+      sep();it('Journey planner','planner',{glyph:'➔'})}
+    else if(M==='OVERFLOW'){head('EDIT');it('Undo','undo',{sc:'⌘Z'});it('Redo','redo',{sc:'⇧⌘Z'});
+      it('Undo history — '+s.undo.length+' steps','mock:'+(s.undo.length?s.undo.slice(-6).reverse().join(' · '):'nothing yet'));
+      sep();head('ASSETS');it('Asset library…','mock:Asset library');it('Landmark types','sub:lmt',{glyph:'▸'});
+      if(s.sub==='lmt'){const lm=this.lm();this.LMFAMS().forEach(fm=>{
+        const armed=fm.types.filter(t=>lm.types[t.id].armed).length;
+        const placed=fm.types.reduce((a,t)=>a+lm.res[t.id].placed,0);
+        it(fm.label,'lmjump:'+fm.id,{ind:36,sc:armed+' · '+placed})})}
+      sep();head('VIEW');it('Toggle theme','theme',{sc:''});it('Units — '+(s.units==='km'?'kilometres':'miles'),'units');
+      it('Stylus pressure — '+(s.pressure?'on':'off'),'pressure');
+      it('Palm rejection — on','mock:Palm rejection is always on while sculpting — a resting palm never draws');
+      sep();head('HELP');it('Shortcuts…','mock:V inspect · M measure · R pan · F sculpt · B paint · ⌘Z · Esc');
+      it('About Cartalith','mock:Cartalith tablet shell — desktop parity at 900 dp and above')}
+    return R}
+  _menuAct(a){const s=this.state;if(!a)return;
+    if(a.startsWith('sub:')){const v=a.slice(4);this.setState({sub:s.sub===v?null:v});return}
+    if(a.startsWith('mock:')){this.toast(a.slice(5));this.setState({menu:null,sub:null});return}
+    if(a.startsWith('wm:')){this.setState({domain:'WORLD',worldMode:a.slice(3),menu:null,sub:null,drill:null});return}
+    if(a.startsWith('lmjump:')){const id=a.slice(7);const fm=this.LMFAMS().find(x=>x.id===id);
+      this.setState({domain:'CIVIL',civCat:'landmarks',menu:null,sub:null,drill:{kind:'lmfam',id,label:fm?fm.label:id}});return}
+    if(a==='planner'){this.setState({scr:'planner',menu:null,sub:null},()=>{this.dirty=true});return}
+    if(a==='undo'){this._undo();this.setState({menu:null,sub:null});return}
+    if(a==='redo'){this._redo();this.setState({menu:null,sub:null});return}
+    if(a==='theme'){this.setState({light:!s.light,menu:null,sub:null},()=>{this.dirty=true});return}
+    if(a==='units'){this.setState({units:s.units==='km'?'mi':'km',menu:null,sub:null},()=>{this.dirty=true});return}
+    if(a==='pressure'){this.setState({pressure:!s.pressure,menu:null,sub:null});return}
+    this.setState({menu:null,sub:null})}
+  STG(){return[{n:1,name:'Plates & tectonics'},{n:2,name:'Uplift & relief'},{n:3,name:'Erosion'},{n:4,name:'Sea level'},{n:5,name:'Rivers & basins'},{n:6,name:'Prevailing wind'},{n:7,name:'Ocean currents'},{n:8,name:'Climate'},{n:9,name:'Soils'},{n:10,name:'Ecology & biomes'}]}
+  SP(){if(!this._sp)this._sp={plates:14,uplift:0.62,erosion:0.44,sea:0.5,rivers:0.58,wind:0.5,currents:0.46,eq:30,soils:0.5,eco:0.62,
+    seg:{model:'convergent bias',hydro:'D8 flow',clim:'zonal + orographic',eco:'Whittaker'},tog:{isostasy:true,thermal:true,karst:false,glacial:true}};return this._sp}
+  stageState(n){const s=this.state;const from=s.staleFrom||11;return n<from?'resolved':n===from?'running':'stale'}
+  valsDocks(){const s=this.state;const sc=this.sc();const lm=this.lm();const m=this.ms();const L=s.light;const port=this.isPortrait();
+    const sp=this.SP();const LAD=this.LM_LADDER();
+    const V={};
+    const worldPipe=s.domain==='WORLD'&&s.worldMode==='pipeline';
+    const worldSculpt=s.domain==='WORLD'&&s.worldMode==='sculpt';
+    V.ldPipe=worldPipe;V.ldSculpt=worldSculpt;
+    V.ldCivCats=s.domain==='CIVIL';V.ldCartoCats=s.domain==='CARTO';
+
+    const SF={plates:['plate count',2,40,0,'plates'],uplift:['uplift rate',0,1,2,''],erosion:['erosion strength',0,1,2,''],
+      sea:['sea level',0,1,2,''],rivers:['flow threshold',0,1,2,''],wind:['wind strength',0,1,2,''],
+      currents:['current strength',0,1,2,''],eq:['equator °C',10,45,0,' °C'],soils:['weathering',0,1,2,''],eco:['biome contrast',0,1,2,'']};
+    const stageFields={1:['plates'],2:['uplift'],3:['erosion'],4:['sea'],5:['rivers'],6:['wind'],7:['currents'],8:['eq'],9:['soils'],10:['eco']};
+    const stageTog={1:['isostasy','thermal'],3:['karst','glacial'],5:['karst'],10:[]};
+    const stageSeg={1:'model',5:'hydro',8:'clim',10:'eco'};
+    V.stages=this.STG().map(st=>{const state=this.stageState(st.n);
+      const open=s.openStage===st.n;
+      const dot=state==='resolved'?'var(--good)':state==='running'?'var(--acc)':'var(--dis)';
+      const cells=[];
+      (stageTog[st.n]||[]).forEach(k=>cells.push({k:'tog:'+k,label:k,val:sp.tog[k]?'on':'off',
+        bg:sp.tog[k]?'var(--wash2)':'var(--ins)',col:sp.tog[k]?'var(--acc)':'var(--dim)'}));
+      if(stageSeg[st.n])cells.push({k:'seg:'+stageSeg[st.n],label:'model',val:sp.seg[stageSeg[st.n]],bg:'var(--ins)',col:'var(--body)'});
+      const grid=cells.length?[{cells}]:[];
+      const sliders=(stageFields[st.n]||[]).map(k=>{const d=SF[k];const v=sp[k];
+        return{k,label:d[0],pct:Math.round((v-d[1])/(d[2]-d[1])*100)+'%',
+          disp:(d[3]?v.toFixed(d[3]):v)+d[4],
+          fill:state==='stale'?'var(--dis)':'var(--acc)',
+          valCol:state==='stale'?'var(--dis)':'var(--ink)'}});
+      return{n:st.n,num:('0'+st.n).slice(-2),name:st.name,open,chev:open?'90deg':'0deg',
+        dot,state,stCol:state==='resolved'?'var(--faint)':state==='running'?'var(--acc)':'var(--dis)',
+        col:state==='stale'?'var(--dis)':'var(--body)',
+        needs:state==='stale'?'stale — fields read — until this stage runs':'resolved '+(38+st.n*7)+' ms · '+(st.n===1?'no inputs':'needs '+('0'+(st.n-1)).slice(-2)),
+        grid,sliders}});
+    V.hStage=e=>{const n=+e.currentTarget.dataset.n;this.setState({openStage:s.openStage===n?null:n})};
+    V.hStageSlide=e=>{const k=e.currentTarget.dataset.k;const d=SF[k];
+      this._slide(e,p=>{const v=d[3]?+(d[1]+p*(d[2]-d[1])).toFixed(d[3]):Math.round(d[1]+p*(d[2]-d[1]));
+        this.SP()[k]=v;this.forceUpdate()})};
+    V.hStageTog=e=>{const k=e.currentTarget.dataset.k;const sp2=this.SP();
+      if(k.startsWith('tog:')){sp2.tog[k.slice(4)]=!sp2.tog[k.slice(4)];this.forceUpdate()}
+      else{const g=k.slice(4);const O={model:['convergent bias','divergent bias','uniform'],hydro:['D8 flow','D-infinity'],clim:['zonal + orographic','zonal only'],eco:['Whittaker','Holdridge']};
+        const l=O[g];sp2.seg[g]=l[(l.indexOf(sp2.seg[g])+1)%l.length];this.forceUpdate()}};
+    V.hRunStage=e=>{const n=+e.currentTarget.dataset.n;this.pushUndo('run stage '+n);this.toast('Stage '+('0'+n).slice(-2)+' ran — '+(10-n)+' downstream stages went stale')};
+    V.hResetStage=()=>this.toast('Stage parameters reset to seed defaults');
+    V.runOn=!!s.runPct;V.runPct=(s.runPct||0)+'%';
+    V.runLabel=s.runPct?'running… '+s.runPct+'%':'Run all 10 stages';
+    V.hRunAll=()=>{if(this._ri)return;let p=0;this._ri=setInterval(()=>{p+=8+Math.random()*11;
+      if(p>=100){clearInterval(this._ri);this._ri=null;this.setState({runPct:0});this.toast('Pipeline resolved — 10 of 10 stages, 1.42 s')}
+      else this.setState({runPct:Math.round(p)})},140)};
+    V.pipeNote='one accordion, one stage open at a time · a stage that runs marks everything downstream stale';
+
+    const FP={cliff:[['height','drop',0,900,0,' m',420],['width','width',0,80,0,' px',26],['falloff','falloff',0,1,2,'',0.4]],
+      ridge:[['height','height',0,1400,0,' m',680],['width','width',0,120,0,' px',44],['falloff','falloff',0,1,2,'',0.5]],
+      valley:[['depth','depth',0,700,0,' m',260],['width','width',0,140,0,' px',60],['falloff','falloff',0,1,2,'',0.6]],
+      plateau:[['height','height',0,1800,0,' m',900],['edge','edge sharpness',0,1,2,'',0.7]],
+      basin:[['depth','depth',0,900,0,' m',340],['falloff','falloff',0,1,2,'',0.55]],
+      dune:[['height','height',0,120,0,' m',38],['spacing','spacing',0,200,0,' px',70]]};
+    if(!this._fp)this._fp={};
+    const fkey=sc.feature;
+    if(!this._fp[fkey]){this._fp[fkey]={};FP[fkey].forEach(d=>{this._fp[fkey][d[0]]=d[6]})}
+    const fpv=this._fp[fkey];
+    V.scNoDrill=!(s.drill&&s.drill.kind==='stamp');
+    V.scDrill=!!(s.drill&&s.drill.kind==='stamp');
+    V.sfTitle=fkey.toUpperCase()+' · PARAMETERS';
+    V.sfParams=FP[fkey].map(d=>({k:d[0],label:d[1],pct:Math.round((fpv[d[0]]-d[2])/(d[3]-d[2])*100)+'%',
+      disp:(d[4]?fpv[d[0]].toFixed(d[4]):fpv[d[0]])+d[5]}));
+    V.hSfSlide=e=>{const k=e.currentTarget.dataset.k;const d=FP[fkey].find(x=>x[0]===k);
+      this._slide(e,p=>{this._fp[fkey][k]=d[4]?+(d[2]+p*(d[3]-d[2])).toFixed(d[4]):Math.round(d[2]+p*(d[3]-d[2]));this.forceUpdate()})};
+    V.sfHasSide=fkey==='cliff';
+    V.sideLBg=sc.side==='left'?'var(--wash2)':'var(--ins)';V.sideLCol=sc.side==='left'?'var(--acc)':'var(--dim)';
+    V.sideRBg=sc.side==='right'?'var(--wash2)':'var(--ins)';V.sideRCol=sc.side==='right'?'var(--acc)':'var(--dim)';
+    V.hSide=e=>this.setSc({side:e.currentTarget.dataset.v});
+    V.pressureNote=s.pressure?'stylus pressure drives strength and size together · palm rejection on — a resting palm never draws'
+      :'stylus pressure off — strokes use the rail size at full strength · palm rejection on';
+    V.stampCount=(sc.stamps||[]).length+' committed';
+    V.noStamps=!(sc.stamps||[]).length;
+    V.stamps=(sc.stamps||[]).map(st=>({i:st.i,label:st.type,col:st.vis===false?'var(--dis)':'var(--body)',
+      visBg:st.vis===false?'transparent':'var(--acc)',selBg:sc.sel===st.i?'var(--wash2)':'transparent',
+      meta:this.fmtKm(st.len)+(st.pr?' · pr '+st.pr:'')}));
+    V.hStampVis=e=>{e.stopPropagation();const i=+e.currentTarget.dataset.i;
+      this.setSc({stamps:sc.stamps.map(x=>x.i===i?{...x,vis:x.vis===false}:x)},()=>{this.dirty=true})};
+    V.hStampDrill=e=>{const i=+e.currentTarget.dataset.i;const st=sc.stamps.find(x=>x.i===i);
+      this.setSc({sel:i},()=>{this.dirty=true});this.setState({drill:{kind:'stamp',id:i,label:(st?st.type:'stamp').toUpperCase()}})};
+    const dst=s.drill&&s.drill.kind==='stamp'?sc.stamps.find(x=>x.i===s.drill.id):null;
+    V.dsMeta=dst?('stamp '+(dst.i+1)+' of '+sc.stamps.length+' · '+this.fmtKm(dst.len)):'';
+    V.dsRows=dst?[{k:'type',v:dst.type},{k:'brush size',v:dst.bs+' px'},{k:'length',v:this.fmtKm(dst.len)},
+      {k:'points',v:String(dst.pts.length)},{k:'pressure',v:dst.pr!=null?dst.pr.toFixed(2):'—'},
+      {k:'strength',v:dst.strength!=null?dst.strength.toFixed(2):'—'}]:[];
+    V.dsSide=!!(dst&&dst.side);V.dsSideVal=dst&&dst.side?dst.side:'';
+    V.hStampFlip=()=>{const i=s.drill.id;this.pushUndo('flip high side');
+      this.setSc({stamps:sc.stamps.map(x=>x.i===i?{...x,side:x.side==='right'?'left':'right'}:x)},()=>{this.dirty=true});
+      this.toast('High side flipped')};
+    V.dsVisLabel=dst&&dst.vis===false?'show':'hide';
+    V.hStampVisD=()=>{const i=s.drill.id;this.setSc({stamps:sc.stamps.map(x=>x.i===i?{...x,vis:x.vis===false}:x)},()=>{this.dirty=true})};
+    V.hStampDel=()=>{const i=s.drill.id;this.pushUndo('delete stamp');
+      this.setSc({stamps:sc.stamps.filter(x=>x.i!==i),sel:null},()=>{this.dirty=true});
+      this.setState({drill:null});this.toast('Stamp deleted')};
+    return{...V,...this.valsDocks2()}}
+  valsDocks2(){const s=this.state;const sc=this.sc();const lm=this.lm();const m=this.ms();const L=s.light;
+    const LAD=this.LM_LADDER();const V={};
+    const cc=s.civCat;
+    const armedAll=Object.values(lm.types).filter(x=>x.armed);
+    const placedTotal=Object.values(lm.res).reduce((a,x)=>a+x.placed,0);
+    const capsTotal=armedAll.reduce((a,x)=>a+x.cap,0);
+    const room=Math.round(210/Math.pow(lm.crowd,1.6)*(lm.compete?1:1.35));
+    const inFam=s.drill&&s.drill.kind==='lmfam';
+    V.civCats=[['landmarks','LANDMARKS',armedAll.length+' armed · '+(placedTotal+(lm.hand||[]).length)+' placed'],
+      ['factions','FACTIONS & SETTLEMENTS','5 factions · 48 settlements'],
+      ['infra','WAYS & ROUTES','4 classes · 22 ways'],
+      ['planner','JOURNEY PLANNER','1 route · strained']]
+      .map(x=>({id:x[0],label:x[1],count:x[2],col:cc===x[0]?'var(--acc)':'var(--faint)',chev:cc===x[0]?'90deg':'0deg',
+        isLandmarks:cc==='landmarks'&&x[0]==='landmarks',isFactions:cc==='factions'&&x[0]==='factions',
+        isInfra:cc==='infra'&&x[0]==='infra',isPlanner:cc==='planner'&&x[0]==='planner'}));
+    V.hCivCat=e=>{const id=e.currentTarget.dataset.id;this.setState({civCat:id,drill:null})};
+    V.lmRoot=cc==='landmarks'&&!inFam;V.lmInFam=cc==='landmarks'&&!!inFam;
+    V.lmHeadroom='caps total '+capsTotal+' · room for about '+room+' at this spacing · last run placed '+placedTotal;
+    V.lmCrowdPct=Math.round((lm.crowd-0.25)/1.75*100)+'%';V.lmCrowdDisp='× '+lm.crowd.toFixed(2);
+    V.lmCrowdKm='a regional landmark keeps '+this.fmtKm(lm.radii.REG*lm.crowd)+' clear';
+    V.hLmCrowd=e=>this._slide(e,p=>this.setLm({crowd:+(0.25+p*1.75).toFixed(2),edited:true}));
+    V.lmCompeteBg=lm.compete?'var(--acc)':'var(--ins)';V.lmCompeteX=lm.compete?16:2;
+    V.hLmCompete=()=>this.setLm({compete:!lm.compete,edited:true});
+    V.lmFams=this.LMFAMS().map(f=>{const armed=f.types.filter(t=>lm.types[t.id].armed).length;
+      const placed=f.types.reduce((a,t)=>a+lm.res[t.id].placed,0);
+      return{id:f.id,label:f.label,glyph:{__html:f.glyph},sub:armed+' of '+f.types.length+' armed · '+placed+' placed'}});
+    V.hLmFam=e=>{const id=e.currentTarget.dataset.id;const f=this.LMFAMS().find(x=>x.id===id);
+      this.setState({drill:{kind:'lmfam',id,label:f.label}})};
+    V.lmStale=!!lm.edited;
+    V.lmRunning=!!lm.run;V.lmRunPct=lm.run?Math.min(100,Math.round(lm.run.pct))+'%':'0%';
+    V.lmRunLabel=lm.run?'placing… '+Math.min(99,Math.round(lm.run.pct))+'%':'Run landmark pass';
+    V.hLmRun=()=>this.lmRun();
+    V.lmFoot='last run '+lm.lastRun+' · '+placedTotal+' generated · '+(lm.hand||[]).length+' hand-placed (exempt from caps)';
+    const famObj=inFam?this.LMFAMS().find(f=>f.id===s.drill.id):null;
+    V.lmRows=!famObj?[]:famObj.types.map(t=>{const st=lm.types[t.id];const r=lm.res[t.id];
+      const idx=st.armed?LAD.reduce((b,v2,i2)=>Math.abs(v2-st.cap)<Math.abs(LAD[b]-st.cap)?i2:b,0):0;
+      const hand=(lm.hand||[]).filter(x=>x.type===t.name).length;
+      const cand=t.cand||400;const f1=Math.round(cand*0.7),f2=Math.round((cand-f1)*0.62);
+      const spd=Math.max(0,cand-f1-f2-r.placed);
+      return{id:t.id,name:t.name,badge:t.cls,armed:st.armed,off:!st.armed,
+        glyph:{__html:(window.LM_GLYPHS&&window.LM_GLYPHS[t.name])?'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">'+window.LM_GLYPHS[t.name].inner+'</svg>':''},
+        nameCol:st.armed?'var(--body)':'var(--dis)',
+        capPct:Math.round(idx/(LAD.length-1)*100)+'%',
+        capDisp:st.armed?st.cap+' max':'off',wasNote:'was '+st.cap+(t.noview?' · no viewshed':''),
+        placedPct:st.armed&&st.cap?Math.min(100,Math.round(r.placed/st.cap*100))+'%':'0%',
+        placedLine:r.placed+' placed · '+r.reason+(hand?' · +'+hand+' hand':''),
+        reasonCol:r.reason==='at cap'?'var(--acc)':'var(--dim)',
+        holdBg:s.armed&&s.armed.value===t.name?'var(--acc)':'var(--ins)',
+        holdCol:s.armed&&s.armed.value===t.name?'var(--accInk)':'var(--faint)',
+        funnelOpen:lm.funnel===t.id,
+        funnel:[{k:'candidates evaluated',v:cand.toLocaleString('en-US'),col:'var(--sec)'},
+          {k:'failed physical constraints',v:'− '+f1+'   '+(cand-f1)+' left',col:'var(--sec)'},
+          {k:'failed type constraints',v:'− '+f2+'   '+(cand-f1-f2)+' left',col:'var(--sec)'},
+          {k:'rejected by spacing',v:'− '+spd+'   '+r.placed+' left',col:'var(--sec)'},
+          {k:'cap '+st.cap,v:r.reason==='at cap'?'reached':'not reached',col:r.reason==='at cap'?'var(--acc)':'var(--faint)'}]}});
+    V.hLmCap=e=>{const id=e.currentTarget.dataset.id;
+      this._slide(e,p=>{const i=Math.round(p*(LAD.length-1));const l2=this.lm();const cur=l2.types[id];const v=LAD[i];
+        this.setLm({types:{...l2.types,[id]:v===0?{...cur,armed:false}:{armed:true,cap:v}},edited:true})})};
+    V.hLmFunnel=e=>{const id=e.currentTarget.dataset.id;this.setLm({funnel:lm.funnel===id?null:id})};
+    V.hLmHold=e=>{e.stopPropagation();const name=e.currentTarget.dataset.name;
+      this.setState({armed:{kind:'landmark',value:name}});this._haptic('arm');
+      const end=()=>{this.setState({armed:null});window.removeEventListener('pointerup',end)};
+      window.addEventListener('pointerup',end)};
+    V.hLmBulk=e=>{const on=e.currentTarget.dataset.v==='on';const types={...lm.types};
+      famObj.types.forEach(t=>{types[t.id]={...types[t.id],armed:on}});this.setLm({types,edited:true})};
+    V.lmFamFoot='hold ✛ on a type and tap the map to place one by hand — hand-placed landmarks are exempt from the cap and shown separately';
+    V.factions=[{id:'ashen',name:'Ashen Compact',sw:'#c0703a',meta:'14 towns'},{id:'vhal',name:'Vhal Serai',sw:'#5d8ca8',meta:'11 towns'},
+      {id:'kess',name:'Kess Holdfast',sw:'#7ea86a',meta:'9 towns'},{id:'thorn',name:'Thornwood Reach',sw:'#9a7fb0',meta:'8 towns'},
+      {id:'free',name:'Free Saddles',sw:'#b0a065',meta:'6 towns'}];
+    V.hFaction=e=>{const id=e.currentTarget.dataset.id;const f=V.factions.find(x=>x.id===id);
+      this.setState({drill:{kind:'faction',id,label:f.name.toUpperCase()}});this.toast(f.name+' — '+f.meta)};
+    if(!this._way)this._way='caravan';
+    V.wayClasses=[['footpath','Footpath','6 ways'],['cart','Cart road','9 ways'],['caravan','Caravan route','5 ways'],['sea','Sea lane','2 lanes']]
+      .map(x=>({id:x[0],label:x[1],meta:x[2],bg:this._way===x[0]?'var(--wash2)':'var(--ins)',col:this._way===x[0]?'var(--acc)':'var(--body)'}));
+    V.hWayClass=e=>{this._way=e.currentTarget.dataset.id;this.forceUpdate()};
+    V.planTeaser='Vhal Serai → Kess Ford → Thornwood → High Saddle · 4 stages · 412 km · 11 d · strained on stage 3';
+    V.hOpenPlanner=()=>this.setState({scr:'planner'},()=>{this.dirty=true});
+
+    const ct=s.cartoCat;const ca=this.CAD();
+    V.cartoCats=[['style','LAYERS & STYLE',ca.layers.filter(l=>l.vis).length+' of '+ca.layers.length+' visible'],
+      ['labels','LABELS','122 drawn · 9 culled'],['icons','ICONS','48 placed'],['terrain','TERRAIN APPEARANCE','relief 2×']]
+      .map(x=>({id:x[0],label:x[1],count:x[2],col:ct===x[0]?'var(--acc)':'var(--faint)',chev:ct===x[0]?'90deg':'0deg',
+        isStyle:ct==='style'&&x[0]==='style',isLabels:ct==='labels'&&x[0]==='labels',
+        isIcons:ct==='icons'&&x[0]==='icons',isTerrain:ct==='terrain'&&x[0]==='terrain'}));
+    V.hCartoCat=e=>this.setState({cartoCat:e.currentTarget.dataset.id,drill:null});
+    V.layers=ca.layers.map(l=>({id:l.id,label:l.label,bg:l.vis?'var(--acc)':'transparent',
+      col:l.vis?'var(--body)':'var(--dis)',op:Math.round(l.op*100)+'%'}));
+    V.hLayerVis=e=>{const id=e.currentTarget.dataset.id;const c=this.CAD();
+      c.layers=c.layers.map(l=>l.id===id?{...l,vis:!l.vis}:l);this.forceUpdate()};
+    const GR={Earth:'linear-gradient(90deg,#1d3140,#2e5a4a,#b9a878,#efe9dd)',Arid:'linear-gradient(90deg,#3a2f22,#8a6a3f,#d9c290)',
+      Boreal:'linear-gradient(90deg,#20303a,#38584e,#9fb0a0)',Volcanic:'linear-gradient(90deg,#221a1a,#6a3226,#d08a4a)',
+      Pale:'linear-gradient(90deg,#33383c,#8e959a,#e6e9ea)',Ink:'linear-gradient(90deg,#0d0f10,#3c4145,#9aa1a6)'};
+    V.ramps=Object.keys(GR).map(id=>({id,grad:GR[id],bg:ca.ramp===id?'var(--wash2)':'var(--ins)',col:ca.ramp===id?'var(--acc)':'var(--sec)'}));
+    V.hRamp=e=>{const c=this.CAD();c.ramp=e.currentTarget.dataset.id;this.forceUpdate();this.toast('Ramp '+c.ramp+' — legend and export LUT updated')};
+    if(!this._lab)this._lab={sel:'settlement',size:{continental:26,region:18,settlement:13,water:15,landmark:11},
+      halo:{continental:2.5,region:2,settlement:1.5,water:1.5,landmark:1.2},
+      track:{continental:0.28,region:0.2,settlement:0.06,water:0.14,landmark:0.06},collision:true};
+    const lab=this._lab;
+    const CL=[['continental','Continental','#e0a34a','4'],['region','Region','#c8cbcd','11'],['settlement','Settlement','#a9adb0','48'],['water','Water','#6f9fb5','22'],['landmark','Landmark','#8d9296','37']];
+    V.labClasses=CL.map(c=>({id:c[0],label:c[1],sw:c[2],count:c[3],col:lab.sel===c[0]?'var(--acc)':'var(--body)'}));
+    V.hLabClass=e=>{this._lab.sel=e.currentTarget.dataset.id;this.forceUpdate()};
+    V.labSelTitle=(CL.find(c=>c[0]===lab.sel)||CL[2])[1].toUpperCase()+' · TYPE';
+    V.labFields=[{k:'size',label:'size',pct:Math.round((lab.size[lab.sel]-8)/26*100)+'%',disp:lab.size[lab.sel]+' px'},
+      {k:'halo',label:'halo',pct:Math.round(lab.halo[lab.sel]/4*100)+'%',disp:lab.halo[lab.sel].toFixed(1)+' px'},
+      {k:'track',label:'tracking',pct:Math.round(lab.track[lab.sel]/0.4*100)+'%',disp:lab.track[lab.sel].toFixed(2)+' em'}];
+    V.hLabField=e=>{const k=e.currentTarget.dataset.k;
+      this._slide(e,p=>{const l2=this._lab;
+        l2[k][l2.sel]=k==='size'?Math.round(8+p*26):k==='halo'?+(p*4).toFixed(1):+(p*0.4).toFixed(2);this.forceUpdate()})};
+    V.labCollBg=lab.collision?'var(--acc)':'var(--ins)';V.labCollX=lab.collision?16:2;
+    V.hLabColl=()=>{this._lab.collision=!this._lab.collision;this.forceUpdate()};
+    V.labCollNote=lab.collision?'9 labels suppressed at this zoom — zoom in to recover them':'off — labels may overlap; export will not fix it';
+    if(!this._ico)this._ico={fam:'PLACES',scale:1,spacing:14,rules:{avoidLabels:true,minSpacing:true,snapCoast:false}};
+    const ico=this._ico;const FAM={PLACES:[10,12],TREES:[22,22],'SEA MARKS':[6,8],POI:[10,12]};
+    V.icoFams=Object.keys(FAM).map(id=>({id,bg:ico.fam===id?'var(--wash2)':'var(--ins)',col:ico.fam===id?'var(--acc)':'var(--sec)'}));
+    V.hIcoFam=e=>{this._ico.fam=e.currentTarget.dataset.id;this.forceUpdate()};
+    V.icoSlotLine=FAM[ico.fam][0]+' of '+FAM[ico.fam][1]+' slots filled · unfilled slots fall back to the family default glyph';
+    V.icoFields=[{k:'scale',label:'icon scale',pct:Math.round((ico.scale-0.5)/1.5*100)+'%',disp:Math.round(ico.scale*100)+'%'},
+      {k:'spacing',label:'min spacing',pct:Math.round(ico.spacing/40*100)+'%',disp:ico.spacing+' px'}];
+    V.hIcoField=e=>{const k=e.currentTarget.dataset.k;
+      this._slide(e,p=>{this._ico[k]=k==='scale'?+(0.5+p*1.5).toFixed(2):Math.round(p*40);this.forceUpdate()})};
+    V.icoRules=[['avoidLabels','avoid labels'],['minSpacing','min spacing'],['snapCoast','snap to coast']]
+      .map(x=>({id:x[0],label:x[1],bg:ico.rules[x[0]]?'var(--wash2)':'var(--ins)',col:ico.rules[x[0]]?'var(--acc)':'var(--dim)'}));
+    V.hIcoRule=e=>{const id=e.currentTarget.dataset.id;this._ico.rules[id]=!this._ico.rules[id];this.forceUpdate()};
+    if(!this._ter)this._ter={relief:2,az:315,el:45,strength:0.62,shade:'multi',water:'tinted'};
+    const ter=this._ter;
+    V.terFields=[{k:'relief',label:'relief exaggeration',pct:Math.round((ter.relief-1)/3*100)+'%',disp:ter.relief.toFixed(1)+'×'},
+      {k:'az',label:'sun azimuth',pct:Math.round(ter.az/360*100)+'%',disp:Math.round(ter.az)+'°'},
+      {k:'strength',label:'shading strength',pct:Math.round(ter.strength*100)+'%',disp:ter.strength.toFixed(2)}];
+    V.hTerField=e=>{const k=e.currentTarget.dataset.k;
+      this._slide(e,p=>{this._ter[k]=k==='relief'?+(1+p*3).toFixed(1):k==='az'?Math.round(p*360):+p.toFixed(2);this.forceUpdate()})};
+    V.terSegs=[{k:'shade',label:'hillshade',val:ter.shade,bg:'var(--ins)',col:'var(--body)'},
+      {k:'water',label:'water',val:ter.water,bg:'var(--ins)',col:'var(--body)'}];
+    V.hTerSeg=e=>{const k=e.currentTarget.dataset.k;const O={shade:['multi','single','none'],water:['tinted','flat','depth']};
+      const l=O[k];this._ter[k]=l[(l.indexOf(this._ter[k])+1)%l.length];this.forceUpdate()};
+    return{...V,...this.valsRight()}}
+  valsRight(){const s=this.state;const m=this.ms();const L=s.light;const V={};const sm=s.sample;
+    V.rdSample=s.tool!=='measure';V.rdMeasure=s.tool==='measure';V.noSample=!sm;
+    V.sampleGroups=!sm?[]:[
+      {title:'POSITION',rows:[{k:'cell',v:sm.x+' · '+sm.y,col:'var(--ink)'},{k:'elevation',v:sm.elev.toLocaleString('en-US')+' m',col:'var(--acc)'},{k:'slope',v:sm.slope+'°',col:'var(--sec)'},{k:'aspect',v:sm.aspect+'°',col:'var(--sec)'}]},
+      {title:'GEOLOGY',rows:[{k:'plate',v:sm.plate+' · '+sm.ptype,col:'var(--sec)'},{k:'boundary',v:this.fmtKm(sm.bdist),col:'var(--sec)'},{k:'lithology',v:sm.lith,col:'var(--sec)'},{k:'resistance',v:sm.resist,col:'var(--sec)'}]},
+      {title:'CLIMATE',rows:[{k:'temperature',v:sm.temp+' °C',col:'var(--sec)'},{k:'precipitation',v:sm.precip+' mm',col:'var(--sec)'}]},
+      {title:'HYDROLOGY · ECOLOGY',rows:[{k:'drainage',v:sm.drain,col:'var(--sec)'},{k:'soil depth',v:sm.soil+' m',col:'var(--sec)'},{k:'biome',v:sm.biome,col:'var(--ink)'}]}];
+    const mp=m.pts;let tot=0;for(let i=1;i<mp.length;i++)tot+=Math.hypot(mp[i].x-mp[i-1].x,mp[i].y-mp[i-1].y)*2.5;
+    const bear=mp.length>1?Math.round((Math.atan2(mp[1].x-mp[0].x,-(mp[1].y-mp[0].y))*180/Math.PI+360)%360):0;
+    let areaKm=0;if(mp.length>2){let a2=0;for(let i=0;i<mp.length;i++){const a=mp[i],b=mp[(i+1)%mp.length];a2+=a.x*b.y-b.x*a.y}areaKm=Math.abs(a2)/2*6.25}
+    const radKm=mp.length>1?Math.hypot(mp[1].x-mp[0].x,mp[1].y-mp[0].y)*2.5:0;
+    const sec=m.sub==='section'?this.secSample2():null;
+    const fmtA=a=>Math.round(a).toLocaleString('en-US')+' km²';
+    const B={distance:this.fmtKm(tot),bearing:mp.length>1?('00'+bear).slice(-3)+'°':'—',
+      area:mp.length>2?fmtA(areaKm*(m.water?0.88:1)):'—',radius:mp.length>1?this.fmtKm(radKm):'—',section:sec?this.fmtKm(sec.len):'—'};
+    V.mBig=B[m.sub];
+    V.mBigLabel={distance:'TOTAL LENGTH',bearing:'BEARING A → B',area:'AREA · PROJECTED',radius:'RADIUS',section:'SECTION · '+m.field.toUpperCase()}[m.sub];
+    V.mBigSub=m.sub==='distance'?Math.max(mp.length-1,0)+' segments · '+mp.length+' points'
+      :m.sub==='area'?(m.water?'water subtracted':'projected'):sec?'A → B locked · '+m.field.toLowerCase():'';
+    V.mSegs=(m.sub==='distance'||m.sub==='bearing')?mp.slice(1).map((p,i)=>({i:String(i+1),
+      len:this.fmtKm(Math.hypot(p.x-mp[i].x,p.y-mp[i].y)*2.5),
+      bear:('00'+Math.round((Math.atan2(p.x-mp[i].x,-(p.y-mp[i].y))*180/Math.PI+360)%360)).slice(-3)+'°'})):[];
+    const SR=[];
+    if(m.sub==='bearing'&&mp.length>1)SR.push({k:'back-bearing',v:'↺ '+('00'+((bear+180)%360)).slice(-3)+'°',col:'var(--sec)'},{k:'length',v:this.fmtKm(tot),col:'var(--sec)'});
+    if(m.sub==='area'&&mp.length>2)SR.push({k:'true surface',v:fmtA(areaKm*1.036),col:'var(--sec)'},{k:'perimeter',v:this.fmtKm(tot),col:'var(--sec)'},{k:'vertices',v:String(mp.length),col:'var(--sec)'});
+    if(m.sub==='radius'&&mp.length>1)SR.push({k:'diameter',v:this.fmtKm(radKm*2),col:'var(--sec)'},{k:'circumference',v:this.fmtKm(2*Math.PI*radKm),col:'var(--sec)'},{k:'enclosed area',v:fmtA(Math.PI*radKm*radKm),col:'var(--sec)'});
+    if(sec)SR.push({k:'min · max',v:sec.min.toLocaleString('en-US')+' · '+sec.max.toLocaleString('en-US')+sec.unit,col:'var(--sec)'},{k:'mean',v:sec.mean.toLocaleString('en-US')+sec.unit,col:'var(--sec)'},{k:'bearing',v:('00'+bear).slice(-3)+'°',col:'var(--sec)'},{k:'samples',v:'120 · 1 per '+this.fmtKm(sec.len/120),col:'var(--sec)'});
+    V.mStats=SR;
+    V.mSecOn=!!sec;V.mSecPath=sec?sec.d:'M0,0 Z';V.mSecField=m.field.toLowerCase();
+    V.mSecHalf=sec?this.fmtKm(sec.len/2):'';
+    V.mSecMin=sec?sec.min.toLocaleString('en-US')+sec.unit:'';V.mSecMax=sec?sec.max.toLocaleString('en-US')+sec.unit:'';
+    V.mSecGrid=L?'rgba(0,0,0,.08)':'rgba(255,255,255,.07)';
+    V.mSecFill=L?'rgba(164,101,15,.14)':'rgba(224,163,74,.14)';V.mSecLine=L?'#a4650f':'#e0a34a';
+    V.mIsArea=m.sub==='area';V.mWaterBg=m.water?'var(--wash2)':'var(--ins)';V.mWaterCol=m.water?'var(--acc)':'var(--dim)';
+    V.hMeasWater=()=>this.setMs({water:!m.water});
+    V.hMeasClear=()=>this.setMs({pts:[],done:false},()=>{this.dirty=true});
+    V.mFoot={distance:'tap drops points · Esc clears',bearing:'two points only',area:'tap vertices, the ring closes itself',
+      radius:'centre, then edge',section:'the profile reads top-to-bottom because the dock is tall — A at the top, B at the bottom'}[m.sub];
+    return{...V,...this.valsPlanner()}}
+  valsPlanner(){const s=this.state;const L=s.light;const V={};
+    if(!this._pg)this._pg={open:'party',stage:1,pace:0.55,load:0.62};
+    const pg=this._pg;
+    const G=[['party','PARTY','14 souls · 6 mounts',[['size','14'],['mounts','6'],['carts','2'],['vessels','0'],['fitness','seasoned'],['discipline','high']],[{k:'pace',label:'pace',disp:(0.5+pg.pace*0.9).toFixed(2)+'× base'},{k:'load',label:'cargo load',disp:Math.round(pg.load*1400)+' kg'}]],
+      ['supply','SUPPLY','11 d rations',[['rations','11 d'],['water','4 d'],['forage','moderate'],['resupply','stage 2']],[]],
+      ['season','SEASON & WEATHER','late autumn',[['season','late autumn'],['weather','wet'],['daylight','9.5 h'],['risk','moderate']],[]],
+      ['overrides','STAGE OVERRIDES','3 of 15 set',[['km/day','—'],['terrain','set'],['weather','set'],['crossing','set']],[]]];
+    V.planGroups=G.map(g=>({id:g[0],label:g[1],summary:g[2],open:pg.open===g[0],chev:pg.open===g[0]?'90deg':'0deg',
+      col:pg.open===g[0]?'var(--acc)':'var(--sec)',
+      cells:g[3].map(c=>({k:c[0],v:c[1]})),sliders:g[4].map(f=>({...f,pct:Math.round(pg[f.k]*100)+'%'}))}));
+    V.hPlanGroup=e=>{const id=e.currentTarget.dataset.id;this._pg.open=pg.open===id?null:id;this.forceUpdate()};
+    V.hPlanSlide=e=>{const k=e.currentTarget.dataset.k;this._slide(e,p=>{this._pg[k]=+p.toFixed(2);this.forceUpdate()})};
+    const prof=[];const h=(a)=>{const n=Math.sin(a*12.9898)*43758.5453;return n-Math.floor(n)};
+    let d='M0,160 ';for(let i=0;i<=100;i++){const y=160-(20+h(i*3.1)*60+Math.sin(i/9)*38);d+='L'+(i*10)+','+y.toFixed(1)+' '}
+    d+='L1000,160 Z';V.spinePath=d;
+    V.spineFill=L?'rgba(164,101,15,.12)':'rgba(224,163,74,.12)';V.spineLine=L?'#a4650f':'#e0a34a';
+    V.spineNote='route map and terrain profile on one distance axis — the profile selects the stage';
+    const ST=[['Vhal Serai → Kess Ford','118 km · 3 d'],['Kess Ford → Thornwood','92 km · 2 d'],
+      ['Thornwood → High Saddle','108 km · 4 d'],['High Saddle → Ashfall','94 km · 2 d']];
+    V.spineMarks=ST.map((x,i)=>({x:String((i+1)*200),col:pg.stage===i?(L?'#a4650f':'#e0a34a'):(L?'rgba(0,0,0,.14)':'rgba(255,255,255,.12)')}));
+    V.planStages=ST.map((x,i)=>({i,name:x[0],meta:x[1],bg:pg.stage===i?'var(--wash2)':'var(--ins)',
+      col:pg.stage===i?'var(--acc)':'var(--body)'}));
+    V.hPlanStage=e=>{this._pg.stage=+e.currentTarget.dataset.i;this.forceUpdate()};
+    const W=['22%','13%','13%','13%','13%','13%','13%'];
+    V.matrixHead=['STAGE','TERRAIN','WEATHER','CARGO','SUPPLY','KM/DAY','DAYS'].map((label,i)=>({label,w:W[i],
+      col:i>=1&&i<=3?'var(--acc)':'var(--faint)'}));
+    const MR=[['Vhal Serai → Kess Ford','plains','clear','1 380 kg','11 d','38','3'],
+      ['Kess Ford → Thornwood','forest','wet','1 240 kg','8 d','32','2'],
+      ['Thornwood → High Saddle','mountain','storm','1 180 kg','4 d','24','4'],
+      ['High Saddle → Ashfall','steppe','wet','1 020 kg','1 d','36','2']];
+    V.matrixRows=MR.map((r,ri)=>({cells:r.map((v,i)=>({v,w:W[i],
+      col:ri===2&&i>=4?'var(--warn)':i>=1&&i<=3?'var(--acc)':'var(--sec)'}))}));
+    V.planTotal='412 km · 11 d';V.planTotalSub='strained on stage 3 — supply falls to 4 days';
+    V.planResults=[
+      {title:'TIME',rows:[{k:'travel days',v:'11 d',col:'var(--ink)'},{k:'rest days',v:'2 d',col:'var(--sec)'},{k:'arrival',v:'day 13',col:'var(--sec)'}]},
+      {title:'LOAD',rows:[{k:'start cargo',v:'1 380 kg',col:'var(--sec)'},{k:'capacity',v:'1 600 kg',col:'var(--sec)'},{k:'margin',v:'220 kg',col:'var(--good)'}]},
+      {title:'SUPPLY',rows:[{k:'rations out',v:'11 d',col:'var(--sec)'},{k:'lowest point',v:'4 d · stage 3',col:'var(--warn)'},{k:'resupply',v:'Kess Ford',col:'var(--sec)'}]},
+      {title:'COST',rows:[{k:'provisions',v:'184 sc',col:'var(--sec)'},{k:'tolls & fords',v:'42 sc',col:'var(--sec)'},{k:'total',v:'226 sc',col:'var(--ink)'}]}];
+    return V}
+  renderVals(){return{...this.valsShell(),...this.valsDocks()}}
+}
+</script>
+</body>
+</html>
