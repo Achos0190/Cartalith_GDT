@@ -35,6 +35,12 @@ var app: Node
 var _vp: SubViewport
 var _tag := "gen"
 var _fail := 0
+## Counted, never asserted in prose. A doc put this probe at "26 checks" while
+## it ran 29 at 1080x2340 -- 31 `_check(` sites with two on untaken branches --
+## and a count that disagrees with its own output is the first thing a later
+## reader distrusts. `MISTAKES.md`, "Write a probe's usage header": the header
+## is a claim about the probe's own code, so let the output make it instead.
+var _checks := 0
 
 func _frames(n: int) -> void:
 	for i in n:
@@ -44,6 +50,7 @@ func _log(s: String) -> void:
 	print("[%s] %s" % [_tag, s])
 
 func _check(ok: bool, what: String) -> void:
+	_checks += 1
 	if not ok:
 		_fail += 1
 	_log("  %-4s %s" % ["OK" if ok else "FAIL", what])
@@ -179,6 +186,19 @@ func _ready() -> void:
 	app = load("res://shell/app.tscn").instantiate()
 	_vp.add_child(app)
 	await get_tree().create_timer(1.6).timeout
+	## **The one act in this probe that is NOT a finger, and it must be said.**
+	## Everything below reaches its target with a `SubViewport.push_input()`
+	## press at a rect read off the live tree. This line does not: it hides the
+	## project picker by calling it. **So the picker leg of the tap path is
+	## proven on glass only, never here** -- which is fine, and saying so is the
+	## point, because the whole reason this probe exists is that it does not
+	## fake its way past the touch path.
+	##
+	## It is not laziness either: a probe tap cannot reach a control inside an
+	## embedded `AcceptDialog` sub-window at `content_scale_factor` 2.62 --
+	## canvas coordinates, physical coordinates and `get_final_transform()`
+	## were all tried and `gui_get_hovered_control()` stays null. Taps into the
+	## main viewport route normally; this is specific to the sub-window.
 	if app.open_project_dialog != null:
 		app.open_project_dialog.hide()
 	await _frames(4)
@@ -193,7 +213,7 @@ func _ready() -> void:
 		## which is the one claim this leg CAN make.
 		_check(app._phone_gen_scroll == null,
 			"not a phone: the GENERATE sheet is not built (left dock is the surface here)")
-		_log("RESULT %s fail=%d (non-phone leg)" % [_tag, _fail])
+		_log("RESULT %s checks=%d fail=%d (non-phone leg)" % [_tag, _checks, _fail])
 		get_tree().quit(1 if _fail > 0 else 0)
 		return
 
@@ -225,7 +245,7 @@ func _ready() -> void:
 	var caption := _find_label("GENERATE")
 	_check(caption != null, "a visible caption reading 'GENERATE' exists at launch")
 	if caption == null:
-		_log("RESULT %s fail=%d" % [_tag, _fail])
+		_log("RESULT %s checks=%d fail=%d" % [_tag, _checks, _fail])
 		get_tree().quit(1)
 		return
 	var tab := _pressable_ancestor(caption)
@@ -385,5 +405,5 @@ func _ready() -> void:
 		"all %d controls in the column let the drag reach the scroller; wrong=%s"
 			% [seen, wrong.slice(0, 6)])
 
-	_log("RESULT %s fail=%d" % [_tag, _fail])
+	_log("RESULT %s checks=%d fail=%d" % [_tag, _checks, _fail])
 	get_tree().quit(1 if _fail > 0 else 0)
