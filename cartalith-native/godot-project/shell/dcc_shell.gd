@@ -372,6 +372,12 @@ var _phone_chrome_margin: MarginContainer  ## Shifts right in landscape so the
 var _phone_content_gap: Control            ## Hosts the floating rail; its own
 	## rect is the visible gap between the app bar and the tool sheet.
 var _phone_tool_sheet: PanelContainer
+## The two things the tool sheet can hold, and which one is up. The tool-options
+## scroller is the desktop bar (§13); the GENERATE column is the canvas's
+## `tabIsGen` sheet. Exactly one is visible -- see `_refresh_phone_gen_panel()`.
+var _phone_tool_scroll: ScrollContainer
+var _phone_gen_scroll: ScrollContainer
+var _phone_gen_col: VBoxContainer
 var _phone_app_bar: PanelContainer  ## Held so a probe can measure it and so
 	## `phone_content_insets()` reads its real height rather than recomputing it.
 var _phone_gesture_inset: Control
@@ -2992,6 +2998,11 @@ func _select_domain(id: String) -> void:
 	if _phone:
 		_phone_tab = _phone_tab_for_domain(id)
 		_refresh_phone_tabs()
+		## The tab can change here without any tab having been pressed -- MORE ▸
+		## Workspace, `select_domain()` from a menu row, or any in-shell jump --
+		## so the sheet's contents have to follow the same write, not only the
+		## press. Second of the two call sites; see the function's own doc.
+		_refresh_phone_gen_panel()
 	## §5.2's chip reads the domain and its mode, and `select_domain_mode()`
 	## writes the mode before calling here -- so this one call site covers both.
 	## No-op until the viewport exists (`DccShell._ready()` runs as
@@ -3142,6 +3153,23 @@ func register_workspace(id: String, panel: Control) -> void:
 		panel.call("bind_domain", id)
 	_workspace_panels[id] = panel
 	left_dock_body.add_child(panel)
+	## **The boot case, and it is the owner's own defect.** `_phone_tab` starts
+	## at `"gen"` (see its declaration), so on a phone the app comes up with
+	## GENERATE already lit and `_pick_phone_tab()` never called -- and
+	## `_select_domain()`'s own refresh runs during shell build, before any
+	## workspace is registered, so `_workspace_panels` is empty and
+	## `_refresh_phone_gen_panel()` correctly declines. The result on a real
+	## handset was the app booting to the one-line tool-options strip with the
+	## GENERATE tab lit over it: *"one line that barely scrolls properly and a
+	## lot of white space"*. Measured on the device (`9608b26b`,
+	## ONEPLUS_A6013), not on a desktop probe -- the probe taps the tab, which
+	## is exactly the path that hid this.
+	##
+	## Deferred, for `register_workspace()`'s own reason two lines below: the
+	## panel arriving here is a bare `WorldWorkspace.new()` whose `setup()` has
+	## not run, so filling the sheet from it now would read an empty parameter
+	## table.
+	_refresh_phone_gen_panel.call_deferred()
 	## **Deferred, not called here directly -- measured, not assumed.**
 	## `dcc_widgets.gd`'s own header claims a workspace builds its whole panel
 	## before this call ever runs; `app.gd::_register_workspaces()` disproves
@@ -5392,6 +5420,11 @@ func _pick_phone_tab(id: String) -> void:
 		elif _phone_detent == "peek":
 			_set_phone_detent("half")
 	_refresh_phone_tabs()
+	## After the detent, not before: `_refresh_phone_gen_panel()` fills a
+	## scroller whose height the detent has just set, and a fill against the
+	## old height leaves the column measured for the wrong box on its first
+	## frame.
+	_refresh_phone_gen_panel()
 
 ## Which of `PHONE_TABS` a domain lights. A domain with no tab of its own lives
 ## under MORE and lights MORE -- except when the tab already lit is itself not a
@@ -5642,7 +5675,86 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	pad.add_child(tool_options_row)
 	scroll.add_child(pad)
 	col.add_child(scroll)
+	_phone_tool_scroll = scroll
+
+	## **The GENERATE sheet, and the defect it closes.**
+	##
+	## Owner, 2026-09-07, on a OnePlus 6T: *"I don't have sliders or fields to
+	## change parameters on how the world is generated … I can pull them up but
+	## there is one line that barely scrolls properly and a lot of white
+	## space."* That line is `tool_options_row` above -- one `HBoxContainer` --
+	## and the sliders were never in this sheet at all. `_pick_phone_tab("gen")`
+	## calls `_pick_bar_domain("world")`, which is `_select_domain("world")`,
+	## which decides what the LEFT DOCK would show; on a phone `left_dock` is a
+	## sheet with `visible = false` and the only two openers are
+	## `DccApp.toggle_region(ID_WIN_LEFT)` (MORE ▸ Window) and
+	## `PhoneMenu._open_left_sheet()`. The bottom bar reaches neither, so the
+	## generation parameters were unreachable by tapping.
+	##
+	## Fixed here rather than by teaching GENERATE to open the left sheet,
+	## because the canvas puts this content **in the sheet**
+	## (`design/Cartalith-Android-2026-09-07.dc.html`, `tabIsGen`): a column of
+	## collapsible parameter groups, not a full-screen dock. A second column in
+	## the same sheet, swapped for the tool-options row, is what that draws.
+	##
+	## Empty and hidden until `_refresh_phone_gen_panel()` fills it, which it
+	## does from `WorldWorkspace.build_phone_generate()` -- the workspace owns
+	## the content because it is the one object that already reads
+	## `bridge.param_*`, and duplicating that read here is the "second
+	## parameter table" defect this project keeps finding.
+	_phone_gen_scroll = ScrollContainer.new()
+	_phone_gen_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_phone_gen_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	_phone_gen_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_phone_gen_scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+	_phone_gen_scroll.visible = false
+	var gen_pad := MarginContainer.new()
+	## `padding:2px 14px 24px` -- the prototype's own sheet-body padding.
+	gen_pad.add_theme_constant_override("margin_left", _pscale(14))
+	gen_pad.add_theme_constant_override("margin_right", _pscale(14))
+	gen_pad.add_theme_constant_override("margin_top", _pscale(2))
+	gen_pad.add_theme_constant_override("margin_bottom", _pscale(24))
+	gen_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## Inert padding, and the one node of the GENERATE column that
+	## `WorldWorkspace._pg_open_gestures()` cannot reach -- it walks down from
+	## the column, and this is the column's parent. `IGNORE` for the same reason
+	## everything inert in there is `IGNORE`: a touch drag has to reach this
+	## `ScrollContainer` or the sheet only scrolls from its outer gutter.
+	gen_pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_phone_gen_scroll.add_child(gen_pad)
+	_phone_gen_col = VBoxContainer.new()
+	_phone_gen_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_phone_gen_col.add_theme_constant_override("separation", _pscale(12))
+	gen_pad.add_child(_phone_gen_col)
+	col.add_child(_phone_gen_scroll)
 	return sheet
+
+## Show the GENERATE column instead of the tool-options row, or the other way
+## round, and (re)fill it.
+##
+## Called from `_pick_phone_tab()` and from `_select_domain()`, which are the
+## two places the answer can change -- a domain picked from MORE ▸ Workspace or
+## from an in-shell jump lights the GENERATE tab through
+## `_phone_tab_for_domain()` without ever passing through a tab press.
+##
+## `has_method` rather than a cast: `DccShell` is instantiated bare by probes
+## with no workspaces registered at all, and `_workspace_panels` is empty then.
+func _refresh_phone_gen_panel() -> void:
+	if _phone_gen_scroll == null or not is_instance_valid(_phone_gen_scroll):
+		return
+	var on: bool = _phone and _phone_tab == "gen"
+	var ws: Node = _workspace_panels.get("world")
+	if on and (ws == null or not ws.has_method("build_phone_generate")):
+		on = false
+	_phone_gen_scroll.visible = on
+	if _phone_tool_scroll != null and is_instance_valid(_phone_tool_scroll):
+		_phone_tool_scroll.visible = not on
+	if not on:
+		return
+	if _phone_gen_col.get_child_count() == 0:
+		ws.call("build_phone_generate", _phone_gen_col)
+	else:
+		ws.call("refresh_phone_generate")
 
 ## The sheet surface. Portrait: `background:#15171a; border-radius:22px 22px 0 0`
 ## (`candidates/Android Chrome B.dc.html`, and the prototype's own

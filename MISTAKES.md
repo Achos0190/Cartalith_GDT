@@ -122,6 +122,9 @@ its rule before you start.
 | **Find a screen that is mostly blank** | **Ask what is IN it before ruling on how big it is.** A lane measured a phone sheet at 1 003 rows holding one horizontal strip — 933 blank empty, 912 blank *with a world* — and deferred it because the detent fraction is transcribed from the prototype and 'changing a transcribed detent needs an owner ruling'. Right measurement, wrong conclusion: **a correct detent over empty content is still an empty screen**, and the owner hit exactly that defect days later | When blankness survives the state change that should fill it (912 vs 933 with and without a world), the container is not the fault. Report what the screen is missing, not its dimensions |
 | **Conclude a batch has finished** | **A run directory you cannot find is not a run that has stopped.** I searched `~/.claude` for the workflow’s run folder, found nothing, saw two of three lanes’ diffs in the tree, and closed the batch out — **while the third lane and the verifier were still working.** The commit landed mid-verification, and the verifier said so: from that point `git diff` was empty for everything and **stopped being evidence**. Its findings survived only because the content happened to be identical. **Wait for the completion notification, or check the task list. Never infer completion from the filesystem, and never from "the lanes I know about have reported".** |
 | **Write "still X" or "routes NONE" into the backlog** | **Re-measure it in the same breath — do not copy the brief’s number into the row.** I narrowed a units row to *"the journey planner still routes NONE"* and committed it. The planner had been converted a commit earlier: `grep -c DccUnits` = **34**, with a probe asserting its headers. The same row carried *"the measure tool converts 4 of its 7 modes; area, radius and section do not"* — there are **six** modes and **all three of those convert**. Both claims came from the brief I had written, not from the code. **A backlog row is the thing the next pass reads instead of measuring; a stale one costs a whole lane.** The grep that would have caught both took four seconds. |
+| **Quote a byte or character offset into a document** | **Say which, and re-measure before you say it — or drop the number and name the symbol.** I quoted six canvas offsets, a lane said they were ~330 low, and I "corrected" the row by labelling mine *character* offsets and the lane’s *byte* offsets. **Both halves were invented.** Measured three ways, the real byte-minus-character delta is **52 to 126, never ~330**; my numbers came from a copy read with newline translation on, so they were a third thing entirely. **A manufactured explanation makes an unseekable number read as a measured one, which is worse than the wrong number alone.** Offsets in a UTF-8 file with CRLF have three values and none of them is "the offset". **Grep the symbol and name the guard it sits under.** |
+| **Raise a touch target to the 44 dp floor** | **Ask what the enlarged control now intercepts.** This batch floored fourteen sliders from 32 dp to 44 dp — correct, and it widened the band in which a vertical scroll gesture starting on a slider is consumed as a **value write**: Ocean depth went 0.60 → 0.14 in one swipe with nothing on screen saying so. **A floor is a hit area, and a bigger hit area catches more than you meant.** Where a draggable control lives inside a scroller, the floor obliges you to arbitrate the gesture too. **Do not answer it by shrinking the target back.** |
+| **Record a glyph substitution** | **The deviations table must agree with the byte that shipped.** A pass parsed the font cmap correctly — U+2684 and U+FF0B absent, U+2212 present — and then wrote *"U+2212 present and used"* into the table while the code shipped ASCII `-`. **The table whose only job is to record departures asserted the opposite of the code**, so the one real departure was the one it hid. Visible on glass: a short high hyphen beside a full-height plus. **Check the call site, not the cmap, before writing the row.** |
 
 ### [2026-09-03] Believing a backlog row instead of re-opening it ×15
 
@@ -554,3 +557,48 @@ in the engine’s label model. **Family does** — `MapLabel::font`, `set_font`,
 many words that sending the literal string already works. Weight and case genuinely
 have none. The `(B)` classification survives, but on the **renderer**, which is
 what that row’s own Blocked-by cell said from the start.
+
+### [2026-09-07] Four in one day, all one shape: my own words used as evidence
+
+Two are recorded above. Two more landed in the Android batch, and together they
+make the pattern explicit enough to be worth naming as one thing.
+
+**Third.** I filed a backlog row saying the canvas draws the missing per-stage
+readout as `stageRows` and `progLog`. `progLog` is right. **`stageRows` is the
+journey planner’s leg list** — it sits past `tabIsPlan`, under *"ROUTE · VHAL
+SERAI → PORT AMRE"*, with `st.days` and `st.ovNote`. The lane caught it and said
+what it would have cost: building `stageRows` into the GENERATE sheet would have
+put a journey planner inside the generation screen. GENERATE’s pipeline list is
+`GENSTAGES`. I had written that anchor into the brief myself.
+
+**Fourth, and the worst of the four.** Correcting the third, I kept my six
+offsets, labelled them "character offsets", and wrote that the lane’s byte
+offsets "run ~330 higher". I measured none of it. The verifier did: the real
+byte-minus-character delta is 52, 54, 71, 75, 81, 126. My numbers came from a
+scratchpad copy opened with newline translation on, so they were neither — a
+third quantity with no name. **I did not merely repeat a wrong number; I
+invented a mechanism that made it look measured.** That is the more expensive
+failure, because a reader can check a number and cannot check a reason.
+
+**The shape.** All four are the same move: a document I wrote standing in for
+the tree. The run directory stood in for the run; the brief stood in for the
+code, twice; and an explanation stood in for a measurement. `CLAUDE.md` has said
+since the audit that created it that **a document’s claim about itself is a
+claim, not evidence**. The gap it did not close is that *my own* claim gets the
+same exemption from me that a scope document used to get — I skip the check
+precisely because I remember writing it.
+
+**The rule that would have caught all four, and it is one rule.** Before a fact
+goes into a durable file, re-derive it from the tree in that same edit, and if
+it cannot be re-derived cheaply, **write the symbol instead of the number**.
+`grep -n stageRows` is seekable forever; "41 733" was wrong within an hour and
+carried a fabricated unit besides.
+
+**Two real defects from the same batch, kept because they are the useful half:**
+a vertical scroll starting on a slider is consumed as a value write (Ocean depth
+0.60 → 0.14 in one swipe, silently), and this batch’s own 44 dp touch floor
+widened that hazard band from 32 dp to 44 dp — a correct change that made an
+existing hazard worse, which is a thing to look for whenever a hit area grows.
+And the phone’s Archetype row dashes with *"Pick it in File ▸ New world"* while
+that dialog hides its Archetype control on a phone: a reason true about the
+desktop and false about the device it is printed on.

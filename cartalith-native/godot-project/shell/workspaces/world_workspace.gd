@@ -2710,3 +2710,1069 @@ func _refresh_tool_bar() -> void:
 	var bar := DccToolBar.instance()
 	if bar != null:
 		bar.refresh()
+
+
+# =============================================================================
+# The phone GENERATE sheet -- `tabIsGen`
+# =============================================================================
+#
+# `design/Cartalith-Android-2026-09-07.dc.html`, template bytes 26 332-39 559,
+# state and handlers 104 500-112 000. Every metric below is transcribed in
+# `ANDROID_UI_SPEC.md` §1, which is where the provenance lives; this file
+# carries only the reasons a value here differs from the one drawn there.
+#
+# **Why this exists at all.** Owner, 2026-09-07, using the APK on a OnePlus 6T:
+# *"I don't have sliders or fields to change parameters on how the world is
+# generated. Nothing from map, generate, plan or more really leads to a deeper
+# menu."* Confirmed at the symbol before building: `DccShell._pick_phone_tab()`
+# routes GENERATE to `_pick_bar_domain("world")` -> `_select_domain("world")`,
+# which decides what the LEFT DOCK would show; on a phone that dock is
+# `left_dock` with `visible = false`, and the only two things that open it are
+# `DccApp.toggle_region(ID_WIN_LEFT)` and `PhoneMenu._open_left_sheet()`
+# (`grep -rn "_set_sheet_open" --include=*.gd`, 2026-09-07: seven call sites,
+# none of them the bottom bar). The tab lifted the tool-options strip -- one
+# `HBoxContainer` in a scroller -- and every generation parameter stayed behind
+# a sheet the bottom bar cannot open. That is the "one line that barely scrolls
+# properly and a lot of white space".
+#
+# **One parameter source, not two.** Every row here is built from
+# `bridge.param_keys()` / `param_info()` / `param_get()` / `param_set()`,
+# grouped by the identical predicate `_build_group_section()` uses -- match
+# `info.group` against `STAGES[i]["groups"]`, then append `STAGES[i]["keys"]`.
+# No range, step, label, unit or default is copied into this block. A parameter
+# added to `crates/cartalith-godot/src/params.rs` appears here with no GDScript
+# change, which is that file's own stated contract.
+
+## Stage index -> the canvas fields that stage draws and **this engine cannot
+## back**, with the reason each one is actually missing.
+##
+## Every entry was opened at its symbol before it was written, per
+## `MISTAKES.md`'s "Dash a field with a reason" row -- a wrong reason reads as
+## freshly checked and routes the next brief at the wrong subsystem.
+##
+## `route` is `"new_world"` for the two that are not missing at all but live on
+## a different surface: those draw as a tappable row that opens File > New
+## world rather than as a dead dash.
+const PHONE_GEN_ABSENT: Array = [
+	{"stage": 1, "label": "Working resolution", "route": "new_world",
+	 "why": "Resolution is a creation-time call argument, not a stored parameter -- params.rs' \"world\" group holds world, sea_level, peak_m, carve_rivers, river_density and use_gpu, and no resolution key exists anywhere in the 92-row table. Set it in File > New world."},
+	{"stage": 2, "label": "Archetype", "route": "new_world",
+	 "why": "apply_archetype() is live and seeds the six world_structure dials below, but request()[\"archetype\"] is what decides which generation call runs, and new_world_dialog.gd's own NOTE_CREATION_ONLY says extent, resolution and archetype reallocate every field in the pipeline. Pick it in File > New world."},
+	{"stage": 5, "label": "Erosion strength", "route": "",
+	 "why": "No engine parameter means this. Stage 06 exposes 28 rows (stream.* and passes.*) and none of them is a single 0-1 strength; synthesising one over several would be a second parameter table that can drift from the desktop's. The real dials are below."},
+	{"stage": 6, "label": "Min stream order", "route": "",
+	 "why": "A render filter, not a generation parameter -- it selects which rivers are DRAWN, and belongs to Cartography's map modes. STAGES[6][\"gap\"] states the same."},
+	{"stage": 8, "label": "Ecotone sharpness", "route": "",
+	 "why": "Ecology is not parameterised in cartalith-engine: biome classification runs off the finished elevation/temperature/rainfall fields with no dials of its own."},
+	{"stage": 8, "label": "Rivers in biome view", "route": "",
+	 "why": "A render toggle, not a generation parameter -- it is a Cartography layer option over a finished biome field."},
+]
+
+## Which stage index each group header opens at. The canvas ships `g1:true` and
+## the rest closed (byte 77 286); index 0 is that same first group.
+var _pg_open: Dictionary = {0: true}
+var _pg_host: VBoxContainer          ## The sheet column this workspace fills.
+var _pg_mode := "pipe"               ## `pipe` | `sculpt` -- the canvas's genMode.
+var _pg_connected := false
+var _pg_stage_index := -1            ## Live stage while `bridge.generating`.
+
+## The sheet's own live nodes, so a progress tick repaints instead of rebuilding
+## the whole column under the user's finger.
+var _pg_prog_title: Label
+var _pg_prog_pct: Label
+var _pg_prog_fill: Control
+var _pg_prog_track: Control
+var _pg_log_label: Label
+## Everything a parameter write has to repaint without rebuilding the column
+## under the user's finger: one entry per group (`{index, num, state}`), the
+## Generate button whose caption carries the stale range, and the stale note.
+var _pg_stale_marks: Array = []
+var _pg_gen_button: Button
+var _pg_stale_label: Label
+
+# -- Metrics ------------------------------------------------------------------
+#
+# `app` is a `DccApp`, which `extends DccShell`, so these three resolve
+# statically. Boxes go through `_pscale`/`_ptap` and type through `_pfont`,
+# which is `dcc_shell.gd`'s own split: a tap target is a finger measurement and
+# does not grow when the OS text size does.
+
+func _pg_px(px: float) -> int:
+	return app._pscale(px) if app != null else int(round(px))
+
+func _pg_tap(px: float) -> int:
+	return app._ptap(px) if app != null else int(round(maxf(DccTheme.PHONE_TAP_MIN, px)))
+
+func _pg_fs(px: float) -> int:
+	return app._pfont(px) if app != null else int(round(px))
+
+## `--chip: rgba(255,255,255,.05)`. Built off `text_bright` rather than written
+## as a white literal so `DccTheme.remap()` can trace it: on the light palette
+## `text_bright` is `#111210`, so the same expression gives a 5% BLACK wash,
+## which is what a light theme wants. A literal `Color(1,1,1,.05)` would stay
+## white and disappear.
+func _pg_chip() -> Color:
+	return Color(DccTheme.c("text_bright"), 0.05)
+
+## `--warn: #e0a840`, drawn as `accent` (`#e0a34a`). Five and six units apart on
+## two channels -- indistinguishable at 9.5 px -- and a token can be remapped
+## where a twelfth near-accent literal could not. Said here rather than left as
+## an unexplained substitution.
+func _pg_warn() -> Color:
+	return DccTheme.c("accent")
+
+func _pg_box(bg: Color, radius: int, border_col: Color = Color(0, 0, 0, 0),
+		border_px: int = 0) -> StyleBoxFlat:
+	var b := StyleBoxFlat.new()
+	b.bg_color = bg
+	b.set_corner_radius_all(radius)
+	if border_px > 0:
+		b.border_color = border_col
+		b.set_border_width_all(border_px)
+	return b
+
+func _pg_mono(text: String, token: String, px: float, spacing: int = 0,
+		medium: bool = false) -> Label:
+	var l := DccTheme.mono_label(text, token, _pg_fs(px), spacing, medium)
+	return l
+
+# -- Entry points -------------------------------------------------------------
+
+## Called once by `DccShell._build_phone_gen_panel()` with the column it owns.
+## Everything after that is `refresh_phone_generate()`.
+func build_phone_generate(host: VBoxContainer) -> void:
+	_pg_host = host
+	if not _pg_connected:
+		_pg_connected = true
+		bridge.generation_started.connect(_pg_on_started)
+		bridge.generation_stage.connect(_pg_on_stage)
+		bridge.generation_finished.connect(_pg_on_finished)
+		bridge.world_loaded.connect(func(): _pg_rebuild())
+	_pg_rebuild()
+
+## The shell calls this every time the GENERATE tab is tapped. A sheet that was
+## built against a world that has since been regenerated, loaded or had its
+## seed rolled would otherwise show the values it was built with.
+func refresh_phone_generate() -> void:
+	_pg_rebuild()
+
+func _pg_on_started() -> void:
+	_pg_stage_index = 0
+	_pg_rebuild()
+
+func _pg_on_stage(index: int, _name: String, _total: int) -> void:
+	_pg_stage_index = index
+	_pg_paint_progress()
+
+func _pg_on_finished(_ok: bool) -> void:
+	_pg_stage_index = -1
+	_pg_rebuild()
+
+# -- The column ---------------------------------------------------------------
+
+func _pg_rebuild() -> void:
+	if _pg_host == null or not is_instance_valid(_pg_host):
+		return
+	for child in _pg_host.get_children():
+		_pg_host.remove_child(child)
+		child.queue_free()
+	_pg_prog_title = null
+	_pg_prog_pct = null
+	_pg_prog_fill = null
+	_pg_prog_track = null
+	_pg_log_label = null
+	_pg_stale_marks.clear()
+	_pg_gen_button = null
+	_pg_stale_label = null
+	_pg_host.add_theme_constant_override("separation", _pg_px(12))
+
+	_pg_mode_segment(_pg_host)
+	if _pg_mode == "pipe":
+		_pg_seed_row(_pg_host)
+		if bridge.generating:
+			_pg_progress_card(_pg_host)
+		else:
+			_pg_idle_block(_pg_host)
+		for i in STAGES.size():
+			_pg_group(_pg_host, i)
+		_pg_footnote(_pg_host)
+	else:
+		_pg_sculpt(_pg_host)
+	_pg_open_gestures(_pg_host)
+
+## **Let the finger drag reach the scroller.**
+##
+## Measured on the handset (`9608b26b`, ONEPLUS_A6013) twice, because the first
+## fix was aimed at the wrong layer. A drag starting anywhere inside this column
+## moved nothing; only a drag in the ~14 dp gutter either side of it scrolled,
+## because that x misses every child and lands on the `ScrollContainer` itself.
+## The first attempt set `MOUSE_FILTER_PASS` on the buttons and **changed
+## nothing on glass** -- the buttons were never the blocker. `Control`'s default
+## is `MOUSE_FILTER_STOP` and every `PanelContainer`, `MarginContainer`,
+## `VBoxContainer` and `HBoxContainer` here inherits it, so the group boxes and
+## their padding were eating the drag before any button saw it.
+##
+## So the rule is applied to the whole subtree, by kind:
+##
+## - **`IGNORE`** for everything inert -- labels, containers, the toggle track
+##   and knob. The event passes straight through to the scroller.
+## - **`PASS`** for `BaseButton`. It still takes its own taps, and the drag
+##   continues up to the scroller so a fling that begins on a 50 dp group
+##   header works. On a list that is mostly header rows this is most of the
+##   surface.
+## - **`STOP`** for `Range` (the sliders). A slider has to own its horizontal
+##   drag or it cannot be set at all.
+##
+## Reasserted on every rebuild rather than at each construction site: a single
+## missed `mouse_filter` at one of two dozen sites is invisible until someone
+## drags exactly there, which is how this survived the first fix.
+func _pg_open_gestures(node: Node) -> void:
+	for child in node.get_children():
+		var c := child as Control
+		if c != null:
+			if c is Range:
+				c.mouse_filter = Control.MOUSE_FILTER_STOP
+			elif c is BaseButton:
+				c.mouse_filter = Control.MOUSE_FILTER_PASS
+			else:
+				c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_pg_open_gestures(child)
+
+## `PIPELINE | SCULPT`. `min-height:44px; border-radius:22px;
+## font:500 10px mono; letter-spacing:.16em`.
+##
+## Writes `select_domain_mode("world", ...)` as well as the local flag, so the
+## desktop dock and this sheet cannot disagree about which mode the WORLD
+## domain is in -- the shell's `_domain_mode` is the one store for that, and
+## `_refresh_mode_switch()` and the rail foot both read it.
+func _pg_mode_segment(parent: Control) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", _pg_px(8))
+	parent.add_child(row)
+	for entry in [["pipe", "PIPELINE"], ["sculpt", "SCULPT"]]:
+		var id := String(entry[0])
+		var on: bool = _pg_mode == id
+		var b := Button.new()
+		b.text = String(entry[1])
+		b.focus_mode = Control.FOCUS_NONE
+		## **`MOUSE_FILTER_PASS`, not the `Button` default `STOP`, and the reason is a
+		## measurement.** On the handset (`9608b26b`, ONEPLUS_A6013) a finger drag
+		## starting anywhere on this column's controls moved nothing: the child
+		## swallowed the drag and the `ScrollContainer` never saw an
+		## `InputEventScreenDrag`, so a list that is mostly 50 dp header rows could
+		## only be scrolled from the ~14 dp gutter at either edge. `PASS` delivers the
+		## event to the control AND to its ancestors, so the button still takes taps
+		## and the scroller still takes flings. Invisible to `_genphone_probe.gd`,
+		## which reaches a group with `ensure_control_visible()` -- a programmatic
+		## scroll that never exercises the gesture.
+		b.mouse_filter = Control.MOUSE_FILTER_PASS
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size.y = _pg_tap(44)
+		b.add_theme_font_override("font", DccTheme.mono(2, true))
+		b.add_theme_font_size_override("font_size", _pg_fs(10))
+		b.add_theme_color_override("font_color",
+			DccTheme.c("accent") if on else DccTheme.c("text_secondary"))
+		b.add_theme_color_override("font_hover_color",
+			DccTheme.c("accent") if on else DccTheme.c("text_secondary"))
+		b.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
+		var box := _pg_box(DccTheme.c("accent_wash") if on else Color(0, 0, 0, 0),
+			_pg_px(22), DccTheme.c("accent") if on else DccTheme.c("line"), 1)
+		for state in ["normal", "hover", "pressed", "focus"]:
+			b.add_theme_stylebox_override(state, box)
+		b.pressed.connect(_pg_set_mode.bind(id))
+		row.add_child(b)
+
+func _pg_set_mode(id: String) -> void:
+	if _pg_mode == id:
+		return
+	_pg_mode = id
+	if app != null and app.has_method("select_domain_mode"):
+		## `RAIL_NODES`' own mode ids for WORLD are `a` and `b`, not the words --
+		## `railFoot`'s binding is `wm==='b' ? 'SCULPT' : ...`.
+		app.select_domain_mode("world", "b" if id == "sculpt" else "a")
+	_pg_rebuild()
+
+## `SEED   483102   [dice]`. `padding:10px 12px; border-radius:16px;
+## background:var(--chip); gap:10px`.
+##
+## The seed is `new_world_dialog.request()["seed"]` -- the same value the
+## desktop's Generate sends -- and the roll is `app._new_seed()`, which is
+## `randomise_seed()` on that dialog. Nothing is stored here.
+##
+## The canvas draws the roll button `42 x 40` and its glyph as `U+2684` (die
+## face five). Both are changed, and both for measured reasons. `42 x 40` is
+## under the 44 dp floor on both axes, so it goes through `_ptap()`. `U+2684`
+## is **absent from the shipped `IBMPlexMono-Regular.ttf`** -- checked against
+## that file's own cmap on 2026-09-07, along with `U+2304` (present in the
+## fallback chain, which is why `DccIcons.SYMBOLS["chevron"]` may use it) and
+## `U+FF0B` (absent, which is why the stepper below draws `+` and not the
+## canvas's fullwidth form). `U+21BB`, an open clockwise arrow, IS in the font
+## and means re-roll, so that is what the cell carries.
+func _pg_seed_row(parent: Control) -> void:
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", _pg_box(_pg_chip(), _pg_px(16)))
+	parent.add_child(pc)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", _pg_px(12))
+	pad.add_theme_constant_override("margin_right", _pg_px(12))
+	pad.add_theme_constant_override("margin_top", _pg_px(10))
+	pad.add_theme_constant_override("margin_bottom", _pg_px(10))
+	pc.add_child(pad)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", _pg_px(10))
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	pad.add_child(row)
+	row.add_child(_pg_mono("SEED", "text_dim", 9.5, 2))
+	var seed_text := "--"
+	if app != null and app.new_world_dialog != null:
+		seed_text = str(int(app.new_world_dialog.request().get("seed", 0)))
+	var value := _pg_mono(seed_text, "text_bright", 13, 0, true)
+	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(value)
+	var dice := Button.new()
+	dice.text = "↻"
+	dice.tooltip_text = "Roll a new seed. Stage 01 onward goes stale until you regenerate."
+	dice.focus_mode = Control.FOCUS_NONE
+	dice.mouse_filter = Control.MOUSE_FILTER_PASS
+	dice.custom_minimum_size = Vector2(_pg_tap(42), _pg_tap(40))
+	dice.add_theme_font_override("font", DccTheme.mono())
+	dice.add_theme_font_size_override("font_size", _pg_fs(14))
+	dice.add_theme_color_override("font_color", DccTheme.c("accent"))
+	dice.add_theme_color_override("font_hover_color", DccTheme.c("accent"))
+	dice.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
+	for state in ["normal", "hover", "pressed", "focus"]:
+		dice.add_theme_stylebox_override(state,
+			_pg_box(DccTheme.c("accent_wash"), _pg_px(14)))
+	dice.pressed.connect(_pg_roll_seed)
+	row.add_child(dice)
+
+## `hDice` sets a seed **and** calls `_markStale(1)`. Both halves, in that order
+## -- `MISTAKES.md`'s "Emit a change signal" row: the stale mark is written
+## after the value it describes, not before it.
+func _pg_roll_seed() -> void:
+	if app == null:
+		return
+	app._new_seed()
+	_mark_stale_from(0)
+	_pg_rebuild()
+
+## The running card: `border:1px solid var(--acc); border-radius:18px;
+## padding:13px 14px; gap:9px`, a 5 px bar, the last three log lines, CANCEL.
+func _pg_progress_card(parent: Control) -> void:
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel",
+		_pg_box(Color(0, 0, 0, 0), _pg_px(18), DccTheme.c("accent"), 1))
+	parent.add_child(pc)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", _pg_px(14))
+	pad.add_theme_constant_override("margin_right", _pg_px(14))
+	pad.add_theme_constant_override("margin_top", _pg_px(13))
+	pad.add_theme_constant_override("margin_bottom", _pg_px(13))
+	pc.add_child(pad)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", _pg_px(9))
+	pad.add_child(col)
+
+	var head := HBoxContainer.new()
+	col.add_child(head)
+	_pg_prog_title = _pg_mono("", "accent", 10.5, 2, true)
+	_pg_prog_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(_pg_prog_title)
+	_pg_prog_pct = _pg_mono("", "text_dim", 10)
+	head.add_child(_pg_prog_pct)
+
+	_pg_prog_track = PanelContainer.new()
+	(_pg_prog_track as PanelContainer).add_theme_stylebox_override("panel",
+		_pg_box(_pg_chip(), _pg_px(3)))
+	_pg_prog_track.custom_minimum_size.y = _pg_px(5)
+	col.add_child(_pg_prog_track)
+	_pg_prog_fill = PanelContainer.new()
+	(_pg_prog_fill as PanelContainer).add_theme_stylebox_override("panel",
+		_pg_box(DccTheme.c("accent"), _pg_px(3)))
+	(_pg_prog_track as PanelContainer).add_child(_pg_prog_fill)
+
+	_pg_log_label = _pg_mono("", "text_dim", 9.5)
+	_pg_log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(_pg_log_label)
+
+	## CANCEL is drawn by the canvas and **cannot be backed**. `EngineBridge`
+	## has `generate()` and no cancellation entry point at all -- grep for
+	## `cancel` in `engine_bridge.gd` returns `sculpt_cancel_stroke` and
+	## `label_cancel_edit` and nothing that stops a run (2026-09-07). The
+	## prototype's own CANCEL is `clearInterval` over a simulated timer, which
+	## is not a claim about this engine. Drawn dashed with that reason rather
+	## than as a button that would do nothing.
+	_pg_dash_row(col, "CANCEL",
+		"generate() cannot be interrupted: cartalith-godot exposes no cancel entry point, so a run holds the worker until its ten stages finish.")
+	_pg_paint_progress()
+
+## Repaint only -- called on every `generation_stage` tick, so it must not
+## rebuild anything the user could be touching.
+func _pg_paint_progress() -> void:
+	if _pg_prog_title == null or not is_instance_valid(_pg_prog_title):
+		return
+	var i: int = clampi(_pg_stage_index, 0, STAGES.size() - 1)
+	_pg_prog_title.text = "%02d · %s" % [i + 1, String(STAGES[i]["name"])]
+	## The canvas's own arithmetic is `round((i*100 + min(pct,100)) / 10)`,
+	## where `pct` is a simulated within-stage percentage. This engine reports
+	## stage boundaries and nothing finer (`GenerationProgress` carries a stage
+	## index and a count, not a fraction), so the readout is whole stages: the
+	## same formula with `pct = 0`. Stated rather than interpolated -- a smooth
+	## bar over a value the engine does not produce is a fake measurement.
+	_pg_prog_pct.text = "%d%%" % int(round(i * 100.0 / float(STAGES.size())))
+	if is_instance_valid(_pg_prog_track):
+		var w: float = _pg_prog_track.size.x * (float(i) / float(STAGES.size()))
+		_pg_prog_fill.custom_minimum_size.x = maxf(0.0, w)
+		_pg_prog_fill.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	if is_instance_valid(_pg_log_label):
+		## The desktop's own rolling log (`_stage_log`, maintained by
+		## `_log_stage()`), tailed to the canvas's three lines. Not a second
+		## store: the same array both surfaces read.
+		var tail: Array = _stage_log.slice(maxi(0, _stage_log.size() - 3))
+		_pg_log_label.text = "\n".join(tail)
+
+## Idle: the stale note, the big button, and the two-ended footer.
+func _pg_idle_block(parent: Control) -> void:
+	if _stale_from_stage >= 0:
+		var pc := PanelContainer.new()
+		pc.add_theme_stylebox_override("panel",
+			_pg_box(Color(0, 0, 0, 0), _pg_px(14), Color(_pg_warn(), 0.4), 1))
+		parent.add_child(pc)
+		var pad := MarginContainer.new()
+		pad.add_theme_constant_override("margin_left", _pg_px(14))
+		pad.add_theme_constant_override("margin_right", _pg_px(14))
+		pad.add_theme_constant_override("margin_top", _pg_px(11))
+		pad.add_theme_constant_override("margin_bottom", _pg_px(11))
+		pc.add_child(pad)
+		## `_stale_note_text()` is the desktop's own sentence for this state.
+		var note := _pg_mono(_stale_note_text(), "text", 10)
+		note.add_theme_color_override("font_color", _pg_warn())
+		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		pad.add_child(note)
+		_pg_stale_label = note
+
+	var gen := Button.new()
+	## `genBtnLabel`: `REGENERATE NN -> 10` only when something is stale AND a
+	## run has already happened. `bridge.has_world` is this shell's form of the
+	## canvas's `lastRun !== '-'`.
+	gen.text = ("REGENERATE %02d → 10" % (_stale_from_stage + 1)) \
+		if (_stale_from_stage >= 0 and bridge.has_world) else "GENERATE WORLD"
+	gen.focus_mode = Control.FOCUS_NONE
+	gen.mouse_filter = Control.MOUSE_FILTER_PASS
+	gen.custom_minimum_size.y = _pg_tap(52)
+	gen.add_theme_font_override("font", DccTheme.mono(2, true))
+	gen.add_theme_font_size_override("font_size", _pg_fs(11))
+	for key in ["font_color", "font_hover_color", "font_pressed_color"]:
+		gen.add_theme_color_override(key, DccTheme.c("accent_ink"))
+	for state in ["normal", "hover", "pressed", "focus"]:
+		gen.add_theme_stylebox_override(state,
+			_pg_box(DccTheme.c("accent"), _pg_px(26)))
+	## `_regenerate_live()`, not `bridge.generate()`: it is the guarded path
+	## that prompts before discarding hand-authored sculpt stamps, icons and
+	## painted cells. The tool-options bar's own Generate skips that guard and
+	## this one must not copy it.
+	gen.pressed.connect(_regenerate_live)
+	parent.add_child(gen)
+	_pg_gen_button = gen
+
+	var foot := HBoxContainer.new()
+	parent.add_child(foot)
+	## `last run` has no engine reading. Nothing in `EngineBridge` records a
+	## wall-clock time for the last generate, so this is the one field the
+	## canvas draws whose VALUE would have to be invented -- and an em dash is
+	## what the canvas itself puts there before a run
+	## (`gen.lastRun` starts `'-'`). Drawn as the total elapsed of the last run
+	## instead, which IS measured: `_stage_elapsed_ms` is summed by the same
+	## timing the ten desktop rows print.
+	var elapsed := 0
+	for ms in _stage_elapsed_ms:
+		if int(ms) > 0:
+			elapsed += int(ms)
+	var left := _pg_mono(
+		("last run · %.1f s" % (elapsed / 1000.0)) if elapsed > 0 else "last run · —",
+		"text_faint", 9.5)
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	foot.add_child(left)
+	foot.add_child(_pg_mono("%d stages · dependency order" % STAGES.size(),
+		"text_faint", 9.5))
+
+## `Editing a stage marks everything downstream stale...` -- the canvas's
+## closing line, rewritten where it is false here.
+##
+## The canvas says *"Volcanism (05) and Resources (10) run with defaults"*.
+## That is true of the prototype and **false of this engine**: `params.rs`
+## files nine live parameters under `group: "volcanism"`, all of which this
+## sheet draws under `05`. Resources (10) genuinely has none. The GPU/LOD half
+## of the sentence is true and kept.
+func _pg_footnote(parent: Control) -> void:
+	var text := ("Editing a stage marks everything downstream stale. This engine "
+		+ "resolves all %d stages on every run -- there is no partial recompute, so "
+		+ "the stale badge names where the edit landed, not where the run starts. "
+		+ "Ecology (09) and Resources (10) carry no dials. GPU, LOD and render "
+		+ "quality live under MORE ▸ Preferences.") % STAGES.size()
+	var l := _pg_mono(text, "text_faint", 9.5)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(l)
+
+## **What a parameter write owes the rest of the sheet.**
+##
+## `hGenStep`/`hGenRange`/`hGenTog` all funnel through the prototype's
+## `_setGenParam(key, val, stage)`, whose second act is `_markStale(stage)` --
+## so an edit does not only write a value, it repaints the group numbers, the
+## per-group `stale` captions, the note, and the Generate button's own range.
+##
+## Caught by `_genphone_probe.gd`, not by reading this back: tapping `+` on
+## Plates moved `tect.plates` 14 -> 15 and left `_stale_from_stage` at **-1**,
+## because the stepper closure had the key and not the stage. That is
+## `MISTAKES.md`'s "covering some inputs of a thing, not all of them" -- the
+## slider's release handler had it and the stepper's did not.
+##
+## Repaint rather than rebuild: a rebuild inside a press frees the button that
+## is still delivering the press and loses the scroll position. The one case
+## that genuinely needs new nodes -- the stale note appearing for the first
+## time -- is deferred so it lands after the input frame.
+func _pg_after_param_write(stage_index: int) -> void:
+	var was_stale: bool = _stale_from_stage >= 0
+	_mark_stale_from(stage_index)
+	for m in _pg_stale_marks:
+		var e: Dictionary = m
+		var stale: bool = _stale_from_stage >= 0 and int(e["index"]) >= _stale_from_stage
+		var num: Label = e["num"]
+		var state: Label = e["state"]
+		if is_instance_valid(num):
+			num.add_theme_color_override("font_color",
+				_pg_warn() if stale else DccTheme.c("text_faint"))
+		if is_instance_valid(state):
+			state.text = ("stale" if stale else "resolved") if bridge.has_world else "no world"
+	if is_instance_valid(_pg_gen_button):
+		_pg_gen_button.text = ("REGENERATE %02d → 10" % (_stale_from_stage + 1)) 			if (_stale_from_stage >= 0 and bridge.has_world) else "GENERATE WORLD"
+	if is_instance_valid(_pg_stale_label):
+		_pg_stale_label.text = _stale_note_text()
+	elif not was_stale and _stale_from_stage >= 0:
+		_pg_rebuild.call_deferred()
+
+# -- One collapsible group ----------------------------------------------------
+
+## `genGroups`: `border:1px solid var(--hair2); border-radius:18px`, a 50 dp
+## header of `[num][name][state][chev]`, and a body separated by a `--hair2`
+## rule at `padding:6px 14px 12px`.
+func _pg_group(parent: Control, index: int) -> void:
+	var st: Dictionary = STAGES[index]
+	var stale: bool = _stale_from_stage >= 0 and index >= _stale_from_stage
+	var open: bool = bool(_pg_open.get(index, false))
+
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel",
+		_pg_box(Color(0, 0, 0, 0), _pg_px(18), DccTheme.c("line_soft"), 1))
+	parent.add_child(pc)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	pc.add_child(col)
+
+	var head := Button.new()
+	head.focus_mode = Control.FOCUS_NONE
+	head.mouse_filter = Control.MOUSE_FILTER_PASS
+	head.custom_minimum_size.y = _pg_tap(50)
+	head.tooltip_text = String(st.get("produces", ""))
+	for state in ["normal", "hover", "pressed", "focus"]:
+		head.add_theme_stylebox_override(state, DccTheme.empty())
+	head.pressed.connect(_pg_toggle_group.bind(index))
+	col.add_child(head)
+
+	## The four header elements ride inside the button rather than beside it:
+	## a `Button` with four differently-coloured pieces of text cannot be one
+	## string, and a row of Labels over the button would eat the press unless
+	## every one of them is `MOUSE_FILTER_IGNORE`.
+	var hrow := HBoxContainer.new()
+	hrow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hrow.add_theme_constant_override("separation", _pg_px(10))
+	hrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hrow.offset_left = _pg_px(14)
+	hrow.offset_right = -_pg_px(14)
+	head.add_child(hrow)
+	var num := _pg_mono("%02d" % (index + 1), "text_faint", 9.5)
+	if stale:
+		num.add_theme_color_override("font_color", _pg_warn())
+	num.custom_minimum_size.x = _pg_px(22)
+	num.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hrow.add_child(num)
+	var name_label := DccTheme.label(String(st["name"]), "text_bright", _pg_fs(12.5))
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hrow.add_child(name_label)
+	## Three states, not the canvas's two. `resolved` and `stale` both assert
+	## that a world exists to be one or the other; before the first generate
+	## neither is true, and printing `resolved` there would be exactly the
+	## "encode no value as a plausible value" defect this project keeps
+	## finding. `no world` is the third.
+	var state_text := "stale" if stale else "resolved"
+	if not bridge.has_world:
+		state_text = "no world"
+	var state_label := _pg_mono(state_text, "text_faint", 9)
+	state_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hrow.add_child(state_label)
+	_pg_stale_marks.append({"index": index, "num": num, "state": state_label})
+	var chev := _pg_mono(DccIcons.SYMBOLS["chevron"] if open else DccIcons.SYMBOLS["expand"],
+		"text_faint", 11)
+	chev.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hrow.add_child(chev)
+
+	if not open:
+		return
+	col.add_child(DccTheme.rule())
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", _pg_px(14))
+	pad.add_theme_constant_override("margin_right", _pg_px(14))
+	pad.add_theme_constant_override("margin_top", _pg_px(6))
+	pad.add_theme_constant_override("margin_bottom", _pg_px(12))
+	col.add_child(pad)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", _pg_px(2))
+	pad.add_child(body)
+	_pg_fill_group(body, index)
+
+func _pg_toggle_group(index: int) -> void:
+	_pg_open[index] = not bool(_pg_open.get(index, false))
+	_pg_rebuild()
+
+## Exactly `_build_group_section()`'s predicate: every `params.rs` row whose
+## `group` matches one of this stage's, then this stage's loose `keys`. Ordinary
+## rows first and `ADVANCED_KEYS` after, which is the desktop's order -- the
+## difference is that the phone draws them inline instead of behind a
+## disclosure, because the canvas has no disclosure form and dropping them
+## would lose nine live controls.
+func _pg_fill_group(body: VBoxContainer, index: int) -> void:
+	var st: Dictionary = STAGES[index]
+	var groups: Array = st.get("groups", [])
+	var plain: Array = []
+	var advanced: Array = []
+	for key in bridge.param_keys():
+		var info := bridge.param_info(key)
+		if not groups.has(String(info.get("group", ""))):
+			continue
+		if ADVANCED_KEYS.has(key):
+			advanced.append(key)
+		else:
+			plain.append(key)
+	for key in (st.get("keys", []) as Array):
+		plain.append(String(key))
+
+	for key in plain:
+		_pg_param(body, String(key), index)
+	for entry in PHONE_GEN_ABSENT:
+		if int(entry["stage"]) == index:
+			if String(entry.get("route", "")) == "new_world":
+				_pg_route_row(body, String(entry["label"]), String(entry["why"]))
+			else:
+				_pg_dash_row(body, String(entry["label"]), String(entry["why"]))
+	if not advanced.is_empty():
+		body.add_child(_pg_mono("ADVANCED", "text_dim", 9.5, 2))
+		for key in advanced:
+			_pg_param(body, String(key), index)
+	if plain.is_empty() and advanced.is_empty():
+		var gap := String(st.get("gap", ""))
+		var l := _pg_mono(gap if not gap.is_empty()
+			else "No parameters in cartalith-engine for this stage.", "text_faint", 9.5)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		body.add_child(l)
+
+# -- One field ----------------------------------------------------------------
+
+## Dispatch on `param_info(key).type`, which is the same three-way `Kind` the
+## engine's own table carries: `bool` -> the canvas's `f.isTog`, everything else
+## -> `f.isRange`. There is no `f.isSeg` case, because no engine parameter is an
+## enumeration -- the two the canvas draws as segments are creation-time and are
+## handled by `PHONE_GEN_ABSENT` above.
+func _pg_param(parent: Control, key: String, stage_index: int) -> void:
+	var info := bridge.param_info(key)
+	if info.is_empty():
+		return
+	if String(info.get("type", "float")) == "bool":
+		_pg_toggle_field(parent, key, info, stage_index)
+	else:
+		_pg_range_field(parent, key, info, stage_index)
+
+## `f.isTog`: a 40 x 22 track with an 18 x 18 knob inset 2 px, `min-height:44px`.
+func _pg_toggle_field(parent: Control, key: String, info: Dictionary,
+		stage_index: int) -> void:
+	var on := bool(bridge.param_get(key))
+	var btn := Button.new()
+	btn.toggle_mode = true
+	btn.button_pressed = on
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_filter = Control.MOUSE_FILTER_PASS
+	btn.custom_minimum_size.y = _pg_tap(44)
+	btn.tooltip_text = String(info.get("label", key))
+	for state in ["normal", "hover", "pressed", "focus"]:
+		btn.add_theme_stylebox_override(state, DccTheme.empty())
+	parent.add_child(btn)
+	var row := HBoxContainer.new()
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.add_theme_constant_override("separation", _pg_px(12))
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(row)
+	var l := _pg_mono(String(info.get("label", key)), "text_secondary", 10)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(l)
+	var track := PanelContainer.new()
+	track.custom_minimum_size = Vector2(_pg_px(40), _pg_px(22))
+	track.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	track.add_theme_stylebox_override("panel",
+		_pg_box(DccTheme.c("accent") if on else _pg_chip(), _pg_px(11)))
+	row.add_child(track)
+	var knob := Control.new()
+	knob.custom_minimum_size = Vector2(_pg_px(18), _pg_px(18))
+	knob.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	knob.size_flags_horizontal = Control.SIZE_SHRINK_END if on else Control.SIZE_SHRINK_BEGIN
+	var dot := PanelContainer.new()
+	dot.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dot.add_theme_stylebox_override("panel",
+		_pg_box(DccTheme.c("accent_ink") if on else DccTheme.c("text_secondary"), _pg_px(9)))
+	knob.add_child(dot)
+	var knob_pad := MarginContainer.new()
+	knob_pad.add_theme_constant_override("margin_left", _pg_px(2))
+	knob_pad.add_theme_constant_override("margin_right", _pg_px(2))
+	knob_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	knob_pad.add_child(knob)
+	track.add_child(knob_pad)
+	btn.toggled.connect(func(v: bool):
+		bridge.param_set(key, v)
+		_pg_after_param_write(stage_index)
+		## A toggle changes the knob's side and both its colours, which is new
+		## geometry rather than new text -- so this one does rebuild, deferred
+		## so the press finishes first.
+		_pg_rebuild.call_deferred())
+
+## `f.isRange`: a `[label ......... value]` line, then `[-] [slider] [+]` with
+## the steppers at 38 x 38 and radius 14.
+##
+## `f.disp` is the canvas's own formatter: two decimals below a step of 1,
+## thousands-separated whole numbers at or above it, then the unit. The unit
+## comes from `param_info`, so `m`, `deg C`, `x` and the rest are the engine's
+## own strings and not a second table.
+func _pg_range_field(parent: Control, key: String, info: Dictionary,
+		stage_index: int) -> void:
+	var is_int: bool = String(info.get("type", "float")) == "int"
+	var lo := float(info.get("min", 0.0))
+	var hi := float(info.get("max", 1.0))
+	var step := float(info.get("step", 0.01))
+	var unit := String(info.get("unit", ""))
+	var value := float(bridge.param_get(key))
+
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", _pg_px(2))
+	parent.add_child(wrap)
+	var head := HBoxContainer.new()
+	wrap.add_child(head)
+	var l := _pg_mono(String(info.get("label", key)), "text_secondary", 10)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	head.add_child(l)
+	var readout := _pg_mono("", "text_bright", 11)
+	head.add_child(readout)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", _pg_px(8))
+	wrap.add_child(row)
+	var slider := HSlider.new()
+	slider.min_value = lo
+	slider.max_value = hi
+	slider.step = step
+	slider.value = value
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	DccWidgets.phone_slider(slider, DccTheme.phone_scale())
+	## **Floored above `phone_slider()`'s own 32 dp, and measured before it was.**
+	## `_genphone_probe.gd` walked every tappable control on this sheet at
+	## 1080x2340 and found the sliders at `650x84` -- `248.0 x 32.0 dp` -- against
+	## the 44 dp floor, because `DccTheme.PHONE_SLIDER_ROW` is 32. The canvas is
+	## smaller still (`input[type=range]{height:22px}`) and answers the finger
+	## question with the +/- pair either side, which this build already floors to
+	## 44. Both are true and neither makes a 32 dp drag target acceptable, so the
+	## row is raised here rather than exempted. `phone_slider()` itself is left
+	## alone: it is shared with every other phone surface and re-basing it is a
+	## different pass.
+	slider.custom_minimum_size.y = maxf(slider.custom_minimum_size.y,
+		float(_pg_tap(44)))
+
+	## `f.disp` verbatim: `step<1 ? toFixed(2) : toLocaleString('en-US')`. The
+	## thousands grouping is this file's own `_thousands()`, not a second
+	## formatter -- `DccUnits` has no grouping helper (checked, 2026-09-07).
+	var fmt := func(v: float) -> String:
+		return (("%.2f" % v) if step < 1.0 else _thousands(int(round(v)))) + unit
+	readout.text = fmt.call(value)
+
+	## **U+2212 MINUS SIGN, not ASCII hyphen.** The canvas draws U+2212, the
+	## shipped `IBMPlexMono-Regular.ttf` has it (cmap parsed 2026-09-07, the
+	## same pass that found U+2684 and U+FF0B absent), so there is no
+	## substitution to make here and none is recorded. This shipped as `"-"`
+	## for one revision and the deviations table said U+2212 was in use, which
+	## was the table asserting the opposite of the code; on glass the hyphen
+	## renders short and high beside a full-height `+`. The plus IS a genuine
+	## substitution -- the canvas's U+FF0B is absent from the font, so
+	## `DccIcons.SYMBOLS["add"]`'s ASCII `+` stands in, and that one is
+	## recorded.
+	row.add_child(_pg_stepper(key, slider, -1.0, "−", stage_index))
+	row.add_child(slider)
+	row.add_child(_pg_stepper(key, slider, 1.0, DccIcons.SYMBOLS["add"], stage_index))
+
+	## `input` updates the readout on every tick; `change` (here `drag_ended`,
+	## Godot's one-shot release) is what writes the engine and marks the stage
+	## stale. That is `tparam()`'s own split and `_build_param_row()`'s, so a
+	## drag costs one generate rather than one per tick.
+	slider.value_changed.connect(func(v: float):
+		readout.text = fmt.call(v))
+	slider.drag_ended.connect(func(_changed: bool):
+		bridge.param_set(key, int(round(slider.value)) if is_int else slider.value)
+		_pg_after_param_write(stage_index))
+
+## A `-` / `+` cell. `38 x 38` in the canvas, floored to the tap minimum here.
+## The canvas's glyphs are `U+2212` and `U+FF0B`; `U+2212` is in the shipped
+## Plex Mono and `U+FF0B` is not (cmap checked 2026-09-07), so the plus is
+## `DccIcons.SYMBOLS["add"]`, which is ASCII and cannot tofu.
+func _pg_stepper(key: String, slider: HSlider, dir: float, glyph: String,
+		stage_index: int) -> Button:
+	var b := Button.new()
+	b.text = glyph
+	b.focus_mode = Control.FOCUS_NONE
+	b.mouse_filter = Control.MOUSE_FILTER_PASS
+	b.custom_minimum_size = Vector2(_pg_tap(38), _pg_tap(38))
+	b.add_theme_font_override("font", DccTheme.mono())
+	b.add_theme_font_size_override("font_size", _pg_fs(14))
+	for c_key in ["font_color", "font_hover_color", "font_pressed_color"]:
+		b.add_theme_color_override(c_key, DccTheme.c("text_secondary"))
+	for state in ["normal", "hover", "pressed", "focus"]:
+		b.add_theme_stylebox_override(state, _pg_box(_pg_chip(), _pg_px(14)))
+	b.pressed.connect(func():
+		slider.value = clampf(slider.value + dir * slider.step,
+			slider.min_value, slider.max_value)
+		## `HSlider.value_changed` fires for a programmatic write and repaints
+		## the readout; `drag_ended` does NOT, so the engine write has to be
+		## made here by hand. Same asymmetry `_build_param_row()`'s right-click
+		## reset documents.
+		var info := bridge.param_info(key)
+		var is_int: bool = String(info.get("type", "float")) == "int"
+		bridge.param_set(key, int(round(slider.value)) if is_int else slider.value)
+		## The half the first cut of this function missed entirely: a stepper
+		## is `hGenStep`, and `hGenStep` marks the stage stale exactly as a
+		## drag release does.
+		_pg_after_param_write(stage_index))
+	return b
+
+# -- The two honest non-controls ----------------------------------------------
+
+## A field the canvas draws that this engine cannot back. Dashed, with the true
+## reason on the row and in the tooltip -- never a plausible value.
+func _pg_dash_row(parent: Control, label_text: String, why: String) -> void:
+	var row := VBoxContainer.new()
+	row.add_theme_constant_override("separation", 0)
+	row.tooltip_text = why
+	parent.add_child(row)
+	var head := HBoxContainer.new()
+	row.add_child(head)
+	var l := _pg_mono(label_text, "text_faint", 10)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(l)
+	head.add_child(_pg_mono("—", "text_faint", 11))
+	var note := _pg_mono(why, "text_faint", 9)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	row.add_child(note)
+
+## A field that is not missing -- it lives on another surface. Draws as a real
+## row that opens File > New world.
+func _pg_route_row(parent: Control, label_text: String, why: String) -> void:
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.mouse_filter = Control.MOUSE_FILTER_PASS
+	b.custom_minimum_size.y = _pg_tap(44)
+	b.tooltip_text = why
+	for state in ["normal", "hover", "pressed", "focus"]:
+		b.add_theme_stylebox_override(state, DccTheme.empty())
+	parent.add_child(b)
+	var row := HBoxContainer.new()
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", _pg_px(8))
+	b.add_child(row)
+	var l := _pg_mono(label_text, "text_secondary", 10)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(l)
+	var go := _pg_mono("New world %s" % DccIcons.SYMBOLS["expand"], "accent", 9.5)
+	go.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(go)
+	b.pressed.connect(func():
+		if app != null:
+			app.open_new_world())
+	var note := _pg_mono(why, "text_faint", 9)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(note)
+
+# -- SCULPT -------------------------------------------------------------------
+
+## `isSculpt`. The canvas's own order: feature chips, hint, presets, brush
+## globals, add-stamp, then the draft's DISCARD / COMMIT pair.
+##
+## Every list is read live off the engine -- `get_sculpt_features()`,
+## `get_sculpt_presets()`, `sculpt_get_globals()` -- which is what
+## `_build_sculpt()` already does for the desktop. Nothing is transcribed.
+##
+## The canvas's `+ ADD DRAFT STAMP (MOCK STROKE)` is the prototype standing in
+## for a map stroke it has no map to take. Here the equivalent is arming the
+## sculpt tool and getting out of the way, which is what
+## `phone_menu.gd::_go_civ_tool()` already does for the CIVIL tools -- so the
+## button arms and closes the sheet rather than fabricating a stamp.
+func _pg_sculpt(parent: Control) -> void:
+	if not bridge.has_world:
+		var l := _pg_mono("Generate a world first -- the Sculpt editor is created "
+			+ "fresh per generated world.", "text_faint", 9.5)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		parent.add_child(l)
+		return
+	if bridge.sculpt_get_globals().is_empty():
+		var l2 := _pg_mono("No sculpt editor for this world -- a loaded save has no "
+			+ "draft session, only a freshly generated world does.", "text_faint", 9.5)
+		l2.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		parent.add_child(l2)
+		return
+
+	parent.add_child(_pg_mono("GEOLOGICAL FEATURE", "text_dim", 9.5, 2))
+	var current := bridge.sculpt_get_feature()
+	var chips := HFlowContainer.new()
+	chips.add_theme_constant_override("h_separation", _pg_px(7))
+	chips.add_theme_constant_override("v_separation", _pg_px(7))
+	parent.add_child(chips)
+	var hint := ""
+	for f in bridge.get_sculpt_features():
+		var d: Dictionary = f
+		var key := String(d.get("key", ""))
+		if key == current:
+			hint = String(d.get("hint", ""))
+		chips.add_child(_pg_chip_button(String(d.get("label", key)), key == current, 42,
+			func():
+				bridge.sculpt_set_feature(key)
+				app.arm_tool("sculpt")
+				_pg_rebuild()))
+	if not hint.is_empty():
+		var hl := _pg_mono(hint, "text_faint", 9.5)
+		hl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		parent.add_child(hl)
+
+	parent.add_child(_pg_mono("PRESETS", "text_dim", 9.5, 2))
+	var presets := HFlowContainer.new()
+	presets.add_theme_constant_override("h_separation", _pg_px(7))
+	presets.add_theme_constant_override("v_separation", _pg_px(7))
+	parent.add_child(presets)
+	var all_presets := bridge.get_sculpt_presets()
+	for i in all_presets.size():
+		var pd: Dictionary = all_presets[i]
+		var idx := i
+		presets.add_child(_pg_chip_button(String(pd.get("name", "Preset %d" % i)), false, 38,
+			func():
+				bridge.sculpt_apply_preset(idx)
+				app.arm_tool("sculpt")
+				_pg_rebuild()))
+
+	parent.add_child(_pg_mono("BRUSH · GLOBAL", "text_dim", 9.5, 2))
+	var globals_now := bridge.sculpt_get_globals()
+	for spec in bridge.get_sculpt_globals_info():
+		var sd: Dictionary = spec
+		var gkey := String(sd.get("key", ""))
+		if not globals_now.has(gkey):
+			continue
+		_pg_sculpt_slider(parent, sd, float(globals_now[gkey]))
+
+	var arm := Button.new()
+	arm.text = "%s ARM SCULPT · DRAW ON THE MAP" % DccIcons.SYMBOLS["add"]
+	arm.focus_mode = Control.FOCUS_NONE
+	arm.mouse_filter = Control.MOUSE_FILTER_PASS
+	arm.custom_minimum_size.y = _pg_tap(48)
+	arm.add_theme_font_override("font", DccTheme.mono(2, true))
+	arm.add_theme_font_size_override("font_size", _pg_fs(10))
+	for c_key in ["font_color", "font_hover_color", "font_pressed_color"]:
+		arm.add_theme_color_override(c_key, DccTheme.c("accent"))
+	var dashed := _pg_box(Color(0, 0, 0, 0), _pg_px(24), DccTheme.c("accent"), 1)
+	for state in ["normal", "hover", "pressed", "focus"]:
+		arm.add_theme_stylebox_override(state, dashed)
+	arm.pressed.connect(func():
+		app.arm_tool("sculpt")
+		if app.has_method("_set_phone_detent"):
+			app._set_phone_detent("peek"))
+	parent.add_child(arm)
+	## `StyleBoxFlat` has no dashed border, so the canvas's `1px dashed
+	## var(--acc)` is drawn solid. Said here rather than left as a silent
+	## divergence: the affordance the dash carries -- "this makes a draft, not
+	## a commit" -- is carried by the caption instead.
+
+	var stamps := bridge.sculpt_stamp_count()
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", _pg_px(10))
+	parent.add_child(foot)
+	var note := _pg_mono("%d stamp%s on the draft" % [stamps, "" if stamps == 1 else "s"],
+		"accent" if stamps > 0 else "text_faint", 10)
+	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	foot.add_child(note)
+	## `_on_sculpt_discard()` / `_on_sculpt_commit()`, not the bare bridge
+	## calls: both also clear the viewport preview and re-point the right dock,
+	## and `sculpt_commit` takes a reason string those two already supply.
+	foot.add_child(_pg_chip_button("DISCARD", false, 44, func():
+		_on_sculpt_discard()
+		_pg_rebuild()))
+	foot.add_child(_pg_chip_button("%s COMMIT" % DccIcons.SYMBOLS["tick"], true, 44, func():
+		_on_sculpt_commit()
+		_pg_rebuild()))
+
+func _pg_sculpt_slider(parent: Control, spec: Dictionary, value: float) -> void:
+	var key := String(spec.get("key", ""))
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", _pg_px(2))
+	parent.add_child(wrap)
+	var head := HBoxContainer.new()
+	wrap.add_child(head)
+	var l := _pg_mono(String(spec.get("label", key)), "text_secondary", 10)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(l)
+	var readout := _pg_mono("%.2f" % value, "text_bright", 11)
+	head.add_child(readout)
+	var is_int: bool = bool(spec.get("int", false))
+	var s := HSlider.new()
+	s.min_value = float(spec.get("min", 0.0))
+	s.max_value = float(spec.get("max", 1.0))
+	s.step = float(spec.get("step", 0.01))
+	s.value = value
+	DccWidgets.phone_slider(s, DccTheme.phone_scale())
+	## Same 44 dp floor as `_pg_range_field()`; see its own note.
+	s.custom_minimum_size.y = maxf(s.custom_minimum_size.y, float(_pg_tap(44)))
+	wrap.add_child(s)
+	s.value_changed.connect(func(v: float):
+		readout.text = "%.2f" % v)
+	## `sculpt_set_globals` takes a Dictionary -- there is no singular setter
+	## (`grep -n "^func sculpt_set_global" engine_bridge.gd`, 2026-09-07), and
+	## `_on_sculpt_global()` writes it the same way for the desktop.
+	s.drag_ended.connect(func(_c: bool):
+		bridge.sculpt_set_globals({key: (round(s.value) if is_int else s.value)}))
+
+## The canvas's chip: `min-height:<h>px; padding:0 13px; border-radius:<h/2>px;
+## font:10px mono`, accent-on-wash when selected.
+func _pg_chip_button(text: String, on: bool, h: float, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.mouse_filter = Control.MOUSE_FILTER_PASS
+	b.custom_minimum_size.y = _pg_tap(h)
+	b.add_theme_font_override("font", DccTheme.mono())
+	b.add_theme_font_size_override("font_size", _pg_fs(10))
+	for c_key in ["font_color", "font_hover_color", "font_pressed_color"]:
+		b.add_theme_color_override(c_key,
+			DccTheme.c("accent") if on else DccTheme.c("text_secondary"))
+	var box := _pg_box(DccTheme.c("accent_wash") if on else Color(0, 0, 0, 0),
+		_pg_px(h / 2.0), DccTheme.c("accent") if on else DccTheme.c("line"), 1)
+	box.content_margin_left = _pg_px(13)
+	box.content_margin_right = _pg_px(13)
+	for state in ["normal", "hover", "pressed", "focus"]:
+		b.add_theme_stylebox_override(state, box)
+	b.pressed.connect(on_press)
+	return b
