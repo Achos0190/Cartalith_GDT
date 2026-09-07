@@ -832,29 +832,34 @@ func _compute_layout_mode() -> void:
 	## narrow and the width correctly does not. Width is the question the
 	## override answers.
 	DccTheme.set_narrow(size.x < float(DccTheme.W_LAPTOP_MAX))
-	## §1's tablet column widens BOTH docks to 400 px, "so two-column readouts
-	## survive the larger type" (`UI_SHELL_DESIGN.md`). Neither dock had ever
-	## been told that: tablet ran the desktop pair, which was 372/300 when this
-	## was written and is 372/304 after the 2026-08-31 token re-base -- the
-	## point is unaffected, since what tablet needed was 400/400 either way.
-	if _touch and not _phone:
-		_left_width = float(DccTheme.W_DOCK_TABLET)
-		_right_width = float(DccTheme.W_DOCK_TABLET)
-	## The LAPTOP band's half of the same assignment, and the reason it is an
-	## `elif` in spirit even though `is_laptop()` already excludes touch: both
-	## branches write the same two fields, and reading them as one either/or is
-	## how the next person will expect it. `role_px()` resolves the override, so
-	## the widths are stated once, in `DccTheme.LAPTOP`, and not duplicated here.
+	## The **fifth density set's** publication, and the whole of the orientation
+	## wiring on this side. `_landscape` is computed thirteen lines up and has
+	## been since the phone composition needed it; this hands the same fact down
+	## to `DccTheme`, where `role_px()` can reach it. Nothing here learns a new
+	## question, and no second orientation source is introduced -- which was the
+	## brief: reuse the phone's machinery rather than build a tablet copy of it.
+	DccTheme.set_portrait(not _landscape)
+	## **Both non-desktop bands resolve their dock pair identically, so they are
+	## one branch.** `role_px()` consults `LAPTOP` for the narrow-pointer band
+	## and `TABLET_PORTRAIT` for portrait touch, and otherwise falls through to
+	## `ROLE`'s touch column -- 400/400, which is §1's "so two-column readouts
+	## survive the larger type" (`UI_SHELL_DESIGN.md`) and is what landscape
+	## tablet keeps. Every width is therefore stated once, in `DccTheme`, and
+	## none is duplicated here.
 	##
-	## Runs once, from `_ready()`, exactly like the tablet branch above and for
-	## the same recorded reason: `_on_window_resized()` early-returns for
-	## anything that is not the phone, so that a tablet user's dragged dock
-	## widths (WI-04) are not reset on rotation. The cost is that dragging a
-	## desktop window across 1920 px does not re-band it until the next launch.
-	## That is a real limit and it is the existing one, not a new one -- making
-	## the band live would first require the drag-width preservation this early
-	## return protects.
-	elif DccTheme.is_laptop():
+	## **The touch half read `float(DccTheme.W_DOCK_TABLET)` for both docks,
+	## unconditionally, and that is the measured defect.** At 800 x 1280
+	## `--force-touch` the shell laid out rail 47 + left 400 + viewport 237 +
+	## right 400 = 1084 px inside a frame of 800, putting the right dock's edge
+	## at x = 1085: +285 px of overflow, the menu bar cut mid-word, no map
+	## visible. `role_px()` returns the same 400 in landscape, so the landscape
+	## frames do not move; see `DccTheme.TABLET_PORTRAIT` for why only the
+	## portrait half of the canvas's 232/320 pair is taken.
+	##
+	## Runs from `_ready()`, and on a tablet once more per orientation flip --
+	## `_on_tablet_resized()` below, where that exception to the early return
+	## and its WI-04 constraint are argued.
+	if (_touch and not _phone) or DccTheme.is_laptop():
 		_left_width = float(DccTheme.role_px("w_left_dock"))
 		_right_width = float(DccTheme.role_px("w_right_dock"))
 
@@ -875,11 +880,52 @@ func _compute_layout_mode() -> void:
 ##   to `W_DOCK_TABLET` on every rotation.
 func _on_window_resized() -> void:
 	if not _phone:
-		return  ## Tablet/desktop windows resizing is not this shell's concern.
+		_on_tablet_resized()
+		return  ## Desktop windows resizing is not this shell's concern.
 	var was_landscape := _landscape
 	_compute_layout_mode()
 	if _landscape != was_landscape:
 		_apply_phone_orientation()
+
+## The tablet's share of the resize handler, and it acts on exactly one event:
+## an orientation flip. Added 2026-09-07 with the portrait dock fix.
+##
+## **The early return above is not weakened.** Its purpose (WI-04, argued in the
+## comment on `_on_window_resized()`) is that a tablet user's dragged dock
+## widths survive a resize, and they still do: the flip test below reads the raw
+## viewport size and returns *before* `_compute_layout_mode()` -- which is the
+## call that would overwrite `_left_width`/`_right_width` -- so a same-orientation
+## resize mutates nothing at all.
+##
+## A flip is the one case where the dragged width cannot be kept, and that is
+## not a preference: portrait and landscape are different budgets (232 against
+## 400, `DccTheme.TABLET_PORTRAIT`), and a landscape width carried into portrait
+## is the +285 px overflow this batch fixed. Without this function the fix would
+## hold only for a shell that launched already in portrait.
+##
+## Desktop pays one predicate and leaves: `DccTheme.is_tablet()` is `touch and
+## not phone`.
+func _on_tablet_resized() -> void:
+	if not DccTheme.is_tablet():
+		return
+	var size: Vector2 = get_viewport_rect().size
+	if size.x <= 0.0 or size.y <= 0.0:
+		return
+	if (size.x > size.y) == _landscape:
+		return  ## Same orientation. WI-04's dragged widths stand.
+	_compute_layout_mode()
+	_apply_dock_widths()
+
+## Pushes `_left_width`/`_right_width` onto the two docks. A collapsed dock is
+## skipped rather than re-expanded -- its `custom_minimum_size.x` is
+## `W_RAIL_COLLAPSED` while collapsed, and `_toggle_dock()` reads the fields
+## this function does not touch when it expands again, so the new width is
+## picked up there.
+func _apply_dock_widths() -> void:
+	if left_dock != null and not _left_collapsed:
+		left_dock.custom_minimum_size.x = _left_width
+	if right_dock != null and not _right_collapsed:
+		right_dock.custom_minimum_size.x = _right_width
 
 ## Phone-only geometry: scaled off the real device's short side, no 44 px
 ## floor -- for chrome that is deliberately *not* tappable (the top safe area,

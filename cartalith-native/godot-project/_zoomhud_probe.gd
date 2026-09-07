@@ -179,16 +179,33 @@ func _ready() -> void:
 		"zoom %d%%" % roundi(zc * 100.0))
 	_ok("is not the truncated value", _seg(vh, 1) == "zoom %d%%" % floori(zc * 100.0), false)
 
-	# -- D. The fourth segment -- present, and never a bare separator ----------
-	## Ruled DRIFT at the call site (ENV places the preset in the status bar,
-	## `ENV:1571`), kept one batch because removing it strands
-	## `render_workspace.gd`'s two `set_style_readout()` calls. Asserted as it
-	## ships so the removal is a visible change and not a silent one.
-	print("-- D. the style-preset segment")
+	# -- D. The fourth segment -- A KNOWN DEPARTURE, pinned as such ------------
+	## **These two assertions pin DRIFT, deliberately, and say so in their own
+	## text -- which is the whole of the ruling.** An assertion that pins a
+	## departure without naming it is the trap: the follow-up that removes the
+	## segment then reads as a probe regression and gets reverted.
+	##
+	## The canvas: `ENV:913` writes the readout as exactly
+	## `equirect · <span ref=zoomRef>zoom 100%</span> · {{ vpField }}` -- **three**
+	## `·` segments, no preset among them. `ENV:1571` (`statusExtra()`) is where
+	## the preset belongs: `'style edited — layers differ from preset '+
+	## this.ca().preset`, in the STATUS BAR. The shipped line carries four.
+	##
+	## Kept for now rather than asserted at three, because a probe that is red on
+	## a clean tree teaches nothing: removing the segment means editing
+	## `viewport_host.gd::_update_zoom_readout()` and re-homing
+	## `render_workspace.gd`'s two `set_style_readout()` calls onto the status
+	## bar, neither of which this lane owns. **FIX-VIEWPORT lane ruling,
+	## 2026-09-07: when that removal lands, the correct edit here is to assert
+	## `size == 3` and delete the segment-3 line -- NOT to restore the segment.**
+	## Sections A/B/C/E are the parity assertions; these two are the bookmark.
+	print("-- D. the style-preset segment (KNOWN DEPARTURE from ENV:913)")
 	vh.set_style_readout("Antique")
 	await _frames(2)
-	_ok("preset appends as a fourth segment", _segments(vh).size(), 4)
-	_ok("fourth segment is the preset name", _seg(vh, 3), "Antique")
+	_ok("KNOWN DEPARTURE (ENV:913 draws 3): preset appends as a 4th segment",
+		_segments(vh).size(), 4)
+	_ok("KNOWN DEPARTURE (ENV:1571 homes it in the status bar): 4th is the preset",
+		_seg(vh, 3), "Antique")
 	vh.set_style_readout("")
 	await _frames(2)
 	_ok("empty preset drops the segment, no trailing separator",

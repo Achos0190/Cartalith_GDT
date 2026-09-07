@@ -707,6 +707,50 @@ const LAPTOP := {
 	"w_menu_popup": 280,
 }
 
+# ── The fifth density: TABLET PORTRAIT ───────────────────────────────────────
+#
+# **This is a defect fix, not adoption of the tablet canvas.** Measured on the
+# shipped shell at 800 x 1280 `--force-touch`: rail 47 + left 400 + viewport 237
+# + right 400 = 1084 against a frame of 800, the right dock's right edge landing
+# at x = 1085 -- **overflow +285 px**, with the menu bar cut mid-word and no map
+# visible at all. At 900 x 1440 the overflow is +185. Landscape has no defect
+# (1280 x 800 sums 1279, overflow 0), and that is the whole reason only one
+# figure moves below.
+#
+# The prototype states the pair the same way `LAPTOP` states its own, in the
+# same `densStr` position (`Cartalith Tablet.dc.html`, `valsShell()`):
+#
+#   dens = port ? '--ldW:232px;--rdW:232px;...' : '--ldW:320px;--rdW:320px;...'
+#
+# **Only the portrait half is taken, and that is a decision rather than an
+# oversight.** The landscape half would move a surface that measures correct
+# today, and `TABLET_UI_SPEC.md` §4.3 names the dock split "the only item that
+# buys a defect fix rather than a resemblance" -- the rest of that spec, this
+# 320 included, waits on an owner decision that has not been made. Landscape
+# therefore keeps `ROLE`'s shipped 400/400 (= `W_DOCK_TABLET`). When the owner
+# rules on canvas adoption, the landscape figure moves in `ROLE` and this table
+# does not change at all.
+#
+# **Shape: an override layer, not a third `ROLE` column.** `ROLE`'s own header
+# (below) says a 232/320 pair "could not be expressed as a `ROLE` row even if it
+# were ruled on; `ROLE` is a two-column table and this is a third column" -- and
+# that is right, but it is only an argument against *widening `ROLE`*, not
+# against expressing the pair at all. `LAPTOP` above already answers exactly
+# this shape of question: two tokens change, three dozen are inherited, and
+# modelling it as its own column would mean restating the inherited values and
+# inviting the copies to drift. Orientation is that case again, so it gets that
+# answer again -- a dictionary of overrides keyed by the same role names,
+# consulted by `role_px()`, gated on a predicate. The cost of the next tablet
+# orientation row is then one line, in one place, and no caller changes.
+#
+# `is_laptop()` is `narrow and not touch` and `is_tablet_portrait()` is
+# `touch and not phone and portrait`, so the two override layers are mutually
+# exclusive by predicate and their order in `role_px()` carries no meaning.
+const TABLET_PORTRAIT := {
+	"w_left_dock": 232,
+	"w_right_dock": 232,
+}
+
 # ── Tablet interior · role-keyed (§13, DS-03) ────────────────────────────────
 #
 # `TABLET` above is keyed by the bare desktop integer, and that key space is
@@ -818,17 +862,20 @@ const LAPTOP := {
 #      remaps live colours through `old_pal = DccTheme.DARK if was_dark else
 #      LIGHT`; a tablet palette that `c()` returned but that call did not know
 #      about would leave every repainted node reading the desktop values.
-#   3. The horizontal `--railH:56` rail and the 232/320 portrait-landscape dock
-#      split are **layout**, not tokens -- and the honest version of "this does
-#      not exist" is narrower than it first looks. `DccShell` *does* track
-#      orientation: `_compute_layout_mode()` sets `_landscape` on every resize
-#      and re-lays the shell when it flips. **Every consumer of it is a
-#      `_phone_*` surface**, so the machinery a tablet split needs is already
-#      built and simply is not reached from the tablet composition. `DccTheme`
+#   3. The horizontal `--railH:56` rail is **layout**, not tokens, and is still
+#      unbuilt. **The dock half of this item is fixed as of 2026-09-07** and the
+#      paragraph that stood here is corrected rather than deleted, because its
+#      conclusion was right and its premise has moved. It read: "`DccTheme`
 #      itself has no orientation predicate at all -- `is_touch()`,
 #      `is_tablet()` and `is_phone()` are the whole vocabulary here -- so a
 #      232/320 pair could not be expressed as a `ROLE` row even if it were
-#      ruled on; `ROLE` is a two-column table and this is a third column.
+#      ruled on; `ROLE` is a two-column table and this is a third column."
+#      The last clause still holds and is why `TABLET_PORTRAIT` above is an
+#      override layer and not a widened `ROLE`. The first no longer does:
+#      `is_tablet_portrait()` below is that predicate, fed by
+#      `DccShell._compute_layout_mode()`'s existing `_landscape`, which is the
+#      "machinery already built and simply not reached from the tablet
+#      composition" this paragraph correctly identified.
 #
 # **What guards this table:** `_roleresolve_probe.tscn`, added 2026-09-03. Until
 # then every property below was carried by this prose alone. It pins the
@@ -1201,6 +1248,35 @@ static func set_narrow(v: bool) -> void:
 static func is_laptop() -> bool:
 	return _narrow and not _touch
 
+## The **fifth density set's** state, published the same way as `_touch`,
+## `_phone_mode` and `_narrow`, and for the same reason: the widget factories
+## are static and cannot reach `DccShell`.
+##
+## `DccShell._compute_layout_mode()` is the single writer, and it already had
+## the answer -- `_landscape = size.x > size.y`, computed on every resize since
+## the phone composition needed it. Nothing new measures orientation; this is
+## the same fact, published one level down so `role_px()` can see it.
+##
+## Defaults to `false` = landscape, which is the safe direction twice over: it
+## is the orientation that has no defect, and it is what every caller got
+## before this variable existed, so a shell that never calls `set_portrait()`
+## is byte-identical to the one that shipped.
+static var _portrait := false
+
+static func set_portrait(v: bool) -> void:
+	_portrait = v
+
+## `tablet and portrait` -- see `TABLET_PORTRAIT`'s header for the shape
+## argument and for why only the portrait half of the canvas pair is taken.
+##
+## It is `is_tablet()` and not `is_touch()` deliberately, and that is the same
+## trap `is_tablet()`'s own header documents: a phone is `_touch` too, and a
+## portrait phone reaching a 232 px dock would be a `GUI_GAP_REGISTER.md` §57
+## repeat. A phone would ignore the answer anyway -- it consumes `PHONE_*`, not
+## `ROLE` -- but the predicate should not depend on that being true forever.
+static func is_tablet_portrait() -> bool:
+	return is_tablet() and _portrait
+
 ## One `ROLE` figure, resolved for the device this session is running on.
 ##
 ## Tablet gets the tablet column; **desktop and phone both get the desktop
@@ -1226,6 +1302,12 @@ static func role_px(role: String) -> int:
 	## see `LAPTOP`'s header for why an override layer and not a fourth column.
 	if is_laptop() and LAPTOP.has(role):
 		return int(LAPTOP[role])
+	## The second override layer, same shape and same reasoning as `LAPTOP`'s.
+	## Order between the two is arbitrary and says nothing: `is_laptop()` is
+	## `narrow and not touch` and `is_tablet_portrait()` is `tablet and
+	## portrait`, so no device can satisfy both.
+	if is_tablet_portrait() and TABLET_PORTRAIT.has(role):
+		return int(TABLET_PORTRAIT[role])
 	var pair: Array = ROLE[role]
 	return int(pair[1] if is_tablet() else pair[0])
 

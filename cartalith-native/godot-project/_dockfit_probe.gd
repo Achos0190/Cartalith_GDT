@@ -27,38 +27,39 @@ extends Node
 ## **The `LAPTOP` band is over budget on four panels, and this is not that
 ## pass's doing.** `--ldW` is 330 at `w1366` (`ENV:1819`) and
 ## `_ds03fit_probe.gd` never runs there -- it boots one 2560 x 1600 viewport.
-## Measured with `_ldwidth_probe.gd` at 1366 x 768, before this change and
-## after it:
+## Measured with `_ldwidth_probe.gd` at 1366 x 768, before that change, after
+## it, and after FIX-VIEWPORT's planner fix (2026-09-07):
 ##
-##   world/a               336 -> 330   fixed by `dock_fit()`
-##   civilization/planner  404 -> 371   improved, still 41 over
-##   cartography/style     333 -> 333   untouched: no dropdown drives it
-##   cartography/labels    332 -> 332   untouched
-##   cartography/icons     338 -> 338   untouched
+##   world/a               336 -> 330 -> 330   fixed by `dock_fit()`
+##   civilization/planner  404 -> 371 -> 351   the nested scroller, dropped
+##   cartography/style     333 -> 333 -> 333   untouched: no dropdown drives it
+##   cartography/labels    332 -> 332 -> 332   untouched
+##   cartography/icons     338 -> 338 -> 338   untouched
 ##
-## The remaining four are content-side and live in files this pass does not
-## own -- the planner's own is `journey_planner_view.gd::_build_left_panel()`
-## nesting a second `ScrollContainer` inside the dock's (28 px of duplicate
-## scrollbar) on top of a 336 px row stack. They are pinned at their MEASURED
-## values rather than waived, so a regression still fails and a fifth entry
-## fails immediately.
-## The planner's figure is a cap rather than an equality and the two numbers
-## behind it are both real: the rail sweep below measures **371** and the
-## transition check further down measures **379**, reproducibly, because the
-## dock's own `_scroll()` raises a vertical scrollbar between the two and folds
-## its 8 px into the dock's minimum. The worse of the two is what is pinned.
+## The remaining four are content-side. `_jpdock_probe.gd` section B prints the
+## additive chain for each and it is the same chain three times over: a
+## `DccWidgets` slider row's three canvas-fixed minimums (`ROW_LABEL_W` 132 +
+## `TRACK_W` 78 + `ROW_VALUE_W` 44, plus separation = 278) inside `group()`'s
+## 14 + 12 body pad, plus **8 px of dock scrollbar that `--ldW:330` does not
+## budget** -- `_scroll()` disables the horizontal axis, so `ScrollContainer`
+## folds the visible vertical bar into its own horizontal minimum. They are
+## pinned at their MEASURED values rather than waived, so a regression still
+## fails and a fifth entry fails immediately.
 ##
-## **Disclosed, because pinning the worse of two numbers loosens the better
-## one:** against the rail sweep, which measures 371, this 379 is a ceiling
-## **8 px loose** — a regression of up to 8 px at that site passes unnoticed.
-## That is a deliberate trade (one constant, two sites, no false red) and not
-## an oversight, but it is exactly the shape that reads as coverage when it is
-## not. The tight version is a per-site expectation rather than one shared
-## ceiling; do that when a third site appears, or sooner if this dock is worked
-## on again. The header's before/after pair was `412 -> 379` when written and
-## is corrected above: a clean-worktree measurement gives **404 -> 371**.
+## **The planner's entry was a ceiling 8 px loose and is now an equality.** It
+## read 379 while the rail sweep measured 371, because the dock's own `_scroll()`
+## raised a vertical scrollbar between the two measurements and folded its 8 px
+## into the dock's minimum -- so the worse of two real numbers was pinned, and a
+## regression of up to 8 px passed there unnoticed. Dropping the planner's
+## nested `ScrollContainer` hands the dock back the content height that scroller
+## was hiding, so the bar is up in BOTH states now and both sites measure the
+## same **351**. The header's own advice was "do a per-site expectation when a
+## third site appears, or sooner if this dock is worked on again"; the dock was
+## worked on again, and one number that is exact at both sites is the tighter
+## answer than two. The earlier `412 -> 379` in this header was corrected once
+## already: a clean-worktree measurement gave 404 -> 371.
 const KNOWN_330 := {
-	"civilization/planner": 379.0,
+	"civilization/planner": 351.0,
 	"cartography/style": 333.0,
 	"cartography/labels": 332.0,
 	"cartography/icons": 338.0,
@@ -230,6 +231,14 @@ func _ready() -> void:
 			cap = float(KNOWN_330[id])
 		_le("%s: the left dock is not forced open%s" % [id,
 			"  [KNOWN over 330, see the header]" if known else ""], ld.size.x, cap)
+		## **A cap only fails upward.** Each `KNOWN_330` figure is a measurement,
+		## so it is also asserted as an equality -- a panel that gets 8 px
+		## NARROWER is progress that must be recorded here rather than passing
+		## silently and leaving the constant a fiction. The `_le` above stays for
+		## the unknown ids, where `lw` is the budget and not a measurement.
+		if known:
+			_ok("%s: and is exactly its measured figure" % id,
+				"%.0f" % ld.size.x, "%.0f" % cap)
 		## What the fix costs, counted rather than argued: a dropdown that no
 		## longer reserves its longest item ellipsizes it instead when the row
 		## is narrower than that item. Measured by asking each control what it
@@ -301,8 +310,15 @@ func _ready() -> void:
 		ob2.selected = best
 	await _frames(10)
 	_ok("dropdowns switched to their longest item", widest.size() > 0, true)
-	_le("and the dock still is not forced open", ld.size.x,
-		float(KNOWN_330.get("civilization/planner", lw)) if is_equal_approx(lw, 330.0) else lw)
+	var tcap := float(KNOWN_330.get("civilization/planner", lw)) if is_equal_approx(lw, 330.0) else lw
+	_le("and the dock still is not forced open", ld.size.x, tcap)
+	## The second of the two sites the planner's figure covers. It used to
+	## measure 8 px WIDER than the rail sweep -- see the header -- and now
+	## measures the same 351, so it is asserted as an equality too rather than
+	## left as the loose half of a shared ceiling.
+	if is_equal_approx(lw, 330.0):
+		_ok("and at exactly the same figure as the rail sweep",
+			"%.0f" % ld.size.x, "%.0f" % tcap)
 
 	print("")
 	print("_dockfit_probe: ", "PASS" if _fail == 0 else str(_fail) + " FAILURE(S)")

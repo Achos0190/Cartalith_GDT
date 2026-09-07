@@ -470,14 +470,37 @@ func _build_left_panel() -> void:
 		return
 
 	_left_route_section = DccWidgets.section(_left_panel, "Journeys")
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_left_panel.add_child(scroll)
+	## **No `ScrollContainer` here.** `app.left_dock_body` is already inside the
+	## dock's own `_scroll()` (`dcc_shell.gd::_build_left_dock()`), and nesting a
+	## second scroller inside it cost the dock **28 px of content width** it does
+	## not have -- 8 px for a vertical `ScrollBar` duplicating the dock's, plus
+	## 20 px of `panel` stylebox content margin that the dock's `_scroll()` kills
+	## with `DccTheme.empty()` and this one never did. `ScrollContainer` folds
+	## both into its horizontal minimum because its horizontal axis is DISABLED.
+	## Measured: `left_dock_body`'s content minimum 364 -> 336, which is what put
+	## this panel 41 px over the `LAPTOP` band's 330 (`ENV:1819`) and left it
+	## +1 px inside the 1920 budget where its nine sibling panels have +42…+149.
+	##
+	## **What actually changed on screen, stated rather than left to be
+	## rediscovered:** the "Journeys" list above no longer stays pinned while the
+	## party form scrolls under it -- the whole panel scrolls as one column, in
+	## the dock's own scroller, exactly as every other workspace panel does. That
+	## is the canvas's left dock (`ENV:1819`'s single `--ldW` column), and the
+	## nine siblings are the precedent.
+	##
+	## **The risk this carries, and how it is held:** before this change the
+	## dock's outer scroller had nothing to scroll at the planner (`page == max`,
+	## measured) because a nested scroller reports a vertical minimum of 0, so it
+	## absorbed the whole 1054 px party form and the dock never knew. Removing it
+	## hands that height back to `left_dock_body`, and the OUTER scrollbar is what
+	## must now appear -- if it did not, the bottom of the party form would be
+	## unreachable. `_jpdock_probe.gd` §A2 drives the dock's scrollbar to its end
+	## and asserts the last row comes into the visible rect (and back out again),
+	## with both preconditions asserted so it cannot pass vacuously.
 	_left_party_body = VBoxContainer.new()
 	_left_party_body.add_theme_constant_override("separation", 0)
 	_left_party_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(_left_party_body)
+	_left_panel.add_child(_left_party_body)
 
 	_options = bridge.jp_options()
 	_default_plan = bridge.jp_default_plan()
