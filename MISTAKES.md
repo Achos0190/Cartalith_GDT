@@ -137,6 +137,11 @@ its rule before you start.
 | **Rule a control class OUT of a hazard** | **Say which question you answered.** A pass cleared `SpinBox` by measuring that a swipe does not STEP its value — true, and the wrong question. The hazard is that the press takes FOCUS: the swipe scrolls `0 → 0` while the label column beside it scrolls `0 → 62`, and on Android focus raises the soft keyboard over the sheet. **"Not this mechanism" is not "not a hazard"**, and a negative control only clears the mechanism it tested. |
 | **Write "this defect is milder"** | **Severity is a measurement, not a reading of the mechanism.** I filed a dropdown hazard as *"milder … nothing changes silently — the user sees a popup and can dismiss it"*, from watching a popup appear. Measured: a jittered vertical swipe takes **`sel=7 → sel=3` with the popup closed again at the end** — the press opens it under the finger, the drag travels its item list, the release picks what is beneath. **Identical to the slider defect, and silent.** The lane refused the claim in its report; a brief that had been believed would have shipped it as a lesser row. |
 | **Explain why something was left untouched** | **Check the mechanism reaches it at all before crediting a gate.** A comment credited the "no vertical scroller" gate with leaving the phone menu bar’s seven `MenuButton`s stock. Measured: **0 of the 7 carry `_phone_fitted`** — `phone_fit()` never walks the menu bar, so the function is never called on them, and inverting the gate leaves all seven stock anyway. The gate is load-bearing for a different control. **Two true facts standing next to each other read as cause and effect.** |
+| **Invent a screening metric (darkness, line count, size)** | **Calibrate it against a KNOWN GOOD and a KNOWN BAD before you read a single result, and put both numbers in the label.** I polled a phone boot with `dark%=94.2 (94.2 = splash, ~85 = picker)`. **Backwards, and the picker figure invented rather than measured**: the splash is **98.9%** and the picker is **94.2%** — provable in five seconds against captures already in my own scratchpad, one of which I had confirmed pixel-identical to a known-good picker. Every *"still on the splash"* reading was a painted, working app. **A screening metric with an uncalibrated label is worse than no metric: it converts a glance into false confidence.** |
+| **Count log lines as a health signal** | **Ask what generates the lines first — a diagnostic build talks MORE when it is sicker.** I built *"5 = stuck, 50+ = progressing"* on top of the darkness error. The count measures **stale-library complaints**: the 56-line build is 5 real lines plus 51 lines of `has no WorldGen.<sym>()` across six symbols, each with a backtrace. **5 was the healthy value and the metric graded the good build as the broken one.** |
+| **Write a caveat into your own brief** | **A caveat you reason past is worse than one you never wrote — it launders the conclusion.** The same brief said *"the absence of those warnings in the stuck run is NOT evidence about how far it got — the quiet log is expected either way."* That sentence is correct and it makes the 5-vs-50 metric unusable. I wrote it, then built the metric anyway. **When you write a caveat, check what it invalidates BEFORE the next paragraph.** |
+| **Escalate to a bisect, a rebuild, or a large row** | **Reproduce the failure ONE more way, cheaply, first — preferably with your eyes.** One screencap of the "stuck" build would have ended this before a 33-commit bisect was proposed; my own instruction said *"every measurement is the log line count PLUS a screencap"* and I took the count and skipped the capture on the failing build. **The cheapest disconfirming check is the one to run before the expensive confirming one**, and the cost of skipping it here was an entire batch. |
+| **Trust a probe that reads `user://`** | **A probe must set up the state it asserts on, or declare and clear it.** Two sessions ran `_nwsize_probe` on a byte-identical tree with the same `.dll`: one got **fail=1 twice**, the other **fail=0 twice**. Neither is flaky — they read different persisted state. `cartalith_settings.cfg` carries a `[recent] paths` list and a `projects=…/Worlds` root, probe runs WRITE it, and whether the project picker is presented depends on it. **A probe that reads what its siblings wrote can go green for reasons unrelated to the code.** |
 
 ### [2026-09-03] Believing a backlog row instead of re-opening it ×15
 
@@ -753,3 +758,55 @@ can see. And it **departed from my brief and was right to**: I said reuse
 `PgSlider`’s arbitration, and a `BaseButton` has `action_mode`, the engine’s own
 switch, where a `Slider` has nothing. Two property writes, no shared
 classification code to drift, and the native fling kept.
+
+### [2026-09-07] I filed a blocker for a bug that never existed
+
+**The worst of the day, and it is entirely mine.** I filed a large row saying
+the Android app boots only because its native library is stale, wrote a
+narrative around it, corrected that narrative twice as new evidence came in,
+and dispatched a batch to bisect 33 commits. **The app was working the whole
+time.** Two agents drove it end to end on glass, independently, with different
+seeds: creation screen, scrolling card, CREATE WORLD, a rendered 2048x1311 map
+with coastline, rivers, lakes, biome colour and place labels.
+
+**Two metrics, both inverted, the second built on the first.**
+
+I polled the boot with a darkness percentage labelled
+`dark%=94.2 (94.2 = splash, ~85 = picker)`. The splash is **98.9%**. The picker
+is **94.2%** — and the file proving it, a capture I had already confirmed
+pixel-identical to a known-good picker, was sitting in the same scratchpad
+directory I was reading from. The `~85` was never measured; I made it up to
+fill the other half of the label. So every "still 94.2, still on the splash"
+was a painted, working application.
+
+Then I built `5 = stuck, 50+ = progressing` on top of it. That count is a
+**defect count**: the 56-line build is 5 real lines plus 51 lines of
+`has no WorldGen.<sym>()` across six symbols, each with a `push_warning` and a
+backtrace through `engine_bridge.gd::_has:365`. **5 is healthy.** The metric
+graded the good build as the broken one, and I used it to "prove" a clean pair.
+
+**The part that should have stopped it.** The same brief says, in my own words:
+*"the absence of those warnings in the stuck run is NOT evidence about how far
+it got — the quiet log is expected either way."* That is exactly right, and it
+makes the 5-vs-50 signal unusable. I wrote the caveat and then reasoned past it
+in the next paragraph. A caveat you do not act on is worse than one you never
+wrote, because it makes the conclusion look considered.
+
+**And I skipped my own instruction.** The brief mandated "every measurement is
+the log line count PLUS a screencap". I took the count on the failing build and
+never opened the capture — while opening, and correctly reading, the two
+captures that happened to show the real splash. **The one I looked at, I got
+right; the ones I only counted, I got wrong.**
+
+**What it cost and what it bought.** A ~214k-token batch spent proving a
+negative, and a "confound" (the release APK) invented to explain a second
+symptom of the same error. Against that: the export really was shipping a
+five-day-old library, that is now rebuilt and installed, the six missing
+symbols are gone, and the handset is left on the current engine with its
+original state restored. The lane also declined the toolchain check and the
+bisect **in the right order** — asking "does the failure exist?" before "what
+explains it?" — which is the behaviour the brief should have had.
+
+**The rule, and it generalises past this project:** a screening metric needs a
+known-good and a known-bad reading before it is used once, and both belong in
+its label. Anything else is a glance dressed as a measurement.
