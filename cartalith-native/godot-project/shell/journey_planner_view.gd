@@ -2967,13 +2967,19 @@ func _tool_options_journey() -> void:
 # ================================== Journeys list / save (JP-06, JP-08) ====
 
 func _save_journey() -> void:
-	var d := ConfirmationDialog.new()
-	d.title = "Save journey"
-	d.min_size = Vector2i(380, 0)
-	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", 6)
-	body.add_child(DccTheme.label("Name for this journey:", "text_dim", DccTheme.FS_SMALL))
-	var le := LineEdit.new()
+	## `DccWidgets.prompt()`, not `confirm()` -- this site has a FIELD, and the
+	## helper carries the label, the initial text, the hint line and the
+	## focus-grab that a hand-built version has to remember. It also fixes the
+	## Enter key: a focused `LineEdit` consumes Enter before the dialog's own
+	## default button sees it, which this site never handled.
+	##
+	## Host is `app`, not `self`. `phone_window()` asks the host whether it is
+	## a phone, and this view has no `is_phone()`; every other converted site
+	## parents to `app` for the same reason.
+	##
+	## The OK button gains the verb "Save" where it read "OK" before. On a
+	## phone `phone_window()` drops the title bar, so the primary button is the
+	## only thing naming the action.
 	var km := 0.0
 	if bool(_last_result.get("ok", false)):
 		km = float((_last_result.get("plan", {}) as Dictionary).get("km", 0.0))
@@ -2982,16 +2988,10 @@ func _save_journey() -> void:
 	## means after it is saved, when it is frozen user text that no later unit
 	## change re-converts (`journeys_document()` stores the typed name, not a
 	## distance).
-	le.text = "Journey %d — %s" % [_journeys.size() + 1, DccUnits.format_thousands(km)]
-	le.select_all_on_focus = true
-	body.add_child(le)
-	body.add_child(DccTheme.label(
-		"Stored in this project — written by File ▸ Save project, restored on open.",
-		"text_ghost", DccTheme.FS_MICRO))
-	d.add_child(body)
-	d.confirmed.connect(func():
-		var jname := le.text.strip_edges()
-		if jname != "":
+	DccWidgets.prompt(app, "Save journey", "Name for this journey:",
+		"Journey %d — %s" % [_journeys.size() + 1, DccUnits.format_thousands(km)],
+		"Save",
+		func(jname: String):
 			_journeys.append({
 				"name": jname,
 				"route": _route_index,
@@ -3003,12 +3003,8 @@ func _save_journey() -> void:
 			})
 			_active_journey = _journeys.size() - 1
 			_refresh_route_choice()
-			app.set_status("hint", "Saved journey \"%s\" — save the project to keep it." % jname, "accent")
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered()
-	le.grab_focus.call_deferred()
+			app.set_status("hint", "Saved journey \"%s\" — save the project to keep it." % jname, "accent"),
+		"Stored in this project — written by File ▸ Save project, restored on open.", 380)
 
 func _load_journey(i: int) -> void:
 	if i < 0 or i >= _journeys.size():
@@ -3114,31 +3110,19 @@ func _apply_preset(id: String) -> void:
 	app.set_status("hint", "Applied party set-up \"%s\" (%d fields)." % [String(entry.get("name", "")), applied], "accent")
 
 func _capture_preset() -> void:
-	var d := ConfirmationDialog.new()
-	d.title = "Capture party from planner"
-	d.min_size = Vector2i(360, 0)
-	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", 6)
-	body.add_child(DccTheme.label("Name for the new party set-up:", "text_dim", DccTheme.FS_SMALL))
-	var le := LineEdit.new()
-	le.text = "Captured party"
-	le.select_all_on_focus = true
-	body.add_child(le)
-	d.add_child(body)
-	d.confirmed.connect(func():
-		var preset_name := le.text.strip_edges()
-		if preset_name != "":
+	## `DccWidgets.prompt()` -- see `_save_journey` above. Same shape, and the
+	## empty-name guard goes with it: the helper only calls back on a non-empty
+	## stripped string, so `if preset_name != ""` was doing the helper's job.
+	DccWidgets.prompt(app, "Capture party from planner",
+		"Name for the new party set-up:", "Captured party", "Capture",
+		func(preset_name: String):
 			var result: Dictionary = bridge.tl_capture_preset_from_plan(preset_name, _plan_values.duplicate(true))
 			if bool(result.get("ok", false)):
 				app.set_status("hint", "Captured party set-up \"%s\"." % preset_name, "accent")
 				_tool_options_journey()
 			else:
-				app.set_status("hint", "Capture failed: %s" % String(result.get("error", "")), "warn")
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered()
-	le.grab_focus.call_deferred()
+				app.set_status("hint", "Capture failed: %s" % String(result.get("error", "")), "warn"),
+		"", 360)
 
 ## The one export path with real data behind it: the stage matrix as CSV, to
 ## the OS clipboard. No CSV file-writer exists to save it to disk -- unrelated

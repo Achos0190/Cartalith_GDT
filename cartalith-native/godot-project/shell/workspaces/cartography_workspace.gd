@@ -1425,6 +1425,18 @@ func _prompt_label_name(gx: float, gy: float) -> void:
 	## to be visible at the moment it happens rather than discovered afterwards.
 	var role_name := String(_label_class_spec(_label_class).get("label", _label_class))
 	dlg.title = "New %s label" % role_name.to_lower()
+	## The protocol applied by hand rather than `DccWidgets.prompt()`, and the
+	## reason is behavioural rather than stylistic. `prompt()` calls back only
+	## on a non-empty stripped string; this site passes `edit.text` straight to
+	## `label_create()` with **no empty guard**, so an unnamed label is
+	## creatable today. Whether that should stay possible is a question about
+	## labels, not about dialogs, and converting would have answered it
+	## silently. `prompt()` also takes an `initial` value where this wants a
+	## `placeholder_text`, which is a different affordance.
+	##
+	## `phone_window()` before the OK text, never after: it sets
+	## `ok_button_text` to "Close", which would eat "Create" on phones only.
+	var phone := DccWidgets.phone_window(dlg, app)
 	dlg.get_ok_button().text = "Create"
 	dlg.min_size = Vector2i(320, 0)
 
@@ -1435,7 +1447,18 @@ func _prompt_label_name(gx: float, gy: float) -> void:
 	edit.placeholder_text = "Region name"
 	edit.custom_minimum_size = Vector2(260, 0)
 	margin.add_child(edit)
-	dlg.add_child(margin)
+	## Borderless on a phone means no title bar, so the role this label is about
+	## to be created in -- the whole point of the header above -- would vanish
+	## exactly where it matters most.
+	if phone:
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 0)
+		dlg.add_child(col)
+		DccWidgets.phone_head(col, dlg.title, "")
+		col.add_child(margin)
+		margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	else:
+		dlg.add_child(margin)
 	app.add_child(dlg)
 
 	var create := func():
@@ -1460,8 +1483,15 @@ func _prompt_label_name(gx: float, gy: float) -> void:
 	edit.text_submitted.connect(func(_t: String): create.call())
 	dlg.confirmed.connect(create)
 	dlg.canceled.connect(func(): dlg.queue_free())
-	dlg.popup_centered()
-	edit.grab_focus()
+	if phone:
+		app.phone_fit(dlg, 1.0)
+	if not DccWidgets.phone_present(dlg, app):
+		dlg.popup_centered()
+	## Deferred, not immediate. `phone_present()` resizes and rescales the
+	## window after this line would have run, and a focus grab that lands
+	## before the final layout puts the caret in a control that is about to
+	## move -- the same reason `DccWidgets.prompt()` defers its own.
+	edit.grab_focus.call_deferred()
 
 
 ## Tool options row: `CARTO · LABEL` -- per §4.5.5's table this carries
