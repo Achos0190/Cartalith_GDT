@@ -118,6 +118,31 @@ holding tiles.
 
 ## 3. The container
 
+### 3.0 The file extension — a convention, deliberately not a requirement
+
+**Added 2026-09-07.** This section constrains the container, the entry names,
+the compression methods and zip64. **It has never constrained the archive’s own
+filename, and it still does not** — the only extensions specified anywhere in
+this document are ENTRY extensions (`.f32`, `.u8`, `.i32`, `.bin`, §8).
+
+**The convention this port writes is `.ctl`** (owner decision, 2026-09-07),
+and the reason is a real defect rather than branding: a picker filtering on
+`.zip` offers every archive on the device, so a user was shown a 2024
+`Werk.zip` and then told *"missing zip entry: params.json"* after choosing it.
+A distinct extension declines it before the reader has to.
+
+**A conforming reader MUST NOT require it.** The extension carries no meaning
+the container does not already carry, every archive written before that date
+is `.zip`, and the interoperability writer of §1.1 knows nothing about it.
+**Read by content, filter by extension only where a human is choosing a file.**
+This port keeps `["ctl", "zip"]` in `OpenProjectDialog.PROJECT_EXTENSIONS` for
+exactly that reason.
+
+**No `format_version` bump.** Nothing about the bytes changed, so an archive
+written today is byte-identical to one written yesterday under the other name,
+and renaming a file moves it between the two conventions with no conversion.
+
+
 A Cartalith project archive is a **standard PKZIP file**. Nothing about it is
 custom.
 

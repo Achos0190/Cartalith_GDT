@@ -2789,7 +2789,9 @@ func _autosave_tick() -> void:
 	## is minutes away and the world is still dirty, so nothing is lost.
 	if bridge.generating:
 		return
-	var target := current_project_path.get_basename() + ".autosave.zip"
+	## `.ctl`, like every project this build writes. The autosave is a project
+	## archive and must be openable by the same picker.
+	var target := current_project_path.get_basename() + ".autosave.ctl"
 	## Deliberately does **not** clear the dirty flag: the project itself is
 	## still unsaved, and an autosave that made File ▸ Save look unnecessary
 	## would be worse than no autosave.
@@ -2988,11 +2990,16 @@ func save_project_as(then: Callable = Callable()) -> void:
 		## The reference names its own exports `world_<seed>_<size>.zip`
 		## (reference HTML's `exportZip`); the seed half is the part that
 		## identifies the world, and the bake size means nothing here.
-		suggested = "world_%d.zip" % bridge.world_gen.get_seed()
+		suggested = "world_%d.ctl" % bridge.world_gen.get_seed()
 	var start := current_project_path.get_base_dir()
 	if start == "":
 		start = DccSettings.storage_root("projects")
-	DccBrowseDialog.choose_save_path(self, "Save project as", "zip", start,
+	## **Writes `.ctl`; the picker still OPENS `.zip`** (`PROJECT_EXTENSIONS`).
+	## Owner decision 2026-09-07. The container is unchanged -- this is a
+	## filename, and `SAVEFILE_COMPAT.md` §3 does not constrain one. Asset
+	## packs, the atlas cache and tile exports keep `.zip`: they are different
+	## artefacts, and renaming them would break formats unrelated to saves.
+	DccBrowseDialog.choose_save_path(self, "Save project as", "ctl", start,
 		"", suggested, func(path: String):
 			if FileAccess.file_exists(path):
 				_confirm(

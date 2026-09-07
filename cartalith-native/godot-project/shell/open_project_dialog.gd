@@ -171,6 +171,23 @@ var _open_btn: Button
 var _scope := "recent"
 var _scope_buttons: Dictionary = {}   ## scope id -> Button
 var _selected := ""
+## The extensions a Cartalith project may carry, newest first.
+##
+## **`.ctl` is the extension; PKZIP is still the container.** Owner decision,
+## 2026-09-07 -- a distinct extension stops this picker offering archives the
+## reader will refuse, which is what happened to a 2024 `Werk.zip`.
+## `SAVEFILE_COMPAT.md` §3 constrains the container, the entry names, the
+## compression methods and zip64, and **says nothing about the archive's own
+## filename** -- so this is conformant today and needs no `format_version`
+## bump.
+##
+## **`zip` is not legacy support to be dropped later.** Every world saved
+## before today carries it, and the HTML app reads `.zip`; removing it would
+## empty this picker on upgrade.
+## A plain `Array`, because `PackedStringArray(...)` is not a constant
+## expression in GDScript -- the call sites that need the packed form wrap it.
+const PROJECT_EXTENSIONS := ["ctl", "zip"]
+
 var _tiles: Dictionary = {}           ## path -> PanelContainer
 
 var _subtitle_label: Label
@@ -801,7 +818,16 @@ func _paths() -> Array:
 	elif _scope == "all":
 		var root := DccSettings.storage_root("projects")
 		for f in DirAccess.get_files_at(root):
-			if String(f).get_extension().to_lower() == "zip":
+			## **Both, and this comparison is what makes a save visible at all.**
+			## The project extension became `.ctl` on 2026-09-07 (owner: a distinct
+			## extension stops the picker offering archives the reader will refuse
+			## -- `Werk.zip`, a 2024 archive, was offered and then rejected with
+			## "missing zip entry: params.json"). The CONTAINER is unchanged: still
+			## a standard PKZIP, and `SAVEFILE_COMPAT.md` §3 never mandated a file
+			## extension -- the only extensions it constrains are ENTRY names.
+			## **`zip` stays in the list or every existing world disappears from
+			## this picker on upgrade.**
+			if String(f).get_extension().to_lower() in PROJECT_EXTENSIONS:
 				out.append(root.path_join(String(f)))
 		out.sort_custom(func(a: String, b: String):
 			return FileAccess.get_modified_time(a) > FileAccess.get_modified_time(b))
@@ -1125,9 +1151,10 @@ func _confirm() -> void:
 ## the tile's own "click to browse a folder" wording -- what it returns has to
 ## be a `.zip` save, and `DccBrowseDialog` browses folders on the way to one.
 func _browse_from_disk() -> void:
-	DccBrowseDialog.choose_file(self, "Open project — browse", PackedStringArray(["zip"]),
+	DccBrowseDialog.choose_file(self, "Open project — browse",
+		PackedStringArray(PROJECT_EXTENSIONS),
 		DccSettings.storage_root("projects"),
-		"Cartalith projects are .zip saves", func(path: String):
+		"Cartalith projects are .ctl saves (.zip still opens)", func(path: String):
 			hide()
 			_host.open_recent_project(path))
 
@@ -1135,7 +1162,7 @@ func _on_files_dropped(files: PackedStringArray) -> void:
 	if not visible:
 		return
 	for f in files:
-		if String(f).get_extension().to_lower() == "zip":
+		if String(f).get_extension().to_lower() in PROJECT_EXTENSIONS:
 			hide()
 			_host.open_recent_project(String(f))
 			return

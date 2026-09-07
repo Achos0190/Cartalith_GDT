@@ -326,9 +326,12 @@ func _on_new_world() -> void:
 ## full-screen window on top of this one; cancelling it should return to this
 ## picker, not to the empty map behind it.
 func _on_open_zip() -> void:
-	DccBrowseDialog.choose_file(_host, "Open project — browse", PackedStringArray(["zip"]),
+	## `OpenProjectDialog.PROJECT_EXTENSIONS` -- one list, so the phone and the
+	## desktop cannot drift on which extensions open.
+	DccBrowseDialog.choose_file(_host, "Open project — browse",
+		PackedStringArray(OpenProjectDialog.PROJECT_EXTENSIONS),
 		DccSettings.storage_root("projects"),
-		"Cartalith projects are .zip saves", func(path: String):
+		"Cartalith projects are .ctl saves (.zip still opens)", func(path: String):
 			hide()
 			_host.open_recent_project(path))
 
