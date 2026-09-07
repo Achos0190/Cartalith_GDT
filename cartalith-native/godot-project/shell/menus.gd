@@ -2231,6 +2231,15 @@ func _open_pack_metadata() -> void:
 	if _host.is_phone():
 		DccWidgets.phone_window(d, _host)
 	_host.add_child(d)
+	## Call two of the phone protocol, missing from all four dialogs in this
+	## file. They had one (`phone_window`) and three (`phone_present`), which
+	## is why they read as converted; without the fit nothing walks the built
+	## tree to raise controls under the 44 dp floor.
+	##
+	## After `add_child`, never before: `phone_fit()` measures a tree that is
+	## in the scene, and the same three lines appear at the other three sites.
+	if _host.is_phone():
+		_host.phone_fit(d, 1.0)
 	if not DccWidgets.phone_present(d, _host):
 		d.popup_centered()
 	fields[0].grab_focus.call_deferred()
@@ -4240,6 +4249,9 @@ func _clear_caches() -> void:
 	if _host.is_phone():
 		DccWidgets.phone_window(d, _host)
 	_host.add_child(d)
+	## Call two -- see `_open_pack_metadata` above for why.
+	if _host.is_phone():
+		_host.phone_fit(d, 1.0)
 	if not DccWidgets.phone_present(d, _host):
 		d.popup_centered()
 
@@ -4898,6 +4910,9 @@ func _prompt_save_layout() -> void:
 	if _host.is_phone():
 		DccWidgets.phone_window(d, _host)
 	_host.add_child(d)
+	## Call two -- see `_open_pack_metadata` above for why.
+	if _host.is_phone():
+		_host.phone_fit(d, 1.0)
 	if not DccWidgets.phone_present(d, _host):
 		d.popup_centered()
 	le.grab_focus.call_deferred()
@@ -4944,6 +4959,9 @@ func _prompt_forget_layout() -> void:
 	if _host.is_phone():
 		DccWidgets.phone_window(d, _host)
 	_host.add_child(d)
+	## Call two -- see `_open_pack_metadata` above for why.
+	if _host.is_phone():
+		_host.phone_fit(d, 1.0)
 	if not DccWidgets.phone_present(d, _host):
 		d.popup_centered()
 

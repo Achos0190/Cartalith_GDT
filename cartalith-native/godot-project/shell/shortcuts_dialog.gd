@@ -152,12 +152,31 @@ func setup(app: Node) -> void:
 
 ## `Help ▸ Keyboard shortcuts…` -- read-only, exactly as before this file
 ## grew an editable mode.
+## Calls two and three of the phone protocol, in one place because there are two
+## entry points and they had the same defect.
+##
+## `setup()` already made call one -- `phone_window(self, app)` at build, plus
+## the `phone_head()` that a borderless window needs -- so this file looked
+## converted and was not. **The fit and the presentation were simply absent**,
+## and both `open()` and `open_editable()` ended in a bare `popup_centered()`,
+## which on a phone opens a 560x520 desktop dialog at scale 1.0 inside a
+## 1080-wide screen.
+##
+## It must run AFTER `_rebuild()`: `phone_fit()` walks the built tree to raise
+## anything under the 44 dp floor, and this list is rebuilt on every open
+## because it reads the live menus.
+func _present_phone_aware() -> void:
+	if _phone and _app != null and _app.has_method("phone_fit"):
+		_app.phone_fit(self, 1.0)
+	if not DccWidgets.phone_present(self, _app):
+		popup_centered()
+
 func open() -> void:
 	_editable = false
 	_edit_bar.visible = false
 	_status.visible = false
 	_rebuild()
-	popup_centered()
+	_present_phone_aware()
 
 ## `Preferences ▸ Keyboard shortcuts…` -- the same list, rebindable. See this
 ## file's own header on why it is a mode of this dialog and not a second one.
@@ -167,7 +186,7 @@ func open_editable() -> void:
 	_status.visible = true
 	_status.text = ""
 	_rebuild()
-	popup_centered()
+	_present_phone_aware()
 
 func _rebuild() -> void:
 	for c in _list.get_children():
