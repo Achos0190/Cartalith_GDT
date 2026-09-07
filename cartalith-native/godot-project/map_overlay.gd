@@ -922,6 +922,21 @@ func _civ_zoom_k() -> float:
 ## softening is not what was reported, and `_draw()`'s settlement loop would
 ## have to enter and leave the transform per primitive. Deliberately scoped to
 ## the text and the linear layers, which is where the defect is visible.
+##
+## **`_draw_labels()` does the same thing without calling this**, since
+## 2026-09-08 and the owner's second report of the same defect. It cannot use
+## these two helpers: all three of its draw calls set their own transform
+## (rotation, and a synthetic oblique) and `draw_set_transform*` *replaces*
+## rather than composes, so a surrounding `_crisp_begin()` would be discarded
+## by the first of them. It folds the identical `1/k` into each transform
+## instead -- see `_label_raster_px()`, which also carries the measurement.
+##
+## Still magnified, and listed rather than left to be rediscovered: the hover
+## card (`_draw_hover_card`, its own `draw_string` at 13 px in local space),
+## the manual-icon and landmark marks (`ICON_BASE_RADIUS`'s own doc comment
+## says why that one is an engine-side decision, not a rasterisation one),
+## `ToolOverlay`'s A/B endpoint letters (`tool_overlay.gd`, a child of the same
+## `_camera`), and `ViewportHost._draw_lod_debug()`'s per-chunk captions.
 func _crisp_begin() -> float:
 	var k := maxf(_camera_zoom, 0.001)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0 / k, 1.0 / k))
@@ -2450,6 +2465,41 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 		if not interior.has_point(pos):
 			continue
 		var font_px := _label_font_px(lb, rect)
+		## Rasterise at the size this label actually occupies ON SCREEN, then
+		## divide the whole glyph run back down, so the camera's own multiply
+		## lands on 1:1 pixels -- `_crisp_begin()`'s trick, folded into each of
+		## this function's three `draw_set_transform*` calls because they
+		## *replace* the transform rather than compose with it, so wrapping
+		## them in `_crisp_begin()` would not have survived the first one.
+		##
+		## `raster_px` is that on-screen size; `sk` scales a raster unit back
+		## down to one of this control's local pixels and `kk` is its inverse.
+		##
+		## **Every layout number below is still measured at `font_px`, in local
+		## pixels, exactly as before, and multiplied by `kk` on its way into a
+		## draw call.** That is the whole discipline of this change: the drawn
+		## geometry is bit-identical to the pre-fix file and only the
+		## rasterisation moved, so `_label_font_px`'s size model,
+		## `LABEL_FONT_PX_MIN/MAX` and the known engine-side `label_box_at`
+		## disagreement all stay exactly where they were.
+		##
+		## Re-measuring the layout at `raster_px` instead is the obvious
+		## shortcut and it was tried first. It is wrong, and visibly: a font's
+		## per-glyph advance is rounded at the size it is measured, and
+		## `_glyph_advances`/the arc loop sum one rounding per character. At
+		## 13 px over ten glyphs that sum is inflated enough that measuring the
+		## same run at 39 px instead came out **9-11% narrower** -- measured by
+		## `_labelblur_probe.gd`'s tracked and arched cases at x2.73 and x2.68
+		## against a x3.00 camera, where the straight single-`get_string_size`
+		## run moved only -1.4%. A label that changes width as you zoom is a
+		## different defect from the one being fixed.
+		##
+		## At zoom <= 1 this is all identity: `raster_px == font_px`, `sk` and
+		## `kk` are `1.0`, and every expression below reduces to what it was.
+		## See `_label_raster_px()` for the cap and what it costs.
+		var raster_px := _label_raster_px(font_px)
+		var sk := float(font_px) / float(raster_px)
+		var kk := float(raster_px) / float(font_px)
 		var fill: Color = Color(String(lb["color"]))
 		## The class type spec, resolved against THIS file's font size rather
 		## than the engine's -- see `LABEL_HALO_EM_FALLBACK` and the long note
@@ -2460,12 +2510,19 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 		## `LabelTypography::halo_px`'s own rule, restated: floored at one
 		## pixel so an outline survives rasterisation, but zero stays zero --
 		## the design's halo slider starts at 0 and that end means "no halo".
-		var outline_w: int = 0 if halo_em <= 0.0 else int(maxf(1.0, font_px * halo_em))
+		## Floored and rounded in LOCAL pixels first, exactly as before, then
+		## carried into raster units by `kk` -- so the halo lands on the same
+		## screen pixels it used to and keeps its ratio to the glyph.
+		var outline_w: int = 0 if halo_em <= 0.0 else int(round(maxf(1.0, font_px * halo_em) * kk))
 		var track_px: float = font_px * float(lb.get("tracking_em", 0.0))
 		var italic: bool = bool(lb.get("italic", false))
 		var v_center: float = (font.get_ascent(font_px) - font.get_descent(font_px)) / 2.0
 		var th: float = deg_to_rad(float(lb["angle"]))
 		var a: float = clampf(float(lb["arc"]), -1.0, 1.0)
+		## `_label_xform`'s own scale, applied to every one of the three
+		## transforms below. Built once per label rather than per glyph: an
+		## arched label enters this on every character.
+		var shrink := Transform2D(Vector2(sk, 0.0), Vector2(0.0, sk), Vector2.ZERO)
 
 		if absf(a) < ARC_STRAIGHT_THRESHOLD:
 			## Untracked upright text keeps the single `draw_string` it always
@@ -2475,22 +2532,27 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 			## letter-spacing is defined as extra advance between glyphs.
 			if track_px == 0.0 and not italic:
 				var full_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
-				var local_pos := Vector2(-full_w / 2.0, v_center)
-				draw_set_transform(pos, th, Vector2.ONE)
-				draw_string_outline(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, outline_w, LABEL_STROKE_COLOR)
-				draw_string(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, fill)
+				var local_pos := Vector2(-full_w / 2.0, v_center) * kk
+				draw_set_transform(pos, th, Vector2(sk, sk))
+				draw_string_outline(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, LABEL_STROKE_COLOR)
+				draw_string(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, fill)
 				continue
 			var widths := _glyph_advances(font, text, font_px, track_px)
 			var run_w: float = widths[text.length()]   ## the accumulated total
-			draw_set_transform_matrix(_label_xform(pos, th, italic))
+			draw_set_transform_matrix(_label_xform(pos, th, italic) * shrink)
 			for i in text.length():
-				var gp := Vector2(widths[i] - run_w / 2.0, v_center)
+				var gp := Vector2(widths[i] - run_w / 2.0, v_center) * kk
 				var ch := text[i]
 				if outline_w > 0:
-					draw_string_outline(font, gp, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, outline_w, LABEL_STROKE_COLOR)
-				draw_string(font, gp, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, fill)
+					draw_string_outline(font, gp, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, LABEL_STROKE_COLOR)
+				draw_string(font, gp, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, fill)
 			continue
 
+		## The arc layout is untouched -- every term below is the local-pixel
+		## one `drawArcLabel` computes, so the curve, the radius floor and the
+		## spread are the same numbers at every zoom. Only `local_pos2`, the
+		## offset that lives *inside* the per-glyph transform, converts to
+		## raster units; `world_pt` positions that transform and stays local.
 		var total_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x + track_px * maxf(0.0, text.length() - 1.0)
 		var radius: float = maxf(font_px * ARC_RADIUS_FLOOR_K,
 			total_w / (ARC_SPREAD_DIVISOR * absf(a)))
@@ -2502,11 +2564,11 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 			var theta := mid / radius
 			var glyph_local := Vector2(radius * sin(theta), dir_sign * radius * (1.0 - cos(theta)))
 			var world_pt := pos + glyph_local.rotated(th)
-			var local_pos2 := Vector2(-w / 2.0, v_center)
-			draw_set_transform_matrix(_label_xform(world_pt, th + dir_sign * theta, italic))
+			var local_pos2 := Vector2(-w / 2.0, v_center) * kk
+			draw_set_transform_matrix(_label_xform(world_pt, th + dir_sign * theta, italic) * shrink)
 			if outline_w > 0:
-				draw_string_outline(font, local_pos2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, outline_w, LABEL_STROKE_COLOR)
-			draw_string(font, local_pos2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, fill)
+				draw_string_outline(font, local_pos2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, LABEL_STROKE_COLOR)
+			draw_string(font, local_pos2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, fill)
 			acc += w + track_px
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -2554,6 +2616,41 @@ func _label_font_px(lb: Dictionary, rect: Rect2) -> int:
 	else:
 		px = size * (rect.size.x / float(_gw)) / LABEL_ZOOM_BASE_PX_PER_CELL
 	return int(clampf(px, LABEL_FONT_PX_MIN, LABEL_FONT_PX_MAX))
+
+
+## The size a label's glyphs are RASTERISED at, which is not the size they are
+## DRAWN at. See `_crisp_begin()` for the mechanism and `_draw_labels()` for
+## how the two are reconciled.
+##
+## `_label_font_px()` above answers in this control's own local pixels, and the
+## camera multiplies those by `_camera_zoom` on the way to the screen -- so a
+## 13 px label at zoom 3 is a 13 px bitmap stretched over 39 screen pixels.
+## Measured on the unfixed file by `_labelblur_probe.gd`: the glyph run went
+## 70x12 -> 212x38 px (exactly 3x) and kept **0.37** of its edge contrast,
+## against **1.11** for the settlement-pin path that already rasterised at
+## screen size. That is the owner's 2026-09-07 *"Settlement names are blurry
+## ... don't get influenced by a zoom"*, and settlement names reach this
+## function once the generated labelling pass has run (`labels.rs::
+## generate_labels` emits one `Settlement`-class label per settlement, and
+## `labels_render_list()` concatenates them ahead of the hand-placed ones).
+##
+## Floored at `font_px`: below zoom 1 the label is *smaller* on screen than in
+## local space, and rasterising it smaller still would trade a real loss for no
+## gain -- and it would double the number of cached sizes for nothing.
+##
+## Capped, and the cap is a real trade rather than a guard. Every distinct
+## value here is a separate rasterisation in the font's glyph cache, and
+## `_zoom_max` reaches **240** on a 1200 km world (`ViewportHost.refresh()`),
+## so an uncapped `font_px * zoom` would ask a `LABEL_FONT_PX_MAX` label for a
+## 23 040 px face. Past this cap the pre-fix magnification resumes -- reached
+## at zoom 2.7 for the largest label and zoom 32 for the smallest -- but only
+## where the label is already several screens tall and the reader is looking at
+## one letter of it.
+const LABEL_RASTER_PX_MAX := 256
+
+func _label_raster_px(font_px: int) -> int:
+	return clampi(int(round(float(font_px) * maxf(_camera_zoom, 0.001))),
+		font_px, maxi(font_px, LABEL_RASTER_PX_MAX))
 
 
 ## The slice of this control's own local space that is actually on screen this

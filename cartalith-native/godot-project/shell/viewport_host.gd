@@ -2679,6 +2679,7 @@ func _apply_lod_tiles(wanted: Dictionary, build_keys: Dictionary, n: int, g: Vec
 			_build_lod_tile(key, idx, n, g, displayed_origin, displayed_size)
 		## else: outside this call's synthesis budget, already queued in
 		## `_lod_backlog` by `_update_lod()`, built by `_process()` shortly.
+	_lod_debug_dirty()
 
 ## The screen rect one chunk occupies, in `_camera`-local space.
 ##
@@ -2807,6 +2808,7 @@ func _process(_delta: float) -> void:
 			_build_lod_tile(key, idx, _lod_backlog_n, _lod_backlog_grid,
 				_lod_backlog_origin, _lod_backlog_size)
 		n += 1
+	_lod_debug_dirty()
 	if _lod_backlog.is_empty():
 		set_process(false)
 
@@ -2818,6 +2820,39 @@ func _clear_lod_tiles() -> void:
 	_lod_tiles.clear()
 	_lod_backlog.clear()
 	set_process(false)
+	_lod_debug_dirty()
+
+## `_draw_lod_debug()` reads `_lod_tiles` -- which chunks are live, and where
+## each one's `Sprite2D` sits -- and a `CanvasItem` re-runs `_draw()` only when
+## something asks it to. Until 2026-09-08 the only thing that ever did was
+## `set_lod_debug()`, i.e. the toggle itself, so the overlay drew the tile set
+## as it stood the moment it was switched on and never again.
+##
+## Owner report, 2026-09-07: *"the debug layer for the LOD/Atlas tiles doesn't
+## seem to render properly on pc."* Measured before this call existed
+## (`_mapsharp_probe.gd`, windowed, seed 483920): toggling the three layers on
+## over 36 live tiles drew **212 968 px**, so the overlay was never mute -- but
+## a 140x90 px pan followed by a bare `queue_redraw()` with nothing else
+## touched moved **3 282 px**, twice, deterministically. Those are boxes drawn
+## round chunks that had been freed and chunks arriving unannotated: a picture
+## of where the tiles used to be.
+##
+## Zooming happened to look right and that is why this survived: crossing the
+## deep-zoom threshold runs `_set_lod_active()`'s `modulate:a` tween, which
+## redraws the subtree as a side effect. A pan at a steady zoom runs no tween,
+## and `_apply_lod_tiles()` reconciles the tile set underneath a picture that
+## nothing re-issues.
+##
+## Called from the three places that mutate `_lod_tiles`: `_apply_lod_tiles()`
+## (frees, repositions and the builds it drives), `_process()`'s backlog drain
+## (which reaches `_build_lod_tile` without passing through the first), and
+## `_clear_lod_tiles()`. Batch granularity rather than per tile -- 48 of them
+## can land in one call and `queue_redraw()` collapses to one draw per frame
+## regardless. Costs nothing while the overlay is off: `queue_redraw()` on a
+## hidden `Control` queues no draw.
+func _lod_debug_dirty() -> void:
+	if _lod_debug_layer != null and _lod_debug_layer.visible:
+		_lod_debug_layer.queue_redraw()
 
 ## Fades `_lod_layer` in or out and frees its tiles on the way out. A no-op
 ## when `active` already matches `_lod_active` -- called from several
@@ -2971,9 +3006,14 @@ func set_lod_debug(which: String, on: bool) -> void:
 		_: return
 	## The reference re-renders only when the LOD view is up (`if(_lodOn)
 	## renderNow()`); here the layer is a child of `_lod_layer`, so an
-	## inactive LOD view draws nothing regardless -- but keeping the node
-	## hidden when every toggle is off means `_draw_lod_debug` is not even
-	## queued on a camera move.
+	## inactive LOD view draws nothing regardless -- and hiding the node when
+	## every toggle is off is what makes `_lod_debug_dirty()` free, since a
+	## `queue_redraw()` on a hidden `Control` queues no draw.
+	##
+	## **This is no longer the only `queue_redraw()` on this layer**, and it
+	## being the only one was the 2026-09-07 report -- see `_lod_debug_dirty()`
+	## for the measurement. It stays because a toggle is a change to what the
+	## overlay draws, which is not a change to the tile set.
 	_lod_debug_layer.visible = _lod_dbg_grid or _lod_dbg_colors or _lod_dbg_labels
 	_lod_debug_layer.queue_redraw()
 
