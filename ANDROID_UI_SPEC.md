@@ -1038,8 +1038,19 @@ Boot state: tab `gen`, detent `peek`, tool `inspect`, domain `world`. 31
 pressables in the tree, **13 finger-reachable and enabled**.
 
 Tapping MAP (through the real GUI tree, on the tab cell's own rect): tab `map`,
-detent `half`, domain `cartography`, tool still `inspect`, sheet **609.0 px =
-232.32 dp**, tool scroller shown, GENERATE column hidden. And then:
+detent `half`, domain `cartography`, tool still `inspect`, sheet **975.0 px =
+371.94 dp**, tool scroller shown, GENERATE column hidden. And then:
+
+> **Corrected 2026-09-07. This read `609.0 px = 232.32 dp` and that number was
+> never measured on a settled sheet.** `_mapinv_probe` sampled the height
+> *during* `dcc_shell.gd`'s 0.28 s detent tween (`PHONE_DETENT_ANIM`, on
+> `custom_minimum_size:y`) and never waited for it. Six runs at the probe's own
+> command line gave **592, 589, 575, 574, 506, 510 px** — an 86 px / 33 dp
+> spread, and never 609. The dp arithmetic was self-consistent
+> (609 / 2.6214 = 232.3), which is exactly what made a mid-tween sample
+> convincing. The probe now waits `PHONE_DETENT_SETTLE` and reports **975.0 px
+> on three consecutive runs**. Every other figure it produces reproduced
+> exactly, so this was one unstable input rather than an unsound instrument.
 
 > **The MAP sheet contains two `Label`s and three `Control`s. That is the whole
 > of it.** `CARTOGRAPHY · STYLE`, and a paragraph beginning *"presentation only
@@ -1137,7 +1148,7 @@ finds one comment and no item.
 
 **And raising the sheet buries the navigation.** Before the MAP tap, `Zoom out`,
 `Zoom in`, `Pan mode` and `Reset view` all hit-test true. After it — with the
-sheet at `half`, 609 px — all four are **not hit-testable**: the sheet covers
+sheet at `half`, 975 px — all four are **not hit-testable**: the sheet covers
 `ViewportHost._navpad`. The canvas has the same collision and resolves it by
 anchoring the FAB column at `fabBottom` above `dockBottom`, both of which move
 with the sheet. Nothing here moves.

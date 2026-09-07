@@ -1,4 +1,9 @@
 extends Node
+
+## `dcc_shell.gd::PHONE_DETENT_ANIM` is 0.28 s; this is that plus a margin.
+## Pinned to the shell's own literal rather than to the constant, so a change
+## there fails this probe instead of silently racing it again.
+const PHONE_DETENT_SETTLE := 0.40
 ## Lane MAP, 2026-09-07. **A measurement, not a feature.** Inventories what the
 ## phone MAP tab actually puts on glass, against `tabIsMap` in
 ## `design/Cartalith-Android-2026-09-07.dc.html` -- for `ANDROID_UI_SPEC.md` 2.
@@ -177,6 +182,33 @@ func _ready() -> void:
 		get_tree().quit(2)
 		return
 	await _tap(pill.get_global_rect().get_center())
+	## **Wait for the detent tween, then ASSERT the tap landed.** Two defects
+	## lived in the four lines below, and both published as measured fact.
+	##
+	## 1. The sheet height was read DURING `dcc_shell.gd`'s 0.28 s detent tween
+	##    (`PHONE_DETENT_ANIM`, on `custom_minimum_size:y`). Six runs at this
+	##    probe's own command line gave 592, 589, 575, 574, 506 and 510 px --
+	##    an 86 px / 33 dp spread, and never the 609 px that `ANDROID_UI_SPEC.md`
+	##    quotes in two places. The dp arithmetic was self-consistent
+	##    (609 / 2.6214 = 232.3), which is what made a mid-tween sample
+	##    convincing.
+	##
+	## 2. Under a real display driver the tap does not land at all: the lit tab
+	##    stays `gen` and section 3 then reports GENERATE's text nodes as if
+	##    they were the MAP sheet's. **The probe asserted nothing about its own
+	##    precondition**, so it reported a confident wrong screen.
+	##
+	## The wait is 0.28 s plus a margin, then frames -- a tween finishing is a
+	## time fact, not a frame-count fact, and `_frames()` alone raced it.
+	await get_tree().create_timer(PHONE_DETENT_SETTLE).timeout
+	await _frames(3)
+	if str(app._phone_tab) != "map":
+		_log("  ABORT the MAP tap did not land -- lit tab is %s, so every figure"
+			% str(app._phone_tab))
+		_log("  below would describe the wrong sheet. Section 3's text nodes are")
+		_log("  the giveaway: GENERATE's, not MAP's.")
+		get_tree().quit(2)
+		return
 	_log("  lit tab              = %s" % str(app._phone_tab))
 	_log("  detent               = %s" % str(app.phone_detent()))
 	_log("  domain               = %s" % str(app.active_domain()))
