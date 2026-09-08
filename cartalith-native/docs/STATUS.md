@@ -221,12 +221,54 @@ Dated, because this is what a returning session needs and it is exactly what
 went missing from the old file. Commits are from `git log`; each claim below was
 re-checked against the tree rather than copied from the commit message.
 
-### 2026-09-03 – 2026-09-06
+### 2026-09-08
 
-**Not written up here, and that is a gap rather than a quiet period** — read
-`git log` for these four days. They are named so a returning session does not
-read the jump from 09-02 to 09-07 as nothing having happened.
+**Cheapest-first, at the owner’s direction** — *"locate low hanging fruit…
+take the cheap ones from cheapest first"* — with lanes allowed to run on a
+smaller model. Backlog **126 → 122**.
 
+**The day’s finding is about proof, not code.** A lane converted the right
+dock’s readouts to the user’s unit preference correctly — Sample *"Position"*,
+route Length (three call sites), river Catchment, Ecoregion and Territory area,
+every field of Measure — and the exceptions hold byte-identical across the flip
+as negative controls: elevation and metre readings, bearing degrees, Centroid
+(**grid cells**, not a distance), Discharge (a rate), Productivity (which HAS an
+area unit and still must not convert), Ruggedness.
+
+**Its probe could not police it.** The three Position checks tested for a `mi`
+suffix, a `km` suffix, and inequality — **all three satisfied by relabelling**.
+A mutant that kept the kilometre value and appended `mi` (*"15.6 · 9.8 mi"*)
+**passed every one**, which is precisely the defect the row existed for. A3b/A3c
+now rebuild the expected number from `DccUnits.to_unit()` at probe time rather
+than from a typed constant; the same mutant fails A3b while A1–A3 still pass.
+**The conversion was right and only the proof was weak** — the thing worth
+knowing before scaling lane models down, and the argument for keeping the
+verifier on the stronger model.
+
+**Falloff was a stale message, not a missing control.** `Falloff` is a
+four-variant enum whose `coverage()` is consumed at three sites inside
+`SculptStamp::apply_into`, registered as the 9th `GLOBAL_RANGES` row and already
+drawn as a live dropdown — while the note one line below it still listed
+*"custom Falloff"* among unbuilt items. **Fourth stale dashed reason this tree
+has shipped.**
+
+**Three rows closed for the cost of a grep each**, all of them already finished
+and still counting because they had never left a numbered section: the
+unmappable-key guard (live at `shortcuts_dialog.gd:417`), the commit-message
+debt (its rule shipped as `MISTAKES.md:132`, and was applied to the commit that
+archived it), and the Android `logcat` correction. **Struck is not closed** —
+the counter reads sections, not strikethrough.
+
+**A search matched its own retraction, for the third time here.**
+`ANDROID_BUILD_SCOPE.md:1272` still contains the string *"never appeared in
+`logcat`"* — inside the blockquote that corrects it. **A grep for a stale string
+is not a test for a stale claim.**
+
+**And one cosmetic that was older than the change that exposed it.** The units
+sweep put *"Discharge 4,200"* beside *"Catchment 3 500 km²"*; the canvas writes
+`4 210`, `120 000`, `38 000` with spaces and every comma in it is inside
+`rgba(...)`, so `right_dock.gd::_thousands()` had been the non-conformant one all
+along. **Exposing an inconsistency is not causing one.**
 ### 2026-09-07
 
 **A full day on the GUI, driven by the owner's standing priority and by defects
@@ -285,6 +327,12 @@ destination and on the handset, booting with 0 script errors.
 verifier died on a session limit; that debt was discharged by the next batch's
 verifier and is recorded. The cargo floor held all day at **157 result lines /
 3 253 passed / 0 failed / 28 ignored**.
+
+### 2026-09-03 – 2026-09-06
+
+**Not written up here, and that is a gap rather than a quiet period** — read
+`git log` for these four days. They are named so a returning session does not
+read the jump from 09-02 to 09-07 as nothing having happened.
 
 ### 2026-09-02
 
@@ -689,7 +737,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-07 (evening): 132 items.** Run
+**Recounted 2026-09-08: 122 items.** Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for
