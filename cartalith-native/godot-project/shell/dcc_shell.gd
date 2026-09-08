@@ -8657,6 +8657,60 @@ func _apply_phone_orientation() -> void:
 
 	_apply_phone_nav_orientation(side_reserve, rail_w, sheet_w)
 
+	## **The menu takes the same rect as a dock sheet**: over the app bar (its
+	## own header replaces it, per the canvas's L2/L3 artboards), never over
+	## the status safe area, the landscape side safe area, the gesture inset --
+	## or the bottom bar. Computed once, here, and shared by both, because a
+	## sheet that disagrees with the menu about where the bar's reserve ends is
+	## exactly how one of them draws under it.
+	##
+	## **Never over the bottom bar**, as of the 412 migration. That bar is L1
+	## of the disclosure tree, and the canvas's `07 More` screen -- which is
+	## what the menu's root is -- carries no close button of its own precisely
+	## because it is a *tab destination*: you leave it by tapping another tab, or
+	## the lit one. Covering the bar with the screen it opens would make MORE the
+	## one tab in the bar that cannot be undone by pressing it, and (with the
+	## canvas's two-`✕`-becomes-none change) would leave system back as the only
+	## way out at all. **A dock sheet reaches the bar through the identical MORE
+	## ▸ Window route and closes the identical way** (its own header's close
+	## button, never the bar), so the same argument holds for it -- and until
+	## this line, did not: `left_dock`/`right_dock` stopped only at
+	## `_safe_bottom()`, the SYSTEM gesture inset, and never reserved the APP's
+	## own bar on top of it -- two different numbers from two different
+	## sources, and only one of them was here. The sheet's bottom
+	## `H_PHONE_BOTTOM_NAV` dp then sat drawn *underneath* the bar rather than
+	## stopping above it: measured on a OnePlus handset at 1080x2340, the bar's
+	## own opaque band starts at y=2116; this shell's desktop composition (same
+	## resolution, `--force-touch`) puts the bar at y=2119 and, before this
+	## fix, the open dock sheet's own bottom edge at y=2288 -- 169 px of the
+	## sheet sitting behind the bar it never reserved, confirmed by sampling
+	## the bar's own "GENERATE" caption pixel before and after opening the
+	## sheet: unchanged, so the bar wins the overlap and the sheet's bottom
+	## band is the part that goes missing, not the other way round.
+	##
+	## `_ptap()` rather than the bar's measured `size.y`: this runs before the
+	## first layout pass, where that is still zero, and it is the same expression
+	## the bar sets its own minimum from.
+	##
+	## In landscape that same bar is the left rail, so its reserve moves from
+	## the bottom inset (both the menu's and, by the same rule, each dock
+	## sheet's) to the left one -- `rail_w`, folded into the side reserve below.
+	## Getting this wrong would have been invisible in portrait and would have
+	## covered the rail with the screen the rail opens.
+	##
+	## `_phone_menu_bar.size.y` in preference to the constant, once the bar has
+	## actually been laid out -- `_phone_bottom_reserve()`'s own established
+	## pattern a few hundred lines down, for the same reason: `_ptap()`'s
+	## rounding and the VBoxContainer's real accumulated child heights do not
+	## always land on the same integer px (measured here: 168 vs the bar's own
+	## rendered 169), and the bar's actual rect, not the nominal dp figure, is
+	## what a sheet is trying to stop above. Before the first layout pass
+	## `size.y` is still zero, so the constant is the correct fallback then.
+	var bar_reserve := 0
+	if _phone_menu_bar != null and _phone_menu_bar.visible and not _landscape:
+		bar_reserve = int(_phone_menu_bar.size.y) if _phone_menu_bar.size.y > 0.0 \
+			else _ptap(DccTheme.H_PHONE_BOTTOM_NAV)
+
 	var safe_top := 0 if _landscape else _safe_top()
 	for sheet in [left_dock, right_dock]:
 		if sheet == null:
@@ -8668,32 +8722,11 @@ func _apply_phone_orientation() -> void:
 		sheet.offset_left = side_reserve + rail_w
 		sheet.offset_right = 0
 		sheet.offset_top = safe_top
-		sheet.offset_bottom = -_safe_bottom()
+		## `+ bar_reserve`: see the comment above `bar_reserve` -- the same
+		## reserve `apply_insets()` gives the menu a few lines down, given to
+		## the dock sheets as well now that the two are meant to agree.
+		sheet.offset_bottom = -(_safe_bottom() + bar_reserve)
 
-	## The menu takes the same rect as a dock sheet: over the app bar (its own
-	## header replaces it, per the canvas's L2/L3 artboards), never over the
-	## status safe area, the landscape side safe area or the gesture inset.
-	##
-	## **And never over the bottom bar**, as of the 412 migration. That bar is
-	## L1 of the disclosure tree, and the canvas's `07 More` screen -- which is
-	## what the menu's root is -- carries no close button of its own precisely
-	## because it is a *tab destination*: you leave it by tapping another tab, or
-	## the lit one. Covering the bar with the screen it opens would make MORE the
-	## one tab in the bar that cannot be undone by pressing it, and (with the
-	## canvas's two-`✕`-becomes-none change) would leave system back as the only
-	## way out at all.
-	##
-	## `_ptap()` rather than the bar's measured `size.y`: this runs before the
-	## first layout pass, where that is still zero, and it is the same expression
-	## the bar sets its own minimum from.
-	##
-	## In landscape that same bar is the left rail, so its reserve moves from
-	## the menu's bottom inset to its left one -- `rail_w`, folded into the
-	## side reserve below. Getting this wrong would have been invisible in
-	## portrait and would have covered the rail with the screen the rail opens.
-	var bar_reserve := 0
-	if _phone_menu_bar != null and _phone_menu_bar.visible and not _landscape:
-		bar_reserve = _ptap(DccTheme.H_PHONE_BOTTOM_NAV)
 	## `apply_insets()` is **`PhoneMenu`'s**, not this class's, and it is not
 	## the shared pass -- it writes three offsets on `_screen`, `_sheet` and
 	## `_sheet_scrim`, all of them inside `phone_menu.gd`, and reaches nothing

@@ -901,9 +901,13 @@ const ACTION_META := "dcc_action_primary"
 ## reaches every one at once rather than needing a per-call-site fix. Padding
 ## grows with it (`btn_pad_x`/`btn_pad_y`, `[11, 18]`/`[3, 9]`) so a 44 px-tall
 ## button does not read as a tiny label adrift in a tall box; the desktop
-## figures (10/4) are the pre-existing literals, kept as-is since they are not
-## quite the same as `ROLE`'s own desktop pair and this pass changes tablet
-## only.
+## figures (14/4) are this factory's own literals, independent of `ROLE`'s
+## tablet pair. Both are canvas figures: the `--btnH` census (14 nodes,
+## `LARGE_ITEM_RULINGS.md`'s "Ruling G, made and WITHDRAWN the same hour")
+## found y=4 on 10 of 14 and x=14 the only plurality, 5 of 14. y was already
+## this value; x moved from the prior 10 to match, 2026-09-08 -- guarded by
+## `_ds03fit_probe`/`_ds03shot_probe` since it is a reflow change (see the
+## DS-03 paragraph below).
 static func action(parent: Control, text: String, on_press: Callable,
 		primary: bool = false) -> Button:
 	var b := Button.new()
@@ -989,7 +993,7 @@ static func action(parent: Control, text: String, on_press: Callable,
 	b.add_theme_color_override("font_pressed_color",
 		DccTheme.c("accent_ink") if primary else DccTheme.c("accent"))
 	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
-	var pad_x := DccTheme.role_px("btn_pad_x") if act_tablet else 10
+	var pad_x := DccTheme.role_px("btn_pad_x") if act_tablet else 14
 	var pad_y := DccTheme.role_px("btn_pad_y") if act_tablet else 4
 	for state in ["normal", "hover", "pressed", "disabled"]:
 		b.add_theme_stylebox_override(state,

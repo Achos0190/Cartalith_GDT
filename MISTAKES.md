@@ -178,6 +178,8 @@ its rule before you start.
 | **Rule on a plurality** | **Count the POPULATION first.** A canvas census got the arithmetic right and the population wrong: all 8 nodes of the winning padding belong to a different height role than the control being ruled on. Four wrong figures passed through that one row |
 | **Write a stop-and-report gate into a brief** | **Say that reasoning past it is itself the failure.** A lane recounted, disagreed with the gate’s figure, decided the rule *"protects the winner, not the literal fraction"*, and implemented a wrong ruling. The gate was doing exactly its job |
 | **File a defect you saw in a screenshot** | **Crop to full resolution and re-look before filing.** A downscaled view showed two clipped tab labels that the full-res crop proved were not there at all; only one of the two defects was real |
+| **Say something is OCCLUDING something else** | **Check whether the two edges merely COINCIDE.** A sheet’s clip boundary and the nav bar’s top edge both derived from `_phone_nav_reserve()` and landed on the same y — which reads as the bar covering the chip when the bar draws nothing there. **Sample a pixel at the covering element before and after; if it does not change, it is not on top** |
+| **Assume a device-only defect needs the device** | **Try the desktop composition first.** The same bug reproduced windowed at 1080×2340 `--force-touch` within **3 px** of the device measurement — and that agreement is also the evidence that the phone probes model the device at all |
 | **Capture a sheet, drawer or anything with detents** | **Name the detent in the finding, and put it back and re-measure.** A chip row clipped by the nav bar is fully visible one detent up — a fix verified in the wrong state looks correct and changes nothing |
 | **Conclude a control does not respond to a tap** | **Check the control is still on screen.** MORE, MAP and PLAN all "stopped responding" at once because a full-screen panel had opened over the nav bar; the taps were landing on its content |
 | **Screenshot a running app as evidence** | **Take two and diff them.** If they differ outside the clock, you may be looking at a mid-animation frame. And **record the installed build’s `lastUpdateTime`** — a screenshot is evidence only about the build it came from |
@@ -1174,3 +1176,34 @@ came back when the sheet did.
 axes than it looks.** Which detent, which panel is on top, which resolution you
 are reading. **Three of four first readings were wrong, and the one that was
 right was still incomplete.**
+
+### [2026-09-08] Two edges that coincide are not one edge covering the other
+
+I filed the GENERATE sheet’s clipped chips as *"occluded by the bottom nav
+bar"*, measured carefully: the bar’s band begins at y=2116, the label’s glyph
+tops appear at 2116-2118, nothing below. **Every number was right and the
+causal claim was wrong.**
+
+**The bar is not drawing over the chip.** The sheet’s own `ScrollContainer`
+clip boundary sits at the same y — because the clip and the bar’s top edge are
+both derived from `_phone_nav_reserve()`. **They coincide by construction**, so
+a clip looks exactly like an occlusion. The cheap disproof is a pixel sample at
+the supposed coverer: the bar’s own caption is unchanged whether the sheet is
+open or closed, so the bar is not compositing over anything.
+
+The real cause is a **stale budget**: the peek detent’s height was sized for
+the old one-line tool-options strip and never revisited when a taller
+multi-group column replaced it, so the segment is the first scrollable row and
+only its top 45 % is admitted. **A z-order fix would have changed nothing**,
+and the fix that WAS made in the neighbouring file — real, mutation-proven, and
+a genuine second bug — also changes nothing here. The lane said so plainly
+instead of letting the symptom close the row, which is the only reason the
+actual cause surfaced.
+
+**And the finding that outlives this row:** it reproduced on the DESKTOP
+composition, windowed at the device’s own 1080×2340 with `--force-touch`, bar
+top **2119** against the device’s **2116**. **Three pixels apart.** The backlog
+has a standing row saying phone verification has been desktop simulation and
+cannot be trusted; that is right about REACHABILITY — a probe calling a handler
+proves nothing about a finger — and this is evidence it is **not** right about
+geometry. **Distinguish the two before dismissing a desktop measurement.**
