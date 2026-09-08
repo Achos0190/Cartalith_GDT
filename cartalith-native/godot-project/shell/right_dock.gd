@@ -4767,13 +4767,27 @@ func _sculpt_stamp_row(parent: Control, d: Dictionary, selected: int) -> void:
 	## lit" shape as a mode chip, so it takes `chip_min_h`/`fs_readout` rather
 	## than the discrete-action `btn_min_h`.
 	var select_btn := Button.new()
-	select_btn.flat = true
 	select_btn.focus_mode = Control.FOCUS_NONE
 	select_btn.text = "selected" if idx == selected else "select"
 	select_btn.disabled = idx == selected
 	select_btn.add_theme_font_size_override("font_size", readout_fs)
 	if tablet:
 		select_btn.custom_minimum_size.y = DccTheme.role_px("chip_min_h")
+	## The row had a "selected" *label* -- this button's own text, and `l`'s
+	## ink two lines up -- and no fill at all: `MISTAKES.md`'s fingerprint for
+	## this pass, a `flat` `Button` whose active state is ink-only. This one
+	## has no dead override to un-suppress (unlike `faction_roster_window.gd`'s
+	## row), so the fill is new, derived the way `outline()`'s own doc
+	## prescribes for "a selected row" -- the same accent-outline / accent-wash
+	## shape `browse_dialog.gd`'s selected folder row already uses. It targets
+	## "disabled" rather than "normal": `select_btn` is disabled exactly when
+	## it is the selected one, so that is the only draw mode this state ever
+	## reaches.
+	select_btn.flat = idx != selected
+	if idx == selected:
+		select_btn.add_theme_stylebox_override("disabled",
+			DccTheme.outline("accent", "accent_wash"))
+		select_btn.add_theme_color_override("font_disabled_color", DccTheme.c("text_bright"))
 	select_btn.pressed.connect(_on_stamp_select.bind(idx))
 	row.add_child(select_btn)
 	parent.add_child(row)
@@ -5149,6 +5163,17 @@ func _stops_row(parent: Control, idx: int, stops: Array) -> void:
 	sel.disabled = idx == _stops_selected
 	sel.focus_mode = Control.FOCUS_NONE
 	sel.custom_minimum_size = Vector2(58, _chip_btn_h(tablet))
+	## Same shape as `_sculpt_stamp_row`'s own `select_btn`, and the same fix:
+	## a selected/unselected chip with no fill at all, ink (`l`, two lines up)
+	## carrying the whole state. `flat` here so the unselected chip stays the
+	## quiet ghost button every other chip in this dock is, rather than the
+	## legacy boxed `Button` default this one drew before -- the selected chip
+	## turns it off for the accent-outline / accent-wash fill on its
+	## "disabled" stylebox, the mode `sel.disabled` actually draws in.
+	sel.flat = idx != _stops_selected
+	if idx == _stops_selected:
+		sel.add_theme_stylebox_override("disabled", DccTheme.outline("accent", "accent_wash"))
+		sel.add_theme_color_override("font_disabled_color", DccTheme.c("text_bright"))
 	sel.pressed.connect(func(): _stops_selected = idx; _rebuild())
 	row.add_child(sel)
 	parent.add_child(row)
@@ -5769,7 +5794,11 @@ func _stack_head(parent: Control, count_text: String, cap_text: String,
 func _ctl_square(glyph: String, on_press: Callable, enabled: bool, tip: String) -> Button:
 	var b := Button.new()
 	b.text = glyph
-	b.flat = true
+	## Not flat: every state below (`normal`/`disabled`/`pressed`/`hover`) is a
+	## real fill, and a flat `Button` draws none of them -- this square was
+	## always bare glyph-on-nothing, the "§1.7 `var(--ctl)` square" comment
+	## above notwithstanding. Same mechanism `layers_popover.gd` found first.
+	b.flat = false
 	b.focus_mode = Control.FOCUS_NONE
 	b.disabled = not enabled
 	b.tooltip_text = tip

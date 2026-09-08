@@ -402,6 +402,12 @@ func _refresh_tab_labels() -> void:
 		btn.text = " %s · %d " % [String(kind_info["label"]).to_upper(), int(c.get("total", 0))]
 		var active := key == _current_kind
 		btn.add_theme_color_override("font_color", DccTheme.c("accent") if active else DccTheme.c("text_dim"))
+		## `btn` is built `flat = true` in `_build_kind_tabs()` (never released
+		## there, since this function -- not the one-time build -- is what
+		## actually knows which tab is active) and a flat `Button` draws no
+		## stylebox at all, so every line below was dead: not just the active
+		## tab's wash, the *inactive* tab's `line_soft` hover too.
+		btn.flat = false
 		btn.add_theme_stylebox_override("normal", DccTheme.active_row(true) if active else DccTheme.empty())
 		btn.add_theme_stylebox_override("hover", DccTheme.active_row(true) if active else DccTheme.flat(DccTheme.c("line_soft")))
 
@@ -531,7 +537,10 @@ func _build_rail_row(row: Dictionary) -> Control:
 	var id := String(row.get("id", ""))
 	var selected := id == _current_id
 	var btn := Button.new()
-	btn.flat = true
+	## Set below, once `selected` is known: a flat `Button` draws none of its
+	## styleboxes, so the `accent_wash` fill this row gets when selected (at
+	## the bottom of this function) had never once drawn while this stayed
+	## unconditionally `true` -- the same `layers_popover.gd` mechanism.
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.custom_minimum_size.y = 24
@@ -556,8 +565,11 @@ func _build_rail_row(row: Dictionary) -> Control:
 		color = "text_dim"
 	btn.add_theme_color_override("font_color", DccTheme.c(color))
 	btn.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	btn.flat = not selected
 	if selected:
 		btn.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("accent_wash")))
+		btn.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("accent_wash")))
+		btn.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("accent_wash")))
 	btn.pressed.connect(_select_entry.bind(id))
 	return btn
 

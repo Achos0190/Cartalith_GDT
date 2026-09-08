@@ -30,7 +30,13 @@ static func category(parent: Control, title: String, group: Array,
 	parent.add_child(wrap)
 
 	var btn := Button.new()
-	btn.flat = true
+	## `false`, not the `true` this carried before: "normal"/"pressed" below
+	## are `inset()` (a real `StyleBoxEmpty`, margin only, so `flat` costs it
+	## nothing) but "hover" is a genuine `line_soft` wash, and a flat `Button`
+	## draws no stylebox in any state -- so every L2 category header in every
+	## dock had no hover feedback at all. `layers_popover.gd`'s own finding,
+	## reproduced independently on an isolated probe before this changed.
+	btn.flat = false
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	## A category header is itself a dock row (an L2 disclosure header), so it
@@ -159,7 +165,9 @@ static func stage_category(parent: Control, number: String, title: String,
 	wrap.add_child(head)
 
 	var btn := Button.new()
-	btn.flat = true
+	## See `category()`'s own comment: not flat, for the same reason -- its
+	## "hover" override is a real fill this shared shape needs drawn.
+	btn.flat = false
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL

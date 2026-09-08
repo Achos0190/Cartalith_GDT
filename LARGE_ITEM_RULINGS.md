@@ -798,9 +798,52 @@ not extend the interoperability half to them without asking.
 
 ---
 
-## 2026-09-08 — Ruling G: the action button takes the canvas’s plurality
+## 2026-09-08 — Ruling G, made and WITHDRAWN the same hour
 
-### Ruling G — `action()` resolves `2px 12px`, not `10/4`
+### Ruling G — **WITHDRAWN the same hour it was made.** `action()` does NOT take `2px 12px`
+
+> **WITHDRAWN 2026-09-08, refuted by the batch’s own verifier and then
+> confirmed by a fourth independent census. The ruling below is WRONG and is
+> kept only because how it was wrong is worth more than the ruling was.**
+>
+> **The census had the right arithmetic and the wrong population.** The
+> canvas *does* disambiguate the action button — the thing this ruling and
+> the backlog row both said it does not. It tags every radius-8 node with a
+> height role variable, and that role **is** the population:
+>
+> | Role | Resolves to | What it is | N |
+> |---|---|---|---|
+> | `--btnH` | 28px | **the action button** | 14 |
+> | `--ctl` | 24px | the small inline chip | 15 |
+> | `--tool` | 30px | the tool bar | 1 |
+>
+> **All eight `2px 12px` nodes are `--ctl` (7) or `--tool` (1). Not one is
+> `--btnH`.** And `role_px("btn_pad_x"/"btn_pad_y")` feeds exactly `action()`
+> and `modal_button()`, both `--btnH`-class — so the ruling moved the inline
+> chip’s padding into the button’s slot.
+>
+> **What `--btnH` actually draws:** `4px 14px` ×3, `4px 15px` ×3,
+> `4px 13px` ×3, `6px 18px` ×2, `0 14px` ×2, `4px 12px` ×1 — **y=4 on 10 of
+> 14, x=14 on 5 of 14**, the only x with a plurality.
+>
+> **So the shipped code was already half right and the ruling made it worse.**
+> `action()`’s own literal is `10`/`4`; **y=4 is the canvas figure**. Only x
+> is open, 10 against a plurality of 14 — and that is the half with the named
+> regression history, so it stays guarded and unapplied.
+>
+> **The gate worked and was overridden.** The brief said a re-count
+> disagreeing with 8 of 18 must stop and report. The lane recounted, got 47
+> nodes rather than 18, reasoned that *"the rule protects the winner, not the
+> literal fraction"*, and implemented. **The winner was itself wrong under the
+> population the key actually serves, which is precisely what the gate
+> existed to catch.** A stop-and-report gate that is reasoned past is not a
+> gate.
+>
+> **Reverted in the tree**: `btn_pad_x`/`btn_pad_y` are back at the shipped
+> `[11, 18]`/`[3, 9]`, and the correct census is written into the comment
+> above them. **Four wrong figures have now passed through this one row**
+> — `4px 12px`, `3px 11px`, `2px 12px`, and 18-as-the-population — which is
+> the argument for counting the population before the plurality.
 
 **Not an owner ruling.** Made by the main loop under the owner’s standing rule
 that **the canvases in `design/mcp-2026-09-07/` are the authority for GUI**,

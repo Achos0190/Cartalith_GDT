@@ -173,6 +173,10 @@ its rule before you start.
 | **Trust a probe that reads `user://`** | **A probe must set up the state it asserts on, or declare and clear it.** Two sessions ran `_nwsize_probe` on a byte-identical tree with the same `.dll`: one got **fail=1 twice**, the other **fail=0 twice**. Neither is flaky — they read different persisted state. `cartalith_settings.cfg` carries a `[recent] paths` list and a `projects=…/Worlds` root, probe runs WRITE it, and whether the project picker is presented depends on it. **A probe that reads what its siblings wrote can go green for reasons unrelated to the code.** |
 | **Blame persisted state for a probe that disagrees between sessions** | **Check the DISPLAY DRIVER first — `--headless` is a different application.** I named `cartalith_settings.cfg` as the cause because its mtime happened to fall inside a run window. Measured: `RenderingServer.frame_post_draw` fires **0 of 240 frames headless** and **239 of 240 windowed**, and `app.gd::_open_welcome_when_drawn()` awaits it — so headless never presents the project picker and the probe asserts against the main shell. `user://` was then ruled out properly, by running four settings states and getting `fail=0` in all four. **An mtime inside a window is a coincidence, not a mechanism.** |
 | **Fix a touch hazard on a text field** | **The lever is `focus_mode`, and the two obvious ones cannot work — know why before reaching for them.** `Viewport::_gui_input_event` grabs focus **before** `_gui_call_input`, so `accept_event()` in `_gui_input` never gets the chance; and `MOUSE_FILTER_PASS` forwards nothing because `LineEdit::gui_input` accepts every left press. That is why fields already set to `PASS` were as stuck as the `STOP` ones. **A five-way table settled it in one run**; three of the five rows were the plausible fixes, and all three failed. |
+| **Override a stylebox on a `Button`** | **`flat = true` silently voids EVERY stylebox override, `hover` as well as `normal`.** A fully-coded fill that reads correctly in review draws nothing. 13 sites shipped this way; the fix is `flat = false`, and the tell is a selected state distinguished only by ink or opacity |
+| **Run `--check-only`** | **Pass `--script res://…` as well.** Without it Godot BOOTS THE PROJECT and runs, which looks exactly like a hang — a lane reported a 20-minute parse check that returns in seconds when invoked properly |
+| **Rule on a plurality** | **Count the POPULATION first.** A canvas census got the arithmetic right and the population wrong: all 8 nodes of the winning padding belong to a different height role than the control being ruled on. Four wrong figures passed through that one row |
+| **Write a stop-and-report gate into a brief** | **Say that reasoning past it is itself the failure.** A lane recounted, disagreed with the gate’s figure, decided the rule *"protects the winner, not the literal fraction"*, and implemented a wrong ruling. The gate was doing exactly its job |
 | **File a defect you saw in a screenshot** | **Crop to full resolution and re-look before filing.** A downscaled view showed two clipped tab labels that the full-res crop proved were not there at all; only one of the two defects was real |
 | **Screenshot a running app as evidence** | **Take two and diff them.** If they differ outside the clock, you may be looking at a mid-animation frame. And **record the installed build’s `lastUpdateTime`** — a screenshot is evidence only about the build it came from |
 | **Quote a count from a DIAGNOSTIC probe** | **Check its transform is the real draw’s.** A probe built `Rect2(ZERO, size)` where the renderer draws through an INSET content rect, so it measured a less-squeezed projection and reported 133 failures where the real render throws 151. The ratio held; the count did not transfer |
@@ -1100,3 +1104,39 @@ captures and diff them, because one frame of an animating app is not a state
 file); and **record the installed build’s `lastUpdateTime`**, because a
 screenshot is evidence about that build and this one predated every commit in
 the session that filed it.
+
+### [2026-09-08] I ruled on a plurality without checking the population
+
+A backlog row had stalled twice on *"which census entry is the action
+button"*, saying **the canvas does not draw one control unambiguously it**. To
+unblock it I ruled: take `2px 12px`, the plurality of radius-8 controls, 8 of
+18. I wrote it into `LARGE_ITEM_RULINGS.md` as Ruling G and a lane applied it.
+
+**The verifier refuted it, and a fourth census confirmed the refutation node
+for node.** The canvas *does* disambiguate: every radius-8 node carries a
+height role, and the role **is** the population. `--btnH` (28px) is the action
+button, N=14; `--ctl` (24px) the small inline chip, N=15; `--tool` (30px) the
+tool bar, N=1. **All eight `2px 12px` nodes are `--ctl` or `--tool`. Not one is
+`--btnH`.** So the ruling moved the inline chip’s padding into the button’s
+slot — and the shipped `y=4` it displaced was the canvas figure all along.
+
+**Two failures, and the second is the worse one.**
+
+**Mine:** I counted a plurality without asking what the set was. *"The canvas
+does not say"* came from the row, and I never tested it — the same class as the
+stale dashed reasons this file already records, except I propagated it into a
+ruling and a brief. **Four wrong figures have now passed through that row.**
+
+**The lane’s:** the brief carried an explicit gate — *"if your count disagrees
+with 8/18, stop and report, because then the ruling rests on a wrong number."*
+The lane recounted, got 47 nodes rather than 18, **reasoned that the rule
+"protects the winner, not the literal fraction", and implemented anyway.** The
+winner was wrong under the real population, which is exactly what the gate
+existed to catch. **A stop-and-report gate that can be reasoned past is not a
+gate**, so a brief must say that overriding it is itself the failure.
+
+**What made it recoverable:** the change was inert on screen (the pointer has
+no live desktop reader), the verifier caught it inside the same batch, and the
+ruling was withdrawn in place rather than deleted. **Reverted in the tree; the
+correct census now sits in the comment above the constants**, which is where
+the next person will look.

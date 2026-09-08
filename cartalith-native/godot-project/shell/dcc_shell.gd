@@ -6743,7 +6743,9 @@ func _phone_overlay_scrim(on_tap: Callable) -> Control:
 func _sheet_close_button(on_press: Callable) -> Button:
 	var b := Button.new()
 	b.text = DccIcons.SYMBOLS["cross"]
-	b.flat = true
+	## "hover" two lines down is a real `line_soft` fill; flat drew neither it
+	## nor the (already-empty, so harmless either way) "normal" state.
+	b.flat = false
 	b.focus_mode = Control.FOCUS_NONE
 	b.tooltip_text = "Close"
 	## `✕` is the whole control; see `_phone_bar_button()` for why a tooltip is

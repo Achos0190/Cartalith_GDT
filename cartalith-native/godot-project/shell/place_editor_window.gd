@@ -635,7 +635,14 @@ func _build_traits(details: Dictionary) -> void:
 		var is_on := on.has(key)
 		var b := Button.new()
 		b.text = "%s %s" % [String(d.get("glyph", "")), String(d.get("label", key))]
-		b.flat = true
+		## **Not flat.** Both branches below paint a real "normal" fill (accent
+		## when on, sunken when off) and a real "hover" fill -- a flat `Button`
+		## skips both entirely (`layers_popover.gd`'s own finding, reproduced
+		## independently on this build: an isolated probe with the identical
+		## shape drew nothing on `normal`/`hover` while `flat` was true and drew
+		## correctly the instant it went `false`). Every trait chip was rendering
+		## as bare text, on or off alike, until this changed.
+		b.flat = false
 		b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size.y = 22
 		b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)

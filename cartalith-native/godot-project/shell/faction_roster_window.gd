@@ -518,7 +518,23 @@ func _rebuild_list() -> void:
 			String(d.get("name", "?")), int(d.get("settlement_count", 0)),
 			_thousands(int(d.get("population", 0)))]
 		if fid == _selected:
-			b.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("sunken")))
+			## `flat` has to come off for the same reason `layers_popover.gd`'s own
+			## active row does: a flat `Button` skips `normal`/`hover`/`pressed`
+			## entirely, so this override -- `DccTheme.flat(c("sunken"))`, alone on
+			## "normal" -- had never drawn. This window has no canvas of its own
+			## (`design/dcc-environment-2026-08-31/README.md` names it undrawn), so
+			## the derived treatment is `DccTheme.outline()`'s own documented
+			## "selected row" shape -- accent-outlined, `accent_wash` fill -- the
+			## same one `browse_dialog.gd`'s `_paint_row()` already uses for its
+			## selected folder row, rather than the layers popover's solid-accent
+			## slab, which `GUI_GAP_REGISTER.md` §48 (DS-02) found to be the
+			## canvas's *one* deliberate full-fill surface, not a general pattern.
+			b.flat = false
+			var slab := DccTheme.outline("accent", "accent_wash")
+			for sb_name in ["normal", "hover", "pressed"]:
+				b.add_theme_stylebox_override(sb_name, slab)
+			for color_key in ["font_color", "font_hover_color", "font_pressed_color"]:
+				b.add_theme_color_override(color_key, DccTheme.c("text_bright"))
 		b.pressed.connect(func():
 			## FR-02: flush the inspector's pending edit against the faction it
 			## was typed for, before `_selected` moves. These list rows are

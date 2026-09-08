@@ -2817,7 +2817,6 @@ func _rebuild_matrix(plan: Dictionary) -> void:
 		var token := "block" if blocked else ("warn" if warn else "text_dim")
 		var mark := (" %s" % DccIcons.SYMBOLS["blocked"]) if blocked else ((" %s" % DccIcons.SYMBOLS["warn_tri"]) if warn else "")
 		var stage_btn := Button.new()
-		stage_btn.flat = true
 		stage_btn.focus_mode = Control.FOCUS_NONE
 		stage_btn.text = "%02d %s%s" % [i + 1, String(s.get("terrain", "?")), mark]
 		stage_btn.clip_text = true
@@ -2831,6 +2830,20 @@ func _rebuild_matrix(plan: Dictionary) -> void:
 		stage_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 		stage_btn.add_theme_font_override("font", DccTheme.mono(0, i == _selected_stage))
 		stage_btn.add_theme_color_override("font_color", DccTheme.c(token if token != "text_dim" else ("accent" if i == _selected_stage else "text_dim")))
+		## No canvas draws this grid (it is not in `design/`'s vocabulary at
+		## all), so the fill is derived from `DccTheme.outline()`'s own
+		## documented "selected row" shape rather than invented -- see
+		## `faction_roster_window.gd`'s identical derivation. It matters more
+		## here than there: a **blocked** stage keeps its `block`/`warn` ink
+		## whether or not it is the selected one (the font-colour line above),
+		## so before this fill existed a blocked, selected cell and a blocked,
+		## unselected cell were pixel-identical -- ink alone had nothing left
+		## to say "this is the one open below".
+		stage_btn.flat = i != _selected_stage
+		if i == _selected_stage:
+			var slab := DccTheme.outline("accent", "accent_wash")
+			for sb_name in ["normal", "hover", "pressed"]:
+				stage_btn.add_theme_stylebox_override(sb_name, slab)
 		stage_btn.pressed.connect(func(): _on_stage_clicked(i, false))
 		grid.add_child(stage_btn)
 

@@ -540,7 +540,11 @@ func _build_sheet() -> PanelContainer:
 func _icon_button(glyph: String, tip: String, on_press: Callable) -> Button:
 	var b := Button.new()
 	b.text = glyph
-	b.flat = true
+	## "normal" below is genuinely empty (correct, glyph-only at rest) but
+	## "hover" and "pressed" are real fills -- flat suppresses all three
+	## alike, so this 44 dp target had no touch/press feedback whatever state
+	## it was in. Every phone-menu icon button shares this one factory.
+	b.flat = false
 	b.focus_mode = Control.FOCUS_NONE
 	b.tooltip_text = tip
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER

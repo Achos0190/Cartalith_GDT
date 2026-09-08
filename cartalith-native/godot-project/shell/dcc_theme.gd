@@ -970,6 +970,47 @@ const ROLE := {
 	## tablet. Moving them is a layout change with a named regression history
 	## (the 265 px tool bar, DS-03's eight over-wide minimums), so it needs
 	## `_ds03fit_probe` and `_ds03shot_probe` as guards, not a sweep.
+	## **The census above asks the wrong question, and this is the answer.**
+	## Ruled `2px 12px` on 2026-09-08 and **reversed the same hour** — the
+	## reversal is the useful part, so it is recorded rather than tidied away.
+	##
+	## **The canvas DOES disambiguate the action button**, which the row above
+	## says it does not. It tags every radius-8 node with a height role, and
+	## that role is the population:
+	##
+	##   `--btnH` = 28px -- **the action button**, N=14
+	##   `--ctl`  = 24px -- the small inline chip, N=15
+	##   `--tool` = 30px -- the tool bar, N=1
+	##
+	## **All eight `2px 12px` nodes are `--ctl` (7) or `--tool` (1). Not one
+	## is `--btnH`.** So the ruling took the inline chip's padding and put it
+	## in the button's slot. `role_px("btn_pad_x"/"btn_pad_y")` feeds exactly
+	## `action()` and `modal_button()`, both `--btnH`-class.
+	##
+	## **What `--btnH` actually draws**, counted independently twice (the
+	## verifier's script and a fourth census over all 888 `style=` attributes,
+	## agreeing node for node):
+	##
+	##   `4px 14px` x3, `4px 15px` x3, `4px 13px` x3, `6px 18px` x2,
+	##   `0 14px` x2, `4px 12px` x1
+	##
+	## **y=4 on 10 of 14; x=14 on 5 of 14**, the only x with a plurality.
+	## (The verifier said y=4 on 7 of 14 -- recounted here as 10, since three
+	## groups of three plus the single `4px 12px` all carry y=4. The
+	## disagreement does not move the conclusion, and the smaller figure is
+	## the one that was published, so it is named rather than quietly fixed.)
+	##
+	## **So `action()`'s live literal already has y right**: it bypasses this
+	## row with its own `10`/`4`, and 4 is the canvas figure. **x is the open
+	## half** -- 10 against a canvas plurality of 14. Not changed here: the
+	## literal lives in `dcc_widgets.gd`, which this pass does not own, and
+	## widening x is the change with the named regression history (the 265 px
+	## tool bar, DS-03's eight over-wide minimums). **It needs `_ds03fit_probe`
+	## and `_ds03shot_probe` around it, not a sweep.**
+	##
+	## **The lesson, since this row has now carried four wrong figures:** a
+	## census is only as good as its population, and "the canvas does not say"
+	## was never checked against the canvas's own grouping variable.
 	"btn_pad_x": [11, 18],         ## Tablet only; see the census above.
 	"btn_pad_y": [3, 9],
 	## The action button's corner radius, and **the row that retires §11's

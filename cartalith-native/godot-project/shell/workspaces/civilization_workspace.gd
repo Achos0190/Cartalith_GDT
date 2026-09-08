@@ -6047,7 +6047,10 @@ func _tl_year_pill(year: int, active: bool) -> Control:
 	pill.add_theme_constant_override("separation", 1)
 	var go := Button.new()
 	go.text = _tl_format_year(year)
-	go.flat = true
+	## Both states below (the filled accent pill when `active`, the sunken one
+	## otherwise) are real "normal"/"hover" overrides -- a flat `Button` draws
+	## neither, so every timeline pill read as bare text regardless of year.
+	go.flat = false
 	go.focus_mode = Control.FOCUS_NONE
 	go.custom_minimum_size.y = 22
 	go.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
