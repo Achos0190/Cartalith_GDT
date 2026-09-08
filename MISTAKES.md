@@ -173,6 +173,8 @@ its rule before you start.
 | **Trust a probe that reads `user://`** | **A probe must set up the state it asserts on, or declare and clear it.** Two sessions ran `_nwsize_probe` on a byte-identical tree with the same `.dll`: one got **fail=1 twice**, the other **fail=0 twice**. Neither is flaky — they read different persisted state. `cartalith_settings.cfg` carries a `[recent] paths` list and a `projects=…/Worlds` root, probe runs WRITE it, and whether the project picker is presented depends on it. **A probe that reads what its siblings wrote can go green for reasons unrelated to the code.** |
 | **Blame persisted state for a probe that disagrees between sessions** | **Check the DISPLAY DRIVER first — `--headless` is a different application.** I named `cartalith_settings.cfg` as the cause because its mtime happened to fall inside a run window. Measured: `RenderingServer.frame_post_draw` fires **0 of 240 frames headless** and **239 of 240 windowed**, and `app.gd::_open_welcome_when_drawn()` awaits it — so headless never presents the project picker and the probe asserts against the main shell. `user://` was then ruled out properly, by running four settings states and getting `fail=0` in all four. **An mtime inside a window is a coincidence, not a mechanism.** |
 | **Fix a touch hazard on a text field** | **The lever is `focus_mode`, and the two obvious ones cannot work — know why before reaching for them.** `Viewport::_gui_input_event` grabs focus **before** `_gui_call_input`, so `accept_event()` in `_gui_input` never gets the chance; and `MOUSE_FILTER_PASS` forwards nothing because `LineEdit::gui_input` accepts every left press. That is why fields already set to `PASS` were as stuck as the `STOP` ones. **A five-way table settled it in one run**; three of the five rows were the plausible fixes, and all three failed. |
+| **Read several lines with `sed -n 'Ap;Bp'`** | **It prints in FILE order, not the order you typed.** Ask for one line at a time, or use `awk 'NR==A{print "A: "$0}'` so each line carries its own number — a reversed read put a false *"the row’s line numbers are swapped"* correction into a lane brief |
+| **Strip comments and strings to find call sites** | **Strings FIRST (triple-quoted, then single-line), then comments.** A `#` inside a string literal otherwise orphans its closing quote, which pairs with the next quote anywhere later and eats every newline between — one file measured 299 lines → 62, silently swallowing real call sites. **Self-check by line count before trusting the output** |
 | **Assert that a converted value CHANGED** | **Inequality plus a suffix is satisfied by relabelling.** Reconstruct the expected NUMBER from the converter itself (`DccUnits.to_unit()`), never from a typed constant — a mutant that kept the km value and appended `mi` passed all three of the probe’s original checks |
 | **Fix a formatting inconsistency you just exposed** | **Check which side is non-conformant before picking one.** Two styles side by side usually means one was ALREADY wrong, and `design/**.dc.html` decides which, not taste and not majority |
 
@@ -954,3 +956,51 @@ and the one it did touch was already conformant.
 both sides’ history before attributing it, or you will "fix" the conformant
 half. And when parity with a reference is the definition of done, **the
 reference is the tie-breaker for cosmetics too**, not only for layout.
+
+### [2026-09-08] I put the correction in, and the correction was the error
+
+A row cited `_urban_revealed` as declared at `map_overlay.gd:3544` and gating
+the settlement pin at `:1984`. Checking it, I ran
+`sed -n '3544p;1984p' map_overlay.gd` and read the two output lines in the order
+I had typed the addresses.
+
+**`sed` prints in file order.** The first line out was 1984, not 3544. So I read
+the gate as the declaration, concluded the row had its numbers swapped, and
+**wrote that "correction" into the lane brief as a checked fact** — under a
+preflight row that says line numbers in a brief get verified.
+
+The row was right. **The lane re-opened both blocks anyway, found the brief
+wrong, and said so; the verifier confirmed it independently.** That is the
+system working, and it is also the reason a brief must not hand a lane a
+conclusion it could reach itself.
+
+**Two rules.** Read lines one at a time, or with `awk 'NR==A{print "A: "$0}'` so
+each line carries its own number — never rely on the order of a multi-address
+`sed`. And **a correction is a claim**: it gets the same scepticism as the thing
+it corrects, and rather more when it is about to be handed to someone else as
+settled. This project has now been bitten by a stale claim, a false claim, and a
+false *correction* to a true claim.
+
+### [2026-09-08] Two agents wrote the same parser bug, and both caught it
+
+Counting which `#[func]`s no `.gd` file reaches means stripping comments and
+strings before matching identifiers. A lane and, independently, the verifier
+both **stripped comments first**.
+
+That is backwards. A `#` inside a string literal — here, inside a JSON fixture
+embedded in a triple-quoted GDScript string — gets read as a comment start, which
+orphans the string’s closing quote. The string-stripper then pairs that orphan
+with the next quote **anywhere later in the file**, collapsing every newline in
+between. One file fell from **299 lines to 62**, taking real call sites with it.
+The lane’s first pass reported **11** unreachable names, **3 of them wrong**.
+
+**Correct order: triple-quoted strings, then single-line strings, then
+comments.** Both agents found it the same way — **a line-count self-check before
+trusting the output** — and after the fix both returned exactly the same eight
+names, matching a third derivation.
+
+**What makes this worth an entry is that the bug was silent and plausible.** It
+does not crash and it does not return nothing; it returns a slightly-too-long
+list of things that look unreachable. **A census whose method can silently drop
+input needs a conservation check** — lines in, lines out — and this row had
+already shipped a wrong count twice before anyone added one.

@@ -498,3 +498,92 @@ reading code, which is all this cut did.
   `generate_terrain` hardcodes `0.16 / 1.0 / 0` for `foldI`/`trenchD`/`faultB`
   is a **pinned-constant claim in prose** and is exactly the kind this project
   has been wrong about before. Someone should open `OrogenyParams`' call site.
+
+---
+
+## A different census: `#[func]`s no `.gd` file reaches — 2026-09-08
+
+**This asks the reverse of everything above.** Every other section asks "the
+product draws this control — is there anything behind it?" This one asks "the
+engine exposes this binding — does anything in `godot-project/` ever call it
+by name?" Scope is `cartalith-godot/src/**`'s `#[func]` surface only.
+
+**This row has shipped a wrong count twice before** — "27 without a forwarder,
+12 unreachable" (did not reproduce) and "six" (repeated as fact by a brief
+that did not re-derive it). So the count below is re-derived from scratch this
+pass, independently, and checked against — not copied from — the register
+`engine_bridge.gd:392-486` already carries under "Bindings with no forwarder,
+and why" (dated 2026-09-06, read only *after* the independent count already
+matched it).
+
+### Method, including where it first went wrong
+
+468 `#[func]` attributes under `cartalith-godot/src/`, resolved to 468
+distinct `fn` names (one bare `#[func]` line each, no duplicates — a Python
+pass, not a hand count). Matched by word boundary against every `.gd` file in
+`godot-project/`, **excluding** the vendored third-party `addons/godot_ai/`
+plugin: 125 `.gd` files there, 0 tracked by git, and this same document
+elsewhere already rules that plugin "not this shell". **402** project `.gd`
+files at this cut — a count that moves as probes land (the 2026-09-06 register
+above cites 439 for the same reason), so it is reported, not trusted.
+
+A first attempt stripped `#`-comments and quoted strings out of each file
+before matching, and returned **11** zero-hit names — three of them wrong:
+`get_recovery_phase_names`, `sculpt_document_json` and
+`travel_library_document_json` all have real, uncommented, unquoted call
+sites (`new_world_dialog.gd:482`; `_verifylanes_probe.gd:190`/`:200` and
+`:220`/`:233` respectively). Traced to one exact line, not left as a guess:
+comment-stripping ran *before* string-stripping, with no awareness that a
+`#` can sit inside a string at all. `_verifylanes_probe.gd:16-30` is a
+triple-quoted fixture holding embedded JSON, and line 27's value —
+`"imported_text": "# Aldermoor\n"` — carries a literal `#`. The naive
+comment-stripper cut from that `#` to end-of-line, taking the string's own
+closing quote with it; the now-unbalanced quote count then made the
+string-stripper pair that orphaned opening quote with the next `"` **anywhere
+later in the file**, and because that replacement collapses every newline in
+the span into one space, real code many lines away vanished with it —
+measured directly: this one file's stripped text fell from 299 source lines
+to 62. Re-ordered — strip triple-quoted strings first, then single-line
+strings, **then** comments (so a `#` already inside a stripped string can
+never be read as one) — the count is exactly **eight**, matching every name
+already on record:
+
+`arc_label_line_width`, `asset_library_document_json`, `export_snapshot_png`,
+`geojson_inspect`, `labels_clear_generated`, `ping`, `project_read_document`,
+`vault_landmark_entity_id`.
+
+Every one of the 468 names appears *somewhere* in the raw, unstripped `.gd`
+text (0 zero-hit names there) — for these eight, only inside a comment or a
+user-facing reason string, never as a call.
+
+### Verdict per function, each opened at its own definition
+
+| Function (defined at) | Verdict | Evidence |
+|---|---|---|
+| `ping` (`lib.rs:229`, class `WalkingSkeleton`) | **Deliberate diagnostic seam.** | `WalkingSkeleton` is in no `.tscn`, no other `.gd`, no `project.godot` key (grepped this pass, zero hits). No Rust test or probe calls `ping()` either — the only other `ping` in the workspace is Godot's own unrelated `ENetPacketPeer.ping()`, in generated bindings under `target/`. Its own doc (`lib.rs:201-227`) already rules this: kept as a `godot --headless -s` smoke check that the `.dll`/`.so` loads at all, before any `WorldGen` exists to ask a real question of. |
+| `asset_library_document_json` (`project_bridge.rs:2840`) | **Reached — an internal Rust call, not a name GDScript uses.** | `project_engine_built_documents()` (`#[func]`, `project_bridge.rs:2835`) calls `self.asset_library_document_json()` at `:2840`. Traced the whole chain, not just the claim: that wrapper is forwarded at `engine_bridge.gd:4523` and called from `app.gd:3043`, which every project save goes through. |
+| `export_snapshot_png` (`export_raster.rs:804`) | **Reached — an internal Rust call, not a name GDScript uses.** | `vault_snapshot()` (`#[func]`, `vault_bridge.rs:749`) calls `self.export_snapshot_png(...)` at `:790`. `vault_snapshot` is forwarded at `engine_bridge.gd:4285` and called from `vault_window.gd:1087` — every map snapshot goes through it. |
+| `arc_label_line_width` (`ops_bridge.rs:218`, a one-line wrapper over `cartalith_civ::labels::arc_label_line_width`, `max(1, size_px * 0.16)`) | **Genuinely dead as a binding, deliberately — the formula it wraps is not dead.** | Zero callers of the `#[func]` *method*, Rust or GDScript. The free function it wraps is a different symbol with its own callers (golden-tested in `cartalith-civ/src/labels.rs:1448-1449` and `tests/golden_parity_labels.rs:309-314`). `map_overlay.gd:629-630` names the connection ("ported as `labels.rs::arc_label_line_width`") and `:2509`/`:2516` hand-duplicate the same arithmetic (`halo_em` × font size, floored at 1) to avoid one FFI round trip per label per frame; its own comment at `:2505-2506` now says the two have diverged — GDScript has a zero-halo branch (`halo_em <= 0.0`) the engine function does not — so routing through the binding today would change what draws. **Not a deletion candidate**: named by this exact symbol in doc comments in 3 files (`ops_bridge.rs:5,200`, `map_overlay.gd:630`, `engine_bridge.gd:427`); removing it edits all three. |
+| `project_read_document` (`project_bridge.rs:2525`) | **Genuinely dead — ruled deliberate, 2026-08-26.** | Zero callers anywhere. Its own doc (`:2500-2523`, headed "No shell caller, deliberately — `PARITY_AUDIT.md` §23") is an already-examined-and-declined verdict: the one capability `project_open` structurally cannot offer (read one document, keep the world on screen), kept for a command that does not exist yet. This pass is the audit re-confirming a ruling, not discovering a gap. |
+| `geojson_inspect` (`geojson_bridge.rs:300`) | **Genuinely dead — staged ahead of its own UI.** | Zero callers. Its own doc (`:270-273`) states it plainly: "No `godot-project/` file named this function when it was written… the Data manager's Import ▸ GIS/GeoJSON row is GDScript work, and this is the surface it will call." `data_manager_window.gd:368` already tells the **user** this exact thing in a live reason string, not just a code comment. |
+| `vault_landmark_entity_id` (`vault_bridge.rs:250`) | **Genuinely dead — staged ahead of its own UI, owner ruling 13 (2026-09-06).** | Zero callers. Independently verified no landmark panel exists to call it from: every `open_vault()` / `_knowledge_row()` call site in the shell passes `"settlement"`, `"faction"`, `"province"`, or `"culture"` (`place_editor_window.gd:771`; `civilization_workspace.gd:1141`, `:2205`, `:2222`, `:2238`, `:2315`) — never `"landmark"`. Landmarks are drawn on the map and counted, never opened as one selectable entity. |
+| `labels_clear_generated` (`label_bridge/generate.rs:322`) | **Genuinely dead — deliberate; wiring it is a UX decision, not a binding fix.** | Zero callers, zero forwarder, zero probe. `lib.rs:11454-11475` (its sibling `label_clear_all`'s doc) explains why: the generated label pass only re-runs from `generation_finished`, `world_loaded`, or a class-dial release, so a "Clear all" that also dropped the generated run would strand the user with no way back short of nudging a dial. |
+
+**No forwarder was added to any of the eight.** Two already have a live
+caller one call-frame up (a forwarder to the wrapper itself would duplicate
+that, not fix anything); the other six are each a function no screen calls,
+and per this batch's own rule a forwarder to a function nothing calls is a
+second dead end, not a fix.
+
+**Nothing was deleted.** The two reached ones are load-bearing. The other six
+are each named, by this exact symbol, in a doc comment or a user-facing
+string in at least one file besides their own definition — so removing any of
+them fails the "touches no other file" bar and is left standing, stated here
+rather than attempted.
+
+**Corroboration, not source, and read in that order.** `engine_bridge.gd:392-486`
+carries the same eight names and materially the same eight reasons, dated
+2026-09-06. It was opened only after the independent re-derivation above had
+already landed on the identical eight, specifically so this entry would not
+just be a transcription of it. `cargo check --workspace`: clean, exit 0 (only
+pre-existing `dead_code` warnings in unrelated crates, none introduced here).
