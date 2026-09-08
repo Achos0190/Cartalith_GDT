@@ -225,7 +225,7 @@ re-checked against the tree rather than copied from the commit message.
 
 **Cheapest-first, at the owner’s direction** — *"locate low hanging fruit…
 take the cheap ones from cheapest first"* — with lanes allowed to run on a
-smaller model. Backlog **126 → 122**.
+smaller model. Backlog **126 → 119** over the day.
 
 **The day’s finding is about proof, not code.** A lane converted the right
 dock’s readouts to the user’s unit preference correctly — Sample *"Position"*,
@@ -269,6 +269,44 @@ sweep put *"Discharge 4,200"* beside *"Catchment 3 500 km²"*; the canvas writes
 `4 210`, `120 000`, `38 000` with spaces and every comma in it is inside
 `rgba(...)`, so `right_dock.gd::_thousands()` had been the non-conformant one all
 along. **Exposing an inconsistency is not causing one.**
+**Later the same day: the GUI rows, and three corrections to my own work.**
+
+**Roofs stopped failing to draw.** At deep zoom Godot logged *"Invalid polygon
+data, triangulation failed"* and **skipped** — buildings silently absent. The
+geometry was never bad: the same 5 009 footprints are non-degenerate in layout
+metres and at fit-to-box scale (**0/5 009** both), and 2.7 % fail only through
+the real deep-zoom transform, every one with a post-transform bounding-box
+diagonal **under 0.09 px**. The guard is the renderer’s own predicate. **Proved
+by whole-frame md5** — identical before and after while errors went **151 → 0**,
+and the frames are not blank (24.6 % ink) — then the diagnosis re-tested with
+the fix REVERTED, which is what makes it a measurement.
+
+**Thirteen fills that had never drawn a pixel.** **A `Button` with
+`flat = true` silently voids EVERY stylebox override**, `hover` as well as
+`normal`. Fills that were fully coded and read correctly in review drew
+nothing, across 9 files. The tell is a selected state distinguished only by ink
+or opacity. Verified on interior modal colour with the border ring excluded, so
+ink cannot contaminate the sample, and mutation-tested.
+
+**A ruling of mine was refuted and reverted the same hour.** I ruled the action
+button takes `2px 12px`, the plurality of radius-8 controls. **The canvas
+disambiguates by height role**, and the role is the population: `--btnH` (28px)
+is the action button at N=14, `--ctl` (24px) the inline chip at N=15. **All
+eight `2px 12px` nodes are `--ctl`/`--tool`. Not one is `--btnH`.** The shipped
+`y=4` the ruling displaced was the canvas figure all along. Withdrawn in place
+as Ruling G. **A lane also reasoned past the brief’s explicit stop-and-report
+gate** — recounted, disagreed, implemented anyway. **A gate that can be
+reasoned past is not a gate.**
+
+**The on-device method was run for the first time and works.** `adb exec-out
+screencap` on the attached handset found the GENERATE sheet’s chip row occluded
+by the nav bar in its **collapsed detent** — three pixel rows of a ~20 px label.
+**It also produced two phantom defects and one dead end, none filed**: twice a
+downscaled view showed text the full-resolution crop did not contain, and
+*"MORE does not respond to a tap"* collapsed when the control test showed MAP
+and PLAN had stopped responding too — a full-screen panel had opened over the
+nav bar. **Three of four first readings were wrong and the fourth was
+incomplete**, which is the honest summary of a first pass on glass.
 ### 2026-09-07
 
 **A full day on the GUI, driven by the owner's standing priority and by defects
@@ -737,7 +775,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-08: 122 items.** Run
+**Recounted 2026-09-08 (late): 119 items.** Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for
