@@ -178,6 +178,8 @@ its rule before you start.
 | **Rule on a plurality** | **Count the POPULATION first.** A canvas census got the arithmetic right and the population wrong: all 8 nodes of the winning padding belong to a different height role than the control being ruled on. Four wrong figures passed through that one row |
 | **Write a stop-and-report gate into a brief** | **Say that reasoning past it is itself the failure.** A lane recounted, disagreed with the gate’s figure, decided the rule *"protects the winner, not the literal fraction"*, and implemented a wrong ruling. The gate was doing exactly its job |
 | **File a defect you saw in a screenshot** | **Crop to full resolution and re-look before filing.** A downscaled view showed two clipped tab labels that the full-res crop proved were not there at all; only one of the two defects was real |
+| **Capture a sheet, drawer or anything with detents** | **Name the detent in the finding, and put it back and re-measure.** A chip row clipped by the nav bar is fully visible one detent up — a fix verified in the wrong state looks correct and changes nothing |
+| **Conclude a control does not respond to a tap** | **Check the control is still on screen.** MORE, MAP and PLAN all "stopped responding" at once because a full-screen panel had opened over the nav bar; the taps were landing on its content |
 | **Screenshot a running app as evidence** | **Take two and diff them.** If they differ outside the clock, you may be looking at a mid-animation frame. And **record the installed build’s `lastUpdateTime`** — a screenshot is evidence only about the build it came from |
 | **Quote a count from a DIAGNOSTIC probe** | **Check its transform is the real draw’s.** A probe built `Rect2(ZERO, size)` where the renderer draws through an INSET content rect, so it measured a less-squeezed projection and reported 133 failures where the real render throws 151. The ratio held; the count did not transfer |
 | **Write "structurally cannot"** | **Check every consumer, not the one you are thinking of.** A guard that skipped untriangulable polygons was called structurally unable to lose ink — true of the two passes that triangulate, **false of the ink pass, which strokes via `draw_multiline` and never triangulates**. It was unreachable only because of the configurations measured |
@@ -1140,3 +1142,35 @@ no live desktop reader), the verifier caught it inside the same batch, and the
 ruling was withdrawn in place rather than deleted. **Reverted in the tree; the
 correct census now sits in the comment above the constants**, which is where
 the next person will look.
+
+### [2026-09-08] One real defect, two phantoms and a dead end, in one hour on glass
+
+The device sweep found a genuine bug — the GENERATE sheet’s chip row occluded
+by the nav bar. It also produced three findings that did not survive checking,
+and **none of them was filed**, which is the only reason this entry is short.
+
+**Phantom 1 and 2: the downscaled view.** Twice I read text in a scaled-down
+screenshot — two clipped tab labels at the top of the GENERATE frame, then a
+cut-off row above the CIVILIZATION header — and twice the full-resolution crop
+of the same pixels contained nothing at all. **The same mistake, an hour
+apart, after writing the rule for it.** The rule works only if the crop comes
+before the conclusion, not after.
+
+**Dead end: "MORE does not respond to a tap."** Tapping MORE changed nothing,
+three times, at three heights. It looked like an unreachable control — exactly
+the class the method row predicts. Then the control test killed it: **MAP and
+PLAN stopped responding too.** A full-screen panel had opened over the nav bar,
+and every tap was landing on its content. **Run the control before believing
+the finding, not after it looks good.**
+
+**And the real defect was wrong in its statement.** I filed it flat: the chips
+are clipped. **Expanding the sheet draws them in full.** The defect is that the
+COLLAPSED detent puts the chip row under the bar — and a fix verified in the
+expanded state would look correct and change nothing. Found only because
+tapping through the tabs moved the sheet as a side effect, and the clipping
+came back when the sheet did.
+
+**The pattern under all four: a screenshot is one state, and a state has more
+axes than it looks.** Which detent, which panel is on top, which resolution you
+are reading. **Three of four first readings were wrong, and the one that was
+right was still incomplete.**
