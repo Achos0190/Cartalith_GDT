@@ -173,6 +173,8 @@ its rule before you start.
 | **Trust a probe that reads `user://`** | **A probe must set up the state it asserts on, or declare and clear it.** Two sessions ran `_nwsize_probe` on a byte-identical tree with the same `.dll`: one got **fail=1 twice**, the other **fail=0 twice**. Neither is flaky — they read different persisted state. `cartalith_settings.cfg` carries a `[recent] paths` list and a `projects=…/Worlds` root, probe runs WRITE it, and whether the project picker is presented depends on it. **A probe that reads what its siblings wrote can go green for reasons unrelated to the code.** |
 | **Blame persisted state for a probe that disagrees between sessions** | **Check the DISPLAY DRIVER first — `--headless` is a different application.** I named `cartalith_settings.cfg` as the cause because its mtime happened to fall inside a run window. Measured: `RenderingServer.frame_post_draw` fires **0 of 240 frames headless** and **239 of 240 windowed**, and `app.gd::_open_welcome_when_drawn()` awaits it — so headless never presents the project picker and the probe asserts against the main shell. `user://` was then ruled out properly, by running four settings states and getting `fail=0` in all four. **An mtime inside a window is a coincidence, not a mechanism.** |
 | **Fix a touch hazard on a text field** | **The lever is `focus_mode`, and the two obvious ones cannot work — know why before reaching for them.** `Viewport::_gui_input_event` grabs focus **before** `_gui_call_input`, so `accept_event()` in `_gui_input` never gets the chance; and `MOUSE_FILTER_PASS` forwards nothing because `LineEdit::gui_input` accepts every left press. That is why fields already set to `PASS` were as stuck as the `STOP` ones. **A five-way table settled it in one run**; three of the five rows were the plausible fixes, and all three failed. |
+| **File a defect you saw in a screenshot** | **Crop to full resolution and re-look before filing.** A downscaled view showed two clipped tab labels that the full-res crop proved were not there at all; only one of the two defects was real |
+| **Screenshot a running app as evidence** | **Take two and diff them.** If they differ outside the clock, you may be looking at a mid-animation frame. And **record the installed build’s `lastUpdateTime`** — a screenshot is evidence only about the build it came from |
 | **Quote a count from a DIAGNOSTIC probe** | **Check its transform is the real draw’s.** A probe built `Rect2(ZERO, size)` where the renderer draws through an INSET content rect, so it measured a less-squeezed projection and reported 133 failures where the real render throws 151. The ratio held; the count did not transfer |
 | **Write "structurally cannot"** | **Check every consumer, not the one you are thinking of.** A guard that skipped untriangulable polygons was called structurally unable to lose ink — true of the two passes that triangulate, **false of the ink pass, which strokes via `draw_multiline` and never triangulates**. It was unreachable only because of the configurations measured |
 | **Fix a probe’s ordering bug** | **Ordering alone rots.** Add an assertion on a value that DIFFERS between the two states, or the next boot-order change silently reverts the coverage without failing |
@@ -1070,3 +1072,31 @@ triangulate, and the only place they will look is the guard.
 on it.** It costs nothing today, because it is true of everything currently
 measured, and it misleads exactly the person who changes the configuration that
 made it true.
+
+### [2026-09-08] The first screenshot found a real defect and an imaginary one
+
+`OUTSTANDING_WORK.md` carries a row saying *"phone verification has been
+desktop simulation almost throughout"* — probes drive controls through
+`pressed.emit()` and friends, which proves a handler runs and **cannot prove a
+finger reaches it**. A handset was attached, so the prescribed method was run:
+`adb exec-out screencap`.
+
+**It worked immediately.** The GENERATE sheet’s chip row is occluded by the
+bottom nav bar: the band begins at y=2116 of 2340, the PIPELINE chip shows only
+its 1-2 px side strokes from 2105, its glyph tops appear at 2116/2117/2118 as
+58/61/36 amber pixels, and 2119 is zero. **Three pixel rows of a ~20 px label.**
+
+**And the same look produced a defect that does not exist.** In the downscaled
+view I read two clipped tab labels near the top of the frame and was ready to
+file them. **The full-resolution crop of those exact rows contains neither** —
+the top strip holds the status bar and the CARTALITH title bar and nothing else.
+The apparent text was an artefact of the scaled-down view.
+
+**So the rule is not "look at the device", it is "look at the pixels".** Crop
+to full resolution and re-look before filing; a scaled view is a thumbnail, not
+evidence. **Two more cheap checks came out of the same pass**: take two
+captures and diff them, because one frame of an animating app is not a state
+(these differed only at the clock digit, which is what made the finding safe to
+file); and **record the installed build’s `lastUpdateTime`**, because a
+screenshot is evidence about that build and this one predated every commit in
+the session that filed it.
