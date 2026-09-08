@@ -21,6 +21,22 @@ has now moved 3 → 2 → 4 → 2 → 3 → 2 → 4 → 2 across four days, so r
 rather than a batch’s precedent, and re-read it after every owner message** — it
 has changed mid-session more than once.
 
+**Lanes may run on a smaller model — the verifier should not.** The owner
+allowed Sonnet lanes at Ultracode on 2026-09-08, for token burn. **Four batches
+in, the finding is consistent and specific: the CODE a smaller lane writes has
+been right every time; the PROOF has been the weak half.** The clearest case is
+the units probe of that morning — its three checks tested a `mi` suffix, a `km`
+suffix and inequality, **all three satisfied by relabelling**, so a mutant that
+kept the kilometre value and appended `mi` passed every one. That is exactly the
+defect the row existed for. The fix was to rebuild the expected NUMBER from the
+converter at probe time.
+
+**So write the proof requirement into the brief rather than hoping for it.** The
+sentence that worked: *"mutate the code under test and prove the assertion
+FAILS — a probe that passes its own mutant is a decoration."* The batch that
+carried it came back with whole-frame md5s and a reverted-fix control, and its
+only two refutations were about the precision of supporting claims rather than
+about a fix.
 **The verifier is never one of the lanes the count refers to, and is never the
 thing cut.** It has found a real defect in **every** batch it has run, and a
 defect in the brief itself in twenty-eight consecutive batches. Recent examples

@@ -795,3 +795,52 @@ case, and worth recording precisely because nothing has to change.**
 `.zip` on the same reasoning — different artefacts — but the owner spoke only of
 asset packs, and their format is this port’s own rather than the HTML app’s. Do
 not extend the interoperability half to them without asking.
+
+---
+
+## 2026-09-08 — Ruling G: the action button takes the canvas’s plurality
+
+### Ruling G — `action()` resolves `2px 12px`, not `10/4`
+
+**Not an owner ruling.** Made by the main loop under the owner’s standing rule
+that **the canvases in `design/mcp-2026-09-07/` are the authority for GUI**,
+and recorded here so it is not re-litigated in the next brief. **Reverse it
+freely** — it is a judgement on a genuinely ambiguous canvas, not a fact.
+
+**Why the row stalled.** It had been re-opened at the canvas on 2026-09-07 and
+**both figures previously in play turned out to be wrong.** `4px 12px` occurs
+four times in the PC canvas and **on none of the controls carrying**
+**`border-radius:8px`** — the shape the shell’s buttons use.
+`DccTheme.ROLE["btn_pad_x"]`’s own comment claimed `3px 11px`, but **every**
+instance of that in the canvas carries `border-radius:999px`: it is a **pill**
+(the add/subtract mode chips, the breakpoint targets), not the action button.
+**A false claim sitting in shipping code**, corrected in place with a census.
+
+**What blocked it was that the canvas draws no single control unambiguously**
+**"the action button."** The census of what it gives a radius-8 control:
+
+| Padding | Count | Share |
+|---|---|---|
+| **`2px 12px`** | **8** | **8 of 18** |
+| `2px 9px` | 5 | |
+| `3px 10px` | 2 | |
+| `0 14px` | 2 | |
+| `2px 13px` | 1 | |
+
+**The ruling: take `2px 12px`.** It is the canvas’s commonest treatment for
+**exactly the shape the shell’s buttons already use**, which is the narrowest
+defensible reading of "match the canvas" when the canvas does not name the
+control. The alternative — leaving the shipped `10/4`, which matches **no**
+census entry — is the one option the owner’s rule clearly excludes.
+
+**It is conditional on the count, and the lane was told so.** If a re-count
+disagrees with 8 of 18, the ruling rests on a wrong number and stops. **A
+ruling built on a figure that has already been wrong twice in this row gets to
+be provisional.**
+
+**This change has a named regression history and is guarded because of it.**
+x 10 → 12 widens and y 4 → 2 shrinks; the same class of change shipped **a
+265 px tool bar** and **DS-03’s eight over-wide minimums**. `_ds03fit_probe`
+and `_ds03shot_probe` run **before and after**, and a regression in either is a
+stop-and-report rather than something to tune around. **A laid-out size is not
+a minimum** — the rule that class of bug keeps teaching.
