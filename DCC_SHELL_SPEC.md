@@ -913,7 +913,28 @@ Plex Mono, 9–11 px, letter-spacing .12–.22 em for labels. Filled accent surf
 carry reversed paper-coloured type in both themes, never near-black on light
 amber.
 
-No fills on panels: regions are separated by hairlines only. Radius 0 everywhere.
+No fills **on panels**: regions are separated by hairlines only.
+
+> **Corrected 2026-09-08. This sentence caused two defects and both are
+> recorded here so the next port does not re-infect itself from it.**
+>
+> **1. "No fills on panels" was read as "no fills anywhere."** The restriction
+> is to panels. **This same document requires fills on interactive elements** —
+> §10: the layers popover’s active row is *"filled accent with reversed type"*;
+> §7: the active ramp’s *"row filled"*; and the type rule four lines above,
+> *"Filled accent surfaces carry reversed paper-coloured type"*, which
+> presupposes filled surfaces exist. The shell dropped fills from interactive
+> elements too, which is a plain bug rather than a reading.
+>
+> **2. "Radius 0 everywhere" is superseded by owner ruling, 2026-09-07:**
+> *"The radius should follow the newest designs."* The current canvases draw
+> **81 `border-radius:999px` pills and 76 `8px` corners in the PC file alone**,
+> and their buttons are `border-radius:8px`. **The canvases are newer and an
+> owner decision outranks a spec**, so the sentence is corrected rather than
+> left contradicting them — the owner named the mechanism directly: outdated
+> documents prevented the new style taking hold.
+>
+> **Radius follows `design/mcp-2026-09-07/`**, not this document.
 
 ---
 
