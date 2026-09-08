@@ -57,7 +57,6 @@ func _ready() -> void:
 	var dark := not ("--light" in argv)
 	DccTheme.set_phone(false)
 	DccTheme.set_touch(touch)
-	DccTheme.apply_theme(dark)
 	print("=== _winconform_probe density=%s theme=%s ===" \
 		% ["tablet" if touch else "pointer", "dark" if dark else "light"])
 
@@ -68,6 +67,48 @@ func _ready() -> void:
 	add_child(vp)
 	app = load("res://shell/app.tscn").instantiate()
 	vp.add_child(app)
+
+	## **The palette is set HERE, after boot -- never before `add_child()`
+	## above.** `add_child()` fires `app`'s `_ready()` synchronously, which
+	## runs `Menus.build()` (`menus.gd:373`), which reads the PERSISTED
+	## `DccSettings.theme_mode()` off disk (`user://cartalith_settings.cfg`,
+	## `mode="light"` on this machine) and, through `_apply_theme_mode()`
+	## (`menus.gd:4473`), repaints the whole tree to match. A palette set
+	## *before* that point is inert: boot either overwrites it (requested
+	## palette != saved one) or merely agrees with it by coincidence
+	## (requested palette == saved one) -- either way the value asserted below
+	## is what the shell actually did, not what a local variable says it asked
+	## for. This is the fix for the trap this file used to fall into: both
+	## legs previously landed on the disk-saved LIGHT palette regardless of
+	## `--light`, while printing `theme=dark`/`theme=light` from the untouched
+	## `dark` variable above.
+	##
+	## Applied through the shell's own PUBLIC `toggle_theme()`
+	## (`dcc_shell.gd:1351`) -- never `DccTheme.apply_theme()` +
+	## `rebuild_theme()` directly, which is the private pair that method
+	## itself wraps and which this probe does not own re-implementing.
+	var booted_dark := DccTheme.is_dark()
+	if booted_dark != dark:
+		app.call("toggle_theme")
+
+	## **Proof the two legs actually differ, not an inference from a flag.**
+	## Measured directly off `DccTheme.DARK`/`LIGHT` (`dcc_theme.gd:129,314`),
+	## the same dictionaries `c()` resolves against: `line` is `(0, 0, 0,
+	## 0.14)` under LIGHT and `(1, 1, 1, 0.10)` under DARK. Pinned as literals
+	## -- like the file's other ground-truth pins (e.g. "OPD close laid out at
+	## MODAL_CTL" above) -- so a later drift in either palette fails audibly
+	## here instead of this check quietly passing against whatever the two
+	## dictionaries happen to hold. Asserted before any other check runs and
+	## named alongside both constants, so "dark was never exercised" cannot
+	## repeat without this failing first.
+	var line_light := Color(0, 0, 0, 0.14)
+	var line_dark := Color(1, 1, 1, 0.10)
+	var line: Color = DccTheme.c("line")
+	print("     line token  light=%s dark=%s got=%s (booted %s, requested %s)" \
+		% [line_light, line_dark, line, "dark" if booted_dark else "light",
+			"dark" if dark else "light"])
+	_ok("palette actually in effect (line token)", line, line_dark if dark else line_light)
+
 	await get_tree().create_timer(1.6).timeout
 	_ok("frame is not the phone composition", app.call("is_phone"), false)
 	_ok("density resolved", DccTheme.is_tablet(), touch)

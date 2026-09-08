@@ -482,6 +482,49 @@ static func _draw_roofs(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 		var q := PackedVector2Array()
 		for p in b:
 			q.append(to_screen.call(p))
+		# `buildBuildings`' footprints are never degenerate in their own metres
+		# -- measured on seed 24601's "Sevjuniana" (5 009 buildings, 0 zero-area
+		# or duplicate-vertex) -- but a deep-zoomed map draws a lot at a
+		# fraction of a screen pixel while `to_screen` still carries it tens of
+		# local units from the origin (rotated about the market, then
+		# projected). At that ratio the shoelace terms that recover the
+		# footprint's tiny screen-space area subtract two large, nearly-equal
+		# products, and Godot's own triangulator loses the polygon: measured
+		# 133/5 009 (2.7 %) untriangulable this way, every one with a
+		# post-transform bounding-box diagonal under 0.09 px, versus 0/5 009 at
+		# either the original metres or a fit-to-box scale with real screen
+		# extent. `canvas_item_add_polygon` would log "Invalid polygon data,
+		# triangulation failed" and skip the draw anyway for these -- checking
+		# here just makes the skip deliberate instead of an engine error, for a
+		# lot too small to read as anything once drawn regardless.
+		# **Two narrowings from the verifier, kept because both are the kind a
+		# later reader would otherwise re-derive at cost.**
+		#
+		# **The 133 above is the DIAGNOSTIC probe's figure, not this draw's.**
+		# The real windowed render throws **151**. `_roofgeom_probe` builds
+		# `Rect2(ZERO, size)` while `map_overlay.gd:3686` draws through the
+		# INSET content rect (`_border_frac`, `:1660-1663`); `_point_to_screen`
+		# itself matches the probe exactly, so only the rect differs and the
+		# probe measures a slightly less-squeezed transform. The ratio and the
+		# conclusion hold; the count does not transfer.
+		#
+		# **This guard is NOT structurally unable to lose ink** -- an earlier
+		# note here claimed it was. True for the fill and shadow passes, which
+		# both go through `draw_colored_polygon` and so both need triangulation
+		# anyway. **Not true of the ink pass**, which strokes `q`'s edges via
+		# `draw_multiline` -- that never triangulates, so pre-fix these quads
+		# DID contribute ink. Emptying the quad also drops it from the `lot_px`
+		# median sample, which can shift `want_ink`/`want_detail`.
+		#
+		# **Unreachable in both measured configurations**, which is why the
+		# before/after frames are byte-identical: deep zoom passes `detail=0.0`
+		# so the ink pass does not run, and at fit-to-box scale there are zero
+		# degenerate quads to skip. **A change that draws ink at deep zoom would
+		# make it reachable**, and then the right fix is to keep the quad for
+		# the ink pass and skip only the two polygon passes.
+		if Geometry2D.triangulate_polygon(q).is_empty():
+			quads[i] = PackedVector2Array()
+			continue
 		quads[i] = q
 
 	# How big is a roof, on screen, right now? Sampled, and taken as the median

@@ -173,6 +173,9 @@ its rule before you start.
 | **Trust a probe that reads `user://`** | **A probe must set up the state it asserts on, or declare and clear it.** Two sessions ran `_nwsize_probe` on a byte-identical tree with the same `.dll`: one got **fail=1 twice**, the other **fail=0 twice**. Neither is flaky — they read different persisted state. `cartalith_settings.cfg` carries a `[recent] paths` list and a `projects=…/Worlds` root, probe runs WRITE it, and whether the project picker is presented depends on it. **A probe that reads what its siblings wrote can go green for reasons unrelated to the code.** |
 | **Blame persisted state for a probe that disagrees between sessions** | **Check the DISPLAY DRIVER first — `--headless` is a different application.** I named `cartalith_settings.cfg` as the cause because its mtime happened to fall inside a run window. Measured: `RenderingServer.frame_post_draw` fires **0 of 240 frames headless** and **239 of 240 windowed**, and `app.gd::_open_welcome_when_drawn()` awaits it — so headless never presents the project picker and the probe asserts against the main shell. `user://` was then ruled out properly, by running four settings states and getting `fail=0` in all four. **An mtime inside a window is a coincidence, not a mechanism.** |
 | **Fix a touch hazard on a text field** | **The lever is `focus_mode`, and the two obvious ones cannot work — know why before reaching for them.** `Viewport::_gui_input_event` grabs focus **before** `_gui_call_input`, so `accept_event()` in `_gui_input` never gets the chance; and `MOUSE_FILTER_PASS` forwards nothing because `LineEdit::gui_input` accepts every left press. That is why fields already set to `PASS` were as stuck as the `STOP` ones. **A five-way table settled it in one run**; three of the five rows were the plausible fixes, and all three failed. |
+| **Quote a count from a DIAGNOSTIC probe** | **Check its transform is the real draw’s.** A probe built `Rect2(ZERO, size)` where the renderer draws through an INSET content rect, so it measured a less-squeezed projection and reported 133 failures where the real render throws 151. The ratio held; the count did not transfer |
+| **Write "structurally cannot"** | **Check every consumer, not the one you are thinking of.** A guard that skipped untriangulable polygons was called structurally unable to lose ink — true of the two passes that triangulate, **false of the ink pass, which strokes via `draw_multiline` and never triangulates**. It was unreachable only because of the configurations measured |
+| **Fix a probe’s ordering bug** | **Ordering alone rots.** Add an assertion on a value that DIFFERS between the two states, or the next boot-order change silently reverts the coverage without failing |
 | **Cite a line as evidence that a defect is live** | **Reading two lines is not reading a block.** When the citation is a draw call, read what BRACKETS it — a `push`/`pop`, a `_begin`/`_end`, a transform set and reset. **Then `git log -S` the helper**: one command dates the fix, and a site fixed two weeks ago reads exactly like a site that was never broken |
 | **Read several lines with `sed -n 'Ap;Bp'`** | **It prints in FILE order, not the order you typed.** Ask for one line at a time, or use `awk 'NR==A{print "A: "$0}'` so each line carries its own number — a reversed read put a false *"the row’s line numbers are swapped"* correction into a lane brief |
 | **Strip comments and strings to find call sites** | **Strings FIRST (triple-quoted, then single-line), then comments.** A `#` inside a string literal otherwise orphans its closing quote, which pairs with the next quote anywhere later and eats every newline between — one file measured 299 lines → 62, silently swallowing real call sites. **Self-check by line count before trusting the output** |
@@ -1035,3 +1038,35 @@ a site that was never broken, and only history separates them.
 which was the row’s entire deliverable. It sat open long enough to be found by
 a cheapness scan rather than by remembering it, which is the argument for the
 preflight table existing at all.
+
+### [2026-09-08] The first batch where the proof was as good as the code
+
+Recorded because it is the counter-example to the three entries above it, and
+because what made the difference was cheap and repeatable.
+
+**Both lanes were required to demonstrate that their assertion FAILS on a
+mutant**, and both did. The roof fix silences 151 engine errors — a fix that
+silenced them by drawing nothing would pass any error-count check, so the
+verifier compared **whole frames**: before and after are byte-identical (md5
+`05f6b300…`, `ImageChops.getbbox()` over the full 1152×648 returns `None`) and
+the frames are not blank (24.6 % ink, 1 464 distinct colours). The theme probe
+was mutated by restoring the pre-boot ordering, and its new assertion exits 1
+with the palette values printed.
+
+**The diagnosis itself was tested with the fix REVERTED**, so the guard could
+not mask the result: at fit-to-box scale, 9 700 buildings, zero triangulation
+failures — same generator, same function. That is what makes *"degenerate only
+after the transform"* a measurement rather than a story.
+
+**Both refutations were about the PRECISION of a supporting claim**, not about
+a fix — a count taken from a diagnostic probe whose transform differed from the
+real draw’s, and a *"structurally impossible"* that held only in the two
+configurations measured. **Both were written into the code that carries them.**
+A narrowed claim that lives only in a verifier’s report is a claim nobody will
+read; the next person to touch that guard needs to know the ink pass does not
+triangulate, and the only place they will look is the guard.
+
+**The rule worth carrying: an over-claim in a comment is a defect with a delay
+on it.** It costs nothing today, because it is true of everything currently
+measured, and it misleads exactly the person who changes the configuration that
+made it true.
