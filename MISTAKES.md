@@ -173,6 +173,7 @@ its rule before you start.
 | **Trust a probe that reads `user://`** | **A probe must set up the state it asserts on, or declare and clear it.** Two sessions ran `_nwsize_probe` on a byte-identical tree with the same `.dll`: one got **fail=1 twice**, the other **fail=0 twice**. Neither is flaky — they read different persisted state. `cartalith_settings.cfg` carries a `[recent] paths` list and a `projects=…/Worlds` root, probe runs WRITE it, and whether the project picker is presented depends on it. **A probe that reads what its siblings wrote can go green for reasons unrelated to the code.** |
 | **Blame persisted state for a probe that disagrees between sessions** | **Check the DISPLAY DRIVER first — `--headless` is a different application.** I named `cartalith_settings.cfg` as the cause because its mtime happened to fall inside a run window. Measured: `RenderingServer.frame_post_draw` fires **0 of 240 frames headless** and **239 of 240 windowed**, and `app.gd::_open_welcome_when_drawn()` awaits it — so headless never presents the project picker and the probe asserts against the main shell. `user://` was then ruled out properly, by running four settings states and getting `fail=0` in all four. **An mtime inside a window is a coincidence, not a mechanism.** |
 | **Fix a touch hazard on a text field** | **The lever is `focus_mode`, and the two obvious ones cannot work — know why before reaching for them.** `Viewport::_gui_input_event` grabs focus **before** `_gui_call_input`, so `accept_event()` in `_gui_input` never gets the chance; and `MOUSE_FILTER_PASS` forwards nothing because `LineEdit::gui_input` accepts every left press. That is why fields already set to `PASS` were as stuck as the `STOP` ones. **A five-way table settled it in one run**; three of the five rows were the plausible fixes, and all three failed. |
+| **Cite a line as evidence that a defect is live** | **Reading two lines is not reading a block.** When the citation is a draw call, read what BRACKETS it — a `push`/`pop`, a `_begin`/`_end`, a transform set and reset. **Then `git log -S` the helper**: one command dates the fix, and a site fixed two weeks ago reads exactly like a site that was never broken |
 | **Read several lines with `sed -n 'Ap;Bp'`** | **It prints in FILE order, not the order you typed.** Ask for one line at a time, or use `awk 'NR==A{print "A: "$0}'` so each line carries its own number — a reversed read put a false *"the row’s line numbers are swapped"* correction into a lane brief |
 | **Strip comments and strings to find call sites** | **Strings FIRST (triple-quoted, then single-line), then comments.** A `#` inside a string literal otherwise orphans its closing quote, which pairs with the next quote anywhere later and eats every newline between — one file measured 299 lines → 62, silently swallowing real call sites. **Self-check by line count before trusting the output** |
 | **Assert that a converted value CHANGED** | **Inequality plus a suffix is satisfied by relabelling.** Reconstruct the expected NUMBER from the converter itself (`DccUnits.to_unit()`), never from a typed constant — a mutant that kept the km value and appended `mi` passed all three of the probe’s original checks |
@@ -1004,3 +1005,33 @@ does not crash and it does not return nothing; it returns a slightly-too-long
 list of things that look unreachable. **A census whose method can silently drop
 input needs a conservation check** — lines in, lines out — and this row had
 already shipped a wrong count twice before anyone added one.
+
+### [2026-09-08] Everything I said checked out except the part that mattered
+
+The owner reported blurry map labels. I told them the diagnosis was *"CORRECT —
+confirmed at two symbols before this brief was written"*, citing
+`map_overlay.gd:2105-2106` as a `draw_string` pair inside the scaled camera.
+
+**`:2104` is `_crisp_begin()` and `:2107` is `_crisp_end()`.** That path already
+rasterises at screen resolution and measures **1.11 contrast retained at 3×**.
+`git log -S` dates the fix to **`c9bfcca`, 2026-08-24** — *"The map overlay
+rasterised in the wrong space, twice"* — made for an earlier report of the same
+words. **The blurry path was `_draw_labels()` all along**, and that is what was
+eventually fixed.
+
+**The mechanism I described was real; the SITE was already fixed.** That
+combination is the dangerous one, because nothing in the explanation sounds
+wrong — the physics of the blur, the reason a scaled canvas produces it, the
+remedy — all correct, all about code that had not been broken for two weeks.
+A confident wrong citation is worse than no citation: it ends the search.
+
+**Two cheap habits would each have caught it.** Read what brackets the line —
+a draw call inside a `_begin`/`_end` pair is a different claim from a bare one.
+And **`git log -S` on the helper name**, which is one command and dates every
+change to it; a site fixed a fortnight ago is textually indistinguishable from
+a site that was never broken, and only history separates them.
+
+**Filed as a row on 2026-09-08 and closed the same day** — by writing this,
+which was the row’s entire deliverable. It sat open long enough to be found by
+a cheapness scan rather than by remembering it, which is the argument for the
+preflight table existing at all.
