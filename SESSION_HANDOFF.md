@@ -13,21 +13,30 @@ Anything that moves is derived by a command in step 1.
 **Keep working through the items on the outstanding work list. Verify each piece
 of work done. Use at most 3 agents at a time. Every time a batch is done, update
 the outstanding work file before starting the next. The goal is complete when the
-whole list has been finished.**
+whole list has been finished. GUI work still is the leading priority.**
 
-**Four agents to build or fix, plus the verifier** (owner, 2026-09-12: *"You can
+*That is the goal as the owner last set it (2026-09-12). Its "3 agents" predates the
+owner changing the builder count later that same day (to four, then five, then three) — **the count line
+directly below governs**, not the goal text.*
+
+**Three workers to build or fix, plus a verifier per batch** (owner, 2026-09-12:
+*"When the 5 finished scale back to 3"* — applied from the first dispatch after the
+five concurrent builders of that evening finished, not by stopping them. Before it:
+*"Use 1 extra agent, so we got a total of 5 concurrent workers"*, after
+*"You can
 use 2 extra agents. So 4 total to build or fix"* and *"As long as they don’t work
 on items that might cause conflicts"* — raised from two build lanes). **The count
-has now moved 3 → 2 → 4 → 2 → 3 → 2 → 4 → 2 → 4 across six days, so read THIS LINE
+has now moved 3 → 2 → 4 → 2 → 3 → 2 → 4 → 2 → 4 → 5 → 3 across six days, so read THIS LINE
 rather than a batch’s precedent, and re-read it after every owner message** — it
-has changed mid-session more than once. **Four builders can be two concurrent
-batches of two, each with its own verifier** — and then the batches must be
+has changed mid-session more than once. **Several builders can run as concurrent
+batches, each with its own verifier** — and then the batches must be
 **measurement-disjoint as well as file-disjoint**: a lane that moves a quantity
 another running lane is measuring corrupts that lane’s evidence with no file
 shared between them. Near a usage limit, go back to one workflow at a time.
 
 **Lanes may run on a smaller model — the verifier should not.** The owner
-allowed Sonnet lanes at Ultracode on 2026-09-08, for token burn. **Four batches
+allowed Sonnet lanes at Ultracode on 2026-09-08, for token burn, and on 2026-09-12
+set the model policy as *"either opus or Sonnet 5 at Ultracode or Max effort"*. **Four batches
 in, the finding is consistent and specific: the CODE a smaller lane writes has
 been right every time; the PROOF has been the weak half.** The clearest case is
 the units probe of that morning — its three checks tested a `mi` suffix, a `km`
@@ -120,9 +129,13 @@ owner’s words (2026-09-07):**
 
 **So the before/mid/after discipline is scaffolding the owner has already agreed
 to drop at parity — it is not the goal. The reference is.** Where the canvases
-and a project document disagree, **the canvases win**: `DCC_SHELL_SPEC.md` §11
-still says *"Radius 0 everywhere"* and was superseded by owner ruling
-(*"The radius should follow the newest designs"*, 2026-09-07).
+and a project document disagree, **the canvases win**. The standing example:
+`DCC_SHELL_SPEC.md` §11 said *"Radius 0 everywhere"* until owner ruling
+(*"The radius should follow the newest designs"*, 2026-09-07) superseded it, and
+the sentence was **corrected at the source on 2026-09-08** (`f9dba6c`) — radius
+follows `design/mcp-2026-09-07/`. **Where a document still disagrees with a
+canvas, correct the document in the same change**, or the next port re-infects
+itself from it.
 
 **Defects the owner reports ON GLASS outrank every conformance row.** They have
 been right every time and have found in minutes what full sessions of green
@@ -267,7 +280,9 @@ files it does not own.
 - **Never edit**: `reference/*.html` (both frozen snapshots), `.gitignore`,
   `project.godot`, any `Cargo.toml`. `export_presets.cfg` is off limits except
   one scoped owner authorisation (probe-scene `exclude_filter`).
-- **Commit only when the owner asks.** Explicit-path `git add` only — never
+- **Commit once per verified batch, after its verifier reports** (owner, 2026-09-03 —
+  see *Commit per verified batch* above; until 2026-09-12 this line read *"Commit only
+  when the owner asks"* and contradicted it). Explicit-path `git add` only — never
   `-A`/`-a`. Never `--force` on push. Branch, don't commit to `main`.
 - **Declaring green needs both checks**: `cargo test --workspace` (never a crate
   subset) **and** `godot --headless --check-only --script` on every touched `.gd`
@@ -287,6 +302,13 @@ files it does not own.
 
 **0. Anything the owner reported on glass, first — ahead of all of these**
 (2026-09-07, and it has outranked the list every time it has come up).
+
+**Then the tablet interface, which has not been overhauled yet** (owner, 2026-09-12:
+*"Starting with the gui points (as tablet interface hasn’t been overhauled yet)"*).
+The tablet canvas is a different shell from the desktop one, not a scaled copy —
+`TABLET_UI_SPEC.md` inventories it region by region, and the backlog’s own tablet
+rows give the order: composition and the menu bar first, since those are what read
+as "the PC layout".
 
 Then the standing 2026-09-03 order:
 

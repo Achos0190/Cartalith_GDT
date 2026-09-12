@@ -293,6 +293,16 @@ body at all; the shell, having no header, leaks half a row of it. Reverted, with
 batch’s citation sweep stopped correctly at its gate: 51 stale canvas citations, not 49, and of its three
 disagreements only one is the shell drifting from the canvas.
 
+**Three concurrent batches ran, and all three were refuted in part and reverted.** Five builders worked
+at once on the owner’s instruction, file- and measurement-disjoint, and every change is kept as a
+re-appliable patch in `.claude/resume-2026-09-12/`. The tablet rail fix and menu collapse worked, but
+shipped inside a landscape dock change that did not render as declared and turned three committed probes
+red; the seed fix broke rolled seeds; the re-arm lane shipped past its own gate and swallowed navigation.
+What survives is findings: the seed mechanism (Android BACK never commits a `SpinBox`), proof that the
+planner is the only view with the re-arm pattern, and a pre-existing bug where re-entering a domain
+overwrites any armed tool’s options row. Zoom did not reproduce on desktop — an empty patch at deep
+zoom, not a freeze.
+
 **The on-glass method’s blanket claim was split.** A desktop probe cannot prove
 a finger reaches a control — but the same clipping defect reproduces on the
 desktop composition within **3 px** of the device, so **desktop layout
