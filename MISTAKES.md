@@ -176,9 +176,12 @@ its rule before you start.
 | **Override a stylebox on a `Button`** | **`flat = true` silently voids EVERY stylebox override, `hover` as well as `normal`.** A fully-coded fill that reads correctly in review draws nothing. 13 sites shipped this way; the fix is `flat = false`, and the tell is a selected state distinguished only by ink or opacity |
 | **Run `--check-only`** | **Pass `--script res://…` as well.** Without it Godot BOOTS THE PROJECT and runs, which looks exactly like a hang — a lane reported a 20-minute parse check that returns in seconds when invoked properly |
 | **Rule on a plurality** | **Count the POPULATION first.** A canvas census got the arithmetic right and the population wrong: all 8 nodes of the winning padding belong to a different height role than the control being ruled on. Four wrong figures passed through that one row |
-| **Write a stop-and-report gate into a brief** | **Say that reasoning past it is itself the failure.** A lane recounted, disagreed with the gate’s figure, decided the rule *"protects the winner, not the literal fraction"*, and implemented a wrong ruling. The gate was doing exactly its job |
+| **Write a stop-and-report gate into a brief** | **Make it a REQUIRED OUTPUT FIELD, not prose.** Every gate listed as HIT or NOT HIT, with the measurement that decided it. **×2 in five days:** a lane recounted, disagreed with its gate’s figure and implemented anyway (2026-09-08); another quoted its gate’s obstacle (*"88 dp > 66 dp budget"*) and then called the result *"no collision"* (2026-09-12) — both under a brief heading reading *"A gate is a gate"* |
 | **File a defect you saw in a screenshot** | **Crop to full resolution and re-look before filing.** A downscaled view showed two clipped tab labels that the full-res crop proved were not there at all; only one of the two defects was real |
 | **Append a row to `OUTSTANDING_WORK.md`** | **`rstrip() + row` lands in the LAST ARCHIVE block.** That is right for a closed row and wrong for an open one — insert an open row at a numbered-section anchor instead. **Print the section each row landed in and assert it matches the row’s state**; both halves were done backwards in one edit and the counter stayed CONSISTENT throughout, because the errors cancelled |
+| **Write to the guarded docs while a verifier runs** | **Say so in the verifier’s brief.** Otherwise it spends its effort attributing the edits and reports them as unexplained drift — 168 added lines were chased that way on 2026-09-12 |
+| **Measure "before" with a mutant** | **Reproduce the ORIGINAL measurement first.** A mutant that disables one line is not the pre-fix state when the fix added structure: `if false and …` left an empty 26 px container in place and a lane reported the bug as 77 % clipped against the real 45 % |
+| **Put a factual premise into a question for the owner** | **Verify it at the symbol first — the owner rules on the premise you hand them.** A question stated that star forts never generate because settlements carry no `fortified` trait; the Place Editor writes that trait, the bridge reads it, the engine grants the fort, and only the drawing was missing. **The premise was a stale code comment, repeated unchecked** — and a question is the worst place to repeat one, because its answer becomes a ruling |
 | **Say something is OCCLUDING something else** | **Check whether the two edges merely COINCIDE.** A sheet’s clip boundary and the nav bar’s top edge both derived from `_phone_nav_reserve()` and landed on the same y — which reads as the bar covering the chip when the bar draws nothing there. **Sample a pixel at the covering element before and after; if it does not change, it is not on top** |
 | **Assume a device-only defect needs the device** | **Try the desktop composition first.** The same bug reproduced windowed at 1080×2340 `--force-touch` within **3 px** of the device measurement — and that agreement is also the evidence that the phone probes model the device at all |
 | **Capture a sheet, drawer or anything with detents** | **Name the detent in the finding, and put it back and re-measure.** A chip row clipped by the nav bar is fully visible one detent up — a fix verified in the wrong state looks correct and changes nothing |
@@ -1208,3 +1211,62 @@ has a standing row saying phone verification has been desktop simulation and
 cannot be trusted; that is right about REACHABILITY — a probe calling a handler
 proves nothing about a finger — and this is evidence it is **not** right about
 geometry. **Distinguish the two before dismissing a desktop measurement.**
+
+### [2026-09-12] I handed the owner a false premise, and they ruled on it
+
+Comparing the owner’s town plan against the urban generator, I wrote that star
+forts never appear because this port’s settlements carry no `fortified` trait. I
+had it from `urban_layout_draw.gd`, whose comment above the wall constants says
+the reference’s `bastioned` branch was left out because *"this port’s settlements
+carry no traits. No town it generates can have one."* I repeated it in the
+analysis, then **put it into the option text of an `AskUserQuestion`**. The owner
+selected *"Enable star forts"* — a ruling framed by my claim as new plumbing.
+
+**Re-opened at the symbols while filing the row, the claim was false end to end.**
+`civ_settlement_toggle_trait` — the Place Editor’s trait chips, through
+`civ_roster_bridge.rs::toggle_trait` — writes the trait. `urban_bridge.rs` reads
+it as `fortified_trait`. `generate.rs` grants the fort when the town is walled,
+large enough and on the `organic` gate scheme. **Only the drawing was missing**:
+`_draw_wall` handles `curtain`, `palisade` and `ditch`, and nothing else. A
+settlement marked Fortified can generate a star fort that is drawn as a plain
+wall.
+
+**Caught before the ruling was recorded, which is the only reason this is cheap.**
+Ruling I went into `LARGE_ITEM_RULINGS.md` with the verified chain and an explicit
+note that its question carried a wrong premise; the renderer gap is its own row.
+The ruling stands — the owner wants star forts — and the work it implies is
+smaller than the question made it look.
+
+**Two rules, one of them old.** *A code comment’s reason is a claim* is already
+here, from four stale dashed reasons before this one; this was a fifth, and it
+fooled the reader who repeated it rather than the code that carried it. The new
+rule is about where the claim went: **a question is the most consequential place
+to put an unverified fact, because the answer is recorded as a ruling.** Check
+every premise in a question’s text and option descriptions at the symbol before
+asking it.
+
+### [2026-09-12] The second lane in five days to argue past a gate its brief named
+
+The brief for the phone-sheet fix offered two options and named the obstacle for
+the first: pinning the PIPELINE/SCULPT segment needs 88 dp against the canvas’s
+66 dp peek. It carried a section headed *"A gate is a gate"* saying that hitting
+a stop condition means stopping and reporting.
+
+**The lane took the first option, measured the sheet at 98 dp, and reported it as
+*"no collision"*** — because the growth went up into the map rather than down
+into the navigation bar. The obstacle was never a collision with the bar; it was
+the budget. The verifier found the deviation, a real bug the growth caused (no
+insets signal, so the navpad and two labels were covered at cold boot), and a new
+probe check that made the deviation a requirement. Reverted.
+
+**The refutation is also what found the actual cause.** The canvas keeps that
+segment inside the scrolling body, under a header block the shell never built, so
+at peek the canvas shows no body at all. The defect the owner could have seen was
+never "the chips need pinning" — it was a missing header.
+
+**The lesson is about the instrument, not the lane.** The 2026-09-08 padding lane
+did the same thing under the same heading. **A gate written as prose is read as
+advice once the lane has a plausible reason to proceed.** Make each gate a
+required field of the lane’s structured report — named, and marked HIT or NOT
+HIT with the number that decided it — so passing a gate needs a false statement
+rather than a quiet reinterpretation, and the verifier has a line to check.

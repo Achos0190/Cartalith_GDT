@@ -267,6 +267,32 @@ sharper.
 block-ground triangulation failure out of its scope, correctly, and recorded it
 only inside its own closed row. Filed.
 
+**Four owner rulings, H-K, set the direction for urban generation and the LOD
+zoom** (`LARGE_ITEM_RULINGS.md`), given against two reference images now vendored
+at `design/owner-references-2026-09-12/`. Urban generation moves toward a walled
+market-town plan by three routes — draw what the model already generates, add a
+culture profile, and change the ported algorithm under an **authorised golden
+re-baseline scoped to `cartalith-urban`**. A citadel is to be built, star forts
+drawn, and a menu added to set a settlement’s city type and regenerate it alone.
+The zoom target is the Aletsch image read top-down with 3D still parked, and the
+order is ruled: LOD tiles carry colour first, then ice. **All of it sits behind the
+GUI rows, tablet first.** Seven rows filed; backlog 119 → 126.
+
+**One of those rulings was asked on a false premise, and caught before it was
+recorded.** The question told the owner star forts never generate because
+settlements carry no `fortified` trait. Re-opened at the symbols while filing the
+row, the trait path is live end to end and only the renderer’s bastioned branch
+is missing — left out on a comment’s reason that went stale. Ruling I was
+recorded with the verified chain, and the mistake is in `MISTAKES.md`.
+
+**A phone fix was built, refuted and reverted — and the refutation found the real cause.** A lane pinned
+the GENERATE sheet’s PIPELINE/SCULPT segment above its scroll so the chips stop showing half-clipped at
+peek. The verifier measured the sheet at 98 dp against the canvas’s 66 and found the canvas keeps that
+segment inside the scrolling body, under a header block the shell never built. At peek the canvas shows no
+body at all; the shell, having no header, leaks half a row of it. Reverted, with the patch kept. The same
+batch’s citation sweep stopped correctly at its gate: 51 stale canvas citations, not 49, and of its three
+disagreements only one is the shell drifting from the canvas.
+
 **The on-glass method’s blanket claim was split.** A desktop probe cannot prove
 a finger reaches a control — but the same clipping defect reproduces on the
 desktop composition within **3 px** of the device, so **desktop layout
@@ -851,7 +877,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-12: 119 items.** Run
+**Recounted 2026-09-12: 128 items.** Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for
