@@ -221,6 +221,22 @@ Dated, because this is what a returning session needs and it is exactly what
 went missing from the old file. Commits are from `git log`; each claim below was
 re-checked against the tree rather than copied from the commit message.
 
+### 2026-09-09 – 2026-09-11
+
+**Nothing happened, and that is the whole entry.** The weekly usage limit was
+reached partway through a batch on 2026-09-08 and reset on 2026-09-12. **No
+commits, no lanes, no tree changes** — `git log` shows the jump directly from
+2026-09-08 to 2026-09-12.
+
+**Written down because an undated gap reads as missing records.** The
+2026-09-03 – 2026-09-06 block above is the opposite case: work happened there
+and was never written up. **This one is a genuine quiet period**, and a session
+reading `git log` should not go looking for the batch that filled it.
+
+**One batch was lost rather than half-finished**, which matters for trusting
+the tree: all three of its agents failed at dispatch, so the working tree was
+clean at `1bc24f6` and nothing partial had to be unwound. It was re-dispatched
+unchanged on 2026-09-12.
 ### 2026-09-08
 
 **Cheapest-first, at the owner’s direction** — *"locate low hanging fruit…
@@ -775,7 +791,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-08 (late): 119 items.** Run
+**Recounted 2026-09-08 (late): 118 items.** Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for
