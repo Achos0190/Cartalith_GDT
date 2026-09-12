@@ -45,7 +45,13 @@ own commit introduced; a lane that measured a desktop `PopupMenu` and declared
 the owner’s request impossible while the owner was holding a phone; and, twice,
 **my own claim that nothing else was writing the tree.**
 
-## Budget posture (owner, 2026-09-07, at 9% of the weekly limit)
+## Budget posture (owner, 2026-09-07 — standing guidance, not a snapshot)
+
+*Written at 9 % of the weekly limit. The limit was then reached mid-batch on
+2026-09-08 and reset on 2026-09-12; the rules below held throughout and do not
+depend on that figure.* **A batch killed by the limit fails its agents at
+dispatch**: check `git status` for partial writes, then relaunch with
+`resumeFromRunId` — finished agents return cached and only the rest re-run.
 
 **When the weekly budget is tight, lanes are the wrong first economy — cut the
 work that does not need a lane at all.** Three moves, in the order they pay:
@@ -68,8 +74,8 @@ work that does not need a lane at all.** Three moves, in the order they pay:
 are already paid for; stopping it discards their output and leaves a debt that
 costs more to discharge later than the verifier would have cost to finish.
 
-**Report spend honestly when asked.** Recent batches have run roughly 600k–1M
-subagent tokens each; that is the number that matters, not the lane count.
+**Report spend honestly when asked.** Recent batches have run roughly 400k–800k
+subagent tokens each (measured 2026-09-08: 408k, 534k, 572k, 787k); that is the number that matters, not the lane count.
 
 Keep lanes **file-disjoint**: assign by crate or by directory, and where two rows
 want the same file, serialize them across batches rather than forbidding the edit

@@ -17,9 +17,9 @@ become a second changelog and mis-stamped itself 2026-08-25.
 
 ## Orientation — read this screen, then stop if that is all you need
 
-**Phase.** Phases 0, 1, 2 and 4 are complete. **Phase 3 (rendering) and Phase 5
-(urban morphology) are both in progress**, and they are the only two phases with
-work outstanding.
+**Phase.** Phases 0, 1, 2, 4 and 5 are complete. **Phase 3 (rendering) is the
+only phase with milestone work outstanding.** Phase 5’s milestones closed on
+2026-09-03 and this line said *in progress* until 2026-09-12 — see below.
 
 - **Phase 3** — the 2D half is done (`TERRAIN_APPEARANCE_SCOPE.md` milestones
   1-6, all six verified below). **The 3D drape does not exist**: zero
@@ -31,23 +31,21 @@ work outstanding.
   with its recommendation made and its own *Status: parked* heading listing
   three unanswered questions. `DECISIONS.md` §4 continues to stand and **no 3D
   work of any kind is scheduled**.
-- **Phase 5** — **moved substantially on 2026-09-02 and this paragraph was
-  rewritten with it.** Milestones 1-7 and 12 were complete, with 8a and 17a out
-  of order and 17 at 13 of its 20 adapter functions. **Milestones 8, 9, 10, 11,
-  13, 14 and 15 now have code**: `crates/cartalith-urban/src/lib.rs` declares
-  sixteen modules, not the ten it declared the day before — `radial` (m8, 320
-  lines), `water` (m9, 693), `fortify` (m10, 1 288), `cleanup` (m11, 645),
-  `districts` (m13, 1 307), `amenities` (m14, 758) and `hinterland` (m15, ~1 054
-  lines) joined `astar`, `blocks`, `geom`, `graph`, `growth`, `plaza`, `rng`,
-  `routes`, `rules` and `site`.
-  `cargo test -p cartalith-urban` went **119 → 258 passed, 0 failed**.
-  **Still open: milestone 16** (blocked by definition on 8-15) and the rest of 17.
+- **Phase 5** — **milestones complete, verified 2026-09-03 in `9e79e52`, and this
+  file did not record it for nine days.** Until 2026-09-12 this paragraph said
+  milestone 16 was still open and that a verification pass over milestones 9, 10
+  and 13 — ported by agents that died before reporting — was *in flight*. Both
+  had been settled by three adversarially verified batches (16-18): milestone 16
+  had already shipped in `cff1edc`, with its golden **re-derived independently
+  from the frozen reference** (`node tools/um_capture.js`, 29 cases, byte-identical);
+  **12 of 13 stage modules proven mutation-covered**; and milestone 17’s five
+  `_um*` adapters survive mutation.
 
-  **Read that as "code exists", not "milestone done".** Milestones 9, 10 and 13
-  were ported by agents that died before reporting, so their claims have never
-  been checked by anything but the compiler and their own tests — the largest
-  two, 10 and 13, most of all. A verification pass is in flight. Until it
-  reports, the honest status of 9/10/13 is *ported, unreviewed*.
+  **What remains is defects, not milestones**, which is why the table marks it
+  **done\***. That commit does not name the one stage module left unproven, and
+  nothing this sweep found says whether it is 9, 10 or 13. One drawing defect is
+  filed in `OUTSTANDING_WORK.md`: the block-ground fill in `draw_layout` still
+  fails triangulation at deep zoom. **`ROADMAP.md` has not been told.**
 
 | Phase | `ROADMAP.md` says | This file says | The one thing to know |
 |---|---|---|---|
@@ -56,10 +54,28 @@ work outstanding.
 | **2** — civilisation layer | done | **done** | All 21 milestones, plus the Journey Planner sub-phase engine-complete at 66 of 74 `jp*` functions |
 | **3** — rendering and 3D | partial | **partial** | 2D done, 3D absent and parked |
 | **4** — Asset Library | done | **done** | Eight milestones, not the seven `ROADMAP.md` counts — the slicer landed 2026-08-20 |
-| **5** — urban morphology | in progress | **in progress** | The largest outstanding block; see above |
-| *not a phase* — LOD and large worlds | "revisit when a concrete need appears rather than building it speculatively" | **built and shipping** | A tiled deep-zoom pyramid with a persistent chunk atlas is on screen. `ROADMAP.md` has not been told |
+| **5** — urban morphology | in progress | **done\*** | Every milestone has code; 16 and 17 closed under adversarial verification 2026-09-03 (`9e79e52`), 12 of 13 stage modules mutation-covered. Open work is defects. `ROADMAP.md` has not been told |
+| *not a phase* — LOD and large worlds | "revisit when a concrete need appears rather than building it speculatively" | **built and shipping — but not sharper** | A tiled deep-zoom pyramid with a persistent chunk atlas is on screen, **and a deeper level cannot add detail**: tiles carry a shade ratio over one grid-resolution colour texture, and `renderBiomeTileRGBA` is unported (measured in `OUTSTANDING_WORK.md`). Owner-supplied direction arrived 2026-09-12 as `docs/research/lod extra info.md`. `ROADMAP.md` has not been told |
 
 **What landed most recently** (full week in *The last seven days* below):
+
+> **This list stopped at 2026-09-02 and read as current for ten days** — in
+> the one section headed *"read this screen, then stop"*. The newer entries are
+> in *The last seven days* below and are the ones to read first:
+> **2026-09-12** (resumed after the weekly limit; Phase 5 found finished since
+> 2026-09-03 and never recorded; the on-glass method calibrated; owner-supplied
+> LOD-detail research arrived and was mapped), **2026-09-08** (backlog
+> 126 → 118; roofs drawing again; thirteen fills that had never drawn; a
+> padding ruling made and withdrawn; the first pass on glass), **2026-09-07**
+> (the three design canvases became the definition of done).
+>
+> **Cargo floor: 3 253 passed / 0 failed / 28 ignored across 157 result
+> lines**, first recorded in `bb9a648` at 23:13 on 2026-09-07. **No Rust has
+> changed since that record** — the only `.rs` or `Cargo` commit after
+> 2026-09-07 00:00 is `77f9194`, at 04:25 the same day, nineteen hours before
+> it. The entries below are kept as history; every figure in them is true of
+> its own day and not of today.
+
 
 1. **2026-09-02** — **the landmark ("point of interest") pass, reported broken
    by the owner, root-caused to three defects and fixed**; nine backlog rows
@@ -74,7 +90,7 @@ work outstanding.
    a software-rasterizer fallback the code's own comment denies; no `log`
    backend anywhere, which makes the Android "zero wgpu lines in logcat" PASS
    condition unfalsifiable; and LOD tiles in the route-map cutout registered
-   half a world cell off. Detail in *2026-09-02* below. **Uncommitted.**
+   half a world cell off. Detail in *2026-09-02* below. **Uncommitted when written — since committed in `4ec07f5`.**
    **Later the same day**, two further waves of five agents each, every engine
    lane adversarially verified: **urban 17a golden-verified** (UM-17A-G above —
    the blocker was wrong rather than stale, and two real port bugs fell out of
@@ -93,7 +109,7 @@ work outstanding.
    v24.19.0 runs the frozen reference, proved two ways by
    `tools/jsruntime_probe.js`, and everything the claim gated had shipped on
    2026-08-15. `cargo test --workspace` **2 751 passed, 0 failed, 21 ignored**
-   (floor was 2 734). **Uncommitted.**
+   (floor was 2 734). **Uncommitted when written — since committed in `45b368d`.**
 2. **2026-09-01** — `OUTSTANDING_WORK.md` §1's eight in-flight items worked in
    parallel and independently re-verified against the code, not the reports:
    `UNWIRED_FUNCTIONS.md` re-cut from scratch (75 open rows → 23, dangerous
@@ -221,6 +237,50 @@ Dated, because this is what a returning session needs and it is exactly what
 went missing from the old file. Commits are from `git log`; each claim below was
 re-checked against the tree rather than copied from the commit message.
 
+### 2026-09-12
+
+**Work resumed after the weekly limit reset, and most of the day went on the
+record rather than the tree.** The batch lost to the limit on 2026-09-08 had
+failed at dispatch, so the tree was clean and it was re-dispatched unchanged;
+the process then exited mid-batch and the run was resumed from its cache,
+which returned the one agent that had already finished.
+
+**The costliest staleness was Phase 5.** This file’s Orientation and phase
+table called urban morphology *in progress* — the project’s largest
+outstanding block — nine days after `9e79e52` closed its last two milestones
+under adversarial verification, and `CLAUDE.md`, which loads into every
+session, said the same in its Contents table: a moving status in the one file
+its own rules say must never carry one. Both corrected.
+
+**Three more documents that answer "where are we" had gone stale while the
+detail beneath each was kept current.** The Orientation’s *"what landed most
+recently"* still led with 2026-09-02 and called that work *uncommitted* ten
+days after `4ec07f5` and `45b368d` committed it. `OUTSTANDING_WORK.md`’s
+headline said **100** against a live count of **118**. `SESSION_HANDOFF.md`’s
+budget section was headed with a weekly-limit percentage that had since run out
+and reset. **The most-read line of each file was the stalest**, because day
+entries get appended and headers do not get revisited. And the phase table’s
+LOD row said *built and shipping* with no hint that a deeper level cannot be
+sharper.
+
+**One known defect had no row**: the roof fix of 2026-09-08 left `draw_layout`’s
+block-ground triangulation failure out of its scope, correctly, and recorded it
+only inside its own closed row. Filed.
+
+**The on-glass method’s blanket claim was split.** A desktop probe cannot prove
+a finger reaches a control — but the same clipping defect reproduces on the
+desktop composition within **3 px** of the device, so **desktop layout
+measurements are trustworthy**. Recorded on the METHOD row with the three
+calibrations the first hour on glass produced.
+
+**Owner-supplied research arrived: `docs/research/lod extra info.md`**, on
+scale-dependent terrain detail — left where the owner put it, though `docs/`
+is the *source* project’s tree and this file targets this port. **Mapped
+against the code before being filed**: its crate names are not this
+workspace’s; the pyramid, a live level ladder, §16’s macro/meso/micro weights
+and multi-scale shading already exist; and the gap it describes is the one the
+backlog had already measured — LOD tiles carry a shade ratio rather than
+colour, so a deeper level cannot be sharper.
 ### 2026-09-09 – 2026-09-11
 
 **Nothing happened, and that is the whole entry.** The weekly usage limit was
@@ -791,7 +851,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-08 (late): 118 items.** Run
+**Recounted 2026-09-12: 119 items.** Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for

@@ -158,7 +158,7 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
 | `ECONOMY_SCOPE.md` | faction/settlement economy aggregation |
 | `MILITARY_MANPOWER_SCOPE.md` | standing/field/emergency armies and war duration, from five variables — carries the owner's supplied specification **verbatim**, since the reference has no model to check it against |
 | `ASSET_LIBRARY_SCOPE.md` | Phase 4 — the asset pack format, library and slicer |
-| `URBAN_MORPHOLOGY_SCOPE.md` | Phase 5 — settlement layout; the project's largest block of unbuilt work |
+| `URBAN_MORPHOLOGY_SCOPE.md` | Phase 5 — settlement layout, milestones 1-17 and their reasoning. **Status is `STATUS.md`'s** — this row called it *"the project's largest block of unbuilt work"* for nine days after its milestones closed (`9e79e52`, 2026-09-03), which is the auto-loaded-file regression this file's own rules describe |
 | `TERRAIN_APPEARANCE_SCOPE.md` | Phase 3's 2D fidelity milestones |
 | `UNIFIED_TOOL_PLAN.md` | the tool system, milestones A-F (**root**, not `docs/`) |
 | `GPU_LAYER_INTEGRATION_SCOPE.md` | per-layer GPU work, 9 milestones |
@@ -187,6 +187,7 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
 | `HETEROGENEOUS_COMPUTE_RESEARCH.md` | owner-supplied; hardware-tiered scheduling, mostly not yet applicable |
 | `TERRAIN_APPEARANCE_RESEARCH.md` | owner-supplied; the source for `TERRAIN_APPEARANCE_SCOPE.md` |
 | `HYDROLOGY_CLASSIFICATION_RESEARCH.md` | owner-supplied, imported verbatim 2026-09-08 — lake/sea/marine-basin classification by hydrological **topology** rather than surface area. **It contradicts what the engine does today**: `build_water_bodies` calls the *largest* below-sea component the ocean and every other one a lake, which is size-primary and has no connectivity, basin-topology or map-boundary state. Changing it is a **golden re-baseline** (it is `buildWaterBodies`, reference line 5753) and needs an owner ruling |
+| `docs/research/lod extra info.md` | owner-supplied 2026-09-12 — **left where the owner put it, inside the *source* project’s `docs/` tree (naming hazard 1 above) although it targets this port’s Rust renderer.** Scale-dependent terrain detail: a multiresolution pyramid, LOD chosen by physical scale rather than GUI zoom, continuous transitions, macro/meso/micro normals, snow/rock/glacier/hydrology derived from terrain, and an acceptance test of one continuous zoom with no popping. Cites Losasso & Hoppe (Geometry Clipmaps), Asirvatham & Hoppe (GPU Gems 2), Strugar (CDLOD), Li et al. 2021, Godot Terrain3D and Unreal Landscape. **Its crate names are not this workspace’s** (`cartalith-grid`, `-compute`, `-worldgen`, `-cartograph`, `-render`, `-logistics`, `-project`, `-types` do not exist). **Much of it is already built**; the gap it describes is the one `OUTSTANDING_WORK.md` measured as *"LOD tiles carry a SHADE RATIO, not colour"* — read that row first |
 | `LANDMARK_GENERATION_RESEARCH.md` | owner-supplied, imported verbatim 2026-08-30; a geographic-causality framework for landmark placement (TPI, viewshed, least-cost path, Poisson-disc, spatial interaction) — see `LANDMARK_GENERATION_SCOPE.md` for what of it this port already has |
 | **Directories** | |
 | `cartalith-native/` | the Cargo workspace (16 crates) and the Godot project |
