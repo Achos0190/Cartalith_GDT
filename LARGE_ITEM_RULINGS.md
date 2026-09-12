@@ -987,3 +987,40 @@ draw ice from fields that already exist: `glacial_kernel`’s carved troughs, th
 **A glaciation model — ice extent, flow, moraine stripes — was offered and not
 chosen.** The owner-supplied research `docs/research/lod extra info.md` is the
 design input for both steps.
+
+---
+
+## 2026-09-13 — Ruling L: the PC left rail, re-sorted by the owner
+
+**The owner re-sorted every category and control on the PC left rail**, starting from the code-derived
+inventory of 2026-09-12. Vendored verbatim at `design/owner-references-2026-09-12/left_rail_tree_resorted.md` — **the tree in that file is the
+specification; this entry records only its standing rules and the owner’s resolved decisions.**
+
+**Grouping rules (the owner’s, abridged):** WORLD ▸ PIPELINE holds what the seed-driven pipeline reads
+or writes, in stage order; WORLD ▸ SCULPT holds everything done by hand on the map surface (height
+molding and biome painting), and **the mode pill is the only gate**; CIVIL is anything about people;
+CARTO is how the map is drawn, and **every visibility toggle lives in Layers**; each tab’s Tools row
+lists only tools that can be armed there.
+
+**Resolved decisions, as the owner wrote them:**
+1. Droplet Erode, Carve fjords and Center landmasses stay in Hydrology — on-demand passes grouped with
+   the domain they act on, not with Sculpt.
+2. **Biome paint lives in WORLD ▸ Sculpt ▸ Biomes (left dock).** The right-dock copy is a duplicate, to
+   retire once Sculpt ▸ Biomes is live; Biome paint (B) in the Tools row stays the way to arm it.
+3. **Resources is removed** — its values are calculated, not set; stage 10 stays a read-only row in
+   Pipeline status.
+4. **Linked vault notes live under CIVIL, per entity** — never a standalone category; Continents’ notes
+   move from WORLD ▸ World data to Territories ▸ Linked notes. **Standing rule for any future note link.**
+
+**It supersedes one earlier instruction, in mechanism not intent.** 2026-09-07: sculpt tools appear only
+when the sculpt menu is accessed, implemented as `_sculpt_body.visible = armed_tool == "sculpt"`. The
+re-sort makes **SCULPT mode itself** that gate and has picking a feature arm the tool, so the
+armed-tool gate goes.
+
+**Two things a builder must know, checked by the main loop when this was recorded:**
+- The tree carries the inventory’s *"(disabled: no binding)"* notes on **Erode (droplet)** and **Count
+  painted lakes as water**. **Those notes are wrong** — both guards ask the live `WorldGen`, both methods
+  are exported `#[func]`s, and both buttons are enabled. Carry the controls over; drop the notes.
+- **Decision 1 keeps Center landmasses in Hydrology, while the tree places it in Generate ▸ Run.**
+  **Owner, 2026-09-13: "Tree is leading"** — where the notes and the tree disagree, the tree wins;
+  Center landmasses goes to Generate ▸ Run.
