@@ -15,11 +15,16 @@ of work done. Use at most 3 agents at a time. Every time a batch is done, update
 the outstanding work file before starting the next. The goal is complete when the
 whole list has been finished.**
 
-**Two build lanes, plus the verifier** (owner, 2026-09-07 — the current
-instruction, given twice that day and the reason stated: token burn). **The count
-has now moved 3 → 2 → 4 → 2 → 3 → 2 → 4 → 2 across four days, so read THIS LINE
+**Four agents to build or fix, plus the verifier** (owner, 2026-09-12: *"You can
+use 2 extra agents. So 4 total to build or fix"* and *"As long as they don’t work
+on items that might cause conflicts"* — raised from two build lanes). **The count
+has now moved 3 → 2 → 4 → 2 → 3 → 2 → 4 → 2 → 4 across six days, so read THIS LINE
 rather than a batch’s precedent, and re-read it after every owner message** — it
-has changed mid-session more than once.
+has changed mid-session more than once. **Four builders can be two concurrent
+batches of two, each with its own verifier** — and then the batches must be
+**measurement-disjoint as well as file-disjoint**: a lane that moves a quantity
+another running lane is measuring corrupts that lane’s evidence with no file
+shared between them. Near a usage limit, go back to one workflow at a time.
 
 **Lanes may run on a smaller model — the verifier should not.** The owner
 allowed Sonnet lanes at Ultracode on 2026-09-08, for token burn. **Four batches
@@ -239,7 +244,7 @@ Installed under `.claude/skills/`. Load per task.
 
 ## The working method
 
-One `Workflow` per batch: **2 build lanes + 1 adversarial verifier = 3 agents.**
+One `Workflow` per batch: **its build lanes + 1 adversarial verifier.** The builder count is the line at the top of this prompt, not this sentence — it read "2 build lanes = 3 agents" until 2026-09-12.
 
 - Every lane brief carries `MISTAKES.md`'s relevant preflight rows inline, the
   hard constraints, and the verification bar.

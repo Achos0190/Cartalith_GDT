@@ -877,7 +877,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-12: 128 items.** Run
+**Recounted 2026-09-12: 130 items.** Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for
