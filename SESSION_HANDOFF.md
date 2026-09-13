@@ -19,14 +19,18 @@ whole list has been finished. GUI work still is the leading priority.**
 owner changing the builder count later that same day (to four, then five, then three) — **the count line
 directly below governs**, not the goal text.*
 
-**Three workers to build or fix, plus a verifier per batch** (owner, 2026-09-12:
+**Three workers to build or fix, plus a verifier per batch** — the standing count. **On 2026-09-13 the owner
+raised it twice, only to spend budget left before the weekly reset:** *"78% and 50min remaining spool up another
+agent"* (four), then *"15% left with 25min before reset. I think there is room for another agent"* (five), each
+started at once as a file-disjoint workflow beside the running batch. After the reset the standing instruction
+applies: *"When the limit resets use 3 concurrent building agents"*. (Owner, 2026-09-12:
 *"When the 5 finished scale back to 3"* — applied from the first dispatch after the
 five concurrent builders of that evening finished, not by stopping them. Before it:
 *"Use 1 extra agent, so we got a total of 5 concurrent workers"*, after
 *"You can
 use 2 extra agents. So 4 total to build or fix"* and *"As long as they don’t work
 on items that might cause conflicts"* — raised from two build lanes). **The count
-has now moved 3 → 2 → 4 → 2 → 3 → 2 → 4 → 2 → 4 → 5 → 3 across six days, so read THIS LINE
+has now moved 3 → 2 → 4 → 2 → 3 → 2 → 4 → 2 → 4 → 5 → 3 → 4 → 5 → 3 across seven days, so read THIS LINE
 rather than a batch’s precedent, and re-read it after every owner message** — it
 has changed mid-session more than once. **Several builders can run as concurrent
 batches, each with its own verifier** — and then the batches must be
