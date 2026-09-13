@@ -185,5 +185,74 @@ func _ready() -> void:
 	_ok(revealed_deep, "deep zoom: target IS in _urban_revealed (pin suppressed)")
 	_ok(d_deep["diff"] > 0, "deep zoom: something OTHER than the pin painted the same spot")
 
+	## -- Part B, 2026-09-13: parcel/market/farmland/water fill triangulation
+	## at z64 (`urban_layout_draw.gd::_fill_ground_polygon()`'s own doc
+	## comment: the block-ground fill is fixed; the parcel district fill
+	## beside it fails from the same transform-precision cause, but only past
+	## a DEEPER zoom than this file's own z12 above -- parcel/market fills are
+	## gated `detail >= 1.0` (`map_overlay.gd::_draw_urban_layouts()`:
+	## `box_px >= URBAN_FINE_BOX_PX` = 620), and z12's box_px here is ~122.
+	## Water and farmland fills carry no such gate and already ran at z12
+	## above; repeated here too because z64 is where the brief asked to look,
+	## not because their own gate needs it.
+	##
+	## Godot logs "Invalid polygon data, triangulation failed" to this
+	## PROCESS's stderr and skips the draw -- nothing inside a script can
+	## intercept the engine's own logger, so the count is read by whoever
+	## invokes this probe, from its captured stderr. `PART_B_BEGIN`/
+	## `PART_B_END` bound exactly the lines to grep between, so a failure from
+	## any earlier phase of this same file (there should be none -- the block
+	## fix already covers z12) cannot be miscounted as this one's.
+	print("SETTLEPIX PART_B_BEGIN")
+	_overlay.set_camera_zoom(64.0)
+	## Computed from THIS probe's own SIZE_KM/size.x, not asserted against
+	## itself: a different map area or width gets a different box_px at the
+	## same zoom (`_urban_m_scale()`'s own ratio), so this is what tells the
+	## reader whether z64 actually crosses the gate on THIS run, not merely
+	## claims it does.
+	var box_px_z64: float = 1.7 * 1000.0 * (size.x / (SIZE_KM * 1000.0)) * 64.0
+	print("PART_B z64: box_px=%.1f  URBAN_FINE_BOX_PX=620  crosses=%s" % [
+		box_px_z64, str(box_px_z64 >= 620.0)])
+	for draw_i in 3:
+		_overlay.queue_redraw()
+		await _settle()
+	var img_z64 := get_viewport().get_texture().get_image()
+	img_z64.save_png("res://_settlepix_z64.png")
+	print("SETTLEPIX PART_B_END")
+
+	## B1: are the RAW (model-space, pre-transform) parcel polygons
+	## themselves malformed, or -- as with the block fix -- is this the
+	## transform collapsing a valid small polygon at a large absolute offset?
+	## Read straight off `_urban_layouts`, the exact dictionary
+	## `map_overlay.gd` draws from -- no re-derivation of its transform, which
+	## is exactly what would risk drifting from what it actually does.
+	var layout = _overlay._urban_layouts.get(_target_idx)
+	if layout == null:
+		_ok(false, "PART_B B1: target settlement's layout is not loaded -- cannot check")
+	else:
+		var parcels: Array = layout.get("parcels", [])
+		var bad := 0
+		for p in parcels:
+			var poly: PackedVector2Array = p
+			if poly.size() < 3:
+				continue
+			var flagged := false
+			for a in poly.size():
+				var pa: Vector2 = poly[a]
+				if is_nan(pa.x) or is_nan(pa.y):
+					flagged = true
+					break
+				for b in range(a + 1, poly.size()):
+					if pa.distance_to(poly[b]) < 0.001:
+						flagged = true
+						break
+				if flagged:
+					break
+			if flagged:
+				bad += 1
+		print("PART_B B1: %d parcels, %d with a NaN or near-duplicate vertex (raw model space)" % [
+			parcels.size(), bad])
+		_ok(bad == 0, "B1: no parcel's RAW polygon is malformed -- any triangulation failure is the transform")
+
 	print("SETTLEPIX %s (%d failed)" % ["ALL PASS" if _fails == 0 else "SOME FAILED", _fails])
 	get_tree().quit(1 if _fails > 0 else 0)

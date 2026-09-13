@@ -346,6 +346,24 @@ func _build() -> void:
 	## why a hardcoded group that params.rs dropped is a silent failure.
 	_assert_stage_groups()
 
+	## Tablet only, lane GRID 2026-09-13: a rotation has to reflow every
+	## slider row between this dock's own landscape/desktop shape and the
+	## canvas's two-line portrait cell -- `DccTheme.role_px()` alone
+	## re-answers a plain numeric read on the very next layout pass with no
+	## hook needed, but a STRUCTURAL swap (which container a control lives in)
+	## needs an explicit one. See `DccTheme.watch_portrait`'s own doc for why
+	## this is a plain Array of Callables rather than a signal, and
+	## `_on_portrait_changed` for the reflow itself.
+	##
+	## Registered once: `_build()` runs exactly once per panel instance (this
+	## file's own "the ONE `_build_categories()` pass `setup()` runs" note,
+	## a few screens down), so the panel's whole lifetime needs exactly one
+	## watcher. A panel freed by a project re-open (a fresh `app.tscn`, this
+	## lane's own probe) leaves a dead entry that `set_portrait()` prunes the
+	## next time the axis actually flips, not a second registration here.
+	if DccTheme.is_tablet():
+		DccTheme.watch_portrait(_on_portrait_changed)
+
 	## Every left dock opens with the TOOLS block, the four global tools then
 	## the domain's own (`04-left-dock.md` §2.4). Its own WORLD row is three
 	## pills -- `Sculpt` (no key), `Freehand` **F**, `Biome paint` **B** -- and
@@ -643,6 +661,36 @@ func _build_generate_head(parent: Control) -> void:
 		var name_label := DccTheme.mono_label(String(STAGES[i]["name"]),
 			"text_secondary", DccTheme.FS_MICRO, 1)
 		name_label.custom_minimum_size.x = DccWidgets.ROW_LABEL_W - 33
+		## Lane GRID 2026-09-13, corrected same day (see `MISTAKES.md`'s
+		## `clip_text` row): this four-column row (number, dot, name, state)
+		## is this port's own readout mirror of the canvas's `hStage`
+		## accordion row, and the name column is exactly `st.name` -- same
+		## `white-space:nowrap;overflow:hidden;text-overflow:ellipsis` role
+		## the canvas gives it, cited on `DccTheme.header()`'s own doc.
+		## Without it, a name past the 99 px floor above (measured:
+		## "Volcanism & impacts" 167, "Resources & soils" 149, "Ecology &
+		## biomes" 140) is this dock's own widest driver in the portrait
+		## 232 px dock -- wider than any slider cell this lane already fixed
+		## -- because unlike `_row()`'s label this one is hand-built and
+		## never had `clip_text` at all.
+		##
+		## **`is_tablet_portrait()`-gated at build time, not unconditional.**
+		## The first cut of this clipped every geometry, reasoning that
+		## ellipsis on text that already fits draws nothing -- true as far as
+		## it goes, but it also cut "Volcanism & impacts" to "Volcanism &
+		## im…" on a DESKTOP dock with room to spare, a real, measured
+		## regression (`custom_minimum_size.x` is a floor here, not a
+		## ceiling: a Label's natural minimum from its own text overrides it
+		## upward when unclipped, which is why the full name drew past 99 px
+		## on every geometry before this row existed at all). The build-time
+		## read here only gets this row's INITIAL shape right; a later
+		## rotation is `_on_portrait_changed`'s job, which re-derives every
+		## entry in `_stage_name_labels` (appended two lines below) the same
+		## way it already reflows slider cells -- see that function's own
+		## doc for the landscape-boot-then-rotate gap this closes.
+		if DccTheme.is_tablet_portrait():
+			name_label.clip_text = true
+			name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		row.add_child(name_label)
 		var state_label := DccTheme.mono_label("pending", "text_ghost", DccTheme.FS_MICRO, 1)
 		state_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1330,6 +1378,17 @@ func _build_droplet_erosion(grp: Control) -> void:
 		var made := DccWidgets.slider(grp, String(r[1]), float(r[2]), float(r[3]), float(r[4]),
 			float(_erode_op[String(r[0])]), "", _on_erode_param.bind(String(r[0]), bool(r[5])),
 			String(r[6]))
+		## Erosion is a WORLD pipeline category too -- Droplet hydraulic's five
+		## sliders overflow the 232 px portrait dock exactly like every
+		## `_build_param_row` slider does, and for the same reason
+		## (`_wrap_slider_cell`'s own header). Nothing here reads `made["row"]`
+		## afterward, so there is no second reference to redirect, and these
+		## five have no right-click reset and no World-Structure override to
+		## re-point at a new shape -- `Reset dials` below drives `sliders[i]`
+		## directly, the one `HSlider` that never changes identity across a
+		## reflow.
+		if DccTheme.is_tablet():
+			_wrap_slider_cell(made)
 		sliders.append(made["slider"])
 
 	var btn := DccWidgets.action(grp, "Erode (droplet)", _run_erode, true)
@@ -1420,6 +1479,242 @@ var _ws_override_sliders: Dictionary = {}
 ## slider so the live re-gate needs no second call to `param_info` /
 ## `param_default` to rebuild it.
 var _ws_override_base_hint: Dictionary = {}
+## The same three keys -> the row's CURRENT Control, resolved through
+## `_current_row_ctl` rather than stored as one -- see that function and
+## `_slider_reflow_entries` for why a tablet row cannot be a fixed reference.
+## `_refresh_ws_override_rows` dims and tooltips whatever this resolves to.
+var _ws_override_rows: Dictionary = {}
+
+## Tablet only (both orientations), lane GRID 2026-09-13: every parameter
+## slider row this build produces, so a live rotation
+## (`DccTheme.watch_portrait`, wired once in `_build()`) can reflow each one
+## in place -- see `_wrap_slider_cell` for what one entry holds and
+## `_mount_wide`/`_mount_compact` for the reflow itself. Empty on every
+## non-tablet geometry.
+var _slider_reflow_entries: Array = []
+
+## Tablet portrait only: `design/mcp-2026-09-07/Cartalith Tablet.dc.html`
+## draws every generation-pipeline slider (`st.sliders`, lines 169-174) as a
+## full-width, two-line cell -- a label/value baseline row, then its own
+## `height:var(--rowD)` (44) touch band holding the track -- never
+## label-beside-track the way this dock's own row is built for desktop and
+## landscape tablet. It is NOT the 2-column grid that appears earlier in the
+## same open body (`st.grid`/`g.cells`, lines 159-168): that grid is tap-to-
+## cycle pill cells with a label over a value, a control kind no parameter row
+## in this dock uses, and `TABLET_UI_SPEC.md` §2.4(a) already lists "a
+## 2-column grid ..., sliders, ..." as two separate body elements for exactly
+## this reason -- confirmed against the canvas's own markup rather than
+## assumed from that sentence.
+##
+## This is why the row overflows the 232 px portrait dock in the first place:
+## `ROW_LABEL_W` (132) + tablet `slider_track_w` (90) + `ROW_VALUE_W` (44) +
+## 3×8 separation = 290, and neither constant takes a caller-side override --
+## `DccWidgets._row()`/`slider()` hardcode them with no parameter to narrow.
+## Reflow only (DS-03), and only what the "do not shrink globally" rule
+## actually names: the label keeps its 132 px floor and the readout keeps its
+## 44, both moved onto their own line rather than resized; only the slider's
+## own track -- never named in that constraint -- changes from a fixed 90 px
+## shrink-to-end control into one that expands to fill the new line's width,
+## which is also a closer match to the canvas's own `flex:1` track. The three
+## nodes are the exact ones `DccWidgets.slider()` built and wired: no control
+## is replaced, no signal, value range or tooltip changes, so this belongs in
+## `world_workspace.gd` rather than in the shared row builder it reflows.
+##
+## **Rewritten 2026-09-13** from a one-shot, one-way conversion (freed the
+## wide row outright) to a two-shape swap: a landscape boot rotated to
+## portrait used to keep reading the wide layout forever, and a portrait boot
+## rotated to landscape kept the compact one -- `_build_param_row` runs once
+## per row, so whichever shape that single call chose was permanent. Neither
+## shape is ever rebuilt now; `_mount_wide`/`_mount_compact` reparent the same
+## three live children (label, slider, readout) between two wrapper
+## containers built once, here, and cached on the returned entry -- so a
+## rotation changes no signal, no tooltip and no value, only which wrapper is
+## in the tree.
+##
+## `made` is a `DccWidgets.slider()` result (`{"row","slider","readout",...}`);
+## returns the reflow entry, appended to `_slider_reflow_entries` and also
+## what callers store wherever they used to store `made["row"]`
+## (`_current_row_ctl` reads it back).
+func _wrap_slider_cell(made: Dictionary) -> Dictionary:
+	var wide: HBoxContainer = made["row"]
+	var slider: HSlider = made["slider"]
+	var readout: Control = made["readout"]
+	var label: Control = wide.get_child(0)
+	## `DccWidgets.slider()`'s own spacer, between the label and the track --
+	## see that function's body. Kept alive off-tree while compact is mounted
+	## so `_mount_wide` restores it rather than needing a second copy of
+	## `DccTheme.spacer()`'s construction.
+	var spacer: Control = wide.get_child(1)
+
+	var compact := VBoxContainer.new()
+	compact.add_theme_constant_override("separation", 2)
+	compact.tooltip_text = wide.tooltip_text
+
+	var line1 := HBoxContainer.new()
+	line1.add_theme_constant_override("separation", 8)
+	compact.add_child(line1)
+
+	var line2 := MarginContainer.new()
+	## The canvas's own touch row for a slider track -- the same role
+	## `_row()` itself uses for a whole row's height, reused here for the
+	## line that now carries just the track.
+	line2.custom_minimum_size.y = DccTheme.role_px("row_min_h")
+	compact.add_child(line2)
+
+	var entry := {
+		"host": wide.get_parent(), "wide": wide, "compact": compact,
+		"label": label, "slider": slider, "readout": readout, "spacer": spacer,
+		"line1": line1, "line2": line2, "mounted": "wide",
+		## Captured before either shape ever mutates them, so `_mount_wide`
+		## restores the EXACT flags/width `DccWidgets.slider()` built rather
+		## than a second, hand-copied guess at what they were.
+		"label_wide_flags": label.size_flags_horizontal,
+		"slider_wide_flags": slider.size_flags_horizontal,
+		"slider_wide_min_x": slider.custom_minimum_size.x,
+		"readout_wide_min_x": readout.custom_minimum_size.x,
+	}
+	_slider_reflow_entries.append(entry)
+	if DccTheme.is_tablet_portrait():
+		_mount_compact(entry)
+	return entry
+
+## Moves `entry`'s three live controls into the compact two-line cell and
+## swaps which wrapper sits in `host`. A no-op if compact is already mounted,
+## so `_on_portrait_changed` need not check first.
+func _mount_compact(entry: Dictionary) -> void:
+	if entry["mounted"] == "compact":
+		return
+	var host: Control = entry["host"]
+	var wide: HBoxContainer = entry["wide"]
+	var label: Control = entry["label"]
+	var slider: HSlider = entry["slider"]
+	var readout: Control = entry["readout"]
+	var spacer: Control = entry["spacer"]
+	var idx := wide.get_index()
+
+	wide.remove_child(label)
+	wide.remove_child(spacer)
+	wide.remove_child(slider)
+	wide.remove_child(readout)
+	host.remove_child(wide)
+
+	## Keeps its `ROW_LABEL_W` floor (untouched) and now grows to push the
+	## readout to the line's right edge, matching the canvas's `flex:1` label
+	## -- there is no spacer in this shape to give that slack to instead.
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	(entry["line1"] as HBoxContainer).add_child(label)
+	## `ROW_VALUE_W` (44) is a fine floor for "0.30" but not for every unit
+	## `params.rs` ships -- "6.5°C/km" (Lapse rate) measures 63 px unclipped,
+	## and was this dock's own widest driver in Climate (`§ CLIMATE &
+	## TEMPERATURE`, measured by this lane's own diagnostic walk) once every
+	## slider cell was otherwise compact. Cleared to 0 -- sized to its own
+	## text, exactly like the canvas's own `{{ f.disp }}` span, which carries
+	## no width rule of its own at all -- rather than raised to a second fixed
+	## figure that some longer future unit could exceed again. `readout` never
+	## gains `clip_text`: eliding a NUMBER (unlike a name or a note) can make
+	## it read as a different value, so this cell would rather be a few
+	## pixels wider on the rare long unit than silently misreport one.
+	readout.custom_minimum_size.x = 0
+	(entry["line1"] as HBoxContainer).add_child(readout)
+
+	## Was `SIZE_SHRINK_END` at a fixed tablet width (90 px): the compact cell
+	## has no spacer to absorb slack, so the track takes the line's full width
+	## instead. Height (14) is untouched.
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.custom_minimum_size.x = 0
+	(entry["line2"] as MarginContainer).add_child(slider)
+
+	host.add_child(entry["compact"])
+	host.move_child(entry["compact"], idx)
+	entry["mounted"] = "compact"
+
+## The reverse of `_mount_compact` -- symmetric, not a rebuild: `wide` is
+## still the exact `HBoxContainer` `DccWidgets.slider()` built, so putting the
+## three children back in their original order (plus the spacer that gives
+## the slider its slack) is the whole job. A no-op if wide is already mounted.
+func _mount_wide(entry: Dictionary) -> void:
+	if entry["mounted"] == "wide":
+		return
+	var host: Control = entry["host"]
+	var compact: Control = entry["compact"]
+	var label: Control = entry["label"]
+	var slider: HSlider = entry["slider"]
+	var readout: Control = entry["readout"]
+	var spacer: Control = entry["spacer"]
+	var idx := compact.get_index()
+
+	(entry["line1"] as HBoxContainer).remove_child(label)
+	(entry["line1"] as HBoxContainer).remove_child(readout)
+	(entry["line2"] as MarginContainer).remove_child(slider)
+	host.remove_child(compact)
+
+	label.size_flags_horizontal = int(entry["label_wide_flags"])
+	var wide: HBoxContainer = entry["wide"]
+	wide.add_child(label)
+	wide.add_child(spacer)
+	slider.size_flags_horizontal = int(entry["slider_wide_flags"])
+	slider.custom_minimum_size.x = float(entry["slider_wide_min_x"])
+	wide.add_child(slider)
+	## Restores `ROW_VALUE_W` (44) -- cleared to 0 by `_mount_compact` so a
+	## long unit's readout is never truncated; captured, not re-read from the
+	## constant, so a future caller-side override to that constant is still
+	## honoured on the way back.
+	readout.custom_minimum_size.x = float(entry["readout_wide_min_x"])
+	wide.add_child(readout)
+
+	host.add_child(wide)
+	host.move_child(wide, idx)
+	entry["mounted"] = "wide"
+
+## `_ws_override_rows`' reader and `_build_param_row`'s own build-time dimmer
+## -- resolves whichever shape a row's stored reference can be to the Control
+## actually mounted right now. A plain `Control` (every non-tablet geometry:
+## `row_ref` is `made["row"]` itself, never wrapped -- see `_build_param_row`)
+## is returned as-is; a tablet row's reflow entry (`_wrap_slider_cell`'s own
+## Dictionary) resolves through whichever of "wide"/"compact"
+## `_mount_wide`/`_mount_compact` last mounted, so a caller never holds a
+## reference stale across a rotation.
+func _current_row_ctl(row_ref) -> Control:
+	if row_ref is Dictionary:
+		return (row_ref["wide"] if row_ref["mounted"] == "wide" else row_ref["compact"]) as Control
+	return row_ref as Control
+
+## `DccTheme.watch_portrait`'s callback (registered once, in `_build()`).
+## Fires only on a real axis flip -- `DccTheme.set_portrait`'s own guard skips
+## a same-orientation resize, so this costs nothing then either.
+##
+## Reflows every tablet slider row to the shape the NEW orientation wants,
+## then re-derives World-Structure dimming once for the whole dock:
+## `_refresh_ws_override_rows` reads `_ws_override_rows` fresh through
+## `_current_row_ctl` each time, so a row whose wrapper identity just changed
+## is not left holding a stale `modulate` from whichever shape it was dimmed
+## in before the flip.
+##
+## Also re-derives the GENERATE stage-name labels' own clip, lane GRID
+## 2026-09-13: `name_label.clip_text` below is set once, at construction, from
+## whatever `is_tablet_portrait()` read during this panel's one-time
+## `_build()` -- exactly `DccTheme.header()`'s own disclosed gap (that
+## function's `_elide_labels` doc), reproduced here the same way, with
+## `_worldportraitgrid_probe.gd --rotate --boot-landscape`: a landscape BOOT
+## rotated into portrait left every stage name un-elided, because nothing
+## revisited it after `_build_generate_head` ran. `_stage_name_labels` is
+## already held for `_paint_stage_rows()`'s own per-state recolouring, so no
+## new registry is needed -- just one more thing this existing hook reflows.
+func _on_portrait_changed() -> void:
+	var want_compact := DccTheme.is_tablet_portrait()
+	for entry in _slider_reflow_entries:
+		if want_compact:
+			_mount_compact(entry)
+		else:
+			_mount_wide(entry)
+	_refresh_ws_override_rows()
+	for nl in _stage_name_labels:
+		var lbl := nl as Label
+		if lbl == null:
+			continue
+		lbl.clip_text = want_compact
+		lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS if want_compact \
+			else TextServer.OVERRUN_NO_TRIMMING
 
 ## One row for one parameter. `bridge.param_info(key)`'s `type` field decides
 ## the control (`toggle` for bool, `slider` for int/float); nothing about the
@@ -1483,16 +1778,27 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 		_on_float_row_input.bind(key, is_int), hint,
 		_on_float_row_released.bind(key, is_int, stage_index))
 	var s := made["slider"] as HSlider
+	## `_wrap_slider_cell`'s own header: tablet only (both orientations), so a
+	## later rotation can reflow this row -- `row_ref` is either the plain
+	## `HBoxContainer` `DccWidgets.slider()` returned (every non-tablet
+	## geometry, completely untouched below) or the reflow entry
+	## `_wrap_slider_cell` made; `_current_row_ctl` is the one place that
+	## tells the two apart, and every later reference to "the row" (dimming,
+	## tooltip) goes through it from here on instead of `made["row"]`.
+	var row_ref = made["row"]
+	if DccTheme.is_tablet():
+		row_ref = _wrap_slider_cell(made)
 	if WS_OVERRIDDEN_KEYS.has(key):
-		## Held for `_refresh_ws_override_rows`; see that dictionary's own doc.
+		## Held for `_refresh_ws_override_rows`; see those dictionaries' own doc.
 		_ws_override_sliders[key] = s
+		_ws_override_rows[key] = row_ref
 		if ws_overridden:
 			s.editable = false
 			## The WHOLE row, not just the slider -- label and readout dim
 			## too, matching `_mark_inert`'s own reasoning (this block's doc
 			## comment on `WS_OVERRIDE_DIM`): a dimmed slider next to a
 			## full-brightness number and name would still read as live.
-			(made["row"] as Control).modulate = Color(1.0, 1.0, 1.0, WS_OVERRIDE_DIM)
+			_current_row_ctl(row_ref).modulate = Color(1.0, 1.0, 1.0, WS_OVERRIDE_DIM)
 		## `_row()` sets `tooltip_text` only on the row `HBoxContainer` it
 		## returns; the slider is its own `Control` with the default
 		## `MOUSE_FILTER_STOP`, so a hover landing on the grip/track itself
@@ -1513,13 +1819,29 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 		## `WS_OVERRIDDEN_KEYS`, because `s.editable` is live: it already
 		## reflects whatever `_refresh_ws_override_rows` last set, so this
 		## closure needs no second copy of that state to go stale against.
-		_wire_row_reset(s, func():
+		var revert := func():
 			if not s.editable:
 				return
 			if is_equal_approx(s.value, float(reset_to)):
 				return
 			s.value = float(reset_to)
-			_on_float_row_released(key, is_int, stage_index))
+			_on_float_row_released(key, is_int, stage_index)
+		## A tablet row's label lives in a DIFFERENT immediate container
+		## depending on which shape is currently mounted (`wide` itself in the
+		## landscape shape, `line1` in the portrait one -- see
+		## `_wrap_slider_cell`), and a rotation can remount it at any time
+		## after this call returns. `s` itself needs no such list: it never
+		## changes identity, only its parent, and is wired directly below
+		## regardless. `wide`/`line1` are wired here EVEN WHEN the other one is
+		## currently mounted -- an off-tree Control receives no input at all,
+		## so wiring the not-yet-visible shape ahead of time costs nothing and
+		## is what makes a LATER rotation still land on a wired container
+		## instead of silently missing the label side, which is what moving
+		## the gesture onto the track alone did before this rewrite.
+		if row_ref is Dictionary:
+			_wire_row_reset(s, revert, [row_ref["wide"], row_ref["line1"]])
+		else:
+			_wire_row_reset(s, revert)
 
 ## Right-click on a parameter row -> `revert`. Connected to the CONTROL rather
 ## than to the row `HBoxContainer`: `HSlider` and `CheckBox` both default to
@@ -1531,15 +1853,28 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 ## `MOUSE_BUTTON_RIGHT` and not a context `PopupMenu`: every other reset in
 ## this dock is a single act with a single outcome, and a one-item popup to
 ## reach it would be the only such menu in the workspace.
-func _wire_row_reset(control: Control, revert: Callable) -> void:
+##
+## `extra`, added lane GRID 2026-09-13: explicit "also wire these" list for a
+## control whose row-level container cannot be derived from `control.get_parent()`
+## alone -- a tablet slider's label can sit in either of two wrapper
+## containers depending on the current orientation (see the one caller that
+## passes this, `_build_param_row`). Omitted (every other caller: the bool
+## toggle, and a non-tablet float row), behaviour is exactly what it was
+## before this parameter existed -- `control.get_parent()` is still the only
+## thing wired beside `control` itself.
+func _wire_row_reset(control: Control, revert: Callable, extra: Array = []) -> void:
 	var on_input := func(event: InputEvent):
 		var mb := event as InputEventMouseButton
 		if mb != null and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
 			revert.call()
 	control.gui_input.connect(on_input)
-	var row := control.get_parent() as Control
-	if row != null:
-		row.gui_input.connect(on_input)
+	var targets: Array = extra.duplicate()
+	if targets.is_empty():
+		var row := control.get_parent() as Control
+		if row != null:
+			targets.append(row)
+	for t in targets:
+		(t as Control).gui_input.connect(on_input)
 
 func _on_bool_row_changed(v: bool, key: String, stage_index: int) -> void:
 	bridge.param_set(key, v)
@@ -1575,8 +1910,16 @@ func _refresh_ws_override_rows() -> void:
 		var base := String(_ws_override_base_hint.get(key, ""))
 		var text := ("%s %s" % [WS_OVERRIDE_REASON, base]) if enabled else base
 		s.tooltip_text = text
-		var row := s.get_parent() as Control
-		if row != null:
+		## Resolved through `_current_row_ctl`, not derived by walking up from
+		## `s` (which is only correct while the slider lives directly inside
+		## the Control being dimmed) and not a bare stored Control either: a
+		## tablet row's wrapper identity can have changed since the LAST call
+		## here, if a rotation happened in between (`_on_portrait_changed`
+		## calls this once after reflowing every row for exactly that reason).
+		if not _ws_override_rows.has(key):
+			continue
+		var row := _current_row_ctl(_ws_override_rows[key])
+		if row != null and is_instance_valid(row):
 			## The whole row dims, not just the slider -- see the matching
 			## build-time comment in `_build_param_row`.
 			row.modulate = Color(1.0, 1.0, 1.0, WS_OVERRIDE_DIM) if enabled else Color.WHITE

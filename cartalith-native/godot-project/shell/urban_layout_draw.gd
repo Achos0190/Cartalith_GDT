@@ -276,7 +276,7 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 			var par: PackedVector2Array = parcels[i]
 			if par.size() < 3:
 				continue
-			ci.draw_colored_polygon(project.call(par), tint.call(DISTRICT_FILL[districts[i]]))
+			_fill_ground_polygon(ci, project.call(par), tint.call(DISTRICT_FILL[districts[i]]))
 
 	# Streets: casing (ink, wider) then fill (light, narrower), so the network
 	# reads as continuous lines rather than loose segments. Both passes walk
@@ -373,10 +373,31 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 ## -- 127-169 per town are not, up to 107 vertices -- so on a non-convex polygon the
 ## fan can overdraw its notches; that only happens on this sub-pixel branch.
 ##
-## **Not yet routed here:** the parcel district fills, which draw only at
-## detail >= 1 (the repro zoom never reached them) and fail from the same cause
-## at z64 -- 14 parcels, 42 errors over 3 draws in the same town, identical on
-## HEAD (2026-09-13 verifier). Market, farmland and water fills are unmeasured.
+## **The parcel district fills are routed here too, 2026-09-13.** They draw
+## only at `detail >= 1` (this file's own gate below), which the block repro's
+## zoom never reached -- reproduced separately at z64 (`box_px=652.8` against
+## `map_overlay.gd`'s `URBAN_FINE_BOX_PX=620`), same town, same seed: **42
+## `Geometry2D.triangulate_polygon` failures over 3 redraws -- 14 of
+## Sevjuniana's 4 683 parcels, each failing on every one of the three redraws
+## (14 x 3 = 42, exactly)**. B1's own check found zero of those 4 683 parcels
+## with a NaN or a near-duplicate vertex in their RAW model-space polygon --
+## the same transform-precision cause as block 324 above, not malformed data. Verified
+## against a pure HEAD copy (`_settlepix_probe.gd`'s own PART_B block):
+## 42 -> 0 after routing through this helper, the full 576x384 capture
+## **byte-identical** before and after (every failing parcel's screen
+## footprint is sub-pixel, the same reason the block fix moved 0 of 746 496 px
+## at its own repro zoom), and the mutation that reverts this one line back to
+## a bare `draw_colored_polygon` reproduces exactly 42 again.
+##
+## **Market, farmland and water fills do not fail in this town at this zoom --
+## measured, not assumed.** All three draw unconditionally (no `detail` gate)
+## inside the very same z64 redraw the 42/0 count above was taken over, so any
+## failure of theirs would already be inside that count. It resolves to
+## exactly 14 parcels x 3 draws with nothing left over, both before this fix
+## (42) and after (0) -- a residual would have shown up as a number other
+## than 0 after routing only the parcels. A different town or a deeper zoom
+## could still find one; this is a measurement of Sevjuniana at z64, not a
+## proof for every settlement.
 
 static func _fill_ground_polygon(ci: CanvasItem, pts: PackedVector2Array, color: Color) -> void:
 	if pts.size() < 3:

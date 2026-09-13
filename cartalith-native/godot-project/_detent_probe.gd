@@ -264,6 +264,32 @@ func _ready() -> void:
 	_check(insets_fires[0] >= 1,
 		"B2: the detent change to full emitted phone_insets_changed")
 
+	## S-FULL, new 2026-09-13: the other half of S-HALF below -- does "full"
+	## actually cover the map's corner readouts, or does the insets pass keep
+	## up with it too? Answered, not assumed: at 1080x2340 the pushed-up
+	## coordinate/scale labels land at y=311/319, and "full"'s own top edge is
+	## y=251 -- ABOVE them, so the sheet still reaches past wherever the
+	## insets pass can push a label before it runs out of safe area above.
+	## The overlap measured is the label's FULL size, not a sliver.
+	var sheet_full: Rect2 = (app._phone_tool_sheet as Control).get_global_rect()
+	_log("  [S-FULL] sheet=%s" % str(sheet_full))
+	if coords != null:
+		var cr_f: Rect2 = coords.get_global_rect()
+		_log("       coords=%s overlap=%s" % [str(cr_f), str(sheet_full.intersection(cr_f))])
+		var ov_c: Vector2 = sheet_full.intersection(cr_f).size
+		## Component-wise, not `Vector2 >=` -- that operator is LEXICOGRAPHIC
+		## (compares x, only falls to y on a tie), not "both axes at least
+		## this large", and an intersection can never exceed the label's own
+		## size regardless, so this is really an equality check.
+		_check(ov_c.x >= cr_f.size.x and ov_c.y >= cr_f.size.y,
+			"S-FULL: full DOES fully cover the coordinate label (by design -- nowhere left to push it)")
+	if scale_lbl != null:
+		var sr_f: Rect2 = scale_lbl.get_global_rect()
+		_log("       scale=%s overlap=%s" % [str(sr_f), str(sheet_full.intersection(sr_f))])
+		var ov_s: Vector2 = sheet_full.intersection(sr_f).size
+		_check(ov_s.x >= sr_f.size.x and ov_s.y >= sr_f.size.y,
+			"S-FULL: full DOES fully cover the scale label (by design -- nowhere left to push it)")
+
 	app.set_phone_detent("nonsense")
 	_check(String(app.phone_detent()) == "full", "setter rejects an unknown detent")
 
@@ -278,6 +304,34 @@ func _ready() -> void:
 	_log("  tab tap gen              detent=%s h=%.1f" % [
 		String(app.phone_detent()), _sheet_h()])
 	_check(String(app.phone_detent()) == "half", "tab tap lifts peek -> half")
+
+	## S-HALF, new 2026-09-13: does "half" cover the map's own corner readouts,
+	## the same question S3 below asks of "peek" and "full"? Nothing in this
+	## file had ever checked it -- the S3 comment below used to just ASSERT
+	## "half"/"full" both do, by the same reasoning that turned out to only
+	## hold for one of them (see that comment's own correction). Re-read here,
+	## not assumed from the B3 cold-boot capture: `phone_insets_changed`
+	## (Gate B2 above) exists so `ViewportHost`'s HUD can reposition as the
+	## sheet grows, so unlike the sheet's own bottom-anchored rect, these
+	## labels' Y is not constant across detents.
+	var sheet_half: Rect2 = (app._phone_tool_sheet as Control).get_global_rect()
+	_log("  [S-HALF] sheet=%s" % str(sheet_half))
+	if navpad != null:
+		var np_h: Rect2 = navpad.get_global_rect()
+		_log("       navpad=%s overlap=%s" % [str(np_h), str(sheet_half.intersection(np_h))])
+		_check(sheet_half.intersection(np_h).size.y < 1.0,
+			"S-HALF: half does not cover the bottom navpad")
+	if coords != null:
+		var cr_h: Rect2 = coords.get_global_rect()
+		_log("       coords=%s overlap=%s" % [str(cr_h), str(sheet_half.intersection(cr_h))])
+		_check(sheet_half.intersection(cr_h).size.y < 1.0 or sheet_half.intersection(cr_h).size.x < 1.0,
+			"S-HALF: half does not cover the coordinate label -- the insets pass keeps it clear")
+	if scale_lbl != null:
+		var sr_h: Rect2 = scale_lbl.get_global_rect()
+		_log("       scale=%s overlap=%s" % [str(sr_h), str(sheet_half.intersection(sr_h))])
+		_check(sheet_half.intersection(sr_h).size.y < 1.0 or sheet_half.intersection(sr_h).size.x < 1.0,
+			"S-HALF: half does not cover the scale label -- the insets pass keeps it clear")
+
 	app._pick_phone_tab("gen")
 	await get_tree().create_timer(0.45).timeout
 	await _frames(2)
@@ -402,6 +456,23 @@ func _ready() -> void:
 	_check(sub_rect.size.y >= float(app._pfont(9.5)) * 0.9,
 		"sheetSub draws at >= 90% of the scaled font size, not the raw constant")
 
+	## Title tracking, 2026-09-13: `.2em` of the ACTUAL rendered title size,
+	## not a bare `2` -- read back off the real `FontVariation` the running
+	## label holds, not re-derived from `dcc_shell.gd`'s own formula (that
+	## would just assert the code against itself).
+	var title_font: Font = app._phone_sheet_title.get_theme_font("font")
+	if title_font is FontVariation:
+		var spacing: int = (title_font as FontVariation).spacing_glyph
+		var want_spacing: int = maxi(1, roundi(float(app._pfont(11)) * 0.2))
+		_log("  title spacing_glyph=%d  want~=%d (.2em of _pfont(11)=%d)" % [
+			spacing, want_spacing, app._pfont(11)])
+		_check(spacing == want_spacing,
+			"sheetTitle's FontVariation carries .2em of the SCALED font size, not a raw literal")
+		_check(spacing > 2,
+			"sheetTitle tracking is scaled (>2 raw px) at this phone's density, not the old bare DccTheme.mono(2)")
+	else:
+		_check(false, "sheetTitle's font is a FontVariation (spacing_glyph readable)")
+
 	## Live GENERATE wiring, 2026-09-13: a real world so the printed seed is a
 	## real number, not the "no world yet" fallback. `bridge.generate()` is the
 	## same entry point every other probe in this project uses to raise one,
@@ -414,13 +485,25 @@ func _ready() -> void:
 
 	## S3, extended: B3's own cold-boot invariant (the sheet does not cover the
 	## navpad/coords/scale), re-measured now that a world -- and its readouts --
-	## exist. "half"/"full" are not re-checked here: their target heights come
-	## from the same `_phone_detent_height()` formula this batch never touched,
-	## and BY DESIGN they cover the map's own corner readouts (the sheet's own
-	## top edge at "full" sits well above where those labels draw) -- asserting
-	## non-coverage there would assert something false about intended
-	## behaviour, not guard a regression this header could cause. "peek" is the
-	## one detent whose CONTENT changed this batch.
+	## exist. "half"/"full" are not RE-checked here -- their target heights
+	## come from the same `_phone_detent_height()` formula this batch never
+	## touched -- but they ARE checked, above (`S-HALF`/`S-FULL`), and **not
+	## alike: only "full" covers the map's own corner readouts. "half" does
+	## not.**
+	##
+	## **Corrected 2026-09-13 -- this comment used to claim both "by design",
+	## and nothing in this file had ever measured "half" against these labels
+	## to back that half of it.** `phone_insets_changed` (Gate B2 above) pushes
+	## the coordinate/scale labels up as the sheet grows; at "half" that keeps
+	## them fully clear (measured at 1080x2340: zero overlap, both labels,
+	## the same invariant "peek" already holds). Only at "full" does the
+	## sheet's own top edge land ABOVE wherever the insets pass has pushed the
+	## labels to -- there is no more safe area left above them to retreat
+	## into -- and there the overlap is the label's FULL size, not a sliver.
+	## So the claim was right for "full" and simply untested for "half";
+	## asserting non-coverage at "full" would indeed assert something false,
+	## and asserting non-coverage at "half" is exactly the invariant that was
+	## missing. "peek" is the one detent whose CONTENT changed this batch.
 	app.set_phone_detent("peek")
 	await get_tree().create_timer(0.45).timeout
 	await _frames(2)
@@ -474,6 +557,59 @@ func _ready() -> void:
 	_check(String(app._phone_sheet_title.text) == "MORE", "MORE title matches AND:1208 root")
 	_check(String(app._phone_sheet_subtitle.text) == "program · data · preferences",
 		"MORE subtitle matches _moreTitle()'s root entry verbatim (AND:1208)")
+
+	## PLAN's header, 2026-09-13: `journey_planner_view.gd::phone_header_info()`
+	## is new, closing the gap this exact per-tab section's neighbourhood
+	## already tests for MAP/GEN/MORE. Poked directly on the live instance
+	## rather than driven through `_pick_phone_tab("plan")` -- that call also
+	## fires `open_journey_planner()`'s full region takeover (arms a tool,
+	## swaps the right dock), which is not what a header STRING assertion
+	## needs and would leave more state to restore afterward than
+	## `_phone_tab`/`_refresh_phone_sheet_header()` alone. `app.journey_planner_
+	## view` is reached directly (this file already reaches `app._phone_tab`,
+	## `app._phone_menu` etc. the same way).
+	var jp = app.journey_planner_view
+	_check(jp != null and jp.has_method("phone_header_info"),
+		"journey_planner_view exposes phone_header_info()")
+	if jp != null:
+		var prior_tab: String = app._phone_tab
+		app._phone_tab = "plan"
+		jp._last_result = {}
+		jp._isolated_stage = -1
+		app._refresh_phone_sheet_header()
+		_log("  [plan/none]  title=%s  sub=%s" % [
+			app._phone_sheet_title.text, app._phone_sheet_subtitle.text])
+		_check(String(app._phone_sheet_title.text) == "PLAN",
+			"PLAN/no route: title falls through to PHONE_TABS' static PLAN")
+		_check(String(app._phone_sheet_subtitle.text) == "Journey planner",
+			"PLAN/no route: subtitle falls through to PHONE_TABS' static tip, not a manufactured \"journey · journey → journey\"")
+
+		jp._last_result = {"ok": true, "plan": {"stops": [
+			{"name": "Vhal Serai"}, {"name": "Amre Ford"}, {"name": "Port Amre"},
+		]}}
+		jp._isolated_stage = -1
+		app._refresh_phone_sheet_header()
+		_log("  [plan/route] title=%s  sub=%s" % [
+			app._phone_sheet_title.text, app._phone_sheet_subtitle.text])
+		_check(String(app._phone_sheet_title.text) == "PLAN",
+			"PLAN/committed route, no stage isolated: title stays PLAN")
+		_check(String(app._phone_sheet_subtitle.text) == "journey · Vhal Serai → Port Amre",
+			"PLAN/committed route: subtitle is journey · first stop -> last stop, off plan.stops")
+
+		jp._isolated_stage = 1
+		app._refresh_phone_sheet_header()
+		_log("  [plan/stage] title=%s  sub=%s" % [
+			app._phone_sheet_title.text, app._phone_sheet_subtitle.text])
+		_check(String(app._phone_sheet_title.text) == "PLAN · STAGE 2",
+			"PLAN/stage 1 isolated (0-based): title is PLAN · STAGE 2, matching AND:1466's planView==='stage' branch")
+		_check(String(app._phone_sheet_subtitle.text) == "journey · Vhal Serai → Port Amre",
+			"PLAN/stage isolated: endpoints are unaffected by which stage is isolated")
+
+		## Restore -- this poked `journey_planner_view`'s own state directly,
+		## and every OTHER check below this point expects a clean planner.
+		jp._last_result = {}
+		jp._isolated_stage = -1
+		app._phone_tab = prior_tab
 
 	app._pick_phone_tab("gen")
 	app.set_phone_detent("peek")

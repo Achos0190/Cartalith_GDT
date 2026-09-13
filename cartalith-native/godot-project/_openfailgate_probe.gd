@@ -70,6 +70,27 @@ extends Node
 ## and `current_project_path` still pass, proving the banner check is not
 ## just restating the Gate B1 check under a new name.
 ##
+## **Part B continued, 2026-09-13 -- the desktop dialog's own note.** Measured
+## on glass (windowed, real popup at 1600x900, not the earlier headless run):
+## the status hint sits at `(1184, 880)`, 14 px tall; the dialog's rect is
+## `(210, 70)`-`(1390, 830)` -- a **50 px gap below the dialog, not an
+## overlap**, so `_plainly_visible(hint, [dlg])` was already correctly reading
+## "not covered" and always had been. The defect this fix addresses is not
+## that geometric overlap: it is that the ONLY place the reason appeared was
+## that hint, a small dim label 50 px below the dialog the user is actually
+## looking at, while `_picker_note`/`_foot_note` -- which `_say()` already
+## writes for other refusals (a bad drop, an empty search) -- stayed blank.
+## `open_project_dialog.gd::_pick_path()` now calls `_say(_host.last_open_refusal)`
+## on a failed open, the same string the hint and the phone banner already
+## show, so the three surfaces cannot diverge in wording.
+## `_assert_dialog_note()` checks the note both ways: plainly visible inside
+## the dialog's own rect, and byte-identical to `last_open_refusal`.
+##
+## Mutation (this part): (c) drop the `else: _say(...)` branch from
+## `_pick_path()` and only `_assert_dialog_note()`'s two assertions fail on
+## all three desktop legs -- every other assertion in this file, including
+## the status hint pair, still passes, proving this is additive.
+##
 ## Run desktop:
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . _openfailgate_probe.tscn -- --corrupt <path-to-a-non-zip-file>
 ## Run phone:
@@ -160,6 +181,29 @@ func _assert_phone_error_banner(pk: Node) -> void:
 	var text := String(label.text) if label != null else ""
 	_ok(text.findn("engine refused") >= 0,
 		"FAILURE: the existing refusal reaches the inline banner (got \"%s\")" % text)
+
+## Part B continued, 2026-09-13 -- the desktop counterpart of the phone check
+## just above. `_pick_path()` now routes a failed open's reason into `_say()`,
+## which writes `_picker_note` (welcome composition) or `_foot_note` (gallery)
+## depending on `_welcome` -- read here rather than assumed from which test
+## called this, so a regression that writes the note for the WRONG composition
+## is caught rather than matched by a lucky guess. Checks the note is plainly
+## visible INSIDE the dialog's own rect (`_plainly_visible_within`, the same
+## "is this actually on the screen the user is looking at" question the phone
+## banner check answers) and carries the exact same string
+## `app.last_open_refusal` holds -- not just a substring match, since this
+## dialog and the status hint must not silently diverge in wording.
+func _assert_dialog_note(dlg: Node, refusal: String) -> void:
+	var welcome := bool(dlg.get("_welcome"))
+	var field := "_picker_note" if welcome else "_foot_note"
+	var note: Label = dlg.get(field)
+	var seen := _plainly_visible_within(note, dlg)
+	_ok(seen.ok, "FAILURE: the dialog's own %s plainly visible inside the dialog's own rect (%s)"
+		% [field, seen.why])
+	var text := String(note.text) if note != null else ""
+	_ok(text == refusal,
+		"FAILURE: %s carries the SAME refusal last_open_refusal holds (got \"%s\" want \"%s\")"
+		% [field, text, refusal])
 
 # ---------------------------------------------------------------------------
 # user://cartalith_settings.cfg -- back up, never leave written
@@ -283,6 +327,7 @@ func _test_desktop_welcome_recent(app: Node) -> void:
 		_ok(seen.ok, "FAILURE: status hint plainly visible, not covered by the dialog (%s)" % seen.why)
 		_ok(String(hint.text).findn("engine refused") >= 0,
 			"FAILURE: the existing refusal reaches the status hint (got \"%s\")" % String(hint.text))
+		_assert_dialog_note(dlg, String(app.last_open_refusal))
 	dlg.hide()
 
 # ---------------------------------------------------------------------------
@@ -353,6 +398,7 @@ func _test_desktop_open_button(app: Node) -> void:
 	_ok(seen.ok, "FAILURE: status hint plainly visible, not covered by the dialog (%s)" % seen.why)
 	_ok(String(hint.text).findn("engine refused") >= 0,
 		"FAILURE: the existing refusal reaches the status hint (got \"%s\")" % String(hint.text))
+	_assert_dialog_note(dlg, String(app.last_open_refusal))
 	dlg.hide()
 
 func _test_desktop_browse(app: Node) -> void:
@@ -386,6 +432,7 @@ func _test_desktop_browse(app: Node) -> void:
 		_ok(seen.ok, "FAILURE: status hint plainly visible, not covered by the dialog (%s)" % seen.why)
 		_ok(String(hint.text).findn("engine refused") >= 0,
 			"FAILURE: the existing refusal reaches the status hint (got \"%s\")" % String(hint.text))
+		_assert_dialog_note(dlg, String(app.last_open_refusal))
 	dlg.hide()
 
 # ---------------------------------------------------------------------------

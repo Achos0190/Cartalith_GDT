@@ -206,8 +206,17 @@ static func stage_category(parent: Control, number: String, title: String,
 # -- L3 section ---------------------------------------------------------------
 
 ## A titled band of rows, always expanded. Returns the body VBox.
+##
+## `elide: true` on the `header()` call, lane GRID 2026-09-13: safe here and
+## only here among that function's callers, because `head` below is the SOLE
+## child of `pad`, a `MarginContainer` that sizes an only child to its own
+## full inner rect regardless of the child's minimum -- unlike
+## `left_dock_title`/`right_dock_title` (`dcc_shell.gd`), which sit beside a
+## `SIZE_EXPAND_FILL` spacer and collapsed to 1 px when a first cut of this
+## made `header()` clip unconditionally. See `DccTheme.header()`'s own doc for
+## why the choice moved to the caller.
 static func section(parent: Control, title: String) -> VBoxContainer:
-	var head := DccTheme.header(title)
+	var head := DccTheme.header(title, "§", true)
 	var pad := MarginContainer.new()
 	pad.add_theme_constant_override("margin_left", 14)
 	pad.add_theme_constant_override("margin_top", 10)
@@ -560,7 +569,25 @@ static func toggle(parent: Control, label_text: String, value: bool,
 	var lbl := row.get_child(0) as Control
 	if lbl != null:
 		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(DccTheme.spacer())
+	## Lane GRID 2026-09-13: the spacer is inert once the label above is
+	## already `SIZE_EXPAND_FILL` -- both would share the row's leftover
+	## width, and the checkbox's final left edge is `label_final + sep +
+	## spacer_final + sep`, a sum invariant to how that split lands (the
+	## spacer draws nothing and holds no minimum of its own), so dropping it
+	## moves not one visible pixel on any geometry with slack to give. What
+	## it costs with NO slack is one more `separation` (8) baked into the
+	## row's own MINIMUM-size sum for nothing rendered -- measured as a
+	## portrait-dock driver: a toggle row (label 132 + 2 seps + the
+	## intrinsically-sized `CheckBox`) held at 188 against a compacted
+	## slider row's 172 (`_wrap_slider_cell`, `world_workspace.gd`), which
+	## was this dock's own remaining reason Terrain/Climate missed 232 px
+	## after that reflow and `DccTheme.header()`'s own elide fix -- measured
+	## by `_worldportraitgrid_probe.gd`'s driver walk, not guessed. Tablet
+	## portrait only, matching every other change of this shape here:
+	## desktop, laptop, landscape tablet and phone toggles keep the spacer
+	## and are BYTE-IDENTICAL to HEAD, same child count, same nodes.
+	if not DccTheme.is_tablet_portrait():
+		row.add_child(DccTheme.spacer())
 	row.add_child(cb)
 	return cb
 

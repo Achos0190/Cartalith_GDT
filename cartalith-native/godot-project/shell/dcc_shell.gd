@@ -6173,17 +6173,27 @@ func _pick_phone_tab(id: String) -> void:
 ## which is what the 2026-09-13 header comment here used to say could not be
 ## done without one.
 ##
-## PLAN's live equivalent (`journey · <from> → <to>` off the actually-planned
-## journey) and MORE's per-page equivalent (`_moreTitle()`'s non-root entries,
-## keyed to whatever screen `PhoneMenu`'s stack is showing) are NOT wired:
-## `journey_planner_view.gd` exposes no public accessor for the selected
-## journey's endpoint names, and `phone_menu.gd`'s `_stack`/`_screen_title()`
-## are both private with no public getter either -- both outside every lane's
-## granted files this batch (gate S2). Printing the canvas's own sample values
-## ("Vhal Serai → Port Amre") in their place would misrepresent a demo string
-## as a real journey, which is worse than the static fallback `PHONE_TABS`
-## already carries for PLAN, and MORE keeps its root string regardless of
-## navigation depth for the same reason.
+## **PLAN's live equivalent is wired, 2026-09-13** -- the gap this comment
+## used to name (`journey_planner_view.gd` had no public accessor for the
+## selected journey's endpoint names) is closed by that file's own
+## `phone_header_info()`, added this pass. `journey · <from> → <to>` reads the
+## committed route's actual first/last stop names, and `PLAN · STAGE n` fires
+## exactly when a stage is isolated (`_isolated_stage >= 0`) -- both from the
+## engine's own state, never the canvas's demo string. **Falls all the way
+## through to `PHONE_TABS`' static "PLAN"/"Journey planner" below** when
+## nothing is planned yet (`phone_header_info()`'s own "journey"/"journey"
+## sentinel, checked here rather than printed) or when `journey_planner_view`
+## is absent (`DccShell` instantiated bare, as probes do) -- so an unplanned
+## PLAN tab still reads as unplanned, not as a broken live string.
+##
+## **MORE's per-page equivalent stays NOT wired, and now for a different
+## reason than the old one.** `phone_menu.gd` no longer lacks the accessor --
+## `current_page_title()`, added the same pass -- but that menu draws an
+## OPAQUE full-screen page over this exact header whenever it `is_open()`
+## (`current_page_title()`'s own doc comment has the node-order proof), so the
+## live string would update a `Label` nothing can see. MORE keeps its root
+## string regardless of navigation depth for that reason, not for a missing
+## getter.
 ##
 ## Called from `_pick_phone_tab()` (a tab press) and from
 ## `_refresh_viewport_context()` (every signal that can change the world's
@@ -6223,6 +6233,29 @@ func _refresh_phone_sheet_header() -> void:
 				_phone_sheet_subtitle.text = ("pipeline · seed " + seed_str) \
 					if seed_str != "" else "pipeline · no world yet"
 		return
+	if _phone_tab == "plan":
+		## `get("journey_planner_view")`, not `.journey_planner_view` --
+		## that property lives on `DccApp` (`app.gd`), which EXTENDS this
+		## class rather than the reverse, so `self` here has no static
+		## member of that name to read. The same dynamic reach `phone_menu.gd`
+		## already uses for the identical cross-file shape
+		## (`_load_preset_into_planner()`'s own `_shell.get(...)`).
+		var jp = get("journey_planner_view")
+		if jp != null and is_instance_valid(jp) and jp.has_method("phone_header_info"):
+			var info: Dictionary = jp.phone_header_info()
+			var from_name := String(info.get("from", "journey"))
+			var to_name := String(info.get("to", "journey"))
+			## The sentinel `phone_header_info()` documents: both halves read
+			## "journey" only when there are not yet two resolved stops to
+			## name. Falls through to the static PHONE_TABS entry below
+			## rather than print "journey · journey → journey".
+			if from_name != "journey" or to_name != "journey":
+				var stage := int(info.get("stage", -1))
+				_phone_sheet_title.text = ("PLAN · STAGE %d" % stage) if stage > 0 else "PLAN"
+				_phone_sheet_subtitle.text = "journey · %s → %s" % [from_name, to_name]
+				return
+		## Else: no live planner to read, or nothing planned yet -- fall
+		## through to PHONE_TABS' static "PLAN" / "Journey planner".
 	for t in PHONE_TABS:
 		if String(t.id) == _phone_tab:
 			_phone_sheet_title.text = String(t.caption)
@@ -6620,7 +6653,24 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	## `FS_MICRO` (9) -- the canvas's own subtitle size is 9.5 and `_pfont()`
 	## takes a float, so there is no reason to round to the nearest shared
 	## constant a half-pixel category away.
-	_phone_sheet_title = DccTheme.mono_label("", "accent", _pfont(11), 2, true)
+	##
+	## **The title's tracking gets the same treatment, 2026-09-13 -- it did not
+	## have it.** `DccTheme.mono_label(..., 2, true)` passed `mono()`'s
+	## `spacing` a bare `2` *physical* px against the canvas's own
+	## `letter-spacing:.2em` (`AND:181`), which at an 11 px font is 2.2 *design*
+	## px and, at this phone's 2.62 scale, ≈5.8 physical -- roughly a third of
+	## what shipped. Every other phone caller of a scaled quantity in this file
+	## pre-scales before handing it to a `DccTheme` factory (`_pfont(11)` for
+	## the size right beside this); this call alone did not for its `spacing`
+	## argument. Computed as a fraction of the ALREADY-scaled title size below,
+	## not as a second independent `_pfont(2.2)` call, so the ratio to the
+	## rendered glyph stays exactly `.2em` however `_pfont()`'s own formula
+	## changes later -- including its dynamic-type term: tracking is a font
+	## metric and should grow with the user's text-size preference the same
+	## way the glyphs it separates do.
+	var title_fs := _pfont(11)
+	_phone_sheet_title = DccTheme.mono_label("", "accent", title_fs,
+		maxi(1, roundi(title_fs * 0.2)), true)
 	_phone_sheet_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	title_stack.add_child(_phone_sheet_title)
 	_phone_sheet_subtitle = DccTheme.mono_label("", "text_dim", _pfont(9.5))
@@ -6632,9 +6682,20 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	## `tab:null`: this app's phone sheet has no "gone" state on top of the
 	## three detents (`_pick_phone_tab()`'s own comment says so directly), so
 	## `peek` is the nearest real equivalent to "dismissed".
+	##
+	## **Re-verified rather than re-argued, 2026-09-13**: `_pick_phone_tab()`'s
+	## own `match` only ever sets `_phone_tab` to one of `PHONE_TABS`' four ids
+	## or leaves it where it was, `_refresh_phone_tabs()` has no branch for an
+	## unmatched one beyond drawing every cell "off", and nothing in this file,
+	## `phone_menu.gd` or `journey_planner_view.gd` treats an empty `_phone_tab`
+	## as "the sheet is gone" -- it would just be every nav cell unlit over
+	## whatever domain content was already showing. There is still no state to
+	## match `tab:null` onto; `peek` stands.
 	var close_btn := Button.new()
 	close_btn.text = "✕"
 	close_btn.focus_mode = Control.FOCUS_NONE
+	## The HIT area stays the 44 dp accessibility floor, unchanged -- only the
+	## ink drawn inside it shrinks, below.
 	close_btn.custom_minimum_size = Vector2(_ptap(38), _ptap(38))
 	close_btn.mouse_filter = Control.MOUSE_FILTER_STOP  ## Catches its own tap
 		## before it can reach `_phone_sheet_grab`'s drag handler above.
@@ -6642,9 +6703,32 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	## `line_soft` stands in for the canvas's own `--chip` (`rgba(#,.05)`
 	## dark / light) -- close in weight, and an existing token rather than a
 	## new palette entry for one circle (`MISTAKES.md`: re-basing a shared
-	## token set is its own, larger pass).
+	## token set is its own, larger pass). **Re-checked, not re-guessed,
+	## 2026-09-13**: `dcc_theme.gd`'s own canvas-token table (its header
+	## comment, off `ENV:25`) carries no `--chip`/`--chipOn` row at all --
+	## those are `AND`-only properties `ENV` never declares, unlike `warn`,
+	## which the same table imports from `AND` for exactly that reason. There
+	## is no dedicated token to switch to; `line_soft` is still the nearest one.
 	close_sb.bg_color = DccTheme.c("line_soft")
-	var close_r := _ptap(19)
+	## **The ink drawn is now the canvas's own 38 dp circle, not the hit box's
+	## 44 dp floor, 2026-09-13** -- `AND:184`: `width:38px;height:38px;
+	## border-radius:19px`. A `StyleBoxFlat` cannot be smaller than the
+	## `Control` drawing it, so `close_btn` stays `_ptap(38)` (the
+	## accessibility floor always wins there, ~115 px at this phone's scale)
+	## and the VISUAL box is pulled in from that with a NEGATIVE
+	## `expand_margin` -- the same property `dcc_widgets.gd`'s hover box uses
+	## *positively* to draw a background bigger than its control; here it
+	## draws one smaller, centred (all four margins equal), while
+	## `close_btn`'s own rect -- what `gui_input` actually hit-tests -- never
+	## moves.
+	var close_hit := float(_ptap(38))
+	var close_visual := float(_pscale(38))
+	var close_inset := (close_hit - close_visual) * 0.5
+	close_sb.expand_margin_left = -close_inset
+	close_sb.expand_margin_top = -close_inset
+	close_sb.expand_margin_right = -close_inset
+	close_sb.expand_margin_bottom = -close_inset
+	var close_r := _pscale(19)
 	close_sb.corner_radius_top_left = close_r
 	close_sb.corner_radius_top_right = close_r
 	close_sb.corner_radius_bottom_left = close_r

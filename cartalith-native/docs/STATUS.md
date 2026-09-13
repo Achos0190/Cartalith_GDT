@@ -293,6 +293,12 @@ body at all; the shell, having no header, leaks half a row of it. Reverted, with
 batch’s citation sweep stopped correctly at its gate: 51 stale canvas citations, not 49, and of its three
 disagreements only one is the shell drifting from the canvas.
 
+**2026-09-13, fourth batch: tablet portrait fits, the Window switches tell the truth, and failed opens say why.** Eight of
+nine WORLD categories now draw exactly 232 px in tablet portrait with the canvas’s two-line slider cells, and nothing moved
+on desktop, laptop, landscape tablet or phone. The Window menu’s dock switches read the real dock and sheet state; a
+failed project open shows the engine’s reason inside the dialog or picker; native saves show their seed; the phone sheet
+header matches the canvas’s tracking and close circle; parcel ground fills no longer vanish at deep zoom.
+
 **2026-09-13, third batch: the phone tool sheet has the canvas’s header, and a failed open no longer strands
 the user.** At peek the GENERATE sheet shows its title, a live subtitle and a close button and no half-cut
 body row; the phone picker and the desktop dialog stay open after a refused project, the phone with a warning
@@ -907,7 +913,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-13: 126 items.** Run
+**Recounted 2026-09-13: 124 items.** Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for

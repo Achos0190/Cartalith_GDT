@@ -1412,6 +1412,40 @@ func _apply_result() -> void:
 	if app != null and app.right_dock_ctrl != null:
 		app.right_dock_ctrl.refresh_journey()
 
+## Phone sheet header support: `dcc_shell.gd::_refresh_phone_sheet_header()`'s
+## PLAN branch, wired 2026-09-13 to close the gap that function's own doc
+## comment named -- "`journey_planner_view.gd` exposes no public accessor for
+## the selected journey's endpoint names" (gate S2, this lane's file this
+## batch).
+##
+## Mirrors the canvas's own `titles.plan` (`AND:1466`,
+## `s.planView==='stage'?'PLAN · STAGE '+(s.plan.sel+1):'PLAN'`): `stage` is
+## `_isolated_stage` (1-based when isolated, this file's existing field --
+## isolating ONE stage IS `planView==='stage'`, there is no separate flag for
+## it), and `from`/`to` are the committed route's own endpoint names --
+## `plan.stops`' first and last entries, the exact array `_rebuild_stops()`
+## already reads to label every stop chip on the centre panel.
+##
+## **Both halves of the pair fall back to the literal word "journey"** when
+## there are fewer than two resolved stops to name (no committed route yet,
+## or one whose stops have not resolved) -- this file's own existing
+## convention for an unnamed thing (`_refresh_route_choice()`:
+## `String(j.get("name", "journey"))`), and specifically NOT "" or "?": the
+## caller checks for exactly this sentinel to decide whether to fall through
+## to `PHONE_TABS`' static "PLAN" / "Journey planner" instead of printing a
+## made-up pair.
+func phone_header_info() -> Dictionary:
+	var plan: Dictionary = _last_result.get("plan", {}) \
+		if bool(_last_result.get("ok", false)) else {}
+	var stops: Array = plan.get("stops", [])
+	if stops.size() < 2:
+		return {"stage": -1, "from": "journey", "to": "journey"}
+	return {
+		"stage": (_isolated_stage + 1) if _isolated_stage >= 0 else -1,
+		"from": String((stops[0] as Dictionary).get("name", "journey")),
+		"to": String((stops[stops.size() - 1] as Dictionary).get("name", "journey")),
+	}
+
 ## Redraw every readout after `Preferences ▸ Units` changed, without asking the
 ## engine for anything.
 ##

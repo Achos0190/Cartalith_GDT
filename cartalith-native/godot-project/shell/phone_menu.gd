@@ -622,6 +622,33 @@ func _screen_sub(id: String, arg: String = "") -> String:
 	var row: Array = SCREEN_TITLES.get(id, [])
 	return String(row[1]) if row.size() == 2 else ""
 
+## Phone sheet header support: `dcc_shell.gd::_refresh_phone_sheet_header()`'s
+## own 2026-09-13 doc comment named the same gap for MORE that PLAN had --
+## "`phone_menu.gd`'s `_stack`/`_screen_title()` are both private with no
+## public getter" -- and this closes it, the same shape as
+## `journey_planner_view.gd::phone_header_info()` added the same pass. `.title`
+## on the top step is already the live, resolved string `_push_screen()` wrote
+## it with (`_screen_title(id, arg)` at push time, not a static table read
+## fresh), so this is a read, not a second computation.
+##
+## **Built and NOT wired into that header, and verified why rather than left
+## unstated:** `_screen` -- the L2+ page this menu draws while `is_open()` --
+## is a `PanelContainer` on `DccTheme.panel("bg")` (opaque, not a wash) at
+## `PRESET_FULL_RECT` (`_build_screen()`'s own construction above), and this
+## whole node is added to `_phone_root` in `dcc_shell.gd::_build_phone_shell()`
+## strictly AFTER `chrome` (the tool sheet's own parent, added a few dozen
+## lines earlier in that same function) -- ordinary Godot canvas ordering
+## then draws this menu's opaque full screen OVER the sheet header on every
+## frame it is open. A caller could point `_phone_sheet_title.text` at this
+## and it would be correct and permanently invisible in the same edit. Left
+## available rather than wired to a dead consumer, for whatever later change
+## (a peek-height MORE, or a header this menu draws itself) could actually
+## show it.
+func current_page_title() -> String:
+	if _stack.is_empty():
+		return _screen_title("more")
+	return (_stack[_stack.size() - 1] as _Step).title
+
 ## The canvas's `ELDRA · 1.6 GB` -- the world's name beside what it costs.
 ## Read off the live status slots rather than stored: `top_world` is written as
 ## `"ELDRA · <seed>"` by `app.gd`, so the name is its head, and `top_mem` is the

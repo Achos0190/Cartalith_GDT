@@ -1408,8 +1408,79 @@ static func is_laptop() -> bool:
 ## is byte-identical to the one that shipped.
 static var _portrait := false
 
+## `set_portrait`'s own subscribers -- a plain Array of `Callable` rather than
+## a `signal`, because a GDScript `signal` is emitted by an Object INSTANCE and
+## this is a static utility with none (the same reason `_portrait` itself is a
+## static var and not an exported property). Lane GRID, 2026-09-13: added so a
+## STRUCTURAL reflow (`WorldWorkspace`'s tablet-portrait slider cells swapping
+## shape) can run on a live rotation rather than only at first build --
+## `role_px()` alone re-answers any numeric read on the next layout pass with
+## no hook needed, but a caller that reparents nodes between two shapes has to
+## be told the axis actually flipped.
+##
+## Pruned lazily rather than requiring an `unwatch`: a workspace panel that
+## registers once in its one-time `_build()` and is later freed (a project
+## re-open loads a fresh `app.tscn`, per `_boot_vp` in this lane's own probe)
+## leaves a dead `Callable` here, and `set_portrait()` below drops it the next
+## time the axis flips rather than calling into a freed Object.
+static var _portrait_watchers: Array[Callable] = []
+
+## Every `Label` `header()` built with `elide = true`, so a LIVE rotation can
+## re-toggle its clip the same way `_portrait_watchers` reflows slider cells --
+## added same day as `elide` itself, closing the gap that parameter's own doc
+## on `header()` discloses: the flag used to be decided once, at build time,
+## so a label built during a landscape BOOT (`is_tablet_portrait()` false
+## then) stayed un-elided forever after a later rotation into portrait --
+## reproduced with `_worldportraitgrid_probe.gd --rotate --boot-landscape`
+## before this array existed (`portrait dock_w within 232 +-1` FAILED; the
+## same probe's portrait-boot leg already passed, since `_build()` there ran
+## with the flag already correct). Only labels a caller opted into eliding
+## are ever appended -- `left_dock_title`/`right_dock_title` and every other
+## `elide = false` (the default) caller never enters this array, so "never a
+## dock head" is an invariant of construction here, not just of the initial
+## gate in `header()` below. Pruned lazily, same reasoning as
+## `_portrait_watchers`: a freed panel from a project re-open leaves a dead
+## reference here with no matching unregister call.
+static var _elide_labels: Array[Label] = []
+
+## The one place both `header()`'s initial build and `set_portrait()`'s live
+## reflow compute the elide flag, so they can never disagree on what "on"
+## means. `OVERRUN_NO_TRIMMING` restores the exact pre-`elide` default
+## (Godot's own `Label` default, enum value 0) rather than leaving whatever
+## `OVERRUN_TRIM_ELLIPSIS` was set to previously -- a label built in portrait
+## and rotated OUT must draw exactly as it did before this feature existed.
+static func _apply_elide(l: Label) -> void:
+	var on := is_tablet_portrait()
+	l.clip_text = on
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS if on else TextServer.OVERRUN_NO_TRIMMING
+
 static func set_portrait(v: bool) -> void:
+	if v == _portrait:
+		return
 	_portrait = v
+	var i := _portrait_watchers.size() - 1
+	while i >= 0:
+		var cb: Callable = _portrait_watchers[i]
+		if cb.is_valid():
+			cb.call()
+		else:
+			_portrait_watchers.remove_at(i)
+		i -= 1
+	var j := _elide_labels.size() - 1
+	while j >= 0:
+		var l: Label = _elide_labels[j]
+		if is_instance_valid(l):
+			_apply_elide(l)
+		else:
+			_elide_labels.remove_at(j)
+		j -= 1
+
+## Registers `cb` to run whenever `set_portrait()` changes the axis (never on
+## a same-value call -- a resize that does not flip orientation costs every
+## watcher nothing). Additive only; see `set_portrait()`'s own doc for how a
+## dead watcher is dropped without a matching unregister call.
+static func watch_portrait(cb: Callable) -> void:
+	_portrait_watchers.append(cb)
 
 ## `tablet and portrait` -- see `TABLET_PORTRAIT`'s header for the shape
 ## argument and for why only the portrait half of the canvas pair is taken.
@@ -1756,12 +1827,56 @@ const ROLE_META := "dcc_role"
 ## never walked (it is not a `register_workspace()` panel). `ROLE_META` is
 ## still stamped below, for the walk's OWN precision on whatever label it does
 ## reach, but a caller of `header()` must not depend on being walked at all.
-static func header(text: String, sigil: String = "§") -> Label:
+## Lane GRID 2026-09-13, corrected same day (see `MISTAKES.md`'s `clip_text`
+## row): single-line ellipsis, matching `Cartalith Tablet.dc.html`'s own
+## stage-name span (`white-space:nowrap;overflow:hidden;text-overflow:
+## ellipsis`, ~line 152) -- this port's `§ SECTION` headers are one level
+## deeper than that canvas span (v3 splits a stage into named L3 sections;
+## see `world_workspace.gd`'s own "v3's nine categories" note) but are the
+## same disclosure role, and several run long enough at the 232 px portrait
+## dock to be the widest thing in their body ("Climate & temperature",
+## "Weather · rainfall sim") -- measured, not guessed, by
+## `_worldportraitgrid_probe.gd`'s driver walk.
+##
+## **`elide`, opt-in, default false -- NOT unconditional.** The first cut of
+## this made `header()` itself clip unconditionally, reasoning that this
+## Label is always the sole child of a `MarginContainer` that sizes an only
+## child to its own full inner rect (true for `DccWidgets.section()`'s own
+## call below). That reasoning does not hold for every caller: `dcc_shell.gd`
+## builds `left_dock_title`/`right_dock_title` through this same function,
+## sitting beside a `DccTheme.spacer()` (`SIZE_EXPAND_FILL`) with no floor of
+## its own -- exactly `MISTAKES.md`'s clip_text trap, and unconditional
+## clipping collapsed WORLD/CIVILIZATION/CARTOGRAPHY/SAMPLE to 1 px wide on
+## every geometry. A dock head must never elide, so this is now the caller's
+## choice, not this function's -- pass `true` only from a call site whose
+## container shape has actually been checked against the trap.
+##
+## Landscape-boot-then-rotate-to-portrait, caught by this same lane's own
+## `_worldportraitgrid_probe.gd --rotate --boot-landscape` leg: a section
+## built once, at construction time, while `is_tablet_portrait()` still read
+## false keeps `clip_text = false` even after a later rotation into portrait
+## -- `header()` alone has no hook to revisit that. Closed by `_elide_labels`
+## / `_apply_elide()` just above, the header equivalent of
+## `world_workspace.gd`'s slider-cell `watch_portrait` reflow: every label
+## built here with `elide = true` re-derives its own clip on each live axis
+## flip, from the SAME function the initial build already calls, so the two
+## can never compute the flag differently.
+##
+## `clip_text` + `OVERRUN_TRIM_ELLIPSIS` rather than `group()`'s own autowrap
+## reflow (the DS-03 precedent immediately below in this file's caller,
+## `DccWidgets.group()`): the canvas draws THIS role as single-line-ellipsis,
+## not as wrap, and the two disclosure levels are free to differ since the
+## owner's "keep everything" ruling is about not DELETING a control's own
+## value, not about every heading using one technique.
+static func header(text: String, sigil: String = "§", elide: bool = false) -> Label:
 	var body := text.to_upper()
 	var size := role_px("fs_dock_header") if is_tablet() else FS_HEADER
 	var l := mono_label(("%s %s" % [sigil, body]) if sigil != "" else body,
 		"text_faint", size, 2, true)
 	l.set_meta(ROLE_META, "fs_dock_header")
+	if elide:
+		_elide_labels.append(l)
+		_apply_elide(l)
 	return l
 
 ## The one large accent number a context is collapsed down to (§6's elevation).

@@ -4004,3 +4004,30 @@ func toggle_region(id: int) -> void:
 	## that same handler, so without this it comes back blank.
 	if id == DccMenus.ID_WIN_TIMELINE:
 		_fill_timeline_strip()
+
+## The query counterpart `toggle_region()` never had. **Part A, 2026-09-13**:
+## `menus.gd`'s Window popup checked each of the five region rows once at
+## build time and only ever flipped that shadow locally, in
+## `_sync_region_checks()`, on a press of the SAME row -- it never read the
+## real state back, so a region opened or closed any other way (the phone
+## sheets' own close button, `phone_menu.gd::_open_left_sheet()` from the
+## CIVIL/Simulation rows, `Reset layout`'s phone branch, a restored layout)
+## left the checkmark stale until restart. `_leftdockcheck_probe.gd`
+## reproduces it at boot: Left dock reads checked while `_left_sheet_open` is
+## still `false`.
+##
+## Mirrors `toggle_region()`'s own branches exactly, id for id, so the two
+## can never name a region the other does not act on: RESET is not a region
+## and is deliberately absent here, same as it is absent from
+## `WIN_REGION_IDS`.
+func is_region_shown(id: int) -> bool:
+	if is_phone():
+		if id == DccMenus.ID_WIN_LEFT:
+			return _left_sheet_open
+		if id == DccMenus.ID_WIN_RIGHT:
+			return _right_sheet_open
+		if id == DccMenus.ID_WIN_STATUS:
+			return is_status_region_shown()
+	if not _region_nodes.has(id):
+		return false
+	return (_region_nodes[id] as CanvasItem).visible

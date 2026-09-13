@@ -68,8 +68,11 @@ class_name OpenProjectDialog
 ##   fallback for an archive that cannot supply the four (§6.4a's damage
 ##   ladder, a mid-write file, or a foreign `.zip` the gallery still lists).
 ## - **Seed and edit time are real.** The time is the file's own mtime; the
-##   seed is read out of the save's `params.json` (`state.tect.seed`), which
-##   is display metadata, not a computation -- nothing downstream reads it.
+##   seed is read out of the save's own `project.json` (`world.seed`) for a
+##   native save, falling back to the legacy `params.json`
+##   (`state.tect.seed`) for one that predates it (Part C, 2026-09-13 --
+##   see `project_meta()`'s own header) -- either way it is display
+##   metadata, not a computation, and nothing downstream reads it.
 ##
 ## ## Welcome mode -- a second composition, not a re-titled gallery
 ##
@@ -580,9 +583,13 @@ func _build_foot() -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	_foot_note = DccTheme.mono_label("", "text_ghost", DccTheme.FS_TINY)
+	## The note fills the row itself rather than sitting beside a spacer: a
+	## `clip_text` Label's minimum width is 1 px, so next to an `EXPAND_FILL`
+	## spacer it drew 1 px wide and every foot note -- the projects root, and a
+	## failed open's reason -- was invisible (`MISTAKES.md`, clip_text row).
 	_foot_note.clip_text = true
+	_foot_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(_foot_note)
-	row.add_child(DccTheme.spacer())
 	DccWidgets.modal_button(row, "Cancel", func(): hide())
 	_open_btn = DccWidgets.modal_button(row, "Open selected", _confirm, true)
 	_open_btn.disabled = true
@@ -1157,9 +1164,24 @@ func _refresh_open_button() -> void:
 ## open's sequence, only a failed one's. Filed as Lane GATE part B; reproduced
 ## with a corrupt `.ctl` through the welcome recent tile, this dialog's own
 ## Open button and the disk browser (`_openfailgate_probe.gd`).
+##
+## **Part B continued, same date.** The dialog staying up was only half the
+## fix: with nothing routed to `_say()`, the refusal's only visible surface
+## was the desktop status hint the dialog itself can sit in front of --
+## behind the very screen the user is still looking at, exactly the "toast
+## drawn under the picker" defect `phone_project_picker.gd::_pick_world()`
+## already had and already fixes by reading this same string. `last_open_refusal`
+## (`app.gd`) is set on the SAME refusal branch that builds the status hint's
+## text and the phone toast's, right after `bridge.last_error().text` is read
+## -- so this is not a second, possibly-divergent copy of the reason, it is
+## the one the rest of the shell already shows. `_say()` picks `_picker_note`
+## or `_foot_note` for whichever composition (welcome/gallery) is open, same
+## as the existing bad-drop and empty-search call sites just above and below.
 func _pick_path(path: String) -> void:
 	if _host.open_recent_project(path):
 		hide()
+	else:
+		_say(_host.last_open_refusal)
 
 func _confirm() -> void:
 	if _selected == "" or not FileAccess.file_exists(_selected):
@@ -1218,10 +1240,15 @@ const PROJECT_FORMAT := "cartalith-project"
 ## `{seed, edited, format}` for one save. The first two are display strings and
 ## nothing reads them back; `format` is the save's own `format_version`
 ## (`SAVEFILE_COMPAT.md` §4) as an integer, 0 when unread.
-## The seed comes from the save's own `params.json` (`SAVEFILE_COMPAT.md`
-## §`params.json`: `state.tect.seed`) via `ZIPReader`, which is a read of a
-## stored value rather than a re-derivation of one -- the distinction the
-## `godot-shell` skill's "keep logic out of GDScript" rule turns on.
+## The seed comes from `project.json`'s own `world.seed` for a native save
+## (Part C, 2026-09-13 -- `project_save()`'s `params.json` carries no
+## `state` key at all, so this was the ONLY real source and every native
+## save showed "seed unread" before this), falling back to the legacy
+## `params.json` (`SAVEFILE_COMPAT.md` §`params.json`: `state.tect.seed`) for
+## a save that predates `world.seed` or carries no `project.json` at all.
+## Both via `ZIPReader`, which is a read of a stored value rather than a
+## re-derivation of one -- the distinction the `godot-shell` skill's "keep
+## logic out of GDScript" rule turns on.
 ##
 ## Public (not `_project_meta`) since `phone_project_picker.gd`'s own recents
 ## list reads the identical real per-save facts for its cards rather than a
@@ -1260,17 +1287,38 @@ static func project_meta(path: String) -> Dictionary:
 		## `cartalith_io::PROJECT_FORMAT` from the engine.
 		if zip.file_exists("project.json"):
 			var head = JSON.parse_string(zip.read_file("project.json").get_string_from_utf8())
-			if head is Dictionary \
-					and String((head as Dictionary).get("format", "")) == PROJECT_FORMAT \
-					and (head as Dictionary).has("format_version"):
+			var is_native: bool = head is Dictionary \
+				and String((head as Dictionary).get("format", "")) == PROJECT_FORMAT
+			if is_native and (head as Dictionary).has("format_version"):
 				meta["format"] = int((head as Dictionary)["format_version"])
+			## Part C, 2026-09-13. A native save's real seed, read off the SAME
+			## `head` the format check above already parsed -- no second zip
+			## open. `cartalith-io/src/project.rs` writes it at `world.seed`
+			## (`root.insert("world", world)`, `"seed": p.seed` inside it); its
+			## own `params.json` is `{"cartalith": …, "reference": …}` with no
+			## `state` key at all (`project.rs`'s own writer, ~line 977-990),
+			## so the legacy fallback below has nothing to find there and
+			## every native save showed "seed unread" until this. Gated on
+			## `is_native` for the same reason `format_version` above is: an
+			## unrelated `.zip` that happens to contain SOME `project.json`
+			## should not hand back a confident number out of it.
+			if is_native:
+				var world = (head as Dictionary).get("world", {})
+				if world is Dictionary and (world as Dictionary).has("seed"):
+					meta["seed"] = _plain_number((world as Dictionary)["seed"])
 		if zip.file_exists("params.json"):
 			var parsed = JSON.parse_string(zip.read_file("params.json").get_string_from_utf8())
 			if parsed is Dictionary:
 				var state = (parsed as Dictionary).get("state", {})
 				if state is Dictionary:
 					var tect = (state as Dictionary).get("tect", {})
-					if tect is Dictionary and (tect as Dictionary).has("seed"):
+					## Part C: the legacy path, now a FALLBACK rather than the
+					## only source -- only writes when `world.seed` above found
+					## nothing, so a legacy save's own display is unchanged
+					## (Gate C1) and a save that somehow carried both never has
+					## the native value clobbered by the older one.
+					if tect is Dictionary and (tect as Dictionary).has("seed") \
+							and meta["seed"] == "seed unread":
 						meta["seed"] = _plain_number((tect as Dictionary)["seed"])
 		zip.close()
 	_meta_cache[key] = meta

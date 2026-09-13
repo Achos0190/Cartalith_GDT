@@ -4791,6 +4791,24 @@ func _window(p: PopupMenu) -> void:
 	for rid in WIN_REGION_IDS:
 		p.add_check_item(String(WIN_REGION_LABELS[rid]), rid)
 		p.set_item_checked(p.item_count - 1, true)
+	## **Part A, 2026-09-13.** The five checks above are built once, true, and
+	## were otherwise only ever flipped LOCALLY by `id_pressed`
+	## (`_sync_region_checks()`) -- nothing read the real region state back
+	## into them, so a region opened or closed by any other route (the phone
+	## sheets' own close button, `phone_menu.gd::_open_left_sheet()` from the
+	## CIVIL/Simulation rows, `Reset layout`'s phone branch, a restored
+	## layout) left this popup showing the opposite of the truth until the
+	## next press of the SAME row. `_leftdockcheck_probe.gd` reproduces it:
+	## on phone, Left dock reads checked at boot while the sheet is closed.
+	## `about_to_popup` is the only moment these checkmarks are visible to
+	## anyone, so it is where they are re-read -- through
+	## `_host.is_region_shown()`, the query counterpart `toggle_region()`
+	## never had, with the same phone/desktop branches.
+	p.about_to_popup.connect(func():
+		for wid in WIN_REGION_IDS:
+			var wi := p.get_item_index(wid)
+			if wi >= 0:
+				p.set_item_checked(wi, _host.is_region_shown(wid)))
 	p.add_separator()
 
 	## `PARITY_AUDIT.md` §5 item 5: the reference's `#resOverlay` (Shift+D) --
@@ -4986,12 +5004,19 @@ func _seed_layouts_once() -> void:
 ## this**: the five region flags are the Window menu's own check state, and the
 ## rest are `DccShell` accessors that already existed.
 func _capture_layout() -> Dictionary:
+	## **Part A, 2026-09-13**: reads the REAL region state through
+	## `_host.is_region_shown()` -- `toggle_region()`'s query counterpart --
+	## rather than the Window popup's own check state. The popup's checks are
+	## a shadow that only moved when ITS OWN row was pressed, so a layout
+	## saved after a region changed some other way (a phone sheet's close
+	## button, a restored layout, `Reset layout`'s phone branch) used to
+	## capture the shadow's stale value instead of what was actually on
+	## screen. Needs no popup at all now, so this no longer depends on the
+	## Window menu ever having been opened.
 	var regions := {}
-	if _window_popup != null:
+	if _host != null and _host.has_method("is_region_shown"):
 		for rid in WIN_REGION_IDS:
-			var i := _window_popup.get_item_index(rid)
-			if i >= 0:
-				regions[rid] = _window_popup.is_item_checked(i)
+			regions[rid] = _host.is_region_shown(rid)
 	var out := {
 		"regions": regions,
 		"domain": _shell.active_domain(),
@@ -5014,6 +5039,14 @@ func _apply_layout(data: Dictionary) -> void:
 	if _window_popup != null:
 		for rid in WIN_REGION_IDS:
 			if not regions.has(rid):
+				continue
+			## On a phone the docks are sheets opened on demand, not regions a
+			## layout arranges: a layout's `left`/`right` flags describe the
+			## desktop composition (the seed layouts' own note calls them the boot
+			## arrangement, which on a phone is both sheets closed). Now that the
+			## check marks read the sheets' real state, comparing against them
+			## would open a sheet on every applied layout -- leave the sheets alone.
+			if _host.is_phone() and (rid == ID_WIN_LEFT or rid == ID_WIN_RIGHT):
 				continue
 			var i := _window_popup.get_item_index(rid)
 			if i < 0 or bool(regions[rid]) == _window_popup.is_item_checked(i):
@@ -5080,15 +5113,17 @@ func _layout_readout(parent: Control, snap: Dictionary) -> void:
 		if regions.has(rid):
 			DccWidgets.modal_stat(stats, label, "shown" if bool(regions[rid]) else "hidden")
 		else:
-			## True whenever it fires: `_capture_layout()` reads these five off
-			## the Window popup's own check state and writes nothing for a row
-			## it cannot find there, so an absent key means the popup is not
-			## built (or no longer carries that row) -- not that the region is
-			## hidden. Encoding it as "hidden" would be a plausible value for
-			## no value, and it would be wrong in the common direction: every
-			## region boots shown.
+			## True whenever it fires: `_capture_layout()` (Part A, 2026-09-13:
+			## now reads `_host.is_region_shown()`, not a menu's check state)
+			## writes nothing for a row only when `_host` itself carries no
+			## such query -- not when a menu happens to be closed, since the
+			## query reads live state and needs no popup built at all. An
+			## absent key here means this snapshot did not come from a full
+			## app host. Encoding it as "hidden" would be a plausible value
+			## for no value, and it would be wrong in the common direction:
+			## every region boots shown.
 			DccWidgets.modal_stat_absent(stats, label,
-				"Not readable. A layout takes these five from the Window menu's own check state, and that menu is not built yet -- so this region's setting is unknown here, not off.")
+				"Not readable. This snapshot was not captured through a full app host, so this region's live state is unknown here, not off.")
 	var domain := String(snap.get("domain", ""))
 	var mode := String(snap.get("mode", ""))
 	if domain != "" and mode != "":

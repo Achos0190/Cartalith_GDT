@@ -41,6 +41,66 @@ extends Node
 var _fail := 0
 var _notes: Array[String] = []
 
+## Part D, 2026-09-13. Pressing the real theme/units radios (14 `id_pressed`
+## emits across this file) is deliberate -- `_units_popup`'s checked-state is
+## a shadow only that app's own `_on_units_choice()` refreshes, so setting
+## `DccSettings` directly leaves it stale (see the Gate B1 comment above) --
+## but every one of those presses also persists `DccSettings`'s backing
+## `ConfigFile` to the REAL `user://cartalith_settings.cfg`, on every run,
+## whether or not anything eventually failed. The in-memory value this file
+## already restores (units back to `orig_units`, theme forced to "light" --
+## the standing convention, not a per-run snapshot); the FILE ON DISK is a
+## separate concern, because a `ConfigFile` re-save is not guaranteed
+## byte-identical to itself even when every key it carries ends up equal
+## (section order, float formatting, …). Snapshotting the raw bytes once, up
+## front, and overwriting with them verbatim at the end sidesteps that
+## entirely rather than trying to make the writer reproduce itself.
+## **Mutation, measured -- and it is not the simple story it looks like.**
+## Neutering `_restore_settings()` to a no-op does NOT show up as a changed
+## file hash on a machine whose theme is already "light" and whose units are
+## already whatever `orig_units` reads: this probe converges the FILE's own
+## theme to "light" and units back to `orig_units` regardless of whether the
+## final byte-restore below ever runs, and `ConfigFile.save()` is
+## deterministic for identical key/value content -- no timestamp, no nonce --
+## so the coincidence hides the defect. Proven for real with a fixture: set
+## the live file to `mode="dark"` first (a stand-in for an owner who does not
+## use this machine's usual light preference), then the SAME mutant leaves it
+## at `mode="light"` -- a real, permanent change to a real preference -- while
+## the fixed probe (this file) restores the exact original dark bytes even
+## though it forced `DccTheme` through dark -> light -> dark -> light
+## internally to run Gate A3. Measured 2026-09-13, both legs PASS, hashes
+## compared directly rather than trusted from either run's own report.
+var _settings_path := "user://cartalith_settings.cfg"
+var _settings_existed := false
+var _settings_backup := PackedByteArray()
+
+func _backup_settings() -> void:
+	_settings_existed = FileAccess.file_exists(_settings_path)
+	if _settings_existed:
+		_settings_backup = FileAccess.get_file_as_bytes(_settings_path)
+		print("[settings] backed up %d byte(s) of %s before any radio press"
+			% [_settings_backup.size(), _settings_path])
+	else:
+		print("[settings] %s does not exist yet -- will be removed afterward if this run creates it"
+			% _settings_path)
+
+## Restores byte-for-byte and ASSERTS it, rather than trusting the sequence of
+## presses above to have netted out to the original file -- the whole point
+## of this fix is that trust was exactly what let this probe rewrite the
+## owner's file on every run while every logical VALUE still came back right.
+func _restore_settings() -> void:
+	if _settings_existed:
+		var f := FileAccess.open(_settings_path, FileAccess.WRITE)
+		f.store_buffer(_settings_backup)
+		f.close()
+		var now := FileAccess.get_file_as_bytes(_settings_path)
+		var same: bool = now == _settings_backup
+		print("[settings] restored -- byte-identical to the pre-probe file: ", same)
+		_ok("settings file restored byte-for-byte", same, true)
+	elif FileAccess.file_exists(_settings_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(_settings_path))
+		print("[settings] removed %s (this run created it; it did not exist before)" % _settings_path)
+
 ## Set from the diagnosed remainder -- see the assertion's own comment.
 const _SMALL_TARGET_BUDGET := 0
 
@@ -315,9 +375,14 @@ func _small_dock_labels(root: Node) -> Array:
 	return small
 
 func _ready() -> void:
+	## Part D: before ANYTHING else, including the extension check right
+	## below -- the theme/units radios are pressed for real far below, and
+	## nothing must run ahead of this that could itself touch the settings
+	## file.
+	_backup_settings()
 	await _frames(2)
 	if not ClassDB.class_exists("WorldGen"):
-		print("[FATAL] extension did not load"); get_tree().quit(1); return
+		print("[FATAL] extension did not load"); _restore_settings(); get_tree().quit(1); return
 	var forced := "--force-touch" in OS.get_cmdline_user_args()
 	print("[BOOT] force-touch=", forced, "  (the tablet leg needs it)")
 
@@ -620,6 +685,15 @@ func _ready() -> void:
 		await _frames(1)
 	_ok("Gate A3: machine theme preference is light when this probe finishes",
 		DccTheme.is_dark(), false)
+	## Part D, 2026-09-13. The assertion above reads the DRAWN palette
+	## (`DccTheme.is_dark()`), which the "Toggle theme" flip a few lines up
+	## already proved can move independently of the STORED mode (its own
+	## comment: "reads the DRAWN palette, not the stored mode"). Gate A3 as
+	## filed is about the persisted preference, so it is asserted directly,
+	## against the same `DccSettings.theme_mode()` `menus.gd` reads to seed
+	## every new `DccMenus` with (`_theme_mode = DccSettings.theme_mode()`).
+	_ok("Gate A3: STORED theme preference is light when this probe finishes",
+		DccSettings.theme_mode(), "light")
 
 	print("")
 	print("=== MENUS lane Part B: tablet Units row matches the canvas's 'Units — value' wording ===")
@@ -700,6 +774,21 @@ func _ready() -> void:
 	print("-- reachable row totals, informational: a reflow moves rows, it does not erase them --")
 	print("  info tablet reachable rows: ", t_rows, "   desktop reachable rows: ", d_rows,
 		"   delta: ", t_rows - d_rows)
+
+	## Part D: the LAST thing that happens, after every assertion above
+	## (including the ones this very call could otherwise invalidate) has
+	## already read whatever it needed to.
+	_restore_settings()
+	## Independent of `_restore_settings()`'s own internal assertion --
+	## deliberately OUTSIDE that function, so a mutant that neuters the whole
+	## body (an early `return`, skipping its write-back AND its own `_ok()`
+	## call in the same stroke) is still caught here rather than reporting a
+	## clean PASS. Compares against `_settings_backup` directly; if the file
+	## never existed before this run, there is nothing to compare and the
+	## no-such-file branch inside `_restore_settings()` already handled it.
+	if _settings_existed:
+		_ok("Part D outer check: settings file is byte-identical to the pre-probe backup",
+			FileAccess.get_file_as_bytes(_settings_path) == _settings_backup, true)
 
 	print("")
 	print("_tabletparity_probe: ", "PASS" if _fail == 0 else str(_fail) + " FAILURE(S)")
