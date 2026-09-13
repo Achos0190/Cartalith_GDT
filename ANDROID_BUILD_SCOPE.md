@@ -1493,6 +1493,14 @@ adb install -r builds/android/Cartalith.apk
   `org.cartalith.walkingskeleton/com.godot.game.GodotAppLauncher`, **not**
   `.GodotApp` — `am start` on the latter throws. Resolve it with
   `cmd package resolve-activity --brief` rather than guessing.
+- **Command-line args cannot be injected into a release build (measured
+  2026-09-07).** `am start --esa command_line_params "--verbose"` is accepted
+  by `am` (it reports *"has extras"*) but arrives empty: `D/GodotActivity:
+  Launch intent … with parameters []`. The dex **does** contain
+  `command_line_params` and `retrieveCommandLineParamsFromLaunchIntent`, so the
+  key is right — the launcher forwards without the extras. This is why the
+  logcat control had to be driven through the UI: do not plan a device probe build
+  around command-line (`_cl_`) flags — a release build ignores launch-time args.
 
 ## Measuring frame time on this app
 

@@ -2759,17 +2759,64 @@ func _run_offscreen(pts: PackedVector2Array, k: float, pad: float) -> bool:
 ## `2.0/2.0` -> 13; `8.0/8.0` -> 11; `64.0/64.0` (with the f64 fix) -> 2. That
 ## is exactly the steady shrink the old comment said had been ruled out.
 ##
-## **(b) was not the rasteriser, but the replacement cause is also unconfirmed.**
-## The verifier's isolation stands and is worth keeping: a bare `draw_polyline`
-## of an 801-point array against the 77-point visible slice of the same way
-## renders diff px = 0, and the SOLID path (`highway`, one unsplit chain, a 5.8x
-## shorter array) is byte-identical -- so "a shorter array rasterises
-## differently" is false, and the residual is confined to the DASHED path. Its
-## proposed cause was `_dash_phase_track`'s f32 accumulator; **widening it
-## changed nothing on either probe when re-measured here** (see that function's
-## own header). So the dashed residual's cause is currently **unknown**, and the
-## honest state is: not the array length, not a join-vs-cap, not confirmed to be
-## the phase precision either.
+## **(b) was not the rasteriser** in the form the old comment stated (one call
+## rendering identical geometry differently because other points "ride along"
+## in the SAME call) -- a bare `draw_polyline` of an 801-point array against
+## the 77-point visible slice of the same way renders diff px = 0, so that
+## exact mechanism is false. **What the isolated test's own generalisation --
+## "the residual is confined to the DASHED path" -- claimed from it did NOT
+## hold up, and is corrected here, 2026-09-13, by measurement rather than by
+## another isolated call.**
+##
+## `_dash_phase_track`'s f32 accumulator was the next proposed cause; widening
+## it changed nothing on either probe when re-measured (see that function's
+## own header) -- also ruled out.
+##
+## **What actually explains it, established 2026-09-13.** Two probes of this
+## file's own network and 16-case zoom/pan matrix (`_dashresidualcheck_probe`,
+## `_dashvssolid_probe` -- both windowed, `--path .`, results in each probe's
+## own stdout):
+##
+##   1. Every one of `_cull_probe.gd`'s 13 "FAIL" frames differs from its
+##      `_NoCull` twin by **at most 1 of 255 in one channel**, on at most
+##      **0.03% of the frame's pixels** (158 of 540 000, worst case) --
+##      squarely inside, not merely near, `_segcull_probe.gd`'s own
+##      `AA_AGREEMENT_MAX_DELTA = 10` / `_MAX_DIFF_FRACTION = 0.001` bar,
+##      the tolerance that probe measured and shipped for exactly this
+##      antialiasing-coverage-rounding class. `_cull_probe.gd` predates
+##      `_segment_chains` (2026-08-25, before per-segment culling existed) and
+##      still asserts raw byte equality; it was never updated to the tolerance
+##      written for the code it now also exercises. That is not this file's
+##      call to make -- `_cull_probe.gd` is a probe this pass does not own --
+##      but it is why 13 "FAIL" lines read as a live defect when the pixels
+##      behind them say otherwise.
+##   2. **The DASHED-only claim is false.** Re-running `_cull_probe.gd`'s exact
+##      network, seed and 16-case matrix split by family -- SOLID ways alone
+##      (`highway`, `regional`; no `_draw_dashed_polyline` call at all) against
+##      DASHED ways alone (`road`, `track`, `ancient`) -- both show the SAME
+##      class of residual at comparable-to-larger magnitude: **SOLID-only 11 of
+##      16 cases differ, up to 157 px (0.029%)**; **DASHED-only 10 of 16
+##      differ, up to 9 px (0.0017%)**. The solid family, which never runs
+##      `_draw_dashed_polyline` or `_dash_phase_track` at all, shows MORE
+##      affected pixels per differing case than the dashed one -- the residual
+##      cannot be a dash-phase property when the family with no dash phase
+##      shows it more. This is what the single 801-vs-77-point isolated test
+##      missed: it checked one way in one state, not the swept matrix, and
+##      that one case happening to land at diff px = 0 does not generalise.
+##
+## **So: the cause is Godot's antialiased `draw_polyline`/`draw_line`
+## rasteriser being sensitive, at the LSB level, to how many points share a
+## draw call -- `_segcull_probe.gd`'s own documented cause for its per-segment
+## culling residual -- and it reaches BOTH solid and dashed ways alike,
+## because `_NoCull` here overrides only `_visible_local_rect()`; it does not
+## override `_segment_chains`, so per-segment chaining still runs on both arms
+## of `_cull_probe.gd`, over a different effective view, which is a live route
+## to the shorter/longer submitted-array condition `_segcull_probe.gd`
+## identified as the trigger. Not a join-vs-cap, not array length in the
+## naive sense refuted above, not the phase accumulator -- and not reachable
+## from this file, the same conclusion `_segcull_probe.gd` already reached for
+## the general case. No further fix belongs here: the pixels are within the
+## tolerance this project already ships for this exact cause.**
 ##
 ## **What this leaves open, and it is an owner call rather than a defect.** A
 ## larger pad keeps shrinking the residual, at a cost measured in the same runs:

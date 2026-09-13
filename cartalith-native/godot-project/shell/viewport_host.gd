@@ -843,6 +843,18 @@ func set_pan_mode(on: bool) -> void:
 		## primary action. See `_navpad_paint()` for the wash and its source.
 		_navpad_paint(_pan_btn, DccTheme.c("panel"),
 			DccTheme.c("accent") if on else DccTheme.c("text"), on)
+	## The desktop half of `OUTSTANDING_WORK.md`'s "A drag on the map does
+	## nothing until the hand tool is armed, with no on-screen cue" -- measured
+	## 0 of 1 468 800 px moved by an un-armed drag, with the gap named exactly:
+	## "nothing on screen says which tool is armed or that one must be... On a
+	## phone there is no cursor to change shape, which is the desktop's cue" --
+	## a cue this file had never actually set. `overlay`, not `self`: it is
+	## `MOUSE_FILTER_STOP` and full-rect over the whole map, so it is what
+	## Godot hit-tests the pointer against, and a control's OWN
+	## `mouse_default_cursor_shape` is what a cursor query reads -- not an
+	## ancestor's. Touch has no cursor to change (the row's own point); that
+	## half is not this.
+	overlay.mouse_default_cursor_shape = Control.CURSOR_DRAG if on else Control.CURSOR_ARROW
 	## After the state is settled, never before -- a listener that reads
 	## `pan_mode()` inside the emit must see the mode it is being told about.
 	pan_mode_changed.emit(on)
