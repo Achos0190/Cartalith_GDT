@@ -363,11 +363,7 @@ func open() -> void:
 	## and `_rebuild_party_form()` would re-run for a repaint that changed
 	## nothing, and this is the hot path for every PLAN tap.
 	if _active:
-		var civ_reopen: Control = app._workspace_panels.get("civilization")
-		if civ_reopen != null:
-			civ_reopen.visible = false
-		_left_panel.visible = true
-		_center_panel.visible = true
+		_reassert_shown()
 	## **Every control this view has lives in the left dock, and on a phone that
 	## dock is a sheet that starts closed** -- `dcc_shell.gd::
 	## _build_phone_shell()` builds it `visible = false`. `_build_left_panel()`
@@ -420,14 +416,64 @@ func open() -> void:
 		app._set_sheet_open("left", true)
 
 func _recompute_visibility() -> void:
-	var should_show := _bound and app.armed_tool == "journey" and app.active_domain() == "civilization"
+	## **REARM row B, narrowed after a refuted fix** (filed 2026-09-07;
+	## `.claude/resume-2026-09-12/rearm_2026-09-12.patch` reverted). Requires
+	## `active_mode("civilization") == "planner"` now, not just the domain and
+	## the armed tool -- because neither of those two changes when the user
+	## navigates from the planner to another CIVIL destination while Journey is
+	## still the globally-armed tool ("switching workspace never disarms it",
+	## `app.gd`'s own `tool_armed` header): `select_domain_category(
+	## "civilization", "Landmarks"/"Factions"/"Military"/"Simulation")`
+	## (`menus.gd`, `faction_roster_window.gd`, `cartography_workspace.gd`,
+	## `phone_menu.gd::_go_simulation()`) all write a mode other than "planner"
+	## and none of them touch `armed_tool`. Mode is the one signal that always
+	## moves on a real destination change within CIVIL -- `_on_rail_node_
+	## pressed()` disarms to "inspect" for exactly this reason on its own three
+	## sibling nodes, but these four cross-jumps reach `_select_domain()`
+	## without going through that function at all.
+	var should_show := _bound and app.armed_tool == "journey" and app.active_domain() == "civilization" \
+		and app.active_mode("civilization") == "planner"
 	if should_show == _active:
+		## **The refuted patch's mistake, avoided by the mode check above.** It
+		## reasserted on every unchanged call whose `should_show` was true,
+		## using the OLD (domain + armed_tool only) formula -- so a bare
+		## navigation to Landmarks/Factions/Military/phone-Simulation left
+		## `should_show` sitting at `true` the whole time (domain still
+		## "civilization", Journey still armed) and this branch re-covered
+		## each of them with the planner's own panels right after `_select_
+		## domain()` had correctly shown CIVIL's dock on the new category. With
+		## mode in the formula, one of those cross-jumps flips `should_show` to
+		## `false` before this branch is ever reached (`_active` transitions
+		## instead, into `_hide()`, below) -- so a reassert here only ever fires
+		## while the planner truly is still the destination: a redundant
+		## `select_domain("civilization")` (Window ▸ Workspace,
+		## `phone_menu.gd::_go_civilization()`) or `select_domain_mode(
+		## "civilization", "planner")` (a Journey layout, or a rail re-click)
+		## that `_select_domain()` (`dcc_shell.gd`) answered by unconditionally
+		## repainting `_workspace_panels["civilization"].visible = true` again,
+		## which is what this reassert undoes.
+		if should_show:
+			_reassert_shown()
 		return
 	_active = should_show
 	if _active:
 		_show()
 	else:
 		_hide()
+
+## The cheap half of `_show()` -- the three visibility writes only, never
+## `_compute()` / `_rebuild_party_form()` / `_tool_options_journey()`, which
+## would re-run for a repaint that changed nothing. Two callers: `open()`,
+## when a second PLAN tap finds the tool already armed (`arm_tool()` then
+## emits no `tool_armed` for `_recompute_visibility()` to react to), and
+## `_recompute_visibility()` itself, for the re-entry case its own comment
+## above describes.
+func _reassert_shown() -> void:
+	var civ_reopen: Control = app._workspace_panels.get("civilization")
+	if civ_reopen != null:
+		civ_reopen.visible = false
+	_left_panel.visible = true
+	_center_panel.visible = true
 
 func _show() -> void:
 	## Hides the WHOLE civilization panel -- which now nests

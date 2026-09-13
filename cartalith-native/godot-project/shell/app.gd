@@ -1247,12 +1247,60 @@ func _wire_selection() -> void:
 ## §10 says the timeline is "absent from generation and style screens --
 ## generation is not time-based". Both are functions of the active domain, so
 ## both are driven from one place rather than five workspaces each remembering.
+
+## **REARM row A's memo** (verifier, 2026-09-12; fixed here 2026-09-13).
+## `_select_domain()` (`dcc_shell.gd`) emits `workspace_changed` unconditionally
+## on every call, including a bare re-entry that changes neither the domain nor
+## its remembered mode -- a redundant `select_domain(id)` (Window ▸ Workspace,
+## `phone_menu.gd::_go_civilization()`), a redundant `select_domain_mode(id,
+## mode)` naming the mode already active, or a rail-node re-click on the node
+## already lit. `_on_workspace_changed()` below has no other way to tell that
+## apart from a genuine navigation -- `active_domain()`/`_domain_mode` have
+## already been overwritten to the new call's values by the time this runs --
+## so this file remembers what it last actually saw, itself.
+var _last_workspace_domain := ""
+var _last_workspace_mode := ""
+
 func _on_workspace_changed(id: String) -> void:
 	## Was `id in ["civilization", "infrastructure"]` -- INFRA merged into
 	## CIVIL 2026-08-20 (`dcc_shell.gd`'s `DOMAINS` doc comment), so the one
 	## surviving id already covers both.
+	##
+	## **`re_entry`: this call changed neither the (domain, mode) pair nor the
+	## armed tool** -- so every write below that exists to reflect "the active
+	## tool or workspace" (this function's own header comment, the contract
+	## this row was filed against) has nothing new to say, and the three
+	## specific writes it gates would otherwise stomp whatever the ACTUAL
+	## armed tool already painted there at arm time: Way/Route's own
+	## `Commit / Discard` row (`infrastructure_workspace.gd`), the journey
+	## planner's route picker and `rail_foot` reading "JOURNEY" (`_show()`,
+	## `journey_planner_view.gd`), and (specifically for Journey, the one tool
+	## that borrows it -- JP-13) the timeline band living in `timeline_row`.
+	## `armed_tool != "inspect"` is required too: Inspect owns no row of its
+	## own, so a mode change gated only on "(domain, mode) unchanged" must
+	## still run the default while Inspect is armed, or Cartography's own
+	## mode-named caption (below) would go stale the moment a mode changes
+	## without the domain changing -- exactly the "CARTOGRAPHY · STYLE" bug
+	## stage 2 already fixed once (this function's own comment on that arm).
+	##
+	## **A genuine navigation always has `re_entry == false`**, because
+	## `_domain_mode[id]` is written before `_select_domain()` runs for every
+	## real destination change (`select_domain_mode()`, `select_domain_
+	## category()`'s derived mode, and `_on_rail_node_pressed()`'s own
+	## disarm-to-"inspect" before it writes a different CIVIL node's mode) --
+	## so this cannot suppress a genuine domain, mode or category change, only
+	## a call that asked for exactly what was already on screen.
+	var mode := active_mode(id)
+	var re_entry := id == _last_workspace_domain and mode == _last_workspace_mode \
+		and armed_tool != "inspect"
+	_last_workspace_domain = id
+	_last_workspace_mode = mode
 	timeline_bar.visible = id == "civilization"
-	_fill_timeline_strip()
+	## Only Journey ever borrows `timeline_row` (JP-13's own header) -- no
+	## other tool has ever touched it -- so this one write is gated on that
+	## specific tool rather than "any tool", unlike the two below.
+	if not (re_entry and armed_tool == "journey"):
+		_fill_timeline_strip()
 	if id != "world":
 		right_dock_ctrl.leave_sculpt_context()
 		## Biome paint is a WORLD-only tool (`world_workspace.gd`'s own TOOLS
@@ -1269,38 +1317,39 @@ func _on_workspace_changed(id: String) -> void:
 		right_dock_ctrl.show_stops()
 	elif id != "cartography":
 		right_dock_ctrl.leave_stops_context()
-	match id:
-		"world": _tool_options_generate()
-		## CARTO absorbed RENDER's one subject (terrain appearance) the same
-		## pass; that subject is bound as of the map-coloration pass, so this
-		## caption no longer claims it is not.
-		## **The second half of the caption is the MODE, not a fixed word.**
-		## It read "CARTOGRAPHY · STYLE" unconditionally until stage 2, which
-		## was true while CARTO had one destination and became a plain
-		## contradiction the moment it had four: the bar said STYLE over an open
-		## Labels panel with the rail's `Labels` node lit and the rail foot
-		## reading LABELS. Three surfaces agreeing and one disagreeing is worse
-		## than four saying nothing. `_tool_options_*` is otherwise stage 5's
-		## rewrite; this is the one word of it stage 2 is obliged to fix,
-		## because stage 2 is what made it wrong. (This comment used to say the
-		## whole of stage 5 was blocked on the prototype's truncated `tbLabel`
-		## -- that blocker was cleared the same day the plan was written; see
-		## `05-right-dock-and-bars.md` §0.)
-		"cartography": _tool_options_simple("CARTOGRAPHY · " + active_mode("cartography").to_upper(),
-			"presentation only — no control here marks a generation stage stale. Map view, Map style and Rendering-advanced drive render.rs's TerrainAppearance live; the quality tier those values start from lives in Preferences.")
-		## Settlement/POI/Territory (civ_tools_bridge.rs) and Way/Route/Measure/
-		## Region (infra_tools_bridge.rs) are bound and tested as of 2026-08-19,
-		## and §4.5's TOOLS block that arms them now exists in this dock
-		## (`civilization_workspace.gd`'s own `_build_tools()`, which composes
-		## `infrastructure_workspace.gd`'s Way/Route buttons into the same row
-		## since the 2026-08-20 domain merge). The earlier wording here claimed
-		## the palette "is not built yet" and was stale the moment that file
-		## shipped -- it says so in its own comments. These strings are only the
-		## idle default a domain switch lands on; each workspace reclaims the bar
-		## with its own richer row the moment one of its tools arms.
-		"civilization": _tool_options_simple("CIVIL · INSPECT",
-			"Settlement, Territory, Way and Route tools are armed from the TOOLS block in the dock. POI has no engine call (civ_tools_bridge.rs) and is not offered.")
-	_refresh_rail_foot()
+	if not re_entry:
+		match id:
+			"world": _tool_options_generate()
+			## CARTO absorbed RENDER's one subject (terrain appearance) the same
+			## pass; that subject is bound as of the map-coloration pass, so this
+			## caption no longer claims it is not.
+			## **The second half of the caption is the MODE, not a fixed word.**
+			## It read "CARTOGRAPHY · STYLE" unconditionally until stage 2, which
+			## was true while CARTO had one destination and became a plain
+			## contradiction the moment it had four: the bar said STYLE over an open
+			## Labels panel with the rail's `Labels` node lit and the rail foot
+			## reading LABELS. Three surfaces agreeing and one disagreeing is worse
+			## than four saying nothing. `_tool_options_*` is otherwise stage 5's
+			## rewrite; this is the one word of it stage 2 is obliged to fix,
+			## because stage 2 is what made it wrong. (This comment used to say the
+			## whole of stage 5 was blocked on the prototype's truncated `tbLabel`
+			## -- that blocker was cleared the same day the plan was written; see
+			## `05-right-dock-and-bars.md` §0.)
+			"cartography": _tool_options_simple("CARTOGRAPHY · " + active_mode("cartography").to_upper(),
+				"presentation only — no control here marks a generation stage stale. Map view, Map style and Rendering-advanced drive render.rs's TerrainAppearance live; the quality tier those values start from lives in Preferences.")
+			## Settlement/POI/Territory (civ_tools_bridge.rs) and Way/Route/Measure/
+			## Region (infra_tools_bridge.rs) are bound and tested as of 2026-08-19,
+			## and §4.5's TOOLS block that arms them now exists in this dock
+			## (`civilization_workspace.gd`'s own `_build_tools()`, which composes
+			## `infrastructure_workspace.gd`'s Way/Route buttons into the same row
+			## since the 2026-08-20 domain merge). The earlier wording here claimed
+			## the palette "is not built yet" and was stale the moment that file
+			## shipped -- it says so in its own comments. These strings are only the
+			## idle default a domain switch lands on; each workspace reclaims the bar
+			## with its own richer row the moment one of its tools arms.
+			"civilization": _tool_options_simple("CIVIL · INSPECT",
+				"Settlement, Territory, Way and Route tools are armed from the TOOLS block in the dock. POI has no engine call (civ_tools_bridge.rs) and is not offered.")
+		_refresh_rail_foot()
 	## The collapsed left dock's line, from whichever dock is now in the frame.
 	## `WorldWorkspace` was the shell's only writer of it until 2026-09-05, so
 	## collapsing in CIVIL or CARTO showed WORLD's last word -- see

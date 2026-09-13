@@ -148,6 +148,14 @@ var _biome_k := false
 ## Cancel button exist, and whether the form is re-fitted for touch.
 var _phone := false
 var _dim_syncing := false
+## Lane SEED, 2026-09-13 (the row found on glass 2026-09-07: a typed seed
+## surfacing silently on a LATER Generate). True once the user has actually
+## edited `seed_input`'s `LineEdit` since `.value` was last set by code or
+## last committed. `request()` reads this to decide whether a pending typed
+## seed needs `SpinBox.apply()` forced onto it before the read -- see
+## `request()`'s own comment for why an unconditional `apply()` (the
+## 2026-09-12 attempt, reverted) broke a rolled seed instead.
+var _seed_dirty := false
 ## §6.7's card and its two extent chips. Both phone-only -- `null` and empty on
 ## desktop and tablet, which is what makes `_set_extent_chips()` a no-op there.
 var _card: PanelContainer
@@ -323,6 +331,20 @@ func _build(body: VBoxContainer) -> void:
 	seed_input = DccWidgets.number(seed_sec, "Seed", 0, 2147483647, 1, randi() % 1000000,
 		func(_v: float): pass,
 		"Integer seed. The same seed and settings reproduce the same world.")
+	## **The dirty flag's one source of truth.** Measured
+	## (`_seedcommit_probe.gd`'s SIGNAL DIAGNOSTIC section) rather than
+	## assumed from the class reference: a real keystroke landing in this
+	## field while it has focus fires `LineEdit.text_changed`, and neither of
+	## this dialog's own programmatic writers of `.value` (the construction
+	## line just above, and `randomise_seed()`) does -- so this connection
+	## needs no companion "was that write mine" check anywhere else. And even
+	## if some future engine build made a `.value` write's internal display
+	## resync also raise this signal, every writer below clears the flag on
+	## the very next statement, and a plain `.connect()` delivers
+	## synchronously in this engine -- so a same-call re-entrant `true` would
+	## already be overwritten by the time that statement returns.
+	## Belt-and-braces, not the load-bearing part.
+	seed_input.get_line_edit().text_changed.connect(func(_t: String): _seed_dirty = true)
 	if _phone:
 		_build_seed_dice()
 
@@ -1074,8 +1096,13 @@ func _on_create() -> void:
 ## 2026-08-19): `state.tect.seed=(Math.random()*99999)|0; ...;
 ## withBusy('generating…',generate)` -- a reroll and nothing else. No dialog
 ## opens; the caller regenerates immediately with the new seed.
+##
+## Clears `_seed_dirty` in the same statement that writes `.value` -- see that
+## field's own comment and `request()`'s own -- so a roll always reads back
+## clean regardless of what a stale focused `LineEdit` might still show.
 func randomise_seed() -> void:
 	seed_input.value = randi() % 100000
+	_seed_dirty = false
 
 ## `PARITY_AUDIT.md` §23 F14: `get_villages_enabled`/`get_metropolis_enabled`/
 ## `get_recovery_phase` are real getters -- `self.civ_options.villages`/
@@ -1137,7 +1164,29 @@ func _sync_from_engine() -> void:
 		extent_input.selected = 1 if bool(world_now) else 0
 		_update_extent_state()
 
+## **`seed_input.apply()` only when `_seed_dirty` says a real edit is
+## actually pending** -- not unconditionally. The 2026-09-12 attempt called
+## `apply()` on every `request()`, which is the right move for a seed typed
+## but never committed (Android BACK dismisses the on-screen keyboard
+## without Godot ever seeing a focus change or an Enter, so `.value` stays
+## stale while the field goes on showing what was typed -- reported live as
+## "Create -> world is X · 51127; the typed value was then used by the next
+## Generate World") and the wrong one for a ROLLED seed read while this
+## dialog is hidden: `_run_pipeline()` and the heightmap import both call
+## this with the dialog never popped, and off-screen a `SpinBox`'s
+## `LineEdit` does not resync its displayed text to a `.value` written by
+## code (measured, `_vfy_seedroll_probe.gd` S0) -- so an unconditional
+## `apply()` there re-parsed the STALE display text straight over the
+## freshly rolled `.value`, silently discarding the roll. Gating on
+## `_seed_dirty` -- true only while a real keystroke has landed in the field
+## since the last programmatic write or the last commit -- fixes the first
+## case without breaking the second: `randomise_seed()` clears the flag in
+## the same statement that writes `.value`, so a roll is never seen as dirty
+## regardless of what the (possibly stale, possibly hidden) `LineEdit` shows.
 func request() -> Dictionary:
+	if _seed_dirty:
+		seed_input.apply()
+		_seed_dirty = false
 	return {
 		"seed": int(seed_input.value),
 		"width_km": width_input.value,

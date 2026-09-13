@@ -293,6 +293,13 @@ body at all; the shell, having no header, leaks half a row of it. Reverted, with
 batch’s citation sweep stopped correctly at its gate: 51 stale canvas citations, not 49, and of its three
 disagreements only one is the shell drifting from the canvas.
 
+**2026-09-13: the owner re-sorted the PC left rail (Ruling L), and the first three-builder batch shipped two of
+its three lanes.** A seed typed into New World now reaches the built world, including the rolled-while-hidden
+case that sank the previous attempt; re-entering a domain no longer throws away the armed tool’s options row,
+and with the journey planner armed every other CIVIL category navigates again (the old code swallowed all 14).
+The tablet rail and menu work was re-applied with docks kept at 400 and fits every tablet frame, but is held
+uncommitted: its scroll wrapper collapses the options row on every tablet frame.
+
 **Three concurrent batches ran, and all three were refuted in part and reverted.** Five builders worked
 at once on the owner’s instruction, file- and measurement-disjoint, and every change is kept as a
 re-appliable patch in `.claude/resume-2026-09-12/`. The tablet rail fix and menu collapse worked, but
@@ -887,7 +894,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-13: 129 items.** Run
+**Recounted 2026-09-13: 128 items.** Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for
