@@ -1024,3 +1024,23 @@ armed-tool gate goes.
 - **Decision 1 keeps Center landmasses in Hydrology, while the tree places it in Generate ▸ Run.**
   **Owner, 2026-09-13: "Tree is leading"** — where the notes and the tree disagree, the tree wins;
   Center landmasses goes to Generate ▸ Run.
+
+---
+
+## 2026-09-13 — Ruling M: Reference Map Reconstruction Mode (owner answers to the research's eleven questions)
+
+**The research is `REFERENCE_MAP_RECONSTRUCTION_RESEARCH.md`** (its questions are §5). The owner's answers, verbatim where given, and what each changes in the proposed design:
+
+1. **Plate-edge roughness — "Tectonic alpha might be it."** **Checked at the symbol, 2026-09-13: it is not an edge control.** `tect.alpha` ("Tectonic α", 0–1.2) is used only in `cartalith_terrain::compute_height`, as `0.5 + α·(0.40·base_field + 0.50·stress) + …` — it scales how strongly plate base and boundary stress raise **height**. Plate edges in the generator are shaped only by warp (`compute_warp`, large-scale bends), Lloyd relaxation and plate count. **Answer 2 makes this moot:** with drawn boundary lines, roughening means displacing the owner's own lines — the generator's warp formula (amplitude) plus a finer detail octave from the same noise. **Confirmed by the owner the same day ("yes"):** edge roughness on drawn lines is **Edge warp** (the generator's `compute_warp` formula, amplitude) **plus Edge detail** (a finer octave from the same noise functions); α stays a height parameter.
+2. **How plates are drawn — "Draw boundary lines."** Not sites or painted regions. The user draws boundary polylines over the reference; plates are the regions those lines enclose (closed against the map edge), and the roughening in 1 displaces the lines. Design consequence: the constrained assignment becomes a line-bounded region fill (labelling cells between drawn lines), not a site-seeded Voronoi; lines that do not close a region are reported, never silently joined.
+3. **Do drawn plates change height — "No, is only to inform the resources generation step."** Apply rebuilds only the plate-derived substrate the resources step reads, and never touches height, hydrology or climate. **RM-11 ("grow relief from plates") is dropped.** **What "the resources step" reads from plates, checked at the symbols 2026-09-13:** `cartalith_civ::build_resource_potentials` takes `boundary_type` (subduction and ocean–ocean arc cells seed the copper distance field), `shear_field`, `age` and `volcanic`, plus lithology; `cartalith_civ::build_lithology` takes `age`, `volc`, `crust` and `resist`. So Apply must rebuild exactly `plate_id` → boundary mask and **type**, **shear**, stress, **crust**, **age**, **resistance** and **volcanic** from the drawn lines, then mark civ stale so resources recompute — and nothing else.
+4. **Plate crust and drift — "As proposed":** inferred from the sculpt (`classify_plate_crust`, `infer_plate_velocities`), with optional per-plate overrides.
+5. **Reference image storage — "embed in the save file."** The original image bytes go into the project zip (`annotations/reference.<ext>`), with a size warning.
+6. **Registration — "Scale rotation and offset only."** No perspective or rubber-sheet warping.
+7. **Placement and canvas — "Not yet, will be the first question when we start this."** No canvas is commissioned now; the first step of the build is the placement/canvas question to the owner.
+8. **Editing opened projects — "Automatic, sculpting should always be available."** An opened project becomes editable on open, without a "Continue editing" action: RM-0 promotes a loaded world automatically (rebuilding the substrate, keeping the saved climate). Its open-time cost must be measured and stated; if it is large, the rebuild may run lazily on first edit, but the user never has to ask for it.
+9. **Detection scope — "yes, what else would be possible?"** v1 is land/water and rivers. Possible later classes, recorded for the owner: mountain/hill symbols (hachures, icons) as uplift hints; forest and biome colour regions (seeding biome paint); roads and borders as lines; lakes as a separate water class; shallow-sea shading as shelf depth; settlement markers; painted hillshade as a rough height guess; labels by OCR (the least robust).
+10. **Formats — yes:** PNG/JPEG/WebP decoded by Godot, PNG also through Rust; source cap 4096 px on phone, 8192 px on desktop.
+11. **Export — yes:** the reference image is never drawn into any export.
+
+**Not scheduled.** This ruling records the design decisions; build rows wait until the work is started, whose first step is question 7.

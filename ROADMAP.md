@@ -132,6 +132,22 @@ its own and is no longer an unscheduled option:
 `LOD_TILING_BASE_SCOPE.md` for the standalone base, and
 `LOD_TILING_INTEGRATION_SCOPE.md` for threading it through the pipeline.
 
+**A second concrete need arrived on 2026-09-12**, in two parts: owner-supplied
+research (`docs/research/lod extra info.md`) and a target image — the Aletsch
+glacier read top-down, with 3D still parked (`LARGE_ITEM_RULINGS.md`, Ruling K).
+What the pyramid could not do was measured first: a tile carried a shade ratio
+over one grid-resolution colour texture, so a deeper level could not show more —
+detail per screen pixel fell from 0.0220 to 0.0017 between zoom 1 and zoom 40.
+**The order is the owner’s:** port `renderBiomeTileRGBA` so tiles carry colour,
+then draw ice from fields that already exist — no glaciation model, no second
+terrain dataset. `LOD_DETAIL_SCOPE.md` carries the milestones, LOD-D0 to D6 (D7
+optional); it extends `LOD_TILING_INTEGRATION_SCOPE.md`’s M1 and does not reopen
+Z3, Z4 or the atlas. Its acceptance bar is the research’s own, turned into numbers:
+one continuous zoom, three seeds, zero pops, zero holes, no seams. It sits behind
+the GUI work. The research’s crate names are not this workspace’s and much of
+what it proposes was already built; that is recorded in the scope document rather
+than scheduled twice.
+
 ## Options kept open, not scheduled
 
 ~~Save-file **writing** (`SAVEFILE_COMPAT.md`)~~ — **no longer open.**
