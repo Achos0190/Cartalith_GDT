@@ -2621,6 +2621,15 @@ func _on_sculpt_commit() -> void:
 	## would also reset the camera to fit, an unwanted side effect of every
 	## Commit that this avoids by writing the public `map_view` field instead.
 	app.viewport.map_view.texture = bridge.color_texture()
+	## The line above is not enough on its own once the deep-zoom pyramid is
+	## up: an already-built LOD tile keeps its OWN synthesized texture and a
+	## shader reference to the OLD `map_view.texture`, and nothing about
+	## reassigning that field tells `ViewportHost` to rebuild a tile it
+	## already has (`GUI_GAP_REGISTER.md`, "the in-session tile cache is not
+	## invalidated by a sculpt"). `invalidate_lod_tiles()` is the same
+	## camera-preserving trade as the line above -- it does not call
+	## `reset_view()` either -- so Commit still never moves the camera.
+	app.viewport.invalidate_lod_tiles()
 	app.viewport.set_preview_texture(null)
 	_build_sculpt(_sculpt_body)
 	if app.right_dock_ctrl.has_method("show_sculpt_stack"):

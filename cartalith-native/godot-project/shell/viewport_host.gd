@@ -2834,6 +2834,33 @@ func _clear_lod_tiles() -> void:
 	set_process(false)
 	_lod_debug_dirty()
 
+## Forces every live deep-zoom tile to be rebuilt at the CURRENT camera
+## position -- unlike `refresh()`, this does not call `reset_view()`, so the
+## camera does not move. For a caller that just wrote `map_view.texture`
+## directly instead of going through `refresh()` (`world_workspace.gd`'s
+## `_on_sculpt_commit()`, and `_run_erode()` beside it): an already-built
+## tile `Sprite2D` holds its own synthesized shade-ratio texture AND a
+## shader `base_tex` parameter captured from the OLD `map_view.texture`
+## (`_build_lod_tile`), and `_apply_lod_tiles`'s reconciliation only rebuilds
+## a key that is MISSING from `_lod_tiles` -- so with the camera unmoved,
+## every tile that was already on screen stays exactly as it was, silently
+## compositing pre-change relief. Clearing `_lod_tiles` first makes every
+## visible key "missing" again, so the very next `_update_lod()` call
+## rebuilds all of them through the normal incremental machinery
+## (`MAX_LOD_TILES_PER_UPDATE` per call, the rest via `_lod_backlog`/
+## `_process()`), each one re-reading the live field AND capturing the new
+## `map_view.texture` reference fresh. `GUI_GAP_REGISTER.md`, "the
+## in-session tile cache is not invalidated by a sculpt".
+##
+## Cheap no-op when the pyramid has nothing live: `_lod_tiles` and
+## `_lod_backlog` both empty means there is nothing to free or rebuild, so
+## this returns before paying even `_update_lod()`'s own guard checks.
+func invalidate_lod_tiles() -> void:
+	if _lod_tiles.is_empty() and _lod_backlog.is_empty():
+		return
+	_clear_lod_tiles()
+	_update_lod()
+
 ## `_draw_lod_debug()` reads `_lod_tiles` -- which chunks are live, and where
 ## each one's `Sprite2D` sits -- and a `CanvasItem` re-runs `_draw()` only when
 ## something asks it to. Until 2026-09-08 the only thing that ever did was

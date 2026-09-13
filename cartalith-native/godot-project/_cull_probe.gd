@@ -9,13 +9,58 @@ extends Node
 ## a frame comparison, so this renders the real shipping script beside a
 ## subclass of it whose only difference is that `_visible_local_rect()` returns
 ## everything -- i.e. the same file with culling off -- and compares the two
-## frames byte for byte.
+## frames.
 ##
 ## Driven through a `Node2D` camera ancestor at four zooms and four pans,
 ## because that ancestor scale is exactly what the shipping code had no way of
 ## seeing before `_run_offscreen()` existed.
 ##
-## ## Two claims, and why pixel-equality alone is not one of them
+## ## Not raw byte equality -- a measured, cited tolerance (2026-09-13)
+##
+## This probe (2026-08-25) predates `_segment_chains` (per-segment culling,
+## added later -- see `map_overlay.gd`'s own doc comment directly above that
+## function). `_NoCull` below overrides only `_visible_local_rect()`; it does
+## not touch `_segment_chains` directly -- but `_segment_chains` reads
+## `_visible_local`, which `_visible_local_rect()` feeds, so `_NoCull`'s huge
+## returned rect (`-1e9 .. 1e9`) makes `view.intersects(box)` true for every
+## real segment and `_segment_chains` collapses to exactly one whole-run chain
+## every time, unconditionally. The shipping arm, over the REAL visible rect,
+## may still split the same run into one or more SHORTER chains. Godot's
+## antialiased `draw_polyline` does not always rasterise the same visible
+## geometry byte-identically when it arrives as a shorter, differently-chained
+## array instead of the original longer one, even with no self-crossing
+## anywhere in sight -- `_segcull_probe.gd` measured and documented this exact
+## cause for its own per-segment-culling comparison, and shipped a tolerance
+## for it. `AA_AGREEMENT_MAX_DELTA` / `AA_AGREEMENT_MAX_DIFF_FRACTION` below are
+## REFERENCES to that probe's own constants (`preload`ed, not retyped), so the
+## two can never silently drift apart. Measured on this exact fixture,
+## 2026-09-13 (`_dashresidualcheck_probe.gd`, reading this probe's own saved
+## captures): all 13 of 16 cases that fail raw byte equality differ by at most
+## 1 of 255 in one channel (a flat 10x inside the shipped `AA_AGREEMENT_MAX_
+## DELTA = 10` on every one of the 13) on between 1 and 158 of the frame's
+## 540 000 pixels (0.0002%-0.03%; against the shipped `_MAX_DIFF_FRACTION =
+## 0.001` = 540 px, that is ~3.4x inside the bound at the closest case and
+## ~540x inside it at the furthest, not merely near it on either axis).
+##
+## **The other fix this could have been, and why it wasn't.** The backlog row
+## that opened this also asked whether `_NoCull` should explicitly bypass
+## `_segment_chains` instead, as "the honest comparison". It already does, in
+## effect -- the huge-rect paragraph above IS that bypass, arrived at
+## indirectly: an explicit override would return the identical one-whole-chain
+## result in every case, so it changes nothing observable, and the comparison
+## would still be "shipping's real, possibly-shorter chains" against "one
+## whole-run chain" -- `_segcull_probe.gd`'s own Phase 3 shape, not a route back
+## to byte identity. The change that WOULD restore true byte equality --
+## overriding `_run_offscreen()` itself instead of `_visible_local_rect()`, so
+## `_segment_chains` sees the identical real view on both arms -- was rejected
+## for a sharper reason: it would make this probe BLIND to a `_segment_chains`
+## regression, since both arms would then run the exact same chaining over the
+## exact same view and could only ever diverge through `_run_offscreen`. Phase
+## 3 below keeps that claim checked rather than argued: it proves the shipped
+## tolerance still catches a real defect in either mechanism, on `_NoCull` as
+## this file already had it.
+##
+## ## Three claims, and why pixel-equality alone is not the first of them
 ##
 ## Byte-equality of two captures is satisfied *perfectly* by two blank frames,
 ## so on its own it is a test that cannot fail: if `set_civ_data()` were ever to
@@ -25,18 +70,69 @@ extends Node
 ## background and nothing else (`_vp_blank`), and a case whose culled arm is
 ## byte-identical to that blank frame is reported INK=0 -- evidence, not a pass.
 ##
-##   1. **No pixel moves.** The shipping script against a subclass of itself
-##      whose only difference is that `_visible_local_rect()` returns
-##      everything, over every zoom/pan, byte for byte -- with at least one
-##      case, and specifically the everything-on-screen baseline, proven to
-##      have drawn ink.
+##   1. **No pixel moves beyond the tolerance above.** The shipping script
+##      against a subclass of itself whose only difference is that
+##      `_visible_local_rect()` returns everything, over every zoom/pan -- with
+##      at least one case, and specifically the everything-on-screen baseline,
+##      proven to have drawn ink.
 ##   2. **Something is actually skipped.** Phase 2 renders one arm per frame
 ##      and reads Godot's own `RENDER_TOTAL_OBJECTS_IN_FRAME`, which is the
 ##      number claim 1 is worthless without: culling that moves no pixel *and*
 ##      saves no object is culling that is not happening.
+##   3. **The tolerance is not hiding a real defect.** Two mutants built on the
+##      real `_run_offscreen` / `_segment_chains` via `super` -- an inverted
+##      visible-rect test, and a dropped chain, the two examples named when
+##      this tolerance was added -- measured against the shipping arm and
+##      asserted to fall OUTSIDE the same tolerance claim 1 now uses.
 
 const W := 900
 const H := 600
+
+## Not this file's own bound -- `_segcull_probe.gd`'s, referenced directly
+## (never retyped) so the two probes can never silently drift apart. See the
+## top-of-file docstring above for why this probe needs it too, and that
+## file's own doc comment above `AA_AGREEMENT_MAX_DELTA` for the measurement
+## and the antialiasing-coverage-rounding cause.
+const _SegCullProbe := preload("res://_segcull_probe.gd")
+
+## `a`/`b` are `Image.get_data()` RGBA8 byte buffers of identical size.
+## Exact copy of `_segcull_probe.gd::_pixel_diff`'s semantics (kept as a literal
+## copy rather than a cross-file call so this probe has no runtime dependency
+## on that one beyond the two constants above): the largest single-channel
+## absolute difference found, and how many PIXELS (not bytes) differ at all.
+func _pixel_diff(a: PackedByteArray, b: PackedByteArray) -> Dictionary:
+	var max_delta := 0
+	var diff_pixels := 0
+	var n := a.size()
+	var i := 0
+	while i < n:
+		var pixel_differs := false
+		for c in 4:
+			var d := absi(int(a[i + c]) - int(b[i + c]))
+			if d > 0:
+				pixel_differs = true
+				if d > max_delta:
+					max_delta = d
+		if pixel_differs:
+			diff_pixels += 1
+		i += 4
+	return {"max_delta": max_delta, "diff_pixels": diff_pixels}
+
+
+## True if `a` and `b` (same-size RGBA8 buffers) agree within
+## `_segcull_probe.gd`'s own shipped AA tolerance -- exact equality always
+## qualifies. Returns the diff dictionary too so a caller can report the
+## magnitude on both a pass and a fail, not just a verdict.
+func _within_aa_tolerance(a: PackedByteArray, b: PackedByteArray) -> Dictionary:
+	if a == b:
+		return {"within": true, "max_delta": 0, "diff_pixels": 0}
+	var diff := _pixel_diff(a, b)
+	var frame_pixels := W * H
+	var within: bool = diff["max_delta"] <= _SegCullProbe.AA_AGREEMENT_MAX_DELTA \
+		and float(diff["diff_pixels"]) / frame_pixels <= _SegCullProbe.AA_AGREEMENT_MAX_DIFF_FRACTION
+	diff["within"] = within
+	return diff
+
 
 ## A way that leaves the window at zoom 1 and a network dense enough that a
 ## bounding box test has something to reject.
@@ -60,9 +156,41 @@ static func _roads() -> Array:
 
 class _NoCull extends "res://map_overlay.gd":
 	## Culling off, and nothing else changed. The comparison is this file
-	## against itself.
+	## against itself. Deliberately left overriding only
+	## `_visible_local_rect()`, not `_segment_chains` too -- see the
+	## top-of-file docstring's "other fix this could have been" for why: this
+	## exact shape is what keeps Phase 3 below able to catch a
+	## `_segment_chains` regression, which a `_run_offscreen`-only override
+	## would not.
 	func _visible_local_rect() -> Rect2:
 		return Rect2(-1e9, -1e9, 2e9, 2e9)
+
+
+## Phase 3 mutant 1, named in the backlog row that added this phase: "the
+## visible-rect test inverted". Built on the real `_run_offscreen` via `super`
+## rather than a retyped copy of its box math, so this can never silently
+## drift from what it inverts. Rejects exactly the runs the real function
+## would keep on screen, and keeps exactly the ones it would reject -- a real,
+## load-bearing culling defect (whole visible ways go missing), not an
+## AA-scale rounding difference.
+class _InvertedRunOffscreen extends "res://map_overlay.gd":
+	func _run_offscreen(pts: PackedVector2Array, k: float, pad: float) -> bool:
+		if pts.is_empty():
+			return true
+		return not super._run_offscreen(pts, k, pad)
+
+
+## Phase 3 mutant 2, the row's other named example: "a segment dropped". Runs
+## the real `_segment_chains` via `super` and then discards the chain it found
+## LAST, simulating the off-by-one of forgetting that function's own trailing
+## `if run_start >= 0: chains.append(...)` -- a run still on screen at its very
+## last point loses that final visible stretch.
+class _DropLastChain extends "res://map_overlay.gd":
+	func _segment_chains(screen_points: PackedVector2Array, k: float, pad: float) -> Array[Vector2i]:
+		var chains := super._segment_chains(screen_points, k, pad)
+		if chains.size() > 0:
+			chains.remove_at(chains.size() - 1)
+		return chains
 
 
 func _p(s: String) -> void:
@@ -172,7 +300,10 @@ func _ready() -> void:
 			var a: Image = _vps[0].get_texture().get_image()
 			var b: Image = _vps[1].get_texture().get_image()
 			var data_a := a.get_data()
-			var same: bool = data_a == b.get_data()
+			var data_b := b.get_data()
+			var exact: bool = data_a == data_b
+			var diff := _within_aa_tolerance(data_a, data_b)
+			var same: bool = diff["within"]
 			## Ink, against the blank control -- NOT against the other arm. Two
 			## blank frames are byte-identical, so `same` alone is satisfied by
 			## a probe that drew nothing at all.
@@ -181,12 +312,20 @@ func _ready() -> void:
 				inked += 1
 			if z == 1.0 and pan == Vector2.ZERO:
 				baseline_ink = ink
-			if not same:
-				fails += 1
+			if not exact:
+				## Saved whenever bytes differ at all, even a within-tolerance
+				## AA-noise case -- `_segcull_probe.gd`'s own convention, kept
+				## so a future run can still see the magnitude, not just the
+				## verdict.
 				a.save_png("user://cull_on_z%.0f_%d_%d.png" % [z, int(pan.x), int(pan.y)])
 				b.save_png("user://cull_off_z%.0f_%d_%d.png" % [z, int(pan.x), int(pan.y)])
-			_p("zoom %.0f pan (%5d,%5d) -> %-38s ink=%s" % [z, pan.x, pan.y,
-				"identical" if same else "DIFFERENT (captures in user://)",
+			if not same:
+				fails += 1
+			var verdict := "identical"
+			if not exact:
+				verdict = "AA-noise (%d px, max delta %d)" % [diff["diff_pixels"], diff["max_delta"]] \
+					if same else "DIFFERENT (%d px, max delta %d)" % [diff["diff_pixels"], diff["max_delta"]]
+			_p("zoom %.0f pan (%5d,%5d) -> %-38s ink=%s" % [z, pan.x, pan.y, verdict,
 				"yes" if ink else "NO"])
 
 	_fails += fails
@@ -202,8 +341,10 @@ func _ready() -> void:
 	_p("content: %d of 16 cases drew ink" % inked)
 
 	await _object_counts()
+	await _mutant_guard(roads, routes)
 
-	_p("RESULT: %s" % ("PASS -- culling moves no pixel, and skips real work" if _fails == 0
+	_p("RESULT: %s" % ("PASS -- culling moves no pixel beyond the shipped AA tolerance, skips real "
+			+ "work, and that tolerance still catches a real defect" if _fails == 0
 		else "FAIL -- %d check(s) failed" % _fails))
 	get_tree().quit(0 if _fails == 0 else 1)
 
@@ -259,3 +400,78 @@ func _object_counts() -> void:
 	for j in 2:
 		_vps[j].render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	_blank_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+
+
+## Builds one throwaway SubViewport+camera+overlay for `script`, feeds it the
+## same fixture the main matrix uses, positions the camera at `z`/`pan`, waits
+## for a real frame and returns its captured RGBA8 bytes. Freed before
+## returning -- this runs after every other phase's own viewports are done
+## with, so nothing else needs it to stay alive, and `RENDER_TOTAL_OBJECTS_
+## IN_FRAME` (phase 2, already read by this point) is not disturbed by an
+## extra viewport existing briefly.
+func _capture_arm(script, roads: Array, routes: Array, z: float, pan: Vector2) -> PackedByteArray:
+	var vp := SubViewport.new()
+	vp.size = Vector2i(W, H)
+	vp.transparent_bg = false
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(vp)
+	var bg := ColorRect.new()
+	bg.size = Vector2(W, H)
+	bg.color = Color(0.08, 0.07, 0.06)
+	vp.add_child(bg)
+	var cam := Node2D.new()
+	cam.scale = Vector2(z, z)
+	cam.position = pan
+	vp.add_child(cam)
+	var ov := Control.new()
+	ov.set_script(script)
+	ov.size = Vector2(W, H)
+	cam.add_child(ov)
+	ov.set_civ_data([], roads, [], W, H, 0.0)
+	ov.set_manual_routes(routes)
+	ov.set_camera_zoom(z)
+	ov.queue_redraw()
+	for f in 3:
+		await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var data := vp.get_texture().get_image().get_data()
+	vp.queue_free()
+	return data
+
+
+## Phase 3: does this probe's shipped AA tolerance still catch a REAL culling
+## defect, or has it been loosened enough to hide one? See the top-of-file
+## docstring's "other fix this could have been" for why this exists and what
+## it stands in for. Two mutants (`_InvertedRunOffscreen`, `_DropLastChain`,
+## both defined above via `super` so neither can drift from what it mutates),
+## each measured against a fresh shipping capture at two cases already proven
+## to carry real ink: the all-visible baseline (zoom 1, pan 0) and one of the
+## main matrix's own AA-noise cases (zoom 2, pan -400,-260) -- so a mutant's
+## divergence is checked against a background that already carries some
+## legitimate AA noise of its own, not a clean case that would flatter the
+## tolerance.
+func _mutant_guard(roads: Array, routes: Array) -> void:
+	_p("---- phase 3: mutant regression guard (does the AA tolerance still catch a real defect?)")
+	var cases := [{"z": 1.0, "pan": Vector2.ZERO, "tag": "z1 pan(0,0)"},
+		{"z": 2.0, "pan": Vector2(-400, -260), "tag": "z2 pan(-400,-260)"}]
+	var mutants := [["inverted _run_offscreen", _InvertedRunOffscreen],
+		["dropped last chain", _DropLastChain]]
+	for c in cases:
+		var ship_data := await _capture_arm(load("res://map_overlay.gd"), roads, routes, c["z"], c["pan"])
+		for m in mutants:
+			var label: String = m[0]
+			var mut_data: PackedByteArray = await _capture_arm(m[1], roads, routes, c["z"], c["pan"])
+			var diff := _within_aa_tolerance(ship_data, mut_data)
+			_p("   %-24s @ %-16s max_delta=%3d diff_px=%6d/%d (%.4f%%) -> %s"
+				% [label, c["tag"], diff["max_delta"], diff["diff_pixels"], W * H,
+					100.0 * float(diff["diff_pixels"]) / (W * H),
+					"escaped (within tolerance)" if diff["within"] else "caught (outside tolerance)"])
+			if diff["within"]:
+				_bad("%s @ %s: this real culling defect stayed inside the AA tolerance -- the bar is too loose"
+					% [label, c["tag"]])
+				var tag: String = c["tag"].replace(" ", "_").replace("(", "").replace(")", "").replace(",", "_")
+				var lbl: String = label.replace(" ", "_")
+				Image.create_from_data(W, H, false, Image.FORMAT_RGBA8, ship_data) \
+					.save_png("user://cull_mutant_ship_%s_%s.png" % [tag, lbl])
+				Image.create_from_data(W, H, false, Image.FORMAT_RGBA8, mut_data) \
+					.save_png("user://cull_mutant_bad_%s_%s.png" % [tag, lbl])
