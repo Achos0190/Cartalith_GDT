@@ -118,6 +118,11 @@ reading the code — see `URBAN_MORPHOLOGY_SCOPE.md`:**
   and two plain rasters; no civ types anywhere. The coupling is inverted:
   `cartalith-civ/Cargo.toml` carries `cartalith-urban`, not the other way.
 
+**A third correction, 2026-09-13: the ~17 milestones are no longer the shape of
+what is left.** Every milestone has code, and 16 and 17 closed under adversarial
+verification on 2026-09-03 (`9e79e52`). What remains is defects, filed in
+`OUTSTANDING_WORK.md`; where they stand is `cartalith-native/docs/STATUS.md`’s.
+
 ## Not a phase: LOD and large worlds
 
 The tiled-LOD deep-zoom system matters as worlds grow. Godot's terrain plugins may
@@ -155,6 +160,15 @@ Authorised by the owner 2026-08-23 after five register rows (FI-01, DM-04,
 JP-06, JP-08, MEA-07) had queued up behind it. The format decisions and the one
 disclosed limitation (`state.erosion`) are recorded in
 `crates/cartalith-godot/src/params.rs`.
+
+**Reference Map Reconstruction Mode** — load an existing map image as an
+adjustable-opacity reference and sculpt a heightmap over it, with land and river
+edge detection and hand-drawn plate boundaries that only inform resource
+generation. Requested by the owner 2026-09-13; researched in
+`REFERENCE_MAP_RECONSTRUCTION_RESEARCH.md`, and the owner’s answers to its
+eleven questions are Ruling M in `LARGE_ITEM_RULINGS.md`. **Designed, not
+scheduled:** no build rows exist until the work is started, and its first step is
+the owner’s placement and canvas question.
 
 Store distribution (`DECISIONS.md` §6) and a WASM target sharing
 `cartalith-engine` (`DECISIONS.md` §2) are things the architecture permits

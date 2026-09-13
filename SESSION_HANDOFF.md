@@ -335,6 +335,12 @@ Then the standing 2026-09-03 order:
 - **APK probe scenes: excluded**, under a scoped `export_presets.cfg`
   `exclude_filter` authorisation and nothing else in that file.
 
+**Later rulings, read in full in `LARGE_ITEM_RULINGS.md`:** 2026-09-12 (urban
+generation, fortification, and Ruling K’s LOD zoom target: tile colour first,
+then ice, 3D parked — milestones in `LOD_DETAIL_SCOPE.md`); 2026-09-13 Ruling L
+(the owner’s re-sorted PC left rail, "tree is leading") and Ruling M (Reference
+Map Reconstruction Mode, designed and not scheduled).
+
 **Open and worth asking:** owner question 8 — what should `statusMid`'s
 `repaint NN ms` measure: frame time, texture-upload time, or `_refresh_map()`
 wall time? Leave the field dashed with its reason until it is answered.

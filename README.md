@@ -83,7 +83,8 @@ not to believe:
 `CPU_MULTITHREADING_SCOPE.md` · `MEMORY_OPTIMIZATION_SCOPE.md` ·
 `PERFORMANCE_BENCHMARKS.md` (measured CPU/per-GPU/split comparison at 2048²
 and 8192², and what actually decides how the app feels) ·
-`LOD_TILING_BASE_SCOPE.md` · `ANDROID_BUILD_SCOPE.md` ·
+`LOD_TILING_BASE_SCOPE.md` · `LOD_TILING_INTEGRATION_SCOPE.md` ·
+`LOD_DETAIL_SCOPE.md` (scale-dependent terrain detail, LOD-D0 to D6) · `ANDROID_BUILD_SCOPE.md` ·
 `GENERATION_PARAMETERS.md` · `SAVEFILE_COMPAT.md` · `TOOLCHAIN.md` ·
 `REFERENCES.md` · `SKILLS.md` · `LANDMARK_GENERATION_SCOPE.md`
 (causally-placed landmarks — the inventory of what this engine already had for
@@ -98,7 +99,10 @@ rule above exists to stop.*
 `GUI_GAP_REGISTER.md` (every disconnected control in the shipped shell,
 classified against the design; comparable-app research where no design
 exists; the menu-naming audit),
-`MARKDOWN_VAULT_INTEGRATION.md`, and the four owner-supplied research
+`MARKDOWN_VAULT_INTEGRATION.md`, `REFERENCE_MAP_RECONSTRUCTION_RESEARCH.md`
+(owner-requested 2026-09-13; a design with Ruling M’s answers, not scheduled),
+`docs/research/lod extra info.md` (owner-supplied 2026-09-12, the input to
+`LOD_DETAIL_SCOPE.md`), and the four owner-supplied research
 documents (`TERRAIN_ARCHITECTURE_RESEARCH.md`,
 `HETEROGENEOUS_COMPUTE_RESEARCH.md`, `TERRAIN_APPEARANCE_RESEARCH.md`,
 `LANDMARK_GENERATION_RESEARCH.md`), each annotated with how much of it

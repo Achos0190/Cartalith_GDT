@@ -45,17 +45,17 @@ only phase with milestone work outstanding.** Phase 5’s milestones closed on
   **done\***. That commit does not name the one stage module left unproven, and
   nothing this sweep found says whether it is 9, 10 or 13. One drawing defect is
   filed in `OUTSTANDING_WORK.md`: the block-ground fill in `draw_layout` still
-  fails triangulation at deep zoom. **`ROADMAP.md` has not been told.**
+  fails triangulation at deep zoom. `ROADMAP.md`’s Phase 5 section records this as of 2026-09-13.
 
 | Phase | `ROADMAP.md` says | This file says | The one thing to know |
 |---|---|---|---|
-| **0** — walking skeleton | done | **done\*** | The `.exe` and `.apk` exist and the extension loads. `ROADMAP.md` says "all three targets"; `export_presets.cfg` defines **two** — Windows Desktop and Android. The third is WASM, which the same file elsewhere calls uncommitted |
+| **0** — walking skeleton | done | **done\*** | The `.exe` and `.apk` exist and the extension loads. `export_presets.cfg` defines two targets, Windows Desktop and Android, which is what `ROADMAP.md` now says; WASM is uncommitted |
 | **1** — terrain MVP | done | **done** | All seven `MVP_SCOPE.md` criteria; the ocean-current stretch goal shipped too and was never recorded either way |
 | **2** — civilisation layer | done | **done** | All 21 milestones, plus the Journey Planner sub-phase engine-complete at 66 of 74 `jp*` functions |
 | **3** — rendering and 3D | partial | **partial** | 2D done, 3D absent and parked |
-| **4** — Asset Library | done | **done** | Eight milestones, not the seven `ROADMAP.md` counts — the slicer landed 2026-08-20 |
-| **5** — urban morphology | in progress | **done\*** | Every milestone has code; 16 and 17 closed under adversarial verification 2026-09-03 (`9e79e52`), 12 of 13 stage modules mutation-covered. Open work is defects. `ROADMAP.md` has not been told |
-| *not a phase* — LOD and large worlds | "revisit when a concrete need appears rather than building it speculatively" | **built and shipping — but not sharper** | A tiled deep-zoom pyramid with a persistent chunk atlas is on screen, **and a deeper level cannot add detail**: tiles carry a shade ratio over one grid-resolution colour texture, and `renderBiomeTileRGBA` is unported (measured in `OUTSTANDING_WORK.md`). Owner-supplied direction arrived 2026-09-12 as `docs/research/lod extra info.md`; `LOD_DETAIL_SCOPE.md` turns it into milestones LOD-D0 to D6, and `ROADMAP.md`’s LOD section points there (2026-09-13) |
+| **4** — Asset Library | done | **done** | Eight milestones — the slicer landed 2026-08-20 (`ROADMAP.md` no longer carries a count) |
+| **5** — urban morphology | milestones closed, defects remain (2026-09-13) | **done\*** | Every milestone has code; 16 and 17 closed under adversarial verification 2026-09-03 (`9e79e52`), 12 of 13 stage modules mutation-covered. Open work is defects |
+| *not a phase* — LOD and large worlds | the base and integration scopes, then `LOD_DETAIL_SCOPE.md` (2026-09-13) | **built and shipping — but not sharper** | A tiled deep-zoom pyramid with a persistent chunk atlas is on screen, **and a deeper level cannot add detail**: tiles carry a shade ratio over one grid-resolution colour texture, and `renderBiomeTileRGBA` is unported (measured in `OUTSTANDING_WORK.md`). Owner-supplied direction arrived 2026-09-12 as `docs/research/lod extra info.md`; `LOD_DETAIL_SCOPE.md` turns it into milestones LOD-D0 to D6, and `ROADMAP.md`’s LOD section points there (2026-09-13) |
 
 **What landed most recently** (full week in *The last seven days* below):
 
@@ -316,6 +316,13 @@ bottom nav draws the canvas glyphs, and the CARTO options caption names the curr
 for fix-up: the phone GENERATE sheet header (works, but its text is unscaled) and the failed-open fix
 (works on desktop; on phone the error is hidden). The tablet portrait slider reflow was reverted: the
 canvas draws sliders as full-width two-line cells, not a grid.
+
+**2026-09-13 (evening): planning documents landed, and a new APK.** `LOD_DETAIL_SCOPE.md` turns the owner’s
+LOD research and Ruling K into milestones LOD-D0 to D6, now rows in `OUTSTANDING_WORK.md`; `ROADMAP.md`
+points at it. `REFERENCE_MAP_RECONSTRUCTION_RESEARCH.md` and Ruling M record the owner’s design answers for
+sculpting over a loaded map image — designed, not scheduled. A signed release APK built from `01e4faa` is on
+the 6T. The CIVIL half of Ruling L is **held, not committed**: its adversarial panel confirmed two behaviour
+bugs (an armed Way tool’s Commit/Discard row lost on some rail presses and jumps), so it is not built.
 
 **2026-09-13: the owner re-sorted the PC left rail (Ruling L), and the first three-builder batch shipped two of
 its three lanes.** A seed typed into New World now reaches the built world, including the rolled-while-hidden
