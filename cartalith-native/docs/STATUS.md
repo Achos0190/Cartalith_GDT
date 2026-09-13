@@ -293,6 +293,11 @@ body at all; the shell, having no header, leaks half a row of it. Reverted, with
 batch’s citation sweep stopped correctly at its gate: 51 stale canvas citations, not 49, and of its three
 disagreements only one is the shell drifting from the canvas.
 
+**2026-09-13, parallel small and medium runs:** curtain walls draw round towers; the map shows a drag cursor in pan mode;
+the tablet export pane fits; probes that used to pass with their own fix removed now fail; a drop-count probe covers
+reopened saves; the dashed-way pixel residual has a measured cause. Refuted and reverted before commit: a district-based
+roof tint (district is not wall containment) and a vector river overlay (drew over debug views, no off switch).
+
 **2026-09-13, fourth batch: tablet portrait fits, the Window switches tell the truth, and failed opens say why.** Eight of
 nine WORLD categories now draw exactly 232 px in tablet portrait with the canvas’s two-line slider cells, and nothing moved
 on desktop, laptop, landscape tablet or phone. The Window menu’s dock switches read the real dock and sheet state; a
@@ -913,7 +918,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-13: 124 items.** Run
+**Recounted 2026-09-13: 112 items.** Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for

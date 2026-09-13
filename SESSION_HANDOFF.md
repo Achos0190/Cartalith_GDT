@@ -297,8 +297,11 @@ files it does not own.
   `cartalith_engine::WorldParams::defaults()`, `true` in
   `cartalith_godot::params::defaults()`; new params need `PARAMS` + `JS_PATHS`
   rows. Prefer identity by **control flow** over identity by arithmetic.
-- Do not write `OUTSTANDING_WORK.md`, `STATUS.md` or `MISTAKES.md` from a
-  subagent — the main loop owns them.
+- Do not write `OUTSTANDING_WORK.md`, `STATUS.md`, `MISTAKES.md`,
+  `LARGE_ITEM_RULINGS.md` or `SESSION_HANDOFF.md` from a subagent — the main loop
+  owns them — **and the main loop does not write any of them while a verifier is
+  running**: verifiers fingerprint them, and an unexplained diff costs a finding’s worth
+  of attention (MISTAKES ×4).
 
 ---
 
