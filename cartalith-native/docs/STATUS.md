@@ -918,7 +918,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-13: 110 items.** Run
+**Recounted 2026-09-13: 115 items** (110 before `LOD_DETAIL_SCOPE.md`’s seven milestone rows absorbed two). Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for
