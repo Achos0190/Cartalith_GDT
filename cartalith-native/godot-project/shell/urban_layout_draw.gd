@@ -128,11 +128,39 @@ const GATE_PALISADE := Color(0.275, 0.204, 0.125)
 ## Base stroke widths in model metres, from the reference's own three branches:
 ## `4.5` stone, `2.2` palisade, `1.6` ditch.
 const WALL_W := {"curtain": 4.5, "palisade": 2.2, "ditch": 1.6}
-## The reference's `bastioned` branch is not here, and its absence is generated
-## rather than chosen: a star fort is gated on `opts.fortified`, which reads
-## `p.traits.includes('fortified')`, and this port's settlements carry no
-## traits. No town it generates can have one, so a branch for it would be dead
-## code claiming otherwise.
+## The reference's `bastioned` branch is not here -- **stale reasoning
+## corrected 2026-09-13.** This used to say a star fort was unreachable
+## because "this port's settlements carry no traits", written before trait
+## toggling shipped. It is wrong now, on both halves.
+##
+## The trait reaches the engine: the Place Editor's chips call
+## `civ_settlement_toggle_trait`, which flips it in
+## `civ_roster_bridge::PlaceExtrasTable`; `urban_bridge.rs::urban_layouts`
+## reads it back as `fortified_trait` on every call and threads it through
+## `PlaceOverrides` into `GenOpts.fortified`; `generate.rs` grants the fort
+## once population clears `FORT_MIN` (2500), walls are on, and the culture's
+## `wall_gates_scheme` is `"organic"`; and `cartalith_urban::fortify::
+## apply_star_fort` builds the whole trace italienne -- bastions, curtains,
+## ditch, glacis, ravelins -- exactly as the reference does. Confirmed live,
+## not read off the source alone: toggling a large "organic"-scheme town
+## Fortified through that exact call and re-reading `urban_layouts()` flips
+## `wall_style` from `"curtain"` to `"bastioned"` and `wall_ring` from a
+## 289-vertex hull to an 18-vertex gorge polygon (`_bastionwall_probe.gd`).
+##
+## **What is actually missing is one layer up.** `urban_bridge.rs::
+## layout_dict` never reads `l.wall.fort` (the `Fort` struct carrying
+## `trace`/`bastions`/`ravelins`/`ditch`/`glacis`) onto the dictionary this
+## file receives -- confirmed by the same probe dumping the layout's full key
+## list: `wall_style`/`wall_ring`/`wall_gates`/`wall_water_gates`/
+## `wall_spurs`/`wall_centroid` are the whole wall vocabulary that crosses,
+## and `wall_ring` on a bastioned town is the GORGE (the containment polygon
+## through the bastion throats), not the star-shaped trace the reference
+## strokes -- drawing it as the wall would render the wrong shape, a
+## rounded-off hexagon rather than a star fort. A `bastioned` branch here
+## needs `fort.trace` (and, for parity with `_umDrawLayout`, `fort.ravelins`)
+## added to that dictionary first: a `cartalith-godot` change, out of this
+## lane's reach (no Rust edits, no `cargo build` of `cartalith_godot` while
+## other probes hold the loaded `.dll`).
 
 ## The rooftop base, in HSV. Every roof is this hue with its brightness and
 ## saturation moved together by its own `tone` -- see `_roof_color()`.
@@ -232,7 +260,7 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 		if blk.size() < 3:
 			continue
 		var is_plaza: bool = i < block_plaza.size() and block_plaza[i] != 0
-		ci.draw_colored_polygon(project.call(blk),
+		_fill_ground_polygon(ci, project.call(blk),
 			tint.call(PLAZA_GROUND if is_plaza else BLOCK_GROUND))
 
 	# `assignDistricts`' zoning, as translucent per-lot fills over that ground
@@ -318,6 +346,48 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 	var mr: float = maxf(px_floor * 2.0, 6.0 * m_scale)
 	ci.draw_arc(to_screen.call(market), mr, 0.0, TAU, 20, tint.call(MARKET),
 		maxf(px_floor, mr * 0.34), true)
+
+
+## A ground fill that does not go silently missing at deep zoom.
+##
+## **The failure.** `draw_colored_polygon` routes through
+## `Geometry2D.triangulate_polygon`; when that returns empty, Godot logs "Invalid
+## polygon data, triangulation failed" and draws nothing. Windowed on
+## `_settlepix_probe.tscn` (seed 24601, "Sevjuniana") it fired once, at the
+## block-ground fill, for block 324: an ordinary ~5 m model-space quad (sides
+## 4.96/5.37/1.69/4.40 m, no duplicate vertices, no NaN) projected to four screen
+## points only **0.0465 px** across, at an absolute offset near (276, 33).
+##
+## **The cause is float precision at that offset, not the shape.** The same float32
+## points triangulate when translated to the origin, and fail only at the offset:
+## the shoelace products there are ~9 250, whose float32 ulp (~0.001) is as large as
+## the true winding sum (0.0011 px^2), so the sum rounds to zero. It is the same
+## collapsed-below-a-pixel family `_draw_roofs` (below) guards against.
+##
+## **Why the response differs from `_draw_roofs`.** A roof is one of thousands of
+## footprints; skipping one is invisible. A block's ground fill is the only thing
+## that colours its lot, so skipping it is the bug. This keeps the roof guard's
+## detection (the triangulate check) and, where it fails, fans the polygon from
+## vertex 0 into triangles drawn with `draw_primitive`, which never triangulates.
+## A fan is exact for a convex polygon. **Blocks are NOT convex by construction**
+## -- 127-169 per town are not, up to 107 vertices -- so on a non-convex polygon the
+## fan can overdraw its notches; that only happens on this sub-pixel branch.
+##
+## **Not yet routed here:** the parcel district fills, which draw only at
+## detail >= 1 (the repro zoom never reached them) and fail from the same cause
+## at z64 -- 14 parcels, 42 errors over 3 draws in the same town, identical on
+## HEAD (2026-09-13 verifier). Market, farmland and water fills are unmeasured.
+
+static func _fill_ground_polygon(ci: CanvasItem, pts: PackedVector2Array, color: Color) -> void:
+	if pts.size() < 3:
+		return
+	if not Geometry2D.triangulate_polygon(pts).is_empty():
+		ci.draw_colored_polygon(pts, color)
+		return
+	var tri_colors := PackedColorArray([color, color, color])
+	var uvs := PackedVector2Array()
+	for i in range(1, pts.size() - 1):
+		ci.draw_primitive(PackedVector2Array([pts[0], pts[i], pts[i + 1]]), tri_colors, uvs)
 
 
 ## `buildFarmland`'s fields and pastures, filled flat with a hairline furrow

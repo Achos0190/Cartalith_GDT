@@ -218,9 +218,17 @@ const ID_WORLD_SEED_SIZE := 713
 
 ## 714 tried and freed 2026-09-13 (`ID_TABLET_TOGGLE_THEME`, a flat ☰ "Toggle
 ## theme" row matching `Cartalith Tablet.dc.html`'s VIEW section) -- reverted
-## the same session; see `_build_theme_and_units()`'s own header for why.
-## Left named here, not reused, so a future attempt does not collide with a
-## stale reference to it in history.
+## the same session because it dropped "Follow system" with no path to it
+## anywhere on tablet; see `_build_theme_submenu()`'s own header for the full
+## account. Left named here, not reused, so a future attempt does not collide
+## with a stale reference to it in history.
+##
+## **715 is the real, kept row**, same session: the MENUS lane relocated the
+## Dark/Light/Follow-system submenu into ☰ ▸ Preferences ▸ Theme (still a real,
+## clickable submenu, just one level deeper) before flattening the top-level
+## row, so this id's flat toggle adds a fast path rather than replacing the
+## only one there was.
+const ID_TABLET_TOGGLE_THEME := 715
 
 ## Marks a popup row as a **readout**: disabled, carrying a live value, and not
 ## a command at all. `command_index.gd`'s walk reads it -- without it, a row
@@ -755,6 +763,25 @@ func _on_autosave_interval(id: int) -> void:
 	_host.apply_autosave_setting()
 	_refresh_autosave_menu()
 
+## `"edited 5 days ago"` -> `"5 d ago"` -- `OpenProjectDialog._relative_time()`'s
+## own prose, reformatted to the canvas's terse wording
+## (`cartalith-dcc-parts.js:136`: `'VHAREN REACH — 129384 · 5 d ago'`,
+## `'KESSA — 774201 · 3 w ago'`) at the one place it is displayed, in
+## `menus.gd`. **Display-only**: the time bucketing itself (just now / min / h
+## / yesterday / days / weeks / a date) is `open_project_dialog.gd`'s, computed
+## once and read here unchanged -- this only rewrites the two multi-word units
+## the canvas ever shows abbreviated, the same way `DccUnits.suffix()`'s own
+## header prefers "nm" over "nmi" for a shorter, still-standard unit. The other
+## branches ("edited just now", "edited yesterday", a bare date) have no canvas
+## example to match, so per rule 2 (derive minimally, do not invent a
+## treatment) they are left as `open_project_dialog.gd` wrote them, minus the
+## same leading "edited " every branch carries.
+func _terse_age(edited: String) -> String:
+	var s := edited
+	if s.begins_with("edited "):
+		s = s.substr(7)
+	return s.replace(" days ago", " d ago").replace(" weeks ago", " w ago")
+
 func _refresh_recent_worlds() -> void:
 	_recent_popup.clear()
 	var recents: Array = DccSettings.recent_projects()
@@ -764,6 +791,20 @@ func _refresh_recent_worlds() -> void:
 		return
 	for i in recents.size():
 		var path := String(recents[i])
+		var label := path.get_file().get_basename()
+		## **Gate C2: a moved/deleted file must still show something true.**
+		## `FileAccess.get_modified_time()` on a path that no longer resolves
+		## returns 0, and `_relative_time(0)` answers "never opened" -- false
+		## for an entry that is only in this list because `remember_project()`
+		## ran after a real `load_save`. Checked here, before that path is
+		## taken, so the row states the true reason (the file moved or was
+		## deleted) instead of repeating a borrowed phrase that does not fit.
+		if not FileAccess.file_exists(path):
+			label += " — file not found"
+			_recent_popup.add_item(label, i)
+			_recent_popup.set_item_tooltip(i,
+				"%s\nThis file has moved or been deleted since it was last opened." % path)
+			continue
 		## **The world, not the file.** These read `__diagreview_project__.zip`
 		## until 2026-09-07 -- a filename with its extension -- where the
 		## 2026-08-31 canvas draws `VHAREN REACH — 129384 · 5 d ago`: name, seed,
@@ -778,14 +819,28 @@ func _refresh_recent_worlds() -> void:
 		## `PopupMenu` item has no second line, which is why the full path is
 		## still the tooltip rather than a subtitle. The label half was never
 		## blocked by that, and is what this fixes.
+		##
+		## **The name half stays the filename, reported rather than fixed
+		## 2026-09-13 (Part C, Gate C1).** `project_meta()` reads `seed`,
+		## `edited` and `format` from the save's own `params.json`/`project.json`
+		## -- grepped at the symbol, `open_project_dialog.gd::project_meta()` --
+		## and none of those documents carries a world NAME distinct from the
+		## file's own (confirmed against `SAVEFILE_COMPAT.md`, which documents
+		## `settlements[].name` and `roads[].name` but no top-level `world.name`).
+		## Since `project_meta()` already opens the zip once per path and caches
+		## the result, reading one more key would cost nothing extra IF one
+		## existed to read -- it is a real Rust/format gap (a new `project.json`
+		## field, `SAVEFILE_COMPAT.md`'s own `format_version` bump rule), not a
+		## GDScript one, and outside this lane's reach either way (no `Cargo.toml`,
+		## no `reference/`). The filename is the best available proxy today, and
+		## is what the file is actually saved as when a world is named.
 		var meta: Dictionary = OpenProjectDialog.project_meta(path)
-		var label := path.get_file().get_basename()
 		var seed_s := String(meta.get("seed", ""))
 		if seed_s != "" and seed_s != "seed unread":
-			label += "  —  %s" % seed_s
+			label += " — %s" % seed_s
 		var edited := String(meta.get("edited", ""))
 		if edited != "":
-			label += "  ·  %s" % edited
+			label += " · %s" % _terse_age(edited)
 		_recent_popup.add_item(label, i)
 		_recent_popup.set_item_tooltip(i, path)
 
@@ -2677,32 +2732,50 @@ func _stamp_pref_values(p: PopupMenu) -> void:
 
 ## Theme and Units -- factored out of `_preferences()` 2026-09-12 so the
 ## tablet's ☰ overflow can promote both to its own top level
-## (`TABLET_UI_SPEC.md` §2.1) while `_preferences()` keeps calling this in
-## place for PC/phone, unchanged (`tablet` false there, the default).
+## (`TABLET_UI_SPEC.md` §2.1) while `_preferences()` keeps calling these in
+## place for PC/phone, unchanged (`full` true there, the default).
 ##
-## **Theme stays a submenu on tablet too -- tried, and reverted the same
-## session, 2026-09-13.** `Cartalith Tablet.dc.html`'s OVERFLOW ▸ VIEW draws a
+## **Split into two functions 2026-09-13, and Theme relocated rather than
+## flattened in place.** `Cartalith Tablet.dc.html`'s OVERFLOW ▸ VIEW draws a
 ## flat row (`it('Toggle theme','theme',{sc:''})`, a direct dark/light flip)
-## where Preferences draws a Dark/Light/Follow-system submenu, and a first
-## pass here built the flat row literally: one `_live()` action cycling
-## `_on_theme_choice` between dark and light. `_tabletparity_probe.gd`'s SS13
-## caught what that dropped, the same run that proved its own (title, count)
-## fix: `_preferences(p, false)` -- tablet's OWN nested Preferences submenu --
-## never calls this function at all (`if full:` above), so ☰'s copy is the
-## ONLY place Theme exists on tablet. Flattening it left "Follow system" with
-## no path to select it anywhere in the tablet tree, not merely unsearchable
-## -- a real capability loss DS-03 forbids ("keep everything, reflow only"),
-## not only a cosmetic one. Compensating in `command_index.gd`'s `EXTRAS`
-## table (its own header names exactly this obligation, "any future move off
-## the menu bar owes this table a row") would fix the search gap but not the
-## reachability one, and that file is outside this lane's owned set regardless
-## -- reported rather than edited. Units, below, has no such conflict: its own
-## three real choices (km/mi/nmi) stay in a submenu on both compositions
-## (the canvas's own Units row is a binary label, but the three-way is a real
-## capability its mock does not model, and DS-03 forbids dropping it to match
-## a mock too) -- what tablet's copy of THAT row was actually missing is the
-## live value suffix Preferences' own row shows, added below.
-func _build_theme_and_units(p: PopupMenu, tablet: bool = false) -> void:
+## where Preferences draws a Dark/Light/Follow-system submenu. A first pass
+## the same session built the flat row literally in ☰'s VIEW section and
+## deleted the submenu outright: `_tabletparity_probe.gd`'s SS13 caught what
+## that dropped, because `_preferences(p, false)` -- tablet's OWN nested
+## Preferences submenu -- never called this code at all (the old `if full:`
+## guard), so ☰'s top-level copy was the ONLY place Theme existed on tablet.
+## Deleting it left "Follow system" with no path to select it anywhere in the
+## tablet tree, not merely unsearchable -- a real capability loss DS-03
+## forbids ("keep everything, reflow only"), not only a cosmetic one. Reverted
+## that session (`ID_TABLET_TOGGLE_THEME` freed at 714, see this file's own
+## note on it above).
+##
+## **This time the submenu is not deleted, it MOVES**: `_build_theme_submenu`
+## now also runs inside ☰ ▸ Preferences (via `_preferences(p, false, true)`'s
+## new third argument, below), so Dark/Light/Follow system stay real, clickable,
+## walked `PopupMenu` rows -- `_command_titles()`'s `kind == "menu"` filter
+## still finds all three, which is what keeps SS13's per-title occurrence
+## count passing without any change to that probe's comparison logic. `☰ ▸
+## View`'s own copy of this row is now the flat canvas toggle
+## (`ID_TABLET_TOGGLE_THEME`, `_on_toggle_theme()` below), a second, faster
+## path onto the same two settings the submenu already exposes -- not a
+## replacement for it. `command_index.gd`'s `EXTRAS` carries a "Theme" pointer
+## row so a search for the word "theme" itself (which matches none of "Dark" /
+## "Light" / "Follow system" / "Toggle theme" by substring) still finds
+## something, the same convention `EXTRAS`' own header documents for
+## Journey planner and Refine detail.
+##
+## Units, below, has no such conflict: its own three real choices (km/mi/nmi)
+## stay in a submenu on both compositions (the canvas's own Units row is a
+## binary label, but the three-way is a real capability its mock does not
+## model, and DS-03 forbids dropping it to match a mock too) -- what tablet's
+## copy of THAT row was actually missing is the live value suffix Preferences'
+## own row shows, added below, now rewritten to the canvas's own
+## `'Units — '+(kilometres|miles)` wording rather than the shared
+## `PREF_VALUE_SEP` spacing every other Preferences group uses (Part B,
+## 2026-09-13) -- scoped to this one tablet-only stamp, so Preferences' own
+## suffix format elsewhere is untouched.
+func _build_theme_submenu(p: PopupMenu) -> void:
 	## PR-13/PR-14: `DccTheme.LIGHT` was always fully defined -- §11's own
 	## light token column -- the blocker was that `DccShell` built every
 	## stylebox once at startup with no rebuild path. `DccShell.rebuild_theme()`
@@ -2733,6 +2806,14 @@ func _build_theme_and_units(p: PopupMenu, tablet: bool = false) -> void:
 	_shell.style_popup(_theme_popup)
 	p.add_child(_theme_popup)
 	p.add_submenu_item("Theme", "ThemeChoice")
+
+## `tablet`: also stamp the canvas's own `'Units — '+value` wording (lower-
+## cased value, single spaces around the em dash) onto this row's text on
+## every `about_to_popup` -- Part B, 2026-09-13. Deliberately NOT
+## `PREF_VALUE_SEP` (three spaces, no dash): that constant is shared with
+## every other Preferences group's own suffix and changing it would move all
+## of them, which is exactly what Gate B1 forbids.
+func _build_units_submenu(p: PopupMenu, tablet: bool = false) -> void:
 	## **Real as of 2026-09-02** (PR-15, `OUTSTANDING_WORK.md`). This row was a
 	## `_todo` naming five call sites a setting would have to reach before it
 	## meant anything -- re-grepped rather than trusted, and the count was
@@ -2777,20 +2858,28 @@ func _build_theme_and_units(p: PopupMenu, tablet: bool = false) -> void:
 		p.about_to_popup.connect(func():
 			var picked := _sole_checked_text(_units_popup)
 			p.set_item_text(units_idx,
-				"Units" if picked == "" else "Units" + PREF_VALUE_SEP + picked))
+				"Units" if picked == "" else "Units — " + picked.to_lower()))
 
-## `full=false` on the tablet omits Theme and Units, which the ☰ overflow
-## promotes to its own top level (`TABLET_UI_SPEC.md` §2.1's "Toggle theme"
-## and "Units — kilometres/miles" rows) -- see `_build_theme_and_units()`,
-## whose own header records why Theme keeps Preferences' submenu shape there
-## rather than the canvas's flat row, deliberately, for now.
+## `full=false` on the tablet omits Units (and, unless `include_theme` says
+## otherwise, Theme too), both of which the ☰ overflow promotes elsewhere:
+## Units to its own top-level submenu (unchanged position, `TABLET_UI_SPEC.md`
+## §2.1's "Units — kilometres/miles" row) and Theme to a flat top-level
+## "Toggle theme" action PLUS this same submenu, nested one level deeper under
+## ☰ ▸ Preferences -- see `_build_theme_submenu()`'s own header for why Theme,
+## unlike Units, keeps a submenu copy reachable from inside Preferences on
+## tablet as well.
+##
+## `include_theme`: added 2026-09-13 so `_overflow()` can ask for Theme alone
+## without Units, which already has its own top-level home and would
+## duplicate if built again here. PC/phone never pass it -- `full=true`
+## already covers both, unchanged.
 ## Preferences' own "Keyboard shortcuts…" (the editable ShortcutsDialog,
 ## `ID_PREF_SHORTCUTS`) stays here even on tablet: it is a different id and a
 ## different capability from Help's read-only row, which is what the ☰
 ## overflow's plain "Shortcuts…" promotes instead -- so nothing is duplicated.
 ## `full=true` (the default, PC/phone's only call) is byte-for-byte the
 ## original single-body function.
-func _preferences(p: PopupMenu, full: bool = true) -> void:
+func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) -> void:
 	## `use_gpu` is a plain entry in the engine's own flat parameter table
 	## (`params.rs`) -- `bridge.param_set("use_gpu", ...)` is the whole
 	## mechanism, identical to every slider in the Generation Pipeline. It was
@@ -3062,8 +3151,10 @@ func _preferences(p: PopupMenu, full: bool = true) -> void:
 	## `DccApp.open_storage_locations()` is the one method both call.
 	_live(p, "Storage locations…", ID_PREF_STORAGE)
 
+	if full or include_theme:
+		_build_theme_submenu(p)
 	if full:
-		_build_theme_and_units(p)
+		_build_units_submenu(p)
 	## **Built.** This row was a `_todo` reading "SS2.5 asks for an editable,
 	## per-context table... what is missing is rebinding: a per-context store
 	## in DccSettings that both the menu accelerators here and app.gd's own
@@ -5573,26 +5664,62 @@ func _overflow(p: PopupMenu) -> void:
 	_build_asset_library_row(p)
 	_build_landmark_types_menu(p)
 	p.add_separator()
-	_build_theme_and_units(p, true)
+	## Canvas: `sep();head('VIEW');it('Toggle theme','theme',{sc:''});
+	## it('Units — '+...)` (`Cartalith Tablet.dc.html:1008`). Toggle theme is a
+	## flat action, not the submenu Preferences draws -- see `_on_toggle_theme()`
+	## for what it does and `_build_theme_submenu()`'s own header for where the
+	## full three-way choice still lives on tablet (☰ ▸ Preferences ▸ Theme,
+	## built below via `include_theme`).
+	_live(p, "Toggle theme", ID_TABLET_TOGGLE_THEME)
+	_build_units_submenu(p, true)
 	p.add_separator()
 	_build_help_shortcuts_row(p)
 	_live(p, "About", ID_HELP_ABOUT)
-	## Three dispatchers on one popup: each `match`es only the ids its own
+	## Four dispatchers on one popup: each `match`es only the ids its own
 	## builder just added and is silent on everything else, so connecting all
-	## three is a fan-out, not a conflict (`_on_edit` for Undo/Redo/Undo
+	## four is a fan-out, not a conflict (`_on_edit` for Undo/Redo/Undo
 	## history, `_on_assets` for Asset library, `_on_help` for
-	## Shortcuts/About). `_build_landmark_types_menu()` and
-	## `_build_theme_and_units()` wire their own child popups' `id_pressed`
-	## internally and need nothing added here.
+	## Shortcuts/About, `_on_view` for Toggle theme). `_build_landmark_types_menu()`
+	## and `_build_theme_submenu()`/`_build_units_submenu()` wire their own
+	## child popups' `id_pressed` internally and need nothing added here.
 	p.id_pressed.connect(_on_edit)
 	p.id_pressed.connect(_on_assets)
 	p.id_pressed.connect(_on_help)
+	p.id_pressed.connect(_on_view)
 	p.add_separator()
 	_add_submenu(p, "Edit", _edit.bind(false))
 	_add_submenu(p, "Assets", _assets.bind(false))
-	_add_submenu(p, "Preferences", _preferences.bind(false))
+	## `include_theme=true`: Theme's Dark/Light/Follow-system submenu is built
+	## a second time here, nested under ☰ ▸ Preferences ▸ Theme -- see
+	## `_build_theme_submenu()`'s own header for why the VIEW-section flat
+	## toggle above does not replace it. Units is NOT re-requested (`full`
+	## stays false): it already has its own top-level ☰ row, unchanged, and
+	## `_preferences()`'s own header explains `full`/`include_theme` do not
+	## overlap for it.
+	_add_submenu(p, "Preferences", _preferences.bind(false, true))
 	_add_submenu(p, "Window", _window)
 	_add_submenu(p, "Help", _help.bind(false))
+
+## `☰ ▸ View ▸ Toggle theme` (`ID_TABLET_TOGGLE_THEME`). Canvas: `if(a==='theme')
+## this.setState({light:!s.light,...})` -- a bare binary flip, because the mock
+## has no "Follow system" concept at all (`s.light` is the mock's whole theme
+## state, `Cartalith Tablet.dc.html:915`). This port's real third mode needs a
+## decision the mock does not have to make: **toggling while the preference is
+## Follow system flips the CURRENTLY DRAWN palette to its explicit opposite**,
+## the same as toggling from an explicit Dark or Light -- it reads
+## `DccTheme.is_dark()` (what is actually on screen right now), not
+## `_theme_mode` (which choice produced it), so the row always does what its
+## name says: flips what you see. That necessarily leaves Follow system,
+## landing on an explicit Dark or Light instead -- there is no third state a
+## two-state flip could land on. A user who wants Follow system back (or wants
+## to pick Dark/Light without leaving it, e.g. to check the OS is still
+## respected) still has ☰ ▸ Preferences ▸ Theme's full three-way submenu.
+func _on_toggle_theme() -> void:
+	_on_theme_choice(ID_PREF_THEME_LIGHT if DccTheme.is_dark() else ID_PREF_THEME_DARK)
+
+func _on_view(id: int) -> void:
+	if id == ID_TABLET_TOGGLE_THEME:
+		_on_toggle_theme()
 
 func _world(p: PopupMenu) -> void:
 	## `world_workspace.gd::_regenerate_live()` -- the guarded path the WORLD

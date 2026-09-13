@@ -474,9 +474,14 @@ const PHONE_DETENT_DISMISS := 44.0     ## `_su`: `if(h<44)` closes the sheet.
 ## that differs, not the geometry: the detent sizes below are the prototype's
 ## own numbers, unchanged.
 var _phone_detent := "peek"
-var _phone_sheet_grab: Control         ## The drag handle's own hit area.
+var _phone_sheet_grab: Control         ## The WHOLE header block's hit area, 2026-09-13
+	## on -- pill row, title/subtitle and the close circle -- not only the pill,
+	## which is all it was before this pass. See `_build_phone_tool_sheet()`'s
+	## own header for why it grabs the header rather than sitting beside it.
 var _phone_sheet_drag := {}            ## `{"y0","h0","h"}` while a drag is live; empty otherwise.
 var _phone_sheet_tween: Tween          ## Held so a new snap kills the running one.
+var _phone_sheet_title: Label          ## `sheetTitle` -- refreshed per tab, `_refresh_phone_sheet_header()`.
+var _phone_sheet_subtitle: Label       ## `sheetSub` -- same refresh.
 
 # -- Phone landscape: left rail + right-docked sheet ---------------------------
 #
@@ -4535,6 +4540,25 @@ var _vp_wired := false
 ## `EngineBridge.mark_dirty()` early-returns once already dirty, so
 ## `params_changed` fires on the clean->dirty transition and not per drag frame.
 func _refresh_viewport_context() -> void:
+	## `_refresh_phone_sheet_header()`'s own GENERATE case reads the same
+	## seed/mode state this function does (world mode, `bridge.world_gen`'s
+	## seed) and needs the same trigger set -- a dice roll or a world landing
+	## while GENERATE is already the lit tab, not only a tab press. Riding this
+	## function's existing wiring rather than a second `generation_started` /
+	## `world_loaded` connection to the same bridge; unconditional and ahead of
+	## the `host == null` return below, since the header needs no viewport.
+	##
+	## A direct, synchronous call -- deliberately, after two deferred variants
+	## (`call_deferred`, then a full `process_frame` boundary) both still
+	## panicked reaching into `world_gen` from a `generation_stage` tick, which
+	## fires on the MAIN thread WHILE the worker thread still owns `world_gen`
+	## for its entire run (`engine_bridge.gd::_worker()`'s own doc comment).
+	## Neither timing fix could have worked: the unsafe window is the whole
+	## generation, not one reentrant instant. `_refresh_phone_sheet_header()`
+	## itself now carries the real guard (`bridge.generating`), the same one
+	## `_pg_rebuild()` already uses for the same object -- see that function's
+	## own doc comment.
+	_refresh_phone_sheet_header()
 	var host := _find_viewport_host()
 	if host == null:
 		return
@@ -6056,15 +6080,28 @@ func _build_phone_menu_bar() -> Control:
 ## are the literal canvas characters now, on the one mechanism the canvas
 ## itself uses (`_phone_bar_cell()`, below, renders `glyph` as a mono `Label`
 ## instead of calling `DccIcons.rect()`).
+## `tip` is byte-for-byte the canvas's own static header subtitle for MAP and
+## MORE's root (`AND:1466`'s `titles.map[1]` and `AND:1208`'s `_moreTitle()`
+## `root` entry) as of 2026-09-13 -- both were paraphrases before ("Layers,
+## style and annotation", "Project, Civilization, Data, Assets, Preferences,
+## Help") and `_refresh_phone_sheet_header()` prints them verbatim as the
+## sheet header, not only as a nav-bar tooltip, so the paraphrase was a visible
+## divergence from the design, not decoration. PLAN's stays a paraphrase
+## deliberately: the canvas's own subtitle there ("journey · Vhal Serai → Port
+## Amre") is that mock's DEMO data for a specific planned trip, and this port
+## has no public read of the live planner's selected journey to substitute a
+## real one (`_refresh_phone_sheet_header()`'s own doc comment below, gate S2)
+## -- printing the sample names as if they were real would be worse than the
+## honest paraphrase they replace.
 const PHONE_TABS: Array = [
 	{"id": "map", "caption": "MAP", "glyph": "▤", "domain": "cartography",
-		"tip": "Layers, style and annotation"},
+		"tip": "layers · style · annotation"},
 	{"id": "gen", "caption": "GENERATE", "glyph": "⌗", "domain": "world",
 		"tip": "The generation pipeline, and Sculpt"},
 	{"id": "plan", "caption": "PLAN", "glyph": "➔", "domain": "",
 		"tip": "Journey planner"},
 	{"id": "more", "caption": "MORE", "glyph": "⋯", "domain": "",
-		"tip": "Project, Civilization, Data, Assets, Preferences, Help"},
+		"tip": "program · data · preferences"},
 ]
 
 var _phone_tab_cells: Dictionary = {}
@@ -6113,11 +6150,100 @@ func _pick_phone_tab(id: String) -> void:
 		elif _phone_detent == "peek":
 			_set_phone_detent("half")
 	_refresh_phone_tabs()
+	_refresh_phone_sheet_header()
 	## After the detent, not before: `_refresh_phone_gen_panel()` fills a
 	## scroller whose height the detent has just set, and a fill against the
 	## old height leaves the column measured for the wrong box on its first
 	## frame.
 	_refresh_phone_gen_panel()
+
+## `sheetTitle`/`sheetSub` (`AND:181-182`) for whichever tab is lit -- the
+## canvas's own per-tab `titles` table, quoted (`AND:1466`):
+## `titles={map:['MAP','layers · style · annotation'],
+## gen:['GENERATE',s.genMode==='pipe'?'pipeline · seed '+s.world.seed:
+## 'sculpt · draft stamps'],plan:[...,'journey · Vhal Serai → Port Amre'],
+## more:mt}`, `mt` from `_moreTitle()` (`AND:1208`).
+##
+## Three of the four are static (`PHONE_TABS`' own `caption`/`tip`, now
+## byte-for-byte the canvas's MAP and MORE-root strings -- see that constant's
+## own header comment). GENERATE is live: `active_mode("world")` and
+## `_find_engine_bridge()` are both existing reads this file already has for
+## other reasons (the viewport context chip below, `open_journey_planner`'s
+## neighbourhood) -- not a new cross-lane dependency into `world_workspace.gd`,
+## which is what the 2026-09-13 header comment here used to say could not be
+## done without one.
+##
+## PLAN's live equivalent (`journey · <from> → <to>` off the actually-planned
+## journey) and MORE's per-page equivalent (`_moreTitle()`'s non-root entries,
+## keyed to whatever screen `PhoneMenu`'s stack is showing) are NOT wired:
+## `journey_planner_view.gd` exposes no public accessor for the selected
+## journey's endpoint names, and `phone_menu.gd`'s `_stack`/`_screen_title()`
+## are both private with no public getter either -- both outside every lane's
+## granted files this batch (gate S2). Printing the canvas's own sample values
+## ("Vhal Serai → Port Amre") in their place would misrepresent a demo string
+## as a real journey, which is worse than the static fallback `PHONE_TABS`
+## already carries for PLAN, and MORE keeps its root string regardless of
+## navigation depth for the same reason.
+##
+## Called from `_pick_phone_tab()` (a tab press) and from
+## `_refresh_viewport_context()` (every signal that can change the world's
+## seed, generation state or pipe/sculpt mode) -- not tab-press-only, since
+## GENERATE's subtitle can go stale while GENERATE is already the lit tab (a
+## dice-rolled seed, or the PIPELINE/SCULPT segment inside the sheet itself).
+##
+## **While `bridge.generating` is true, this never touches `world_gen`.**
+## Found by actually generating a world under `_detent_probe.gd`, not argued
+## from the signature: `engine_bridge.gd::_worker()`'s own doc says it
+## plainly -- "the worker owns `world_gen`" -- for the Rust worker thread's
+## entire run, and `_process()` polls a SEPARATE `RefCounted` (`_progress`)
+## and re-emits `generation_stage` on the MAIN thread precisely so callers can
+## react WITHOUT reaching into the borrowed object. A first version of this
+## function did reach into it (`get_seed()`, from a `generation_stage` /
+## `generation_finished` listener) and hit "Gd<T>::bind() failed, already
+## bound; T = cartalith_godot::WorldGen" -- repeatably, and **no amount of
+## deferring the call helped** (`call_deferred`, then a full `process_frame`
+## boundary, both still panicked): the object is unsafe to touch for the
+## worker's whole run, not just for one reentrant instant, so the fix is the
+## same branch `_pg_rebuild()` already takes for the same reason
+## (`world_workspace.gd`: `if bridge.generating: progress card else: idle
+## block`), not a timing change.
+func _refresh_phone_sheet_header() -> void:
+	if _phone_sheet_title == null or not is_instance_valid(_phone_sheet_title):
+		return
+	if _phone_tab == "gen":
+		_phone_sheet_title.text = "GENERATE"
+		if active_mode("world") == "b":
+			_phone_sheet_subtitle.text = "sculpt · draft stamps"
+		else:
+			var bridge := _find_engine_bridge()
+			if bridge != null and bridge.generating:
+				_phone_sheet_subtitle.text = "pipeline · generating…"
+			else:
+				var seed_str := _phone_gen_seed_text(bridge)
+				_phone_sheet_subtitle.text = ("pipeline · seed " + seed_str) \
+					if seed_str != "" else "pipeline · no world yet"
+		return
+	for t in PHONE_TABS:
+		if String(t.id) == _phone_tab:
+			_phone_sheet_title.text = String(t.caption)
+			_phone_sheet_subtitle.text = String(t.tip)
+			return
+
+## `bridge.world_gen.get_seed()`, guarded exactly as `GenInfoDialog.seed_text()`
+## guards the same read (`gen_info_dialog.gd`) -- `""` when the binding is
+## absent, never a fake `0`, which is a legal seed and would misreport "no
+## world" as "seed zero". Takes `bridge` rather than re-finding it -- the
+## CALLER already knows it needs one to check `bridge.generating` first (see
+## this function's own caller), and finding it twice would invite a second
+## copy of that guard drifting out of sync with this one.
+func _phone_gen_seed_text(bridge: EngineBridge) -> String:
+	if bridge == null or bridge.world_gen == null or not bridge.world_gen.has_method("get_seed"):
+		return ""
+	## No world yet: the binding exists and `get_seed()` answers 0, which is not a
+	## seed anyone chose -- "" sends the caller to "pipeline · no world yet".
+	if not bridge.has_world:
+		return ""
+	return str(int(bridge.world_gen.get_seed()))
 
 ## Which of `PHONE_TABS` a domain lights. A domain with no tab of its own lives
 ## under MORE and lights MORE -- except when the tab already lit is itself not a
@@ -6297,18 +6423,34 @@ func _pick_bar_domain(id: String) -> void:
 ## is wider than 412 dp and would otherwise clip.
 func _build_phone_tool_sheet() -> PanelContainer:
 	var sheet := PanelContainer.new()
-	sheet.add_theme_stylebox_override("panel", _phone_sheet_box(false))
+	## Kept as a local, not just handed to the override -- the header-block
+	## floor further down needs this exact instance's own OWN top/bottom
+	## content margin, not a second `_phone_sheet_box(false)` call (harmless
+	## today since the function is pure, but this way there is only ever one
+	## stylebox in play).
+	var sheet_style := _phone_sheet_box(false)
+	sheet.add_theme_stylebox_override("panel", sheet_style)
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
 	sheet.add_child(col)
 
-	## The grab handle -- and, as of the detents, the drag target for them.
-	## `MOUSE_FILTER_STOP` (a bare `Control`'s default, set explicitly because
-	## it is now load-bearing rather than incidental) so the row picks the
-	## press; everything else in the phone chrome that is *not* meant to pick
-	## is `IGNORE` for the reason `_phone_content_gap` documents at length.
-	_phone_sheet_grab = Control.new()
+	## The grab handle -- as of the detents, the drag target for them, and as
+	## of 2026-09-13 the WHOLE header block (pill, title/subtitle, close),
+	## not the pill alone -- `_detent_probe.gd`'s own SS5.3 comment already
+	## called it that before this pass built it: "grabs the whole header
+	## block". `VBoxContainer`, not a bare `Control`, so the pill row and the
+	## title row below it stack without manual positioning -- `gui_input` and
+	## `mouse_filter` both work identically on a `Container`, so nothing about
+	## the drag wiring below changes shape, only what it wraps.
+	## `MOUSE_FILTER_STOP` (set explicitly because it is now load-bearing
+	## rather than incidental) so the row picks the press; everything in it
+	## that is *not* meant to pick is `IGNORE`, same convention
+	## `_phone_content_gap` documents at length -- except the close circle,
+	## which is `STOP` on purpose so its own tap does not also register as a
+	## zero-distance drag.
+	_phone_sheet_grab = VBoxContainer.new()
+	_phone_sheet_grab.add_theme_constant_override("separation", 0)
 	## Two quantities from two canvases, and they are not the same question.
 	##
 	## **The pill is 42 x 4**, from the newest canvas -- verified at the source
@@ -6326,67 +6468,86 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	## the one value not matched: this is a `ColorRect`, which has no corner
 	## radius, and 2 px of it does not justify a `Panel` and a `StyleBoxFlat`.
 	##
-	## **The row stays 24 dp, and that is left alone deliberately.** §5.3's
-	## grab region is not the pill's row -- it is *"the whole header block above
-	## the scroller"*, which in the prototype is the 20 dp handle row plus a
-	## title row (`padding:0 14px 10px` around 38 x 38 back/close buttons), so
-	## roughly 68 dp of grabbable header. **This sheet has no header block**:
-	## it is the desktop tool-options bar (§13), with no title, no back arrow
-	## and no close ✕, so the handle row IS the grab region. Following §5.3's
-	## `height:20px` literally would therefore shrink the only gesture target
-	## this sheet has, which is the opposite of what §5.3 is doing.
+	## **The row used to stay 24 dp deliberately -- built into a real header
+	## block instead, 2026-09-13.** §5.3's grab region was never the pill's row
+	## alone -- it is *"the whole header block above the scroller"*, pill row
+	## plus a title row (`padding:0 14px 10px` around 38 x 38 back/close
+	## buttons) in the prototype, `AND:176-186` here. **"This sheet has no
+	## header block" was true when that sentence was written and is corrected
+	## by this pass, not merely restated**: `sheetTitle`/`sheetSub`/
+	## `hSheetClose` (`AND:181/182/184`) are built below, closing the symptom
+	## `OUTSTANDING_WORK.md` filed -- "half a body row shows at peek,
+	## PIPELINE/SCULPT chips cut at 52 of 115 px". The canvas's own peek budget
+	## is spent on `handle + header`, not on a sliver of the first scrollable
+	## row; this sheet had never built the header half of that budget.
 	##
-	## What no canvas settles is how tall a *headerless* sheet's grab region
-	## should be, so it is not invented here. Measured 2026-09-05 by
-	## `_detent_probe.gd` at 720x1600, 1080x2340 and 1440x3200: 42 / 63 / 84
-	## physical px, **24.03 dp at all three** -- below the 44 dp floor, and
-	## below the 48 dp Android minimum §9's own accessibility item invokes. That
-	## item lists the prototype's sub-minimum targets (36 dp stage-override
-	## chips, 38 dp segment chips and sculpt presets, 38 x 38 steppers, 48 x 44
-	## icon cells) and does **not** name any sheet handle, because in the
-	## prototype the grab region is the header block and is nowhere near the
-	## limit. Filed as an open question for `DESIGN_HANDOFF.md` rather than
-	## answered from this file.
-	## **20, from `AND:177`** -- `<div style="height:20px;display:flex;
-	## align-items:center;justify-content:center">` around the 42x4 pill. The
-	## paragraph above says "what no canvas settles is how tall a *headerless*
-	## sheet's grab region is"; the shipped Android canvas settles it, and the
-	## 24 here was the reasoned estimate that sentence licensed.
+	## **Sized to fit `peek` deliberately, not organically -- the refuted
+	## attempt's own lesson.** A prior pass pinned a comparably-sized
+	## (`_ptap`-floored, ~44 dp) control above this same scroll clip and the
+	## sheet grew to 98 dp at what the code still called "peek" against a 66 dp
+	## formula (`.claude/resume-2026-09-12/peek_pin_2026-09-12.patch`, reverted):
+	## no `phone_insets_changed` emitted, and at cold boot it covered 29 px of
+	## the bottom nav and hid the coordinate/scale labels. The mechanism is
+	## `Control.get_combined_minimum_size()`: a non-expanding child is sized to
+	## `max(custom_minimum_size, its own children's genuine minimum)`, so
+	## stacking a second full 44 dp accessibility-floored row ON TOP of the
+	## pill's old 44 dp (`_ptap(20)`) pushes `col`'s own reported minimum to
+	## ~88 dp regardless of what `peek` says, and `_phone_chrome_col`
+	## (`_phone_tool_sheet`'s parent) has no way to tell that apart from a
+	## deliberately taller `half`/`full`.
 	##
-	## **`_ptap()`, not `_pscale()`, and that is the owner-reported defect,
-	## 2026-09-07.** Owner, on the device: *"it seems an issue with dragging the
-	## drawer up in the sculpt menu."* `_sheetgrab_probe.gd` at 1080x2340 drove
-	## a ten-rung ladder of whole drags through the SubViewport's own hit-test
-	## and measured the live band -- the offsets from the handle's centre that
-	## actually raise the sheet -- as **exactly the grab row and nothing more**:
-	## raised at -26/-12/0/+12 px, dead at +-26 px and beyond, a target
-	## **19.84 dp** tall. `_detent_probe.gd` reports PASS on the same build
-	## because it presses the handle's exact CENTRE; a centre press can never
-	## see the width of the target it hits.
+	## Avoided here two ways, not one:
+	## - **The pill's own row shrinks from `_ptap(20)` to a plain `_pscale(14)`,
+	##   below.** It no longer needs its own 44 dp accessibility floor -- that
+	##   requirement now belongs to the close circle in the title row, and the
+	##   WHOLE header (pill row plus title row) is one `gui_input` target
+	##   regardless of which sub-row is pressed, so the pill sub-row's own
+	##   height is purely visual.
+	## - **`_phone_sheet_grab.custom_minimum_size.y` is set to
+	##   `_phone_detent_height("peek")` directly, not a literal 66,
+	##   immediately below.** The pill row and the title row (`_ptap(38)` plus
+	##   a few px of padding) are kept modest enough to fit inside that figure
+	##   with room to spare, so this explicit floor -- not the organic sum --
+	##   is what `max()` picks: `col`'s reported minimum stays exactly `peek`,
+	##   at every detent, the same invariant `peek < half < full` already
+	##   guarantees holds without a special case. If a future change pushed the
+	##   two rows' organic sum past `peek`, `max()` would pick THAT instead and
+	##   the sheet would grow -- exactly the failure mode above -- so keep the
+	##   rows inside this figure rather than widen it.
 	##
-	## 19.84 dp is under half the **44 dp** floor `phone_fit()` applies to every
-	## other tappable thing in this shell (`DccTheme.PHONE_TAP_MIN`, the
-	## canvas's own TARGETS card) and well under Android's 48 dp. The paragraph
-	## further up already flagged 24.03 dp as below both and filed it as an open
-	## question for `DESIGN_HANDOFF.md`; the `AND:177` read then took it to 20.
+	## Measured against this reasoning, not only argued from it -- see this
+	## batch's report for the before/after numbers windowed at 1080x2340, and
+	## `_detent_probe.gd`'s own SS5.2/5.3 blocks for the standing assertions.
 	##
-	## `_ptap()` is this file's own answer to exactly this question --
-	## `_pscale(maxf(DccTheme.PHONE_TAP_MIN, px))` -- so the canvas's authored
-	## **20 stays the figure in the source** and the shell's tap floor is what
-	## reaches the screen, the same way every other phone target here is sized.
-	## The pill is a `PRESET_CENTER` `ColorRect`, so it stays 42 x 4 dp and
-	## stays centred; nothing drawn moves except the invisible hit row.
-	##
-	## **The cost, stated rather than discovered later:** `peek` is 66 dp and is
-	## unchanged, so the sheet body at `peek` goes 45.78 dp -> ~22 dp. Nothing
-	## fitted there today anyway -- `tool_options_row` measures 48 dp against a
-	## 45.78 dp viewport, i.e. it was already clipped and already relying on the
-	## body's `SCROLL_MODE_AUTO`. `peek` is a sliver by design ("still there,
-	## out of the way"), and at a sliver the handle is the part that has to
-	## work.
-	_phone_sheet_grab.custom_minimum_size.y = _ptap(20)
+	## **`- sheet_vpad`, added 2026-09-13: the reasoning above stops one layer
+	## too early.** It keeps `col`'s own reported minimum at exactly `peek` --
+	## true, and not enough, because `col` is not what gets measured. `sheet`
+	## (the `PanelContainer` `col` sits inside) has its OWN panel stylebox
+	## (`_phone_sheet_box()`: a 1 physical-px top border, no explicit content
+	## margin, so `StyleBoxFlat` reports that border width back as the margin),
+	## and a `PanelContainer`'s combined minimum is its child's minimum PLUS
+	## that stylebox's margins on the relevant axis -- invisible at HEAD, where
+	## the bare handle's minimum (`_ptap(20)`, ~115 px @1080x2340) sat ~57 px
+	## under `peek` and the outer sheet's own detent target won outright with
+	## room to spare either way. Setting the header's floor to the FULL `peek`
+	## figure (just above, pre-fix) closed that slack to exactly zero, which is
+	## exactly where the stylebox's 1 px stopped being free: measured (this
+	## batch, `_detent_probe.gd`'s cold-boot header/sheet log, 1080x2340)
+	## header=173 sheet=174 -- the "grew 1 px" a prior pass called
+	## byte-identical without a HEAD comparison behind it. Subtracting the
+	## stylebox's own margin here restores `sheet.size.y == 173` exactly, at
+	## the layer HEAD's own 173 was always measured at, rather than shrinking
+	## anything the user can see.
+	var sheet_vpad := sheet_style.get_margin(SIDE_TOP) + sheet_style.get_margin(SIDE_BOTTOM)
+	_phone_sheet_grab.custom_minimum_size.y = _phone_detent_height("peek") - sheet_vpad
 	_phone_sheet_grab.mouse_filter = Control.MOUSE_FILTER_STOP
 	_phone_sheet_grab.gui_input.connect(_on_phone_sheet_grab_input)
+
+	var pill_row := Control.new()
+	## `_pscale`, not `_ptap` -- see the header comment above for why the pill
+	## row no longer carries its own accessibility floor.
+	pill_row.custom_minimum_size.y = _pscale(14)
+	pill_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var handle := ColorRect.new()
 	## Token-derived, not a literal white: `DccTheme.remap()` can only repaint a
 	## colour it can trace back to a token, so a flat `Color(1,1,1,0.25)` here
@@ -6421,8 +6582,86 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	handle.position = Vector2(-hw / 2.0, -hh / 2.0)
 	handle.mouse_filter = Control.MOUSE_FILTER_IGNORE  ## The bar must not eat
 		## the press its own row is there to receive.
-	_phone_sheet_grab.add_child(handle)
+	pill_row.add_child(handle)
+	_phone_sheet_grab.add_child(pill_row)
+
+	## The title row -- `AND:178-186`: `sheetTitle`/`sheetSub` stacked at
+	## `flex:1`, then a 38 x 38 close circle, in a `padding:0 14px 10px` row.
+	## `_ptap(38)`, not the canvas's bare 38, per every other tappable thing in
+	## this shell -- see the big header comment above for why THIS row, not
+	## the pill row, is where the 44 dp accessibility floor now lives.
+	var title_row := HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", _pscale(10))
+	title_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var title_pad := MarginContainer.new()
+	title_pad.add_theme_constant_override("margin_left", _pscale(14))
+	title_pad.add_theme_constant_override("margin_right", _pscale(14))
+	## Trimmed from the canvas's own 10 px bottom padding -- part of the modest
+	## budget the big header comment above describes, so `pill_row` + this row
+	## together still fit inside `peek` rather than widen it.
+	title_pad.add_theme_constant_override("margin_bottom", _pscale(4))
+	title_pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title_pad.add_child(title_row)
+
+	var title_stack := VBoxContainer.new()
+	title_stack.add_theme_constant_override("separation", 0)
+	title_stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## No `clip_text` -- `MISTAKES.md`'s own row: it collapses
+	## `get_minimum_size().x` to 1, and beside `close_btn` (a fixed-size
+	## sibling, not `SIZE_EXPAND_FILL`, so this specific pairing would not hit
+	## the "vanishes entirely" case) it is still simplest not to depend on
+	## that distinction holding forever. `PHONE_TABS`' own captions are short.
+	## `_pfont(11)`/`_pfont(9.5)`, not the raw `DccTheme.FS_SMALL`/`FS_MICRO` --
+	## every OTHER phone type size in this file goes through `_pfont()` (see
+	## its own doc comment), and this pair did not: measured drawing 16/13 px
+	## at this phone's scale (2.62) where the canvas's `font:500 11px`/
+	## `font:9.5px` (`AND:181-182`) means about 29/25 px. `9.5`, a literal, not
+	## `FS_MICRO` (9) -- the canvas's own subtitle size is 9.5 and `_pfont()`
+	## takes a float, so there is no reason to round to the nearest shared
+	## constant a half-pixel category away.
+	_phone_sheet_title = DccTheme.mono_label("", "accent", _pfont(11), 2, true)
+	_phone_sheet_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title_stack.add_child(_phone_sheet_title)
+	_phone_sheet_subtitle = DccTheme.mono_label("", "text_dim", _pfont(9.5))
+	_phone_sheet_subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title_stack.add_child(_phone_sheet_subtitle)
+	title_row.add_child(title_stack)
+
+	## `hSheetClose` -- collapses the sheet to `peek` rather than the canvas's
+	## `tab:null`: this app's phone sheet has no "gone" state on top of the
+	## three detents (`_pick_phone_tab()`'s own comment says so directly), so
+	## `peek` is the nearest real equivalent to "dismissed".
+	var close_btn := Button.new()
+	close_btn.text = "✕"
+	close_btn.focus_mode = Control.FOCUS_NONE
+	close_btn.custom_minimum_size = Vector2(_ptap(38), _ptap(38))
+	close_btn.mouse_filter = Control.MOUSE_FILTER_STOP  ## Catches its own tap
+		## before it can reach `_phone_sheet_grab`'s drag handler above.
+	var close_sb := StyleBoxFlat.new()
+	## `line_soft` stands in for the canvas's own `--chip` (`rgba(#,.05)`
+	## dark / light) -- close in weight, and an existing token rather than a
+	## new palette entry for one circle (`MISTAKES.md`: re-basing a shared
+	## token set is its own, larger pass).
+	close_sb.bg_color = DccTheme.c("line_soft")
+	var close_r := _ptap(19)
+	close_sb.corner_radius_top_left = close_r
+	close_sb.corner_radius_top_right = close_r
+	close_sb.corner_radius_bottom_left = close_r
+	close_sb.corner_radius_bottom_right = close_r
+	for state in ["normal", "hover", "pressed", "focus"]:
+		close_btn.add_theme_stylebox_override(state, close_sb)
+	close_btn.add_theme_color_override("font_color", DccTheme.c("text_secondary"))
+	## `_pfont(13)`, matching the canvas's `font:13px` for `hSheetClose`
+	## (`AND:184`) -- the same unscaled-constant defect as the title/subtitle
+	## above, not a separate one.
+	close_btn.add_theme_font_size_override("font_size", _pfont(13))
+	close_btn.pressed.connect(func(): set_phone_detent("peek"))
+	title_row.add_child(close_btn)
+
+	_phone_sheet_grab.add_child(title_pad)
 	col.add_child(_phone_sheet_grab)
+	_refresh_phone_sheet_header()
 
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO

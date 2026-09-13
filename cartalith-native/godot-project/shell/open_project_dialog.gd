@@ -1097,8 +1097,7 @@ func _build_tile(path: String, meta: Dictionary, picker: bool = false) -> Contro
 				_refresh()
 				_say("%s is no longer on disk." % path.get_file())
 				return
-			hide()
-			_host.open_recent_project(path))
+			_pick_path(path))
 		return wrap
 	wrap.gui_input.connect(func(event: InputEvent):
 		if not (event is InputEventMouseButton):
@@ -1143,12 +1142,29 @@ func _refresh_open_button() -> void:
 		else ("Pick a world above first." if _selected == "" \
 			else "%s is no longer on disk." % _selected.get_file())
 
+## Lane GATE, 2026-09-13 -- the one place every route that hands a chosen path
+## to `open_recent_project()` (the picker tile above, `_confirm()`, the disk
+## browser and a file drop, all four below) ends up. **Hides only on success.**
+## Until this fix all four hid first and opened second: a corrupt or unreadable
+## archive still refused (`app.gd::_load_project()`'s own `refusal` branch,
+## already unchanged by this fix) but this dialog was already gone by the time
+## that ran, so the failure's `set_status("hint", ...)`/`_show_phone_toast()`
+## landed on a bare, world-less main shell instead of on the screen the user
+## was still looking at. `open_recent_project()` (`app.gd`) is a synchronous
+## call -- `EngineBridge.load_save()` underneath it returns before this
+## function's own next line runs -- so checking its return here rather than
+## hiding unconditionally beforehand changes nothing about a *successful*
+## open's sequence, only a failed one's. Filed as Lane GATE part B; reproduced
+## with a corrupt `.ctl` through the welcome recent tile, this dialog's own
+## Open button and the disk browser (`_openfailgate_probe.gd`).
+func _pick_path(path: String) -> void:
+	if _host.open_recent_project(path):
+		hide()
+
 func _confirm() -> void:
 	if _selected == "" or not FileAccess.file_exists(_selected):
 		return
-	var path := _selected
-	hide()
-	_host.open_recent_project(path)
+	_pick_path(_selected)
 
 # ---------------------------------------------------------------------------
 # Bringing one in from disk
@@ -1162,16 +1178,14 @@ func _browse_from_disk() -> void:
 		PackedStringArray(PROJECT_EXTENSIONS),
 		DccSettings.storage_root("projects"),
 		"Cartalith projects are .ctl saves (.zip still opens)", func(path: String):
-			hide()
-			_host.open_recent_project(path))
+			_pick_path(path))
 
 func _on_files_dropped(files: PackedStringArray) -> void:
 	if not visible:
 		return
 	for f in files:
 		if String(f).get_extension().to_lower() in PROJECT_EXTENSIONS:
-			hide()
-			_host.open_recent_project(String(f))
+			_pick_path(String(f))
 			return
 	## **Names both, because both open.** A message saying ".ctl" alone would
 	## be a false rejection reason for someone dropping a pre-2026-09-07 save,

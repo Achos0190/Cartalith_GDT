@@ -293,6 +293,11 @@ body at all; the shell, having no header, leaks half a row of it. Reverted, with
 batch’s citation sweep stopped correctly at its gate: 51 stale canvas citations, not 49, and of its three
 disagreements only one is the shell drifting from the canvas.
 
+**2026-09-13, third batch: the phone tool sheet has the canvas’s header, and a failed open no longer strands
+the user.** At peek the GENERATE sheet shows its title, a live subtitle and a close button and no half-cut
+body row; the phone picker and the desktop dialog stay open after a refused project, the phone with a warning
+banner. The tablet portrait slider reflow was reverted a second time: it clipped dock titles on every form factor.
+
 **2026-09-13, second batch: the tablet now fits its own frame and draws the canvas menus.** The tablet
 options row fills its band and scrolls only when it overflows, so portrait 800×1280 and 1024×768 fit;
 the tablet menu bar is ☰ File World Data with every command and accelerator still reachable. The phone
@@ -902,7 +907,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-13: 125 items.** Run
+**Recounted 2026-09-13: 126 items.** Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for

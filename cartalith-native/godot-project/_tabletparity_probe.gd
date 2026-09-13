@@ -83,6 +83,67 @@ func _find_menu_bar(n: Node) -> Node:
 			return r
 	return null
 
+## The `MenuButton` anywhere under `root` whose own `.text` is `title` --
+## `get_children(true)` throughout, the same INTERNAL-children trap
+## `command_index.gd`'s own header cites for why a `MenuButton`'s popup is
+## invisible to the default walk.
+func _menu_button(root: Node, title: String) -> MenuButton:
+	if root is MenuButton and (root as MenuButton).text == title:
+		return root as MenuButton
+	for c in root.get_children(true):
+		var r := _menu_button(c, title)
+		if r != null:
+			return r
+	return null
+
+## The child `PopupMenu` of the row in `pm` whose own TEXT is `title` -- a
+## title lookup rather than an id lookup because `_add_submenu()`'s own
+## submenus (Edit/Assets/Preferences/Window/Help, and now Theme) are named by
+## title, not by a `DccMenus.ID_*` constant the way leaf actions are.
+func _submenu_by_title(pm: PopupMenu, title: String) -> PopupMenu:
+	if pm == null:
+		return null
+	for i in pm.item_count:
+		if pm.is_item_separator(i):
+			continue
+		if pm.get_item_text(i) == title:
+			var sub := pm.get_item_submenu(i)
+			if sub != "":
+				var node := pm.get_node_or_null(NodePath(sub))
+				if node is PopupMenu:
+					return node as PopupMenu
+	return null
+
+## The submenu mounted on item `idx`, or null. Index-based rather than
+## `_submenu_by_title()`'s text match: Units' own row text is NOT stable --
+## `_menu_row_total()` above already fired `about_to_popup` on every top-level
+## popup (tablet's ☰ AND desktop's Preferences) to force dynamic labels to
+## refresh before counting rows, so by the time this probe reaches Part B the
+## row already reads "Units — kilometres" / "Units   Kilometres", not bare
+## "Units" -- a title search for "Units" now finds nothing. Found the hard
+## way: `_submenu_by_title(overflow_popup, "Units")` returned null and every
+## Part B assertion downstream of it read a frozen, never-updated "kilometres".
+func _submenu_at_index(pm: PopupMenu, idx: int) -> PopupMenu:
+	if pm == null or idx < 0 or idx >= pm.item_count:
+		return null
+	var sub := pm.get_item_submenu(idx)
+	if sub == "":
+		return null
+	var node := pm.get_node_or_null(NodePath(sub))
+	return node as PopupMenu if node is PopupMenu else null
+
+## The Units row's item index in a popup that also carries other rows --
+## found by its own live-stamped prefix rather than a fixed index, since
+## `about_to_popup` rewrites its text every time units change (both the
+## tablet ☰ copy, Part B, and Preferences' own `_stamp_pref_values()` copy).
+func _find_units_row(pm: PopupMenu) -> int:
+	if pm == null:
+		return -1
+	for i in pm.item_count:
+		if not pm.is_item_separator(i) and pm.get_item_text(i).begins_with("Units"):
+			return i
+	return -1
+
 ## Every menu title in bar order -- §13's "same menus".
 func _menu_titles(app: Node) -> Array:
 	var out: Array = []
@@ -480,6 +541,160 @@ func _ready() -> void:
 		for m in accel_missing:
 			print("    ", m)
 	_ok("every desktop accelerator is bound to some row on tablet", accel_missing.size(), 0)
+
+	print("")
+	print("=== MENUS lane Part A: tablet flat 'Toggle theme' + Follow system stays reachable ===")
+	var overflow_mb := _menu_button(tshell, "☰")
+	_ok("tablet has a ☰ overflow menu button", overflow_mb != null, true)
+	var overflow_popup: PopupMenu = overflow_mb.get_popup() if overflow_mb != null else null
+	var toggle_idx := overflow_popup.get_item_index(DccMenus.ID_TABLET_TOGGLE_THEME) if overflow_popup != null else -1
+	_ok("☰ has a 'Toggle theme' row (canvas VIEW section)", toggle_idx >= 0, true)
+	if toggle_idx >= 0:
+		_ok("'Toggle theme' text matches the canvas exactly",
+			overflow_popup.get_item_text(toggle_idx), "Toggle theme")
+		_ok("'Toggle theme' carries no visible accelerator (canvas sc:'')",
+			overflow_popup.get_item_accelerator(toggle_idx), 0)
+		_ok("'Toggle theme' is not disabled", overflow_popup.is_item_disabled(toggle_idx), false)
+	## The old top-level Theme SUBMENU must be gone from ☰'s own top level --
+	## that is what makes this a flat row rather than a second copy beside a
+	## submenu no one asked to keep there.
+	var theme_at_top := _submenu_by_title(overflow_popup, "Theme") if overflow_popup != null else null
+	_ok("no 'Theme' SUBMENU left at ☰'s own top level (it is flat now)", theme_at_top == null, true)
+
+	var prefs_sub := _submenu_by_title(overflow_popup, "Preferences") if overflow_popup != null else null
+	_ok("☰ still has a nested Preferences submenu", prefs_sub != null, true)
+	var theme_sub := _submenu_by_title(prefs_sub, "Theme") if prefs_sub != null else null
+	_ok("Follow system's real home: ☰ ▸ Preferences ▸ Theme exists", theme_sub != null, true)
+	var theme_item_titles: Array = []
+	if theme_sub != null:
+		for i in theme_sub.item_count:
+			if not theme_sub.is_item_separator(i):
+				theme_item_titles.append(theme_sub.get_item_text(i))
+	_ok("☰ ▸ Preferences ▸ Theme carries all three choices",
+		",".join(PackedStringArray(theme_item_titles)), "Dark,Light,Follow system")
+
+	## The aggregate (title, count) comparison above already proves this by
+	## occurrence count; named individually here so a reader of THIS section
+	## does not have to cross-reference the earlier block for the one claim
+	## this whole part exists to make.
+	_ok("'Follow system' reachable AND counted in tablet's own command index",
+		int(t_cmds.get("Follow system", 0)) >= 1, true)
+	_ok("'Dark' reachable AND counted in tablet's own command index",
+		int(t_cmds.get("Dark", 0)) >= 1, true)
+	_ok("'Light' reachable AND counted in tablet's own command index",
+		int(t_cmds.get("Light", 0)) >= 1, true)
+
+	## Searchable by the WORD "theme" itself -- found by none of Dark/Light/
+	## Follow system's own titles, nor by "☰"/"Preferences" as a group. See
+	## `command_index.gd`'s `EXTRAS` entry's own header for why a submenu-
+	## opening row is never indexed by `_walk_popup()` and why this needs its
+	## own pointer row rather than relying on the leaves already being found.
+	var t_idx = tapp.call("_ensure_command_index")
+	var theme_hit_titles: Array = []
+	for r in t_idx.search("theme"):
+		theme_hit_titles.append(String(r["title"]))
+	_ok("searching 'theme' finds the EXTRAS pointer row", theme_hit_titles.has("Theme"), true)
+
+	print("")
+	print("-- Toggle theme functions, and the nested submenu is really wired, not just present --")
+	if theme_sub != null:
+		theme_sub.id_pressed.emit(DccMenus.ID_PREF_THEME_DARK)
+		await _frames(1)
+		_ok("forced Dark via the nested submenu", DccTheme.is_dark(), true)
+	if overflow_popup != null and toggle_idx >= 0:
+		overflow_popup.id_pressed.emit(DccMenus.ID_TABLET_TOGGLE_THEME)
+		await _frames(1)
+		_ok("Toggle theme flips dark -> light (reads the DRAWN palette, not the stored mode)",
+			DccTheme.is_dark(), false)
+		overflow_popup.id_pressed.emit(DccMenus.ID_TABLET_TOGGLE_THEME)
+		await _frames(1)
+		_ok("Toggle theme flips light -> dark (pure binary flip, matches the canvas's own light:!s.light)",
+			DccTheme.is_dark(), true)
+	## Gate A3 and a wiring check in one assertion: forcing Light through
+	## ☰ ▸ Preferences ▸ Theme is both this session's required restore and proof
+	## `_theme_popup.id_pressed.connect(_on_theme_choice)` runs on THIS copy of
+	## the popup -- a structural-only check (item count/titles, above) cannot
+	## tell a wired radio from a decoration.
+	if theme_sub != null:
+		theme_sub.id_pressed.emit(DccMenus.ID_PREF_THEME_LIGHT)
+		await _frames(1)
+	_ok("Gate A3: machine theme preference is light when this probe finishes",
+		DccTheme.is_dark(), false)
+
+	print("")
+	print("=== MENUS lane Part B: tablet Units row matches the canvas's 'Units — value' wording ===")
+	var units_idx2 := _find_units_row(overflow_popup)
+	_ok("tablet ☰ still has its own top-level Units row", units_idx2 >= 0, true)
+	## **Pressed through the real radio items, not `DccSettings.set_units_mode()`
+	## directly.** Each app's `_units_popup` keeps its OWN checked-state,
+	## refreshed only by that app's own `_on_units_choice()` -- the same
+	## write-only-shadow shape Part D's report describes for the five Window
+	## region checks. Setting the shared store directly moves `DccSettings`
+	## but leaves a stale popup shadow behind, and a first version of this
+	## probe measured exactly that (three straight false FAILs, all reading
+	## back "kilometres" no matter what was just set) before this fix.
+	var t_units_sub := _submenu_at_index(overflow_popup, units_idx2)
+	_ok("tablet ☰'s Units row has its own submenu", t_units_sub != null, true)
+	var orig_units := DccSettings.units_mode()
+	if t_units_sub != null:
+		t_units_sub.id_pressed.emit(DccMenus.ID_PREF_UNITS_KM)
+	if overflow_popup != null:
+		overflow_popup.about_to_popup.emit()
+	_ok("tablet Units row: km reads exactly the canvas's own wording",
+		overflow_popup.get_item_text(units_idx2) if units_idx2 >= 0 else "<row not found>",
+		"Units — kilometres")
+	if t_units_sub != null:
+		t_units_sub.id_pressed.emit(DccMenus.ID_PREF_UNITS_MI)
+	if overflow_popup != null:
+		overflow_popup.about_to_popup.emit()
+	_ok("tablet Units row: mi reads exactly the canvas's own wording",
+		overflow_popup.get_item_text(units_idx2) if units_idx2 >= 0 else "<row not found>",
+		"Units — miles")
+	if t_units_sub != null:
+		t_units_sub.id_pressed.emit(DccMenus.ID_PREF_UNITS_NMI)
+	if overflow_popup != null:
+		overflow_popup.about_to_popup.emit()
+	_ok("tablet Units row: nmi extends the canvas's own wording consistently (rule 2, no canvas example)",
+		overflow_popup.get_item_text(units_idx2) if units_idx2 >= 0 else "<row not found>",
+		"Units — nautical miles")
+	## Restored on TABLET's own popup, by the same real radio path -- and
+	## `DccSettings` is a real, persisted `ConfigFile`, not scratch state
+	## private to this process.
+	if t_units_sub != null:
+		match orig_units:
+			"km": t_units_sub.id_pressed.emit(DccMenus.ID_PREF_UNITS_KM)
+			"mi": t_units_sub.id_pressed.emit(DccMenus.ID_PREF_UNITS_MI)
+			"nmi": t_units_sub.id_pressed.emit(DccMenus.ID_PREF_UNITS_NMI)
+
+	## Gate B1: PC's OWN Preferences Units suffix format, on PC's OWN popup
+	## instance (each app builds its own `_units_popup`; `DccSettings` is
+	## shared but each app's CHECKED-STATE is refreshed only by that app's own
+	## `_on_units_choice()`, so this presses desktop's own radio rather than
+	## relying on tablet's press above to have moved it). Must still use the
+	## shared `PREF_VALUE_SEP` (three spaces, title case), untouched by the
+	## tablet-only rewrite above.
+	var dprefs_mb := _menu_button(dapp, "Preferences")
+	var dprefs_popup: PopupMenu = dprefs_mb.get_popup() if dprefs_mb != null else null
+	var d_units_idx := _find_units_row(dprefs_popup)
+	var d_units_sub := _submenu_at_index(dprefs_popup, d_units_idx)
+	if d_units_sub != null:
+		d_units_sub.id_pressed.emit(DccMenus.ID_PREF_UNITS_MI)
+	if dprefs_popup != null:
+		dprefs_popup.about_to_popup.emit()
+	_ok("Gate B1: PC's own Preferences Units suffix format is untouched",
+		dprefs_popup.get_item_text(d_units_idx) if (dprefs_popup != null and d_units_idx >= 0) else "<row not found>",
+		"Units" + DccMenus.PREF_VALUE_SEP + "Miles")
+	## **Final restore, after every mutation above.** The tablet-side restore
+	## a few lines up was not the last write: this Gate B1 press just set the
+	## shared `DccSettings` store to "mi" again on desktop's own popup. One
+	## more press, on whichever popup is at hand, leaves the real persisted
+	## `ConfigFile` at `orig_units` when this probe exits.
+	if d_units_sub != null:
+		match orig_units:
+			"km": d_units_sub.id_pressed.emit(DccMenus.ID_PREF_UNITS_KM)
+			"mi": d_units_sub.id_pressed.emit(DccMenus.ID_PREF_UNITS_MI)
+			"nmi": d_units_sub.id_pressed.emit(DccMenus.ID_PREF_UNITS_NMI)
+	_ok("units mode restored to its pre-probe value", DccSettings.units_mode(), orig_units)
 
 	print("")
 	print("-- reachable row totals, informational: a reflow moves rows, it does not erase them --")

@@ -61,6 +61,18 @@ var phone_project_picker: PhoneProjectPicker
 ## `DCC_SHELL_SPEC.md` §2.1. Empty until a project has been opened.
 var current_project_path := ""
 
+## Lane GATE part B, 2026-09-13. The exact sentence `_load_project()`'s own
+## failure branch already sends to `set_status("hint", …)` and
+## `_show_phone_toast()`, kept here too for a caller whose own screen has
+## neither -- `phone_project_picker.gd`'s full-screen `AcceptDialog` sits in
+## front of both (see that file's `_pick_world()` for why: an embedded
+## `Window` always composites over the ordinary canvas `_phone_root` toasts
+## live in, full-screen or not, so a phone toast fired while this dialog is
+## up is never seen). Reset to "" at the top of every `_load_project()` call,
+## set only on its refusal branch -- read right after `open_recent_project()`
+## returns `false`, never held across an unrelated later call.
+var last_open_refusal := ""
+
 var _workspaces: Array = []
 var _region_nodes: Dictionary = {}
 var _tool_options_stale: Label
@@ -2722,7 +2734,25 @@ func _restore_project_documents() -> PackedStringArray:
 ## `current_project_path` and updates the recent-projects list
 ## (`DCC_SHELL_SPEC.md` §2.1) so neither caller has to duplicate the
 ## bookkeeping.
-func _load_project(path: String) -> void:
+##
+## **Returns whether the open succeeded, since 2026-09-13 (Lane GATE part B).**
+## Every caller used to hide its own welcome/picker surface *before* calling
+## this -- unconditionally, on the assumption an open cannot fail in a way
+## worth waiting for. `bridge.load_save()` is synchronous (this function's own
+## `if` below already blocks on its result), so the assumption cost nothing
+## when it held and stranded the user in a bare, world-less main shell the
+## moment it did not: `project_open` and its `world_gen.load_save` fallback
+## both refuse a corrupt archive, this function's own `refusal` branch below
+## already said so (`set_status`/`_show_phone_toast`, unchanged by this fix),
+## and there was no longer a welcome screen left for that sentence to land on.
+## `open_recent_project()` below passes this straight through so every one of
+## its callers (`open_project_dialog.gd::_pick_path()`,
+## `phone_project_picker.gd::_pick_world()`, `menus.gd`'s recent-worlds items,
+## which never hid anything and are unaffected either way) can hide only once
+## they know which surface -- the loaded world, or the one they were already
+## showing -- the user should be looking at next.
+func _load_project(path: String) -> bool:
+	last_open_refusal = ""
 	if bridge.load_save(path):
 		current_project_path = path
 		DccSettings.remember_project(path)
@@ -2750,7 +2780,7 @@ func _load_project(path: String) -> void:
 			## not come back" is precisely the sentence a person must not have
 			## to go looking for.
 			_show_phone_toast(line, null, 5.0)
-		return
+		return true
 	## `GUI_GAP_REGISTER.md` **FI-04**. "see console" names somewhere the person
 	## running an exported build cannot look, and it was the *only* thing said
 	## about the commonest failure by far: `File ▸ Recent worlds` remembers a
@@ -2780,12 +2810,16 @@ func _load_project(path: String) -> void:
 		else ("could not open %s — the engine refused the save" % path.get_file())
 	set_status("hint", refusal, "accent")
 	_show_phone_toast(refusal, null, 5.0)
+	last_open_refusal = refusal
+	return false
 
 ## `Data ▸ Recent worlds` submenu entries all call this (`menus.gd`'s
 ## `_on_recent_world`) -- the exact same load path `open_project_picker()`'s
-## own callback uses, just without the file dialog in front of it.
-func open_recent_project(path: String) -> void:
-	_load_project(path)
+## own callback uses, just without the file dialog in front of it. Returns
+## `_load_project()`'s own success bool -- see that function's header for why
+## it has one now, since the picker/welcome-screen callers are the reason.
+func open_recent_project(path: String) -> bool:
+	return _load_project(path)
 
 # -- §2.1 Project lifecycle ----------------------------------------------------
 #

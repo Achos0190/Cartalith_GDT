@@ -111,11 +111,25 @@ class_name CommandIndex
 ## nine-shortcuts-to-one-window shape the owner's ruling flattened out of the
 ## menu. `menus.gd::_build_asset_pack_submenu()` carries the re-derived
 ## title-match measurement and the full per-command accounting.
+## **`Theme` added 2026-09-13, and it is a POINTER row, not a moved command.**
+## `Dark` / `Light` / `Follow system` never left the menu bar -- they are real
+## `PopupMenu` rows on every composition (`menus.gd::_build_theme_submenu()`)
+## and `_add_menu_commands()`'s own walk already indexes each of them by its
+## own name, `kind: "menu"`, with no help from this table. What the walk
+## cannot do is answer the word "theme" itself: `_walk_popup()` never indexes
+## a row that owns a submenu, only its leaves, so "Dark"/"Light"/"Follow
+## system" (their titles) and "☰"/"Preferences" (their group, `menu_name`)
+## carry no occurrence of the word a searcher is most likely to type. This row
+## exists only to answer THAT search, and only for tablet's own flat
+## `ID_TABLET_TOGGLE_THEME` row, `Toggle theme`, which is a real, separately-
+## indexed "menu" row on tablet already and needs no pointer of its own -- the
+## gap is the WORD, not the command.
 const EXTRAS: Array = [
 	{"title": "Zoom to fit", "blurb": "Frame the whole world in the viewport", "group": "View"},
 	{"title": "Point sample", "blurb": "Read elevation, biome and climate under one cell", "group": "View"},
 	{"title": "Journey planner", "blurb": "Plan a route: party, season, carriage, stages and cost. CIVIL rail ▸ Travel, or Shift+J", "group": "Civilization"},
 	{"title": "Refine detail for the current view", "blurb": "Re-render the visible tiles at full detail. WORLD tool options, beside Bake & finalize", "group": "World"},
+	{"title": "Theme", "blurb": "Dark, Light or Follow system. Preferences ▸ Theme -- ☰ ▸ Preferences ▸ Theme on tablet, which also has a one-tap dark/light flip at ☰ ▸ Toggle theme", "group": "Preferences"},
 ]
 
 var _rows: Array = []

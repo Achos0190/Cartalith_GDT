@@ -102,6 +102,10 @@ var _host: DccApp
 var _list: VBoxContainer
 var _phone := false
 
+## Lane GATE part B, 2026-09-13 -- see `_show_error()`/`_pick_world()` below.
+var _error_wrap: PanelContainer
+var _error_label: Label
+
 func setup(host: DccApp) -> void:
 	_host = host
 	## Explicit rather than the engine's default class-derived name, so a
@@ -129,6 +133,7 @@ func open() -> void:
 	## caller forever.
 	if _host == null or not _host.is_phone():
 		return
+	_clear_error()
 	_refresh()
 	if not DccWidgets.phone_present(self, _host):
 		popup_centered()
@@ -148,6 +153,57 @@ func _build() -> void:
 	## rather than a fifth hand-rolled header.
 	DccWidgets.phone_head(outer, "Cartalith",
 		"worlds on this device · %s" % _short_root())
+
+	## Lane GATE part B, 2026-09-13. **Why this cannot be the shell's own
+	## phone toast.** This screen is an `AcceptDialog` -- a `Window` -- and an
+	## embedded `Window` always composites above the ordinary canvas its host
+	## viewport draws, full-screen or not; `_show_phone_toast()`
+	## (`dcc_shell.gd`) adds its pill to `_phone_root`, a plain `Control` in
+	## that ordinary canvas, so a toast fired while this dialog is showing is
+	## drawn and immediately covered by this very window -- observed on
+	## device 2026-09-07, filed as the phone leg of `GUI_GAP_REGISTER.md`'s
+	## silent-refusal row. Re-parenting the toast onto this dialog would fix
+	## it too, but that helper and its `_phone_root` are `dcc_shell.gd`'s, a
+	## file this lane does not own -- reported instead, not built.
+	##
+	## Built here rather than derived from a canvas drawing, because neither
+	## `Cartalith Android.dc.html` nor `Cartalith DCC Environment.dc.html`
+	## (`design/mcp-2026-09-07/`) draws an error or empty state on this
+	## screen: `scrPicker`'s own `hOpenZip` handler calls the mock's
+	## `toast()`, but that mock's `{{ toasts }}` render block sits only
+	## inside `scrApp`'s markup (line 169), never inside `scrPicker`'s (lines
+	## 34-61) -- wired in the handler, undrawn on this particular screen, in
+	## the canvas itself. Styled instead from the canvas's own vocabulary for
+	## an inline, non-toast note: `scrGenerate`'s `staleNote` box (line 269,
+	## `padding:11px 14px;border:1px solid rgba(224,168,64,.4);border-radius:
+	## 14px;color:var(--warn)`) -- `DccTheme`'s `"warn"` role is the same
+	## colour on both themes (`#e0a840` dark / `#9a6a12` light, matching
+	## `--warn` exactly), so `outline("warn", …)` reproduces that box exactly
+	## rather than approximating it.
+	##
+	## Placed as a fixed sibling of the header, above the `ScrollContainer`,
+	## deliberately not inside the scrolling `_list`: a node scrolled out of
+	## view still counts as "in the tree", but its drawn rect would no longer
+	## sit inside the window's visible rect, which is exactly the assertion
+	## a refused open has to satisfy. Hidden until `_show_error()` below
+	## has something to say.
+	var epad := DccWidgets.pad(outer, 14, 12, 14, 0)
+	_error_wrap = PanelContainer.new()
+	_error_wrap.visible = false
+	var eb := DccTheme.outline("warn")
+	eb.set_corner_radius_all(14)
+	eb.content_margin_left = 14
+	eb.content_margin_right = 14
+	eb.content_margin_top = 11
+	eb.content_margin_bottom = 11
+	_error_wrap.add_theme_stylebox_override("panel", eb)
+	epad.add_child(_error_wrap)
+	## `mono_label`, not `label` -- the `staleNote` box this is copied from
+	## sets `font:10px/1.6 'IBM Plex Mono',monospace`, the same family every
+	## other read-out on this screen already uses (`DccTheme.FS_TINY` is 10).
+	_error_label = DccTheme.mono_label("", "warn", DccTheme.FS_TINY)
+	_error_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_error_wrap.add_child(_error_label)
 
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -303,9 +359,42 @@ func _build_world_row(path: String) -> Control:
 			_pick_world(path))
 	return wrap
 
+## Lane GATE, 2026-09-13 -- **hides only on success.** Was `hide()` first, then
+## `open_recent_project(path)` -- so a corrupt or unreadable archive still
+## refused (`app.gd::_load_project()`'s own `refusal` branch, unchanged by this
+## fix) but this screen was already gone by then, landing the user in a bare,
+## world-less main shell with the failure's `set_status("hint", ...)` hidden in
+## the phone's own `More` list and only its `_show_phone_toast()` fading past
+## in the background -- observed on device 2026-09-07. `open_recent_project()`
+## is synchronous, so checking its return here rather than hiding beforehand
+## changes nothing about a *successful* open's sequence, only a failed one's.
+## The one function both this screen's routes to a chosen path share -- the
+## recent-world tap below and `_on_open_zip()`'s browse callback -- so neither
+## can drift back to the unguarded order the other still had.
 func _pick_world(path: String) -> void:
-	hide()
-	_host.open_recent_project(path)
+	if _host.open_recent_project(path):
+		hide()
+	else:
+		## `app.gd::_load_project()`'s own refusal branch already sent this
+		## exact sentence to `set_status("hint", …)` and `_show_phone_toast()`
+		## -- neither reaches the user here, see `_error_wrap`'s own comment
+		## in `_build()` above for why. `last_open_refusal` is the same
+		## string, read straight off `_host` rather than recomputed, so this
+		## screen cannot say something different from what the desktop status
+		## bar would have said for the identical refusal.
+		_show_error(_host.last_open_refusal)
+
+## Paired with `_clear_error()`. Populates and reveals the inline warning box
+## `_build()` constructs above the world list; `_error_label.text = ""` when
+## hidden so a probe reading the node's text cannot mistake a stale string
+## for a current one.
+func _show_error(text: String) -> void:
+	_error_label.text = text
+	_error_wrap.visible = true
+
+func _clear_error() -> void:
+	_error_wrap.visible = false
+	_error_label.text = ""
 
 # ---------------------------------------------------------------------------
 # Actions
@@ -326,19 +415,19 @@ func _on_new_world() -> void:
 	_host.open_new_world()
 
 ## Deliberately does NOT hide first -- mirrors `open_project_dialog.gd
-## ::_browse_from_disk()` exactly, whose own callback hides only once a path
-## is actually chosen. `DccBrowseDialog` phone-presents itself as its own
-## full-screen window on top of this one; cancelling it should return to this
-## picker, not to the empty map behind it.
+## ::_browse_from_disk()` exactly, whose own callback also waits for a chosen
+## path. `DccBrowseDialog` phone-presents itself as its own full-screen window
+## on top of this one; cancelling it should return to this picker, not to the
+## empty map behind it. Once a path IS chosen this routes through `_pick_world()`
+## rather than repeating its guard -- see that function's own comment for why
+## the guard (hide only on success) exists at all.
 func _on_open_zip() -> void:
 	## `OpenProjectDialog.PROJECT_EXTENSIONS` -- one list, so the phone and the
 	## desktop cannot drift on which extensions open.
 	DccBrowseDialog.choose_file(_host, "Open project — browse",
 		PackedStringArray(OpenProjectDialog.PROJECT_EXTENSIONS),
 		DccSettings.storage_root("projects"),
-		"Cartalith projects are .ctl saves (.zip still opens)", func(path: String):
-			hide()
-			_host.open_recent_project(path))
+		"Cartalith projects are .ctl saves (.zip still opens)", _pick_world)
 
 # ---------------------------------------------------------------------------
 # Helpers
