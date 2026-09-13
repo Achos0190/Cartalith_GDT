@@ -2802,7 +2802,32 @@ func _build_tile_export_pane() -> void:
 	## phone -- `COL_GAP` apart, both `EXPAND_FILL`, they would each get half of
 	## 393 dp and every `120px label · control` row inside them would overlap
 	## rather than clip.
-	var grid: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
+	##
+	## **Extended to tablet touch density, 2026-09-13** (`OUTSTANDING_WORK.md`
+	## / `TABLET_UI_SPEC.md`, re-opened after the PANE-MIN lane filed it
+	## 2026-09-07 as pre-existing and out of that lane's footer-only scope).
+	## PH-12's own reasoning is about CONTROL size, not about being a phone:
+	## side by side, `left`'s PROJECTION row alone (the CRS three-segment
+	## control) demands 359 px of touch-sized buttons, and the two columns
+	## together drove this pane's body to **887 px against 698 at pointer
+	## density** -- `_panemin_probe.tscn --route export_maps --verbose
+	## --force-touch --vp 1600x1000`, contents_min 1176 against a declared
+	## min_size.x of 1024, the single failure in that probe's tablet run.
+	## `_phone` alone missed it because a tablet is touch without being a
+	## phone (`DccTheme.is_tablet()`'s own header: "a phone is `is_touch()`
+	## too"; the same fact in reverse -- `is_touch()` is not `is_phone()`
+	## either). Stacking trades the unscrollable WIDTH failure for ordinary
+	## extra height, which `_build_pane()`'s own `ScrollContainer` already
+	## exists to absorb (vertical scroll is enabled; only the horizontal axis
+	## is `SCROLL_MODE_DISABLED`, DS-03's "keep everything, reflow only" doing
+	## the rest). Pointer and phone are unchanged BY CONSTRUCTION, not just by
+	## measurement: pointer has `_phone=false` and `is_touch()=false`, so the
+	## `or` is false either way (HBox, as before); phone already had
+	## `_phone=true`, so the `or` was already true (VBox, as before). Only
+	## tablet (`_phone=false`, `is_touch()=true`) changes outcome -- the one
+	## density this condition had no term for.
+	var grid: BoxContainer = VBoxContainer.new() if (_phone or DccTheme.is_touch()) \
+		else HBoxContainer.new()
 	grid.add_theme_constant_override("separation", COL_GAP)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_pane_body.add_child(grid)

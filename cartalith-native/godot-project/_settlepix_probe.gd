@@ -30,6 +30,36 @@ const GH := 64
 const PX_PER_CELL := 6.0
 const SAMPLE_R := 10
 
+## PART B's actual pass/fail source, added 2026-09-13 after the wf53 verifier
+## found the probe honest about nothing: Godot's "Invalid polygon data,
+## triangulation failed" is an engine `ERR_PRINT` that only ever reached this
+## PROCESS's stderr, so the PART_B_BEGIN/PART_B_END markers below were a
+## request for an EXTERNAL grep, and every `_ok()` in this file was blind to
+## it -- reverting the parcel-fill fix (`urban_layout_draw.gd::_fill_ground_polygon`)
+## left the probe printing ALL PASS while the bug it exists to catch fired 42
+## times.
+##
+## `OS.add_logger()` takes any `Logger`-derived instance and calls its
+## `_log_error()` for every engine error, synchronously, in this same process
+## -- confirmed empirically (not assumed): a throwaway scene drawing the exact
+## sub-pixel-at-a-large-offset quad `urban_layout_draw.gd`'s own comment
+## describes hit this hook with `rationale="Invalid polygon data, triangulation
+## failed."` on a bare `draw_colored_polygon`, and did NOT on the guarded
+## `_fill_ground_polygon` path -- so this discriminates the fix's presence,
+## unlike calling `Geometry2D.triangulate_polygon` independently in this file
+## (which would find the same underlying-fragile polygons whether or not the
+## code routes around them, since the fix changes which draw call runs, not
+## whether that polygon triangulates).
+class TriLogger extends Logger:
+	var count := 0
+	var last_rationale := ""
+	func _log_error(_function: String, _file: String, _line: int, code: String,
+			rationale: String, _editor_notify: bool, _error_type: int,
+			_script_backtraces: Array) -> void:
+		if rationale.to_lower().contains("triangulation failed"):
+			count += 1
+			last_rationale = "%s (%s)" % [rationale, code]
+
 var _gen: WorldGen
 var _overlay: Control
 var _target_idx := -1
@@ -197,13 +227,22 @@ func _ready() -> void:
 	## not because their own gate needs it.
 	##
 	## Godot logs "Invalid polygon data, triangulation failed" to this
-	## PROCESS's stderr and skips the draw -- nothing inside a script can
-	## intercept the engine's own logger, so the count is read by whoever
-	## invokes this probe, from its captured stderr. `PART_B_BEGIN`/
-	## `PART_B_END` bound exactly the lines to grep between, so a failure from
-	## any earlier phase of this same file (there should be none -- the block
-	## fix already covers z12) cannot be miscounted as this one's.
+	## PROCESS's stderr and skips the draw. **Corrected 2026-09-13**: the prior
+	## comment here claimed "nothing inside a script can intercept the
+	## engine's own logger" and left counting it to whoever invokes this probe
+	## from captured stderr -- which nothing in this file ever did, so
+	## reverting the fix left every `_ok()` below unaffected and the probe
+	## printed ALL PASS anyway (wf53). `OS.add_logger(TriLogger)` (defined
+	## above) DOES intercept it, in this same process, confirmed empirically
+	## against both a bare `draw_colored_polygon` on a known-bad polygon (hook
+	## fires) and the guarded `_fill_ground_polygon` path on the same polygon
+	## (hook does not) -- so `tri_logger.count` below is a real assertion, not
+	## a marker for a human. `PART_B_BEGIN`/`PART_B_END` are kept for a human
+	## reading the full log, but are no longer what makes this phase's result
+	## count.
 	print("SETTLEPIX PART_B_BEGIN")
+	var tri_logger := TriLogger.new()
+	OS.add_logger(tri_logger)
 	_overlay.set_camera_zoom(64.0)
 	## Computed from THIS probe's own SIZE_KM/size.x, not asserted against
 	## itself: a different map area or width gets a different box_px at the
@@ -218,6 +257,11 @@ func _ready() -> void:
 		await _settle()
 	var img_z64 := get_viewport().get_texture().get_image()
 	img_z64.save_png("res://_settlepix_z64.png")
+	OS.remove_logger(tri_logger)
+	print("SETTLEPIX PART_B triangulation-failure count (in-process, Logger hook): %d  last=%s" % [
+		tri_logger.count, tri_logger.last_rationale])
+	_ok(tri_logger.count == 0,
+		"PART_B: 0 'triangulation failed' errors across 3 z64 redraws (in-process, not stderr)")
 	print("SETTLEPIX PART_B_END")
 
 	## B1: are the RAW (model-space, pre-transform) parcel polygons

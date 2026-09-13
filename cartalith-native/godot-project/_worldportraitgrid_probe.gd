@@ -37,6 +37,26 @@ func _ok(name: String, got, want) -> void:
 		_fail += 1
 	print("  ", "ok  " if good else "FAIL", " ", name, "   got=", got, " want=", want)
 
+## `OUTSTANDING_WORK.md` "TABLET PORTRAIT: five Planet sliders..." row's own
+## disclosed, still-open residue: Climate's *Lapse rate* readout `6.5°C/km`
+## (63px, never clipped -- it's a number) beside the 132px label floor reads
+## 244 in EVERY portrait leg (800x1280, 900x1440, and a generated world), 12px
+## over the 232 role. Folding it into the generic "within 232 +-1" check made
+## this probe's own portrait baseline 2 (then 3, with `--with-world`) silent
+## FAILs a real regression could hide behind (wf53). Pinned as a NAMED literal
+## instead: baseline is 0, and per MISTAKES.md's "write a test that pins a
+## constant" rule, a DIFFERENT number -- worse OR better -- still goes red,
+## which is deliberate: closing 244 needs a shorter unit string from
+## `params.rs` or a narrower portrait label floor, not a silent probe pass.
+const CLIMATE_KNOWN_RESIDUE_PX := 244.0
+
+func _assert_dock_width(tag: String, title: String, dock_w: float) -> void:
+	if title == "Climate":
+		_ok("%s Climate dock_w == %.0f (KNOWN residue, OUTSTANDING_WORK.md Lapse-rate unit string)" % [
+			tag, CLIMATE_KNOWN_RESIDUE_PX], dock_w, CLIMATE_KNOWN_RESIDUE_PX)
+	else:
+		_ok("%s %s dock_w within 232 +-1" % [tag, title], absf(dock_w - 232.0) <= 1.0, true)
+
 func _boot_vp(w: int, h: int) -> Dictionary:
 	var vp := SubViewport.new()
 	vp.size = Vector2i(w, h)
@@ -202,6 +222,31 @@ func _run_sweep_frame(tag: String, w: int, h: int) -> Array:
 	await _frames(2)
 	return rows
 
+## Lane PROBES, 2026-09-13, closing the probe-honesty gap `OUTSTANDING_WORK.md`
+## ("Discipline debts") named: this file's rotate leg asserted dock width and
+## the mounted slider shape but never the one thing `_on_portrait_changed()`
+## added on 2026-09-13 for the SAME bug class -- the GENERATE stage-name
+## labels' own `clip_text`/`text_overrun_behavior` re-derivation
+## (`world_workspace.gd:1711-1717`). Confirmed by mutation: commenting out
+## that loop left every existing rotate assertion below green. Read via
+## `panel.get("_stage_name_labels")`, the same private-array pattern this file
+## already uses for `_slider_reflow_entries` -- not a new access technique.
+func _assert_stage_clip(tag: String, panel: Control) -> void:
+	var want_compact := DccTheme.is_tablet_portrait()
+	var want_overrun := TextServer.OVERRUN_TRIM_ELLIPSIS if want_compact \
+		else TextServer.OVERRUN_NO_TRIMMING
+	var labels: Array = panel.get("_stage_name_labels")
+	_ok("%s stage-name labels array non-empty" % tag, labels.size() > 0, true)
+	var mismatched := 0
+	for nl in labels:
+		var lbl := nl as Label
+		if lbl == null:
+			continue
+		if lbl.clip_text != want_compact or lbl.text_overrun_behavior != want_overrun:
+			mismatched += 1
+	_ok("%s stage-name labels re-clipped (%d checked, want compact=%s)" % [
+		tag, labels.size(), want_compact], mismatched, 0)
+
 ## `--rotate`: one instance, real window (not a SubViewport) -- `DccShell`'s
 ## resize handling listens on `get_tree().root.size_changed`
 ## (`dcc_shell.gd::_ready()`), which only fires from the actual OS/root
@@ -283,6 +328,7 @@ func _run_rotate(boot_landscape: bool) -> void:
 		_ok("%s dock_w within 232 +-1" % tag1, absf(ld.size.x - 232.0) <= 1.0, true)
 	_ok("%s Continentality mounted shape" % tag1, continentality.get("mounted", "?"),
 		"compact" if not boot_landscape else "wide")
+	_assert_stage_clip(tag1, panel)
 
 	get_window().size = Vector2i(800, 1280) if boot_landscape else Vector2i(1280, 800)
 	await _frames(12)
@@ -296,6 +342,7 @@ func _run_rotate(boot_landscape: bool) -> void:
 		_ok("%s dock_w == 400 (W_DOCK_TABLET, unmoved by this lane)" % tag2, ld.size.x, 400.0)
 	_ok("%s Continentality mounted shape" % tag2, continentality.get("mounted", "?"),
 		"compact" if boot_landscape else "wide")
+	_assert_stage_clip(tag2, panel)
 
 	get_window().size = Vector2i(1280, 800) if boot_landscape else Vector2i(800, 1280)
 	await _frames(12)
@@ -309,6 +356,7 @@ func _run_rotate(boot_landscape: bool) -> void:
 		_ok("%s dock_w within 232 +-1" % tag3, absf(ld.size.x - 232.0) <= 1.0, true)
 	_ok("%s Continentality mounted shape" % tag3, continentality.get("mounted", "?"),
 		"compact" if not boot_landscape else "wide")
+	_assert_stage_clip(tag3, panel)
 
 	app.queue_free()
 	await _frames(2)
@@ -367,8 +415,7 @@ func _ready() -> void:
 		for r in wrows:
 			_ok("world-generated %s body non-empty" % String(r["title"]),
 				float((r["worst_row"] as Dictionary)["w"]) > 0.0, true)
-			_ok("world-generated %s dock_w within 232 +-1" % String(r["title"]),
-				absf(float(r["dock_w"]) - 232.0) <= 1.0, true)
+			_assert_dock_width("world-generated", String(r["title"]), float(r["dock_w"]))
 		print("\n_worldportraitgrid_probe (with-world): ", _fail, " FAILURE(S)")
 		get_tree().quit(1 if _fail > 0 else 0)
 		return
@@ -386,13 +433,11 @@ func _ready() -> void:
 		for r in port_800:
 			_ok("800x1280 %s body non-empty" % String(r["title"]),
 				float((r["worst_row"] as Dictionary)["w"]) > 0.0, true)
-			_ok("800x1280 %s dock_w within 232 +-1" % String(r["title"]),
-				absf(float(r["dock_w"]) - 232.0) <= 1.0, true)
+			_assert_dock_width("800x1280", String(r["title"]), float(r["dock_w"]))
 		for r in port_900:
 			_ok("900x1440 %s body non-empty" % String(r["title"]),
 				float((r["worst_row"] as Dictionary)["w"]) > 0.0, true)
-			_ok("900x1440 %s dock_w within 232 +-1" % String(r["title"]),
-				absf(float(r["dock_w"]) - 232.0) <= 1.0, true)
+			_assert_dock_width("900x1440", String(r["title"]), float(r["dock_w"]))
 		for r in tland:
 			_ok("1280x800(landscape) %s body non-empty" % String(r["title"]),
 				float((r["worst_row"] as Dictionary)["w"]) > 0.0, true)

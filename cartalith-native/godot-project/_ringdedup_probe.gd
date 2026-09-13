@@ -46,6 +46,25 @@ extends Node
 ## capture blocks forever -- the run is stopped, not slow (`MISTAKES.md`,
 ## reproduced twice). The guard below refuses to start rather than hang.
 ##
+## ## This key is only pinned in ONE direction, and that is not this probe's
+## fault
+##
+## `_ringed_cells()` and `_icon_shadowed_by_ring()` both now call the one
+## shared `_mark_cell()` (`map_overlay.gd`), but only the ICON side's own
+## fixture (`_icons()`, below) ever carries a sub-cell value -- every
+## `_landmarks()` row is an integer `Vector2i`. Re-verified 2026-09-13: reverting
+## `_ringed_cells()`'s call back to its pre-fix inline
+## `Vector2i(int(lm.x), int(lm.y))` -- the exact mirror of the ICON-side
+## mutation this probe DOES catch -- leaves every check here green (13/13
+## PASS, byte-identical output). That is not a hole in this file: `Landmark::x`/
+## `y` are `usize` (`cartalith-civ/src/landmark.rs`), so a real landmark
+## dictionary can never carry the sub-cell coordinate this probe would need
+## to tell `floori` apart from a truncating cast, and `roundi` too, since all
+## three agree on any exact integer. Adding a fractional row to `_landmarks()`
+## would fake a state the type forbids, not test one that exists. **Close this
+## when a landmark can hold a sub-cell coordinate** (a `cartalith-civ` type
+## change), not by inventing the fixture here.
+##
 ## ## Why the fixture is synthetic, and why that is faithful
 ##
 ## `map_overlay.gd` holds no `EngineBridge`: `ViewportHost.refresh_annotations()`

@@ -1441,6 +1441,21 @@ static var _portrait_watchers: Array[Callable] = []
 ## gate in `header()` below. Pruned lazily, same reasoning as
 ## `_portrait_watchers`: a freed panel from a project re-open leaves a dead
 ## reference here with no matching unregister call.
+##
+## **Registered only on tablet, added 2026-09-13** (`OUTSTANDING_WORK.md`,
+## found by the wf53 verifier: 104 entries at a desktop boot, 1 054 after 150
+## domain switches and 50 right-dock rebuilds, 951 of them already-freed dead
+## weight). Lazy pruning assumed a rotation would eventually walk this array;
+## on desktop one never comes, because `is_tablet_portrait()` is
+## `is_tablet() and _portrait` and `is_tablet()` is decided once at boot and
+## never revisited (`dcc_shell.gd::_ready()`: "a device's own form factor is
+## not something that changes at runtime"). A label built while `is_tablet()`
+## is false can therefore never have its elide state change after `header()`'s
+## own initial `_apply_elide()` call below -- there is no live event left that
+## could ever flip it for that label -- so appending it here bought nothing
+## but growth. `header()` now appends `if is_tablet()`, exactly the population
+## `set_portrait()` can ever need to revisit; tablet's own churn is unchanged,
+## still pruned on the next rotation. See `_elidechurn_probe.gd`.
 static var _elide_labels: Array[Label] = []
 
 ## The one place both `header()`'s initial build and `set_portrait()`'s live
@@ -1875,7 +1890,12 @@ static func header(text: String, sigil: String = "§", elide: bool = false) -> L
 		"text_faint", size, 2, true)
 	l.set_meta(ROLE_META, "fs_dock_header")
 	if elide:
-		_elide_labels.append(l)
+		## Tablet only -- see `_elide_labels`'s own doc. `_apply_elide()` still
+		## runs unconditionally right below, so a desktop or phone label's
+		## drawn clip state is byte-identical to before this guard existed;
+		## only the bookkeeping array's membership differs.
+		if is_tablet():
+			_elide_labels.append(l)
 		_apply_elide(l)
 	return l
 
