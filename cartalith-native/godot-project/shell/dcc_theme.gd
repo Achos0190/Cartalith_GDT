@@ -653,9 +653,23 @@ const TABLET := {
 		## see the header above.
 	70: 88,   ## Timeline. No prototype counterpart -- see `H_TIMELINE`.
 }
-## Tablet dock width. `--ldW:400px;--rdW:400px` (`ENV:1819`) -- the desktop
-## 372/304 pair still converges rather than scaling, exactly as the old canvas
-## had it, so this constant survives the re-base unchanged.
+## Tablet dock width, **landscape only** -- portrait is `TABLET_PORTRAIT`'s own
+## 232, consulted first by `role_px()` and never this constant.
+##
+## **Still 400, not the canvas's 320 -- deferred, not undecided.**
+## `--ldW:400px;--rdW:400px` is `ENV:1819`'s old-canvas figure;
+## `Cartalith Tablet.dc.html`'s own `valsShell()` landscape branch states
+## `--ldW:320px;--rdW:320px`, and the owner ruled canvas adoption 2026-09-07
+## ("tablet still is the pc layout instead of the design I gave"). A same-day
+## change moved this constant to 320 and was **reverted**: at that width 8 of
+## 10 rail nodes' dock content still drew 331-382 px (measured 2026-09-12,
+## `_ds03fit_probe.gd --force-touch` at 2560x1600) because the content
+## itself has not reflowed to the narrower budget, so the dock silently forced
+## itself back open past the declared 320 -- a declared width is not the drawn
+## rect. This constant moves to 320 in the same change that reflows that
+## content, not before -- see `ROLE`'s `w_left_dock`/`w_right_dock` rows below,
+## which are the live path `role_px()` actually resolves, and whose own header
+## says "if one moves the other must move with it".
 const W_DOCK_TABLET := 400
 
 # ── The fourth density: LAPTOP 1366 ──────────────────────────────────────────
@@ -722,14 +736,24 @@ const LAPTOP := {
 #
 #   dens = port ? '--ldW:232px;--rdW:232px;...' : '--ldW:320px;--rdW:320px;...'
 #
-# **Only the portrait half is taken, and that is a decision rather than an
-# oversight.** The landscape half would move a surface that measures correct
-# today, and `TABLET_UI_SPEC.md` §4.3 names the dock split "the only item that
-# buys a defect fix rather than a resemblance" -- the rest of that spec, this
-# 320 included, waits on an owner decision that has not been made. Landscape
-# therefore keeps `ROLE`'s shipped 400/400 (= `W_DOCK_TABLET`). When the owner
-# rules on canvas adoption, the landscape figure moves in `ROLE` and this table
-# does not change at all.
+# **Only the portrait half lives in this table, and that was a decision rather
+# than an oversight -- not "landscape stays 400 forever".** When this table was
+# written the landscape half would have moved a surface that measured correct
+# that day, and `TABLET_UI_SPEC.md` §4.3 named the dock split "the only item
+# that buys a defect fix rather than a resemblance" while the rest of that spec
+# waited on an owner decision. **That decision was given 2026-09-07** -- on
+# glass, "tablet still is the pc layout instead of the design I gave", with the
+# standing rule "All designs layouts and styles should match 100%" -- and a
+# same-day change carried it out the way this paragraph already said it
+# would: the landscape figure moved in `ROLE` below (400 -> 320), and this
+# table did not change at all. **That move was reverted 2026-09-13**: 8 of 10
+# rail nodes' dock content still drew 331-382 px at 320 (measured with
+# `_ds03fit_probe.gd --force-touch` at 2560x1600, 2026-09-12), because the
+# content had not reflowed to the narrower budget -- a declared 320 is not a
+# drawn 320.
+# Landscape tablet is therefore still 400/400, by the same `ROLE`-column route
+# pointer/laptop already use, and moves to 320 (not a new override layer, just
+# this same route) once that content reflows.
 #
 # **Shape: an override layer, not a third `ROLE` column.** `ROLE`'s own header
 # (below) says a 232/320 pair "could not be expressed as a `ROLE` row even if it
@@ -863,9 +887,20 @@ const TABLET_PORTRAIT := {
 #      LIGHT`; a tablet palette that `c()` returned but that call did not know
 #      about would leave every repainted node reading the desktop values.
 #   3. The horizontal `--railH:56` rail is **layout**, not tokens, and is still
-#      unbuilt. **The dock half of this item is fixed as of 2026-09-07** and the
-#      paragraph that stood here is corrected rather than deleted, because its
-#      conclusion was right and its premise has moved. It read: "`DccTheme`
+#      unbuilt. **The dock half of this item has been fixed since `c842615`
+#      (2026-09-07)** -- portrait reads 232/232 today exactly as that commit
+#      shipped it, unmoved by anything below. (A rewrite of this paragraph
+#      briefly dated that fix to a "2026-09-08 pass" and called the dock half
+#      unfixed; there was no such pass -- `c842615` is dated 2026-09-07, and
+#      nothing has undone the portrait split it shipped. That rewrite was
+#      conflating it with the separate LANDSCAPE half, `W_DOCK_TABLET`, which
+#      is the one still open: ruled the same day, attempted 2026-09-12 and
+#      reverted 2026-09-13 for unreflowed dock content, still 400 today --
+#      tracked at `W_DOCK_TABLET`'s own header and `ROLE`'s
+#      `w_left_dock`/`w_right_dock` rows above.) The paragraph that used to
+#      stand here is corrected rather than deleted for a different, narrower
+#      reason -- its conclusion about the orientation *predicate* was right
+#      and its premise has moved. It read: "`DccTheme`
 #      itself has no orientation predicate at all -- `is_touch()`,
 #      `is_tablet()` and `is_phone()` are the whole vocabulary here -- so a
 #      232/320 pair could not be expressed as a `ROLE` row even if it were
@@ -1049,7 +1084,19 @@ const ROLE := {
 	#   `W_DOCK_TABLET` on purpose, the same way the region-box rows restate
 	#   `TABLET`: those constants answer a caller that has only a number, this
 	#   answers one that knows which dock it is building and can therefore also
-	#   pick up the `LAPTOP` override. If one moves the other must move with it.
+	#   pick up the `LAPTOP`/`TABLET_PORTRAIT` overrides. If one moves the
+	#   other must move with it -- `W_DOCK_TABLET` moves with the tablet
+	#   column here, whichever way it goes.
+	#
+	#   **Tablet column stays 400, landscape only** -- portrait never reaches
+	#   this row at all, `TABLET_PORTRAIT` answers first. The owner ruled
+	#   canvas adoption 2026-09-07 (320 landscape, `TABLET_PORTRAIT`'s own
+	#   header above), but a same-day move to 320 was reverted 2026-09-13:
+	#   8 of 10 rail nodes' dock content still drew 331-382 px at that width
+	#   (measured with `_ds03fit_probe.gd --force-touch` at 2560x1600,
+	#   2026-09-12) because the content itself has not reflowed to the
+	#   narrower budget. Moves to 320
+	#   in the same change that reflows that content.
 	"w_left_dock": [372, 400],
 	"w_right_dock": [304, 400],
 	## `--railExpW`, 200 -> **264**. BUILD_ANSWERS §2.4 records this as one of

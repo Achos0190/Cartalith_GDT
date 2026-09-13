@@ -4,6 +4,18 @@ extends Node
 ## it flatly: *"Tablet keeps full desktop parity — same regions, same menus,
 ## same disclosure depth, targets 44–52 px, docks 400 px."*
 ##
+## **"Same menus" is RE-SPECIFIED here 2026-09-13, not restated.** The owner
+## ruled canvas adoption 2026-09-07 ("tablet still is the pc layout instead of
+## the design I gave"; "All designs layouts and styles should match 100%"),
+## and `Cartalith Tablet.dc.html` / `TABLET_UI_SPEC.md` §2.1 draw exactly four
+## top-level tablet menus -- the overflow square, then File, World, Data --
+## not the shipped seven. `CLAUDE.md`'s "the newer canvas wins" makes that
+## canvas the authority over §13's older top-level wording. What §13 actually
+## protects -- no command lost, i.e. disclosure depth -- is unchanged and is
+## what SS13 below asserts directly against `CommandIndex`
+## (`LARGE_ITEM_RULINGS.md` DS-03, "keep everything, reflow only"), rather than
+## an exact title-list match that a deliberate reflow would always fail.
+##
 ##   Godot_v4.7.1 --path . --resolution 1600x900 _tabletparity_probe.tscn -- --force-touch
 ##
 ## This measures that claim rather than restating it, against §1's own tablet
@@ -111,6 +123,72 @@ func _menu_row_total(app: Node) -> int:
 			pm.about_to_popup.emit()
 			total += _popup_rows(pm)
 	return total
+
+## Every menu-sourced COMMAND title `CommandIndex` finds on `app`, as a
+## MULTISET (title -> occurrence COUNT) -- reusing `command_index.gd`'s own
+## build (`_ensure_command_index()`, grepped at its symbol first) rather than
+## re-walking popups a second way, so this probe cannot disagree with what
+## the shipped app itself indexes.
+##
+## **Counted, not a membership `true` -- found 2026-09-13.** A title is not
+## unique: Help's "Keyboard shortcuts…" (`ID_HELP_SHORTCUTS`, 72) and
+## Preferences' own "Keyboard shortcuts…" (`ID_PREF_SHORTCUTS`, 605) are two
+## real, differently-numbered commands that happen to share a title. A membership
+## dict collapses them to one key, so a mutant dropping id 72 alone left
+## "Keyboard shortcuts…" still present (Preferences' copy) and the parity
+## check below PASSED -- it never noticed a row went missing. Counting
+## occurrences instead makes desktop's side 2 and a 72-dropped tablet's side
+## 1, which the comparison below now catches as a real shortfall.
+##
+## `kind` filters to **"menu" only, not "readout" too** -- found empirically,
+## not assumed: a first version of this filter included "readout" and failed
+## on "Working set 386 MB of 31.2 GB" being absent from the other boot's set,
+## because that is a *live value* baked into the title by design
+## (`command_index.gd`'s own header: "the row IS the result") and the two
+## compositions are two separate `EngineBridge` instances measured at two
+## different moments, so of course the number differs. That is not a menu
+## reachability defect and this probe has no business asserting it is one.
+## Generation parameters and `EXTRAS` are excluded the same way `kind !=
+## "menu"` already excludes readouts: they do not depend on the menu bar at
+## all and would match trivially on both compositions either way.
+func _command_titles(app: Node) -> Dictionary:
+	var idx = app.call("_ensure_command_index")
+	var out := {}
+	for row in idx.all():
+		if String(row.get("kind", "")) == "menu":
+			var t := String(row.get("title", ""))
+			out[t] = int(out.get(t, 0)) + 1
+	return out
+
+## Every accelerator reachable off `app`'s menu bar, recursing into submenus
+## the same way `ShortcutsDialog._collect_from_menus()` does (grepped, not
+## assumed) -- keyed by accelerator code, valued with every "Menu > row" that
+## carries it. A code with more than one entry is a real double-binding:
+## Godot's `PopupMenu` does not itself refuse two rows the same accelerator,
+## the input system just picks one and the other's shortcut silently does
+## nothing.
+func _accelerators(app: Node) -> Dictionary:
+	var out := {}
+	var bar := _find_menu_bar(app)
+	if bar == null:
+		return out
+	for c in bar.get_children(true):
+		if c is MenuButton:
+			_walk_accel((c as MenuButton).get_popup(), String((c as MenuButton).text), out)
+	return out
+
+func _walk_accel(popup: PopupMenu, menu_name: String, out: Dictionary) -> void:
+	for i in popup.item_count:
+		var accel: int = popup.get_item_accelerator(i)
+		if accel != 0:
+			if not out.has(accel):
+				out[accel] = []
+			(out[accel] as Array).append("%s > %s" % [menu_name, popup.get_item_text(i)])
+		var sub := popup.get_item_submenu(i)
+		if sub != "":
+			var node := popup.get_node_or_null(NodePath(sub))
+			if node is PopupMenu:
+				_walk_accel(node as PopupMenu, menu_name, out)
 
 ## `text`/`path` are diagnostic, not decorative -- `@Button@1240` alone gives no
 ## way to tell a live shell violation from a dead popup template, and finding
@@ -314,12 +392,99 @@ func _ready() -> void:
 	print("  info desktop menu rows (submenus included): ", d_rows)
 
 	print("")
-	print("=== SS13 PARITY: same menus, same disclosure depth ===")
-	_ok("the same menus in the same order",
-		",".join(PackedStringArray(t_titles)), ",".join(PackedStringArray(d_titles)))
-	_ok("seven of them", t_titles.size(), 7)
-	_ok("the same number of reachable rows", t_rows, d_rows)
-	_ok("and that number is not trivially small", t_rows > 100, true)
+	print("=== SS13 PARITY: same commands, same disclosure depth, tablet's own menu bar ===")
+	## **Desktop's own menu bar is unchanged and asserted directly** -- the
+	## `else` branch in `menus.gd::build()` is the original seven calls,
+	## untouched by this batch.
+	_ok("desktop still has its shipped seven menus, unchanged",
+		",".join(PackedStringArray(d_titles)),
+		"File,Edit,Assets,Data,Preferences,Window,Help")
+	## **Tablet's own menu bar is re-specified to the canvas, not restated.**
+	## `Cartalith Tablet.dc.html` / `TABLET_UI_SPEC.md` §2.1 draw exactly the
+	## overflow square then File, World, Data -- four top-level menus, not
+	## seven -- per the owner's 2026-09-07 canvas-adoption ruling (see this
+	## file's header).
+	_ok("tablet's top-level menus are the canvas's own: overflow, File, World, Data",
+		",".join(PackedStringArray(t_titles)), "☰,File,World,Data")
+
+	print("")
+	print("-- every command title reachable on desktop is still reachable on tablet --")
+	## The substance of "same disclosure depth", measured directly against
+	## `CommandIndex` rather than inferred from a row COUNT of ALL rows (that
+	## count cannot distinguish "everything moved one level deeper" from "ten
+	## rows were quietly dropped and ten unrelated ones added").
+	##
+	## **By (title, occurrence count), not by title membership -- found
+	## 2026-09-13.** `_command_titles()`'s own header has the full account: a
+	## membership-only comparison let a mutant dropping Help's "Keyboard
+	## shortcuts…" (id 72) PASS, because Preferences' OWN "Keyboard
+	## shortcuts…" (id 605) is a second, different row with the same title and
+	## kept the key present. Comparing per-title counts catches it: desktop
+	## wants 2, a 72-dropped tablet has 1, and that shortfall is what
+	## `missing` reports below -- proved by the mutation this batch ran
+	## (comment it out, re-run, this assertion FAILS; restored after).
+	var d_cmds := _command_titles(dapp)
+	var t_cmds := _command_titles(tapp)
+	var missing: Array = []
+	for title in d_cmds:
+		var want: int = int(d_cmds[title])
+		var got: int = int(t_cmds.get(title, 0))
+		if got < want:
+			missing.append("%s  (desktop x%d, tablet x%d)" % [title, want, got])
+	missing.sort()
+	print("  info desktop command titles: ", d_cmds.size(),
+		"   tablet command titles: ", t_cmds.size())
+	if not missing.is_empty():
+		print("  MISSING ON TABLET (", missing.size(), "):")
+		for m in missing:
+			print("    ", m)
+	_ok("every desktop command title survives on tablet, by occurrence count", missing.size(), 0)
+
+	print("")
+	print("-- every accelerator on tablet's menu bar is bound to exactly one row --")
+	## The specific failure the ☰ refactor risks: a row promoted to ☰ that is
+	## ALSO still built somewhere else would bind its accelerator twice.
+	## Desktop is checked too, as a negative control -- it was not
+	## restructured, so 0 there is not a coincidence of what this probe
+	## happens to check.
+	var t_accel := _accelerators(tapp)
+	var d_accel := _accelerators(dapp)
+	var t_dupes: Array = []
+	for code in t_accel:
+		if (t_accel[code] as Array).size() > 1:
+			t_dupes.append("%s: %s" % [OS.get_keycode_string(code), ", ".join(t_accel[code])])
+	var d_dupes: Array = []
+	for code in d_accel:
+		if (d_accel[code] as Array).size() > 1:
+			d_dupes.append("%s: %s" % [OS.get_keycode_string(code), ", ".join(d_accel[code])])
+	print("  info tablet accelerators: ", t_accel.size(), "   desktop accelerators: ", d_accel.size())
+	for d in t_dupes:
+		print("    DUPLICATE (tablet) ", d)
+	for d in d_dupes:
+		print("    DUPLICATE (desktop) ", d)
+	_ok("no accelerator is bound to more than one tablet row", t_dupes.size(), 0)
+	_ok("negative control: desktop has no duplicate either", d_dupes.size(), 0)
+
+	print("")
+	print("-- every desktop accelerator is also reachable on tablet --")
+	## Added 2026-09-13, alongside the (title, count) fix above: uniqueness
+	## alone says nothing about whether a rebound-off row's key is still bound
+	## to ANYTHING. A code tablet never rebuilds (dropped along with its row)
+	## would still read 0 duplicates on both sides and pass the checks above.
+	var accel_missing: Array = []
+	for code in d_accel:
+		if not t_accel.has(code):
+			accel_missing.append("%s: %s" % [OS.get_keycode_string(code), ", ".join(d_accel[code])])
+	if not accel_missing.is_empty():
+		print("  MISSING ON TABLET (", accel_missing.size(), "):")
+		for m in accel_missing:
+			print("    ", m)
+	_ok("every desktop accelerator is bound to some row on tablet", accel_missing.size(), 0)
+
+	print("")
+	print("-- reachable row totals, informational: a reflow moves rows, it does not erase them --")
+	print("  info tablet reachable rows: ", t_rows, "   desktop reachable rows: ", d_rows,
+		"   delta: ", t_rows - d_rows)
 
 	print("")
 	print("_tabletparity_probe: ", "PASS" if _fail == 0 else str(_fail) + " FAILURE(S)")

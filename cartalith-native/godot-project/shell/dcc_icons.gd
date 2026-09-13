@@ -123,18 +123,28 @@ const PATHS := {
 	"domain_carto": '<path d="M1.6 4 L5.8 2.4 L10.2 4.6 L14.4 3 V12 L10.2 13.6 L5.8 11.4 L1.6 13 Z"/><path d="M5.8 2.4 V11.4"/><path d="M10.2 4.6 V13.6"/>',
 	"domain_render": '<circle cx="8" cy="8" r="3.2"/><path d="M8 1.4 V3.2"/><path d="M8 12.8 V14.6"/><path d="M1.4 8 H3.2"/><path d="M12.8 8 H14.6"/><path d="M3.4 3.4 L4.6 4.6"/><path d="M11.4 11.4 L12.6 12.6"/>',
 
-	## ── The phone bottom nav's two non-domain cells ───────────────────────────
+	## ── `nav_panels` / `nav_more`: history, not the phone bottom nav today ─────
 	##
-	## `design/Cartalith Android Phone.dc.html` draws its five tabs as a `14px`
-	## Plex glyph over a `9.5px` caption -- ◈ ⌗ ◷ ▤ ⋯ -- and the three domain
-	## cells take `domain_world`/`domain_civ`/`domain_carto` above, which are
-	## this design system's own marks for those exact subjects. The remaining
-	## two cells are PANELS and MORE, which the canvas has no domain glyph for
-	## because its tab set predates the v3 domain model. **Designed, not
-	## matched** (`DCC_SHELL_SCOPE.md`'s rule 2): each traces the canvas's own
-	## chosen symbol -- ▤ for the docks, ⋯ for the overflow -- redrawn to §12's
-	## 16 x 16 / 1.2 px / round-cap rules so the row reads as one family rather
-	## than three drawings beside two pieces of type.
+	## **Stale as a description of "the phone bottom nav's two non-domain
+	## cells", corrected 2026-09-13 -- there are no such cells any more.**
+	## `design/Cartalith Android Phone.dc.html` (an early canvas) drew five
+	## tabs -- three domain cells (`domain_world`/`domain_civ`/`domain_carto`,
+	## still the desktop rail's own marks, `DOMAINS` in `dcc_shell.gd`) plus
+	## PANELS and MORE, which is how these two entries came to be drawn. Both
+	## are now (per `PHONE_TABS` in `dcc_shell.gd`, and `_pick_phone_tab()`'s
+	## own header) collapsed into the shipped `docs/ANDROID_UI_SPEC.md` four-
+	## tab bar -- MAP · GENERATE · PLAN · MORE -- whose glyphs are 2026-09-13
+	## the canvas's own **literal text characters** (`▤ ⌗ ➔ ⋯`,
+	## `Cartalith Android.dc.html`'s `tabs=[{id:'map',g:'▤'},...]`), rendered by
+	## a mono `Label` in `_phone_bar_cell()`, not by either SVG below. Kept
+	## here as provenance and in case a future non-text use wants them, not
+	## because the phone nav still calls either.
+	##
+	## The paragraph below explains why they were DRAWN rather than typed
+	## *at the time* -- true then, and the reason the current phone-nav glyphs
+	## needed no such treatment is `DccTheme.mono()`'s own fallback
+	## (`fv.fallbacks = [sys]`): the missing ones still rasterise, in the
+	## system face rather than as tofu, which is what actually changed.
 	##
 	## Drawn rather than left as text for the reason `search`/`import` were:
 	## §12's "typographic symbols stay text" premise holds only for glyphs that

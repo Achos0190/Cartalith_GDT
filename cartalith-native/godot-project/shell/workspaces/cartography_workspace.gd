@@ -783,8 +783,24 @@ func _on_any_tool_armed(id: String) -> void:
 			## painting without a press.
 			_icon_brush_painting = false
 			app.viewport.tool_overlay.set_handles([])
+			## Lane GATE, 2026-09-13: was this file's own `_show_style_tool_
+			## options()`, which hardcoded "CARTOGRAPHY · STYLE" regardless of
+			## the mode actually active -- arming Region (or Inspect) while
+			## CARTO sat in Labels (or Icons, or Terrain appearance) painted
+			## STYLE over an open Labels panel, the same contradiction
+			## `_on_workspace_changed()`'s own comment already describes fixing
+			## once for the navigation half of this row. `app.gd` owns the
+			## caption text now (`_tool_options_cartography_default()`), so
+			## this is the only writer and it always reads the live mode.
+			## (Measure also reaches this `_` branch, but never shows the
+			## result: `tool_bar.gd::DccToolBar` claims `tool_options_row`
+			## outright for Sculpt/Paint/Measure through its own separate
+			## `tool_armed` listener, in every domain -- found and confirmed by
+			## `_cartocaption_probe.gd`'s first run, which asserted the mode
+			## caption for Measure too and failed on a row that was never a
+			## `Label` to begin with.)
 			if app.active_domain() == "cartography":
-				_show_style_tool_options()
+				app._tool_options_cartography_default()
 			if app.right_dock_ctrl.has_method("leave_anno_context"):
 				app.right_dock_ctrl.leave_anno_context()
 			if id == "inspect" and app.active_domain() == "cartography" and app.right_dock_ctrl.has_method("show_stops"):
@@ -873,19 +889,6 @@ func _on_world_changed() -> void:
 func _sync_layers() -> void:
 	for id in _layer_checks:
 		(_layer_checks[id] as CheckBox).set_pressed_no_signal(app.viewport.layer_visible(String(id)))
-
-
-## Duplicates `app.gd`'s own `_tool_options_simple("CARTOGRAPHY · STYLE", ...)`
-## text -- `app.gd` is off-limits to edit in this pass, and only it rebuilds
-## the bar on a workspace switch, not on arming Measure/Region/Inspect while
-## already in Cartography, which this file's own tool arming now needs to.
-func _show_style_tool_options() -> void:
-	app.set_tool_options(func(row: HBoxContainer):
-		row.add_child(DccTheme.mono_label("CARTOGRAPHY · STYLE", "accent", DccTheme.FS_SMALL, 2, true))
-		row.add_child(DccTheme.label(
-			"presentation only — no control here marks a generation stage stale",
-			"text_ghost", DccTheme.FS_MICRO))
-		row.add_child(DccTheme.spacer()))
 
 
 # ===========================================================================

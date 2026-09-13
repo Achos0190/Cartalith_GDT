@@ -293,6 +293,14 @@ body at all; the shell, having no header, leaks half a row of it. Reverted, with
 batch’s citation sweep stopped correctly at its gate: 51 stale canvas citations, not 49, and of its three
 disagreements only one is the shell drifting from the canvas.
 
+**2026-09-13, second batch: the tablet now fits its own frame and draws the canvas menus.** The tablet
+options row fills its band and scrolls only when it overflows, so portrait 800×1280 and 1024×768 fit;
+the tablet menu bar is ☰ File World Data with every command and accelerator still reachable. The phone
+bottom nav draws the canvas glyphs, and the CARTO options caption names the current mode. Held as patches
+for fix-up: the phone GENERATE sheet header (works, but its text is unscaled) and the failed-open fix
+(works on desktop; on phone the error is hidden). The tablet portrait slider reflow was reverted: the
+canvas draws sliders as full-width two-line cells, not a grid.
+
 **2026-09-13: the owner re-sorted the PC left rail (Ruling L), and the first three-builder batch shipped two of
 its three lanes.** A seed typed into New World now reaches the built world, including the rolled-while-hidden
 case that sank the previous attempt; re-entering a domain no longer throws away the armed tool’s options row,
@@ -894,7 +902,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-13: 128 items.** Run
+**Recounted 2026-09-13: 125 items.** Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for

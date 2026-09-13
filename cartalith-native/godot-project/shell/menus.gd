@@ -208,6 +208,20 @@ const ID_ATLAS_CAP_FIRST := 630     ## rung i is +i (630-636)
 ## The built-in `Default` is `ID_WIN_LAYOUT_FIRST`; saved layout i is +1+i.
 const ID_WIN_LAYOUT_FIRST := 640
 
+## Tablet-only World menu (`TABLET_UI_SPEC.md` §2.1), 2026-09-12. 710-713 --
+## clear of every block above (highest is `ID_HELP_REPORT := 700`, and
+## `ID_WIN_LAYOUT_FIRST`'s own span is nowhere near it either).
+const ID_WORLD_RUN_PIPELINE := 710
+const ID_WORLD_MODE_PIPELINE := 711
+const ID_WORLD_MODE_SCULPT := 712
+const ID_WORLD_SEED_SIZE := 713
+
+## 714 tried and freed 2026-09-13 (`ID_TABLET_TOGGLE_THEME`, a flat ☰ "Toggle
+## theme" row matching `Cartalith Tablet.dc.html`'s VIEW section) -- reverted
+## the same session; see `_build_theme_and_units()`'s own header for why.
+## Left named here, not reused, so a future attempt does not collide with a
+## stale reference to it in history.
+
 ## Marks a popup row as a **readout**: disabled, carrying a live value, and not
 ## a command at all. `command_index.gd`'s walk reads it -- without it, a row
 ## that exists to print `1.6 GB of 12 GB` was indexed as an action a user could
@@ -380,14 +394,32 @@ func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	## nothing writes it before this point. So the radio described the boot
 	## palette rather than a setting, and there was no setting.
 	_theme_mode = DccSettings.theme_mode()
-	shell.add_menu("File", _file)
-	shell.add_menu("Edit", _edit)
-	shell.add_menu("Assets", _assets)
-	shell.add_menu("Data", _data)
-	shell.add_menu("Preferences", _preferences)
-	shell.add_menu("Window", _window)
-	shell.add_menu("Help", _help)
-	## After the seven menus, never before: `_apply_theme_mode()` repaints the
+	## **Tablet only** (`TABLET_UI_SPEC.md` §2.1, `LARGE_ITEM_RULINGS.md`
+	## DS-03): the canvas draws exactly `['File','World','Data']` preceded by
+	## an overflow ☰ square, so a tablet gets four top-level menus in place of
+	## the shipped seven. **PC and phone are byte-identical to before** -- the
+	## `else` branch is the original seven calls, untouched, and every row
+	## either menu ever showed is still reachable on tablet, just nested one
+	## level deeper under ☰ for whichever shipped menu the row moved out of
+	## (`_overflow()`'s own header has the full mapping).
+	##
+	## `is_tablet()` reads `DccShell._touch`/`_phone_mode`, both written by
+	## `_ready()` before `menus.build()` runs (`app.gd:449`), so the branch
+	## sees the real device/`--force-touch` state rather than a boot default.
+	if DccTheme.is_tablet():
+		shell.add_menu("☰", _overflow)
+		shell.add_menu("File", _file)
+		shell.add_menu("World", _world)
+		shell.add_menu("Data", _data)
+	else:
+		shell.add_menu("File", _file)
+		shell.add_menu("Edit", _edit)
+		shell.add_menu("Assets", _assets)
+		shell.add_menu("Data", _data)
+		shell.add_menu("Preferences", _preferences)
+		shell.add_menu("Window", _window)
+		shell.add_menu("Help", _help)
+	## After the menus, never before: `_apply_theme_mode()` repaints the
 	## whole tree through `DccShell.rebuild_theme()`, and the menu bar built
 	## above is part of that tree. Everything created *later* -- every dialog
 	## in `app.gd`'s `_ready` -- is built straight from the palette this has
@@ -778,7 +810,12 @@ func _on_file(id: int) -> void:
 
 # -- §2.2 Edit ----------------------------------------------------------------
 
-func _edit(p: PopupMenu) -> void:
+## Undo / Redo / Undo history -- factored out of `_edit()` 2026-09-12 so the
+## tablet's ☰ overflow can promote this block to its own top level
+## (`TABLET_UI_SPEC.md` §2.1's OVERFLOW row) while `_edit()` keeps calling it
+## in place for PC/phone, unchanged. Wires its own `about_to_popup` refresh;
+## the caller still owns connecting `p.id_pressed` to `_on_edit`.
+func _build_undo_redo(p: PopupMenu) -> void:
 	## Global heightmap undo -- the reference's `undoBtn`/`undoLast`, register
 	## ED-01. Covers the two destructive height operations this port has
 	## bound (Sculpt ▸ Commit to map, and Carve fjords), which is the same
@@ -826,7 +863,38 @@ func _edit(p: PopupMenu) -> void:
 		+ "not retained; ◼ is a generate or a load, where history starts. Reverting "
 		+ "is linear -- it discards everything after the row -- and asks first when "
 		+ "it would discard more than one step.")
-	p.add_separator()
+	## The row's label carries the operation name and the live cost, the way
+	## the reference's own header pairs "↩ Undo" with `#undoMem`'s
+	## "N steps saved · M MB". Rebuilt on every popup because both change
+	## with every commit -- there is no signal to subscribe to.
+	p.about_to_popup.connect(func():
+		var stats: Dictionary = _bridge.undo_stats()
+		var can: bool = _bridge.can_undo()
+		p.set_item_disabled(undo_idx, not can)
+		if can:
+			p.set_item_text(undo_idx, "Undo %s" % _bridge.undo_label())
+			p.set_item_tooltip(undo_idx, "%s · %s held" % [
+				_undo_depth_text(stats), _mb(int(stats.get("bytes", 0)))])
+		else:
+			p.set_item_text(undo_idx, "Undo")
+			p.set_item_tooltip(undo_idx, _undo_empty_reason())
+		if redo_idx >= 0:
+			var can_redo: bool = _bridge.redo_available()
+			p.set_item_disabled(redo_idx, not can_redo)
+			p.set_item_text(redo_idx,
+				("Redo %s" % _bridge.redo_label()) if can_redo else "Redo")
+			## The empty-state reason says only what was actually checked --
+			## `redo_available()` came back false -- and points at the ledger
+			## rather than describing a stack shape this file has not read.
+			p.set_item_tooltip(redo_idx,
+				"Puts back the step Undo took off. Edit ▸ Undo history… shows the whole ledger." if can_redo
+				else "Nothing to redo (WorldGen.redo_available() is false). Edit ▸ Undo history… shows what the ledger is holding."))
+
+## Cut / Copy / Paste / Delete / Select all / Deselect / Find on map -- what
+## remains of Edit once Undo/Redo/Undo history promote to the tablet's ☰
+## overflow and Reset generation parameters moves to the tablet's World menu
+## (factored out 2026-09-12; unchanged call site and order for PC/phone).
+func _build_edit_actions(p: PopupMenu) -> void:
 	## **These six rows used to say "Nothing is selectable for editing yet
 	## beyond settlements, which are read-only." Both halves of that were
 	## false**, and had been since well before 2026-08-30 when a Nortantis
@@ -940,8 +1008,19 @@ func _edit(p: PopupMenu) -> void:
 	## (`dcc_shell.gd`) is owned by a different pass and may not carry the
 	## method yet.
 	_live(p, "Find on map…", ID_FIND_ON_MAP, KEY_MASK_CTRL | KEY_F)
+	## The four clipboard rows, in their own function because the state
+	## they read is five questions deep and this lambda is already long.
+	p.about_to_popup.connect(func():
+		_refresh_clipboard_rows(p, cut_idx, copy_idx, paste_idx, select_all_idx))
 
-	p.add_separator()
+## Reset generation parameters + Reset one stage -- moved to the tablet's
+## World menu (canvas "Reset to seed…", `TABLET_UI_SPEC.md` §2.1) 2026-09-12;
+## built here unchanged for PC/phone's Edit menu, in the same place it always
+## was. Kept as "Reset generation parameters" rather than renamed to the
+## canvas's "Reset to seed…": the row does not touch the seed specifically
+## (RESET_ALL_TIP says so), and Ruling E's precedent -- keep the engine's own
+## truthful name over the canvas's imprecise one -- applies the same way here.
+func _build_reset_generation(p: PopupMenu) -> void:
 	## `reset_params()` has been on the bridge (`engine_bridge.gd`) and bound
 	## in `lib.rs` since the parameter table landed, in **both** of its forms --
 	## the whole table, or a named subset -- and the shell called neither. The
@@ -955,43 +1034,28 @@ func _edit(p: PopupMenu) -> void:
 	var reset_idx := p.item_count - 1
 	p.set_item_tooltip(reset_idx, RESET_ALL_TIP)
 	_build_reset_stage_menu(p)
-
-	## The row's label carries the operation name and the live cost, the way
-	## the reference's own header pairs "↩ Undo" with `#undoMem`'s
-	## "N steps saved · M MB". Rebuilt on every popup because both change
-	## with every commit -- there is no signal to subscribe to.
+	## Both reset rows go dark for a generation, for `param_set`'s own
+	## reason: the worker thread holds the engine object mutably borrowed,
+	## and reaching a `#[func]` anyway is the `Gd<T>::bind() failed, already
+	## bound` failure `engine_bridge.gd`'s multi-GPU block documents.
 	p.about_to_popup.connect(func():
-		var stats: Dictionary = _bridge.undo_stats()
-		var can: bool = _bridge.can_undo()
-		p.set_item_disabled(undo_idx, not can)
-		if can:
-			p.set_item_text(undo_idx, "Undo %s" % _bridge.undo_label())
-			p.set_item_tooltip(undo_idx, "%s · %s held" % [
-				_undo_depth_text(stats), _mb(int(stats.get("bytes", 0)))])
-		else:
-			p.set_item_text(undo_idx, "Undo")
-			p.set_item_tooltip(undo_idx, _undo_empty_reason())
-		if redo_idx >= 0:
-			var can_redo: bool = _bridge.redo_available()
-			p.set_item_disabled(redo_idx, not can_redo)
-			p.set_item_text(redo_idx,
-				("Redo %s" % _bridge.redo_label()) if can_redo else "Redo")
-			## The empty-state reason says only what was actually checked --
-			## `redo_available()` came back false -- and points at the ledger
-			## rather than describing a stack shape this file has not read.
-			p.set_item_tooltip(redo_idx,
-				"Puts back the step Undo took off. Edit ▸ Undo history… shows the whole ledger." if can_redo
-				else "Nothing to redo (WorldGen.redo_available() is false). Edit ▸ Undo history… shows what the ledger is holding.")
-		## The four clipboard rows, in their own function because the state
-		## they read is five questions deep and this lambda is already long.
-		_refresh_clipboard_rows(p, cut_idx, copy_idx, paste_idx, select_all_idx)
-		## Both reset rows go dark for a generation, for `param_set`'s own
-		## reason: the worker thread holds the engine object mutably borrowed,
-		## and reaching a `#[func]` anyway is the `Gd<T>::bind() failed, already
-		## bound` failure `engine_bridge.gd`'s multi-GPU block documents.
 		var params_busy: bool = _bridge.generating or not _bridge.params_available()
 		p.set_item_disabled(reset_idx, params_busy)
 		p.set_item_tooltip(reset_idx, RESET_BUSY_TIP if params_busy else RESET_ALL_TIP))
+
+## `full=false` on the tablet builds only the middle third (Cut…Find on map):
+## Undo/Redo/Undo history promote to ☰'s own top level and Reset generation
+## parameters moves to the new World menu -- see `_overflow()` and `_world()`.
+## `full=true` (the default, and PC/phone's only call) reproduces the
+## original single-function layout byte-for-byte, three helpers in sequence.
+func _edit(p: PopupMenu, full: bool = true) -> void:
+	if full:
+		_build_undo_redo(p)
+		p.add_separator()
+	_build_edit_actions(p)
+	if full:
+		p.add_separator()
+		_build_reset_generation(p)
 	p.id_pressed.connect(_on_edit)
 
 const RESET_ALL_TIP := "Puts every generation parameter back to the engine's own default (WorldGen.reset_params). It does not regenerate: the engine reads the table once at the start of a run, so this changes what the next Generate builds and leaves the world on screen alone."
@@ -1564,7 +1628,18 @@ const SELECT_ALL_WORLD_TIP := "Selects every stamp in the open Sculpt draft. Sco
 
 # -- §2.3 Assets --------------------------------------------------------------
 
-func _assets(p: PopupMenu) -> void:
+## The one-line "⧉ Asset library" row, its own function since 2026-09-12 so
+## the tablet's ☰ overflow and PC/phone's Assets menu build the identical row
+## from one source rather than two calls that could drift out of step.
+func _build_asset_library_row(p: PopupMenu) -> void:
+	_live(p, "⧉ Asset library", ID_ASSET_LIBRARY, KEY_MASK_SHIFT | KEY_A)
+
+## `full=false` on the tablet omits the two rows the ☰ overflow promotes --
+## "⧉ Asset library" and the whole Landmark types cascade
+## (`TABLET_UI_SPEC.md` §2.1) -- so they exist exactly once on tablet rather
+## than twice. `full=true` (the default, PC/phone's only call) is byte-for-
+## byte the original single-body function.
+func _assets(p: PopupMenu, full: bool = true) -> void:
 	## §2.3's own table: "⧉ Asset library (⇧A)" / "⧉ Sprite sheet slicer (▦)"
 	## -- ⧉ is the "opens a dedicated window" marker (§2, §12: "the ⧉ window
 	## marker in menus"), not the phone app-bar's "panels" glyph (▤) these two
@@ -1580,7 +1655,8 @@ func _assets(p: PopupMenu) -> void:
 	## only two rules after Texture sets and before Apply. The shell had three
 	## rules here and `Asset pack ▸` alone at the very foot, below Clear
 	## library…, where the canvas has it directly above Icon families.
-	_live(p, "⧉ Asset library", ID_ASSET_LIBRARY, KEY_MASK_SHIFT | KEY_A)
+	if full:
+		_build_asset_library_row(p)
 	_live(p, "⧉ Sprite sheet slicer (▦)", ID_SLICER)
 	## `AssetDB::add_item`/`raster::decode_png` are real and bound now
 	## (`as_import_item`) -- the window's own slot grid is where a target
@@ -1640,7 +1716,8 @@ func _assets(p: PopupMenu) -> void:
 		func(i: int): _host.open_asset_library(_texture_family_keys[i]))
 	_refresh_family_counts(_texture_sets_popup, _texture_family_keys)
 
-	_build_landmark_types_menu(p)
+	if full:
+		_build_landmark_types_menu(p)
 
 	p.add_separator()
 	_live(p, "Apply library to map", ID_APPLY_LIBRARY)
@@ -2598,7 +2675,122 @@ func _stamp_pref_values(p: PopupMenu) -> void:
 		p.set_item_text(i, base if picked == ""
 			else base + PREF_VALUE_SEP + picked)
 
-func _preferences(p: PopupMenu) -> void:
+## Theme and Units -- factored out of `_preferences()` 2026-09-12 so the
+## tablet's ☰ overflow can promote both to its own top level
+## (`TABLET_UI_SPEC.md` §2.1) while `_preferences()` keeps calling this in
+## place for PC/phone, unchanged (`tablet` false there, the default).
+##
+## **Theme stays a submenu on tablet too -- tried, and reverted the same
+## session, 2026-09-13.** `Cartalith Tablet.dc.html`'s OVERFLOW ▸ VIEW draws a
+## flat row (`it('Toggle theme','theme',{sc:''})`, a direct dark/light flip)
+## where Preferences draws a Dark/Light/Follow-system submenu, and a first
+## pass here built the flat row literally: one `_live()` action cycling
+## `_on_theme_choice` between dark and light. `_tabletparity_probe.gd`'s SS13
+## caught what that dropped, the same run that proved its own (title, count)
+## fix: `_preferences(p, false)` -- tablet's OWN nested Preferences submenu --
+## never calls this function at all (`if full:` above), so ☰'s copy is the
+## ONLY place Theme exists on tablet. Flattening it left "Follow system" with
+## no path to select it anywhere in the tablet tree, not merely unsearchable
+## -- a real capability loss DS-03 forbids ("keep everything, reflow only"),
+## not only a cosmetic one. Compensating in `command_index.gd`'s `EXTRAS`
+## table (its own header names exactly this obligation, "any future move off
+## the menu bar owes this table a row") would fix the search gap but not the
+## reachability one, and that file is outside this lane's owned set regardless
+## -- reported rather than edited. Units, below, has no such conflict: its own
+## three real choices (km/mi/nmi) stay in a submenu on both compositions
+## (the canvas's own Units row is a binary label, but the three-way is a real
+## capability its mock does not model, and DS-03 forbids dropping it to match
+## a mock too) -- what tablet's copy of THAT row was actually missing is the
+## live value suffix Preferences' own row shows, added below.
+func _build_theme_and_units(p: PopupMenu, tablet: bool = false) -> void:
+	## PR-13/PR-14: `DccTheme.LIGHT` was always fully defined -- §11's own
+	## light token column -- the blocker was that `DccShell` built every
+	## stylebox once at startup with no rebuild path. `DccShell.rebuild_theme()`
+	## is that path now, so Light is live rather than disabled, and Follow
+	## system (previously absent, §2.5's third choice) resolves the OS
+	## preference once through it too.
+	_theme_popup = PopupMenu.new()
+	_theme_popup.name = "ThemeChoice"
+	_theme_popup.add_radio_check_item("Dark", ID_PREF_THEME_DARK)
+	_theme_popup.add_radio_check_item("Light", ID_PREF_THEME_LIGHT)
+	## **The map does not follow the theme, and nothing said so.**
+	## `BUILD_ANSWERS.md:106-107` rules that the canvas deliberately stays dark
+	## under Light -- *"a light map is a style preset, not a theme
+	## consequence"* -- and the product disclosed it nowhere, so Light read as
+	## a half-broken repaint rather than a decision. Verified in the code this
+	## session rather than taken from the answer: `viewport_host.gd` contains no
+	## `is_dark`, no `rebuild_theme` and no palette reference at all, so the map
+	## genuinely cannot follow.
+	_theme_popup.set_item_tooltip(1,
+		"Repaints the shell chrome. The map canvas stays dark either way -- a light map is a style preset, not a theme consequence. The map's own palette is chosen in CARTO ▸ Map style, on the style chips (Antique, Ink, Watercolor, Print) and the Base look beside them.")
+	_theme_popup.add_radio_check_item("Follow system", ID_PREF_THEME_SYSTEM)
+	if not DisplayServer.is_dark_mode_supported():
+		_theme_popup.set_item_disabled(2, true)
+		_theme_popup.set_item_tooltip(2,
+			"This platform/build reports no OS dark-mode preference (DisplayServer.is_dark_mode_supported() is false).")
+	_refresh_theme_menu()
+	_theme_popup.id_pressed.connect(_on_theme_choice)
+	_shell.style_popup(_theme_popup)
+	p.add_child(_theme_popup)
+	p.add_submenu_item("Theme", "ThemeChoice")
+	## **Real as of 2026-09-02** (PR-15, `OUTSTANDING_WORK.md`). This row was a
+	## `_todo` naming five call sites a setting would have to reach before it
+	## meant anything -- re-grepped rather than trusted, and the count was
+	## wrong: two of the five are real and reachable from here, two more are
+	## real but sit in `right_dock.gd`, and the fifth was never built at all.
+	##
+	## - **Wired**: `viewport_host.gd`'s scale bar and cursor-coordinate
+	##   readout, both now going through `DccUnits` (`refresh_scale_bar()`
+	##   below repaints the first the instant the radio changes; the second
+	##   has no equivalent trigger of its own and picks the new unit up on the
+	##   next mouse move over the map, which is most of the time this menu is
+	##   reachable at all).
+	## - **Still km**: Measure's running total/per-segment lengths and Region
+	##   select's km column, both real and both in `right_dock.gd` -- out of
+	##   this lane's reach by explicit instruction, not by difficulty. Whoever
+	##   next owns that file has `DccUnits.format_adaptive()` /
+	##   `format_thousands()` sitting ready.
+	## - **Not a wiring gap**: Sculpt's `#sBrushKm` hint (reference 9418,
+	##   *"≈ N km radius -- stays this real-world size at any zoom"*) has no
+	##   port-side counterpart to convert -- `world_workspace.gd`'s
+	##   `_build_brush_globals()` shows brush size in px only, unconditionally.
+	##   Building that readout from nothing is a separate job from wiring an
+	##   existing one, and is not done here.
+	_units_popup = PopupMenu.new()
+	_units_popup.name = "UnitsChoice"
+	_units_popup.add_radio_check_item(DccUnits.label("km"), ID_PREF_UNITS_KM)
+	_units_popup.add_radio_check_item(DccUnits.label("mi"), ID_PREF_UNITS_MI)
+	_units_popup.add_radio_check_item(DccUnits.label("nmi"), ID_PREF_UNITS_NMI)
+	_refresh_units_menu()
+	_units_popup.id_pressed.connect(_on_units_choice)
+	_shell.style_popup(_units_popup)
+	p.add_child(_units_popup)
+	p.add_submenu_item("Units", "UnitsChoice")
+	if tablet:
+		## The value suffix Preferences shows (`_stamp_pref_values()`, wired
+		## only to that popup's own `about_to_popup`) never reached ☰'s copy
+		## of this row -- found 2026-09-13. Scoped to just this one item
+		## rather than calling `_stamp_pref_values(p)` on the whole overflow
+		## popup, which also carries Edit/Assets/Preferences/Window/Help
+		## submenu rows `_sole_checked_text()` was never meant to read.
+		var units_idx := p.item_count - 1
+		p.about_to_popup.connect(func():
+			var picked := _sole_checked_text(_units_popup)
+			p.set_item_text(units_idx,
+				"Units" if picked == "" else "Units" + PREF_VALUE_SEP + picked))
+
+## `full=false` on the tablet omits Theme and Units, which the ☰ overflow
+## promotes to its own top level (`TABLET_UI_SPEC.md` §2.1's "Toggle theme"
+## and "Units — kilometres/miles" rows) -- see `_build_theme_and_units()`,
+## whose own header records why Theme keeps Preferences' submenu shape there
+## rather than the canvas's flat row, deliberately, for now.
+## Preferences' own "Keyboard shortcuts…" (the editable ShortcutsDialog,
+## `ID_PREF_SHORTCUTS`) stays here even on tablet: it is a different id and a
+## different capability from Help's read-only row, which is what the ☰
+## overflow's plain "Shortcuts…" promotes instead -- so nothing is duplicated.
+## `full=true` (the default, PC/phone's only call) is byte-for-byte the
+## original single-body function.
+func _preferences(p: PopupMenu, full: bool = true) -> void:
 	## `use_gpu` is a plain entry in the engine's own flat parameter table
 	## (`params.rs`) -- `bridge.param_set("use_gpu", ...)` is the whole
 	## mechanism, identical to every slider in the Generation Pipeline. It was
@@ -2870,69 +3062,8 @@ func _preferences(p: PopupMenu) -> void:
 	## `DccApp.open_storage_locations()` is the one method both call.
 	_live(p, "Storage locations…", ID_PREF_STORAGE)
 
-	## PR-13/PR-14: `DccTheme.LIGHT` was always fully defined -- §11's own
-	## light token column -- the blocker was that `DccShell` built every
-	## stylebox once at startup with no rebuild path. `DccShell.rebuild_theme()`
-	## is that path now, so Light is live rather than disabled, and Follow
-	## system (previously absent, §2.5's third choice) resolves the OS
-	## preference once through it too.
-	_theme_popup = PopupMenu.new()
-	_theme_popup.name = "ThemeChoice"
-	_theme_popup.add_radio_check_item("Dark", ID_PREF_THEME_DARK)
-	_theme_popup.add_radio_check_item("Light", ID_PREF_THEME_LIGHT)
-	## **The map does not follow the theme, and nothing said so.**
-	## `BUILD_ANSWERS.md:106-107` rules that the canvas deliberately stays dark
-	## under Light -- *"a light map is a style preset, not a theme
-	## consequence"* -- and the product disclosed it nowhere, so Light read as
-	## a half-broken repaint rather than a decision. Verified in the code this
-	## session rather than taken from the answer: `viewport_host.gd` contains no
-	## `is_dark`, no `rebuild_theme` and no palette reference at all, so the map
-	## genuinely cannot follow.
-	_theme_popup.set_item_tooltip(1,
-		"Repaints the shell chrome. The map canvas stays dark either way -- a light map is a style preset, not a theme consequence. The map's own palette is chosen in CARTO ▸ Map style, on the style chips (Antique, Ink, Watercolor, Print) and the Base look beside them.")
-	_theme_popup.add_radio_check_item("Follow system", ID_PREF_THEME_SYSTEM)
-	if not DisplayServer.is_dark_mode_supported():
-		_theme_popup.set_item_disabled(2, true)
-		_theme_popup.set_item_tooltip(2,
-			"This platform/build reports no OS dark-mode preference (DisplayServer.is_dark_mode_supported() is false).")
-	_refresh_theme_menu()
-	_theme_popup.id_pressed.connect(_on_theme_choice)
-	_shell.style_popup(_theme_popup)
-	p.add_child(_theme_popup)
-	p.add_submenu_item("Theme", "ThemeChoice")
-	## **Real as of 2026-09-02** (PR-15, `OUTSTANDING_WORK.md`). This row was a
-	## `_todo` naming five call sites a setting would have to reach before it
-	## meant anything -- re-grepped rather than trusted, and the count was
-	## wrong: two of the five are real and reachable from here, two more are
-	## real but sit in `right_dock.gd`, and the fifth was never built at all.
-	##
-	## - **Wired**: `viewport_host.gd`'s scale bar and cursor-coordinate
-	##   readout, both now going through `DccUnits` (`refresh_scale_bar()`
-	##   below repaints the first the instant the radio changes; the second
-	##   has no equivalent trigger of its own and picks the new unit up on the
-	##   next mouse move over the map, which is most of the time this menu is
-	##   reachable at all).
-	## - **Still km**: Measure's running total/per-segment lengths and Region
-	##   select's km column, both real and both in `right_dock.gd` -- out of
-	##   this lane's reach by explicit instruction, not by difficulty. Whoever
-	##   next owns that file has `DccUnits.format_adaptive()` /
-	##   `format_thousands()` sitting ready.
-	## - **Not a wiring gap**: Sculpt's `#sBrushKm` hint (reference 9418,
-	##   *"≈ N km radius -- stays this real-world size at any zoom"*) has no
-	##   port-side counterpart to convert -- `world_workspace.gd`'s
-	##   `_build_brush_globals()` shows brush size in px only, unconditionally.
-	##   Building that readout from nothing is a separate job from wiring an
-	##   existing one, and is not done here.
-	_units_popup = PopupMenu.new()
-	_units_popup.name = "UnitsChoice"
-	_units_popup.add_radio_check_item(DccUnits.label("km"), ID_PREF_UNITS_KM)
-	_units_popup.add_radio_check_item(DccUnits.label("mi"), ID_PREF_UNITS_MI)
-	_units_popup.add_radio_check_item(DccUnits.label("nmi"), ID_PREF_UNITS_NMI)
-	_refresh_units_menu()
-	_units_popup.id_pressed.connect(_on_units_choice)
-	_shell.style_popup(_units_popup)
-	p.add_child(_units_popup)
-	p.add_submenu_item("Units", "UnitsChoice")
+	if full:
+		_build_theme_and_units(p)
 	## **Built.** This row was a `_todo` reading "SS2.5 asks for an editable,
 	## per-context table... what is missing is rebinding: a per-context store
 	## in DccSettings that both the menu accelerators here and app.gd's own
@@ -5119,7 +5250,20 @@ func _on_open_window(id: int) -> void:
 
 # -- §2.7 Help ----------------------------------------------------------------
 
-func _help(p: PopupMenu) -> void:
+## The one-line "Keyboard shortcuts…" row (Help's read-only `ID_HELP_SHORTCUTS`),
+## its own function since 2026-09-12 for the same reason as
+## `_build_asset_library_row()`: the tablet's ☰ overflow and PC/phone's Help
+## menu build the identical row from one source.
+func _build_help_shortcuts_row(p: PopupMenu) -> void:
+	_live(p, "Keyboard shortcuts…", ID_HELP_SHORTCUTS)
+
+## `full=false` on the tablet omits Keyboard shortcuts and About, which the ☰
+## overflow promotes to its own top level (`TABLET_UI_SPEC.md` §2.1's plain
+## "Shortcuts…" and "About Cartalith" rows -- this is Help's READ-ONLY
+## `ID_HELP_SHORTCUTS`, not Preferences' editable `ID_PREF_SHORTCUTS`, which
+## stays where it is; see `_preferences()`'s own note). `full=true` (the
+## default, PC/phone's only call) is byte-for-byte the original function.
+func _help(p: PopupMenu, full: bool = true) -> void:
 	## §2.7 lists Documentation first. There is no in-app manual and the spec
 	## names no URL, so inventing one would be the worst kind of gap-filling --
 	## a row that opens something that may not exist. What *does* exist is the
@@ -5139,7 +5283,8 @@ func _help(p: PopupMenu) -> void:
 	## Was a `_todo` reading "No shortcut table yet." There is no table now
 	## either, and that is the point: `ShortcutsDialog` walks these very menus
 	## and reports what it finds, so the list cannot disagree with the app.
-	_live(p, "Keyboard shortcuts…", ID_HELP_SHORTCUTS)
+	if full:
+		_build_help_shortcuts_row(p)
 	_live(p, "Credits & academic principles", ID_HELP_CREDITS)
 	## `PARITY_AUDIT.md` §5 item 6: the reference's ℹ️ `#genInfoBtn` --
 	## dumps every generation parameter as plain text, a bug-report
@@ -5170,7 +5315,8 @@ func _help(p: PopupMenu) -> void:
 	_live(p, "Save diagnostic report…", ID_HELP_REPORT)
 	p.set_item_tooltip(p.item_count - 1,
 		"Shows you generation info, missing bindings, the project format version, GPU state, the last error this session saw and the tail of the log — each with the symbol it was read from — and writes the ones you keep to a text file. Nothing is sent anywhere and no tracker is opened: attach the file yourself.")
-	_live(p, "About", ID_HELP_ABOUT)
+	if full:
+		_live(p, "About", ID_HELP_ABOUT)
 	p.id_pressed.connect(_on_help)
 
 ## §2.5's `Preferences ▸ Tiles & LOD ▸ Chunk debug overlay` -- the reference's
@@ -5374,3 +5520,137 @@ func _on_help(id: int) -> void:
 		## `DiagnosticReviewDialog` calls it once the user has seen the rows.
 		ID_HELP_REPORT: DiagnosticReviewDialog.open(_host, _bridge)
 		ID_HELP_ABOUT: _host.open_about()
+
+# -- Tablet only: the ☰ overflow and the World menu ---------------------------
+#
+# `TABLET_UI_SPEC.md` §2.1: the canvas draws exactly three menus,
+# `['File','World','Data']`, preceded by an overflow ☰ square. Built here
+# 2026-09-12 per `LARGE_ITEM_RULINGS.md` DS-03 ("keep everything, reflow
+# only") -- every PC/phone row is still reachable, most one level deeper than
+# the canvas draws it:
+#
+#   - File and Data are the shipped menus, unchanged (`_file`, `_data`).
+#   - World is new, built only from canvas rows with a real action today
+#     (below). "Run from stale" is not a separate command -- the RUN button
+#     just relabels itself, so there is nothing to bind -- and "Plate
+#     settings…" has no single target (live WORLD-dock parameters, not one
+#     dialog), so both are omitted rather than fabricated.
+#   - ☰ holds the canvas's remaining overflow rows, moved (not copied) from
+#     Edit/Assets/Preferences/Help, then Edit/Assets/Preferences/Window/Help's
+#     own remaining rows as submenus named for their shipped menu. Two canvas
+#     overflow rows -- Stylus pressure, Palm rejection -- have no counterpart
+#     anywhere in this shell (`TABLET_UI_SPEC.md` §2.1 records the same
+#     absence: "no counterpart" for both) and are omitted rather than
+#     fabricated, the same treatment World gives Plate settings.
+#
+# **No manual `command_index.gd` / `shortcuts_dialog.gd` update is needed for
+# any of this.** Both already walk the live menu bar recursively
+# (`_walk_popup` recursing into `get_item_submenu()`), so a row nested one or
+# two levels deeper under ☰ is still found -- proven, not assumed, by
+# `_menutab_probe.gd`'s own title/accelerator dump before and after this
+# change (see this batch's report). `MISTAKES.md`'s "Move a command off the
+# menu bar" warns about a row that stops being ANY menu row (a rail node, a
+# bar button); nothing here does that -- every relocated row is still a real
+# `PopupMenu` item.
+
+## Adds `title` as a submenu of `parent`, built by calling `builder(new_popup)`
+## -- used only to nest each shipped menu's remaining rows one level deeper
+## under ☰ without duplicating their construction. `builder` is typically
+## `_edit.bind(false)` etc.: the same function PC/phone calls, with `full`
+## forced off so the rows ☰ already promoted are not built twice.
+func _add_submenu(parent: PopupMenu, title: String, builder: Callable) -> PopupMenu:
+	var sub := PopupMenu.new()
+	sub.name = title + "Overflow"
+	_shell.style_popup(sub)
+	parent.add_child(sub)
+	parent.add_submenu_item(title, sub.name)
+	builder.call(sub)
+	return sub
+
+func _overflow(p: PopupMenu) -> void:
+	_build_undo_redo(p)
+	p.add_separator()
+	_build_asset_library_row(p)
+	_build_landmark_types_menu(p)
+	p.add_separator()
+	_build_theme_and_units(p, true)
+	p.add_separator()
+	_build_help_shortcuts_row(p)
+	_live(p, "About", ID_HELP_ABOUT)
+	## Three dispatchers on one popup: each `match`es only the ids its own
+	## builder just added and is silent on everything else, so connecting all
+	## three is a fan-out, not a conflict (`_on_edit` for Undo/Redo/Undo
+	## history, `_on_assets` for Asset library, `_on_help` for
+	## Shortcuts/About). `_build_landmark_types_menu()` and
+	## `_build_theme_and_units()` wire their own child popups' `id_pressed`
+	## internally and need nothing added here.
+	p.id_pressed.connect(_on_edit)
+	p.id_pressed.connect(_on_assets)
+	p.id_pressed.connect(_on_help)
+	p.add_separator()
+	_add_submenu(p, "Edit", _edit.bind(false))
+	_add_submenu(p, "Assets", _assets.bind(false))
+	_add_submenu(p, "Preferences", _preferences.bind(false))
+	_add_submenu(p, "Window", _window)
+	_add_submenu(p, "Help", _help.bind(false))
+
+func _world(p: PopupMenu) -> void:
+	## `world_workspace.gd::_regenerate_live()` -- the guarded path the WORLD
+	## dock's own Generate button already uses (`_on_generate_pressed()`),
+	## not `app.gd::_run_pipeline()`'s unguarded `bridge.generate()` the
+	## tool-options RUN button calls. Guarded is the safer of the two real
+	## candidates: it asks first when the world holds hand-authored work a
+	## regenerate would discard (`_authored_inventory()`), which is the
+	## disclosure Owner ruling 9 asks every regenerate to carry.
+	## Canvas: `sc:'⌘R'` -- this project's `⌘` = `KEY_MASK_CTRL`, the same
+	## convention `_live(p, "Save project", ID_SAVE, KEY_MASK_CTRL | KEY_S)`
+	## already uses for File's `⌘S`. Missing entirely before 2026-09-13;
+	## `Ctrl+R` was free (grepped `KEY_R` across `shell/*.gd`, no hits) so
+	## this is a new binding, not a fix to an existing double one.
+	_live(p, "Run pipeline", ID_WORLD_RUN_PIPELINE, KEY_MASK_CTRL | KEY_R)
+	p.set_item_tooltip(p.item_count - 1,
+		"Runs the whole generation pipeline -- the same guarded path the WORLD dock's own Generate button uses (world_workspace.gd::_regenerate_live()): it asks first if the world holds hand-authored work (sculpt stamps, icons, labels, paint, routes, hand-drawn ways) a regenerate would discard. The engine has no partial recompute -- every stage runs together.")
+	p.add_separator()
+	_build_reset_generation(p)
+	p.add_separator()
+	## Canvas: "Generation pipeline / Sculpt (radio)". `select_domain_mode()`
+	## is `dcc_shell.gd`'s, real since 2026-08-31 (`_pg_set_mode()` already
+	## calls it the same way from the phone sheet) -- WORLD's own mode ids are
+	## "a" (pipeline) and "b" (sculpt), not the words (`world_workspace.gd`
+	## `_pg_set_mode()`'s own comment: "RAIL_NODES' own mode ids for WORLD are
+	## a and b, not the words").
+	p.add_radio_check_item("Generation pipeline", ID_WORLD_MODE_PIPELINE)
+	var mode_pipe_idx := p.item_count - 1
+	p.add_radio_check_item("Sculpt", ID_WORLD_MODE_SCULPT)
+	var mode_sculpt_idx := p.item_count - 1
+	p.add_separator()
+	## Canvas: "Seed & size…" -> `new_world_dialog.gd::request()`. Opening the
+	## dialog is `_host.open_new_world()` -- the same call File ▸ New world…
+	## makes (`ID_NEW_WORLD` below); `request()` itself only reads the
+	## dialog's fields back, at Generate time, so it is not what "opens" this
+	## row. Two labels reaching the same dialog is an established shape here,
+	## not a new one -- `Storage locations…` already does this from both File
+	## and Preferences.
+	_live(p, "Seed & size…", ID_WORLD_SEED_SIZE)
+	p.set_item_tooltip(p.item_count - 1,
+		"Opens New world -- seed, extent, resolution and archetype. The same dialog File ▸ New world… opens; Generate reads its fields when it runs.")
+	p.about_to_popup.connect(func():
+		var m := _shell.active_mode("world")
+		p.set_item_checked(mode_pipe_idx, m != "b")
+		p.set_item_checked(mode_sculpt_idx, m == "b"))
+	p.id_pressed.connect(_on_edit)
+	p.id_pressed.connect(_on_world)
+
+func _on_world(id: int) -> void:
+	match id:
+		ID_WORLD_RUN_PIPELINE:
+			var ws: WorldWorkspace = _host._world_workspace() if _host.has_method("_world_workspace") else null
+			if ws != null:
+				ws._regenerate_live()
+		ID_WORLD_MODE_PIPELINE:
+			_shell.select_domain_mode("world", "a")
+		ID_WORLD_MODE_SCULPT:
+			_shell.select_domain_mode("world", "b")
+		ID_WORLD_SEED_SIZE:
+			if _host.has_method("open_new_world"):
+				_host.open_new_world()

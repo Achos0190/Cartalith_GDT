@@ -195,6 +195,11 @@ const RAIL_NODES: Array = [
 
 var menu_bar_row: HBoxContainer
 var tool_options_row: HBoxContainer
+var tool_options_bar: Control          ## The band `tool_options_row` sits in --
+	## `_build_tool_options_bar()`'s own return value, stored so a caller (a
+	## probe included) can find the band BY MEMBER. Tablet wraps `tool_options_row`
+	## in a `ScrollContainer`, so `tool_options_row.get_parent().get_parent()`
+	## no longer reaches this band on that composition -- see the header there.
 var rail_column: VBoxContainer
 var left_dock: PanelContainer
 var left_dock_title: Label
@@ -842,10 +847,19 @@ func _compute_layout_mode() -> void:
 	## **Both non-desktop bands resolve their dock pair identically, so they are
 	## one branch.** `role_px()` consults `LAPTOP` for the narrow-pointer band
 	## and `TABLET_PORTRAIT` for portrait touch, and otherwise falls through to
-	## `ROLE`'s touch column -- 400/400, which is §1's "so two-column readouts
-	## survive the larger type" (`UI_SHELL_DESIGN.md`) and is what landscape
-	## tablet keeps. Every width is therefore stated once, in `DccTheme`, and
-	## none is duplicated here.
+	## `ROLE`'s touch column -- **still 400/400**, §1's "so two-column readouts
+	## survive the larger type" (`UI_SHELL_DESIGN.md`) and what landscape tablet
+	## keeps today. The canvas's own landscape figure is 320/320
+	## (`Cartalith Tablet.dc.html`'s `valsShell()`), and the owner ruled canvas
+	## adoption 2026-09-07 ("tablet still is the pc layout instead of the
+	## design I gave") -- but moving `ROLE` to 320 was tried 2026-09-12 and
+	## **reverted** 2026-09-13: 8 of 10 rail nodes' dock content still drew
+	## 331-382 px at 320 (`_ds03fit_probe.gd --force-touch` at 2560x1600,
+	## measured 2026-09-12), because the content itself has not reflowed to
+	## the narrower budget -- a declared 320 is not a drawn 320. `ROLE` moves
+	## to 320 in the same change that reflows that content, not before. Every
+	## width is therefore stated once, in `DccTheme`, and none is duplicated
+	## here.
 	##
 	## **The touch half read `float(DccTheme.W_DOCK_TABLET)` for both docks,
 	## unconditionally, and that is the measured defect.** At 800 x 1280
@@ -899,9 +913,12 @@ func _on_window_resized() -> void:
 ##
 ## A flip is the one case where the dragged width cannot be kept, and that is
 ## not a preference: portrait and landscape are different budgets (232 against
-## 400, `DccTheme.TABLET_PORTRAIT`), and a landscape width carried into portrait
-## is the +285 px overflow this batch fixed. Without this function the fix would
-## hold only for a shell that launched already in portrait.
+## 400, `DccTheme.TABLET_PORTRAIT` and `ROLE.w_left_dock`/`w_right_dock`
+## respectively -- landscape's canvas figure is 320, but that move is
+## reverted pending a content reflow, see `W_DOCK_TABLET`'s own header), and a
+## landscape width carried into portrait is the +285 px overflow the original
+## batch fixed. Without this function the fix would hold only for a shell that
+## launched already in portrait.
 ##
 ## Desktop pays one predicate and leaves: `DccTheme.is_tablet()` is `touch and
 ## not phone`.
@@ -1848,7 +1865,71 @@ func _build_tool_options_bar() -> Control:
 	pad.add_theme_constant_override("margin_left", 14)
 	pad.add_theme_constant_override("margin_right", 14)
 	pad.add_child(tool_options_row)
-	bar.add_child(pad)
+	## **Tablet only, and the fix for the rail's own frame overflow.** The
+	## canvas draws this zone `flex:1;min-width:0;overflow-x:auto`
+	## (`TABLET_UI_SPEC.md` §2.2) -- FILL the band when the content's minimum
+	## is smaller than it (`flex:1`), scroll rather than clip or wrap when it
+	## is not (`overflow-x:auto`), and DS-03's ruling ("keep everything,
+	## reflow only") forbids dropping a control to make it fit. At portrait
+	## 800 px wide, six touch-sized text buttons alone gave `tool_options_row`
+	## a combined minimum of 1 057 px (`_compfit_probe.gd`) -- the single
+	## largest contributor to the shell's own +285 px overflow, bigger than
+	## both docks' share combined. A bare `HBoxContainer` folds that minimum
+	## straight up through `pad` and `bar` into the shell's top-level
+	## `VBoxContainer`; a `ScrollContainer` whose horizontal axis is anything
+	## but DISABLED does not (`MISTAKES.md`, "Read a layout that overflows the
+	## screen") -- the same idiom `_build_phone_tool_sheet()` already uses for
+	## this identical row on phone (`horizontal_scroll_mode = SCROLL_MODE_AUTO`).
+	## Vertical stays DISABLED (no scrollBAR on that axis, i.e. no second
+	## scroll direction) -- the bar's own height is `role_px("h_tool_options")`
+	## above, not this row's business; `pad` still needs to FILL that height,
+	## which is a size-flag question on `pad`, not a `ScrollContainer` axis one
+	## -- see the flags immediately below.
+	##
+	## **`pad` needs `SIZE_EXPAND_FILL` on BOTH axes, and shipping with neither
+	## was the bug** (verifier findings, 2026-09-13; the vertical half found by
+	## this pass measuring against HEAD rather than trusting the horizontal
+	## fix alone -- see the mutation/HEAD-diff evidence below). A
+	## `ScrollContainer`'s single child is sized to `max(container_size,
+	## child_minimum_size)`, PER AXIS, only on the axis(es) that carry the
+	## EXPAND flag; without it that axis holds the child at its OWN minimum,
+	## anchored to the start, same as `PanelContainer` would do for a
+	## `SIZE_SHRINK` child. `pad` had no size flags set on either axis (Godot's
+	## plain default is FILL, not EXPAND_FILL), so at 2560x1600 the WORLD row
+	## measured 1057x44 (spacer collapsed to 0 px, Bake/Refine at x 704-1071)
+	## against HEAD's non-scroll 2532x55 (spacer 690-2165, Bake/Refine at
+	## 2179-2546); INFRA·WAY's Commit/Discard moved 2329-2546 -> 518-735.
+	## Setting only the horizontal flag reproduced HEAD's x-positions and
+	## widths exactly (`_toolbargeom_probe.gd`, run against this file and
+	## against a `git show HEAD:` checkout of it, both at 2560x1600 and
+	## 1280x800) but left height at 44 against HEAD's 55 -- buttons drawing
+	## top-aligned in the band with the same rule applying to Y independently.
+	## Setting both flags makes the `ScrollContainer` give `pad` the FULL band
+	## size on whichever axis is >= `pad`'s own minimum on that axis --
+	## `tool_options_row`'s own internal spacer (a `SIZE_EXPAND_FILL` child of
+	## its own) then has real horizontal slack to grow into, and the row fills
+	## the band's height, reproducing HEAD's layout exactly on both. When the
+	## band is narrower than `pad`'s minimum (portrait 800 px, which never
+	## affects Y since the band's height is fixed), `max()` above still yields
+	## the minimum on that axis, so the flag changes nothing there and the row
+	## still scrolls horizontally -- `_ds03fit_probe.gd`/`_compfit_probe.gd`
+	## assert both cases.
+	##
+	## Desktop and laptop get no `ScrollContainer` at all -- `pad` parents
+	## `tool_options_row` directly, exactly as before this existed, so neither
+	## composition's tree or minimum size moves by a pixel.
+	if DccTheme.is_tablet():
+		pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pad.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		var scroll := ScrollContainer.new()
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+		scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+		scroll.add_child(pad)
+		bar.add_child(scroll)
+	else:
+		bar.add_child(pad)
+	tool_options_bar = bar
 	return bar
 
 ## Replace the bar's contents. §4: it holds the active tool's frequently-changed
@@ -2693,6 +2774,12 @@ func _run_phone_dock_fit() -> void:
 ## width rather than adding to it. The other nine rail nodes measure 216..323
 ## against that 365, so the token is not tight and the planner is the outlier.
 ## Same probe `--force-touch` at 2560 x 1600: 455 against `W_DOCK_TABLET` 400.
+## A 2026-09-12 change moved `W_DOCK_TABLET` to 320 without touching
+## `civilization/planner` (out of that batch's scope) and was reverted
+## 2026-09-13 for unrelated reasons (other dock content had not reflowed to
+## 320) -- `W_DOCK_TABLET` is 400 throughout, so this 455 figure is unaffected
+## either way. It still needs a fresh `_ldwidth_probe.gd --force-touch` before
+## being cited again as current, regardless.
 ##
 ## **Why a dock walk and not the factory.** `fit_to_longest_item` is right
 ## wherever a dropdown competes for width with siblings and the row may grow --
@@ -5931,7 +6018,7 @@ func _build_phone_menu_bar() -> Control:
 	## task tabs, and CIVIL moves under MORE, which that spec states
 	## explicitly ("MORE: Project, Civilization ..., Data manager, ...").
 	for t in PHONE_TABS:
-		var cell := _phone_bar_cell(String(t.caption), String(t.icon), String(t.tip),
+		var cell := _phone_bar_cell(String(t.caption), String(t.glyph), String(t.tip),
 			_pick_phone_tab.bind(String(t.id)))
 		var key := String(t.id)
 		_phone_tab_cells[key] = cell
@@ -5954,14 +6041,29 @@ func _build_phone_menu_bar() -> Control:
 ## `civilization` is deliberately absent as a *tab* and still fully reachable --
 ## the planner selects it, and MORE lists it. The spec moved it there rather
 ## than dropping it.
+##
+## **`glyph` is literal text, not an icon key -- 2026-09-13, was `icon`.** The
+## canvas draws each tab's glyph as plain 14 px IBM Plex Mono text off its own
+## `tabs=[{id:'map',g:'▤'},{id:'gen',g:'⌗'},{id:'plan',g:'➔'},{id:'more',g:'⋯'}]`
+## (`Cartalith Android.dc.html`, grep `g:'▤'`), never an SVG. This file used to
+## route MAP/GENERATE through `DccIcons.rect("domain_carto"/"domain_world",
+## ...)` -- real, registered vector icons (`dcc_icons.gd` has both), just not
+## the canvas's own two glyphs, which those SVGs do not resemble (a layered-map
+## compass and a globe, against the canvas's hatched-square and hash mark).
+## PLAN's `tool_route` (a curved path) and MORE's `nav_more` (three dots)
+## happened to already read close to the canvas's `➔`/`⋯` in general shape,
+## which is the only sense in which they "agreed" with anything -- all four
+## are the literal canvas characters now, on the one mechanism the canvas
+## itself uses (`_phone_bar_cell()`, below, renders `glyph` as a mono `Label`
+## instead of calling `DccIcons.rect()`).
 const PHONE_TABS: Array = [
-	{"id": "map", "caption": "MAP", "icon": "domain_carto", "domain": "cartography",
+	{"id": "map", "caption": "MAP", "glyph": "▤", "domain": "cartography",
 		"tip": "Layers, style and annotation"},
-	{"id": "gen", "caption": "GENERATE", "icon": "domain_world", "domain": "world",
+	{"id": "gen", "caption": "GENERATE", "glyph": "⌗", "domain": "world",
 		"tip": "The generation pipeline, and Sculpt"},
-	{"id": "plan", "caption": "PLAN", "icon": "tool_route", "domain": "",
+	{"id": "plan", "caption": "PLAN", "glyph": "➔", "domain": "",
 		"tip": "Journey planner"},
-	{"id": "more", "caption": "MORE", "icon": "nav_more", "domain": "",
+	{"id": "more", "caption": "MORE", "glyph": "⋯", "domain": "",
 		"tip": "Project, Civilization, Data, Assets, Preferences, Help"},
 ]
 
@@ -6106,9 +6208,29 @@ func _phone_bar_cell(caption: String, glyph: String, tip: String,
 
 	## `_pscale`d, not the raw 14: the main viewport has no content scale, so a
 	## 14 px glyph would be 14 *physical* px -- under a millimetre on a 510 ppi
-	## panel. `DccIcons.rect()` reads its own magnification off the canvas
-	## transform, which here is 1, so this is the real raster size too.
-	var ic := DccIcons.rect(glyph, _pscale(14), "text_dim")
+	## panel.
+	##
+	## **A mono `Label`, not `DccIcons.rect()` -- 2026-09-13.** `glyph` is now
+	## the canvas's own literal character (`▤`/`⌗`/`➔`/`⋯`, `PHONE_TABS`'s own
+	## header), and "glyph text in the mono font is the canvas's own mechanism"
+	## -- there is no SVG to rasterise. Font drawn in plain white and left
+	## uncoloured here, matching `DccIcons.rect()`'s own "one asset, two states
+	## via `modulate`" contract exactly (its header comment, and `_select_domain()`'s
+	## `(marks["icon"] as CanvasItem).modulate = ...`, which reads generically
+	## off `CanvasItem` and needs no change for this to keep working on a
+	## `Label` in place of a `TextureRect`) -- setting `font_color` to the
+	## initial token directly, the way `DccTheme.mono_label()` would, then ALSO
+	## letting `modulate` multiply over it would double-apply the tint.
+	var ic := Label.new()
+	ic.text = glyph
+	ic.add_theme_font_override("font", DccTheme.mono())
+	ic.add_theme_font_size_override("font_size", _pscale(14))
+	ic.add_theme_color_override("font_color", Color(1, 1, 1))
+	ic.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ic.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	ic.custom_minimum_size = Vector2(_pscale(14), _pscale(14))
+	ic.modulate = DccTheme.c("text_dim")
+	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	## The glyph sits in a pill that only the ACTIVE tab fills. Lighting only
 	## the caption (what the bar did before) left four labels of equal weight

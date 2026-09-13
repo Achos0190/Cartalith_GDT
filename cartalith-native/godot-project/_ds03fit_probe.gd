@@ -119,12 +119,15 @@ func _sweep(app: Node, tag: String) -> void:
 		await _frames(12)
 		_le("%s %s: left dock is not forced open" % [tag, id], ld.size.x, lw)
 		_le("%s %s: right dock is not forced open" % [tag, id], rd.size.x, rw)
-		var tob := shell.get("tool_options_row") as Control
-		if tob != null and tob.get_parent() != null:
-			var band := tob.get_parent().get_parent() as Control
-			if band != null:
-				_le("%s %s: the tool-options band keeps its height" % [tag, id],
-					band.size.y, band_h)
+		## BY MEMBER, not tree path -- `tool_options_row.get_parent().get_parent()`
+		## used to reach the band (`pad`'s parent), but tablet's ScrollContainer
+		## fix (`_build_tool_options_bar()`) now sits between them, so that path
+		## lands on the scroller instead. `tool_options_bar` is the band itself,
+		## stored by the builder for exactly this reason -- see its own header.
+		var band := shell.get("tool_options_bar") as Control
+		if band != null:
+			_le("%s %s: the tool-options band keeps its height" % [tag, id],
+				band.size.y, band_h)
 		var lat: Array = _latent(shell.get("left_dock_body"), lw) \
 			+ _latent(shell.get("right_dock_body"), rw)
 		_ok("%s %s: no latent over-wide leaf, collapsed sections included" % [tag, id],

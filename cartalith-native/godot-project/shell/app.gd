@@ -1335,8 +1335,25 @@ func _on_workspace_changed(id: String) -> void:
 			## whole of stage 5 was blocked on the prototype's truncated `tbLabel`
 			## -- that blocker was cleared the same day the plan was written; see
 			## `05-right-dock-and-bars.md` §0.)
-			"cartography": _tool_options_simple("CARTOGRAPHY · " + active_mode("cartography").to_upper(),
-				"presentation only — no control here marks a generation stage stale. Map view, Map style and Rendering-advanced drive render.rs's TerrainAppearance live; the quality tier those values start from lives in Preferences.")
+			##
+			## **Stage 3 (Lane GATE, 2026-09-13): this is no longer the only writer
+			## of that caption.** `cartography_workspace.gd::_on_any_tool_armed`
+			## reaches for this same idle default whenever Inspect or Region arms
+			## while Cartography is already the active domain -- a transition
+			## `_on_workspace_changed` never sees, since arming a tool fires no
+			## `workspace_changed` of its own. (Measure's arm reaches that same
+			## branch too, but `tool_bar.gd::DccToolBar` claims the row right back
+			## for its own Sculpt/Paint/Measure toolbar through a separate
+			## listener, so nothing about Measure's own chrome turns on this
+			## caption either way.) That file used to carry a SECOND copy of this
+			## string, hardcoded, because this function was off-limits to it at
+			## the time (`_show_style_tool_options()`'s own comment) -- so arming
+			## Region over an open Labels panel painted "CARTOGRAPHY · STYLE"
+			## again, the exact bug this comment already describes fixing once.
+			## `_tool_options_cartography_default()` below is now the one place
+			## either caller reaches for this row, so the two call sites cannot
+			## go back out of sync the way the string literal did.
+			"cartography": _tool_options_cartography_default()
 			## Settlement/POI/Territory (civ_tools_bridge.rs) and Way/Route/Measure/
 			## Region (infra_tools_bridge.rs) are bound and tested as of 2026-08-19,
 			## and §4.5's TOOLS block that arms them now exists in this dock
@@ -2395,6 +2412,22 @@ func _tool_options_simple(context: String, note: String) -> void:
 		row.add_child(DccTheme.label(note, "text_ghost", DccTheme.FS_MICRO))
 		row.add_child(DccTheme.spacer())
 	)
+
+## Cartography's idle tool-options row: "CARTOGRAPHY · <MODE>", MODE read live
+## from `active_mode("cartography")` rather than a fixed word -- see
+## `_on_workspace_changed()`'s own comment on its "cartography" arm for why a
+## fixed second half goes stale the moment CARTO has more than one
+## destination. The single place both of this row's writers call: a genuine
+## domain/mode navigation (`_on_workspace_changed` above) and arming Inspect
+## or Region while Cartography is already active
+## (`cartography_workspace.gd::_on_any_tool_armed`, which has no
+## `workspace_changed` of its own to hook -- that function's own comment notes
+## Measure reaches the same call and why it never shows the result). Lane
+## GATE, 2026-09-13 -- replaces `cartography_workspace.gd`'s own hardcoded
+## second copy of this string.
+func _tool_options_cartography_default() -> void:
+	_tool_options_simple("CARTOGRAPHY · " + active_mode("cartography").to_upper(),
+		"presentation only — no control here marks a generation stage stale. Map view, Map style and Rendering-advanced drive render.rs's TerrainAppearance live; the quality tier those values start from lives in Preferences.")
 
 ## The whole chain, which is the only granularity the engine offers.
 func _run_pipeline() -> void:
