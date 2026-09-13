@@ -176,6 +176,7 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
 | `EXPORT_SCOPE.md` | 16K/32K single-image export — **shelved 2026-08-25 by the owner**, findings only. Records that the reference's own bake draws terrain and nothing else, the four measured gaps in today's export, the render-once decision that would have to be reversed, a banded renderer that was prototyped and measured byte-identical before being reverted, and the codec survey (WebP eliminated at 16 383 px, JPEG XL at its AGPL encoder) |
 | **Direction and reference** — inputs, not plans | |
 | `FUNCTIONAL_CONTRACT.md` | the HTML app's capabilities vs. this port, tagged per `DECISIONS.md` §7d |
+| `PORT_ONLY_FEATURES.md` | the reverse of `FUNCTIONAL_CONTRACT.md`: features and refinements this port has that the legacy v2.11 HTML does not, each checked at its symbol and against the reference (2026-09-13), with the candidates that turned out to be ports. A list, not a status — status is `STATUS.md`’s |
 | `VISION.md` | the owner's target render, with an honest gap assessment |
 | `DESIGN_HANDOFF.md` | **give this to a designer.** Everything needed to produce a buildable GUI: the resolved tokens, the frame geometry for all three shells, the widget inventory a design must map onto, what does not exist, and the six rules learned expensively |
 | `UI_SHELL_DESIGN.md` | the DCC shell's rule set (owner-supplied) |

@@ -347,6 +347,21 @@ wall time? Leave the field dashed with its reason until it is answered.
 
 ---
 
+## Resume note, 2026-09-13 (late) — read, then delete when acted on
+
+- **Uncommitted work in the tree is the held CIVIL rail re-sort, and only that** (10 tracked files plus the untracked
+  `_civilcensus_probe`). It has two confirmed behaviour bugs; what they are, the expected fix and the owner call owed
+  are in `OUTSTANDING_WORK.md`’s row *"Implement the owner’s re-sorted PC left rail"*. Backup patch:
+  `.claude/resume-2026-09-12/rail_civil_held_2026-09-13.patch`. Verify before committing: behaviour must equal HEAD
+  (the owner called it *"effectively a visual reshuffle"*), and rail work runs at Ultracode with a multi-lens
+  adversarial panel.
+- **The owner’s last standing instruction was *"Do not start new jobs when current has finished"*.** Ask before
+  starting a batch, the rail fix, or the on-device pass.
+- **Fable 5.1 was granted for the rail fix only**, not as a standing default.
+- **The last APK** (D: drive and the OnePlus 6T) was built from commit `01e4faa` and does not contain the CIVIL work.
+- **About twenty untracked `_*_probe` files and a few probe PNGs** in `godot-project/` are unverified leftovers from
+  verifier and refuted lane runs. Do not commit them as found.
+
 ## Where the work is
 
 Derive it rather than trusting this paragraph: read `OUTSTANDING_WORK.md` §2 for
