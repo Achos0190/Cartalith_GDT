@@ -33,6 +33,30 @@ class_name UrbanLayoutDraw
 ## the stippled ford band, `_umDrawLayout` line 22854), the civic hall and
 ## places of worship, and the hinterland clutter (trees, fences, drying racks).
 ##
+## **The clutter absence is re-verified 2026-09-13, at the symbols, not just
+## carried forward.** `urban_bridge.rs::layout_dict` never reads
+## `cartalith_civ::urban_adapter::UrbanLayout::farmland`'s siblings — there are
+## none: that struct's own `farmland` field comment says outright "The rest of
+## `build_details`' output — trees, fences, spoil heaps, drying racks, log
+## booms — stays engine-side", and `run_layout` builds it with
+## `t.details.into_iter().filter(|d| d.kind == "field" || d.kind == "pasture")`,
+## which drops every well/cross/crane/bollard/tree/fence/spoilheap/dryingrack/
+## logboom `Detail` `hinterland.rs::build_details` generates. `_urbandraw_keys_probe.gd`
+## dumps five live `urban_layouts()` towns (one forced unwalled) and confirms
+## by exhaustive key search: 54 keys total, none of them tree/garden/orchard/
+## well/tower/clutter/detail/fence/crane/bollard/cross/spoil/rack/boom-shaped.
+## Drawing that clutter needs a `cartalith-civ`/`cartalith-godot` change first —
+## out of this file's reach alone.
+##
+## **One feature new 2026-09-13 needs no such change, because its data was
+## already crossing the bridge.** Round towers at every vertex of a `curtain`
+## wall (`_draw_wall`, below) read nothing but the `wall_ring` already drawn as
+## the circuit's own stroke. It is not a reference port — see its own doc
+## comment for what it is instead. (An intramural/extramural roof tint built
+## the same day was reverted: `building_district` is not a wall-containment
+## test — `assign_districts` gives market/craftriver/harbour and the economy
+## retags regardless of the wall — so a tint needs a real in-wall test.)
+##
 ## ## The visual treatment
 ##
 ## The reference draws a flat technical plan. This draws an ink-outlined one,
@@ -125,6 +149,21 @@ const WALL_DITCH_INNER := Color(0.525, 0.455, 0.345)
 ## Gate markers, rgb(48,38,26) for stone and rgb(70,52,32) for a palisade.
 const GATE_STONE := Color(0.188, 0.149, 0.102)
 const GATE_PALISADE := Color(0.275, 0.204, 0.125)
+## Round towers at a `curtain` wall's vertices. **Not a reference port —**
+## grep of the whole reference finds no vertex ornament on an ordinary
+## circuit at all: its only "tower" objects are the harbour chain/mole towers
+## (`_umBuildDefences`, unrelated) and the minaret/dome/spire glyphs
+## `buildFaithSites` puts on a place of worship. `_draw_wall`'s existing
+## `palisade` branch already ticks a post at every second vertex (immediately
+## below) and a `ditch` has no masonry to mount one on, so this is new ink for
+## the one style that has neither: `curtain` only. Sourced from the owner's
+## target image instead
+## (`design/owner-references-2026-09-12/urban-town-plan-walled-market-town.jpg`,
+## Ruling H (b)), which draws a dark roundel at every vertex, clearly larger
+## than the wall's own line — a shade darker than `WALL_STONE` and a radius
+## comfortably wider than `WALL_W["curtain"]`'s stroke.
+const WALL_TOWER := Color(0.212, 0.169, 0.114) # a shade under WALL_STONE
+const WALL_TOWER_R_M := 3.6
 ## Base stroke widths in model metres, from the reference's own three branches:
 ## `4.5` stone, `2.2` palisade, `1.6` ditch.
 const WALL_W := {"curtain": 4.5, "palisade": 2.2, "ditch": 1.6}
@@ -504,6 +543,19 @@ static func _draw_wall(ci: CanvasItem, layout: Dictionary, project: Callable,
 		var spurs: PackedVector2Array = layout.get("wall_spurs", PackedVector2Array())
 		if spurs.size() >= 2:
 			ci.draw_multiline(project.call(spurs), Color(col.r, col.g, col.b, alpha), lw)
+
+		# Round towers at every vertex -- `curtain` only. This `else` branch is
+		# also reached by `style == "bastioned"` (the ladder's other stone-family
+		# verdict), and that ring is `wall.fort`'s GORGE polygon rather than a
+		# real circuit -- see the big comment above on why this file cannot draw
+		# the star-fort trace yet. Towers on that wrong shape would be a second,
+		# undocumented departure on top of the first, so this stays scoped to
+		# exactly what Ruling H (b) asked for.
+		if style == "curtain":
+			var tr: float = maxf(px_floor * 1.1, WALL_TOWER_R_M * m_scale)
+			var tower_col := Color(WALL_TOWER.r, WALL_TOWER.g, WALL_TOWER.b, alpha)
+			for v in ring:
+				ci.draw_circle(to_screen.call(v), tr, tower_col)
 
 	var gates: PackedVector2Array = layout.get("wall_gates", PackedVector2Array())
 	if gates.is_empty():
