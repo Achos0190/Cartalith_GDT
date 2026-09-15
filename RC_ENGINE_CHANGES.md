@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.34** |
+| Covered by this document | **v2.11 → v2.37** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.34 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.37 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -441,6 +441,111 @@ Verification: `tests/perf/probe_landsurface.js` (19 assertions).
 
 ---
 
+## 6b. Tectonic boundary tracing and the orogenic belt (v2.35 / v2.36, DCC line only)
+
+Both versions are reachable from terrain ONLY through `buildOrogenyField`, which `generate()` calls
+solely under `state.tect.tectonicGraph` (default `false`); the other consumer is a debug overlay. So
+both are bit-identical at defaults — but a port that implements `tectonicGraph` needs all of it.
+
+### 6b.1 The junction predicate is the CROSSING NUMBER (v2.35)
+
+`traceBoundaries` cut a chain wherever `deg !== 2`, with `deg` the **raw count of 8-neighbours**.
+`thinMask` is Zhang-Suen, which yields an **8-connected** skeleton, so an ordinary diagonal staircase
+gives an interior cell 3 or 4 neighbours in only 2 groups — and every such cell was treated as a
+junction.
+
+- The correct test is the **crossing number**: the count of `0→1` transitions around the 8-ring, i.e.
+  the number of distinct neighbour GROUPS. Endpoint 1, interior 2, junction ≥3. On the staircase cell
+  the ring reads `[0,0,0,1,1,0,1,1]` — raw count 4, crossing number 2.
+- **`thinMask` already computes this quantity as its own `A`**, one function above, for its own
+  thinning test. It was never a new idea, only an unused one.
+- Measured at 512px / 14 plates: **1040 "junctions", only 77 of them at a real plate triple point**,
+  against **23** for the crossing number — and a planar 14-plate graph has ~2n−4 ≈ 24. Longest
+  collision margin 88.9 → 161.0 km (seed 12345), 91.5 → 288.0 (31337), 57.7 → 226.4 (4242).
+- **The WALK must change with the predicate.** Under the crossing number an interior cell can still
+  carry 4 neighbours in 2 groups, so picking `nbrs[0]` can step back into the group just left and
+  ping-pong forever. Prefer a neighbour **not 8-adjacent to the previous cell**, orthogonal first.
+- **And stepping past a same-group diagonal leaves it UNVISITED**, so a later pass walks a second
+  polyline retracing the chain. v2.35 shipped that defect: 2.86 points per distinct skeleton cell
+  against 1.45 before, with the loop pass emitting 81 of 121 polylines. **On a 1024 world it spun a
+  walk to the safety cap and produced a 524 290-point polyline — `buildOrogenyField` took 93 885 ms,
+  against 6 307 before and 1 878 after the fix.** Claim the skipped cell during the walk. Keep the
+  cap proportionate (`2*(W+H)`, not `W*H`): a malformed skeleton should fail fast, not spin.
+
+### 6b.2 The collision belt is a stack of thrust sheets (v2.36)
+
+`buildOrogenyField`'s collision branch was one Gaussian ridge plus two satellites; it is now a stack
+of 4 sheets across `1.55 * halfBelt`, each tapering toward the foreland.
+
+- **Two things make it a BELT rather than four parallel lines or one merged hump**: ONE
+  long-wavelength bend is shared by every sheet, so the belt curves as a unit; and each sheet's own
+  deviation is a fraction of the **SPACING**, never of the belt width — which is what stops a sheet
+  closing the gap to its neighbour.
+- **Calibrate on a PER-STATION crest count, never a mean cross-section.** Each sheet's crest wanders
+  independently, so a mean smears them back into one hump and undercounts ridges.
+- **Whether a cross-section reads as separate ranges is set by sheet spacing IN CELLS**, and that is
+  a resolution limit, not a tuning knob: 0.86–0.96 of stations carry the full stack at 35.3 cells,
+  0.50–0.57 at 17.7, 0.07–0.18 at 8.8. **Five hypotheses were tested against it and refuted** — the
+  post-blur, the fold-ripple period, the shared crest jitter (removing it is WORSE), the along-strike
+  vigor term, and per-group walk starts (a measured no-op).
+- **The fold ripple must stay incommensurate with the stack.** At ~one sheet sigma it manufactures
+  false crests on each sheet's flank; `0.80 * spacing` preserves the original period-to-sigma ratio.
+- **`orogenyWidthScaleK(mapWidthKm)`** gives the belt a fixed REAL width instead of a fixed fraction
+  of the grid — the sixth sibling of the `terrainDetailK` family, keyed on `mapWidthKm` alone. It
+  needs BOTH a cap (stamp cost grows as radius²) and a **FLOOR**: at 19.53 km/cell the belt fell to
+  2.14 cells and structured orogeny rendered nothing. 8 cells is the floor.
+- **ASPECT IS BOUND BY MARGIN LENGTH, NOT BELT WIDTH.** Anchoring the belt at a real orogen width
+  (125 km half-width) fixes sheet resolution outright (0.57 → 0.93 of stations) and was **reverted**:
+  it draws 550 km of belt against a 161 km margin — 69% of an 800 km map, aspect 0.29. At a default
+  extent a Himalaya's proportions and its internal structure are not simultaneously available; a real
+  Himalaya is 2400 km long, three times the map.
+
+## 6c. The carve must never see a wrapped receiver chain (v2.37, DCC line only)
+
+**This is the highest-value row in this document for a port, because the port will reimplement both
+halves and can reintroduce it exactly.**
+
+`buildRiverNetwork` picks receivers through `nx=((nx%W)+W)%W` in world mode, so a river crossing the
+antimeridian has consecutive points at `x≈W−0.5` then `x≈0.5`. `splitRiverPolylines` exists for this
+and was applied at the render and export sites. **The carve was exempted, in a comment**:
+
+> *"The carve path is unaffected: enforceChannelDescent stamps a disc per POINT and never interpolates
+> between them, which is why this only ever showed up as a rendering artifact."*
+
+True when written. **v2.30 destroyed the premise** by inserting `carveChannelPath` between the trace
+and the stamp, which resamples through `catmullRomSample` at `step = min(0.5, halfW*0.5)` and fills
+the seam jump in. `enforceChannelDescent`'s monotone descent ladder then bottoms out at
+`floorLim = sea − 0.06` and **holds below sea level for the rest of the traverse** — there is no
+land/sea test. Rendered, that strip paints as water.
+
+- Measured on a 20 000 km world: **28 of 11 802 chains wrapped, carrying 22.7% of the entire carve's
+  points from 0.23% of the geometry**; 24 830 cells pinned at the floor in 30 horizontal runs of 100+
+  cells, longest 355, against **zero** vertical runs of 100+.
+- **The fix is one line**: pass the traced chain through `splitRiverPolylines` at the carve site too.
+  No skip predicate — a lake reach is real hydrology the carve should cut.
+- Channel cells **59 481 → 71 654 (+20%)**: the bogus trenches were drowning real rivers.
+- **Region mode is byte-identical** (no receiver can wrap). World mode is a deliberate re-baseline,
+  and not nil at the default extent.
+
+**Three porting lessons, each of which cost this codebase real time:**
+
+1. **A comment recording why something is safe is load-bearing, and it can expire.** When you add
+   interpolation to a path, grep for every comment claiming that path does not interpolate.
+2. **Severity is not the count of bad inputs, it is how much output each one produces.** 0.23% of the
+   geometry produced 22.7% of the work. A count of wrapping polylines says "negligible".
+3. **Match the detector to what the bug writes.** The carve writes a FLAT ABSOLUTE floor value;
+   searching for cells *depressed relative to neighbours* cannot find a flat floor.
+
+**And the reason it survived six versions: every harness ran in the one mode that cannot reproduce
+it.** The region/world flag gates the wrap, the carve probe sets region, the hash battery never sets
+the flag at all, and the battery seed has zero seam-crossing rivers even in world mode. **A port's
+parity suite must include a world-mode scenario on a seed that genuinely wraps**, and should assert
+the mechanism (no carve path spans more than half the map) as well as the symptom.
+
+One adjacent bug found with it: `gridH()` reads the module global `state.world`, so anything
+computing `GH` must assign the extent FIRST. The setup gate had the two lines the wrong way round and
+built world maps with the region aspect.
+
 ## 7. Cross-cutting calibration rules
 
 These are not features; they are the rules the HTML repeatedly re-learned the hard
@@ -535,6 +640,9 @@ The HTML's own harnesses, and what each is good for:
 | `tests/perf/probe_trade.js` | §5.4 |
 | `tests/perf/probe_passes.js` | §1.1 — browser-only (checkboxes, `syncUI()`, `generate()`) |
 | `tests/perf/probe_landsurface.js` | §6.2 |
+| `tests/perf/probe_margins.js` | §6b.1 |
+| `tests/perf/probe_orogeny.js` | §6b.2 |
+| `tests/perf/probe_seamcarve.js` | §6c — **world mode, seed 21811**; the only harness here that can see the seam |
 
 Two harness traps the HTML hit that apply to any parity suite:
 
