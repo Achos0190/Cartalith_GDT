@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.37** |
+| Covered by this document | **v2.11 → v2.38** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.37 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.38 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -546,6 +546,51 @@ One adjacent bug found with it: `gridH()` reads the module global `state.world`,
 computing `GH` must assign the extent FIRST. The setup gate had the two lines the wrong way round and
 built world maps with the region aspect.
 
+## 6d. What the road-network build actually costs (v2.38 profile, DCC line only)
+
+Not a change to port — a **measurement of the design in §6**, taken because the owner
+reported Auto-populate as broken when it was merely silent. The port will implement
+`_civHierarchicalNetwork` and should know the shape of its cost before copying it.
+
+Profiled on a 1024 px World map, 20 000 km wide, 43 settlements:
+
+| stage | time | calls |
+|---|---|---|
+| **`roadDijkstra`** | **8 593 ms (77%)** | **326** |
+| `_civHierarchicalNetwork` (contains the above) | 8 773 ms | 4 |
+| `currentSettlementSuitability` | 1 854 ms | 3 |
+| `_civApplyFoodShedCeilings` | 217 ms | 1 |
+| `findSettlementSeeds` | 24 ms | 2 |
+| `_civNetworkMetrics` | 7 ms | 3 |
+| **total (`_civIterativeAutoWorld(3)`)** | **11 190 ms** | |
+
+Three facts worth carrying:
+
+- **`_civHierarchicalNetwork` runs `2 x settlements` full-grid Dijkstras** — one per
+  settlement to build the all-pairs matrix the Prim MST consumes, then a second full
+  set for the minimum-degree pass over the reuse-discounted cost grid. It is rebuilt
+  **from scratch four times**: the three `_civIterativeAutoWorld` passes plus the
+  crossroads re-route. The two intermediate networks are discarded; only
+  `_civNetworkMetrics` (7 ms) reads them, to promote/demote settlement tiers.
+- **The cost does not scale with world resolution.** `_civRoutingGrid` is
+  `Math.min(GW,384)`, so the routing grid is 384x192 at every world size — a 4K world
+  costs what a 512 one does. **The driver is settlement count, not the map.** A port
+  that instead routes on the full grid will be dramatically slower than the HTML at
+  high resolution, for no gain the HTML is getting.
+- **§6's per-edge `edgeCost` hook costs 44%** of each Dijkstra — 26 ms with it against
+  18 ms with it null, same grid, same source. That is the price of the Tobler slope
+  model being on the edge rather than the cell, and it is worth paying; but a port in
+  a compiled language should inline it rather than reproduce the callback indirection.
+
+**If the port wants this faster than the HTML**, the two openings are: derive the
+all-pairs matrix from **one multi-source Voronoi Dijkstra** rather than n
+per-settlement ones, and let the two intermediate passes settle tiers on a cheaper
+distance proxy. Both **change the generated road network**, so they are a deliberate
+re-baseline, not a free optimisation — the HTML declined to bundle them into a fix
+about feedback, and the port should make the same choice consciously.
+
+---
+
 ## 7. Cross-cutting calibration rules
 
 These are not features; they are the rules the HTML repeatedly re-learned the hard
@@ -602,6 +647,7 @@ defects survived multiple versions.
 | v2.24 | The DCC editor frame | `_domain` is the ONE writable navigation variable; the finalize lock is `[data-genlock]`, never DOM containment. |
 | v2.26 | `exportZip()` writes the project **tree** | Matches `SAVEFILE_COMPAT.md` §1 — readers accept both layouts, writers produce only the tree. `_treeWriteEntries()` is the exact inverse of `_treeRead`, member for member. §9.3's `from`/`to` index the settlements array; the app's `aIdx`/`bIdx` index `state.places`, which also holds POIs — `_twSettleIndex` is the remap. POIs ride in `reference.pois`. |
 | v2.27–v2.28, v2.31 | Shell/CSS | Phone layout only. |
+| v2.38 | The three long civilisation buttons wrapped in `withBusy` | Not simulation. Worth knowing anyway: Auto-populate is **11.2 s of synchronous main-thread work** and gave the click no acknowledgement at all, which the owner reported as it not working. Any port that runs this on the UI thread inherits the same report. See **§6d** for where the time goes. |
 
 ---
 
