@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.38** |
+| Covered by this document | **v2.11 → v2.39** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.38 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.39 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -591,6 +591,41 @@ about feedback, and the port should make the same choice consciously.
 
 ---
 
+## 6e. The LOD colour path has no river, and that is structural (v2.39, DCC line only)
+
+A porting constraint, not just a bug report: **the HTML's river water colour is produced in exactly
+one place and the tiled-LOD path cannot reach it.**
+
+- `waterShade` (Beer-Lambert depth water, `RIVER_KD`) has **one call site in the entire file**,
+  inside `surfaceColor`, gated
+  `state.showRivers && _riverNet && !(state.viz&&state.viz.riverWays)`.
+- The LOD colorizer is `renderBiomeTileRGBA`, and it calls `landColorCore` **directly** — it never
+  goes through the `surfaceColor` wrapper. Verified by nulling `_riverNet` and re-colorizing one
+  tile: **byte-identical, FNV `262842011` both ways.**
+- `renderHeightTileRGBA` (Relief tiles) and `bakePixel` (the PNG bake) are blind the same way —
+  measured 0 of 5462 river cells changed. **So the reference's exported `map.png` has no river
+  water colour either.**
+- `burnChannels` does not compensate: it is off by default (`_lodBurnRivers`) and its only output is
+  `tile[i]=Math.max(floor,tile[i]-burn[i])` — heightmap carving, not colour.
+
+**What this means for the port.** If you implement the tile colorizer by porting
+`renderBiomeTileRGBA`, you inherit a renderer with no river. The HTML papers over this with a
+**vector overlay** in `drawLODView` (`drawRiverWays`, a reprojected Catmull-Rom spline), which is a
+cartographic SYMBOL — sqrt-z-damped width with a real-half-width floor — and therefore renders
+rivers in a **visibly different style** from the terrain-blended off-LOD map. A port that wants one
+consistent look across zoom levels should sample `_riverNet.intensity`/`depth` at world coords
+inside its tile colorizer and apply the `waterShade` blend there, rather than reproducing the HTML's
+two-renderer split. That is the HTML's own disclosed follow-up, not something it has done.
+
+**The v2.39 change itself** is one gate: that overlay was gated on `state.viz.riverWays`, which
+v2.29 defaulted to false, so at defaults LOD drew no river at all (measured: river-vs-land contrast
+28.27 off-LOD against 10.95 under LOD, the residual being only the carved valley). It is now
+`((riverWays) || state.showRivers)`. **Do not port the v2.29 default flip without also porting
+this** — off-LOD the flag is a real either/or preventing two renderers drawing one network; under
+LOD there is no second renderer for it to select between.
+
+---
+
 ## 7. Cross-cutting calibration rules
 
 These are not features; they are the rules the HTML repeatedly re-learned the hard
@@ -647,6 +682,7 @@ defects survived multiple versions.
 | v2.24 | The DCC editor frame | `_domain` is the ONE writable navigation variable; the finalize lock is `[data-genlock]`, never DOM containment. |
 | v2.26 | `exportZip()` writes the project **tree** | Matches `SAVEFILE_COMPAT.md` §1 — readers accept both layouts, writers produce only the tree. `_treeWriteEntries()` is the exact inverse of `_treeRead`, member for member. §9.3's `from`/`to` index the settlements array; the app's `aIdx`/`bIdx` index `state.places`, which also holds POIs — `_twSettleIndex` is the remap. POIs ride in `reference.pois`. |
 | v2.27–v2.28, v2.31 | Shell/CSS | Phone layout only. |
+| v2.39 | The tiled-LOD river overlay's gate widened | Small edit, load-bearing constraint — see **§6e**: the HTML's river water colour is unreachable from the LOD/bake colour path, so a port that reuses `renderBiomeTileRGBA`'s shape inherits a renderer with no river. |
 | v2.38 | The three long civilisation buttons wrapped in `withBusy` | Not simulation. Worth knowing anyway: Auto-populate is **11.2 s of synchronous main-thread work** and gave the click no acknowledgement at all, which the owner reported as it not working. Any port that runs this on the UI thread inherits the same report. See **§6d** for where the time goes. |
 
 ---
