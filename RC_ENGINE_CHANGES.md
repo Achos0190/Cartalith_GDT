@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.39** |
+| Covered by this document | **v2.11 → v2.40** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.39 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.40 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -613,9 +613,13 @@ one place and the tiled-LOD path cannot reach it.**
 **vector overlay** in `drawLODView` (`drawRiverWays`, a reprojected Catmull-Rom spline), which is a
 cartographic SYMBOL — sqrt-z-damped width with a real-half-width floor — and therefore renders
 rivers in a **visibly different style** from the terrain-blended off-LOD map. A port that wants one
-consistent look across zoom levels should sample `_riverNet.intensity`/`depth` at world coords
-inside its tile colorizer and apply the `waterShade` blend there, rather than reproducing the HTML's
-two-renderer split. That is the HTML's own disclosed follow-up, not something it has done.
+consistent look across zoom levels must put the water inside its tile colorizer rather than
+reproduce the HTML's two-renderer split.
+
+> **Correction, v2.40.** This paragraph previously advised sampling `_riverNet.intensity`/`depth` at
+> world coords inside the tile colorizer. **Do not do that** — those are rasters, so sampling them is
+> a bilinear smear of a one-cell stamp that gets blurrier at every pyramid level rather than sharper.
+> v2.40 does it from the polyline instead; see **§6f**, which supersedes this advice.
 
 **The v2.39 change itself** is one gate: that overlay was gated on `state.viz.riverWays`, which
 v2.29 defaulted to false, so at defaults LOD drew no river at all (measured: river-vs-land contrast
@@ -623,6 +627,82 @@ v2.29 defaulted to false, so at defaults LOD drew no river at all (measured: riv
 `((riverWays) || state.showRivers)`. **Do not port the v2.29 default flip without also porting
 this** — off-LOD the flag is a real either/or preventing two renderers drawing one network; under
 LOD there is no second renderer for it to select between.
+
+---
+
+## 6f. The river must be evaluated from its geometry, not sampled from its raster (v2.40, DCC line only)
+
+This is the constraint §6e pointed at, now resolved in the HTML — and the resolution is **not** the one
+§6e originally suggested. Port this shape, not that one.
+
+**The key fact, and the reason a geometric evaluation is legal rather than invented.**
+`buildRiverNetwork` stamps, per channel cell:
+
+    halfW        = (0.6 + 3.0*mag² + 0.45*(order-1)) * slopeFac * widthK   clamped [0.5, 9*widthK]
+    intensity[j] = amp * (1 - dist/halfW)
+    depth[j]     = d01 * (1 - dist/halfW)      (max-combined across contributing cells)
+
+That is a **linear falloff from the centreline** — a signed distance function that merely happened to be
+evaluated on the coarse grid. `traceRiverPolylines` returns the same centreline as continuous geometry
+and the network now also returns `halfw` (added v2.25), so the identical function can be evaluated at any
+resolution. A tile colorizer that does so is not synthesising detail; it is re-evaluating the function the
+coarse raster was a low-resolution *sample* of.
+
+**`riverFieldTile(bounds, W, H, cx, cy)`** is the HTML's implementation: reject polylines by a
+half-width-expanded bbox, then stamp each segment's AABB into a max-accumulator in TILE PIXELS, returning
+`s`/`d` on exactly the scale the blend expects. Cost is the channel's own area, not the tile's.
+
+**Read the peak values off the CENTRELINE CELL.** There `dist=0` so `t=1`, which makes `intensity[i]`
+exactly `amp` and `depth[i]` exactly `d01`. No width formula is duplicated and there is no second model to
+drift from `buildRiverNetwork`'s — the "two functions answering one question" failure this file documents
+eight times.
+
+**Width scaling is free, and must not be re-invented.** `halfW` is in GRID CELLS; the tile converts once
+by tile-pixels-per-coarse-cell, which doubles every pyramid level. So the symbol→true-scale crossover
+lands at a **different level for every river**, which is correct — production cartography derives that
+switch from the rendering pixel (openstreetmap-carto: `WHERE way_area > 1*!pixel_width!*!pixel_height!`)
+rather than picking a zoom. `RIVER_TILE_MIN_PX = 0.55` is the symbol floor beneath the crossover, applied
+as a `max` so true width wins the instant it is wider.
+
+**The verification a port should reproduce.** Hold the WORLD rect fixed and vary tile resolution. If the
+pass is resolving known geometry, the channel's area in world units is the same number every time and only
+its pixel count grows:
+
+| tile | channel area | in world units |
+|---|---|---|
+| 64 px | 121 px² | 79.92 cells² |
+| 128 px | 497 px² | 80.78 cells² |
+| 256 px | 1 934 px² | 77.97 cells² |
+| 512 px | 7 690 px² | 77.20 cells² |
+| 1024 px | 30 898 px² | 77.40 cells² |
+
+**A blue-contrast threshold is not a valid test.** Carved valleys plus `landColorCore`'s TWI wetness term
+already make channel cells ~21 bluer than surrounding land with **no water drawn at all**. Key every
+assertion to a delta against the same build's own suppressed baseline. The HTML's first attempt at this
+used an absolute threshold and passed on the broken build.
+
+**Gating — port this exactly.** `state.viz.riverWays` is an either/or (v1.14): on means the stroked spline
+is the only renderer, so the raster blend must stand down or one network draws as two parallel rivers.
+v2.39's widened gate (`riverWays || showRivers`) was correct only while LOD had no raster renderer; v2.40
+reverts it, gives the tile pass `surfaceColor`'s condition character for character, and the two paths now
+agree in both modes.
+
+**Other pieces of the same change:** `applyRiverWater(c, s, d)` is the single blend, shared by
+`surfaceColor`, `renderBiomeTileRGBA` and both bake loops; `riverLakeSkip()` is the shared "this point is
+in open water" predicate; `_lodRenderKey()` gained a `state.showRivers` term because tile pixels now
+depend on it. `bakePixel` is per-pixel with no tile bounds, so the bake evaluates the field once per strip
+or tile and blends after it returns — **so the reference's exported `map.png` now does carry river water**,
+correcting §6e's statement above for v2.40 onward.
+
+**Still unbuilt in the HTML, and therefore still open for the port.** The channel is only as sharp as
+`field` carries it: `carveRiverValleys`' groove is upsampled by `amplifyRegion` and then roughened by
+`addZoomDetail`. Re-asserting the carve at tile resolution is the owner's LOD6 "banks and valley" rung.
+The piece for it exists and is pointed at the wrong source — `burnChannels` already has the right
+hydraulic width law (`W ∝ Q^0.5`) and the right quadratic cross-section, but reads bilinearly-interpolated
+coarse `mag`, and its `widthK` is a radius in **tile pixels**, so it collapses from 6.0 coarse cells at
+z=0 to 0.023 at z=8 — the same scale defect §6b/§2 record in four other subsystems. Also:
+`renderHeightTileRGBA` is still river-blind, and no river geometry is persisted (`loadZip()` reads back
+six entries and rebuilds the network from `flowField`).
 
 ---
 
@@ -682,6 +762,7 @@ defects survived multiple versions.
 | v2.24 | The DCC editor frame | `_domain` is the ONE writable navigation variable; the finalize lock is `[data-genlock]`, never DOM containment. |
 | v2.26 | `exportZip()` writes the project **tree** | Matches `SAVEFILE_COMPAT.md` §1 — readers accept both layouts, writers produce only the tree. `_treeWriteEntries()` is the exact inverse of `_treeRead`, member for member. §9.3's `from`/`to` index the settlements array; the app's `aIdx`/`bIdx` index `state.places`, which also holds POIs — `_twSettleIndex` is the remap. POIs ride in `reference.pois`. |
 | v2.27–v2.28, v2.31 | Shell/CSS | Phone layout only. |
+| v2.40 | The river moved INTO the tile colorizer and the PNG bake | Simulation-adjacent and load-bearing — see **§6f**. It also supersedes §6e's original porting advice: evaluate the river from its polyline geometry, never by sampling `intensity[]`/`depth[]`. |
 | v2.39 | The tiled-LOD river overlay's gate widened | Small edit, load-bearing constraint — see **§6e**: the HTML's river water colour is unreachable from the LOD/bake colour path, so a port that reuses `renderBiomeTileRGBA`'s shape inherits a renderer with no river. |
 | v2.38 | The three long civilisation buttons wrapped in `withBusy` | Not simulation. Worth knowing anyway: Auto-populate is **11.2 s of synchronous main-thread work** and gave the click no acknowledgement at all, which the owner reported as it not working. Any port that runs this on the UI thread inherits the same report. See **§6d** for where the time goes. |
 
