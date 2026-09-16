@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.40** |
+| Covered by this document | **v2.11 → v2.41** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.40 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.41 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -706,6 +706,110 @@ six entries and rebuilds the network from `flowField`).
 
 ---
 
+## 6g. Flow must be routed over filled depressions, or there are no trunk rivers (v2.41, DCC line only)
+
+**This is the most consequential simulation finding in this whole document, and a port that copies
+`computeFlow` as written inherits it.** It is not a river-rendering issue; it silently distorts every
+consumer of river order — settlement placement, water access, navigability, food-shed mode, the
+Journey Planner.
+
+**The defect, measured on the shipped engine.** `computeFlow` accumulates on the RAW `field` with no
+depression filling. Every local pit terminates accumulation. At 512 px / seed 12345:
+
+| | share of land |
+|---|---|
+| drains to an interior pit | **66.5%** |
+| drains to the sea | 29.6% |
+| drains off a map edge | 3.9% |
+
+At 1024 px the single largest channel cell carries flow 14 072 and its receiver is a pit **~391 m
+above sea level**; five of the six biggest do the same; the largest flow reaching the sea anywhere is
+2 355, six times smaller. The drainage is 732 separate basins, median 3 channel cells. Max Strahler
+order is 2–3 world-wide and there was **not one order-3 outlet** across five seed/resolution/extent
+combinations tested. The carve makes it worse: land pits 334 → 550 per `carveRiverValleys()` call.
+
+**The fix, and the part that is easy to get wrong.** `buildRoutingSurface` is a Barnes priority-flood
+seeded from every sub-sea cell and every map edge (x edges only when not wrapping) — **with an epsilon
+tilt**. A plain flood leaves a filled basin perfectly flat, and the receiver search requires
+`drop > 0` strictly, so a flat basin terminates accumulation *exactly as the pit did*. Each cell is
+raised to `max(own height, neighbour + eps)`. **A fill without the tilt is not a fix.**
+
+**It must never modify the heightmap.** The terrain keeps its pits; only routing sees them filled.
+That is the standard hydrological-correction distinction, and it is what keeps lakes lakes — the
+water-body classifier still reads the real surface, and a river correctly flows *through* a lake to
+its outflow instead of stopping dead in it.
+
+**Both trees need the same surface.** `buildRiverNetwork` constructs its OWN receiver tree (the R3b
+aspect-projected single receiver), still on the raw field. Filling `computeFlow` alone moves the
+accumulation and leaves the TRACED network unchanged — the two then describe genuinely different
+objects, which is itself a defect worth not porting. In the HTML this is `opts.routeOn`, threaded at
+every live call site. Note the one deliberate exception: the **slope** field keeps the REAL gradient,
+because it feeds the channel-initiation threshold, which is a statement about ground steepness, not
+about where water goes.
+
+**Do not verify this with a flow ratio.** "Max flow reaching the sea ÷ max flow on land" reads 28.5%
+before the fix and 14.4% after — which looks like a regression and is not. In region mode the largest
+basin often exits via a **map edge**, a perfectly legitimate outlet, so that ratio measures the crop.
+Walk every land cell's receiver chain to its terminus and classify it instead: **pit 66.5% → 0.0%**,
+sea-draining land ×1.47, outlet Strahler 2 → 3, land fraction unchanged to four decimal places.
+
+### Deltas, which this unblocks
+
+Two independent reasons the reference could not build one, both worth checking in a port.
+
+1. **The sediment router's sub-sea branch is an asymptote.** `dep = min(load, (sea − h) × 0.5)` with
+   each cell visited exactly once closes at most half its own depth, so it can never cross into land
+   however much sediment it is given. Measured with the real carve supply: 45 612 sub-sea cells
+   raised, 53 crossed sea level, and **all 53 were sinks pooling, not progradation**.
+2. **The one river-mouth process runs the wrong way.** The coastal pass's estuary branch SUBTRACTS
+   height where a major river meets the coast (712 of 720 gate-matching cells lowered, mean −3.59 m
+   per pass) — it builds drowned valleys. It is also default-off, so the reference has **no** mouth
+   process at all in either direction. Land fraction around the 40 biggest outlets vs ordinary coast:
+   +0.113 at r=4. The river just stops at the shore.
+
+**Calibration is the entire difficulty, and it runs the opposite way to intuition.** Sediment is
+**over-supplied by roughly 60×** — median water depth just offshore of the biggest mouths is 13.9 m
+against 1 133.8 units of eroded column. Routing all of it builds ~11 900 km² of new land, about 160
+Mississippi deltas. Three controls, each load-bearing:
+
+- A delivery ratio (0.10, inside the literature's 0.05–0.30 basin sediment-delivery band). Isostatic
+  rebound already consumes that same eroded column as broad uplift, so routing 100% double-counts.
+- **A swell floor on the wave term.** A naive onshore-wind projection gives **63% of mouths zero wave
+  energy** — on a fixed wind field most coastline is a lee shore — which would make 63% of mouths
+  river-dominated, the exact over-correction above. Real oceans get far-field swell regardless of
+  local wind; the floor is the physical term, not a fudge.
+- **`R = Qr / Qs,max` pivoted on the world's own R distribution, never an absolute cutoff.** The pivot
+  is R at the target quantile, so the same ~10% of mouths land river-dominated whatever the world's
+  absolute discharge scale. Sources: Nienhuis, Ashton & Giosan, *Geology* 43:511 (2015) for R; Nienhuis
+  et al., *Nature* 577:514 (2020) for the ~80% wave / 10% tide / 10% river global split that is the
+  calibration target. **Most mouths must NOT become bird's-feet.** (Both figures come from secondary
+  summaries — the primary PDFs were unreachable from this environment.)
+
+Measured result: 177 mouths, 13 river-dominated (7.3%), 330 km² of new land, 78%+ of it within 14
+cells of a mouth.
+
+**Do not try to give the flow model multiple receivers.** In the HTML the receiver array is a single
+`Int32Array` with **nine read sites** across both script blocks, every one walking it as a tree
+(Strahler solver, polyline tracer, the carve, both renderers, the GeoJSON export, the civ layer's own
+river cache). A second receiver needs a different structure and breaks all nine; a mouth-only
+exception has no principled bound either. Distributaries are a **post-hoc pass over the deposited
+lobe** that emits extra polylines and touches the receiver tree not at all.
+
+**Gating.** Both halves are opt-in and default off in the HTML, so its hash battery is ALL IDENTICAL
+and the headless suite is untouched. Deltas require integrated drainage — a delta is a trunk-river
+landform. Whether the port ships them on by default is its own call, but the drainage half is a
+correctness fix and the rest of this document's simulation numbers were all measured against a world
+that had it OFF.
+
+**Still open, and stated rather than implied**: distributary branch *count* follows R, but the branch
+*geometry* is a fan over the real lobe, not Edmonds & Slingerland's (2007) depth-over-bar bifurcation
+(that needs mouth-bar bathymetry); no tide axis, so Galloway's third leg is absent; the coastal pass's
+wrong-direction estuary branch is untouched, as is its own hardcoded flow gate at 2.5× the canonical
+river threshold — an eighth instance of this codebase's "two functions answering one question" shape,
+sitting in the exact function a future estuary/delta discriminator would have to touch.
+
+---
+
 ## 7. Cross-cutting calibration rules
 
 These are not features; they are the rules the HTML repeatedly re-learned the hard
@@ -762,6 +866,7 @@ defects survived multiple versions.
 | v2.24 | The DCC editor frame | `_domain` is the ONE writable navigation variable; the finalize lock is `[data-genlock]`, never DOM containment. |
 | v2.26 | `exportZip()` writes the project **tree** | Matches `SAVEFILE_COMPAT.md` §1 — readers accept both layouts, writers produce only the tree. `_treeWriteEntries()` is the exact inverse of `_treeRead`, member for member. §9.3's `from`/`to` index the settlements array; the app's `aIdx`/`bIdx` index `state.places`, which also holds POIs — `_twSettleIndex` is the remap. POIs ride in `reference.pois`. |
 | v2.27–v2.28, v2.31 | Shell/CSS | Phone layout only. |
+| v2.41 | Flow routed over filled depressions; river deltas | **Core simulation, and the highest-priority row in this table** — see **§6g**. A port that copies `computeFlow` as written inherits a world where 66.5% of land drains into an interior pit and no order-3 river reaches the sea. |
 | v2.40 | The river moved INTO the tile colorizer and the PNG bake | Simulation-adjacent and load-bearing — see **§6f**. It also supersedes §6e's original porting advice: evaluate the river from its polyline geometry, never by sampling `intensity[]`/`depth[]`. |
 | v2.39 | The tiled-LOD river overlay's gate widened | Small edit, load-bearing constraint — see **§6e**: the HTML's river water colour is unreachable from the LOD/bake colour path, so a port that reuses `renderBiomeTileRGBA`'s shape inherits a renderer with no river. |
 | v2.38 | The three long civilisation buttons wrapped in `withBusy` | Not simulation. Worth knowing anyway: Auto-populate is **11.2 s of synchronous main-thread work** and gave the click no acknowledgement at all, which the owner reported as it not working. Any port that runs this on the UI thread inherits the same report. See **§6d** for where the time goes. |
