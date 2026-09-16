@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.41** |
+| Covered by this document | **v2.11 → v2.42** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.41 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.42 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -866,6 +866,7 @@ defects survived multiple versions.
 | v2.24 | The DCC editor frame | `_domain` is the ONE writable navigation variable; the finalize lock is `[data-genlock]`, never DOM containment. |
 | v2.26 | `exportZip()` writes the project **tree** | Matches `SAVEFILE_COMPAT.md` §1 — readers accept both layouts, writers produce only the tree. `_treeWriteEntries()` is the exact inverse of `_treeRead`, member for member. §9.3's `from`/`to` index the settlements array; the app's `aIdx`/`bIdx` index `state.places`, which also holds POIs — `_twSettleIndex` is the remap. POIs ride in `reference.pois`. |
 | v2.27–v2.28, v2.31 | Shell/CSS | Phone layout only. |
+| v2.42 | The Seasons checkbox also opens the Season (render) blend | **Not simulation — nothing to port, listed so the span's own claim stays true.** It does record one fact a port must not mistake for a bug: `computeSeasons()` writes only `tempJul`/`tempJan`/`rainJul`/`rainJan`/`koppenField` and **restores the annual `rainField`**, so enabling seasons is bit-identical on the annual path by design (v0.93). The HTML proved it inside one build — annual FNV `3576384877`, seasons-on-at-annual FNV `3576384877`. A port that wires a seasons flag and sees no change to its annual fields is matching the reference, not failing to. |
 | v2.41 | Flow routed over filled depressions; river deltas | **Core simulation, and the highest-priority row in this table** — see **§6g**. A port that copies `computeFlow` as written inherits a world where 66.5% of land drains into an interior pit and no order-3 river reaches the sea. |
 | v2.40 | The river moved INTO the tile colorizer and the PNG bake | Simulation-adjacent and load-bearing — see **§6f**. It also supersedes §6e's original porting advice: evaluate the river from its polyline geometry, never by sampling `intensity[]`/`depth[]`. |
 | v2.39 | The tiled-LOD river overlay's gate widened | Small edit, load-bearing constraint — see **§6e**: the HTML's river water colour is unreachable from the LOD/bake colour path, so a port that reuses `renderBiomeTileRGBA`'s shape inherits a renderer with no river. |
