@@ -41,6 +41,26 @@ work outstanding.
 | **5** — urban morphology | in progress | **in progress** | The largest outstanding block; see above |
 | *not a phase* — LOD and large worlds | "revisit when a concrete need appears rather than building it speculatively" | **built and shipping** | A tiled deep-zoom pyramid with a persistent chunk atlas is on screen. `ROADMAP.md` has not been told |
 
+**Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
+and the source has moved twelve mainline versions past it.** Measured
+2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
+v*.html` (newest **v2.22**) plus a second line of **30** DCC files (newest
+**v2.52**), and it **forked at v2.22** — every engine change from v2.25 on
+exists only on the DCC line. This does not un-do a milestone; a phase verified
+against v2.10 is still verified against v2.10. It does mean **no row above can
+be read as "matches the source today"**, and four of the changes in the interval
+(v2.48, v2.49, v2.50, v2.51) are deliberate upstream re-baselines that a golden
+fixture taken against v2.10 will fail *correctly*.
+
+What changed in the interval is specified change by change in
+`RC_ENGINE_CHANGES.md`. **Which of it is already ported is not established
+anywhere, including here** — a spot check found `food_shed` and
+`route_corridors` present in the crates and `crater_population` and
+`landmass_index` absent, i.e. uneven in both directions. That survey is
+`OUTSTANDING_WORK.md` §2.9's first row and it is the prerequisite for scheduling
+any of the rest. Until it runs, this file has no honest status to report for the
+span, and says so rather than implying one.
+
 **What landed most recently** (full week in *The last seven days* below):
 
 1. **2026-09-01** — `OUTSTANDING_WORK.md` §1's eight in-flight items worked in

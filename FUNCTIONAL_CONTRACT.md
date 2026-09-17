@@ -15,13 +15,37 @@ an existing doc, that's flagged explicitly, not silently overwritten.
 
 ## Live-repo version check
 
-`https://github.com/Achos0190/Cartalith_RC`, root contents, 152 versioned
-HTML files present, `v0.6` through **`v2.10`**. The frozen reference this
-entire port is built and verified against (`reference/Cartalith Gen1
-v2.10.html`) is the live repo's own latest version. **No drift, no re-freeze
-question to raise.** This should be re-checked periodically as the upstream
-project continues (this repo's own `CLAUDE.md` already says so) — it is not
-a one-time fact.
+**Re-measured 2026-09-17 against the working copy, and the paragraph this
+replaces was wrong on every count.** It read: *"152 versioned HTML files
+present, `v0.6` through `v2.10` … the live repo's own latest version. No drift,
+no re-freeze question to raise."* Counted directly:
+
+| | Then (claimed) | Now (measured) |
+|---|---|---|
+| `Cartalith Gen1 v*.html` | 152 | **164** |
+| Newest mainline | v2.10 | **v2.22** |
+| DCC-line files (`Cartalith v*.* DCC test.html`) | not mentioned | **30, newest v2.52** |
+| Frozen here in `reference/` | v2.10 | v2.10 — unmoved |
+
+So the frozen reference is **twelve mainline versions behind**, and the source
+project has since **forked**: v2.23 duplicated v2.22 to carry this port's own
+shell theme, and every engine change from v2.25 on exists **only on the DCC
+line**. `Cartalith Gen1 v2.11.html` sits committed at this repository's root,
+which is what the re-freeze debt in `OUTSTANDING_WORK.md` §2.8 was written
+against — that debt is now understated by the same twelve versions.
+
+**Every capability tag below is therefore measured against a reference the
+source project moved past.** Treat a tag as "true as of v2.10", not as true
+today, until the re-freeze lands. **What changed in the interval is not
+unknown** — it is specified, change by change, in `RC_ENGINE_CHANGES.md`, which
+covers v2.11 → v2.52 as a porting spec. Read that before trusting any tag in a
+subsystem it touches.
+
+**This was a standing instruction, not an oversight nobody could have caught.**
+The sentence it replaces ended *"This should be re-checked periodically as the
+upstream project continues (this repo's own `CLAUDE.md` already says so) — it is
+not a one-time fact,"* and then was not re-checked. A claim that schedules its
+own re-verification still needs someone to run it.
 
 ## Method
 
