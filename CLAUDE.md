@@ -67,13 +67,13 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
     moved past.** The previous bullet here recorded this as unresolved because
     *"`Cartalith_RC` is not present on this machine."* It is now, so it was
     opened and counted: **164** `Cartalith Gen1 v*.html`, newest **v2.22**, plus
-    **33** DCC-line files, newest **v2.55**. The port is measured against a
+    **34** DCC-line files, newest **v2.56**. The port is measured against a
     reference **twelve mainline versions** behind, not one — and the source
     **forked at v2.22**, so "newest" is two different files and re-freezing means
     choosing a line first. `FUNCTIONAL_CONTRACT.md`'s contradicting *"no drift,
     no re-freeze question to raise"* paragraph was corrected the same day.
   - **The interval is specified, not unknown.** `RC_ENGINE_CHANGES.md` covers
-    v2.11 → v2.55 change by change. Until 2026-09-17 nothing referenced it but
+    v2.11 → v2.56 change by change. Until 2026-09-17 nothing referenced it but
     this file, so it sat outside `OUTSTANDING_WORK.md`'s count and outside
     `STATUS.md`; it is `OUTSTANDING_WORK.md` §2.9 now. **How much of it is
     already ported is not established** — do not assume either way.
@@ -154,7 +154,7 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
 | `EXPORT_SCOPE.md` | 16K/32K single-image export — **shelved 2026-08-25 by the owner**, findings only. Records that the reference's own bake draws terrain and nothing else, the four measured gaps in today's export, the render-once decision that would have to be reversed, a banded renderer that was prototyped and measured byte-identical before being reverted, and the codec survey (WebP eliminated at 16 383 px, JPEG XL at its AGPL encoder) |
 | **Direction and reference** — inputs, not plans | |
 | `FUNCTIONAL_CONTRACT.md` | the HTML app's capabilities vs. this port, tagged per `DECISIONS.md` §7d |
-| `RC_ENGINE_CHANGES.md` | **the HTML's simulation/generation changes from v2.11 to v2.55**, as a porting spec — names the function and constant each change lives in, why each number is that number, and which harness verified it. Claims nothing about port status; that is `STATUS.md`'s. Note its first section: the HTML forked at v2.22 and every engine change from v2.25 on exists only on the DCC line. §6h is the newest block — the three independent floors (storage, the relief gate, the global ramp) that each flattened a deep-zoom plain. **Read §8's heading before appending to it** — it claimed "not simulation" while holding three deliberate height-field re-baselines, and was split into §8.1/§8.2 on 2026-09-17 |
+| `RC_ENGINE_CHANGES.md` | **the HTML's simulation/generation changes from v2.11 to v2.56**, as a porting spec — names the function and constant each change lives in, why each number is that number, and which harness verified it. Claims nothing about port status; that is `STATUS.md`'s. Note its first section: the HTML forked at v2.22 and every engine change from v2.25 on exists only on the DCC line. §6h is the newest block — the three independent floors (storage, the relief gate, the global ramp) that each flattened a deep-zoom plain. **Read §8's heading before appending to it** — it claimed "not simulation" while holding three deliberate height-field re-baselines, and was split into §8.1/§8.2 on 2026-09-17 |
 | `VISION.md` | the owner's target render, with an honest gap assessment |
 | `DESIGN_HANDOFF.md` | **give this to a designer.** Everything needed to produce a buildable GUI: the resolved tokens, the frame geometry for all three shells, the widget inventory a design must map onto, what does not exist, and the six rules learned expensively |
 | `UI_SHELL_DESIGN.md` | the DCC shell's rule set (owner-supplied) |
