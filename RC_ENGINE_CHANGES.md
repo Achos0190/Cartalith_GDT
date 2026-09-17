@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.58** |
+| Covered by this document | **v2.11 → v2.59** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.58 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.59 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -1203,8 +1203,19 @@ geometry, not a new threshold.
 stems: drainage area is accumulated over the receiver graph by **Kahn's algorithm**
 (topological order over in-degree), each confluence keeps its **largest-area
 tributary** as the continuing main stem, and stems are emitted highest-area-first
-with each cell claimed once. ρ(length, drainage area) **0.207 → 0.963**, which is
-Hack's-law tight and is what makes length a valid proxy for importance.
+with each cell claimed once. ρ(length, accumulated area) **0.207 → 0.963**, which is
+what makes a length gate select whole rivers rather than arbitrary fragments.
+
+> **CORRECTED IN v2.59 — read this before quoting the 0.963.** That accumulation runs
+> over `net.recv`, which covers **channel cells only**, so it is a count of upstream
+> *channel cells*, not a catchment **area**. Measured against `computeFlow`'s real
+> catchment raster the same stems give ρ **0.105–0.398** — *worse* than Strahler
+> order's own 0.379–0.734 on the identical data. §6g's "two different trees" a third
+> time, this time inside a published figure. The fragments-vs-stems comparison above
+> is like-for-like on one quantity and **stands**; what does not stand is reading it
+> as "length tracks drainage area". **The length gate is a cartographic disclosure
+> rule** — a stem's own extent in screen pixels, which is literally what it measures —
+> **and a port must not reuse it as an importance ranking.** See §6k.
 
 ### Two defects in the first cut, both of which a port will meet
 
@@ -1287,6 +1298,104 @@ and a different world from the same seed; it should make that trade explicitly.*
 `mapWidthKm = 12 800` (v2.49's finding, from the other side), so both extents the
 request named share one channel-initiation threshold. Both were run; there is only
 one set of numbers to quote.
+
+---
+
+## 6k. An ordinal river vocabulary cannot carry a cross-map threshold (v2.59, DCC line only)
+
+**A deliberate re-baseline: `field` itself moves**, because `carveRiverValleys()` cuts
+a real trench along the traced network and integration is what changes that network.
+Verified by `tests/perf/probe_riverorder.js` (18 assertions) plus `tests/run.sh`
+1280/0, `probe_deltas.js` 18/0 and `probe_riverscale.js` 17/0.
+
+Owner, on v2.58's closing disclosure: *"Turn it on and give me a comparison with for
+example strahler and if we should replace it."*
+
+### The flag flip — what `state.hydro.integrate` was hiding
+
+§6g (v2.41) built depression-filled routing, measured what leaving it off costs, and
+then **shipped it off** so no existing world would move. v2.59 turns it on. Re-measured
+inside ONE build at the HTML's own default (region, 800 km, 512 px, seed 12345):
+
+| | integrate off | integrate on |
+|---|---|---|
+| land terminating in an interior **pit** | **68.5 %** | **0.0 %** |
+| land draining to the **sea** | 26 031 cells | **42 475 cells (×1.63)** |
+| longest whole main stem | 66 km | **118 km (×1.80)** |
+| biggest catchment arriving at a stem mouth | 5 078 km² | **92 815 km² (×18.3)** |
+| max Strahler order / outlet order | 3 / 3 | **3 / 3 — unchanged** |
+
+**A port inherits the decision, not the default.** Two things travel with it:
+
+- **`deltas` stays OFF.** It deposits real sediment and builds new land; that is a look
+  decision, separate from whether drainage is routed correctly.
+- **The save-compat guard still defaults `integrate` to FALSE, and must.** A project
+  that predates v2.41 carries no `hydro` block and *was* generated without integration,
+  so it has to reload as the world it was. The state literal and the loader deliberately
+  disagree — the same convention §6b's `passes` and the physical crater model use.
+- **Isolation is what makes "deliberate re-baseline" a checkable claim.** The whole
+  hash battery diverges; with `integrate` forced equal on both sides it is **identical
+  both ways** — v2.58 at `true` reproduces v2.59's default `field` FNV `3273059064`, and
+  v2.59 at `false` reproduces v2.58's `528640695`, exactly.
+
+### The comparison, and why it is a porting constraint rather than trivia
+
+Strahler order is the HTML's river-importance currency and **nine places read it**:
+`order>=3` gates navigability and harbour validity, `order>=4` the fishing
+specialisation, `10+order*7` a town layout's river width, `0.45*(order-1)` the channel
+half-width, `_civNavigableRiverDiscount(order)` the routing discount, plus the
+Min-stream-order render slider, the `strahler` debug view and the GeoJSON export. A
+port reimplements all of that. Four measured properties bound what it can carry:
+
+1. **It is NOT resolution-dependent here, and that refutes the obvious criticism.**
+   `riverFlowThresh` is `gw*gh*0.0004 / riverCoarseEase(mapWidthKm)` — keyed on the
+   **cell count** — so the channel mask is a roughly constant *fraction* of the grid and
+   the tributary ladder does not deepen as the grid refines: max order **3 / 3 / 3** at
+   512/1024/2048 px on one seed. **A port that instead keys channel initiation on a real
+   area (km²) will break this property and make order resolution-dependent.**
+2. **It IS extent-dependent, and that is the defect with teeth.** At one seed and one
+   resolution, `order>=3` covers **0.32 % / 3.73 % / 4.10 %** of channel cells at
+   800 / 8 000 / 40 000 km — a **12.8×** swing in what "navigable" means, decided by the
+   map's width rather than by the river.
+3. **It cannot rank inside itself.** The top bucket spans **123.7×** in real catchment.
+4. **It is not monotone in catchment.** In **4 of 6** configurations the world's single
+   largest river is not the top-order one; one reads order 2 of 4 — *below* its own
+   navigability gate. The whole vocabulary reaches **4**, against 8–12 for an Amazon.
+
+**The flip is the sharpest demonstration of the limit.** Re-routing 68.5 % of a world's
+land and lengthening its trunk by 80 % changes the hydrology of every river on the map,
+and order reports **nothing** (3 → 3, outlet 3 → 3). §6g's own note recorded "outlet
+Strahler 2 → 3"; that is true of the network `probe_deltas.js` rebuilds at
+`riverDensity:1` and **not** of the shipped `_riverNet` every consumer reads — and it
+fails identically on v2.58, so the drift is pre-existing (§6h/§6i's re-baselines moved
+that seed's terrain). The assertion was replaced with the discharge arriving at the
+coast, which is what the claim was always about.
+
+**Stem length is not the replacement, and v2.58 never claimed it was.** Mid-ranked
+Spearman against the real catchment raster: ρ(order) **0.379–0.734** vs ρ(length)
+**0.105–0.398** — order wins in all six configurations. See the correction box in §6j.
+
+### The ruling a port should carry
+
+**Keep the ordinal tier; do not let it carry a threshold that must mean the same thing
+on two maps.** Strahler order is cheap, resolution-stable and correlates with real
+catchment better than any alternative in the file — it is a good *tier*. The quantity
+for `order>=3`-style gates is the **catchment area `computeFlow` already accumulates,
+in km²**: extent-free, resolution-free and continuous. In the HTML that is a
+nine-consumer change and a re-baseline of every generated settlement, so it is
+**disclosed as the owner's call and not yet made**. A port writing these consumers from
+scratch pays none of that migration cost and should key them on area from the start.
+
+### Measurement notes a port's own harness will need
+
+- **Do not re-derive the drainage walk.** A first cut here built its own D8 receiver
+  tree, omitted the **map-edge outlet** case (a region crop's edge is a legitimate
+  outlet, not a pit) and read **55 % pit** on a world the existing probe measures at
+  under 1 %. §7.2's defect, self-inflicted.
+- **`currentRoutingSurface()` returns `null` when `integrate` is off.** That is its
+  contract; the off-state must walk the raw `field`, exactly as `computeFlow` does.
+- **Spearman over a 4-value vocabulary needs mid-ranks.** Ties dominate; assigning tied
+  values arbitrary distinct ranks read **−0.26 to +0.41** on plainly monotone data.
 
 ---
 
@@ -1419,6 +1528,24 @@ scale-correctness fix ship without a re-baseline, and it is worth designing for.
 inflate.** See 7.8 and 7.9 — those are the two ways a *correct* real-km conversion still
 stops scaling.
 
+### 7.12 An ordinal vocabulary cannot carry a threshold that must mean one thing on two maps
+**Measured in v2.59 (§6k), and the port writes every consumer from scratch, so this is
+cheap to get right once and expensive to retrofit.** Strahler order is a *rank*: it
+counts how many levels of tributary a channel mask happens to resolve, so it is a
+property of the river **and** of the threshold that detected it. In the HTML the
+threshold is grid-relative, which makes order pleasingly resolution-stable (3/3/3 across
+a 4× grid span) and **extent-dependent**: `order>=3` covers 0.32 % of the channel network
+on an 800 km map and 4.10 % on a 40 000 km one, same seed, same resolution. It also spans
+**123.7×** in real catchment inside its own top bucket and is **not monotone** — the
+world's biggest river reads *below* its own navigability gate in 4 of 6 configurations,
+and a change that re-routed 68.5 % of the land moved it not at all.
+
+So: **an ordinal tier is fine for what it is — a tier.** The moment a rule needs to
+compare two rivers, or to mean the same thing on two maps, key it on the continuous
+physical quantity the engine already has (upstream catchment **area**, in km²), not on
+the rank. The same caution applies to any other rank-shaped currency a port introduces:
+ask what its buckets are a function of before a threshold is written against it.
+
 ---
 
 ## 8. The rest of the span
@@ -1439,19 +1566,20 @@ below is what the heading always promised.
 Each row moves `field`, the tiles drawn from it, **or what the map renderer puts on
 screen** — v2.58 is the one row of the third kind, and it is listed here rather than
 under §8.2 because it changes the visible map at every scale even though it moves no
-generated value. **Five are deliberate re-baselines** (v2.48, v2.50, v2.51, v2.57,
+generated value. **Six are deliberate re-baselines** (v2.48, v2.50, v2.51, v2.57, v2.59,
 and v2.49 above 12 800 km): a world generated from the same seed does not come back
 the same, which is a decision to carry across deliberately, not a regression to
-chase. **Seven of the thirteen rows already own full sections above** and appear
+chase. **Eight of the fourteen rows already own full sections above** and appear
 here only so the span reads complete — go to the section, not the row:
 **v2.39 → §6e, v2.40 → §6f, v2.41 → §6g, v2.53 → §6h.1, v2.55 → §6h.2/§6h.3,
-v2.57 → §6i, v2.58 → §6j.** (This list said *five* and omitted the two §6h rows
+v2.57 → §6i, v2.58 → §6j, v2.59 → §6k.** (This list said *five* and omitted the two §6h rows
 until 2026-09-17 — the same append-without-re-reading habit that produced §8's
 own split.)
 
 | Version | Change | Why it may still matter to the port |
 |---|---|---|
-| v2.58 | River SELECTION gains a scale term at last: whole main stems instead of fragments, an on-screen-pixel gate, and a spline that refines with zoom | **Not a re-baseline — `hash_gen1.js` vs v2.57 is ALL IDENTICAL — but a rendering contract a port will otherwise reimplement wrongly. See §6j.** The HTML's river *drawing* has had a scale term since v2.25; its river *selection* never had one, so a 50 km region and a 40 000 km world chose the same set of rivers. Four constraints a port must carry. (1) **Gate on screen pixels, not on raw zoom.** The settlement/road ladders this was asked to mirror are raw zoom scalars, which on a 40 000 km world put a hamlet on screen at a **28 571 km** view; `len * _z` needs no map-extent term because `_z` is screen-px-per-grid-cell in both camera conventions. (2) **A traced polyline is a FRAGMENT, and fragment length anti-correlates with importance** — measured ρ(length, drainage area) **0.207**, top-100-by-length ∩ top-100-by-flow **2%**. Assemble whole stems first (drainage area accumulated over the channel receiver graph by Kahn's algorithm, largest tributary kept at each confluence): ρ **0.207 → 0.963**, which is what makes a length gate legitimate. (3) **Accumulate on the CHANNEL tree, and make every length wrap-aware.** Ranking `net.recv` chains by `flowField` mixes two different trees (§6g's own finding) and produces stems dying after 5–10 steps at flow 163 405; a raw `hypot` across the antimeridian bills a full map width, which measured a longest "stem" of **41 097 km = 2 104 cells on a 2 048-cell grid** and, because the ladder RANKS on length, promoted every seam-crossing river to the top of it. (4) **The spline's own geometry was grid-keyed with no zoom or real-km term** — a 111 km control-point spacing and a 1 000 km meander wavelength at 40 000 km, constant at every zoom. **Eighth occurrence of the real-km defect** (§7.11). Also refuted and worth not re-chasing: **Töpfer & Pillewizer is wrong for hydrography** (predicts 49% flowline retention 1:24k→1:100k against USGS's measured 10–11%), **Strahler cannot carry the named tiers** (max order 4 at world extent, 2 at the default, against 8–12 for a real Amazon), and the ladder **saturates at LOD 5**, so LOD 7/8 is where the spline resolves rather than where selection happens. Verified by `tests/perf/probe_riverscale.js` (17 assertions). |
+| v2.59 | Integrated drainage becomes the default, and Strahler order is measured against upstream catchment area | **A deliberate re-baseline — `field` itself moves, because `carveRiverValleys()` cuts along the network integration changes. See §6k.** §6g's depression-filled routing was built in v2.41, measured, and shipped OFF; v2.59 turns it on. At the HTML's own default: land terminating in an interior pit **68.5 % → 0.0 %**, land draining to the sea **×1.63**, longest whole main stem **66 → 118 km**, biggest catchment at a stem mouth **5 078 → 92 815 km² (×18.3)**. `deltas` stays off; the save-compat guard still defaults `integrate` FALSE so a pre-v2.41 project reloads as the world it was. Isolated both ways against v2.58, so the re-baseline claim is checkable. The comparison that came with it is the part a port must carry: **Strahler order is NOT resolution-dependent here** (the channel threshold is keyed on the cell count — a port keying it on real km² would break that), **but it IS extent-dependent** (`order>=3` covers 0.32 % / 3.73 % / 4.10 % of channel at 800/8 000/40 000 km), **cannot rank inside its own top bucket** (123.7× in catchment) and **is not monotone** (the world's biggest river reads below its own navigability gate in 4 of 6 configs). Ruling: keep the ordinal tier, key the gates on catchment **area** — §7.12. Verified by `tests/perf/probe_riverorder.js` (18 assertions). |
+| v2.58 | River SELECTION gains a scale term at last: whole main stems instead of fragments, an on-screen-pixel gate, and a spline that refines with zoom | **Not a re-baseline — `hash_gen1.js` vs v2.57 is ALL IDENTICAL — but a rendering contract a port will otherwise reimplement wrongly. See §6j.** The HTML's river *drawing* has had a scale term since v2.25; its river *selection* never had one, so a 50 km region and a 40 000 km world chose the same set of rivers. Four constraints a port must carry. (1) **Gate on screen pixels, not on raw zoom.** The settlement/road ladders this was asked to mirror are raw zoom scalars, which on a 40 000 km world put a hamlet on screen at a **28 571 km** view; `len * _z` needs no map-extent term because `_z` is screen-px-per-grid-cell in both camera conventions. (2) **A traced polyline is a FRAGMENT, and fragment length anti-correlates with importance** — measured ρ(length, drainage area) **0.207**, top-100-by-length ∩ top-100-by-flow **2%**. Assemble whole stems first (drainage area accumulated over the channel receiver graph by Kahn's algorithm, largest tributary kept at each confluence): ρ **0.207 → 0.963** against that same accumulation, which is what makes a length gate select whole rivers rather than fragments. **v2.59 correction: that 0.963 is length against upstream CHANNEL CELLS, not catchment AREA** (0.105–0.398 against the real catchment raster, worse than Strahler order's own 0.379–0.734) — the gate is a cartographic disclosure rule, never an importance ranking. See §6j's correction box and §6k. (3) **Accumulate on the CHANNEL tree, and make every length wrap-aware.** Ranking `net.recv` chains by `flowField` mixes two different trees (§6g's own finding) and produces stems dying after 5–10 steps at flow 163 405; a raw `hypot` across the antimeridian bills a full map width, which measured a longest "stem" of **41 097 km = 2 104 cells on a 2 048-cell grid** and, because the ladder RANKS on length, promoted every seam-crossing river to the top of it. (4) **The spline's own geometry was grid-keyed with no zoom or real-km term** — a 111 km control-point spacing and a 1 000 km meander wavelength at 40 000 km, constant at every zoom. **Eighth occurrence of the real-km defect** (§7.11). Also refuted and worth not re-chasing: **Töpfer & Pillewizer is wrong for hydrography** (predicts 49% flowline retention 1:24k→1:100k against USGS's measured 10–11%), **Strahler cannot carry the named tiers** (max order 4 at world extent, 2 at the default, against 8–12 for a real Amazon), and the ladder **saturates at LOD 5**, so LOD 7/8 is where the spline resolves rather than where selection happens. Verified by `tests/perf/probe_riverscale.js` (17 assertions). |
 | v2.57 | The coastline stops being the plate polygon (`PLATE_BASE_BLUR_K` 0.35 → 0.18), and the river carve stops inheriting a detection ease | **Core simulation, two deliberate re-baselines, and the highest-leverage single constant in the height formula** — see **§6i**. The pure plate-Voronoi partition reproduced the land mask at IoU 0.813; the pathway is `baseField` (sd 0.2524), not `ageField` (0.0232). A port that reproduces `fillHeightRows` faithfully reproduces this faithfully too. |
 | v2.55 | The deep-zoom plain stops being flat: the relief gate gains a real-metre floor, and the Height view's ramp is rebased on local relief | **Core LOD/refinement contract — see §6h.2 and §6h.3.** A deliberate re-baseline of **LOD tiles and baked atlas chunks** (never `field`), so a stale atlas wants a re-bake. Two constraints a port must not lose: the floor is a REAL-METRE quantity converted through `metersPerUnit()`, not a normalised constant to copy; and the local-relief field is **world-wide, not per-tile** (a per-tile ramp measured a 142.4/255 seam). The contrast stretch must be **additive in shading space** — the multiplicative form clamps in an 8-bit buffer and shifts HUE. |
 | v2.53 | The baked height word widened 16 → 24 bits, in a byte the format already allocated | **Format change every port that bakes an atlas must match — see §6h.1.** There is no PNG and no compression in the HTML's height path, so the widening is free. Encoding is decided by FIELD PRESENCE (`hgt24` vs `rg16`), **never inferred from the bytes** — a flat tile has a constant low byte. Per-chunk `enc` in the atlas manifest (absent ⇒ 16); `tiles/refined_{r}_{c}_rgb24.bin` + `heightEncoding:'rgb24'`. **Retires the per-chunk scale+offset design the HTML's own research had recommended.** |

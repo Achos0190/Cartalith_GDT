@@ -44,8 +44,8 @@ work outstanding.
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **36** DCC files (newest
-**v2.58**), and it **forked at v2.22** — every engine change from v2.25 on
+v*.html` (newest **v2.22**) plus a second line of **37** DCC files (newest
+**v2.59**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and five of the changes in the interval
@@ -58,7 +58,21 @@ highest-leverage constant in the height formula: the coastline is the level set 
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
-**v2.58 is the newest and is NOT a re-baseline** — it moves no generated value
+**v2.59 is the newest, and it IS a re-baseline.** It turns depression-filled
+routing on by default: before the flip, **68.5 % of the source world's land
+drained into an interior pit** rather than to any outlet, so `field` itself moves
+(the carve cuts along the network integration changes). It also settles a
+question this port inherits — the source's own river-importance currency,
+Strahler order, was measured against upstream catchment area and found
+**resolution-stable but extent-dependent** (`order>=3` covers 0.32 % of the
+channel network on an 800 km map and 4.10 % on a 40 000 km one, same seed),
+unable to rank inside its own top bucket (123.7× in catchment) and not monotone
+in catchment. The ruling carried here: **keep the ordinal tier, key every
+threshold on catchment area in km²** — a nine-consumer migration the source has
+not made, and one this port gets for free by writing those consumers correctly
+the first time. See `RC_ENGINE_CHANGES.md` §6k and §7.12.
+
+**v2.58 is NOT a re-baseline** — it moves no generated value
 (the source's own hash battery is byte-identical against v2.57) — but it is a
 rendering contract this port will otherwise reimplement wrongly, because the
 defect it fixes is one this port is equally free to write: the source's river
@@ -68,9 +82,11 @@ constraints worth knowing before any river overlay is written here: gate on
 **screen pixels**, never on raw zoom (the source's own settlement ladder is raw
 zoom, which puts a hamlet on screen at a 28 571 km view on a 40 000 km world), and
 select over **whole main stems**, never over traced polyline fragments — fragment
-length *anti*-correlates with drainage area (ρ 0.207, rising to 0.963 once stems
-are assembled). See `RC_ENGINE_CHANGES.md` §6j, and §7.11 for the real-km rule it
-is the eighth instance of.
+length *anti*-correlates with its own accumulation (ρ 0.207, rising to 0.963 once
+stems are assembled — **against upstream channel cells, not catchment area**; the
+source corrected that reading in v2.59, where the same stems measure ρ 0.105–0.398
+against the real catchment raster). See `RC_ENGINE_CHANGES.md` §6j and its
+correction box, and §7.11 for the real-km rule it is the eighth instance of.
 
 What changed in the interval is specified change by change in
 `RC_ENGINE_CHANGES.md`. **Which of it is already ported is not established

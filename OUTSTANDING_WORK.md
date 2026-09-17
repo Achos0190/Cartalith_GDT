@@ -72,13 +72,14 @@ Five caveats on that number, stated rather than buried:
    outright, then 42/56/42 once the verification pass closed the §3.2 medium
    duplicate too).
 2. **§2.9's three rows hide a survey, not an estimate.** `RC_ENGINE_CHANGES.md`
-   specifies **32 distinct engine items** across v2.11–v2.58: 27 through v2.52,
+   specifies **33 distinct engine items** across v2.11–v2.59: 27 through v2.52,
    §6h's three (the 24-bit height word, the relief-gate floor and the
-   local-contrast rebase), v2.57's plate-base blur, and v2.58's river selection.
-   **That arithmetic now closes; the figure read 31 and did not** — v2.57 was
-   added to the total without being added to the breakdown. How many are
-   already ported is not established, so they are deliberately NOT expanded into
-   32 rows here. Expanding them before the survey would inflate this count with
+   local-contrast rebase), v2.57's plate-base blur, v2.58's river selection, and
+   v2.59's drainage default plus its ruling on Strahler order (§6k/§7.12).
+   **That arithmetic closes; the figure read 31 before 2026-09-17 and did not** —
+   v2.57 had been added to the total without being added to the breakdown. How
+   many are already ported is not established, so they are deliberately NOT
+   expanded into 33 rows here. Expanding them before the survey would inflate this count with
    work that may already be done — the opposite error to the one that left them
    uncounted until 2026-09-17.
 3. **The `UNWIRED_FUNCTIONS.md` backlog is one row of the 3 "in flight" above,
@@ -356,7 +357,7 @@ count at the top of this file.
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
-| **Establish which of the specified changes are already ported** | `RC_ENGINE_CHANGES.md` → `STATUS.md` | **large** | The spec carries **15 top-level simulation sections** (§1–§6j, of which §6b–§6j are single-change deep dives), **13 span rows that change generated output** (§8.1 — seven of them duplicating a section above), and **13 genuinely adjacent rows** (§8.2) — so **32 distinct engine items**. **How many are already built is not established anywhere.** A five-symbol spot check found it uneven in both directions: `food_shed` and `route_corridors` are present in the crates, `crater_population` and `landmass_index` are not. Do this survey before scheduling any of it — the answer changes the size of every row it would otherwise generate |
+| **Establish which of the specified changes are already ported** | `RC_ENGINE_CHANGES.md` → `STATUS.md` | **large** | The spec carries **16 top-level simulation sections** (§1–§6k, of which §6b–§6k are single-change deep dives), **14 span rows that change generated output** (§8.1 — eight of them duplicating a section above), and **13 genuinely adjacent rows** (§8.2) — so **33 distinct engine items**. **How many are already built is not established anywhere.** A five-symbol spot check found it uneven in both directions: `food_shed` and `route_corridors` are present in the crates, `crater_population` and `landmass_index` are not. Do this survey before scheduling any of it — the answer changes the size of every row it would otherwise generate |
 | **Carry the five deliberate re-baselines across as decisions, not as parity failures** | `PARITY_TESTING.md`, `DECISIONS.md` | medium | v2.48 (plate distance transform), v2.50 and v2.51 (crater amplitude, then depth) and **v2.57 (the plate-base blur radius, the widest of them)** re-baseline **every world generated from a seed**; v2.49 does so above mapWidthKm 12 800. v2.58 is deliberately NOT one — it moves the rendered river overlay and no generated value. A golden fixture captured against the frozen v2.10 will fail on all four **correctly**. `PARITY_TESTING.md` has no concept of an intentional upstream re-baseline, so today the only way to record one is to let a test go red |
 | **Decide which line the port follows** | `DECISIONS.md` | medium | The source forked at v2.22: v2.23 duplicated it to carry this port's own shell theme, and **every engine change from v2.25 on exists only on the DCC line**. "Track upstream" is therefore ambiguous and no decision records which branch is meant. Blocks the re-freeze in §2.8, which cannot pick a file without it |
 
