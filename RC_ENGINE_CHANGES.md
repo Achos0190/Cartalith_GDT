@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.57** |
+| Covered by this document | **v2.11 → v2.58** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.57 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.58 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -1113,6 +1113,183 @@ own amplitude (`beta`), which is a larger tuning question and was not taken.
 
 ---
 
+## 6j. River SELECTION has no scale term, and a fragment is not a river (v2.58, DCC line only)
+
+**`hash_gen1.js` vs v2.57 is ALL IDENTICAL — this moves no generated value.** It is
+here as a full section anyway because it is a *contract* about how a map decides
+what to draw at a given scale, and a port that reimplements the river overlay will
+otherwise reimplement the defect. Verified by `tests/perf/probe_riverscale.js`
+(17 assertions) plus `tests/run.sh` 1280/0.
+
+### The half that was missing
+
+Owner: *"What if we draw a river with a catmull-rom line and only render it when we
+zoom to LOD 7/8 when a map is 40 or 20000km. And only do that for rivers that are
+actually big. Rhine, Amazon, yellow river. And do the same for smaller rivers as we
+do ways for the smaller cities... Attest your own research adversarially."*
+
+The research refuted **two of the request's own premises and one of my own
+claims**, and what shipped is the part that survived. The first finding is the one
+that matters to a port:
+
+**River DRAWING has had a scale term since v2.25. River SELECTION never had one at
+all.** `riverRenderPolys()`'s cache key is `_fieldGen|GWxGH|minO` — no zoom term, no
+`mapWidthKm` term — so a 50 km region and a 40 000 km world chose *the same set of
+rivers*. The Catmull-Rom spline the request asked for, v2.25's symbol-to-real-width
+crossover and v2.40's in-tile resolution were all already built, refining a set that
+nothing had ever selected.
+
+**Port rule: check which half of a request already exists before building the whole
+of it.** The drawing pipeline was mature; the missing piece was a selector.
+
+### The ladder this was asked to mirror is itself the defect
+
+`CIV_LOD_PLACE` and `CIV_LOD_ROAD` are **raw zoom scalars**
+(`metropolis: 0 … hamlet: 1.4`; `highway: 0 … track: 0.7`). Raw zoom carries no
+information about how much ground a screen covers, so on a 40 000 km world
+`hamlet: 1.4` puts a hamlet on screen at a **28 571 km** view. Copying that
+convention into hydrography would have reproduced the bug one subsystem over.
+
+The gate that shipped is **`len * _z` — the stem's own length in SCREEN PIXELS**,
+and it needs no `mapWidthKm` term at all, because `_z` is already
+screen-pixels-per-grid-cell in **both** of the HTML's camera conventions (under
+tiled LOD the coordinates are canvas px and one cell spans `zk` px; off LOD they are
+grid units and the stack is CSS-scaled by `viewT.scale`). **One expression covers
+both cameras** — which is the property a port should preserve, whatever its own
+camera model is.
+
+`RIVER_MIN_SCREEN_PX = 20`.
+
+### Two external premises, refuted — do not re-chase either
+
+**Töpfer & Pillewizer's Radical Law is wrong for hydrography.** `n_f = n_a·√(M_a/M_f)`
+predicts **49%** flowline retention from 1:24 000 to 1:100 000; USGS's own measured
+figure for its hydrography layers is **10–11%**. My first derivation of it was wrong
+twice over — wrong reading (fixed-sheet count vs count per unit ground area) and
+wrong law. Selection here is by on-screen length, not by any count law.
+
+**Strahler order cannot express the tiers the request named.** Measured max order in
+this engine: **4** at world extent, **2** at the app's default extent (3 with
+`hydro.integrate` on), against **8–12** for a real Amazon, Rhine or Yellow River.
+Ordering the world's rivers by Strahler yields at most four buckets, three of which
+are headwaters. **Port rule: assert what a vocabulary can actually hold before
+keying a visibility ladder on it.**
+
+**And one of my own claims was partly fabricated, which is why the probe asserts a
+band rather than a number.** I stated that I had "independently verified"
+OpenMapTiles' 26.165 px waterway constant, and had in fact **extrapolated two rows
+of its table from the halving sequence rather than reading the table**. Read
+properly, the real thresholds span **13.08 px (z11, 1000 m) to 490.6 px**, and the
+z9 = z10 equality I had read as design intent is an arithmetic identity of the
+halving. 20 px sits inside the real band; the assertion is the band.
+
+### A length gate is only legitimate because the geometry changed
+
+`traceRiverPolylines` returns **fragments** — pieces of receiver chain cut wherever
+the next point is not reachable by a straight stroke (v1.29's `splitRiverPolylines`)
+— and fragment length **anti-correlates** with importance:
+
+| Measured on the real network, 40 000 km | |
+|---|---|
+| ρ(fragment length, drainage area) | **0.207** |
+| top-100-by-length ∩ top-100-by-flow | **2%** |
+| median length of the top 100 by flow | **141 km** |
+| median length of the top 100 by length | **1 341 km** |
+
+So a length gate over fragments selects the *wrong* rivers. The fix is a new
+geometry, not a new threshold.
+
+**`buildMainStems(net, W, H, wrapX)`** walks the channel network and emits whole
+stems: drainage area is accumulated over the receiver graph by **Kahn's algorithm**
+(topological order over in-degree), each confluence keeps its **largest-area
+tributary** as the continuing main stem, and stems are emitted highest-area-first
+with each cell claimed once. ρ(length, drainage area) **0.207 → 0.963**, which is
+Hack's-law tight and is what makes length a valid proxy for importance.
+
+### Two defects in the first cut, both of which a port will meet
+
+**(1) Accumulate on the CHANNEL tree, not the flow raster.** A first cut ranked
+`net.recv` chains by `flowField` and produced stems that terminated after 5–10 steps
+while the flow raster read **163 405** at their head. Cause: `net.recv`
+(`buildRiverNetwork`'s aspect-projected single-receiver tree, defined only over
+channel cells) and `flowField` (`computeFlow`'s D8 accumulation over *all* cells)
+**are two different trees** — exactly what §6g/v2.41 already recorded when it had to
+thread one routing surface through both. A port that keeps both structures inherits
+the same trap.
+
+**(2) A wrapped receiver charges a full map width, and the gate RANKS on that
+number.** `buildRiverNetwork` wraps receivers in world mode
+(`nx = ((nx % W) + W) % W`), so a raw `Math.hypot` across the antimeridian bills one
+whole map width per seam crossing. Measured before the fix: longest "main stem"
+**41 097 km ≈ 2 104 cells on a 2 048-cell grid** — one seam jump plus 56 real cells
+— and because the ladder ranks on length, **every seam-crossing river was promoted
+to the top of it**. Fixed with `dx -= Math.round(dx/W)*W`. This is the v1.29 / v2.37
+wrap rule in a third place; a port must apply it to **every** length, geometry or
+ranking computation over a wrapping receiver chain. After the fix the longest stem
+is **4 879 km** (a real Amazon is 6 400 km, a Rhine 1 230 km), and the probe asserts
+no consecutive step exceeds 1.414 cells.
+
+### The spline's own geometry was grid-keyed and never refined
+
+`drawRiverWays`'s RDP tolerance, Catmull-Rom step and meander wavelength were
+`GW/900`, `GW/360` and `GW/40` — **resolution-keyed, with no zoom and no real-km
+term**. At 40 000 km that is a **111 km** control-point spacing and a **1 000 km**
+meander wavelength, *constant at every zoom level*: the line the request wanted to
+resolve on zoom could not.
+
+- `step` and `eps` are divided by `_z`, so the spline resolves as the camera zooms.
+  They are **bit-identical to v2.57 at `_z = 1`** at GW 1024 / 2048 / 4096 (asserted),
+  and measured refinement is **2.844 → 0.356 → 0.044** cells as zoom rises.
+- `wl` is keyed on real km: `RIVER_MEANDER_WL_KM = 20`, which **reproduces `GW/40`
+  exactly at the app's own default extent (800 km)** at any resolution, so the
+  default meander is unchanged by construction rather than by coincidence.
+
+**This is the eighth occurrence of the real-km defect** in this document's span
+(v1.60 / v2.05 / v2.07 / v2.49 / v2.51 / v2.55 / v2.57, now v2.58) — see §7.11. A
+port that keys any spatial constant on grid width inherits it again.
+
+### The overlay re-traced the whole network on every call
+
+`drawRiverWays` ran `traceRiverPolylines` + `splitRiverPolylines` + the spline pass
+**uncached, per frame**, while `riverRenderPolys` cached the identical work four
+hundred lines away. Measured at world extent: **32 ms per call** (11.1 ms trace and
+split, 20.6 ms spline over 9 395 stems). `mainRiverStems()` uses the same cache key
+its sibling uses — `_fieldGen|GWxGH|minO`, with the Min-stream-order slider inside
+it (7456 → 1112 → 7456, asserted). **Port rule: when two call sites compute the same
+derived geometry, they need the same cache, not two.**
+
+### The ladder, and the premise it refutes
+
+Stems clearing 20 screen px, world extent, LOD 0–8:
+
+| LOD | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|---|
+| stems drawn | **975** | 2531 | 4426 | 6087 | 7215 | **7456** | 7456 | 7456 | 7456 |
+
+Three properties, all asserted: it is **monotone** (zooming in only ever *adds* a
+river — a ladder that removed one would read as a bug), it **discloses** (13.1% of
+the network at world scale, not all of it and not none), and it **saturates at
+LOD 5**. That last point refutes the request's own "LOD 7/8" premise: everything is
+already on screen two levels earlier, so LOD 7/8 is where the *spline resolves*, not
+where selection happens.
+
+### Two things a port must carry as decisions, not as defaults
+
+**`state.hydro.integrate` is load-bearing for this ladder and stays default OFF.**
+Without depression-filled routing, 66.5% of land drains into an interior pit (§6g),
+so stems terminate early: the longest is **1 799 km** with it off against **4 879 km**
+with it on. The HTML did not flip it here, because doing so re-baselines every world
+generated from every seed — an owner decision, disclosed rather than taken. **A port
+that turns integrated routing on by default gets longer, more realistic main stems
+and a different world from the same seed; it should make that trade explicitly.**
+
+**20 000 km and 40 000 km are the same measurement.** `riverCoarseEase` saturates at
+`mapWidthKm = 12 800` (v2.49's finding, from the other side), so both extents the
+request named share one channel-initiation threshold. Both were run; there is only
+one set of numbers to quote.
+
+---
+
 ## 7. Cross-cutting calibration rules
 
 These are not features; they are the rules the HTML repeatedly re-learned the hard
@@ -1211,6 +1388,37 @@ while its area in pixels grows (measured 3 -> 702 px at a constant ~11.0 coarse 
 synthesizing pass drifts. And whatever a model PRODUCES but never gave positions to must not be
 drawn at all — that is inventing, not refining.
 
+### 7.11 A spatial constant keyed on grid width is keyed on nothing
+**The most-repeated defect in this whole span — eight occurrences, and the port will
+make a ninth unless this is a review item.** v1.60 (relief frequency and the channel
+threshold), v2.05 (the LOD detail ladder), v2.07 (channel width), v2.49 (the width
+scale's shared floor), v2.51 (crater depth), v2.55 (the sub-cell relief floor), v2.57
+(the plate-base blur radius) and v2.58 (the river spline's step, tolerance and meander
+wavelength) are all the same mistake: a quantity that means something physical was
+written as a fraction of `GW`, `GH` or a cell count, so it silently means a different
+physical thing at every map extent.
+
+The tell is that the constant survives a resolution change unharmed and breaks on an
+**extent** change — which is why it keeps shipping. A 40 000 km world at 1024 px and an
+800 km world at 1024 px have identical grids and a 50× difference in what one cell is.
+
+Three rules, each of which this span had to learn separately:
+
+**(a) Key it in real units and convert once.** `SUBCELL_RELIEF_M = 3.0` metres through
+`metersPerUnit()`; `RIVER_MEANDER_WL_KM = 20` divided by the world's own `cellKm`. **The
+converted value is a value, not a constant to copy** — v2.55 records the resulting
+7.250e-3 as explicitly non-portable.
+
+**(b) Anchor the conversion at the reference extent so the default is unchanged by
+construction.** Both v2.55 and v2.58 pin their new real-unit constant so it reproduces
+the old grid-keyed expression *exactly* at the app's own default (v2.58's `wl`
+reproduces `GW/40` at 800 km at any resolution, asserted). That is what lets a
+scale-correctness fix ship without a re-baseline, and it is worth designing for.
+
+**(c) A scale factor's clamp must be checked for saturation, and a floor must not
+inflate.** See 7.8 and 7.9 — those are the two ways a *correct* real-km conversion still
+stops scaling.
+
 ---
 
 ## 8. The rest of the span
@@ -1228,15 +1436,22 @@ below is what the heading always promised.
 
 ### 8.1 These change generated output — port them like any other simulation change
 
-Each row moves `field`, or the tiles drawn from it. **Five are deliberate
-re-baselines** (v2.48, v2.50, v2.51, v2.57, and v2.49 above 12 800 km): a world
-generated from the same seed does not come back the same, which is a decision to
-carry across deliberately, not a regression to chase. **Three already own full
-sections above** and appear here only so the span reads complete — go to the
-section, not the row: **v2.39 → §6e, v2.40 → §6f, v2.41 → §6g, v2.57 → §6i.**
+Each row moves `field`, the tiles drawn from it, **or what the map renderer puts on
+screen** — v2.58 is the one row of the third kind, and it is listed here rather than
+under §8.2 because it changes the visible map at every scale even though it moves no
+generated value. **Five are deliberate re-baselines** (v2.48, v2.50, v2.51, v2.57,
+and v2.49 above 12 800 km): a world generated from the same seed does not come back
+the same, which is a decision to carry across deliberately, not a regression to
+chase. **Seven of the thirteen rows already own full sections above** and appear
+here only so the span reads complete — go to the section, not the row:
+**v2.39 → §6e, v2.40 → §6f, v2.41 → §6g, v2.53 → §6h.1, v2.55 → §6h.2/§6h.3,
+v2.57 → §6i, v2.58 → §6j.** (This list said *five* and omitted the two §6h rows
+until 2026-09-17 — the same append-without-re-reading habit that produced §8's
+own split.)
 
 | Version | Change | Why it may still matter to the port |
 |---|---|---|
+| v2.58 | River SELECTION gains a scale term at last: whole main stems instead of fragments, an on-screen-pixel gate, and a spline that refines with zoom | **Not a re-baseline — `hash_gen1.js` vs v2.57 is ALL IDENTICAL — but a rendering contract a port will otherwise reimplement wrongly. See §6j.** The HTML's river *drawing* has had a scale term since v2.25; its river *selection* never had one, so a 50 km region and a 40 000 km world chose the same set of rivers. Four constraints a port must carry. (1) **Gate on screen pixels, not on raw zoom.** The settlement/road ladders this was asked to mirror are raw zoom scalars, which on a 40 000 km world put a hamlet on screen at a **28 571 km** view; `len * _z` needs no map-extent term because `_z` is screen-px-per-grid-cell in both camera conventions. (2) **A traced polyline is a FRAGMENT, and fragment length anti-correlates with importance** — measured ρ(length, drainage area) **0.207**, top-100-by-length ∩ top-100-by-flow **2%**. Assemble whole stems first (drainage area accumulated over the channel receiver graph by Kahn's algorithm, largest tributary kept at each confluence): ρ **0.207 → 0.963**, which is what makes a length gate legitimate. (3) **Accumulate on the CHANNEL tree, and make every length wrap-aware.** Ranking `net.recv` chains by `flowField` mixes two different trees (§6g's own finding) and produces stems dying after 5–10 steps at flow 163 405; a raw `hypot` across the antimeridian bills a full map width, which measured a longest "stem" of **41 097 km = 2 104 cells on a 2 048-cell grid** and, because the ladder RANKS on length, promoted every seam-crossing river to the top of it. (4) **The spline's own geometry was grid-keyed with no zoom or real-km term** — a 111 km control-point spacing and a 1 000 km meander wavelength at 40 000 km, constant at every zoom. **Eighth occurrence of the real-km defect** (§7.11). Also refuted and worth not re-chasing: **Töpfer & Pillewizer is wrong for hydrography** (predicts 49% flowline retention 1:24k→1:100k against USGS's measured 10–11%), **Strahler cannot carry the named tiers** (max order 4 at world extent, 2 at the default, against 8–12 for a real Amazon), and the ladder **saturates at LOD 5**, so LOD 7/8 is where the spline resolves rather than where selection happens. Verified by `tests/perf/probe_riverscale.js` (17 assertions). |
 | v2.57 | The coastline stops being the plate polygon (`PLATE_BASE_BLUR_K` 0.35 → 0.18), and the river carve stops inheriting a detection ease | **Core simulation, two deliberate re-baselines, and the highest-leverage single constant in the height formula** — see **§6i**. The pure plate-Voronoi partition reproduced the land mask at IoU 0.813; the pathway is `baseField` (sd 0.2524), not `ageField` (0.0232). A port that reproduces `fillHeightRows` faithfully reproduces this faithfully too. |
 | v2.55 | The deep-zoom plain stops being flat: the relief gate gains a real-metre floor, and the Height view's ramp is rebased on local relief | **Core LOD/refinement contract — see §6h.2 and §6h.3.** A deliberate re-baseline of **LOD tiles and baked atlas chunks** (never `field`), so a stale atlas wants a re-bake. Two constraints a port must not lose: the floor is a REAL-METRE quantity converted through `metersPerUnit()`, not a normalised constant to copy; and the local-relief field is **world-wide, not per-tile** (a per-tile ramp measured a 142.4/255 seam). The contrast stretch must be **additive in shading space** — the multiplicative form clamps in an 8-bit buffer and shifts HUE. |
 | v2.53 | The baked height word widened 16 → 24 bits, in a byte the format already allocated | **Format change every port that bakes an atlas must match — see §6h.1.** There is no PNG and no compression in the HTML's height path, so the widening is free. Encoding is decided by FIELD PRESENCE (`hgt24` vs `rg16`), **never inferred from the bytes** — a flat tile has a constant low byte. Per-chunk `enc` in the atlas manifest (absent ⇒ 16); `tiles/refined_{r}_{c}_rgb24.bin` + `heightEncoding:'rgb24'`. **Retires the per-chunk scale+offset design the HTML's own research had recommended.** |

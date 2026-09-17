@@ -44,8 +44,8 @@ work outstanding.
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **35** DCC files (newest
-**v2.57**), and it **forked at v2.22** — every engine change from v2.25 on
+v*.html` (newest **v2.22**) plus a second line of **36** DCC files (newest
+**v2.58**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and five of the changes in the interval
@@ -57,6 +57,20 @@ v2.57 is the widest of them — it renames and retunes the plate-base blur radiu
 highest-leverage constant in the height formula: the coastline is the level set of
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
+
+**v2.58 is the newest and is NOT a re-baseline** — it moves no generated value
+(the source's own hash battery is byte-identical against v2.57) — but it is a
+rendering contract this port will otherwise reimplement wrongly, because the
+defect it fixes is one this port is equally free to write: the source's river
+*drawing* has had a scale term since v2.25 while its river *selection* had none
+at all, so a 50 km region and a 40 000 km world chose the same set of rivers. Two
+constraints worth knowing before any river overlay is written here: gate on
+**screen pixels**, never on raw zoom (the source's own settlement ladder is raw
+zoom, which puts a hamlet on screen at a 28 571 km view on a 40 000 km world), and
+select over **whole main stems**, never over traced polyline fragments — fragment
+length *anti*-correlates with drainage area (ρ 0.207, rising to 0.963 once stems
+are assembled). See `RC_ENGINE_CHANGES.md` §6j, and §7.11 for the real-km rule it
+is the eighth instance of.
 
 What changed in the interval is specified change by change in
 `RC_ENGINE_CHANGES.md`. **Which of it is already ported is not established

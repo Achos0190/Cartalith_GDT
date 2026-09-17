@@ -72,11 +72,13 @@ Five caveats on that number, stated rather than buried:
    outright, then 42/56/42 once the verification pass closed the §3.2 medium
    duplicate too).
 2. **§2.9's three rows hide a survey, not an estimate.** `RC_ENGINE_CHANGES.md`
-   specifies **31 distinct engine items** across v2.11–v2.57 (27 through v2.52,
-   plus §6h's three: the 24-bit height word, the relief-gate floor and the
-   local-contrast rebase); how many are
+   specifies **32 distinct engine items** across v2.11–v2.58: 27 through v2.52,
+   §6h's three (the 24-bit height word, the relief-gate floor and the
+   local-contrast rebase), v2.57's plate-base blur, and v2.58's river selection.
+   **That arithmetic now closes; the figure read 31 and did not** — v2.57 was
+   added to the total without being added to the breakdown. How many are
    already ported is not established, so they are deliberately NOT expanded into
-   27 rows here. Expanding them before the survey would inflate this count with
+   32 rows here. Expanding them before the survey would inflate this count with
    work that may already be done — the opposite error to the one that left them
    uncounted until 2026-09-17.
 3. **The `UNWIRED_FUNCTIONS.md` backlog is one row of the 3 "in flight" above,
@@ -331,7 +333,7 @@ measurement.
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
-| **Re-freeze the reference and regenerate `FUNCTION_INDEX.md` in the same pass** | `CLAUDE.md`, `FUNCTIONAL_CONTRACT.md` | **large** (was medium) | **This row said "to v2.11" and that is twelve versions out of date.** Measured 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1 v*.html` (newest **v2.22**) plus **30** DCC-line files (newest **v2.52**); `reference/` still holds only v2.10 and the index still enumerates v2.10's 1 094 functions. **Every capability tag in `FUNCTIONAL_CONTRACT.md` is measured against a reference the source moved past** — that file's own "no drift, no re-freeze question to raise" paragraph was corrected the same day. Re-freezing now also means **choosing a line**: the source forked at v2.22 and every engine change from v2.25 on exists only on the DCC line, so "newest" is two different files. See §2.9 |
+| **Re-freeze the reference and regenerate `FUNCTION_INDEX.md` in the same pass** | `CLAUDE.md`, `FUNCTIONAL_CONTRACT.md` | **large** (was medium) | **This row said "to v2.11" and that is twelve versions out of date.** Measured 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1 v*.html` (newest **v2.22**) plus **36** DCC-line files (newest **v2.58**); `reference/` still holds only v2.10 and the index still enumerates v2.10's 1 094 functions. **Every capability tag in `FUNCTIONAL_CONTRACT.md` is measured against a reference the source moved past** — that file's own "no drift, no re-freeze question to raise" paragraph was corrected the same day. Re-freezing now also means **choosing a line**: the source forked at v2.22 and every engine change from v2.25 on exists only on the DCC line, so "newest" is two different files. See §2.9 |
 | **21 menu commands still unavailable**, each carrying a stated reason | `STATUS.md` | medium | 356 total entries, 21 unavailable (was 245 / 24) |
 | Carry the Nortantis studied-not-copied disclosure into the credits screen | `PROVENANCE.md` | small | The constants are live (`cartalith-assets/src/scatter.rs`; `cartalith-civ/src/naming.rs:3` cites Nortantis directly) and `grep -i nortantis godot-project/credits.gd` returns nothing |
 | Copy in the two upstream owner notes the research briefs cross-reference (`Gravity influence.md`, `Weather Model.md`) | `PROVENANCE.md` | small | They live only in the upstream `Cartalith_RC` / `Cartalith-Gen1` repositories. The alternative the doc itself allows is keeping the paragraph so the dangling reference is a known one |
@@ -346,7 +348,7 @@ measurement.
 
 **Added 2026-09-17. This is not new work — it is work that was never counted.**
 `RC_ENGINE_CHANGES.md` is a full porting spec for the source engine's changes
-from **v2.11 to v2.57**, and until this pass **no document in this repository
+from **v2.11 to v2.58**, and until this pass **no document in this repository
 referenced it except `CLAUDE.md`** (`grep -rl RC_ENGINE_CHANGES *.md` returned
 one file). So a 1 000-line specification of everything the source engine did
 after the freeze sat outside this ledger, outside `STATUS.md`, and outside the
@@ -354,8 +356,8 @@ count at the top of this file.
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
-| **Establish which of the specified changes are already ported** | `RC_ENGINE_CHANGES.md` → `STATUS.md` | **large** | The spec carries **21 substantive simulation sections** (§1–§6g), **9 more span rows that change generated output** (§8.1, three of which are the same items as §6e–§6g), and **11 genuinely adjacent rows** (§8.2) — so **27 distinct engine items**. **How many are already built is not established anywhere.** A five-symbol spot check found it uneven in both directions: `food_shed` and `route_corridors` are present in the crates, `crater_population` and `landmass_index` are not. Do this survey before scheduling any of it — the answer changes the size of every row it would otherwise generate |
-| **Carry the four deliberate re-baselines across as decisions, not as parity failures** | `PARITY_TESTING.md`, `DECISIONS.md` | medium | v2.48 (plate distance transform), v2.50 and v2.51 (crater amplitude, then depth) re-baseline **every world generated from a seed**; v2.49 does so above mapWidthKm 12 800. A golden fixture captured against the frozen v2.10 will fail on all four **correctly**. `PARITY_TESTING.md` has no concept of an intentional upstream re-baseline, so today the only way to record one is to let a test go red |
+| **Establish which of the specified changes are already ported** | `RC_ENGINE_CHANGES.md` → `STATUS.md` | **large** | The spec carries **15 top-level simulation sections** (§1–§6j, of which §6b–§6j are single-change deep dives), **13 span rows that change generated output** (§8.1 — seven of them duplicating a section above), and **13 genuinely adjacent rows** (§8.2) — so **32 distinct engine items**. **How many are already built is not established anywhere.** A five-symbol spot check found it uneven in both directions: `food_shed` and `route_corridors` are present in the crates, `crater_population` and `landmass_index` are not. Do this survey before scheduling any of it — the answer changes the size of every row it would otherwise generate |
+| **Carry the five deliberate re-baselines across as decisions, not as parity failures** | `PARITY_TESTING.md`, `DECISIONS.md` | medium | v2.48 (plate distance transform), v2.50 and v2.51 (crater amplitude, then depth) and **v2.57 (the plate-base blur radius, the widest of them)** re-baseline **every world generated from a seed**; v2.49 does so above mapWidthKm 12 800. v2.58 is deliberately NOT one — it moves the rendered river overlay and no generated value. A golden fixture captured against the frozen v2.10 will fail on all four **correctly**. `PARITY_TESTING.md` has no concept of an intentional upstream re-baseline, so today the only way to record one is to let a test go red |
 | **Decide which line the port follows** | `DECISIONS.md` | medium | The source forked at v2.22: v2.23 duplicated it to carry this port's own shell theme, and **every engine change from v2.25 on exists only on the DCC line**. "Track upstream" is therefore ambiguous and no decision records which branch is meant. Blocks the re-freeze in §2.8, which cannot pick a file without it |
 
 **Why this was invisible.** The spec was written *for* the port and lives at this
@@ -654,7 +656,7 @@ recording corrections on 2026-08-23, -24 and -25.
 **Corrected 2026-09-17; this entry itself understated the drift by an order of
 magnitude.** It used to say `Cartalith Gen1 v2.11.html` at the root was the whole
 gap. Measured in the working copy: the source repo holds **164** mainline files
-(newest **v2.22**) and **35** DCC-line files (newest **v2.57**), while
+(newest **v2.22**) and **36** DCC-line files (newest **v2.58**), while
 `reference/` holds only v2.10 and `FUNCTION_INDEX.md` indexes v2.10's 1 094
 functions. `FUNCTIONAL_CONTRACT.md`'s *"no drift, no re-freeze question to
 raise"* paragraph has been replaced with the measurement.
