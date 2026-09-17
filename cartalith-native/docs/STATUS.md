@@ -44,13 +44,14 @@ work outstanding.
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **30** DCC files (newest
-**v2.52**), and it **forked at v2.22** — every engine change from v2.25 on
+v*.html` (newest **v2.22**) plus a second line of **33** DCC files (newest
+**v2.55**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
-be read as "matches the source today"**, and four of the changes in the interval
-(v2.48, v2.49, v2.50, v2.51) are deliberate upstream re-baselines that a golden
-fixture taken against v2.10 will fail *correctly*.
+be read as "matches the source today"**, and five of the changes in the interval
+are deliberate upstream re-baselines that a golden fixture taken against v2.10
+will fail *correctly*: **v2.48, v2.49, v2.50 and v2.51** move `field` itself, and
+**v2.55** moves every LOD tile and baked atlas chunk (never `field`).
 
 What changed in the interval is specified change by change in
 `RC_ENGINE_CHANGES.md`. **Which of it is already ported is not established

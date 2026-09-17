@@ -72,7 +72,9 @@ Five caveats on that number, stated rather than buried:
    outright, then 42/56/42 once the verification pass closed the §3.2 medium
    duplicate too).
 2. **§2.9's three rows hide a survey, not an estimate.** `RC_ENGINE_CHANGES.md`
-   specifies **27 distinct engine items** across v2.11–v2.52; how many are
+   specifies **30 distinct engine items** across v2.11–v2.55 (27 through v2.52,
+   plus §6h's three: the 24-bit height word, the relief-gate floor and the
+   local-contrast rebase); how many are
    already ported is not established, so they are deliberately NOT expanded into
    27 rows here. Expanding them before the survey would inflate this count with
    work that may already be done — the opposite error to the one that left them
@@ -344,7 +346,7 @@ measurement.
 
 **Added 2026-09-17. This is not new work — it is work that was never counted.**
 `RC_ENGINE_CHANGES.md` is a full porting spec for the source engine's changes
-from **v2.11 to v2.52**, and until this pass **no document in this repository
+from **v2.11 to v2.55**, and until this pass **no document in this repository
 referenced it except `CLAUDE.md`** (`grep -rl RC_ENGINE_CHANGES *.md` returned
 one file). So a 1 000-line specification of everything the source engine did
 after the freeze sat outside this ledger, outside `STATUS.md`, and outside the
@@ -652,7 +654,7 @@ recording corrections on 2026-08-23, -24 and -25.
 **Corrected 2026-09-17; this entry itself understated the drift by an order of
 magnitude.** It used to say `Cartalith Gen1 v2.11.html` at the root was the whole
 gap. Measured in the working copy: the source repo holds **164** mainline files
-(newest **v2.22**) and **30** DCC-line files (newest **v2.52**), while
+(newest **v2.22**) and **33** DCC-line files (newest **v2.55**), while
 `reference/` holds only v2.10 and `FUNCTION_INDEX.md` indexes v2.10's 1 094
 functions. `FUNCTIONAL_CONTRACT.md`'s *"no drift, no re-freeze question to
 raise"* paragraph has been replaced with the measurement.
