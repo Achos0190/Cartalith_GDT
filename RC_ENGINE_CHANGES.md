@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.56** |
+| Covered by this document | **v2.11 → v2.57** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.56 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.57 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -955,6 +955,164 @@ pixel through `bakePixel` and is unchanged.
 
 ---
 
+## 6i. The coastline is the level set of a blurred Voronoi map (v2.57, DCC line only)
+
+**This is the single highest-leverage number in the whole height formula and the
+HTML had never named it.** A port that reproduces `fillHeightRows` faithfully will
+reproduce the defect faithfully too.
+
+### What was measured, before any fix
+
+Owner, on a 40 000 km world (seed 77805): *"tell me what geometric patterns you
+see. And I literally mean shapes and how they translate to the water."* Seven
+hypotheses were measured against the coarse `field` — never against an image —
+each with an 800 km same-seed control.
+
+The coast did **not** merely correlate with the plate polygons. The pure Voronoi
+partition `plates[plateId[i]].base >= 0`, with no blur, no noise and no erosion,
+**reproduces the land/sea mask at IoU 0.813 / 89.5% agreement**. Locally-straight
+coast runs parallel to the nearest plate-boundary segment at mean |cos| **0.968**
+against a shuffle null of **0.648** (= 2/π to 1.8%), and still **0.881** at 15–20
+cells of separation, where the coast and boundary fitting windows cannot share a
+cell — so it is not a touching artefact.
+
+Term standard deviations in the height formula, measured on the live globals:
+
+| Term | sd |
+|---|---|
+| `baseField` (plate base, blurred) | **0.2524** |
+| stress / orogeny | 0.0653 |
+| flexure | 0.0539 |
+| heterogeneity | 0.0244 |
+| noise × `rug` (the ageField-modulated amplitude) | **0.0232** |
+
+Smooth terms out-gradient the whole noise term **10.64:1** at the coast, and
+deleting the noise entirely moves the coastline's box-count dimension only
+1.0537 → 1.0295.
+
+### The pathway is `baseField`, and the plausible candidate was `ageField`
+
+The chain "straight Voronoi edge → linear-ramp EDT → straight iso-age bands →
+straight noise-amplitude bands" is real, and carries the **smallest** term in the
+formula — 10.9× below the plate-base term. `grad(base)` and `grad(age)` are both
+perpendicular to the same plate boundary, **so correlation alone cannot separate
+them**; the term-magnitude decomposition and the surrogate-mask test can.
+
+### The fix, and the two rules it carries
+
+`baseField[i] = plates[plateId[i]].base` is piecewise-**constant**, and the only
+thing that turns it into a ramp is one `gaussBlur`. A box blur's boundary gradient
+scales as **1/radius**, so that radius alone decides how far the noise can push the
+shoreline off the polygon edge. The HTML now names it:
+
+```
+plateBaseBlurR() = max(2, state.tect.blurR * PLATE_BASE_BLUR_K)    // K: 0.35 -> 0.18
+```
+
+applied at **both** sites that build `baseField` (the main substrate build and the
+imported-DEM `inferTectonics` path).
+
+**Sweep the sign; do not derive it.** A first reading argued a *wider* ramp would
+let the noise wander further. That is wrong: widening also moves where the contour
+sits, and hands it a better-conditioned place to track the polygon from. Measured
+at seed 77805, monotone in both directions and asserted as such:
+
+| K | 0.35 | 0.25 | 0.18 | 0.112 |
+|---|---|---|---|---|
+| straight % (world / 40 000 km) | 49.3 | 43.3 | **36.9** | 29.0 |
+| box-count dimension | 1.032 | 1.061 | **1.074** | 1.092 |
+| IoU vs the Voronoi partition | .812 | .781 | **.747** | .721 |
+| straight % (region / 800 km, the app default) | 67.6 | 65.3 | **58.2** | 53.4 |
+
+**Refuse a value on a constraint, not on taste.** 0.25 is the last value that costs
+nothing anywhere, but it moves the app default's dimension only 1.034 → 1.038 —
+too little to justify re-baselining every world. 0.112 lands *exactly* on the
+`max(2, …)` floor at the shipped `blurR = 18`, so the knob would silently stop
+responding to `blurR` at and below its own default — **the v2.49 defect, one
+version later.**
+
+### Second, independent cause: the carve inherited a DETECTION ease
+
+`riverCoarseEase` exists for a good reason (v2.11-era: on a coarse map a real minor
+stream's catchment can never accumulate the cell COUNT calibrated for an 800 km
+reference, so water that genuinely exists goes undetected — 34% → 96% of land
+within reach of a river at 40 000 km). **That argument is about whether a stream
+EXISTS. It says nothing about whether the grid can hold its VALLEY**, and
+`carveRiverValleys` cuts a real trench into `field`.
+
+At 40 000 km the ease pinned at its cap of 16 and took the channel-initiation
+threshold **209.7 → 13.1**, cutting **8.1×** more trench (12 204 cells, 2.33% of
+the grid → 98 790, 18.84%). `enforceChannelDescent` floors every carve point at
+`sea − 0.06`, so an order-1 headwater reaching the coast is cut **below sea level**
+and floods, and the land between two adjacent floodings is left as a one-cell
+bristle **39 km wide** — **21.3%** of the coastline, against 12.8% at the same seed
+and mode at 800 km, and **1.5%** with the carve off.
+
+The fix is `carveFlowThresh() = riverFlowThresh(GW,GH) * riverCoarseEase(mapWidthKm)`
+— multiplying the ease back out rather than re-deriving the raw formula, so a future
+retune of the base cell-count fraction still reaches both — plus an optional
+`opts.flowThresh` on `buildRiverNetwork` whose **absence is `riverFlowThresh(W,H)`
+exactly**, asserted bit-identical.
+
+**The rule for the port: one threshold function, one consumer class.** The HTML had
+already split a third consumer out for exactly this reason (the Journey Planner's
+own drinking threshold, because a cartographic cap "has nothing to do with whether a
+thirsty party can find a spring"). The carve was a **fourth** consumer and nobody
+split it. If your port has one `river_flow_threshold()`, check every caller and ask
+whether it is asking *does this exist* or *can the grid hold it*.
+
+### Net effect, and the isolation that proves it
+
+At 40 000 km vs the pre-fix build: straight **42.5 → 36.9%**, dimension **1.059 →
+1.074**, IoU **0.813 → 0.747**, one-cell bristles **21.3 → 14.9%**, coastline
+**4 354 → 4 792 cells**.
+
+**Each half was measured against its OWN off-state inside one build.** Restoring
+`PLATE_BASE_BLUR_K` to 0.35 makes the app default **bit-identical** to the previous
+version (FNV 2783047521 both ways) — which is what proves the whole-battery
+divergence is the blur and nothing else; and `riverCoarseEase` is 1.0 at and below
+800 km, so the carve fix is a no-op at the app default by construction. Both are
+assertions, not prose.
+
+### Refuted — do not re-chase these in the port
+
+- **The coast is NOT lattice-locked.** Its period-45° direction harmonic measures
+  **R4 = 0.0255**, against **0.0247** for a control of literal Euclidean circles and
+  **0.7824** for literal chamfer octagons. v2.48's exact-EDT fix holds. The chamfer's
+  real fingerprint is the 22.5/67.5 family (octagon control **2.566×** enriched; this
+  world **0.983×** — nothing).
+- **The slivers are NOT triangular islands.** 6 land components, one holding 98.4% of
+  all land; the filaments are 1 cell wide along their whole length (no taper) with no
+  common axis (global axial R **0.247**). They are peninsulas a connected-component
+  census cannot see.
+- **The tan coast band is an ELEVATION band**, not a distance buffer:
+  `beachT = smoothstep(0.03, 0, r) * 0.6`, i.e. everything under 120 m. Its apparent
+  uniform offset with mitred corners is **grid quantisation** — median width 2 cells
+  at BOTH 39.06 and 0.78 km/cell.
+- **None of it is a scale defect.** Every straightness metric measures the same or
+  worse at 800 km: PCA straightness **42.5%** at 40 000 km against **62.1%** at the
+  app default. It is more *legible* at 40 000 km, where one 32-cell facet spans
+  1 250 km instead of 25.
+
+### One metric this document previously relied on is a bad detector
+
+v2.48's 4-direction exactly-collinear-run test reads **0.00%** for genuine chamfer
+octagons and **12.83%** for genuine Euclidean circles — **it moves backwards** — and
+reports 7.28% where a direction-agnostic PCA fit reports **42.48%** on the same data,
+because it is structurally blind to a facet at an arbitrary angle. **Any straightness
+number from it is a floor, not a measurement.** Use a PCA residual over a fixed
+window, plus a box-count dimension, plus IoU against the surrogate partition.
+
+### Still open, disclosed
+
+The coastline reaches box-count dimension **1.074** against a real coastline's ~1.25,
+so this narrows the gap without closing it. The remaining lever is the noise term's
+own amplitude (`beta`), which is a larger tuning question and was not taken.
+`chamferDist()` and the civ layer's coast/ocean distance fields still carry v2.48's
+8% anisotropy; they feed placement, not terrain height.
+
+---
+
 ## 7. Cross-cutting calibration rules
 
 These are not features; they are the rules the HTML repeatedly re-learned the hard
@@ -1070,15 +1228,16 @@ below is what the heading always promised.
 
 ### 8.1 These change generated output — port them like any other simulation change
 
-Each row moves `field`, or the tiles drawn from it. **Four are deliberate
-re-baselines** (v2.48, v2.50, v2.51, and v2.49 above 12 800 km): a world
+Each row moves `field`, or the tiles drawn from it. **Five are deliberate
+re-baselines** (v2.48, v2.50, v2.51, v2.57, and v2.49 above 12 800 km): a world
 generated from the same seed does not come back the same, which is a decision to
 carry across deliberately, not a regression to chase. **Three already own full
 sections above** and appear here only so the span reads complete — go to the
-section, not the row: **v2.39 → §6e, v2.40 → §6f, v2.41 → §6g.**
+section, not the row: **v2.39 → §6e, v2.40 → §6f, v2.41 → §6g, v2.57 → §6i.**
 
 | Version | Change | Why it may still matter to the port |
 |---|---|---|
+| v2.57 | The coastline stops being the plate polygon (`PLATE_BASE_BLUR_K` 0.35 → 0.18), and the river carve stops inheriting a detection ease | **Core simulation, two deliberate re-baselines, and the highest-leverage single constant in the height formula** — see **§6i**. The pure plate-Voronoi partition reproduced the land mask at IoU 0.813; the pathway is `baseField` (sd 0.2524), not `ageField` (0.0232). A port that reproduces `fillHeightRows` faithfully reproduces this faithfully too. |
 | v2.55 | The deep-zoom plain stops being flat: the relief gate gains a real-metre floor, and the Height view's ramp is rebased on local relief | **Core LOD/refinement contract — see §6h.2 and §6h.3.** A deliberate re-baseline of **LOD tiles and baked atlas chunks** (never `field`), so a stale atlas wants a re-bake. Two constraints a port must not lose: the floor is a REAL-METRE quantity converted through `metersPerUnit()`, not a normalised constant to copy; and the local-relief field is **world-wide, not per-tile** (a per-tile ramp measured a 142.4/255 seam). The contrast stretch must be **additive in shading space** — the multiplicative form clamps in an 8-bit buffer and shifts HUE. |
 | v2.53 | The baked height word widened 16 → 24 bits, in a byte the format already allocated | **Format change every port that bakes an atlas must match — see §6h.1.** There is no PNG and no compression in the HTML's height path, so the widening is free. Encoding is decided by FIELD PRESENCE (`hgt24` vs `rg16`), **never inferred from the bytes** — a flat tile has a constant low byte. Per-chunk `enc` in the atlas manifest (absent ⇒ 16); `tiles/refined_{r}_{c}_rgb24.bin` + `heightEncoding:'rgb24'`. **Retires the per-chunk scale+offset design the HTML's own research had recommended.** |
 | v2.52 | A sub-cell feature RESOLVES in the tile; it is not upscaled from the smear | **Core LOD/refinement contract for any port that draws point features onto a coarse grid.** This is the other half of v2.50 and is legal under §6f's rule for the same reason the river pass was: **the sub-cell truth is DATA, not a guess.** A crater is a continuous profile in `t = d/R` with a known centre, radius and amplitude — the coarse grid merely SAMPLED it, and below the draw floor v2.50 established exactly what it holds instead (that profile at `R = floor`, amplitude scaled by `(r/floor)^2`). **Port rules.** (1) **The correctness question is DOUBLE-COUNTING, not resolution.** The coarse field already carries the smear and the refinement pass upsamples it, so a tile must **remove** the smear before drawing the feature at its own radius. Adding without removing gives a feature roughly 1.87x too deep near the crossover (measured at `r = 1.4` cells, where the coarse residue is 87% of the refined peak; at `r = 0.076` it is 0.26%, i.e. the subtraction is nearly free exactly where the refinement matters most). (2) **Removal must be the SAME function with a negated amplitude**, never a second formula. That is what makes the pass exact rather than approximate. (3) **The crossover must be silent, and this design makes it so for free**: as `r -> floor`, `sc -> 1`, so the remove and the draw become the same profile with opposite signs and the pass fades to EXACTLY nothing at the radius where the coarse grid starts resolving the feature. **No blend, no threshold, nothing to tune** — a port that needs a fade constant here has the design wrong. Above the floor there is no registry entry at all: the coarse field already carries a correctly-shaped feature. (4) **ONE profile definition, shared by the stamp and the tile**, or the two drift (the shape the HTML has paid for nine times). The HTML's helpers WRITE into the array term by term in the caller's own order rather than returning a value, because `arr[i]+=a; arr[i]+=b` is not `arr[i]+=(a+b)` in IEEE arithmetic — returning a sum would have silently re-baselined the coarse field. A port in Rust faces the identical hazard and should pin it the same way (bit-identity of the coarse field across the refactor). (5) **Measure resolution-vs-invention by holding the WORLD rect fixed and varying tile resolution** (§6f's own technique). Measured 64 -> 1024 px on one 40 000 km tile: changed pixels **3 -> 702** while the changed area in WORLD units held at **11.20 / 11.09 / 10.97 / 10.99 coarse cells²**, with the peak delta converging 1.4e-2 -> 8.3e-2 on the feature's own true depth. **Constant world area IS the proof**; a synthesizing pass drifts. (6) **The worker/thread boundary is where this fails SILENTLY.** The HTML's tile pool rebuilds its kernel by stringifying a NAMED LIST of functions, so the new tile function and both profile writers had to cross it or the pooled path throws `ReferenceError` inside the Worker — which v1.61's per-tile isolation turns into a **skipped tile, not an error anyone sees**. The record layout crosses too and is **generated** from the module constants rather than retyped, because a retyped copy mis-reads every stamp instead of failing. A port with real threads has the analogous hazard in whatever it sends across a channel. Note also the HTML's pool-eligibility test is a **whitelist** of five opt-in extras, so adding the registry to the tile options correctly keeps the batch pooled — which is exactly why the names were needed. (7) **Seam-free by construction, not by blending** (§ the v1.29 rule): the pass has no spatial neighbourhood — a pixel depends only on its own world coordinate and the world-wide registry — and that coordinate is computed with the existing detail pass's literal expression, so a shared edge lands on the identical value from either neighbour. Measured Δ **0.00e+0** between real adjacent tiles. (8) **Carry the registry as a FLAT buffer**, not a list of objects: ten slots per record (kind, position, true radius, drawn radius, the coarse amplitude pair actually written, the true amplitude pair, flags) so a thread boundary clones one allocation. Cap it, and when the cap binds keep the **largest**, since those are the ones a tile resolves first. Measured 117 records at 40 000 km and **3 at the reference extent**, where the worst tile moves 3.1e-3 of the height range — the pass earns its place on large maps and is nearly inert on small ones, which is the correct shape. (9) **What must NOT be drawn**: the physical crater model PRODUCES ~1 040 000 craters at 40 000 km and stamps 3 000. The rest were never given positions, so drawing them at tile resolution is **inventing, not refining** — §6f's rule from the other side. Only what was stamped is refined. (10) **Disclosed**: a project loaded from a save has no registry (the loader restores the height field rather than re-stamping), so its tiles refine nothing — the correct degradation, since subtracting a smear from a field that may not contain it is worse than leaving it; the registry is never serialised. The smear is subtracted as WRITTEN while the coarse field has since been eroded and carved, so the residual is bounded at both ends (~1e-5 of the range where it matters, cancelled at the crossover) but is not zero. Everything taking a TILE gets the refinement, but a per-pixel bake that reads the coarse field directly does not. `hash_gen1.js` vs v2.51 **ALL IDENTICAL**. Verified by `tests/perf/probe_cratertile.js` (16 assertions; 2 fail immediately on v2.51) plus 15 headless. |
@@ -1165,6 +1324,7 @@ The HTML's own harnesses, and what each is good for:
 | `tests/perf/probe_heightbits.js` | §6h.1 — how many bits the word needs: 24 and 32 recover the SAME level count, because f32's mantissa is 24 bits |
 | `tests/perf/probe_reliefloor.js` | §6h.2 and §6h.3 — 19 assertions; measures BOTH halves inside one build against their own off-state (floor omitted; `localContrastK` reassigned to `()=>0`) |
 | `tests/perf/probe_lod7compare.js` | §6h — a FIGURE generator, not assertions: the four-rung ladder on one LOD-7 tile, every rung shipped code |
+| `tests/perf/probe_coastgeom.js` | §6i — the coastline must stop being the plate polygon and the carve must stop combing it. Takes the pre-fix file as a control and measures each half against its own off-state inside one build |
 | `tests/perf/probe_renderfields.js` | the v2.56 row in §8.2 — asserts the exact rebuild set per input, not merely that something was reused |
 | `tests/perf/probe_geninfo.js` | the v2.54 row in §8.2 — verifies by REBUILDING, with a v2.53-shaped dump as the control that must fail |
 

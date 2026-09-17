@@ -44,14 +44,19 @@ work outstanding.
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **34** DCC files (newest
-**v2.56**), and it **forked at v2.22** — every engine change from v2.25 on
+v*.html` (newest **v2.22**) plus a second line of **35** DCC files (newest
+**v2.57**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and five of the changes in the interval
 are deliberate upstream re-baselines that a golden fixture taken against v2.10
-will fail *correctly*: **v2.48, v2.49, v2.50 and v2.51** move `field` itself, and
-**v2.55** moves every LOD tile and baked atlas chunk (never `field`).
+will fail *correctly*: **v2.48, v2.49, v2.50, v2.51 and v2.57** move `field`
+itself, and **v2.55** moves every LOD tile and baked atlas chunk (never `field`).
+v2.57 is the widest of them — it renames and retunes the plate-base blur radius
+(`PLATE_BASE_BLUR_K` 0.35 → 0.18), which the source measured as the single
+highest-leverage constant in the height formula: the coastline is the level set of
+a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
+the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
 What changed in the interval is specified change by change in
 `RC_ENGINE_CHANGES.md`. **Which of it is already ported is not established
