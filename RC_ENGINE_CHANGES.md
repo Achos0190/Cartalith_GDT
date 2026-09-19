@@ -1553,6 +1553,14 @@ the fragile-outlier shape, and it flipped here one version after it was written.
 
 ### Disclosed, not fixed
 
+- **`buildMainStems` emits stems that terminate in mid-air**, and a floored width makes each one
+  louder. 194 of 1 104 stems end neither at a confluence, nor at sea or a lake, nor at the map
+  edge (58 of them ≤3 points); at the 0.8-cell floor such a 2.4-cell headwater draws as a
+  1.6-cell lozenge instead of a hairline. v2.60 **cuts every one of those counts by 21–29 %**
+  (246 → 194 orphans, 82 → 58 tiny, 383 → 289 stems of ≤3 points) and does not remove them —
+  removing them is the refuted length-cap, which costs 111 broken stems. **A port assembling its
+  own main stems should make a stem's terminus a real one** (confluence, water body, or domain
+  edge); that closes this at the source rather than at the renderer.
 - With **Show-lakes OFF** a lake pixel renders as land, so the river is then painted
   across the lake bed — its real course, with the lake being what is hidden.
 - The two depression models still disagree, which is what leaves 4.33 % of steps
