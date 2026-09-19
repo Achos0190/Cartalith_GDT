@@ -72,11 +72,15 @@ Five caveats on that number, stated rather than buried:
    outright, then 42/56/42 once the verification pass closed the §3.2 medium
    duplicate too).
 2. **§2.9's three rows hide a survey, not an estimate.** `RC_ENGINE_CHANGES.md`
-   specifies **35 distinct engine items** across v2.11–v2.61: 27 through v2.52,
+   specifies **36 distinct engine items** across v2.11–v2.62: 27 through v2.52,
    §6h's three (the 24-bit height word, the relief-gate floor and the
    local-contrast rebase), v2.57's plate-base blur, v2.58's river selection,
    v2.59's drainage default plus its ruling on Strahler order (§6k/§7.12), and
-   v2.60's river-continuity fix (§6l) and v2.61's water-paint/lake-gate pass (§6m).
+   v2.60's river-continuity fix (§6l), v2.61's water-paint/lake-gate pass (§6m)
+   and v2.62's navigable-river routing/flow-direction pass (§6n) — the last of
+   which is the first place §6k's "key the threshold on catchment AREA"
+   recommendation is actually taken, for a NEW consumer, leaving the three
+   existing `order>=3` consumers alone.
    **That arithmetic closes; the figure read 31 before 2026-09-17 and did not** —
    v2.57 had been added to the total without being added to the breakdown. How
    many are already ported is not established, so they are deliberately NOT
@@ -350,7 +354,7 @@ measurement.
 
 **Added 2026-09-17. This is not new work — it is work that was never counted.**
 `RC_ENGINE_CHANGES.md` is a full porting spec for the source engine's changes
-from **v2.11 to v2.61**, and until this pass **no document in this repository
+from **v2.11 to v2.62**, and until this pass **no document in this repository
 referenced it except `CLAUDE.md`** (`grep -rl RC_ENGINE_CHANGES *.md` returned
 one file). So a 1 000-line specification of everything the source engine did
 after the freeze sat outside this ledger, outside `STATUS.md`, and outside the

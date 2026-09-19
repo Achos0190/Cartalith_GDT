@@ -45,7 +45,7 @@ work outstanding.
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
 v*.html` (newest **v2.22**) plus a second line of **38** DCC files (newest
-**v2.61**), and it **forked at v2.22** — every engine change from v2.25 on
+**v2.62**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and seven of the changes in the interval
@@ -59,7 +59,19 @@ highest-leverage constant in the height formula: the coastline is the level set 
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
-**v2.61 is the newest.** It is mostly a PAINT change — a river is drawn in the lake's own colour at
+**v2.62 is the newest.** It is a ROUTING and PLANNER change and it writes no height, climate or
+pixel — but it deliberately moves **generated road geometry**, so a port that generates roads must
+port it or its networks keep ignoring the rivers. A per-cell cost cannot tell walking ALONG a river
+from cutting ACROSS it, so the ford was charged on every river CELL while the navigable discount was
+multiplied into every river cell: the most navigable river on the map was its most expensive ground
+(**3.46x** plain). Both terms move to the EDGE, and `|align|` is symmetric by construction because
+an undirected Prim MST has no answer for an asymmetric cost. **Navigability is keyed on catchment
+km², not Strahler order** — this is where §6k's standing recommendation gets taken, for a new
+consumer; the three existing `order>=3` consumers are untouched and that migration is still open.
+The planner's current came from the route's elevation profile and was backwards one step in five.
+See `RC_ENGINE_CHANGES.md` §6n.
+
+**v2.61** is mostly a PAINT change — a river is drawn in the lake's own colour at
 its true coverage, with banks, because a lake is opaque while a river was a translucent tint at an
 alpha carrying the discharge magnitude — but two parts of it move generated values: a pooled
 depression a river flows into is now classified as a LAKE (local rainfall is the wrong gate for a

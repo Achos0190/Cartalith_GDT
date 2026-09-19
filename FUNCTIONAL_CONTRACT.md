@@ -24,7 +24,7 @@ no re-freeze question to raise."* Counted directly:
 |---|---|---|
 | `Cartalith Gen1 v*.html` | 152 | **164** |
 | Newest mainline | v2.10 | **v2.22** |
-| DCC-line files (`Cartalith v*.* DCC test.html`) | not mentioned | **39, newest v2.61** |
+| DCC-line files (`Cartalith v*.* DCC test.html`) | not mentioned | **40, newest v2.62** |
 | Frozen here in `reference/` | v2.10 | v2.10 — unmoved |
 
 So the frozen reference is **twelve mainline versions behind**, and the source
