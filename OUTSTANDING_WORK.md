@@ -72,10 +72,11 @@ Five caveats on that number, stated rather than buried:
    outright, then 42/56/42 once the verification pass closed the §3.2 medium
    duplicate too).
 2. **§2.9's three rows hide a survey, not an estimate.** `RC_ENGINE_CHANGES.md`
-   specifies **33 distinct engine items** across v2.11–v2.59: 27 through v2.52,
+   specifies **34 distinct engine items** across v2.11–v2.60: 27 through v2.52,
    §6h's three (the 24-bit height word, the relief-gate floor and the
-   local-contrast rebase), v2.57's plate-base blur, v2.58's river selection, and
-   v2.59's drainage default plus its ruling on Strahler order (§6k/§7.12).
+   local-contrast rebase), v2.57's plate-base blur, v2.58's river selection,
+   v2.59's drainage default plus its ruling on Strahler order (§6k/§7.12), and
+   v2.60's river-continuity fix (§6l).
    **That arithmetic closes; the figure read 31 before 2026-09-17 and did not** —
    v2.57 had been added to the total without being added to the breakdown. How
    many are already ported is not established, so they are deliberately NOT
@@ -349,7 +350,7 @@ measurement.
 
 **Added 2026-09-17. This is not new work — it is work that was never counted.**
 `RC_ENGINE_CHANGES.md` is a full porting spec for the source engine's changes
-from **v2.11 to v2.58**, and until this pass **no document in this repository
+from **v2.11 to v2.60**, and until this pass **no document in this repository
 referenced it except `CLAUDE.md`** (`grep -rl RC_ENGINE_CHANGES *.md` returned
 one file). So a 1 000-line specification of everything the source engine did
 after the freeze sat outside this ledger, outside `STATUS.md`, and outside the
@@ -357,8 +358,8 @@ count at the top of this file.
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
-| **Establish which of the specified changes are already ported** | `RC_ENGINE_CHANGES.md` → `STATUS.md` | **large** | The spec carries **16 top-level simulation sections** (§1–§6k, of which §6b–§6k are single-change deep dives), **14 span rows that change generated output** (§8.1 — eight of them duplicating a section above), and **13 genuinely adjacent rows** (§8.2) — so **33 distinct engine items**. **How many are already built is not established anywhere.** A five-symbol spot check found it uneven in both directions: `food_shed` and `route_corridors` are present in the crates, `crater_population` and `landmass_index` are not. Do this survey before scheduling any of it — the answer changes the size of every row it would otherwise generate |
-| **Carry the five deliberate re-baselines across as decisions, not as parity failures** | `PARITY_TESTING.md`, `DECISIONS.md` | medium | v2.48 (plate distance transform), v2.50 and v2.51 (crater amplitude, then depth) and **v2.57 (the plate-base blur radius, the widest of them)** re-baseline **every world generated from a seed**; v2.49 does so above mapWidthKm 12 800. v2.58 is deliberately NOT one — it moves the rendered river overlay and no generated value. A golden fixture captured against the frozen v2.10 will fail on all four **correctly**. `PARITY_TESTING.md` has no concept of an intentional upstream re-baseline, so today the only way to record one is to let a test go red |
+| **Establish which of the specified changes are already ported** | `RC_ENGINE_CHANGES.md` → `STATUS.md` | **large** | The spec carries **17 top-level simulation sections** (§1–§6l, of which §6b–§6l are single-change deep dives), **15 span rows that change generated output** (§8.1 — nine of them duplicating a section above), and **13 genuinely adjacent rows** (§8.2) — so **34 distinct engine items**. **How many are already built is not established anywhere.** A five-symbol spot check found it uneven in both directions: `food_shed` and `route_corridors` are present in the crates, `crater_population` and `landmass_index` are not. Do this survey before scheduling any of it — the answer changes the size of every row it would otherwise generate |
+| **Carry the seven deliberate re-baselines across as decisions, not as parity failures** | `PARITY_TESTING.md`, `DECISIONS.md` | medium | v2.48 (plate distance transform), v2.50 and v2.51 (crater amplitude, then depth), **v2.57 (the plate-base blur radius, the widest of them)**, **v2.59 (depression-filled routing ON by default)** and **v2.60 (the river-continuity finishing descent pass)** re-baseline **every world generated from a seed**; v2.49 does so above mapWidthKm 12 800. v2.58 is deliberately NOT one — it moves the rendered river overlay and no generated value. A golden fixture captured against the frozen v2.10 will fail on all of them **correctly**. Both v2.59 and v2.60 isolated the divergence to its own cause inside ONE build (force the flag equal on both sides; turn the carve and the river blend off on both sides) — the port should carry that technique with the decision. `PARITY_TESTING.md` has no concept of an intentional upstream re-baseline, so today the only way to record one is to let a test go red |
 | **Decide which line the port follows** | `DECISIONS.md` | medium | The source forked at v2.22: v2.23 duplicated it to carry this port's own shell theme, and **every engine change from v2.25 on exists only on the DCC line**. "Track upstream" is therefore ambiguous and no decision records which branch is meant. Blocks the re-freeze in §2.8, which cannot pick a file without it |
 
 **Why this was invisible.** The spec was written *for* the port and lives at this

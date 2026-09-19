@@ -24,7 +24,7 @@ no re-freeze question to raise."* Counted directly:
 |---|---|---|
 | `Cartalith Gen1 v*.html` | 152 | **164** |
 | Newest mainline | v2.10 | **v2.22** |
-| DCC-line files (`Cartalith v*.* DCC test.html`) | not mentioned | **37, newest v2.59** |
+| DCC-line files (`Cartalith v*.* DCC test.html`) | not mentioned | **38, newest v2.60** |
 | Frozen here in `reference/` | v2.10 | v2.10 — unmoved |
 
 So the frozen reference is **twelve mainline versions behind**, and the source
@@ -38,7 +38,7 @@ against — that debt is now understated by the same twelve versions.
 source project moved past.** Treat a tag as "true as of v2.10", not as true
 today, until the re-freeze lands. **What changed in the interval is not
 unknown** — it is specified, change by change, in `RC_ENGINE_CHANGES.md`, which
-covers v2.11 → v2.59 as a porting spec. Read that before trusting any tag in a
+covers v2.11 → v2.60 as a porting spec. Read that before trusting any tag in a
 subsystem it touches.
 
 **This was a standing instruction, not an oversight nobody could have caught.**

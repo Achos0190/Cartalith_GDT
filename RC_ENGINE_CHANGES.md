@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.59** |
+| Covered by this document | **v2.11 → v2.60** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.59 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.60 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -1399,6 +1399,169 @@ scratch pays none of that migration cost and should key them on area from the st
 
 ---
 
+## 6l. A river drawn as a chain of cells is not a continuous feature (v2.60, DCC line only)
+
+**Owner report:** rivers read as *"small strokes one after another"*, and should be
+painted the way lakes are once zoomed in; then, explicitly, *"be sure a river doesn't
+break up into parts"* and *"use a bit of the sculpt tools to make sure a length of the
+river is deep enough to constitute river."*
+
+**A deliberate re-baseline**: `field`, `flow` and `rgba` all move at the app default.
+Verified by `tests/perf/probe_riverfill.js` (20 assertions), `tests/run.sh` 1280/0,
+`run_um.sh` 852/852, and the five existing river probes.
+
+### The defect was one number, and its sibling had been right for thirty versions
+
+`buildRiverNetwork` does not draw a polyline into the raster. It **stamps a disc at
+each channel cell**, radius `r = ceil(halfW)`, and `halfW` floors at **0.5**. For any
+`halfW` in (0,1) that gives `r = 1`, so the only distance in reach that passes is
+`d === 0`: **one cell per centreline point**, at full amplitude.
+
+A D8 receiver chain steps diagonally about **42 %** of the time, and two diagonally
+adjacent SQUARES touch only at a corner. Measured at seed 12345 / 1024 px:
+
+| | v2.59 | v2.60 |
+|---|---|---|
+| main stems that break into parts | **884 of 1 305** | **0 of 1 104** |
+| individual breaks | **3 554** | **0** |
+| 4-connected components in the river raster | **4 856** (for 134 rivers) | **486** |
+| painted cells with no orthogonal neighbour | 2 792 (21 %) | — |
+
+**The sibling already had the fix.** `carveRiverValleys` cuts the same rivers at
+`halfW = 0.8` at order 1 — above a cell's circumradius `sqrt(1/2) = 0.7071` — and
+**v2.30 fixed exactly this defect for the carve** ("a diagonal step broke the trench").
+Nobody carried it to the render stamp, which is the one you can see.
+
+### 8-connectivity is free on a D8 chain and therefore proves nothing
+
+Every metric here is **4-connectivity**, and the headline one walks each main stem
+cell by cell asking whether the painted water (river ∪ lake ∪ sea) is 4-connected from
+one chain cell to the next. That is what the eye reads as one line, and it is the only
+measure that cannot be satisfied by painting pixels somewhere else. **A port's own
+harness must assert the same thing** — an 8-connected check passes on the broken build.
+
+### Five render changes, none of them a new mechanism
+
+1. **The main map joins the tile evaluator.** v2.40 routed `riverFieldTile` into the
+   LOD tile renderer and both bakes and never into `surfaceColor`; v2.60 adds
+   `riverMainField()` over the existing per-name render cache, so the off-LOD map and
+   the tile now evaluate one function. The per-cell stamp read (and its `omax` gate)
+   is gone from `surfaceColor`.
+2. **A second floor, in GRID CELLS.** The existing floor `RIVER_TILE_MIN_PX = 0.55` is
+   in TILE PIXELS, so it shrinks to **0.014 cells** at a 9.4 km view — the symbol
+   evaporates exactly where the user is looking. `RIVER_MIN_HALF_CELLS = 0.8` is the
+   grid's own statement (a centreline is known to ±half a cell). **Deliberately not
+   real km** — §7.11's rule is about PHYSICAL quantities; a resolution floor must bind
+   on a coarse map and release on a fine one, which it does for free (0.069 real
+   half-cells at 800 km/1024 px, 1.1 at a 50 km region).
+3. **The profile becomes a CROSSOVER, not a widened fade.** `1 - d/w` fades over the
+   DRAWN width, so a bound floor spends the whole cross-section on a channel that is
+   not there (measured: 17 081 cells painted, 9 775 at the shipped amplitude, still
+   4 365 pieces). Fading over the REAL width was built and also rejected: it puts the
+   elbow inside its own fade band, so the bigger the river the fainter its corner. The
+   shipped form is `rIn >= wIn ? 1 - dist/wIn : 1` — the real cross-section where the
+   grid resolves the channel, a FLAT mark of one circumradius where it does not. That
+   is v2.25's `max(symbol, real)` expressed as a profile, and what a lake shoreline
+   already does (a boolean coverage test at full strength, never a fade).
+4. **The raster geometry becomes WHOLE STEMS.** `traceRiverPolylines` emits one
+   polyline per SOURCE: one 14-cell crop held **13 polylines — a single 59-point stem
+   and TWELVE 2–3 point stubs**, each drawn wider than it is long. Those stubs are the
+   "beans" and the scalloped edge. v2.58 named this and built `buildMainStems`; the
+   stroked overlay used it, the raster path did not. Same crop after: **4**.
+5. **The raster stops cutting at lakes.** Every raster consumer paints the LAKE and not
+   the river on a lake pixel (the tile renderer `continue`s, the bake returns the lake
+   colour, the main loop overwrites), so the cut removed nothing visible and opened the
+   junction — all 115 remaining breaks were lake-adjacent and every one diagonal. v1.29
+   had already drawn this distinction for the GeoJSON export, in these words: *"a lake
+   reach is real hydrology."* The STROKED overlay keeps its cut.
+
+### Refuted — do not re-chase these in the port
+
+- **Capping the floor by the reach's own length** (§7.9's rule, applied here) removes
+  the beans and takes broken stems **0 → 111**: a thin stub stops covering the diagonal
+  elbow to the trunk it joins. The width that guarantees continuity and the width that
+  stops a stub reading as a blob **are the same number**.
+- **`rdpSimplify` at eps 0.25** changes the painted mask by *exactly nothing* (same
+  area 72 407, same perimeter 1 727, max deviation 0) — the scalloping was never the
+  D8 zigzag.
+- **A minimum-lake-SIZE gate** moves breaks 115 → 105. The breaks are along flooded
+  reaches of real lakes, not at ponds.
+
+### The sculpt half: a finishing descent pass, and why it is small
+
+The carve cuts the network built from the **pre-carve** field while `_riverNet` is
+rebuilt from the **post-carve** one, so **1 433 of 11 414 drawn steps CLIMB** (median
+12.7 m, worst 816 m, 748 of them outside any lake). Root cause, and a porting
+constraint in its own right: with integrated drainage on, receivers follow the
+**depression-filled** surface while `buildWaterBodies` runs its **own separate**
+priority-flood over the raw field — **two depression models answering one question**
+(§7.3). v2.60 does not resolve that; it stops the renderer drawing the disagreement.
+
+Sized by measurement, not by taste:
+
+| | climbing steps | share of map moved |
+|---|---|---|
+| v2.59 | 12.55 % | — |
+| full re-carve of the final network | 9.88 % | **5.16 %** |
+| **descent on the chain's OWN cells** (`CHANNEL_DESCENT_CENTRE_HALFW = 0.5`) | **4.33 %** | **0.74 %** |
+
+ONE pass, deliberately: it cannot converge, because every cut moves `flowField` and so
+moves the network it is chasing.
+
+### Read the EXTENT, not the stem count
+
+v2.30's rule again. Stems fall **1 305 → 1 104** because tributaries that used to stop
+at an uphill step now run on into their trunk — a MERGE, not a loss. Traced extent
+RISES **13 395 → 13 907 cells (+3.8 %)** and carved coverage goes **87.7 → 91.6 %**;
+median incision 88.7 → 103.9 m.
+
+### Isolation, and one seam the change caught
+
+Isolated both ways (§7 discipline): `carveRivers` off **and** `showRivers` off on both
+sides is **ALL IDENTICAL**; `carveRivers` off alone leaves `field` and `flow`
+IDENTICAL with only `rgba` moving. So the terrain divergence is exactly the finishing
+pass and the render divergence is exactly the river blend.
+
+**A widened symbol needs a widened REJECT MARGIN.** The tile evaluator pads a
+polyline's bbox by the maximum REAL half-width while the stamp draws at the FLOORED
+one, so a polyline outside a tile whose band reached inside was accepted in one tile
+and rejected in its neighbour — a real seam, measured **0.498** on the shared column
+against v2.40's `< 0.02` bound. Latent while the two radii were close; an 11× floor
+bit immediately. Any port that floors a drawn width must widen the cull test with it.
+
+### A porter re-measuring §6k on v2.60 will get different numbers, and should
+
+v2.60 re-baselines the terrain, so every figure §6k quotes was re-measured on it: the
+flip's longest whole main stem reads **66 → 212 km (3.22×**, against §6k's 1.80×), the
+top Strahler bucket spans **145.9×** in catchment (123.7×), the widest order measured
+anywhere is **5** (4), and `order ≥ 3` covers **0.50 % / 4.12 % / 4.58 %** of channel at
+800 / 8 000 / 40 000 km (0.32 / 3.73 / 4.10). **§6k's ruling is unchanged and all 18 of
+its assertions still pass** — order still reports **3 → 3** across a trunk 3.22× longer,
+still cannot rank inside its own top bucket, and is still non-monotone in **4 of 6**
+configurations. Quote a figure against the version it was measured on.
+
+### The instrument, not just the result
+
+§6k's resolution-ladder check compared max order at 512/1024/2048 px on **one seed** and
+demanded equality. v2.60's terrain flipped it (3/3/3 → 3/3/**4**) without touching the
+threshold it was testing. Re-measured over **five pinned seeds**: v2.59 deepens on 0 of
+5, v2.60 on 1 of 5 by one step, and v2.59's mean change is *negative* — noise in both
+directions, against the **1.7–2.5 levels** Horton's bifurcation ratio predicts over a 16×
+cell count. The HTML's assertion is that aggregate now. **A port's harness should be
+written as the aggregate from the start**: a single-seed equality on generated terrain is
+the fragile-outlier shape, and it flipped here one version after it was written.
+
+### Disclosed, not fixed
+
+- With **Show-lakes OFF** a lake pixel renders as land, so the river is then painted
+  across the lake bed — its real course, with the lake being what is hidden.
+- The two depression models still disagree, which is what leaves 4.33 % of steps
+  climbing.
+- `probe_lodrivers.js` asserts v2.39's design, which **v2.40 deliberately reverted**:
+  5 of its 13 have failed on every version since, v2.59 and v2.60 alike.
+
+---
+
 ## 7. Cross-cutting calibration rules
 
 These are not features; they are the rules the HTML repeatedly re-learned the hard
@@ -1566,18 +1729,19 @@ below is what the heading always promised.
 Each row moves `field`, the tiles drawn from it, **or what the map renderer puts on
 screen** — v2.58 is the one row of the third kind, and it is listed here rather than
 under §8.2 because it changes the visible map at every scale even though it moves no
-generated value. **Six are deliberate re-baselines** (v2.48, v2.50, v2.51, v2.57, v2.59,
+generated value. **Seven are deliberate re-baselines** (v2.48, v2.50, v2.51, v2.57, v2.59, v2.60,
 and v2.49 above 12 800 km): a world generated from the same seed does not come back
 the same, which is a decision to carry across deliberately, not a regression to
-chase. **Eight of the fourteen rows already own full sections above** and appear
+chase. **Nine of the fifteen rows already own full sections above** and appear
 here only so the span reads complete — go to the section, not the row:
 **v2.39 → §6e, v2.40 → §6f, v2.41 → §6g, v2.53 → §6h.1, v2.55 → §6h.2/§6h.3,
-v2.57 → §6i, v2.58 → §6j, v2.59 → §6k.** (This list said *five* and omitted the two §6h rows
+v2.57 → §6i, v2.58 → §6j, v2.59 → §6k, v2.60 → §6l.** (This list said *five* and omitted the two §6h rows
 until 2026-09-17 — the same append-without-re-reading habit that produced §8's
 own split.)
 
 | Version | Change | Why it may still matter to the port |
 |---|---|---|
+| v2.60 | A river stops being drawn as a chain of one-cell discs: a grid-cell width floor, a crossover profile, whole stems instead of fragments, and a finishing descent pass | **A deliberate re-baseline — `field`, `flow` and `rgba` all move — and a correctness constraint for any port that rasterises a D8 chain: see §6l.** `buildRiverNetwork` stamps a disc per channel cell at `halfW` floored to 0.5, so only the centre cell is painted and a diagonal step leaves a corner-touch gap: **884 of 1 305 main stems broke into parts, 3 554 breaks, 4 856 four-connected components for 134 rivers.** The carve had the right number (0.8, above a cell's circumradius) since v2.30 and it was never carried to the render stamp. Assert **4-connectivity** — 8-connectivity is free on a D8 chain and passes on the broken build. |
 | v2.59 | Integrated drainage becomes the default, and Strahler order is measured against upstream catchment area | **A deliberate re-baseline — `field` itself moves, because `carveRiverValleys()` cuts along the network integration changes. See §6k.** §6g's depression-filled routing was built in v2.41, measured, and shipped OFF; v2.59 turns it on. At the HTML's own default: land terminating in an interior pit **68.5 % → 0.0 %**, land draining to the sea **×1.63**, longest whole main stem **66 → 118 km**, biggest catchment at a stem mouth **5 078 → 92 815 km² (×18.3)**. `deltas` stays off; the save-compat guard still defaults `integrate` FALSE so a pre-v2.41 project reloads as the world it was. Isolated both ways against v2.58, so the re-baseline claim is checkable. The comparison that came with it is the part a port must carry: **Strahler order is NOT resolution-dependent here** (the channel threshold is keyed on the cell count — a port keying it on real km² would break that), **but it IS extent-dependent** (`order>=3` covers 0.32 % / 3.73 % / 4.10 % of channel at 800/8 000/40 000 km), **cannot rank inside its own top bucket** (123.7× in catchment) and **is not monotone** (the world's biggest river reads below its own navigability gate in 4 of 6 configs). Ruling: keep the ordinal tier, key the gates on catchment **area** — §7.12. Verified by `tests/perf/probe_riverorder.js` (18 assertions). |
 | v2.58 | River SELECTION gains a scale term at last: whole main stems instead of fragments, an on-screen-pixel gate, and a spline that refines with zoom | **Not a re-baseline — `hash_gen1.js` vs v2.57 is ALL IDENTICAL — but a rendering contract a port will otherwise reimplement wrongly. See §6j.** The HTML's river *drawing* has had a scale term since v2.25; its river *selection* never had one, so a 50 km region and a 40 000 km world chose the same set of rivers. Four constraints a port must carry. (1) **Gate on screen pixels, not on raw zoom.** The settlement/road ladders this was asked to mirror are raw zoom scalars, which on a 40 000 km world put a hamlet on screen at a **28 571 km** view; `len * _z` needs no map-extent term because `_z` is screen-px-per-grid-cell in both camera conventions. (2) **A traced polyline is a FRAGMENT, and fragment length anti-correlates with importance** — measured ρ(length, drainage area) **0.207**, top-100-by-length ∩ top-100-by-flow **2%**. Assemble whole stems first (drainage area accumulated over the channel receiver graph by Kahn's algorithm, largest tributary kept at each confluence): ρ **0.207 → 0.963** against that same accumulation, which is what makes a length gate select whole rivers rather than fragments. **v2.59 correction: that 0.963 is length against upstream CHANNEL CELLS, not catchment AREA** (0.105–0.398 against the real catchment raster, worse than Strahler order's own 0.379–0.734) — the gate is a cartographic disclosure rule, never an importance ranking. See §6j's correction box and §6k. (3) **Accumulate on the CHANNEL tree, and make every length wrap-aware.** Ranking `net.recv` chains by `flowField` mixes two different trees (§6g's own finding) and produces stems dying after 5–10 steps at flow 163 405; a raw `hypot` across the antimeridian bills a full map width, which measured a longest "stem" of **41 097 km = 2 104 cells on a 2 048-cell grid** and, because the ladder RANKS on length, promoted every seam-crossing river to the top of it. (4) **The spline's own geometry was grid-keyed with no zoom or real-km term** — a 111 km control-point spacing and a 1 000 km meander wavelength at 40 000 km, constant at every zoom. **Eighth occurrence of the real-km defect** (§7.11). Also refuted and worth not re-chasing: **Töpfer & Pillewizer is wrong for hydrography** (predicts 49% flowline retention 1:24k→1:100k against USGS's measured 10–11%), **Strahler cannot carry the named tiers** (max order 4 at world extent, 2 at the default, against 8–12 for a real Amazon), and the ladder **saturates at LOD 5**, so LOD 7/8 is where the spline resolves rather than where selection happens. Verified by `tests/perf/probe_riverscale.js` (17 assertions). |
 | v2.57 | The coastline stops being the plate polygon (`PLATE_BASE_BLUR_K` 0.35 → 0.18), and the river carve stops inheriting a detection ease | **Core simulation, two deliberate re-baselines, and the highest-leverage single constant in the height formula** — see **§6i**. The pure plate-Voronoi partition reproduced the land mask at IoU 0.813; the pathway is `baseField` (sd 0.2524), not `ageField` (0.0232). A port that reproduces `fillHeightRows` faithfully reproduces this faithfully too. |
