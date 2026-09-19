@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.62** |
+| Covered by this document | **v2.11 → v2.63** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.62 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.63 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -1567,6 +1567,99 @@ the fragile-outlier shape, and it flipped here one version after it was written.
   climbing.
 - `probe_lodrivers.js` asserts v2.39's design, which **v2.40 deliberately reverted**:
   5 of its 13 have failed on every version since, v2.59 and v2.60 alike.
+
+---
+
+## 6o. Seven generation constants become parameters (v2.63, DCC line only)
+
+**What a port needs from this section is small and exact: seven numbers that were
+compile-time constants are runtime parameters now, their defaults are the old
+constants, and three neighbours were deliberately left as constants.** The screen
+that edits them is UI and belongs in §8.1; the parameter surface is generation and
+belongs here.
+
+### 6o.1 The seven, their keys and their defaults
+
+`CIV_PARAM_DEFS` (block 1) holds each number **once**. `civParamDef(key)` is the
+default; `civParam(key)` is the live value, falling back to the default.
+
+| key | default | was | read by |
+|---|---|---|---|
+| `settleSeedThresh` | 0.42 | `SETTLE_SEED_THRESH` | `findSettlementSeeds` gate, 4 sites |
+| `portPreferenceMult` | 3 | `PORT_PREFERENCE_MULT` | v1.46 coastal swap |
+| `villageSuitThresh` | 0.32 | `VILLAGE_SUIT_THRESH` | `_civSeedVillages` floor |
+| `villageSpacingKm` | 10 | `VILLAGE_SPACING_KM` | village suppression radius + road-proximity decay |
+| `villageCap` | 200 | `_CIV_VILLAGE_CAP` | `_civSeedVillages` cap |
+| `foodSurplusRatioMax` | 0.35 | `FOOD_SURPLUS_RATIO_MAX` | `foodSurplusRatio` ceiling |
+| `foodShedMinPop` | 50 | `FOOD_SHED_MIN_POP` | `_civApplyFoodShedCeilings` floor |
+
+The four constants that used to own their own literal (`VILLAGE_SUIT_THRESH`,
+`FOOD_SURPLUS_RATIO_MAX`, `FOOD_SHED_MIN_POP`, and `PORT_PREFERENCE_MULT`'s inline
+`3`) now read the table instead. **One number per knob** — a hand-written second
+copy is how v1.72 BUG-A, v2.45 and v2.54 each drifted, and this document's own §7
+records that lesson.
+
+### 6o.2 Bit-identity is structural, not checked
+
+`state.civParams` starts **empty**. `civParam()` falls through to the table, so a
+world generated without touching the screen **cannot** differ — `hash_gen1.js` vs
+v2.62 is ALL IDENTICAL by construction rather than by measurement. A pre-v2.63 save
+carries no `civParams` block and reloads as the world it was (the v2.17
+`state.passes` convention, §1).
+
+**A port that has no parameter UI can ignore this section entirely and keep the
+seven as constants** — the values are unchanged.
+
+### 6o.3 These are read at AUTO-POPULATE time, never by `generate()`
+
+None of the seven touches the height, climate or flow fields. Changing one moves no
+terrain; it changes what the next settlement pass produces. The HTML deliberately
+does **not** re-run that pass on a change (v2.38 measured it at 11.2 s).
+
+### 6o.4 The surplus ceiling must scale BOTH ag-tech branches
+
+`foodSurplusRatio`'s cap is `isDefault ? maxRatio : min(ABS_MAX, baseRatio*richMult)`
+where `richMult = maxRatio / FOOD_BASE_SURPLUS_RATIO`. **Both** branches must read
+the live ceiling. A first cut scaled only the `isDefault` branch, which would have
+left a traditional faction responsive to the knob and an industrial one deaf — one
+parameter meaning two different things.
+
+Measured on the shipped function at soil 1.0, reference soil 0.5:
+
+| farmers per urbanite | default (0.35) | knob at 0.70 |
+|---|---|---|
+| 9 (traditional) | 0.350 | **0.556** |
+| 6 | 0.450 | **0.571** |
+| 1 (industrial) | 0.750 | **0.750 — unchanged** |
+
+The last row is **correct and is asserted as such**: there the yield-derived ratio
+already sits below the cap, so the ceiling is not the binding constraint. A port
+should not "fix" that into responsiveness — doing so invents surplus.
+
+### 6o.5 Three neighbours are deliberately NOT parameters
+
+Refused on a constraint, not on taste (§7's rule), and a port should leave them
+alone for the same reasons:
+
+- **`FARMERS_PER_URBANITE`** is already per-faction through v1.54's `AG_TECH_LEVELS`
+  rungs. A global knob too would be two surfaces for one question (v1.57).
+- **`FOOD_BASE_SURPLUS_RATIO`** is the constant `foodSurplusRatio()` pins itself to
+  so existing worlds stay bit-identical. Exposing it retunes the pin, not the model.
+- **`SETTLE_COAST_SWAP_TOLERANCE`** is an internal tolerance, not a world-shaping
+  quantity.
+
+### 6o.6 `civParams` joins `GEN_PARAM_BLOCKS`
+
+The generation-parameter dump (§8.1, v2.54) carries the knobs, so its caption's
+promise to reproduce the exact world stays true. v2.54's one-list-two-consumers
+design made that a single list entry.
+
+### 6o.7 How the HTML verified it
+
+`tests/perf/probe_settleparams.js`, 30 assertions. The load-bearing ones: a knob
+must measurably change what the pass produces (threshold 0.30 → **94** seeded sites,
+default → **67**, 0.60 → **18**, cleared → 67 exactly), the defaults must equal the
+constants they replaced, and the inert industrial case above must stay inert.
 
 ---
 

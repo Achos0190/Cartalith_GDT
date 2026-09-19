@@ -44,8 +44,8 @@ work outstanding.
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **38** DCC files (newest
-**v2.62**), and it **forked at v2.22** — every engine change from v2.25 on
+v*.html` (newest **v2.22**) plus a second line of **41** DCC files (newest
+**v2.63**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and seven of the changes in the interval
@@ -59,7 +59,19 @@ highest-leverage constant in the height formula: the coastline is the level set 
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
-**v2.62 is the newest.** It is a ROUTING and PLANNER change and it writes no height, climate or
+**v2.63 is the newest.** It is a PARAMETER-SURFACE change plus a UI screen, and it writes no
+height, climate, flow or pixel — `hash_gen1.js` vs v2.62 is ALL IDENTICAL **by construction**,
+because `state.civParams` starts empty and every knob falls through to the constant it replaced.
+Seven settlement-generation constants (`SETTLE_SEED_THRESH`, `PORT_PREFERENCE_MULT`,
+`VILLAGE_SUIT_THRESH`, `VILLAGE_SPACING_KM`, `_CIV_VILLAGE_CAP`, `FOOD_SURPLUS_RATIO_MAX`,
+`FOOD_SHED_MIN_POP`) became runtime parameters read at AUTO-POPULATE time. **A port with no
+parameter UI can keep all seven as constants and skip the section entirely** — the values did not
+move. What a port MUST read before touching `foodSurplusRatio` is §6o.4: both ag-tech branches have
+to scale with the ceiling or one parameter means two different things, and the industrial case is
+correctly INERT. §6o.5 names three neighbours deliberately left as constants and why.
+See `RC_ENGINE_CHANGES.md` §6o.
+
+**v2.62** is a ROUTING and PLANNER change and it writes no height, climate or
 pixel — but it deliberately moves **generated road geometry**, so a port that generates roads must
 port it or its networks keep ignoring the rivers. A per-cell cost cannot tell walking ALONG a river
 from cutting ACROSS it, so the ford was charged on every river CELL while the navigable discount was
