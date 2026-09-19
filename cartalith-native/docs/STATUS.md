@@ -44,8 +44,8 @@ work outstanding.
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **42** DCC files (newest
-**v2.64**), and it **forked at v2.22** — every engine change from v2.25 on
+v*.html` (newest **v2.22**) plus a second line of **43** DCC files (newest
+**v2.65**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and seven of the changes in the interval
@@ -59,7 +59,17 @@ highest-leverage constant in the height formula: the coastline is the level set 
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
-**v2.64 is the newest.** It is an URBAN-LAYOUT change — no height, climate, flow or pixel — that adds
+**v2.65 is the newest.** Urban layout again, no height/climate/flow/pixel, `hash_gen1.js` vs v2.64
+ALL IDENTICAL. It makes the status gradient EXPLICIT (`par.status`, from proximity to the market,
+intramural-or-not, and how far downwind on v2.64's bearing) and adds its two visible ends. **Verify
+the SHAPE, not the existence**: 0.662 mean status near the market against 0.218 at the edge, and
+outer ground 0.143 downwind against 0.403 upwind. The part a port should read first is §6q.4 — there
+are TWO district palettes (building tint, parcel fill), the second silently skips an unknown
+district, v2.64 fed only the first, and **v2.64's own probe asserted only the palette it had
+remembered**; widening that to every district actually observed surfaced a pre-existing hole of the
+same shape. See `RC_ENGINE_CHANGES.md` §6q.
+
+**v2.64** is an URBAN-LAYOUT change — no height, climate, flow or pixel — that adds
 the two site-model vectors `docs/05` §7.1 asked for (prevailing wind, along-water gradient) together
 with their first consumer, the §4.7 industry-siting table. Neither vector is invented: the wind is
 `currentWindField()` and the downstream direction is §6n's own receiver tree. Two findings a port

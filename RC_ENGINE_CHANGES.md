@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.64** |
+| Covered by this document | **v2.11 → v2.65** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.64 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.65 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -1567,6 +1567,69 @@ the fragile-outlier shape, and it flipped here one version after it was written.
   climbing.
 - `probe_lodrivers.js` asserts v2.39's design, which **v2.40 deliberately reverted**:
   5 of its 13 have failed on every version since, v2.59 and v2.60 alike.
+
+---
+
+## 6q. The status gradient, made explicit (v2.65, DCC line only)
+
+Urban-layout generation again — no height, climate, flow or pixel, and `hash_gen1.js` vs
+v2.64 is ALL IDENTICAL.
+
+### 6q.1 `par.status`
+
+`docs/05` §7.3's closing bullet: the status gradient is *already* implicit in the layout
+(density, centrality) and nothing can read it — make it **explicit**. `assignDistricts`
+now writes a `status` in `[0,1]` on **every** parcel, from quantities it already had:
+
+- proximity to the market (the integration proxy, M-NET-10);
+- whether the parcel is intramural at all (a faubourg is cheaper ground, §3.1's suburbs row);
+- how far **downwind** it sits, on §6p's wind bearing, when one is available.
+
+No new pass, no new field to thread, no constant of its own.
+
+### 6q.2 It behaves as a gradient, and that is what to verify
+
+A port should check the SHAPE, not that the field exists. Measured in the HTML over 14 real
+towns and 10 371 parcels:
+
+| | mean status |
+|---|---|
+| within 220 m of the market | **0.662** |
+| beyond it | **0.218** |
+| outer ground **downwind** | **0.143** |
+| outer ground **upwind** | **0.403** |
+
+§3.1 summarises the poor quarter as "to the edge **and** downwind". Both terms are in the one
+number, so selecting it is a single sort rather than a second rule.
+
+### 6q.3 The two visible ends
+
+`patrician` is carved out of the **burgher ring**, never out of the commercial core — §3.1
+row 2 is the prime frontages *adjoining* the market. `slum` comes from `suburb`/`artisan` at
+the bottom of the gradient. Measured 50 patrician at mean **0.573** against 44 slum at
+**0.050**. Both respect §6p.5's rule: they never steal a parcel an earlier rule claimed.
+
+### 6q.4 There are TWO district palettes, and this is a trap worth naming
+
+`_UM_ECON_TINT` colours the **buildings**; `_UM_DISTRICT_FILL` colours the **parcel** at the
+City Viewer's `CV_LOD_CITY` tier, and there an unknown district hits `if(!fill) continue` and
+is silently skipped. §6p's four districts were added to the first only, so they drew with no
+quarter fill at all — and §6p's own probe asserted only the palette it had remembered.
+
+Strengthening that assertion to cover **every district actually observed on a parcel**, rather
+than a hand-written list, then surfaced a **pre-existing** hole: `buildFaithSites` has always
+tagged its precinct parcels `church` and this palette had never held an entry for one
+(confirmed absent in v2.63), so a cathedral close drew with no fill. **A hand-list of things
+to check is the same defect as a hand-list of things to define** — the derived assertion is
+what closed both.
+
+### 6q.5 Not built
+
+§3.1's institutional quarters — cathedral close as a *precinct*, castle bailey, Jewry by the
+castle, the foreign-merchant factory at the quay, friaries in the suburbs, monastic precincts,
+hospitals at the gates — each need a building or precinct to anchor on, which is a larger
+piece than a gradient. `par.status` feeds district choice only; it does not drive building
+grammar or parcel grain (the `buildBlocks`→`buildParcels` seam).
 
 ---
 
