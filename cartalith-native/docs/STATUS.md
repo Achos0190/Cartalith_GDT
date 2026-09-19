@@ -41,6 +41,92 @@ work outstanding.
 | **5** — urban morphology | in progress | **in progress** | The largest outstanding block; see above |
 | *not a phase* — LOD and large worlds | "revisit when a concrete need appears rather than building it speculatively" | **built and shipping** | A tiled deep-zoom pyramid with a persistent chunk atlas is on screen. `ROADMAP.md` has not been told |
 
+**Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
+and the source has moved twelve mainline versions past it.** Measured
+2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
+v*.html` (newest **v2.22**) plus a second line of **38** DCC files (newest
+**v2.61**), and it **forked at v2.22** — every engine change from v2.25 on
+exists only on the DCC line. This does not un-do a milestone; a phase verified
+against v2.10 is still verified against v2.10. It does mean **no row above can
+be read as "matches the source today"**, and seven of the changes in the interval
+are deliberate upstream re-baselines that a golden fixture taken against v2.10
+will fail *correctly*: **v2.48, v2.49, v2.50, v2.51, v2.57, v2.59, v2.60 and v2.61** move
+`field` itself, and **v2.55** moves every LOD tile and baked atlas chunk (never
+`field`).
+v2.57 is the widest of them — it renames and retunes the plate-base blur radius
+(`PLATE_BASE_BLUR_K` 0.35 → 0.18), which the source measured as the single
+highest-leverage constant in the height formula: the coastline is the level set of
+a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
+the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
+
+**v2.61 is the newest.** It is mostly a PAINT change — a river is drawn in the lake's own colour at
+its true coverage, with banks, because a lake is opaque while a river was a translucent tint at an
+alpha carrying the discharge magnitude — but two parts of it move generated values: a pooled
+depression a river flows into is now classified as a LAKE (local rainfall is the wrong gate for a
+terminal lake), and **v2.60's sculpt-derived digging pass is REVERTED**, which returns `field` to
+v2.59's bytes exactly in all five battery scenarios. A port that has not implemented v2.60's step
+2c should not implement it. See `RC_ENGINE_CHANGES.md` §6m.
+
+**v2.60 is a re-baseline** — of `field`, `flow` and the
+render alike. The source was rasterising a river as a chain of **one-cell discs**:
+`buildRiverNetwork` stamps a disc per channel cell and its `halfW` floors at 0.5, so
+`r = ceil(0.5) = 1` and only the centre cell passes. A D8 receiver chain steps
+diagonally about 42 % of the time and two diagonally adjacent squares touch only at a
+corner, so **884 of 1 305 main stems broke into visible parts** (3 554 breaks; 4 856
+four-connected components for 134 rivers). The carve has cut the same rivers at 0.8 —
+above a cell's circumradius `sqrt(1/2)` — since v2.30, and nobody carried that number
+to the render stamp. **Three constraints this port inherits whether or not it copies
+the fix**: assert **4-connectivity**, because 8-connectivity is free on a D8 chain and
+passes on the broken build; a width floor expressed in TILE PIXELS evaporates as you
+zoom in (0.014 cells at a 9.4 km view), so a resolution floor belongs in GRID CELLS;
+and flooring a drawn width without widening the polyline **cull margin** opens a real
+tile seam (measured 0.498 on a shared column against a 0.02 bound). The `field` half
+is a finishing descent pass over the final network's own cells, sized by measurement
+(a full re-carve moves 5.16 % of the map for 12.55 → 9.88 % climbing steps; the
+shipped pass reaches 4.33 % and moves 0.74 %) — and its root cause is a port-relevant
+duplicate: with integrated drainage on, receivers follow the depression-**filled**
+surface while `buildWaterBodies` runs its own separate priority-flood over the raw
+field. Two depression models, one question. See `RC_ENGINE_CHANGES.md` §6l.
+
+**v2.59 is a re-baseline too.** It turns depression-filled
+routing on by default: before the flip, **68.5 % of the source world's land
+drained into an interior pit** rather than to any outlet, so `field` itself moves
+(the carve cuts along the network integration changes). It also settles a
+question this port inherits — the source's own river-importance currency,
+Strahler order, was measured against upstream catchment area and found
+**resolution-stable but extent-dependent** (`order>=3` covers 0.32 % of the
+channel network on an 800 km map and 4.10 % on a 40 000 km one, same seed),
+unable to rank inside its own top bucket (123.7× in catchment) and not monotone
+in catchment. The ruling carried here: **keep the ordinal tier, key every
+threshold on catchment area in km²** — a nine-consumer migration the source has
+not made, and one this port gets for free by writing those consumers correctly
+the first time. See `RC_ENGINE_CHANGES.md` §6k and §7.12.
+
+**v2.58 is NOT a re-baseline** — it moves no generated value
+(the source's own hash battery is byte-identical against v2.57) — but it is a
+rendering contract this port will otherwise reimplement wrongly, because the
+defect it fixes is one this port is equally free to write: the source's river
+*drawing* has had a scale term since v2.25 while its river *selection* had none
+at all, so a 50 km region and a 40 000 km world chose the same set of rivers. Two
+constraints worth knowing before any river overlay is written here: gate on
+**screen pixels**, never on raw zoom (the source's own settlement ladder is raw
+zoom, which puts a hamlet on screen at a 28 571 km view on a 40 000 km world), and
+select over **whole main stems**, never over traced polyline fragments — fragment
+length *anti*-correlates with its own accumulation (ρ 0.207, rising to 0.963 once
+stems are assembled — **against upstream channel cells, not catchment area**; the
+source corrected that reading in v2.59, where the same stems measure ρ 0.105–0.398
+against the real catchment raster). See `RC_ENGINE_CHANGES.md` §6j and its
+correction box, and §7.11 for the real-km rule it is the eighth instance of.
+
+What changed in the interval is specified change by change in
+`RC_ENGINE_CHANGES.md`. **Which of it is already ported is not established
+anywhere, including here** — a spot check found `food_shed` and
+`route_corridors` present in the crates and `crater_population` and
+`landmass_index` absent, i.e. uneven in both directions. That survey is
+`OUTSTANDING_WORK.md` §2.9's first row and it is the prerequisite for scheduling
+any of the rest. Until it runs, this file has no honest status to report for the
+span, and says so rather than implying one.
+
 **What landed most recently** (full week in *The last seven days* below):
 
 1. **2026-09-01** — `OUTSTANDING_WORK.md` §1's eight in-flight items worked in
