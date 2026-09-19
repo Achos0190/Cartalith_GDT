@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.60** |
+| Covered by this document | **v2.11 → v2.61** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.60 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.61 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -1570,6 +1570,141 @@ the fragile-outlier shape, and it flipped here one version after it was written.
 
 ---
 
+## 6m. A river is painted as water, in the lake's own colour (v2.61, DCC line only)
+
+**Source**: `Cartalith v2.61 DCC test.html`. Owner, across four messages: *"Maybe we shouldn't
+carve, maybe we should only paint the current line in the same color as the lakes. And make sure the
+lines aren't broken bits"*, then *"Then at those pits should be lakes no?"*, then *"Maybe we should
+revert the digging thing derived from the sculpt function and focus on coloring the river banks
+accordingly."*
+
+**Two of the four changes are RENDER-ONLY (§8.1) and two are not.** The lake-classification term and
+the reverted digging pass both change generated values, so they belong in §8.2. Read all four before
+porting either half.
+
+### 6m.1 The renderer and the lake renderer disagreed about what water IS
+
+A LAKE is **opaque**: `lakeWaterColor(gx,gy,T,vig)` RETURNS a colour and the caller writes it, at a
+flat 0.95 shade, so a lake reads as a level surface. A RIVER was a translucent **Beer-Lambert tint**
+over whatever land colour was underneath — `applyRiverWater` blended at alpha `sV*0.85`, and `sV` is
+`amp*coverage` where `amp = min(1, 0.45+mag*0.7)` carries the **discharge magnitude**. So a small
+river was drawn at **38% opacity** with hillshade showing through, and the drawn band measured a
+flat-edged **2.5 km slab** with the terrain's own ridges visible across it.
+
+**Port rule**: a river's alpha is its **coverage**, never its discharge. Emit coverage as its own
+channel alongside intensity — the widest river over a pixel is not necessarily the brightest, so it
+must max-combine independently.
+
+**And bound the antialias band by the channel, not by a pixel.** `min(RIVER_EDGE_PX, halfWidth)`.
+A flat one-pixel edge is correct in a refined tile and wrong on the coarse grid, where one "tile
+pixel" IS a cell and the half-width is 0.8 of one: it capped the centreline at 80% and averaged 50%,
+which is a tint again. Measured after: **57.3% of painted cells fully opaque, against 0% before.**
+
+**One definition of the lake's colour.** It was written out verbatim in THREE places in the HTML
+(`lakeColor`, `lakeColorSampled`, `renderBiomeTileRGBA`'s inline lake branch) and v2.61 adds a
+fourth consumer. A port writing this from scratch gets that for free and should keep it that way.
+
+### 6m.2 The banks come out of the walk that is already happening
+
+The HTML already had a damp-bank/wetland/floodplain palette (`applyCoastRiverSDFv`'s river half,
+v0.097) and it was unreachable in practice: gated on `state.viz.sdfRivers` (default 0) and fed by
+`buildRiverSDF`, which v2.56 measured at **3078 ms** and which v1.29 lists among the per-tile passes
+that ARE a seam because they have a spatial neighbourhood.
+
+**Port rule**: the bank band is a distance from the water's edge and falls out of the same segment
+stamp the water does — no distance transform, no extra pass, seam-free for the §6j/v2.40 reason (a
+pixel depends only on its own world position and the world-wide polyline set). Its width is a
+fraction of the river's own drawn half-width (`RIVER_BANK_K = 0.75`), so it needs no real-km or
+per-cell term and inherits whichever floor already bound the water.
+
+### 6m.3 A depression a river flows into is a LAKE — §8.2, this MOVES generated values
+
+`buildWaterBodies` gated a pooled depression on **local rainfall**:
+
+```
+if(depth > lakeDepth && (!rain || rain[i] >= lakeRain)) out[i] = 2;    // lakeRain = 0.22
+```
+
+That is the right question for an **unfed hollow** (Death Valley, the Qattara Depression) and the
+wrong one for a **terminal lake**, which exists precisely because a river delivers water from a
+wetter catchment. Chad sits in the Sahel, Eyre and the Aral in deserts, the Dead Sea in a hyper-arid
+basin — **every one fails a local-rainfall test and every one is a lake.**
+
+The supply term was already computed: `flowField` is rainfall-weighted accumulated discharge (§6f /
+v2.41), and the threshold is the engine's own definition of "a channel exists here",
+`riverFlowThresh`. So the fix introduces **no constant of its own**:
+
+```
+if(depth > lakeDepth && (!rain || rain[i] >= lakeRain || (flow && flow[i] >= flowLake))) out[i] = 2;
+```
+
+Measured at seed 12345 / 1024 px / 800 km: lakes **15 904 → 17 725 cells** (4.58% → 5.11% of land).
+The term is **monotone** — it can only ever ADD a lake — and that is asserted, not assumed. Keep it
+an optional input to the primitive so its absence reproduces the old classification exactly.
+
+### 6m.4 The sculpt-derived digging pass is REVERTED — §8.2
+
+§6l's step 2c ran the Sculpt editor's own `enforceChannelDescent` over the post-carve network, taking
+the drawn chains' climb from 12.55% to 4.33% at the cost of moving 0.74% of the map. The owner
+reverted it: the decision it embodied was that the TERRAIN should be edited until the drawn river
+reads right, and v2.61 takes the other branch — leave the ground alone, make the paint read as water,
+and classify the pits as the lakes they are.
+
+**The isolation is exact and is the thing to port against**: against v2.59 the battery reads `field`
+**3273059064**, `temp` 2151860328, `rain` 1311039392, `flow` 1721724374 — **identical on both sides
+in all five scenarios**, only `rgba` moving. So v2.61's terrain IS v2.59's byte for byte, which is
+what proves step 2c was the whole of v2.60's field divergence. **A port that has not yet implemented
+§6l's step 2c should not implement it at all.** `CHANNEL_DESCENT_CENTRE_HALFW` is gone with it.
+
+### 6m.5 Remove a stem, never narrow one
+
+§6l recorded that capping a river's WIDTH by its length broke the network **0 → 111 breaks**, because
+a thin stub stops covering the diagonal elbow to the trunk it joins. v2.61 gets the effect that cap
+was reaching for, safely, by removing whole stems instead:
+
+- A stem is **attached** if its downstream end lands on another stem's cell, or its receiver leaves
+  it into another stem, or it reaches the sea, a lake or the map edge — or some other stem ends on it.
+- An **unattached** stem shorter than `2 × RIVER_MIN_HALF_CELLS` (i.e. shorter than it is drawn wide)
+  is not drawn.
+
+**Removing a stem that nothing joins and that joins nothing cannot disconnect anything, by
+construction** — which is exactly why this is safe where narrowing was not. Measured: 455 of 1104
+stems are isolated, but their **median length is 6.2 cells**, so culling every isolated stem would
+delete 41% of the network; only the sub-width ones go. Breaks stay **0**.
+
+### 6m.6 REFUTED — do not fill the carved trench
+
+Measured before building, and rejected on the measurement:
+
+- At the app default the terrain **carries no river-scale cross-section**. Wetted half-width at
+  bed + 1 m is **below the 0.8-cell floor at 88.1% of vertices**, p50 **0**; the channel's own real
+  half-width is p50 **0.054 cells** against a 3.1 km cell.
+- At the depths where it is not zero, **13% (bed+20 m) to 37% (bed+50 m) saturate** into floodplain.
+- At a 50 km region, filling to the trench's own bank reaches **38–62 cells** — a 3 km flood for a
+  headwater.
+- A backwater sweep along the centreline with **no cap** floods **650 839 of 670 720 cells**. An
+  unbounded fill-to-a-level is a lake-maker, not a river renderer.
+
+### 6m.7 Still open, and worth a port getting right from the start
+
+**The carve and the renderer use two different widths**, from two different formulas:
+
+| Strahler order | carve half-width | drawn half-width | ratio |
+|---|---|---|---|
+| 1 | 0.80 | 0.80 | 1.00 |
+| 2 | **1.30** | 0.80 | **1.62×** |
+| 3 | **1.80** | 0.80 | **2.24×** |
+
+**24.6% of the drawn river at the app default sits in a trench wider than its water, and 100% at a
+50 km region, up to 5.5×.** That is the "two functions answering one question" shape §7 records, and
+it is left standing in the HTML rather than resolved by widening the paint to a size §6h/v2.49
+already established is four times the Amazon. A port should derive both from one width.
+
+Also still true: the two depression models (the routing surface's priority-flood vs
+`buildWaterBodies`' own) disagree, so 12.55% of drawn chain steps climb. v2.61 stops editing the
+ground to hide that and classifies the genuine terminal pits as lakes; the disagreement itself is
+unresolved.
+
 ## 7. Cross-cutting calibration rules
 
 These are not features; they are the rules the HTML repeatedly re-learned the hard
@@ -1737,19 +1872,20 @@ below is what the heading always promised.
 Each row moves `field`, the tiles drawn from it, **or what the map renderer puts on
 screen** — v2.58 is the one row of the third kind, and it is listed here rather than
 under §8.2 because it changes the visible map at every scale even though it moves no
-generated value. **Seven are deliberate re-baselines** (v2.48, v2.50, v2.51, v2.57, v2.59, v2.60,
+generated value. **Eight are deliberate re-baselines** (v2.48, v2.50, v2.51, v2.57, v2.59, v2.60, v2.61,
 and v2.49 above 12 800 km): a world generated from the same seed does not come back
 the same, which is a decision to carry across deliberately, not a regression to
 chase. **Nine of the fifteen rows already own full sections above** and appear
 here only so the span reads complete — go to the section, not the row:
 **v2.39 → §6e, v2.40 → §6f, v2.41 → §6g, v2.53 → §6h.1, v2.55 → §6h.2/§6h.3,
-v2.57 → §6i, v2.58 → §6j, v2.59 → §6k, v2.60 → §6l.** (This list said *five* and omitted the two §6h rows
+v2.57 → §6i, v2.58 → §6j, v2.59 → §6k, v2.60 → §6l, v2.61 → §6m.** (This list said *five* and omitted the two §6h rows
 until 2026-09-17 — the same append-without-re-reading habit that produced §8's
 own split.)
 
 | Version | Change | Why it may still matter to the port |
 |---|---|---|
 | v2.60 | A river stops being drawn as a chain of one-cell discs: a grid-cell width floor, a crossover profile, whole stems instead of fragments, and a finishing descent pass | **A deliberate re-baseline — `field`, `flow` and `rgba` all move — and a correctness constraint for any port that rasterises a D8 chain: see §6l.** `buildRiverNetwork` stamps a disc per channel cell at `halfW` floored to 0.5, so only the centre cell is painted and a diagonal step leaves a corner-touch gap: **884 of 1 305 main stems broke into parts, 3 554 breaks, 4 856 four-connected components for 134 rivers.** The carve had the right number (0.8, above a cell's circumradius) since v2.30 and it was never carried to the render stamp. Assert **4-connectivity** — 8-connectivity is free on a D8 chain and passes on the broken build. |
+| v2.61 | A river is painted as WATER in the lake's own colour, at true coverage, with banks; a river-fed pit is a LAKE; v2.60's sculpt-derived digging pass is reverted | **Two halves, and they land in different sections — read §6m before porting either.** The PAINT half is render-only: a lake is opaque while a river was a translucent Beer-Lambert tint at alpha `sV*0.85`, and `sV` carries the DISCHARGE MAGNITUDE, so a small river drew at **38% opacity** through a flat **2.5 km** slab. **A river's alpha is its COVERAGE, never its discharge**, and the antialias band is bounded by the channel, not by a pixel. The other half MOVES GENERATED VALUES: `buildWaterBodies` gated a pooled depression on LOCAL RAINFALL, which is right for an unfed hollow and wrong for a TERMINAL lake — Chad, Eyre, the Aral and the Dead Sea all fail that test and all are lakes; gating on `flowField >= riverFlowThresh` instead adds no constant and takes lakes **15 904 -> 17 725 cells**, monotone. And v2.60's step 2c is REVERTED: `field` is byte-identical to **v2.59** in all five scenarios, which proves 2c was the whole of v2.60's divergence — **a port that has not implemented it should not**. |
 | v2.59 | Integrated drainage becomes the default, and Strahler order is measured against upstream catchment area | **A deliberate re-baseline — `field` itself moves, because `carveRiverValleys()` cuts along the network integration changes. See §6k.** §6g's depression-filled routing was built in v2.41, measured, and shipped OFF; v2.59 turns it on. At the HTML's own default: land terminating in an interior pit **68.5 % → 0.0 %**, land draining to the sea **×1.63**, longest whole main stem **66 → 118 km**, biggest catchment at a stem mouth **5 078 → 92 815 km² (×18.3)**. `deltas` stays off; the save-compat guard still defaults `integrate` FALSE so a pre-v2.41 project reloads as the world it was. Isolated both ways against v2.58, so the re-baseline claim is checkable. The comparison that came with it is the part a port must carry: **Strahler order is NOT resolution-dependent here** (the channel threshold is keyed on the cell count — a port keying it on real km² would break that), **but it IS extent-dependent** (`order>=3` covers 0.32 % / 3.73 % / 4.10 % of channel at 800/8 000/40 000 km), **cannot rank inside its own top bucket** (123.7× in catchment) and **is not monotone** (the world's biggest river reads below its own navigability gate in 4 of 6 configs). Ruling: keep the ordinal tier, key the gates on catchment **area** — §7.12. Verified by `tests/perf/probe_riverorder.js` (18 assertions). |
 | v2.58 | River SELECTION gains a scale term at last: whole main stems instead of fragments, an on-screen-pixel gate, and a spline that refines with zoom | **Not a re-baseline — `hash_gen1.js` vs v2.57 is ALL IDENTICAL — but a rendering contract a port will otherwise reimplement wrongly. See §6j.** The HTML's river *drawing* has had a scale term since v2.25; its river *selection* never had one, so a 50 km region and a 40 000 km world chose the same set of rivers. Four constraints a port must carry. (1) **Gate on screen pixels, not on raw zoom.** The settlement/road ladders this was asked to mirror are raw zoom scalars, which on a 40 000 km world put a hamlet on screen at a **28 571 km** view; `len * _z` needs no map-extent term because `_z` is screen-px-per-grid-cell in both camera conventions. (2) **A traced polyline is a FRAGMENT, and fragment length anti-correlates with importance** — measured ρ(length, drainage area) **0.207**, top-100-by-length ∩ top-100-by-flow **2%**. Assemble whole stems first (drainage area accumulated over the channel receiver graph by Kahn's algorithm, largest tributary kept at each confluence): ρ **0.207 → 0.963** against that same accumulation, which is what makes a length gate select whole rivers rather than fragments. **v2.59 correction: that 0.963 is length against upstream CHANNEL CELLS, not catchment AREA** (0.105–0.398 against the real catchment raster, worse than Strahler order's own 0.379–0.734) — the gate is a cartographic disclosure rule, never an importance ranking. See §6j's correction box and §6k. (3) **Accumulate on the CHANNEL tree, and make every length wrap-aware.** Ranking `net.recv` chains by `flowField` mixes two different trees (§6g's own finding) and produces stems dying after 5–10 steps at flow 163 405; a raw `hypot` across the antimeridian bills a full map width, which measured a longest "stem" of **41 097 km = 2 104 cells on a 2 048-cell grid** and, because the ladder RANKS on length, promoted every seam-crossing river to the top of it. (4) **The spline's own geometry was grid-keyed with no zoom or real-km term** — a 111 km control-point spacing and a 1 000 km meander wavelength at 40 000 km, constant at every zoom. **Eighth occurrence of the real-km defect** (§7.11). Also refuted and worth not re-chasing: **Töpfer & Pillewizer is wrong for hydrography** (predicts 49% flowline retention 1:24k→1:100k against USGS's measured 10–11%), **Strahler cannot carry the named tiers** (max order 4 at world extent, 2 at the default, against 8–12 for a real Amazon), and the ladder **saturates at LOD 5**, so LOD 7/8 is where the spline resolves rather than where selection happens. Verified by `tests/perf/probe_riverscale.js` (17 assertions). |
 | v2.57 | The coastline stops being the plate polygon (`PLATE_BASE_BLUR_K` 0.35 → 0.18), and the river carve stops inheriting a detection ease | **Core simulation, two deliberate re-baselines, and the highest-leverage single constant in the height formula** — see **§6i**. The pure plate-Voronoi partition reproduced the land mask at IoU 0.813; the pathway is `baseField` (sd 0.2524), not `ageField` (0.0232). A port that reproduces `fillHeightRows` faithfully reproduces this faithfully too. |

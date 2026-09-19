@@ -45,12 +45,12 @@ work outstanding.
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
 v*.html` (newest **v2.22**) plus a second line of **38** DCC files (newest
-**v2.60**), and it **forked at v2.22** — every engine change from v2.25 on
+**v2.61**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and seven of the changes in the interval
 are deliberate upstream re-baselines that a golden fixture taken against v2.10
-will fail *correctly*: **v2.48, v2.49, v2.50, v2.51, v2.57, v2.59 and v2.60** move
+will fail *correctly*: **v2.48, v2.49, v2.50, v2.51, v2.57, v2.59, v2.60 and v2.61** move
 `field` itself, and **v2.55** moves every LOD tile and baked atlas chunk (never
 `field`).
 v2.57 is the widest of them — it renames and retunes the plate-base blur radius
@@ -59,7 +59,15 @@ highest-leverage constant in the height formula: the coastline is the level set 
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
-**v2.60 is the newest, and it IS a re-baseline** — of `field`, `flow` and the
+**v2.61 is the newest.** It is mostly a PAINT change — a river is drawn in the lake's own colour at
+its true coverage, with banks, because a lake is opaque while a river was a translucent tint at an
+alpha carrying the discharge magnitude — but two parts of it move generated values: a pooled
+depression a river flows into is now classified as a LAKE (local rainfall is the wrong gate for a
+terminal lake), and **v2.60's sculpt-derived digging pass is REVERTED**, which returns `field` to
+v2.59's bytes exactly in all five battery scenarios. A port that has not implemented v2.60's step
+2c should not implement it. See `RC_ENGINE_CHANGES.md` §6m.
+
+**v2.60 is a re-baseline** — of `field`, `flow` and the
 render alike. The source was rasterising a river as a chain of **one-cell discs**:
 `buildRiverNetwork` stamps a disc per channel cell and its `halfW` floors at 0.5, so
 `r = ceil(0.5) = 1` and only the centre cell passes. A D8 receiver chain steps
