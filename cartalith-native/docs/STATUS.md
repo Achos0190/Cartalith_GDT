@@ -44,8 +44,8 @@ work outstanding.
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **41** DCC files (newest
-**v2.63**), and it **forked at v2.22** — every engine change from v2.25 on
+v*.html` (newest **v2.22**) plus a second line of **42** DCC files (newest
+**v2.64**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and seven of the changes in the interval
@@ -59,7 +59,18 @@ highest-leverage constant in the height formula: the coastline is the level set 
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
-**v2.63 is the newest.** It is a PARAMETER-SURFACE change plus a UI screen, and it writes no
+**v2.64 is the newest.** It is an URBAN-LAYOUT change — no height, climate, flow or pixel — that adds
+the two site-model vectors `docs/05` §7.1 asked for (prevailing wind, along-water gradient) together
+with their first consumer, the §4.7 industry-siting table. Neither vector is invented: the wind is
+`currentWindField()` and the downstream direction is §6n's own receiver tree. Two findings a port
+should not have to rediscover: `_civRiverFlowField` fills `km2` on every cell and `fx`/`fy` only on
+channel cells, so a nearest-cell search keyed on catchment lands on the town's own dry ground
+(1 of 14 towns got a bearing; 14 of 14 keyed on the vector); and **"downstream of the market" is
+unsatisfiable for most towns** — one carried 62 riverside parcels with all 62 upstream of its market
+— so §4.2 means the downstream END of the town's own frontage, an ORDER along the flow that needs no
+origin. See `RC_ENGINE_CHANGES.md` §6p.
+
+**v2.63** is a PARAMETER-SURFACE change plus a UI screen, and it writes no
 height, climate, flow or pixel — `hash_gen1.js` vs v2.62 is ALL IDENTICAL **by construction**,
 because `state.civParams` starts empty and every knob falls through to the constant it replaced.
 Seven settlement-generation constants (`SETTLE_SEED_THRESH`, `PORT_PREFERENCE_MULT`,

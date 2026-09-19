@@ -18,14 +18,14 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.63** |
+| Covered by this document | **v2.11 → v2.64** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:
 
 - **Mainline** — `Cartalith Gen1 v2.22.html` is the newest mainline file. It carries
   everything up to and including v2.22.
-- **DCC line** — `Cartalith v2.23 … v2.63 DCC test.html`. v2.23 duplicated v2.22 to
+- **DCC line** — `Cartalith v2.23 … v2.64 DCC test.html`. v2.23 duplicated v2.22 to
   carry the port's shell theme; **v2.24 onward exist only on this line.**
 
 So every engine change from v2.25 on — the river carve rework, the blur path, the
@@ -1567,6 +1567,111 @@ the fragile-outlier shape, and it flipped here one version after it was written.
   climbing.
 - `probe_lodrivers.js` asserts v2.39's design, which **v2.40 deliberately reverted**:
   5 of its 13 have failed on every version since, v2.59 and v2.60 alike.
+
+---
+
+## 6p. Two site-model vectors, and the industry siting that consumes them (v2.64, DCC line only)
+
+**This is urban-layout generation, not terrain — it writes no height, climate, flow or
+pixel.** It belongs here rather than in §8.1 because it adds two real fields to the site
+model and a placement pass that reads them, which a port building the urban layer needs.
+
+### 6p.1 The two vectors
+
+`docs/05-settlement-evolution-and-function.md` §7.1 names them as the cheap additions that
+unblock everything else. `_umFlowBearings(p, orient)` returns both as **bearings in the
+layout's own frame** — `worldAngle − orient`, which is the convention `_umOreBearing`
+(v1.17 S6) already established, so the consumer reads them the way it already reads the ore
+bearing rather than carrying a second frame convention.
+
+| bearing | source | meaning |
+|---|---|---|
+| `wind` | `currentWindField()` sampled at the settlement's coarse cell | the nuisance direction |
+| `downstream` | `_civRiverFlowField()` (v2.62, §6n.7) at the nearest CHANNEL cell | which way the water runs |
+
+**Neither is invented per seed, and a port must not invent them either.** The wind is the
+same field that drives the world's rainfall; the downstream direction is the same receiver
+tree the router and the planner read. Both return **null on failure** — a world with no wind,
+or no channel within the search radius, gets no sorting rather than a fabricated direction.
+
+### 6p.2 Select the nearest channel on the VECTOR, not on catchment
+
+`_civRiverFlowField` fills `km2` for **every** cell (from `flowField`, whose accumulation is
+non-zero almost everywhere) and fills `fx`/`fy` **only where the receiver tree has a
+channel**. A nearest-cell search keyed on `km2 > 0` therefore lands on the settlement's own
+dry ground — a town sits *beside* its river — and finds no vector there.
+
+Measured in the HTML: **1 of 14 towns got a downstream bearing. Selecting on the vector gives
+14 of 14.** Search radius is `max(2, GW/64)`, the same hinterland disc `_umOreBearing` uses.
+
+### 6p.3 "Downstream of the centre" is the wrong operationalisation — use the ORDER
+
+This is the part most worth carrying, because the obvious reading of §4.2 is wrong and fails
+quietly. Scoring riverside parcels by the sign of `(c − market) · downstream` produced **zero
+tan yards across 14 real towns**, while the mirrored test produced mill races.
+
+The cause is geometry, not the vector: one town carried **62 riverside parcels and all 62 sat
+upstream of its market**, because a river clips the town box on one side and the market does
+not sit in the middle of the frontage. **"Downstream of the market" is unsatisfiable for most
+towns.**
+
+What §4.2 actually describes is the **downstream END of the town's own river frontage**, which
+needs no origin at all. Both trades are ranked along the one vector:
+
+- **tan yards** (hides, dye vats, the shambles — clean water in, foul water out) take the
+  **downstream** end;
+- **mill races** (water *power* wants head) take the **upstream** end.
+
+**Same field, opposite ends — which is why one vector buys both, and why "on the water" could
+never have expressed either.** This is §6n's own lesson in a second subsystem: *the direction
+is what is real; the origin is not.*
+
+### 6p.4 The wind half
+
+Kiln yards (furnaces, potteries, the stench trades) take the **extramural edge, downwind** —
+§4.3/§4.4, the mechanism behind the enduring east-end/west-end sorting under the westerlies
+(Heblich, Trew & Zylberberg, *JPE* 2021). Inn yards, stables and farriers gather **at the
+gates**, where road traffic breaks (§4.6). Measured: 24 kiln parcels across 14 towns, **0
+upwind**; 20 inn parcels.
+
+### 6p.5 A siting driver is a property of the SITE, not of the town's trade
+
+The pass sits **outside** the specialisation chain (`mining`/`fishing`/`timber`/…), because
+every town has a downwind edge and a downstream reach. It runs **after** that chain and never
+retags a parcel the chain already claimed, nor the harbour: **one industry per parcel, first
+claim wins.** A fishing town keeps its waterfront.
+
+Consequently `opts.economy` is built whenever **either bearing** exists, not only when a
+specialisation does — otherwise an ordinary town would carry no vectors at all. Its
+`specialisation` is then `'none'`, which every branch of the chain correctly ignores.
+
+### 6p.6 Guards and verification
+
+Absent `opts.economy` the pass is **inert**, so the synthetic path and the 852 urban-morphology
+goldens are untouched by construction (the v0.98 opt-in rule). Each of the four districts
+carries a renderer tint and its own provenance string — a district with no tint renders as the
+default brown, which is the invisible-feature defect the HTML paid for twice (v1.80, v2.15).
+
+`tests/perf/probe_industry.js`, 23 assertions. **The load-bearing one is an ORDERING, not a
+sign**: within one town every tan yard must lie downstream of every mill race. A frontage
+entirely on one side of its market satisfies no sign rule and must still satisfy this — and it
+can only hold if the vector is genuinely consulted.
+
+### 6p.7 A cost a port will hit too
+
+`currentWindField()` is **36 ms** at 512px and `_umFlowBearings` calls it once per settlement, so a
+235-settlement world spends ~**8.5 s** rebuilding an identical field. The HTML memoises it **in the
+adapter**, deliberately not inside `currentWindField`, which v1.86 leaves uncached on purpose so the
+Wind/Ocean debug views track the tilt/rotation sliders live. The key names everything that function
+reads — `_fieldGen`, grid, world mode, sea level, and the whole of `climate` and `planet` — because
+a missed input is a silently stale wind, which is the failure v1.86 was avoiding. **36 ms → 0.01 ms
+per settlement**; the probe asserts both the reuse and the invalidation.
+
+### 6p.8 Not built
+
+The windmill on the windward rampart (§4.7 row 2) is a **building**, not a district, and needs
+the building grammar. Warehouses at the quay were already built (v1.17 S6). Mining/quarry/salt
+ribbon form is a whole settlement shape, not a quarter.
 
 ---
 
