@@ -237,6 +237,37 @@ EF-0/EF-2 (erosion is iterative, not a single pass, and its cost at tile
 resolution needs measuring before committing to it) — proposed as a track,
 not designed in detail here, pending owner question 1.
 
+**Built, tested — `cartalith-erosion/src/tile.rs` (`stream_power_kernel_bounded`
+in `lib.rs`, `tile_erode` on top), `cartalith-engine/tests/ef3_tile_erosion.rs`.**
+The mechanism (a pinned base-level ring, bit-identical in/out; an
+`area_seed` inflow in EF-1's own `1/refine²` units so a tile's drainage area
+lands on the world path's own scale; a `k·refine` correction) is
+independently verified sound — 13/13 mutation survivors killed — and
+`stream_power_kernel` delegates to the bounded version with `(None, None)`,
+so the whole-world golden fixtures are unaffected.
+
+**The erosion-consistency claim is conditional, not universal — measured
+against a drainage network traced once from the pre-erosion field and held
+fixed (the first acceptance test measured against the tile's own eroded
+output, which is circular: any groove certifies itself).** At `deposit =
+0.0` (incision only), EF-3 raises transverse-incision/log-drainage-area
+correlation by +0.058 to +0.087 across three tile shapes and two radii, six
+of six cases positive — the claimed direction holds. At `deposit = 0.3`,
+**this engine's own shipped default**, the same measure *falls* by −0.050
+to −0.148, six of six negative. This is not an EF-3 defect: the same
+kernel run over the *whole world*, no tile, no pin, no seed, does the same
+thing on the same fixed network (+0.036 at `deposit 0.0`, −0.055 at
+`deposit 0.3`, reproduced to three decimals by a `refine = 1` tile) — with
+`uplift = 0`, deposition refills a valley floor to its own
+start-of-iteration height every iteration, smoothing the trunk back out
+while hillslopes keep their incision. **EF-3 is faithfully reproducing what
+this engine's own erosion kernel already does at its shipped parameters,
+not introducing a new one.** A caller wanting erosion-consistent detail at
+the engine's own default deposition rate does not get it from this alone —
+that is a property of the kernel's deposition term, open as its own
+question if it matters, not something this tile-boundary technique can fix
+by construction.
+
 ### EF-4. Author edits survive refinement
 
 `DirtyTracker` already exists for exactly this shape of problem
