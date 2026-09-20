@@ -141,7 +141,7 @@
 
 use cartalith_civ::wildlife::current_wildlife;
 use cartalith_civ::{
-    build_biome_raster, build_cart_biome, build_cart_terrain, build_carrying_capacity, build_coast_sdf, build_flood_field,
+    build_biome_raster, build_cart_biome, build_cart_terrain, build_carrying_capacity, build_flood_field,
     build_lithology, build_raw_slope_field, build_resource_potentials, build_route_corridors,
     build_settlement_suitability, build_slope_field, build_soil_fertility, build_travel_cost, build_water_access,
     classify_biome, SuitabilityCtx, BIOME_KEYS, BIOME_LAKE, BIOME_OCEAN, CART_BIOMES, CART_TERRAINS, LITH_NAMES,
@@ -740,7 +740,7 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
             (
                 "settle",
                 "Settlement suitability",
-                "build_settlement_suitability(): dark to warm orange. Full-context scoring minus the reference's own natural-route-corridor term: build_route_corridors is a real, golden-verified field (see the Route corridors row below) but this scoring context doesn't thread it in -- a disclosed gap, not a missing computation. Its river term (Ruling N: proximity to a real traced river) is traced from the stored stream_order/channels pair, while generation scores against a fresh post-carve channel pass, so this view can differ from placement by a cell or two along a channel -- and reads zero for that term on a loaded save, which retains no channel topology at all.",
+                "build_settlement_suitability(): dark to warm orange. Full-context scoring minus the reference's own natural-route-corridor term: build_route_corridors is a real, golden-verified field (see the Route corridors row below) but this scoring context doesn't thread it in -- a disclosed gap, not a missing computation. Its river term (Ruling N: proximity to a real traced river) is traced from the stored stream_order/channels pair, while generation scores against a fresh post-carve channel pass, so this view can differ from placement by a cell or two along a channel -- and reads zero for that term on a loaded save, which retains no channel topology at all. Its coastal term (Ruling N: proximity to a real traced ocean coastline) is traced from this view's own field at the current sea level, so it matches generation exactly -- but it too reads zero on a loaded save, which carries no water-body classification and so cannot tell an ocean shore from a lake's.",
             ),
             (
                 "siteprofile",
@@ -2302,7 +2302,16 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
             let biome = f.water_bodies.map(|wb| build_biome_raster(wb, f.temperature, f.rainfall));
             let carry = build_carrying_capacity(&soil, &water, biome.as_deref(), f.temperature, f.field, sea, 0.0, None);
             let flood = build_flood_field(f.field, f.flow_discharge, &raw_slope, f.gw, f.gh, sea);
-            let coast_sdf = build_coast_sdf(f.field, f.gw, f.gh, sea);
+            // Ruling N's coastal half: proximity to a real traced OCEAN
+            // coastline. `None` without a water-body classification, since
+            // "ocean" is exactly what that classification decides and there
+            // is no way to tell a sea from a tarn without it -- the term
+            // degrades to zero rather than guessing, the same way the river
+            // term above degrades without a channel tree.
+            let coast_reach = f.water_bodies.map(|wb| {
+                let polys = cartalith_terrain::vector::trace_coastline(f.field, f.gw, f.gh, sea);
+                cartalith_civ::build_coast_reach(&polys, wb, f.gw, f.gh)
+            });
             let rp = build_resource_potentials(
                 &lith,
                 Some(f.boundary_type),
@@ -2345,7 +2354,7 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
                 landmass: None,
                 flow: Some(f.flow_discharge),
                 river_reach: river_reach.as_deref(),
-                coast_sdf: Some(&coast_sdf),
+                coast_reach: coast_reach.as_deref(),
                 resources: Some(&rp),
                 rain: Some(f.rainfall),
                 flood: Some(&flood),

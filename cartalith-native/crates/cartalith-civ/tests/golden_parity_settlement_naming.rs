@@ -141,27 +141,34 @@ fn settlement_naming_case_0_region() {
     // Same (x,y,faction) triples as golden_parity_settlement_placement.rs's
     // case0 (all capital, all coastal) -- naming/pop continues that exact
     // output, same rank order.
-    // **Ruling N re-baseline** (`LARGE_ITEM_RULINGS.md`, 2026-09-20). Two
-    // separate, mechanical consequences, neither of them a naming change:
+    // **Ruling N re-baseline, second pass** (`LARGE_ITEM_RULINGS.md`,
+    // 2026-09-20 -- the suitability *coastal* term this time; the first pass
+    // did the river term). Three mechanical consequences, none of them a
+    // naming change:
     //
-    // 1. Rows 1 and 2 swap, because `golden_parity_settlement_placement.rs`'s
-    //    own re-baseline swapped them -- the suitability ranking's 2nd and 3rd
-    //    seeds traded places. Same three cells, same faction per cell.
-    // 2. Every `pop` moves, because `_civBasePopForKind` reads the
-    //    settlement's own suitability and the river term changed it. The
-    //    largest move here is 22094 -> 19985, and that row is also the one
-    //    that changed rank, so it carries both effects at once.
-    //
-    // The names at rows 1 and 2 change *as a consequence of the swap, not of
-    // the naming code*: the naming RNG is consumed in rank order and the
-    // culture pool is chosen by faction, so rank 2 drawing faction 3 instead
-    // of faction 2 reads a different pool at the same stream position. Row 0
-    // is unmoved in rank and keeps "Sevjuniana" exactly, which is what shows
-    // the stream itself is untouched.
+    // 1. Rows 0 and 1 trade CELLS, (7,2)<->(6,2), because
+    //    `golden_parity_settlement_placement.rs`'s own re-baseline did; the
+    //    faction at each rank is unchanged, so every name here is unchanged.
+    // 2. A FOURTH settlement appears, at (6,7) -- corrected 2026-09-20 by an
+    //    adversarial verifier: its candidate is NOT new (it scores
+    //    0.6620771, bit-identical, in both the river and this pass, and was
+    //    already above the 0.65 floor in the river pass too) -- it IS a
+    //    spacing consequence of seed 0 moving cell (see this file's own
+    //    placement counterpart, point 1), which frees the suppression disc
+    //    that previously excluded it. It draws faction 4 and the name
+    //    "Orenelywash", which is what rank 3 has always drawn at this stream
+    //    position (case 1 below drew exactly that name at exactly that rank
+    //    before this pass). That it reappears unchanged is the evidence the
+    //    naming stream is untouched: the 4th settlement is a new *consumer*
+    //    of an old draw, not evidence its candidacy is new.
+    // 3. `pop` moves on row 0 only, 19512 -> 19521, because
+    //    `_civBasePopForKind` reads the settlement's own suitability and that
+    //    cell changed; rows 1 and 2 keep 19985 and 22345 exactly.
     let expected = vec![
-        (7usize, 2usize, 1i32, "Sevjuniana", 19512u32),
-        (6, 2, 3, "Yusirsirskadmarch", 19985),
+        (6usize, 2usize, 1i32, "Sevjuniana", 19521u32),
+        (7, 2, 3, "Yusirsirskadmarch", 19985),
         (9, 3, 2, "Thorndunthornbaldstone", 22345),
+        (6, 7, 4, "Orenelywash", 15181),
     ];
 
     let mut p = cartalith_engine::WorldParams::defaults(14, 11, 24601);
@@ -186,21 +193,19 @@ fn settlement_naming_case_1_world_wrap() {
     // comment for the full mechanical explanation (fixed civ-naming RNG
     // seed, independent of terrain seed). Settlements 4-5 (factions 4-5)
     // have no counterpart in case0 and are unique.
-    // **Ruling N re-baseline**, and the clean half of it: every cell, every
-    // faction, every rank and every *name* is unchanged here -- only `pop`
-    // moves, by -0.18% to -2.61% (measured directly against the five values
-    // below by an adversarial verifier -- the range originally written here
-    // did not match either arm's own numbers), because `_civBasePopForKind`
-    // reads the settlement's own suitability and the river term changed it.
-    // That the five names survive untouched is the evidence that the naming
-    // RNG stream is not involved in this re-baseline at all; case 0's names
-    // move only because its rank order did.
+    // **Ruling N re-baseline, second pass** (the coastal term). The river
+    // pass left all five cells, factions, ranks and names alone and moved
+    // only `pop`. This pass drops two of the five outright: their seeds fall
+    // under `find_settlement_seeds`' 0.65 floor once the coastal term stops
+    // paying for a lake (see `golden_parity_settlement_placement.rs`'s case 1
+    // for the seed scores). The three that remain keep their cell, faction,
+    // rank, NAME and `pop` bit-for-bit -- 20317 / 20521 / 22462, the same
+    // values the river pass left. Nothing about naming or population moved
+    // here at all; the fixture simply has three settlements now.
     let expected = vec![
         (9usize, 3usize, 1i32, "Sevjuniana", 20317u32),
         (5, 8, 2, "Hurngarngarnhaskcairn", 20521),
         (8, 9, 3, "Ghalbahrghaltazdune", 22462),
-        (10, 5, 4, "Orenelywash", 15556),
-        (4, 7, 5, "Taela'elorashade", 22022),
     ];
 
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
@@ -324,7 +329,15 @@ fn compute_named_settlements(
         ws.sea_level,
         world,
     );
-    let coast_sdf = cartalith_civ::build_coast_sdf(&ws.field, gw, gh, ws.sea_level);
+    // Ruling N's coastal half: the suitability coastal term is proximity to
+    // a real traced OCEAN coastline, not `build_coast_sdf`'s distance to the
+    // nearest water cell of any kind.
+    let coast_reach = cartalith_civ::build_coast_reach(
+        &cartalith_terrain::vector::trace_coastline(&ws.field, gw, gh, ws.sea_level),
+        &wb.classification,
+        gw,
+        gh,
+    );
     let flood = cartalith_civ::build_flood_field(
         &ws.field,
         &ws.flow_discharge,
@@ -354,7 +367,7 @@ fn compute_named_settlements(
         landmass: Some(&landmass.quality),
         flow: Some(&ws.flow_discharge),
         river_reach: Some(&river_reach),
-        coast_sdf: Some(&coast_sdf),
+        coast_reach: Some(&coast_reach),
         resources: Some(&resources),
         rain: Some(&ws.rainfall),
         flood: Some(&flood),
@@ -397,3 +410,4 @@ fn compute_named_settlements(
 
     cartalith_civ::name_and_populate_settlements(&placements)
 }
+

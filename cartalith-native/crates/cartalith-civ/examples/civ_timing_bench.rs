@@ -54,7 +54,12 @@ fn run_civ_layer(ws: &cartalith_engine::WorldState, gw: usize, gh: usize, world:
     let raw_slope = cartalith_civ::build_raw_slope_field(&ws.field, gw, gh, world);
     let corridors = cartalith_civ::build_route_corridors(&ws.field, &raw_slope, Some(&ws.flow_discharge), gw, gh, ws.sea_level, world, flow_thresh);
     let landmass = cartalith_civ::build_landmass_quality(&ws.field, Some(&carrying_cap), gw, gh, ws.sea_level, world);
-    let coast_sdf = cartalith_civ::build_coast_sdf(&ws.field, gw, gh, ws.sea_level);
+    let coast_reach = cartalith_civ::build_coast_reach(
+        &cartalith_terrain::vector::trace_coastline(&ws.field, gw, gh, ws.sea_level),
+        &wb.classification,
+        gw,
+        gh,
+    );
     let flood = cartalith_civ::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, ws.sea_level);
 
     let ctx = cartalith_civ::SuitabilityCtx {
@@ -63,7 +68,7 @@ fn run_civ_layer(ws: &cartalith_engine::WorldState, gw: usize, gh: usize, world:
         landmass: Some(&landmass.quality),
         flow: Some(&ws.flow_discharge),
         river_reach: None,
-        coast_sdf: Some(&coast_sdf),
+        coast_reach: Some(&coast_reach),
         resources: Some(&resources),
         rain: Some(&ws.rainfall),
         flood: Some(&flood),

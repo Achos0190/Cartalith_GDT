@@ -2495,9 +2495,17 @@ func _build_settlement_why(body: Control, why: Dictionary) -> void:
 	var river_txt := ("Strahler %d here" % ord_i) if ord_i > 0 else "none in this cell"
 	var reach := float(why.get("river_reach", 0.0))
 	var reach_txt := ("%.2f" % reach) if reach > 0.0 else "0 (no traced river in range)"
-	DccWidgets.note(sec, ("River %s · reach %s · flow %.0f · %.1f cells to water · "
-		+ "elevation %.3f (normalised) · travel cost %.2f") % [
-		river_txt, reach_txt, float(why.get("flow", 0.0)),
+	## The coast pair is the same story as the river pair, for the same reason
+	## (Ruling N's coastal half). `coast_dist_cells` is how far the nearest
+	## water of ANY kind is -- a tarn counts; `coast_reach` is what the
+	## "coastal access" bar reads, how near a real traced OCEAN coastline runs.
+	## A lakeside cell reads "1.0 cells to water" and coast 0, and that is
+	## correct, not a contradiction: its lake is scored by the lake term.
+	var creach := float(why.get("coast_reach", 0.0))
+	var coast_txt := ("%.2f" % creach) if creach > 0.0 else "0 (no traced ocean coast in range)"
+	DccWidgets.note(sec, ("River %s · reach %s · flow %.0f · coast %s · "
+		+ "%.1f cells to nearest water · elevation %.3f (normalised) · travel cost %.2f") % [
+		river_txt, reach_txt, float(why.get("flow", 0.0)), coast_txt,
 		float(why.get("coast_dist_cells", 0.0)),
 		float(why.get("elevation", 0.0)), float(why.get("travel_cost", 0.0))])
 

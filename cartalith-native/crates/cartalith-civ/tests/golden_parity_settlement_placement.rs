@@ -69,42 +69,45 @@ fn assert_places_match(
 fn settlement_placement_case_0_region() {
     // case0_region: gw=14 gh=11 seed=24601 world=false
     //
-    // **Ruling N re-baseline** (`LARGE_ITEM_RULINGS.md`, 2026-09-20 -- the
-    // suitability river term). The seeds this consumes are
-    // `golden_parity_settlement_suitability.rs`'s own, and that file's
-    // re-baseline swapped its 2nd and 3rd by score:
-    //   was  (4,6,0.80102116) (9,3,0.79724389) (4,1,0.76332378)
-    //   now  (4,6,0.80500720) (4,1,0.78814656) (9,3,0.78189725)
-    // Nothing about *placement* changed -- the same three cells, the same
-    // two landmasses, the same faction per cell, the same multi-capital
-    // spacing branch. Only rows 1 and 2 of this table trade places, because
-    // the ranking that feeds them did. The reference's own numbers are still
-    // asserted, through the legacy proxy, in that file.
+    // **Ruling N re-baseline, second pass** (`LARGE_ITEM_RULINGS.md`,
+    // 2026-09-20). The first pass changed the suitability *river* term and
+    // left this table's three rows in place, only trading rows 1 and 2. This
+    // pass changes the *coastal* term -- `build_coast_sdf`'s distance to the
+    // nearest water cell of any kind becomes `build_coast_reach`'s proximity
+    // to a real traced OCEAN coastline -- and the seed list it consumes moves
+    // further:
+    //   reference  (4,6,0.80102116) (9,3,0.79724389) (4,1,0.76332378)
+    //   river pass (4,6,0.80500720) (4,1,0.78814656) (9,3,0.78189725)
+    //   this pass  (2,6,0.80585414) (4,1,0.78814656) (9,3,0.78189725)
+    //                                                (6,7,0.66207710)
+    // Two mechanical consequences, both visible below and neither a change to
+    // the placement algorithm -- corrected 2026-09-20 by an adversarial
+    // verifier, both had the wrong cause on first landing:
+    //
+    // 1. Rows 0 and 1 trade cells (7,2)<->(6,2). NOT a rank swap between this
+    //    pass and the river pass -- ranks 1 and 2 ((4,1), (9,3)) are
+    //    identical across both. Seed 0 itself moved cell, (4,6)->(2,6), once
+    //    the coastal term outranked it at (2,6) (0.80585 vs (4,6)'s
+    //    0.80501). `civ_snap_coast` then picks a different best-suitability
+    //    shore cell for the new seed 0, which is what trades the pair.
+    // 2. A FOURTH settlement appears at (6,7), but its candidate is NOT new:
+    //    (6,7) scores 0.6620771 -- bit-identical -- in both the river and
+    //    this pass, and was already above `find_settlement_seeds`' 0.65
+    //    floor in the river pass too. It was suppressed there only because
+    //    seed 0 sat at (4,6), and 2^2+1^2=5 < supp_r^2=16; seed 0 moving to
+    //    (2,6) puts it at 4^2+1^2=17 >= 16, outside the same unchanged
+    //    radius. This IS a spacing consequence of seed 0's move (point 1),
+    //    not an independent new-candidate event.
+    //
+    // Every row is still `coastal: true`, and `civ_is_coastal` itself was NOT
+    // changed by this pass (see its own doc comment for the measurement that
+    // decided that). The reference's own numbers remain asserted, through the
+    // legacy proxies, in `golden_parity_settlement_suitability.rs`.
     let expected = vec![
-        ExpectedPlace {
-            x: 7,
-            y: 2,
-            faction: 1,
-            capital: true,
-            kind: cartalith_civ::SettlementKind::Capital,
-            coastal: true,
-        },
-        ExpectedPlace {
-            x: 6,
-            y: 2,
-            faction: 3,
-            capital: true,
-            kind: cartalith_civ::SettlementKind::Capital,
-            coastal: true,
-        },
-        ExpectedPlace {
-            x: 9,
-            y: 3,
-            faction: 2,
-            capital: true,
-            kind: cartalith_civ::SettlementKind::Capital,
-            coastal: true,
-        },
+        ExpectedPlace { x: 6, y: 2, faction: 1, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
+        ExpectedPlace { x: 7, y: 2, faction: 3, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
+        ExpectedPlace { x: 9, y: 3, faction: 2, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
+        ExpectedPlace { x: 6, y: 7, faction: 4, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
     ];
 
     let mut p = cartalith_engine::WorldParams::defaults(14, 11, 24601);
@@ -123,50 +126,23 @@ fn settlement_placement_case_0_region() {
 #[test]
 fn settlement_placement_case_1_world_wrap() {
     // case1_world_wrap: gw=16 gh=12 seed=314159 world=true
-    // All 5 seeds land on ONE connected landmass (world-wrap). factionCount=6
-    // > L=1 landmass, so all 5 candidates earn their own seat and every one
-    // becomes its own capital -- the K=5 multi-capital spacing branch.
+    // All seeds land on ONE connected landmass (world-wrap). factionCount=6
+    // > L=1 landmass, so every candidate earns its own seat and becomes its
+    // own capital -- the K>1 multi-capital spacing branch, which this fixture
+    // still exercises at K=3.
+    //
+    // **Ruling N re-baseline, second pass**: 5 settlements become 3. The two
+    // that go, (14,8) at 0.7000 and (1,3) at 0.6868 under the river pass,
+    // fall below `find_settlement_seeds`' 0.65 floor once the coastal term
+    // stops paying for a lake. This 16x12 fixture is lake-heavy -- 102 of its
+    // 127 scored cells had `coast > 0` with a *lake* as their nearest water
+    // under `build_coast_sdf` -- so it feels the change harder than a
+    // production world does. The three survivors keep their cells, factions,
+    // ranks and `coastal: true` exactly.
     let expected = vec![
-        ExpectedPlace {
-            x: 9,
-            y: 3,
-            faction: 1,
-            capital: true,
-            kind: cartalith_civ::SettlementKind::Capital,
-            coastal: true,
-        },
-        ExpectedPlace {
-            x: 5,
-            y: 8,
-            faction: 2,
-            capital: true,
-            kind: cartalith_civ::SettlementKind::Capital,
-            coastal: true,
-        },
-        ExpectedPlace {
-            x: 8,
-            y: 9,
-            faction: 3,
-            capital: true,
-            kind: cartalith_civ::SettlementKind::Capital,
-            coastal: true,
-        },
-        ExpectedPlace {
-            x: 10,
-            y: 5,
-            faction: 4,
-            capital: true,
-            kind: cartalith_civ::SettlementKind::Capital,
-            coastal: true,
-        },
-        ExpectedPlace {
-            x: 4,
-            y: 7,
-            faction: 5,
-            capital: true,
-            kind: cartalith_civ::SettlementKind::Capital,
-            coastal: true,
-        },
+        ExpectedPlace { x: 9, y: 3, faction: 1, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
+        ExpectedPlace { x: 5, y: 8, faction: 2, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
+        ExpectedPlace { x: 8, y: 9, faction: 3, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
     ];
 
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
@@ -280,7 +256,15 @@ fn compute_placements(
         ws.sea_level,
         world,
     );
-    let coast_sdf = cartalith_civ::build_coast_sdf(&ws.field, gw, gh, ws.sea_level);
+    // Ruling N's coastal half: the suitability coastal term is proximity to
+    // a real traced OCEAN coastline, not `build_coast_sdf`'s distance to the
+    // nearest water cell of any kind.
+    let coast_reach = cartalith_civ::build_coast_reach(
+        &cartalith_terrain::vector::trace_coastline(&ws.field, gw, gh, ws.sea_level),
+        &wb.classification,
+        gw,
+        gh,
+    );
     let flood = cartalith_civ::build_flood_field(
         &ws.field,
         &ws.flow_discharge,
@@ -310,7 +294,7 @@ fn compute_placements(
         landmass: Some(&landmass.quality),
         flow: Some(&ws.flow_discharge),
         river_reach: Some(&river_reach),
-        coast_sdf: Some(&coast_sdf),
+        coast_reach: Some(&coast_reach),
         resources: Some(&resources),
         rain: Some(&ws.rainfall),
         flood: Some(&flood),
@@ -352,3 +336,4 @@ fn compute_placements(
         map_width_km,
     )
 }
+

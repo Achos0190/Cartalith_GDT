@@ -4360,7 +4360,14 @@ mod tests {
         );
         let landmass =
             crate::build_landmass_quality(&ws.field, Some(&carrying_cap), gw, gh, sea, world);
-        let coast_sdf = crate::build_coast_sdf(&ws.field, gw, gh, sea);
+        // Ruling N's coastal half: proximity to a real traced ocean
+        // coastline, not `build_coast_sdf`'s distance to any water cell.
+        let coast_reach = crate::build_coast_reach(
+            &cartalith_terrain::vector::trace_coastline(&ws.field, gw, gh, sea),
+            &wb.classification,
+            gw,
+            gh,
+        );
         let flood =
             crate::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, sea);
         let (order, river_polys) = crate::fresh_river_network(
@@ -4380,7 +4387,7 @@ mod tests {
             landmass: Some(&landmass.quality),
             flow: Some(&ws.flow_discharge),
             river_reach: Some(&river_reach),
-            coast_sdf: Some(&coast_sdf),
+            coast_reach: Some(&coast_reach),
             resources: Some(&resources),
             rain: Some(&ws.rainfall),
             flood: Some(&flood),

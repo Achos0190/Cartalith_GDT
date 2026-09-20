@@ -81,7 +81,12 @@ fn settlement_seeds(
     let raw_slope = civ::build_raw_slope_field(&ws.field, gw, gh, world);
     let corridors = civ::build_route_corridors(&ws.field, &raw_slope, Some(flow), gw, gh, sea, world, flow_thresh);
     let landmass = civ::build_landmass_quality(&ws.field, Some(&carrying_cap), gw, gh, sea, world);
-    let coast_sdf = civ::build_coast_sdf(&ws.field, gw, gh, sea);
+    let coast_reach = civ::build_coast_reach(
+        &cartalith_terrain::vector::trace_coastline(&ws.field, gw, gh, sea),
+        &wb.classification,
+        gw,
+        gh,
+    );
     let flood = civ::build_flood_field(&ws.field, flow, &raw_slope, gw, gh, sea);
     let (river_order, river_polys) =
         civ::fresh_river_network(&ws.field, flow, gw, gh, sea, world, river_density, map_width_km);
@@ -93,7 +98,7 @@ fn settlement_seeds(
         landmass: Some(&landmass.quality),
         flow: Some(flow),
         river_reach: Some(&river_reach),
-        coast_sdf: Some(&coast_sdf),
+        coast_reach: Some(&coast_reach),
         resources: Some(&resources),
         rain: Some(&ws.rainfall),
         flood: Some(&flood),

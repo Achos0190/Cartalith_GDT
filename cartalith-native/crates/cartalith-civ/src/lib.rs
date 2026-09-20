@@ -2109,11 +2109,19 @@ fn jfa_dist(seed_mask: &[u8], gw: usize, gh: usize) -> Vec<f32> {
 /// `buildCoastSDF` (reference HTML line 7462): signed distance to the
 /// coastline -- negative inland (distance to water), positive offshore
 /// (distance to land), zero at the shoreline. Always the JFA (true
-/// Euclidean) backend: `currentSettlementSuitability()`, this port's only
-/// real caller, passes `{euclid:true}` -- the `chamferDist` fallback
+/// Euclidean) backend: `currentSettlementSuitability()`, the caller this
+/// was ported for, passes `{euclid:true}` -- the `chamferDist` fallback
 /// (`opts.euclid` falsy) has no consumer in this port's scope, so it's not
 /// ported here (`PHASE2_SCOPE.md`'s own guidance against half-porting a
 /// path nothing calls).
+///
+/// **No longer the settlement suitability coastal term's input.** Ruling N's
+/// coastal half (`LARGE_ITEM_RULINGS.md`, 2026-09-20) replaced that with
+/// [`build_coast_reach`], because this function measures the distance to the
+/// nearest water cell **of any kind** and so cannot tell a sea from a tarn.
+/// It is still live, for the "cells to nearest water" reading in the
+/// settlement panel and for the renderer's coastal-shading stage -- both of
+/// which want exactly the any-water answer it gives.
 pub fn build_coast_sdf(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32> {
     let n = gw * gh;
     let mut land = vec![0u8; n];
@@ -3191,9 +3199,10 @@ const SUIT_W_FULL_ISLET: f64 = 0.30;
 /// **Not the reference's, because the reference has no distance-based river
 /// term to take it from.** `5.0` is the ramp its *coastal* term already uses
 /// in this same function (`coast = 1 - dist/5` over `build_coast_sdf`'s cell
-/// distances, reference line 6338), reused so the two waterfront terms stay
-/// the same shape in the same units -- which is the end state Ruling N
-/// describes for the coastal half once EF-6's coastline vectors exist.
+/// distances, reference line 6349 (v2.10) / 6375 (v2.11)), reused so the two waterfront terms stay
+/// the same shape in the same units. Ruling N's coastal half has since
+/// landed as [`SUIT_COAST_REACH_CELLS`], which is the same `5.0` for the
+/// same reason -- the two are deliberately equal, not coincidentally so.
 ///
 /// Resolution-dependent, exactly as that coastal term already is: 5 cells is
 /// ~2 km at 2 048 cells over 800 km and ~16 km at 256. Left that way
@@ -3243,13 +3252,18 @@ fn river_order_tier(order: i16) -> f64 {
 ///
 /// The polylines are still the right input to pass -- they are what Ruling N
 /// actually authorised, they cost nothing extra since [`fresh_river_network`]
-/// computes both together, and **the coastal half of Ruling N cannot reuse
-/// this reasoning**: a coastline has no order-like connectivity proxy, so
-/// EF-6's traced coastline vectors will be load-bearing there in a way they
-/// are not here. Do not read this function's passing tests as proof that
-/// polyline-based binding matters in general -- for river, at this tier
+/// computes both together, and **the coastal half of Ruling N does not have
+/// the same shortcut.** Do not read this function's passing tests as proof
+/// that polyline-based binding matters in general -- for river, at this tier
 /// cutoff, it does not yet visibly diverge from the raster it was meant to
 /// replace.
+///
+/// That last sentence predicted *why* the coastal half would differ and got
+/// the reason wrong, so it is corrected here rather than left standing: it
+/// said "a coastline has no order-like connectivity proxy". The measured
+/// difference is not about connectivity at all -- see [`build_coast_reach`],
+/// where what the traced line buys is telling **the sea from a lake**, a
+/// distinction `build_coast_sdf` never made.
 ///
 /// # Two approximations, both stated rather than assumed away
 ///
@@ -3297,6 +3311,155 @@ pub fn build_river_reach(polys: &[Vec<(f64, f64)>], order: &[i16], gw: usize, gh
         }
     }
     out
+}
+
+/// How far a real traced coastline reaches, in grid cells, before
+/// [`build_coast_reach`] falls to zero -- Ruling N's coastal half
+/// (`LARGE_ITEM_RULINGS.md`, 2026-09-20).
+///
+/// **Not a new number.** `5.0` is the divisor the coastal term has always
+/// used -- `coast = 1 - dist/5` over `build_coast_sdf`'s cell distances,
+/// reference line 6349 (v2.10) / 6375 (v2.11) -- kept so the re-baseline changes *what the term
+/// measures* and not how fast it falls off. [`SUIT_RIVER_REACH_CELLS`] took
+/// its own value from this one, and the two are deliberately equal so the
+/// pair of waterfront terms stays one shape in one unit.
+///
+/// Resolution-dependent, exactly as the term it replaces already was: five
+/// cells is ~2 km at 2 048 cells over 800 km and ~16 km at 256.
+pub const SUIT_COAST_REACH_CELLS: f64 = 5.0;
+
+/// [`SuitabilityCtx::coast_reach`]'s raster: per cell, how near a **real,
+/// traced ocean** coastline runs.
+///
+/// `max(0, 1 - d/R)` over every traced ocean-shore point within
+/// `R` = [`SUIT_COAST_REACH_CELLS`], maximised the way [`build_river_reach`]
+/// maximises its own tiered value.
+///
+/// `polys` is `cartalith_terrain::vector::trace_coastline`'s output (EF-6);
+/// `wb` is `build_water_bodies`' classification, and it is **load-bearing,
+/// not a convenience**.
+///
+/// # What this actually changes, measured before it was written
+///
+/// The river half of Ruling N found its own polyline plumbing was not yet
+/// what made that term correct (the order-2 cutoff already implied
+/// connectivity), and said the coastal half would have no such shortcut.
+/// It does not, and the reason turns out to be a different one than
+/// "connectivity": **`build_coast_sdf` measures distance to the nearest
+/// water cell of any kind**, so under the term this replaces a settlement
+/// beside a mountain tarn scored the full coastal weight and collected the
+/// separate `lake` term on top. Measured over six generated worlds: 848 of
+/// 9 742 scored cells at 192x128 and 898 of 23 537 at 256x171 had
+/// `coast > 0` with a *lake* as their nearest water; afterwards 16 and 0
+/// do, the survivors being cells within five cells of both a lake and the
+/// sea. Over the same six worlds **no cell whose nearest water is the ocean
+/// scores lower than it did** (delta range `[0, +0.20]` over 12 712 such
+/// cells) -- the traced line runs between the cell centres, so it is nearer
+/// than the water centre the SDF measured to.
+///
+/// **What this does NOT do, stated because the obvious story is wrong.** The
+/// river half's defect was "high flow belonging to nothing connected", and
+/// the natural guess is that this half rejects the sea equivalent -- ground
+/// near ocean cells that no real coastline actually reaches. **Measured, on
+/// those same six worlds, that case never occurs: zero cells have an ocean
+/// cell within five and no traced ocean shoreline within five.** It cannot
+/// easily: a land cell within five of an ocean cell almost always has the
+/// land/ocean transition itself inside that radius. The whole measurable
+/// effect of this change is the sea-versus-lake one above. A fuller check
+/// at `civ_is_coastal`'s wider radius found the same thing (see that
+/// function's doc comment), and the disagreements there are the reference's
+/// unconditional x-wrap, not inaccessible water.
+///
+/// # The ocean restriction, and why it is here rather than in the tracer
+///
+/// `trace_coastline` returns the level set of the height field, which is
+/// every water edge at that level -- a lake shore and an enclosed basin's
+/// shore are geometrically indistinguishable from the sea's. Its own doc
+/// comment says so and names this function as the caller that must
+/// intersect with an ocean mask; `cartalith-terrain` cannot, because
+/// `build_water_bodies`' classification lives downstream of it.
+///
+/// A crossing separates two cell centres, one of them exactly
+/// `(px.floor(), py.floor())` and the other exactly one orthogonal step
+/// away, so the plus-shape of radius 1 about the floor cell always contains
+/// the water cell this crossing is the shore of. It can also see an ocean
+/// cell that is *not* that one -- but only within a cell of the crossing,
+/// which is a one-cell slop inside a five-cell reach and errs toward
+/// calling a shore one cell from the sea a sea shore.
+///
+/// # Three approximations, stated rather than discovered later
+///
+/// - **Distance is measured to the real interpolated point**, not centre to
+///   centre the way [`build_river_reach`] does it. That is not a
+///   divergence for its own sake: a river polyline's vertices *are* cell
+///   centres and a contour's are not (`cartalith_terrain::vector`'s own
+///   header warns about exactly this), so centre-to-centre here would
+///   quantise away the sub-cell precision that is the whole reason a
+///   contour beats a distance field.
+/// - **A polyline is sampled at its vertices, not along its segments.**
+///   Marching-squares vertices are at most ~1.4 cells apart, so the error
+///   against a true point-to-segment distance is bounded by ~0.7 cells at
+///   the midpoint of the longest possible segment, under 15% of `R`.
+/// - **No world wrap**, matching `build_coast_sdf`'s own JFA, the lake scan
+///   and [`build_river_reach`] -- none of the four wrap, and
+///   `cartalith_spatial::contour_polylines` returns two open chains at the
+///   seam rather than one ring.
+pub fn build_coast_reach(polys: &[Vec<(f64, f64)>], wb: &[u8], gw: usize, gh: usize) -> Vec<f32> {
+    let mut out = vec![0f32; gw * gh];
+    let reach = SUIT_COAST_REACH_CELLS;
+    // `|ddx| = |dx + 0.5 - (px - cx)|` with `px - cx` in `[0, 1)`, so a cell
+    // at `|dx| > ceil(R)` is always at least `R` away and the scan needs no
+    // wider bound. `coast_reach_matches_a_brute_force_scan` proves it rather
+    // than leaving it as this paragraph's word.
+    let r = reach.ceil() as isize;
+    for pl in polys {
+        for &(px, py) in pl {
+            let (cx, cy) = (px.floor() as isize, py.floor() as isize);
+            if cx < 0 || cy < 0 || cx >= gw as isize || cy >= gh as isize {
+                continue;
+            }
+            if !coast_point_is_ocean(wb, gw, gh, cx, cy) {
+                continue;
+            }
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    let (nx, ny) = (cx + dx, cy + dy);
+                    if nx < 0 || ny < 0 || nx >= gw as isize || ny >= gh as isize {
+                        continue;
+                    }
+                    let ex = (nx as f64 + 0.5) - px;
+                    let ey = (ny as f64 + 0.5) - py;
+                    let d = (ex * ex + ey * ey).sqrt() / reach;
+                    if d >= 1.0 {
+                        continue;
+                    }
+                    let v = (1.0 - d) as f32;
+                    let o = &mut out[ny as usize * gw + nx as usize];
+                    if v > *o {
+                        *o = v;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Is the traced coastline crossing whose `floor` cell is `(cx, cy)` the
+/// shore of the **ocean** (`build_water_bodies` class 1) rather than of a
+/// lake or an enclosed basin? See [`build_coast_reach`]'s own note on why
+/// the plus-shape of radius 1 is the right neighbourhood.
+fn coast_point_is_ocean(wb: &[u8], gw: usize, gh: usize, cx: isize, cy: isize) -> bool {
+    for (ox, oy) in [(0isize, 0isize), (1, 0), (-1, 0), (0, 1), (0, -1)] {
+        let (nx, ny) = (cx + ox, cy + oy);
+        if nx < 0 || ny < 0 || nx >= gw as isize || ny >= gh as isize {
+            continue;
+        }
+        if wb[ny as usize * gw + nx as usize] == 1 {
+            return true;
+        }
+    }
+    false
 }
 
 /// `ISLET_KNEE` (reference line 6414): landmass quality at or above this
@@ -3361,7 +3524,23 @@ pub struct SuitabilityCtx<'a> {
     /// `coast_sdf` and `flood` beside it already are. `None` leaves the term
     /// at zero, the same graceful degradation `river_order: None` gave.
     pub river_reach: Option<&'a [f32]>,
-    pub coast_sdf: Option<&'a [f32]>,
+    /// [`build_coast_reach`]'s raster -- **not** `build_coast_sdf`'s signed
+    /// distance field.
+    ///
+    /// Ruling N's coastal half (`LARGE_ITEM_RULINGS.md`, 2026-09-20): the
+    /// coastal term used to be `1 - (-coast_sdf[i])/5`, distance to the
+    /// nearest water cell **of any kind**, so a tarn five cells away scored
+    /// the same coastal weight the sea would and the `lake` term below
+    /// collected on the same cell a second time. It is now proximity to a
+    /// real traced *ocean* coastline, precomputed once per generation
+    /// exactly as `corridor`, `river_reach` and `flood` beside it already
+    /// are. `None` leaves the term at zero, the same graceful degradation
+    /// `coast_sdf: None` gave.
+    ///
+    /// `build_coast_sdf` itself is untouched and still has callers -- the
+    /// `coast_dist_cells` reading in the settlement panel, and the
+    /// renderer's coastal-shading stage.
+    pub coast_reach: Option<&'a [f32]>,
     pub resources: Option<&'a ResourcePotentials>,
     pub rain: Option<&'a [f32]>,
     pub flood: Option<&'a [f32]>,
@@ -3435,18 +3614,17 @@ pub fn build_settlement_suitability(
                 let y = i / gw;
                 let flow_thresh = c.flow_thresh;
 
-                let mut coast = 0.0;
-                if let Some(sdf) = c.coast_sdf {
-                    let dist = -(sdf[i] as f64);
-                    if dist >= 0.0 {
-                        coast = (1.0 - dist / 5.0).max(0.0);
-                        if coast > 0.0
-                            && let Some(flow) = c.flow
-                            && flow[i] as f64 > flow_thresh * 3.0
-                        {
-                            coast = (coast + 0.6).min(1.0);
-                        }
-                    }
+                // Ruling N: real geometry, not a proxy. Was `1 - dist/5` over
+                // `build_coast_sdf`, the distance to the nearest water cell of
+                // ANY kind -- which never asked whether the water it found was
+                // the sea. The estuary bonus below is the reference's own and
+                // is unchanged, including that it reads `flow` at this cell.
+                let mut coast = c.coast_reach.map(|cr| cr[i] as f64).unwrap_or(0.0);
+                if coast > 0.0
+                    && let Some(flow) = c.flow
+                    && flow[i] as f64 > flow_thresh * 3.0
+                {
+                    coast = (coast + 0.6).min(1.0);
                 }
 
                 // Ruling N: real geometry, not a proxy. Was the reference's
@@ -3685,18 +3863,14 @@ pub fn explain_settlement_suitability(
         Some(c) => {
             let flow_thresh = c.flow_thresh;
 
-            let mut coast = 0.0;
-            if let Some(sdf) = c.coast_sdf {
-                let dist = -(sdf[i] as f64);
-                if dist >= 0.0 {
-                    coast = (1.0 - dist / 5.0).max(0.0);
-                    if coast > 0.0
-                        && let Some(flow) = c.flow
-                        && flow[i] as f64 > flow_thresh * 3.0
-                    {
-                        coast = (coast + 0.6).min(1.0);
-                    }
-                }
+            // Ruling N -- see `build_settlement_suitability`'s own note at the
+            // same term.
+            let mut coast = c.coast_reach.map(|cr| cr[i] as f64).unwrap_or(0.0);
+            if coast > 0.0
+                && let Some(flow) = c.flow
+                && flow[i] as f64 > flow_thresh * 3.0
+            {
+                coast = (coast + 0.6).min(1.0);
             }
 
             // Ruling N -- see `build_settlement_suitability`'s own note at the
@@ -4376,6 +4550,50 @@ fn civ_snap_coast(
 /// no `state.world` guard, unlike `civ_snap_coast`'s conditional wrap) --
 /// preserved exactly as a real reference quirk, not "fixed" for
 /// consistency with the sibling function.
+///
+/// # Ruling N names this function and this function was left alone. Why.
+///
+/// `LARGE_ITEM_RULINGS.md`'s Ruling N (2026-09-20) lists *"`civ_is_coastal`,
+/// a wider radius-proximity-to-any-ocean-cell proxy"* alongside the
+/// suitability river term as deciding "has coast" from a proxy, and says the
+/// fix re-baselines both. The suitability half shipped as
+/// [`build_coast_reach`]. **This function did not change, and that was a
+/// decision made against measurement, not an oversight.** Three reasons, in
+/// the order they actually decided it:
+///
+/// 1. **It does not have the defect the traced line fixes.** What made the
+///    suitability term wrong was `build_coast_sdf` measuring distance to the
+///    nearest water cell *of any kind*, so a lake read as the sea. This
+///    function has always tested `wb[i] == 1` -- `build_water_bodies`' ocean
+///    class -- at every one of its three call sites (`ocean_only: true`).
+///    A lake was never coast here.
+/// 2. **Measured, the two agree except on the seam.** Over two generated
+///    worlds every single cell where this function says coastal and no
+///    traced ocean coastline lies within the same radius -- 108 of 108 at
+///    96x64, 110 of 110 at 192x128 -- has its ocean reachable *only across
+///    the x-wrap*, on a map that is not a wrapping world. **Zero** had an
+///    in-bounds ocean cell with no ocean shoreline in range, which is the
+///    shape Ruling N's defect would take. The converse disagreements are the
+///    half-cell shell where the interpolated shoreline is nearer than the
+///    water cell centre. At real settlement positions across ten worlds, 2
+///    of 92 differ, and both sit within five cells of the east edge of a
+///    non-wrapping map -- the wrap again.
+/// 3. **So changing it would re-baseline the wrap quirk, not the proxy.**
+///    `cartalith_spatial::contour_polylines` does not wrap at all (it
+///    returns two open chains at the seam), so a traced version would
+///    *lose* seam behaviour on a genuine world map while "fixing" it on a
+///    flat one -- and this flag drives port and sea-lane eligibility, a
+///    second blast radius past the suitability one, on a path the owner's
+///    constraint (*a term inside the existing suitability ranking*) does
+///    not reach.
+///
+/// **One real latent defect found while measuring, deliberately not fixed
+/// here**: on a non-wrapping map the unconditional wrap lets a settlement
+/// five cells from the east edge read as coastal because of ocean at the
+/// *west* edge, with no continuous coastline between them. That is a
+/// one-line `world` guard, it is a divergence from a quirk this port
+/// preserves on purpose, and it is not what Ruling N authorised -- so it is
+/// named here and left for an owner ruling rather than taken.
 #[allow(clippy::too_many_arguments)]
 fn civ_is_coastal(
     x: usize,
@@ -17298,6 +17516,152 @@ mod tests {
         assert!(r.iter().all(|&v| v == 0.0), "an off-grid point stamped something");
     }
 
+    // --- Ruling N, coastal half: `build_coast_reach` ------------------
+
+    /// A world with a real sea on the left and a real lake in the middle,
+    /// traced the way production traces it.
+    struct CoastWorld {
+        field: Vec<f32>,
+        wb: Vec<u8>,
+        polys: Vec<Vec<(f64, f64)>>,
+    }
+
+    fn coast_world(gw: usize, gh: usize) -> CoastWorld {
+        let sea = 0.42f64;
+        let mut field = vec![0.60f32; gw * gh];
+        let mut wb = vec![0u8; gw * gh];
+        for y in 0..gh {
+            // The sea: columns 0..4, well below sea level.
+            for x in 0..4 {
+                field[y * gw + x] = 0.20;
+                wb[y * gw + x] = 1;
+            }
+        }
+        // A lake, far enough from the sea that no cell is near both.
+        for y in 5..9 {
+            for x in 14..18 {
+                field[y * gw + x] = 0.30;
+                wb[y * gw + x] = 2;
+            }
+        }
+        let polys = cartalith_terrain::vector::trace_coastline(&field, gw, gh, sea);
+        CoastWorld { field, wb, polys }
+    }
+
+    /// The ramp: on the shore the term is near 1 and it reaches zero at
+    /// `SUIT_COAST_REACH_CELLS`, measured against the real interpolated
+    /// crossing rather than a cell index.
+    #[test]
+    fn coast_reach_falls_off_linearly_with_distance() {
+        let (gw, gh) = (24usize, 16usize);
+        let w = coast_world(gw, gh);
+        let r = build_coast_reach(&w.polys, &w.wb, gw, gh);
+        // The sea is columns 0..3 at 0.20 and land is 0.60, so the level set
+        // at 0.42 sits 55% of the way from cell 3 to cell 4: x = 4.05.
+        let shore_x = 4.05f64;
+        for x in 4..12 {
+            let d = (x as f64 + 0.5) - shore_x;
+            let want = (1.0 - d / SUIT_COAST_REACH_CELLS).max(0.0);
+            let got = r[8 * gw + x] as f64;
+            assert!(
+                (got - want).abs() < 2e-3,
+                "x={x}: got {got}, want {want} (d={d})"
+            );
+        }
+        assert_eq!(r[8 * gw + 10], 0.0, "5.45 cells out is past the reach");
+    }
+
+    /// **The finding this half of Ruling N exists for.** `trace_coastline`
+    /// returns every water edge at sea level, a lake's included -- and a
+    /// lake shore must score nothing on a *coastal* term, which is exactly
+    /// what `build_coast_sdf` could not express.
+    #[test]
+    fn a_lake_shore_earns_no_coastal_credit() {
+        let (gw, gh) = (24usize, 16usize);
+        let w = coast_world(gw, gh);
+        let (field, wb, polys) = (&w.field, &w.wb, &w.polys);
+        // The lake really is traced -- otherwise this test would pass for
+        // the wrong reason.
+        let lake_pts = polys
+            .iter()
+            .flatten()
+            .filter(|&&(px, _)| px > 12.0)
+            .count();
+        assert!(lake_pts > 8, "the lake was not traced at all ({lake_pts} pts)");
+        let r = build_coast_reach(polys, wb, gw, gh);
+        // The term this replaces: `1 - dist/5` over `build_coast_sdf`, which
+        // is distance to the nearest water cell of any kind. Counted, so this
+        // test cannot pass by checking no cell at all.
+        let sdf = build_coast_sdf(field, gw, gh, 0.42);
+        let mut checked = 0usize;
+        for y in 4..10 {
+            for x in 12..20 {
+                let i = y * gw + x;
+                if wb[i] != 0 || (field[i] as f64) < 0.42 {
+                    continue;
+                }
+                if (1.0 - (-(sdf[i] as f64)) / 5.0) > 0.0 {
+                    checked += 1;
+                }
+                assert_eq!(r[i], 0.0, "lakeside cell ({x},{y}) scored coastal");
+            }
+        }
+        assert!(checked >= 20, "only {checked} cells the old term paid for were checked");
+        // ... while the sea's own shore does score.
+        assert!(r[8 * gw + 4] > 0.8, "the sea shore scored {}", r[8 * gw + 4]);
+    }
+
+    /// The scan is bounded at `ceil(R)` cells about each crossing's floor
+    /// cell, which is only correct because a crossing lies inside that cell.
+    /// Proved against an unbounded scan over every ocean-shore point rather
+    /// than left to the argument in the doc comment.
+    #[test]
+    fn coast_reach_matches_a_brute_force_scan() {
+        let (gw, gh) = (24usize, 16usize);
+        let w = coast_world(gw, gh);
+        let (wb, polys) = (&w.wb, &w.polys);
+        let got = build_coast_reach(polys, wb, gw, gh);
+        let mut want = vec![0f32; gw * gh];
+        for pl in polys {
+            for &(px, py) in pl {
+                let (cx, cy) = (px.floor() as isize, py.floor() as isize);
+                if cx < 0 || cy < 0 || cx >= gw as isize || cy >= gh as isize {
+                    continue;
+                }
+                if !coast_point_is_ocean(wb, gw, gh, cx, cy) {
+                    continue;
+                }
+                for (i, w) in want.iter_mut().enumerate() {
+                    let ex = ((i % gw) as f64 + 0.5) - px;
+                    let ey = ((i / gw) as f64 + 0.5) - py;
+                    let d = (ex * ex + ey * ey).sqrt() / SUIT_COAST_REACH_CELLS;
+                    if d < 1.0 {
+                        let v = (1.0 - d) as f32;
+                        if v > *w {
+                            *w = v;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(want.iter().any(|&v| v > 0.0), "the brute force found nothing");
+        assert_eq!(got, want, "the bounded scan missed a cell the full scan found");
+    }
+
+    /// No coastline, or one entirely off the grid, scores nothing rather
+    /// than panicking or wrapping.
+    #[test]
+    fn coast_reach_handles_an_empty_or_off_grid_coastline() {
+        let (gw, gh) = (12usize, 9usize);
+        let wb = vec![1u8; gw * gh];
+        assert!(build_coast_reach(&[], &wb, gw, gh).iter().all(|&v| v == 0.0));
+        let off = vec![vec![(-3.5, 2.5), (99.5, 2.5), (2.5, -9.5)]];
+        assert!(
+            build_coast_reach(&off, &wb, gw, gh).iter().all(|&v| v == 0.0),
+            "an off-grid point stamped something"
+        );
+    }
+
     // --- Suitability explanation (causal-chain explainer) -------------
     //
     // The load-bearing property is that the explanation is a real
@@ -17323,7 +17687,7 @@ mod tests {
         flow: Vec<f32>,
         river_order: Vec<i16>,
         river_reach: Vec<f32>,
-        coast_sdf: Vec<f32>,
+        coast_reach: Vec<f32>,
         rain: Vec<f32>,
         flood: Vec<f32>,
         slope_raw: Vec<f32>,
@@ -17349,7 +17713,7 @@ mod tests {
             flow: vec![0.0; n],
             river_order: vec![0i16; n],
             river_reach: vec![0.0; n],
-            coast_sdf: vec![0.0; n],
+            coast_reach: vec![0.0; n],
             rain: vec![0.0; n],
             flood: vec![0.0; n],
             slope_raw: vec![0.0; n],
@@ -17382,7 +17746,6 @@ mod tests {
                 } else {
                     0.45 + 0.5 * fx
                 };
-                f.coast_sdf[i] = (x as f32) - 4.0; // negative offshore, distance inland
                 f.soil[i] = 0.15 + 0.7 * fy;
                 f.rain[i] = 0.10 + 0.75 * fx;
                 f.water[i] = 0.9 - 0.5 * fx;
@@ -17421,6 +17784,17 @@ mod tests {
         // reproduce what production actually feeds it.
         let column9: Vec<(f64, f64)> = (0..gh).map(|y| (9.5, y as f64 + 0.5)).collect();
         f.river_reach = build_river_reach(&[column9], &f.river_order, gw, gh);
+        // ... and the coast likewise traced off the fixture's own height
+        // field rather than hand-written, for the same reason: the explainer
+        // has to reproduce what production actually feeds it. The ocean is
+        // the `x < 4` block above, so the level set of `field` at `sea` runs
+        // down the x = 3.5 block edge.
+        f.coast_reach = build_coast_reach(
+            &cartalith_terrain::vector::trace_coastline(&f.field, gw, gh, sea),
+            &f.wb,
+            gw,
+            gh,
+        );
         f
     }
 
@@ -17431,7 +17805,7 @@ mod tests {
             landmass: Some(&f.landmass),
             flow: Some(&f.flow),
             river_reach: Some(&f.river_reach),
-            coast_sdf: Some(&f.coast_sdf),
+            coast_reach: Some(&f.coast_reach),
             resources: Some(&f.res),
             rain: Some(&f.rain),
             flood: Some(&f.flood),

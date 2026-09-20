@@ -756,6 +756,7 @@ mod civ_merge_tests {
                     },
                     elevation: 0.0,
                     coast_dist_cells: 0.0,
+                    coast_reach: 0.0,
                     river_order: 0,
                     river_reach: 0.0,
                     flow: 0.0,
@@ -1741,10 +1742,22 @@ mod civ_timeline_tests {
 struct SettlementExplanation {
     suit: cartalith_civ::SuitExplanation,
     elevation: f32,
-    /// Distance to coast in cells (negative = offshore), matching
-    /// `build_coast_sdf`'s own sign convention as the suitability coast
-    /// term reads it.
+    /// Distance to the nearest water cell in cells (negative = offshore),
+    /// from `build_coast_sdf`, in that function's own sign convention.
+    ///
+    /// **Context, not the coastal term's input** -- it stopped being that
+    /// under Ruling N's coastal half (`LARGE_ITEM_RULINGS.md`, 2026-09-20).
+    /// It measures the nearest water of ANY kind, so a cell one cell from a
+    /// tarn reads `1.0` here and scores `0` on the coastal term, which now
+    /// measures a real traced OCEAN coastline.
+    /// [`SettlementExplanation::coast_reach`] is that term's own value, and
+    /// the two are reported side by side for the same reason
+    /// `river_order`/`river_reach` are.
     coast_dist_cells: f32,
+    /// `build_coast_reach` at this cell -- the suitability `coast` term's own
+    /// input, `0..1`: `0` where no traced ocean coastline runs within
+    /// `SUIT_COAST_REACH_CELLS`, `1` standing on the shore.
+    coast_reach: f32,
     /// Strahler order at this cell, `0` where no river was extracted.
     ///
     /// **Context, not the river term's input** -- it stopped being that under
@@ -2020,7 +2033,20 @@ fn compute_civilisation(
     let raw_slope = cartalith_civ::build_raw_slope_field(&ws.field, gw, gh, world);
     let corridors = cartalith_civ::build_route_corridors(&ws.field, &raw_slope, Some(&ws.flow_discharge), gw, gh, sea_level, world, flow_thresh);
     let landmass = cartalith_civ::build_landmass_quality(&ws.field, Some(&carrying_cap), gw, gh, sea_level, world);
+    // `coast_sdf` is no longer the suitability coastal term's input -- Ruling
+    // N's coastal half replaced that with `coast_reach` below. It is still
+    // built here for the `coast_dist_cells` reading in the settlement panel,
+    // which is the only thing left in this function that reads it.
     let coast_sdf = cartalith_civ::build_coast_sdf(&ws.field, gw, gh, sea_level);
+    // Ruling N's coastal half: proximity to a real traced OCEAN coastline
+    // (EF-6's tracer, intersected with `build_water_bodies`' ocean class),
+    // not distance to the nearest water cell of any kind.
+    let coast_reach = cartalith_civ::build_coast_reach(
+        &cartalith_terrain::vector::trace_coastline(&ws.field, gw, gh, sea_level),
+        &wb.classification,
+        gw,
+        gh,
+    );
     let flood = cartalith_civ::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, sea_level);
     // One channel pass, two products: `river_order` for the road network's
     // crossing costs and the settlement diagnostics below, `river_polys` for
@@ -2036,7 +2062,7 @@ fn compute_civilisation(
         landmass: Some(&landmass.quality),
         flow: Some(&ws.flow_discharge),
         river_reach: Some(&river_reach),
-        coast_sdf: Some(&coast_sdf),
+        coast_reach: Some(&coast_reach),
         resources: Some(&resources),
         rain: Some(&ws.rainfall),
         flood: Some(&flood),
@@ -2381,10 +2407,13 @@ fn compute_civilisation(
                     y,
                 ),
                 elevation: ws.field[i],
-                // `build_coast_sdf` is negative offshore / positive inland;
-                // the suitability coast term reads `-sdf`, so this is the
-                // same sign convention, in cells.
+                // `build_coast_sdf` is negative offshore / positive inland,
+                // negated here so the panel reads "cells to water" the way a
+                // reader expects. It is NOT the coastal term's input any
+                // more -- `coast_reach` below is (Ruling N) -- and the two
+                // legitimately disagree beside a lake.
                 coast_dist_cells: -coast_sdf[i],
+                coast_reach: coast_reach[i],
                 river_order: river_order[i],
                 river_reach: river_reach[i],
                 flow: ws.flow_discharge[i],
@@ -7810,7 +7839,10 @@ impl WorldGen {
     /// - `excluded` (String) -- present only for a cell the suitability
     ///   pass skips outright (`"below_sea_level"` / `"water_body"`).
     /// - context readings named by the causal chain, each straight from a
-    ///   real raster: `elevation`, `coast_dist_cells` (negative offshore),
+    ///   real raster: `elevation`, `coast_dist_cells` (distance to the
+    ///   nearest water of ANY kind, negative offshore), `coast_reach` (the
+    ///   `coast` term's own 0..1 input under Ruling N -- proximity to a real
+    ///   traced OCEAN coastline, which `coast_dist_cells` is NOT),
     ///   `river_order` (Strahler at this cell, 0 = no river here),
     ///   `river_reach` (the `river` term's own 0..1 input under Ruling N --
     ///   proximity to a real traced river, which `river_order` is NOT),
@@ -7846,6 +7878,7 @@ impl WorldGen {
             "terms" => &terms,
             "elevation" => e.elevation,
             "coast_dist_cells" => e.coast_dist_cells,
+            "coast_reach" => e.coast_reach,
             "river_order" => e.river_order as i64,
             "river_reach" => e.river_reach,
             "flow" => e.flow,
