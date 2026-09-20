@@ -470,6 +470,15 @@ Dated, because this is what a returning session needs and it is exactly what
 went missing from the old file. Commits are from `git log`; each claim below was
 re-checked against the tree rather than copied from the commit message.
 
+### 2026-09-20
+
+Three tracks landed in one session, run in parallel per the owner’s instruction (1 GUI builder, 2 engine builders at Opus 5 max effort):
+
+- **CIVIL half of Ruling L closed** (`5f839d7`). Both confirmed behaviour bugs and all three layout defects fixed, re-verified on all five form factors (271 HEAD diffs before, 0 after). Owner call C1 (entry-lit mismatch) left open. WORLD and CARTO not started.
+- **The IME row closed** (`f2b0e33`). `DccWidgets.phone_present()` — the ~15-caller shared phone-dialog routine — now clears the on-screen keyboard; a stale duplicate formula in the conformance grader, found by the verifier, fixed in the same commit.
+- **EF-0 and EF-1 built** (`2373c08`), engine-only, no Godot bridge yet: a queryable multi-resolution elevation primitive (EF-0) and boundary-seeded local hydrology re-accumulation for real river tributaries (EF-1) — the first two pieces of `ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md`. An adversarial verifier corrected two overclaims (EF-1’s "consistent by construction" language; an understated exit-and-re-enter bound) and found one real integration hazard for later (`carve_rivers=true`, the default, makes `WorldState::field`/`flow_discharge` mutually inconsistent) — all three corrected in the code’s own doc comments and the design document rather than left as an unqualified success. 289 lib tests plus a new 7-test suite, 0 failed; no golden-parity test moved.
+- **Ruling N recorded** (`eea35e1`): the owner’s complaint that "a settlement should be properly rendered on a coast and along/around a river" is a real, named defect — settlement siting decides river/coastal status from per-cell proxies with no reference to a real connected waterway, byte-for-byte the same in the legacy HTML and this port. Owner ruling: fix siting itself, staying a term inside the existing suitability ranking. River half unblocked and filed; coastal half blocked on EF-6, filed not built.
+
 ### 2026-09-12
 
 **Work resumed after the weekly limit reset, and most of the day went on the
@@ -1158,7 +1167,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-20: 120 items**, after `main` was merged into this branch — 115 here plus §2.9’s three source-engine rows, the re-opened reference re-freeze and the Nortantis credits row. (It read 110 before `LOD_DETAIL_SCOPE.md`’s seven milestone rows absorbed two, then 115.) Run
+**Recounted 2026-09-20 (evening): 124 items.** Was 120 after the `main` merge (115 here plus §2.9’s three source-engine rows, the re-opened reference re-freeze and the Nortantis credits row; before that 110, then 115 once `LOD_DETAIL_SCOPE.md`’s seven milestone rows absorbed two). The CIVIL rail row and the IME row closed (net -1, one row moved to the closed-rows archive); five elevation-field rows filed (+5) — Ruling N’s river and coastal binding fixes, EF-3, EF-6, EF-9. Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for
