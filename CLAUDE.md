@@ -67,13 +67,13 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
     moved past.** The previous bullet here recorded this as unresolved because
     *"`Cartalith_RC` is not present on this machine."* It is now, so it was
     opened and counted: **164** `Cartalith Gen1 v*.html`, newest **v2.22**, plus
-    **48** DCC-line files, newest **v2.70**. The port is measured against a
+    **49** DCC-line files, newest **v2.71**. The port is measured against a
     reference **twelve mainline versions** behind, not one — and the source
     **forked at v2.22**, so "newest" is two different files and re-freezing means
     choosing a line first. `FUNCTIONAL_CONTRACT.md`'s contradicting *"no drift,
     no re-freeze question to raise"* paragraph was corrected the same day.
   - **The interval is specified, not unknown.** `RC_ENGINE_CHANGES.md` covers
-    v2.11 → v2.70 change by change. Until 2026-09-17 nothing referenced it but
+    v2.11 → v2.71 change by change. Until 2026-09-17 nothing referenced it but
     this file, so it sat outside `OUTSTANDING_WORK.md`'s count and outside
     `STATUS.md`; it is `OUTSTANDING_WORK.md` §2.9 now. **How much of it is
     already ported is not established** — do not assume either way.

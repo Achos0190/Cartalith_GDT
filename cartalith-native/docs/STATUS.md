@@ -44,8 +44,8 @@ work outstanding.
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **48** DCC files (newest
-**v2.70**), and it **forked at v2.22** — every engine change from v2.25 on
+v*.html` (newest **v2.22**) plus a second line of **49** DCC files (newest
+**v2.71**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and seven of the changes in the interval
@@ -59,7 +59,22 @@ highest-leverage constant in the height formula: the coastline is the level set 
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
-**v2.70 is the newest and is not simulation** — a flat limited-palette map style, opt-in, `hash_gen1.js`
+**v2.71 is the newest and is not simulation** — `hash_gen1.js` vs v2.70 ALL IDENTICAL — but its first
+half is a rule a port inherits whether or not it copies the feature. The owner asked whether a new
+guidance layer was needed to keep a settlement's drawing off the water; it was not. The adapter has
+always built a 22 m mask of the real sea, lakes and river band, and the engine's own `isWater`
+predicate reads it — it simply never reached the RENDERER, because the model record handed to the
+drawing code is deliberately function-free and the mask was not among the fields copied. **The trap
+is where a port will hit it too**: on the real-map-water path the site builder sets its water
+polygon EMPTY on purpose (the map already paints the sea beneath the town), so a clip keyed on that
+polygon passes every synthetic fixture and does nothing live — measured, 7 of 39 real towns carry an
+empty one. Carry the mask instead, and where a town carries both, the mask must win. The measurement
+method is the other reusable part: two cheaper metrics both lied (overdraw as a share of a 211 000-px
+sea reads 0.14% and looks like antialiasing; a palette match misses an antialiased street edge
+entirely), and the honest test renders the town, renders it again with the settlement layer stripped,
+and diffs inside the water. See `RC_ENGINE_CHANGES.md` §8.2.
+
+**v2.70 is the version before it, and is also not simulation** — a flat limited-palette map style, opt-in, `hash_gen1.js`
 vs v2.69 ALL IDENTICAL. It is worth a line for its SHAPE: the HTML has exactly one land-colour
 function and one water-colour function, each called by the main per-pixel loop, the LOD tile
 renderer and the flat bake, so a whole new map style costs one flag and one step in each chain and
