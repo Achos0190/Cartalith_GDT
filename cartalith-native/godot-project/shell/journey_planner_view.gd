@@ -1411,6 +1411,27 @@ func _apply_result() -> void:
 	_phone_refit()   ## PH-12: five of those six rebuilt from fresh nodes.
 	if app != null and app.right_dock_ctrl != null:
 		app.right_dock_ctrl.refresh_journey()
+	## OUTSTANDING_WORK.md §2.7, found 2026-09-13 by the wf53 verifier: PLAN's
+	## phone sheet subtitle ("journey · <from> → <to>") went stale on a new
+	## plan. `_refresh_phone_sheet_header()` used to run only from the two call
+	## sites that fire at runtime -- `_pick_phone_tab()` (a tab press) and
+	## `_refresh_viewport_context()` (world/seed signals); a third call site,
+	## inside `_build_phone_tool_sheet()`, only fires at construction time and
+	## never on recompute -- and neither of the two runtime ones fires when a
+	## plan is RECOMPUTED while PLAN is already the open tab (a different route
+	## picked, a party-form field edited, `refresh_units()`'s repaint).
+	## `_apply_result()` is where every one of those converges -- `_compute()`
+	## and `refresh_units()` both end here -- so this is the one hook that
+	## covers all of them, not just the route-picker case the row's own report
+	## happened to hit. Self-guarded (`_refresh_phone_sheet_header()` returns at
+	## once when the phone sheet header does not exist; otherwise it re-writes
+	## both labels idempotently even when `_phone_tab != "plan"`), so it is
+	## harmless -- not a literal no-op, just idempotent -- on desktop and on
+	## every other tab. (RESIDUAL, not closed by this hook: `_on_stage_clicked()`
+	## isolating a stage never reaches `_apply_result()`, so the header's TITLE
+	## half, "PLAN · STAGE n", can still go stale -- outside this row's scope.)
+	if app != null:
+		app._refresh_phone_sheet_header()
 
 ## Phone sheet header support: `dcc_shell.gd::_refresh_phone_sheet_header()`'s
 ## PLAN branch, wired 2026-09-13 to close the gap that function's own doc
