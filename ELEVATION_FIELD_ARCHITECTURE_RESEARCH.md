@@ -18,7 +18,7 @@ reference does not do multi-resolution hydrology refinement at zoom — its own
 `amplifyRegion`/`refineTile` are elevation-only, exactly like this port's
 current `amplify_region` (below). `cartalith-porting-discipline`'s rule for
 this case applies directly: *"flag it, explain why, get it confirmed rather
-than assumed correct"* — which is what the owner questions in §6 are for.
+than assumed correct"* — which is what the owner questions in §7 are for.
 
 ## 1. What's actually causing the blockiness today
 
@@ -113,7 +113,37 @@ accumulation pass with that inflow instead of `compute_flow`'s default
 for nested high-resolution DEM analysis inside a coarser regional model —
 not invented for this document, applied to it.
 
-## 4. Proposed design — two tracks, deliberately not one
+## 4. Acceptance bar — stated as a hard, measurable target
+
+**Owner, 2026-09-20: "whatever happens we get a worldmap that is always
+correctly detailed and have no pixilated/square artifacts, no matter the
+zoom."** Turned into numbers, the way `LOD_DETAIL_SCOPE.md`'s own bar is:
+
+- **Elevation/terrain surface: unconditional, at any zoom depth.**
+  Achievable by construction, not by luck — `fbm`/`ridged` have no inherent
+  resolution floor (a noise function can always be evaluated finer, unlike a
+  stored image running out of pixels), linear sampling holds at every level
+  (see §1's `NEAREST`-filter gap, already scheduled to close), and
+  `LOD_DETAIL_SCOPE.md` D3's parent-fallback-plus-morph is what stops a
+  loading tile from popping or seaming. Test: one continuous zoom, three
+  seeds, sampled at a dense sequence of depths, zero flat/blocky runs at any
+  depth.
+- **Rivers: real detail, not manufactured detail, and that has a floor —
+  stated honestly rather than promised away.** A river's structure comes
+  from actual computed hydrology (EF-1). Past the physical scale where no
+  more real drainage exists, there is no more river to reveal — and there
+  should not be an invented one. This does **not** violate the bar above:
+  the *ground* at that scale is still fully detailed (EF-0/EF-2 keep
+  synthesizing regardless of what hydrology has left to say), it simply has
+  no additional river drawn on it, which is correct, not a defect.
+- **The one real, named limit is a device budget, not a mathematical one.**
+  Synthesis takes real time; `LOD_DETAIL_SCOPE.md` D6 (off-main-thread,
+  budgeted per device) and the existing `QualityTier` system are what keep a
+  slow device showing a frame-rate cost instead of a visible artifact. This
+  bounds *how fast* "always detailed" is delivered on a given device, not
+  *whether* it eventually is.
+
+## 5. Proposed design — two tracks, deliberately not one
 
 ### EF-0. `sample_elevation(x, y, lod)` as a first-class generation primitive
 
@@ -158,12 +188,20 @@ structure (ridges aligning with drainage divides, valleys aligning with
 rivers) — that is a property of running erosion, not adding noise. Whether
 that matters is an owner question (§6) — a fully honest design does not
 promise physically-consistent fine ridges from EF-0 alone, only
-statistically plausible ones. A further **EF-3 (not proposed here, flagged
-for later)** would extend the same boundary-condition technique to a
-tile-bounded erosion re-simulation, using the coarse eroded field as a
-boundary condition the same way EF-1 uses coarse flow — genuinely harder,
-and not needed to satisfy "rivers show real tributaries, mountains show real
-fractal detail."
+statistically plausible ones. **EF-3, below,** is what closes that gap if
+it's wanted.
+
+### EF-3. Erosion-consistent mountain detail (the answer to owner question 1, if wanted)
+
+The same boundary-condition technique EF-1 uses for rivers, applied to
+erosion instead of noise: a tile-bounded re-run of the engine's own erosion
+passes (`cartalith-erosion`'s hydraulic/thermal/glacial kernels — already
+built, already golden-tested, currently run once at world resolution like
+everything else), seeded with the coarse eroded field as a boundary
+condition the same way EF-1 seeds flow. This is materially larger than
+EF-0/EF-2 (erosion is iterative, not a single pass, and its cost at tile
+resolution needs measuring before committing to it) — proposed as a track,
+not designed in detail here, pending owner question 1.
 
 ### EF-4. Author edits survive refinement
 
@@ -188,7 +226,86 @@ guess) for as long as it's useful. `cartalith-io`'s already-proposed
 that should survive a save/load, distinct from tiles that are cheap to
 re-derive and don't need to.
 
-## 5. What this document deliberately does not propose
+### EF-6. Vector constraints, generalized beyond rivers
+
+Rivers already exist as vectors (`trace_river_polylines`). Nothing else
+does — checked directly, not assumed: `boundary_mask`/`boundary_type` (plate
+boundaries) are raster masks, `Vec<u8>`, one flag per cell, and there is no
+contour or coastline vectorization anywhere in this codebase (grepped for
+`marching_squares`/`contour`/`trace_coastline`, zero hits). Three more
+feature classes are natural extensions of the same idea, and two of them
+share one new primitive:
+
+- **Coastline.** The sea-level contour of the field — a boundary-trace of
+  where `field == sea_level`, the same "find the edge of a region and walk
+  it" operation `trace_river_polylines` already does for channel cells.
+- **Fault lines.** The same boundary-trace applied to the existing
+  `boundary_mask`/`boundary_type` raster instead of a sea-level threshold —
+  no new source data, only a new consumer of data already computed every
+  generation.
+- **Ridges.** A different technique, not the same primitive — a ridge is a
+  local drainage divide, not a threshold boundary. `cartalith_terrain::analysis::tpi`
+  (topographic position index) already exists and already distinguishes
+  ridge-like from valley-like cells (it is the same field `LANDMARK_GENERATION_SCOPE.md`
+  cites as "a TPI-equivalent buried inside the 2D renderer's AO"); tracing its
+  local-maxima ridgeline into a polyline is closer to `trace_river_polylines`'s
+  receiver-chain walk run on TPI instead of flow.
+
+**One new shared primitive — a boundary/contour tracer — covers coastlines
+and faults.** Ridges need a second, TPI-based tracer, structurally similar to
+the existing river tracer. Neither exists today; both are new work, smaller
+than EF-1 because neither needs EF-1's boundary-condition problem (a
+coastline or fault, unlike accumulated flow, is a local property of the
+field at that resolution — no global watershed to get wrong).
+
+### EF-7. Importance-driven refinement — the data already exists, the decision logic doesn't
+
+A tile doesn't need to refine purely because the camera is close to it. A
+flat plain at high zoom gains little from refinement; a river corridor or a
+settlement does, even at a middling zoom. What's notable, checked at the
+symbols: **every input this needs is already computed**, every generation,
+by existing code — this is a new *decision* over old *data*, not new
+simulation:
+
+- geometric: `cartalith_terrain::analysis::{slope, curvature, tpi}`
+- hydrological: `strahler_from_receivers`'s channel order, already computed
+- geological: `boundary_type`/`volcanic_field`, already computed
+- human: settlement and road positions, already known to `cartalith-civ`
+
+The new work is a subdivision rule (a screen-space-error-style test,
+weighted by which of the above a tile's footprint contains) deciding *when*
+to call EF-0/EF-1/EF-6, not a new field to compute. Proposed, not designed in
+detail — this is the least de-risked piece here and the one most likely to
+need iteration once EF-0/EF-1 exist to measure against.
+
+### EF-8. The tile's data structure, grounded in what's already real
+
+Not a new type family invented from nothing — an extension of `ChunkId{z,
+col, row}` (`cartalith_spatial::pyramid`, already real, already matches the
+reference's own `(z,col,row)` addressing) and `DirtyTracker`'s per-tile
+`TileStatus{dirty, reason, version}` (already real, already used for sculpt
+drafts):
+
+```
+TileRecord {
+    id: ChunkId,                    // already exists
+    bounds: FloatRegion,            // already exists (cartalith_spatial)
+    elevation: Vec<f32>,            // EF-0's output for this tile
+    rivers: Vec<Vec<(f64, f64)>>,   // EF-1's output — same shape trace_river_polylines already returns
+    vectors: Vec<VectorFeature>,    // EF-6, new: coastline/fault/ridge segments touching this tile
+    status: TileStatus,             // already exists (DirtyTracker) — dirty/reason/version
+    state: ChunkState,              // new, but the vocabulary is the reference's own:
+                                     //   unexplored | cached | baked | edited
+}
+```
+
+`representation`/`min_elevation`/`max_elevation`/`error_metric` (candidate
+fields a design like this often carries) are deliberately left out of the
+proposal above — `min`/`max` and an error metric are exactly EF-7's inputs,
+so they belong in that milestone once EF-7 exists, not hardcoded into every
+tile whether or not importance-driven refinement is built.
+
+## 6. What this document deliberately does not propose
 
 - **Replacing the raster as the simulation substrate** (vertices/TIN/point
   cloud generation). Every simulation algorithm in this engine — erosion,
@@ -198,15 +315,18 @@ re-derive and don't need to.
   grid gives every cell a known area and a known neighbourhood. Moving
   *generation* itself onto an irregular mesh would mean re-deriving all of
   that from scratch, for the same visual payoff EF-0/EF-1 already deliver at
-  far lower cost and risk. Vectors still matter — see EF-1 and §6.9 of the
-  earlier LOD discussion in chat — but as constraints/outputs *layered on* a
-  raster substrate, not as the substrate itself.
+  far lower cost and risk. Vectors still matter — see EF-1 and EF-6 — but as
+  constraints/outputs *layered on* a raster substrate, not as the substrate
+  itself.
 - **Full-world fine-resolution re-simulation of anything.** Only tiles
   actually queried (in view) are ever refined.
 - **Erosion re-simulation** (EF-3) — flagged, not designed, pending an owner
   answer on whether EF-0's statistical mountain detail is enough.
+- **Importance-driven refinement** (EF-7) — flagged as the least de-risked
+  piece here; proposed as a target, not designed, because there's nothing yet
+  to measure it against.
 
-## 6. Owner questions
+## 7. Owner questions
 
 1. **Does EF-2's caveat matter to you** — is statistically-plausible mountain
    detail (fBm/ridged noise, no erosion re-simulation) enough, or do you want
@@ -225,6 +345,15 @@ re-derive and don't need to.
 4. **Priority against the GUI-first standing rule** — this is engine work,
    not GUI. Confirm it queues behind GUI batches the way `LOD_DETAIL_SCOPE.md`
    already does, or that this specific track is an exception.
+5. **Does EF-6 (coastline/fault/ridge vectors) belong in this same track, or
+   later** — it's cheaper than EF-1 (no boundary-condition problem, checked
+   in EF-6's own text) but wasn't part of your original ask; confirm it's
+   wanted rather than assumed useful because it was cheap to describe.
+6. **Is EF-7 (importance-driven refinement — a river corridor or a
+   settlement refines sooner than open plain) something you want designed in
+   detail once EF-0/EF-1 exist, or is "refine by zoom depth alone" enough**?
+   The document proposes it as a later target specifically because there's
+   nothing yet to measure a subdivision rule against.
 
-**Not scheduled.** No build rows exist for EF-0 through EF-5 until these are
+**Not scheduled.** No build rows exist for EF-0 through EF-8 until these are
 answered.
