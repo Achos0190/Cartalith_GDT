@@ -14,10 +14,13 @@ func _frames(n: int) -> void:
 
 func _ready() -> void:
 	var out_path := "user://lod_showcase.png"
+	var full_out_path := "user://lod_showcase_full.png"
 	var args := OS.get_cmdline_user_args()
 	for i in args.size():
 		if args[i] == "--out" and i + 1 < args.size():
 			out_path = args[i + 1]
+		if args[i] == "--full-out" and i + 1 < args.size():
+			full_out_path = args[i + 1]
 
 	await _frames(2)
 	if not ClassDB.class_exists("WorldGen"):
@@ -58,6 +61,25 @@ func _ready() -> void:
 	var win := get_window()
 	var size := win.size
 	print("[boot] window size = ", size)
+
+	# Owner asked to see the whole map first -- capture the default "cover"
+	# fit view (reset_view(), viewport_host.gd's own reset/reset-nav-pad
+	# behaviour) before zooming into any one LOD-8 tile below. Dismiss
+	# dialogs first so this capture is clean too.
+	var opd0 = app.get("open_project_dialog")
+	if opd0 != null and opd0 is Window and (opd0 as Window).visible:
+		(opd0 as Window).hide()
+	await _frames(3)
+	if vp.has_method("reset_view"):
+		vp.call("reset_view")
+		await _frames(6)
+	var full_img := get_viewport().get_texture().get_image()
+	if full_img != null:
+		var full_err := full_img.save_png(full_out_path)
+		print("[shot-full] save_png(", full_out_path, ") -> ", full_err, " size=", full_img.get_size())
+		print("[shot-full] real path -> ", ProjectSettings.globalize_path(full_out_path))
+	else:
+		print("[shot-full] FATAL: get_texture().get_image() returned null")
 
 	# _do_center_landmasses() is a Whole-world-only op (it re-wraps in
 	# longitude) and this run is Region mode -- confirmed a no-op by an
