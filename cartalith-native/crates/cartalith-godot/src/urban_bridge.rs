@@ -154,6 +154,9 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
         "streets" => &streets,
         "edge_count" => l.edges.len() as i64,
         "water_poly" => &poly(&l.water_poly),
+        // v2.71's water clip (`RC_ENGINE_CHANGES.md` §8.2) -- the site's
+        // real water mask, run-length encoded as axis-aligned rectangles
+        // in the layout's own local box frame. See below for the array.
         "river" => &poly(&l.river),
         "river_w" => l.river_w,
         "route_ends" => &poly(&l.route_ends),
@@ -179,6 +182,24 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
     // is drawn a shade lighter (`_umDrawLayout` line 22804).
     let block_plaza: PackedByteArray = l.block_plaza.iter().map(|p| u8::from(*p)).collect();
     d.set("block_plaza", &block_plaza);
+
+    // v2.71's water clip (`RC_ENGINE_CHANGES.md` §8.2) -- the site's real
+    // water mask, run-length encoded as axis-aligned rectangles in the
+    // layout's own local box frame. Each run crosses as its own 4-point
+    // polygon (the rectangle's corners, unclosed like `blocks`), never as a
+    // screen-space rect -- `urban_layout_draw.gd` must push every corner
+    // through its own transform Callable so the run still traces a real
+    // rectangle once the layout is rotated. **Not `water_poly`** -- see
+    // `UrbanLayout::water_mask_runs`'s own doc comment for why a renderer
+    // must not treat the two as interchangeable. Empty on a synthetic site
+    // or a dry mask, same as every other empty-is-a-real-answer collection
+    // in this dictionary.
+    let water_mask_runs: Array<PackedVector2Array> = l
+        .water_mask_runs
+        .iter()
+        .map(|(lo, hi)| poly(&[*lo, UVec2::new(hi.x, lo.y), *hi, UVec2::new(lo.x, hi.y)]))
+        .collect();
+    d.set("water_mask_runs", &water_mask_runs);
 
     // The plaza itself. Absent rather than empty when the site had no primary
     // to widen -- an empty polygon would read as "this town's market square has

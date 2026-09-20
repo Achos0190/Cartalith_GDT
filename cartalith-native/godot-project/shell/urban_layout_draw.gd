@@ -347,6 +347,14 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 
 	_draw_roofs(ci, layout, to_screen, m_scale, px_floor, alpha, detail)
 
+	# v2.71's water clip (`RC_ENGINE_CHANGES.md` §8.2) -- the site's real
+	# water, drawn LAST so nothing this function laid down over it (measured:
+	# only a street's stroked WIDTH does; centrelines, blocks, parcels,
+	# buildings and the fringe never sample inside water) stays visible on
+	# top of it. See `_draw_water_mask` for why this is `water_mask_runs`,
+	# not `water_poly`, and why bridges and fords are released from it.
+	_draw_water_mask(ci, layout, project, tint)
+
 	# The plaza outline, over the roofs -- the square's edge is where the built
 	# frontages stop, so it has to sit above them to be the boundary rather than
 	# a line under them. Nothing is filled here; the fill is the flagged block
@@ -448,6 +456,80 @@ static func _fill_ground_polygon(ci: CanvasItem, pts: PackedVector2Array, color:
 	var uvs := PackedVector2Array()
 	for i in range(1, pts.size() - 1):
 		ci.draw_primitive(PackedVector2Array([pts[0], pts[i], pts[i + 1]]), tri_colors, uvs)
+
+
+## v2.71's water clip (`RC_ENGINE_CHANGES.md` §8.2) — the settlement's real
+## water, painted last over anything this file drew on top of it.
+##
+## **Why this exists at all.** `water_poly` is not the site's real water: on
+## the real-map coastal path `buildSite` leaves it empty ON PURPOSE (the
+## terrain map underneath already paints the sea, so this file must not paint
+## a second one there), and on a real-map river-like site it is only an
+## approximate band offset from the centreline, not the actual mask. Neither
+## form is what the engine itself checked when it kept blocks, parcels and
+## buildings off the water — that was `Site::is_water`, a per-cell lookup
+## into the site's real 22 m mask, and `water_mask_runs` is that same mask,
+## run-length encoded as axis-aligned rectangles in this layout's own LOCAL
+## box frame (`cartalith_urban::site::WaterCtx::water_runs`). It is empty on
+## a synthetic site — every headless/preview render is therefore byte-for-byte
+## unchanged by this pass — and on a real one it is what actually generation
+## queried, so it wins over `water_poly` wherever the two disagree (a town can
+## carry both: a river band from the centreline alongside dozens of real mask
+## runs).
+##
+## **Why last, not first.** The measured overdraw is a STREET's stroked
+## WIDTH crossing the mask, not its centreline (`RC_ENGINE_CHANGES.md` §8.2:
+## zero blocks/parcels/buildings/fringe parcels or street centrelines sample
+## inside real water). Painting the mask back over the whole layout at the
+## very end covers that overdraw wherever it occurs — including the fringe,
+## which must stay drawn BENEATH the water fill (v2.68's own rule) — without
+## having to find and clip every individual drawing pass that could someday
+## bleed onto it.
+##
+## **Why corners, not a screen-space rect.** Each run's four LOCAL-frame
+## corners go through `project` individually, exactly like a block or a
+## parcel polygon — a rectangle in the layout's own rotated frame is a
+## quadrilateral on screen, and projecting only two opposite corners (a
+## screen-space `Rect2`) would be axis-aligned and wrong the moment the
+## layout is rotated (`map_overlay.gd`'s `to_screen` does rotate it).
+##
+## **Bridges and fords are released.** A road that genuinely crosses the
+## river IS the bridge (or, with no crossing road, the flattest ford) — it is
+## meant to span the water, so this must not paint back over it. The release
+## is a plain distance test in LOCAL metres against each crossing's own
+## point, sized off `river_w` the same way `urban_bridge.rs`'s own doc
+## comment sizes a drawn span (`rw/2 + 10`ish), widened a little further
+## because this is releasing an AREA around the point rather than striking a
+## single span from it.
+static func _draw_water_mask(ci: CanvasItem, layout: Dictionary, project: Callable,
+		tint: Callable) -> void:
+	var runs: Array = layout.get("water_mask_runs", [])
+	if runs.is_empty():
+		return
+
+	var release_pts: PackedVector2Array = PackedVector2Array()
+	for p in layout.get("bridges", PackedVector2Array()):
+		release_pts.append(p)
+	if layout.has("ford"):
+		release_pts.append(layout["ford"])
+
+	var river_w: float = float(layout.get("river_w", 20.0))
+	var release_r2: float = pow(river_w * 0.5 + 20.0, 2.0)
+	var water: Color = tint.call(WATER)
+
+	for run in runs:
+		var quad: PackedVector2Array = run
+		if quad.size() < 4:
+			continue
+		var center: Vector2 = (quad[0] + quad[2]) * 0.5
+		var released := false
+		for p in release_pts:
+			if center.distance_squared_to(p) < release_r2:
+				released = true
+				break
+		if released:
+			continue
+		_fill_ground_polygon(ci, project.call(quad), water)
 
 
 ## `buildFarmland`'s fields and pastures, filled flat with a hairline furrow

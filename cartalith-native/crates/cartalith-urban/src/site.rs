@@ -125,6 +125,46 @@ impl WaterCtx {
     pub fn has_real_river_path(&self) -> bool {
         self.river_path.as_ref().is_some_and(|rp| rp.len() >= 2)
     }
+
+    /// v2.71's water clip (`RC_ENGINE_CHANGES.md` §8.2) — this mask,
+    /// run-length encoded as axis-aligned rectangles in the *local box*
+    /// metres [`Site::water_poly`] and [`Site::river`] already use (this
+    /// context's own `(0, 0)..(mw*cell_m, mh*cell_m)`), one rectangle per
+    /// maximal horizontal run of [`Site::is_water`]-true cells.
+    ///
+    /// **Tests `== 1`, the same predicate [`Site::is_water`] does** — not
+    /// [`crate::shore_from_mask`]'s non-zero test, which this context's own
+    /// doc comment notes the two disagree on. A renderer keying its clip on
+    /// this therefore keeps exactly the cells generation itself queried when
+    /// it kept blocks, parcels and buildings off the water — nothing more,
+    /// nothing less.
+    ///
+    /// Empty when every cell is dry, which is the honest answer for a
+    /// landlocked or purely-synthetic site — [`Site::water_ctx`] is `None`
+    /// there, so there is no [`WaterCtx`] to call this on at all.
+    pub fn water_runs(&self) -> Vec<(Vec2, Vec2)> {
+        let mut runs = Vec::new();
+        for j in 0..self.mh {
+            let row = j * self.mw;
+            let mut i = 0usize;
+            while i < self.mw {
+                if self.mask[row + i] != 1 {
+                    i += 1;
+                    continue;
+                }
+                let i0 = i;
+                while i < self.mw && self.mask[row + i] == 1 {
+                    i += 1;
+                }
+                let x0 = i0 as f64 * self.cell_m;
+                let x1 = i as f64 * self.cell_m;
+                let y0 = j as f64 * self.cell_m;
+                let y1 = (j + 1) as f64 * self.cell_m;
+                runs.push((Vec2::new(x0, y0), Vec2::new(x1, y1)));
+            }
+        }
+        runs
+    }
 }
 
 /// `opts.terrain` — the host app's real heightfield for this site box.

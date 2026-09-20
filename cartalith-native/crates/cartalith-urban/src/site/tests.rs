@@ -546,6 +546,43 @@ fn falsy_water_fields_take_their_defaults() {
     assert_eq!(js_or(0.5, 7.0), 0.5);
 }
 
+/// v2.71's water clip (`RC_ENGINE_CHANGES.md` §8.2) — [`WaterCtx::water_runs`]
+/// must key on the same `== 1` test [`Site::is_water`] does, not the
+/// shoreline tracer's non-zero one (the `maskTwo` distinction above), must
+/// close each run at the FIRST non-water cell rather than running past it,
+/// and must scale by `cell_m` into the same local-box frame `water_poly` and
+/// `river` are already in.
+#[test]
+fn water_runs_are_maximal_eq_one_stretches_scaled_by_cell_m() {
+    // 4 wide x 2 tall, cell_m = 10.
+    // row 0: 1 1 0 2   -> one run, columns [0, 2) -- the trailing `2` must
+    //                     NOT extend it and must NOT start a second one.
+    // row 1: 0 1 1 1   -> one run, columns [1, 4).
+    let w = WaterCtx {
+        mask: vec![1, 1, 0, 2, 0, 1, 1, 1],
+        dt: vec![0.0; 8],
+        mw: 4,
+        mh: 2,
+        cell_m: 10.0,
+        ..Default::default()
+    };
+    let runs = w.water_runs();
+    assert_eq!(
+        runs,
+        vec![
+            (Vec2::new(0.0, 0.0), Vec2::new(20.0, 10.0)),
+            (Vec2::new(10.0, 10.0), Vec2::new(40.0, 20.0)),
+        ]
+    );
+
+    // All-dry and all-2 (mask truthy, never `== 1`) both come back empty --
+    // the honest answer, not a run of zero width.
+    let dry = WaterCtx { mask: vec![0; 4], dt: vec![0.0; 4], mw: 2, mh: 2, cell_m: 5.0, ..Default::default() };
+    assert!(dry.water_runs().is_empty());
+    let twos = WaterCtx { mask: vec![2; 4], dt: vec![0.0; 4], mw: 2, mh: 2, cell_m: 5.0, ..Default::default() };
+    assert!(twos.water_runs().is_empty());
+}
+
 /// **Ruling N's re-baseline** (`LARGE_ITEM_RULINGS.md`, 2026-09-20). A river
 /// path of fewer than two points used to be truthy, so the site drew
 /// river-bound — four route endpoints, no sea step in `height`, a bridge, a

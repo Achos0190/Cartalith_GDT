@@ -1938,6 +1938,24 @@ pub struct UrbanLayout {
     pub settlement_age: f64,
     pub uses_real_water: bool,
     pub uses_real_terrain: bool,
+    /// v2.71's water clip (`RC_ENGINE_CHANGES.md` §8.2) — the site's real
+    /// water mask ([`WaterCtx::water_runs`]), run-length encoded as
+    /// `(min, max)` rectangle corners in this layout's own local box frame
+    /// (the same `(0, 0)..(wm, hm)` [`Self::water_poly`] and [`Self::river`]
+    /// are in).
+    ///
+    /// **Not** [`Self::water_poly`]: `buildSite` deliberately leaves that
+    /// empty on the real-water coastal path (the map already paints the
+    /// sea beneath the town, so the town must not paint a second one), and
+    /// on a real-water river-like site fills it with an approximate
+    /// river-band polygon rather than the mask. A renderer that must keep
+    /// the settlement layer off real water needs this field, not that one —
+    /// see the row's own trap: a clip keyed on `water_poly` alone passes
+    /// every synthetic fixture and does nothing on 7 of 39 real towns.
+    ///
+    /// Empty on a synthetic site (`uses_real_water` false, no [`WaterCtx`]
+    /// at all) or a real-water site whose mask has no wet cell.
+    pub water_mask_runs: Vec<(Vec2, Vec2)>,
 }
 
 /// [`cartalith_urban::generate`] — the reference's `generate()` (line 30931),
@@ -2082,6 +2100,17 @@ pub fn run_layout(ctx: &UrbanContext) -> Option<UrbanLayout> {
         settlement_age: t.settlement_age,
         uses_real_water: ctx.water.is_some(),
         uses_real_terrain: ctx.terrain.is_some(),
+        // `t.site` is [`cartalith_urban::TownSite`], the reference's own
+        // thirteen-field *projection* of [`cartalith_urban::site::Site`] —
+        // it carries no [`WaterCtx`] at all (`hashModel`'s own boundary).
+        // The mask this town actually generated against is the one handed
+        // in here: `GenOpts.water` above is `ctx.water.as_ref().map(|w|
+        // w.ctx.clone())`, and `build_site` stores that `WaterCtx`
+        // unmutated onto `Site::water` (`site.rs::build_site`, the
+        // `let SiteOpts { water, .. } = opts;` destructure straight into
+        // the `Site` literal) — so reading it off `ctx` is the same mask,
+        // not a stale copy.
+        water_mask_runs: ctx.water.as_ref().map(|w| w.ctx.water_runs()).unwrap_or_default(),
     })
 }
 
