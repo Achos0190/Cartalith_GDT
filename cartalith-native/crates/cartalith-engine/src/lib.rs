@@ -121,6 +121,14 @@ pub mod center;
 /// it, and it takes its own `ErodeOpts` rather than `WorldParams` fields.
 pub mod erode_op;
 
+/// **EF-0** (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §5) — the elevation
+/// field as a queryable, deterministic, multi-resolution primitive over a
+/// world: one pyramid tile's refined elevation, or one point of it. Composes
+/// `bake`'s own `pyramid_tile` and `cartalith-terrain`'s new
+/// `sample_elevation` with the world's seed and sea level. Unwired: no Godot
+/// bridge calls it yet, deliberately.
+pub mod elevation;
+
 /// The channel atlas — the world's affordance fields packed three to an RGB8
 /// PNG, plus its decode manifest (`chanAtlasChk`, `PARITY_AUDIT.md` §5 item
 /// 14). Data, not a picture: the export raster it ships alongside is

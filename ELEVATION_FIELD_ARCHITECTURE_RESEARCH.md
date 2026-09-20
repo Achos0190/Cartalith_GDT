@@ -157,6 +157,18 @@ through the already-built, currently-unwired `QuadTree`/pyramid machinery
 (`cartalith_spatial::pyramid`'s `ChunkId{z,col,row}` addressing already
 exists and matches the reference's own `(z,col,row)` scheme).
 
+**Built, tested, verified — `cartalith-engine/src/elevation.rs`.** The seam
+property (adjacent tiles agree bit-for-bit at a shared coarse-column edge)
+and the no-upsampling property (real added frequency content, not a
+smoothed enlargement of the coarse field) both independently reproduced by
+an adversarial verifier, not just claimed. One correction to how the point
+and tile entry points are used: `world_elevation_tile`'s returned tile is
+**not** `tile_size × tile_size` — its footprint aspect-fits
+(`bake::tile_dims`) — so a caller must read the tile's own reported `w`/`h`,
+never assume the requested size. `world_sample_elevation` (the point query)
+is unaffected and is what EF-1 actually composes through — see EF-1's own
+composition note.
+
 ### EF-1. Hydrology refinement — the actual "not upsampled" answer for rivers
 
 Per §3's mechanism: at each requested tile/LOD, (a) take the tile's refined
@@ -165,9 +177,23 @@ boundary cells as an inflow boundary condition, (c) run a **tile-bounded**
 version of `compute_flow`'s D8 accumulation, seeded with that inflow instead
 of uniform rainfall, (d) run `build_channels` and `trace_river_polylines` on
 the result. Output: genuinely new tributary polylines for that tile,
-deterministic, and consistent with the parent tile's established channels at
-the shared boundary by construction (the boundary condition *is* the parent's
-own number, not an approximation of it).
+deterministic.
+
+**Built, tested, verified — `cartalith-hydrology/src/tile.rs`.** The one
+claim in the paragraph above that shipped **corrected**: the boundary
+inflow *total* agrees with the parent exactly, bit-for-bit (an independent
+adversarial verifier's own oracle confirmed it) — but the resulting channel
+*geometry* (which cells draw as a river, where the peak lands) agrees only
+approximately, breaching the module's own ±25% agreement band on roughly a
+third to half of tiles. "By construction" overstated it; `tile.rs`'s module
+doc carries the corrected claim and the measurement. Two further disclosed
+limits, same source: a coarse flow path that exits and re-enters a tile is
+double-counted, up to 2× on this engine's own real terrain in a meaningful
+minority of tiles; and feeding this a live `WorldState` needs a
+self-consistent `field`/`flow_discharge` pair, which `carve_rivers = true`
+(the default) currently does not produce — this module takes both as
+explicit parameters and is not yet wired to any live caller, so the hazard
+is for the integration pass, not a defect here.
 
 **What this buys, concretely:** a coarse world might show one river as a
 single line at world zoom. Zooming into its middle reach reveals the actual
@@ -179,6 +205,14 @@ computed.
 full-world fine resolution (prohibitively expensive and not what "zoom
 reveals more" needs — only the tiles actually in view need it, computed on
 demand and cached, exactly like the reference's own baked-chunk atlas).
+
+**Composing with EF-0, checked, not assumed:** the two verify through the
+point query `world_sample_elevation`, not the tile-shaped
+`world_elevation_tile` — the latter's footprint (`pyramid_tile_bounds`) is
+generally fractional and its actual pixel count comes from an aspect-fit
+(`bake::tile_dims`), which `TilePlacement`'s integer `x0/y0/cols/rows/refine`
+cannot express in general. A future integration pass should know this before
+reaching for the tile-shaped entry point first.
 
 ### EF-2. Mountain/ridge detail — EF-0 covers it, with one honest caveat
 

@@ -328,9 +328,161 @@ pub fn add_zoom_detail(
     });
 }
 
+/// `opts.z_base` for a tile rendered `tile_size` pixels across — the octave
+/// schedule [`add_zoom_detail`] should run at that output resolution.
+///
+/// [`AmplifyOpts::z_base`]'s default of `2` is the reference's own and it is
+/// quoted against the reference's own `_lodTile = 1024`: at level `z` a
+/// 1024 px tile resolves `1024·2^z/(cw−1)` px per coarse cell, and
+/// `min(6, z − 2)` extra octaves is as many as that can carry without
+/// aliasing. A tile a quarter that size reaches the same ground resolution
+/// two levels deeper, so leaving `z_base` at `2` for it schedules two octaves
+/// *past* what the tile can resolve — which reads as noise, not as detail.
+/// Shifting `z_base` by the same `log2` keeps the schedule identical at equal
+/// ground resolution, which is what makes a screen tile and a baked chunk over
+/// the same ground agree.
+///
+/// **This changes no existing output.** At `tile_size == 1024` it returns the
+/// reference's own `2` exactly — the size every shipped bake runs at and the
+/// value [`AmplifyOpts::default`] already carries — so it only stops a
+/// differently-sized tile from getting the wrong schedule.
+///
+/// `cartalith_godot::lod_bridge::z_base()` already derives this same quantity
+/// for its own fixed `TILE_PX`, by the same argument and to the same number
+/// (`z_base_for_tile_size(256) == 4`). Routing that call site through here is
+/// a follow-up: this pass deliberately touches no Godot bridge, so there are
+/// two spellings of one formula until it lands.
+pub fn z_base_for_tile_size(tile_size: usize) -> i32 {
+    // `1024` is the reference's `_lodTile` default (reference line 10656) --
+    // the tile size `AmplifyOpts::default().z_base` is quoted against, not a
+    // tuning constant. `max(1)` keeps a zero out of `log2`, where it would go
+    // to +inf and saturate the cast.
+    AmplifyOpts::default().z_base + (1024.0 / tile_size.max(1) as f64).log2().round() as i32
+}
+
+/// **EF-0** (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §5) — the elevation
+/// field as a **point query**: the refined height at one continuous coarse
+/// coordinate, at one pyramid level.
+///
+/// `cx`/`cy` are **coarse sample coordinates**, the `[0, cw−1] × [0, ch−1]`
+/// space `cartalith_spatial::pyramid::pyramid_tile_bounds` returns and
+/// [`amplify_region`] maps each of its output pixels into — not pixels, and
+/// not normalised. Outside that box the coarse sampler clamps at every edge,
+/// exactly as it does for [`amplify_region`].
+///
+/// # The property this exists for
+///
+/// This is **the same field** [`refine_tile`] + [`add_zoom_detail`] produce,
+/// not an approximation of it. For every texel `(ox, oy)` of a pyramid tile at
+/// level `z`, with `b = pyramid_tile_bounds(cw, ch, z, col, row)`,
+///
+/// ```text
+/// tile[oy * w + ox] == sample_elevation(coarse, cw, ch,
+///                                       b.x + ox/(w-1) * b.w,
+///                                       b.y + oy/(h-1) * b.h, z, opts)
+/// ```
+///
+/// **bit for bit** — pinned by `sample_elevation_reproduces_the_tile_path_
+/// texel_for_texel` in this module, over four levels and every texel of each
+/// tile. Two consequences follow, and they are the whole point:
+///
+/// 1. **Seam consistency is inherited, not re-derived.** Two tiles that share
+///    an edge map that edge to the *same* `(cx, cy)` (the reason
+///    [`refine_tile`]'s sub-bounds overlap by one coarse column), and a pure
+///    function of `(cx, cy)` cannot disagree with itself. The seam property is
+///    therefore a property of this function's signature.
+/// 2. **Determinism is structural.** No RNG state, no cache, no global: the
+///    result is a pure function of its arguments, and `fbm`/`ridged` are
+///    seeded hash noise. The same world and the same coordinate always produce
+///    the same bytes.
+///
+/// # Why this is a transcription rather than a call
+///
+/// [`amplify_region`] and [`add_zoom_detail`] are row-parallel over a whole
+/// output rectangle, and both derive `(cx, cy)` from an output grid a point
+/// query does not have. Calling them for one sample would mean inventing a
+/// 1×1 grid, which is exactly [`amplify_region`]'s documented `0/0` NaN case.
+/// So the two per-pixel bodies are reproduced here — and the texel-for-texel
+/// test above is what keeps the copy honest: change either of them without
+/// changing this and the test goes red.
+///
+/// That degenerate 1×1 mapping is also why nothing here can reach it: this
+/// takes the coordinate directly, so there is no `outW − 1` to divide by.
+///
+/// # Panics
+///
+/// Panics if `coarse` is shorter than `cw * ch`, or either dimension is zero —
+/// the same precondition, with the same reasoning, as [`amplify_region`].
+pub fn sample_elevation(
+    coarse: &[f32],
+    cw: usize,
+    ch: usize,
+    cx: f64,
+    cy: f64,
+    z: i32,
+    opts: &AmplifyOpts,
+) -> f32 {
+    assert!(cw > 0 && ch > 0, "sample_elevation needs a non-empty coarse field");
+    assert!(
+        coarse.len() >= cw * ch,
+        "sample_elevation coarse is {} cells, needs {}",
+        coarse.len(),
+        cw * ch
+    );
+
+    // ---- `amplify_region`'s per-pixel body, at this coordinate -------------
+    let base = samp(coarse, cw, ch, cx, cy);
+    // `amplify_region`'s `e = 1.0` and `add_zoom_detail`'s literal `1.0` are
+    // the same offset over the same field, so the tile path's two relief terms
+    // are one expression evaluated twice on identical inputs. Computing it
+    // once here is bit-identical to that, not a re-association: nothing is
+    // reordered, only not repeated.
+    let gx = (samp(coarse, cw, ch, cx + 1.0, cy) - samp(coarse, cw, ch, cx - 1.0, cy)) * 0.5;
+    let gy = (samp(coarse, cw, ch, cx, cy + 1.0) - samp(coarse, cw, ch, cx, cy - 1.0)) * 0.5;
+    let relief = js_min(1.0, js_hypot(gx, gy) * 8.0);
+    let underwater =
+        if base < opts.sea { js_max(0.0, (opts.sea - base) / 0.06) } else { 0.0 };
+    let taper = relief * js_max(0.0, 1.0 - underwater);
+    let d = if opts.ridged {
+        cartalith_noise::ridged(cx * opts.detail_freq, cy * opts.detail_freq, opts.seed)
+    } else {
+        cartalith_noise::fbm(cx * opts.detail_freq, cy * opts.detail_freq, opts.seed)
+    } - 0.5;
+    // Both the `[0,1]` clamp **and** the `f32` narrowing happen before the
+    // zoom-detail half reads the value back, because in the tile path they do:
+    // `refine_tile` writes a `Vec<f32>` and `add_zoom_detail` starts from
+    // `*cell as f64`. Carrying full `f64` through instead would agree to about
+    // 1e-8 and fail every `to_bits` comparison in this module.
+    let refined = (base + d * opts.detail_amp * taper).clamp(0.0, 1.0) as f32;
+
+    // ---- `add_zoom_detail`'s per-pixel body, at the same coordinate --------
+    let extra = i32::min(6, z - opts.z_base);
+    let b = refined as f64;
+    // Three separate skips, in `add_zoom_detail`'s own order and with its own
+    // semantics: `extra <= 0` is the documented shallow-level no-op,
+    // `base < sea` is its **hard** cut (not `amplify_region`'s smooth
+    // `underwater` fade), and `relief <= 0` is the flat-ground skip. NaN takes
+    // the same branch it takes there -- every comparison is false, so a NaN
+    // base falls through and stays NaN rather than being quietly dropped.
+    if extra <= 0 || b < opts.sea || relief <= 0.0 {
+        return refined;
+    }
+    let mut amp = opts.detail_amp * 0.6 * opts.zoom_detail_k;
+    let mut f = opts.detail_freq * 2.0;
+    let mut sum = 0.0;
+    for o in 0..extra {
+        sum += (cartalith_noise::fbm(cx * f, cy * f, opts.seed + 1 + o) - 0.5) * amp;
+        f *= 2.0;
+        amp *= 0.6;
+    }
+    // Written back unclamped, exactly as `add_zoom_detail` writes it.
+    (b + sum * relief) as f32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cartalith_spatial::pyramid::{pyramid_dims, pyramid_tile_bounds, ChunkId};
     use cartalith_spatial::Region;
 
     /// The same synthetic field the golden harness builds, in the same order:
@@ -499,5 +651,251 @@ mod tests {
         assert_eq!(d.detail_amp, 0.14);
         assert_eq!(d.sea, 0.42);
         assert!(!d.ridged);
+    }
+
+    // -- EF-0: `sample_elevation` ------------------------------------------
+
+    /// The tile path, composed exactly as `cartalith_engine::bake::
+    /// pyramid_tile` composes it, so this module can check itself against it
+    /// without depending on `cartalith-engine` (which depends on this crate).
+    fn tile_path(
+        src: &[f32],
+        dims: (usize, usize),
+        id: ChunkId,
+        out: (usize, usize),
+        opts: &AmplifyOpts,
+    ) -> (Vec<f32>, FloatRegion) {
+        let ((cw, ch), (tw, th), z) = (dims, out, id.z as i32);
+        let n = pyramid_dims(z).cols as usize;
+        let region = Region { x: 0, y: 0, w: cw - 1, h: ch - 1 }.to_float();
+        let mut data =
+            refine_tile(src, cw, ch, &region, n, n, id.col as usize, id.row as usize, tw, th, opts);
+        let b = pyramid_tile_bounds(cw, ch, z, id.col, id.row);
+        add_zoom_detail(&mut data, tw, th, src, cw, ch, &b, z, opts);
+        (data, b)
+    }
+
+    /// The property [`sample_elevation`]'s doc comment states: the point query
+    /// **is** the tile, not an approximation of it. Every texel, four levels,
+    /// exact bits.
+    ///
+    /// This is also what makes the seam property structural rather than
+    /// re-derived: two tiles sharing an edge map it to the same `(cx, cy)`,
+    /// and a pure function of `(cx, cy)` cannot disagree with itself.
+    #[test]
+    fn sample_elevation_reproduces_the_tile_path_texel_for_texel() {
+        let (cw, ch) = (48usize, 32usize);
+        let src = synthetic_field(cw, ch, 5);
+        let opts = AmplifyOpts { seed: 4242, sea: 0.42, detail_amp: 0.12, ..Default::default() };
+        let (tw, th) = (24usize, 18usize);
+        let mut checked = 0usize;
+        for z in [0i32, 2, 3, 5] {
+            let n = pyramid_dims(z).cols;
+            for (col, row) in [(0, 0), (n / 2, n / 3), (n - 1, n - 1)] {
+                let (data, b) =
+                    tile_path(&src, (cw, ch), ChunkId::new(z as u32, col, row), (tw, th), &opts);
+                for oy in 0..th {
+                    let cy = b.y + oy as f64 / (th as f64 - 1.0) * b.h;
+                    for ox in 0..tw {
+                        let cx = b.x + ox as f64 / (tw as f64 - 1.0) * b.w;
+                        let q = sample_elevation(&src, cw, ch, cx, cy, z, &opts);
+                        assert_eq!(
+                            q.to_bits(),
+                            data[oy * tw + ox].to_bits(),
+                            "z={z} tile=({col},{row}) texel=({ox},{oy})"
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        // A loop that silently ranged over nothing would pass every assertion
+        // in it -- the empty-golden failure this project has been bitten by
+        // four times.
+        assert_eq!(checked, 4 * 3 * tw * th);
+    }
+
+    /// Ridged detail is a different noise family, and the correspondence has
+    /// to hold for it too -- `opts.ridged` reaches only the first half of the
+    /// body, so a transcription that switched families in the wrong place
+    /// would still pass the fbm case above.
+    #[test]
+    fn the_texel_correspondence_holds_for_ridged_detail_too() {
+        let (cw, ch) = (48usize, 32usize);
+        let src = synthetic_field(cw, ch, 2);
+        let opts = AmplifyOpts { seed: 77, ridged: true, ..Default::default() };
+        let (tw, th) = (12usize, 10usize);
+        let (data, b) = tile_path(&src, (cw, ch), ChunkId::new(4, 6, 9), (tw, th), &opts);
+        for oy in 0..th {
+            let cy = b.y + oy as f64 / (th as f64 - 1.0) * b.h;
+            for ox in 0..tw {
+                let cx = b.x + ox as f64 / (tw as f64 - 1.0) * b.w;
+                assert_eq!(
+                    sample_elevation(&src, cw, ch, cx, cy, 4, &opts).to_bits(),
+                    data[oy * tw + ox].to_bits(),
+                    "ridged texel=({ox},{oy})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn sample_elevation_is_deterministic_and_seam_agreement_is_a_single_value() {
+        let (cw, ch) = (48usize, 32usize);
+        let src = synthetic_field(cw, ch, 5);
+        let opts = AmplifyOpts { seed: 4242, ..Default::default() };
+        // Two adjacent tiles at level 4 share a coarse column exactly -- the
+        // arithmetic `refine_tile`'s one-column overlap exists to produce.
+        let l = pyramid_tile_bounds(cw, ch, 4, 6, 9);
+        let r = pyramid_tile_bounds(cw, ch, 4, 7, 9);
+        assert_eq!((l.x + l.w).to_bits(), r.x.to_bits(), "tile bounds do not share an edge");
+        for k in 0..16 {
+            let cy = l.y + k as f64 / 15.0 * l.h;
+            let a = sample_elevation(&src, cw, ch, l.x + l.w, cy, 4, &opts);
+            let b = sample_elevation(&src, cw, ch, r.x, cy, 4, &opts);
+            assert_eq!(a.to_bits(), b.to_bits(), "shared edge disagrees at k={k}");
+            // Same arguments twice: no cache, no RNG state, no global.
+            assert_eq!(a.to_bits(), sample_elevation(&src, cw, ch, l.x + l.w, cy, 4, &opts).to_bits());
+        }
+    }
+
+    /// Every argument changes the answer. Derived from the signature rather
+    /// than from a guess at which ones matter -- the "derive the list from the
+    /// definition" rule, applied to a pure function's own parameter list.
+    #[test]
+    fn every_input_of_the_point_query_moves_its_output() {
+        let (cw, ch) = (48usize, 32usize);
+        let src = synthetic_field(cw, ch, 5);
+        let o = AmplifyOpts { seed: 4242, ..Default::default() };
+        let (cx, cy, z) = (20.3, 17.1, 6);
+        let at = |c: &[f32], x: f64, y: f64, lvl: i32, op: &AmplifyOpts| {
+            sample_elevation(c, cw, ch, x, y, lvl, op).to_bits()
+        };
+        let ref_bits = at(&src, cx, cy, z, &o);
+        assert_ne!(ref_bits, at(&synthetic_field(cw, ch, 6), cx, cy, z, &o), "coarse field");
+        assert_ne!(ref_bits, at(&src, cx + 0.05, cy, z, &o), "cx");
+        assert_ne!(ref_bits, at(&src, cx, cy + 0.05, z, &o), "cy");
+        assert_ne!(ref_bits, at(&src, cx, cy, z + 1, &o), "z");
+        assert_ne!(ref_bits, at(&src, cx, cy, z, &AmplifyOpts { seed: 4243, ..o }), "seed");
+        assert_ne!(ref_bits, at(&src, cx, cy, z, &AmplifyOpts { detail_freq: 1.3, ..o }), "detail_freq");
+        assert_ne!(ref_bits, at(&src, cx, cy, z, &AmplifyOpts { detail_amp: 0.2, ..o }), "detail_amp");
+        assert_ne!(ref_bits, at(&src, cx, cy, z, &AmplifyOpts { ridged: true, ..o }), "ridged");
+        assert_ne!(ref_bits, at(&src, cx, cy, z, &AmplifyOpts { z_base: 4, ..o }), "z_base");
+        assert_ne!(ref_bits, at(&src, cx, cy, z, &AmplifyOpts { zoom_detail_k: 0.5, ..o }), "zoom_detail_k");
+        // `sea` moves it because this point is land: raising sea past it
+        // switches the hard cut in the zoom-detail half.
+        assert_ne!(ref_bits, at(&src, cx, cy, z, &AmplifyOpts { sea: 0.99, ..o }), "sea");
+    }
+
+    #[test]
+    fn the_point_query_clamps_outside_the_field_rather_than_panicking() {
+        let (cw, ch) = (16usize, 12usize);
+        let src = synthetic_field(cw, ch, 0);
+        let o = AmplifyOpts::default();
+        // Far outside on both axes, both signs. `samp` clamps, so these are
+        // the corner samples -- finite, not NaN, no index panic.
+        for (x, y) in [(-500.0, -500.0), (5e3, 5e3), (-1.0, 7.0), (7.0, 99.0)] {
+            assert!(sample_elevation(&src, cw, ch, x, y, 5, &o).is_finite(), "({x},{y})");
+        }
+    }
+
+    #[test]
+    fn z_base_for_tile_size_matches_the_references_own_quoted_sizes() {
+        // Literals, not `AmplifyOpts::default().z_base`: an assertion written
+        // against the constant holds for every value of it.
+        assert_eq!(z_base_for_tile_size(1024), 2, "the reference's own _lodTile");
+        assert_eq!(z_base_for_tile_size(512), 3);
+        assert_eq!(z_base_for_tile_size(256), 4, "cartalith_godot::lod_bridge::TILE_PX");
+        assert_eq!(z_base_for_tile_size(2048), 1);
+        // Halving the tile size is exactly one level deeper, by construction.
+        for (a, b) in [(1024, 512), (512, 256), (256, 128)] {
+            assert_eq!(z_base_for_tile_size(b) - z_base_for_tile_size(a), 1, "{a} -> {b}");
+        }
+        // A zero must not reach `log2`.
+        assert!(z_base_for_tile_size(0) > 0);
+    }
+
+    /// Sum of squared discrete Laplacians over the interior — how much
+    /// *curvature*, i.e. high-frequency content, a sampled patch carries.
+    /// Bilinear interpolation is linear along both axes inside one coarse
+    /// cell, so an upsample of coarse data scores ~0 on it by construction,
+    /// which is the whole point of measuring it.
+    fn curvature_energy(v: &[f64], n: usize) -> f64 {
+        let mut e = 0.0;
+        for y in 1..n - 1 {
+            for x in 1..n - 1 {
+                let lx = v[y * n + x - 1] - 2.0 * v[y * n + x] + v[y * n + x + 1];
+                let ly = v[(y - 1) * n + x] - 2.0 * v[y * n + x] + v[(y + 1) * n + x];
+                e += lx * lx + ly * ly;
+            }
+        }
+        e
+    }
+
+    /// **The "not upsampling" proof.** At level 8 a tile's coarse footprint is
+    /// a fifth of one cell wide, so bilinear upsampling of the coarse field
+    /// over it is a plane broken only where it crosses a cell boundary — no
+    /// new information, and the crease itself is the blockiness this design
+    /// exists to remove. The refined field over the *same* footprint carries
+    /// real structure instead, and this measures how much more.
+    ///
+    /// Three tiles, because one is one sample: the ratio has to be a property
+    /// of the method, not of where the fixture happened to be read.
+    #[test]
+    fn deep_levels_add_real_structure_rather_than_smoothing_the_coarse_field() {
+        let (cw, ch) = (48usize, 32usize);
+        let src = synthetic_field(cw, ch, 5);
+        let opts = AmplifyOpts { seed: 4242, ..Default::default() };
+        let z = 8;
+        let n = 48usize;
+        // Three tiles over the dome's crown: land (base ~0.9, well clear of
+        // `sea`) and sloped, so neither the hard sea cut nor the `relief <= 0`
+        // skip is what is being measured.
+        for (col, row) in [(147u32, 145u32), (155, 130), (60, 160)] {
+            let b = pyramid_tile_bounds(cw, ch, z, col, row);
+            assert!(b.w < 0.2 && b.h < 0.2, "footprint {}x{} is not sub-cell", b.w, b.h);
+            let mut refined = vec![0.0f64; n * n];
+            let mut upsampled = vec![0.0f64; n * n];
+            for y in 0..n {
+                let cy = b.y + y as f64 / (n as f64 - 1.0) * b.h;
+                for x in 0..n {
+                    let cx = b.x + x as f64 / (n as f64 - 1.0) * b.w;
+                    refined[y * n + x] = sample_elevation(&src, cw, ch, cx, cy, z, &opts) as f64;
+                    upsampled[y * n + x] = samp(&src, cw, ch, cx, cy);
+                }
+            }
+            assert!(upsampled[0] > opts.sea, "tile ({col},{row}) is underwater: {}", upsampled[0]);
+            let e_ref = curvature_energy(&refined, n);
+            let e_up = curvature_energy(&upsampled, n);
+            let max_dev =
+                refined.iter().zip(&upsampled).map(|(a, b)| (a - b).abs()).fold(0.0f64, f64::max);
+            println!(
+                "tile ({col},{row}): curvature refined {e_ref:.4e} upsampled {e_up:.4e} \
+                 ratio {:.0}x, max |refined-upsampled| {max_dev:.5}",
+                e_ref / e_up
+            );
+            // Measured, this run, the three tiles in order:
+            //
+            //   (147,145)  refined 8.12e-4  upsampled 2.87e-6   ratio  283x
+            //   (155,130)  refined 1.17e-3  upsampled 3.88e-29  ratio  ~1e25
+            //   (60,160)   refined 2.21e-3  upsampled 8.32e-29  ratio  ~1e25
+            //
+            // with max deviations of 0.0110, 0.0111 and 0.0216. The two
+            // regimes are worth naming rather than averaging away: a footprint
+            // that crosses a coarse cell boundary gets a real crease from the
+            // bilinear upsample (that crease **is** the blockiness), and one
+            // that does not is planar to f64 rounding. The bars below clear
+            // the weaker of each by roughly 2x, so they bite on a regression
+            // without pinning one run's noise.
+            assert!(
+                e_ref > 100.0 * e_up,
+                "tile ({col},{row}) added only {:.0}x the curvature of a bilinear upsample",
+                e_ref / e_up
+            );
+            assert!(
+                max_dev > 0.005,
+                "tile ({col},{row}) deviates from the upsample by only {max_dev:.6}"
+            );
+        }
     }
 }

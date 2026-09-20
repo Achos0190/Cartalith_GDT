@@ -2,6 +2,8 @@
 //!
 //! Ported in pipeline order starting Phase 1 (MVP_SCOPE.md).
 
+pub mod tile;
+
 use rayon::prelude::*;
 
 // `js_atan2` -- `Math.atan2` as V8 computes it, which is FDLIBM's
@@ -153,46 +155,11 @@ pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, u
         acc.fill(1.0);
     }
 
-    // D8[(dy+1)*3+(dx+1)] = hypot(dx, dy) for dx,dy in {-1,0,1}; center
-    // (index 4) is unused (the main loop always skips dx=dy=0) but kept
-    // for a direct match to the reference's own indexing scheme.
-    let mut d8 = [0f64; 9];
-    for dy in -1i32..=1 {
-        for dx in -1i32..=1 {
-            d8[((dy + 1) * 3 + (dx + 1)) as usize] = (dx as f64).hypot(dy as f64);
-        }
-    }
+    let d8 = d8_table();
 
     for &i in &order {
         let i = i as usize;
-        let x = (i % gw) as i64;
-        let y = (i / gw) as i64;
-        let h = field[i] as f64;
-        let mut best: i64 = -1;
-        let mut best_drop = 0.0f64;
-        for dy in -1i64..=1 {
-            for dx in -1i64..=1 {
-                if dx == 0 && dy == 0 {
-                    continue;
-                }
-                let mut nx = x + dx;
-                let ny = y + dy;
-                if world {
-                    nx = ((nx % gw as i64) + gw as i64) % gw as i64;
-                } else if nx < 0 || nx >= gw as i64 {
-                    continue;
-                }
-                if ny < 0 || ny >= gh as i64 {
-                    continue;
-                }
-                let j = ny * gw as i64 + nx;
-                let drop = (h - field[j as usize] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
-                if drop > best_drop {
-                    best_drop = drop;
-                    best = j;
-                }
-            }
-        }
+        let best = d8_receiver(field, gw, gh, i, world, &d8);
         if best >= 0 {
             let best = best as usize;
             acc[best] = (acc[best] as f64 + acc[i] as f64) as f32;
@@ -200,6 +167,73 @@ pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, u
     }
 
     acc
+}
+
+/// `D8[(dy+1)*3+(dx+1)] = hypot(dx, dy)` for `dx,dy` in `{-1,0,1}`; center
+/// (index 4) is unused ([`d8_receiver`] always skips `dx=dy=0`) but kept for a
+/// direct match to the reference's own indexing scheme.
+///
+/// Built by the same loop the reference writes rather than pinned as nine
+/// literals — the nine values are bit-identical under `Math.hypot` and
+/// `f64::hypot` either way (`slope_hypot_divergence_is_measured_not_assumed`
+/// asserts exactly that), and a literal table would be a second definition to
+/// keep in step for no gain.
+pub(crate) fn d8_table() -> [f64; 9] {
+    let mut d8 = [0f64; 9];
+    for dy in -1i32..=1 {
+        for dx in -1i32..=1 {
+            d8[((dy + 1) * 3 + (dx + 1)) as usize] = (dx as f64).hypot(dy as f64);
+        }
+    }
+    d8
+}
+
+/// The single steepest-descent D8 receiver of cell `i`, or `-1` where the cell
+/// is a pit (no neighbour strictly below it). `(h - h_n) / d8_dist`, first
+/// strictly-greater wins, scanned `dy` then `dx` ascending — the reference's
+/// own order, so a tie between two equal drops goes to the earlier offset.
+///
+/// **Extracted from [`compute_flow`]'s own inner loop, unchanged**, so that
+/// [`tile::tile_flow`]'s tile-bounded accumulation resolves flow direction by
+/// the *identical* rule the world pass used rather than a second
+/// implementation that could drift from it. The arithmetic is the same
+/// expression in the same order (`cartalith-rust-conventions`: float
+/// operations are not reordered), and the three `compute_flow` golden cases
+/// are what checks that.
+///
+/// `world` wraps `x` only, matching the reference — `y` never wraps, because a
+/// cylindrical world has poles, not a torus.
+#[inline]
+pub(crate) fn d8_receiver(field: &[f32], gw: usize, gh: usize, i: usize, world: bool, d8: &[f64; 9]) -> i64 {
+    let x = (i % gw) as i64;
+    let y = (i / gw) as i64;
+    let h = field[i] as f64;
+    let mut best: i64 = -1;
+    let mut best_drop = 0.0f64;
+    for dy in -1i64..=1 {
+        for dx in -1i64..=1 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            let mut nx = x + dx;
+            let ny = y + dy;
+            if world {
+                nx = ((nx % gw as i64) + gw as i64) % gw as i64;
+            } else if nx < 0 || nx >= gw as i64 {
+                continue;
+            }
+            if ny < 0 || ny >= gh as i64 {
+                continue;
+            }
+            let j = ny * gw as i64 + nx;
+            let drop = (h - field[j as usize] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
+            if drop > best_drop {
+                best_drop = drop;
+                best = j;
+            }
+        }
+    }
+    best
 }
 
 /// Slope-dependent multiplier on the channel-initiation threshold
@@ -302,9 +336,59 @@ pub fn build_channels(
     river_density: f64,
     map_width_km: f64,
 ) -> ChannelResult {
+    build_channels_with_threshold(fld, flow, w, h, sea, world, river_density, w, river_flow_thresh(w, h, w, map_width_km))
+}
+
+/// [`build_channels`] with the channel-initiation threshold and the slope
+/// normalisation width supplied rather than derived from the grid being
+/// classified.
+///
+/// **Why this exists, and why it is not a convenience.** `build_channels`
+/// computes `river_flow_thresh(w, h, w, map_width_km)` — `0.04 %` of *its
+/// own* grid's cell count. That is right for the world pass, where the grid
+/// being classified *is* the world, and wrong for a tile: a 64×64 tile cut
+/// out of a 256×256 world would set its threshold from 4 096 cells instead of
+/// 65 536 and call a hillslope a river 16× too eagerly.
+/// [`tile::tile_channel_thresh`] is the world-anchored number a tile wants,
+/// and this entry point is how it reaches the classifier. `river_flow_thresh`'s
+/// existing `world_gw` argument cannot express it — that one anchors
+/// `terrain_detail_k` only, leaving the `(gw*gh)` area term tile-sized.
+///
+/// **`slope_w` is the second half of the same problem.** `slope_n` below is
+/// `hypot(gx, gy) * w` — a *rise across the whole map*, and therefore
+/// resolution-independent, only because the reference's `w` is the world's own
+/// grid width. Hand the function a tile and both halves shrink: the gradient
+/// is per *fine* cell and the multiplier is the *tile's* width, so a tile of
+/// `cols` coarse columns reports `cols/gw` of the world's `slope_n` for the
+/// same physical slope. `slope_w` is what that multiplier should be —
+/// `gw * refine` for a tile, the world's own width expressed at the tile's
+/// resolution, which is the same anchoring [`tile::tile_channel_thresh`]
+/// applies to the threshold. It reaches `channel_threshold`'s
+/// `(1 + 8*slope_n)^(-|ln density|)` factor, so at the default
+/// `river_density == 1` it cannot change an outcome (the exponent is `0`) and
+/// away from `1` it decides whether a steep tile channelizes as readily as the
+/// same ground does at world scale.
+///
+/// `build_channels` itself is unchanged: it computes the same threshold from
+/// the same expression, passes its own `w` as `slope_w`, and hands both here.
+/// All three `golden_parity_river` cases assert `slope` cell for cell against
+/// the JS reference, so any change to what the wrapper passes fails there
+/// immediately; `build_channels_case_2`'s `river_density = 2.0` is
+/// additionally the one fixture where `slope_w` reaches `chan` as well.
+#[allow(clippy::too_many_arguments)]
+pub fn build_channels_with_threshold(
+    fld: &[f32],
+    flow: &[f32],
+    w: usize,
+    h: usize,
+    sea: f64,
+    world: bool,
+    river_density: f64,
+    slope_w: usize,
+    thresh: f64,
+) -> ChannelResult {
     let wrap = world;
     let n = w * h;
-    let thresh = river_flow_thresh(w, h, w, map_width_km);
     let density = if river_density > 0.0 { river_density } else { 1.0 };
 
     let mut recv = vec![-1i32; n];
@@ -369,7 +453,10 @@ pub fn build_channels(
                 // is corrected anyway: being one ulp more accurate than the
                 // reference is the wrong answer here, and the next fixture
                 // is not obliged to be as forgiving as these.
-                let slope_n = js_hypot(gx, gy) * w as f64;
+                // `* slope_w`, not `* w`: the grid the slope is normalised
+                // against is the world's, which is the same grid for every
+                // caller but a tile (this function's own doc comment).
+                let slope_n = js_hypot(gx, gy) * slope_w as f64;
                 slope_row[x] = slope_n as f32;
                 if flow[i] as f64 <= channel_threshold(thresh, slope_n, density) {
                     continue;
