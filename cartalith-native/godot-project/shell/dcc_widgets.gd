@@ -2560,7 +2560,25 @@ static func phone_present(dlg: Window, host) -> bool:
 	## the canvas draws (the map keeps bleeding under it) and costs nothing but
 	## the 26 dp the system was going to take anyway.
 	var gesture := int(round(DccTheme.H_PHONE_GESTURE * host.phone_scale()))
-	var target := Vector2i(int(screen.x), maxi(1, int(screen.y) - gesture))
+	## `+ kb`: the on-screen keyboard draws over the frame instead of resizing
+	## it (`dcc_shell.gd`'s own `_process()` comment), so a window sized only to
+	## the gesture inset puts this dialog's OK/Cancel bar -- its one bottom-
+	## docked control -- under the IME exactly as the shell's own docked chrome
+	## would without `_phone_kb_height`. Read rather than re-polled: the shell
+	## already owns the one `DisplayServer.virtual_keyboard_get_height()` poll
+	## (polling a second time risks a second "not supported" warning on a
+	## display with no IME feature), and `phone_insets_changed` -- which
+	## `phone_window()`'s `relay` already re-runs this function from -- fires on
+	## every change to it, keyboard included. `+`, not `max()`, to match how
+	## `_apply_phone_nav_orientation()`'s own `gesture` and
+	## `phone_content_insets()`'s own `bottom` already fold this height in.
+	## Reached directly rather than through a new getter: `dcc_shell.gd` is a
+	## concurrent lane's file this batch, so a `phone_kb_height()` accessor
+	## belongs there next to `is_phone()`/`phone_scale()` -- which its own
+	## comment already flags as read-only-by-convention -- once it is free to
+	## edit again; this keeps that read to the one call site meanwhile.
+	var kb := int(host._phone_kb_height) if host is DccShell else 0
+	var target := Vector2i(int(screen.x), maxi(1, int(screen.y) - gesture - kb))
 	## One pixel short on purpose -- `_floor_dialog_bar()` below restores it, and
 	## that restore is the only thing that makes `AcceptDialog` re-lay its button
 	## bar. See that function for the measurement.
@@ -2880,9 +2898,15 @@ static func phone_protocol_grade(dlg: Window, host) -> Dictionary:
 	var scale: float = host.phone_scale()
 	var screen: Vector2 = host.get_viewport_rect().size
 	var gesture := int(round(DccTheme.H_PHONE_GESTURE * scale))
+	## `- kb`: mirrors `phone_present()`'s own target-size formula. Left out
+	## once, this grader reported a correctly-presented dialog as broken the
+	## moment the IME was up -- found by an adversarial verifier, not by a
+	## device report; the only two callers today (`_phoneproto_probe.gd`,
+	## `_vfyproto_probe.gd`) run at kb=0, so it was latent, not yet observed.
+	var kb := int(host._phone_kb_height) if host is DccShell else 0
 	out["presented"] = dlg.position == Vector2i.ZERO \
 		and dlg.size.x == int(screen.x) \
-		and dlg.size.y == maxi(1, int(screen.y) - gesture) \
+		and dlg.size.y == maxi(1, int(screen.y) - gesture - kb) \
 		and absf(dlg.content_scale_factor - scale) < 0.001 \
 		and dlg.min_size == Vector2i.ZERO and dlg.max_size == Vector2i.ZERO
 
