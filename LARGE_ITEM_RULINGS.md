@@ -1044,3 +1044,26 @@ armed-tool gate goes.
 11. **Export — yes:** the reference image is never drawn into any export.
 
 **Not scheduled.** This ruling records the design decisions; build rows wait until the work is started, whose first step is question 7.
+
+## 2026-09-20 — Ruling N: settlement river/coastal binding uses real geometry, not a proxy
+
+**The finding is `ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` EF-7.** The owner, discussing that document's design: *"a settlement should be properly rendered on a coast and along/around a river."* A targeted investigation (read-only, checked at the symbol, not assumed) confirmed this is real and precisely locatable, in both `Cartalith Gen1 v2.11.html` and this port, byte-for-byte the same design:
+
+- **Siting** (`cartalith-civ`'s `build_settlement_suitability`'s river term, `civ_is_coastal`) decides "has river"/"has coast" from per-cell statistical proxies — flow accumulation, Strahler order sampled at the settlement's own cell, distance to the nearest ocean cell — with no reference to any real, connected waterway or coastline. A cell can score full river marks from locally-high flow that belongs to a disconnected channel.
+- **Rendering** (`cartalith-urban`'s `build_site`) does pick one real traced river polyline for local layout, but its binding test is `riverPath` truthiness — true for an empty or one-point path. A **known, deliberately-reproduced** bug (`URBAN_MORPHOLOGY_SCOPE.md:867-870`, golden-pinned as `pathOfOne`/`pathEmpty`), carried for parity, never recognised as something to fix.
+- No scope document anywhere names this as a defect to close — the existing paper trail treats the proxy design as parity to preserve.
+
+**Owner ruling, 2026-09-20 — the large option, with one explicit constraint:**
+
+> "From the description I'd say Large. Keep in mind that this should also always be in proximity of the best settlement locations as per the layer for it."
+
+Siting itself changes, not just the downstream render binding: a settlement only scores as river/coastal when a real, connected waterway or coastline genuinely reaches it. **The existing suitability ranking stays the authority for where settlements go overall** (food, defensibility, resources, and the rest) — the fix changes what the river/coastal *term inside that ranking* measures, from a raw proxy value to real-geometry proximity. It is not a separate gate that bypasses or overrides the ranking.
+
+**What this authorises, concretely** (full detail in EF-7):
+- The suitability river term becomes distance-to-nearest-point-on-a-real-traced-river-polyline (`cartalith_hydrology::trace_river_polylines`'s existing whole-world output — no new field needed for this half), not a raw flow/order sample.
+- The coastal term becomes the equivalent check against a real traced coastline — **blocked on EF-6** (coastline vectorisation, not yet built). The river half has no such dependency and can proceed first.
+- `build_site`'s `riverPath`-truthiness bug is fixed in the same pass, same family of defect: require a minimum real length before a site draws river-bound. `pathOfOne`/`pathEmpty` are the golden fixtures this deliberately re-baselines.
+
+**Explicit deviation, disclosed per `DECISIONS.md`'s own rule, not assumed correct.** This re-baselines `build_settlement_suitability`'s and `civ_is_coastal`'s golden tests and ripples into anything downstream of settlement placement — economy, urban layout, faction territory. That blast radius is why this got a design pass and a recorded ruling before any build, rather than being built straight from the owner's word.
+
+**Not scheduled as a build yet.** The river half is unblocked; the coastal half waits on EF-6. Neither has a build row in `OUTSTANDING_WORK.md` as of this ruling.

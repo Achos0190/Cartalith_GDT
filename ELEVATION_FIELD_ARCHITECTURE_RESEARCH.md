@@ -258,25 +258,68 @@ than EF-1 because neither needs EF-1's boundary-condition problem (a
 coastline or fault, unlike accumulated flow, is a local property of the
 field at that resolution — no global watershed to get wrong).
 
-### EF-7. Importance-driven refinement — the data already exists, the decision logic doesn't
+### EF-7. Settlement river/coastal binding — real geometry, not a proxy, feeding the existing suitability ranking (Ruling N)
 
-A tile doesn't need to refine purely because the camera is close to it. A
-flat plain at high zoom gains little from refinement; a river corridor or a
-settlement does, even at a middling zoom. What's notable, checked at the
-symbols: **every input this needs is already computed**, every generation,
-by existing code — this is a new *decision* over old *data*, not new
-simulation:
+**Reframed 2026-09-20 from "importance-driven refinement" by the owner, after
+a targeted investigation.** The owner's original complaint — "a settlement
+should be properly rendered on a coast and along/around a river" — is a real,
+named, checkable defect, not a hypothetical. Full findings in the
+investigation transcript; the essentials:
 
-- geometric: `cartalith_terrain::analysis::{slope, curvature, tpi}`
-- hydrological: `strahler_from_receivers`'s channel order, already computed
-- geological: `boundary_type`/`volcanic_field`, already computed
-- human: settlement and road positions, already known to `cartalith-civ`
+**The defect, in both the legacy HTML and this port, byte-for-byte the same
+design.** A settlement's "has river" / "has coast" status is decided at
+*siting time* by per-cell statistical proxies with no reference to any real,
+connected waterway or coastline: `build_settlement_suitability`'s river term
+(`cartalith-civ/src/lib.rs`, ~line 3340) samples `flow[i]`/Strahler order at
+the settlement's own cell; `civ_is_coastal` (~line 4305) is "any ocean cell
+within radius R." Neither asks "does a real, single, traced river or
+coastline actually reach here." Downstream, at *rendering* time,
+`cartalith-urban`'s `build_site` does pick one real traced river polyline —
+but its binding test is `riverPath` truthiness, which passes for an empty or
+one-point path. This is a **known, deliberately-reproduced** bug
+(`URBAN_MORPHOLOGY_SCOPE.md:867-870`, golden-pinned as `pathOfOne`/
+`pathEmpty`) — carried over for parity, never recognized as something to fix.
 
-The new work is a subdivision rule (a screen-space-error-style test,
-weighted by which of the above a tile's footprint contains) deciding *when*
-to call EF-0/EF-1/EF-6, not a new field to compute. Proposed, not designed in
-detail — this is the least de-risked piece here and the one most likely to
-need iteration once EF-0/EF-1 exist to measure against.
+**Owner ruling, 2026-09-20 (Ruling N — recorded in `LARGE_ITEM_RULINGS.md`):
+the large option.** Siting itself changes, not just the downstream render
+binding. A settlement only scores as river/coastal when a real, connected
+waterway or coastline genuinely reaches it — **and this must stay a term
+inside the existing suitability ranking, not a separate gate that bypasses
+it**: *"this should also always be in proximity of the best settlement
+locations as per the layer for it."* The layer that already balances food,
+defensibility, resources and the rest keeps deciding where settlements go
+overall; only the river/coastal sub-term's definition changes, from a raw
+proxy value to real-geometry proximity.
+
+**Concretely, what changes:**
+- The suitability river term becomes a function of distance to the nearest
+  point on a real traced river polyline (`cartalith_hydrology::trace_river_polylines`'s
+  output — already computed globally, every generation, no new field needed
+  for the coarse/siting-time version), not a raw `flow[i]`/order sample.
+  A cell with high local flow accumulation but no real connected river
+  nearby no longer scores as river-adjacent.
+- The coastal term becomes the equivalent proximity check against a real
+  traced coastline — **blocked on EF-6**, since no coastline vector exists
+  yet. The river half of this fix has no such dependency and can proceed
+  first.
+- `build_site`'s `riverPath`-truthiness bug is fixed in the same pass, same
+  family of defect (bind to something real, not an object's mere existence):
+  require a minimum real length/point count before a site draws as
+  river-bound. The golden fixtures `pathOfOne`/`pathEmpty` are the ones this
+  necessarily re-baselines — expected, and the point of the fix.
+
+**This is a deliberate divergence from the reference, disclosed per
+`DECISIONS.md`'s own rule, not assumed correct.** It re-baselines
+`build_settlement_suitability`'s and `civ_is_coastal`'s golden tests, and
+ripples into anything downstream of settlement placement — economy, urban
+layout, faction territory. That blast radius is the reason this got a design
+pass and a recorded ruling before any build, not a straight "the owner said
+so" build order.
+
+**What this does not change:** the ranking process itself (score every cell,
+pick top candidates respecting spacing/food-shed/other existing
+constraints) — that machinery is untouched. Only the river/coastal terms
+that feed into it stop being proxies.
 
 ### EF-8. The tile's data structure, grounded in what's already real
 
@@ -301,9 +344,33 @@ TileRecord {
 
 `representation`/`min_elevation`/`max_elevation`/`error_metric` (candidate
 fields a design like this often carries) are deliberately left out of the
-proposal above — `min`/`max` and an error metric are exactly EF-7's inputs,
-so they belong in that milestone once EF-7 exists, not hardcoded into every
+proposal above — `min`/`max` and an error metric are exactly EF-9's inputs,
+so they belong in that milestone once EF-9 exists, not hardcoded into every
 tile whether or not importance-driven refinement is built.
+
+### EF-9. Importance-driven refinement — the data already exists, the decision logic doesn't
+
+**Separated 2026-09-20 from what is now EF-7** (settlement/river binding is a
+generation-correctness fix; this is a display-refinement heuristic — related,
+not the same). A tile doesn't need to refine purely because the camera is
+close to it. A flat plain at high zoom gains little from refinement; a river
+corridor or a settlement does, even at a middling zoom. What's notable,
+checked at the symbols: **every input this needs is already computed**,
+every generation, by existing code — this is a new *decision* over old
+*data*, not new simulation:
+
+- geometric: `cartalith_terrain::analysis::{slope, curvature, tpi}`
+- hydrological: `strahler_from_receivers`'s channel order, already computed
+- geological: `boundary_type`/`volcanic_field`, already computed
+- human: settlement and road positions, already known to `cartalith-civ`
+
+The new work is a subdivision rule (a screen-space-error-style test,
+weighted by which of the above a tile's footprint contains) deciding *when*
+to call EF-0/EF-1/EF-6, not a new field to compute. Proposed, not designed in
+detail — this is the least de-risked piece here and the one most likely to
+need iteration once EF-0/EF-1 exist to measure against. **Not yet asked about
+the owner** — §7 asked about the old, now-superseded EF-7 framing; this
+specific question is still open.
 
 ## 6. What this document deliberately does not propose
 
@@ -320,40 +387,49 @@ tile whether or not importance-driven refinement is built.
   itself.
 - **Full-world fine-resolution re-simulation of anything.** Only tiles
   actually queried (in view) are ever refined.
-- **Erosion re-simulation** (EF-3) — flagged, not designed, pending an owner
-  answer on whether EF-0's statistical mountain detail is enough.
-- **Importance-driven refinement** (EF-7) — flagged as the least de-risked
-  piece here; proposed as a target, not designed, because there's nothing yet
-  to measure it against.
+- **Erosion re-simulation as the default** — **RESOLVED, owner 2026-09-20:
+  erosion-consistent from the start.** EF-3 is in scope, not deferred; see §5.
+- **Importance-driven refinement** (EF-9, renumbered — was EF-7 until the
+  settlement/river-binding finding took that slot) — flagged as the least
+  de-risked piece here; proposed as a target, not designed, because there's
+  nothing yet to measure it against.
 
 ## 7. Owner questions
 
-1. **Does EF-2's caveat matter to you** — is statistically-plausible mountain
-   detail (fBm/ridged noise, no erosion re-simulation) enough, or do you want
-   fine ridges/valleys to be erosion-consistent with the coarse terrain (EF-3,
-   a materially larger and harder piece)?
-2. **How deep should river refinement go** — is "reveal the tributaries that
-   already exist in the coarse simulation's implied watershed" the target, or
-   do you want genuinely finer streams than the coarse pass's own channel
-   threshold would ever classify as a river at world scale?
-3. **Where should this live in the document set** — extend `LOD_DETAIL_SCOPE.md`'s
+**Resolved, 2026-09-20:**
+
+- **EF-3 (erosion-consistent mountains):** the owner chose erosion-consistent
+  from the start, not statistical-only. In scope.
+- **EF-1 (river refinement depth):** confirmed as designed — reveal the
+  tributaries the coarse simulation's own watershed implies, not artificially
+  finer than the coarse channel threshold would ever call a river.
+- **EF-6 (coastline/fault/ridge vectors) timing:** confirmed as designed —
+  after EF-0/EF-1 land and verify, not alongside.
+- **EF-7 (was "importance-driven refinement," now settlement/river/coastal
+  binding):** reframed entirely by the owner's answer — see EF-7 and Ruling N
+  in `LARGE_ITEM_RULINGS.md`. The large option: fix siting itself, not just
+  the downstream render binding, with the explicit constraint that the fix
+  stays a term inside the existing suitability ranking rather than a separate
+  gate.
+
+**Still open:**
+
+1. **Where should this live in the document set** — extend `LOD_DETAIL_SCOPE.md`'s
    existing D-ladder (colour/appearance), or stay a separate document since
    this changes what "the elevation field" fundamentally *is*, not just how
    it's drawn? (This document assumes separate; §6.6-style renaming — heightmap
    to "elevation field" — would need to propagate wherever the old name is
    load-bearing prose, not just here.)
-4. **Priority against the GUI-first standing rule** — this is engine work,
-   not GUI. Confirm it queues behind GUI batches the way `LOD_DETAIL_SCOPE.md`
-   already does, or that this specific track is an exception.
-5. **Does EF-6 (coastline/fault/ridge vectors) belong in this same track, or
-   later** — it's cheaper than EF-1 (no boundary-condition problem, checked
-   in EF-6's own text) but wasn't part of your original ask; confirm it's
-   wanted rather than assumed useful because it was cheap to describe.
-6. **Is EF-7 (importance-driven refinement — a river corridor or a
-   settlement refines sooner than open plain) something you want designed in
-   detail once EF-0/EF-1 exist, or is "refine by zoom depth alone" enough**?
-   The document proposes it as a later target specifically because there's
-   nothing yet to measure a subdivision rule against.
+2. **Priority against the GUI-first standing rule** — this is engine work,
+   not GUI. The owner has since run GUI and engine batches in parallel
+   (2026-09-20), which answers this in practice; stated here for the record
+   rather than left implicit.
+3. **EF-9 (importance-driven refinement — a river corridor or a settlement
+   refines sooner than open plain):** design it in detail once EF-0/EF-1
+   exist, or is "refine by zoom depth alone" enough? Not yet asked — this is
+   the one question from the original six that the owner's EF-7 answer did
+   not actually address, because it answered a different, related question
+   instead (see above).
 
-**Not scheduled.** No build rows exist for EF-0 through EF-8 until these are
-answered.
+**Not scheduled**, except where a Ruling says otherwise. No build rows exist
+for EF-0 through EF-9 beyond what Ruling N (§5, EF-7) explicitly authorises.
