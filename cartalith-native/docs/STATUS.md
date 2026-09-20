@@ -44,8 +44,8 @@ work outstanding.
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **44** DCC files (newest
-**v2.66**), and it **forked at v2.22** — every engine change from v2.25 on
+v*.html` (newest **v2.22**) plus a second line of **45** DCC files (newest
+**v2.67**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and seven of the changes in the interval
@@ -59,7 +59,30 @@ highest-leverage constant in the height formula: the coastline is the level set 
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
-**v2.66 is the newest**, and it carries one thing a port must not miss. Urban layout again, no
+**v2.67 is the newest.** Urban layout again, no height/climate/flow/pixel, `hash_gen1.js` vs
+v2.66 ALL IDENTICAL. **Two of its findings belong to a port whatever it decides about the
+feature.** (1) `buildParcels` decided plot grain with a hardcoded `dM<160` — one two-bucket radial
+proxy for "which quarter is this?" — while `assignDistricts` answered the same question 130 lines
+later with the plaza, the wall ring, the river, the quay and the market radius, and produced SEVEN
+wards; so a harbour, a suburb, an agrarian fringe and a riverside craft quarter all platted
+identically, with the harbour's own source comment citing §1.1 #22 (*"deepest plots at quay; plot
+frontage narrowest of any family"*) as its reason for existing. **The obvious feature — ward-driven
+DEPTH — is inert, and measuring that is what changed the design**: 67.6% of parcels never reach
+`depthTarget`'s own 14 m floor (the block waist binds, not the draw) and tripling
+`plotDepthVariance` 0.22 → 0.60 moves median depth 11.09 → 11.07 m, which also explains why
+realised plot aspect is 1.09–1.74 against M-PAR-2's documented 1:3–1:10 band — **a block-SIZING
+question, not a parcel one**. What ships is the SUBDIVISION, whose two terms were driven by street
+age alone and a flat 0.4 halving chance; `wardGrain` defaults to 1 and 0 is bit-identical by
+construction, so a port can hold either as a constant. **Verify it as a per-ward SIGN against that
+ward's own baseline, never as a ranking across the wards** — mean frontage per ward is not a
+function of the pressure alone, because the blocks differ per ward. (2) `buildParcels`' water
+rejection has sampled only the four CORNERS since v0.95, and a plot spanning a NARROW channel has
+every corner on dry bank — the goldens caught one 41.3 m-deep, 5.8 m-wide parcel with its middle in
+the river. Pre-existing, unreachable until the grain varied, and proven so by measuring the prior
+version at `plotDepthVariance 0.60`: **zero wet parcels**. Any port of `buildParcels` inherits that
+hole. See `RC_ENGINE_CHANGES.md` §6s.
+
+**v2.66** is the version before it, and it carries one thing a port must not miss. Urban layout again, no
 height/climate/flow/pixel, `hash_gen1.js` vs v2.65 ALL IDENTICAL. The feature is a menu: pick a
 settlement TYPE, set its parameters, see a live preview — built on the discovery that the layout
 engine has exported a **22-parameter generation-rules table** (`DEFAULT_RULES` + `resolveRules` +

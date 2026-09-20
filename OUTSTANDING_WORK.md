@@ -72,12 +72,12 @@ Five caveats on that number, stated rather than buried:
    outright, then 42/56/42 once the verification pass closed the §3.2 medium
    duplicate too).
 2. **§2.9's three rows hide a survey, not an estimate.** `RC_ENGINE_CHANGES.md`
-   specifies **40 distinct engine items** across v2.11–v2.66: 27 through v2.52,
+   specifies **42 distinct engine items** across v2.11–v2.67: 27 through v2.52,
    §6h's three (the 24-bit height word, the relief-gate floor and the
    local-contrast rebase), v2.57's plate-base blur, v2.58's river selection,
    v2.59's drainage default plus its ruling on Strahler order (§6k/§7.12), and
    v2.60's river-continuity fix (§6l), v2.61's water-paint/lake-gate pass (§6m)
-   and v2.62's navigable-river routing/flow-direction pass (§6n) — the last of
+   v2.62's navigable-river routing/flow-direction pass (§6n) and v2.67's ward-driven plot grain plus the corner-only parcel water test it exposed (§6s) — the last of
    which is the first place §6k's "key the threshold on catchment AREA"
    recommendation is actually taken, for a NEW consumer, leaving the three
    existing `order>=3` consumers alone.
