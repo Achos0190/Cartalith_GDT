@@ -1553,9 +1553,12 @@ func _build_label_tool_options_row(row: HBoxContainer) -> void:
 # and no collision test." `LARGE_ITEM_RULINGS.md`'s owner ruling built the first
 # three -- `MapLabel::class`, `labels::generate_labels`, and `LabelTypography`
 # carrying size/halo/tracking -- and `_build_label_classes()` is bound to them.
-# The fourth is still absent, deliberately: the same ruling sequences collision
-# culling *behind* this pass ("culling a set nothing generates is half a
-# feature"), so the toggle stays disabled and now says the narrower true thing.
+# **The fourth landed too, and this line calling it absent went stale the same
+# way (2026-09-03).** `LabelGenSettings::cull` / `generate_labels`'s
+# suppress-on-overlap pass is real, and the "collision culling" toggle below
+# (bound to `_label_cull`, `DccWidgets.toggle` inside `_build_label_classes()`)
+# is live, not disabled -- the class order it culls by is `LABEL_CLASSES`'s own
+# largest-reading-first order, per `generate_labels`'s own doc comment.
 #
 # So the choice was between omitting these panels, faking them against local
 # state that reaches nothing, and drawing them disabled with their reason. The
@@ -2837,9 +2840,11 @@ func _rebuild_label_edit_form() -> void:
 
 	## Step 1 of the Labels ruling, reachable: which typographic class this
 	## hand-placed label belongs to. It sets the halo and tracking it draws with
-	## (`map_overlay.gd::_draw_labels`) and its priority once the collision
-	## culler lands; size, font and colour stay this form's own three fields
-	## below, because those are the user's and the class has no claim on them.
+	## (`map_overlay.gd::_draw_labels`) and its priority in the collision
+	## culler, live since 2026-09-03 (`labels.rs`'s `generate_labels`, class
+	## order first, weight second); size, font and colour stay this form's own
+	## three fields below, because those are the user's and the class has no
+	## claim on them.
 	var cls := String(bridge.label_class_of(idx))
 	if cls.is_empty():
 		cls = "settlement"   ## `MapLabel::class`'s own default.
