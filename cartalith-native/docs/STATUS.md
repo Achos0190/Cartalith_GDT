@@ -44,8 +44,8 @@ work outstanding.
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **46** DCC files (newest
-**v2.68**), and it **forked at v2.22** — every engine change from v2.25 on
+v*.html` (newest **v2.22**) plus a second line of **47** DCC files (newest
+**v2.69**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and seven of the changes in the interval
@@ -59,7 +59,25 @@ highest-leverage constant in the height formula: the coastline is the level set 
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
-**v2.68 is the newest, and it names a defect a faithful port INHERITS.** Render-only — `hash_gen1.js`
+**v2.69 is the newest, and it is the one to read before writing any LOD of your own.** The HTML's
+owner reported that a deep-zoom coastline walks away from the settlement drawn on it. The
+decomposition is the useful part, because **both obvious suspects were innocent** — the channel-burn
+and feature-morphology passes are null at the app defaults, and the sub-cell crater registry runs
+and makes *exactly zero* difference. What it was: **(1) two reconstructions of one surface** — the
+settlement adapter sampled the coarse field bilinearly while the tile had moved to Catmull-Rom in
+v2.47, 17x the land-vs-sea disagreement; and **(2) a one-sided taper** — the detail band fades out
+going DOWN from the shelf and not going UP, so a land pixel a hair above sea took the full band and
+could be pushed under, 7.6:1 asymmetry, growing from 0.40% of pixels at z=2 to 8.56% at z=8.
+**Refinement adds resolution; it does not invent**, and the land/sea boundary is a decision
+placement, the water mask, the flooded-cell test and the road network are all built against. Clamp
+the DELTA, not the result (clamping the height to sea level makes a flat shelf), and note the band
+is added in **two** places — guarding one left a third of the drift. After: **8.56% -> 0.35%**, zero
+drowned pixels, seam delta still exactly 0. Measured but NOT fixed there: the town derives river
+WIDTH from its own `10+order*7` formula capped at 46 m while the renderer uses a real hydraulic
+half-width, so the map draws a river **24.7x** wider than the town was built around at order 3.
+See `RC_ENGINE_CHANGES.md` §8.1.
+
+**v2.68 is the version before, and it names a defect a faithful port INHERITS.** Render-only — `hash_gen1.js`
 vs v2.67 ALL IDENTICAL, no generated value moves. The HTML's farmland generator has pushed
 `field`/`pasture` polygons into `model.details` since v0.95 and **nothing has ever drawn one**:
 neither map renderer reads `model.details` at all, and the City Viewer's detail pass branches on
