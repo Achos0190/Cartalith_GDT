@@ -1196,3 +1196,57 @@ so `tan θ = talus · peak_m / cell_km` gives 87° at 5 km, 7.0° at 800 km and
 0.14° at 40 000 km against a real scree repose of 30-37°; and the velocity and
 glacial kernels were not audited. `erode_thermal` is manual-op only, which is
 why it waits.
+
+## 7n. A source-engine re-baseline the port carries is a decision, not a parity failure (2026-09-20)
+
+§7's parity contract has one failure mode: a golden test goes red. That is
+correct for a regression, but `RC_ENGINE_CHANGES.md` documents source-engine
+versions where the owner changed `field` — the actual generated output — on
+purpose, and says so in its own words: *"a world generated from the same seed
+does not come back the same, which is a decision to carry across deliberately,
+not a regression to chase"* (`RC_ENGINE_CHANGES.md` §8.1). Nothing distinguished
+that from an ordinary bug before this entry: a fixture captured against the
+frozen `reference/Cartalith Gen1 v2.10.html` fails on every one of these
+identically to a real regression, and §7 alone gives no way to tell them apart.
+
+**The decision.** When a golden test's failure is traceable to one of these
+named upstream re-baselines rather than to a mistake in the port, it is
+recorded as a decision — this entry, plus the register `PARITY_TESTING.md`
+now carries — not silently fixed by widening a tolerance (§7's own rule) and
+not left as an unexplained red test. `PARITY_TESTING.md`'s new "Deliberate
+re-baselines are decisions, not failures" section is the mechanism: a named
+list of instances, and a marker convention (`// RE-BASELINE: vX.XX —
+RC_ENGINE_CHANGES.md §Y; DECISIONS.md §7n`) for the assertion site once a
+port actually reproduces the re-baselined behaviour.
+
+**First instances, reopened at `RC_ENGINE_CHANGES.md` §8.1 and confirmed
+against its own text 2026-09-20** (that section's own count: *"Eight are
+deliberate re-baselines"*): v2.48 (plate-age distance transform, exact and
+wrap-aware), v2.50 (sub-cell crater/volcano amplitude conserved against the
+drawn-radius floor), v2.51 (crater depth keyed to real diameter, Pike 1977),
+v2.57 (`PLATE_BASE_BLUR_K` 0.35→0.18, the coastline stops tracing the raw
+plate polygon), v2.59 (depression-filled routing on by default), v2.60 (the
+river render stamp's width floor, plus §6l step 2c's sculpt-derived finishing
+descent pass — `enforceChannelDescent`/`CHANNEL_DESCENT_CENTRE_HALFW` — the
+half that actually moves `field`, taking the drawn chains' climb 12.55%→4.33%
+at the cost of moving 0.74% of the map), v2.61 (true-coverage river paint,
+river-fed pits reclassified as lakes, and v2.60's step 2c reverted — §6m.4
+rules that **a port which has not implemented the descent pass should not**),
+and v2.49 above `mapWidthKm` 12 800 (the river width scale floor stops
+responding to real km). Full citations, one line each, are in
+`PARITY_TESTING.md`.
+
+**What this is not.** It does not carry any of v2.48–v2.61 into the Rust
+port, and it makes no claim about how much of that span is already built —
+`OUTSTANDING_WORK.md` §2.9 covers that survey and it is explicitly
+unestablished. It also does not cover v2.58: `RC_ENGINE_CHANGES.md` says
+plainly that `hash_gen1.js` vs v2.57 is all identical there — it moves the
+rendered river overlay, not a generated value — so it is a rendering
+contract (§6j), not a re-baseline, and does not belong in this register.
+
+**Verification technique to carry with the decision, not just the list.**
+`RC_ENGINE_CHANGES.md` isolates each of v2.59, v2.60 and v2.61 to its own
+cause inside one build — forcing the changed flag equal on both sides of a
+diff and getting byte-identical output — rather than trusting the version
+label. A port re-baselining a golden fixture should isolate the same way
+before recording the row, not after.
