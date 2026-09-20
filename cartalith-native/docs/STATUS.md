@@ -80,9 +80,14 @@ could be pushed under, 7.6:1 asymmetry, growing from 0.40% of pixels at z=2 to 8
 placement, the water mask, the flooded-cell test and the road network are all built against. Clamp
 the DELTA, not the result (clamping the height to sea level makes a flat shelf), and note the band
 is added in **two** places — guarding one left a third of the drift. After: **8.56% -> 0.35%**, zero
-drowned pixels, seam delta still exactly 0. Measured but NOT fixed there: the town derives river
-WIDTH from its own `10+order*7` formula capped at 46 m while the renderer uses a real hydraulic
-half-width, so the map draws a river **24.7x** wider than the town was built around at order 3.
+drowned pixels, seam delta still exactly 0. Measured but NOT fixed there, and since CLOSED by an owner decision: the town
+derives river WIDTH from its own `10+order*7` formula capped at 46 m while the renderer uses a real
+hydraulic half-width **plus a 0.8-cell connectivity floor** — and that floor is what dominates, so
+at the app default **every Strahler order draws at 2500 m against a 1700 m settlement box** (a
+~104x ratio, not the 24.7x a raw-half-width comparison gives). **Leave it**: the floor is a
+RESOLUTION statement, the centreline is known to +/-half a cell, and at 800 km one cell IS 1.5 km,
+so the map cannot locate a 30 m river. Both numbers are honest and a port should reproduce the same
+split rather than force agreement.
 See `RC_ENGINE_CHANGES.md` §8.1.
 
 **v2.68 is the version before, and it names a defect a faithful port INHERITS.** Render-only — `hash_gen1.js`
