@@ -757,6 +757,7 @@ mod civ_merge_tests {
                     elevation: 0.0,
                     coast_dist_cells: 0.0,
                     river_order: 0,
+                    river_reach: 0.0,
                     flow: 0.0,
                     travel_cost: 0.0,
                     biome: 0,
@@ -1745,7 +1746,19 @@ struct SettlementExplanation {
     /// term reads it.
     coast_dist_cells: f32,
     /// Strahler order at this cell, `0` where no river was extracted.
+    ///
+    /// **Context, not the river term's input** -- it stopped being that under
+    /// Ruling N (`LARGE_ITEM_RULINGS.md`, 2026-09-20). A cell reading `0` here
+    /// can still score a full `river` term, because the term now measures how
+    /// near a real traced river of order 2 or more runs, not what flows
+    /// through this one cell. [`SettlementExplanation::river_reach`] is that
+    /// term's own value, and the two are reported side by side so the panel
+    /// cannot imply the wrong one is the cause.
     river_order: i16,
+    /// `build_river_reach` at this cell -- the suitability `river` term's own
+    /// input, `0..1`: `0` where no traced river of order 2+ runs within
+    /// `SUIT_RIVER_REACH_CELLS`, `1` standing on a main stem.
+    river_reach: f32,
     flow: f32,
     /// `build_travel_cost` at this cell -- the same movement-cost surface
     /// the road network and territory Dijkstras both run over.
@@ -2009,14 +2022,20 @@ fn compute_civilisation(
     let landmass = cartalith_civ::build_landmass_quality(&ws.field, Some(&carrying_cap), gw, gh, sea_level, world);
     let coast_sdf = cartalith_civ::build_coast_sdf(&ws.field, gw, gh, sea_level);
     let flood = cartalith_civ::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, sea_level);
-    let river_order = cartalith_civ::fresh_river_order(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km);
+    // One channel pass, two products: `river_order` for the road network's
+    // crossing costs and the settlement diagnostics below, `river_polys` for
+    // Ruling N's suitability river term.
+    let (river_order, river_polys) =
+        cartalith_civ::fresh_river_network(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km);
+    let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
+    drop(river_polys);
 
     let ctx = cartalith_civ::SuitabilityCtx {
         water_bodies: Some(&wb.classification),
         corridor: Some(&corridors),
         landmass: Some(&landmass.quality),
         flow: Some(&ws.flow_discharge),
-        river_order: Some(&river_order),
+        river_reach: Some(&river_reach),
         coast_sdf: Some(&coast_sdf),
         resources: Some(&resources),
         rain: Some(&ws.rainfall),
@@ -2367,6 +2386,7 @@ fn compute_civilisation(
                 // same sign convention, in cells.
                 coast_dist_cells: -coast_sdf[i],
                 river_order: river_order[i],
+                river_reach: river_reach[i],
                 flow: ws.flow_discharge[i],
                 travel_cost: cost[i],
                 biome: biome[i],
@@ -7791,7 +7811,10 @@ impl WorldGen {
     ///   pass skips outright (`"below_sea_level"` / `"water_body"`).
     /// - context readings named by the causal chain, each straight from a
     ///   real raster: `elevation`, `coast_dist_cells` (negative offshore),
-    ///   `river_order` (Strahler, 0 = no river), `flow`, `travel_cost`,
+    ///   `river_order` (Strahler at this cell, 0 = no river here),
+    ///   `river_reach` (the `river` term's own 0..1 input under Ruling N --
+    ///   proximity to a real traced river, which `river_order` is NOT),
+    ///   `flow`, `travel_cost`,
     ///   `biome`.
     ///
     /// Deliberately keyed by settlement index rather than `(x, y)`: the
@@ -7824,6 +7847,7 @@ impl WorldGen {
             "elevation" => e.elevation,
             "coast_dist_cells" => e.coast_dist_cells,
             "river_order" => e.river_order as i64,
+            "river_reach" => e.river_reach,
             "flow" => e.flow,
             "travel_cost" => e.travel_cost,
             "biome" => e.biome as i64,
@@ -14021,6 +14045,7 @@ impl WorldGen {
             rainfall: &ws.rainfall,
             flow_discharge: &ws.flow_discharge,
             stream_order: ws.stream_order.as_deref(),
+            channel_recv: ws.channels.as_ref().map(|c| c.recv.as_slice()),
             plate_id: &ws.plate_id,
             boundary_mask: &ws.boundary_mask,
             boundary_type: &ws.boundary_type,

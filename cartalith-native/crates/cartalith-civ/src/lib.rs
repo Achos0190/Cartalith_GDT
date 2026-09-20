@@ -3183,6 +3183,122 @@ const SUIT_W_FULL_CORRIDOR: f64 = 0.08;
 const SUIT_W_FULL_FLOOD: f64 = 0.14;
 const SUIT_W_FULL_ISLET: f64 = 0.30;
 
+/// How far a real traced river reaches, in grid cells, before
+/// [`build_river_reach`] falls to zero -- Ruling N (`LARGE_ITEM_RULINGS.md`,
+/// 2026-09-20), which replaced the river term's raw `flow`/Strahler sample
+/// at the settlement's own cell with real-geometry proximity.
+///
+/// **Not the reference's, because the reference has no distance-based river
+/// term to take it from.** `5.0` is the ramp its *coastal* term already uses
+/// in this same function (`coast = 1 - dist/5` over `build_coast_sdf`'s cell
+/// distances, reference line 6338), reused so the two waterfront terms stay
+/// the same shape in the same units -- which is the end state Ruling N
+/// describes for the coastal half once EF-6's coastline vectors exist.
+///
+/// Resolution-dependent, exactly as that coastal term already is: 5 cells is
+/// ~2 km at 2 048 cells over 800 km and ~16 km at 256. Left that way
+/// deliberately -- making one waterfront term scale-aware while its twin is
+/// not would be a second divergence, undisclosed and unruled.
+pub const SUIT_RIVER_REACH_CELLS: f64 = 5.0;
+
+/// `buildSettlementSuitability`'s own Strahler ladder (reference line 6345),
+/// unchanged: order >= 4 is a main stem, 3 a river, 2 a stream, and 1 or 0
+/// nothing this term rewards.
+///
+/// Ruling N changes only **where** it is read -- at the nearest cell of a
+/// real traced polyline rather than at the settlement's own cell -- not what
+/// it says about a given order.
+fn river_order_tier(order: i16) -> f64 {
+    if order >= 4 {
+        1.0
+    } else if order >= 3 {
+        0.7
+    } else if order >= 2 {
+        0.3
+    } else {
+        0.0
+    }
+}
+
+/// [`SuitabilityCtx::river_reach`]'s raster: per cell, how strongly a
+/// **real, connected, traced** river reaches it.
+///
+/// `tier(order at the nearest traced river cell) * (1 - d/R)`, clamped at
+/// zero, maximised over every traced cell within `R` = [`SUIT_RIVER_REACH_CELLS`].
+/// Taking the maximum rather than the nearest seed's value is deliberate: a
+/// main stem six cells away outscores a stream two cells away, and a plain
+/// nearest-neighbour distance field would answer the wrong question.
+///
+/// # Why the polylines and not the order raster -- corrected by an
+/// adversarial verifier, 2026-09-20, after the claim below shipped wrong
+///
+/// **For this river term specifically, passing polylines is not what makes
+/// it correct.** An independent reimplementation seeded from `{cells with
+/// order >= 2}` alone -- no polylines at all -- produced bit-identical
+/// output on five real worlds. The reason is structural, not a coincidence:
+/// [`river_order_tier`] scores nothing below order 2, and an order-2+ cell
+/// always has upstream channel donors (that is what "order 2" means), so it
+/// can never be the one-point fragment `trace_river_polylines` drops.
+/// Connectivity here is enforced by the *order threshold*, not by the trace.
+///
+/// The polylines are still the right input to pass -- they are what Ruling N
+/// actually authorised, they cost nothing extra since [`fresh_river_network`]
+/// computes both together, and **the coastal half of Ruling N cannot reuse
+/// this reasoning**: a coastline has no order-like connectivity proxy, so
+/// EF-6's traced coastline vectors will be load-bearing there in a way they
+/// are not here. Do not read this function's passing tests as proof that
+/// polyline-based binding matters in general -- for river, at this tier
+/// cutoff, it does not yet visibly diverge from the raster it was meant to
+/// replace.
+///
+/// # Two approximations, both stated rather than assumed away
+///
+/// - **Distance is measured cell-centre to cell-centre**, i.e. to the
+///   nearest polyline *vertex*, not to the nearest point on a *segment*.
+///   Vertices are cell centres one D8 step apart, so the two differ by at
+///   most 0.293 cells (the worst case is the pair of cells flanking a
+///   diagonal step: 1.0 to either endpoint against sqrt(2)/2 to the segment),
+///   under 6% of `R`.
+/// - **No world wrap.** The seam is not crossed, matching the lake scan and
+///   the coastal SDF this term sits beside in `build_settlement_suitability`
+///   -- none of which wrap either.
+pub fn build_river_reach(polys: &[Vec<(f64, f64)>], order: &[i16], gw: usize, gh: usize) -> Vec<f32> {
+    let mut out = vec![0f32; gw * gh];
+    let reach = SUIT_RIVER_REACH_CELLS;
+    let r = reach.ceil() as isize;
+    for pl in polys {
+        for &(px, py) in pl {
+            // `trace_river_polylines` emits `(col + 0.5, row + 0.5)`.
+            let (cx, cy) = (px.floor() as isize, py.floor() as isize);
+            if cx < 0 || cy < 0 || cx >= gw as isize || cy >= gh as isize {
+                continue;
+            }
+            let tier = river_order_tier(order[cy as usize * gw + cx as usize]);
+            if tier <= 0.0 {
+                continue;
+            }
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    let (nx, ny) = (cx + dx, cy + dy);
+                    if nx < 0 || ny < 0 || nx >= gw as isize || ny >= gh as isize {
+                        continue;
+                    }
+                    let d = (((dx * dx + dy * dy) as f64).sqrt()) / reach;
+                    if d >= 1.0 {
+                        continue;
+                    }
+                    let v = (tier * (1.0 - d)) as f32;
+                    let o = &mut out[ny as usize * gw + nx as usize];
+                    if v > *o {
+                        *o = v;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// `ISLET_KNEE` (reference line 6414): landmass quality at or above this
 /// pays no islet penalty.
 pub const ISLET_KNEE: f64 = 0.55;
@@ -3235,7 +3351,16 @@ pub struct SuitabilityCtx<'a> {
     pub corridor: Option<&'a [f32]>,
     pub landmass: Option<&'a [f32]>,
     pub flow: Option<&'a [f32]>,
-    pub river_order: Option<&'a [i16]>,
+    /// [`build_river_reach`]'s raster -- **not** a Strahler-order field.
+    ///
+    /// Ruling N (`LARGE_ITEM_RULINGS.md`, 2026-09-20): the river term used to
+    /// be `riverOrder[i]`/`flow[i]` sampled at the settlement's own cell, a
+    /// proxy that scored full marks for locally-high flow belonging to no
+    /// connected waterway. It is now proximity to a real traced river
+    /// polyline, precomputed once per generation exactly as `corridor`,
+    /// `coast_sdf` and `flood` beside it already are. `None` leaves the term
+    /// at zero, the same graceful degradation `river_order: None` gave.
+    pub river_reach: Option<&'a [f32]>,
     pub coast_sdf: Option<&'a [f32]>,
     pub resources: Option<&'a ResourcePotentials>,
     pub rain: Option<&'a [f32]>,
@@ -3324,49 +3449,11 @@ pub fn build_settlement_suitability(
                     }
                 }
 
-                let mut river = 0.0f64;
-                if let Some(ord) = c.river_order {
-                    let oo = ord[i];
-                    river = if oo >= 4 {
-                        1.0
-                    } else if oo >= 3 {
-                        0.7
-                    } else if oo >= 2 {
-                        0.3
-                    } else {
-                        0.0
-                    };
-                }
-                if let Some(flow) = c.flow
-                    && flow[i] as f64 > flow_thresh * 2.0
-                {
-                    let mut is_max = true;
-                    'nb: for dy in -1isize..=1 {
-                        for dx in -1isize..=1 {
-                            if dx == 0 && dy == 0 {
-                                continue;
-                            }
-                            let nx = x as isize + dx;
-                            let ny = y as isize + dy;
-                            if nx < 0 || nx >= gw as isize || ny < 0 || ny >= gh as isize {
-                                continue;
-                            }
-                            let j = ny as usize * gw + nx as usize;
-                            if flow[j] > flow[i] {
-                                is_max = false;
-                                break 'nb;
-                            }
-                        }
-                    }
-                    let bonus = if is_max {
-                        0.5
-                    } else if flow[i] as f64 > flow_thresh * 5.0 {
-                        0.25
-                    } else {
-                        0.0
-                    };
-                    river = (river + bonus).min(1.0);
-                }
+                // Ruling N: real geometry, not a proxy. Was the reference's
+                // `riverOrder[i]` ladder plus a `flow[i] > thresh*2` local-max
+                // bonus, both read at this cell -- neither of which asks
+                // whether a connected river actually reaches it.
+                let river = c.river_reach.map(|rr| rr[i] as f64).unwrap_or(0.0);
 
                 let mut lake = 0.0;
                 if let Some(wb) = c.water_bodies {
@@ -3612,49 +3699,9 @@ pub fn explain_settlement_suitability(
                 }
             }
 
-            let mut river = 0.0f64;
-            if let Some(ord) = c.river_order {
-                let oo = ord[i];
-                river = if oo >= 4 {
-                    1.0
-                } else if oo >= 3 {
-                    0.7
-                } else if oo >= 2 {
-                    0.3
-                } else {
-                    0.0
-                };
-            }
-            if let Some(flow) = c.flow
-                && flow[i] as f64 > flow_thresh * 2.0
-            {
-                let mut is_max = true;
-                'nb: for dy in -1isize..=1 {
-                    for dx in -1isize..=1 {
-                        if dx == 0 && dy == 0 {
-                            continue;
-                        }
-                        let nx = x as isize + dx;
-                        let ny = y as isize + dy;
-                        if nx < 0 || nx >= gw as isize || ny < 0 || ny >= gh as isize {
-                            continue;
-                        }
-                        let j = ny as usize * gw + nx as usize;
-                        if flow[j] > flow[i] {
-                            is_max = false;
-                            break 'nb;
-                        }
-                    }
-                }
-                let bonus = if is_max {
-                    0.5
-                } else if flow[i] as f64 > flow_thresh * 5.0 {
-                    0.25
-                } else {
-                    0.0
-                };
-                river = (river + bonus).min(1.0);
-            }
+            // Ruling N -- see `build_settlement_suitability`'s own note at the
+            // same term.
+            let river = c.river_reach.map(|rr| rr[i] as f64).unwrap_or(0.0);
 
             let mut lake = 0.0;
             if let Some(wb) = c.water_bodies {
@@ -3842,6 +3889,29 @@ pub fn fresh_river_order(
     river_density: f64,
     map_width_km: f64,
 ) -> Vec<i16> {
+    fresh_river_network(field, flow, gw, gh, sea, world, river_density, map_width_km).0
+}
+
+/// [`fresh_river_order`]'s network, with the **traced polylines** of the same
+/// pass alongside the order raster.
+///
+/// Ruling N's river term needs both -- the polylines say which channels are
+/// real connected waterways, the order raster says how big each one is where
+/// it passes -- and they have to come from one `build_channels` call or they
+/// describe two different networks. Every non-test caller of
+/// [`fresh_river_order`] needs both, so that function is a wrapper over this
+/// one rather than the other way round.
+#[allow(clippy::too_many_arguments)]
+pub fn fresh_river_network(
+    field: &[f32],
+    flow: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    river_density: f64,
+    map_width_km: f64,
+) -> (Vec<i16>, Vec<Vec<(f64, f64)>>) {
     let ch = cartalith_hydrology::build_channels(
         field,
         flow,
@@ -3852,7 +3922,12 @@ pub fn fresh_river_order(
         river_density,
         map_width_km,
     );
-    cartalith_hydrology::strahler_from_receivers(&ch.recv, flow, &ch.chan)
+    let order = cartalith_hydrology::strahler_from_receivers(&ch.recv, flow, &ch.chan);
+    // `min_order = 1`, the same argument `generate_terrain`'s carve loop and
+    // `urban_bridge`'s town-layout trace both pass -- so all three see the
+    // same set of rivers.
+    let polys = cartalith_hydrology::trace_river_polylines(&order, &ch.recv, gw, gh, 1);
+    (order, polys)
 }
 
 // ===================== Phase 2 milestone 8: settlement placement + faction assignment =====================
@@ -17093,6 +17168,136 @@ mod tests {
         assert_eq!(jp_sea_closure("Open Sea", "Summer", true), None);
     }
 
+    // --- Ruling N: the river term's real geometry ---------------------
+
+    /// A straight order-4 stem down column 4 of a 12 x 9 grid.
+    fn reach_fixture() -> (usize, usize, Vec<i16>, Vec<Vec<(f64, f64)>>) {
+        let (gw, gh) = (12usize, 9usize);
+        let mut order = vec![0i16; gw * gh];
+        for y in 0..gh {
+            order[y * gw + 4] = 4;
+        }
+        let poly: Vec<(f64, f64)> = (0..gh).map(|y| (4.5, y as f64 + 0.5)).collect();
+        (gw, gh, order, vec![poly])
+    }
+
+    /// On the line, near it, and far from it -- the three cases, against
+    /// literals rather than against the formula that produced them.
+    #[test]
+    fn river_reach_falls_off_linearly_with_distance() {
+        let (gw, gh, order, polys) = reach_fixture();
+        let r = build_river_reach(&polys, &order, gw, gh);
+        let at = |x: usize, y: usize| r[y * gw + x] as f64;
+
+        // on the line: the full order-4 tier
+        assert_eq!(at(4, 4), 1.0);
+        // one cell away: 1 - 1/5
+        assert!((at(5, 4) - 0.8).abs() < 1e-6, "one cell away: {}", at(5, 4));
+        // two cells: 1 - 2/5
+        assert!((at(6, 4) - 0.6).abs() < 1e-6, "two cells away: {}", at(6, 4));
+        // four cells: 1 - 4/5
+        assert!((at(8, 4) - 0.2).abs() < 1e-6, "four cells away: {}", at(8, 4));
+        // five cells is exactly the reach, which is zero, not a sliver
+        assert_eq!(at(9, 4), 0.0, "at the reach itself");
+        assert_eq!(at(10, 4), 0.0, "beyond the reach");
+    }
+
+    /// Euclidean, not Chebyshev or Manhattan -- asserted on its own fixture,
+    /// because beside a *column* of river cells the diagonal neighbour is
+    /// never the nearest one and the column test above cannot see this.
+    #[test]
+    fn river_reach_distance_is_euclidean() {
+        let (gw, gh) = (12usize, 9usize);
+        let mut order = vec![0i16; gw * gh];
+        order[4 * gw + 4] = 4;
+        let r = build_river_reach(&[vec![(4.5, 4.5)]], &order, gw, gh);
+        let at = |x: usize, y: usize| r[y * gw + x] as f64;
+        assert_eq!(at(4, 4), 1.0);
+        // hypot(1, 1) = 1.4142135..., so 1 - 1.4142135/5 = 0.7171573
+        assert!((at(5, 5) - (1.0 - 2f64.sqrt() / 5.0)).abs() < 1e-6, "diagonal: {}", at(5, 5));
+        // hypot(3, 4) = 5 exactly -- the reach, so zero
+        assert_eq!(at(7, 8), 0.0, "the 3-4-5 corner is exactly at the reach");
+        // hypot(2, 2) = 2.828..., strictly further than 2 orthogonal cells
+        assert!(at(6, 6) < at(6, 4), "the diagonal is not being measured as Chebyshev");
+    }
+
+    /// The ladder is read at the *river's* cell, not the querying cell, and
+    /// order 1 buys nothing however close it runs.
+    #[test]
+    fn river_reach_scales_with_the_order_of_the_river_it_found() {
+        let (gw, gh) = (12usize, 9usize);
+        let poly: Vec<(f64, f64)> = (0..gh).map(|y| (4.5, y as f64 + 0.5)).collect();
+        for (o, want_on_line) in [(4i16, 1.0f64), (3, 0.7), (2, 0.3), (1, 0.0), (0, 0.0)] {
+            let order = (0..gw * gh)
+                .map(|i| if i % gw == 4 { o } else { 0 })
+                .collect::<Vec<i16>>();
+            let r = build_river_reach(&[poly.clone()], &order, gw, gh);
+            assert!(
+                (r[4 * gw + 4] as f64 - want_on_line).abs() < 1e-6,
+                "order {o} on the line: got {}",
+                r[4 * gw + 4]
+            );
+            // and two cells off, the same tier times the same 0.6 ramp
+            assert!(
+                (r[4 * gw + 6] as f64 - want_on_line * 0.6).abs() < 1e-6,
+                "order {o} two cells off: got {}",
+                r[4 * gw + 6]
+            );
+        }
+    }
+
+    /// A big river slightly further away beats a small one close by -- which
+    /// is why this is a max over seeds and not a nearest-seed lookup.
+    #[test]
+    fn a_main_stem_outreaches_a_nearer_stream() {
+        let (gw, gh) = (16usize, 9usize);
+        let mut order = vec![0i16; gw * gh];
+        for y in 0..gh {
+            order[y * gw + 2] = 4; // main stem
+            order[y * gw + 5] = 2; // stream, nearer to column 6
+        }
+        let stem: Vec<(f64, f64)> = (0..gh).map(|y| (2.5, y as f64 + 0.5)).collect();
+        let brook: Vec<(f64, f64)> = (0..gh).map(|y| (5.5, y as f64 + 0.5)).collect();
+        let r = build_river_reach(&[stem, brook], &order, gw, gh);
+        // column 6 is 1 cell from the stream (0.3 * 0.8 = 0.24) and 4 from
+        // the main stem (1.0 * 0.2 = 0.2) -- the stream wins there,
+        let a = r[4 * gw + 6] as f64;
+        assert!((a - 0.24).abs() < 1e-6, "next to the stream: {a}");
+        // but at column 4 the main stem (1.0 * 0.6 = 0.6) beats the stream
+        // one cell away (0.3 * 0.8 = 0.24).
+        let b = r[4 * gw + 4] as f64;
+        assert!((b - 0.6).abs() < 1e-6, "between the two: {b}");
+    }
+
+    /// The finding Ruling N names: flow-heavy ground with no connected
+    /// waterway scores nothing. A one-cell channel is traced as a run of one
+    /// point, which `trace_river_polylines` drops -- so no polyline reaches
+    /// it and the term is zero however high its order raster reads.
+    #[test]
+    fn a_disconnected_channel_cell_earns_no_river_credit() {
+        let (gw, gh) = (12usize, 9usize);
+        let mut order = vec![0i16; gw * gh];
+        order[4 * gw + 4] = 5; // an isolated cell claiming a main stem's order
+        let r = build_river_reach(&[], &order, gw, gh);
+        assert!(r.iter().all(|&v| v == 0.0), "an untraced cell scored");
+
+        // and the whole point: with that same order raster, the suitability
+        // river term is zero, where the pre-Ruling-N proxy would have read
+        // `order[i] >= 4` at this very cell and scored 1.0.
+        assert_eq!(river_order_tier(order[4 * gw + 4]), 1.0);
+    }
+
+    /// A polyline point outside the grid is skipped rather than panicking or
+    /// wrapping -- `trace_river_polylines` never emits one today, and a
+    /// bounds check is cheaper than depending on that staying true.
+    #[test]
+    fn river_reach_ignores_points_off_the_grid() {
+        let (gw, gh) = (8usize, 6usize);
+        let order = vec![4i16; gw * gh];
+        let r = build_river_reach(&[vec![(-3.5, 2.5), (99.5, 2.5), (2.5, -9.5)]], &order, gw, gh);
+        assert!(r.iter().all(|&v| v == 0.0), "an off-grid point stamped something");
+    }
+
     // --- Suitability explanation (causal-chain explainer) -------------
     //
     // The load-bearing property is that the explanation is a real
@@ -17117,6 +17322,7 @@ mod tests {
         landmass: Vec<f32>,
         flow: Vec<f32>,
         river_order: Vec<i16>,
+        river_reach: Vec<f32>,
         coast_sdf: Vec<f32>,
         rain: Vec<f32>,
         flood: Vec<f32>,
@@ -17142,6 +17348,7 @@ mod tests {
             landmass: vec![0.0; n],
             flow: vec![0.0; n],
             river_order: vec![0i16; n],
+            river_reach: vec![0.0; n],
             coast_sdf: vec![0.0; n],
             rain: vec![0.0; n],
             flood: vec![0.0; n],
@@ -17209,6 +17416,11 @@ mod tests {
             f.river_order[i] = (y / 4) as i16 + 1;
             f.flow[i] = 50.0 + 400.0 * y as f32;
         }
+        // Column 9 traced as one real polyline, so the river term is a real
+        // reach field and not a hand-written raster -- the explainer has to
+        // reproduce what production actually feeds it.
+        let column9: Vec<(f64, f64)> = (0..gh).map(|y| (9.5, y as f64 + 0.5)).collect();
+        f.river_reach = build_river_reach(&[column9], &f.river_order, gw, gh);
         f
     }
 
@@ -17218,7 +17430,7 @@ mod tests {
             corridor: Some(&f.corridor),
             landmass: Some(&f.landmass),
             flow: Some(&f.flow),
-            river_order: Some(&f.river_order),
+            river_reach: Some(&f.river_reach),
             coast_sdf: Some(&f.coast_sdf),
             resources: Some(&f.res),
             rain: Some(&f.rain),

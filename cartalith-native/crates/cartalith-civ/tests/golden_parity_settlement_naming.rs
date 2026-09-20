@@ -141,10 +141,27 @@ fn settlement_naming_case_0_region() {
     // Same (x,y,faction) triples as golden_parity_settlement_placement.rs's
     // case0 (all capital, all coastal) -- naming/pop continues that exact
     // output, same rank order.
+    // **Ruling N re-baseline** (`LARGE_ITEM_RULINGS.md`, 2026-09-20). Two
+    // separate, mechanical consequences, neither of them a naming change:
+    //
+    // 1. Rows 1 and 2 swap, because `golden_parity_settlement_placement.rs`'s
+    //    own re-baseline swapped them -- the suitability ranking's 2nd and 3rd
+    //    seeds traded places. Same three cells, same faction per cell.
+    // 2. Every `pop` moves, because `_civBasePopForKind` reads the
+    //    settlement's own suitability and the river term changed it. The
+    //    largest move here is 22094 -> 19985, and that row is also the one
+    //    that changed rank, so it carries both effects at once.
+    //
+    // The names at rows 1 and 2 change *as a consequence of the swap, not of
+    // the naming code*: the naming RNG is consumed in rank order and the
+    // culture pool is chosen by faction, so rank 2 drawing faction 3 instead
+    // of faction 2 reads a different pool at the same stream position. Row 0
+    // is unmoved in rank and keeps "Sevjuniana" exactly, which is what shows
+    // the stream itself is untouched.
     let expected = vec![
-        (7usize, 2usize, 1i32, "Sevjuniana", 19465u32),
-        (9, 3, 2, "Hurngarngarnhaskcairn", 20094),
-        (6, 2, 3, "Ghalbahrghaltazdune", 22094),
+        (7usize, 2usize, 1i32, "Sevjuniana", 19512u32),
+        (6, 2, 3, "Yusirsirskadmarch", 19985),
+        (9, 3, 2, "Thorndunthornbaldstone", 22345),
     ];
 
     let mut p = cartalith_engine::WorldParams::defaults(14, 11, 24601);
@@ -169,12 +186,21 @@ fn settlement_naming_case_1_world_wrap() {
     // comment for the full mechanical explanation (fixed civ-naming RNG
     // seed, independent of terrain seed). Settlements 4-5 (factions 4-5)
     // have no counterpart in case0 and are unique.
+    // **Ruling N re-baseline**, and the clean half of it: every cell, every
+    // faction, every rank and every *name* is unchanged here -- only `pop`
+    // moves, by -0.18% to -2.61% (measured directly against the five values
+    // below by an adversarial verifier -- the range originally written here
+    // did not match either arm's own numbers), because `_civBasePopForKind`
+    // reads the settlement's own suitability and the river term changed it.
+    // That the five names survive untouched is the evidence that the naming
+    // RNG stream is not involved in this re-baseline at all; case 0's names
+    // move only because its rank order did.
     let expected = vec![
-        (9usize, 3usize, 1i32, "Sevjuniana", 20354u32),
-        (5, 8, 2, "Hurngarngarnhaskcairn", 20697),
-        (8, 9, 3, "Ghalbahrghaltazdune", 22698),
-        (10, 5, 4, "Orenelywash", 15972),
-        (4, 7, 5, "Taela'elorashade", 22508),
+        (9usize, 3usize, 1i32, "Sevjuniana", 20317u32),
+        (5, 8, 2, "Hurngarngarnhaskcairn", 20521),
+        (8, 9, 3, "Ghalbahrghaltazdune", 22462),
+        (10, 5, 4, "Orenelywash", 15556),
+        (4, 7, 5, "Taela'elorashade", 22022),
     ];
 
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
@@ -308,7 +334,9 @@ fn compute_named_settlements(
         ws.sea_level,
     );
 
-    let river_order = cartalith_civ::fresh_river_order(
+    // Ruling N: the river term is proximity to a real traced polyline, so the
+    // harness has to hand it the polylines the same one channel pass produced.
+    let (river_order, river_polys) = cartalith_civ::fresh_river_network(
         &ws.field,
         &ws.flow_discharge,
         gw,
@@ -318,13 +346,14 @@ fn compute_named_settlements(
         river_density,
         map_width_km,
     );
+    let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
 
     let ctx = cartalith_civ::SuitabilityCtx {
         water_bodies: Some(&wb.classification),
         corridor: Some(&corridors),
         landmass: Some(&landmass.quality),
         flow: Some(&ws.flow_discharge),
-        river_order: Some(&river_order),
+        river_reach: Some(&river_reach),
         coast_sdf: Some(&coast_sdf),
         resources: Some(&resources),
         rain: Some(&ws.rainfall),

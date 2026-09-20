@@ -92,10 +92,12 @@ pub struct WaterCtx {
     pub mw: usize,
     pub mh: usize,
     pub cell_m: f64,
-    /// The river centreline in local box metres. `Some` — **including
-    /// `Some(vec![])`** — is what makes the site river-like (`!!W.riverPath`);
-    /// a path shorter than two points is river-like but still traces its water
-    /// from the mask. Both halves are goldens.
+    /// The river centreline in local box metres.
+    ///
+    /// The reference tests this with `!!W.riverPath`, so `Some(vec![])` and a
+    /// one-point path both make the site river-like while the geometry falls
+    /// back to the mask. **That is fixed here, not reproduced** — see
+    /// [`WaterCtx::has_real_river_path`] and Ruling N.
     pub river_path: Option<Vec<Vec2>>,
     /// `W.riverWidthM || 20`.
     pub river_width_m: Option<f64>,
@@ -103,6 +105,26 @@ pub struct WaterCtx {
     pub river_order: f64,
     /// Open-water (sea/lake, pre-river-stamp) cell count; `|| 0`.
     pub sea_lake_cells: f64,
+}
+
+impl WaterCtx {
+    /// Does this context carry a centreline long enough to *be* a river?
+    ///
+    /// **Two points**, which is not a new threshold: it is what the geometry
+    /// branch of [`build_site`] already required before it would use the path
+    /// (`Some(rp) if rp.len() >= 2`), and what `cartalith_civ`'s
+    /// `um_water_ctx` already required before it would emit one
+    /// (`hi - lo + 1 >= 2`). The reference's `!!W.riverPath` agreed with
+    /// neither, which is the defect Ruling N closes: a site drew river-bound
+    /// — four route endpoints, no sea step in `height`, a bridge, a quay —
+    /// while its water came from the shoreline mask.
+    ///
+    /// A metre threshold was considered and rejected: no reference constant,
+    /// no producer and no fixture has one, and inventing a number here would
+    /// be a second divergence on top of the ruled one.
+    pub fn has_real_river_path(&self) -> bool {
+        self.river_path.as_ref().is_some_and(|rp| rp.len() >= 2)
+    }
 }
 
 /// `opts.terrain` — the host app's real heightfield for this site box.
@@ -507,10 +529,23 @@ pub fn build_site(seed: u32, wm: f64, hm: f64, kind: &str, opts: SiteOpts) -> Si
     let through = kind == "riverthrough";
     let no_water = kind == "landlocked" && water.is_none();
     // `!!W.riverPath` is truthy for *any* path object, including an empty or
-    // one-point one — so a site can be river-like and still trace its water
-    // from the mask. Reproduced; `pathOfOne` is the golden.
+    // one-point one — so the reference makes a site river-like on the strength
+    // of an object existing, while the geometry below quietly falls back to the
+    // mask because a path of fewer than two points cannot *be* a river.
+    //
+    // **Fixed, not reproduced** — Ruling N (`LARGE_ITEM_RULINGS.md`,
+    // 2026-09-20): bind to something real, not to an object's mere existence.
+    // The predicate is [`WaterCtx::has_real_river_path`], which is the same
+    // `len() >= 2` the geometry branch below already applies and the same
+    // `hi - lo + 1 >= 2` `_umWaterCtx` already applies when it builds the path
+    // — one decision now, three readers, instead of three.
+    //
+    // `pathOfOne`/`pathEmpty` are the goldens this deliberately re-baselines.
+    // **No production world reaches it**: `cartalith_civ::um_water_ctx` never
+    // emits a path shorter than two points, so this changes only hand-built
+    // `WaterCtx`s — the fixtures, and any future host that builds one itself.
     let rk = match &water {
-        Some(w) => w.river_path.is_some(),
+        Some(w) => w.has_real_river_path(),
         None => kind == "river" || through,
     };
     let mut r = stream(seed, "site");
@@ -598,7 +633,11 @@ pub fn build_site(seed: u32, wm: f64, hm: f64, kind: &str, opts: SiteOpts) -> Si
     }
 
     let uses_real_water = water.is_some();
-    let real_river = water.as_ref().is_some_and(|w| w.river_path.is_some());
+    // Ruling N, same predicate as `rk` above: `realRiver` is the flag that
+    // tells `detect_river_crossings` to hunt bridges along `site.river`, and
+    // with a path of under two points that polyline is the *shoreline*, not a
+    // river. Was `w.river_path.is_some()`.
+    let real_river = water.as_ref().is_some_and(WaterCtx::has_real_river_path);
     let uses_real_terrain = terrain.is_some();
     let terrain_relief =
         terrain.as_ref().map_or(0.0, |t| js_or(t.h_max, 0.0) - js_or(t.h_min, 0.0));

@@ -62,7 +62,7 @@ fn run_civ_layer(ws: &cartalith_engine::WorldState, gw: usize, gh: usize, world:
         corridor: Some(&corridors),
         landmass: Some(&landmass.quality),
         flow: Some(&ws.flow_discharge),
-        river_order: None,
+        river_reach: None,
         coast_sdf: Some(&coast_sdf),
         resources: Some(&resources),
         rain: Some(&ws.rainfall),

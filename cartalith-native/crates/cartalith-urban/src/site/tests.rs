@@ -44,6 +44,25 @@
 //! - **`widthFallbackZero` / `widthFallbackAbsent`** sit on both sides of
 //!   `riverWidthM || 20`, and `orderNaN` on the `NaN` side of `|| 0`.
 //!
+//! # Two fixtures this port deliberately no longer reproduces
+//!
+//! **`pathOfOne` and `pathEmpty`, re-baselined by Ruling N**
+//! (`LARGE_ITEM_RULINGS.md`, 2026-09-20). `!!W.riverPath` is truthy for a path
+//! of zero or one point, so the reference made those sites river-like — four
+//! route endpoints, no sea step in `height`, a bridge, a quay, `realRiver` set
+//! — while the geometry they were bound to came from the shoreline mask. This
+//! port now requires two points ([`WaterCtx::has_real_river_path`]), which is
+//! the predicate `buildSite`'s own geometry branch and `cartalith_civ`'s
+//! `um_water_ctx` already applied. `golden_build_site` skips exactly those two
+//! names, `REBASELINED_BY_RULING_N` is the list, and
+//! `a_short_river_path_now_draws_as_no_river_at_all` carries the whole claim:
+//! it asserts the new behaviour as an equivalence with the same fixture's
+//! `river_path: None` twin, and re-asserts every captured value the divergence
+//! cannot reach. `golden.rs` itself is untouched and stays a true record of
+//! the reference. **No production world reaches this** — `um_water_ctx` will
+//! not emit a path of under two points — so it changes fixtures and any
+//! future host that hand-builds a `WaterCtx`, and nothing else.
+//!
 //! # The fixtures that exist because a *grid* of probes tests almost nothing
 //!
 //! The first mutation round left 46 survivors, and almost none of them were
@@ -244,9 +263,26 @@ fn the_degenerate_axis_returns_raster_order() {
     }
 }
 
+/// The two site fixtures whose captured output this port deliberately no
+/// longer reproduces — Ruling N's `riverPath`-truthiness fix. Their whole
+/// claim is made by [`a_short_river_path_now_draws_as_no_river_at_all`], which
+/// asserts the new behaviour as an equivalence *and* re-asserts every captured
+/// value the divergence cannot reach. Nothing else in `golden.rs` is skipped,
+/// and `golden.rs` itself is untouched: it stays a true record of the
+/// reference, rather than a table with two port numbers hidden in it.
+const REBASELINED_BY_RULING_N: [&str; 2] = ["pathOfOne", "pathEmpty"];
+
 #[test]
 fn golden_build_site() {
+    // A skip list that silently matches nothing is the same defect as no
+    // skip list: if a fixture is renamed, this must fail, not pass.
+    for name in REBASELINED_BY_RULING_N {
+        assert!(golden::SITES.iter().any(|c| c.name == name), "{name}: no such fixture to skip");
+    }
     for c in golden::SITES {
+        if REBASELINED_BY_RULING_N.contains(&c.name) {
+            continue;
+        }
         let s = build_site(c.seed, c.wm, c.hm, c.kind, opts_for(c));
         let n = c.name;
         assert_eq!(s.kind, c.kind_out, "{n}: kind");
@@ -510,19 +546,94 @@ fn falsy_water_fields_take_their_defaults() {
     assert_eq!(js_or(0.5, 7.0), 0.5);
 }
 
-/// A river path of one point is truthy, so the site is river-like — but it is
-/// too short to *be* the river, so the shoreline is traced from the mask
-/// instead. Both halves matter: `rk` picks the four-endpoint route set and
-/// suppresses `height`'s sea step, while the geometry comes from the mask.
+/// **Ruling N's re-baseline** (`LARGE_ITEM_RULINGS.md`, 2026-09-20). A river
+/// path of fewer than two points used to be truthy, so the site drew
+/// river-bound — four route endpoints, no sea step in `height`, a bridge, a
+/// quay — while the geometry it was bound to came from the shoreline mask.
+/// It now draws exactly as a site with no path at all, which is what it is.
+///
+/// The claim is made as an **equivalence**, not as a table of re-captured
+/// numbers: a site built from this fixture must equal, field for field and
+/// probe for probe, the same fixture with `river_path: None`. That needs no
+/// hand-written expected values and says the whole thing.
+///
+/// The reference capture is still asserted for everything the divergence
+/// cannot reach — the shoreline polyline itself, its nominal width, the
+/// carried-through order and cell counts, and the probes that read only
+/// `site.river` (`riverDist`, `bankSide`) or the mask (`isWater`).
+/// `golden_build_site` skips these two cases for the rest; that skip and this
+/// test are one pair.
 #[test]
-fn a_one_point_river_path_is_river_like_but_not_the_river() {
+fn a_short_river_path_now_draws_as_no_river_at_all() {
     for name in ["pathOfOne", "pathEmpty"] {
         let c = golden::SITES.iter().find(|c| c.name == name).unwrap();
+        let w = &golden::WATERS[c.water.expect("these two fixtures carry water")];
+        // the fixture's path is flat `[x, y, ...]`, so "fewer than two
+        // points" is fewer than four numbers
+        assert!(
+            w.river_path.is_some_and(|p| p.len() < 4),
+            "{name}: fixture no longer carries a path of under two points"
+        );
+
         let s = build_site(c.seed, c.wm, c.hm, c.kind, opts_for(c));
-        assert!(s.real_river, "{name}: not flagged realRiver");
-        assert!(s.river_like(), "{name}: not river-like");
-        assert!(s.river.len() > 2, "{name}: the short path became the river");
-        assert_eq!(s.route_ends.len(), 4, "{name}: took the seaward route-end set");
+
+        // --- the fix itself
+        assert!(!s.real_river, "{name}: still flagged realRiver");
+        assert!(!s.river_like(), "{name}: still river-like");
+        assert!(s.bridge_pt.is_none(), "{name}: still bridged");
+        assert!(s.bridge_dir.is_none(), "{name}: still has a bridge bearing");
+        assert_eq!(s.route_ends.len(), 3, "{name}: still took the four-endpoint set");
+
+        // --- and it is *exactly* the no-path site, not merely a similar one
+        let mut none_water = water_of(w);
+        none_water.river_path = None;
+        let t = build_site(c.seed, c.wm, c.hm, c.kind, SiteOpts {
+            water: Some(none_water),
+            terrain: c.terrain.map(|i| terrain_of(&golden::TERRAINS[i])),
+            economy: None,
+        });
+        assert_eq!(s.kind, t.kind, "{name}: kind");
+        assert_eq!((s.through, s.no_water), (t.through, t.no_water), "{name}: flags");
+        eq(name, "riverW", s.river_w, t.river_w);
+        assert_eq!(s.river.len(), t.river.len(), "{name}: river length");
+        for (k, (a, b)) in s.river.iter().zip(t.river.iter()).enumerate() {
+            eq(name, &format!("river[{k}].x"), a.x, b.x);
+            eq(name, &format!("river[{k}].y"), a.y, b.y);
+        }
+        assert_eq!(s.water_poly.len(), t.water_poly.len(), "{name}: waterPoly length");
+        for (k, (a, b)) in s.water_poly.iter().zip(t.water_poly.iter()).enumerate() {
+            eq(name, &format!("waterPoly[{k}].x"), a.x, b.x);
+            eq(name, &format!("waterPoly[{k}].y"), a.y, b.y);
+        }
+        assert_eq!(s.route_ends.len(), t.route_ends.len(), "{name}: routeEnds length");
+        for (k, (a, b)) in s.route_ends.iter().zip(t.route_ends.iter()).enumerate() {
+            eq(name, &format!("routeEnds[{k}].x"), a.x, b.x);
+            eq(name, &format!("routeEnds[{k}].y"), a.y, b.y);
+        }
+        assert_eq!(s.harbour.idx, t.harbour.idx, "{name}: harbour.idx");
+        assert_eq!(s.real_river, t.real_river, "{name}: realRiver");
+        assert_eq!(s.river_like(), t.river_like(), "{name}: rk");
+        for (k, p) in c.probes.iter().enumerate() {
+            let q = Vec2::new(p.x, p.y);
+            eq(name, &format!("height[{k}]"), s.height(q), t.height(q));
+            eq(name, &format!("slope[{k}]"), s.slope(q), t.slope(q));
+        }
+
+        // --- the reference capture, for everything the divergence cannot reach
+        eq_poly(name, "river", &s.river, c.river);
+        eq(name, "riverW", s.river_w, c.river_w);
+        eq(name, "waterOrder", s.water_order, c.water_order);
+        eq(name, "seaLakeCells", s.sea_lake_cells, c.sea_lake_cells);
+        assert_eq!(s.kind, c.kind_out, "{name}: kind");
+        assert_eq!(s.uses_real_water, c.uses_real_water, "{name}: usesRealWater");
+        assert_eq!(s.uses_real_terrain, c.uses_real_terrain, "{name}: usesRealTerrain");
+        eq(name, "terrainRelief", s.terrain_relief, c.terrain_relief);
+        for (k, p) in c.probes.iter().enumerate() {
+            let q = Vec2::new(p.x, p.y);
+            eq(name, &format!("riverDist[{k}]"), s.river_dist(q), p.river_dist);
+            eq(name, &format!("bankSide[{k}]"), s.bank_side(q), p.bank_side);
+            assert_eq!(u8::from(s.is_water(q)), p.is_water, "{name}: isWater[{k}]");
+        }
     }
 }
 

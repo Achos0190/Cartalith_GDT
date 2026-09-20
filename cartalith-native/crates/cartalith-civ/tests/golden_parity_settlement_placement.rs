@@ -68,12 +68,18 @@ fn assert_places_match(
 #[test]
 fn settlement_placement_case_0_region() {
     // case0_region: gw=14 gh=11 seed=24601 world=false
-    // seeds (already verified against golden_parity_settlement_suitability.rs):
-    //   (4,6,0.801021158695221) (9,3,0.7972438931465149) (4,1,0.7633237838745117)
-    // candidates after snap: (7,2,cont0) (9,3,cont1) (6,2,cont0) -- 2 landmasses.
-    // factionCount=6, spare seats apportioned: landmass0 (2 candidates) earns a
-    // 2nd seat and exercises the multi-capital spacing branch; landmass1 (1
-    // candidate) stays single-seat.
+    //
+    // **Ruling N re-baseline** (`LARGE_ITEM_RULINGS.md`, 2026-09-20 -- the
+    // suitability river term). The seeds this consumes are
+    // `golden_parity_settlement_suitability.rs`'s own, and that file's
+    // re-baseline swapped its 2nd and 3rd by score:
+    //   was  (4,6,0.80102116) (9,3,0.79724389) (4,1,0.76332378)
+    //   now  (4,6,0.80500720) (4,1,0.78814656) (9,3,0.78189725)
+    // Nothing about *placement* changed -- the same three cells, the same
+    // two landmasses, the same faction per cell, the same multi-capital
+    // spacing branch. Only rows 1 and 2 of this table trade places, because
+    // the ranking that feeds them did. The reference's own numbers are still
+    // asserted, through the legacy proxy, in that file.
     let expected = vec![
         ExpectedPlace {
             x: 7,
@@ -84,17 +90,17 @@ fn settlement_placement_case_0_region() {
             coastal: true,
         },
         ExpectedPlace {
-            x: 9,
-            y: 3,
-            faction: 2,
+            x: 6,
+            y: 2,
+            faction: 3,
             capital: true,
             kind: cartalith_civ::SettlementKind::Capital,
             coastal: true,
         },
         ExpectedPlace {
-            x: 6,
-            y: 2,
-            faction: 3,
+            x: 9,
+            y: 3,
+            faction: 2,
             capital: true,
             kind: cartalith_civ::SettlementKind::Capital,
             coastal: true,
@@ -284,7 +290,9 @@ fn compute_placements(
         ws.sea_level,
     );
 
-    let river_order = cartalith_civ::fresh_river_order(
+    // Ruling N: the river term is proximity to a real traced polyline, so the
+    // harness has to hand it the polylines the same one channel pass produced.
+    let (river_order, river_polys) = cartalith_civ::fresh_river_network(
         &ws.field,
         &ws.flow_discharge,
         gw,
@@ -294,13 +302,14 @@ fn compute_placements(
         river_density,
         map_width_km,
     );
+    let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
 
     let ctx = cartalith_civ::SuitabilityCtx {
         water_bodies: Some(&wb.classification),
         corridor: Some(&corridors),
         landmass: Some(&landmass.quality),
         flow: Some(&ws.flow_discharge),
-        river_order: Some(&river_order),
+        river_reach: Some(&river_reach),
         coast_sdf: Some(&coast_sdf),
         resources: Some(&resources),
         rain: Some(&ws.rainfall),

@@ -214,6 +214,13 @@ pub struct FieldRefs<'a> {
     pub rainfall: &'a [f32],
     pub flow_discharge: &'a [f32],
     pub stream_order: Option<&'a [i16]>,
+    /// `WorldState::channels`' `recv` -- the receiver tree `stream_order` was
+    /// computed from, and the other half of what
+    /// `cartalith_hydrology::trace_river_polylines` needs. `None` for a world
+    /// with no river extraction, exactly as `stream_order` is; the two are
+    /// one pass's outputs and are meaningless apart. Read by the settlement
+    /// suitability view, for Ruling N's real-geometry river term.
+    pub channel_recv: Option<&'a [i32]>,
     pub plate_id: &'a [u16],
     pub boundary_mask: &'a [u8],
     pub boundary_type: &'a [u8],
@@ -733,7 +740,7 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
             (
                 "settle",
                 "Settlement suitability",
-                "build_settlement_suitability(): dark to warm orange. Full-context scoring minus the reference's own natural-route-corridor term: build_route_corridors is a real, golden-verified field (see the Route corridors row below) but this scoring context doesn't thread it in -- a disclosed gap, not a missing computation.",
+                "build_settlement_suitability(): dark to warm orange. Full-context scoring minus the reference's own natural-route-corridor term: build_route_corridors is a real, golden-verified field (see the Route corridors row below) but this scoring context doesn't thread it in -- a disclosed gap, not a missing computation. Its river term (Ruling N: proximity to a real traced river) is traced from the stored stream_order/channels pair, while generation scores against a fresh post-carve channel pass, so this view can differ from placement by a cell or two along a channel -- and reads zero for that term on a loaded save, which retains no channel topology at all.",
             ),
             (
                 "siteprofile",
@@ -2312,6 +2319,21 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
                 true,
                 false,
             );
+            // Ruling N's river term (`LARGE_ITEM_RULINGS.md`, 2026-09-20):
+            // proximity to a real traced river, not a `flow`/order sample.
+            // Traced from `WorldState`'s retained `stream_order`/`channels.
+            // recv` -- the same already-computed pair `urban_bridge` traces
+            // town layouts from, rather than `compute_civilisation`'s own
+            // fresh post-carve pass, which this view has no `river_density`
+            // to rebuild and which would cost a whole `build_channels` on
+            // every redraw. `None` on either leaves the term at zero.
+            let river_reach = match (f.stream_order, f.channel_recv) {
+                (Some(order), Some(recv)) => {
+                    let polys = cartalith_hydrology::trace_river_polylines(order, recv, f.gw, f.gh, 1);
+                    Some(cartalith_civ::build_river_reach(&polys, order, f.gw, f.gh))
+                }
+                _ => None,
+            };
             // Every `ctx` field the engine can supply, except `corridor`/
             // `landmass` (the reference's own "natural route corridor"
             // affordance -- a real, disclosed gap, not core to placement
@@ -2322,7 +2344,7 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
                 corridor: None,
                 landmass: None,
                 flow: Some(f.flow_discharge),
-                river_order: f.stream_order,
+                river_reach: river_reach.as_deref(),
                 coast_sdf: Some(&coast_sdf),
                 resources: Some(&rp),
                 rain: Some(f.rainfall),
@@ -2752,6 +2774,7 @@ mod tests {
             rainfall: &o.rain,
             flow_discharge: &o.flow,
             stream_order: Some(&o.order),
+            channel_recv: None,
             plate_id: &o.plate,
             boundary_mask: &o.mask,
             boundary_type: &o.btype,
@@ -2898,6 +2921,7 @@ mod tests {
             rainfall: &ones,
             flow_discharge: &ones,
             stream_order: None,
+            channel_recv: None,
             plate_id: &plate,
             boundary_mask: &mask,
             boundary_type: &mask,
@@ -2960,6 +2984,7 @@ mod tests {
             rainfall: &ones,
             flow_discharge: &ones,
             stream_order: None,
+            channel_recv: None,
             plate_id: &plate,
             boundary_mask: &mask,
             boundary_type: &mask,
@@ -3014,6 +3039,7 @@ mod tests {
             rainfall: &ones,
             flow_discharge: &ones,
             stream_order: None,
+            channel_recv: None,
             plate_id: &plate,
             boundary_mask: &mask,
             boundary_type: &mask,

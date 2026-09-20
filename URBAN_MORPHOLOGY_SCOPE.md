@@ -868,6 +868,18 @@ far larger golden surface.
    or empty `riverPath` makes the site river-like (`rk`) — four route endpoints,
    no sea step in `height` — while the water geometry still comes from
    `shoreFromMask`. Goldens `pathOfOne` and `pathEmpty`.
+   **No longer reproduced — fixed 2026-09-20 under Ruling N**
+   (`LARGE_ITEM_RULINGS.md`), which names this as the render half of the
+   settlement river-binding defect. `build_site` now requires two points
+   (`WaterCtx::has_real_river_path`), the predicate its own geometry branch and
+   `cartalith_civ::um_water_ctx` already applied; `rk` **and** `real_river`
+   both read it. `pathOfOne`/`pathEmpty` are the fixtures this deliberately
+   re-baselines — `golden_build_site` skips exactly those two and
+   `a_short_river_path_now_draws_as_no_river_at_all` asserts the new behaviour
+   instead. `golden.rs` is untouched. **No production world reaches this**, read
+   at the symbol rather than measured: `um_water_ctx` only assigns `river_path`
+   inside its own `hi - lo + 1 >= 2` guard, so the short-path case is reachable
+   only from a hand-built `WaterCtx`.
 4. **A bay draws one fewer number than a coast.** The coastline branch draws its
    harbour abscissa only when the site is *not* a bay (a bay reuses its own
    indent centre), so `bay` consumes 31 site-substream draws and `coast` 32, and

@@ -1214,13 +1214,15 @@ impl AtlasFields {
         let landmass = cartalith_civ::build_landmass_quality(&ws.field, Some(&carry), gw, gh, sea, world);
         let coast_sdf = cartalith_civ::build_coast_sdf(&ws.field, gw, gh, sea);
         let flood = cartalith_civ::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, sea);
-        let river_order = cartalith_civ::fresh_river_order(&ws.field, &ws.flow_discharge, gw, gh, sea, world, wg.params.river_density, map_width_km);
+        let (river_order, river_polys) =
+            cartalith_civ::fresh_river_network(&ws.field, &ws.flow_discharge, gw, gh, sea, world, wg.params.river_density, map_width_km);
+        let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
         let ctx = cartalith_civ::SuitabilityCtx {
             water_bodies: Some(&wb.classification),
             corridor: Some(&corridors),
             landmass: Some(&landmass.quality),
             flow: Some(&ws.flow_discharge),
-            river_order: Some(&river_order),
+            river_reach: Some(&river_reach),
             coast_sdf: Some(&coast_sdf),
             resources: Some(&resources),
             rain: Some(&ws.rainfall),

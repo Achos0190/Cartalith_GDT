@@ -711,6 +711,7 @@ mod tests {
             rainfall: &w.rainfall,
             flow_discharge: &w.flow,
             stream_order: Some(&w.order),
+            channel_recv: None,
             plate_id: &w.zeros_u,
             boundary_mask: &w.zeros_b,
             boundary_type: &w.zeros_b,

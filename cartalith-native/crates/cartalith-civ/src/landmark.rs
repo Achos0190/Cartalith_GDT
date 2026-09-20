@@ -4363,7 +4363,7 @@ mod tests {
         let coast_sdf = crate::build_coast_sdf(&ws.field, gw, gh, sea);
         let flood =
             crate::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, sea);
-        let order = crate::fresh_river_order(
+        let (order, river_polys) = crate::fresh_river_network(
             &ws.field,
             &ws.flow_discharge,
             gw,
@@ -4373,12 +4373,13 @@ mod tests {
             p.river_density,
             width_km,
         );
+        let river_reach = crate::build_river_reach(&river_polys, &order, gw, gh);
         let ctx = crate::SuitabilityCtx {
             water_bodies: Some(&wb.classification),
             corridor: Some(&corridors),
             landmass: Some(&landmass.quality),
             flow: Some(&ws.flow_discharge),
-            river_order: Some(&order),
+            river_reach: Some(&river_reach),
             coast_sdf: Some(&coast_sdf),
             resources: Some(&resources),
             rain: Some(&ws.rainfall),

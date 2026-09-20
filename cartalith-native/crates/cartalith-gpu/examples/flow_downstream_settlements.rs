@@ -83,14 +83,16 @@ fn settlement_seeds(
     let landmass = civ::build_landmass_quality(&ws.field, Some(&carrying_cap), gw, gh, sea, world);
     let coast_sdf = civ::build_coast_sdf(&ws.field, gw, gh, sea);
     let flood = civ::build_flood_field(&ws.field, flow, &raw_slope, gw, gh, sea);
-    let river_order = civ::fresh_river_order(&ws.field, flow, gw, gh, sea, world, river_density, map_width_km);
+    let (river_order, river_polys) =
+        civ::fresh_river_network(&ws.field, flow, gw, gh, sea, world, river_density, map_width_km);
+    let river_reach = civ::build_river_reach(&river_polys, &river_order, gw, gh);
 
     let ctx = civ::SuitabilityCtx {
         water_bodies: Some(&wb.classification),
         corridor: Some(&corridors),
         landmass: Some(&landmass.quality),
         flow: Some(flow),
-        river_order: Some(&river_order),
+        river_reach: Some(&river_reach),
         coast_sdf: Some(&coast_sdf),
         resources: Some(&resources),
         rain: Some(&ws.rainfall),

@@ -2483,11 +2483,22 @@ func _build_settlement_why(body: Control, why: Dictionary) -> void:
 		DccWidgets.note(sec, "Scored nothing here: %s." % ", ".join(silent))
 
 	DccWidgets.note(sec, "Suitability %.2f overall." % float(why.get("score", 0.0)))
+	## Two different river readings, and they are deliberately both here.
+	## `river_order` is the Strahler order of whatever runs through this one
+	## cell; `river_reach` is what the "river access" bar above actually reads
+	## -- how near a real traced river of order 2 or more runs (Ruling N,
+	## LARGE_ITEM_RULINGS.md 2026-09-20). They disagree often and legitimately:
+	## a cell two cells from a main stem reads order 0 and reach 0.6. Showing
+	## only the order would make the bar look wrong; showing only the reach
+	## would drop a real reading the causal chain in VISION.md names.
 	var ord_i := int(why.get("river_order", 0))
-	var river_txt := ("Strahler %d" % ord_i) if ord_i > 0 else "none"
-	DccWidgets.note(sec, ("River %s · flow %.0f · %.1f cells to water · "
+	var river_txt := ("Strahler %d here" % ord_i) if ord_i > 0 else "none in this cell"
+	var reach := float(why.get("river_reach", 0.0))
+	var reach_txt := ("%.2f" % reach) if reach > 0.0 else "0 (no traced river in range)"
+	DccWidgets.note(sec, ("River %s · reach %s · flow %.0f · %.1f cells to water · "
 		+ "elevation %.3f (normalised) · travel cost %.2f") % [
-		river_txt, float(why.get("flow", 0.0)), float(why.get("coast_dist_cells", 0.0)),
+		river_txt, reach_txt, float(why.get("flow", 0.0)),
+		float(why.get("coast_dist_cells", 0.0)),
 		float(why.get("elevation", 0.0)), float(why.get("travel_cost", 0.0))])
 
 ## `contribution` off one `terms` entry, for the ranking sort. A named function
