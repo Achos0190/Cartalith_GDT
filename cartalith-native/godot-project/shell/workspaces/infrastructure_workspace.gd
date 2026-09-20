@@ -86,9 +86,10 @@ class_name InfrastructureWorkspace
 ## shape.
 ##
 ## **`04-left-dock.md` §6c and §6d closed 2026-09-01.** §6c's `ROUTES` block
-## is real: a compact, click-to-plan row per committed route under the Ways
-## & routes category's own Network list (`_build_routes_teaser`), plus its
-## section footnote quoted verbatim. §6d's full TRAVELER/SEASON/CARRIAGE/
+## is real: a compact, click-to-plan row per committed route
+## (`_build_routes_teaser`) -- under the Ways & routes category's own Network
+## list until Ruling L moved it into Travel ▸ Journey planning (L186) -- plus
+## its section footnote quoted verbatim. §6d's full TRAVELER/SEASON/CARRIAGE/
 ## ROUTE/STOPS accordion is deliberately NOT embedded in the Travel category
 ## -- `_fill_logistics()`'s own doc comment carries the reasoning, which
 ## `_refresh_manual_routes()`'s doc comment (below) already laid the
@@ -159,7 +160,7 @@ var _routes_teaser_section: Control = null
 ## only draws it (`set_selected_manual_route`).
 var _selected_route := -1
 
-## The four data-backed categories' own body nodes, held so `rebuild_readouts()`
+## The data-backed bodies this class fills, held so `rebuild_readouts()`
 ## can clear and refill exactly those and nothing else -- the same discipline
 ## `civilization_workspace.gd` uses for its own. Rivers has no field because it
 ## is no longer a category of this class at all: it moved to WORLD ▸ Hydrology
@@ -173,7 +174,6 @@ var _gen_roads_btn: Button
 var _clear_ways_btn: Button
 var _roads_note: Label
 var _ports_body: Control
-var _trade_body: Control
 var _logistics_body: Control
 ## `GUI_GAP_REGISTER.md` **IN-13**'s own body, deliberately NOT in
 ## `rebuild_readouts()` above: a match costs a real computation, so a
@@ -198,10 +198,15 @@ var _flows_run: Button
 ## the river network.
 ##
 ## So this class no longer draws five categories of its own. It holds the
-## state and the Way/Route tool handlers, and CIVIL calls the three
+## state and the Way/Route tool handlers, and CIVIL calls the
 ## `build_*_into()` entry points below with its own category bodies. The fills
-## (`_fill_roads` etc.) and `rebuild_readouts()` are unchanged -- they are
-## keyed to the body nodes, which is what made re-parenting safe.
+## (`_fill_roads` etc.) and `rebuild_readouts()` are keyed to the body nodes,
+## which is what made re-parenting safe -- and what let Ruling L (2026-09-13,
+## `left_rail_tree_resorted.md` L149-233) re-sort them again without touching
+## a refresh: the coastal list into CIVIL ▸ Settlements (`build_ports_into`),
+## the Routes teaser into Travel, and Trade into CIVIL ▸ Economy
+## (`build_trade_into`, `build_trade_gaps_into`), its readout merged into
+## Economy's own Trade balance.
 var _dock_hosted := false
 
 func _build() -> void:
@@ -236,8 +241,8 @@ func _build() -> void:
 	bridge.generation_finished.connect(func(ok: bool): if ok: rebuild_readouts())
 	bridge.world_loaded.connect(rebuild_readouts)
 
-## Clear-and-refill for the four categories a generate or a loaded save
-## invalidates. Public because `civilization_workspace.gd` composes this class
+## Clear-and-refill for the bodies a generate or a loaded save invalidates.
+## Public because `civilization_workspace.gd` composes this class
 ## and may want to drive it directly (its own recompute path, for instance);
 ## the two signals above are what actually call it today.
 ##
@@ -252,9 +257,6 @@ func rebuild_readouts() -> void:
 	if _ports_body != null and is_instance_valid(_ports_body):
 		_clear_body(_ports_body)
 		_fill_ports(_ports_body)
-	if _trade_body != null and is_instance_valid(_trade_body):
-		_clear_body(_trade_body)
-		_fill_trade(_trade_body)
 	if _logistics_body != null and is_instance_valid(_logistics_body):
 		_clear_body(_logistics_body)
 		_fill_logistics(_logistics_body)
@@ -577,11 +579,14 @@ func _build_roads() -> void:
 
 # -- v3 entry points ----------------------------------------------------------
 
-## v3 CIVIL ▸ ROUTES & WAYS: `§ Ways` (the permanent network, generated and
-## hand-drawn) then the ports and sea lanes that terminate it. `§ Routes` --
-## a planned traversal *over* that network -- is the Route tool in the TOOLS
-## block plus the "Routes committed this session" list `_build_manual_ways`
-## already draws, so both sit in this one category exactly as v3 draws them.
+## v3 CIVIL ▸ ROUTES & WAYS, as Ruling L re-sorts it (L173-182): `§ Network`
+## (the permanent network, generated and hand-drawn, its two same-named
+## sections merged), the sea lanes, `§ Hand-drawn`, and where the style lives.
+## `§ Routes` -- a planned traversal *over* that network -- is the Route tool in
+## the TOOLS block plus the "Routes committed this session" list
+## `_build_manual_ways` already draws. The coastal settlements that used to
+## follow the network are CIVIL ▸ Settlements' now (`build_ports_into`), and
+## the click-to-plan Routes teaser is Travel's (`_fill_logistics`).
 func build_ways_into(parent: Control) -> void:
 	_dock_hosted = true
 	_roads_body = VBoxContainer.new()
@@ -590,19 +595,25 @@ func build_ways_into(parent: Control) -> void:
 	parent.add_child(_roads_body)
 	_fill_roads(_roads_body)
 
-	_ports_body = VBoxContainer.new()
-	_ports_body.add_theme_constant_override("separation", 0)
-	_ports_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	parent.add_child(_ports_body)
-	_fill_ports(_ports_body)
-
 	DccWidgets.note(DccWidgets.section(parent, "Where the style lives"),
 		"Line width, colour, casing and dashes per way class are Cartography ▸ "
 		+ "Roads & routes -- v3's own rule: \"a way exists in the world; a route "
 		+ "is an intention over it. Both are CIVIL. Their colour and line width "
 		+ "are CARTO.\" Nothing in that dock changes where a road runs.")
 
-## v3 CIVIL ▸ TRAVEL: journeys, the planner, and the travel library.
+## Ruling L CIVIL ▸ SETTLEMENTS ▸ Coastal settlements (L159, "◄ Routes & ways").
+## The same `_ports_body` and `_fill_ports()` Routes & ways drew, re-parented,
+## so `rebuild_readouts()` still owns the refresh.
+func build_ports_into(parent: Control) -> void:
+	_dock_hosted = true
+	_ports_body = VBoxContainer.new()
+	_ports_body.add_theme_constant_override("separation", 0)
+	_ports_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(_ports_body)
+	_fill_ports(_ports_body)
+
+## v3 CIVIL ▸ TRAVEL: journeys, the planner, and the travel library -- and,
+## since Ruling L (L186), the Routes teaser inside Journey planning.
 func build_travel_into(parent: Control) -> void:
 	_dock_hosted = true
 	_logistics_body = VBoxContainer.new()
@@ -616,23 +627,22 @@ func build_travel_into(parent: Control) -> void:
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.tooltip_text = "Animals, mounts, vehicles, vessels and saved party set-ups -- the reference tables the planner draws its speeds and loads from."
 
-## v3 CIVIL ▸ TRADE. Four rows v3 asks for, all four now backed
-## (`GUI_GAP_REGISTER.md` **IN-13**, built 2026-08-25).
+## v3 CIVIL ▸ TRADE's four rows, all four backed (`GUI_GAP_REGISTER.md`
+## **IN-13**, built 2026-08-25) -- CIVIL ▸ ECONOMY ▸ TRADE FLOWS since Ruling L
+## (L230-231), which folds Trade into Economy.
 ##
 ## The order is the disclosure ladder the design settled on: the world, then
-## the good, then the pair, then the place. `§ Balance` is the surplus/deficit
-## verdict that has always been here and says *what*; everything below it is
-## the match, and says *who*.
+## the good, then the pair, then the place. The surplus/deficit verdict that
+## says *what* is Economy ▸ Trade balance, above this (L229's "one copy" of the
+## two readouts); the match says *who*.
 func build_trade_into(parent: Control) -> void:
 	_dock_hosted = true
-	_trade_body = VBoxContainer.new()
-	_trade_body.add_theme_constant_override("separation", 0)
-	_trade_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	parent.add_child(_trade_body)
-	_fill_trade(_trade_body)
-
 	_build_flows(parent)
 
+## CIVIL ▸ ECONOMY ▸ NOT BUILT (L233): Trade's gap note, drawn once. Its own
+## entry point because Economy's By faction expander sits between it and the
+## flows above.
+func build_trade_gaps_into(parent: Control) -> void:
 	DccWidgets.note(DccWidgets.section(parent, "Not built"),
 		"Prices · tariffs · caravans as entities · change over time  ·  needs a decision\n"
 		+ "None of the four is derivable from anything the civ layer holds, and "
@@ -654,7 +664,9 @@ func build_trade_into(parent: Control) -> void:
 ## one press answers all three surfaces; `app.gd` drops it on any world
 ## change.
 func _build_flows(parent: Control) -> void:
-	var sec := DccWidgets.section(parent, "Flows")
+	## "Trade flows" since Ruling L (L230). The readout's own "Flows" heading is
+	## the second one L346 removes; this one is renamed rather than kept twice.
+	var sec := DccWidgets.section(parent, "Trade flows")
 	_flows_run = DccWidgets.action(sec, "Match trade flows", _match_trade_flows)
 	var run := _flows_run
 	run.disabled = not bridge.has_world
@@ -879,6 +891,10 @@ static func rivers_note() -> String:
 
 func _fill_roads(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Network")
+	## Ruling L L174: "the two same-named sections merged". The whole-network
+	## pass and its clear lead, in the tree's order, and the network they act on
+	## follows.
+	_build_road_gaps(sec)
 	var roads := bridge.roads()
 	if roads.is_empty():
 		DccWidgets.note(sec, "No roads -- generate a world first (World ▸ Generate).")
@@ -911,21 +927,33 @@ func _fill_roads(parent: Control) -> void:
 		for i in range(mini(6, ranked.size())):
 			_route_row(longest, ranked[i], "road")
 
-	_build_routes_teaser(parent)
+	_build_sea_lanes(parent)
 	_build_manual_ways(parent)
-	_build_road_gaps(parent)
+
+## Ruling L L178: *"Sea lanes [expander] (up to 6) → per lane [button]"*, at
+## Routes & ways' own level rather than under the coastal list `_fill_ports()`
+## drew it beside. A lane is part of the network; the coastal settlements it
+## joins moved to Settlements.
+func _build_sea_lanes(parent: Control) -> void:
+	var sea := bridge.sea_routes()
+	if not sea.is_empty():
+		var lanes := CivilizationWorkspace.category_expander(parent, "Sea lanes")
+		for i in range(mini(6, sea.size())):
+			_route_row(lanes, sea[i], "sea")
 
 
 ## `04-left-dock.md` §6c's own `ROUTES` block: one compact, click-to-plan row
-## per committed route, directly under the Network group above -- the spec's
-## own `WAYS · {count}` list. Deliberately not the same widget as `Routes
-## committed this session` below (`_manual_routes_list`, select/rename/
-## delete) -- that one is this port's own richer addition for editing a
-## route; this one is the spec's own simpler shape, whose one action is
-## opening the Journey Planner. Both read the same `bridge.route_count()`/
+## per committed route -- the spec's own `WAYS · {count}` list. It sat directly
+## under the Network group until Ruling L made it an expander inside CIVIL ▸
+## Travel ▸ Journey planning (L186, "◄ Routes & ways ▸ Routes"), which
+## `_fill_logistics` builds. Deliberately not the same widget as `Routes
+## committed this session` in Routes & ways ▸ Hand-drawn (`_manual_routes_list`,
+## select/rename/delete) -- that one is this port's own richer addition for
+## editing a route; this one is the spec's own simpler shape, whose one action
+## is opening the Journey Planner. Both read the same `bridge.route_count()`/
 ## `route_get()`, the same "filtered view, not a second store" reasoning
 ## `_build_manual_ways()`'s own doc comment already gives for Hand-drawn vs
-## Network below.
+## Network.
 ##
 ## `<n> stages` from the spec's own mockup row is not drawn here: a stage is
 ## `jp_compute`'s own output and needs a party form, which is exactly the
@@ -936,7 +964,7 @@ func _fill_roads(parent: Control) -> void:
 ## shown instead: real, exact, and already this file's own convention for a
 ## route/way row (`_route_row`, bottom of this file).
 func _build_routes_teaser(parent: Control) -> void:
-	_routes_teaser_section = DccWidgets.section(parent, "Routes")
+	_routes_teaser_section = DccWidgets.group(parent, "Routes")
 	_refresh_routes_teaser()
 
 ## Clear-and-refill, the same shape and the same reason as
@@ -951,8 +979,7 @@ func _refresh_routes_teaser() -> void:
 		c.queue_free()
 	var n := bridge.route_count()
 	if n <= 0:
-		DccWidgets.note(_routes_teaser_section,
-			"None yet -- arm Route in the TOOLS block above, click two or more " +
+		_teaser_note("None yet -- arm Route in the TOOLS block above, click two or more " +
 			"stops, then ✓ Commit.")
 	else:
 		var settlements := bridge.settlements()
@@ -961,8 +988,18 @@ func _refresh_routes_teaser() -> void:
 			if not r.is_empty():
 				_routes_teaser_row(_routes_teaser_section, i, r, settlements)
 	## §6c's own section footnote, quoted verbatim.
-	DccWidgets.note(_routes_teaser_section,
-		"a way is durable geometry others route over · a route is a journey along existing geometry — two tools, two records")
+	_teaser_note("a way is durable geometry others route over · a route is a journey along existing geometry — two tools, two records")
+
+## A note in this expander, at the width a note directly in the section asks
+## for. `DccWidgets.note()` floors every note at 190 px; inside `§ Journey
+## planning` (14 left + 12 right) that is the 216 px Travel has always asked
+## for, and the expander's own 10 px body pad lifts a note in here to 226 --
+## past the 232 px portrait-tablet dock, which draws content + 16 (measured at
+## 800x1280 after Ruling L moved this list in: 241, against HEAD's 232). Giving
+## the pad back here keeps Travel at HEAD's 216. Presentation only: the floor
+## decides where the note wraps when the dock is at its narrowest, nothing else.
+func _teaser_note(text: String) -> void:
+	DccWidgets.note(_routes_teaser_section, text).custom_minimum_size.x = 180
 
 ## One row: glyph, name, the nearest settlement at each end, length -- click
 ## opens the Journey Planner. Reuses `app.open_journey_planner()`, the SAME
@@ -1196,15 +1233,17 @@ func _delete_route(index: int) -> void:
 ## `civ_clear_ways` empties CivData's ways and sea lanes *and* InfraTools'
 ## manual ways and committed journeys in one press -- which is what the
 ## reference's own single handler does (`civWays=[]; civJourneys=[]`).
-func _build_road_gaps(parent: Control) -> void:
-	var sec := DccWidgets.section(parent, "Network")
+##
+## Handed `_fill_roads()`'s own `§ Network` rather than opening a second one:
+## Ruling L L174 merged the two same-named sections.
+func _build_road_gaps(sec: Control) -> void:
 	_gen_roads_btn = DccWidgets.action(sec, "Generate roads", _generate_roads)
 	_gen_roads_btn.disabled = not bridge.has_world
 	_gen_roads_btn.tooltip_text = ("The reference's #civAutoRoutesBtn. Rebuilds the whole route "
 		+ "network over the settlements that exist right now: the hierarchical land topology, the "
 		+ "smoothed and classified ways it becomes, and the port-to-port sea lanes. Settlements, "
 		+ "territory, provinces and the timeline are left alone.\n\n"
-		+ "Needs settlements to connect -- Auto-populate the world first (CIVIL ▸ Settlements). "
+		+ "Needs settlements to connect -- Auto-populate the world first (CIVIL ▸ Populate). "
 		+ "Seconds, not milliseconds, on the main thread: the road builder reads river order, "
 		+ "biome and the water-body map, so it costs a full civilisation pass even though only "
 		+ "the network is kept.\n\n"
@@ -1219,7 +1258,7 @@ func _build_road_gaps(parent: Control) -> void:
 		+ "one press: the generated ways and sea lanes, and the manual ways and committed "
 		+ "journeys from this session. Settlements stay where they are.\n\n"
 		+ "Not undoable -- Generate roads builds a new network rather than restoring this one. "
-		+ "To remove a single journey instead, use the × on its row in Routes.")
+		+ "To remove a single journey instead, use the × on its row in Hand-drawn ▸ Routes committed this session.")
 
 ## Stage 2 of the civ-authoring ruling's five. Same progress affordance as
 ## `civilization_workspace.gd`'s `_recompute_civ`, and for the same reason:
@@ -1310,37 +1349,16 @@ func _fill_ports(parent: Control) -> void:
 				"text", DccTheme.FS_SMALL)
 			list.add_child(l)
 
-	var sea := bridge.sea_routes()
-	if not sea.is_empty():
-		var lanes := DccWidgets.group(sec, "Sea lanes")
-		for i in range(mini(6, sea.size())):
-			_route_row(lanes, sea[i], "sea")
-
 # -- Trade ------------------------------------------------------------------
 
+## The standalone Trade category (see `_build()`'s unreachable branch). Its
+## surplus/deficit readout, `_fill_trade()`, went with Ruling L: L229 makes it
+## and CIVIL ▸ Economy ▸ Trade balance "one copy", and that copy lives in
+## `civilization_workspace.gd::_fill_economy()`.
 func _build_trade() -> void:
-	_trade_body = DccWidgets.category(self, "Trade", categories)
-	_fill_trade(_trade_body)
-
-func _fill_trade(parent: Control) -> void:
-	var sec := DccWidgets.section(parent, "Flows")
-	var settlements := bridge.settlements()
-	var balances := bridge.trade_balances()
-	if balances.is_empty():
-		DccWidgets.note(sec, "No trade balances -- generate a world first.")
-		return
-	var trading := 0
-	for t in balances:
-		var d: Dictionary = t
-		var ex: PackedStringArray = d.get("exports", PackedStringArray())
-		var im: PackedStringArray = d.get("imports", PackedStringArray())
-		if ex.size() > 0 or im.size() > 0:
-			trading += 1
-	DccWidgets.note(sec, "%d of %d settlements carry a trade relationship." % [trading, settlements.size()])
-	DccWidgets.note(sec,
-		"Same civ_resource_trade_balance data the Civilization workspace's Economy " +
-		"category reads -- goods flow, not route assignment: nothing ties a trade " +
-		"relationship to the road or sea lane that would carry it.")
+	var cat := DccWidgets.category(self, "Trade", categories)
+	build_trade_into(cat)
+	build_trade_gaps_into(cat)
 
 # -- Logistics ----------------------------------------------------------
 
@@ -1381,7 +1399,7 @@ func _build_logistics() -> void:
 ## `_route_index` -- private fields that file exposes no accessor for, and
 ## every other entry point into it already lives with that: `right_dock.gd`'s
 ## Settlement "Logistics" and Measure "Plan a journey", `menus.gd`'s `Data ▸
-## Journey planner… ⇧J`, and this file's own new `ROUTES` row above are all
+## Journey planner… ⇧J`, and the `Routes` expander this function draws are all
 ## bare buttons, none of them a live preview. Building a second TRAVELER/
 ## SEASON/CARRIAGE/ROUTE/STOPS surface here would either bind to nothing (a
 ## form that edits no state) or reach into those private fields from outside
@@ -1414,6 +1432,9 @@ func _fill_logistics(parent: Control) -> void:
 		"(journey_planner_view.gd) -- the same call Data ▸ Journey planner… ⇧J makes. " +
 		"Opens to its own Journeys list: usually route #1 or the most recently saved " +
 		"journey, not necessarily whichever route you were just looking at here.")
+	## Ruling L L186: *"Routes [expander] → per-route [button] (opens Journey
+	## Planner) ◄ Routes & ways ▸ Routes"*.
+	_build_routes_teaser(sec)
 
 # -- Shared ---------------------------------------------------------------
 

@@ -70,6 +70,8 @@ func _find(n: Node, script_file: String) -> Node:
 
 
 func _find_button(n: Node, needle: String) -> Button:
+	if n == null:
+		return null
 	if n is Button and String((n as Button).text).findn(needle) >= 0:
 		return n as Button
 	for c in n.get_children(true):
@@ -88,6 +90,9 @@ func _all_categories(ws: Node) -> Array:
 	return out
 
 
+## A missing title is a failure, not a quiet null: the checks below read text off
+## whatever this returns, and `_texts(null)` is "" -- which would pass "the body
+## no longer says 'Not matched yet'" over a category that does not exist.
 func _cat(ws: Node, title: String) -> Control:
 	var cats := _all_categories(ws)
 	for e in cats:
@@ -97,6 +102,7 @@ func _cat(ws: Node, title: String) -> Control:
 				((e2 as Dictionary)["body"] as Control).visible = false
 			(d["body"] as Control).visible = true
 			return d["body"]
+	_bad("no category titled '%s' in %s" % [title, ws.name])
 	return null
 
 
@@ -188,10 +194,10 @@ func _ready() -> void:
 		_bridge.settlements().size(), _bridge.roads().size(), _bridge.get_factions().size()])
 
 	# ======================================================= IN-13 trade flows
-	_p("=== IN-13 : CIVIL ▸ Trade ▸ Match trade flows ===")
+	_p("=== IN-13 : CIVIL ▸ Economy ▸ Trade flows ▸ Match trade flows ===")
 	_app._select_domain("civilization")
 	await _frames(3)
-	var trade := _cat(civ, "Trade")
+	var trade := _cat(civ, "Economy")
 	await _frames(4)
 	var match_btn := _find_button(trade, "Match trade flows")
 	if match_btn == null:
@@ -210,7 +216,7 @@ func _ready() -> void:
 			int(d.get("importing", 0)), int(d.get("supplied", 0))])
 		if d.is_empty() or int(d.get("flow_count", 0)) <= 0:
 			_bad("the match produced no flows")
-		var body_txt := _texts(_cat(civ, "Trade"))
+		var body_txt := _texts(_cat(civ, "Economy"))
 		await _frames(3)
 		if body_txt.find("Not matched yet") >= 0:
 			_bad("the Flows body still says 'Not matched yet' after a real match")
@@ -264,7 +270,7 @@ func _ready() -> void:
 		await _frames(8)
 		_app._select_domain("civilization")
 		await _frames(3)
-		var trade2 := _cat(civ, "Trade")
+		var trade2 := _cat(civ, "Economy")
 		await _frames(5)
 		var txt2 := _texts(trade2)
 		var m2 := _find_button(trade2, "Match trade flows")

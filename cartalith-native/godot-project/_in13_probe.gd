@@ -8,7 +8,8 @@ extends Node
 ##     own reach cliff, volume inside the supplier cap).
 ##   * The match is deterministic across two calls and retains nothing
 ##     (`resident_bytes == 0`, process working set flat across 20 calls).
-##   * CIVIL ▸ Trade ▸ Match trade flows really runs it and the section fills.
+##   * CIVIL ▸ Economy ▸ Trade flows ▸ Match trade flows really runs it and the
+##     section fills.
 ##   * The place editor's Trade section shows a real ledger for a real
 ##     settlement, and the partner it names is a settlement that names it back.
 ##   * CARTO ▸ Roads & routes ▸ Trade load really moves pixels, and returns to
@@ -69,6 +70,17 @@ func _button(root: Node, needle: String) -> Button:
 	for n in _all(root):
 		if n is Button and needle in (n as Button).text:
 			return n
+	return null
+
+## The body of `title` in `domain`'s dock, or null unless it is on screen.
+func _opened_category_body(domain: String, title: String) -> Control:
+	var panel: Control = _app.call("workspace_panel", domain)
+	if panel == null:
+		return null
+	for e in (panel.get("categories") as Array):
+		if String((e as Dictionary)["title"]) == title:
+			var body: Control = (e as Dictionary)["body"]
+			return body if body.is_visible_in_tree() else null
 	return null
 
 func _ws_mb() -> float:
@@ -325,10 +337,17 @@ func _determinism_and_memory() -> void:
 # ------------------------------------------------------------------ the dock
 
 func _dock() -> void:
-	_p("=== CIVIL > Trade ===")
-	_app.select_domain_category("civilization", "Trade")
+	_p("=== CIVIL > Economy ===")
+	_app.select_domain_category("civilization", "Economy")
 	await _frames(8)
-	var civ: Node = _app
+	## Scoped to the body that jump opened, not the whole app: the match button
+	## and its notes exist whether or not their category is open, so a search over
+	## `_app` passed a jump to a category that no longer existed (Ruling L folded
+	## Trade into Economy, and `"Trade"` here stayed green).
+	var civ: Node = _opened_category_body("civilization", "Economy")
+	if civ == null:
+		_bad("CIVIL > Economy did not open from select_domain_category")
+		return
 
 	var before := _texts(civ)
 	if not ("Not matched yet" in before):

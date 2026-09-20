@@ -2453,14 +2453,16 @@ func _go_civilization() -> void:
 	_shell.select_domain("civilization")
 	_open_left_sheet()
 
-## Simulation is a category *inside* the CIVIL dock, not a domain of its own:
-## `civilization_workspace.gd` builds it as "Simulation" (the collapse/recovery
-## model), and `app.gd`'s own timeline strip already points at it by that name.
+## Simulation is not a domain of its own, and since Ruling L not a category
+## either: `civilization_workspace.gd` builds the collapse/recovery model as the
+## closed `Simulate collapse / recovery` expander inside CIVIL ▸ "Timeline"
+## (`left_rail_tree_resorted.md` L236-247, was the "Simulation" category), so
+## this row lands on Timeline with that expander closed.
 ## `select_domain_category()` is the shell's one call for "switch domain and
 ## open this category", and it `push_warning`s rather than failing silently if
 ## the category is ever renamed out from under this row.
 func _go_simulation() -> void:
-	_shell.select_domain_category("civilization", "Simulation")
+	_shell.select_domain_category("civilization", "Timeline")
 	_open_left_sheet()
 
 ## `_set_sheet_open()` is the phone's dock-sheet opener, and its first act is

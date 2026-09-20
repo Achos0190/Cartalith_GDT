@@ -81,21 +81,22 @@ var _territory_faction := 1
 var _territory_radius := 5.0
 var _territory_subtract := false
 
-## -- Timeline state (`TIMELINE_SCOPE.md` milestone 6). See the Politics
-## section's own header comment, below `_build_culture()`, for why this is a
+## -- Timeline state (`TIMELINE_SCOPE.md` milestone 6). See the Timeline
+## category's own header comment, below `_build_culture()`, for why this is a
 ## `DccWidgets.category()` here rather than a new `right_dock.gd` CTX_*
 ## context. --
 ##
-## v3 splits what used to be one Timeline category in two, so this state now
-## backs two bodies: `_tl_body` is **Politics** (the recorded years, the
-## scrubber, playback and the existence filters -- political change over
-## time) and `_sim_body` is **Simulation** (the collapse/recovery model that
-## writes into those years). They share every `_tl_sim_*` field below because
-## they are two views of one subject, and `_rebuild_timeline()` refills both
-## from one place -- a simulation run has to re-draw the year list it just
-## appended to, and the year list has to re-draw the result note.
+## v3 split what used to be one Timeline category in two -- Politics (the
+## recorded years, the scrubber, playback and the existence filters) and
+## Simulation (the collapse/recovery model that writes into those years).
+## Ruling L (`design/owner-references-2026-09-12/left_rail_tree_resorted.md`
+## L236-247) puts them back in one category, **Timeline**, so this state backs
+## one body again: `_tl_body` holds the years and, as a closed `Simulate
+## collapse / recovery` expander, the model every `_tl_sim_*` field below
+## feeds. `_rebuild_timeline()` refills all of it from one place -- a simulation
+## run has to re-draw the year list it just appended to, and the year list has
+## to re-draw the result note.
 var _tl_body: VBoxContainer
-var _sim_body: VBoxContainer
 var _tl_add_year := 100                 ## Reference default (`#civTlYear` value="100").
 var _tl_playing := false
 var _tl_play_timer: Timer
@@ -135,16 +136,24 @@ var _settlements_body: Control
 ## joined them on 2026-09-01: its seven rows exist without a world (they are
 ## `CIV_CULTURES`, compile-time constants) but their faction, settlement and
 ## population counts do not, so the category has to refill like the rest.
-## `_tl_body` (Politics) and `_sim_body` (Simulation) are declared with the
-## rest of the timeline state above, because they also carry playback and
-## simulation state to reset.
+## `_tl_body` (Timeline) is declared with the rest of the timeline state
+## above, because it also carries playback and simulation state to reset.
 ##
 ## `_politics_body` became `_factions_body` + `_territories_body` on
 ## 2026-08-24 with v3, which splits the old Politics category in two -- who
-## the polities *are*, and what ground they hold. Politics is now the
-## time-varying half (v3: "political change over time").
+## the polities *are*, and what ground they hold. Politics became the
+## time-varying half (v3: "political change over time"), which Ruling L
+## renames Timeline.
+##
+## `_populate_body` is Ruling L's Populate section (L147-148): the live copy
+## `_fill_settlements` used to build under the roster, and since Ruling L the
+## only one (`_build_civilizations`). `_economy_faction_body` is Economy ▸ By
+## faction (L232), a body of its own because the Trade flows section between
+## it and `_economy_body` is built once and this refill must never clear it.
 var _population_body: Control
+var _populate_body: Control
 var _economy_body: Control
+var _economy_faction_body: Control
 var _culture_body: Control
 var _religion_body: Control
 var _factions_body: Control
@@ -304,9 +313,13 @@ func _build() -> void:
 	add_child(_infra)
 	_infra.setup(app, bridge)
 
-	## v3's fourteen CIVIL categories, in v3's own order, plus one fifteenth
-	## that v3 does not draw because the subsystem behind it did not exist
-	## when the canvas was made.
+	## Ruling L's thirteen CIVIL categories, in the owner's tree order
+	## (`design/owner-references-2026-09-12/left_rail_tree_resorted.md`
+	## L143-247; `LARGE_ITEM_RULINGS.md` Ruling L). The tree's four
+	## `── people & places ──` / `── polities ──` / `── society ──` /
+	## `── time ──` markers are not drawn: no DCC canvas draws a divider between
+	## CIVIL categories, only the hairline `DccWidgets.category()` already puts
+	## under each one.
 	##
 	## **Religion is #11 and is its own category rather than a section inside
 	## Culture.** The two are coupled in the model -- `belief.rs`'s `compat`
@@ -320,34 +333,46 @@ func _build() -> void:
 	## owner's 2026-08-25 ruling applies -- derive from the DCC canvases' own
 	## vocabulary -- and `DccWidgets.category()` beside its nearest sibling is
 	## that vocabulary.
-	_build_civilizations()                                                ## 1
-	_build_factions()                                                     ## 2
-	_build_territories()                                                  ## 3
-	_build_settlements()                                                  ## 4
-	_build_landmarks()                                                    ## 5
+	_build_civilizations()                                                ## 1 Populate
+	_build_settlements()                                                  ## 2
+	_build_landmarks()                                                    ## 3
 	_infra.build_ways_into(
-		DccWidgets.category(self, "Routes & ways", categories))           ## 6
+		DccWidgets.category(self, "Routes & ways", categories))           ## 4
 	_infra.build_travel_into(
-		DccWidgets.category(self, "Travel", categories))                  ## 7
-	_infra.build_trade_into(
-		DccWidgets.category(self, "Trade", categories))                   ## 8
-	_build_economy()                                                      ## 9
+		DccWidgets.category(self, "Travel", categories))                  ## 5
+	_build_factions()                                                     ## 6
+	_build_territories()                                                  ## 7
+	_build_relationships()                                                ## 8
+	_build_military()                                                     ## 9
 	_build_culture()                                                      ## 10
 	_build_religion()                                                     ## 11
-	_build_timeline()                                                     ## 12 Politics
-	_build_military()                                                     ## 13
-	_build_relationships()                                                ## 14
-	_build_simulation()                                                   ## 15
+	_build_economy()                                                      ## 12 (absorbs Trade)
+	_build_timeline()                                                     ## 13 (Politics + Simulation)
 
-	## `04-left-dock.md` §6: "Landmarks is the floor." All fifteen categories
-	## above (`_infra`'s three included -- they share this same `categories`
-	## array, per its own header comment) now exist, so this is the one place
-	## to attach the floor to every one of their headers at once. See
-	## `_lm_enforce_floor()`'s own doc comment for the mechanism.
+	## Ruling L L144: Populate is "the tab's default-open floor" (it was
+	## `04-left-dock.md` §6's Landmarks). All thirteen categories above
+	## (`_infra`'s two included -- they share this same `categories` array, per
+	## its own header comment) now exist, so this is the one place to attach the
+	## floor to every one of their headers at once. See `_lm_enforce_floor()`'s
+	## own doc comment for the mechanism.
 	for cat_entry: Dictionary in categories:
 		var cat_btn: Button = cat_entry.get("button")
 		if cat_btn != null and is_instance_valid(cat_btn):
 			cat_btn.pressed.connect(_lm_enforce_floor)
+
+	## **The rail node lit on entry does not own the category the dock opens on,
+	## and that is left standing.** `DccShell._domain_mode` seeds CIVIL from its
+	## first `RAIL_NODES` node, `landmarks` (the tree's node order, L24-27, less
+	## the unbuilt Settlements node at L23); L144 makes Populate the built-open
+	## floor, and `factions` owns Populate. A boot-time `apply_domain_mode()`
+	## here closed that gap for a day (2026-09-13) and was removed: it also moved
+	## the baseline `app.gd::_on_workspace_changed()` derives `re_entry` from, so
+	## a Way draft armed before the first in-CIVIL rail press or category jump
+	## kept or lost its Commit/Discard row differently from before Ruling L --
+	## the lost-Commit/Discard class `MISTAKES.md` records. Ruling L is a visual
+	## reshuffle; behaviour stays HEAD's. Closing the gap is the owner's call
+	## (plan C1): reordering `RAIL_NODES` contradicts the tree's node order, and
+	## the tree's Settlements node needs a fifth CIVIL mode id.
 
 	## Both windows are owned by `app` (long-lived, opened from four places
 	## between them); this workspace is the one that knows how to put the
@@ -452,7 +477,7 @@ func _on_roster_changed() -> void:
 ## "read nothing this touches", which was wrong on both counts: Population
 ## sums `get_settlements()`, and a Recompute (SG-02, which routes through
 ## `_on_civ_edited` too) rewrites the trade balances Economy reads and the
-## provinces Politics reads.
+## provinces Factions and Territories read.
 ##
 ## Cheap on purpose, and checked rather than assumed: every call these four
 ## fills make is a pure read of already-computed state -- `get_settlements`/
@@ -464,6 +489,12 @@ func _on_roster_changed() -> void:
 ## cascade after every stroke -- that one is seconds per press and stays
 ## behind its own button.
 func _rebuild_readouts() -> void:
+	## Ruling L's Populate section. Its two buttons enable over a world, so it
+	## refills on exactly the triggers the Settlements roster it used to sit
+	## under does.
+	if _populate_body != null and is_instance_valid(_populate_body):
+		_clear_body(_populate_body)
+		_build_settlement_gaps(_populate_body)
 	if _settlements_body != null and is_instance_valid(_settlements_body):
 		_clear_body(_settlements_body)
 		_fill_settlements(_settlements_body)
@@ -472,7 +503,9 @@ func _rebuild_readouts() -> void:
 		_fill_population(_population_body)
 	if _economy_body != null and is_instance_valid(_economy_body):
 		_clear_body(_economy_body)
-		_fill_economy(_economy_body)
+		if _economy_faction_body != null and is_instance_valid(_economy_faction_body):
+			_clear_body(_economy_faction_body)
+		_fill_economy(_economy_body, _economy_faction_body)
 	if _culture_body != null and is_instance_valid(_culture_body):
 		_clear_body(_culture_body)
 		_fill_culture(_culture_body)
@@ -513,6 +546,28 @@ static func _clear_body(node: Control) -> void:
 	for c in node.get_children():
 		node.remove_child(c)
 		c.queue_free()
+
+## Ruling L lifts three expanders to category level -- Sea lanes (L178), By
+## faction (L232), Simulate collapse / recovery (L241) -- where a bare
+## `DccWidgets.group()` draws flush against the dock edge while every `§`
+## section beside it sits 14 px in. This gives such an expander a section's
+## geometry: its heading at `DccWidgets.section()`'s own 14, and its rows at
+## that same 14 rather than the 10 further in that a group nested inside a
+## section takes -- what `§ By faction` drew before L232 made it an expander,
+## so `› Territory, food and resources` inside it keeps its place, and the one
+## content wider than the dock (the simulator form, 290 at 800x1280) is not
+## pushed 10 more. Presentation only: the same `group()` node in the same body,
+## with the same refresh owner. Public because `_infra` builds one of the three
+## (`_build_sea_lanes`).
+static func category_expander(parent: Control, title: String, open: bool = true) -> VBoxContainer:
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 14)
+	parent.add_child(pad)
+	var col := VBoxContainer.new()
+	pad.add_child(col)
+	var body := DccWidgets.group(col, title, open)
+	(body.get_parent() as MarginContainer).add_theme_constant_override("margin_left", 0)
+	return body
 
 # -- Selection, right-click menu, Delete key ---------------------------------
 
@@ -1025,27 +1080,27 @@ func _discard_territory() -> void:
 
 # -- Settlements --------------------------------------------------------
 
-## v3 CIVIL ▸ CIVILIZATIONS: *"Auto-populate world · Clear places & routes ·
-## + Placement model"* -- the world-scale act of putting people on a map,
-## which v3 lifts out of Settlements (a browser over the result) and gives its
-## own category, first on the rail.
+## Ruling L CIVIL ▸ POPULATE (`left_rail_tree_resorted.md` L144-148; v3's
+## CIVIL ▸ CIVILIZATIONS, renamed): *"Auto-populate world · Clear places &
+## routes · + Placement model"* -- the world-scale act of putting people on a
+## map, which v3 lifts out of Settlements (a browser over the result) and gives
+## its own category, first on the rail.
 ##
-## Every control it names is `_build_settlement_gaps`'s content: none of it is
-## callable in this port, for one reason stated once rather than three times --
-## `compute_civilisation` runs *inside* `generate()` and no `#[func]` runs it
-## alone. The placement model's own dials do exist, in File ▸ New world ▸
-## Generation, and the note says where.
+## Its Populate section is `_build_settlement_gaps`'s content, built into
+## `_populate_body` so `_rebuild_readouts()` can refill it. **This category
+## used to build a second copy of that section, and of Diagnostics, at boot**,
+## which nothing ever refilled -- the "independent rebuilds" L346 removes. The
+## placement model's own dials are in File ▸ New world ▸ Generation, and the
+## note says where.
 ##
-## **No longer built open.** It was, before `_build_landmarks()` existed --
-## the only category CIVIL had an opinion about opening was whichever one
-## happened to be first. `04-left-dock.md` §6 states a default now
-## ("`Default civCat = 'landmarks'`") and treats Landmarks as CIVIL's floor
-## (`_lm_enforce_floor()`); leaving Civilizations open on first paint while
-## every later fall-back lands on Landmarks would make the category CIVIL
-## opens with different from the one it always returns to, for no reason
-## either default is right. `_build_landmarks()` now carries the `true`.
+## **Built open again, and the floor.** L144 makes Populate "the tab's
+## default-open floor" and L162 says Landmarks is "no longer the default-open
+## category", so the `true` moved back here from `_build_landmarks()` and
+## `floor_category()` names Populate. The category CIVIL opens with and the one
+## every fall-back lands on stay the same one, which is what
+## `04-left-dock.md` §6's Landmarks floor was protecting.
 func _build_civilizations() -> void:
-	var cat := DccWidgets.category(self, "Civilizations", categories)
+	var cat := DccWidgets.category(self, "Populate", categories, true)
 	DccWidgets.note(DccWidgets.section(cat, "How people get placed"),
 		"Settlement placement is not a separate pass in this port: "
 		+ "compute_civilisation runs inside generate(), reading the finished "
@@ -1057,7 +1112,11 @@ func _build_civilizations() -> void:
 	var newworld := DccWidgets.action(cat, "Placement model → File ▸ New world…",
 		func(): app.open_new_world())
 	newworld.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_build_settlement_gaps(cat)
+	_populate_body = VBoxContainer.new()
+	_populate_body.add_theme_constant_override("separation", 0)
+	_populate_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cat.add_child(_populate_body)
+	_build_settlement_gaps(_populate_body)
 
 ## v3 CIVIL ▸ FACTIONS. The roster is the writable half (add/remove/edit,
 ## CV-07) and the province tally below it is the derived half.
@@ -1272,7 +1331,8 @@ func _analyse_influence() -> void:
 		FactionRosterWindow._thousands(owned), FactionRosterWindow._thousands(frontier), pct,
 		margin, float(d.get("mean_contested", 0.0))])
 
-	var by_f := DccWidgets.group(_influence_body, "Per faction")
+	## "By faction", Ruling L L203's own name for it.
+	var by_f := DccWidgets.group(_influence_body, "By faction")
 	for row in d.get("factions", []):
 		var r: Dictionary = row
 		DccWidgets.note(by_f, "%s -- %s cells, %s on a frontier; mean reach %.1f, mean contest %.3f"
@@ -1319,6 +1379,11 @@ func _build_settlements() -> void:
 	## the roster above, and a category whose whole content is two summary
 	## lines was the emptiest row on the rail.
 	_build_population(cat)
+	## Ruling L L159: *"Coastal settlements [expander] (plain list) ◄ Routes &
+	## ways"*. Still `_infra`'s body, refilled by its own `rebuild_readouts()`:
+	## a sibling of the two bodies above, never inside one, so neither refill
+	## clears the other's rows.
+	_infra.build_ports_into(cat)
 	_build_settlement_vault(cat)
 
 func _fill_settlements(parent: Control) -> void:
@@ -1326,7 +1391,7 @@ func _fill_settlements(parent: Control) -> void:
 	var settlements := bridge.settlements()
 	if settlements.is_empty():
 		DccWidgets.note(sec, "No settlements -- generate a world first (World ▸ Generate).")
-		_build_settlement_gaps(parent)
+		_build_settlement_diagnostics(parent)
 		return
 
 	var counts := {}
@@ -1348,13 +1413,15 @@ func _fill_settlements(parent: Control) -> void:
 	for i in range(mini(8, ranked.size())):
 		_settlement_row(by_pop, ranked[i].data, ranked[i].index)
 
-	_build_settlement_gaps(parent)
+	## Diagnostics only: the Populate section that used to open this call is
+	## CIVIL ▸ Populate's since Ruling L (`_build_civilizations`).
+	_build_settlement_diagnostics(parent)
 
 ## `GUI_GAP_REGISTER.md` SG-02's "Recompute now", and the recompute ED-03d
 ## says a place edit never triggered.
 ##
 ## Lives here rather than in a menu because this is the dock that shows what
-## goes stale: the roster above it, the Economy and Politics categories below
+## goes stale: the roster above it, the Economy and Timeline categories below
 ## it, and the territory/roads the map draws are all products of the one call
 ## this button makes. A menu item would have been further from every readout
 ## it fixes.
@@ -1697,7 +1764,9 @@ func _on_compute_regional_population() -> void:
 ## **Both were wired 2026-09-02** (`LARGE_ITEM_RULINGS.md`'s civ-authoring
 ## ruling, stages 1 and 4 of 5), so they live in their own **Populate**
 ## section now rather than under "Not built", which keeps only the settlement
-## diagnostics overlay it still honestly describes.
+## diagnostics overlay it still honestly describes. Ruling L moved that section
+## into CIVIL ▸ Populate (`_build_civilizations`, into `_populate_body`); the
+## diagnostics stay in Settlements, and `_fill_settlements` builds them itself.
 ##
 ## The two notes this replaces are worth keeping as history, because both were
 ## true when written and both stopped being true in the same direction: first
@@ -1732,8 +1801,6 @@ func _build_settlement_gaps(parent: Control) -> void:
 		+ "rule, since a route network with no places to connect is meaningless.\n\n"
 		+ "The recorded timeline is dropped: every snapshot refers to settlements that no longer "
 		+ "exist. Not undoable — Auto-populate derives a new set rather than restoring these.")
-
-	_build_settlement_diagnostics(parent)
 
 ## The reference's `#civDiagnosticsChk` (`drawCivLayer` §2.6) fact card, per
 ## settlement -- rewritten 2026-09-02 from a permanently-disabled
@@ -2073,11 +2140,32 @@ func _fill_population(parent: Control) -> void:
 
 # -- Economy ----------------------------------------------------------------
 
+## Ruling L CIVIL ▸ ECONOMY (L228-233): Economy absorbs Trade, and the two
+## same-named Flows sections become one readout and one match. Four blocks in
+## the tree's order, each keeping the refresh it had -- Trade balance and By
+## faction are `_rebuild_readouts()`'s (two bodies, because the Trade flows
+## section between them is built once: a match costs a real computation, so a
+## place rename must not wipe it), Trade flows is `_infra`'s own, and Not built
+## is drawn once.
 func _build_economy() -> void:
-	_economy_body = DccWidgets.category(self, "Economy", categories)
-	_fill_economy(_economy_body)
+	var cat := DccWidgets.category(self, "Economy", categories)
+	_economy_body = VBoxContainer.new()
+	_economy_body.add_theme_constant_override("separation", 0)
+	_economy_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cat.add_child(_economy_body)
+	_infra.build_trade_into(cat)
+	_economy_faction_body = VBoxContainer.new()
+	_economy_faction_body.add_theme_constant_override("separation", 0)
+	_economy_faction_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cat.add_child(_economy_faction_body)
+	_infra.build_trade_gaps_into(cat)
+	_fill_economy(_economy_body, _economy_faction_body)
 
-func _fill_economy(parent: Control) -> void:
+## `faction_parent` is where the By faction expander goes -- Economy's own
+## `_economy_faction_body`, below Trade flows. Left null, it goes into `parent`
+## after the balance, which is where it sat before Ruling L and what a caller
+## holding one host (`_civunits_probe.gd`) still gets.
+func _fill_economy(parent: Control, faction_parent: Control = null) -> void:
 	var sec := DccWidgets.section(parent, "Trade balance")
 	var settlements := bridge.settlements()
 	var balances := bridge.trade_balances()
@@ -2105,7 +2193,13 @@ func _fill_economy(parent: Control) -> void:
 	DccWidgets.note(sec,
 		"This is the per-settlement hinterland term (civ_resource_trade_balance). The " +
 		"faction-level aggregation is below.")
-	_fill_faction_economy(parent)
+	## L229: the Trade ▸ Flows readout and this one, "one copy". Its count line
+	## repeated the first note above, so only its disclosure moved here --
+	## reworded, because it named this category from outside it.
+	DccWidgets.note(sec,
+		"Goods flow, not route assignment: nothing ties a trade relationship to the " +
+		"road or sea lane that would carry it.")
+	_fill_faction_economy(faction_parent if faction_parent != null else parent)
 
 ## `OUTSTANDING_WORK.md` §2.3: `_civFactionAggregates`' resource- and
 ## density-fed half, "as a *surfaced* readout" -- the row's own note was "the
@@ -2128,7 +2222,9 @@ func _fill_faction_economy(parent: Control) -> void:
 	var rows := bridge.civ_faction_economy()
 	if rows.is_empty():
 		return
-	var sec := DccWidgets.section(parent, "By faction")
+	## Ruling L L232: an expander, not a section. Open, so the closed group inside
+	## is one press away, as it was under the old heading.
+	var sec := category_expander(parent, "By faction")
 	var grp := DccWidgets.group(sec, "Territory, food and resources", false)
 	var names := bridge.get_factions()
 	for r in rows:
@@ -2321,7 +2417,11 @@ func _fill_culture(parent: Control) -> void:
 		+ "Three things read it: the settlement name pool (_civSettleName), the "
 		+ "roster's Territory fit verdict, and faction relations -- two factions "
 		+ "sharing a culture score one point of affinity toward each other "
-		+ "(relations.rs), which is what puts a culture in Relationships below.")
+		+ "(relations.rs), which is what puts a culture in Relationships above.")
+	## Inside Profiles, where it was before Ruling L: the tree's L222 lists it
+	## beside `Profiles → per-culture`, but `X → Y` there means "X holds Y" and
+	## cannot show a second child, no `◄` marks a move, and "What changed" does
+	## not list one.
 	var roster := DccWidgets.action(sec, "Which faction has which culture → Faction roster…",
 		func(): app.open_faction_roster())
 	roster.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -2649,7 +2749,7 @@ func _religion_pane_diffusion(body: Control, st: Dictionary, state: String) -> v
 		"Diffusion steps to run, one per simulated year. A religion needs roughly 17-25 years "
 		+ "to carry a settlement it has reached at all (BELIEF_STEP_RATE's own measured range), "
 		+ "so fifty is past the far end of it. This is not the CIVIL timeline's year cursor: "
-		+ "the belief layer has no recorded snapshots and does not move with Politics.")
+		+ "the belief layer has no recorded snapshots and does not move with Timeline.")
 	## Labelled without the year count on purpose **on this pane**: the number
 	## lives in the field directly above it, and this label is built once per
 	## fill, so baking it in would leave the button naming a span the spinbox no
@@ -3839,7 +3939,9 @@ func _religion_run() -> void:
 ## `Workspace.open_category("Politics")` -- which every cross-domain jump in
 ## this shell uses -- is the shared version of the same search.
 
-## v3 CIVIL ▸ POLITICS: *"Political change over time · #civTlAddYearBtn"*.
+## v3 CIVIL ▸ POLITICS: *"Political change over time · #civTlAddYearBtn"* --
+## **Timeline** since Ruling L (L236-247), which also gives it v3's SIMULATION
+## category, as a closed expander.
 ##
 ## The recorded years, the scrubber, playback and the existence filters -- the
 ## timeline as a *record of political change*, which is what it actually is
@@ -3856,7 +3958,7 @@ func _religion_run() -> void:
 ## frame change, not a menu change, so it is out of this pass's scope --
 ## recorded in `GUI_GAP_REGISTER.md` CV-24 rather than half-done.
 func _build_timeline() -> void:
-	var cat := DccWidgets.category(self, "Politics", categories)
+	var cat := DccWidgets.category(self, "Timeline", categories)
 	_tl_body = cat
 	## The two `bridge.generation_finished`/`bridge.world_loaded` connections
 	## that used to live here are now `_build()`'s single pair, calling
@@ -3864,13 +3966,6 @@ func _build_timeline() -> void:
 	## alongside the other categories. For a long time this was the ONLY
 	## subscriber in the file, which is exactly why the rest of the dock never
 	## refreshed (RF-01); one connection point makes that hard to repeat.
-	_rebuild_timeline()
-
-## v3 CIVIL ▸ SIMULATION: collapse and recovery. Its own category because it
-## is a *model*, not a record -- v3's own footnote: "writes one timeline entry
-## per step: history, never the live editable world."
-func _build_simulation() -> void:
-	_sim_body = DccWidgets.category(self, "Simulation", categories)
 	_rebuild_timeline()
 
 # -- CIVIL ▸ Landmarks --------------------------------------------------------
@@ -3917,11 +4012,13 @@ func _build_simulation() -> void:
 #
 # - §6's "Landmarks is the floor" (closing whichever CIVIL category is open
 #   falls back to Landmarks, never to nothing) is real accordion behaviour,
-#   not styling, and this port's 14-category CIVIL accordion needs a floor
+#   not styling, and this port's 13-category CIVIL accordion needs a floor
 #   even more than the design's own four-wide one did -- an all-collapsed
 #   CIVIL dock is a worse empty state than the prototype ever had to defend
 #   against. Built: `_lm_enforce_floor()`, wired once at the foot of
 #   `_build()` after every category in the shared `categories` group exists.
+#   **Ruling L moved the floor to Populate** (L144) and builds Landmarks
+#   closed (L162); the mechanism is unchanged -- `floor_category()` names it.
 # - §6's `{{ lmCatCount }}` (an "N armed · N on the map" readout ON the
 #   category header, visible before the accordion opens) is NOT built.
 #   `DccWidgets.category()` returns only the body VBox and has no parameter
@@ -4071,11 +4168,13 @@ static func _lm_limit_why(raw: String) -> String:
 ## the row's own fold), which is why the class is a badge on the row and not a
 ## second tree over the family one.
 ##
-## Built open (`04-left-dock.md` §6: `Default civCat = 'landmarks'`) -- see
-## `_build_civilizations()`'s own comment for why this moved here, and
-## `_lm_enforce_floor()` for the rest of §6's rule.
+## Built closed since Ruling L: L162 calls Landmarks "points of interest; no
+## longer the default-open category", and L144 gives that to Populate -- see
+## `_build_civilizations()`'s own comment, and `_lm_enforce_floor()` for the
+## rest of §6's rule. (`04-left-dock.md` §6's `Default civCat = 'landmarks'` is
+## what built it open until then.)
 func _build_landmarks() -> void:
-	_landmarks_body = DccWidgets.category(self, "Landmarks", categories, true)
+	_landmarks_body = DccWidgets.category(self, "Landmarks", categories)
 	_fill_landmarks(_landmarks_body)
 
 ## `Assets ▸ Landmark types ▸ <family> ▸ Open … in the dock` lands here
@@ -4107,7 +4206,8 @@ func open_landmark_family(family: String) -> void:
 ## zero."* `DccWidgets.category()`'s own accordion has no floor: re-clicking
 ## whichever header is open always leaves the whole group closed, CIVIL
 ## included, and that all-collapsed state is what this corrects, once, right
-## after it happens.
+## after it happens. Ruling L keeps the rule and moves the floor to Populate
+## (L144) -- `floor_category()` below.
 ##
 ## Connected to every CIVIL category button's `pressed` (the loop at the foot
 ## of `_build()`) rather than only to Landmarks' own: the spec's rule fires
@@ -4126,7 +4226,7 @@ func open_landmark_family(family: String) -> void:
 ## has to stay exactly `"Landmarks"` (see the header comment above this
 ## section for the readout this same constraint already ruled out).
 ## **The body moved to `Workspace._enforce_open_floor()` on 2026-09-05** and
-## this is now the name CIVIL's fifteen `pressed` connections still call. The
+## this is now the name CIVIL's thirteen `pressed` connections still call. The
 ## reasoning above is unchanged and still lives here, because CIVIL is the only
 ## dock the spec gives a *named* floor to; what changed is that WORLD's Sculpt
 ## mode also needs a floor (`04-left-dock.md` §3 renders one category there, and
@@ -4137,10 +4237,11 @@ func open_landmark_family(family: String) -> void:
 func _lm_enforce_floor() -> void:
 	_enforce_open_floor()
 
-## §6's rule, stated once. `Workspace._enforce_open_floor()` reads it; the base
-## returns `""` for the two docks the spec names no floor for.
+## The floor, stated once: Ruling L L144 makes Populate "the tab's default-open
+## floor" (§6's rule named Landmarks). `Workspace._enforce_open_floor()` reads
+## it; the base returns `""` for the two docks the spec names no floor for.
 func floor_category() -> String:
-	return "Landmarks"
+	return "Populate"
 
 ## Rebuild the category from the bridge. Called on a new world and after a
 ## settings reset -- NOT from `_rebuild_readouts()`, because a place edit does
@@ -5942,10 +6043,14 @@ func _tl_on_world_changed() -> void:
 ## `_rebuild()`/`show_sculpt_stack()` pair already establishes, scoped to
 ## `_tl_body` rather than the whole workspace so Settlements/Population/etc.
 ## above are untouched.
-## Both bodies are refilled together, and each is guarded on its own so the
-## order `_build()` claims them in cannot leave one empty: Politics is
-## category 11 and Simulation is category 14, so the first call runs with
-## `_sim_body` still null and the second catches both.
+##
+## One body since Ruling L (L236-247), in the tree's order: the years, scrub,
+## playback and filters, then v3's SIMULATION -- collapse and recovery, its own
+## category (`_build_simulation()`) until L241 folded it in -- as a closed
+## expander, then Not built. It is still a *model*, not a record -- v3's own
+## footnote: "writes one timeline entry per step: history, never the live
+## editable world" -- which is why it sits closed under the years rather than
+## beside them. With no world the whole body is one note (L236).
 func _rebuild_timeline() -> void:
 	if _tl_body != null and is_instance_valid(_tl_body):
 		_clear_body(_tl_body)
@@ -5956,13 +6061,8 @@ func _rebuild_timeline() -> void:
 			_build_timeline_scrub(_tl_body)
 			_build_timeline_playback(_tl_body)
 			_build_timeline_filters(_tl_body)
+			_build_timeline_sim(_tl_body)
 			_build_politics_gaps(_tl_body)
-	if _sim_body != null and is_instance_valid(_sim_body):
-		_clear_body(_sim_body)
-		if not bridge.has_world:
-			DccWidgets.note(_sim_body, "Generate a world first.")
-		else:
-			_build_timeline_sim(_sim_body)
 
 ## `_civFormatYear` (reference line 20644), ported verbatim: negative years
 ## are BC.
@@ -6199,7 +6299,7 @@ func _build_timeline_filters(body: Control) -> void:
 		"(civ_year_diff() returns tid sets only, not positions/names). Disclosed, not faked.")
 
 ## v3 POLITICS' second row -- *"Vassalage · alliances · rivalries"* -- rests on
-## the same open question as RELATIONSHIPS below, so it says so here and points
+## the same open question as RELATIONSHIPS above, so it says so here and points
 ## at the one category that owns the finding rather than repeating it.
 ##
 ## **Corrected 2026-09-03.** The note below used to give the reason as
@@ -6217,17 +6317,17 @@ func _build_politics_gaps(body: Control) -> void:
 		"Vassalage, alliances and rivalries over time (GUI_GAP_REGISTER.md "
 		+ "CV-26). The standing between two factions is derived and live -- "
 		+ "cartalith-civ's relations.rs builds exactly that edge, and "
-		+ "Relationships below draws it for every pair. What no recorded year "
+		+ "Relationships above draws it for every pair. What no recorded year "
 		+ "carries is a snapshot of it: civ_year_diff() records which settlements "
 		+ "exist and who holds which cell, while a relation is recomputed from the "
 		+ "world as it stands, stored nowhere, with no transition over time to "
-		+ "record. The whole finding is under Relationships below.")
+		+ "record. The whole finding is under Relationships above.")
 
 
 # -- Collapse / recovery simulator form (Cluster B/impure wiring) -------------
 
 func _build_timeline_sim(body: Control) -> void:
-	var grp := DccWidgets.group(body, "Simulate collapse / recovery", false)
+	var grp := category_expander(body, "Simulate collapse / recovery", false)
 	DccWidgets.choice(grp, "Mode", ["Collapse (decline + migration)", "Recovery (regrowth)"],
 		0 if _tl_sim_mode == "collapse" else 1,
 		func(i: int): _tl_sim_mode = ("collapse" if i == 0 else "recovery"); _rebuild_timeline())

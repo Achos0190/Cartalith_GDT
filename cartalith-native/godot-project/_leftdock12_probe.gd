@@ -16,7 +16,7 @@ extends Node
 ## already shipped the mirror-image failure once (a rail node that selected a
 ## mode and opened nothing, `dcc_shell.gd::_on_rail_node_pressed()`'s own
 ## header). So §2 below does not count what survives: it **names every one of
-## the thirty-four categories** and, for each, prints the modes that render it
+## the thirty-two categories** and, for each, prints the modes that render it
 ## and the rail node that reaches each of those modes. A count would pass a
 ## build where `Climate` vanished and `Climate ` appeared; a route census will
 ## not.
@@ -39,19 +39,19 @@ func _ok(name: String, got, want) -> void:
 
 ## Every L2 category the three docks build, by name. Independent of
 ## `panel.categories` on purpose — asserting a dock against itself proves
-## nothing. Thirty-four: `_railfold_probe.gd`'s thirty-three plus `Religion`,
-## which `civilization_workspace.gd::_build_religion()` has built since the
-## belief layer landed and which that probe's own `EXPECTED` still omits (it
-## reports it as `EXTRA`, and that row is a real gap in that file, not here).
+## nothing. Thirty-two, the same list `_railfold_probe.gd` names: CIVIL's
+## thirteen are Ruling L's, in its order
+## (`design/owner-references-2026-09-12/left_rail_tree_resorted.md` L143-247),
+## `Religion` included -- which that probe used to omit and report as `EXTRA`.
 const EXPECTED: Dictionary = {
 	"world": [
 		"Generate", "Terrain", "Geology", "Hydrology", "Climate",
 		"Biomes", "Ecology", "Resources", "World data",
 	],
 	"civilization": [
-		"Civilizations", "Factions", "Territories", "Settlements", "Landmarks",
-		"Routes & ways", "Travel", "Trade", "Economy", "Culture", "Religion",
-		"Politics", "Military", "Relationships", "Simulation",
+		"Populate", "Settlements", "Landmarks", "Routes & ways", "Travel",
+		"Factions", "Territories", "Relationships", "Military", "Culture",
+		"Religion", "Economy", "Timeline",
 	],
 	"cartography": [
 		"Map style", "Terrain appearance", "Colours", "Layers", "Roads & routes",
@@ -80,8 +80,8 @@ const EXPECTED_PILL_LABELS: Dictionary = {
 	"world/a": "PIPELINE",
 	"world/b": "SCULPT",
 	"civilization/landmarks": "LANDMARKS",
-	"civilization/factions": "FACTIONS & SETTLEMENTS",
-	"civilization/infra": "WAYS & ROUTES",
+	"civilization/factions": "FACTIONS",
+	"civilization/infra": "ROUTES & WAYS",
 	"civilization/planner": "JOURNEY PLANNER",
 	"cartography/style": "LAYERS & STYLE",
 	"cartography/labels": "LABELS",
@@ -115,6 +115,27 @@ func _body(panel: Control, title: String) -> Control:
 		if String(e["title"]) == title:
 			return e["body"]
 	return null
+
+## Every category this dock builds, rendered or not, in the order its header
+## sits in the dock (depth-first over the panel's own tree) -- the order a user
+## reads down the accordion, which `categories` only claims to match.
+func _drawn_order(panel: Control) -> Array:
+	var title_of := {}
+	for e in (panel.get("categories") as Array):
+		var w := (e["body"] as Control).get_parent()
+		if w != null:
+			title_of[w] = String(e["title"])
+	var out: Array = []
+	var stack: Array = [panel]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if title_of.has(n):
+			out.append(title_of[n])
+			continue
+		var kids := n.get_children()
+		kids.reverse()
+		stack.append_array(kids)
+	return out
 
 ## The category headers this dock is rendering right now, in dock order.
 func _rendered(panel: Control) -> Array:
@@ -161,7 +182,7 @@ func _run(app: Node, label: String) -> void:
 	_ok("domain_gates: CARTO", app.call("domain_gates", "cartography"), false)
 
 	# =====================================================================
-	print("\n=== 2: the route census — all 34 categories, named, with their routes ===")
+	print("\n=== 2: the route census — all 32 categories, named, with their routes ===")
 	## For each category: which modes render it, and which rail node reaches
 	## each of those modes. A category rendered by no mode is unreachable; a
 	## category rendered only by a mode with no node is reachable only by
@@ -210,7 +231,16 @@ func _run(app: Node, label: String) -> void:
 			", ".join(extra), "")
 		_ok("[%s] the union over all modes is the whole list" % dom,
 			union.size(), (EXPECTED[dom] as Array).size())
-	_ok("all thirty-four were asserted by name", total, 34)
+		## Ruling L's thirteen are an ORDER, not a set (L143-247), and the union
+		## above passes any permutation of them. Read off where the headers sit
+		## in the dock, not off `categories`, so a header moved without its array
+		## entry fails too. CIVIL only: WORLD's and CARTO's lists here were never
+		## pinned as an order.
+		if String(dom) == "civilization":
+			_ok("[civilization] the thirteen are drawn in Ruling L's order",
+				", ".join(PackedStringArray(_drawn_order(panel))),
+				", ".join(PackedStringArray(EXPECTED[dom])))
+	_ok("all thirty-two were asserted by name", total, 32)
 
 	# =====================================================================
 	print("\n=== 3: every rail node reaches its block ===")
@@ -258,7 +288,7 @@ func _run(app: Node, label: String) -> void:
 		app.call("select_domain_mode", "civilization", String(mode))
 		await _frames(2)
 		_ok("CIVIL ▸ %s keeps every header (§3 point 3)" % mode,
-			_rendered(civ).size(), 15)
+			_rendered(civ).size(), 13)
 	for mode in _modes(app, "cartography"):
 		app.call("select_domain_mode", "cartography", String(mode))
 		await _frames(2)
@@ -349,8 +379,11 @@ func _run(app: Node, label: String) -> void:
 	await _frames(2)
 	_ok("(h) collapsing the only visible category re-opens it",
 		_body(world, "Terrain").visible, true)
-	## And CIVIL's named floor still wins over build order: `Civilizations` is
-	## built first, `Landmarks` is §6's floor.
+	## And CIVIL's named floor: Ruling L L144 makes Populate "the tab's
+	## default-open floor". Populate is also built first now, so the literal
+	## check is what separates a named floor from a build-order one -- with
+	## `floor_category()` at `""` the dock stays empty (CIVIL gates nothing, so
+	## the build-order half never fires), at `"Landmarks"` Landmarks opens.
 	app.call("select_domain_mode", "civilization", "factions")
 	await _frames(2)
 	var civ_open: Button = null
@@ -360,8 +393,9 @@ func _run(app: Node, label: String) -> void:
 	if civ_open != null:
 		civ_open.pressed.emit()
 		await _frames(2)
-	_ok("(h) CIVIL's floor is still Landmarks, not the first-built category",
-		_body(civ, "Landmarks").visible, true)
+	_ok("(h) CIVIL's floor is Populate (Ruling L L144)",
+		_body(civ, "Populate").visible, true)
+	_ok("(h) CIVIL names Populate as its floor", civ.call("floor_category"), "Populate")
 
 	## (i) and the floor stops where the need stops. The floor exists so a
 	## **gated** dock cannot be left as headings with nothing under them; until

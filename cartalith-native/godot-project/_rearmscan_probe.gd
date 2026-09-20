@@ -13,7 +13,7 @@ extends Node
 ##   `should_show` formula (bound && armed_tool=="journey" && domain==
 ##   "civilization") never noticed a mode-only change, so navigating to a
 ##   DIFFERENT civilization destination while Journey stayed the last-armed
-##   tool (Landmarks/Factions/Military/phone-Simulation, none of which go
+##   tool (Landmarks/Factions/Military/phone Simulation-model row (Timeline), none of which go
 ##   through `_on_rail_node_pressed()`'s own disarm) left the planner's own
 ##   panels shown on top of the destination the user actually asked for. A
 ##   2026-09-12 attempt fixed the two NAMED re-entry points (a bare
@@ -44,7 +44,8 @@ extends Node
 ##      a re-entry (checked by object identity, not text, since app.gd's own
 ##      rebuild frees the band view rather than merely renaming a label).
 ##   6. NEW this batch -- Row B: the four previously-swallowed destinations
-##      (Landmarks, Factions, Military, phone-Simulation category, reached via
+##      (Landmarks, Factions, Military, and the phone Simulation-model row's
+##      Timeline category -- "Simulation" until Ruling L -- reached via
 ##      `select_domain_category()` exactly as `menus.gd`, `faction_roster_
 ##      window.gd`, `cartography_workspace.gd` and `phone_menu.gd::
 ##      _go_simulation()` call it) each hide the planner and show the civ
@@ -301,7 +302,7 @@ func _ready() -> void:
 
 	# ============================================================ Part 6 ====
 	print("\n=== Part 6: Row B -- the four previously-swallowed destinations ===")
-	var destinations := ["Landmarks", "Factions", "Military", "Simulation"]
+	var destinations := ["Landmarks", "Factions", "Military", "Timeline"]
 	for category in destinations:
 		app.call("open_journey_planner")
 		await _frames(10)

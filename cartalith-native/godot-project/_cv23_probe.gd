@@ -410,7 +410,9 @@ func _dock() -> void:
 	b.pressed.emit()
 	await _frames(10)
 	var after := _texts(ws)
-	for needle in ["owned land cells", "Mean contest", "PER FACTION", "CONTESTED BORDERS",
+	## "BY FACTION" is Ruling L L203's name for the per-faction group
+	## (`civilization_workspace.gd::_analyse_influence`, was "Per faction").
+	for needle in ["owned land cells", "Mean contest", "BY FACTION", "CONTESTED BORDERS",
 			"Built on demand and dropped"]:
 		if needle in after:
 			_ok("readout renders: %s" % needle)

@@ -20,7 +20,7 @@ extends Node
 ## `_dock_hosted` was set early enough. Nothing at the time would have caught
 ## the opposite mistake — building them zero times.
 ##
-## So §3 below does not count categories. It **names all thirty-three**, one
+## So §3 below does not count categories. It **names all thirty-two**, one
 ## string at a time, and asserts each is still openable and still owned by a rail
 ## node. A count would pass a build that dropped `Trade` and gained `Trade ` with
 ## a trailing space; a name list will not. That is the same discipline
@@ -48,11 +48,13 @@ func _ok(name: String, got, want) -> void:
 ## **The list this stage is measured against.** Every L2 accordion category the
 ## three docks build, transcribed from the `DccWidgets.category(self, "…")` calls
 ## in `world_workspace.gd`, `civilization_workspace.gd` and
-## `cartography_workspace.gd` — including the four CIVIL categories whose bodies
-## are filled by `infrastructure_workspace.gd` (`Routes & ways`, `Travel`,
-## `Trade`) and the four CARTO ones filled by `render_workspace.gd` (`Map style`,
-## `Terrain appearance`, `Colours`, `Map presets`). Those eight are the fold's
-## actual cargo and the reason the list is written out rather than walked.
+## `cartography_workspace.gd` — including the CIVIL ones
+## `infrastructure_workspace.gd` fills (`Routes & ways` and `Travel`, and since
+## Ruling L parts of `Settlements` and `Economy`) and the four CARTO ones filled
+## by `render_workspace.gd` (`Map style`, `Terrain appearance`, `Colours`,
+## `Map presets`). Those are the fold's actual cargo and the reason the list is
+## written out rather than walked. CIVIL's thirteen are Ruling L's, in its order
+## (`design/owner-references-2026-09-12/left_rail_tree_resorted.md` L143-247).
 ##
 ## Hard-coded on purpose. Walking `panel.categories` and asserting each entry
 ## against itself would prove nothing; this list is an independent statement of
@@ -65,9 +67,9 @@ const EXPECTED: Dictionary = {
 		"Biomes", "Ecology", "Resources", "World data",
 	],
 	"civilization": [
-		"Civilizations", "Factions", "Territories", "Settlements", "Landmarks",
-		"Routes & ways", "Travel", "Trade", "Economy", "Culture",
-		"Politics", "Military", "Relationships", "Simulation",
+		"Populate", "Settlements", "Landmarks", "Routes & ways", "Travel",
+		"Factions", "Territories", "Relationships", "Military", "Culture",
+		"Religion", "Economy", "Timeline",
 	],
 	"cartography": [
 		"Map style", "Terrain appearance", "Colours", "Layers", "Roads & routes",
@@ -79,13 +81,16 @@ const EXPECTED: Dictionary = {
 ## The design's own node tree (`ENV:1824`, transcribed in
 ## `spec/02-rail-and-domains.md` §3 and settled by BUILD_ANSWERS §2.1), stated
 ## here independently of `DccShell.RAIL_NODES` so that §1 compares two sources
-## rather than one source with itself.
+## rather than one source with itself. CIVIL's labels are Ruling L's
+## (`left_rail_tree_resorted.md` L22-27), the newer source: `ENV:1824`'s
+## `Factions & settlements` and `Ways & routes` are stale for those two nodes,
+## and L23's Settlements node is not built (it would need a fifth CIVIL mode id).
 const DESIGN_NODES: Array = [
 	["world", "a", "Generation pipeline"],
 	["world", "b", "Sculpt"],
 	["civilization", "landmarks", "Landmarks"],
-	["civilization", "factions", "Factions & settlements"],
-	["civilization", "infra", "Ways & routes"],
+	["civilization", "factions", "Factions"],
+	["civilization", "infra", "Routes & ways"],
 	["civilization", "planner", "Journey planner"],
 	["cartography", "style", "Layers & style"],
 	["cartography", "labels", "Labels"],
@@ -178,7 +183,7 @@ func _ready() -> void:
 				body != null and body.visible, true)
 
 	# =====================================================================
-	print("\n=== 3: nothing was stranded — all 33 categories, named ===")
+	print("\n=== 3: nothing was stranded — all 32 categories, named ===")
 	var total := 0
 	for dom in EXPECTED:
 		var panel: Control = app.call("workspace_panel", dom)
@@ -209,7 +214,7 @@ func _ready() -> void:
 		_ok("[%s] the dock builds no category EXPECTED does not name" % dom,
 			titles.size(), (EXPECTED[dom] as Array).size())
 	print("  info categories asserted by name: ", total)
-	_ok("all thirty-three were asserted", total, 33)
+	_ok("all thirty-two were asserted", total, 32)
 
 	## Every real `select_domain_category()` call site in the shell, by (domain,
 	## category), each resolving to the node that will light. These are grepped
@@ -221,11 +226,11 @@ func _ready() -> void:
 	for jump in [
 		["civilization", "Military", "factions"],
 		["civilization", "Landmarks", "landmarks"],
-		["civilization", "Simulation", "factions"],
+		["civilization", "Timeline", "factions"],
 		["civilization", "Routes & ways", "infra"],
 		["civilization", "Territories", "factions"],
 		["civilization", "Factions", "factions"],
-		["civilization", "Trade", "infra"],
+		["civilization", "Economy", "factions"],
 		["cartography", "Labels", "labels"],
 		["cartography", "Political display", "style"],
 		["cartography", "Assets & landmarks", "icons"],

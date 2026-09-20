@@ -94,14 +94,14 @@ const DOMAINS: Array = [
 # its rail node, from the dock's own mode switch (`_build_mode_switch()`), and
 # from arming Sculpt; `world/a` from all three of the same. Nothing else in the
 # three docks is gated, so nothing else can be stranded by one -- which is the
-# property `_leftdock12_probe.gd` §2 asserts by name over all thirty-four
+# property `_leftdock12_probe.gd` §2 asserts by name over all thirty-two
 # categories rather than by counting them.
 #
 # The rest of `mode` is a rail-and-dock *selector*, not a gate. Each domain's
 # dock is ONE accordion of every category that domain owns, so gating CIVIL by
-# mode would make the nine CIVIL categories the prototype has no node for --
-# Civilizations, Territories, Economy, Culture, Religion, Politics, Military,
-# Relationships, Simulation -- reachable only by a rail trip. That is the
+# mode would make the nine CIVIL categories no node opens -- Populate,
+# Settlements, Territories, Relationships, Military, Culture, Religion,
+# Economy, Timeline -- reachable only by a rail trip. That is the
 # failure this stage's own rule forbids ("every category reachable before must
 # be reachable after"), and §3 does not ask for it. So a node click *opens* its
 # category and lights the rail; outside `world/b` it never hides a sibling.
@@ -139,12 +139,11 @@ const RAIL_NODES: Array = [
 	{"kind": "node", "domain": "civilization", "mode": "landmarks", "label": "Landmarks",
 		"category": "Landmarks", "owns": ["Landmarks"]},
 	{"kind": "node", "domain": "civilization", "mode": "factions",
-		"label": "Factions & settlements", "category": "Factions",
-		"owns": ["Civilizations", "Factions", "Territories", "Settlements",
-			"Economy", "Culture", "Religion", "Politics", "Military",
-			"Relationships", "Simulation"]},
-	{"kind": "node", "domain": "civilization", "mode": "infra", "label": "Ways & routes",
-		"category": "Routes & ways", "owns": ["Routes & ways", "Trade"]},
+		"label": "Factions", "category": "Factions",
+		"owns": ["Populate", "Settlements", "Factions", "Territories", "Relationships",
+			"Military", "Culture", "Religion", "Economy", "Timeline"]},
+	{"kind": "node", "domain": "civilization", "mode": "infra", "label": "Routes & ways",
+		"category": "Routes & ways", "owns": ["Routes & ways"]},
 	{"kind": "node", "domain": "civilization", "mode": "planner", "label": "Journey planner",
 		"category": "Travel", "owns": ["Travel"]},
 
@@ -162,7 +161,7 @@ const RAIL_NODES: Array = [
 ]
 
 # `RAIL_NODES` -- where this port had to decide, because the prototype's ten
-# nodes do not cover this shell's thirty-three categories. Written down rather than invented in
+# nodes do not cover this shell's thirty-two categories. Written down rather than invented in
 # silence, per the house rule; each line is a claim a reader can disagree with.
 #
 # - **WORLD `b` owns `Terrain` and nothing else.** `Terrain` is where
@@ -173,15 +172,30 @@ const RAIL_NODES: Array = [
 #   means. `Terrain` therefore does NOT appear under `a` even though it carries
 #   stage 5's parameters -- a node owns a category exactly once, and the
 #   accordion shows all nine regardless, so nothing is lost.
-# - **CIVIL `factions` is the catch-all.** The prototype's four CIVIL nodes map
-#   cleanly onto four of this shell's fourteen categories. The other ten have no
-#   node. Eight of them (Civilizations, Territories, Settlements, Economy,
-#   Culture, Politics, Military, Relationships, Simulation) are the roster and
-#   its consequences, which is what the `factions` node's own dock block draws
-#   (`FACTIONS` list + `civPlaces`, `04-left-dock.md` §4 row 7), so they go
-#   there. `Trade` goes to `infra` because `civilization_workspace.gd:238`
-#   builds it from `_infra.build_trade_into()` -- INFRA's own subject, and the
-#   `infra` node is INFRA's surviving name.
+# - **CIVIL `factions` is the catch-all.** Ruling L
+#   (`design/owner-references-2026-09-12/left_rail_tree_resorted.md` L22-27,
+#   2026-09-13) names five CIVIL nodes -- Settlements, Landmarks, Factions,
+#   Routes & ways, Journey planner -- and the labels, targets and order here are
+#   its, less the first: **the Settlements node is not built**. A node is keyed
+#   by its `mode`, `rail_node()` returns the first match and the rail rows are
+#   keyed `domain/mode`, so a Settlements node would need a fifth CIVIL mode id,
+#   which is not this table's to add. Four nodes open four of CIVIL's thirteen
+#   categories; the other nine (Populate, Settlements, Territories,
+#   Relationships, Military, Culture, Religion, Economy, Timeline) are the
+#   roster and its consequences, which is what the `factions` node's own dock
+#   block draws (`FACTIONS` list + `civPlaces`, `04-left-dock.md` §4 row 7), so
+#   they go there. `Economy` with them: it absorbs `Trade`, which went to
+#   `infra` only while `_infra.build_trade_into()` drew it as a category of its
+#   own. **`landmarks` is still CIVIL's first node, so still what
+#   `_domain_mode` is seeded with, and so what a fresh CIVIL entry lights --
+#   over an open Populate, which `factions` owns.** Left standing on purpose:
+#   the one write that closed it (a boot-time `apply_domain_mode()` from
+#   `CivilizationWorkspace._build()`, 2026-09-13, removed the same week) also
+#   moved `app.gd::_on_workspace_changed()`'s re-entry baseline, and a Way
+#   draft armed before the first in-CIVIL navigation then kept or lost its
+#   Commit/Discard row differently from before Ruling L. Reordering this table
+#   contradicts the tree's node order and a Settlements node needs a fifth mode
+#   id; both are the owner's call (plan C1).
 # - **CARTO `style` is the catch-all**, for the same reason: `Layers & style` is
 #   the node the prototype gives the layer tree, the ramp editor and
 #   `caDomains`/`caLight` (`ENV:496`), and this shell's Map style, Colours,
@@ -4223,8 +4237,8 @@ func _collapse_button(is_left: bool) -> Button:
 #
 # **The fallback is the node's own label, and it is not free.** No domain but
 # WORLD has a gate, so no other label is on screen today; if one gains one, the
-# derived text is `LANDMARKS` / `FACTIONS & SETTLEMENTS` / `WAYS & ROUTES` /
-# `JOURNEY PLANNER` for CIVIL (9/22/13/15 characters over four halves) and
+# derived text is `LANDMARKS` / `FACTIONS` / `ROUTES & WAYS` /
+# `JOURNEY PLANNER` for CIVIL (9/8/13/15 characters over four halves) and
 # `LAYERS & STYLE` / `LABELS` / `ICONS` / `TERRAIN APPEARANCE` for CARTO
 # (14/6/5/19). Those are legible strings, not placeholders, and whether four of
 # them fit is a measurement rather than an opinion -- the pill sits in the header
@@ -4240,7 +4254,9 @@ func _collapse_button(is_left: bool) -> Button:
 # | tablet 2560x1600       |  400 |     211.0 | **633.0** | **508.0** |
 # | phone 1080x2340, sheet | 1080 |     153.0 |     461.0 |     365.0 |
 #
-# Bold overflows. WORLD's shipping pill clears every density with room; CARTO's
+# Bold overflows. CIVIL's column was measured with the labels before Ruling L
+# (2026-09-13) shortened `FACTIONS & SETTLEMENTS` to `FACTIONS`, and has not been
+# re-measured since. WORLD's shipping pill clears every density with room; CARTO's
 # four derived labels clear the desktop dock by 7 px and overflow the tablet's;
 # CIVIL's overflow both. (The phone row is the *authored* figure -- §7(f)'s
 # scratch segments sit outside both docks, so `_on_phone_node_added()` never

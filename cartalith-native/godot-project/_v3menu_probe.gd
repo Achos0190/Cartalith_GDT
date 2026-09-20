@@ -16,7 +16,7 @@ extends Node
 ##      An accordion hides its own bugs -- a category that throws while
 ##      building leaves an empty body that looks like a closed one.
 ##   4. Prove the rows that claim real capability actually reach it:
-##      Territories' two recompute shortcuts, Politics/Simulation's split,
+##      Territories' two recompute shortcuts, Timeline's years and simulator,
 ##      Layers/Political display's split, and Data ▸ Markdown vault.
 ##   5. Assert every disabled row carries a reason (the `_todo` contract).
 ##   6. One screenshot per rail, every category forced open.
@@ -42,25 +42,34 @@ var _fail := 0
 ## and tracked as owed work at :621, and the 2026-08-31 DCC spec carries the new
 ## name too (`design/dcc-environment-2026-08-31/spec/02-rail-and-domains.md:94`).
 ## The rail fold's rule -- every pre-existing category stays reachable -- holds:
-## the category is still there, still fifth, only its title moved. The old name
-## is listed in `GONE` below so a revert to the stub is still caught.
+## the category is still there, only its title moved. The old name is listed in
+## `GONE` below so a revert to the stub is still caught.
+##
+## **CIVIL's whole list is no longer v3's.** Ruling L
+## (`design/owner-references-2026-09-12/left_rail_tree_resorted.md` L143-247)
+## re-sorts it to thirteen, in the owner's order: Civilizations renamed
+## Populate, Trade folded into Economy, Politics renamed Timeline and
+## Simulation folded into it. `GONE` carries the four retired titles.
 const WANT := {
 	"world": ["Generate", "Terrain", "Geology", "Hydrology", "Climate",
 		"Biomes", "Ecology", "Resources", "World data"],
-	"civilization": ["Civilizations", "Factions", "Territories", "Settlements",
-		"Landmarks", "Routes & ways", "Travel", "Trade", "Economy",
-		"Culture", "Politics", "Military", "Relationships", "Simulation"],
+	"civilization": ["Populate", "Settlements", "Landmarks", "Routes & ways",
+		"Travel", "Factions", "Territories", "Relationships", "Military",
+		"Culture", "Religion", "Economy", "Timeline"],
 	"cartography": ["Map style", "Terrain appearance", "Colours", "Layers",
 		"Roads & routes", "Labels", "Assets & landmarks", "Political display",
 		"Visibility / zoom", "Map presets"],
 }
 
 ## Categories the v3 pass RETIRED. Any of these still on a rail is the
-## `_dock_hosted` / `_nested` ordering bug coming back.
+## `_dock_hosted` / `_nested` ordering bug coming back. `Timeline` left this list
+## when Ruling L brought it back as a live CIVIL category (L236).
 const GONE := ["Roads", "Rivers", "Ports", "Logistics", "Layer properties",
-	"Annotation", "Timeline", "Population", "Generation pipeline",
+	"Annotation", "Population", "Generation pipeline",
 	## Renamed to `Landmarks`, not deleted -- see the note on `WANT` above.
-	"Points of interest"]
+	"Points of interest",
+	## Ruling L's four (L342): renamed or folded, never deleted -- see `WANT`.
+	"Civilizations", "Trade", "Politics", "Simulation"]
 
 
 func _fail_msg(s: String) -> void:
@@ -228,18 +237,22 @@ func _ready() -> void:
 
 	# -- 4. the rows that claim real capability ------------------------------
 
-	## Politics / Simulation split: the year list must be under Politics and the
-	## simulate form under Simulation, not both in one body.
-	var pol := "\n".join(_texts(civ._tl_body, []))
-	var sim := "\n".join(_texts(civ._sim_body, []))
-	if pol.find("Add year") >= 0 and pol.find("Simulate") < 0:
-		_ok("CIVIL ▸ Politics holds the years and not the simulator")
+	## Ruling L folds Politics and Simulation back into one Timeline
+	## (`left_rail_tree_resorted.md` L236-247): the year list and the simulate
+	## form share `_tl_body`, the form as a closed expander, and neither old title
+	## is a category any more.
+	var tl := "\n".join(_texts(civ._tl_body, []))
+	var civ_titles: Array = []
+	for e in _all_categories(civ):
+		civ_titles.append(String((e as Dictionary)["title"]))
+	var sim_btn := _button_exact(civ._tl_body, "Simulate")
+	if tl.find("Add year") >= 0 and tl.find("SIMULATE COLLAPSE / RECOVERY") >= 0 \
+			and sim_btn != null and not civ_titles.has("Politics") \
+			and not civ_titles.has("Simulation"):
+		_ok("CIVIL ▸ Timeline holds the years and the simulator; Politics and Simulation are gone")
 	else:
-		_fail_msg("CIVIL ▸ Politics content is wrong:\n%s" % pol)
-	if sim.find("Simulate") >= 0 and sim.find("Add year") < 0:
-		_ok("CIVIL ▸ Simulation holds the simulator and not the years")
-	else:
-		_fail_msg("CIVIL ▸ Simulation content is wrong:\n%s" % sim)
+		_fail_msg("CIVIL ▸ Timeline content is wrong (Simulate button=%s, Politics=%s, Simulation=%s):\n%s"
+			% [sim_btn != null, civ_titles.has("Politics"), civ_titles.has("Simulation"), tl])
 
 	## Territories' two recompute shortcuts are the same real call. Driven, not
 	## read: press the button and assert the engine moved.
@@ -339,8 +352,8 @@ func _ready() -> void:
 	## content can actually be looked at rather than inferred from a wall of
 	## every-category-open text.
 	_app._select_domain("civilization")
-	for want in ["Routes & ways", "Travel", "Trade", "Politics", "Simulation",
-			"Factions", "Territories"]:
+	for want in ["Populate", "Settlements", "Routes & ways", "Travel", "Economy",
+			"Timeline", "Factions", "Territories"]:
 		await _solo_shot("civ", civ, want)
 	_app._select_domain("cartography")
 	for want in ["Roads & routes", "Political display", "Visibility / zoom",
@@ -379,6 +392,18 @@ func _find_button(n: Node, text: String) -> Button:
 		return n as Button
 	for c in n.get_children():
 		var r := _find_button(c, text)
+		if r != null:
+			return r
+	return null
+
+
+## An exact-text match, where `_find_button()`'s `findn` would take the
+## `› SIMULATE COLLAPSE / RECOVERY` header for the `Simulate` button inside it.
+func _button_exact(n: Node, text: String) -> Button:
+	if n is Button and (n as Button).text == text:
+		return n as Button
+	for c in n.get_children():
+		var r := _button_exact(c, text)
 		if r != null:
 			return r
 	return null
