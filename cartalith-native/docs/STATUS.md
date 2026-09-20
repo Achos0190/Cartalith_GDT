@@ -44,8 +44,8 @@ work outstanding.
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **45** DCC files (newest
-**v2.67**), and it **forked at v2.22** — every engine change from v2.25 on
+v*.html` (newest **v2.22**) plus a second line of **46** DCC files (newest
+**v2.68**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and seven of the changes in the interval
@@ -59,7 +59,22 @@ highest-leverage constant in the height formula: the coastline is the level set 
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
-**v2.67 is the newest.** Urban layout again, no height/climate/flow/pixel, `hash_gen1.js` vs
+**v2.68 is the newest, and it names a defect a faithful port INHERITS.** Render-only — `hash_gen1.js`
+vs v2.67 ALL IDENTICAL, no generated value moves. The HTML's farmland generator has pushed
+`field`/`pasture` polygons into `model.details` since v0.95 and **nothing has ever drawn one**:
+neither map renderer reads `model.details` at all, and the City Viewer's detail pass branches on
+well/cross/crane/bollard/spoilheap/tree/dryingrack/logboom/fence with **no branch for either kind**,
+so 62-86 field polygons per pop-440 village fell through every `else if` in silence for the life of
+the file. A port that reads the reference faithfully ports the generator and never learns it was
+invisible, so **assert that every detail kind the generator can emit is reachable by the renderer,
+derived from what a real town produces rather than from a hand-written list** (v2.65's rule, third
+instance). Its other finding is a build a port should NOT make: furrow hatching with a per-parcel
+plough direction needs neither a hatch pass nor a stored bearing, because each grant is already a
+**selion** — 5.8 x 91.5 m, every poly a quad, aspect 15.8:1 — and a furlong is a bundle of parallel
+selions (measured: 10 distinct bearings over 98 parcels, largest bundle 52 sharing one). The
+texture IS the geometry. See `RC_ENGINE_CHANGES.md` §8.2.
+
+**v2.67 is the version before.** Urban layout again, no height/climate/flow/pixel, `hash_gen1.js` vs
 v2.66 ALL IDENTICAL. **Two of its findings belong to a port whatever it decides about the
 feature.** (1) `buildParcels` decided plot grain with a hardcoded `dM<160` — one two-bucket radial
 proxy for "which quarter is this?" — while `assignDistricts` answered the same question 130 lines
