@@ -472,6 +472,14 @@ re-checked against the tree rather than copied from the commit message.
 
 ### 2026-09-20
 
+### 2026-09-20 (night)
+
+A second batch landed the same day, same method (3 builders at the standing cap, Opus 5 max for the two engine lanes, Sonnet 5 for GUI, each independently verified):
+
+- **Ruling N, river half, built and verified** (`649897f`). `build_settlement_suitability`’s river term now reads proximity to a real traced river polyline instead of a raw flow/order sample. Deliberate golden re-baseline, three settlement golden suites re-pinned. The verifier caught and corrected one shipped overclaim: connectivity here is enforced structurally by the order>=2 threshold, not by the polyline itself — true for rivers, not for coastlines, which is exactly why EF-6 matters.
+- **EF-6 built and verified** (`630c0dd`). Coastline and fault-line tracing (one shared contour primitive) plus ridge tracing (a second, TPI-based one) — zero prior vectorization of anything but rivers, checked by grep. Unblocks Ruling N’s coastal half. Verified independently: 0 missing/0 spurious contour crossings, every ridge point above land mean+1SD.
+- **PLAN’s phone-sheet subtitle fixed** (`554d953`). Hooked to `_apply_result()`, where every recompute path converges. A residual, pre-existing, out-of-scope gap disclosed and filed: the header’s TITLE half still doesn’t refresh on stage isolate.
+
 Three tracks landed in one session, run in parallel per the owner’s instruction (1 GUI builder, 2 engine builders at Opus 5 max effort):
 
 - **CIVIL half of Ruling L closed** (`5f839d7`). Both confirmed behaviour bugs and all three layout defects fixed, re-verified on all five form factors (271 HEAD diffs before, 0 after). Owner call C1 (entry-lit mismatch) left open. WORLD and CARTO not started.
@@ -1167,7 +1175,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-20 (evening): 124 items.** Was 120 after the `main` merge (115 here plus §2.9’s three source-engine rows, the re-opened reference re-freeze and the Nortantis credits row; before that 110, then 115 once `LOD_DETAIL_SCOPE.md`’s seven milestone rows absorbed two). The CIVIL rail row and the IME row closed (net -1, one row moved to the closed-rows archive); five elevation-field rows filed (+5) — Ruling N’s river and coastal binding fixes, EF-3, EF-6, EF-9. Run
+**Recounted 2026-09-20 (night): 122 items.** Was 124 after Ruling N/EF-3/EF-6/EF-9 were filed (120 after the `main` merge; before that 110, then 115, then 120 — the fuller chain is above). Ruling N’s river half, EF-6 and the PLAN subtitle row closed (-3); the coastal-binding row updated in place, unblocked now that EF-6 landed; one new small row filed for a disclosed residual (the header’s TITLE half still goes stale on stage isolate) (+1). Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for
