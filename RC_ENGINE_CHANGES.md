@@ -1570,6 +1570,127 @@ the fragile-outlier shape, and it flipped here one version after it was written.
 
 ---
 
+## 6r. The layout engine's own parameter table gets a UI (v2.66, DCC line only)
+
+Urban-layout generation again — no height, climate, flow or pixel moves, and `hash_gen1.js`
+vs v2.65 is ALL IDENTICAL. **This section exists for one porting fact, not for the menu.**
+
+### 6r.1 `opts.rules` was a live input of `cityGen` and nothing ever set it
+
+The urban-morphology engine has exported **`DEFAULT_RULES` — 22 named generation
+parameters across three groups** — since v0.95, together with `resolveRules(partial)`,
+`applyWildness(rules,w)` and `applyPlotChaos(rules,c)`, and `generate()` reads
+`opts.rules` on its very first lines and threads the **resolved** object down to the
+growth loop and the parcel pass. **The host adapter (`_umPlaceContext`) has never set
+it.** So every town the HTML has ever drawn came out at `DEFAULT_RULES`, and the table
+was 22 numbers each declared once, each effectively hardcoded, with no control anywhere.
+
+| group | what it governs | count |
+|---|---|---|
+| `street` | branch/continuation jitter, exploration share/decay/minimum, segment length median and variance, pierce chance, junction angle limit, market gradient decay, parallel-street spacing, dead-end bias, bridgehead distance and probability | 14 |
+| `parcels` | frontage-width variance, plot-depth variance, subdivision cap | 3 |
+| `settlement` | wall-generation threshold, minimum years between circuits, minimum extramural share, maximum wall generations, carrying-capacity weight | 5 |
+
+**A port that has ported `cityGen` already has this table.** What v2.66 adds host-side is
+where the values come from.
+
+### 6r.2 The storage, and why a port can skip it
+
+`state.civTypeRules[kind]` holds a rules object per settlement kind; the adapter passes
+`civTypeRulesFor(p.kind)` as `opts.rules`. Three constraints:
+
+- **The accessor returns `null`, never an empty object**, so an untouched type leaves
+  `rules` ABSENT from the options and `resolveRules` takes its `DEFAULT_RULES` branch.
+  Bit-identity is **structural**, exactly as §6o made it for `civParams` — so **a port
+  with no such UI keeps `DEFAULT_RULES` and skips this section entirely**, and a save
+  written before v2.66 reloads as the world it was.
+- **The per-settlement layout cache key must carry a fingerprint of the rules.** Without
+  it a stale town survives a rules edit for ever and silently — the HTML's own v1.28
+  lesson about a render cache that omitted an input. Any port caching generated layouts
+  has the identical hazard.
+- **`civTypeRules` joins the generation-parameter dump's block list**, so the reproduction
+  text carries it; like `civParams`, an import only populates keys the reference state
+  already has (§ the "bounded by the reference" rule).
+
+### 6r.3 What is NOT stored per type, and the rule that decided it
+
+Site, culture, specialisation, fortification, population, age and seed are exposed in the
+menu and **deliberately not stored per type**, because every one of them already has a
+per-settlement field or is derived from the terrain. A second per-type copy of a value
+that already has a home is the one-control-two-surfaces defect the HTML has paid for
+repeatedly. **A port should apply the same test before adding a scope: does this value
+already have an owner?**
+
+### 6r.4b One layout lesson, since it cost a round here
+
+The first cut put the parameters and the preview in two columns. Every DOM assertion
+passed — the canvas existed, was visible, and measured 648×498 — and the layout was still
+wrong: the shell caps its reading column at 720 px, so the two columns wrapped and the
+preview landed below the fold, which is exactly what a comparison pane must not do. **Only
+a screenshot reported it.** A port building the equivalent surface should assert the
+geometry it actually needs (the preview sharing the viewport with the controls that change
+it), not merely that the element is present and visible.
+
+### 6r.5 Exposing the table reached a NON-TERMINATING region of that same range
+
+**This is the part of v2.66 a port must carry, and it is a defect in the layout engine
+itself, not in the menu.** `buildParcels` lays frontage grants along a block edge by
+drawing a width from a lognormal (median 11 m, sigma = `frontageWidthVariance`, clamped
+to [4.5, 16]) and **re-drawing whenever the draw does not fit the remaining frontage**.
+The retry has no upper bound. When the remainder sits just above the 4.5 m floor but
+below a typical grant, the only escape is drawing from the distribution's far lower
+tail, and the expected number of retries explodes as the variance falls:
+
+| `frontageWidthVariance` | expected retries against a 4.6 m remainder |
+|---|---|
+| 0.40 | 68 |
+| 0.28 | 1 081 |
+| **0.22 — the engine default** | **28 571** |
+| 0.18 | ~2 000 000 |
+| 0.12 | effectively never |
+| **0.10 — the parameter's own documented minimum** | effectively never |
+
+**It was latent for the whole life of the HTML because nothing ever set `opts.rules`**
+(§6r.1), so every town ever generated ran at 0.22 and merely paid the tail occasionally.
+It becomes reachable the instant the rules are editable — and the proof of concept's own
+'Planned Grid' profile sets 0.12, so the first preset in the list was an unbounded hang.
+
+**Three things a port should take from this.**
+
+1. **A retry-until-it-fits loop over a heavy-tailed draw is a hang waiting for a
+   parameter change.** The termination argument depends on the distribution's spread,
+   which is itself a tunable. Any loop of that shape needs an explicit bound.
+2. **The fix is a BOUND, not a new formula — and the obvious claim for a bound is
+   FALSE here, which is worth knowing before a port repeats it.** The HTML caps
+   consecutive non-placing iterations (`PARCEL_GRANT_MAX_SPIN = 4096`), and the natural
+   thing to say is that a cap cannot change a run which terminates below it. It can, and
+   it does: the 852 goldens pass (their fixtures never reach the cap), but an ordinary
+   default-variance town runs to a measured maximum of **172 644** spins. So the bound is
+   a **deliberate, bounded re-baseline of generated town layouts**, and the HTML sizes it
+   by measurement rather than argument — raising the cap to 2^22 and regenerating the
+   same twelve towns, **10 of 12 differ, by at most 10 parcels (1.08%), 46 of 8 939
+   parcels overall (0.51%)**: the last grants of a block edge, never the town's character.
+   **A test that asserted only "the goldens still pass" would have reported a
+   byte-identity that does not hold**, which is why the HTML exports a seam that lets the
+   cap be raised for the comparison. A port rewriting the loop properly (place the
+   remainder, or stop once the remainder is below the floor) changes more and needs its
+   own re-baseline; this bound changes half a percent of parcels.
+3. **Bisect, do not read.** Each of the nine street parameters measured ~450 ms alone at
+   population 900; the parcels group alone did not return. The combination looked like a
+   scaling problem and was not one.
+
+Measured after the bound: all six profiles × eight populations from 900 to 20 000 return
+in **440–930 ms**, where the affected ones previously did not return at all.
+
+### 6r.4 Three more engine options the host still never sets
+
+`generate()` also reads **`opts.faith`, `opts.civicStyle` and `opts.harbourDefence`**, and
+the adapter sets none of them — so the religious building, the civic hall and the harbour
+defence works are all chosen by the engine's own culture defaults on every town the HTML
+draws. v2.66 exposes them in the preview and labels them as preview-only rather than
+leaving them silently inert. **A port wiring these to a settlement needs a field for each**
+(faith is arguably the faction religion's job) — that decision is open, in both codebases.
+
 ## 6q. The status gradient, made explicit (v2.65, DCC line only)
 
 Urban-layout generation again — no height, climate, flow or pixel, and `hash_gen1.js` vs
@@ -2353,6 +2474,7 @@ answer for the save format, the control surface and the tooling debt they carry.
 
 | Version | Change | Why it may still matter to the port |
 |---|---|---|
+| v2.66 | The layout engine's own 22-parameter rules table gets a UI, saved per settlement TYPE | **Not simulation — `hash_gen1.js` vs v2.65 is ALL IDENTICAL — and one porting fact worth the row: see §6r.** The urban-morphology engine has exported `DEFAULT_RULES` (22 named generation parameters across street / parcels / settlement) plus `resolveRules`/`applyWildness`/`applyPlotChaos` since v0.95, and `generate()` reads `opts.rules` on its first lines — **and the host adapter has never set it**, so every town the HTML has ever drawn came out at the defaults. **A port that has ported `cityGen` already has the table**; what this adds host-side is where the values come from. Storage is `state.civTypeRules[kind]`, the accessor returns **null rather than an empty object** so an untouched type leaves `rules` absent and the engine takes its defaults branch — bit-identity is structural, exactly as §6o made it for the settlement parameters, **so a port with no such UI keeps the defaults and skips this entirely**. Two constraints if it does not: the per-settlement layout cache key must carry a fingerprint of the rules, or a stale town survives the edit for ever and silently; and `opts.faith`, `opts.civicStyle` and `opts.harbourDefence` are **three more live engine inputs the adapter still never sets** (§6r.4), so those three choices are made by the culture defaults on every town the HTML draws. **And read §6r.5 whatever the port decides about the UI**: exposing those parameters reached a NON-TERMINATING region of the engine's own documented range — `buildParcels` re-draws a frontage grant until one fits, unbounded, and the escape probability collapses with `frontageWidthVariance` (the 0.22 DEFAULT already expects ~28 571 retries; 0.12, the PoC's own 'Planned Grid' profile, effectively never escapes). **A retry-until-it-fits loop over a heavy-tailed draw is a hang waiting for a parameter change.** |
 | v2.56 | The render prologue's eight derived fields (AO, crest, SVF, sun shadows, coast distance, coast/river/biome SDF) became generation-keyed | **Not simulation — bit-identical output — but a performance constraint any port that derives the same fields will meet.** The HTML rebuilt all eight on EVERY render with no cache key: measured at 1024px with their sliders on, **one render spent 9407 ms rebuilding them against 1219 ms of pixels**, and nothing they read had changed, so a slider drag cost ~12 s per step (11 720 ms -> 1 444 ms after the fix). Two rules worth carrying: **assemble the cache key at the CALL SITE, not inside the helper**, so a builder that gains a parameter has to name it where it is passed (`_fieldGen` covers field/flow/geoid, `_climGen` the biome raster's climate, and slider value / sun azimuth / sea level / which array the effective field resolved to are explicit); and **assert the EXACT rebuild set per input**, because a cache that never invalidates passes a "nothing was rebuilt" test perfectly. A field-generation bump rebuilding all eight is the contract, not a stampede. |
 | v2.54 | The generation-parameter dump reads back IN (`⤓ Apply pasted settings`) | **Not simulation, but it fixes a claim the port may have inherited.** Measured against live state, the dump whose caption promised *"for reproducing this exact world"* was missing **27 generation-affecting values** — `passes` and `hydro` entirely, 16 of `climate`'s 22 fields, and five scalars that lived only in prose, where `seaLevel` was rounded to a whole percent (0.4235 → 0.42, enough to move the coastline). The fix is **ONE list with TWO consumers** (`GEN_PARAM_BLOCKS`/`GEN_PARAM_SCALARS`), not a longer hand-list. A paste is an **untrusted-input boundary**: type-matched, finite-checked, everything refused reported **by path**, and recursion bounded by the REFERENCE rather than the input. |
 | v2.45 | A resolution/extent change also carries the per-cell rasters (territory, timeline history) and the faction metadata | **Not simulation; it is a data-model rule, and it corrects v2.44's row.** v2.44 rescaled the vectors and recorded the rasters as an accepted loss. Measured, the loss was wider: a 512→1024 change took painted territory from 96 659 cells to **0**, both timeline years to **0**, and every faction's culture, religion, government and **agricultural technology** back to its default — the last of which drives `foodSurplusRatio` in the HTML, so a resolution change silently reverted that lever (the HTML's own v1.54 measured the Early-Industrial-vs-Traditional gap at 2.66× on a settlement's food shed). Cause: the restore rebuilt `state.civ` from an **explicit field list**, and a reader that falls back to a default for every field the list omits turns an omission into a plausible wrong value rather than an error. **Port rules.** (1) Round-trip the serialiser's whole output, never a hand-written subset — the HTML now snapshots `_civSyncToState()`'s entire result. (2) A per-cell raster keyed by cell index is grid-relative; resample it **inversely** (walk the destination grid, read the source cell beneath each destination cell), because the forward direction leaves holes as soon as the grid grows — at 512→1024 a solid faction border returns at quarter density. (3) **Nearest-neighbour only**: a faction id is a label, so interpolating two of them invents a third along every border. (4) A history/timeline entry is a whole frozen world — its own entity positions need the same rescale as the live ones, or its diff overlay draws in the wrong place. (5) The invariant across an extent change is the **fraction of the map**, not the cell count: region→world took territory from 95 482 to 74 525 cells at an unchanged 0.5686 share. A port storing normalised coordinates and rasters as textures gets (2)–(5) for free, which is the argument for doing so. (6) **A key built out of a coordinate is a coordinate.** The HTML keys a journey's planned rest days by `name|kind|x.toFixed(1),y.toFixed(1)`, so rescaling the settlement orphaned every one of them — the stop stayed on the route, the days stayed stored, and nothing joined them, which reads as *no layover* rather than as an error. Prefer a stable id over a positional key; where one exists, remap it with the same function that built it. (7) **A cache keyed on something the restore puts back unchanged does not self-invalidate** — the HTML's year-diff cache is keyed on the year cursor and holds references to the history entries the restore replaced, so the ghost overlay drew the previous grid's entities. |

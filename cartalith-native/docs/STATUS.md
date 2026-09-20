@@ -44,8 +44,8 @@ work outstanding.
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **43** DCC files (newest
-**v2.65**), and it **forked at v2.22** — every engine change from v2.25 on
+v*.html` (newest **v2.22**) plus a second line of **44** DCC files (newest
+**v2.66**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and seven of the changes in the interval
@@ -59,7 +59,25 @@ highest-leverage constant in the height formula: the coastline is the level set 
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
-**v2.65 is the newest.** Urban layout again, no height/climate/flow/pixel, `hash_gen1.js` vs v2.64
+**v2.66 is the newest**, and it carries one thing a port must not miss. Urban layout again, no
+height/climate/flow/pixel, `hash_gen1.js` vs v2.65 ALL IDENTICAL. The feature is a menu: pick a
+settlement TYPE, set its parameters, see a live preview — built on the discovery that the layout
+engine has exported a **22-parameter generation-rules table** (`DEFAULT_RULES` + `resolveRules` +
+two compound sliders) since v0.95, that `cityGen` reads `opts.rules` on its first lines, and that
+**the host adapter has never set it**, so every town the HTML has ever drawn came out at the
+defaults. **A port that has ported `cityGen` already has the table.** The part to read is
+`RC_ENGINE_CHANGES.md` **§6r.5**: exposing those parameters reached a **NON-TERMINATING region of
+the engine's own documented range** — `buildParcels` re-draws a frontage grant until one fits the
+remaining edge, with no bound, so when the remainder sits just above the 4.5 m floor the only
+escape is the lognormal's far lower tail (measured against a 4.6 m remainder: the 0.22 **default**
+escapes in ~28 571 draws, 0.18 in ~2 000 000, and 0.12 — the proof of concept's own 'Planned Grid'
+profile — effectively never). **A retry-until-it-fits loop over a heavy-tailed draw is a hang
+waiting for a parameter change.** The fix is a BOUND rather than a new formula — but note that the
+obvious claim for a bound is false here: the goldens pass because their fixtures never reach it, while an
+ordinary town runs to a measured 172 644 spins, so it is a **deliberate, bounded re-baseline of generated
+town layouts** measured at **10 of 12 towns, 46 of 8 939 parcels (0.51%)**. See `RC_ENGINE_CHANGES.md` §6r.
+
+**v2.65** is the version before it. Urban layout again, no height/climate/flow/pixel, `hash_gen1.js` vs v2.64
 ALL IDENTICAL. It makes the status gradient EXPLICIT (`par.status`, from proximity to the market,
 intramural-or-not, and how far downwind on v2.64's bearing) and adds its two visible ends. **Verify
 the SHAPE, not the existence**: 0.662 mean status near the market against 0.218 at the edge, and

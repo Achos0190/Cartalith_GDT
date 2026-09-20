@@ -72,7 +72,7 @@ Five caveats on that number, stated rather than buried:
    outright, then 42/56/42 once the verification pass closed the §3.2 medium
    duplicate too).
 2. **§2.9's three rows hide a survey, not an estimate.** `RC_ENGINE_CHANGES.md`
-   specifies **39 distinct engine items** across v2.11–v2.65: 27 through v2.52,
+   specifies **40 distinct engine items** across v2.11–v2.66: 27 through v2.52,
    §6h's three (the 24-bit height word, the relief-gate floor and the
    local-contrast rebase), v2.57's plate-base blur, v2.58's river selection,
    v2.59's drainage default plus its ruling on Strahler order (§6k/§7.12), and
@@ -339,7 +339,7 @@ measurement.
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
-| **Re-freeze the reference and regenerate `FUNCTION_INDEX.md` in the same pass** | `CLAUDE.md`, `FUNCTIONAL_CONTRACT.md` | **large** (was medium) | **This row said "to v2.11" and that is twelve versions out of date.** Measured 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1 v*.html` (newest **v2.22**) plus **43** DCC-line files (newest **v2.65**); `reference/` still holds only v2.10 and the index still enumerates v2.10's 1 094 functions. **Every capability tag in `FUNCTIONAL_CONTRACT.md` is measured against a reference the source moved past** — that file's own "no drift, no re-freeze question to raise" paragraph was corrected the same day. Re-freezing now also means **choosing a line**: the source forked at v2.22 and every engine change from v2.25 on exists only on the DCC line, so "newest" is two different files. See §2.9 |
+| **Re-freeze the reference and regenerate `FUNCTION_INDEX.md` in the same pass** | `CLAUDE.md`, `FUNCTIONAL_CONTRACT.md` | **large** (was medium) | **This row said "to v2.11" and that is twelve versions out of date.** Measured 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1 v*.html` (newest **v2.22**) plus **44** DCC-line files (newest **v2.66**); `reference/` still holds only v2.10 and the index still enumerates v2.10's 1 094 functions. **Every capability tag in `FUNCTIONAL_CONTRACT.md` is measured against a reference the source moved past** — that file's own "no drift, no re-freeze question to raise" paragraph was corrected the same day. Re-freezing now also means **choosing a line**: the source forked at v2.22 and every engine change from v2.25 on exists only on the DCC line, so "newest" is two different files. See §2.9 |
 | **21 menu commands still unavailable**, each carrying a stated reason | `STATUS.md` | medium | 356 total entries, 21 unavailable (was 245 / 24) |
 | Carry the Nortantis studied-not-copied disclosure into the credits screen | `PROVENANCE.md` | small | The constants are live (`cartalith-assets/src/scatter.rs`; `cartalith-civ/src/naming.rs:3` cites Nortantis directly) and `grep -i nortantis godot-project/credits.gd` returns nothing |
 | Copy in the two upstream owner notes the research briefs cross-reference (`Gravity influence.md`, `Weather Model.md`) | `PROVENANCE.md` | small | They live only in the upstream `Cartalith_RC` / `Cartalith-Gen1` repositories. The alternative the doc itself allows is keeping the paragraph so the dangling reference is a known one |
@@ -354,7 +354,7 @@ measurement.
 
 **Added 2026-09-17. This is not new work — it is work that was never counted.**
 `RC_ENGINE_CHANGES.md` is a full porting spec for the source engine's changes
-from **v2.11 to v2.65**, and until this pass **no document in this repository
+from **v2.11 to v2.66**, and until this pass **no document in this repository
 referenced it except `CLAUDE.md`** (`grep -rl RC_ENGINE_CHANGES *.md` returned
 one file). So a 1 000-line specification of everything the source engine did
 after the freeze sat outside this ledger, outside `STATUS.md`, and outside the
@@ -662,7 +662,7 @@ recording corrections on 2026-08-23, -24 and -25.
 **Corrected 2026-09-17; this entry itself understated the drift by an order of
 magnitude.** It used to say `Cartalith Gen1 v2.11.html` at the root was the whole
 gap. Measured in the working copy: the source repo holds **164** mainline files
-(newest **v2.22**) and **43** DCC-line files (newest **v2.65**), while
+(newest **v2.22**) and **44** DCC-line files (newest **v2.66**), while
 `reference/` holds only v2.10 and `FUNCTION_INDEX.md` indexes v2.10's 1 094
 functions. `FUNCTIONAL_CONTRACT.md`'s *"no drift, no re-freeze question to
 raise"* paragraph has been replaced with the measurement.
