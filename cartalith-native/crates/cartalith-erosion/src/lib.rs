@@ -10,6 +10,7 @@ use cartalith_rng::Mulberry32;
 use rayon::prelude::*;
 
 pub mod passes;
+pub mod tile;
 
 pub use passes::{
     apply_tidal_sedimentation, centrifugal_shear, coastal_process, glacial_kernel,
@@ -379,6 +380,11 @@ impl MinHeap {
 /// The stream-power tuning knobs `streamParams()` bundles (reference
 /// HTML line 4261) — `state.stream`'s own fields plus the derived
 /// `resist`/`g`/`world`/`sea` context values.
+///
+/// `Copy` because [`crate::tile::tile_erode`] derives a tile-scaled variant of
+/// the caller's own params with `..*p` — a bag of eight scalars, so a copy is
+/// what a reference would have cost anyway.
+#[derive(Clone, Copy)]
 pub struct StreamPowerParams {
     pub k: f64,
     pub uplift: f64,
@@ -424,7 +430,72 @@ pub fn stream_power_kernel(
     h: usize,
     p: &StreamPowerParams,
 ) {
+    stream_power_kernel_bounded(fld, stress, resist, rain, w, h, p, None, None);
+}
+
+/// [`stream_power_kernel`] with the two boundary conditions a **tile-bounded**
+/// re-run needs, and nothing else changed.
+///
+/// Both extras are `None` on the whole-world path, where this is
+/// [`stream_power_kernel`] verbatim — the world entry point above is a
+/// delegation, so the two cannot drift, and the golden-parity fixtures in
+/// `tests/golden_parity_streampower.rs` exercise this body through it. The same
+/// shape `cartalith_hydrology::build_channels_with_threshold` already uses for
+/// the same reason: a tile needs one world-anchored number supplied rather than
+/// derived, and the ported expression stays untouched.
+///
+/// - **`pinned`** — cells whose height is held fixed for the whole run
+///   (Dirichlet base level). A pinned cell still routes: it is filled, it gets a
+///   receiver, it carries drainage area and it passes sediment downstream. Only
+///   its own `fld[i]` never moves — in the incision loop, in the deposition
+///   loop, and in the final `clamp`, so it comes out bit-identical to what went
+///   in. That last part is [`crate::tile::tile_erode`]'s whole seam guarantee
+///   and is why the clamp is skipped too rather than assumed a no-op.
+/// - **`area_seed`** — the per-cell starting drainage area, in place of the
+///   world path's uniform `1.0` (one cell drains itself). This is the tile's
+///   inflow boundary condition: EF-1's own units (`1/refine²` per fine cell,
+///   plus the coarse network's inward crossings) make a tile's `A` mean the
+///   same physical drained area the world pass's `A` means, so `Cc` — which is
+///   `K·dt·A^m/L` — comes out on the world's own scale rather than the tile's.
+///
+/// # Panics
+///
+/// If either slice is supplied and is not exactly `w * h` long. A shorter one
+/// would index out of bounds mid-loop after the expensive fill has already run;
+/// a longer one means the caller is describing a different grid.
+#[allow(clippy::too_many_arguments)]
+pub fn stream_power_kernel_bounded(
+    fld: &mut [f32],
+    stress: &[f32],
+    resist: &[f32],
+    rain: &[f32],
+    w: usize,
+    h: usize,
+    p: &StreamPowerParams,
+    pinned: Option<&[bool]>,
+    area_seed: Option<&[f32]>,
+) {
     let n = w * h;
+    if let Some(m) = pinned {
+        assert!(m.len() == n, "pinned mask is {} cells, needs exactly {n} ({w}x{h})", m.len());
+    }
+    if let Some(a) = area_seed {
+        assert!(a.len() == n, "area seed is {} cells, needs exactly {n} ({w}x{h})", a.len());
+    }
+    // One closure rather than an `if let` at four sites. It is a runtime check,
+    // **not** a compiled-away one: `pinned` is a value, and this function is
+    // far too large for LLVM to inline into `stream_power_kernel` and
+    // specialise the `None`. Measured rather than assumed, at 1024x1024,
+    // median of seven, harness run alone -- `iters: 0` is 195.2/195.4 ms across
+    // two runs against a single pre-change sample of 196.6, and `iters: 9` is
+    // 289.2/289.1 against 284.9. The setup is unaffected (the check is only in
+    // the iteration loops) and the iteration loops are ~1.5% dearer, which is
+    // ~0.1% of a generation -- but the pre-change figure is one sample with no
+    // spread, so **no difference is established** and none is claimed. The
+    // zero-cost version is a private generic inner function monomorphised over
+    // a pin type; it is not worth the duplication in a golden-parity kernel for
+    // a number this size.
+    let is_pinned = |i: usize| pinned.is_some_and(|m| m[i]);
     let wrap = p.world;
     let sea = p.sea;
     let d8 = d8_table();
@@ -570,7 +641,10 @@ pub fn stream_power_kernel(
     // (`area[j] += ...`), the same genuine cross-cell dependency already
     // confirmed unsafe for `cartalith-hydrology::compute_flow` and flagged
     // in `CPU_MULTITHREADING_SCOPE.md`/`GPU_LAYER_INTEGRATION_SCOPE.md`.
-    let mut area = vec![1f32; n];
+    let mut area = match area_seed {
+        Some(a) => a.to_vec(),
+        None => vec![1f32; n],
+    };
     for k in (0..n).rev() {
         let i = order[k] as usize;
         let x = (i % w) as i64;
@@ -660,7 +734,7 @@ pub fn stream_power_kernel(
         for k in 0..n {
             let i = order[k] as usize;
             let r = rcv[i];
-            if r < 0 {
+            if r < 0 || is_pinned(i) {
                 continue;
             }
             let r = r as usize;
@@ -686,28 +760,39 @@ pub fn stream_power_kernel(
                 let cap = 0.005 * (area[i] as f64).powf(0.5) * slope;
                 let ceil = old_h[i] as f64 + dt * u[i] as f64;
 
-                if sed[i] as f64 > cap {
-                    let mut d = (sed[i] as f64 - cap) * dep;
-                    if fld[i] as f64 + d > ceil {
-                        d = (ceil - fld[i] as f64).max(0.0);
+                // A pinned cell deposits nothing (its height is fixed) and
+                // therefore keeps all of its sediment, which the carry below
+                // then passes downstream unchanged -- mass conserving, and the
+                // two `sed[i]` decrements are inside the same guard as the
+                // `fld[i]` writes they pay for.
+                if !is_pinned(i) {
+                    if sed[i] as f64 > cap {
+                        let mut d = (sed[i] as f64 - cap) * dep;
+                        if fld[i] as f64 + d > ceil {
+                            d = (ceil - fld[i] as f64).max(0.0);
+                        }
+                        fld[i] = (fld[i] as f64 + d) as f32;
+                        sed[i] = (sed[i] as f64 - d) as f32;
                     }
-                    fld[i] = (fld[i] as f64 + d) as f32;
-                    sed[i] = (sed[i] as f64 - d) as f32;
-                }
-                if fld[i] as f64 <= sea && sed[i] as f64 > 0.0 {
-                    let mut d = sed[i] as f64 * dep * 0.8;
-                    if fld[i] as f64 + d > ceil {
-                        d = (ceil - fld[i] as f64).max(0.0);
+                    if fld[i] as f64 <= sea && sed[i] as f64 > 0.0 {
+                        let mut d = sed[i] as f64 * dep * 0.8;
+                        if fld[i] as f64 + d > ceil {
+                            d = (ceil - fld[i] as f64).max(0.0);
+                        }
+                        fld[i] = (fld[i] as f64 + d) as f32;
+                        sed[i] = (sed[i] as f64 - d) as f32;
                     }
-                    fld[i] = (fld[i] as f64 + d) as f32;
-                    sed[i] = (sed[i] as f64 - d) as f32;
                 }
                 sed[r] = (sed[r] as f64 + sed[i] as f64) as f32;
             }
         }
     }
 
-    fld.par_iter_mut().for_each(|v| *v = v.clamp(0.0, 1.0));
+    fld.par_iter_mut().enumerate().for_each(|(i, v)| {
+        if !is_pinned(i) {
+            *v = v.clamp(0.0, 1.0)
+        }
+    });
 }
 
 /// `isostaticRebound()` (reference HTML lines 4426-4432): erosional
