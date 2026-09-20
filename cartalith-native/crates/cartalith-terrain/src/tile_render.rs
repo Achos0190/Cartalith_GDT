@@ -122,8 +122,15 @@ pub use cartalith_jsmath::u8_clamped;
 pub(crate) use cartalith_jsmath::js_hypot3;
 
 /// `edgeL` (reference 11606). `ro` is the row offset `y * w`.
+///
+/// **`pub` since 2026-09-21 (LOD-D1).** The four extrapolators are the v1.29
+/// seam fix and there must be exactly one copy of them:
+/// `cartalith_godot::render::render_biome_tile_rgba` is the reference's
+/// *other* tile coloriser (`renderBiomeTileRGBA`, 11668) and reads the same
+/// four neighbours at the same tile border. Re-deriving them there is how two
+/// tile paths end up disagreeing at the one column this fix exists for.
 #[inline]
-fn edge_l(t: &[f32], w: usize, x: usize, ro: usize) -> f64 {
+pub fn edge_l(t: &[f32], w: usize, x: usize, ro: usize) -> f64 {
     if x > 0 {
         t[ro + x - 1] as f64
     } else {
@@ -133,7 +140,7 @@ fn edge_l(t: &[f32], w: usize, x: usize, ro: usize) -> f64 {
 
 /// `edgeR` (reference 11607).
 #[inline]
-fn edge_r(t: &[f32], w: usize, x: usize, ro: usize) -> f64 {
+pub fn edge_r(t: &[f32], w: usize, x: usize, ro: usize) -> f64 {
     if x < w - 1 {
         t[ro + x + 1] as f64
     } else {
@@ -143,7 +150,7 @@ fn edge_r(t: &[f32], w: usize, x: usize, ro: usize) -> f64 {
 
 /// `edgeU` (reference 11608).
 #[inline]
-fn edge_u(t: &[f32], w: usize, h: usize, x: usize, y: usize) -> f64 {
+pub fn edge_u(t: &[f32], w: usize, h: usize, x: usize, y: usize) -> f64 {
     if y > 0 {
         t[(y - 1) * w + x] as f64
     } else {
@@ -153,7 +160,7 @@ fn edge_u(t: &[f32], w: usize, h: usize, x: usize, y: usize) -> f64 {
 
 /// `edgeD` (reference 11609).
 #[inline]
-fn edge_d(t: &[f32], w: usize, h: usize, x: usize, y: usize) -> f64 {
+pub fn edge_d(t: &[f32], w: usize, h: usize, x: usize, y: usize) -> f64 {
     if y < h - 1 {
         t[(y + 1) * w + x] as f64
     } else {

@@ -2815,10 +2815,13 @@ const CREST_SLOPE_HI: f64 = 0.05;
 /// convexity (a negative Laplacian) times a `G^1.5` slope weight, and zero
 /// everywhere the ground is concave, flat or under water.
 ///
-/// A literal port with `sx = sy = 1`, which is the main map's own call
-/// (`invc` is then `1`, so it drops out rather than being carried as a
-/// multiply by one). The reference's coarse-scaled variant is the deep-zoom
-/// tile path's, which this port renders through its own pyramid.
+/// `sx`/`sy` are **coarse cells per sample step** — the reference's own
+/// parameters, `1` on the `GW x GH` main map and `cx`/`cy` on an amplified
+/// tile, so the slope gate and the Laplacian stay on the coarse-cell scale
+/// whatever resolution the samples were taken at. Added 2026-09-21 for
+/// LOD-D1; the main map passes `1.0, 1.0`, where `invc` is exactly `1.0` and
+/// `2.0 * sx` is exactly `2.0`, so that call is bit-identical to what it was
+/// before the parameters existed (`build_crest_at_unit_scale_leaves_the_screen_unchanged`).
 ///
 /// `js_hypot` rather than `f64::hypot`: `cartalith-rust-conventions`' "V8's
 /// libm is not Rust's", and this is a gradient magnitude feeding a `powf`
@@ -2826,10 +2829,12 @@ const CREST_SLOPE_HI: f64 = 0.05;
 ///
 /// Built only when `crest_strength > 0`; `RenderCtx` holds an empty `Vec`
 /// otherwise, so the stage costs one length test on every other path.
-fn build_crest(field: &[f32], gw: usize, gh: usize, sea: f64, a: &TerrainAppearance) -> Vec<f32> {
+fn build_crest(field: &[f32], gw: usize, gh: usize, sea: f64, sx: f64, sy: f64, a: &TerrainAppearance) -> Vec<f32> {
     if a.crest_strength <= 0.0 {
         return Vec::new();
     }
+    // `sx=sy=1` in the reference's own default-argument form (`sx=sx||1`).
+    let invc = 1.0 / (sx * sy);
     let mut out = vec![0f32; gw * gh];
     for y in 0..gh {
         for x in 0..gw {
@@ -2846,11 +2851,11 @@ fn build_crest(field: &[f32], gw: usize, gh: usize, sea: f64, a: &TerrainAppeara
             let r = field[y * gw + xr] as f64;
             let u = field[yu * gw + x] as f64;
             let d = field[yd * gw + x] as f64;
-            let curv = l + r + u + d - 4.0 * h;
+            let curv = (l + r + u + d - 4.0 * h) * invc;
             if curv >= 0.0 {
                 continue;
             }
-            let g = cartalith_jsmath::js_hypot((r - l) / 2.0, (d - u) / 2.0);
+            let g = cartalith_jsmath::js_hypot((r - l) / (2.0 * sx), (d - u) / (2.0 * sy));
             let sg = (g / CREST_SLOPE_HI).min(1.0).powf(1.5);
             let conv = clamp01(-curv * 250.0);
             out[i] = (conv * sg) as f32;
@@ -3306,6 +3311,19 @@ pub struct RenderCtx<'a> {
     paint_biome: Option<&'a [u8]>,
     paint_terrain: Option<&'a [u8]>,
     paint_splat: Option<&'a [u8]>,
+    /// `riverFlowThresh(GW, GH)` — the discharge above which a cell counts as
+    /// a river channel, for `river_sdf` and for the **tile** path's own
+    /// per-tile SDF (`render_biome_tile_rgba`, reference 11683, which passes
+    /// the grid's threshold rather than one derived from the tile so a tile
+    /// and the map cannot disagree about which channels are rivers).
+    ///
+    /// `0.0` by construction and set only by [`Self::with_map_scale`], on
+    /// `river_sdf`'s own contract: the threshold needs a map width in km that
+    /// nothing else in this struct carries, and a caller that never attaches
+    /// one gets the off state rather than a guessed width. The tile path tests
+    /// this value rather than `appearance.sdf_rivers`, so the gate and the
+    /// number cannot disagree.
+    river_thresh: f64,
     /// A loaded pack's decoded `biomes`/`terrains` ground tiles, which the
     /// paint blend prefers over the flat palette swatch (reference v1.28's
     /// `_paintedTex`). Empty by construction — attach with
@@ -3363,8 +3381,8 @@ impl<'a> RenderCtx<'a> {
         // grid is far too expensive to pay for per render when nothing reads
         // it, so the gate is the allocation, not a branch inside the loop.
         let coast_sdf = if appearance.sdf_coast > 0.0 { cartalith_civ::build_coast_sdf(field, gw, gh, sea_level) } else { Vec::new() };
-        let crest = build_crest(field, gw, gh, sea_level, &appearance);
-        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, coast_sdf, river_sdf: Vec::new(), biome_bd: Vec::new(), hydro_wet, lights, coast_d, crest, appearance, splat: None, lithology: None, paint_biome: None, paint_terrain: None, paint_splat: None, ground: GroundTiles::default() }
+        let crest = build_crest(field, gw, gh, sea_level, 1.0, 1.0, &appearance);
+        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, coast_sdf, river_sdf: Vec::new(), biome_bd: Vec::new(), river_thresh: 0.0, hydro_wet, lights, coast_d, crest, appearance, splat: None, lithology: None, paint_biome: None, paint_terrain: None, paint_splat: None, ground: GroundTiles::default() }
     }
 
     /// Attach the world's real map width in km, which is the one input the
@@ -3401,6 +3419,13 @@ impl<'a> RenderCtx<'a> {
             let thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
             self.river_sdf = build_river_sdf(flow, gw, gh, thresh);
         }
+        // Retained separately from the field it built, because the **tile**
+        // path needs the number and not the grid's distance transform: it
+        // builds its own SDF over its own sampled flow and hands this
+        // threshold to it (reference 11683). Set whenever a map width is
+        // supplied, not only when the grid's own SDF stage is on, so a tile
+        // can draw river bands on a map whose grid raster does not.
+        self.river_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
         if self.appearance.sdf_biomes > 0.0 {
             let wb = cartalith_civ::build_water_bodies(self.field, gw, gh, self.sea_level, self.world, Some(self.rainfall));
             let biome = cartalith_civ::build_biome_raster(&wb.classification, self.temperature, self.rainfall);
@@ -6325,4 +6350,688 @@ fn channel_tint(a: &TerrainAppearance, c: (f64, f64, f64), t: f64, gx: f64, gy: 
     let (fr, fg, fb) = (r * 0.5, (g * 0.5 + 0.3).min(1.0), (b * 0.5 + 0.45).min(1.0));
     let (tr, tg, tb) = (r + (fr - r) * t, g + (fg - g) * t, b + (fb - b) * t);
     (tr + (r - tr) * cover, tg + (g - tg) * cover, tb + (b - tb) * cover)
+}
+
+// ===========================================================================
+// The LOD / atlas biome tile — `renderBiomeTileRGBA`
+// (reference HTML `Cartalith Gen1 v2.11.html` lines 11668-11779)
+// ===========================================================================
+//
+// `LOD_DETAIL_SCOPE.md` milestone **LOD-D1**, Ruling K step 1a. The reference
+// picks its tile coloriser off the view mode (`_lodBuildTileRGBA`, 11183:
+// `biome ? renderBiomeTileRGBA : renderHeightTileRGBA`), so the height ramp is
+// what *Relief* mode shows and the full `landColorCore` look is what the
+// default *Biome* mode shows. This port had only the height-ramp half
+// (`cartalith_terrain::tile_render`), which is why `lod_bridge` composites a
+// scalar *shade ratio* over `map_view`'s grid-resolution colours instead of
+// carrying colour of its own. This is the other half.
+//
+// # Where it lives, and why not in `cartalith-terrain` beside its sibling
+//
+// `render_height_tile_rgba` is a height formula start to finish — a
+// hypsometric ramp times a normal-from-height Lambert term — so it belongs in
+// the terrain crate. `renderBiomeTileRGBA` is not: it is `landColorCore`,
+// `seaColorCore`, `materialWeights`, the six material palettes, the paint
+// overrides, the splat channels and the SDF appliers, every one of which lives
+// in this file and most of which are private to it. Putting the tile path
+// anywhere else would mean making eleven private colour helpers public to
+// export one function, which is how two renderers end up drifting apart
+// (`RiverInk`'s own doc records what that cost last time).
+// `LOD_DETAIL_SCOPE.md` says `render.rs` for the same reason.
+//
+// # What a tile computes for itself, and what it samples
+//
+// The split is the reference's, stated in its own header comment at 11662:
+// *"Height + slope + macro/meso hillshade come from the tile's own amplified
+// heightmap; temperature/moisture/flow/aspect/curvature are sampled from the
+// coarse climate fields at the tile's world coordinates; noise + vignette +
+// splat UV use world coords so adjacent tiles stay seamless and match the main
+// map."*
+//
+// - **From the tile's own height:** the macro normal (through the v1.29
+//   `edge_*` extrapolators, shared with `render_height_tile_rgba` rather than
+//   re-derived), the meso normal at the `ms` step, the coarse-unit slope, the
+//   relative height `r`, the hachure gradient, the crest field and the coast
+//   SDF.
+// - **Bilinear at world coordinates** (`sample_arr`, the reference's
+//   `sampleArr`): temperature, moisture, flow, the shared sea height and sea
+//   shade, AO, hydrological wetness, the local-contrast detail band and the
+//   grade influence; plus `aspect_factor_f` / `curvature_at_f` /
+//   `vignette_at_f`, which are `sample_arr` underneath.
+// - **Nearest cell:** lithology (through `litho_at_f`, which carries this
+//   port's coherent jitter), the paint overrides, the lake mask and pooled
+//   lake surface, and the river ink.
+//
+// # Three places this deliberately does not follow the reference, and why
+//
+// Read `LOD_DETAIL_SCOPE.md`'s owner question 1 before changing any of them.
+// Its stated default is *"both"* — golden against the reference under
+// `js_reference()`, and identical to this port's own screen under the shipped
+// look. **Those two are not simultaneously satisfiable**, and these are the
+// three places where they part company. Each is inert under `js_reference()`,
+// so the golden is unaffected by all three; what they decide is what a tile
+// looks like beside the *shipped* map at LOD entry, which is LOD-D2's
+// acceptance bar (`mean |dL*| <= 2.0` with the layer shown vs hidden).
+//
+// 1. **Ambient occlusion is sampled from the grid, not rebuilt per tile.**
+//    The reference blurs the tile's own heightmap twice at
+//    `rad = max(2, min(W,H)/24)` tile pixels and applies its `aoMul`
+//    (`AO_GAIN = 12`, `AO_MAX = 0.5`, reference 8032). This port's screen AO is
+//    [`build_ao`], a **different algorithm** — a two-scale cavity signal, each
+//    scale normalised by its own RMS over land. Re-implementing the
+//    reference's single-scale form per tile would give a tile an occlusion
+//    term its own map does not have; running *this* port's form per tile is
+//    worse still, because the RMS is taken over the whole field and a
+//    per-tile RMS would seam at every tile boundary. So the tile samples
+//    `ctx.ao`, exactly as [`BakeFields::pixel`] does, which is bit-identical
+//    to `cell_color` at an integer cell. The cost is real and bounded: AO is a
+//    broad cavity term at `ao_radius_frac` of the map width (tens of cells),
+//    so a bilinear read of it is visually indistinguishable from recomputing
+//    it — what is lost is a *scale-aware* radius, which is
+//    `LOD_DETAIL_SCOPE.md` LOD-D5's own row (*"Radii. Crest and AO radii are
+//    set in ground units"*), not this milestone's.
+// 2. **The meso shade is the reference's, including its missing normaliser.**
+//    The main map's `shadeFactor2` (7681) divides the exaggeration by its step
+//    — its own comment says *"/s keeps slope magnitude consistent with 1-px
+//    sample"* — and the tile's meso block (11742) does not. The tile's meso
+//    gradient is therefore about `ms` times stronger than the map's at the
+//    same ground scale. `MISTAKES.md`: *"The reference's errors are part of
+//    the contract"*, so it is transcribed as written and measured rather than
+//    quietly corrected; `tests/golden_parity_tile_biome.rs` attributes the screen-identity
+//    residual to it by holding the term equal on both sides.
+// 3. **Lakes.** The tile draws above-sea lakes (the reference's v1.05
+//    `_lakeFill` shoreline, 11717-11740) and this port's `cell_color` does not
+//    — which is the reference's own asymmetry, stated in that block's last
+//    line: *"The BASE per-cell map loop is untouched (default render
+//    identical)."*
+//
+// # The port-only stages, in `cell_color`'s order
+//
+// The reference's tile stops at `applyCoastRiverSDFv`. This port's screen does
+// not: `cell_color` continues with the wave contours, the parchment and the
+// plate frame, `build_color_texture` adds the river ink, and three whole-raster
+// passes follow it. `LOD_DETAIL_SCOPE.md`: *"The port-only per-pixel stages
+// (paper, border, waves, stipple, grade from a sampled influence field, colour
+// space) are applied in `cell_color`'s own order, so the tile matches the
+// screen."* Stipple lives inside [`land_color`] and comes for free; the rest
+// are below, in that order, and every one of them is `0.0` in `js_reference()`.
+//
+// **The river ink is included although the scope's list omits it**, because
+// [`RiverInk`]'s own doc comment records exactly what omitting it costs: the
+// screen drew a stamped disc while the export drew a one-cell flag, measured
+// at 199 909 differing bytes. A tile with no river ink is a tile of a world
+// with no rivers in it. It is an `Option` on [`TileFields`], so a caller that
+// has no mask gets the terrain alone rather than a guess.
+//
+// `apply_local_contrast` is the one stage that cannot be evaluated per tile.
+// It reads a *neighbourhood of the finished colour*, and a tile-local
+// neighbourhood truncates at the tile border — which is precisely the v1.29
+// seam, in a second subsystem (the reference's own note at 11700 is the same
+// finding for its sea blur). So [`TileFields`] carries the grid's detail band
+// and the tile samples it, which two adjacent tiles cannot disagree about.
+
+/// The coarse-coordinate rectangle a tile covers — `bounds` in
+/// `renderBiomeTileRGBA(tile, W, H, bounds)`, the reference's `{x, y, w, h}`
+/// in grid cells.
+///
+/// `x`/`y` are the world (grid) coordinate of the tile's **first pixel
+/// centre**, and `w`/`h` the span from the first pixel centre to the last —
+/// so a tile whose `bounds` is `(0, 0, gw - 1, gh - 1)` at `W = gw`, `H = gh`
+/// samples exactly the integer cells `0 ..= gw-1`. That is the reference's own
+/// convention (`cx = bounds.w / max(1, W - 1)`), and it is what makes the
+/// screen-identity check in `tests/golden_parity_tile_biome.rs` expressible at all.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TileBounds {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+/// The grid-resolution precomputes a tile needs and cannot build for itself,
+/// built **once per world and appearance** and shared by every tile.
+///
+/// Three of the five rasters exist because the stage they feed is a
+/// *neighbourhood* pass, and a neighbourhood truncates at a tile border. The
+/// other two are world-scale classifications no single tile can see.
+///
+/// # Budget
+///
+/// `LOD_DETAIL_SCOPE.md` LOD-D1: *"`TileFields` holds <= 32 MiB at
+/// 2048x1311."* [`Self::bytes`] reports the real figure and
+/// `tile_fields_stay_inside_the_scope_budget` pins it. The detail band is
+/// stored as the single difference `fine - blurred` rather than as both
+/// blurs: `apply_local_contrast` only ever uses that difference, bilinear
+/// interpolation is linear, so sampling the difference and differencing two
+/// samples are the same number — at half the memory.
+pub struct TileFields<'a> {
+    gw: usize,
+    gh: usize,
+    /// `fine - blurred` of the finished grid raster's Rec.709 luma —
+    /// `apply_local_contrast`'s own `d`, at grid resolution. Empty when
+    /// `local_contrast == 0.0` or no grid raster was supplied, and the
+    /// consumer tests the length rather than the flag (`RenderCtx::coast_d`'s
+    /// contract).
+    contrast_d: Vec<f32>,
+    /// [`build_grade_influence`]'s per-cell multiplier. Empty when all four
+    /// field weights are `0.0`, which is every render that leaves them alone.
+    grade_influence: Vec<f32>,
+    /// `currentWaterBodies()` (reference 5846) — `0` land, `1` ocean, `2`
+    /// lake. Empty when lakes are switched off.
+    lake_class: Vec<u8>,
+    /// `_lakeFill` — the pooled lake surface from the same priority-flood
+    /// (`cartalith_civ::WaterBodies::fill_level`). The v1.05 shoreline needs
+    /// it; without it the lake branch falls back to the reference's own
+    /// nearest-cell stamp, which is what draws square lakes.
+    lake_fill: Vec<f32>,
+    /// The river ink `build_color_texture` composites over its own raster.
+    /// `None` renders the terrain alone.
+    ink: Option<RiverInk<'a>>,
+    /// The display device the finished tile is encoded for, so a tile and the
+    /// map under it are in the same gamut. `Srgb` is an early return.
+    color_space: ColorSpace,
+}
+
+impl<'a> TileFields<'a> {
+    /// Build the shared fields for one world and one appearance.
+    ///
+    /// `grid_rgb` is the finished grid raster — `build_color_texture`'s own
+    /// `bytes`, tightly packed RGB8, `gw * gh * 3` long. It is what the
+    /// local-contrast detail band is measured from, and there is no
+    /// substitute: the band is a property of the *finished colour*, not of the
+    /// height field. Pass `None` (or a wrong-length buffer) and the stage is
+    /// off for tiles, which is honest rather than approximate — the tile then
+    /// differs from the screen by exactly that stage, and `tests/golden_parity_tile_biome.rs`
+    /// measures it.
+    #[allow(dead_code)]
+    pub fn new(ctx: &RenderCtx, grid_rgb: Option<&[u8]>) -> TileFields<'static> {
+        let (gw, gh) = (ctx.gw, ctx.gh);
+        let n = gw * gh;
+        let a = &ctx.appearance;
+
+        // `apply_local_contrast`'s own prologue, to its own line: Rec.709
+        // luma of the finished raster, the same radius floor and short-axis
+        // cap, the same `r_inner`, the same two blurs. A transcription of that
+        // function rather than a call into it, because that one writes a
+        // correction into a buffer and this one needs the band itself.
+        let contrast_d = match grid_rgb {
+            Some(rgb) if a.local_contrast > 0.0 && n > 0 && rgb.len() >= n * 3 => {
+                let mut luma = vec![0f32; n];
+                luma.par_iter_mut().enumerate().for_each(|(i, l)| {
+                    let o = i * 3;
+                    *l = (0.2126 * rgb[o] as f64 + 0.7152 * rgb[o + 1] as f64 + 0.0722 * rgb[o + 2] as f64) as f32;
+                });
+                let rad = ((gw as f64 * a.local_contrast_radius_frac).round() as i64).max(3).min((gh as i64 / 4).max(3));
+                let r_inner = (rad / 8).max(2);
+                let (fine, blurred) = rayon::join(|| blur_once(&luma, gw, gh, r_inner, ctx.world), || blur_once(&luma, gw, gh, rad, ctx.world));
+                let mut d = vec![0f32; n];
+                d.par_iter_mut().enumerate().for_each(|(i, v)| *v = (fine[i] as f64 - blurred[i] as f64) as f32);
+                d
+            }
+            _ => Vec::new(),
+        };
+
+        let grade_influence = build_grade_influence(ctx, gw, gh);
+
+        // `currentWaterBodies()` — the identical call `with_map_scale` and the
+        // civilisation pass both make, so the three cannot classify one world
+        // differently. `fill_level` is `_lakeFill`, captured from the same
+        // priority-flood, which is what makes the v1.05 organic shoreline
+        // reachable rather than the square-lake fallback.
+        let wb = cartalith_civ::build_water_bodies(ctx.field, gw, gh, ctx.sea_level, ctx.world, Some(ctx.rainfall));
+
+        TileFields {
+            gw,
+            gh,
+            contrast_d,
+            grade_influence,
+            lake_class: wb.classification,
+            lake_fill: wb.fill_level,
+            ink: None,
+            color_space: ColorSpace::Srgb,
+        }
+    }
+
+    /// Attach the river ink the screen is compositing — see [`RiverInk`], and
+    /// the 199 909 differing bytes its doc comment records.
+    #[allow(dead_code)]
+    pub fn with_ink(mut self, ink: RiverInk<'a>) -> Self {
+        self.ink = Some(ink);
+        self
+    }
+
+    /// Encode finished tiles for a display device other than sRGB.
+    #[allow(dead_code)]
+    pub fn with_color_space(mut self, space: ColorSpace) -> Self {
+        self.color_space = space;
+        self
+    }
+
+    /// `state.viz.showLakes === false` (reference 11674) — drop the lake mask,
+    /// so above-sea pools render as the terrain under them.
+    #[allow(dead_code)]
+    pub fn without_lakes(mut self) -> Self {
+        self.lake_class = Vec::new();
+        self.lake_fill = Vec::new();
+        self
+    }
+
+    /// Retained bytes, for the scope's own budget line. Counts the four
+    /// rasters; the two `usize`s and the two enums are not worth counting and
+    /// are not counted, which is stated so the number is reproducible.
+    #[allow(dead_code)]
+    pub fn bytes(&self) -> usize {
+        self.contrast_d.len() * 4 + self.grade_influence.len() * 4 + self.lake_class.len() + self.lake_fill.len() * 4
+    }
+}
+
+/// `(Math.min(W, H) / 64) | 0` (reference 11672) — the meso-shade sample step,
+/// in tile pixels, before its floor of `2`.
+///
+/// Named so it can be mutated: it is one of the three free constants this tile
+/// path introduces. Both goldens in `tests/golden_parity_tile_biome.rs` turn
+/// red when it moves (mutation-tested 64.0 -> 8.0, killed by both).
+const MESO_STEP_DIV: f64 = 64.0;
+
+/// The bilinear lake-membership fraction below which the v1.05 shoreline stops
+/// cutting water, and the pooled depth below which a lake counts as flat or
+/// brush-painted and keeps its whole cell (reference 11734 and 11737).
+const LAKE_MEMBERSHIP_MIN: f64 = 0.35;
+const LAKE_FLAT_EPS: f64 = 0.004;
+
+/// `renderBiomeTileRGBA(tile, W, H, bounds)` (reference HTML 11668-11779) —
+/// one LOD/atlas tile of **amplified** height as the full biome look, RGBA8,
+/// row-major, four bytes per pixel, alpha always `255`.
+///
+/// `tile` is `w * h` amplified height samples (`cartalith_engine::bake::
+/// pyramid_tile`, or `refine_tile` + `add_zoom_detail`); `bounds` is the
+/// coarse-coordinate rect it covers. Everything else comes from `ctx` and
+/// `tf`. Pure compute — no Godot type, no global, no `state`.
+///
+/// See the section comment above for the split between what a tile derives
+/// from its own height and what it samples at world coordinates, for the three
+/// deliberate departures from the reference, and for the port-only stages.
+///
+/// # Panics
+///
+/// Does not. A `tile` shorter than `w * h`, a zero dimension, or a `tf` built
+/// for a different grid returns an empty `Vec` rather than indexing out of
+/// bounds — `cartalith-rust-conventions`: a panic here crosses the gdext
+/// boundary and takes the process with it, and this is reached from the LOD
+/// bridge on every zoom notch.
+#[allow(dead_code)]
+pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize, bounds: TileBounds, tf: &TileFields) -> Vec<u8> {
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    if w == 0 || h == 0 || tile.len() < w * h || gw == 0 || gh == 0 || tf.gw != gw || tf.gh != gh {
+        return Vec::new();
+    }
+    let a = &ctx.appearance;
+    let sl = ctx.sea_level;
+    let ex = a.exag;
+    let az = a.sun_az_deg.to_radians();
+    let alt = a.sun_alt_deg.to_radians();
+    let (lx, ly, lz) = (alt.cos() * az.sin(), -alt.cos() * az.cos(), alt.sin());
+
+    // `cx, cy` — coarse cells per tile pixel (11671).
+    let cx = bounds.w / (w.max(2) - 1) as f64;
+    let cy = bounds.h / (h.max(2) - 1) as f64;
+    // `ms = Math.max(2, (Math.min(W,H)/64)|0)` (11672). `|0` truncates.
+    let ms = ((w.min(h) as f64 / MESO_STEP_DIV).trunc() as usize).max(2);
+    let denom = if (1.0 - sl) > 0.0 { 1.0 - sl } else { 1.0 };
+
+    // ---- the per-tile prologue (11673-11710) --------------------------------
+    //
+    // Each of these is built only when its own strength is above zero, and
+    // each consumer below tests the buffer's *length* rather than re-reading
+    // the flag — `RenderCtx::coast_d`'s contract, so a gate and its field can
+    // never disagree.
+
+    // R2 crest, from the tile's own height, coarse-scaled by `cx, cy` — the
+    // reference's `buildCrestField(tile, W, H, sl, cx, cy)`.
+    let crest_b = build_crest(tile, w, h, sl, cx, cy, a);
+
+    // B5 coast SDF, from the tile's own height. `buildCoastSDF` and this are
+    // the same function over the same mask; `build_river_sdf`'s doc comment
+    // carries the term-by-term proof for the sibling case.
+    let coast_b = if a.sdf_coast > 0.0 { cartalith_civ::build_coast_sdf(tile, w, h, sl) } else { Vec::new() };
+
+    // B3 river SDF, from flow sampled at the tile's world coordinates, with
+    // the **grid's** `riverFlowThresh(GW, GH)` — the reference's own argument
+    // (11683), so a tile and the map agree on which channels are rivers.
+    // `river_thresh` is `0.0` until `with_map_scale` supplies a map width, and
+    // that is the off state rather than a guessed threshold.
+    let river_b = match ctx.flow {
+        Some(flow) if a.sdf_rivers > 0.0 && ctx.river_thresh > 0.0 => {
+            let mut tfl = vec![0f32; w * h];
+            for yy in 0..h {
+                let wyy = bounds.y + yy as f64 * cy;
+                for xx in 0..w {
+                    tfl[yy * w + xx] = sample_arr(flow, bounds.x + xx as f64 * cx, wyy, gw, gh) as f32;
+                }
+            }
+            build_river_sdf(&tfl, w, h, ctx.river_thresh)
+        }
+        _ => Vec::new(),
+    };
+
+    // B4 biome-boundary distance, from `classifyBiome` of the sampled climate
+    // (11685-11688). Deliberately the reference's **simplified** raster —
+    // water is index `0` outright, with no water-body classification — and not
+    // `build_biome_raster`, which is what the grid's own `biome_bd` uses. The
+    // reference calls these distances *"local-per-tile (decoration)"* in the
+    // same breath; matching its raster is what keeps the ecotone widths a tile
+    // draws the same ones the reference draws.
+    let biome_bd = if a.sdf_biomes > 0.0 {
+        let mut bio = vec![0u8; w * h];
+        for yy in 0..h {
+            let wyy = bounds.y + yy as f64 * cy;
+            for xx in 0..w {
+                let hh = tile[yy * w + xx] as f64;
+                bio[yy * w + xx] = if hh < sl {
+                    0
+                } else {
+                    let wxx = bounds.x + xx as f64 * cx;
+                    // `BIOME_INDEX[classifyBiome(t, m)]` — `classify_biome`
+                    // already returns that 1-based index (`0` is ocean).
+                    cartalith_civ::classify_biome(sample_arr(ctx.temperature, wxx, wyy, gw, gh), sample_arr(ctx.rainfall, wxx, wyy, gw, gh))
+                };
+            }
+        }
+        build_biome_boundary_dist(&bio, w, h)
+    } else {
+        Vec::new()
+    };
+
+    // v1.29, THE LOD SEAM (11690-11710): the sea floor and its shade are read
+    // from the **world-wide** smoothed fields the main map already built, not
+    // from a tile-local blur whose box truncates on a different side in each
+    // of two neighbouring tiles. `RenderCtx` holds `sea_h`/`sea_shade`
+    // unconditionally, so the reference's `hasOcean` scan — which only decides
+    // whether to pay for building that cache — has nothing to decide here and
+    // is omitted. A tile with no cell below `sl` never enters the branch.
+
+    let lakes = tf.lake_class.len() == gw * gh;
+    let lake_fill_ok = tf.lake_fill.len() == gw * gh;
+    let ink = tf.ink.filter(|m| m.cells() >= gw * gh);
+    let has_grade_influence = tf.grade_influence.len() == gw * gh;
+    let contrast_on = a.local_contrast > 0.0 && tf.contrast_d.len() == gw * gh;
+    let knee = a.local_contrast_knee.max(1e-3);
+    let inv_knee2 = 1.0 / (knee * knee);
+
+    let mut rgb = vec![0u8; w * h * 3];
+    // Per-tile grade influence, sampled from the grid's. Built only when the
+    // grid's exists, so the flat-grade fast path in `apply_color_grade` is
+    // still taken on every render that leaves the four field weights alone.
+    let mut influence: Vec<f32> = if has_grade_influence { vec![0f32; w * h] } else { Vec::new() };
+
+    // Row-parallel on `BakeFields::new`'s own determinism argument: every
+    // output pixel is a pure function of immutable inputs and its own
+    // coordinates, each row writes disjoint bytes, and nothing accumulates
+    // across pixels. The result does not depend on the schedule.
+    rgb.par_chunks_mut(w * 3).enumerate().for_each(|(y, out)| {
+        let wy = bounds.y + y as f64 * cy;
+        let ro = y * w;
+        for x in 0..w {
+            let i = ro + x;
+            let ht = tile[i] as f64;
+            let wx = bounds.x + x as f64 * cx;
+
+            // --- 1. the macro normal, from the tile's own height (11714) ----
+            let l = cartalith_terrain::tile_render::edge_l(tile, w, x, ro);
+            let r = cartalith_terrain::tile_render::edge_r(tile, w, x, ro);
+            let u = cartalith_terrain::tile_render::edge_u(tile, w, h, x, y);
+            let d = cartalith_terrain::tile_render::edge_d(tile, w, h, x, y);
+            let (mut nx, mut ny, mut nz) = (-(r - l) * ex, -(d - u) * ex, 1.0f64);
+            let il = 1.0 / cartalith_jsmath::js_hypot3(nx, ny, nz);
+            nx *= il;
+            ny *= il;
+            nz *= il;
+            let sh = if a.npr.multi_sun { multi_sun_from_normal(a, nx, ny, nz) } else { cartalith_jsmath::js_max(0.0, nx * lx + ny * ly + nz * lz) };
+
+            // --- 2. the sampled climate and vignette (11716) ----------------
+            let t = sample_arr(ctx.temperature, wx, wy, gw, gh);
+            let vig = ctx.vignette_at_f(wx, wy);
+
+            // --- 3. the three colour branches -------------------------------
+            let water = if ht < sl {
+                // Ocean (11719-11721). Sampled sea floor and sea shade, per
+                // the v1.29 seam fix above.
+                let hs = sample_arr(&ctx.sea_h, wx, wy, gw, gh);
+                let shw = sample_arr(&ctx.sea_shade, wx, wy, gw, gh);
+                let depth = if sl <= 0.0 { 0.0 } else { clamp01((sl - hs) / sl) };
+                Some(sea_color_core(a, depth, t, sea_grain(a, wx, wy, gw), shw, vig))
+            } else if lakes && is_lake_pixel(tf, ctx, wx, wy, ht, lake_fill_ok) {
+                // v1.05 lake (11741-11742). `seaColorCore(0.30, T, grain,
+                // 0.95, vig)` re-tinted toward fresh water, the reference's
+                // own six literals.
+                let lc = sea_color_core(a, 0.30, t, sea_grain(a, wx, wy, gw), 0.95, vig);
+                Some(((lc.0 * 0.9 + 12.0).min(255.0), (lc.1 * 0.96 + 16.0).min(255.0), (lc.2 * 0.94 + 6.0).min(255.0)))
+            } else {
+                None
+            };
+
+            let (cr, cg, cb) = match water {
+                Some(v) => v,
+                None => {
+                    // --- Land (11743-11772) ---------------------------------
+                    let m = sample_arr(ctx.rainfall, wx, wy, gw, gh);
+
+                    // Meso shade at the `ms` step. **No `/ ms`** — see
+                    // departure 2 in the section comment; that normaliser is
+                    // `shadeFactor2`'s, and the reference's tile does not
+                    // carry it.
+                    let l2 = tile[ro + if x >= ms { x - ms } else { x }] as f64;
+                    // `x + ms < w`, not `x < w - ms`: the reference's `usize`
+                    // is a double and `W - ms` is simply negative on a tile
+                    // narrower than the step, while here it UNDERFLOWS to
+                    // 18446744073709551615 and the comparison then indexes off
+                    // the end. Same value on every tile the bridge builds, and
+                    // the difference is a panic across the gdext boundary on a
+                    // 1x1 one (`malformed_calls_return_empty_rather_than_panicking`).
+                    let r2 = tile[ro + if x + ms < w { x + ms } else { x }] as f64;
+                    let u2 = tile[(if y >= ms { y - ms } else { y }) * w + x] as f64;
+                    let d2 = tile[(if y + ms < h { y + ms } else { y }) * w + x] as f64;
+                    let (mut mx, mut my, mut mz) = (-(r2 - l2) * ex, -(d2 - u2) * ex, 1.0f64);
+                    let iml = 1.0 / cartalith_jsmath::js_hypot3(mx, my, mz);
+                    mx *= iml;
+                    my *= iml;
+                    mz *= iml;
+                    let sh_m = cartalith_jsmath::js_max(0.0, mx * lx + my * ly + mz * lz);
+
+                    // Coarse-unit slope: the tile's own central difference
+                    // divided by the ground distance it spans, so
+                    // `material_weights`' `slope / 0.04` and `slope / 0.08`
+                    // thresholds classify rock at a tile exactly as they do on
+                    // the map. The reference says so itself at 11748.
+                    let slope = cartalith_jsmath::js_hypot((r - l) / (2.0 * cx), (d - u) / (2.0 * cy));
+                    let r_frac = (ht - sl) / denom;
+                    let flow = ctx.flow.map(|f| sample_arr(f, wx, wy, gw, gh)).unwrap_or(0.0);
+                    let acc = (flow / (gw * gh) as f64).max(1e-4);
+                    let beta = slope.max(0.002);
+                    let twi = (acc / beta).ln();
+                    let asp = ctx.aspect_factor_f(wx, wy);
+                    let curv = ctx.curvature_at_f(wx, wy);
+                    let ao = sample_arr(&ctx.ao, wx, wy, gw, gh);
+                    // B4 in tiles: tile-pixel distance scaled to coarse cells
+                    // (`x cx`) before `sdfEcoKv` sees it, so the ecotone reads
+                    // the same width at any zoom (11753).
+                    let eco_k = if biome_bd.is_empty() { 1.0 } else { sdf_eco_k(biome_bd[i] as f64 * cx, a.sdf_biomes, gw) };
+                    let grad = if a.npr.hachure > 0.0 { ((r - l) / (2.0 * cx), (d - u) / (2.0 * cy)) } else { (0.0, 0.0) };
+                    let cc = land_color(
+                        a,
+                        t,
+                        m,
+                        slope,
+                        r_frac,
+                        twi,
+                        asp,
+                        curv,
+                        sh,
+                        sh_m,
+                        vig,
+                        ao,
+                        eco_k,
+                        sample_arr(&ctx.hydro_wet, wx, wy, gw, gh),
+                        ctx.litho_at_f(wx, wy),
+                        grad,
+                        wx,
+                        wy,
+                        gw,
+                        gh,
+                        ctx.splat.as_ref(),
+                        ctx.paint_at_f(wx, wy),
+                        ctx.ground,
+                    );
+                    // R2 crest, then the two SDF bands — `applyCrest` and
+                    // `applyCoastRiverSDFv`, in the reference's own order and
+                    // with its own `0.7` (11767-11772).
+                    let cc = if crest_b.is_empty() { cc } else { apply_crest(cc, crest_b[i] as f64 * a.crest_strength * 0.7) };
+                    let cc = if coast_b.is_empty() { cc } else { apply_coast_sdf(cc, coast_b[i] as f64 * cx, a.sdf_coast, gw) };
+                    if river_b.is_empty() { cc } else { apply_river_sdf(cc, river_b[i] as f64 * cx, a.sdf_rivers, gw) }
+                }
+            };
+
+            // --- 4. the port-only per-pixel stages, in `cell_color`'s order --
+            // Waves: water only, and `coast_d` is empty unless `npr.waves` is
+            // on, so this is one length test on every other path.
+            let (cr, cg, cb) = if ht < sl && !ctx.coast_d.is_empty() { apply_waves(a, (cr, cg, cb), sample_arr(&ctx.coast_d, wx, wy, gw, gh), gw) } else { (cr, cg, cb) };
+            let tone = paper_tone(a, wx, wy, gw);
+            let (cr, cg, cb) = apply_paper(a, (cr, cg, cb), tone);
+            let (cr, cg, cb) = apply_border(a, (cr, cg, cb), tone, wx, wy, gw, gh);
+            // The river ink, `build_color_texture`'s own three lines through
+            // the shared `channel_tint`, nearest cell exactly as `bake_rect`
+            // takes it and for the same reason (a river keeps its world width
+            // at every zoom).
+            let ci = (wy.round().clamp(0.0, (gh - 1) as f64) as usize) * gw + (wx.round().clamp(0.0, (gw - 1) as f64) as usize);
+            let ink_t = ink.map_or(0.0, |mk| mk.at(ci)) as f64;
+            let (cr, cg, cb) = if ink_t > 1.0 / 255.0 { channel_tint(a, (cr, cg, cb), ink_t, wx, wy, gw, gh) } else { (cr, cg, cb) };
+
+            // --- 5. quantize, then the whole-raster stages -------------------
+            // `Uint8ClampedArray`'s `ToUint8Clamp` (round, ties to even) — the
+            // reference's own store, and the one `tile_render.rs` is pinned
+            // against. `build_color_texture` truncates instead, so a tile and
+            // the screen can land one level apart on the same colour; that is
+            // the whole of the quantization difference and it is measured in
+            // `tests/golden_parity_tile_biome.rs`.
+            let o = x * 3;
+            out[o] = cartalith_jsmath::u8_clamped(cr);
+            out[o + 1] = cartalith_jsmath::u8_clamped(cg);
+            out[o + 2] = cartalith_jsmath::u8_clamped(cb);
+
+            // Local contrast, from the grid's detail band sampled at this
+            // pixel's world coordinate — `apply_local_contrast`'s own
+            // correction, applied to the byte exactly as it applies it, and
+            // faded out under the plate frame exactly as it fades it.
+            if contrast_on {
+                let dd = sample_arr(&tf.contrast_d, wx, wy, gw, gh);
+                let mut delta = a.local_contrast * dd * (-(dd * dd) * inv_knee2).exp();
+                if delta != 0.0 {
+                    let cover = border_cover_f(a, wx, wy, gw, gh);
+                    if cover > 0.0 {
+                        delta *= 1.0 - cover;
+                    }
+                    for k in 0..3 {
+                        out[o + k] = (out[o + k] as f64 + delta).clamp(0.0, 255.0) as u8;
+                    }
+                }
+            }
+        }
+    });
+
+    if has_grade_influence {
+        influence.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+            let wy = bounds.y + y as f64 * cy;
+            for (x, v) in row.iter_mut().enumerate() {
+                *v = sample_arr(&tf.grade_influence, bounds.x + x as f64 * cx, wy, gw, gh) as f32;
+            }
+        });
+    }
+    // The two shipped whole-raster passes, unmodified and on the tile's own
+    // buffer, so a tile cannot be graded or encoded differently from the map
+    // it sits over.
+    apply_color_grade(a, &mut rgb, &influence);
+    apply_color_space(tf.color_space, &mut rgb);
+
+    // RGB8 -> RGBA8. The buffer is RGB up to here so both passes above could
+    // be the shipped functions rather than tile-local copies of them.
+    let mut out = vec![255u8; w * h * 4];
+    out.par_chunks_mut(4).zip(rgb.par_chunks(3)).for_each(|(o, s)| {
+        o[0] = s[0];
+        o[1] = s[1];
+        o[2] = s[2];
+    });
+    out
+}
+
+/// The v1.05 lake shoreline (reference 11717-11740), issue #96 *"square lakes
+/// when LOD zooming"*.
+///
+/// The old test stamped the whole coarse cell from a nearest-neighbour lake
+/// sample, so a lake magnified past the grid resolution read as axis-aligned
+/// blue squares. This one follows the terrain: deep inside the lake (all four
+/// surrounding coarse cells are lake) the pixel is water outright; on the
+/// boundary band it is water only where the tile's own amplified terrain lies
+/// **below the pooled lake surface** `_lakeFill` captured from
+/// `buildWaterBodies`' priority-flood — so the shore is the curve where the
+/// visible ground rises out of the water.
+///
+/// Two fallbacks, both the reference's:
+///
+/// - where the shelf is flat, `h < s` would hold across the whole band and
+///   degenerate to a straight window-limit edge, so the bilinear membership
+///   fraction `fq > 0.35` cuts a marching-squares curve between the cell
+///   centres instead;
+/// - a water-brush or otherwise flat lake has pooled nothing (`fill - field <=
+///   0.004`) and keeps its painted cell shape through the nearest-cell stamp.
+///
+/// `fill_ok` false is the reference's own `_lakeFill`-missing branch, a plain
+/// nearest-cell stamp. This port always has a fill surface —
+/// `cartalith_civ::WaterBodies::fill_level` is `fillOut` from the same flood —
+/// so it is reachable only through a length mismatch, and it is kept rather
+/// than dropped because the alternative to a stated fallback is silently
+/// drawing squares.
+fn is_lake_pixel(tf: &TileFields, ctx: &RenderCtx, wx: f64, wy: f64, ht: f64, fill_ok: bool) -> bool {
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    let lake = &tf.lake_class;
+    let fx = wx.clamp(0.0, gw as f64 - 1.001);
+    let fy = wy.clamp(0.0, gh as f64 - 1.001);
+    let x0 = fx as usize;
+    let y0 = fy as usize;
+    let x1 = (x0 + 1).min(gw - 1);
+    let y1 = (y0 + 1).min(gh - 1);
+    let (la, lb, lc, ld) = (lake[y0 * gw + x0] == 2, lake[y0 * gw + x1] == 2, lake[y1 * gw + x0] == 2, lake[y1 * gw + x1] == 2);
+    let n_l = la as u32 + lb as u32 + lc as u32 + ld as u32;
+    if n_l == 4 {
+        return true;
+    }
+    if n_l == 0 {
+        return false;
+    }
+    let ix = (wx.round().clamp(0.0, (gw - 1) as f64)) as usize;
+    let iy = (wy.round().clamp(0.0, (gh - 1) as f64)) as usize;
+    let ni = iy * gw + ix;
+    if !fill_ok {
+        return lake[ni] == 2;
+    }
+    let fill = &tf.lake_fill;
+    let mut s = -1.0f64;
+    if la {
+        s = s.max(fill[y0 * gw + x0] as f64);
+    }
+    if lb {
+        s = s.max(fill[y0 * gw + x1] as f64);
+    }
+    if lc {
+        s = s.max(fill[y1 * gw + x0] as f64);
+    }
+    if ld {
+        s = s.max(fill[y1 * gw + x1] as f64);
+    }
+    let tx = fx - x0 as f64;
+    let ty = fy - y0 as f64;
+    let fq = (if la { (1.0 - tx) * (1.0 - ty) } else { 0.0 }) + (if lb { tx * (1.0 - ty) } else { 0.0 }) + (if lc { (1.0 - tx) * ty } else { 0.0 }) + (if ld { tx * ty } else { 0.0 });
+    if ht < s && fq > LAKE_MEMBERSHIP_MIN {
+        return true;
+    }
+    lake[ni] == 2 && (fill[ni] as f64 - ctx.field[ni] as f64) <= LAKE_FLAT_EPS
 }
