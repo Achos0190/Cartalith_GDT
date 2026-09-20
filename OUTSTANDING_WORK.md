@@ -41,8 +41,8 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**115 outstanding items** — re-derived mechanically 2026-09-12, by one run of
-the counting script.
+**120 outstanding items** — re-derived mechanically 2026-09-20 by one run of
+the counting script, after `main` was merged into this branch. **The two lines of work had diverged since 2026-09-01** and each held rows the other did not: this side’s 115, plus §2.9’s three source-engine rows, the re-opened reference re-freeze (measured twelve versions behind on 2026-09-17, not one) and the Nortantis credits row. Where both sides edited a row, the newer measurement won: the menu-command row stays closed here, because this side re-cut it with a probe on 2026-09-13.
 
 **The headline read 100 until today, from 2026-09-06**, after sweeping 27
 closed rows out of the numbered sections in two passes. **It had gone stale by
@@ -1074,7 +1074,7 @@ four caller-owned save slots it was waiting on began to round-trip. The unique
 count and the headline are therefore the same number, **103**, for the first time
 since this file was written.
 
-Four caveats on that number, stated rather than buried:
+Five caveats on that number, stated rather than buried:
 
 1. **It counts rows, not effort.** Urban milestone 10 is one row and ~407
    reference lines; "delete three probe files" is also one row. Sizes are on
@@ -1085,7 +1085,23 @@ Four caveats on that number, stated rather than buried:
    overstated twice: it read "142 rows, 42/56/44" until 2026-09-01 and "134 rows,
    40/54/40" until today, both times because the sizes were counted by hand
    separately from the rows.*
-2. **The `UNWIRED_FUNCTIONS.md` backlog is one row of the 3 "in flight" above,
+2. **§2.9's three rows hide a survey, not an estimate.** `RC_ENGINE_CHANGES.md`
+   specifies **46 distinct engine items** across v2.11–v2.71: 27 through v2.52,
+   §6h's three (the 24-bit height word, the relief-gate floor and the
+   local-contrast rebase), v2.57's plate-base blur, v2.58's river selection,
+   v2.59's drainage default plus its ruling on Strahler order (§6k/§7.12), and
+   v2.60's river-continuity fix (§6l), v2.61's water-paint/lake-gate pass (§6m)
+   v2.62's navigable-river routing/flow-direction pass (§6n) and v2.67's ward-driven plot grain plus the corner-only parcel water test it exposed (§6s), v2.68's never-rendered farmland fringe (§8.2 — render-only, but a port inherits the invisible-detail-kind defect) v2.69's sea-level clamp on tile refinement (§8.1 — a port that writes its own LOD needs both of its rules before it does) v2.70's style-chain shape (§8.2 — one colour function per surface class is what makes a new map style cost one flag instead of N) and v2.71's water clip (§8.2 — the settlement's water mask exists and never reached the renderer, and the polygon a synthetic fixture clips against is EMPTY by design on the real path) — the last of
+   which is the first place §6k's "key the threshold on catchment AREA"
+   recommendation is actually taken, for a NEW consumer, leaving the three
+   existing `order>=3` consumers alone.
+   **That arithmetic closes; the figure read 31 before 2026-09-17 and did not** —
+   v2.57 had been added to the total without being added to the breakdown. How
+   many are already ported is not established, so they are deliberately NOT
+   expanded into 33 rows here. Expanding them before the survey would inflate this count with
+   work that may already be done — the opposite error to the one that left them
+   uncounted until 2026-09-17.
+3. **The `UNWIRED_FUNCTIONS.md` backlog is one row of the 3 "in flight" above,
    not many** — that document is itself a live backlog with a `file:line` per
    row, and re-counting it here would guarantee the two drift (this
    corrects an earlier version of this caveat, which pointed at "the 106
@@ -1097,11 +1113,11 @@ Four caveats on that number, stated rather than buried:
    were "177, not 155" until 2026-09-01, "173" until 2026-09-02, and "153"
    against the 133 headline earlier the same day; each was arithmetic against a
    headline that has since moved, which is why the working is shown.)
-3. **Six surveyors returned 487 rows; roughly 300 were `done` or `declined`,**
+4. **Six surveyors returned 487 rows; roughly 300 were `done` or `declined`,**
    and the rest deduplicated heavily — the urban milestones, the landmark
    viewshed and the vault's §26 each arrived from two or three surveys
    independently. The compression is real, not a sampling gap.
-4. **Nobody ran the test suite.** "Done" for `UNIFIED_TOOL_PLAN.md` milestones
+5. **Nobody ran the test suite.** "Done" for `UNIFIED_TOOL_PLAN.md` milestones
    A–E means the named crate modules and bridges exist and the commit reported
    green, not that `cargo test` passed this pass. §7 says what else is
    uncovered.
@@ -1408,7 +1424,33 @@ measurement.
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
+| **Re-freeze the reference and regenerate `FUNCTION_INDEX.md` in the same pass** | `CLAUDE.md`, `FUNCTIONAL_CONTRACT.md` | large | **This row said "to v2.11" and that is twelve versions out of date.** Measured 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1 v*.html` (newest **v2.22**) plus **44** DCC-line files (newest **v2.66**); `reference/` still holds only v2.10 and the index still enumerates v2.10's 1 094 functions. **Every capability tag in `FUNCTIONAL_CONTRACT.md` is measured against a reference the source moved past** — that file's own "no drift, no re-freeze question to raise" paragraph was corrected the same day. Re-freezing now also means **choosing a line**: the source forked at v2.22 and every engine change from v2.25 on exists only on the DCC line, so "newest" is two different files. See §2.9 |
+| Carry the Nortantis studied-not-copied disclosure into the credits screen | `PROVENANCE.md` | small | The constants are live (`cartalith-assets/src/scatter.rs`; `cartalith-civ/src/naming.rs:3` cites Nortantis directly) and `grep -i nortantis godot-project/credits.gd` returns nothing |
 | Copy in the two upstream owner notes the research briefs cross-reference (`Gravity influence.md`, `Weather Model.md`) | `PROVENANCE.md` | small | They live only in the upstream `Cartalith_RC` / `Cartalith-Gen1` repositories. The alternative the doc itself allows is keeping the paragraph so the dangling reference is a known one |
+
+### 2.9 Source-engine changes specified but not routed
+
+**Added 2026-09-17. This is not new work — it is work that was never counted.**
+`RC_ENGINE_CHANGES.md` is a full porting spec for the source engine's changes
+from **v2.11 to v2.66**, and until this pass **no document in this repository
+referenced it except `CLAUDE.md`** (`grep -rl RC_ENGINE_CHANGES *.md` returned
+one file). So a 1 000-line specification of everything the source engine did
+after the freeze sat outside this ledger, outside `STATUS.md`, and outside the
+count at the top of this file.
+
+| Item | Owns it | Size | Next step |
+|---|---|---|---|
+| **Establish which of the specified changes are already ported** | `RC_ENGINE_CHANGES.md` → `STATUS.md` | large | The spec carries **17 top-level simulation sections** (§1–§6l, of which §6b–§6l are single-change deep dives), **15 span rows that change generated output** (§8.1 — nine of them duplicating a section above), and **13 genuinely adjacent rows** (§8.2) — so **34 distinct engine items**. **How many are already built is not established anywhere.** A five-symbol spot check found it uneven in both directions: `food_shed` and `route_corridors` are present in the crates, `crater_population` and `landmass_index` are not. Do this survey before scheduling any of it — the answer changes the size of every row it would otherwise generate |
+| **Carry the eight deliberate re-baselines across as decisions, not as parity failures** | `PARITY_TESTING.md`, `DECISIONS.md` | medium | v2.48 (plate distance transform), v2.50 and v2.51 (crater amplitude, then depth), **v2.57 (the plate-base blur radius, the widest of them)**, **v2.59 (depression-filled routing ON by default)**, **v2.60 (the river-continuity finishing descent pass)** and **v2.61 (which REVERTS that pass, returning `field` to v2.59's exactly, and re-classifies river-fed pits as lakes)** re-baseline **every world generated from a seed**; v2.49 does so above mapWidthKm 12 800. v2.58 is deliberately NOT one — it moves the rendered river overlay and no generated value. A golden fixture captured against the frozen v2.10 will fail on all of them **correctly**. Both v2.59 and v2.60 isolated the divergence to its own cause inside ONE build (force the flag equal on both sides; turn the carve and the river blend off on both sides) — the port should carry that technique with the decision. `PARITY_TESTING.md` has no concept of an intentional upstream re-baseline, so today the only way to record one is to let a test go red |
+| **Decide which line the port follows** | `DECISIONS.md` | medium | The source forked at v2.22: v2.23 duplicated it to carry this port's own shell theme, and **every engine change from v2.25 on exists only on the DCC line**. "Track upstream" is therefore ambiguous and no decision records which branch is meant. Blocks the re-freeze in §2.8, which cannot pick a file without it |
+
+**Why this was invisible.** The spec was written *for* the port and lives at this
+repository's root, so it reads as already-integrated. It was never wired into the
+router. That is the failure this file exists to catch (§6), reached from the
+other side: not a document making a stale claim, but a document making no claim
+anywhere anyone would look.
+
+---
 
 ---
 
@@ -1714,12 +1756,23 @@ recording corrections on 2026-08-23, -24 and -25.
 - Capability 13's body says urban milestones 8-17 "remain entirely unbuilt";
   8a and 12 landed 2026-08-24.
 
-### 6.6 The reference freeze has actually drifted — the re-freeze itself closed 2026-09-02, the stale sentence survives
+### 6.6 The reference freeze has drifted twelve versions, not one
 
-`FUNCTIONAL_CONTRACT.md:16-24` asserts the frozen v2.10 is the live repository's
-latest and there is *"no re-freeze question to raise"*. That sentence is still
-there, unedited — scope documents were deliberately not mass-edited in the
-re-freeze pass — and it is still wrong.
+**Corrected 2026-09-17; this entry itself understated the drift by an order of
+magnitude.** It used to say `Cartalith Gen1 v2.11.html` at the root was the whole
+gap. Measured in the working copy: the source repo holds **164** mainline files
+(newest **v2.22**) and **44** DCC-line files (newest **v2.66**), while
+`reference/` holds only v2.10 and `FUNCTION_INDEX.md` indexes v2.10's 1 094
+functions. `FUNCTIONAL_CONTRACT.md`'s *"no drift, no re-freeze question to
+raise"* paragraph has been replaced with the measurement.
+
+**The interval is not unknown, which is the one piece of good news here.**
+`RC_ENGINE_CHANGES.md` specifies it change by change as a porting spec — but
+nothing outside `CLAUDE.md` referenced that document until this pass, so it sat
+outside the count entirely. It is §2.9 now.
+
+Still real outstanding work, listed in §2.8, and `CLAUDE.md` requires the index
+be regenerated in the same pass.
 
 **What is fixed:** `reference/` now holds `Cartalith Gen1 v2.11.html` (2 374 691
 bytes) alongside v2.10 (untouched, byte-unmodified), `reference/FUNCTION_INDEX_v2.11.md`

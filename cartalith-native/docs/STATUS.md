@@ -57,6 +57,239 @@ only phase with milestone work outstanding.** Phase 5’s milestones closed on
 | **5** — urban morphology | milestones closed, defects remain (2026-09-13) | **done\*** | Every milestone has code; 16 and 17 closed under adversarial verification 2026-09-03 (`9e79e52`), 12 of 13 stage modules mutation-covered. Open work is defects |
 | *not a phase* — LOD and large worlds | the base and integration scopes, then `LOD_DETAIL_SCOPE.md` (2026-09-13) | **built and shipping — but not sharper** | A tiled deep-zoom pyramid with a persistent chunk atlas is on screen, **and a deeper level cannot add detail**: tiles carry a shade ratio over one grid-resolution colour texture, and `renderBiomeTileRGBA` is unported (measured in `OUTSTANDING_WORK.md`). Owner-supplied direction arrived 2026-09-12 as `docs/research/lod extra info.md`; `LOD_DETAIL_SCOPE.md` turns it into milestones LOD-D0 to D6, and `ROADMAP.md`’s LOD section points there (2026-09-13) |
 
+**Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
+and the source has moved twelve mainline versions past it.** Measured
+2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
+v*.html` (newest **v2.22**) plus a second line of **49** DCC files (newest
+**v2.71**), and it **forked at v2.22** — every engine change from v2.25 on
+exists only on the DCC line. This does not un-do a milestone; a phase verified
+against v2.10 is still verified against v2.10. It does mean **no row above can
+be read as "matches the source today"**, and seven of the changes in the interval
+are deliberate upstream re-baselines that a golden fixture taken against v2.10
+will fail *correctly*: **v2.48, v2.49, v2.50, v2.51, v2.57, v2.59, v2.60 and v2.61** move
+`field` itself, and **v2.55** moves every LOD tile and baked atlas chunk (never
+`field`).
+v2.57 is the widest of them — it renames and retunes the plate-base blur radius
+(`PLATE_BASE_BLUR_K` 0.35 → 0.18), which the source measured as the single
+highest-leverage constant in the height formula: the coastline is the level set of
+a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
+the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
+
+**v2.71 is the newest and is not simulation** — `hash_gen1.js` vs v2.70 ALL IDENTICAL — but its first
+half is a rule a port inherits whether or not it copies the feature. The owner asked whether a new
+guidance layer was needed to keep a settlement's drawing off the water; it was not. The adapter has
+always built a 22 m mask of the real sea, lakes and river band, and the engine's own `isWater`
+predicate reads it — it simply never reached the RENDERER, because the model record handed to the
+drawing code is deliberately function-free and the mask was not among the fields copied. **The trap
+is where a port will hit it too**: on the real-map-water path the site builder sets its water
+polygon EMPTY on purpose (the map already paints the sea beneath the town), so a clip keyed on that
+polygon passes every synthetic fixture and does nothing live — measured, 7 of 39 real towns carry an
+empty one. Carry the mask instead, and where a town carries both, the mask must win. The measurement
+method is the other reusable part: two cheaper metrics both lied (overdraw as a share of a 211 000-px
+sea reads 0.14% and looks like antialiasing; a palette match misses an antialiased street edge
+entirely), and the honest test renders the town, renders it again with the settlement layer stripped,
+and diffs inside the water. See `RC_ENGINE_CHANGES.md` §8.2.
+
+**v2.70 is the version before it, and is also not simulation** — a flat limited-palette map style, opt-in, `hash_gen1.js`
+vs v2.69 ALL IDENTICAL. It is worth a line for its SHAPE: the HTML has exactly one land-colour
+function and one water-colour function, each called by the main per-pixel loop, the LOD tile
+renderer and the flat bake, so a whole new map style costs one flag and one step in each chain and
+every surface picks it up — including the export, which is how an exported image matches the screen
+with no second code path. A port whose colour logic is duplicated per renderer pays for each style
+N times. See `RC_ENGINE_CHANGES.md` §8.2.
+
+**v2.69 is the version before, and it is the one to read before writing any LOD of your own.** The HTML's
+owner reported that a deep-zoom coastline walks away from the settlement drawn on it. The
+decomposition is the useful part, because **both obvious suspects were innocent** — the channel-burn
+and feature-morphology passes are null at the app defaults, and the sub-cell crater registry runs
+and makes *exactly zero* difference. What it was: **(1) two reconstructions of one surface** — the
+settlement adapter sampled the coarse field bilinearly while the tile had moved to Catmull-Rom in
+v2.47, 17x the land-vs-sea disagreement; and **(2) a one-sided taper** — the detail band fades out
+going DOWN from the shelf and not going UP, so a land pixel a hair above sea took the full band and
+could be pushed under, 7.6:1 asymmetry, growing from 0.40% of pixels at z=2 to 8.56% at z=8.
+**Refinement adds resolution; it does not invent**, and the land/sea boundary is a decision
+placement, the water mask, the flooded-cell test and the road network are all built against. Clamp
+the DELTA, not the result (clamping the height to sea level makes a flat shelf), and note the band
+is added in **two** places — guarding one left a third of the drift. After: **8.56% -> 0.35%**, zero
+drowned pixels, seam delta still exactly 0. Measured but NOT fixed there, and since CLOSED by an owner decision: the town
+derives river WIDTH from its own `10+order*7` formula capped at 46 m while the renderer uses a real
+hydraulic half-width **plus a 0.8-cell connectivity floor** — and that floor is what dominates, so
+at the app default **every Strahler order draws at 2500 m against a 1700 m settlement box** (a
+~104x ratio, not the 24.7x a raw-half-width comparison gives). **Leave it**: the floor is a
+RESOLUTION statement, the centreline is known to +/-half a cell, and at 800 km one cell IS 1.5 km,
+so the map cannot locate a 30 m river. Both numbers are honest and a port should reproduce the same
+split rather than force agreement.
+See `RC_ENGINE_CHANGES.md` §8.1.
+
+**v2.68 is the version before, and it names a defect a faithful port INHERITS.** Render-only — `hash_gen1.js`
+vs v2.67 ALL IDENTICAL, no generated value moves. The HTML's farmland generator has pushed
+`field`/`pasture` polygons into `model.details` since v0.95 and **nothing has ever drawn one**:
+neither map renderer reads `model.details` at all, and the City Viewer's detail pass branches on
+well/cross/crane/bollard/spoilheap/tree/dryingrack/logboom/fence with **no branch for either kind**,
+so 62-86 field polygons per pop-440 village fell through every `else if` in silence for the life of
+the file. A port that reads the reference faithfully ports the generator and never learns it was
+invisible, so **assert that every detail kind the generator can emit is reachable by the renderer,
+derived from what a real town produces rather than from a hand-written list** (v2.65's rule, third
+instance). Its other finding is a build a port should NOT make: furrow hatching with a per-parcel
+plough direction needs neither a hatch pass nor a stored bearing, because each grant is already a
+**selion** — 5.8 x 91.5 m, every poly a quad, aspect 15.8:1 — and a furlong is a bundle of parallel
+selions (measured: 10 distinct bearings over 98 parcels, largest bundle 52 sharing one). The
+texture IS the geometry. See `RC_ENGINE_CHANGES.md` §8.2.
+
+**v2.67 is the version before.** Urban layout again, no height/climate/flow/pixel, `hash_gen1.js` vs
+v2.66 ALL IDENTICAL. **Two of its findings belong to a port whatever it decides about the
+feature.** (1) `buildParcels` decided plot grain with a hardcoded `dM<160` — one two-bucket radial
+proxy for "which quarter is this?" — while `assignDistricts` answered the same question 130 lines
+later with the plaza, the wall ring, the river, the quay and the market radius, and produced SEVEN
+wards; so a harbour, a suburb, an agrarian fringe and a riverside craft quarter all platted
+identically, with the harbour's own source comment citing §1.1 #22 (*"deepest plots at quay; plot
+frontage narrowest of any family"*) as its reason for existing. **The obvious feature — ward-driven
+DEPTH — is inert, and measuring that is what changed the design**: 67.6% of parcels never reach
+`depthTarget`'s own 14 m floor (the block waist binds, not the draw) and tripling
+`plotDepthVariance` 0.22 → 0.60 moves median depth 11.09 → 11.07 m, which also explains why
+realised plot aspect is 1.09–1.74 against M-PAR-2's documented 1:3–1:10 band — **a block-SIZING
+question, not a parcel one**. What ships is the SUBDIVISION, whose two terms were driven by street
+age alone and a flat 0.4 halving chance; `wardGrain` defaults to 1 and 0 is bit-identical by
+construction, so a port can hold either as a constant. **Verify it as a per-ward SIGN against that
+ward's own baseline, never as a ranking across the wards** — mean frontage per ward is not a
+function of the pressure alone, because the blocks differ per ward. (2) `buildParcels`' water
+rejection has sampled only the four CORNERS since v0.95, and a plot spanning a NARROW channel has
+every corner on dry bank — the goldens caught one 41.3 m-deep, 5.8 m-wide parcel with its middle in
+the river. Pre-existing, unreachable until the grain varied, and proven so by measuring the prior
+version at `plotDepthVariance 0.60`: **zero wet parcels**. Any port of `buildParcels` inherits that
+hole. See `RC_ENGINE_CHANGES.md` §6s.
+
+**v2.66** is the version before it, and it carries one thing a port must not miss. Urban layout again, no
+height/climate/flow/pixel, `hash_gen1.js` vs v2.65 ALL IDENTICAL. The feature is a menu: pick a
+settlement TYPE, set its parameters, see a live preview — built on the discovery that the layout
+engine has exported a **22-parameter generation-rules table** (`DEFAULT_RULES` + `resolveRules` +
+two compound sliders) since v0.95, that `cityGen` reads `opts.rules` on its first lines, and that
+**the host adapter has never set it**, so every town the HTML has ever drawn came out at the
+defaults. **A port that has ported `cityGen` already has the table.** The part to read is
+`RC_ENGINE_CHANGES.md` **§6r.5**: exposing those parameters reached a **NON-TERMINATING region of
+the engine's own documented range** — `buildParcels` re-draws a frontage grant until one fits the
+remaining edge, with no bound, so when the remainder sits just above the 4.5 m floor the only
+escape is the lognormal's far lower tail (measured against a 4.6 m remainder: the 0.22 **default**
+escapes in ~28 571 draws, 0.18 in ~2 000 000, and 0.12 — the proof of concept's own 'Planned Grid'
+profile — effectively never). **A retry-until-it-fits loop over a heavy-tailed draw is a hang
+waiting for a parameter change.** The fix is a BOUND rather than a new formula — but note that the
+obvious claim for a bound is false here: the goldens pass because their fixtures never reach it, while an
+ordinary town runs to a measured 172 644 spins, so it is a **deliberate, bounded re-baseline of generated
+town layouts** measured at **10 of 12 towns, 46 of 8 939 parcels (0.51%)**. See `RC_ENGINE_CHANGES.md` §6r.
+
+**v2.65** is the version before it. Urban layout again, no height/climate/flow/pixel, `hash_gen1.js` vs v2.64
+ALL IDENTICAL. It makes the status gradient EXPLICIT (`par.status`, from proximity to the market,
+intramural-or-not, and how far downwind on v2.64's bearing) and adds its two visible ends. **Verify
+the SHAPE, not the existence**: 0.662 mean status near the market against 0.218 at the edge, and
+outer ground 0.143 downwind against 0.403 upwind. The part a port should read first is §6q.4 — there
+are TWO district palettes (building tint, parcel fill), the second silently skips an unknown
+district, v2.64 fed only the first, and **v2.64's own probe asserted only the palette it had
+remembered**; widening that to every district actually observed surfaced a pre-existing hole of the
+same shape. See `RC_ENGINE_CHANGES.md` §6q.
+
+**v2.64** is an URBAN-LAYOUT change — no height, climate, flow or pixel — that adds
+the two site-model vectors `docs/05` §7.1 asked for (prevailing wind, along-water gradient) together
+with their first consumer, the §4.7 industry-siting table. Neither vector is invented: the wind is
+`currentWindField()` and the downstream direction is §6n's own receiver tree. Two findings a port
+should not have to rediscover: `_civRiverFlowField` fills `km2` on every cell and `fx`/`fy` only on
+channel cells, so a nearest-cell search keyed on catchment lands on the town's own dry ground
+(1 of 14 towns got a bearing; 14 of 14 keyed on the vector); and **"downstream of the market" is
+unsatisfiable for most towns** — one carried 62 riverside parcels with all 62 upstream of its market
+— so §4.2 means the downstream END of the town's own frontage, an ORDER along the flow that needs no
+origin. See `RC_ENGINE_CHANGES.md` §6p.
+
+**v2.63** is a PARAMETER-SURFACE change plus a UI screen, and it writes no
+height, climate, flow or pixel — `hash_gen1.js` vs v2.62 is ALL IDENTICAL **by construction**,
+because `state.civParams` starts empty and every knob falls through to the constant it replaced.
+Seven settlement-generation constants (`SETTLE_SEED_THRESH`, `PORT_PREFERENCE_MULT`,
+`VILLAGE_SUIT_THRESH`, `VILLAGE_SPACING_KM`, `_CIV_VILLAGE_CAP`, `FOOD_SURPLUS_RATIO_MAX`,
+`FOOD_SHED_MIN_POP`) became runtime parameters read at AUTO-POPULATE time. **A port with no
+parameter UI can keep all seven as constants and skip the section entirely** — the values did not
+move. What a port MUST read before touching `foodSurplusRatio` is §6o.4: both ag-tech branches have
+to scale with the ceiling or one parameter means two different things, and the industrial case is
+correctly INERT. §6o.5 names three neighbours deliberately left as constants and why.
+See `RC_ENGINE_CHANGES.md` §6o.
+
+**v2.62** is a ROUTING and PLANNER change and it writes no height, climate or
+pixel — but it deliberately moves **generated road geometry**, so a port that generates roads must
+port it or its networks keep ignoring the rivers. A per-cell cost cannot tell walking ALONG a river
+from cutting ACROSS it, so the ford was charged on every river CELL while the navigable discount was
+multiplied into every river cell: the most navigable river on the map was its most expensive ground
+(**3.46x** plain). Both terms move to the EDGE, and `|align|` is symmetric by construction because
+an undirected Prim MST has no answer for an asymmetric cost. **Navigability is keyed on catchment
+km², not Strahler order** — this is where §6k's standing recommendation gets taken, for a new
+consumer; the three existing `order>=3` consumers are untouched and that migration is still open.
+The planner's current came from the route's elevation profile and was backwards one step in five.
+See `RC_ENGINE_CHANGES.md` §6n.
+
+**v2.61** is mostly a PAINT change — a river is drawn in the lake's own colour at
+its true coverage, with banks, because a lake is opaque while a river was a translucent tint at an
+alpha carrying the discharge magnitude — but two parts of it move generated values: a pooled
+depression a river flows into is now classified as a LAKE (local rainfall is the wrong gate for a
+terminal lake), and **v2.60's sculpt-derived digging pass is REVERTED**, which returns `field` to
+v2.59's bytes exactly in all five battery scenarios. A port that has not implemented v2.60's step
+2c should not implement it. See `RC_ENGINE_CHANGES.md` §6m.
+
+**v2.60 is a re-baseline** — of `field`, `flow` and the
+render alike. The source was rasterising a river as a chain of **one-cell discs**:
+`buildRiverNetwork` stamps a disc per channel cell and its `halfW` floors at 0.5, so
+`r = ceil(0.5) = 1` and only the centre cell passes. A D8 receiver chain steps
+diagonally about 42 % of the time and two diagonally adjacent squares touch only at a
+corner, so **884 of 1 305 main stems broke into visible parts** (3 554 breaks; 4 856
+four-connected components for 134 rivers). The carve has cut the same rivers at 0.8 —
+above a cell's circumradius `sqrt(1/2)` — since v2.30, and nobody carried that number
+to the render stamp. **Three constraints this port inherits whether or not it copies
+the fix**: assert **4-connectivity**, because 8-connectivity is free on a D8 chain and
+passes on the broken build; a width floor expressed in TILE PIXELS evaporates as you
+zoom in (0.014 cells at a 9.4 km view), so a resolution floor belongs in GRID CELLS;
+and flooring a drawn width without widening the polyline **cull margin** opens a real
+tile seam (measured 0.498 on a shared column against a 0.02 bound). The `field` half
+is a finishing descent pass over the final network's own cells, sized by measurement
+(a full re-carve moves 5.16 % of the map for 12.55 → 9.88 % climbing steps; the
+shipped pass reaches 4.33 % and moves 0.74 %) — and its root cause is a port-relevant
+duplicate: with integrated drainage on, receivers follow the depression-**filled**
+surface while `buildWaterBodies` runs its own separate priority-flood over the raw
+field. Two depression models, one question. See `RC_ENGINE_CHANGES.md` §6l.
+
+**v2.59 is a re-baseline too.** It turns depression-filled
+routing on by default: before the flip, **68.5 % of the source world's land
+drained into an interior pit** rather than to any outlet, so `field` itself moves
+(the carve cuts along the network integration changes). It also settles a
+question this port inherits — the source's own river-importance currency,
+Strahler order, was measured against upstream catchment area and found
+**resolution-stable but extent-dependent** (`order>=3` covers 0.32 % of the
+channel network on an 800 km map and 4.10 % on a 40 000 km one, same seed),
+unable to rank inside its own top bucket (123.7× in catchment) and not monotone
+in catchment. The ruling carried here: **keep the ordinal tier, key every
+threshold on catchment area in km²** — a nine-consumer migration the source has
+not made, and one this port gets for free by writing those consumers correctly
+the first time. See `RC_ENGINE_CHANGES.md` §6k and §7.12.
+
+**v2.58 is NOT a re-baseline** — it moves no generated value
+(the source's own hash battery is byte-identical against v2.57) — but it is a
+rendering contract this port will otherwise reimplement wrongly, because the
+defect it fixes is one this port is equally free to write: the source's river
+*drawing* has had a scale term since v2.25 while its river *selection* had none
+at all, so a 50 km region and a 40 000 km world chose the same set of rivers. Two
+constraints worth knowing before any river overlay is written here: gate on
+**screen pixels**, never on raw zoom (the source's own settlement ladder is raw
+zoom, which puts a hamlet on screen at a 28 571 km view on a 40 000 km world), and
+select over **whole main stems**, never over traced polyline fragments — fragment
+length *anti*-correlates with its own accumulation (ρ 0.207, rising to 0.963 once
+stems are assembled — **against upstream channel cells, not catchment area**; the
+source corrected that reading in v2.59, where the same stems measure ρ 0.105–0.398
+against the real catchment raster). See `RC_ENGINE_CHANGES.md` §6j and its
+correction box, and §7.11 for the real-km rule it is the eighth instance of.
+
+What changed in the interval is specified change by change in
+`RC_ENGINE_CHANGES.md`. **Which of it is already ported is not established
+anywhere, including here** — a spot check found `food_shed` and
+`route_corridors` present in the crates and `crater_population` and
+`landmass_index` absent, i.e. uneven in both directions. That survey is
+`OUTSTANDING_WORK.md` §2.9's first row and it is the prerequisite for scheduling
+any of the rest. Until it runs, this file has no honest status to report for the
+span, and says so rather than implying one.
+
 **What landed most recently** (full week in *The last seven days* below):
 
 > **This list stopped at 2026-09-02 and read as current for ten days** — in
@@ -925,7 +1158,7 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-13: 115 items** (110 before `LOD_DETAIL_SCOPE.md`’s seven milestone rows absorbed two). Run
+**Recounted 2026-09-20: 120 items**, after `main` was merged into this branch — 115 here plus §2.9’s three source-engine rows, the re-opened reference re-freeze and the Nortantis credits row. (It read 110 before `LOD_DETAIL_SCOPE.md`’s seven milestone rows absorbed two, then 115.) Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for
@@ -954,7 +1187,7 @@ answers "what is left" without a second read:
 | Open owner decisions — not work yet | 0 | §4 |
 | Declined / shelved — kept so nobody re-proposes them | 23 entries, 3 groups | §5 |
 
-**155 outstanding items** (was 168 that morning, then 164 after four of §1's
+**155 outstanding items at the time of writing — stale, see the recount above** (was 168 that morning, then 164 after four of §1's
 eight rows closed outright 2026-09-01: Milestone F's closeout, the
 `statusMid` composite, Vault §14 Compare, route corridors/travel cost as an
 analysis field; then 162 after the same-day second pass closed GUI
