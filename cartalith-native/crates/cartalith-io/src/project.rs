@@ -866,10 +866,16 @@ fn zip_opts() -> zip::write::SimpleFileOptions {
 /// requirement is the *caller's* — building into memory and moving the
 /// result into place is a filesystem decision this function has no
 /// business making.
+///
+/// Returns the warnings produced while writing — today, only ever *"a
+/// stale LOD pyramid was dropped"*, mirroring [`ProjectData::warnings`] on
+/// the read side. Empty is the normal case; a caller that only cares about
+/// success can still just `?`/`.unwrap()` the `Result` and ignore the `Ok`
+/// payload.
 pub fn write_project<W: Write + Seek>(
     sink: W,
     project: &ProjectWrite<'_>,
-) -> Result<(), SaveError> {
+) -> Result<Vec<String>, SaveError> {
     let n = project.params.gw * project.params.gh;
     let f = project.fields;
 
@@ -1039,25 +1045,41 @@ pub fn write_project<W: Write + Seek>(
     // 28's *"prefer dropping them to drawing them"*, and the pyramid is derived,
     // so nothing is lost that cannot be rebuilt.
     //
-    // **What is still owed: `write_project` has no warnings channel**, so this
-    // drop is silent. Nothing assigns `ProjectWrite::lod_tiles` yet, so no
-    // caller can hit it today; give it a warning before the save path is wired.
-    if let Some(lod) = project.lod_tiles.as_ref().filter(|lod| {
-        lod.source_key.is_empty() || lod.source_key == lod_source_key(project.params, &f.heightmap)
-    }) {
-        writer.start_file(LOD_TILE_INDEX, opts)?;
-        writer.write_all(
-            &serde_json::to_vec_pretty(&serde_json::json!({
-                "source_key": lod_source_key(project.params, &f.heightmap),
-                "producer": lod.producer,
-                "tile_w": lod.tile_w,
-                "tile_h": lod.tile_h,
-            }))
-            .expect("a Value always serializes"),
-        )?;
-        for (id, bytes) in &lod.tiles {
-            writer.start_file(lod_tile_entry(*id), opts)?;
-            writer.write_all(bytes)?;
+    // The drop used to be silent -- `write_project` returned `Result<(),
+    // SaveError>` and had nowhere to put a warning, unlike `read_project`'s
+    // `ProjectData::warnings`. `OUTSTANDING_WORK.md`'s
+    // "a dropped pyramid is silent" row: nothing assigns
+    // `ProjectWrite::lod_tiles` yet, so no caller can hit this today, but the
+    // channel exists now so the save path is safe once one does.
+    let mut warnings: Vec<String> = Vec::new();
+    if let Some(lod) = &project.lod_tiles {
+        let live_key = lod_source_key(project.params, &f.heightmap);
+        if lod.source_key.is_empty() || lod.source_key == live_key {
+            writer.start_file(LOD_TILE_INDEX, opts)?;
+            writer.write_all(
+                &serde_json::to_vec_pretty(&serde_json::json!({
+                    "source_key": live_key,
+                    "producer": lod.producer,
+                    "tile_w": lod.tile_w,
+                    "tile_h": lod.tile_h,
+                }))
+                .expect("a Value always serializes"),
+            )?;
+            for (id, bytes) in &lod.tiles {
+                writer.start_file(lod_tile_entry(*id), opts)?;
+                writer.write_all(bytes)?;
+            }
+        } else {
+            // Same detection as `read_project`'s stale-pyramid branch, mirrored
+            // rather than shared: the read side checks the key it just decoded
+            // from the archive against the heightmap it just decoded too, and
+            // has no `ZipWriter` or `SaveError` in scope to share a helper with.
+            warnings.push(format!(
+                "{LOD_TILE_PREFIX}: the tiles being written were made from a \
+                 different world (key {}, this one is {live_key}) -- dropped \
+                 rather than written",
+                lod.source_key
+            ));
         }
     }
 
@@ -1088,7 +1110,7 @@ pub fn write_project<W: Write + Seek>(
     }
 
     writer.finish()?;
-    Ok(())
+    Ok(warnings)
 }
 
 fn write_f32_slice<W: Write>(sink: &mut W, values: &[f32]) -> std::io::Result<()> {
@@ -2125,6 +2147,74 @@ mod tests {
         let kept = read_project(Cursor::new(&write_to_vec(&fresh))).expect("opens");
         let kept = kept.lod_tiles.expect("an empty key is trusted and the pyramid is kept");
         assert_eq!(kept.source_key, live_key, "and it is stamped with the world it shipped beside");
+    }
+
+    /// **The other half of the 2026-09-06 hole.** Dropping a stale pyramid on
+    /// write used to be silent -- `write_project` returned `Result<(),
+    /// SaveError>` and had nowhere to put a warning, unlike `read_project`'s
+    /// `ProjectData::warnings` (`OUTSTANDING_WORK.md`'s "a dropped pyramid is
+    /// silent" row). `write_project` now reports the drop the same way the
+    /// read side does.
+    #[test]
+    fn write_project_reports_a_dropped_pyramid() {
+        let (params, fields) = sample(6, 4);
+        let mut sculpted = fields.clone();
+        sculpted.heightmap[0] += 1.0; // one cell is a different world
+
+        let stale_key = lod_source_key(&params, &fields.heightmap);
+        let mut pyr = a_pyramid(4, 3, 1);
+        pyr.source_key = stale_key;
+
+        let mut write = ProjectWrite::new(&params, &sculpted);
+        write.lod_tiles = Some(pyr);
+        let mut buf = Vec::new();
+        let warnings = write_project(Cursor::new(&mut buf), &write)
+            .expect("a stale pyramid must not fail the save");
+
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].contains(LOD_TILE_PREFIX) && warnings[0].to_lowercase().contains("dropped"),
+            "{warnings:?}"
+        );
+
+        // And the archive really did drop them, same as the read-side test
+        // above -- the warning describes what actually happened, not just
+        // what almost did.
+        let back = read_project(Cursor::new(&buf)).expect("the save still opens");
+        assert!(back.lod_tiles.is_none());
+    }
+
+    /// The common case must stay quiet, not just the stale case loud: a
+    /// matching `source_key`, an empty (trusted) one, and no pyramid at all
+    /// all produce zero warnings.
+    #[test]
+    fn write_project_is_quiet_when_the_pyramid_matches() {
+        let (params, fields) = sample(6, 4);
+
+        // Empty key: the fresh-producer contract, trusted outright.
+        let mut fresh = ProjectWrite::new(&params, &fields);
+        fresh.lod_tiles = Some(a_pyramid(4, 3, 1));
+        let mut buf = Vec::new();
+        let warnings =
+            write_project(Cursor::new(&mut buf), &fresh).expect("a fresh pyramid must save");
+        assert!(warnings.is_empty(), "{warnings:?}");
+
+        // Explicit, correct key: the same world, named rather than implied.
+        let mut pyr = a_pyramid(4, 3, 1);
+        pyr.source_key = lod_source_key(&params, &fields.heightmap);
+        let mut write = ProjectWrite::new(&params, &fields);
+        write.lod_tiles = Some(pyr);
+        let mut buf2 = Vec::new();
+        let warnings =
+            write_project(Cursor::new(&mut buf2), &write).expect("a matching pyramid must save");
+        assert!(warnings.is_empty(), "{warnings:?}");
+
+        // No pyramid at all is the ordinary case and must stay ordinary.
+        let none_write = ProjectWrite::new(&params, &fields);
+        let mut buf3 = Vec::new();
+        let warnings = write_project(Cursor::new(&mut buf3), &none_write)
+            .expect("a save with no pyramid must save");
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 
     fn a_pyramid(tile_w: usize, tile_h: usize, levels: i32) -> LodTiles {
