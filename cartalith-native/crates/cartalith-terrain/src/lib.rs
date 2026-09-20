@@ -14,6 +14,7 @@ pub mod infer;
 pub mod landform;
 pub mod sculpt;
 pub mod tile_render;
+pub mod vector;
 
 // `Math.round`, `Math.sin`, `Math.cos` and `Math.atan2` with JS semantics.
 //
