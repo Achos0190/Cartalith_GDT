@@ -3212,6 +3212,98 @@ func revert_to_saved() -> void:
 		"Everything since the last save of %s is discarded." % current_project_path.get_file(),
 		"Revert", func(): _load_project(current_project_path))
 
+## `File ▸ New world from selection…` -- `EngineBridge.region_new_world()`, over
+## `ops_bridge.rs::region_new_world` and the reference's `#regionNewWorldBtn`.
+## The row and why it is in File are `menus.gd::ID_NEW_WORLD_FROM_SELECTION`'s.
+##
+## **The confirm is not optional here, and it is the reason this function
+## exists at all rather than the menu calling the bridge.** The wrapper's own
+## doc states the debt -- *"A caller must ask first; this does not, for the
+## same reason `generate()` does not"* -- and the reference's handler opens
+## with a `confirm()` before it touches anything. `_center_landmasses()` is the
+## shape this follows: what is destroyed goes in the prose, what survives goes
+## in the foot, and the answer is named after what it does rather than "OK".
+##
+## **The destroyed list is the engine's, read at the symbol, not a guess.**
+## `region_new_world` calls `release_world()` then `absorb()`, and `absorb`
+## installs fresh `sculpt`/`icons`/`civ_tools`/`paint`/`labels`/`infra` at the
+## new dimensions plus the `undo`/`redo`/`ledger`/`bake.finalized`/
+## `landmark_store` resets; `release_world`/`absorb` clear the vault's
+## `links`/`snapshots`. `_verify_region_probe.gd` asserts the icon, label,
+## marquee, undo and finalize clears against the real cdylib, and the civ layer
+## is *recomputed* over the new terrain rather than carried, which is why the
+## prose says "replaced" for it and "discarded" for the rest. Two more go on
+## the shell side and are named too: this path emits `generation_finished`, and
+## `journey_planner_view.gd` clears saved journeys on it while `right_dock.gd`
+## clears saved measurements.
+##
+## **No tile size is offered.** The reference's `#refSize` select (1024 / 2048 /
+## 4096) has no equivalent on a menu row, and the wrapper's `0` already means
+## the reference's own default of 1024 -- a second tile-size control beside
+## Data ▸ Export ▸ Maps' would be the "two pickers over one concept" shape this
+## shell keeps having to undo. A caller that wants to choose belongs in that
+## panel, next to the marquee's other consumer.
+##
+## Three pre-flight refusals, matching the menu row's own four gates so a
+## command-index hit (which is indexed off the BUILT state, before
+## `about_to_popup` disables anything) lands on the same sentence the row would
+## have carried. Everything past the confirm is the engine's: all five of its
+## refusals are checked before the first mutating line, and each arrives as
+## `generation_finished(false)` with `bridge.last_summary` carrying the
+## engine's own words, which `_report_failure()` already puts on screen and on
+## a phone toast.
+func new_world_from_selection() -> void:
+	if not bridge.has_world:
+		set_status("hint", "no world to resample", "accent")
+		return
+	if bridge.generating:
+		return
+	## Same `has_method` check `confirm_unsaved_world()` already uses for
+	## `get_seed()` below -- without it, a stale cdylib missing this binding
+	## would raise the destructive confirm, be answered, and silently do
+	## nothing behind a status line that claims it is working. Verifier
+	## finding 2026-09-20: this file's other three guards did not cover it.
+	if bridge.world_gen == null or not bridge.world_gen.has_method("region_new_world"):
+		set_status("hint", "this build has no region resample binding", "accent")
+		return
+	if bridge.region_get().is_empty():
+		set_status("hint",
+			"no region selected — arm Region select (R) and drag a marquee on the map",
+			"accent")
+		return
+	## Foot text, corrected 2026-09-20 (verifier finding): a world that has
+	## never been saved has no project file to claim is untouched -- the same
+	## branch `confirm_unsaved_world()` already makes for its own stat row.
+	var foot := (
+		"this world has never been saved, so there is no project file to keep"
+		+ " — File ▸ Save project first if you want to keep it"
+		if current_project_path == "" else
+		"the project file on disk is untouched — File ▸ Save project first if"
+		+ " you want to keep this world"
+	) + "; the seed and the selection's real width in km are carried into the new one"
+	_confirm(
+		"New world from selection",
+		"The current world is replaced by a higher-resolution resample of the"
+		+ " marquee, and this cannot be undone. The civilisation layer is"
+		+ " regenerated over the new terrain; labels, map icons, hand-drawn"
+		+ " ways, committed routes, painted layers, the sculpt draft, saved"
+		+ " journeys and measurements, the landmark store, vault snapshots,"
+		+ " the undo history and every vault link are discarded — each of"
+		+ " them is a cell of a grid that will no longer exist.",
+		"Replace the world",
+		func():
+			## Re-asked because the modal spans the gap: the bridge wrapper
+			## returns void and silently does nothing while `generating`, so
+			## without this the press would be a no-op with nothing said. The
+			## marquee is not re-asked -- the engine refuses that one atomically
+			## and reports it through `generation_finished(false)`.
+			if bridge.generating:
+				set_status("hint", "a generation is already running", "accent")
+				return
+			set_status("hint", "resampling the selected region…", "text_ghost")
+			bridge.region_new_world(),
+		foot)
+
 ## File ▸ Close project.
 func close_project() -> void:
 	if not bridge.has_world:

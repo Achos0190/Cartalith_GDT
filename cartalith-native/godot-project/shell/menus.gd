@@ -25,6 +25,33 @@ const ID_REVERT := 15
 const ID_CLOSE := 16
 const ID_STORAGE := 17
 const ID_SHOW_ON_DISK := 19
+## `File ▸ New world from selection…` -- `ops_bridge.rs::region_new_world`, the
+## reference's `#regionNewWorldBtn`. **`18` by the same whole-file grep of
+## `^const ID_[A-Z_0-9]* := [0-9]+` its neighbours record making**: §2.1's block
+## runs 10-19 and 18 is the one number in it nothing claims, so the row sits in
+## its own menu's id range rather than being appended to the 700s.
+##
+## **Why File, and not a `Region` menu.** This file's own header fixes the bar
+## at seven menus "and nothing else" (`DCC_SHELL_SPEC.md` §2), so an eighth is
+## not available -- the same argument that put the Markdown vault under Data
+## rather than giving it the top-level `▾ VAULT` its canvas drew. Of the seven,
+## File already owns every command that decides *which world is open* (New
+## world…, Open project…, Recent worlds, Revert, Close project), and that is
+## exactly what this does: it replaces the live world with a resample of the
+## marquee. Edit was the other candidate and is wrong -- its selection commands
+## (Select all, Deselect, Cut/Copy/Paste, Delete) all edit *within* a world,
+## and a command that discards the world is not an edit of it. Data was the
+## third, because the reference draws this button inside its Region-export
+## accordion beside `Refine & export`; it is wrong here because that menu is a
+## list of Data-manager routes and this produces no file. File's own signpost
+## ("imports live under Data ▸ Import") does not exclude it either: nothing is
+## read from disk, the input is the world already open.
+##
+## **Appended after `Recent worlds`, not inserted under `New world…`,** so no
+## row the canvas draws moves. No canvas draws this one, and the owner's rule
+## for that case is to derive from the canvases' own vocabulary -- the first
+## File band is "get a world into the app", and this is a fourth way to.
+const ID_NEW_WORLD_FROM_SELECTION := 18
 ## `File ▸ Autosave interval` (§2.1: "Toggle + interval submenu (off, 1, 5,
 ## 15 min). Default 5 min."). `Off` writes `DccSettings.set_autosave_enabled
 ## (false)` -- the same bit the `Autosave` check item above it flips, one
@@ -535,6 +562,17 @@ func shortcut_default(id: int) -> int:
 
 # -- §2.1 File ----------------------------------------------------------------
 
+## What `File ▸ New world from selection…` does, on the row itself. The three
+## reasons it can be unavailable are separate strings below, because "this
+## build has no such call", "there is no world" and "there is no marquee" are
+## three different things to do next and one sentence covering all three would
+## name the wrong one twice.
+const REGION_NEW_WORLD_TIP := "Replaces the live world with a higher-resolution resample of the Region-select marquee (ops_bridge.rs::region_new_world, the reference's Extract as new world). The selection's real width in km is preserved, so a smaller region reads as a closer look rather than a rescaled copy, and fresh tectonics are inferred under it. Asks first: everything positioned in the old grid is discarded."
+const REGION_NEW_WORLD_NO_API := "This build's GDExtension predates the region-resample binding (WorldGen::region_new_world). Rebuild cartalith-godot to enable it."
+const REGION_NEW_WORLD_NO_WORLD := "No world yet. Generate or open one, then select a region of it."
+const REGION_NEW_WORLD_NO_REGION := "No region is selected. Arm the Region select tool (R) and drag a marquee on the map -- this resamples that marquee and nothing else."
+const REGION_NEW_WORLD_BUSY := "A generation is running. The engine object belongs to the worker thread until it finishes."
+
 func _file(p: PopupMenu) -> void:
 	_live(p, "New world…", ID_NEW_WORLD, KEY_MASK_CTRL | KEY_N)
 	_live(p, "Open project…", ID_OPEN_PROJECT, KEY_MASK_CTRL | KEY_O)
@@ -550,6 +588,17 @@ func _file(p: PopupMenu) -> void:
 	p.add_child(_recent_popup)
 	p.add_submenu_item("Recent worlds", "RecentWorlds")
 	_recent_popup.id_pressed.connect(_on_recent_world)
+
+	## `ID_NEW_WORLD_FROM_SELECTION`'s own const carries why this row is in
+	## File and in this position. The tooltip is set **here** as well as in
+	## `about_to_popup`, because `CommandIndex` reads the BUILT state (its own
+	## header says so) and a row whose only tooltip arrives on a popup is
+	## indexed silent -- the defect that dropped the lighting-rig readout out
+	## of the index entirely on 2026-09-05. `about_to_popup` overwrites it with
+	## the reason when the row is disabled.
+	_live(p, "New world from selection…", ID_NEW_WORLD_FROM_SELECTION)
+	var region_new_idx := p.item_count - 1
+	p.set_item_tooltip(region_new_idx, REGION_NEW_WORLD_TIP)
 
 	p.add_separator()
 	## All five were `_todo` rows reading "requires a save writer" until
@@ -699,7 +748,32 @@ func _file(p: PopupMenu) -> void:
 		p.set_item_disabled(revert_idx, _host.current_project_path == "")
 		p.set_item_tooltip(revert_idx,
 			"" if _host.current_project_path != "" else "This world has never been saved.")
-		p.set_item_disabled(close_idx, not has_world))
+		p.set_item_disabled(close_idx, not has_world)
+		## Four gates, reported in the order a user would clear them. The
+		## marquee one is the reference's own (`#regionNewWorldBtn` ships
+		## `disabled` and is enabled only once a region is selected) and the
+		## same one `data_manager_window.gd` already draws over the other
+		## consumer of this rect, Export ▸ Maps -- one marquee, two commands,
+		## one sentence about arming it.
+		##
+		## **The order is load-bearing: `generating` is asked BEFORE
+		## `region_get()`.** During a generation the engine object belongs to
+		## the worker thread -- `engine_bridge.gd`'s own rule, the reason
+		## `param_get` answers from `_params_cache` until `_finish` -- so
+		## reaching a `#[func]` on it from this handler is the defect, not the
+		## disabled row. Reordering these two branches reintroduces it silently.
+		var region_why := ""
+		if not _engine_has("region_new_world"):
+			region_why = REGION_NEW_WORLD_NO_API
+		elif not has_world:
+			region_why = REGION_NEW_WORLD_NO_WORLD
+		elif _bridge.generating:
+			region_why = REGION_NEW_WORLD_BUSY
+		elif _bridge.region_get().is_empty():
+			region_why = REGION_NEW_WORLD_NO_REGION
+		p.set_item_disabled(region_new_idx, region_why != "")
+		p.set_item_tooltip(region_new_idx,
+			region_why if region_why != "" else REGION_NEW_WORLD_TIP))
 	p.id_pressed.connect(_on_file)
 
 ## The four `STORAGE LOCATIONS` readouts' live text and tooltip: the elided
@@ -862,6 +936,13 @@ func _on_file(id: int) -> void:
 		ID_CLOSE: _host.close_project()
 		ID_STORAGE: _host.open_storage_locations()
 		ID_SHOW_ON_DISK: _host.show_project_on_disk()
+		## Guarded rather than called bare, the same way `ID_FIND_ON_MAP` is:
+		## the confirm and every refusal live in `app.gd`, which is a different
+		## pass's file, so a shell built against an older `app.gd` opens every
+		## other File row cleanly instead of crashing this popup's dispatch.
+		ID_NEW_WORLD_FROM_SELECTION:
+			if _host.has_method("new_world_from_selection"):
+				_host.new_world_from_selection()
 
 # -- §2.2 Edit ----------------------------------------------------------------
 
