@@ -72,21 +72,44 @@ Five caveats on that number, stated rather than buried:
    outright, then 42/56/42 once the verification pass closed the §3.2 medium
    duplicate too).
 2. **§2.9's three rows hide a survey, not an estimate.** `RC_ENGINE_CHANGES.md`
-   specifies **46 distinct engine items** across v2.11–v2.71: 27 through v2.52,
-   §6h's three (the 24-bit height word, the relief-gate floor and the
-   local-contrast rebase), v2.57's plate-base blur, v2.58's river selection,
-   v2.59's drainage default plus its ruling on Strahler order (§6k/§7.12), and
-   v2.60's river-continuity fix (§6l), v2.61's water-paint/lake-gate pass (§6m)
-   v2.62's navigable-river routing/flow-direction pass (§6n) and v2.67's ward-driven plot grain plus the corner-only parcel water test it exposed (§6s), v2.68's never-rendered farmland fringe (§8.2 — render-only, but a port inherits the invisible-detail-kind defect) v2.69's sea-level clamp on tile refinement (§8.1 — a port that writes its own LOD needs both of its rules before it does) v2.70's style-chain shape (§8.2 — one colour function per surface class is what makes a new map style cost one flag instead of N) and v2.71's water clip (§8.2 — the settlement's water mask exists and never reached the renderer, and the polygon a synthetic fixture clips against is EMPTY by design on the real path) — the last of
-   which is the first place §6k's "key the threshold on catchment AREA"
-   recommendation is actually taken, for a NEW consumer, leaving the three
-   existing `order>=3` consumers alone.
-   **That arithmetic closes; the figure read 31 before 2026-09-17 and did not** —
-   v2.57 had been added to the total without being added to the breakdown. How
-   many are already ported is not established, so they are deliberately NOT
-   expanded into 33 rows here. Expanding them before the survey would inflate this count with
-   work that may already be done — the opposite error to the one that left them
-   uncounted until 2026-09-17.
+   specifies **50 distinct engine items** across v2.11–v2.73, and the figure is
+   re-derived here item by item so it can be checked rather than inherited:
+   **27** through v2.52; §6h's **3** (the 24-bit height word, the relief-gate
+   floor, the local-contrast rebase); v2.57's plate-base blur (§6i) **1**;
+   v2.58's river selection (§6j) **1**; v2.59's drainage default *and* its ruling
+   on Strahler order (§6k/§7.12) **2**; v2.60's river-continuity fix (§6l) **1**;
+   v2.61's water-paint/lake-gate pass (§6m) **1**; v2.62's navigable-river
+   routing and flow direction (§6n) **1**; v2.63's seven generation constants
+   made runtime parameters (§6o) **1**; v2.64's two site-model vectors with
+   their industry-siting consumer (§6p) **1**; v2.65's explicit status gradient
+   and the second district palette it found (§6q) **1**; v2.66's 22-parameter
+   rules table and the non-terminating region exposing it reached (§6r) **1**;
+   v2.67's ward-driven plot grain *plus* the corner-only parcel water test it
+   exposed (§6s) **2**; v2.68's never-rendered farmland fringe (§8.2 —
+   render-only, but a port inherits the invisible-detail-kind defect) **1**;
+   v2.69's sea-level clamp on tile refinement (§8.1 — a port writing its own LOD
+   needs both of its rules first) **1**; v2.70's style-chain shape (§8.2 — one
+   colour function per surface class is what makes a new map style cost one flag
+   instead of N) **1**; v2.71's water clip (§8.2 — the settlement's water mask
+   exists and never reached the renderer, and the polygon a synthetic fixture
+   clips against is EMPTY by design on the real path) **1**; v2.72's antimeridian
+   seam cut *and* its display bar (§8.1/§7.13 — two independent defects that
+   share a screenshot and nothing else) **2**; v2.73's green/footpath pass
+   (§8.2 — the always-on source exists because the free one is unreachable at
+   the default rules) **1**. v2.62 remains the first place §6k's "key the
+   threshold on catchment AREA" recommendation is actually taken, for a NEW
+   consumer, leaving the three existing `order>=3` consumers alone.
+   **The figure read 31 before 2026-09-17 and 46 after, and neither reconciled
+   against its own breakdown** — v2.57 was added to the total without being
+   added to the list, and v2.63 through v2.66 were counted in the total and
+   never named at all. That is the same append-without-re-reading defect
+   `RC_ENGINE_CHANGES.md` §8 documents about itself; the remedy here is that
+   every contributor is now named with its count, so the next append has to
+   land in both places or fail to add up. How many are already ported is still
+   not established, so they are deliberately NOT expanded into 50 rows here:
+   expanding them before the survey would inflate this count with work that may
+   already be done — the opposite error to the one that left them uncounted
+   until 2026-09-17.
 3. **The `UNWIRED_FUNCTIONS.md` backlog is one row of the 3 "in flight" above,
    not many** — that document is itself a live backlog with a `file:line` per
    row, and re-counting it here would guarantee the two drift (this
