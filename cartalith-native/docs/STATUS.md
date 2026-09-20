@@ -44,8 +44,8 @@ work outstanding.
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **47** DCC files (newest
-**v2.69**), and it **forked at v2.22** — every engine change from v2.25 on
+v*.html` (newest **v2.22**) plus a second line of **48** DCC files (newest
+**v2.70**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and seven of the changes in the interval
@@ -59,7 +59,15 @@ highest-leverage constant in the height formula: the coastline is the level set 
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
-**v2.69 is the newest, and it is the one to read before writing any LOD of your own.** The HTML's
+**v2.70 is the newest and is not simulation** — a flat limited-palette map style, opt-in, `hash_gen1.js`
+vs v2.69 ALL IDENTICAL. It is worth a line for its SHAPE: the HTML has exactly one land-colour
+function and one water-colour function, each called by the main per-pixel loop, the LOD tile
+renderer and the flat bake, so a whole new map style costs one flag and one step in each chain and
+every surface picks it up — including the export, which is how an exported image matches the screen
+with no second code path. A port whose colour logic is duplicated per renderer pays for each style
+N times. See `RC_ENGINE_CHANGES.md` §8.2.
+
+**v2.69 is the version before, and it is the one to read before writing any LOD of your own.** The HTML's
 owner reported that a deep-zoom coastline walks away from the settlement drawn on it. The
 decomposition is the useful part, because **both obvious suspects were innocent** — the channel-burn
 and feature-morphology passes are null at the app defaults, and the sub-cell crater registry runs
