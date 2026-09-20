@@ -309,18 +309,18 @@ surviving control and still consumed.
 
 ### Stale source comments — not user-visible, so not §b, but the same defect class
 
-**4 → 5 open, 1 closed.** The `map_overlay.gd` constants block accounts for
-three of the five on its own, which is the point of listing them separately:
-they are all in the comment that exists to keep a Rust/GDScript pair findable.
+**0 open, 6 closed (2026-09-21).** The `map_overlay.gd` constants block accounted for
+three of the six on its own, which is the point of listing them separately:
+they are all in the comment that exists to keep a Rust/GDExtension pair findable.
 
-| Where | What it says | Why it is false |
-|---|---|---|
-| `cartography_workspace.gd:1436-1442` | *"The fourth is still absent, deliberately … **so the toggle stays disabled** and now says the narrower true thing."* | The toggle is live at `:1660`, and that build site is itself annotated "**Live.**". Written 2026-09-02, when it was true; the culler landed 2026-09-03. |
-| `cartography_workspace.gd:2221-2223` | *"It sets the halo and tracking it draws with … and its priority **once the collision culler lands**."* | It landed. |
-| `map_overlay.gd:523` | *"`EngineBridge.label_glyph_layout`, `engine_bridge.gd:2469 func label_glyph_layout`"* | It is at `engine_bridge.gd:3211`. This is the open Small row's own cited location. |
-| `map_overlay.gd:554` | `ARC_STRAIGHT_THRESHOLD := 0.01 ## labels.rs:150` | **New this pass.** `pub const ARC_STRAIGHT_THRESHOLD` is `labels.rs:164`. The value is right; the pointer is 14 lines off. |
-| `map_overlay.gd:555-556` | `ARC_RADIUS_FLOOR_K` / `ARC_SPREAD_DIVISOR`, both `## labels.rs:176` | **New this pass.** `arc_label_layout` opens at `labels.rs:182`. Both values are right. Three citations in one block, written expressly so `grep` would find the pair, and all three now miss. |
-| ~~`lib.rs:6704-6705`~~ | ~~`paint_set_brush`'s doc says hardness/softness are "never consumed"~~ | **CLOSED this pass.** `paint_set_brush` moved to `lib.rs:8883` and its doc at `:8863-8866` now reads *"`hardness`/`softness` (0..1, **consumed since `DECISIONS.md` §7k** — a deterministic probability-threshold band feathers the disc's edge; `1.0`/`0.0` is bit-identical to the old hard disc)"*. Disclosed 2026-09-01, carried two cuts, fixed. |
+| Where | What it said | Why it was false | Status |
+|---|---|---|---|
+| `cartography_workspace.gd:1436-1442` | *"The fourth is still absent, deliberately … **so the toggle stays disabled** and now says the narrower true thing."* | The toggle is live at `:1660`, and that build site is itself annotated "**Live.**". Written 2026-09-02, when it was true; the culler landed 2026-09-03. | **CLOSED 2026-09-21.** Re-opened and corrected (now `:1556-1561`, `_build_label_tool_options_row`'s doc): reads *"The fourth landed too … the toggle below (bound to `_label_cull`) is live"*, citing `generate_labels`'s own doc for the culling order. Comment-only, parse-checked clean. Commit `e462ed9`. |
+| `cartography_workspace.gd:2221-2223` | *"It sets the halo and tracking it draws with … and its priority **once the collision culler lands**."* | It landed. | **CLOSED 2026-09-21.** Re-opened and corrected (now `:2840-2846`, `_rebuild_label_edit_form`'s doc): "once the collision culler lands" → "live since 2026-09-03", citing `labels.rs`'s `generate_labels` doc for class-order-then-weight. Commit `e462ed9`. |
+| `map_overlay.gd:523` | *"`EngineBridge.label_glyph_layout`, `engine_bridge.gd:2469 func label_glyph_layout`"* | It is at `engine_bridge.gd:3211`. This is the open Small row's own cited location. | **CLOSED — already fixed by an earlier 2026-09-20 pass**, re-verified 2026-09-21: `map_overlay.gd:594-595` now cites `engine_bridge.gd:3503`, correct against the live symbol. |
+| `map_overlay.gd:554` | `ARC_STRAIGHT_THRESHOLD := 0.01 ## labels.rs:150` | `pub const ARC_STRAIGHT_THRESHOLD` is `labels.rs:164`. The value was right; the pointer was 14 lines off. | **CLOSED — already fixed by an earlier 2026-09-20 pass**, re-verified 2026-09-21: `map_overlay.gd:648` now cites `labels.rs:164`, correct. |
+| `map_overlay.gd:555-556` | `ARC_RADIUS_FLOOR_K` / `ARC_SPREAD_DIVISOR`, both `## labels.rs:176` | `arc_label_layout` opens at `labels.rs:182`. Both values were right. | **CLOSED — already fixed by an earlier 2026-09-20 pass**, re-verified 2026-09-21: `map_overlay.gd:649-650` now cites `labels.rs:182` (×2), correct. |
+| ~~`lib.rs:6704-6705`~~ | ~~`paint_set_brush`'s doc says hardness/softness are "never consumed"~~ | **CLOSED (pre-existing).** `paint_set_brush` moved to `lib.rs:8883` and its doc at `:8863-8866` now reads *"`hardness`/`softness` (0..1, **consumed since `DECISIONS.md` §7k** — a deterministic probability-threshold band feathers the disc's edge; `1.0`/`0.0` is bit-identical to the old hard disc)"*. Disclosed 2026-09-01, carried two cuts, fixed. |
 
 ### (c) Reason true, but the presentation misleads — 0 remain
 
