@@ -53,6 +53,28 @@ const RESOLUTION_CUSTOM_INDEX := 5
 
 const GRID_MIN := 4 ## generate_sized() clamps each dimension to >= 4; match it rather than let the engine clamp behind the dialog's back.
 const GRID_MAX := 8192
+
+## `OUTSTANDING_WORK.md` §2.7 / `GENERATION_PARAMETERS.md`: this field used to
+## go all the way to `i32::MAX` (2 147 483 647), which is exactly the seed
+## magnitude `cartalith-noise`'s per-octave `s + o*131` offset overflowed
+## `i32` on ("attempt to add with overflow" in a debug build; a silent, wrong
+## wrap in release). That overflow is fixed at its root now (`cartalith-noise`
+## uses `wrapping_add`/`wrapping_mul`, proven exact JS `ToInt32` parity, so no
+## seed in `i32`'s full range can panic it any more) -- but several OTHER
+## generation call sites still add a small constant straight to the raw seed
+## in plain, unchecked `i32` arithmetic before a world exists to check
+## (`opts.seed + 1`/`+2`/`+3` in `cartalith-assets`, `o.seed + 99` in
+## `cartalith-climate`, `seed + 17/101/213/331` in `cartalith-terrain` and
+## `cartalith-gpu`, `field_seed + o*131` -- up to `+262` -- in
+## `generate_continentality_field`). The largest of those is `+331`; capping
+## the field here at two billion leaves over 147 million of headroom below
+## `i32::MAX` for every one of them at once (checked directly: the worst-case
+## `field_seed` reachable from any seed in `[0, 2_000_000_000]` is
+## `0x77f5ffff`, itself ~135 million below `i32::MAX`), without hunting down
+## and rewriting every one of those call sites for a single dialog field.
+## Round rather than the tightest safe value, so the number in the field
+## reads as a deliberate limit and not an arbitrary one.
+const SEED_MAX := 2_000_000_000
 const DEGENERATE_ASPECT := 16.0 ## Past this, the coarse weather grid loses almost all resolution on the short axis.
 
 ## The two advisories the form opens with. Constants rather than literals at
@@ -328,9 +350,9 @@ func _build(body: VBoxContainer) -> void:
 		body.add_child(rest)
 
 	var seed_sec := DccWidgets.section(card, "Seed")
-	seed_input = DccWidgets.number(seed_sec, "Seed", 0, 2147483647, 1, randi() % 1000000,
+	seed_input = DccWidgets.number(seed_sec, "Seed", 0, SEED_MAX, 1, randi() % 1000000,
 		func(_v: float): pass,
-		"Integer seed. The same seed and settings reproduce the same world.")
+		"Integer seed. The same seed and settings reproduce the same world. Capped at %s, not the full 32-bit range -- see SEED_MAX's own comment." % [SEED_MAX])
 	## **The dirty flag's one source of truth.** Measured
 	## (`_seedcommit_probe.gd`'s SIGNAL DIAGNOSTIC section) rather than
 	## assumed from the class reference: a real keystroke landing in this

@@ -58,13 +58,28 @@ pub fn vnoise(x: f64, y: f64, s: i32) -> f64 {
 }
 
 /// `fbm(x, y, s)` — 6-octave fractal Brownian motion over `vnoise`.
+///
+/// `s + o*131` is every-octave seed offset the reference computes in plain
+/// JS arithmetic; `s.wrapping_add(o.wrapping_mul(131))` is the Rust
+/// equivalent, and — a seed near `i32::MAX` (`OUTSTANDING_WORK.md` §2.7,
+/// `GENERATION_PARAMETERS.md`) turned this from a comment into a proof —
+/// it is exact reference parity, not merely an overflow guard. JS never
+/// overflows here: `s`/`o*131` stay exact in `f64`, and the *only* place
+/// that sum meets a bit width is `hash`'s own `(s|0)`, i.e. `ToInt32`,
+/// which truncates the exact double to its low 32 bits and reinterprets
+/// them signed. `wrapping_add`/`wrapping_mul` on `i32` compute exactly
+/// that (mod-2^32 arithmetic, two's-complement re-sign) regardless of `o`,
+/// so the wrapped `i32` this produces is bit-identical to `ToInt32(s +
+/// o*131)` for every `s`, every `o` — not just ordinary seeds — where the
+/// old plain `+` panicked in debug and silently produced the *same*
+/// correct wrapped bits in release (the panic was the only thing wrong).
 pub fn fbm(x: f64, y: f64, s: i32) -> f64 {
     let mut amp = 0.5;
     let mut freq = 1.0;
     let mut sum = 0.0;
     let mut nrm = 0.0;
-    for o in 0..6 {
-        sum += amp * vnoise(x * freq, y * freq, s + o * 131);
+    for o in 0..6i32 {
+        sum += amp * vnoise(x * freq, y * freq, s.wrapping_add(o.wrapping_mul(131)));
         nrm += amp;
         amp *= 0.5;
         freq *= 2.0;
@@ -72,14 +87,16 @@ pub fn fbm(x: f64, y: f64, s: i32) -> f64 {
     sum / nrm
 }
 
-/// `ridged(x, y, s)` — 6-octave ridged multifractal over `vnoise`.
+/// `ridged(x, y, s)` — 6-octave ridged multifractal over `vnoise`. Seed
+/// offset: see [`fbm`]'s doc comment — `wrapping_add`/`wrapping_mul` there
+/// is proven exact reference parity, not a fallback.
 pub fn ridged(x: f64, y: f64, s: i32) -> f64 {
     let mut amp = 0.5;
     let mut freq = 1.0;
     let mut sum = 0.0;
     let mut nrm = 0.0;
-    for o in 0..6 {
-        let n = vnoise(x * freq, y * freq, s + o * 131);
+    for o in 0..6i32 {
+        let n = vnoise(x * freq, y * freq, s.wrapping_add(o.wrapping_mul(131)));
         let n = 1.0 - (2.0 * n - 1.0).abs();
         sum += amp * n * n;
         nrm += amp;
@@ -106,7 +123,7 @@ pub fn ridged_oct(x: f64, y: f64, oct: i32, s: i32) -> f64 {
     let mut sum = 0.0;
     let mut nrm = 0.0;
     for o in 0..oct {
-        let n = vnoise(x * freq, y * freq, s + o * 131);
+        let n = vnoise(x * freq, y * freq, s.wrapping_add(o.wrapping_mul(131)));
         let n = 1.0 - (2.0 * n - 1.0).abs();
         sum += amp * n * n;
         nrm += amp;
@@ -150,8 +167,8 @@ pub fn pfbm(x: f64, y: f64, s: i32, p_x: i32) -> f64 {
     let mut sum = 0.0;
     let mut nrm = 0.0;
     let mut p = p_x.max(2);
-    for o in 0..6 {
-        sum += amp * pvnoise(x * freq, y * freq, s + o * 131, p);
+    for o in 0..6i32 {
+        sum += amp * pvnoise(x * freq, y * freq, s.wrapping_add(o.wrapping_mul(131)), p);
         nrm += amp;
         amp *= 0.5;
         freq *= 2.0;
@@ -167,8 +184,8 @@ pub fn pridged(x: f64, y: f64, s: i32, p_x: i32) -> f64 {
     let mut sum = 0.0;
     let mut nrm = 0.0;
     let mut p = p_x.max(2);
-    for o in 0..6 {
-        let n = pvnoise(x * freq, y * freq, s + o * 131, p);
+    for o in 0..6i32 {
+        let n = pvnoise(x * freq, y * freq, s.wrapping_add(o.wrapping_mul(131)), p);
         let n = 1.0 - (2.0 * n - 1.0).abs();
         sum += amp * n * n;
         nrm += amp;
@@ -282,8 +299,8 @@ pub fn gpu_fbm(x: f32, y: f32, s: i32) -> f32 {
     let mut freq = 1.0f32;
     let mut sum = 0.0f32;
     let mut nrm = 0.0f32;
-    for o in 0..6 {
-        sum += amp * gpu_vnoise(x * freq, y * freq, s + o * 131);
+    for o in 0..6i32 {
+        sum += amp * gpu_vnoise(x * freq, y * freq, s.wrapping_add(o.wrapping_mul(131)));
         nrm += amp;
         amp *= 0.5;
         freq *= 2.0;
@@ -301,8 +318,8 @@ pub fn gpu_ridged(x: f32, y: f32, s: i32) -> f32 {
     let mut freq = 1.0f32;
     let mut sum = 0.0f32;
     let mut nrm = 0.0f32;
-    for o in 0..6 {
-        let n = gpu_vnoise(x * freq, y * freq, s + o * 131);
+    for o in 0..6i32 {
+        let n = gpu_vnoise(x * freq, y * freq, s.wrapping_add(o.wrapping_mul(131)));
         let n = 1.0 - (2.0 * n - 1.0).abs();
         sum += amp * n * n;
         nrm += amp;
@@ -377,5 +394,49 @@ mod tests {
         let expected = gpu_hash_to_unit_f32(gpu_hash(x, y, s));
         let actual = gpu_vnoise(x as f32, y as f32, s);
         assert_eq!(expected, actual, "vnoise at an exact lattice point must equal that corner's hash exactly");
+    }
+
+    /// `OUTSTANDING_WORK.md` §2.7 / `GENERATION_PARAMETERS.md`: a seed near
+    /// `i32::MAX` used to panic every one of these functions with "attempt
+    /// to add with overflow" on `s + o*131`'s sixth octave (`o=5`:
+    /// `2_147_483_647 + 655` overflows `i32`) -- in a debug build (this
+    /// workspace's `[profile.dev]` does not disable `overflow-checks`,
+    /// `cartalith-native/Cargo.toml`), silently wrapping instead in release.
+    /// `wrapping_add`/`wrapping_mul` must not panic at the top of the valid
+    /// `i32` range, all the way to `i32::MAX` itself.
+    #[test]
+    fn octave_seed_offset_does_not_overflow_near_i32_max() {
+        let x = 3.25;
+        let y = -7.75;
+        for &s in &[i32::MAX, i32::MAX - 1, i32::MAX - 655, i32::MIN, i32::MIN + 1] {
+            assert!(fbm(x, y, s).is_finite(), "fbm({s}) not finite");
+            assert!(ridged(x, y, s).is_finite(), "ridged({s}) not finite");
+            assert!(ridged_oct(x, y, 6, s).is_finite(), "ridged_oct({s}) not finite");
+            assert!(pfbm(x, y, s, 64).is_finite(), "pfbm({s}) not finite");
+            assert!(pridged(x, y, s, 64).is_finite(), "pridged({s}) not finite");
+            assert!(gpu_fbm(x as f32, y as f32, s).is_finite(), "gpu_fbm({s}) not finite");
+            assert!(gpu_ridged(x as f32, y as f32, s).is_finite(), "gpu_ridged({s}) not finite");
+        }
+    }
+
+    /// Mutation/regression guard for the fix above: at an ordinary seed,
+    /// `s.wrapping_add(o.wrapping_mul(131))` must produce bit-for-bit the
+    /// same output as the old unchecked `s + o*131` did (proven exact JS
+    /// `ToInt32` parity in `fbm`'s doc comment, and re-verified directly: a
+    /// scratch harness ran the pre-change `s + o*131` source and this
+    /// `wrapping_add`/`wrapping_mul` source side by side at seed 42 and got
+    /// identical `f64::to_bits()` for every function below). Values pinned
+    /// as hex bit patterns, not decimal literals, so no reformatting can
+    /// quietly round them.
+    #[test]
+    fn octave_seed_offset_matches_pre_fix_output_at_ordinary_seed() {
+        let x = 3.25;
+        let y = -7.75;
+        let s = 42;
+        assert_eq!(fbm(x, y, s).to_bits(), 0x3fd9b0ccdc73c10e);
+        assert_eq!(ridged(x, y, s).to_bits(), 0x3fd8600d8acb0874);
+        assert_eq!(ridged_oct(x, y, 5, s).to_bits(), 0x3fd8c33a0ac0820e);
+        assert_eq!(pfbm(x, y, s, 64).to_bits(), 0x3fd9b0ccdc73c10e);
+        assert_eq!(pridged(x, y, s, 64).to_bits(), 0x3fd8600d8acb0874);
     }
 }
