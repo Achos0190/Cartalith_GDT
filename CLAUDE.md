@@ -111,10 +111,14 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
     choosing a line first. `FUNCTIONAL_CONTRACT.md`'s contradicting *"no drift,
     no re-freeze question to raise"* paragraph was corrected the same day.
   - **The interval is specified, not unknown.** `RC_ENGINE_CHANGES.md` covers
-    v2.11 → v2.71 change by change. Until 2026-09-17 nothing referenced it but
-    this file, so it sat outside `OUTSTANDING_WORK.md`'s count and outside
-    `STATUS.md`; it is `OUTSTANDING_WORK.md` §2.9 now. **How much of it is
-    already ported is not established** — do not assume either way.
+    v2.11 → v2.73 change by change (re-derived 2026-09-20 pulling three
+    versions' worth of documentation — v2.69, v2.71, v2.72, v2.73 — in from a
+    sibling branch that had continued the spec while this one did porting
+    work; see that file's own §7.13/§8.1/§8.2 for what each version moves).
+    Until 2026-09-17 nothing referenced it but this file, so it sat outside
+    `OUTSTANDING_WORK.md`'s count and outside `STATUS.md`; it is
+    `OUTSTANDING_WORK.md` §2.9 now. **How much of it is already ported is not
+    established** — do not assume either way.
 
   The re-freeze itself is real outstanding work, tracked in
   `OUTSTANDING_WORK.md` §2.8 — not here. **Do not record its status in this
