@@ -33,9 +33,15 @@
 //! Milestone 8's [`plaza`] then closed the most visible of those: `buildPlaza`
 //! carves the market square out of the principal street, and it runs on the
 //! organic branch as well as the radial one, so every drawn town now has the
-//! one open space a viewer expects at its centre. The rest of milestone 8
-//! (`buildRadialStreets`, `buildWaterway`) serves the Venus planning mode only
-//! and is still outstanding.
+//! one open space a viewer expects at its centre. [`radial`] closes the rest of
+//! milestone 8 — `buildRadialStreets` and `buildWaterway`, the **second**
+//! planning mode: where [`growth`] epoch-loops least-cost routes into an
+//! accreted tangle, this lays a hub, five concentric rings and twelve straight
+//! spokes in one shot with no epoch loop at all, and leans on [`blocks`]'
+//! unchanged planar-face detector to turn ring × spoke crossings into annular
+//! wedges. Only the layout rule differs; nothing downstream needs a branch.
+//! **Which of the two runs is `generate()`'s decision, i.e. milestone 16's** —
+//! [`radial`] is the branch body, not the branch.
 //!
 //! **Wired as of 2026-08-23, and only through one door.**
 //! `cartalith_civ::urban_adapter` is this crate's sole consumer: it supplies
@@ -56,6 +62,7 @@ pub mod geom;
 pub mod graph;
 pub mod growth;
 pub mod plaza;
+pub mod radial;
 pub mod rng;
 pub mod routes;
 pub mod rules;

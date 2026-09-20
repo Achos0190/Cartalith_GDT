@@ -22,14 +22,14 @@ work outstanding.
   with its recommendation made and its own *Status: parked* heading listing
   three unanswered questions. `DECISIONS.md` §4 continues to stand and **no 3D
   work of any kind is scheduled**.
-- **Phase 5** — **milestones 1-7 and 12 are complete**, 8a and 17a shipped out
-  of order, and 17 is 13 of its 20 adapter functions. **Open: the rest of 8,
-  plus 9, 10, 11, 13, 14, 15, 16 and the rest of 17.**
-  `crates/cartalith-urban/src/lib.rs` declares exactly ten modules — `astar`,
-  `blocks`, `geom`, `graph`, `growth`, `plaza`, `rng`, `routes`, `rules`,
-  `site` — and there is no fortification, districts, amenities,
-  water-infrastructure, hinterland or `generate()` module. That is the single
-  largest block of unbuilt work in the project.
+- **Phase 5** — **milestones 1-8 and 12 are complete** (8 landed 2026-09-20),
+  8a and 17a shipped out of order, and 17 is 13 of its 20 adapter functions.
+  **Open: 9, 10, 11, 13, 14, 15, 16 and the rest of 17.**
+  `crates/cartalith-urban/src/lib.rs` declares exactly eleven modules —
+  `astar`, `blocks`, `geom`, `graph`, `growth`, `plaza`, `radial`, `rng`,
+  `routes`, `rules`, `site` — and there is no fortification, districts,
+  amenities, water-infrastructure, hinterland or `generate()` module. That is
+  the single largest block of unbuilt work in the project.
 
 | Phase | `ROADMAP.md` says | This file says | The one thing to know |
 |---|---|---|---|
@@ -1091,8 +1091,8 @@ Nineteen rows (milestones 1-17, plus 8a and 17a which shipped out of order).
 **This is the largest block of unbuilt work in the project.**
 
 The single decisive check: `crates/cartalith-urban/src/lib.rs` declares exactly
-ten `pub mod` lines — `astar`, `blocks`, `geom`, `graph`, `growth`, `plaza`,
-`rng`, `routes`, `rules`, `site`. There is **no** fortification, districts,
+eleven `pub mod` lines — `astar`, `blocks`, `geom`, `graph`, `growth`, `plaza`,
+`radial`, `rng`, `routes`, `rules`, `site`. There is **no** fortification, districts,
 amenities, water-infrastructure, hinterland or `generate()`-orchestration
 module. Every "not started" row below rests on that list plus a named
 corroborating comment.
@@ -1107,7 +1107,7 @@ corroborating comment.
 | UM-6 | 6 — anchors and primary routes | done | `routes.rs` — `place_anchors`, `build_primaries`, `build_primaries_from_paths`, `Anchors`, `Route`; called from `urban_adapter.rs` |
 | UM-7 | 7 — organic growth | done | `growth.rs` — `grow`, `GrowOpts`, `Occupancy`, `WallBuilder` / `RecordingWallBuilder`, `WallState`, `WallGeneration`, `supersede_wall`, `estimate_carrying_capacity`, `logistic_ramp`, `ring_crossings`, `dist_to_line`; `growth/tests/golden.rs` is 2 159 lines |
 | UM-8A | 8a — the plaza (`buildPlaza`) | done | `plaza.rs::build_plaza` with `plaza/tests.rs` + `golden.rs`; called from `urban_adapter.rs` on both the organic and radial branches |
-| UM-8 | 8 — radial (Venus) streets, waterway | not started | No module for either. `lib.rs`'s own module doc: "The rest of milestone 8 (`buildRadialStreets`, `buildWaterway`) serves the Venus planning mode only and is still outstanding" |
+| UM-8 | 8 — radial (Venus) streets, waterway | done | `radial.rs` — `build_radial_streets`, `build_waterway`, `RadialPlan`, `Waterway`, `RADIAL_SUBSTREAM` and the four provenance constants; `radial/tests.rs` (9 tests) + `radial/tests/golden.rs` (34 scenarios, 826 lines). Mutation sweep **2 survivors of 37**, and both are diagnosed in the module doc as unkillable rather than untested — one equivalent mutant (a one-point run lays nothing, asserted directly) and one measure-zero tie (17 737 evaluated points, closest approach to the river guard 3.1 mm). Six earlier survivors were fixture limits and are closed by four boundary scenarios the capture **proves reach their boundary against the reference** before it will write. Not yet called from `urban_adapter.rs` — the branch that selects it is `generate()`, milestone 16 |
 | UM-9 | 9 — water infrastructure (`buildHarbour`, `addRiverBridges`, `detectRiverCrossings`) | not started | No harbour/bridge/crossing code. Corroborated by `urban_adapter.rs`, which skips `_umHarbourScale` because it is "consumed only by `buildHarbour`, milestone 9" |
 | UM-10 | 10 — fortification (`buildWall`, `applyStarFort`, `townBank`, `builtMassHull` …) | not started | No wall-builder module. `urban_adapter.rs` records that `grow`'s own `walls` input is still passed `false` because "the wall *builder* is milestone 10 and a spec is still a value nothing can draw". The spec half (`um_wall_spec`, `um_infer_walls`) landed elsewhere, in `cartalith-civ/src/military.rs`, for a different consumer. **Nine functions; the plan's self-declared largest** |
 | UM-11 | 11 — graph cleanup passes (`pruneLargest`, `removeWaterCrossings`, `privatizeAlleys`, `lanePass` …) | not started | None of the six functions exists; `graph.rs` carries the graph primitives only |

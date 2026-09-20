@@ -130,12 +130,13 @@ Five caveats on that number, stated rather than buried:
 
 If you stop reading here:
 
-1. **Urban morphology milestones 8–16 and half of 17** — ~28 reference
-   functions, ~1 500 lines, nothing started. `cartalith-urban/src/` holds
+1. **Urban morphology milestones 9–16 and half of 17** — ~26 reference
+   functions, ~1 400 lines, nothing started. `cartalith-urban/src/` holds
    exactly one module per shipped milestone (`astar, blocks, geom, graph,
-   growth, plaza, rng, routes, rules, site`) and not one more. Milestone 10
-   alone is 9 functions and the plan's self-declared largest. This is the
-   biggest single block of work in the project and it has no blocker.
+   growth, plaza, radial, rng, routes, rules, site`) and not one more.
+   Milestone 10 alone is 9 functions and the plan's self-declared largest.
+   This is the biggest single block of work in the project and it has no
+   blocker. (Milestone 8 closed 2026-09-20; `radial` is its module.)
 2. **The GUI/shell replacement, stages 3, 5, 6 and 7** — `00-REPLACEMENT-PLAN.md`
    still opens with a truncated-prototype blocker that was resolved the same
    day (`BUILD_ANSWERS.md` §1). Stages 1, 2 and (as of 2026-09-01, second
@@ -204,7 +205,10 @@ Phase 5. Verified absent by module listing and by a grep for every function
 name across all sixteen crates: the only hit among twenty searched names is
 `build_wall`, which resolves to the no-op `WallBuilder` trait and its
 `RecordingWallBuilder` stub at `growth.rs:202-232`. That stub is the whole of
-milestone 10 today.
+milestone 10 today. **Milestone 8 left this table on 2026-09-20** —
+`build_radial_streets`/`build_waterway` are `cartalith-urban::radial`, 34
+golden scenarios and a 37-mutation sweep at 2 survivors, both diagnosed as
+unkillable rather than untested.
 
 | Milestone | What it is | Size | Note |
 |---|---|---|---|
@@ -214,7 +218,6 @@ milestone 10 today.
 | **11** | Graph cleanup — `_killEdge`, `pruneLargest`, `removeWaterCrossings`, `privatizeAlleys`, `clearFortZone`, `lanePass` (ref. 30038-30192, 6 fns) | medium | Ordering between these is load-bearing, and `_killEdge`'s `if (k >= 0)` guard must **not** be unified with `splitEdge`. `clearFortZone` is only meaningful after 10 |
 | **14** | Amenities — `buildMarkets`, `buildCivic`, `orientedRect`, `gamesShapeAt`, `buildGames` (ref. 29160-29382, 5 fns) | medium | |
 | **9** | Water infrastructure — `distToLine`, `buildHarbour`, `addRiverBridges`, `detectRiverCrossings` (ref. 28967-29159, 4 fns) | medium | `detectRiverCrossings` must run after milestone 11's cleanup passes |
-| **8** | Radial (Venus) streets and waterway — `buildRadialStreets`, `buildWaterway` (ref. 28835-28939, 2 fns) | small | Only `buildPlaza` from this line range shipped, as 8a |
 | **17a caveat** | Golden-verify the block-2 `_um*` adapter | medium | The one live exception to `PARITY_TESTING.md`'s stage-by-stage rule not covered by `DECISIONS.md` §7a. Covered today by 11 unit tests over synthetic fields. Needs a block-2 capture harness that can run `_um*` inside the host's full civ scope; the existing harness slices block 4 only |
 
 Milestone **16** (`generate()` orchestration + `hashModel`, the whole-subsystem
@@ -428,7 +431,7 @@ owner answer, the question itself is in §4.
 | Item | Owns it | Size | Blocker |
 |---|---|---|---|
 | **Landmark M9** — cultural interpretation and temporal state | `LANDMARK_GENERATION_SCOPE.md` | large | `STORY_PLANNING_SCOPE.md` **SP-4**, which is not started and whose attachment model is undecided, plus open questions 1-2. **Two documents' largest remaining milestones sit behind one unasked question** |
-| Urban **milestone 16** — `generate()` orchestration + `hashModel`, the whole-subsystem golden | `URBAN_MORPHOLOGY_SCOPE.md` | medium | Blocked by definition on milestones 8-15: `hashModel` can only be compared once every stage it hashes exists. Milestone 12 already had to dump state directly for want of it |
+| Urban **milestone 16** — `generate()` orchestration + `hashModel`, the whole-subsystem golden | `URBAN_MORPHOLOGY_SCOPE.md` | medium | Blocked by definition on milestones 9-15 (8 landed 2026-09-20): `hashModel` can only be compared once every stage it hashes exists. Milestone 12 already had to dump state directly for want of it |
 | Urban **milestone 17**'s remaining five `_um*` — `_umWallSpec`, `_umInferWalls`, `_umHarbourScale`, `_umSiteProfile`, `_umOreBearing` | `URBAN_MORPHOLOGY_SCOPE.md` | medium | Each one's only consumer is milestone 9, 10, 13 or 15. Two data gaps compound it: settlements carry no `specialisation` and no `traits`, so the honest fallbacks are `economy: null` / `fortified: false` |
 | Story planning **SP-2** — journey progression over the cursor | `STORY_PLANNING_SCOPE.md` | large | §6's regenerate-semantics question explicitly gates it: whether a journey's route polyline is invalidated, re-snapped, or kept with a staleness mark "needs a ruling before SP-2 ships". The grain question (real date vs fraction of a year) is also unresolved |
 | Story planning **SP-5** — the planning aid, joined up | `STORY_PLANNING_SCOPE.md` | medium | Deliberately last: worth nothing until at least two of SP-1…SP-4 exist. Only SP-1 is partly real |
@@ -678,7 +681,7 @@ recording corrections on 2026-08-23, -24 and -25.
 - Capability 6 lists AO toggles as absent; AO shipped and `render.rs:1515`
   exposes `"ao_strength"`.
 - Capability 13's body says urban milestones 8-17 "remain entirely unbuilt";
-  8a and 12 landed 2026-08-24.
+  8a and 12 landed 2026-08-24, and 8 itself on 2026-09-20.
 
 ### 6.6 The reference freeze has drifted twelve versions, not one
 

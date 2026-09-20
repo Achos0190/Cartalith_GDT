@@ -2035,6 +2035,157 @@ survivor without one.
    `plaza.rs` and re-exported from `blocks.rs`; `build_blocks` takes
    `Option<&Plaza>` rather than `Option<Plaza>` now that it carries a polygon.
 
+### Milestone 8 — radial (Venus) streets and the waterway (2026-09-20)
+
+`buildRadialStreets` and `buildWaterway`, reference lines **28835-28939**.
+Module `cartalith-urban::radial`; dependencies still `cartalith-jsmath` +
+`cartalith-rng`. 9 tests, **34 golden scenarios**, and a 37-mutation sweep that
+closes with **2 survivors, both proved unkillable rather than untested**.
+
+**The stated range was right this time, and it was checked rather than
+trusted.** Eight ranges checked, seven wrong; this is the first that was not.
+28835 opens the block comment, `buildRadialStreets` is 28844, `buildWaterway`
+28928 and its close 28939, with milestone 8a's `buildPlaza` at 28942.
+
+**And so was the drift.** `reference/` is pinned at v2.10 while the source has
+moved twelve mainline versions and a whole DCC line past it, so a port written
+against the freeze can be porting a definition that no longer exists. Both
+functions were diffed between v2.10 and the source's head (v2.73):
+**byte-identical**. The only text that moved in that span is the
+`PLAZA_MARKET_POP` constant v2.73 added *after* `buildWaterway`, which belongs
+to 8a.
+
+#### The draw order is load-bearing and is not the order it reads in
+
+Four numbers come out of `'radial-organic'` before any geometry — JS evaluates
+a multi-declarator `const` left to right — and then **one per spoke and one per
+cross-spoke, 24 more, drawn whether or not the street is laid**: the jitter is
+inside the `a = …` expression, which is evaluated before the `landSeg` test
+that may reject it. **A port that draws only for accepted spokes is
+bit-identical on an all-dry site and diverges on every wet one**, which is why
+`the_substream_is_drawn_exactly_twenty_eight_times` asserts the count rather
+than only the values.
+
+#### The obvious coverage proxy is structurally incapable of firing
+
+The first shape guard asked whether any scenario laid fewer than twelve primary
+edges, reasoning that a rejected spoke is a missing one. **It can never fire**:
+`addStreet` planarity-splits a spoke at every ring it crosses, so a
+fully-accepted twelve-spoke town carries ~40-90 primary *edges*. It reported
+*"no scenario ever rejected a spoke"* across 5 kinds × 7 seeds × 3 populations
+while a coast fixture had **449 of 1 200 sampled points inside water**.
+
+So the capture runs a **second, instrumented copy** of the engine whose only
+change is a pass-through counter around the two `if(landSeg(...))` tests, and
+asserts its graph hash equals the pristine run's — which is what says the
+instrumentation changed nothing. Measured: **24/0, 23/1, 21/3, 16/8, 15/9,
+14/10 and 13/11** accepted/rejected of 24 gates.
+
+#### Six of eight survivors were fixture limits, and closing them needed the market
+
+The sweep's first pass left eight survivors. Six were the code being right and
+the scenario set never reaching it — and the reason is the same in every case:
+**the natural cross-product is geometrically incapable of touching those
+branches.**
+
+| survivor | why the cross-product cannot reach it | closed by |
+|---|---|---|
+| `outerR` floor `90 → 89` | `maxRF * 0.38` lands at 100-274 m across it | one scenario at `pop: 300` |
+| land margin `25 → 24` (x low) | a disc of ≤274 m about a market near the middle of a 1700 × 1250 box never comes within 25 m of an edge | a **market override** |
+| land margin `25 → 24` (y high) | the same | a **market override** |
+| `landSeg` `n` `12 → 11` | the wet band is ~38-46 m across against a 6-20 m sample pitch, so every ordinary crossing is caught by any grid | a seed sweep, 27 scenarios in |
+| waterway floor `40 → 39` | the one floor fixture requested 10 m, far below it | a request at **39.5 m** |
+| waterway floor `< → <=` | ditto — one radius far below a floor says nothing about its strictness | a request at **40 m exactly** |
+
+**The market is the whole steering wheel**: `buildRadialStreets` reads nothing
+out of `anchors` but `anchors.market`, so overriding it moves the geometry
+anywhere in the box while leaving the site, the seed and the substream alone.
+
+**The two overridden markets are derived, not written down.** The ring vertices
+are a rigid function of the market, so the whole evaluated point set
+*translates* with it: the capture records that set from the box centre through
+a sixth engine copy that instruments `land`, then shifts the market so the
+single most extreme ring vertex lands at **24.5 m** — inside the one-metre band
+the mutation moves, with every other point still clear of it. One point
+crosses, the ring splits into different on-land runs, and the graphs diverge.
+
+**And the capture proves it against the reference before writing anything.** It
+builds one more copy of the engine carrying *that one mutation* and **refuses
+to write the golden** unless the scenario makes pristine and mutant disagree.
+So a boundary scenario cannot silently stop reaching its boundary the next time
+the capture is re-run — which is the failure mode a hand-placed fixture has.
+
+#### The two that survive cannot be killed, and that is a finding
+
+- **`run.len() > 1 → > 0` is an equivalent mutant.** A run of one point reaches
+  `addPolylineStreet`, finds no pair to walk (`for(i=0;i<pts.length-1;i++)`),
+  and returns having touched nothing. The guard only restates what the call
+  already does. `a_one_point_polyline_lays_nothing` asserts that property
+  directly, so the mutant stays equivalent rather than merely being unkilled
+  today: a later change making `add_polyline_street` add a node for a lone
+  point would fail there.
+- **`> → >=` on the river guard is a measure-zero tie.** `riverDist` is a
+  continuous distance to a polyline and the guard a fixed float, so only an
+  exact `f64` equality separates the two forms. Measured across 45 scenarios —
+  **17 737 evaluated points, closest approach to the guard 3.1 mm**, against
+  the 0.0 it would need. The guard's *value* is a separate question and is
+  pinned: `+8 → +9` dies.
+
+**Milestone 7 could not close thirteen survivors and 8a closed five. The rule
+that separates the three cases is now visible**: a survivor resting on a
+continuous comparison is closable exactly when one side of it is an *input* the
+fixture can set. 8a could set `site.river`; this milestone can set the market,
+which moves every geometric term at once; neither can set `riverDist`'s own
+output against a guard derived from `riverW`.
+
+#### Findings
+
+1. **Only the twelve primary spokes are tagged `'primary'`.** The rings stay
+   `'street'` and so do the cross-spokes. This is a safety property, not a
+   cosmetic one: `buildWall`'s gate loop makes a land gate for `cls==='primary'`
+   edges only, and an earlier version of the reference left the spokes untagged,
+   which gave a fortified Venus town **zero land gates**. Asserted as a
+   biconditional against the provenance string, so a port that widens the tag
+   fails as loudly as one that drops it.
+2. **A spoke is sampled along its whole length, not at its endpoints.** Both
+   ends can be dry with open water between them; the reference takes 13 samples
+   and rejects the segment if any is wet. That is the reference's own fix for a
+   real *impossible intersection* — a plain street crossing a river with no
+   bridge.
+3. **The rings wobble, and it is a documented look decision that moves every
+   vertex.** Two summed sine terms whose phase drifts ring to ring; the
+   reference's own comment says a flawless compass-drawn circle read as the one
+   artificial thing on a map whose every other profile is noisy and accretive.
+   Reproduced exactly because `WOB_AMP 0.055 → 0.056` moves the graph hash.
+4. **`buildWaterway` takes a seed and never draws.** Asserted by running it at
+   two seeds on one site and comparing bit-for-bit, so a later stray draw cannot
+   go unnoticed — it would shift every subsequent value out of that substream.
+5. **The canal's radius cap is a fix, not a tidy-up.** Without it the ring ran
+   off the map edge and was cut flat there, and a fully-closed circle that ends
+   in a straight edge is exactly what a closed canal must never look like
+   (M-VEN-3). Both the cap and the floor need their own radius to be observable,
+   which is why there are four canal radii and not one.
+6. **The reference's only call site discards the return value.** `RadialPlan` is
+   still returned: it is the cheapest honest way to test ring radii and hub size,
+   and a later milestone wanting the rings should not re-derive them.
+
+#### Corrections to later milestones
+
+1. **Milestone 9's start of 28967 is confirmed again** — 28939 closes
+   `buildWaterway`, 28941-28965 is 8a's `buildPlaza`, 28967 opens the harbour
+   comment.
+2. **Milestone 12's mutation sweep is *not* re-run by this one.** This milestone
+   produces a new *kind* of graph for `build_blocks` (annular wedges rather than
+   an accreted tangle) and its own golden re-runs `build_blocks` on all 34
+   radial graphs — but `lanePass` and `removeWaterCrossings` (milestone 11) will
+   change that input again, which is when to re-run it.
+3. **Milestone 16 calls `buildRadialStreets` on the radial branch only**, and
+   `buildPlaza` **after** `buildWall` there (line 31018) rather than before
+   `grow` as on the organic branch. The two positions differ and both are in
+   `generate()`.
+4. **The `radial` module owns no `'venus'` decision.** Which branch runs is
+   `generate()`'s, i.e. milestone 16's; this module is the branch body.
+
 ### Milestone 8 — radial (Venus) streets, waterway (lines 28835-28939, 2 functions)
 
 `buildRadialStreets`, `buildWaterway`. The second planning mode, independent of
