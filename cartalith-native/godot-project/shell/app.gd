@@ -40,6 +40,12 @@ var city_viewer_window: CityViewerWindow
 ## `_civOpenFactionsModal` (`PARITY_AUDIT.md` §5 items 3, 9, 10).
 var place_editor_window: PlaceEditorWindow
 var faction_roster_window: FactionRosterWindow
+## `GUI_GAP_REGISTER.md` CV-02's own dedicated window -- the culture list,
+## selected-culture name-pool preview, and per-faction culture assignment.
+## Reads/writes the same engine surface `faction_roster_window`'s Culture
+## picker does; the two are independent, redundant entry points onto the
+## same faction field, not a data path of their own.
+var culture_profiles_window: CultureProfilesWindow
 ## The Markdown Vault panel (`MARKDOWN_VAULT_SCOPE.md` milestone 1). Opened
 ## scoped to one entity, or on its overview. The kinds it can be scoped to are
 ## `EngineBridge.vault_entity_kinds()`, never a list written here -- that list
@@ -484,6 +490,10 @@ func _ready() -> void:
 	faction_roster_window = FactionRosterWindow.new()
 	add_child(faction_roster_window)
 	faction_roster_window.setup(self, bridge)
+
+	culture_profiles_window = CultureProfilesWindow.new()
+	add_child(culture_profiles_window)
+	culture_profiles_window.setup(self, bridge)
 
 	gen_info_dialog = GenInfoDialog.new()
 	add_child(gen_info_dialog)
@@ -3604,6 +3614,10 @@ func open_place_editor(index: int) -> void:
 ## The Faction Roster modal (`civOpenFactionsBtn`).
 func open_faction_roster() -> void:
 	faction_roster_window.open()
+
+## `GUI_GAP_REGISTER.md` CV-02's Culture profiles window.
+func open_culture_profiles() -> void:
+	culture_profiles_window.open()
 
 ## The Markdown Vault panel, scoped to one entity
 ## (`MARKDOWN_VAULT_INTEGRATION.md` §28: the vault belongs in the entity's own

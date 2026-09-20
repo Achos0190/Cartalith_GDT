@@ -1134,6 +1134,11 @@ func _fill_factions(parent: Control) -> void:
 	var roster_btn := DccWidgets.action(sec, "Faction roster…", func(): app.open_faction_roster(), true)
 	roster_btn.tooltip_text = "The reference's Faction Roster modal: world overview, per-faction cards, and the inspector (name / culture / religion / government / ag-tech, procedural banner, Territory fit, settlement sublist), plus add and remove faction."
 
+	## `GUI_GAP_REGISTER.md` CV-02's own window, beside the roster it reads
+	## and writes the same faction field through.
+	var culture_btn := DccWidgets.action(sec, "Culture profiles…", func(): app.open_culture_profiles())
+	culture_btn.tooltip_text = "The seven naming cultures as rows, a selected culture's real settlement-name sample, and a per-faction culture picker -- the same civ_set_faction_field(\"culture\") the roster's own Identity block writes."
+
 	var provinces := bridge.provinces()
 	var settlements := bridge.settlements()
 	if provinces.is_empty():
@@ -2411,7 +2416,8 @@ func _fill_culture(parent: Control) -> void:
 		_knowledge_row(sec, "culture", int(d.get("id", 0)), String(d.get("name", "?")), detail)
 
 	DccWidgets.note(sec,
-		"A culture is set per FACTION, in the roster window's own Culture picker; "
+		"A culture is set per FACTION, in this window or the roster window's own "
+		+ "Culture picker -- the same civ_set_faction_field write either way; "
 		+ "a settlement takes its faction's and has no override of its own, which "
 		+ "is why the counts above are counts of factions and of what they hold. "
 		+ "Three things read it: the settlement name pool (_civSettleName), the "
@@ -2422,10 +2428,15 @@ func _fill_culture(parent: Control) -> void:
 	## beside `Profiles → per-culture`, but `X → Y` there means "X holds Y" and
 	## cannot show a second child, no `◄` marks a move, and "What changed" does
 	## not list one.
-	var roster := DccWidgets.action(sec, "Which faction has which culture → Faction roster…",
-		func(): app.open_faction_roster())
+	##
+	## Points at the CV-02 Culture profiles window now, not the Faction roster
+	## -- a more specific destination for "which faction has which culture"
+	## than the whole roster modal, now that one exists. The roster's own
+	## picker is unchanged and still works; this is just the better signpost.
+	var roster := DccWidgets.action(sec, "Which faction has which culture → Culture profiles…",
+		func(): app.open_culture_profiles())
 	roster.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	roster.tooltip_text = "The roster window's inspector carries the per-faction Culture picker this category counts over."
+	roster.tooltip_text = "The culture list, a real settlement-name sample per culture, and a per-faction culture picker -- the roster window's own Identity block carries the same picker."
 
 # -- Religion (`RELIGION_DIFFUSION_SCOPE.md` §3 milestone 1) -------------------
 #
