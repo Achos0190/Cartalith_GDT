@@ -339,8 +339,15 @@ func _build_world_row(path: String) -> Control:
 	name_col.add_theme_constant_override("separation", 3)
 	name_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cap_row.add_child(name_col)
+	## The world, not the file -- same `meta.get("name", "")`-then-filename
+	## fallback as the desktop gallery's `_build_tile()` and the Recent-worlds
+	## menu's `_refresh_recent_worlds()`, off the same `project_meta()` call
+	## this card already made above.
+	var display_title := String(meta.get("name", ""))
+	if display_title == "":
+		display_title = path.get_file().get_basename()
 	var name_label := DccTheme.mono_label(
-		path.get_file().get_basename(), "text_bright" if current else "text", DccTheme.FS_SMALL, 2, true)
+		display_title, "text_bright" if current else "text", DccTheme.FS_SMALL, 2, true)
 	name_label.clip_text = true
 	name_col.add_child(name_label)
 	name_col.add_child(DccTheme.mono_label(

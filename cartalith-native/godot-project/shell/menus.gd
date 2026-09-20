@@ -894,21 +894,22 @@ func _refresh_recent_worlds() -> void:
 		## still the tooltip rather than a subtitle. The label half was never
 		## blocked by that, and is what this fixes.
 		##
-		## **The name half stays the filename, reported rather than fixed
-		## 2026-09-13 (Part C, Gate C1).** `project_meta()` reads `seed`,
-		## `edited` and `format` from the save's own `params.json`/`project.json`
-		## -- grepped at the symbol, `open_project_dialog.gd::project_meta()` --
-		## and none of those documents carries a world NAME distinct from the
-		## file's own (confirmed against `SAVEFILE_COMPAT.md`, which documents
-		## `settlements[].name` and `roads[].name` but no top-level `world.name`).
-		## Since `project_meta()` already opens the zip once per path and caches
-		## the result, reading one more key would cost nothing extra IF one
-		## existed to read -- it is a real Rust/format gap (a new `project.json`
-		## field, `SAVEFILE_COMPAT.md`'s own `format_version` bump rule), not a
-		## GDScript one, and outside this lane's reach either way (no `Cargo.toml`,
-		## no `reference/`). The filename is the best available proxy today, and
-		## is what the file is actually saved as when a world is named.
+		## **The name half was reported rather than fixed 2026-09-13 (Part C,
+		## Gate C1), and now is fixed.** That entry's own premise turned out
+		## half right: `project.json` genuinely carried no world name then, but
+		## the reason was never that a world has no name concept -- a
+		## `cartalith-civ` culture/syllable naming stream has named continents
+		## and settlements since before this row was filed. `world.name`
+		## (`SAVEFILE_COMPAT.md` §7, `SaveParams::name`, `cartalith_civ::
+		## naming::world_name`) is that same mechanism generating one more
+		## thing, written into `project.json`'s `world` object the same
+		## additive-MAY way `world.origin` already was -- no `format_version`
+		## bump, and an archive saved before this field existed still opens
+		## with `meta.get("name", "")` reading empty, same as before.
 		var meta: Dictionary = OpenProjectDialog.project_meta(path)
+		var name_s := String(meta.get("name", ""))
+		if name_s != "":
+			label = name_s
 		var seed_s := String(meta.get("seed", ""))
 		if seed_s != "" and seed_s != "seed unread":
 			label += " — %s" % seed_s

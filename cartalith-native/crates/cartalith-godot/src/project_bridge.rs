@@ -1749,6 +1749,12 @@ impl WorldGen {
             // `None` written as an absent key, so re-saving an archive that
             // never said does not make it start claiming.
             origin: self.world_origin.clone(),
+            // The world's own display name, same shape as `origin`
+            // immediately above -- absent when this session's `world_name`
+            // is `None`, never a fabricated one. `SAVEFILE_COMPAT.md` §7's
+            // `world.name`, added for `OUTSTANDING_WORK.md`'s Recent-worlds
+            // row.
+            name: self.world_name.clone(),
         };
 
         let mut write = ProjectWrite::new(&params, &fields);
@@ -3482,6 +3488,7 @@ mod tests {
             // Pre-provenance fixture: the archive shape a user's existing
             // save has, so the assertions below cover the absent case.
             origin: None,
+            name: None,
         };
         let fields = cartalith_io::SaveFields {
             heightmap: vec![0.5; n],
@@ -3590,6 +3597,7 @@ mod tests {
             // Pre-provenance fixture: the archive shape a user's existing
             // save has, so the assertions below cover the absent case.
             origin: None,
+            name: None,
         };
         let fields = cartalith_io::SaveFields {
             heightmap: vec![0.5; 12],
@@ -3651,6 +3659,7 @@ mod tests {
             // Pre-provenance fixture: the archive shape a user's existing
             // save has, so the assertions below cover the absent case.
             origin: None,
+            name: None,
         };
         let fields = cartalith_io::SaveFields {
             heightmap: vec![0.5; 12],
@@ -4104,6 +4113,7 @@ mod tests {
             // Pre-provenance fixture: the archive shape a user's existing
             // save has, so the assertions below cover the absent case.
             origin: None,
+            name: None,
         };
         let fields = cartalith_io::SaveFields {
             heightmap: vec![0.5; n],

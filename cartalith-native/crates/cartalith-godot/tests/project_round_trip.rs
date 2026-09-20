@@ -81,6 +81,7 @@ fn a_real_world_survives_the_tree_and_regenerates_bit_for_bit() {
         // Pre-provenance fixture: the archive shape a user's existing
         // save has, so the assertions below cover the absent case.
         origin: None,
+        name: None,
     };
 
     let mut write = ProjectWrite::new(&sp, &fields);
@@ -171,6 +172,7 @@ fn the_tree_is_the_tree_the_specification_publishes() {
         // Pre-provenance fixture: the archive shape a user's existing
         // save has, so the assertions below cover the absent case.
         origin: None,
+        name: None,
     };
     let mut write = ProjectWrite::new(&sp, &fields);
     write.readme = Some(cartalith_io::DEFAULT_README.to_string());
@@ -219,6 +221,7 @@ fn a_flat_legacy_export_still_opens_through_the_project_reader() {
         // Pre-provenance fixture: the archive shape a user's existing
         // save has, so the assertions below cover the absent case.
         origin: None,
+        name: None,
     };
     let mut buf = Vec::new();
     cartalith_io::write_save(

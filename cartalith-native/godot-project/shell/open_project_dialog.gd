@@ -955,6 +955,8 @@ func _refresh_picker() -> void:
 static func _matches(path: String, meta: Dictionary, query: String) -> bool:
 	if path.to_lower().contains(query):
 		return true
+	if String(meta.get("name", "")).to_lower().contains(query):
+		return true
 	return String(meta.get("seed", "")).to_lower().contains(query)
 
 func _build_import_tile() -> Control:
@@ -1059,9 +1061,16 @@ func _build_tile(path: String, meta: Dictionary, picker: bool = false) -> Contro
 	col.add_child(cap_pad)
 
 	var name_token := "text_bright" if (current or picker) else "text"
-	var title_label := DccTheme.mono_label(path.get_file().get_basename(),
+	## **The world, not the file** -- `OUTSTANDING_WORK.md`'s Recent-worlds
+	## row, name half. `project_meta()` omits `"name"` entirely for a save
+	## with no generated name, so the filename this tile drew before that
+	## key existed is still the honest fallback rather than a blank title.
+	var display_title := String(meta.get("name", ""))
+	if display_title == "":
+		display_title = path.get_file().get_basename()
+	var title_label := DccTheme.mono_label(display_title,
 			name_token, 13, 2, true) if picker \
-		else DccTheme.label(path.get_file().get_basename(), name_token, DccTheme.FS_BODY)
+		else DccTheme.label(display_title, name_token, DccTheme.FS_BODY)
 	title_label.name = "Title"
 	title_label.clip_text = true
 	caption.add_child(title_label)
@@ -1237,9 +1246,10 @@ func _say(text: String) -> void:
 ## `project_meta()` should read it instead of this constant.
 const PROJECT_FORMAT := "cartalith-project"
 
-## `{seed, edited, format}` for one save. The first two are display strings and
-## nothing reads them back; `format` is the save's own `format_version`
-## (`SAVEFILE_COMPAT.md` §4) as an integer, 0 when unread.
+## `{seed, edited, format[, name]}` for one save. `seed`/`edited`/`format` are
+## display strings/ints and nothing reads them back; `format` is the save's
+## own `format_version` (`SAVEFILE_COMPAT.md` §4) as an integer, 0 when
+## unread.
 ## The seed comes from `project.json`'s own `world.seed` for a native save
 ## (Part C, 2026-09-13 -- `project_save()`'s `params.json` carries no
 ## `state` key at all, so this was the ONLY real source and every native
@@ -1249,6 +1259,15 @@ const PROJECT_FORMAT := "cartalith-project"
 ## Both via `ZIPReader`, which is a read of a stored value rather than a
 ## re-derivation of one -- the distinction the `godot-shell` skill's "keep
 ## logic out of GDScript" rule turns on.
+##
+## **`name` is the key that resolves `OUTSTANDING_WORK.md`'s "Recent worlds
+## leaves show a filename where the canvas shows the world" row.** It is
+## OMITTED, not an empty string, for a save with no generated name --
+## `cartalith-io`'s own MAY/absent-means-unknown discipline for `world.name`
+## (`SAVEFILE_COMPAT.md` §7), carried into this dictionary rather than
+## resolved to a placeholder here. Every caller that reads it does so with
+## `meta.get("name", "")` and falls back to the filename, exactly as every
+## caller did before this key existed.
 ##
 ## Public (not `_project_meta`) since `phone_project_picker.gd`'s own recents
 ## list reads the identical real per-save facts for its cards rather than a
@@ -1306,6 +1325,20 @@ static func project_meta(path: String) -> Dictionary:
 				var world = (head as Dictionary).get("world", {})
 				if world is Dictionary and (world as Dictionary).has("seed"):
 					meta["seed"] = _plain_number((world as Dictionary)["seed"])
+				## The name half of `OUTSTANDING_WORK.md`'s Recent-worlds row,
+				## the same shape as `seed` immediately above and read off the
+				## same already-parsed `head` -- `cartalith-io/src/project.rs`
+				## writes it at `world.name` (`SaveParams::name`, MAY, absent
+				## for every save written before this member existed). No
+				## `_plain_number` needed: unlike `seed`, JSON already hands a
+				## string back as a string. Absent when the world has no
+				## generated name yet (a save from before this field
+				## existed); callers fall back to the filename, as they did
+				## before this existed at all.
+				if world is Dictionary and (world as Dictionary).has("name"):
+					var world_name := String((world as Dictionary)["name"])
+					if world_name != "":
+						meta["name"] = world_name
 		if zip.file_exists("params.json"):
 			var parsed = JSON.parse_string(zip.read_file("params.json").get_string_from_utf8())
 			if parsed is Dictionary:

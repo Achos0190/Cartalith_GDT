@@ -1165,6 +1165,17 @@ pub fn manifest_json(project: &ProjectWrite<'_>) -> serde_json::Value {
             .expect("just built as an object")
             .insert("origin".into(), serde_json::json!(origin));
     }
+    // `world.name` (`SAVEFILE_COMPAT.md` §7) — the world's own generated
+    // display name, written only when the caller has one, the same MAY
+    // shape as `origin` immediately above and for the same reason: an
+    // absent key is how this format says "unknown", so writing a name for
+    // a `None` would assert one the caller never had.
+    if let Some(name) = &p.name {
+        world
+            .as_object_mut()
+            .expect("just built as an object")
+            .insert("name".into(), serde_json::json!(name));
+    }
     root.insert("world".into(), world);
     serde_json::Value::Object(root)
 }
@@ -1333,6 +1344,12 @@ fn read_tree(
     let origin = manifest
         .get("world")
         .and_then(|w| w.get("origin"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    // Same MAY, verbatim-or-absent shape as `origin` immediately above.
+    let name = manifest
+        .get("world")
+        .and_then(|w| w.get("name"))
         .and_then(|v| v.as_str())
         .map(str::to_string);
     if gw == 0 || gh == 0 {
@@ -1534,7 +1551,7 @@ fn read_tree(
         }
     }
 
-    let params = SaveParams { gw, gh, seed, map_width_km, sea_level, world, origin };
+    let params = SaveParams { gw, gh, seed, map_width_km, sea_level, world, origin, name };
 
     // --- cartography/tiles/ — the optional pyramid, checked before it is
     // handed back -------------------------------------------------------
@@ -1690,6 +1707,10 @@ mod tests {
             // exercises the pre-provenance shape, which is the one an
             // existing archive on a user's disk has.
             origin: None,
+            // Same reasoning as `origin` immediately above, and the same
+            // pre-existence shape: an archive written before `world.name`
+            // existed.
+            name: None,
         };
         let fields = SaveFields {
             heightmap: (0..n).map(|i| i as f32 * 0.25).collect(),
@@ -3035,6 +3056,70 @@ mod tests {
             let back = read_project(Cursor::new(&buf)).expect("read back");
             assert_eq!(back.save.params.origin.as_deref(), origin, "origin did not survive");
         }
+    }
+
+    /// `world.name` (`SAVEFILE_COMPAT.md` §7) — the same MAY shape as
+    /// `world.origin` above, added for `OUTSTANDING_WORK.md`'s "Recent
+    /// worlds leaves show a filename where the canvas shows the world" row.
+    /// Pins the case every native save written before this member existed
+    /// is in: no member at all, distinguishable from a recorded name.
+    #[test]
+    fn an_unknown_name_writes_no_member_to_project_json() {
+        let (params, fields) = sample(4, 4);
+        assert_eq!(params.name, None, "the sample is the pre-name shape");
+        let m = manifest_json(&ProjectWrite::new(&params, &fields));
+        assert!(m["world"].get("name").is_none(), "wrote a name for a world that had none: {m}");
+        // The six MUST members are unaffected by the addition.
+        assert_eq!(m["world"]["grid_width"], 4);
+        assert_eq!(m["world"]["grid_height"], 4);
+        assert_eq!(m["world"]["wrap_x"], true);
+        assert_eq!(m["world"]["seed"], 4242);
+        assert_eq!(m["world"]["sea_level"], 0.37);
+        assert_eq!(m["world"]["map_width_km"], 1234.5);
+    }
+
+    #[test]
+    fn a_known_name_is_a_member_of_the_world_object() {
+        let (mut params, fields) = sample(4, 4);
+        params.name = Some("The Vharen Reach".to_string());
+        let m = manifest_json(&ProjectWrite::new(&params, &fields));
+        assert_eq!(m["world"]["name"], "The Vharen Reach");
+    }
+
+    /// Round-trips through a real archive: a named world, and absence — the
+    /// exact "save, then open, and the name must be the one that was saved"
+    /// check `SAVEFILE_COMPAT.md`'s own writer/reader contract calls for.
+    #[test]
+    fn a_world_name_survives_a_tree_round_trip_including_absence() {
+        for name in [None, Some("The Vharen Reach"), Some("Kessa")] {
+            let (mut params, fields) = sample(4, 4);
+            params.name = name.map(str::to_string);
+            let mut buf = Vec::new();
+            write_project(Cursor::new(&mut buf), &ProjectWrite::new(&params, &fields))
+                .expect("write_project should succeed");
+            let back = read_project(Cursor::new(&buf)).expect("read back");
+            assert_eq!(back.save.params.name.as_deref(), name, "world name did not survive");
+        }
+    }
+
+    /// An old save on disk -- written before `world.name` existed -- must
+    /// keep opening exactly as it did before this member was added: no
+    /// `MissingField` refusal (`name` is MAY, not MUST) and every other
+    /// member reads back unchanged. `manifest_json` never writes a `name`
+    /// key for `params.name == None`, so this is the literal bytes an
+    /// archive predating this change has.
+    #[test]
+    fn an_archive_from_before_world_name_existed_still_opens() {
+        let (params, fields) = sample(4, 4);
+        assert_eq!(params.name, None, "the fixture is the pre-name shape");
+        let mut buf = Vec::new();
+        write_project(Cursor::new(&mut buf), &ProjectWrite::new(&params, &fields))
+            .expect("write_project should succeed");
+        let back = read_project(Cursor::new(&buf)).expect("an archive with no world.name must still open");
+        assert_eq!(back.save.params.name, None);
+        assert_eq!(back.save.params.gw, params.gw);
+        assert_eq!(back.save.params.gh, params.gh);
+        assert_eq!(back.save.params.seed, params.seed);
     }
 
     #[test]

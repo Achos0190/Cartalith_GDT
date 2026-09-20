@@ -76,6 +76,22 @@ pub struct SaveParams {
     /// saved before this member existed. That substitution is one line in
     /// one consumer; it is not this type's answer.
     pub origin: Option<String>,
+    /// The world's own generated display name — `SAVEFILE_COMPAT.md` §7's
+    /// `world.name` (tree layout) / top-level `name` (flat layout, §15),
+    /// added for `OUTSTANDING_WORK.md`'s "`File > Recent worlds` leaves show
+    /// a filename where the canvas shows the world" row. Carries no parity
+    /// contract — this concept does not exist in the reference at all
+    /// (`cartalith_civ::naming::world_name`'s own doc) — and is generated
+    /// once, from the seed, when a world is created, not re-derived here.
+    ///
+    /// **`None` means the archive did not say, and nothing else** — the same
+    /// shape as `origin` immediately above, for the same reason: every
+    /// archive written before this member existed is that case, and a
+    /// caller that re-saves a `None` MUST write `None` again rather than
+    /// inventing a name the file never carried. This crate does not
+    /// substitute a name for `None`; a consumer that wants a fallback (the
+    /// save's own filename, say) makes that choice at its own call site.
+    pub name: Option<String>,
 }
 
 /// The terrain fields a save carries that this port reads
@@ -267,6 +283,12 @@ pub(crate) fn load_from_archive(
     // there. `None` when the key is absent, which is every archive the
     // reference itself has ever written (SAVEFILE_COMPAT.md 15).
     let origin = params_json.get("origin").and_then(|v| v.as_str()).map(str::to_string);
+    // Same reasoning as `origin` immediately above: a member of this port's
+    // own invention, at the top level rather than inside `state`, absent for
+    // every archive written before it existed (which is every genuine
+    // reference export, and every native save this port wrote before this
+    // field existed).
+    let name = params_json.get("name").and_then(|v| v.as_str()).map(str::to_string);
 
     let heightmap = read_f32_entries(&read_entry(archive, "heightmap.f32")?);
     let temperature = read_f32_entries(&read_entry(archive, "temperature.f32")?);
@@ -276,7 +298,7 @@ pub(crate) fn load_from_archive(
     let strahler_order = read_entry(archive, "strahler_order.bin")?;
 
     Ok(SaveData {
-        params: SaveParams { gw, gh, seed, map_width_km, sea_level, world, origin },
+        params: SaveParams { gw, gh, seed, map_width_km, sea_level, world, origin, name },
         fields: SaveFields { heightmap, temperature, rainfall, volcanic_field, impact_field, strahler_order },
         state: params_json.get("state").cloned().unwrap_or(serde_json::Value::Null),
     })

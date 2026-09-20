@@ -104,6 +104,7 @@ fn write_with_documents(
         // Pre-provenance fixture: the archive shape a user's existing
         // save has, so the assertions below cover the absent case.
         origin: None,
+        name: None,
     };
     let mut write = ProjectWrite::new(&sp, &fields);
     write.readme = Some(cartalith_io::DEFAULT_README.to_string());
@@ -276,6 +277,7 @@ fn a_flat_legacy_export_carries_no_documents_and_that_is_not_an_error() {
         // Pre-provenance fixture: the archive shape a user's existing
         // save has, so the assertions below cover the absent case.
         origin: None,
+        name: None,
     };
     let mut buf = Vec::new();
     cartalith_io::write_save(
@@ -381,6 +383,7 @@ fn the_writer_refuses_a_document_it_would_have_to_edit() {
         // Pre-provenance fixture: the archive shape a user's existing
         // save has, so the assertions below cover the absent case.
         origin: None,
+        name: None,
     };
     for bad in ["\u{feff}{}", "{\"unterminated\": ", "not json at all"] {
         let mut write = ProjectWrite::new(&sp, &fields);

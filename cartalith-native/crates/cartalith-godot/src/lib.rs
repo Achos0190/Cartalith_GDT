@@ -32,6 +32,7 @@ mod journey_bridge;
 mod label_bridge;
 mod landmark_bridge;
 mod lod_bridge;
+mod lod_sweep;
 mod measure_bridge;
 mod pack;
 mod ops_bridge;
@@ -3565,6 +3566,31 @@ struct WorldGen {
     /// [`absorb`]: WorldGen::absorb
     /// [`world_key`]: WorldGen::world_key
     world_origin: Option<String>,
+    /// The current world's own generated display name --
+    /// `OUTSTANDING_WORK.md`'s "`File > Recent worlds` leaves show a
+    /// filename where the canvas shows the world" row, name half.
+    ///
+    /// **Generated once, from the seed, by [`absorb`]** (`cartalith_civ::
+    /// naming::world_name`, which carries no parity contract -- this concept
+    /// does not exist in the reference at all), the same way [`world_origin`]
+    /// above is set once per world rather than recomputed. `load_save` reads
+    /// a save's own stored name back instead of regenerating one, for the
+    /// same reason it reads `world_origin` back rather than re-deriving it:
+    /// an archive's own record of itself wins over what this build would
+    /// produce for the same seed today.
+    ///
+    /// **`None` before the first world, and for a world loaded from an
+    /// archive written before `project.json`'s `world.name` existed.** Not a
+    /// fourth *name* -- see [`world_origin`]'s own note on why `None` is
+    /// kept distinct from a substituted value: [`get_world_name`] returns an
+    /// empty string for it rather than inventing one, and re-saving such a
+    /// project writes no `world.name` rather than asserting a name the file
+    /// never carried.
+    ///
+    /// [`absorb`]: WorldGen::absorb
+    /// [`world_origin`]: WorldGen::world_origin
+    /// [`get_world_name`]: WorldGen::get_world_name
+    world_name: Option<String>,
 }
 
 #[godot_api]
@@ -3633,6 +3659,11 @@ impl IRefCounted for WorldGen {
             // value for the key. It is not used as a "no world yet" marker,
             // which is what the empty key above is for.
             world_origin: Some(bake_bridge::ORIGIN_GENERATED.to_string()),
+            // Genuinely "no world yet" -- unlike `world_origin` above, there
+            // is no substitute value to seed this with: a name is generated
+            // by `absorb()` once a real seed exists, and before that there
+            // is no seed to derive one from.
+            world_name: None,
         }
     }
 }
@@ -4044,6 +4075,12 @@ impl WorldGen {
         self.world_origin = Some(origin.to_string());
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         self.seed = seed;
+        // A fresh display name for this seed -- see the `world_name` field.
+        // A region resample passes its parent's own `seed` (see this fn's
+        // one region caller), so it deliberately gets the parent's name; an
+        // import's `seed` is the caller's own argument, so two imports at
+        // the same seed name the same, exactly as two generates do.
+        self.world_name = Some(cartalith_civ::naming::world_name(seed as u32));
     }
 }
 
@@ -4626,6 +4663,17 @@ impl WorldGen {
     #[func]
     fn get_seed(&self) -> i32 {
         self.seed
+    }
+
+    /// The current world's own generated display name, or an empty string
+    /// before the first world exists or for a world loaded from an archive
+    /// written before `project.json`'s `world.name` existed (`world_name`'s
+    /// own doc). `set_status("top_world", ...)` and the Recent-worlds/
+    /// gallery/phone-picker labels are the callers this exists for --
+    /// `app.gd` no longer has to draw a hardcoded `"ELDRA"`.
+    #[func]
+    fn get_world_name(&self) -> GString {
+        self.world_name.as_deref().unwrap_or("").into()
     }
 
     /// Whether the additive village-seeding pass is on (`set_villages_enabled`).
@@ -5943,6 +5991,12 @@ impl WorldGen {
         // `state` instead.
         params::apply_saved_state(&mut self.params, &save.state);
         self.seed = save.params.seed;
+        // The archive's own record of its name, verbatim including its
+        // absence -- see the `world_name` field's own note on why this is
+        // not regenerated from `seed` here the way `absorb()` does for a
+        // fresh world. A save written before `world.name` existed leaves
+        // this `None`, exactly as `world_origin` above does for `origin`.
+        self.world_name = save.params.name.clone();
         self.source = Some(WorldSource::Loaded(Box::new(save)));
         true
     }
@@ -6010,6 +6064,10 @@ impl WorldGen {
             // `None` written as an absent key, so re-saving an archive that
             // never said does not make it start claiming.
             origin: self.world_origin.clone(),
+            // The world's own display name, same shape as `origin`
+            // immediately above -- absent when this session's `world_name`
+            // is `None`, never a fabricated one.
+            name: self.world_name.clone(),
         };
         let state = params::save_state(&self.params);
 

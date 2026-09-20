@@ -608,6 +608,7 @@ the grid every raster is measured against.
 | `world.sea_level` | number in `[0,1]` | MUST | The **effective** threshold against the heightmap's own `[0,1]` range. A cell is land where `heightmap[i] >= sea_level`. If the generator re-anchored sea level from a world-structure archetype, this is the re-anchored value, not the user's input — the user's input belongs in `params.json`. |
 | `world.seed` | integer | MUST | The generation seed. Range: §14.1. |
 | `world.origin` | string | MAY | **How the height field was produced**, and the one member here that is not a generation input. `"gen"` — produced by the generator from the tuple above; `"import"` — inverted from an imported image, so the tuple does *not* determine it; `"region"` — resampled out of another world's marquee, inheriting that world's `seed`. Other values are permitted and §14.3 governs them: an unrecognised origin is carried, not folded into a known one. **Absent is not `"gen"`** — see the reader table below. |
+| `world.name` | string | MAY | The world's own generated display name (`cartalith_civ::naming::world_name`, seeded from `world.seed` — deterministic, but **carries no parity contract**: this concept does not exist in the reference HTML at all, unlike every other member in this table). A writer with none MUST omit the member rather than invent one — the same discipline `world.origin` already follows. Closes `OUTSTANDING_WORK.md`'s "File ▸ Recent worlds leaves show a filename where the canvas shows the world" row (name half; the seed half closed earlier, 2026-09-13). |
 
 **What a reader does when a MUST member is missing or mistyped.** Each MUST
 above binds the *writer* unconditionally; the reader's obligation differs per
@@ -625,6 +626,7 @@ fatal — a reader ignores a missing or malformed one.
 | `world.seed` | Refuse. It is what makes the world regenerable, and a substituted seed produces a *different* world that claims to be this one. |
 | `world.wrap_x` | **Read as `false` and report it.** |
 | `world.origin` | **Read as unknown.** Never fatal, and never substituted: a reader MUST NOT report a missing `origin` as `"gen"`, because the two are different facts and an archive that re-saves the substituted value has invented a provenance the file never carried. Mistyped (a non-string) is the same case as missing. |
+| `world.name` | **Read as unknown (absent or empty).** Never fatal, never substituted — the same "MAY, additive, no `format_version` bump" discipline as `world.origin`. An archive written before this member existed still opens; the shell falls back to the save's filename, exactly as it did before this member was added. |
 
 `wrap_x` is the single exception, and the reason is worth stating rather than
 leaving as an oddity: it is the only member here whose absence has a defined

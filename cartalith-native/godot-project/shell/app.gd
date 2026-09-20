@@ -781,7 +781,7 @@ func _wire_status() -> void:
 				if bridge.last_summary == ""
 				else "Generation failed — %s" % bridge.last_summary)
 		var g := bridge.grid_size()
-		set_status("top_world", ("ELDRA · %d" % bridge.world_gen.get_seed()) if ok else "—")
+		set_status("top_world", _world_pill_text() if ok else "—")
 		set_status("top_res", ("%d×%d working" % [g.x, g.y]) if ok else "")
 		set_status("top_mem", "%.1f GB" % (OS.get_static_memory_usage() / 1073741824.0))
 		if is_instance_valid(_tool_options_stale):
@@ -791,6 +791,15 @@ func _wire_status() -> void:
 	bridge.world_loaded.connect(func():
 		set_status("pass", "loaded", "text_dim")
 		set_status("hint", bridge.last_summary, "text_ghost")
+		## `generation_finished` above is the only other writer of this slot,
+		## and this handler never used to touch it at all -- opening a
+		## project from Recent worlds / the gallery / the phone picker left
+		## whatever `top_world` said before the open standing. Also fires for
+		## a centring pass, a fjord carve, an applied asset pack and a close
+		## (this function's own header, two lines down); re-stating the same
+		## seed/name on those is harmless, and `_close_world()` overwrites
+		## this with `"—"` immediately after `bridge.close_world()` returns.
+		set_status("top_world", _world_pill_text())
 		## **No document restore here.** `world_loaded` fires for a centring
 		## pass, a fjord carve, an applied asset pack and a close as well as
 		## for an open, while `bridge.last_documents` still holds the last
@@ -808,6 +817,20 @@ func _wire_status() -> void:
 		_refresh_status_mid()
 		_refresh_world_dependent())
 	_setup_staleness()
+
+## `"<name> · <seed>"` for the world pill, or the bare seed when the current
+## world has no generated name -- `WorldGen::get_world_name()` returns an
+## empty string before the first world and for an archive loaded from before
+## `project.json`'s `world.name` existed (`SAVEFILE_COMPAT.md` §7), and this
+## never invents one for either case, the same "omit rather than fabricate"
+## rule `MISTAKES.md`'s preflight table states for any value that can be
+## absent. Replaces the `"ELDRA · %d"` literal this slot drew until now --
+## `ELDRA` was never a generated name, only a placeholder string
+## (`dcc_shell.gd`'s own former note on `_build_phone_app_bar()` said so).
+func _world_pill_text() -> String:
+	var world_name := bridge.world_gen.get_world_name()
+	var seed := bridge.world_gen.get_seed()
+	return ("%s · %d" % [world_name, seed]) if world_name != "" else "%d" % seed
 
 # -- §11 `statusMid` -----------------------------------------------------------
 #

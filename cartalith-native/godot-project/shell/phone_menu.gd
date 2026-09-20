@@ -650,9 +650,15 @@ func current_page_title() -> String:
 	return (_stack[_stack.size() - 1] as _Step).title
 
 ## The canvas's `ELDRA · 1.6 GB` -- the world's name beside what it costs.
-## Read off the live status slots rather than stored: `top_world` is written as
-## `"ELDRA · <seed>"` by `app.gd`, so the name is its head, and `top_mem` is the
-## figure `app.gd::_wire_status` writes into `top_mem`. (**This said "the
+## Read off the live status slots rather than stored: `top_world` is written by
+## `app.gd::_world_pill_text()` as `"<name> · <seed>"` when the world has a
+## generated name and bare `"<seed>"` when it does not (a save loaded from
+## before `world.name` existed -- `WorldGen::get_world_name()`'s own note), so
+## the name is the head ONLY when a `" · "` separator is actually present; the
+## bare-seed case has no name half to take, and `split(" · ")[0]` on a string
+## with no separator returns the whole string, which would misread a seed as
+## a name if taken unconditionally. `top_mem` is the figure
+## `app.gd::_wire_status` writes into `top_mem`. (**This said "the
 ## Performance window's own figure" until 2026-09-06; that window is deleted and
 ## the attribution was wrong anyway — `app.gd:739`'s `set_status("top_mem", ...)`
 ## has always been the writer.**) Either half may be empty before a world
@@ -661,7 +667,9 @@ func _root_meta() -> String:
 	var parts := PackedStringArray()
 	var world := _slot("top_world")
 	if world != "":
-		parts.append(world.split(" · ")[0])
+		var world_halves := world.split(" · ")
+		if world_halves.size() > 1:
+			parts.append(world_halves[0])
 	var mem := _slot("top_mem")
 	if mem != "":
 		parts.append(mem)

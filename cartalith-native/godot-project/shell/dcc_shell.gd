@@ -5751,11 +5751,16 @@ func _build_phone_side_safe() -> Control:
 ## `H_PHONE_APP_BAR` height and its bottom hairline, because the chrome column,
 ## `phone_content_insets()` and `_apply_phone_orientation()` are all measured
 ## against a bar that occupies height — that is stage 3 of the shell rebuild,
-## which is what the ruling says adopting this canvas scopes. And the shell has
-## no world *name* to put on the pill's first line: `ELDRA` is a literal in
-## `app.gd`'s `set_status("top_world", "ELDRA · %d" % seed)`, so the pill keeps
-## drawing `CARTALITH` over that slot rather than splitting a hardcoded string
-## in two and presenting half of it as a world's name.
+## which is what the ruling says adopting this canvas scopes. **A real world
+## name now exists** (`OUTSTANDING_WORK.md`'s Recent-worlds row, name half:
+## `cartalith_civ::naming::world_name`, `WorldGen::get_world_name()`, `app.gd`
+## `_world_pill_text()` — no more `"ELDRA"` literal), but that resolves only
+## the *content* question, not the *layout* one this paragraph is actually
+## about: the pill still has nowhere to put a name as its own line, because
+## splitting it needs the same stage-3 bar rebuild the paragraph above
+## describes. So the pill keeps drawing `CARTALITH` over that slot rather
+## than reusing half the one `top_world` line it does have for a name the
+## other half already carries the seed for.
 ##
 ## ## The two cells that stayed
 ##
@@ -5810,7 +5815,8 @@ func _build_phone_app_bar() -> PanelContainer:
 	title_col.add_child(DccTheme.mono_label("CARTALITH", "text_bright", _pfont(12), 2, true))
 	## Reuses the same "top_world" status slot the desktop menu bar's readout
 	## cluster fills (`_wire_status()` in `app.gd` calls
-	## `set_status("top_world", "ELDRA · %d" % seed)`) -- no phone-aware
+	## `set_status("top_world", _world_pill_text())`, `"<name> · <seed>"` off
+	## the real generated name now, not a literal) -- no phone-aware
 	## branch needed in `app.gd` for this to stay live. The canvas's
 	## `{{worldMeta}}` is `9.5px 'IBM Plex Mono';color:var(--dim)`.
 	var subtitle := DccTheme.mono_label("", "text_faint", _pfont(10), 0)

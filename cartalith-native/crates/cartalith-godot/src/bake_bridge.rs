@@ -453,6 +453,7 @@ mod tests {
             world: true,
             // The whole point: what an archive on a user's disk says.
             origin: None,
+            name: None,
         };
         let fields = cartalith_io::SaveFields {
             heightmap: vec![0.5; n],

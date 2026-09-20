@@ -193,6 +193,13 @@ pub fn params_json(params: &SaveParams, state: &serde_json::Value) -> serde_json
     if let Some(origin) = &params.origin {
         root.insert("origin".into(), serde_json::json!(origin));
     }
+    // Same MAY, absent-means-unknown shape as `origin` immediately above,
+    // for the world's own generated display name (`SAVEFILE_COMPAT.md` §15
+    // / §7's `world.name`, added for `OUTSTANDING_WORK.md`'s Recent-worlds
+    // row).
+    if let Some(name) = &params.name {
+        root.insert("name".into(), serde_json::json!(name));
+    }
     root.insert("state".into(), state);
     serde_json::Value::Object(root)
 }
@@ -273,9 +280,18 @@ mod tests {
 
     fn sample(gw: usize, gh: usize) -> (SaveParams, SaveFields) {
         let n = gw * gh;
-        // `origin: None` deliberately -- see `project.rs`'s own `sample`.
-        let params =
-            SaveParams { gw, gh, seed: 4242, map_width_km: 1234.5, sea_level: 0.37, world: true, origin: None };
+        // `origin: None`/`name: None` deliberately -- see `project.rs`'s own
+        // `sample`.
+        let params = SaveParams {
+            gw,
+            gh,
+            seed: 4242,
+            map_width_km: 1234.5,
+            sea_level: 0.37,
+            world: true,
+            origin: None,
+            name: None,
+        };
         let fields = SaveFields {
             // Values chosen to survive an f64 -> f32 -> f64 trip exactly and
             // to differ per index, so a swapped or truncated entry cannot
@@ -351,6 +367,44 @@ mod tests {
             .expect("write_save should succeed");
             let back = crate::load_save(Cursor::new(&buf)).expect("read back");
             assert_eq!(back.params.origin.as_deref(), origin, "origin did not survive");
+        }
+    }
+
+    /// The flat writer's half of `SaveParams::name` — same MAY, absent-means-
+    /// absent shape as `origin` above, for `OUTSTANDING_WORK.md`'s Recent-
+    /// worlds "name" gap.
+    #[test]
+    fn an_unknown_name_is_an_absent_key_not_a_fabricated_one() {
+        let (params, _) = sample(4, 4);
+        assert_eq!(params.name, None, "the sample is the pre-name shape");
+        let json = params_json(&params, &serde_json::json!({}));
+        assert!(json.get("name").is_none(), "wrote a name for a caller that had none: {json}");
+        assert!(json["state"].get("name").is_none());
+    }
+
+    #[test]
+    fn a_known_name_is_written_beside_the_grid_not_inside_state() {
+        let (mut params, _) = sample(4, 4);
+        params.name = Some("The Vharen Reach".to_string());
+        let json = params_json(&params, &serde_json::json!({}));
+        assert_eq!(json["name"], "The Vharen Reach");
+        assert!(json["state"].get("name").is_none());
+    }
+
+    /// Round-trips through a real flat archive: a named world, and absence.
+    #[test]
+    fn a_world_name_survives_a_flat_round_trip_including_absence() {
+        for name in [None, Some("The Vharen Reach"), Some("Kessa")] {
+            let (mut params, fields) = sample(4, 4);
+            params.name = name.map(str::to_string);
+            let mut buf = Vec::new();
+            write_save(
+                Cursor::new(&mut buf),
+                &SaveWrite { params: &params, state: serde_json::json!({}), fields: &fields },
+            )
+            .expect("write_save should succeed");
+            let back = crate::load_save(Cursor::new(&buf)).expect("read back");
+            assert_eq!(back.params.name.as_deref(), name, "world name did not survive");
         }
     }
 

@@ -195,6 +195,45 @@ pub fn decorate(stem: &str, kind: FeatureKind, rng: &mut cartalith_rng::Mulberry
     }
 }
 
+/// A generated world's own display name -- `OUTSTANDING_WORK.md`'s "File >
+/// Recent worlds leaves show a filename where the canvas shows the world"
+/// row, name half. Carries **no parity contract**: like [`FeatureKind`]
+/// above, this concept does not exist in the reference at all, so it is free
+/// to draw a fresh RNG stream rather than reuse [`crate::civ_name_rng`] or
+/// [`crate::civ_continent_name_rng`] -- both of which are deliberately
+/// FIXED-seed (see their own doc comments: a genuine reference quirk, ported
+/// exactly), so every world would otherwise share one continent-1 name and
+/// one settlement-1 name. A world name that did not vary with the world
+/// would defeat the point of having one.
+///
+/// Seeded from the world's own generation seed with a distinguishing
+/// constant (the same shape [`crate::civ_continent_name_rng`] uses to stay
+/// off [`crate::civ_name_rng`]'s stream, applied to a value that actually
+/// varies here), so the same seed always names the same world -- consistent
+/// with every other seed-derived field in this port -- while two different
+/// seeds essentially never collide.
+///
+/// Reuses [`civ_settle_name_bounded`] for the stem (the same culture/syllable
+/// pools and length discipline a continent or a settlement gets, so a world
+/// name reads as one more thing this generator names, not a second
+/// vocabulary) and [`decorate`] with [`FeatureKind::Continent`] for the
+/// epithet -- a world is, at this scale, the grandest kind of landmass this
+/// module already knows how to name, and `Continent`'s own weighted forms
+/// ("The X Reach", "Greater X", "The X Expanse", bare stem) are exactly the
+/// register a world name wants.
+pub fn world_name(seed: u32) -> String {
+    let raw = seed.wrapping_mul(0x9E37_79B1).wrapping_add(0x517C_C1B7);
+    let mut rng = cartalith_rng::Mulberry32::new(if raw == 0 { 1 } else { raw });
+    // No faction exists at world-naming time, so the culture is one more
+    // draw from this same fresh stream rather than a fixed choice -- a world
+    // reads as one culture's grandest place, and which one varies by seed
+    // exactly as everything else about the world does.
+    let faction = (rng.next_f64() * crate::CIV_CULTURES.len() as f64) as i32;
+    let mut seen = BTreeSet::new();
+    let stem = civ_settle_name_bounded(&mut rng, faction, &mut seen);
+    decorate(&stem, FeatureKind::Continent, &mut rng)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,5 +364,54 @@ mod tests {
             plain > 150,
             "only {plain}/300 kept the port's existing '<name> Province' form"
         );
+    }
+
+    #[test]
+    fn world_name_is_deterministic_in_the_seed() {
+        for seed in [0u32, 1, 24601, 483_920, u32::MAX] {
+            assert_eq!(
+                world_name(seed),
+                world_name(seed),
+                "seed {seed} must name the same world twice"
+            );
+        }
+    }
+
+    #[test]
+    fn world_name_varies_with_the_seed() {
+        let names: BTreeSet<String> =
+            (0u32..50).map(world_name).collect();
+        assert!(
+            names.len() > 40,
+            "only {}/50 distinct names -- the seed is not really varying the draw",
+            names.len()
+        );
+    }
+
+    #[test]
+    fn world_name_is_never_empty() {
+        for seed in [0u32, 1, 24601, u32::MAX] {
+            let name = world_name(seed);
+            assert!(!name.is_empty(), "seed {seed} produced an empty world name");
+        }
+    }
+
+    #[test]
+    fn world_name_does_not_share_the_settlement_naming_streams_first_draw() {
+        // The whole reason for a fresh, seed-derived stream (this fn's own
+        // doc comment): `civ_name_rng()`/`civ_continent_name_rng()` are
+        // FIXED-seed, so their first draw is the same string in every world.
+        // If a world name ever matched one of those, a world's name would
+        // stop varying with its seed exactly the bug this exists to avoid.
+        let mut seen = BTreeSet::new();
+        let fixed_settlement = civ_settle_name_bounded(&mut crate::civ_name_rng(), 0, &mut seen);
+        let mut seen2 = BTreeSet::new();
+        let fixed_continent =
+            civ_settle_name_bounded(&mut crate::civ_continent_name_rng(), 0, &mut seen2);
+        for seed in [0u32, 1, 24601, 483_920] {
+            let w = world_name(seed);
+            assert_ne!(w, fixed_settlement, "seed {seed} drew the fixed settlement stream");
+            assert_ne!(w, fixed_continent, "seed {seed} drew the fixed continent stream");
+        }
     }
 }

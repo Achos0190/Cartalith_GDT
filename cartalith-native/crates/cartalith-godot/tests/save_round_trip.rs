@@ -76,6 +76,7 @@ fn a_generated_world_survives_save_and_reload() {
         // Pre-provenance fixture: the archive shape a user's existing
         // save has, so the assertions below cover the absent case.
         origin: None,
+        name: None,
     };
     let mut buf = Vec::new();
     cartalith_io::write_save(std::io::Cursor::new(&mut buf), &cartalith_io::SaveWrite {
@@ -161,6 +162,7 @@ fn a_world_with_no_channels_still_writes_a_full_strahler_raster() {
         // Pre-provenance fixture: the archive shape a user's existing
         // save has, so the assertions below cover the absent case.
         origin: None,
+        name: None,
     };
     let mut buf = Vec::new();
     cartalith_io::write_save(std::io::Cursor::new(&mut buf), &cartalith_io::SaveWrite {
