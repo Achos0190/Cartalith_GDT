@@ -583,16 +583,21 @@ const LABEL_FONT_PX_MIN := 8.0
 const LABEL_FONT_PX_MAX := 96.0
 
 ## `drawArcLabel`'s three layout numbers. **`cartalith-civ/src/labels.rs` is
-## the source of truth for all three** -- `ARC_STRAIGHT_THRESHOLD` (`:150`) and
-## the two inside `arc_label_layout` (`:176`, the radius floor and the
+## the source of truth for all three** -- `ARC_STRAIGHT_THRESHOLD` (`:164`) and
+## the two inside `arc_label_layout` (`:182`, the radius floor and the
 ## spread-over-1/2.2-of-a-circle term). They are duplicated here as named
 ## constants, not left as literals in `_draw_labels`, so that a change on the
 ## Rust side has one place to land on this one and `grep` finds the pair.
 ##
 ## Why they are duplicated at all rather than the layout being asked of
 ## `WorldGen.label_glyph_layout` (bound, wrapped by
-## `EngineBridge.label_glyph_layout`, `engine_bridge.gd:2469 func
-## label_glyph_layout`, and preferable in principle -- its doc warns that summing per-`char`
+## `EngineBridge.label_glyph_layout`, `engine_bridge.gd:3503 func
+## label_glyph_layout` -- corrected 2026-09-20, drifted again since this was
+## last cited (`UNWIRED_FUNCTIONS.md`'s own "Small" row caught it at `:2469`
+## and then again at a claimed `:3211`, itself already stale by this date;
+## the number moves with every edit above it in that file, which is exactly
+## why the routing question below cannot be settled by a citation fix), and
+## preferable in principle -- its doc warns that summing per-`char`
 ## advances instead of measuring the whole string drifts on a kerned font,
 ## which is exactly what the loop below does): this control is data-*pushed*.
 ## It holds no `EngineBridge` -- `ViewportHost.refresh_annotations()` hands it
@@ -622,9 +627,27 @@ const LABEL_FONT_PX_MAX := 96.0
 ## into `LabelViewEnv` so `label_font_size` reproduces `_label_font_px`, then
 ## read `fsz` off the binding and delete the local copy. That spans two crates
 ## and another pass's workspace file; recorded here rather than half-done.
-const ARC_STRAIGHT_THRESHOLD := 0.01   ## `labels.rs:150`, the named constant there.
-const ARC_RADIUS_FLOOR_K := 1.2        ## `labels.rs:176`, `size_px * 1.2`.
-const ARC_SPREAD_DIVISOR := 2.2        ## `labels.rs:176`, `total_w / (2.2 * |a|)`.
+##
+## **Re-opened 2026-09-20 at this symbol, against `UNWIRED_FUNCTIONS.md`'s
+## "Small" row of the same name.** The row is real, not stale -- but a plain
+## reroute through `label_glyph_layout` is not a smaller fix, it is a
+## *different and worse* one, for a reason this pass could independently
+## confirm rather than just repeat: `EngineBridge` (`engine_bridge.gd:1-2`)
+## is a plain `class_name`, not an autoload -- `project.godot` carries no
+## `[autoload]` section at all -- so there is no global fallback either; a
+## handle can only ever reach this file if something hands it one, which
+## reason one above already says is not this file's call to make. And
+## `WorldGen::label_hit_test`'s own doc comment (`lib.rs`) independently
+## names the same font-size split "**three models for one number**", which
+## is this row's reason two from the Rust side of the boundary. Wiring the
+## call in today, with no reconciliation, would silently re-curve every
+## arched label to the engine's `fsz` instead of this file's `font_px` --
+## an undisclosed rendering change, not a bug fix, and exactly what
+## `cartalith-rust-conventions` and `MISTAKES.md` both say not to ship.
+## Left open on purpose; the fix is still the one two paragraphs up.
+const ARC_STRAIGHT_THRESHOLD := 0.01   ## `labels.rs:164`, the named constant there.
+const ARC_RADIUS_FLOOR_K := 1.2        ## `labels.rs:182`, `size_px * 1.2`.
+const ARC_SPREAD_DIVISOR := 2.2        ## `labels.rs:182`, `total_w / (2.2 * |a|)`.
 
 ## The reference's own halo, `ctx.lineWidth = max(1, sizePx * 0.16)` (ported as
 ## `labels.rs::arc_label_line_width` and golden-pinned there).
