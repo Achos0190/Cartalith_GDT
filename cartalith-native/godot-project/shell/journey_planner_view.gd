@@ -1427,9 +1427,12 @@ func _apply_result() -> void:
 	## once when the phone sheet header does not exist; otherwise it re-writes
 	## both labels idempotently even when `_phone_tab != "plan"`), so it is
 	## harmless -- not a literal no-op, just idempotent -- on desktop and on
-	## every other tab. (RESIDUAL, not closed by this hook: `_on_stage_clicked()`
-	## isolating a stage never reaches `_apply_result()`, so the header's TITLE
-	## half, "PLAN · STAGE n", can still go stale -- outside this row's scope.)
+	## every other tab. (The residual this comment used to record --
+	## `_on_stage_clicked()` isolating a stage never reaching `_apply_result()`,
+	## so the header's TITLE half, "PLAN · STAGE n", went stale -- is closed by
+	## its own guarded call to `app._refresh_phone_sheet_header()`, added where
+	## `_on_stage_clicked()` actually changes `_isolated_stage`, same shape as
+	## this one.)
 	if app != null:
 		app._refresh_phone_sheet_header()
 
@@ -2398,6 +2401,16 @@ func _on_stage_clicked(idx: int, isolate: bool) -> void:
 	# The trace group traces the SELECTED stage, so it follows the spine.
 	if app != null and app.right_dock_ctrl != null:
 		app.right_dock_ctrl.refresh_journey()
+	## OUTSTANDING_WORK.md row, re-derived 2026-09-20 -- `554d953`'s own
+	## RESIDUAL note named this exact gap: isolating a stage here changes
+	## `_isolated_stage`, which `phone_header_info()` reads to derive the
+	## header's TITLE half ("PLAN · STAGE n"), but this function never reached
+	## `_apply_result()` -- the only place that fix wired
+	## `app._refresh_phone_sheet_header()` -- so the title stayed plain "PLAN"
+	## until the PLAN tab was re-picked. Same guard, same idempotent call, at
+	## the point that actually changes `_isolated_stage`.
+	if app != null:
+		app._refresh_phone_sheet_header()
 
 ## JP-07. The trim cuts the route polyline inside `jp_compute` (its own
 ## `trim` request key -> `cartalith_civ::jp_trim_points`), so every stage
