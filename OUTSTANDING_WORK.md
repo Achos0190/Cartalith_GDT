@@ -1784,23 +1784,17 @@ readable, and it reached a ruling in `LARGE_ITEM_RULINGS.md`. That is the concre
 form of this section's own warning: *each of these will cause someone to skip
 real, startable work.*
 
-### 6.5 `FUNCTIONAL_CONTRACT.md` disagrees with itself in four places
+### 6.5 ~~`FUNCTIONAL_CONTRACT.md` disagrees with itself in four places~~ — **CLOSED 2026-09-21 (verified), all four**
 
 Its bodies were not updated when its summary table and absent-list were. The
 document explains why — it is a summary no feature commit is obliged to touch —
 and it has now gone stale three times in eight days, with its own header
 recording corrections on 2026-08-23, -24 and -25.
 
-- Capability 3's body says slider-triggered live re-tuning is absent; `:578` and
-  `:644-651` both record **SG-03 closed 2026-08-24**, citing `set_params`' own
-  doc comment.
-- Capability 6's body says the atlas/tile cache and the bake lock "remain
-  unbuilt"; the absent-list strikes that bullet as landed
-  (`cartalith_engine::bake::AtlasStore`).
-- Capability 6 lists AO toggles as absent; AO shipped and `render.rs:1515`
-  exposes `"ao_strength"`.
-- Capability 13's body says urban milestones 8-17 "remain entirely unbuilt";
-  8a and 12 landed 2026-08-24.
+- ~~Capability 3's body says slider-triggered live re-tuning is absent~~ — **fixed**: `set_params`'s own doc comment confirmed to mark the staleness graph for 25 keys (`params::invalidates`); the narrower true remainder (marking, not auto-recompute) stated precisely rather than erased. Commit `b117c37`.
+- ~~Capability 6's body says the atlas/tile cache and the bake lock "remain unbuilt"~~ — **fixed**, `cartalith_engine::bake::AtlasStore`/`FinalizeLock` confirmed live. Commit `66f77b6`.
+- ~~Capability 6 lists AO toggles as absent~~ — **fixed**, `render.rs`'s param table and `render_workspace.gd`'s dock rows confirmed live (`ao_strength`, `svf_strength`, `shadow_strength`, `geo_micro`, `sdf_coast`/`sdf_rivers`/`sdf_biomes`). Commit `66f77b6`.
+- ~~Capability 13's body says urban milestones 8-17 "remain entirely unbuilt"~~ — **fixed**, all 17 milestone modules and all 17 `_um*` adapter functions confirmed present in `cartalith-urban`/`urban_adapter.rs`, plus a real golden test (`golden_parity_urban_adapter.rs`) the old text said didn't exist. Same-day independent verification by two agents. Commit `66f77b6`.
 
 ### 6.6 The reference freeze has drifted twelve versions, not one
 
