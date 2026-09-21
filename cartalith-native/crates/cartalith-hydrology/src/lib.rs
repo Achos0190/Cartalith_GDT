@@ -575,6 +575,40 @@ pub fn river_width_scale_k(map_width_km: f64) -> f64 {
     (800.0 / mwk).clamp(1.0 / TERRAIN_DETAIL_MAX_K, TERRAIN_DETAIL_MAX_K)
 }
 
+/// `RIVER_RENDER_AREA_K` (reference HTML, v2.72's own comment above the
+/// constant): the raster river renderer's own bar, and the reason it exists
+/// at all is the reference's own line — *"A DETECTION EASE IS NOT A DISPLAY
+/// THRESHOLD"*. [`river_flow_thresh`] eases `river_coarse_ease`'s factor into
+/// whether a cell channelizes at all (so a genuine minor stream on a coarse
+/// map is not missed); this constant, scaled the same way, is a second,
+/// independent gate on whether a channelized cell is worth **painting**.
+/// Without it, easing the detection threshold for a 40 000 km world also
+/// eased what got drawn, and the whole 16x came out as ink: measured on the
+/// reference at that extent, 13.02% of the map painted as channel against an
+/// 800 km region's 4.27% — a dense, blocky network at a uniform floored
+/// width in an opaque colour, which is the "solid block" the owner reported.
+///
+/// `2.0` is the reference's own literal, carried verbatim.
+pub const RIVER_RENDER_AREA_K: f64 = 2.0;
+
+/// `RIVER_RENDER_AREA_K * riverCoarseEase(mapWidthKm)` — the drainage bar
+/// [`stamp_river_intensity`] gates its disc stamp on, centralised the same
+/// way [`river_flow_thresh`] centralises the detection threshold: one
+/// canonical call rather than every caller re-deriving the product.
+///
+/// **Why this stays cheap at the default extent.** `river_coarse_ease` is a
+/// no-op (`1.0`) at or below 800 km, so here the bar is just `2.0` — enough
+/// to drop a channel cell with no upstream channel neighbour of its own (a
+/// literal one-cell dead-end source) but nothing more. A fixed bar sized for
+/// the 40 000 km case (`~32`) applied uniformly would instead have gutted an
+/// ordinary 800 km world's network — measured on the reference as a stem
+/// count dropping 761 -> 93 (88%) there, the "fixes one world by gutting
+/// every other" the source comment names. Scaling by the same ease that
+/// eased detection is what keeps the two calibrated together.
+pub fn river_render_area_bar(map_width_km: f64) -> f64 {
+    RIVER_RENDER_AREA_K * cartalith_terrain::river_coarse_ease(map_width_km)
+}
+
 /// `traceRiverPolylines()` (reference HTML lines 4559-4575): walks each
 /// channel cell's single receiver downstream from every *source* (a
 /// channelized cell with no channelized upstream donor) until it either
@@ -1090,6 +1124,37 @@ pub fn channel_disc(
     Some(ChannelDisc { half_w, amp, mag })
 }
 
+/// Each channel cell's own upstream drainage, counted in **channel cells**
+/// off the `recv`/`chan` receiver tree — the reference's `buildMainStems`
+/// Kahn accumulation (v2.72's `st.area`), never `flow`
+/// ([`stamp_river_intensity`]'s own doc comment explains why that
+/// substitution would be wrong).
+///
+/// Processed in the same ascending-`flow` order
+/// [`strahler_from_receivers`] already establishes as a valid topological
+/// order for this tree (see that function's own doc comment: a channel
+/// cell's own accumulated value is complete only after every upstream
+/// tributary that drains into it has already been folded in, and sorting by
+/// ascending discharge visits upstream cells first because discharge only
+/// grows downstream).
+///
+/// A non-channel cell reads `0`; a channel cell with no channelized upstream
+/// neighbour of its own reads `1` (itself, only).
+fn channel_cell_drainage(recv: &[i32], flow: &[f32], chan: &[u8]) -> Vec<i32> {
+    let n = chan.len();
+    let mut area = vec![0i32; n];
+    let mut cells: Vec<usize> = (0..n).filter(|&i| chan[i] != 0).collect();
+    cells.sort_by(|&a, &b| flow[a].total_cmp(&flow[b]));
+    for &i in &cells {
+        area[i] += 1;
+        let r = recv[i];
+        if r >= 0 && (r as usize) < n && chan[r as usize] != 0 {
+            area[r as usize] += area[i];
+        }
+    }
+    area
+}
+
 /// The stamped channel *intensity* raster — `buildRiverNetwork`'s disc stamp
 /// (reference HTML lines 4528-4543), which this port had never carried.
 ///
@@ -1139,30 +1204,65 @@ pub fn channel_disc(
 /// inner stamp loop uses (reference line 4539), and this port matches it. On
 /// the small exact integers `dx`/`dy` take here the two agree to the bit, but
 /// the reference is the reference.
+///
+/// # `area_bar` — v2.72's display-side gate (`RIVER_RENDER_AREA_K`)
+///
+/// A second reason a channel cell can go un-inked, independent of `thresh`:
+/// [`river_render_area_bar`], applied to [`channel_cell_drainage`] — each
+/// channel cell's own upstream drainage **in channel-cell count**, off this
+/// exact receiver tree (`recv`/`chan`), never `flow`. The reference is
+/// explicit that `flow`/`flowField` is a *different* tree
+/// (`compute_flow`'s plain D8 accumulation) from the one `chan`'s
+/// channel-cell topology walks (`build_channels`' D-infinity aspect
+/// projection) — "v2.58/v2.41: they are two different trees" is the
+/// reference's own words for the same distinction this port already draws
+/// between `compute_flow` and `build_channels`.
+///
+/// **A per-cell gate, not a per-stem one, and that is a real translation, not
+/// an oversight.** The reference groups traced polylines into stems
+/// (`buildMainStems`) and keeps or drops a *whole* stem on its own area. This
+/// port's disc stamp has no stem grouping — it inks per channel cell, as it
+/// always has — so the natural gate is per cell on the same metric. Because
+/// `channel_cell_drainage` only grows going downstream (a confluence sums its
+/// tributaries), the practical effect is the same shape: a headwater cell
+/// with no upstream channel neighbour of its own (`area == 1`) drops out
+/// first, and a trunk downstream of enough confluences keeps drawing even
+/// where an individual tributary above it did not clear the bar. `area_bar
+/// <= 0.0` disables the gate entirely (every channel cell inks, the pre-v2.72
+/// behaviour), which is what a caller that has not computed
+/// [`river_render_area_bar`] gets by passing `0.0`.
 #[allow(clippy::too_many_arguments)]
 pub fn stamp_river_intensity(
     fld: &[f32],
     flow: &[f32],
     chan: &[u8],
+    recv: &[i32],
     order: &[i16],
     w: usize,
     h: usize,
     wrap: bool,
     thresh: f64,
     width_k: f64,
+    area_bar: f64,
 ) -> Vec<f32> {
     let n = w * h;
     let mut intensity = vec![0f32; n];
-    if n == 0 || fld.len() < n || flow.len() < n || chan.len() < n || order.len() < n {
+    if n == 0 || fld.len() < n || flow.len() < n || chan.len() < n || recv.len() < n || order.len() < n {
         return intensity;
     }
     let lmax = channel_lmax(n);
     if !(lmax > 0.0) || !(thresh > 0.0) {
         return intensity;
     }
+    let area = if area_bar > 0.0 { Some(channel_cell_drainage(recv, flow, chan)) } else { None };
 
     for i in 0..n {
         if chan[i] == 0 {
+            continue;
+        }
+        if let Some(a) = &area
+            && (a[i] as f64) < area_bar
+        {
             continue;
         }
         let Some(disc) = channel_disc(fld, flow, order, w, h, wrap, thresh, width_k, lmax, i) else {
@@ -1620,14 +1720,18 @@ mod tests {
         let fld = vec![0.5f32; n];
         let mut flow = vec![0f32; n];
         let mut chan = vec![0u8; n];
+        let recv = vec![-1i32; n]; // the sole channel cell has no receiver -- irrelevant to width
         let mut order = vec![0i16; n];
         let thresh = 4.0f64;
         flow[mid] = 4000.0; // well above thresh, so `mag` is near its ceiling
         chan[mid] = 1;
         order[mid] = 5;
 
+        // `area_bar = 0.0`: this test is about `width_k`, not the v2.72 area
+        // gate, so the gate stays off (its own coverage is
+        // `a_channel_cell_below_the_area_bar_does_not_ink` below).
         let inked = |k: f64| -> usize {
-            super::stamp_river_intensity(&fld, &flow, &chan, &order, w, h, false, thresh, k)
+            super::stamp_river_intensity(&fld, &flow, &chan, &recv, &order, w, h, false, thresh, k, 0.0)
                 .iter()
                 .filter(|&&v| v > 0.0)
                 .count()
@@ -1650,7 +1754,7 @@ mod tests {
         // And the ink is a falloff, not a flat disc -- the centre is the
         // brightest cell, which is what gives a wide river a soft bank
         // instead of a hard edge.
-        let v = super::stamp_river_intensity(&fld, &flow, &chan, &order, w, h, false, thresh, 16.0);
+        let v = super::stamp_river_intensity(&fld, &flow, &chan, &recv, &order, w, h, false, thresh, 16.0, 0.0);
         let peak = v.iter().cloned().fold(0.0f32, f32::max);
         assert_eq!(v[mid], peak, "the channel cell itself must carry the peak ink");
         assert!(peak > 0.0 && peak <= 1.0, "ink stays in [0,1], got {peak}");
@@ -1664,15 +1768,194 @@ mod tests {
         let (w, h) = (8usize, 8usize);
         let n = w * h;
         let out = super::stamp_river_intensity(
-            &vec![0.5f32; n], &vec![1.0f32; n], &vec![0u8; n], &vec![0i16; n], w, h, false, 1.0, 4.0,
+            &vec![0.5f32; n], &vec![1.0f32; n], &vec![0u8; n], &vec![-1i32; n], &vec![0i16; n], w, h, false, 1.0, 4.0,
+            0.0,
         );
         assert_eq!(out.len(), n);
         assert!(out.iter().all(|&v| v == 0.0), "no channel cells must ink nothing");
 
         // Short slices: return a correctly-sized zero grid rather than panic.
-        let short = super::stamp_river_intensity(&[0.5f32; 4], &[1.0f32; 4], &[1u8; 4], &[1i16; 4], w, h, false, 1.0, 4.0);
+        let short = super::stamp_river_intensity(
+            &[0.5f32; 4], &[1.0f32; 4], &[1u8; 4], &[-1i32; 4], &[1i16; 4], w, h, false, 1.0, 4.0, 0.0,
+        );
         assert_eq!(short.len(), n);
         assert!(short.iter().all(|&v| v == 0.0));
+    }
+
+    /// `RIVER_RENDER_AREA_K` pinned as a **literal**, not against itself
+    /// (`MISTAKES.md`'s "write a test that pins a constant" row) -- this is
+    /// the reference's own v2.72 literal, carried verbatim.
+    #[test]
+    fn river_render_area_k_is_the_references_literal_two() {
+        assert_eq!(super::RIVER_RENDER_AREA_K, 2.0);
+    }
+
+    /// [`super::river_render_area_bar`] at the default extent and at the
+    /// reference's own measured large-extent case, pinned as literals.
+    /// `river_coarse_ease` is a no-op (`1.0`) at/below 800 km and caps at
+    /// `16.0`, so the bar is `2.0` at 800 km and `32.0` at 40 000 km (already
+    /// past the 12 800 km point the ease saturates).
+    #[test]
+    fn river_render_area_bar_scales_with_the_same_ease_river_flow_thresh_uses() {
+        assert_eq!(super::river_render_area_bar(800.0), 2.0);
+        assert_eq!(super::river_render_area_bar(40_000.0), 32.0);
+        // Below the reference default: still the no-op floor, same as
+        // `river_coarse_ease` itself.
+        assert_eq!(super::river_render_area_bar(200.0), 2.0);
+    }
+
+    /// The core claim under test for the v2.72 "a detection ease is not a
+    /// display threshold" fix: a channelized cell with no channelized
+    /// upstream neighbour of its own (`area == 1`) must not ink once
+    /// `area_bar` is active, while the cell it drains into -- whose own
+    /// accumulated drainage clears the bar -- still does.
+    ///
+    /// `head` and `mouth` are placed far apart in the grid (not spatial
+    /// neighbours) specifically so neither cell's disc can physically
+    /// overlap the other's coordinate -- what is under test is
+    /// [`super::channel_cell_drainage`]'s topology-only gate, not disc
+    /// geometry, and a false pass from disc overlap would be exactly the
+    /// silently-wrong-oracle `MISTAKES.md` warns against.
+    #[test]
+    fn a_channel_cell_below_the_area_bar_does_not_ink_but_its_receiver_does() {
+        let (w, h) = (21usize, 21usize);
+        let n = w * h;
+        let fld = vec![0.5f32; n];
+        let mut flow = vec![0f32; n];
+        let mut chan = vec![0u8; n];
+        let mut recv = vec![-1i32; n];
+        let order = vec![1i16; n];
+        let thresh = 4.0f64;
+
+        let head = 2 * w + 2; // upstream: area == 1 (no channelized upstream donor)
+        let mouth = 18 * w + 18; // downstream: area == 2 (head drains into it)
+        flow[head] = 50.0; // smaller flow -> visited first in ascending order (upstream)
+        flow[mouth] = 200.0;
+        chan[head] = 1;
+        chan[mouth] = 1;
+        recv[head] = mouth as i32;
+
+        let area = super::channel_cell_drainage(&recv, &flow, &chan);
+        assert_eq!(area[head], 1, "a headwater cell with no channelized donor must read area == 1");
+        assert_eq!(area[mouth], 2, "the receiver must accumulate its own donor's count");
+
+        let area_bar = 2.0; // river_render_area_bar(800.0)
+        let out = super::stamp_river_intensity(&fld, &flow, &chan, &recv, &order, w, h, false, thresh, 1.0, area_bar);
+        assert_eq!(out[head], 0.0, "area 1 < area_bar 2.0 must not ink");
+        assert!(out[mouth] > 0.0, "area 2 >= area_bar 2.0 must still ink");
+
+        // And with the gate off (`area_bar == 0.0`, the pre-v2.72 behaviour),
+        // both cells ink -- proving the difference above is the gate, not
+        // some other input.
+        let ungated = super::stamp_river_intensity(&fld, &flow, &chan, &recv, &order, w, h, false, thresh, 1.0, 0.0);
+        assert!(ungated[head] > 0.0, "with the gate off, the headwater cell must ink too");
+    }
+
+    /// v2.72's *second* reference fix — "cut the stem where it wraps"
+    /// (`splitRiverPolylines` applied to the raster path) — measured against
+    /// the disc-stamp technique, on a **real generated wrap regime**, not by
+    /// reasoning about the code shape alone (`MISTAKES.md`: "write an oracle
+    /// for a ported function" and the general discipline of measuring before
+    /// concluding).
+    ///
+    /// A world-wrapped field with a single valley straddling the antimeridian
+    /// (`1 - cos(2*pi*x/w)`, periodic, so the terrain is smooth and
+    /// physically continuous across the `x=0`/`x=w-1` seam): run the real
+    /// [`super::compute_flow`] and [`super::build_channels`] pipeline with
+    /// `world: true`, exactly as `generate_terrain` does, and confirm two
+    /// things at once —
+    ///
+    /// 1. the receiver tree genuinely crosses the seam (a channel cell near
+    ///    `x=w-1` whose receiver sits near `x=0`), so the wrap regime is
+    ///    actually reached and this is not a vacuous pass; and
+    /// 2. [`super::stamp_river_intensity`] paints **nothing** in the middle
+    ///    of the map, far from either side of the valley — which is what the
+    ///    reference's bug would have failed: a stroked polyline renderer
+    ///    draws a straight line between two consecutive points regardless of
+    ///    their distance in flat pixel-space, so a wrap-crossing step there
+    ///    paints one long band clean across the map. The disc stamp has no
+    ///    such step: each channel cell inks a small, locally-bounded disc
+    ///    around its own coordinate (`stamp_river_intensity`'s inner loop
+    ///    clamps to `[0, w-1]`/`[0, h-1]`, never wraps, and never draws
+    ///    between two cells at all) — this test is the empirical
+    ///    confirmation that conclusion actually holds on generated output,
+    ///    not just on a reading of the loop bounds.
+    #[test]
+    fn wrap_crossing_receivers_do_not_paint_a_line_across_the_map() {
+        let (w, h) = (101usize, 101usize);
+        let n = w * h;
+        let sea = 0.3f64;
+        let band = 10.0f64; // slope band width in cells, each side of the seam
+
+        // A narrow valley straddling the seam (minimum at x=0, which is also
+        // x=w since it wraps) and a flat plateau everywhere else: every row
+        // is `0.5 + 0.02*min(d, band)` where `d` is the wrapped distance to
+        // the seam. Only the `band`-wide strip on each side of x=0 has any
+        // slope at all -- the plateau is exactly flat, so `d8_receiver`
+        // (strictly-greater-drop-required) finds no receiver there and it
+        // stays unchannelized, giving a real, honest "far from the river"
+        // middle to check rather than one hand-picked to be empty.
+        let mut fld = vec![0f32; n];
+        for y in 0..h {
+            for x in 0..w {
+                let d = x.min(w - x) as f64; // wrapped distance to the seam
+                fld[y * w + x] = (0.5 + 0.02 * d.min(band)) as f32;
+            }
+        }
+        assert!(fld.iter().all(|&v| (v as f64) > sea), "fixture must be all-land, or sea masking hides the seam cells");
+
+        let flow = super::compute_flow(w, h, &fld, None, false, true);
+        let ch = super::build_channels(&fld, &flow, w, h, sea, true, 1.0, 800.0);
+        let chan_count = ch.chan.iter().filter(|&&c| c != 0).count();
+        assert!(chan_count > 0, "the fixture must actually channelize somewhere, or this test is vacuous");
+
+        // Condition 1: the wrap regime is genuinely reached -- a channelized
+        // cell whose receiver's x is on the *other* side of the seam from its
+        // own x (a jump of more than half the grid width, the same test
+        // `split_river_polylines` itself uses to detect a wrap).
+        let half = w as f64 * 0.5;
+        let wrap_edge = (0..n).find(|&i| {
+            if ch.chan[i] == 0 {
+                return false;
+            }
+            let r = ch.recv[i];
+            if r < 0 {
+                return false;
+            }
+            let (xi, xr) = ((i % w) as f64, (r as usize % w) as f64);
+            (xi - xr).abs() > half
+        });
+        assert!(
+            wrap_edge.is_some(),
+            "the fixture must produce at least one receiver that crosses the seam, or the wrap regime was never reached \
+             (chan_count={chan_count})"
+        );
+
+        let order = super::strahler_from_receivers(&ch.recv, &flow, &ch.chan);
+        let thresh = super::river_flow_thresh(w, h, w, 800.0);
+        let width_k = super::river_width_scale_k(800.0);
+        let area_bar = super::river_render_area_bar(800.0);
+        let intensity = super::stamp_river_intensity(&fld, &flow, &ch.chan, &ch.recv, &order, w, h, true, thresh, width_k, area_bar);
+
+        // Condition 2: nothing paints in the middle of the map, deep in the
+        // flat plateau and far (>30 cells, well past the disc's own 9-cell
+        // cap) from either edge of the slope band.
+        let mid_inked: Vec<usize> = (0..h)
+            .flat_map(|y| (40..=60).map(move |x| y * w + x))
+            .filter(|&i| intensity[i] > 0.0)
+            .collect();
+        assert!(
+            mid_inked.is_empty(),
+            "a wrap-crossing receiver painted ink in the map's middle (x in 40..=60): {} cells, e.g. index {:?} -- \
+             this is exactly the defect Fix 2 exists to prevent",
+            mid_inked.len(),
+            mid_inked.first()
+        );
+
+        // And the valley itself, on both sides of the seam, does ink -- so
+        // the empty middle above is a real finding and not an all-zero stamp.
+        let seam_inked = (0..h).any(|y| intensity[y * w] > 0.0 || intensity[y * w + w - 1] > 0.0);
+        assert!(seam_inked, "the valley straddling the seam must ink on at least one side, or nothing channelized there");
     }
 
     /// `enforce_channel_descent`'s carve radius is `Math.hypot(x-px, y-py)`

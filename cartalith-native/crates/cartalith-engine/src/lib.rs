@@ -1752,16 +1752,24 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // Costs one `gw*gh` f32 grid, and is skipped entirely when the stamp
         // would be uniform anyway -- see `stamp_river_intensity`'s own note on
         // the 0.5 half-width floor, which binds at world scale.
+        //
+        // `river_render_area_bar` is v2.72's second, independent gate --
+        // "a detection ease is not a display threshold" -- on top of
+        // `river_flow_thresh`'s own already-eased channelization threshold
+        // above. See `stamp_river_intensity`'s own doc comment for why this
+        // is a per-cell drainage bar and not a re-use of `river_flow_thresh`.
         ch.intensity = cartalith_hydrology::stamp_river_intensity(
             &field,
             &flow_for_network,
             &ch.chan,
+            &ch.recv,
             &order,
             gw,
             gh,
             world,
             cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
             width_k,
+            cartalith_hydrology::river_render_area_bar(p.map_width_km),
         );
 
         let half_w_cap = 4.0 * width_k;
