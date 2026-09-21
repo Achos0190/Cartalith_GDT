@@ -46,6 +46,10 @@ var faction_roster_window: FactionRosterWindow
 ## picker does; the two are independent, redundant entry points onto the
 ## same faction field, not a data path of their own.
 var culture_profiles_window: CultureProfilesWindow
+## `lazy-riding-piglet.md` Batch D -- artboard 1f's own "separate popup"
+## framing. A pure UI over `SettlementTypeStore`'s static state (see that
+## file's own top-of-file doc), not a data path of its own.
+var settlement_types_window: SettlementTypesWindow
 ## The Markdown Vault panel (`MARKDOWN_VAULT_SCOPE.md` milestone 1). Opened
 ## scoped to one entity, or on its overview. The kinds it can be scoped to are
 ## `EngineBridge.vault_entity_kinds()`, never a list written here -- that list
@@ -494,6 +498,10 @@ func _ready() -> void:
 	culture_profiles_window = CultureProfilesWindow.new()
 	add_child(culture_profiles_window)
 	culture_profiles_window.setup(self, bridge)
+
+	settlement_types_window = SettlementTypesWindow.new()
+	add_child(settlement_types_window)
+	settlement_types_window.setup(self, bridge)
 
 	gen_info_dialog = GenInfoDialog.new()
 	add_child(gen_info_dialog)
@@ -2650,7 +2658,7 @@ func open_heightmap_import() -> void:
 ## Called from `_load_project()` and from nowhere else, deliberately -- see the
 ## note in the `bridge.world_loaded` handler for the bug that put it there.
 ##
-## **All six slots now restore**, and the shape of each answer is the
+## **All seven slots now restore**, and the shape of each answer is the
 ## engine's, not this function's:
 ##
 ##   * `entities/journeys.json` -- the shell's own; a wholesale replacement of
@@ -2672,6 +2680,10 @@ func open_heightmap_import() -> void:
 ##   * `library/travel.json` -- replaces the custom half of every set and
 ##     leaves the stock entries alone, so one project's pack mule cannot
 ##     survive into the next.
+##   * `library/settlement_types.json` -- the shell's third own (Batch D,
+##     `lazy-riding-piglet.md`), wholesale for the same reason the other two
+##     are: `SettlementTypeStore.restore_document()` replaces the whole
+##     library, and an absent slot clears it.
 ##   * `drafts/paint.json` and `drafts/sculpt.json` -- **restored by
 ##     `project_open` itself**, not from here. Until 2026-09-03 both were
 ##     written on every save and applied to nothing, and this function said so
@@ -2705,6 +2717,13 @@ func _restore_project_documents() -> PackedStringArray:
 			String(docs.get("annotations/measurements.json", ""))))
 		if mnote != "":
 			notes.append("%s, so they were left as they are in the file" % mnote)
+
+	## The seventh slot, `lazy-riding-piglet.md` Batch D. Called
+	## unconditionally for the identical reason the measurements slot above
+	## is: an absent slot is a genuine "this project has no settlement
+	## types" and must clear the outgoing project's, not leave it to follow
+	## the reader into a project that never had it.
+	SettlementTypeStore.restore_document(String(docs.get("library/settlement_types.json", "")))
 
 	var travel := String(docs.get("library/travel.json", ""))
 	if travel != "":
@@ -3159,14 +3178,16 @@ func save_project_as(then: Callable = Callable()) -> void:
 ##     `project_engine_built_documents()`, whose own doc calls itself "the
 ##     call a Save command should make"; a slot with nothing to write is
 ##     absent rather than empty, so this cannot pad the archive;
-##   * the SHELL's two, `entities/journeys.json` -- a saved journey is a route
+##   * the SHELL's three, `entities/journeys.json` -- a saved journey is a route
 ##     index plus a party form, both of which the engine deliberately does not
 ##     model -- and, since 2026-09-03, `annotations/measurements.json`, whose
 ##     payload is a mode, the grid points that were clicked and the reading they
 ##     produced. The engine models none of those as retained state either: its
 ##     measure functions are stateless queries over points the *caller* owns
 ##     (`measure_bridge.rs`), so `right_dock.gd` is the only thing that has
-##     them.
+##     them. `library/settlement_types.json` joined 2026-09-21
+##     (`lazy-riding-piglet.md` Batch D) for the identical reason: a
+##     settlement type is authored data `SettlementTypeStore` alone models.
 ##
 ## The two sets never collide (`project_engine_built_documents()`'s own
 ## guarantee: none of its four is a slot GDScript writes), so this is a merge
@@ -3181,6 +3202,14 @@ func _project_documents() -> Dictionary:
 		var meas := String(right_dock_ctrl.measurements_document())
 		if meas != "":
 			documents["annotations/measurements.json"] = meas
+	## `lazy-riding-piglet.md` Batch D. `SettlementTypeStore` is a static
+	## store (`trade_store.gd`'s own shape), so this reads it directly rather
+	## than through the window -- the library survives the window being
+	## closed, the same way `TradeStore`'s cache survives every window that
+	## reads it.
+	var stypes := SettlementTypeStore.document()
+	if stypes != "":
+		documents["library/settlement_types.json"] = stypes
 	return documents
 
 ## A small thumbnail of the current map view for the archive's `preview.png`
@@ -3646,6 +3675,10 @@ func open_faction_roster() -> void:
 ## `GUI_GAP_REGISTER.md` CV-02's Culture profiles window.
 func open_culture_profiles() -> void:
 	culture_profiles_window.open()
+
+## `lazy-riding-piglet.md` Batch D's Settlement types library (canvas 1f).
+func open_settlement_types() -> void:
+	settlement_types_window.open()
 
 ## The Markdown Vault panel, scoped to one entity
 ## (`MARKDOWN_VAULT_INTEGRATION.md` §28: the vault belongs in the entity's own

@@ -4914,7 +4914,7 @@ mod tests {
                 "{slot}"
             );
         }
-        // The five the shell may have today, named so that a change to the
+        // The six the shell may have today, named so that a change to the
         // split has to be deliberate. `annotations/measurements.json` joined
         // on 2026-09-03 and is the one GDScript still writes itself: a
         // saved measurement is a mode, the clicked points and the reading,
@@ -4928,6 +4928,11 @@ mod tests {
         // (`cartalith_civ::travel_library::Journey`) and moved it into
         // `ENGINE_OWNED_SLOTS` -- see this file's own module doc, "The
         // Journey entity" section.
+        //
+        // `library/settlement_types.json` joined 2026-09-21
+        // (`lazy-riding-piglet.md` Batch D): a settlement type is authored
+        // GDScript-only data (`cartalith-io`'s own doc comment on the slot),
+        // same shape as the measurements slot, so it stays caller-owned too.
         let callers: Vec<&str> = cartalith_io::DOCUMENT_SLOTS
             .iter()
             .copied()
@@ -4939,6 +4944,7 @@ mod tests {
                 "annotations/measurements.json",
                 "library/assets.json",
                 "library/travel.json",
+                "library/settlement_types.json",
                 "drafts/paint.json",
                 "drafts/sculpt.json",
             ]

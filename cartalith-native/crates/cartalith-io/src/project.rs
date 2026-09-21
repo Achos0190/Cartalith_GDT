@@ -301,6 +301,22 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// measurement is a mark the author made on the sheet, not a thing in the
 /// world with an id that other documents reference.
 ///
+/// # `library/settlement_types.json` is caller-owned, same shape as the
+/// measurements slot above
+///
+/// Registered 2026-09-21 (`lazy-riding-piglet.md` Batch D — the Settlement
+/// Editor's artboard 1f, "Settlement types"). A settlement type is a named
+/// bundle of fields a settlement already has (kind, specialisation, traits,
+/// walls, age policy, name-pool source) plus a per-faction default — the
+/// settlement-drop tool applies a bundle's fields via the same
+/// `civ_edit_settlement`/`civ_settlement_toggle_trait` calls the place
+/// editor already uses. Nothing in `WorldGen` models a "type": it is purely
+/// authored data that travels with the project rather than global
+/// preferences, so this slot is caller-owned (`cartalith-godot`'s
+/// `project_bridge.rs` does **not** list it in `ENGINE_OWNED_SLOTS`) and the
+/// shell writes and reads it directly, the same way it already does for
+/// `annotations/measurements.json`.
+///
 /// **Both halves are written, and they are written for different reasons.**
 /// The authored settings — per-kind caps, armed flags, crowding, the four
 /// class radii — are hand-entered configuration that no recomputation brings
@@ -345,6 +361,7 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
     "annotations/measurements.json",
     "library/assets.json",
     "library/travel.json",
+    "library/settlement_types.json",
     "drafts/paint.json",
     "drafts/sculpt.json",
     "appearance.json",

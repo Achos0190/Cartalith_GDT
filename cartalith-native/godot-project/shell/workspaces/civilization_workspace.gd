@@ -898,6 +898,15 @@ func _settlement_click(gx: float, gy: float) -> void:
 		app.set_status("hint", "Settlement refused -- out of bounds, or water without Snap to water.", "accent")
 		return
 	_settlement_name = ""
+	## `lazy-riding-piglet.md` Batch D: if the armed faction has a default
+	## settlement type, apply its field bundle now, before `_refresh_civ_data()`
+	## rereads the roster -- the same `civ_edit_settlement`/
+	## `civ_settlement_toggle_trait` calls `place_editor_window.gd` already
+	## uses to edit a live settlement. A no-op when `_settlement_faction` has
+	## no default (`SettlementTypeStore.apply_default_to_settlement`'s own
+	## doc comment): today's behaviour is unchanged for every faction left on
+	## None.
+	SettlementTypeStore.apply_default_to_settlement(bridge, _settlement_faction, idx)
 	_refresh_civ_data()
 	## §4.5.3's own right-dock column: "The new settlement's inspector, live,
 	## focused on the name field." `right_dock.gd`'s Settlement context
@@ -1139,6 +1148,13 @@ func _fill_factions(parent: Control) -> void:
 	## and writes the same faction field through.
 	var culture_btn := DccWidgets.action(sec, "Culture profiles…", func(): app.open_culture_profiles())
 	culture_btn.tooltip_text = "The seven naming cultures as rows, a selected culture's real settlement-name sample, and a per-faction culture picker -- the same civ_set_faction_field(\"culture\") the roster's own Identity block writes."
+
+	## `lazy-riding-piglet.md` Batch D, artboard 1f. Beside the roster and
+	## Culture profiles for the same reason both are here: a settlement
+	## type's per-faction default reads the same faction roster this section
+	## already shows.
+	var types_btn := DccWidgets.action(sec, "Settlement types…", func(): app.open_settlement_types())
+	types_btn.tooltip_text = "Named bundles (kind, specialisation, traits, walls, age policy) the settlement tool applies on drop, plus a default per faction. A faction left on None behaves exactly as today."
 
 	var provinces := bridge.provinces()
 	var settlements := bridge.settlements()
