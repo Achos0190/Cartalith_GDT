@@ -3198,6 +3198,22 @@ struct WorldGen {
     /// app, working space = document"*. So this is session state, no save
     /// format changes, and `project_bridge.rs` needed no edit.
     color_space: render::ColorSpace,
+    /// CA-19 (`LARGE_ITEM_RULINGS.md`, Ruling P, 2026-09-21): per-index
+    /// overrides onto `render::CART_BIOME_COLS`, 1-based like the table
+    /// itself (`biome_col_overrides[0]` is class 1). `[None; 15]` on a
+    /// fresh session, so an untouched `WorldGen` renders exactly what it
+    /// rendered before this field existed — `set_biome_color`/
+    /// `reset_biome_color(s)` are the only writers. Applied in
+    /// `appearance()`, the same "presentation only, layered over the base"
+    /// slot `appearance_over` uses, and for the same reason: this never
+    /// touches the heightmap, climate, hydrology, biomes, settlements,
+    /// routes or the seed, only how a biome class is painted/drawn.
+    ///
+    /// A fixed array rather than a `HashMap<u8, _>` (unlike `appearance_over`,
+    /// which is keyed by tunable name): the domain is exactly the 15 classes
+    /// `CART_BIOME_COLS` has always had, so there is no unknown key to guard
+    /// against and no reason to pay a hash map for 15 slots.
+    biome_col_overrides: [Option<(u8, u8, u8)>; 15],
     /// `UNIFIED_TOOL_PLAN.md` milestone F (`STRANDED_TOOLS.md` rows 4-8):
     /// the live, non-destructive Sculpt-editor draft. See
     /// `sculpt_bridge.rs`'s own module doc for why this lives here rather
@@ -3716,6 +3732,7 @@ impl IRefCounted for WorldGen {
             appearance_layers: None,
             appearance_preset: None,
             color_space: render::ColorSpace::Srgb,
+            biome_col_overrides: [None; 15],
             sculpt: None,
             icons: None,
             civ_tools: None,
@@ -6565,6 +6582,18 @@ impl WorldGen {
                 a.set_tunable(key, *value);
             }
         }
+        // CA-19 (Ruling P): the biome colour table's own overrides, applied
+        // last and independently of the tier/preset/ramp/layer-stack chain
+        // above — `set_biome_color` edits one class at a time and is not
+        // itself part of any `TerrainAppearance` a tier or preset carries,
+        // so it must win over `base.biome_cols` (still `CART_BIOME_COLS`
+        // whichever tier/preset supplied `base`) exactly the way a scalar
+        // override wins over the tier's own value.
+        for (i, ov) in self.biome_col_overrides.iter().enumerate() {
+            if let Some(c) = ov {
+                a.biome_cols[i] = *c;
+            }
+        }
         a
     }
 
@@ -6682,6 +6711,72 @@ impl WorldGen {
         self.appearance_layers = None;
         self.appearance_preset = None;
         n
+    }
+
+    // -- The biome colour table (`OUTSTANDING_WORK.md`/`PARITY_AUDIT.md`
+    //    CA-19, `LARGE_ITEM_RULINGS.md` Ruling P, 2026-09-21) ----------------
+
+    /// Overrides one biome class's colour — `index` 1-based, [`render::
+    /// CART_BIOME_COLS`]'s own convention (matching `CART_BIOMES`) — for
+    /// both `land_color`'s paint blend (`render.rs`, via `appearance()`)
+    /// and `paint_bridge::swatch_color_with`. `r`/`g`/`b` are clamped to
+    /// `0..=255`; returns `false` and changes nothing for `index` outside
+    /// `1..=15`, the table's fixed size and this ruling's own scope
+    /// (Terrain and Splat are untouched).
+    ///
+    /// Presentation only, on `set_appearance`'s exact terms: nothing here
+    /// touches the heightmap, climate, hydrology, biomes, settlements,
+    /// routes or the seed. Call `build_color_texture()` again to see it.
+    #[func]
+    fn set_biome_color(&mut self, index: i32, r: i32, g: i32, b: i32) -> bool {
+        if !(1..=15).contains(&index) {
+            return false;
+        }
+        self.biome_col_overrides[index as usize - 1] = Some((r.clamp(0, 255) as u8, g.clamp(0, 255) as u8, b.clamp(0, 255) as u8));
+        true
+    }
+
+    /// Drops one biome class's override, back to `CART_BIOME_COLS[index-1]`.
+    /// `false` for `index` outside `1..=15` or one that had no override set
+    /// (matching `reset_biome_colors`' own "how many changed" contract, at
+    /// this single-index scale).
+    #[func]
+    fn reset_biome_color(&mut self, index: i32) -> bool {
+        if !(1..=15).contains(&index) {
+            return false;
+        }
+        self.biome_col_overrides[index as usize - 1].take().is_some()
+    }
+
+    /// Drops every biome colour override at once. Returns how many were
+    /// actually set, `reset_appearance`'s own "stay quiet when there was
+    /// nothing to reset" contract.
+    ///
+    /// **Deliberately not folded into `reset_appearance`.** CA-19 is its
+    /// own authority over its own state, the same reason `appearance_ramp`/
+    /// `appearance_layers`/`appearance_preset` are each their own field
+    /// rather than one bucket a single button clears — a "reset appearance"
+    /// press that silently also discarded a hand-picked biome palette would
+    /// be exactly the cross-wired-button defect `GUI_GAP_REGISTER.md` keeps
+    /// finding one control at a time.
+    #[func]
+    fn reset_biome_colors(&mut self) -> i32 {
+        let n = self.biome_col_overrides.iter().filter(|c| c.is_some()).count() as i32;
+        self.biome_col_overrides = [None; 15];
+        n
+    }
+
+    /// The colour biome class `index` (1-based) actually renders with right
+    /// now — `CART_BIOME_COLS[index-1]` unless `set_biome_color` overrode
+    /// it. Opaque black for `index` outside `1..=15`, matching
+    /// `paint_bridge::swatch_color`'s own out-of-range answer.
+    #[func]
+    fn get_biome_color(&self, index: i32) -> Color {
+        if !(1..=15).contains(&index) {
+            return Color::from_rgba(0.0, 0.0, 0.0, 1.0);
+        }
+        let (r, g, b) = self.appearance().biome_cols[index as usize - 1];
+        Color::from_rgba(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0)
     }
 
     // -- The elevation colour ramp (`GUI_GAP_REGISTER.md` CA-02) --------------

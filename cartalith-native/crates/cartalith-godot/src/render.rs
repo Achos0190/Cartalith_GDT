@@ -226,6 +226,16 @@ type Rgba = (f64, f64, f64, f64);
 /// ([`land_color`]'s own `paint` parameter) is the reference's *primary*
 /// consumer, and this module is `#[path]`-included standalone by five test
 /// targets, so it cannot reach a sibling module's copy.
+///
+/// **CA-19 (Ruling P, 2026-09-21): this is now the *default*, not the only,
+/// biome colour table.** `land_color`'s paint blend reads
+/// `TerrainAppearance::biome_cols` (initialised to this array byte-for-byte
+/// in `Default::default()`), not this constant directly — `WorldGen::
+/// set_biome_color` (`lib.rs`) can override individual entries at runtime.
+/// This array itself never changes and stays the fallback every override is
+/// diffed against; `paint_bridge::swatch_color`'s legend/picker path still
+/// reads it directly on its default 3-arg form (see `swatch_color_with` for
+/// its own override-aware sibling).
 pub const CART_BIOME_COLS: [(u8, u8, u8); 15] = [
     (90, 147, 184),
     (58, 122, 74),
@@ -1187,6 +1197,21 @@ pub struct TerrainAppearance {
     pub wetland_temp: [Rgb; 3],
     pub wetland_trop: [Rgb; 3],
     pub mangrove: [Rgb; 3],
+    /// **CA-19 (`LARGE_ITEM_RULINGS.md`, Ruling P, 2026-09-21): the biome
+    /// colour table, made user-editable.** `Default::default()` sets this to
+    /// [`CART_BIOME_COLS`] byte-for-byte, so a `WorldGen` nobody has called
+    /// `set_biome_color` on renders exactly what it rendered before this
+    /// field existed — the parity guarantee the ruling requires ("with the
+    /// change recorded at the symbol", here). `WorldGen::appearance()`
+    /// (`lib.rs`) overlays `biome_col_overrides` onto this copy of the table
+    /// per generation-config build; nothing else may mutate it. The land
+    /// paint blend ([`land_color`]'s `paint` parameter, `_t ||
+    /// CART_BIOME_COLS[pBio-1]`) reads `appearance.biome_cols` instead of
+    /// the module constant directly, which is the one place in this port
+    /// `CART_BIOME_COLS` was ever consumed as data rather than legend/swatch
+    /// display (`paint_bridge::swatch_color_with` covers those; see its own
+    /// doc for why they are a separate, still-constant-defaulting path).
+    pub biome_cols: [(u8, u8, u8); 15],
     /// `state.exag`'s literal default (reference HTML line 2260) — this
     /// port has no exposure/UI for it, fixed at the JS default.
     pub exag: f64,
@@ -1864,6 +1889,7 @@ impl Default for TerrainAppearance {
             wetland_temp: [(58.0, 72.0, 52.0), (72.0, 88.0, 63.0), (89.0, 108.0, 78.0)],
             wetland_trop: [(46.0, 68.0, 44.0), (60.0, 86.0, 55.0), (76.0, 106.0, 68.0)],
             mangrove: [(38.0, 56.0, 42.0), (50.0, 72.0, 52.0), (64.0, 90.0, 65.0)],
+            biome_cols: CART_BIOME_COLS,
             exag: 3.4,
             sun_az_deg: 315.0,
             sun_alt_deg: 40.0,
@@ -5101,7 +5127,7 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
                 Some((c.0 as f64, c.1 as f64, c.2 as f64))
             })
         };
-        for p in [layer(ground.biomes, &CART_BIOME_COLS, paint.bio), layer(ground.terrains, &CART_TERRAIN_COLS, paint.ter)].into_iter().flatten() {
+        for p in [layer(ground.biomes, &appearance.biome_cols, paint.bio), layer(ground.terrains, &CART_TERRAIN_COLS, paint.ter)].into_iter().flatten() {
             l.0 += (p.0 - l.0) * 0.60;
             l.1 += (p.1 - l.1) * 0.60;
             l.2 += (p.2 - l.2) * 0.60;

@@ -144,6 +144,50 @@ fn a_painted_biome_cell_is_the_reference_060_blend_of_its_own_unpainted_colour()
     }
 }
 
+/// CA-19 (`LARGE_ITEM_RULINGS.md`, Ruling P, 2026-09-21): the biome colour
+/// table becomes user-editable. `TerrainAppearance::default()`'s
+/// `biome_cols` stays byte-identical to `CART_BIOME_COLS` (every other test
+/// in this file, unmodified, is the proof: they all still blend against the
+/// constant on `TerrainAppearance::js_reference()`, which is a struct-update
+/// over `default()`). This test is the new capability — the same 0.60 blend
+/// picking up an override on the one class edited, and the default table on
+/// every class that was not.
+#[test]
+fn a_painted_biome_cell_blends_an_overridden_table_entry_and_leaves_the_rest_default() {
+    assert_eq!(TerrainAppearance::default().biome_cols, CART_BIOME_COLS, "no-override default must be byte-identical to the constant");
+
+    let w = world();
+    let mut overridden = CART_BIOME_COLS;
+    let edited: u8 = 6; // arbitrary, mid-table; index 6's default is CART_BIOME_COLS[5].
+    let custom = (9, 200, 40);
+    overridden[edited as usize - 1] = custom;
+    let appearance = TerrainAppearance { biome_cols: overridden, ..TerrainAppearance::js_reference() };
+    let plain = RenderCtx::with_appearance(&w.field, &w.temperature, &w.rainfall, None, GW, GH, SEA, false, 60.0, 20.0, appearance.clone());
+
+    // The edited class blends toward the OVERRIDE, not `CART_BIOME_COLS[5]`.
+    let i_edit = 10 * GW + 10;
+    let g_edit = grid(&[(i_edit, edited)]);
+    let painted_edit =
+        RenderCtx::with_appearance(&w.field, &w.temperature, &w.rainfall, None, GW, GH, SEA, false, 60.0, 20.0, appearance.clone()).with_paint(Some(&g_edit), None, None);
+    let want_edit = blend(as255(render::cell_color(&plain, 10, 10)), custom);
+    assert_close(as255(render::cell_color(&painted_edit, 10, 10)), want_edit, "edited index must blend the override colour");
+
+    // Every OTHER class, painted under the same overridden appearance, still
+    // blends toward `CART_BIOME_COLS` exactly — one edited entry must not
+    // move its 14 siblings.
+    for v in 1..=13u8 {
+        if v == edited {
+            continue;
+        }
+        let i = 12 * GW + 15;
+        let g = grid(&[(i, v)]);
+        let painted =
+            RenderCtx::with_appearance(&w.field, &w.temperature, &w.rainfall, None, GW, GH, SEA, false, 60.0, 20.0, appearance.clone()).with_paint(Some(&g), None, None);
+        let want = blend(as255(render::cell_color(&plain, 15, 12)), CART_BIOME_COLS[v as usize - 1]);
+        assert_close(as255(render::cell_color(&painted, 15, 12)), want, &format!("un-overridden biome index {v} must still blend the default table"));
+    }
+}
+
 #[test]
 fn a_painted_terrain_cell_is_the_reference_060_blend_of_its_own_unpainted_colour() {
     let w = world();

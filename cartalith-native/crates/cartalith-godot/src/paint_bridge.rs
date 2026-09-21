@@ -769,12 +769,30 @@ fn pack_window(target: PaintTarget, cells: &[u8], stride: usize, win: Region, pa
 /// no swatch colour to port — only a texture, which is a different thing
 /// and is not something a flat overlay can show.
 pub fn swatch_color(target: PaintTarget, index: u8, palette_len: usize) -> (u8, u8, u8) {
+    swatch_color_with(target, index, palette_len, &crate::render::CART_BIOME_COLS)
+}
+
+/// [`swatch_color`], but the Biome swatch is read from `biome_cols` rather
+/// than the frozen [`crate::render::CART_BIOME_COLS`] constant — CA-19
+/// (`LARGE_ITEM_RULINGS.md`, Ruling P, 2026-09-21): the biome colour table
+/// is user-editable, and this is the swatch picker's own path onto a live
+/// `WorldGen`'s overrides, exactly as `render::land_color`'s paint blend
+/// reads `TerrainAppearance::biome_cols` (`render.rs`) rather than the
+/// constant directly. `swatch_color(t, i, n) ==
+/// swatch_color_with(t, i, n, &CART_BIOME_COLS)` always — every existing
+/// caller and golden that pins `swatch_color` against the frozen table
+/// keeps doing so unchanged; this function exists only for a caller that
+/// actually has an override table to pass.
+///
+/// Terrain and Splat are unaffected — CA-19 is scoped to the biome table
+/// alone, matching `render.rs`'s own `TerrainAppearance::biome_cols`.
+pub fn swatch_color_with(target: PaintTarget, index: u8, palette_len: usize, biome_cols: &[(u8, u8, u8); 15]) -> (u8, u8, u8) {
     if index == 0 || palette_len == 0 || index as usize > palette_len {
         return (0, 0, 0);
     }
     let i = index as usize - 1;
     match target {
-        PaintTarget::Biome => crate::render::CART_BIOME_COLS[i],
+        PaintTarget::Biome => biome_cols[i],
         PaintTarget::Terrain => crate::render::CART_TERRAIN_COLS[i],
         PaintTarget::Splat => hsv_to_rgb(((index - 1) as f64 / palette_len as f64) * 360.0, 0.65, 0.95),
     }
@@ -1177,6 +1195,45 @@ mod tests {
         // pass this by moving both sides together.
         assert_eq!(swatch_color(PaintTarget::Biome, 2, 13), (58, 122, 74), "CART_BIOME_COLS[1], Temperate Forest");
         assert_eq!(swatch_color(PaintTarget::Terrain, 2, 13), (154, 122, 74), "CART_TERRAIN_COLS[1]");
+    }
+
+    /// CA-19 (`LARGE_ITEM_RULINGS.md`, Ruling P, 2026-09-21): the golden
+    /// re-baseline this ruling actually needs. `swatch_color` (the existing,
+    /// pinned 3-arg entry point) must stay exactly the frozen table for
+    /// every caller who does not pass an override — proven here by mutating
+    /// only ONE entry of a *copy* of `CART_BIOME_COLS` and asserting the
+    /// other 14 are untouched, both in the override table itself and in
+    /// `swatch_color_with`'s answer for every index but the mutated one.
+    /// `swatch_color` never sees the override at all, so the old test above
+    /// this one is undisturbed — the "change recorded at the symbol" the
+    /// ruling asks for is this test, not an edit to the pinned one.
+    #[test]
+    fn swatch_color_with_overrides_exactly_one_index_and_swatch_color_stays_pinned() {
+        let mut overridden = crate::render::CART_BIOME_COLS;
+        let edited_index = 5u8; // "Boreal Forest" — arbitrary, mid-table.
+        let custom = (1, 2, 3);
+        overridden[edited_index as usize - 1] = custom;
+
+        for i in 1..=15u8 {
+            let with_ov = swatch_color_with(PaintTarget::Biome, i, 15, &overridden);
+            if i == edited_index {
+                assert_eq!(with_ov, custom, "the overridden index must read back the override");
+            } else {
+                assert_eq!(
+                    with_ov,
+                    crate::render::CART_BIOME_COLS[i as usize - 1],
+                    "index {i} has no override and must still read the default table"
+                );
+            }
+            // The pinned entry point is untouched by any override table that
+            // exists elsewhere — it always resolves against the constant.
+            assert_eq!(swatch_color(PaintTarget::Biome, i, 15), crate::render::CART_BIOME_COLS[i as usize - 1]);
+        }
+        // `swatch_color`'s own definition, byte-for-byte: calling it is
+        // exactly calling `swatch_color_with` against the un-overridden table.
+        for i in 1..=15u8 {
+            assert_eq!(swatch_color(PaintTarget::Biome, i, 15), swatch_color_with(PaintTarget::Biome, i, 15, &crate::render::CART_BIOME_COLS));
+        }
     }
 
     /// Splat has no reference colour at all — it names pack textures. Kept
