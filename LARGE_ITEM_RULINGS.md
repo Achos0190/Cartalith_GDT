@@ -1067,3 +1067,29 @@ Siting itself changes, not just the downstream render binding: a settlement only
 **Explicit deviation, disclosed per `DECISIONS.md`'s own rule, not assumed correct.** This re-baselines `build_settlement_suitability`'s and `civ_is_coastal`'s golden tests and ripples into anything downstream of settlement placement — economy, urban layout, faction territory. That blast radius is why this got a design pass and a recorded ruling before any build, rather than being built straight from the owner's word.
 
 **Not scheduled as a build yet.** The river half is unblocked; the coastal half waits on EF-6. Neither has a build row in `OUTSTANDING_WORK.md` as of this ruling.
+
+## 2026-09-21 — Ruling O: v2.69's tile-refinement sea-level clamp lands
+
+**The finding is `OUTSTANDING_WORK.md`'s v2.69 row, checked at the symbol and measured, not merely "confirmed inherited."** `amplify_region`'s underwater term already tapers going down into water and measures symmetric (0.32%/0.32%) at that layer alone — fine. One layer up, `add_zoom_detail` (the deep-zoom octave-stacking pass) gives a water cell zero extra octaves (`if base < sea { continue; }`) while a land cell gets up to six *unclamped* extra octaves with no `[0,1]` clamp on the write-back. Measured on a synthetic coastal gradient: 0.00% land→sea at z=2 rising to 0.17% at z≥4, and 0.00% sea→land at every level tested — strictly one-directional, and more extreme than the HTML's own asymmetry because this port's water cells are fully exempt rather than merely tapered.
+
+**Owner ruling, 2026-09-21: land the fix.** Both functions clamp the excursion toward sea level at half the remaining headroom, per `RC_ENGINE_CHANGES.md`'s own v2.69 entry — fixing only one left a third of the drift in the HTML's own report, so both move together. `cartalith-terrain/tests/golden_parity_amplify.rs` currently pins the asymmetric behaviour byte-exact against the frozen v2.11 reference; that golden is authorised to move, re-derived rather than a tolerance widened, with the change recorded at the symbol per `cartalith-porting-discipline`. This departs from the frozen reference's own generated pixels near every coastline — a real, disclosed parity deviation, not a silent one.
+
+## 2026-09-21 — Ruling P: CA-19, the biome colour table becomes user-editable
+
+**The finding is `OUTSTANDING_WORK.md`'s CA-19 row.** The biome colour table is buildable as a writable, user-facing control today; the only reason it wasn't already exposed is `DECISIONS.md` §7a's general protection against moving a golden without a ruling.
+
+**Owner ruling, 2026-09-21: authorise it.** The fixed palette becomes user-editable; whatever golden currently pins the fixed colours as a constant is re-baselined to treat the table as data rather than a literal, with the change recorded at the symbol.
+
+## 2026-09-21 — Ruling Q: water bodies reclassify by hydrological topology, not size
+
+**The finding is `HYDROLOGY_CLASSIFICATION_RESEARCH.md`, imported verbatim 2026-09-08, and `OUTSTANDING_WORK.md`'s own row on it.** `build_water_bodies` calls the *largest* below-sea connected component the ocean and every other one a lake — size-primary, relative rather than an absolute threshold, but size all the same, with no connectivity, basin-topology, connection-type or map-boundary state anywhere in it. Three failure modes follow directly: a world with little ocean and one huge inland basin makes the lake the ocean (largest wins); a genuinely marine body truncated by the map edge that is not the largest component becomes a lake (the research's `MAP_BOUNDED`/`UNRESOLVED` case, unrepresented here); and a Caspian-shaped case (a saline, connectivity-isolated sea) is unrepresentable in either direction, since salinity is not a stored property and `endorheic` is not a state.
+
+**The additive first step — deriving `ocean_connected`/`map_boundary_contact`/`basin_type` beside the existing classification, changing nothing it classifies — was already built and verified 2026-09-21 (commit `c6de2a2`), byte-identical, no golden moved.** `inflow_count`/`outflow_count`/`salinity` were deliberately not attempted there; they need a river/flow network the topology function doesn't carry.
+
+**Owner ruling, 2026-09-21: authorise the full reclassification, not just the additive metadata.** `build_water_bodies` moves to a topology-primary rule per the research. This re-baselines `build_water_bodies_largest_below_sea_component_is_ocean` and ripples into `build_biome_raster`, route costing (`RouteContext::water_bodies`), lake labelling (`lake_features`, keyed on `== 2`) and landmark placement — every downstream consumer of `WaterBodies::classification`. Each moved golden is recorded at the symbol, what changed and why, per `cartalith-porting-discipline` — not a tolerance widened.
+
+## 2026-09-21 — Ruling R: IN-13 trade flows use per-faction currencies with exchange rates
+
+**The finding is `OUTSTANDING_WORK.md`'s IN-13 row.** Trade flows (who trades with whom, prices, tariffs, caravans as entities) cannot be built without first deciding what "currency" means in this world — `TradeBalance` already names *what* moves, never *who* holds it or in what unit.
+
+**Owner ruling, 2026-09-21: each faction has its own currency, with an exchange rate between any two.** Cross-faction trade needs a conversion step at the point of exchange, not a single universal unit of account. This is a design decision at the start of a large, unbuilt subsystem — no golden exists yet to move, and the build itself is not scheduled by this ruling; it only settles the question that was blocking a design.
