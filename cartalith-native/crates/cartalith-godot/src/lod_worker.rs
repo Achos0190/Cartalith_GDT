@@ -734,6 +734,18 @@ impl LodWorker {
         (st.snapshot.is_some(), st.building, st.in_flight.len(), st.ready.len(), st.built, st.dropped, st.snapshot.as_ref().map_or(0, |s| s.retained_bytes()))
     }
 
+    /// Bumped by [`Self::install`] (the synchronous path's snapshot swap)
+    /// and by [`Self::prepare`] each time it decides a background build is
+    /// needed — never by a cache hit. A probe reading this before and after
+    /// a call is the "rebuilt, not just happened to match" signal that
+    /// `_glaciallodkey_probe.gd` needs and no `#[func]` otherwise exposes;
+    /// exposed through [`crate::WorldGen::lod_worker_stats`] the same way
+    /// `built`/`dropped` already are, rather than inventing a second
+    /// counter.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
     /// Drop the snapshot and everything queued against it, and bump the
     /// generation so anything still running lands stale.
     ///

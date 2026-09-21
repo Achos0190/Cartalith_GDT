@@ -18,17 +18,36 @@ extends Node
 ##
 ## # What this probe finds about the "ice off" case (task step 3)
 ##
-## `lod_cache_key`'s `glacial_snowline` term is folded in UNCONDITIONALLY --
-## it does not check `appearance.ice_strength` at all -- while the RENDER
-## path (`render.rs::land_color`, `glacier_on`/`cryo` locals) gates BOTH the
-## glacier field and the cryo lapse correction on `ice_strength > 0.0`. So
-## with ice off, changing the snowline still busts the cache (a fresh
-## `TileFields` is built every time) even though the pixels it produces are
-## structurally guaranteed to be identical, because the render path never
-## reads `tf.glacier`/`tf.cryo` when `ice_strength <= 0.0`. That is an
-## over-invalidation (wasted rebuild), not a correctness bug -- section 3
-## below asserts the PIXEL claim ("does not need to"), not a cache-hit count,
-## since no `#[func]` exposes the synchronous path's hit/miss counter.
+## **Fixed 2026-09-21.** `lod_cache_key`'s `glacial_snowline` term used to
+## fold in unconditionally -- it did not check `appearance.ice_strength` at
+## all -- while the RENDER path (`render.rs`, both `glacier_on`/`cryo` call
+## sites, grepped) gates BOTH the glacier field and the cryo lapse
+## correction on `ice_strength > 0.0`. With ice off, changing the snowline
+## still busted the cache (a fresh `TileFields` was built every time) even
+## though the pixels it produces are structurally guaranteed to be
+## identical, because the render path never reads `tf.glacier`/`tf.cryo`
+## when `ice_strength <= 0.0`. That was an over-invalidation (wasted
+## ~480 ms rebuild), not a correctness bug. The key now folds in the term
+## only when `ice_strength > 0.0`, and folds in a constant otherwise.
+##
+## Section 4 below asserts BOTH the PIXEL claim (byte-identical -- unchanged
+## by the fix, since the fix cannot change what was already correct output)
+## AND, new in this pass, that the cache was NOT invalidated: `lod_worker
+## ::LodWorker::generation` (exposed as `lod_worker_stats()["generation"]`)
+## is bumped only by an actual snapshot rebuild (`install`/`prepare`
+## deciding to build), never by a cache hit, so reading it before and after
+## is the "rebuilt but happened to match" vs. "not rebuilt at all"
+## distinction `MISTAKES.md`'s "declare the work green" rule asks for.
+## Section 3 (ice ON) asserts the mirror claim: generation MUST still bump
+## on each snowline change there, so the fix has not gone too far and
+## disabled invalidation for the case that matters.
+##
+## Section 5 measures real wall-clock cost with `Time.get_ticks_usec()`:
+## a cache HIT (no param change), a genuine MISS (ice off, `peak_m`
+## changed -- untouched by this fix, still busts the cache every time), and
+## the fixed ice-off/snowline-change path, so the "close to a hit, not the
+## ~480 ms miss" claim is a real measurement rather than the doc comment's
+## cited figure.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x900 _glaciallodkey_probe.tscn
 ##
@@ -57,6 +76,15 @@ func _ok(name: String, cond: bool, detail: String = "") -> void:
 func _frames(n: int) -> void:
 	for i in n:
 		await get_tree().process_frame
+
+## `lod_worker::LodWorker::generation`, exposed via `lod_worker_stats()`.
+## Bumped only by an actual `LodSnapshot` rebuild (never a cache hit), which
+## is what makes it the "rebuilt, not just happened to match" signal --
+## `MISTAKES.md`'s "declare the work green" rule and "add a
+## capability/staleness/cache key" rule both ask for this rather than
+## inferring it from pixels alone.
+func _gen() -> int:
+	return int(_br.lod_worker_stats().get("generation", -1))
 
 ## Max absolute per-channel diff between two same-sized RGBA byte buffers, at
 ## pixel (x, y) of an image `w` pixels wide.
@@ -185,12 +213,23 @@ func _ready() -> void:
 	var data_a := img_a.get_data()
 	var w := img_a.get_width()
 	var h := img_a.get_height()
+	var gen_a := _gen()
 
 	wg.set_params({"passes.glacial_snowline": 0.15})
 	var tex_b: Texture2D = _br.lod_synthesize_tile(0, 0, 0)
 	_ok("tile (0,0,0) synthesised at snowline 0.15", tex_b != null)
 	var img_b := tex_b.get_image()
 	var data_b := img_b.get_data()
+	var gen_b := _gen()
+
+	# Section 5's timing MISS baseline needs a `gen_a`/`gen_b` sanity check
+	# too, and this is the sanity check that matters most: with ice ON the
+	# fix must NOT have gone further than the task asked and disabled
+	# invalidation for the case where the snowline genuinely changes the
+	# pixels. If this ever reads equal, the gate below is wrong in the
+	# direction that ships stale ice.
+	_ok("ice ON: the cache WAS invalidated by the snowline change (the fix must not over-gate)",
+		gen_b > gen_a, "gen_a=%d gen_b=%d" % [gen_a, gen_b])
 
 	_ok("the two renders are the same size (a precondition for the diffs below)",
 		img_b.get_width() == w and img_b.get_height() == h,
@@ -230,30 +269,105 @@ func _ready() -> void:
 
 	# --- 4. ice OFF: the companion assertion (task step 3) -----------------
 	#
-	# `lod_cache_key` folds in `glacial_snowline` UNCONDITIONALLY -- confirmed
-	# by reading the function, not assumed -- so this still forces a fresh
-	# `TileFields` build on both calls below. The claim under test is the
-	# PIXEL one: `render.rs`'s `glacier_on`/`cryo` locals gate on
-	# `ice_strength > 0.0`, so with ice off the fresh glacier field is built
-	# but never read, and the two renders must be byte-identical despite the
-	# cache having been busted.
-	print("\n=== 4: ice OFF -- same snowline change must move NO pixel ===")
+	# `lod_cache_key` now gates the `glacial_snowline` term on
+	# `ice_strength > 0.0` (fixed this pass; used to fold it in
+	# unconditionally). Two claims, not one:
+	#   (a) PIXEL -- the two renders below must still be byte-identical.
+	#       Unaffected by the fix either way, since the fix only changes
+	#       whether a rebuild HAPPENS, never what a rebuild PRODUCES.
+	#   (b) CACHE -- with ice already off, changing ONLY the snowline must
+	#       leave `generation` unmoved, i.e. no rebuild happened at all.
+	#       This is the assertion the task asked to add: without it, (a)
+	#       alone cannot tell "rebuilt but happened to match" apart from
+	#       "not rebuilt".
+	print("\n=== 4: ice OFF -- same snowline change must move NO pixel and NOT rebuild ===")
 	var applied_off: int = _br.set_appearance({"ice_strength": 0.0})
 	_ok("ice_strength off recognised (teeth check)", applied_off == 1, "applied=%d" % applied_off)
 
+	# Establish ice-off at snowline 0.55 first, so the state going into the
+	# isolated test below is settled -- this call is EXPECTED to rebuild
+	# (the appearance itself just changed), so it is not part of claim (b).
 	wg.set_params({"passes.glacial_snowline": 0.55})
 	var tex_c: Texture2D = _br.lod_synthesize_tile(0, 0, 0)
 	_ok("tile (0,0,0) synthesised, ice off, snowline 0.55", tex_c != null)
 	var data_c := tex_c.get_image().get_data() if tex_c != null else PackedByteArray()
+	var gen_before_isolated := _gen()
 
+	# The isolated test: from here, the ONLY thing that changes is the
+	# snowline. Ice stays off throughout.
 	wg.set_params({"passes.glacial_snowline": 0.15})
 	var tex_d: Texture2D = _br.lod_synthesize_tile(0, 0, 0)
 	_ok("tile (0,0,0) synthesised, ice off, snowline 0.15", tex_d != null)
 	var data_d := tex_d.get_image().get_data() if tex_d != null else PackedByteArray()
+	var gen_after_isolated := _gen()
 
 	_ok("with ice off, the same snowline change moves NO pixel (structurally does not need to bust the cache)",
 		tex_c != null and tex_d != null and data_c == data_d,
 		"%d bytes compared" % data_c.size())
+	_ok("with ice off, the same snowline change does NOT invalidate the cache at all (the fix's actual claim)",
+		gen_after_isolated == gen_before_isolated,
+		"gen_before=%d gen_after=%d" % [gen_before_isolated, gen_after_isolated])
+
+	# --- 5. real wall-clock cost, not the doc comment's cited ~480 ms ------
+	#
+	# Three measurements, same tile, same world, each isolated to ONE
+	# param change so the number is attributable:
+	#   HIT  -- call again with NOTHING changed. A cache hit plus one
+	#           tile's colour pass (the doc comment's other cited figure,
+	#           5.98 ms on all cores).
+	#   MISS -- change `ao_strength` (an appearance field, always folded
+	#           into the key via `appearance_fingerprint`, untouched by
+	#           this fix, and not a `params::invalidates` key so no
+	#           pipeline recompute rides along) to force a genuine
+	#           `LodSnapshot` rebuild -- the same rebuild the OLD
+	#           `glacial_snowline` term forced on every ice-off snowline
+	#           change.
+	#   FIX  -- the exact ice-off/snowline-change operation from section 4,
+	#           repeated here purely for its own timing.
+	# `MISTAKES.md`: "quote a timing -- run the harness alone, median with
+	# min..max, never a point estimate". Five samples each, run serially,
+	# nothing else on the machine competing for this process.
+	print("\n=== 5: real timing -- HIT vs. MISS vs. the fixed ice-off/snowline path ===")
+
+	var hit_samples: Array[float] = []
+	for i in 5:
+		var t_hit := Time.get_ticks_usec()
+		_br.lod_synthesize_tile(0, 0, 0)
+		hit_samples.append(float(Time.get_ticks_usec() - t_hit) / 1000.0)
+	hit_samples.sort()
+	var hit_med: float = hit_samples[hit_samples.size() / 2]
+	print("  HIT  (nothing changed, tile-colour cost only): median %.2f ms (%.2f..%.2f, n=%d)" %
+		[hit_med, hit_samples[0], hit_samples[-1], hit_samples.size()])
+
+	var miss_toggle := 0.10
+	var miss_samples: Array[float] = []
+	for i in 5:
+		miss_toggle = 0.90 if miss_toggle < 0.5 else 0.10
+		var t0 := Time.get_ticks_usec()
+		_br.set_appearance({"ao_strength": miss_toggle})
+		_br.lod_synthesize_tile(0, 0, 0)
+		miss_samples.append(float(Time.get_ticks_usec() - t0) / 1000.0)
+	miss_samples.sort()
+	var miss_med: float = miss_samples[miss_samples.size() / 2]
+	print("  MISS (ao_strength toggled, full rebuild): median %.2f ms (%.2f..%.2f, n=%d)" %
+		[miss_med, miss_samples[0], miss_samples[-1], miss_samples.size()])
+
+	var fix_snowline := 0.10
+	var fix_samples: Array[float] = []
+	for i in 5:
+		fix_snowline = 0.55 if fix_snowline < 0.3 else 0.10
+		var t1 := Time.get_ticks_usec()
+		wg.set_params({"passes.glacial_snowline": fix_snowline})
+		_br.lod_synthesize_tile(0, 0, 0)
+		fix_samples.append(float(Time.get_ticks_usec() - t1) / 1000.0)
+	fix_samples.sort()
+	var fix_med: float = fix_samples[fix_samples.size() / 2]
+	print("  FIX  (ice off, snowline changed, gated key): median %.2f ms (%.2f..%.2f, n=%d)" %
+		[fix_med, fix_samples[0], fix_samples[-1], fix_samples.size()])
+
+	_ok("the fixed ice-off/snowline path is far closer to a HIT than to a genuine MISS",
+		fix_med < miss_med * 0.5,
+		"fix_med=%.2f ms miss_med=%.2f ms" % [fix_med, miss_med])
 
 	print("\nRESULT %d checks, %d failed" % [_checks, _fail])
 	get_tree().quit(1 if _fail > 0 else 0)

@@ -12130,6 +12130,13 @@ impl WorldGen {
     /// but not yet drained. `retained_bytes` is what the milestone's memory
     /// bar is read off and is measured from the live snapshot rather than
     /// estimated from a formula.
+    ///
+    /// `generation` is [`lod_worker::LodWorker::generation`] — bumped only
+    /// on an actual snapshot rebuild (`install`/`prepare`'s decision to
+    /// build), never on a cache hit. Unlike `built`/`dropped`, which only
+    /// move on the asynchronous tile path, this also moves on the
+    /// synchronous `lod_synthesize_tile` route, which is what makes it the
+    /// "did a rebuild really happen" signal for a probe on that route.
     #[func]
     fn lod_worker_stats(&self) -> VarDictionary {
         let (ready, building, in_flight, waiting, built, dropped, bytes) = self.lod_worker.stats();
@@ -12142,6 +12149,7 @@ impl WorldGen {
             "built" => built as i64,
             "dropped" => dropped as i64,
             "retained_bytes" => bytes as i64,
+            "generation" => self.lod_worker.generation() as i64,
         }
     }
 
@@ -12258,6 +12266,18 @@ impl WorldGen {
             // glacial pass off moves no stage version at all, and the ice
             // would have gone on being drawn at the old snowline until
             // something else invalidated the cache.
+            //
+            // But `glacial_snowline` only reaches a PIXEL through
+            // `render.rs`'s `glacier_on`/`cryo` locals (both call sites,
+            // grepped), and both are gated `a.ice_strength > 0.0` -- read
+            // there, not assumed. With ice off, `tf.glacier`/`tf.cryo` are
+            // never sampled, so folding the term in unconditionally busts a
+            // ~480 ms `TileFields` rebuild for a value the rebuilt pixels
+            // are provably identical without. Fold in a constant instead
+            // when ice is off; `ice_strength` itself is already covered by
+            // `appearance_fingerprint`, so flipping ice back on changes the
+            // key on its own and the next build reads the CURRENT
+            // `glacial_snowline`, never a stale one.
             "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{}",
             self.world_epoch,
             self.stages.version(PipelineStage::Height.id(), 0),
@@ -12274,7 +12294,7 @@ impl WorldGen {
             self.color_space,
             self.pack_epoch,
             self.paint.as_ref().map(|p| p.epoch()).unwrap_or(0),
-            self.params.passes.glacial_snowline.to_bits(),
+            if a.ice_strength > 0.0 { self.params.passes.glacial_snowline.to_bits() } else { 0 },
             self.params.peak_m.to_bits(),
             self.params.climate.lapse_rate.to_bits(),
             self.params.planet.g.to_bits(),
