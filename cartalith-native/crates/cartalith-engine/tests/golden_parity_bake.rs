@@ -31,6 +31,32 @@
 //! sub-region would still produce a full, well-formed atlas), and that two
 //! horizontally adjacent tiles agree on their shared edge with delta **exactly
 //! zero**. All are re-asserted here.
+//!
+//! # RE-BASELINED 2026-09-21 — Ruling O, the v2.69 sea-level clamp
+//!
+//! Seven hashes here are no longer the frozen v2.11 reference's, **because the
+//! composition inherits the change rather than because anything in this file's
+//! own subject moved**: `refine_tile` and `add_zoom_detail` now cap their
+//! detail excursion toward sea level at half the remaining headroom, per
+//! `LARGE_ITEM_RULINGS.md`'s Ruling O (owner, 2026-09-21) and
+//! `RC_ENGINE_CHANGES.md` §8.1's v2.69 mechanism. The reasoning lives at
+//! `cartalith_terrain::amplify::clamp_toward_sea`; the values were re-derived
+//! from the new code, never a widened tolerance.
+//!
+//! | case | old → new | moved | worst Δ |
+//! |---|---|---|---|
+//! | `z=0 c0 r0` | `d1784219…` → `565a12d4…` | 24 / 2688 (0.9%) | 0.020328 |
+//! | `z=1 c0 r0` | `02508e5c…` → `03446b07…` | 24 / 2688 (0.9%) | 0.025647 |
+//! | `z=1 c1 r1` | `4e49d93d…` → `7e8929b6…` | 14 / 2688 (0.5%) | 0.016937 |
+//! | `z=2 c2 r1` | `9b4fa390…` → `516863b0…` | 18 / 672 (2.7%) | 0.014475 |
+//! | `z=3 c5 r3` | `c607e279…` → `5fa63604…` | 11 / 672 (1.6%) | 0.014492 |
+//! | atlas tile `z=1 c1 r0` | `66660c14…` → `7c204980…` | — | — |
+//! | its `rg16` | `2e9f1481…` → `2f7ee146…` | — | — |
+//!
+//! **Every `min` and `max` in the table below is unchanged**, both deep cases
+//! (`z=5`, `z=7`) are byte-identical, the six first-texel values are
+//! unchanged, and the seam delta is still exactly zero — the guard bounds a
+//! narrow coastal band and touches neither a tile's extremes nor its edges.
 
 use cartalith_engine::bake::pyramid_tile;
 use cartalith_io::atlas::{build_atlas_manifest, encode_chunk, AtlasChunkDesc};
@@ -91,15 +117,19 @@ fn the_fixture_is_bit_identical_to_the_harnesss() {
 #[test]
 fn pyramid_tile_matches_the_reference() {
     // (z, col, row, tileSize) -> (w, h, hash, min, max).
+    //
+    // Five of the seven hashes were re-derived by Ruling O and are the port's
+    // own; `z=5` and `z=7` are still the reference's, untouched. See this
+    // file's `RE-BASELINED` header for the per-case deltas.
     let cases: &[(u32, u32, u32, usize, usize, usize, &str, f32, f32)] = &[
-        (0, 0, 0, 64, 64, 42, "d1784219c7e13824", 0.2750000059604645, 0.9290775656700134),
-        (1, 0, 0, 64, 64, 42, "02508e5c6b040cb6", 0.2752439081668854, 0.9095419645309448),
-        (1, 1, 1, 64, 64, 42, "4e49d93d747b6506", 0.2750000059604645, 0.8792386651039124),
-        (2, 2, 1, 32, 32, 21, "9b4fa390b647d604", 0.2776673436164856, 0.8528468012809753),
+        (0, 0, 0, 64, 64, 42, "565a12d4740a7bc4", 0.2750000059604645, 0.9290775656700134),
+        (1, 0, 0, 64, 64, 42, "03446b07a786d9a6", 0.2752439081668854, 0.9095419645309448),
+        (1, 1, 1, 64, 64, 42, "7e8929b6e60462de", 0.2750000059604645, 0.8792386651039124),
+        (2, 2, 1, 32, 32, 21, "516863b0471bdbd4", 0.2776673436164856, 0.8528468012809753),
         // z = 3 is the first level `addZoomDetail` actually fires on (zBase 2),
         // so this case is the one that proves the composition, not just the
         // refine.
-        (3, 5, 3, 32, 32, 21, "c607e279b67a2d8c", 0.2761129140853882, 0.5274623036384583),
+        (3, 5, 3, 32, 32, 21, "5fa63604a978d8a0", 0.2761129140853882, 0.5274623036384583),
         // Two deep levels, added after mutation testing: at z <= 3 the zoom
         // detail contributes at most **one** octave, so a constant governing
         // the *second and later* ones (`f *= 2`, `amp *= 0.6`, the six-octave
@@ -155,10 +185,14 @@ fn adjacent_tiles_seam_delta_is_exactly_zero() {
 fn atlas_encode_chunk_matches_the_reference() {
     let f = synthetic_field(CW, CH, 5);
     let t = pyramid_tile(&f, CW, CH, ChunkId::new(1, 1, 0), 32, &opts());
-    assert_eq!(fnv_f32(&t.data), "66660c14fbef99ca", "the tile fed to the encoder diverged");
+    // Both hashes re-derived by Ruling O (tile `66660c14fbef99ca` ->
+    // `7c204980417c9f26`, rg16 `2e9f14812814176c` -> `2f7ee1466be54158`). The
+    // ENCODER is unchanged and still the reference's: what moved is the tile
+    // fed to it, which is why the input is hashed separately here.
+    assert_eq!(fnv_f32(&t.data), "7c204980417c9f26", "the tile fed to the encoder diverged");
     let c = encode_chunk(t.id, &t.data, t.w, t.h, None);
     assert_eq!(c.rg16.len(), 2688, "32 x 21 x 4 bytes");
-    assert_eq!(fnv_u8(&c.rg16), "2e9f14812814176c");
+    assert_eq!(fnv_u8(&c.rg16), "2f7ee1466be54158");
 }
 
 #[test]

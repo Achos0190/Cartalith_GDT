@@ -39,6 +39,20 @@
 //! `regionNewWorldBtn` goes through `tile_dims` too. Ported as written
 //! (`DECISIONS.md`'s rule: the reference's behaviour is the specification), and
 //! pinned by a golden case so nobody later "fixes" the port into disagreeing.
+//!
+//! # One deliberate departure from the reference lives in this file
+//!
+//! Everything else here is a literal port. [`clamp_toward_sea`] is not: it caps
+//! a detail excursion *toward sea level* at half the remaining headroom, in
+//! [`amplify_region`], [`add_zoom_detail`] and [`sample_elevation`] alike.
+//! That is the HTML's own **v2.69** fix (`RC_ENGINE_CHANGES.md` §8.1), landed
+//! here under **Ruling O** (`LARGE_ITEM_RULINGS.md`, owner, 2026-09-21)
+//! against `OUTSTANDING_WORK.md`'s v2.69 row. It re-based goldens in
+//! `tests/golden_parity_amplify.rs`, `tests/golden_parity_zoom_detail.rs` and
+//! `cartalith-engine`'s `golden_parity_bake.rs` /
+//! `golden_parity_region_export.rs`; each of those files records what moved
+//! and by how much. Read [`clamp_toward_sea`] before changing anything near
+//! the shelf.
 
 use cartalith_spatial::FloatRegion;
 use rayon::prelude::*;
@@ -91,6 +105,63 @@ impl Default for AmplifyOpts {
 // each of the three was right in one argument order and wrong in the other.
 pub(crate) use cartalith_jsmath::{js_max, js_min};
 
+/// **v2.69's sea-level guard, and the one deliberate departure from the frozen
+/// v2.11 reference in this module.**
+///
+/// Caps a detail excursion *toward* sea level at **half the remaining
+/// headroom**, and leaves an excursion *away* from it completely alone.
+/// `RC_ENGINE_CHANGES.md` §8.1's v2.69 row states the mechanism and why it is
+/// that shape rather than the obvious one:
+///
+/// > **Clamp the DELTA, not the result**: clamping the height to sea level
+/// > pins a coastal band to one value and makes a flat shelf, so cap the
+/// > excursion TOWARD sea level at half the remaining headroom — no constant,
+/// > never reaches the far side, and bit-identical wherever the detail is
+/// > under half the headroom.
+///
+/// Three properties follow directly from `half = (base − sea) / 2`, and they
+/// are what the tests pin:
+///
+/// 1. **No cell can cross.** `base ≥ sea` gives `base + δ ≥ (base + sea)/2 ≥
+///    sea`; `base < sea` gives `base + δ ≤ (base + sea)/2 < sea`. Refinement
+///    adds resolution and does not move the coastline — which matters because
+///    settlement placement, the water mask, the flooded-cell test and the road
+///    network are every one of them built against that boundary.
+/// 2. **No flat shelf.** The bound is proportional to the distance from sea
+///    level, so it goes to zero only *at* sea level; a coastal band keeps its
+///    relief instead of being pinned to one value.
+/// 3. **No constant, and bit-identical away from the coast.** Wherever the
+///    detail is already under half the headroom — everywhere but a narrow
+///    band either side of the shelf — `delta` comes back unchanged and the
+///    output is byte-for-byte what it was before.
+///
+/// NaN propagates: every comparison here is false for a NaN `base` or `delta`,
+/// so `delta` is returned unchanged and the NaN reaches the write-back, which
+/// is what keeps [`amplify_region`]'s documented `0/0` case observable.
+///
+/// **Authorised by `LARGE_ITEM_RULINGS.md`'s Ruling O (owner, 2026-09-21)**,
+/// against `OUTSTANDING_WORK.md`'s v2.69 row. It moves generated pixels near
+/// every coastline. Four golden files were re-based by it —
+/// `tests/golden_parity_amplify.rs`, `tests/golden_parity_zoom_detail.rs` and
+/// `cartalith-engine`'s `golden_parity_bake.rs` and
+/// `golden_parity_region_export.rs` — and each records what moved at its own
+/// symbol. That list is what `cargo test --workspace` reported failing on the
+/// change and nothing else; no other golden in the workspace reaches this
+/// code near sea level.
+#[inline]
+fn clamp_toward_sea(base: f64, delta: f64, sea: f64) -> f64 {
+    let half = (base - sea) * 0.5;
+    if base >= sea {
+        // Land. `half >= 0`, and going *down* is toward sea.
+        if delta < -half { -half } else { delta }
+    } else {
+        // Water (and NaN, whose comparisons are all false either way).
+        // `half < 0`, so `-half` is the positive half-headroom and going *up*
+        // is toward sea.
+        if delta > -half { -half } else { delta }
+    }
+}
+
 /// The reference's inline bilinear sampler over the coarse source, clamped at
 /// every edge. Reads `f32` storage, computes in `f64` — the same split as the
 /// rest of this crate.
@@ -119,6 +190,17 @@ fn samp(src: &[f32], src_w: usize, src_h: usize, fx: f64, fy: f64) -> f64 {
 /// upsample of the coarse constraint (which keeps continents and ranges),
 /// plus world-space high-frequency detail, tapered by local relief so plains
 /// and ocean floors stay smooth, and faded out below the shelf.
+///
+/// # The v2.69 sea-level guard — a deliberate departure from the reference
+///
+/// The `underwater` fade is **one-sided**: it shrinks detail going *down* into
+/// water and does nothing going *up*, so a land pixel a hair above the shelf
+/// took the full `±detailAmp/2` band and could be pushed under. Since
+/// **Ruling O** (`LARGE_ITEM_RULINGS.md`, owner, 2026-09-21) the detail
+/// excursion is additionally capped toward sea level at half the remaining
+/// headroom — see [`clamp_toward_sea`]. The fade itself is untouched; the cap
+/// sits on top of it, and away from the shelf the output is byte-identical to
+/// the frozen v2.11 reference's.
 ///
 /// # Panics
 ///
@@ -194,7 +276,12 @@ pub fn amplify_region(
             } else {
                 cartalith_noise::fbm(cx * opts.detail_freq, cy * opts.detail_freq, opts.seed)
             } - 0.5;
-            let v = base + d * opts.detail_amp * taper;
+            // v2.69's sea-level guard -- see [`clamp_toward_sea`]. The frozen
+            // v2.11 reference writes `base + d*detailAmp*taper` bare here, and
+            // the `underwater` term above only fades detail out going DOWN
+            // into water, so a land pixel a hair above the shelf took the full
+            // band and could be pushed under. Ruling O.
+            let v = base + clamp_toward_sea(base, d * opts.detail_amp * taper, opts.sea);
             // The reference's own `v<0?0:v>1?1:v`. `f64::clamp` is that
             // expression exactly, NaN included: NaN fails both comparisons and
             // falls through unchanged, which is what makes the `out_w == 1`
@@ -302,12 +389,34 @@ pub fn refine_tile(
 /// `lod_d5_detail_per_screen_pixel_and_the_bar_it_does_not_meet`. It is the
 /// same ruling a third time.
 ///
-/// # A defect disclosed elsewhere, not fixed here
+/// # The v2.69 sea-level guard — a deliberate departure from the reference
 ///
-/// The `if base < sea { continue }` in property 3 above gives land cells the
-/// extra octaves unconditionally and water cells none. That is filed against
-/// `OUTSTANDING_WORK.md`'s v2.69 row and is deliberately left alone by
-/// LOD-D5, which changes no height.
+/// `OUTSTANDING_WORK.md`'s v2.69 row measured this pass pushing land pixels
+/// under the shelf and never the other way: the `if base < sea { continue }`
+/// of property 3 exempts water cells outright while a land cell took up to six
+/// *unguarded* octaves, so the drift was strictly one-directional. Since
+/// **Ruling O** (`LARGE_ITEM_RULINGS.md`, owner, 2026-09-21) the write-back
+/// caps its excursion toward sea level at half the remaining headroom — see
+/// [`clamp_toward_sea`] for the mechanism, its three properties, and the
+/// `RC_ENGINE_CHANGES.md` §8.1 passage it is ported from.
+///
+/// The hard cut in property 3 **stays**: the fix is the clamp alone, which is
+/// what the HTML's own v2.69 did, and giving water cells octaves they have
+/// never had would be a second, unauthorised change. With both in place a
+/// coarse-water cell is skipped here and a coarse-land cell cannot be pushed
+/// under, so the coastline is fixed in *both* directions.
+///
+/// Measured over the **whole** refine-plus-zoom path ([`sample_elevation`]),
+/// on a synthetic coastal gradient, 4x supersampled, 29 673 samples, `z` =
+/// 2/4/6/8 — so `z = 2` is [`amplify_region`]'s contribution alone, since
+/// `extra` is non-positive there. Before → after: land→sea
+/// **0.19 / 0.29 / 0.29 / 0.29 %** of all samples → **0 % at every level**;
+/// sea→land **0.19 / 0.15 / 0.14 / 0.14 %** → **0 % at every level**. The
+/// growth with depth is this function's share, and it is the one-directional
+/// part; `amplify_region`'s own contribution at `z = 2` was already
+/// symmetric. The regression test is
+/// `refinement_never_moves_the_coastline_in_either_direction`, which rebuilds
+/// that fixture.
 ///
 /// # Panics
 ///
@@ -365,8 +474,16 @@ pub fn add_zoom_detail(
                 amp *= 0.6;
             }
             // The reference writes back unclamped -- `data[i]=base+sum*relief`,
-            // no `[0,1]` clamp, unlike `amplifyRegion`'s. Ported as written.
-            *cell = (base + sum * relief) as f32;
+            // no `[0,1]` clamp, unlike `amplifyRegion`'s. That is still true
+            // in the `[0,1]` direction: a peak may still leave the unit range
+            // upward and a seabed downward, and the goldens pin it.
+            //
+            // What *is* guarded, since Ruling O, is the excursion toward SEA
+            // LEVEL -- see [`clamp_toward_sea`]. `RC_ENGINE_CHANGES.md` §8.1:
+            // *"the band is added in TWO places (`amplifyRegion` and
+            // `addZoomDetail`); guarding one left a third of the drift"*, so
+            // this one moves with `amplify_region`'s above.
+            *cell = (base + clamp_toward_sea(base, sum * relief, sea)) as f32;
         }
     });
 }
@@ -496,7 +613,13 @@ pub fn sample_elevation(
     // `refine_tile` writes a `Vec<f32>` and `add_zoom_detail` starts from
     // `*cell as f64`. Carrying full `f64` through instead would agree to about
     // 1e-8 and fail every `to_bits` comparison in this module.
-    let refined = (base + d * opts.detail_amp * taper).clamp(0.0, 1.0) as f32;
+    // v2.69's sea-level guard, exactly as `amplify_region` applies it -- see
+    // [`clamp_toward_sea`]. It has to be here too, for this function's whole
+    // reason to exist: `sample_elevation_reproduces_the_tile_path_texel_for_
+    // texel` asserts this is the *same* field bit for bit, so guarding one
+    // copy and not the other turns a pinned identity into a pinned lie.
+    let refined =
+        (base + clamp_toward_sea(base, d * opts.detail_amp * taper, opts.sea)).clamp(0.0, 1.0) as f32;
 
     // ---- `add_zoom_detail`'s per-pixel body, at the same coordinate --------
     let extra = i32::min(6, z - opts.z_base);
@@ -518,8 +641,9 @@ pub fn sample_elevation(
         f *= 2.0;
         amp *= 0.6;
     }
-    // Written back unclamped, exactly as `add_zoom_detail` writes it.
-    (b + sum * relief) as f32
+    // Written back with `add_zoom_detail`'s own guard and no other: still
+    // unclamped in the `[0,1]` direction, capped toward sea level.
+    (b + clamp_toward_sea(b, sum * relief, opts.sea)) as f32
 }
 
 #[cfg(test)]
@@ -663,6 +787,134 @@ mod tests {
         let reg = Region { x: 0, y: 0, w: 16, h: 12 }.to_float();
         let o = amplify_region(&src, 16, 12, &reg, 20, 16, &AmplifyOpts::default());
         assert!(o.iter().all(|v| (*v - 0.10).abs() < 1e-7));
+    }
+
+    // ---- Ruling O: the v2.69 sea-level guard -------------------------------
+
+    /// Every arm of [`clamp_toward_sea`] against a **literal** it must equal,
+    /// never against the expression that computed it — `MISTAKES.md`'s
+    /// "write a test that pins a constant" row. The `0.5` in `half` is the
+    /// only number in the function and these are what hold it: mutating it to
+    /// `0.25` or `1.0` turns the two capped arms red, and widening
+    /// `base >= sea` to `base > sea` turns the exactly-at-sea arm red.
+    #[test]
+    fn clamp_toward_sea_caps_at_exactly_half_the_headroom_and_nothing_else() {
+        // Every number here is an exact binary fraction, so the literals are
+        // the arithmetic and not a rounding of it.
+        const SEA: f64 = 0.5;
+        // Land at 0.75: 0.25 of headroom, so the cap is 0.125.
+        assert_eq!(clamp_toward_sea(0.75, -0.5, SEA), -0.125, "land: a big dive caps at half");
+        assert_eq!(clamp_toward_sea(0.75, -0.125, SEA), -0.125, "land: exactly half is untouched");
+        assert_eq!(clamp_toward_sea(0.75, -0.0625, SEA), -0.0625, "land: under half passes through");
+        assert_eq!(clamp_toward_sea(0.75, 0.5, SEA), 0.5, "land: going UP is never capped");
+        // Water at 0.125: 0.375 of headroom, so the cap is 0.1875 -- a
+        // different number from the land arm's, so one wrong factor cannot
+        // satisfy both.
+        assert_eq!(clamp_toward_sea(0.125, 0.5, SEA), 0.1875, "water: a big rise caps at half");
+        assert_eq!(clamp_toward_sea(0.125, 0.1875, SEA), 0.1875, "water: exactly half is untouched");
+        assert_eq!(clamp_toward_sea(0.125, 0.0625, SEA), 0.0625, "water: under half passes through");
+        assert_eq!(clamp_toward_sea(0.125, -0.5, SEA), -0.5, "water: going DOWN is never capped");
+        // Exactly at sea level: zero headroom either way, so no movement
+        // toward it at all -- and this is the arm that distinguishes `>=`
+        // from `>`, since the two branches disagree only here.
+        assert_eq!(clamp_toward_sea(SEA, -0.5, SEA), 0.0);
+        assert_eq!(clamp_toward_sea(SEA, 0.5, SEA), 0.5);
+        // NaN propagates rather than being absorbed -- what keeps
+        // `amplify_region`'s documented `0/0` case observable.
+        assert_eq!(clamp_toward_sea(f64::NAN, -0.5, SEA), -0.5);
+        assert!(clamp_toward_sea(0.6, f64::NAN, SEA).is_nan());
+    }
+
+    /// The property Ruling O exists for, stated as a **count of crossings**
+    /// rather than as a hash: refinement adds resolution and does not move the
+    /// coastline, in either direction, at any depth.
+    ///
+    /// The fixture is a synthetic coastal gradient — height ramps 0.20 → 0.80
+    /// across `x`, crossing `sea` about a third of the way in, with a
+    /// quantised per-cell wobble so the coastline wanders and local relief is
+    /// non-zero (`add_zoom_detail` skips `relief <= 0`, and a smooth ramp
+    /// would structurally fail to reach the code under test).
+    ///
+    /// Measured on this exact fixture immediately before the guard landed:
+    /// land→sea **0.19 / 0.29 / 0.29 / 0.29 %** of all samples at
+    /// `z` = 2/4/6/8 and sea→land **0.19 / 0.15 / 0.14 / 0.14 %** — the
+    /// one-directional growth with depth is `add_zoom_detail`'s share.
+    #[test]
+    fn refinement_never_moves_the_coastline_in_either_direction() {
+        const CW: usize = 48;
+        const CH: usize = 40;
+        const SEA: f64 = 0.42;
+        let mut f = vec![0.0f32; CW * CH];
+        for y in 0..CH {
+            for x in 0..CW {
+                let mut v = 0.20 + 0.60 * (x as f64 / (CW as f64 - 1.0));
+                let q = (x as i64 * 7 + y as i64 * 13 + 5).rem_euclid(11);
+                v += 0.06 * ((q as f64 / 10.0) - 0.5);
+                f[y * CW + x] = v.clamp(0.0, 1.0) as f32;
+            }
+        }
+        let opts = AmplifyOpts { seed: 4242, sea: SEA, ..Default::default() };
+        // The fixture has to actually straddle the shelf, or this passes vacuously.
+        assert!(f.iter().any(|&v| (v as f64) < SEA) && f.iter().any(|&v| (v as f64) >= SEA));
+        for z in [2i32, 4, 6, 8] {
+            let (mut l2s, mut s2l, mut land, mut sea_n) = (0usize, 0usize, 0usize, 0usize);
+            // 4x supersample of the coarse domain -- the density a deep tile
+            // reads it at, and 29 673 samples.
+            for iy in 0..((CH - 1) * 4 + 1) {
+                for ix in 0..((CW - 1) * 4 + 1) {
+                    let (cx, cy) = (ix as f64 / 4.0, iy as f64 / 4.0);
+                    let base = samp(&f, CW, CH, cx, cy);
+                    let r = sample_elevation(&f, CW, CH, cx, cy, z, &opts) as f64;
+                    if base >= SEA {
+                        land += 1;
+                        l2s += usize::from(r < SEA);
+                    } else {
+                        sea_n += 1;
+                        s2l += usize::from(r >= SEA);
+                    }
+                }
+            }
+            assert!(land > 1_000 && sea_n > 1_000, "z={z}: the fixture is not really coastal");
+            assert_eq!(l2s, 0, "z={z}: {l2s} of {land} land samples were drowned");
+            assert_eq!(s2l, 0, "z={z}: {s2l} of {sea_n} water samples were raised to land");
+        }
+    }
+
+    /// The other half of the ruling's mechanism: *"no flat shelf"*. Clamping
+    /// the **result** to sea level would pin a coastal band to one value; the
+    /// half-headroom bound on the **delta** goes to zero only exactly at the
+    /// shelf, so the band keeps its relief.
+    #[test]
+    fn the_guard_leaves_a_coastal_band_with_relief_rather_than_a_flat_shelf() {
+        const CW: usize = 48;
+        const CH: usize = 40;
+        const SEA: f64 = 0.42;
+        let mut f = vec![0.0f32; CW * CH];
+        for y in 0..CH {
+            for x in 0..CW {
+                let mut v = 0.20 + 0.60 * (x as f64 / (CW as f64 - 1.0));
+                let q = (x as i64 * 7 + y as i64 * 13 + 5).rem_euclid(11);
+                v += 0.06 * ((q as f64 / 10.0) - 0.5);
+                f[y * CW + x] = v.clamp(0.0, 1.0) as f32;
+            }
+        }
+        let opts = AmplifyOpts { seed: 4242, sea: SEA, ..Default::default() };
+        // Every sample within 0.01 of the shelf on the land side.
+        let band: Vec<f32> = (0..((CH - 1) * 4 + 1))
+            .flat_map(|iy| (0..((CW - 1) * 4 + 1)).map(move |ix| (ix, iy)))
+            .filter_map(|(ix, iy)| {
+                let (cx, cy) = (ix as f64 / 4.0, iy as f64 / 4.0);
+                let base = samp(&f, CW, CH, cx, cy);
+                ((SEA..SEA + 0.01).contains(&base))
+                    .then(|| sample_elevation(&f, CW, CH, cx, cy, 8, &opts))
+            })
+            .collect();
+        assert!(band.len() > 100, "the band is only {} samples", band.len());
+        let lo = band.iter().copied().fold(f32::INFINITY, f32::min);
+        let hi = band.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        // A result-clamp would make this spread ~0; the delta-clamp keeps it.
+        assert!(hi - lo > 0.005, "the coastal band flattened to a {:.6} spread", hi - lo);
+        assert!(band.iter().all(|&v| v as f64 >= SEA), "the band crossed the shelf");
     }
 
     #[test]

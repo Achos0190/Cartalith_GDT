@@ -1,6 +1,29 @@
 //! Golden-parity test for `UNIFIED_TOOL_PLAN.md` milestones E and E2's
 //! `exportRegionTiles` composition (reference line 11891).
 //!
+//! # RE-BASELINED 2026-09-21 — Ruling O, the v2.69 sea-level clamp
+//!
+//! **Three of the four tile hashes below are no longer the frozen v2.11
+//! reference's, and the prose beneath this block still describes the run that
+//! produced the originals — deliberately, since that history is what makes the
+//! new values traceable.** `refine_tile` now caps its detail excursion toward
+//! sea level at half the remaining headroom, per `LARGE_ITEM_RULINGS.md`'s
+//! Ruling O (owner, 2026-09-21) and `RC_ENGINE_CHANGES.md` §8.1's v2.69
+//! mechanism; the reasoning lives at
+//! `cartalith_terrain::amplify::clamp_toward_sea`. Re-derived from the new
+//! code, not a widened tolerance.
+//!
+//! * `refined_0_0` `942adf3a…` → `f3b44540…`
+//! * `refined_0_1` `4192b322…` → `53199771…`
+//! * `refined_1_0` `562d4e66…` → `8439ed4c…`
+//! * `refined_1_1` **unchanged** at `f9d4b01a…` — that tile never comes within
+//!   half a headroom of the shelf, which is the guard's stated third property.
+//! * `tiles/index.json` **unchanged** at `a2c757b8…`, 1024 bytes: the manifest
+//!   records dimensions and names, and neither moved.
+//!
+//! Both tests below share the same four values, so the gzip path re-baselines
+//! with the plain one and the two still cross-check each other.
+//!
 //! # Milestone E's disclosure, and how E2 discharged it
 //!
 //! Milestone E recorded, honestly, that it never invoked `exportRegionTiles`
@@ -101,9 +124,9 @@ fn a_two_by_two_refine_matches_the_reference_entry_for_entry() {
     assert_eq!((e.tile_w, e.tile_h), (32, 21));
 
     let want = [
-        ("tiles/refined_0_0_rg16.bin", "942adf3ae1952d6e", 2688usize),
-        ("tiles/refined_0_1_rg16.bin", "4192b322e8668c86", 2688),
-        ("tiles/refined_1_0_rg16.bin", "562d4e66f2e58118", 2688),
+        ("tiles/refined_0_0_rg16.bin", "f3b44540bb3e3afb", 2688usize),
+        ("tiles/refined_0_1_rg16.bin", "53199771e228f7d5", 2688),
+        ("tiles/refined_1_0_rg16.bin", "8439ed4ceb0b8d43", 2688),
         ("tiles/refined_1_1_rg16.bin", "f9d4b01a7b453529", 2688),
     ];
     for (i, (name, hash, len)) in want.into_iter().enumerate() {
@@ -138,12 +161,17 @@ fn the_gzip_path_matches_the_reference_name_for_name() {
     );
     assert!(e.used_gzip);
 
-    // The four hashes the REAL reference call produced after gunzip -- and the
-    // same four milestone E recorded from its primitives-only harness.
+    // The same four the plain path asserts, so the two tests still cross-check
+    // each other. Three of them were re-derived by Ruling O and are no longer
+    // the reference's (see this file's header); `refined_1_1` still is. What
+    // milestone E2 established -- that the REAL `exportRegionTiles` call and
+    // milestone E's primitives-only harness agree tile for tile -- is a
+    // property of the assembly and survives the re-baseline, because both
+    // sides go through the same `refine_tile`.
     let want = [
-        "942adf3ae1952d6e",
-        "4192b322e8668c86",
-        "562d4e66f2e58118",
+        "f3b44540bb3e3afb",
+        "53199771e228f7d5",
+        "8439ed4ceb0b8d43",
         "f9d4b01a7b453529",
     ];
     for (i, hash) in want.into_iter().enumerate() {

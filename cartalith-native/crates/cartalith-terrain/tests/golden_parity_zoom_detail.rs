@@ -29,6 +29,38 @@
 //! The three no-op cases matter more than they look: `pyramid_tile` calls
 //! `add_zoom_detail` unconditionally at every level, so "shallow levels are
 //! untouched" is a correctness property of the whole bake, not a micro-detail.
+//!
+//! # RE-BASELINED 2026-09-21 — Ruling O, the v2.69 sea-level clamp
+//!
+//! **Every hash below is now the port's own, not the frozen v2.11
+//! reference's.** `LARGE_ITEM_RULINGS.md`'s Ruling O (owner, 2026-09-21)
+//! authorised both `amplify_region` and `add_zoom_detail` to cap their detail
+//! excursion *toward sea level* at half the remaining headroom — the v2.69
+//! mechanism `RC_ENGINE_CHANGES.md` §8.1 specifies, ported into
+//! `cartalith_terrain::amplify::clamp_toward_sea`, where the reasoning lives.
+//! `RC_ENGINE_CHANGES.md`'s own report of the HTML's fix is why *both* moved
+//! together: *"the band is added in TWO places (`amplifyRegion` and
+//! `addZoomDetail`); guarding one left a third of the drift"*.
+//!
+//! Values **re-derived from the new code**, not a widened tolerance — the
+//! reference frozen here is v2.11 and has no v2.69 behaviour to be an oracle
+//! for. The deviation is disclosed, per `cartalith-porting-discipline`.
+//!
+//! `BASE_HASH` moved as well, because `base_tile` goes through `refine_tile`
+//! and inherits `amplify_region`'s half of the guard: `0edba777203501a2` →
+//! `f49e0bb876f2881c`, 8 of 480 pixels, worst Δ 0.007076.
+//!
+//! | case | old → new | moved | worst Δ |
+//! |---|---|---|---|
+//! | `z=3` | `17c5aa06…` → `9f473476…` | 9 / 480 (1.9%) | 0.008804 |
+//! | `z=5` | `293fa4f8…` → `5744a2da…` | 8 / 480 (1.7%) | 0.008187 |
+//! | `z=6 k=1.5` | `b575cd09…` → `4b170e77…` | 8 / 480 (1.7%) | 0.007321 |
+//! | `z=8` | `1fa3a00d…` → `823f68a8…` | 8 / 480 (1.7%) | 0.007262 |
+//! | cliff (`detail_amp` 9.0) | `89d0a40e…` → `723a6826…` | 6 / 64 (9.4%) | 1.672824 |
+//!
+//! Three properties survived untouched and are still asserted: the shallow
+//! no-op, the six-octave ceiling, and *"nothing below sea level is touched"*
+//! (the hard `if base < sea { continue }` is **not** what Ruling O changed).
 
 use cartalith_spatial::pyramid::pyramid_tile_bounds;
 use cartalith_terrain::amplify::{add_zoom_detail, refine_tile, AmplifyOpts};
@@ -67,7 +99,7 @@ const CH: usize = 32;
 const W: usize = 24;
 const H: usize = 20;
 /// The base tile every case starts from, before any zoom detail.
-const BASE_HASH: &str = "0edba777203501a2";
+const BASE_HASH: &str = "f49e0bb876f2881c";
 
 fn base_opts() -> AmplifyOpts {
     AmplifyOpts { seed: 4242, sea: 0.42, detail_amp: 0.12, detail_freq: 1.0, ..Default::default() }
@@ -106,13 +138,13 @@ fn add_zoom_detail_matches_the_reference() {
         (2, 2, 1.0, BASE_HASH),
         (1, 2, 1.0, BASE_HASH),
         // One extra octave.
-        (3, 2, 1.0, "17c5aa06fabad73c"),
+        (3, 2, 1.0, "9f47347602c15da7"),
         // Three.
-        (5, 2, 1.0, "293fa4f8907e308d"),
+        (5, 2, 1.0, "5744a2da43e11928"),
         // Four, at 1.5x the user's zoom-detail amount.
-        (6, 2, 1.5, "b575cd09c884d5c7"),
+        (6, 2, 1.5, "4b170e7769009b3c"),
         // Six -- the `Math.min(6, z - zBase)` ceiling, reached at z = 8.
-        (8, 2, 1.0, "1fa3a00da5f27909"),
+        (8, 2, 1.0, "823f68a8281abea3"),
     ];
     let f = synthetic_field(CW, CH, 5);
     for &(z, z_base, zk, want) in cases {
@@ -156,7 +188,7 @@ fn the_octave_ceiling_really_binds() {
 }
 
 #[test]
-fn the_write_back_is_unclamped_exactly_as_the_reference_is() {
+fn the_write_back_is_unclamped_upward_and_stops_at_half_the_sea_headroom_downward() {
     // Added after mutation testing: inserting a `[0,1]` clamp on the write-back
     // survived every other case in this file, because none of them pushes a
     // value out of range. So the claim was checked against the reference
@@ -164,6 +196,19 @@ fn the_write_back_is_unclamped_exactly_as_the_reference_is() {
     // amplitude, run through the real `addZoomDetail`, comes back spanning
     // [-0.963, 2.825]. `amplifyRegion` clamps; this pass does not, and a port
     // that "tidied" that would silently flatten every peak a deep bake touches.
+    //
+    // RULING O SPLIT THIS IN TWO, and the split is exactly the ruling's shape:
+    //
+    // * **Upward it is still unclamped**, and the max below is still the
+    //   reference's own 2.825417 -- a `[0,1]` clamp would still be caught.
+    // * **Downward it now stops at half the sea-level headroom.** The
+    //   reference's -0.963324 was this pass dragging a 0.999 cell 1.96 of
+    //   normalised height *through* sea level; the guard caps that excursion
+    //   at `(0.999 - 0.42) / 2`, so the floor is a number this test can
+    //   compute from the fixture without asking the code what it did.
+    //
+    // 6 of 64 pixels moved and the hash went `89d0a40e18e0f704` ->
+    // `723a6826d627b855`.
     let cw = 16usize;
     let ch = 16usize;
     let mut hi = vec![0.0f32; cw * ch];
@@ -185,9 +230,18 @@ fn the_write_back_is_unclamped_exactly_as_the_reference_is() {
         ridged: false,
     };
     add_zoom_detail(&mut data, w, h, &hi, cw, ch, &b, 8, &opts);
-    assert_eq!(fnv_f32(&data), "89d0a40e18e0f704");
+    assert_eq!(fnv_f32(&data), "723a6826d627b855");
+    // Unchanged by Ruling O: the reference's own maximum, still out of `[0,1]`.
     assert_eq!(data.iter().copied().fold(f32::NEG_INFINITY, f32::max), 2.825_417_041_778_564_5);
-    assert_eq!(data.iter().copied().fold(f32::INFINITY, f32::min), -0.963_324_189_186_096_2);
+    // The floor, computed from the fixture rather than read off the run -- so
+    // this asserts the *mechanism* (half the remaining sea-level headroom),
+    // not whatever the code happened to produce. Was -0.963_324_189_186_096_2
+    // before Ruling O, i.e. 1.96 of normalised height below where it started
+    // and a long way through the shelf.
+    let base = 0.999f32 as f64;
+    let deepest = (base - (base - 0.42) * 0.5) as f32;
+    assert_eq!(deepest, 0.709_500_014_781_951_9);
+    assert_eq!(data.iter().copied().fold(f32::INFINITY, f32::min), deepest);
 }
 
 #[test]

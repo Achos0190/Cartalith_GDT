@@ -52,6 +52,43 @@
 //! `outW == 1` run is **entirely NaN** (a real reference division by zero, see
 //! below); and the four `refineTile` tiles agree on their shared edge with
 //! delta exactly 0. All are re-asserted here against the port.
+//!
+//! # RE-BASELINED 2026-09-21 — Ruling O, the v2.69 sea-level clamp
+//!
+//! **Seven of the hashes below are no longer the frozen v2.11 reference's.**
+//! `LARGE_ITEM_RULINGS.md`'s Ruling O (owner, 2026-09-21) authorised
+//! `amplify_region` to cap its detail excursion *toward sea level* at half the
+//! remaining headroom — `RC_ENGINE_CHANGES.md` §8.1's v2.69 mechanism, ported
+//! into `cartalith_terrain::amplify::clamp_toward_sea`, where the reasoning
+//! lives. The reference's own one-sided `underwater` fade let a land pixel a
+//! hair above the shelf take the full `±detailAmp/2` band and be pushed under,
+//! and the land/sea boundary is what settlement placement, the water mask, the
+//! flooded-cell test and the road network are all built against.
+//!
+//! **This is a disclosed deviation from the frozen reference, not a parity
+//! failure**, so the values were *re-derived from the new code* rather than a
+//! tolerance being widened — there is no JS oracle for v2.69's behaviour,
+//! because the reference frozen here is v2.11.
+//!
+//! What moved, measured by dumping both fields and differencing them
+//! pixel-for-pixel (old hash → new hash, pixels changed / total, worst
+//! absolute delta):
+//!
+//! | case | old → new | moved | worst Δ |
+//! |---|---|---|---|
+//! | `case0` | `2fbdd6aa…` → `749b45a1…` | 12 / 768 (1.6%) | 0.014397 |
+//! | `case1` ridged | `a650e09b…` → `beab82dc…` | 14 / 768 (1.8%) | 0.032531 |
+//! | `case2` | `67d797b7…` → `366f3f4f…` | 5 / 384 (1.3%) | 0.003182 |
+//! | `case3` | `e4907cf4…` → `2b89b6f6…` | 5 / 1200 (0.4%) | 0.016617 |
+//! | `refine r0c0` | `8c568b9c…` → `1b62e0e9…` | 1 / 192 (0.5%) | 0.017802 |
+//! | `refine r0c1` | `7c2fde84…` → `42cb400a…` | 5 / 192 (2.6%) | 0.015051 |
+//! | `refine r1c0` | `377c45b3…` → `6c49effc…` | 5 / 192 (2.6%) | 0.009137 |
+//!
+//! **Five cases did not move a byte and their hashes are still the
+//! reference's**: `case4`, `case5` (NaN), `case6`, `case7` and `refine r1c1` —
+//! which is the guard's third property holding in practice (*"bit-identical
+//! wherever the detail is under half the headroom"*), not five tests that
+//! stopped looking. `case6` in particular runs every option at its default.
 
 use cartalith_spatial::{FloatRegion, Region};
 use cartalith_terrain::amplify::{amplify_region, refine_tile, AmplifyOpts};
@@ -103,7 +140,8 @@ fn case0_default_fbm_detail() {
     let o = amplify_region(&src, GW, GH, &Region { x: 4, y: 6, w: 20, h: 14 }.to_float(), 32, 24,
                            &AmplifyOpts { seed: 1234, sea: 0.42, ridged: false, ..Default::default() });
     assert_eq!(o.len(), 32 * 24);
-    assert_eq!(fnv_f32(&o), "2fbdd6aaa9a36b0d");
+    // Ruling O (v2.69 sea-level clamp): re-derived, was "2fbdd6aaa9a36b0d".
+    assert_eq!(fnv_f32(&o), "749b45a1b0b1ab0c");
     // shape: non-constant and inside the unit range, re-asserted from the harness
     assert!(o.iter().any(|v| *v != o[0]));
     assert!(o.iter().all(|v| (0.0..=1.0).contains(v)));
@@ -115,7 +153,8 @@ fn case1_the_same_region_with_ridged_detail_differs() {
     let reg = Region { x: 4, y: 6, w: 20, h: 14 }.to_float();
     let o = amplify_region(&src, GW, GH, &reg, 32, 24,
                            &AmplifyOpts { seed: 1234, sea: 0.42, ridged: true, ..Default::default() });
-    assert_eq!(fnv_f32(&o), "a650e09b0454984b");
+    // Ruling O (v2.69 sea-level clamp): re-derived, was "a650e09b0454984b".
+    assert_eq!(fnv_f32(&o), "beab82dca011c082");
     // A cross-check the harness could not have faked with one copy-pasted
     // value: the two noise families must not produce the same field.
     let fbm = amplify_region(&src, GW, GH, &reg, 32, 24,
@@ -132,7 +171,8 @@ fn case2_the_whole_field_downsampled_with_a_raised_frequency_and_amplitude() {
                            // reference's single shared `opts` bag, reproduced.
                            &AmplifyOpts { seed: 99, sea: 0.5, ridged: false, detail_freq: 2.5, detail_amp: 0.3,
                                           ..AmplifyOpts::default() });
-    assert_eq!(fnv_f32(&o), "67d797b79ee67574");
+    // Ruling O (v2.69 sea-level clamp): re-derived, was "67d797b79ee67574".
+    assert_eq!(fnv_f32(&o), "366f3f4f2e388349");
 }
 
 #[test]
@@ -142,7 +182,8 @@ fn case3_a_region_hard_against_the_far_edge_exercises_the_clamped_sampler() {
     // the relief gradient reads the sampler's clamp, not an interior cell.
     let o = amplify_region(&src, GW, GH, &Region { x: 30, y: 18, w: 18, h: 14 }.to_float(), 40, 30,
                            &AmplifyOpts { seed: 7, sea: 0.42, ridged: false, ..Default::default() });
-    assert_eq!(fnv_f32(&o), "e4907cf4893eca3c");
+    // Ruling O (v2.69 sea-level clamp): re-derived, was "e4907cf4893eca3c".
+    assert_eq!(fnv_f32(&o), "2b89b6f60add208a");
 }
 
 #[test]
@@ -197,10 +238,10 @@ fn refine_tile_matches_the_reference_tile_for_tile() {
     let o = AmplifyOpts { seed: 4242, sea: 0.42, ridged: false, ..Default::default() };
     let (tw, th) = (16usize, 12usize);
     let want = [
-        (0usize, 0usize, "8c568b9c80eb8e88"),
-        (0, 1, "7c2fde84ded39f33"),
-        (1, 0, "377c45b3a30f53b7"),
-        (1, 1, "64b1c71fbf26a8e4"),
+        (0usize, 0usize, "1b62e0e98c8a555b"), // Ruling O: was "8c568b9c80eb8e88"
+        (0, 1, "42cb400a7810d86e"), // Ruling O: was "7c2fde84ded39f33"
+        (1, 0, "6c49effc48ca3a72"), // Ruling O: was "377c45b3a30f53b7"
+        (1, 1, "64b1c71fbf26a8e4"), // unmoved by Ruling O -- still the reference's own
     ];
     for (row, col, hash) in want {
         let t = refine_tile(&src, GW, GH, &reg, 2, 2, col, row, tw, th, &o);
