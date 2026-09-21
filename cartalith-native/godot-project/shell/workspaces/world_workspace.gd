@@ -796,13 +796,18 @@ func _build_generate_head(parent: Control) -> void:
 		## DS-03. Most of this column is two words -- "pending", "no world",
 		## "running...". Two rows are not: stages 9 and 10 append
 		## `_paint_stage_rows()`'s gap note, and the finished string is
-		## "done  3.83s  (no engine work this run -- see gap note above)". A
+		## "done  3.83s  (no dials of its own -- see gap note above)" (2026-09-21:
+		## reworded from "(no engine work this run -- see gap note above)",
+		## which read as "this stage was skipped" to a PC-screenshot review --
+		## it was not; see `cartalith-engine/src/progress.rs`'s doc comment.
+		## Four characters SHORTER than the string the 545 px figure below was
+		## measured against, so that figure still bounds this one). A
 		## `Label`'s minimum width is its whole text unless it wraps, measured
-		## 545 px here, and this one is `SIZE_EXPAND_FILL` in a row that
-		## already spends 18 + 9 + `ROW_LABEL_W - 33` px on its three fixed
-		## siblings -- so with a world generated the left dock was forced from
-		## 400 px to **783** on tablet, taking that width off the map. It only
-		## appears after a generate, which is why the boot-state sweep in
+		## 545 px for the old string, and this one is `SIZE_EXPAND_FILL` in a
+		## row that already spends 18 + 9 + `ROW_LABEL_W - 33` px on its three
+		## fixed siblings -- so with a world generated the left dock was forced
+		## from 400 px to **783** on tablet, taking that width off the map. It
+		## only appears after a generate, which is why the boot-state sweep in
 		## `_ds03fit_probe.gd` misses it and the world sweep does not.
 		state_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		row.add_child(state_label)
@@ -2246,7 +2251,7 @@ func _paint_stage_rows() -> void:
 		elif i < _stage_elapsed_ms.size() and _stage_elapsed_ms[i] >= 0:
 			## Real timing exists for this stage (`progress_api` true on this
 			## build) -- show it rather than a generic "resolved".
-			var gap_note := "  (no engine work this run -- see gap note above)" \
+			var gap_note := "  (no dials of its own -- see gap note above)" \
 				if i == 8 or i == 9 else ""
 			lbl.text = "%s done  %.2fs%s" % [
 				DccIcons.SYMBOLS["tick"], _stage_elapsed_ms[i] / 1000.0, gap_note]
