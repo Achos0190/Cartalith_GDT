@@ -279,6 +279,7 @@ var _lm_crowd_slider: HSlider  ## §5's fit chip writes the dial through this.
 var _lm_run_btn: Button
 var _lm_run_note: Label
 var _lm_stale_note: Label
+var _lm_stale_timer: Timer    ## `_stale_timer`'s own 1 s poll pattern, this panel's subject.
 ## §5's funnel, built lazily on the first click and reused: one popover, refilled
 ## per type, rather than 49 that mostly never open.
 var _lm_funnel: PopupPanel
@@ -4734,6 +4735,15 @@ func _lm_last_run(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Last run")
 	_lm_stale_note = DccWidgets.note(sec, "")
 	_lm_refresh_stale()
+	## `_stale_timer`'s own pattern (§ Recompute, above): an icon commits in
+	## Cartography, a different workspace, so this note needs its own poll
+	## rather than depending on this panel being rebuilt to notice.
+	_lm_stale_timer = Timer.new()
+	_lm_stale_timer.name = "LandmarkStalenessPoll"
+	_lm_stale_timer.wait_time = 1.0
+	_lm_stale_timer.timeout.connect(_lm_refresh_stale)
+	sec.add_child(_lm_stale_timer)
+	_lm_stale_timer.start()
 	_lm_run_btn = DccWidgets.action(sec, "Run landmark pass", _lm_run, true)
 	_lm_run_btn.tooltip_text = ("Generates candidates for every armed type, scores "
 		+ "them, and spaces them under the exclusion radii above. Seconds, not "
@@ -5394,29 +5404,44 @@ func _lm_apply_filter() -> void:
 		(r["line"] as Control).modulate.a = a
 		(r["under"] as Control).modulate.a = a
 
-## §9.1 row 17. `stale_stages()` has no `landmarks` key -- it is a graph over
-## the ten generation stages plus `civ` -- so this note reports the layer the
-## pass reads *from* and says outright that it cannot report the pass itself.
-## Inferring "landmarks stale" from "civ stale" would be this file inventing a
-## fact the engine did not state.
+## §9.1 row 17, now closed: `stale_stages()` gained a `landmarks` key (engine
+## side, `cartalith-godot/src/lib.rs::stale_stages`) for
+## `OUTSTANDING_WORK.md`'s *"Nothing tells the user a landmark result predates
+## their icons"* row. Same badge-above-the-button vocabulary as
+## `_refresh_staleness`/`_recompute_badge` (§ Recompute, above): plain prose,
+## no new chrome.
+##
+## Three states, checked in the order that matters most to the pass about to
+## run: no world; `civ` stale (a run now would place against settlements and
+## roads that have not caught up -- worth fixing first); a hand-placed icon
+## committed since the last landmark pass (may sit where a landmark would now
+## be sited, or block one that already is); else up to date. The two stale
+## conditions are independent and both read from `stale_stages()` -- neither
+## is inferred from the other, the same discipline this function's previous
+## revision could not yet apply to the second one.
 func _lm_refresh_stale() -> void:
 	if _lm_stale_note == null or not is_instance_valid(_lm_stale_note):
 		return
 	if bridge == null or not bridge.has_world:
 		_lm_stale_note.text = "No world yet -- generate one before running a landmark pass."
 		return
-	var civ: Dictionary = bridge.stale_stages().get("civ", {})
-	if civ.is_empty():
-		_lm_stale_note.text = ("The civ layer this pass reads is up to date. The "
-			+ "engine's stage graph carries no landmarks entry, so nothing can say "
-			+ "whether the last landmark run itself is still current.")
+	var stages: Dictionary = bridge.stale_stages()
+	var civ: Dictionary = stages.get("civ", {})
+	if not civ.is_empty():
+		var why := String(civ.get("reason", ""))
+		if why.is_empty():
+			why = String(civ.get("origin", "an edit"))
+		_lm_stale_note.text = ("The civ layer under this pass is stale (%s), so a run " % why
+			+ "now would place against settlements and roads that have not caught up. "
+			+ "Recompute civilisation first.")
 		return
-	var why := String(civ.get("reason", ""))
-	if why.is_empty():
-		why = String(civ.get("origin", "an edit"))
-	_lm_stale_note.text = ("The civ layer under this pass is stale (%s), so a run " % why
-		+ "now would place against settlements and roads that have not caught up. "
-		+ "Recompute civilisation first.")
+	var lm: Dictionary = stages.get("landmarks", {})
+	if not lm.is_empty():
+		_lm_stale_note.text = ("Stale -- an icon has been placed since the last run. A "
+			+ "landmark may now sit under it, or the icon may now block one that "
+			+ "would otherwise place. Run landmark pass to catch it up.")
+		return
+	_lm_stale_note.text = "Up to date -- nothing has changed under it since the last run."
 
 # -- landmark bridge access ---------------------------------------------------
 #

@@ -125,6 +125,14 @@ impl WorldGen {
         let Some(rule) = icon_brush_rule(icons.armed.as_ref().map(|a| &a.icon), &table) else {
             return 0;
         };
-        icons.brush_stamp(&rule, field, gw, gh, sea, gx, gy) as i64
+        let placed = icons.brush_stamp(&rule, field, gw, gh, sea, gx, gy) as i64;
+        // Only a stamp that actually added an icon is a committed placement --
+        // most drag samples land inside the blue-noise spacing of an icon
+        // already there and add nothing, and those must not mark the
+        // landmark result stale. See `landmark_store.icon_placed_since_run`.
+        if placed > 0 {
+            self.landmark_store.mark_icon_committed();
+        }
+        placed
     }
 }

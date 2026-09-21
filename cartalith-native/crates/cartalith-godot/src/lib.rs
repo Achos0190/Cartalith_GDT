@@ -5301,7 +5301,8 @@ impl WorldGen {
     /// Returns one entry per **stale** stage — an empty `Dictionary` is the
     /// healthy state, not an error — keyed by
     /// `cartalith_engine::staleness::PipelineStage::name` (`"height"`,
-    /// `"hydrology"`, `"climate"`, `"civ"`), each holding:
+    /// `"hydrology"`, `"climate"`, `"civ"`), plus one key the tile graph does
+    /// not own at all (`"landmarks"`, below), each holding:
     ///
     /// - `origin` (String) — the *most upstream* stage whose change has not
     ///   been consumed, **across every stale tile**, which is the one worth
@@ -5313,8 +5314,8 @@ impl WorldGen {
     ///   `"reset_params"`. Empty only if a mark was recorded without one.
     /// - `tiles` (int) — how many of the graph's tiles are stale, so an
     ///   indicator can tell one brush stroke from a whole-map invalidation.
-    ///   **`0` means not tile-scoped**, which today is only the `civ` entry
-    ///   below.
+    ///   **`0` means not tile-scoped**, which today is the `civ` and
+    ///   `landmarks` entries.
     ///
     /// The `civ` entry has one extra source the graph cannot represent: a
     /// hand-dropped, hand-edited or deleted settlement (`self.civ_dirty` — see
@@ -5323,6 +5324,18 @@ impl WorldGen {
     /// when the graph is not already reporting `civ` stale for a bigger
     /// reason. Without it the indicator would read "up to date" immediately
     /// after the edit that `ED-03d`'s Recompute button exists for.
+    ///
+    /// `"landmarks"` is the same shape of extra source, for
+    /// `OUTSTANDING_WORK.md`'s *"Nothing tells the user a landmark result
+    /// predates their icons"* row: `self.landmark_store.icon_placed_since_run`
+    /// (see that field's own doc comment) reported as `origin: "icons"`,
+    /// `reason: "icon_placed"`, `tiles: 0`, and only when a standing landmark
+    /// result (`landmark_store.last`) actually exists to be stale relative
+    /// to. Deliberately not a `PipelineStage`: the landmark pass is not part
+    /// of the tile-graph pipeline and an icon edit must not invalidate
+    /// `landmark_store.last` itself (that method's own doc comment says why)
+    /// — this key only ever says the standing result *may* be out of date,
+    /// never clears it.
     #[func]
     fn stale_stages(&self) -> VarDictionary {
         let entry = |origin: &str, reason: &str, tiles: i64| -> VarDictionary {
@@ -5359,6 +5372,15 @@ impl WorldGen {
         }
         if self.civ_dirty && !civ_reported {
             out.set(PipelineStage::Civ.name(), &entry("settlements", "place_edited", 0));
+        }
+        // `"landmarks"` is not a `PipelineStage` and carries no tiles -- same
+        // shape as the `civ_dirty` case just above, for the same reason: a
+        // flag the tile graph cannot represent. See
+        // `landmark_store.icon_placed_since_run`'s own doc comment.
+        // `last.is_some()` guards it: with no standing run there is nothing
+        // for an icon to have gone stale relative to.
+        if self.landmark_store.last.is_some() && self.landmark_store.icon_placed_since_run {
+            out.set("landmarks", &entry("icons", "icon_placed", 0));
         }
         out
     }
@@ -9098,7 +9120,14 @@ impl WorldGen {
     fn icon_place(&mut self, gx: f64, gy: f64) -> i64 {
         let (gw, gh) = (self.gw as usize, self.gh as usize);
         let Some(icons) = self.icons.as_mut() else { return -1 };
-        icons.place(gx, gy, gw, gh).map_or(-1, |i| i as i64)
+        let idx = icons.place(gx, gy, gw, gh).map_or(-1, |i| i as i64);
+        // A committed placement, not a mid-drag sample -- see
+        // `landmark_store.icon_placed_since_run`'s own doc comment for why
+        // this does not call `landmark_store.invalidate()`.
+        if idx >= 0 {
+            self.landmark_store.mark_icon_committed();
+        }
+        idx
     }
 
     /// The placed icon a single-selection operation acts on -- the selection
