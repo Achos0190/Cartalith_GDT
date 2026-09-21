@@ -41,7 +41,10 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**96 outstanding items** — 2026-09-21, after three more owner rulings (X, Y, Z): Ruling X closes the
+**95 outstanding items** — 2026-09-21, after SP-1 (the Journey entity, `STORY_PLANNING_SCOPE.md`'s
+keystone milestone) landed and was independently verified (commit `750fe79`; 163/3476/0/33 reproduced).
+The vector river overlay agent is still running. Net: 96 − 1 = 95.
+96 outstanding items — 2026-09-21, after three more owner rulings (X, Y, Z): Ruling X closes the
 Ruling-29-scope ambiguity outright (the export-menu tiles row stays, no build owed) — net −1. Ruling Y
 (build GPU device reuse, with explicit device-loss handling) and Ruling Z (shrink the phone MAP tab's
 half-open detent to fit its real content) are ruled and queued for the next batch, not yet built — no
@@ -1520,7 +1523,7 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
 | Project archive remainder — project-layer panels, the `library/` and `drafts/` slots, a `preview.png` producer, foreign-entry preservation | `STATUS.md`, `SAVEFILE_COMPAT.md` §17 | medium | Nothing draws any of it; `preview.png` has a writer and no producer; foreign entries are reported rather than preserved |
-| Story planning **SP-1** — the `Journey` entity proper | `STORY_PLANNING_SCOPE.md` | medium | Half met, and the half that landed was built outside this document's plan: journeys persist as GDScript-owned state (`journey_planner_view.gd:3125` → `entities/journeys.json`). Not met: no `Journey` type in `cartalith-civ`, and the doc's own acceptance test still fails — `travel_bridge.rs:252` returns a hardcoded `0` |
+| ~~**Story planning SP-1** — the `Journey` entity proper~~ — **CLOSED 2026-09-21 (verified)** | `STORY_PLANNING_SCOPE.md` | medium | Commit `750fe79`. `cartalith_civ::travel_library::{Journey, JourneyRoute}`: id, name, `PartyPreset` reference, a route **geometry snapshot** (not an index — routes have no stable id, confirmed by measurement), `start_year` from the existing `civ.year` cursor. Persistence moved to `ENGINE_OWNED_SLOTS` (`entities/journeys.json`, matching `SAVEFILE_COMPAT.md` §9.6's shape, specified 2026-08-31 before anything conformed to it). Travel Library's hardcoded `0` is now a real `preset_usage_in_journeys()` count. GDScript bridged, not fully migrated, disclosed rather than silent: the Journey Planner's own richer session state (stage overrides, layovers, animal entries) stays local and doesn't round-trip through the archive — not part of SP-1's contract, and it never meaningfully survived a regenerate before either. Backward compatibility proven: a pre-SP-1 archive's old journeys shape is skipped, not fatal. **Independently re-verified**: `cargo test --workspace --no-fail-fast` reproduced 163/3476/0/33 exactly; confirmed the types and all three load-bearing tests (round-trip, backward-compat skip, usage positive/control) at their cited symbols; parse-checked all four touched `.gd` files myself; confirmed via `git status` this batch touched none of the concurrent river-overlay lane's files. `project.godot` and the live settings file confirmed unchanged. |
 
 ### 2.5 Rendering, terrain appearance and export-adjacent
 
