@@ -1187,15 +1187,18 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         gpu_flow.as_ref().and_then(|c| cartalith_gpu::dispatch_gpu_flow(c, gw, gh, field, rain, use_rain, world)).map(|r| r.acc)
     };
 
-    // World-wrap isn't supported by the GPU warp kernel yet (milestone 2's
-    // own deferral) -- `use_gpu` under `world=true` falls back to CPU for
-    // warp specifically, same as any other GPU-unavailable case.
-    let warp = if p.use_gpu && !world {
+    // World-wrap support for warp's GPU kernel (`OUTSTANDING_WORK.md` §2.9,
+    // closing GPU_LAYER_INTEGRATION_SCOPE.md milestone 2's own deferral):
+    // both branches now dispatch to GPU, with `world` threaded through as
+    // the periodic-noise flag rather than forcing CPU whenever it's set.
+    let warp = if p.use_gpu {
         let amp = (p.tect.warp * 0.18 * gw as f64) as f32;
         if amp < 0.5 {
             None
         } else {
-            let wf = (2.5 / gw as f64) as f32; // non-world branch only, matching compute_warp's own `wf`
+            // Matches `compute_warp`'s own `wf`: `3.0/gw` under world-wrap,
+            // `2.5/gw` otherwise.
+            let wf = (if world { 3.0 } else { 2.5 } / gw as f64) as f32;
             // PR-02 `split tiles`: warp is the one stage in this pipeline
             // whose kernel reads nothing outside its own cell, so its row
             // bands can genuinely run on different devices at once (see
@@ -1211,9 +1214,9 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             let split = gpu_set.as_ref().is_some_and(cartalith_gpu::GpuDeviceSet::is_split);
             match gpu_set.as_ref().and_then(|set| {
                 if split {
-                    cartalith_gpu::warp_grid_gpu_split(set, gw as u32, gh as u32, p.tect.seed, wf, amp)
+                    cartalith_gpu::warp_grid_gpu_split(set, gw as u32, gh as u32, p.tect.seed, wf, amp, world)
                 } else {
-                    cartalith_gpu::warp_grid_gpu_with(set.primary(), gw as u32, gh as u32, p.tect.seed, wf, amp)
+                    cartalith_gpu::warp_grid_gpu_with(set.primary(), gw as u32, gh as u32, p.tect.seed, wf, amp, world)
                 }
             }) {
                 Some(wxy) => {
@@ -1306,9 +1309,15 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
 
     let age_field = build_age_field(gw, gh, &stress.boundary_mask);
 
-    let heterogeneity_field = if p.use_gpu && !world {
+    let heterogeneity_field = if p.use_gpu {
         let hetero_seed = p.tect.seed ^ 0x44bb; // matches compute_heterogeneity's own seed derivation
-        let hf = (1.5 * cartalith_terrain::terrain_detail_k(gw, p.map_width_km)) as f32;
+        let hf_f64 = 1.5 * cartalith_terrain::terrain_detail_k(gw, p.map_width_km);
+        let hf = hf_f64 as f32;
+        // `compute_heterogeneity`'s own `oct = round(hf).max(2)`, passed as
+        // `pfbm`'s period argument under world-wrap -- computed from the
+        // f64 `hf` (not the already-f32-narrowed one above) to match that
+        // function's own rounding point.
+        let p_x = (js_round(hf_f64).max(2.0)) as i32;
         let wx = warp_x.unwrap_or(&[]);
         let wy = warp_y.unwrap_or(&[]);
         let zero_wx;
@@ -1321,7 +1330,18 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             (zero_wx.as_slice(), zero_wy.as_slice())
         };
         match gpu_device.and_then(|gpu| {
-            cartalith_gpu::heterogeneity_grid_gpu_with(gpu, gw as u32, gh as u32, hetero_seed, hf / gw as f32, &age_field, wx, wy)
+            cartalith_gpu::heterogeneity_grid_gpu_with(
+                gpu,
+                gw as u32,
+                gh as u32,
+                hetero_seed,
+                hf / gw as f32,
+                world,
+                p_x,
+                &age_field,
+                wx,
+                wy,
+            )
         }) {
             Some(mut out) => {
                 gpu_stages_used.push("heterogeneity".to_string());
@@ -2641,6 +2661,66 @@ mod tests {
         for s in &a.gpu_stages_used {
             assert!(known.contains(&s.as_str()), "unexpected gpu_stages_used entry: {s}");
         }
+    }
+
+    /// `OUTSTANDING_WORK.md` §2.9 "World-wrap support for the milestone 1-5
+    /// kernels": the positive-reachability check -- `world=true` with
+    /// `use_gpu=true` must actually DISPATCH warp and heterogeneity on GPU,
+    /// not silently fall back to CPU the way both stages did before this
+    /// change (`p.use_gpu && !world`, in this function's own prior
+    /// history). Same instrumentation every other GPU stage in this file
+    /// is proven by: `gpu_stages_used`. Environment-tolerant like its
+    /// sibling above -- on a machine with no usable GPU, both fall back and
+    /// the positive assertions are skipped (still checked structurally,
+    /// see [`generate_terrain_gpu_and_cpu_paths_share_worldstate_shape`]
+    /// for the CPU-path contract).
+    #[test]
+    fn generate_terrain_world_wrap_reaches_gpu_warp_and_heterogeneity() {
+        let mut p = WorldParams::defaults(24, 18, 777);
+        p.use_gpu = true;
+        p.world = true;
+        let ws = generate_terrain(&p);
+
+        assert!(ws.field.iter().all(|&v| v.is_finite()), "no NaN/Inf in a world=true GPU-path height field");
+        assert!(!ws.field.is_empty(), "a generation that produces nothing measures nothing");
+
+        if cartalith_gpu::last_backend().is_none() {
+            eprintln!("no GPU opened on this run (CPU fallback) -- world-wrap GPU reachability has nothing to prove here");
+            return;
+        }
+        assert!(
+            ws.gpu_stages_used.iter().any(|s| s == "warp" || s == "warp_split"),
+            "world=true, use_gpu=true, real GPU opened -- warp must have dispatched on GPU, not fallen back to CPU. gpu_stages_used = {:?}",
+            ws.gpu_stages_used
+        );
+        assert!(
+            ws.gpu_stages_used.iter().any(|s| s == "heterogeneity"),
+            "world=true, use_gpu=true, real GPU opened -- heterogeneity must have dispatched on GPU, not fallen back to CPU. gpu_stages_used = {:?}",
+            ws.gpu_stages_used
+        );
+    }
+
+    /// The same reachability check, but proving `use_gpu=true` under
+    /// `world=true` produces a genuinely different -- and still valid --
+    /// field from `world=false`, the way any other world-wrap toggle does
+    /// (`compute_warp`'s own `wf`/noise-function branch on `world`).
+    #[test]
+    fn generate_terrain_world_wrap_gpu_output_differs_from_non_world() {
+        let mut p_world = WorldParams::defaults(24, 18, 777);
+        p_world.use_gpu = true;
+        p_world.world = true;
+        let mut p_flat = WorldParams::defaults(24, 18, 777);
+        p_flat.use_gpu = true;
+        p_flat.world = false;
+
+        let a = generate_terrain(&p_world);
+        let b = generate_terrain(&p_flat);
+
+        assert_eq!(a.field.len(), b.field.len());
+        assert!(a.field.iter().all(|&v| v.is_finite()));
+        assert!(b.field.iter().all(|&v| v.is_finite()));
+        let differs = a.field.iter().zip(b.field.iter()).any(|(x, y)| (x - y).abs() > 1e-6);
+        assert!(differs, "world=true must produce a genuinely different field from world=false under use_gpu=true");
     }
 
     /// Ruling Y (`LARGE_ITEM_RULINGS.md`, 2026-09-21): the actual entry

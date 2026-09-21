@@ -236,7 +236,7 @@ fn an_opened_device_can_bind_a_full_grid_at_every_shipped_resolution() {
         assert!(set.supports_grid(size, size), "the set's own check must agree with the per-device one");
     }
     // The dispatch that used to panic, run for real.
-    let (wx, _wy) = warp_grid_gpu_with(set.primary(), 8192, 8192, 4242, 2.5 / 8192.0, 0.18 * 8192.0)
+    let (wx, _wy) = warp_grid_gpu_with(set.primary(), 8192, 8192, 4242, 2.5 / 8192.0, 0.18 * 8192.0, false)
         .expect("the 8192² warp must complete on the primary device");
     assert_eq!(wx.len(), 8192 * 8192, "the 8192² warp must return the whole grid");
 }
@@ -257,7 +257,7 @@ fn device_usage_reports_this_apps_own_allocations() {
     // A 1024x1024 warp dispatch allocates two 4 MB storage buffers and two
     // 4 MB staging buffers; the reading is taken while nothing else is live,
     // so any movement at all is this dispatch's.
-    let _ = warp_grid_gpu_with(set.primary(), 1024, 1024, 4242, 0.01, 3.0);
+    let _ = warp_grid_gpu_with(set.primary(), 1024, 1024, 4242, 0.01, 3.0, false);
     let after = cartalith_gpu::device_usage(set.primary()).expect("report stayed available");
     println!(
         "device_usage: {} -> {} bytes allocated ({} reserved)",
@@ -289,7 +289,7 @@ fn a_split_across_bands_on_one_device_is_bit_identical_to_the_whole_grid() {
 
     let prefs = GpuPreferences { selected_keys: vec![devs[0].key.clone()], ..Default::default() };
     let set = init_gpu_device_set_with(&prefs).expect("device");
-    let (whole_x, whole_y) = warp_grid_gpu_with(set.primary(), W, H, SEED, 0.011, 7.5).expect("whole-grid warp");
+    let (whole_x, whole_y) = warp_grid_gpu_with(set.primary(), W, H, SEED, 0.011, 7.5, false).expect("whole-grid warp");
 
     // Rebuild the whole grid from bands, using the same partition arithmetic
     // `warp_grid_gpu_split` uses, but all on one device.
@@ -300,7 +300,7 @@ fn a_split_across_bands_on_one_device_is_bit_identical_to_the_whole_grid() {
             continue;
         }
         let (bx, by) =
-            cartalith_gpu::warp_band_gpu_with(set.primary(), W, H, y0, rows, SEED, 0.011, 7.5).expect("band warp");
+            cartalith_gpu::warp_band_gpu_with(set.primary(), W, H, y0, rows, SEED, 0.011, 7.5, false).expect("band warp");
         band_x.extend_from_slice(&bx);
         band_y.extend_from_slice(&by);
     }
@@ -335,9 +335,9 @@ fn split_tiles_across_two_real_devices_measured() {
         let single = init_gpu_device_set_with(&single_prefs).expect("primary device");
         // Warm-up: the first dispatch on a fresh device pays shader
         // compilation, which is not what this measures.
-        let _ = warp_grid_gpu_with(single.primary(), 64, 64, SEED, wf, amp);
+        let _ = warp_grid_gpu_with(single.primary(), 64, 64, SEED, wf, amp, false);
         let (single_t, single_out) =
-            timed(rounds, || warp_grid_gpu_with(single.primary(), w, h, SEED, wf, amp).expect("single-device warp"));
+            timed(rounds, || warp_grid_gpu_with(single.primary(), w, h, SEED, wf, amp, false).expect("single-device warp"));
         let (sx, _sy) = single_out;
         drop(single);
 
@@ -345,9 +345,9 @@ fn split_tiles_across_two_real_devices_measured() {
             GpuPreferences { selected_keys: keys.clone(), mode: MultiGpuMode::SplitTiles, ..Default::default() };
         let split = init_gpu_device_set_with(&split_prefs).expect("split device set");
         assert!(split.is_split(), "two selected devices in split_tiles mode must actually split");
-        let _ = warp_grid_gpu_split(&split, 64, 64, SEED, wf, amp);
+        let _ = warp_grid_gpu_split(&split, 64, 64, SEED, wf, amp, false);
         let (split_t, split_out) =
-            timed(rounds, || warp_grid_gpu_split(&split, w, h, SEED, wf, amp).expect("split warp"));
+            timed(rounds, || warp_grid_gpu_split(&split, w, h, SEED, wf, amp, false).expect("split warp"));
         let (px, _py) = split_out;
 
         assert_eq!(px.len(), sx.len(), "split output must be the full grid");
@@ -395,8 +395,8 @@ fn per_device_warp_throughput_measured() {
         }
         for &(w, h) in &[(1024u32, 1024u32), (2048, 2048), (4096, 4096)] {
             let (wf, amp) = (2.5 / w as f32, 0.18 * w as f32);
-            let _ = warp_grid_gpu_with(set.primary(), 64, 64, 7, wf, amp); // warm-up: shader compile
-            let (t, out) = timed(rounds, || warp_grid_gpu_with(set.primary(), w, h, 7, wf, amp));
+            let _ = warp_grid_gpu_with(set.primary(), 64, 64, 7, wf, amp, false); // warm-up: shader compile
+            let (t, out) = timed(rounds, || warp_grid_gpu_with(set.primary(), w, h, 7, wf, amp, false));
             assert!(
                 out.is_some_and(|(x, _)| x.len() == (w * h) as usize),
                 "{w}x{h} warp on {} produced no full field -- nothing was timed",
@@ -465,7 +465,7 @@ fn the_integrated_gpu_at_8192_falls_back_instead_of_panicking() {
 
     let (wf, amp) = (2.5 / N as f32, 0.18 * N as f32);
     let t = Instant::now();
-    let out = warp_grid_gpu_with(set.primary(), N, N, 4242, wf, amp);
+    let out = warp_grid_gpu_with(set.primary(), N, N, 4242, wf, amp, false);
     let ms = t.elapsed().as_secs_f64() * 1e3;
 
     match out {
@@ -493,12 +493,12 @@ fn the_integrated_gpu_at_8192_falls_back_instead_of_panicking() {
                 cartalith_gpu::device_supports_grid(set.primary(), 512, 512),
                 "a smaller grid on the same device must still be allowed"
             );
-            let (sx, _sy) = warp_grid_gpu_with(set.primary(), 512, 512, 4242, 2.5 / 512.0, 0.18 * 512.0)
+            let (sx, _sy) = warp_grid_gpu_with(set.primary(), 512, 512, 4242, 2.5 / 512.0, 0.18 * 512.0, false)
                 .expect("512² must still complete on the device that failed at 8192²");
             assert_eq!(sx.len(), 512 * 512);
             // And the refusal is now immediate: no second doomed dispatch.
             let t = Instant::now();
-            assert!(warp_grid_gpu_with(set.primary(), N, N, 4242, wf, amp).is_none());
+            assert!(warp_grid_gpu_with(set.primary(), N, N, 4242, wf, amp, false).is_none());
             let again_ms = t.elapsed().as_secs_f64() * 1e3;
             println!("a second 8192² request was refused in {again_ms:.1} ms without dispatching");
             assert!(again_ms < ms, "the second attempt must be refused up front, not re-dispatched");

@@ -329,6 +329,54 @@ pub fn gpu_ridged(x: f32, y: f32, s: i32) -> f32 {
     sum / nrm
 }
 
+/// `GPU_LAYER_INTEGRATION_SCOPE.md`'s deferred world-wrap slice
+/// (`OUTSTANDING_WORK.md` §2.9 row "World-wrap support for the milestone
+/// 1-5 kernels"): [`gpu_vnoise`]'s periodic sibling, mirroring [`pvnoise`]'s
+/// own x-lattice wrap (Euclidean mod `p_x`) but over [`gpu_hash`] and
+/// all-`f32`, same reasoning as [`gpu_vnoise`] itself (tightest achievable
+/// CPU/GPU agreement, not JS bit-parity -- `DECISIONS.md` §7c already
+/// accepts the GPU-safe noise family differing from the JS-matching one).
+pub fn gpu_pvnoise(x: f32, y: f32, s: i32, p_x: i32) -> f32 {
+    let xi = x.floor();
+    let yi = y.floor();
+    let xf = x - xi;
+    let yf = y - yi;
+    let u = xf * xf * (3.0 - 2.0 * xf);
+    let v = yf * yf * (3.0 - 2.0 * yf);
+    let xii = xi as i32;
+    let yii = yi as i32;
+    let p_x = p_x.max(2);
+    // Euclidean mod, matching `pvnoise`'s own `((xi%pX)+pX)%pX` -- JS `%`
+    // keeps the dividend's sign, and Rust's `%` on `i32` does too, so this
+    // is the same two-step fixup both `pvnoise` and this function need.
+    let px = ((xii % p_x) + p_x) % p_x;
+    let px1 = (px + 1) % p_x;
+    let a = gpu_hash_to_unit_f32(gpu_hash(px, yii, s));
+    let b = gpu_hash_to_unit_f32(gpu_hash(px1, yii, s));
+    let c = gpu_hash_to_unit_f32(gpu_hash(px, yii + 1, s));
+    let d = gpu_hash_to_unit_f32(gpu_hash(px1, yii + 1, s));
+    a * (1.0 - u) * (1.0 - v) + b * u * (1.0 - v) + c * (1.0 - u) * v + d * u * v
+}
+
+/// [`gpu_fbm`]'s periodic sibling, mirroring [`pfbm`]'s own octave/period
+/// doubling (`p` doubles alongside `freq` each octave, floored at 2) over
+/// [`gpu_pvnoise`] instead of [`pvnoise`].
+pub fn gpu_pfbm(x: f32, y: f32, s: i32, p_x: i32) -> f32 {
+    let mut amp = 0.5f32;
+    let mut freq = 1.0f32;
+    let mut sum = 0.0f32;
+    let mut nrm = 0.0f32;
+    let mut p = p_x.max(2);
+    for o in 0..6i32 {
+        sum += amp * gpu_pvnoise(x * freq, y * freq, s.wrapping_add(o.wrapping_mul(131)), p);
+        nrm += amp;
+        amp *= 0.5;
+        freq *= 2.0;
+        p = (p * 2).max(2);
+    }
+    sum / nrm
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -396,6 +444,63 @@ mod tests {
         assert_eq!(expected, actual, "vnoise at an exact lattice point must equal that corner's hash exactly");
     }
 
+    #[test]
+    fn gpu_pvnoise_deterministic_and_in_range() {
+        let a = gpu_pvnoise(1.5, -2.5, 42, 3);
+        let b = gpu_pvnoise(1.5, -2.5, 42, 3);
+        assert_eq!(a, b);
+        assert!((0.0..=1.0).contains(&a), "gpu_pvnoise output {a} out of [0,1]");
+    }
+
+    /// The whole point of `world=true`: the field must genuinely tile on a
+    /// cylinder, not merely stay in range. Sampling `p_x` apart on the x
+    /// axis (any y, any octave-scaled offset) must land on the same lattice
+    /// column, mirroring `pvnoise`'s own `((xi%pX)+pX)%pX` wrap.
+    #[test]
+    fn gpu_pvnoise_tiles_at_period() {
+        // f32 tolerance, not bit-parity: `x + p_x as f32` shifts which bits
+        // land in the fractional part at larger magnitudes, so the two
+        // evaluations aren't bit-identical even though they land on the
+        // same lattice column -- the wrap itself (mod arithmetic on the
+        // floored integer coordinate) is exact; only the leftover `xf`
+        // carries ordinary f32 addition rounding.
+        let p_x = 5;
+        for x in [0.0f32, 1.3, 4.9, -2.25] {
+            let a = gpu_pvnoise(x, 2.0, 7, p_x);
+            let b = gpu_pvnoise(x + p_x as f32, 2.0, 7, p_x);
+            let c = gpu_pvnoise(x - p_x as f32, 2.0, 7, p_x);
+            assert!((a - b).abs() < 1e-5, "gpu_pvnoise must tile one period to the right at x={x}: {a} vs {b}");
+            assert!((a - c).abs() < 1e-5, "gpu_pvnoise must tile one period to the left at x={x}: {a} vs {c}");
+        }
+    }
+
+    #[test]
+    fn gpu_pfbm_deterministic_in_range_and_tiles() {
+        let p_x = 3;
+        let a = gpu_pfbm(1.5, -2.5, 42, p_x);
+        let b = gpu_pfbm(1.5, -2.5, 42, p_x);
+        assert_eq!(a, b);
+        assert!((0.0..=1.0).contains(&a), "gpu_pfbm output {a} out of [0,1]");
+        // Every octave's own period doubles in lockstep with its frequency
+        // (`p = (p*2).max(2)` beside `freq *= 2.0`), so the WHOLE sum tiles
+        // at the base period, same as `pfbm` itself.
+        let wrapped = gpu_pfbm(1.5 + p_x as f32, -2.5, 42, p_x);
+        assert!((a - wrapped).abs() < 1e-4, "gpu_pfbm must tile at its base period like pfbm does: {a} vs {wrapped}");
+    }
+
+    #[test]
+    fn gpu_pfbm_matches_cpu_shape_pfbm_within_f32_gap() {
+        // Not bit-parity (DECISIONS.md §7c: the GPU-safe noise family is a
+        // deliberate f32/PCG3D redesign, not a port of `hash`) -- just a
+        // sanity check that the periodic GPU twin lands in the same
+        // ballpark as the CPU-matching `pfbm` for the same inputs, the way
+        // `gpu_fbm`'s own tests check against `fbm`.
+        let (x, y, s, p_x) = (12.25, -4.5, 17, 4);
+        let cpu = pfbm(x as f64, y as f64, s, p_x);
+        let gpu = gpu_pfbm(x, y, s, p_x) as f64;
+        assert!((cpu - gpu).abs() < 0.5, "gpu_pfbm={gpu} pfbm={cpu} diverged far more than a noise-redesign gap should");
+    }
+
     /// `OUTSTANDING_WORK.md` §2.7 / `GENERATION_PARAMETERS.md`: a seed near
     /// `i32::MAX` used to panic every one of these functions with "attempt
     /// to add with overflow" on `s + o*131`'s sixth octave (`o=5`:
@@ -416,6 +521,7 @@ mod tests {
             assert!(pridged(x, y, s, 64).is_finite(), "pridged({s}) not finite");
             assert!(gpu_fbm(x as f32, y as f32, s).is_finite(), "gpu_fbm({s}) not finite");
             assert!(gpu_ridged(x as f32, y as f32, s).is_finite(), "gpu_ridged({s}) not finite");
+            assert!(gpu_pfbm(x as f32, y as f32, s, 64).is_finite(), "gpu_pfbm({s}) not finite");
         }
     }
 

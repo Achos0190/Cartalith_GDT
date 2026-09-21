@@ -262,7 +262,13 @@ struct WarpParams {
     y_offset: u32,
     /// Rows this dispatch actually writes (`height` for the whole grid).
     band_rows: u32,
-    _pad2: f32,
+    /// World-wrap flag (`OUTSTANDING_WORK.md` §2.9): reuses the slot that
+    /// used to be `_pad2` -- same offset, same 32-byte total size, so no
+    /// layout change was needed to add it. `0`/`1`, matching the shader's
+    /// own `params.world != 0u` check. Warp's periodic branch uses a fixed
+    /// p_x=3 (matching `compute_warp`'s own hardcoded local), so unlike
+    /// heterogeneity below, no separate `p_x` field is needed here.
+    world: u32,
 }
 
 /// Matches `gpu_heterogeneity.wgsl`'s `HeteroParams` field-for-field.
@@ -273,6 +279,15 @@ struct HeteroParams {
     width: u32,
     height: u32,
     scale: f32,
+    /// World-wrap flag (`OUTSTANDING_WORK.md` §2.9), `0`/`1`.
+    world: u32,
+    /// `compute_heterogeneity`'s own `oct = round(hf).max(2)`, passed
+    /// through as `pfbm`'s period argument -- caller-supplied, since it
+    /// depends on grid width and `map_width_km`, unlike warp's fixed 3.
+    /// Ignored by the shader when `world` is 0.
+    p_x: i32,
+    _pad0: u32,
+    _pad1: u32,
 }
 
 /// Matches `gpu_height.wgsl`'s `HeightParams` field-for-field. 12 `f32`-
@@ -1505,8 +1520,8 @@ fn dispatch_gpu(ctx: &GpuContext, width: u32, height: u32, seed: i32, scale: f32
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 2: dispatch `gpu_warp.wgsl`,
 /// returning `(warp_x, warp_y)` -- one dispatch computes both, matching
 /// `compute_warp`'s own shape (see [`init_gpu_warp`]'s doc comment).
-fn dispatch_gpu_warp(ctx: &GpuContext, width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> Option<(Vec<f32>, Vec<f32>)> {
-    dispatch_gpu_warp_band(ctx, width, height, 0, height, seed, wf, amp)
+fn dispatch_gpu_warp(ctx: &GpuContext, width: u32, height: u32, seed: i32, wf: f32, amp: f32, world: bool) -> Option<(Vec<f32>, Vec<f32>)> {
+    dispatch_gpu_warp_band(ctx, width, height, 0, height, seed, wf, amp, world)
 }
 
 /// The row-band form of [`dispatch_gpu_warp`]: computes rows
@@ -1531,11 +1546,12 @@ fn dispatch_gpu_warp_band(
     seed: i32,
     wf: f32,
     amp: f32,
+    world: bool,
 ) -> Option<(Vec<f32>, Vec<f32>)> {
     let count = (width * band_rows) as usize;
     let mut bx = vec![0f32; count];
     let mut by = vec![0f32; count];
-    dispatch_gpu_warp_band_into(ctx, width, height, y_offset, band_rows, seed, wf, amp, &mut bx, &mut by)?;
+    dispatch_gpu_warp_band_into(ctx, width, height, y_offset, band_rows, seed, wf, amp, world, &mut bx, &mut by)?;
     Some((bx, by))
 }
 
@@ -1558,6 +1574,7 @@ fn dispatch_gpu_warp_band_into(
     seed: i32,
     wf: f32,
     amp: f32,
+    world: bool,
     out_warp_x: &mut [f32],
     out_warp_y: &mut [f32],
 ) -> Option<()> {
@@ -1566,7 +1583,7 @@ fn dispatch_gpu_warp_band_into(
     assert_eq!(out_warp_y.len(), count);
     let byte_len = (count * std::mem::size_of::<f32>()) as u64;
 
-    let params = WarpParams { seed, width, height, wf, amp, y_offset, band_rows, _pad2: 0.0 };
+    let params = WarpParams { seed, width, height, wf, amp, y_offset, band_rows, world: world as u32 };
     let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("warp params"),
         contents: bytemuck::bytes_of(&params),
@@ -1642,6 +1659,8 @@ fn dispatch_gpu_heterogeneity(
     height: u32,
     hetero_seed: i32,
     scale: f32,
+    world: bool,
+    p_x: i32,
     age: &[f32],
     warp_x: &[f32],
     warp_y: &[f32],
@@ -1652,7 +1671,7 @@ fn dispatch_gpu_heterogeneity(
     assert_eq!(warp_y.len(), count);
     let byte_len = (count * std::mem::size_of::<f32>()) as u64;
 
-    let params = HeteroParams { seed: hetero_seed, width, height, scale };
+    let params = HeteroParams { seed: hetero_seed, width, height, scale, world: world as u32, p_x, _pad0: 0, _pad1: 0 };
     let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hetero params"),
         contents: bytemuck::bytes_of(&params),
@@ -2793,9 +2812,11 @@ fn normalize_by_max_abs(values: &mut [f32]) {
 }
 
 /// CPU reference for [`dispatch_gpu_warp`] -- calls `cartalith_noise::gpu_fbm`
-/// directly (all-`f32`, same shape as [`gpu_safe_noise_grid_cpu`]), not a
-/// second reimplementation. Non-world case only, matching the GPU kernel.
-pub fn gpu_warp_grid_cpu(width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> (Vec<f32>, Vec<f32>) {
+/// (non-world) or `cartalith_noise::gpu_pfbm` with the fixed p_x=3
+/// (`world=true`, matching `compute_warp`'s own hardcoded local) directly
+/// (all-`f32`, same shape as [`gpu_safe_noise_grid_cpu`]), not a second
+/// reimplementation.
+pub fn gpu_warp_grid_cpu(width: u32, height: u32, seed: i32, wf: f32, amp: f32, world: bool) -> (Vec<f32>, Vec<f32>) {
     let n = (width * height) as usize;
     let mut warp_x = vec![0.0f32; n];
     let mut warp_y = vec![0.0f32; n];
@@ -2804,10 +2825,19 @@ pub fn gpu_warp_grid_cpu(width: u32, height: u32, seed: i32, wf: f32, amp: f32) 
             let i = (gy * width + gx) as usize;
             let xf = gx as f32 * wf;
             let yf = gy as f32 * wf;
-            let qx = cartalith_noise::gpu_fbm(xf, yf, seed + 17);
-            let qy = cartalith_noise::gpu_fbm(xf, yf, seed + 101);
-            let wx = cartalith_noise::gpu_fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 213) - 0.5;
-            let wy = cartalith_noise::gpu_fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 331) - 0.5;
+            let (wx, wy) = if world {
+                let qx = cartalith_noise::gpu_pfbm(xf, yf, seed + 17, 3);
+                let qy = cartalith_noise::gpu_pfbm(xf, yf, seed + 101, 3);
+                let wx = cartalith_noise::gpu_pfbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 213, 3) - 0.5;
+                let wy = cartalith_noise::gpu_pfbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 331, 3) - 0.5;
+                (wx, wy)
+            } else {
+                let qx = cartalith_noise::gpu_fbm(xf, yf, seed + 17);
+                let qy = cartalith_noise::gpu_fbm(xf, yf, seed + 101);
+                let wx = cartalith_noise::gpu_fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 213) - 0.5;
+                let wy = cartalith_noise::gpu_fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 331) - 0.5;
+                (wx, wy)
+            };
             warp_x[i] = wx * 2.0 * amp;
             warp_y[i] = wy * 2.0 * amp;
         }
@@ -2817,12 +2847,16 @@ pub fn gpu_warp_grid_cpu(width: u32, height: u32, seed: i32, wf: f32, amp: f32) 
 
 /// CPU reference for [`dispatch_gpu_heterogeneity`], including the
 /// normalize pass -- directly comparable to the GPU path's own
-/// dispatch-then-[`normalize_by_max_abs`] sequence.
+/// dispatch-then-[`normalize_by_max_abs`] sequence. `world`/`p_x`: same
+/// meaning as [`heterogeneity_grid_gpu_with`]'s own doc comment.
+#[allow(clippy::too_many_arguments)]
 pub fn gpu_heterogeneity_grid_cpu(
     width: u32,
     height: u32,
     hetero_seed: i32,
     scale: f32,
+    world: bool,
+    p_x: i32,
     age: &[f32],
     warp_x: &[f32],
     warp_y: &[f32],
@@ -2834,7 +2868,12 @@ pub fn gpu_heterogeneity_grid_cpu(
             let i = (gy * width + gx) as usize;
             let wx = gx as f32 + warp_x[i];
             let wy = gy as f32 + warp_y[i];
-            let low_n = cartalith_noise::gpu_fbm(wx * scale, wy * scale, hetero_seed) - 0.5;
+            let raw = if world {
+                cartalith_noise::gpu_pfbm(wx * scale, wy * scale, hetero_seed, p_x)
+            } else {
+                cartalith_noise::gpu_fbm(wx * scale, wy * scale, hetero_seed)
+            };
+            let low_n = raw - 0.5;
             out[i] = low_n * (0.3 + 0.7 * age[i]);
         }
     }
@@ -3009,6 +3048,9 @@ pub fn gpu_safe_noise_grid_cpu(width: u32, height: u32, seed: i32, scale: f32) -
 /// this size ([`device_supports_grid`]), or because this dispatch's own
 /// readback failed. Every caller falls back to the CPU function
 /// (`HARDWARE_ACCELERATION.md` §27); none of them may panic.
+/// `world`: `OUTSTANDING_WORK.md` §2.9's world-wrap addition -- `true` runs
+/// the periodic (`pfbm`-equivalent, fixed p_x=3) branch instead of the
+/// plain-`fbm`-equivalent one, matching `compute_warp`'s own `world` flag.
 pub fn warp_grid_gpu_with(
     gpu: &GpuDevice,
     width: u32,
@@ -3016,10 +3058,11 @@ pub fn warp_grid_gpu_with(
     seed: i32,
     wf: f32,
     amp: f32,
+    world: bool,
 ) -> Option<(Vec<f32>, Vec<f32>)> {
     on_grid(gpu, width, height, || {
         let ctx = init_gpu_warp_with(gpu);
-        dispatch_gpu_warp(&ctx, width, height, seed, wf, amp)
+        dispatch_gpu_warp(&ctx, width, height, seed, wf, amp, world)
     })
 }
 
@@ -3041,10 +3084,11 @@ pub fn warp_band_gpu_with(
     seed: i32,
     wf: f32,
     amp: f32,
+    world: bool,
 ) -> Option<(Vec<f32>, Vec<f32>)> {
     on_grid(gpu, width, height, || {
         let ctx = init_gpu_warp_with(gpu);
-        dispatch_gpu_warp_band(&ctx, width, height, y_offset, rows, seed, wf, amp)
+        dispatch_gpu_warp_band(&ctx, width, height, y_offset, rows, seed, wf, amp, world)
     })
 }
 
@@ -3101,6 +3145,7 @@ pub fn warp_grid_gpu_split(
     seed: i32,
     wf: f32,
     amp: f32,
+    world: bool,
 ) -> Option<(Vec<f32>, Vec<f32>)> {
     let devices = set.devices();
     let bands = split_rows(height, &set_weights(set));
@@ -3136,7 +3181,7 @@ pub fn warp_grid_gpu_split(
                     let WarpBandJob { gpu, y_offset, rows, out_x, out_y } = job;
                     on_grid(gpu, width, height, || {
                         let ctx = init_gpu_warp_with(gpu);
-                        dispatch_gpu_warp_band_into(&ctx, width, height, y_offset, rows, seed, wf, amp, out_x, out_y)
+                        dispatch_gpu_warp_band_into(&ctx, width, height, y_offset, rows, seed, wf, amp, world, out_x, out_y)
                     })
                     .is_some()
                 })
@@ -3157,6 +3202,11 @@ pub fn warp_grid_gpu_split(
 /// result -- this kernel only computes the raw per-cell value, matching
 /// `compute_heterogeneity`'s own two-phase shape (loop, then a separate
 /// normalize pass over the whole field).
+/// `world`/`p_x`: `OUTSTANDING_WORK.md` §2.9's world-wrap addition --
+/// `world=true` runs the periodic (`pfbm`-equivalent) branch with period
+/// `p_x`, matching `compute_heterogeneity`'s own `oct = round(hf).max(2)`
+/// passed as `pfbm`'s period argument. Caller-supplied rather than derived
+/// here, since `scale` alone (`hf / width`) does not recover `hf` exactly.
 #[allow(clippy::too_many_arguments)]
 pub fn heterogeneity_grid_gpu_with(
     gpu: &GpuDevice,
@@ -3164,13 +3214,15 @@ pub fn heterogeneity_grid_gpu_with(
     height: u32,
     hetero_seed: i32,
     scale: f32,
+    world: bool,
+    p_x: i32,
     age: &[f32],
     warp_x: &[f32],
     warp_y: &[f32],
 ) -> Option<Vec<f32>> {
     on_grid(gpu, width, height, || {
         let ctx = init_gpu_heterogeneity_with(gpu);
-        dispatch_gpu_heterogeneity(&ctx, width, height, hetero_seed, scale, age, warp_x, warp_y)
+        dispatch_gpu_heterogeneity(&ctx, width, height, hetero_seed, scale, world, p_x, age, warp_x, warp_y)
     })
 }
 
@@ -3305,8 +3357,8 @@ mod tests {
         };
     }
     unwrapping_dispatch!(dispatch_gpu(ctx: &GpuContext, width: u32, height: u32, seed: i32, scale: f32) -> Vec<f32>);
-    unwrapping_dispatch!(dispatch_gpu_warp(ctx: &GpuContext, width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> (Vec<f32>, Vec<f32>));
-    unwrapping_dispatch!(dispatch_gpu_heterogeneity(ctx: &GpuContext, width: u32, height: u32, hetero_seed: i32, scale: f32, age: &[f32], warp_x: &[f32], warp_y: &[f32]) -> Vec<f32>);
+    unwrapping_dispatch!(dispatch_gpu_warp(ctx: &GpuContext, width: u32, height: u32, seed: i32, wf: f32, amp: f32, world: bool) -> (Vec<f32>, Vec<f32>));
+    unwrapping_dispatch!(dispatch_gpu_heterogeneity(ctx: &GpuContext, width: u32, height: u32, hetero_seed: i32, scale: f32, world: bool, p_x: i32, age: &[f32], warp_x: &[f32], warp_y: &[f32]) -> Vec<f32>);
     unwrapping_dispatch!(dispatch_gpu_height(ctx: &GpuContext, width: u32, height: u32, seed: i32, nf: f32, a: f32, b: f32, age_inf: f32, fwt: f32, hwt: f32, ridged: bool, has_oro: bool, base_field: &[f32], stress: &[f32], flex: &[f32], hetero: &[f32], age: &[f32], warp_x: &[f32], warp_y: &[f32], oro: &[f32]) -> Vec<f32>);
     unwrapping_dispatch!(dispatch_gpu_gauss_blur(ctx: &GpuBlurContext, src: &[f32], radius: f64, width: u32, height: u32, wrap_x: bool) -> Vec<f32>);
     unwrapping_dispatch!(dispatch_gpu_resistance(ctx: &GpuContext, width: u32, height: u32, plate_id: &[u32], age: &[f32], crustal_per_plate: &[f32]) -> Vec<f32>);
@@ -3674,8 +3726,8 @@ mod tests {
         let seed = 24601;
         let wf = 2.5 / w as f32;
         let amp = 40.0f32;
-        let (gx, gy) = dispatch_gpu_warp(&ctx, w, h, seed, wf, amp);
-        let (cx, cy) = gpu_warp_grid_cpu(w, h, seed, wf, amp);
+        let (gx, gy) = dispatch_gpu_warp(&ctx, w, h, seed, wf, amp, false);
+        let (cx, cy) = gpu_warp_grid_cpu(w, h, seed, wf, amp, false);
         let mut max_abs_diff = 0.0f64;
         let mut mismatches = 0usize;
         for (g, c) in gx.iter().chain(gy.iter()).zip(cx.iter().chain(cy.iter())) {
@@ -3696,14 +3748,71 @@ mod tests {
         assert_finite_and_bounded(&gy, -2.0 * amp, 2.0 * amp, "warp_y");
     }
 
+    /// `OUTSTANDING_WORK.md` §2.9 "World-wrap support for the milestone 1-5
+    /// kernels": same shape as
+    /// [`gpu_warp_matches_cpu_reference_at_real_field_size`], `world=true`.
+    /// Same [`WARP_TOLERANCE`] as the non-world case -- the periodic branch
+    /// runs the identical `gpu_pvnoise`/`gpu_pfbm` primitive on both sides
+    /// (Rust and WGSL), so it carries no new precision-gap class beyond the
+    /// two-nested-fbm-evaluations amplification the non-world case already
+    /// measured and priced into that tolerance.
+    #[test]
+    fn gpu_warp_matches_cpu_reference_world_wrap() {
+        let Some(ctx) = try_gpu_warp() else {
+            eprintln!("no GPU available -- skipping (requires real hardware)");
+            return;
+        };
+        let (w, h) = (512u32, 512u32);
+        let seed = 24601;
+        let wf = 3.0 / w as f32; // world=true's own wf, matching compute_warp's `3.0/gw`
+        let amp = 40.0f32;
+        let (gx, gy) = dispatch_gpu_warp(&ctx, w, h, seed, wf, amp, true);
+        let (cx, cy) = gpu_warp_grid_cpu(w, h, seed, wf, amp, true);
+        let mut max_abs_diff = 0.0f64;
+        let mut mismatches = 0usize;
+        for (g, c) in gx.iter().chain(gy.iter()).zip(cx.iter().chain(cy.iter())) {
+            let d = ((*g as f64) - (*c as f64)).abs();
+            if d > WARP_TOLERANCE {
+                mismatches += 1;
+            }
+            if d > max_abs_diff {
+                max_abs_diff = d;
+            }
+        }
+        eprintln!(
+            "gpu_warp (world=true) GPU vs CPU at {w}x{h}: {mismatches}/{} cells (both x,y) exceed tol={WARP_TOLERANCE}, max_abs_diff={max_abs_diff}",
+            (w * h * 2)
+        );
+        assert_eq!(mismatches, 0, "gpu_warp (world=true) GPU/CPU diverged beyond {WARP_TOLERANCE} -- see max_abs_diff above");
+        assert_finite_and_bounded(&gx, -2.0 * amp, 2.0 * amp, "warp_x (world)");
+        assert_finite_and_bounded(&gy, -2.0 * amp, 2.0 * amp, "warp_y (world)");
+
+        // The whole point of `world=true`: the field must actually tile on
+        // a cylinder at the fixed p_x=3 period `compute_warp` hardcodes.
+        // Sampled at x=0 vs x=3*(1/wf) grid-space, i.e. 3 full lattice
+        // periods away in the pre-`wf`-scaled coordinate `compute_warp`
+        // feeds pvnoise -- reproduced here via two independent GPU
+        // dispatches at x-offset columns 0 and `3 * round(1/wf)`.
+        let period_cols = (3.0 / wf).round() as u32;
+        if period_cols > 0 && period_cols < w {
+            let row = 10usize;
+            let i0 = row * w as usize;
+            let i1 = row * w as usize + period_cols as usize;
+            if i1 < gx.len() {
+                let d = (gx[i0] as f64 - gx[i1] as f64).abs();
+                assert!(d < 1e-2, "gpu_warp world=true did not tile at its own p_x=3 period: {} vs {} (diff {d})", gx[i0], gx[i1]);
+            }
+        }
+    }
+
     #[test]
     fn gpu_warp_deterministic_across_runs() {
         let Some(ctx) = try_gpu_warp() else {
             eprintln!("no GPU available -- skipping");
             return;
         };
-        let (a_x, a_y) = dispatch_gpu_warp(&ctx, 64, 64, 42, 0.05, 20.0);
-        let (b_x, b_y) = dispatch_gpu_warp(&ctx, 64, 64, 42, 0.05, 20.0);
+        let (a_x, a_y) = dispatch_gpu_warp(&ctx, 64, 64, 42, 0.05, 20.0, false);
+        let (b_x, b_y) = dispatch_gpu_warp(&ctx, 64, 64, 42, 0.05, 20.0, false);
         assert_eq!(a_x, b_x, "gpu_warp not deterministic across runs (x)");
         assert_eq!(a_y, b_y, "gpu_warp not deterministic across runs (y)");
     }
@@ -3720,7 +3829,7 @@ mod tests {
             return;
         };
         let (w, h) = (256u32, 256u32);
-        let (warp_x, _) = dispatch_gpu_warp(&ctx, w, h, 24601, 2.5 / w as f32, 40.0);
+        let (warp_x, _) = dispatch_gpu_warp(&ctx, w, h, 24601, 2.5 / w as f32, 40.0, false);
         let mut mn = f32::INFINITY;
         let mut mx = f32::NEG_INFINITY;
         for &v in &warp_x {
@@ -3756,9 +3865,9 @@ mod tests {
         let warp_x = vec![0.0f32; n]; // no-warp case: zero-filled, matches Option::None on CPU
         let warp_y = vec![0.0f32; n];
 
-        let mut gpu = dispatch_gpu_heterogeneity(&ctx, w, h, hetero_seed, scale, &age, &warp_x, &warp_y);
+        let mut gpu = dispatch_gpu_heterogeneity(&ctx, w, h, hetero_seed, scale, false, 0, &age, &warp_x, &warp_y);
         normalize_by_max_abs(&mut gpu);
-        let cpu = gpu_heterogeneity_grid_cpu(w, h, hetero_seed, scale, &age, &warp_x, &warp_y);
+        let cpu = gpu_heterogeneity_grid_cpu(w, h, hetero_seed, scale, false, 0, &age, &warp_x, &warp_y);
 
         let mut max_abs_diff = 0.0f64;
         let mut mismatches = 0usize;
@@ -3778,6 +3887,49 @@ mod tests {
         assert_finite_and_bounded(&gpu, -1.0, 1.0, "heterogeneity (post-normalize)");
     }
 
+    /// `OUTSTANDING_WORK.md` §2.9: same shape as
+    /// [`gpu_heterogeneity_matches_cpu_reference_at_real_field_size`],
+    /// `world=true` with `p_x` matching `compute_heterogeneity`'s own
+    /// `oct = round(hf).max(2)` for this test's `hf` (`1.5 * 12.0 = 18.0`).
+    #[test]
+    fn gpu_heterogeneity_matches_cpu_reference_world_wrap() {
+        let Some(ctx) = try_gpu_heterogeneity() else {
+            eprintln!("no GPU available -- skipping (requires real hardware)");
+            return;
+        };
+        let (w, h) = (512u32, 512u32);
+        let n = (w * h) as usize;
+        let seed = 24601;
+        let hetero_seed = seed ^ 0x44bb;
+        let hf = 18.0f64; // 1.5 * terrain_detail_k's representative value, matching the non-world test's `scale`
+        let scale = (hf / w as f64) as f32;
+        let p_x = (hf.round() as i32).max(2); // compute_heterogeneity's own `oct`
+        let age: Vec<f32> = (0..n).map(|i| ((i * 2654435761u32 as usize) % 1000) as f32 / 1000.0).collect();
+        let warp_x = vec![0.0f32; n];
+        let warp_y = vec![0.0f32; n];
+
+        let mut gpu = dispatch_gpu_heterogeneity(&ctx, w, h, hetero_seed, scale, true, p_x, &age, &warp_x, &warp_y);
+        normalize_by_max_abs(&mut gpu);
+        let cpu = gpu_heterogeneity_grid_cpu(w, h, hetero_seed, scale, true, p_x, &age, &warp_x, &warp_y);
+
+        let mut max_abs_diff = 0.0f64;
+        let mut mismatches = 0usize;
+        for (g, c) in gpu.iter().zip(cpu.iter()) {
+            let d = ((*g as f64) - (*c as f64)).abs();
+            if d > GPU_SAFE_NOISE_TOLERANCE {
+                mismatches += 1;
+            }
+            if d > max_abs_diff {
+                max_abs_diff = d;
+            }
+        }
+        eprintln!(
+            "gpu_heterogeneity (world=true, p_x={p_x}) GPU vs CPU at {w}x{h}: {mismatches}/{n} cells exceed tol={GPU_SAFE_NOISE_TOLERANCE}, max_abs_diff={max_abs_diff}"
+        );
+        assert_eq!(mismatches, 0, "gpu_heterogeneity (world=true) GPU/CPU diverged beyond {GPU_SAFE_NOISE_TOLERANCE} -- see max_abs_diff above");
+        assert_finite_and_bounded(&gpu, -1.0, 1.0, "heterogeneity world=true (post-normalize)");
+    }
+
     #[test]
     fn gpu_heterogeneity_deterministic_across_runs() {
         let Some(ctx) = try_gpu_heterogeneity() else {
@@ -3788,8 +3940,8 @@ mod tests {
         let age = vec![0.5f32; n];
         let warp_x = vec![0.0f32; n];
         let warp_y = vec![0.0f32; n];
-        let mut a = dispatch_gpu_heterogeneity(&ctx, 32, 32, 42, 0.1, &age, &warp_x, &warp_y);
-        let mut b = dispatch_gpu_heterogeneity(&ctx, 32, 32, 42, 0.1, &age, &warp_x, &warp_y);
+        let mut a = dispatch_gpu_heterogeneity(&ctx, 32, 32, 42, 0.1, false, 0, &age, &warp_x, &warp_y);
+        let mut b = dispatch_gpu_heterogeneity(&ctx, 32, 32, 42, 0.1, false, 0, &age, &warp_x, &warp_y);
         normalize_by_max_abs(&mut a);
         normalize_by_max_abs(&mut b);
         assert_eq!(a, b, "gpu_heterogeneity not deterministic across runs");
@@ -3805,7 +3957,7 @@ mod tests {
             eprintln!("no GPU available -- skipping timing measurement");
             return;
         };
-        let _ = dispatch_gpu_warp(&ctx, 8, 8, 1, 0.5, 10.0); // warm up
+        let _ = dispatch_gpu_warp(&ctx, 8, 8, 1, 0.5, 10.0, false); // warm up
         let quote = timings_quotable("measured_gpu_warp_vs_cpu_timing");
         if quote {
             eprintln!("gpu_warp {}", device_note(&ctx.adapter_name, ctx.adapter_backend, ctx.device_type));
@@ -3816,8 +3968,8 @@ mod tests {
             let amp = 40.0f32;
             let n = (w * h) as usize;
 
-            let (gpu_t, gpu) = timed_for(quote, || dispatch_gpu_warp(&ctx, w, h, seed, wf, amp));
-            let (cpu_t, cpu) = timed_for(quote, || gpu_warp_grid_cpu(w, h, seed, wf, amp));
+            let (gpu_t, gpu) = timed_for(quote, || dispatch_gpu_warp(&ctx, w, h, seed, wf, amp, false));
+            let (cpu_t, cpu) = timed_for(quote, || gpu_warp_grid_cpu(w, h, seed, wf, amp, false));
 
             assert_eq!((gpu.0.len(), gpu.1.len()), (n, n), "GPU warp field is the wrong length -- the dispatch that was timed produced nothing usable");
             assert_eq!((cpu.0.len(), cpu.1.len()), (n, n), "CPU warp field is the wrong length -- the call that was timed produced nothing usable");
@@ -3840,7 +3992,7 @@ mod tests {
         let warm_n = 64;
         let warm_age = vec![0.5f32; warm_n];
         let warm_zero = vec![0.0f32; warm_n];
-        let _ = dispatch_gpu_heterogeneity(&ctx, 8, 8, 1, 0.5, &warm_age, &warm_zero, &warm_zero); // warm up
+        let _ = dispatch_gpu_heterogeneity(&ctx, 8, 8, 1, 0.5, false, 0, &warm_age, &warm_zero, &warm_zero); // warm up
         let quote = timings_quotable("measured_gpu_heterogeneity_vs_cpu_timing");
         if quote {
             eprintln!("gpu_heterogeneity {}", device_note(&ctx.adapter_name, ctx.adapter_backend, ctx.device_type));
@@ -3854,10 +4006,11 @@ mod tests {
             let warp_x = vec![0.0f32; n];
             let warp_y = vec![0.0f32; n];
 
-            let (gpu_t, gpu) =
-                timed_for(quote, || dispatch_gpu_heterogeneity(&ctx, w, h, hetero_seed, scale, &age, &warp_x, &warp_y));
+            let (gpu_t, gpu) = timed_for(quote, || {
+                dispatch_gpu_heterogeneity(&ctx, w, h, hetero_seed, scale, false, 0, &age, &warp_x, &warp_y)
+            });
             let (cpu_t, cpu) =
-                timed_for(quote, || gpu_heterogeneity_grid_cpu(w, h, hetero_seed, scale, &age, &warp_x, &warp_y));
+                timed_for(quote, || gpu_heterogeneity_grid_cpu(w, h, hetero_seed, scale, false, 0, &age, &warp_x, &warp_y));
 
             assert_eq!(gpu.len(), n, "GPU field is the wrong length -- the dispatch that was timed produced nothing usable");
             assert_eq!(cpu.len(), n, "CPU field is the wrong length -- the call that was timed produced nothing usable");
@@ -4257,9 +4410,9 @@ mod tests {
             let (base, stress, flex, hetero, age) = synthetic_height_inputs(n);
             let zero = vec![0.0f32; n];
 
-            let (warp_t, _) = timed_for(quote, || dispatch_gpu_warp(&wctx, w, h, 24601, 2.5 / w as f32, 40.0));
+            let (warp_t, _) = timed_for(quote, || dispatch_gpu_warp(&wctx, w, h, 24601, 2.5 / w as f32, 40.0, false));
             let (hetero_t, _) = timed_for(quote, || {
-                dispatch_gpu_heterogeneity(&xctx, w, h, 24601 ^ 0x44bb, 18.0 / w as f32, &age, &zero, &zero)
+                dispatch_gpu_heterogeneity(&xctx, w, h, 24601 ^ 0x44bb, 18.0 / w as f32, false, 0, &age, &zero, &zero)
             });
             let (height_t, out) = timed_for(quote, || {
                 dispatch_gpu_height(
