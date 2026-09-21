@@ -105,6 +105,14 @@ var _browse_hash := ""
 var _browse_text := ""
 var _browse_edit: TextEdit
 
+## The tree+preview split (owner request, 2026-09-21, "a Markdown Vault
+## browser"): which pane is showing on a phone, where the split folds to a
+## segmented switcher rather than sitting side by side — `culture_profiles_
+## window.gd::_build_phone_switcher()`'s pattern, adapted to this file's own
+## idiom of rebuilding `_body` from scratch on every state change rather than
+## keeping persistent panes to show/hide.
+var _browse_phone_pane := "tree"
+
 ## True only for the standalone entry point (`open_browse()`): no entity, no
 ## Attach, just Search and the file browser/editor — as opposed to
 ## `open_overview()`'s `_kind == ""`, which lists every link in the store
@@ -238,6 +246,7 @@ func open_browse() -> void:
 	_browse_path = ""
 	_browse_text = ""
 	_browse_hash = ""
+	_browse_phone_pane = "tree"
 	_selected_fields = {}
 	_rebuild()
 	if not DccWidgets.phone_present(self, app):
@@ -386,7 +395,15 @@ func _run_search() -> void:
 	var q := _search_query.strip_edges()
 	_search_open_rel = ""
 	_search_result = {} if q == "" else bridge.vault_search(q, 0, 0)
-	_fill_search_results()
+	## Browse mode's file tree (`_build_browse_tree`) filters on `_search_query`
+	## at build time — no separate filter field, per the owner's mockup — so a
+	## full `_rebuild()` is what makes a run search also narrow the tree. The
+	## scoped/Attach path keeps the cheap `_fill_search_results()`-only refresh
+	## unchanged: this branch is reached only when `_browse_only`.
+	if _browse_only:
+		_rebuild()
+	else:
+		_fill_search_results()
 
 
 func _fill_search_results() -> void:
@@ -723,22 +740,224 @@ func _build_attach() -> void:
 
 # -- Standalone browse (owner request, 2026-09-21, `open_browse`) -----------
 
-## The `_browse_only` body: pick a note, see what it holds, preview and edit
-## its raw text — everything `_build_attach` offers except the section
-## picker and the Attach button, both of which need `_entity_label` and
-## `_kind` this entry point deliberately has neither of. Built from the same
-## `_build_file_picker`/`_build_note_data_toggle`/`_build_note_editor` the
-## scoped view uses, so there is exactly one file list, one "what does this
-## note hold" reader and one raw editor in this file, not two of each.
+## The `_browse_only` body (owner-approved mockup, 2026-09-21): a folder tree
+## over the vault's flat file list on the left, and a structured preview —
+## frontmatter chips, a heading outline, a short excerpt, "Open to edit" —
+## on the right. Not `_build_file_picker`'s flat dropdown any more: this is
+## the first `Tree` control anywhere in this shell (there is real hierarchy
+## to browse and `Tree` gives keyboard nav and expand/collapse for free,
+## rather than hand-rolling either).
+##
+## `_pick_file` stays the one selection variable — the same one
+## `_build_attach` uses via `_build_file_picker` — so `_build_note_editor`
+## (below, reused verbatim through `_build_browse_preview`) needs no browse-
+## specific branch of its own. No new bridge call: the tree is built client-
+## side from `vault_list_files()`'s flat paths, split on `/`.
 func _build_browse() -> void:
 	var sec := DccWidgets.section(_body, "Browse a note")
-	var files := _build_file_picker(sec)
+	var files := bridge.vault_list_files(2000)
 	if files.is_empty():
 		DccWidgets.note(sec, "No .md files found in this vault folder.")
 		return
-	_build_note_data_toggle(sec,
-		"No frontmatter and no filled-in template fields — this note is prose, which Cartalith reads and does not model.")
-	_build_note_editor(sec)
+	if _pick_file == "" or not Array(files).has(_pick_file):
+		_pick_file = files[0]
+
+	if _phone:
+		_build_browse_phone_switcher(sec)
+		if _browse_phone_pane == "tree":
+			_build_browse_tree(sec, files)
+		else:
+			_build_browse_preview(sec)
+	else:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		sec.add_child(row)
+		var tree_col := VBoxContainer.new()
+		tree_col.custom_minimum_size.x = 220
+		row.add_child(tree_col)
+		_build_browse_tree(tree_col, files)
+		var preview_col := VBoxContainer.new()
+		preview_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(preview_col)
+		_build_browse_preview(preview_col)
+
+
+## The phone fold: `culture_profiles_window.gd::_build_phone_switcher()`'s
+## segmented-row look, wired through `_rebuild()` rather than persistent-pane
+## visibility — this file rebuilds `_body` from scratch on every state change
+## already (`_search_open_rel`, `_pick_data`, `_browse_path`, …), so a third
+## toggle following the same idiom is the small addition, not a second
+## show/hide mechanism living beside it.
+func _build_browse_phone_switcher(parent: Control) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 0)
+	parent.add_child(row)
+	for spec in [["tree", "FILES"], ["preview", "PREVIEW"]]:
+		var key := String(spec[0])
+		var b := Button.new()
+		b.text = String(spec[1])
+		b.focus_mode = Control.FOCUS_NONE
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_override("font", DccTheme.mono(0))
+		b.add_theme_font_size_override("font_size", DccTheme.FS_MICRO)
+		var on := _browse_phone_pane == key
+		b.add_theme_color_override("font_color", DccTheme.c("accent") if on else DccTheme.c("text_dim"))
+		b.pressed.connect(func():
+			_browse_phone_pane = key
+			_rebuild())
+		row.add_child(b)
+
+
+## The folder tree. Built fresh on every `_rebuild()` from `vault_list_files`'s
+## flat, `/`-separated paths — no new bridge call, and no state kept across
+## rebuilds beyond `_pick_file` itself, which is what a picked item writes to.
+##
+## Filtered by `_search_query` (case-insensitive substring on the whole
+## relative path) rather than drawn and then hidden node-by-node: a filtered
+## build is also what keeps a folder that holds no matching file out of the
+## tree entirely, instead of an empty-looking row a post-hoc `visible = false`
+## walk would have to reason about separately.
+func _build_browse_tree(parent: Control, files: PackedStringArray) -> void:
+	var q := _search_query.strip_edges().to_lower()
+	var shown: Array = []
+	for f in files:
+		if q == "" or String(f).to_lower().find(q) >= 0:
+			shown.append(String(f))
+
+	var tree := Tree.new()
+	tree.hide_root = true
+	tree.custom_minimum_size = Vector2(200, 260)
+	tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var root := tree.create_item()
+	var folders := {"": root}    # folder path ("" = root) -> TreeItem
+	for rel in shown:
+		var parts := String(rel).split("/")
+		var cur_path := ""
+		var cur_item: TreeItem = root
+		for i in range(parts.size() - 1):
+			cur_path = String(parts[i]) if cur_path == "" else cur_path + "/" + String(parts[i])
+			if not folders.has(cur_path):
+				var fi := tree.create_item(cur_item)
+				fi.set_text(0, String(parts[i]))
+				fi.set_selectable(0, false)
+				folders[cur_path] = fi
+			cur_item = folders[cur_path]
+		var leaf := tree.create_item(cur_item)
+		leaf.set_text(0, String(parts[parts.size() - 1]))
+		leaf.set_metadata(0, rel)
+		if rel == _pick_file:
+			leaf.select(0)
+	tree.item_selected.connect(func():
+		var it := tree.get_selected()
+		if it == null:
+			return
+		var rel := String(it.get_metadata(0))
+		if rel == "" or rel == _pick_file:
+			return
+		_pick_file = rel
+		_pick_heading = ""
+		_pick_data = false
+		_browse_path = ""
+		_rebuild())
+	parent.add_child(tree)
+	if shown.is_empty():
+		DccWidgets.note(parent, "No file matches \"%s\"." % _search_query.strip_edges())
+
+
+## Drops a leading YAML frontmatter block (`---` … `---`) before the excerpt
+## is taken from it. `vault_file_data` already parses that block into its own
+## `frontmatter` map, shown as chips above — without this, the excerpt's
+## first lines were the fence and the raw `key: value` pairs a second time,
+## which is not the *body* the mockup asks for.
+func _strip_frontmatter(text: String) -> String:
+	if not text.begins_with("---"):
+		return text
+	var lines := text.split("\n")
+	if lines.is_empty() or String(lines[0]).strip_edges() != "---":
+		return text
+	for i in range(1, lines.size()):
+		if String(lines[i]).strip_edges() == "---":
+			return "\n".join(PackedStringArray(lines.slice(i + 1)))
+	return text
+
+
+## First `n` non-blank lines of `text`, joined with a space — the excerpt's
+## own trim. Deliberately not a character-count truncation: a heading or a
+## blank line at the very top of a note would otherwise dominate a fixed
+## character budget with nothing readable in it.
+func _first_lines(text: String, n: int) -> String:
+	var out: Array = []
+	for raw in text.split("\n"):
+		var t := String(raw).strip_edges()
+		if t == "":
+			continue
+		out.append(t)
+		if out.size() >= n:
+			break
+	return " ".join(PackedStringArray(out))
+
+
+## The right-hand preview: frontmatter as chips, the heading outline as plain
+## rows, a short excerpt, then the raw editor (`_build_note_editor`, reused
+## verbatim — not duplicated) behind its own "Preview & edit this note…"
+## toggle. No Markdown rendering here, deliberately — a structured summary,
+## not a renderer, is the owner's own scope line for this pass.
+##
+## **Backlinks/unlinked mentions are not shown.** `vault_entity_backlinks` and
+## `vault_entity_mentions` are keyed by `(kind, entity_id)`, and a browsed,
+## unattached file has neither — confirmed by reading both `#[func]`s in
+## `vault_bridge.rs`. `cartalith_vault::backlinks::Backlinks::backlinks_to`
+## *is* path-keyed and exists in the engine, but no `#[func]` wrapper exposes
+## it to GDScript, so this is a real, named gap rather than an invented
+## bridge call — see this window's own handoff note for the one-line wrapper
+## a future pass would add (`backlinks_to(rel) -> Vec<Backlink>` already
+## walks the built index; no new indexing work).
+func _build_browse_preview(parent: Control) -> void:
+	if _pick_file == "":
+		DccWidgets.note(parent, "Select a file in the tree.")
+		return
+	var g := DccWidgets.group(parent, _pick_file.get_file(), true)
+
+	var data := bridge.vault_file_data(_pick_file)
+	if not bool(data.get("ok", false)):
+		DccWidgets.note(g, "Could not read this note: %s" % String(data.get("error", "")))
+	else:
+		var frontmatter: Dictionary = data.get("frontmatter", {})
+		if frontmatter.is_empty():
+			DccWidgets.note(g, "No frontmatter.")
+		else:
+			var flow := HFlowContainer.new()
+			flow.add_theme_constant_override("h_separation", 6)
+			flow.add_theme_constant_override("v_separation", 6)
+			for k in frontmatter:
+				## Display-only chip: `DccWidgets.chip`'s own `on_press` guards
+				## the connect with `is_valid()`, so an empty `Callable()` here
+				## leaves the chip inert rather than silently wired to nothing.
+				DccWidgets.chip(flow, "%s: %s" % [String(k), String(frontmatter[k])], Callable())
+			g.add_child(flow)
+
+	var headings := bridge.vault_file_headings(_pick_file)
+	DccWidgets.note(g, "Outline")
+	if headings.is_empty():
+		DccWidgets.note(g, "    (no headings)")
+	else:
+		for h in headings:
+			var d: Dictionary = h
+			var lvl := int(d.get("level", 1))
+			DccWidgets.note(g, "    %s%s" % ["  ".repeat(maxi(0, lvl - 1)), String(d.get("title", ""))])
+
+	var read := bridge.vault_read_file_for_edit(_pick_file)
+	DccWidgets.note(g, "Excerpt")
+	if bool(read.get("ok", false)):
+		var excerpt := _first_lines(_strip_frontmatter(String(read.get("text", ""))), 3)
+		DccWidgets.note(g, "    %s" % (excerpt if excerpt != "" else "(empty note)"))
+	else:
+		DccWidgets.note(g, "    Could not read: %s" % String(read.get("error", "")))
+
+	DccWidgets.note(g, "Backlinks: not available here — the vault bridge has no file-path-keyed lookup today, only per-entity (`vault_entity_backlinks`/`vault_entity_mentions`).")
+
+	_build_note_editor(g)
 
 
 # -- Linked notes (§28) -----------------------------------------------------
