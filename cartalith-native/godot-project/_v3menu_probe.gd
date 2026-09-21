@@ -427,14 +427,31 @@ func _button_exact(n: Node, text: String) -> Button:
 	return null
 
 
+## Structural, not text-matched. `menus.gd:build()` builds every top-level
+## menu through `shell.add_menu(title, ...)` (`dcc_shell.gd`), which sets
+## `MenuButton.text = title` and parents the button under the menu bar; the
+## button's own `get_popup()` is that menu's PopupMenu, guaranteed correct
+## whatever rows it holds today. Both the desktop/phone branch and the tablet
+## branch call `shell.add_menu("Data", _data)`, so this finds the Data menu
+## either way. The old approach searched every PopupMenu in the tree for an
+## item reading "Journey planner" and broke when that row moved to a CIVIL
+## rail node under Ruling L; picking another row to match on would only move
+## the same failure mode to a different string, so this keys on the menu
+## bar's own title instead.
 func _data_popup() -> PopupMenu:
-	var found: Array = []
-	_collect_popups(_app, found)
-	for p in found:
-		var pm := p as PopupMenu
-		for i in pm.item_count:
-			if String(pm.get_item_text(i)).findn("Journey planner") >= 0:
-				return pm
+	var mb := _find_menu_button(_app, "Data")
+	return mb.get_popup() if mb != null else null
+
+## `get_children(true)`, not `get_children()` -- see `_collect_popups` below
+## for why: a `MenuButton`'s own popup is an internal child, and other shells
+## nested under `_app` could otherwise hide their `MenuButton`s the same way.
+func _find_menu_button(n: Node, title: String) -> MenuButton:
+	if n is MenuButton and n.text == title:
+		return n
+	for c in n.get_children(true):
+		var found := _find_menu_button(c, title)
+		if found != null:
+			return found
 	return null
 
 
