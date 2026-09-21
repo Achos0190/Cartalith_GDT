@@ -78,13 +78,15 @@ class_name CartographyWorkspace
 ## built below are seeded from the engine (`app.viewport.layer_visible()`),
 ## never from this field directly (`_layer_checks`'s own doc comment). It
 ## earns its keep by being asserted rather than left to drift silently:
-## `_verify_layers_probe.gd` builds the same eight checkboxes this file does
-## and fails if any of them disagrees with the engine's own default at launch
-## (`godot --headless --script _verify_layers_probe.gd`; ALL PASS as of
-## 2026-09-03). Re-run it after moving a default here, in `map_overlay.gd`'s
-## `_show_*`/`_landmark*_visible` field initializers, or in
-## `viewport_host.gd`'s `territory_view`/`province_view` initial `.visible` --
-## whichever side moves, the probe is what says whether the other still agrees.
+## `_verify_layers_probe.gd` builds the same `LIVE_LAYERS` checkboxes this
+## file does (9 as of the vector river overlay row, was 8) and fails if any
+## of them disagrees with the engine's own default at launch (`godot
+## --headless --script _verify_layers_probe.gd`; ALL PASS as of 2026-09-03,
+## re-run 2026-09-21 with the new row). Re-run it after moving a default
+## here, in `map_overlay.gd`'s `_show_*`/`_landmark*_visible` field
+## initializers, or in `viewport_host.gd`'s `territory_view`/`province_view`
+## initial `.visible` -- whichever side moves, the probe is what says whether
+## the other still agrees.
 const LIVE_LAYERS: Array = [
 	{"id": "settlements", "label": "Settlements", "on": true},
 	{"id": "roads", "label": "Ways & routes", "on": true},
@@ -114,6 +116,23 @@ const LIVE_LAYERS: Array = [
 	## candidates and lists the best-scoring 3 216 of them, which is a real
 	## diagnostic and would be pure noise arriving unasked on every world.
 	{"id": "landmark_rejects", "label": "Landmark rejects (diagnostic)", "on": false},
+	## The vector river overlay (`OUTSTANDING_WORK.md` "The vector river
+	## overlay", re-applied 2026-09-21 after its 2026-09-13 revert -- see
+	## `map_overlay.gd::_show_rivers`'s own doc comment for the full history).
+	## `WorldGen.get_rivers()` traced and Catmull-Rom-smoothed, over the
+	## reference's own `drawRiverWays`.
+	##
+	## **Off by default**, matching the reference's own default:
+	## `state.viz.riverWays` starts `false` even for a fresh world
+	## (`RC_ENGINE_CHANGES.md`'s quoted v2.29 comment -- "OFF for fresh
+	## worlds too... It is an EITHER/OR with the terrain-blended raster
+	## river"). This port keeps that either/or on purpose:
+	## `viewport_host.gd::set_layer_visible()`'s `"rivers"` arm suppresses
+	## the baked-in raster river tint exactly while this is on, so the
+	## default (off) is also the state that matches every render before
+	## this row existed byte-for-byte -- no golden, no screenshot and no
+	## saved appearance moves until a user opts in.
+	{"id": "rivers", "label": "Rivers (vector, smoothed)", "on": false},
 	{"id": "provinces", "label": "Political — provinces", "on": false},
 	{"id": "territory", "label": "Political — territory", "on": false},
 ]

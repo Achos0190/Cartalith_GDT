@@ -429,6 +429,61 @@ const WAY_LOD_DEFAULT := 0.35
 const MARKER_OUTLINE := Color(0.101, 0.070, 0.023, 0.85) ## matches PrimaryButton's ink tone
 const HOVER_RADIUS_PAD := 4.0 ## extra hit-test slack (px) beyond the drawn marker radius
 
+## Rivers as ways (`drawRiverWays`, reference line 9512; `OUTSTANDING_WORK.md`
+## "The vector river overlay"). The engine side already existed and was
+## unconsumed: `WorldGen::get_rivers(min_order)` returns every traced,
+## drawable run, and `viewport_host.gd::refresh()` now pushes it in via
+## `set_rivers()`. This is the drawing half, and it re-applies a first build
+## that was reverted 2026-09-13 for three reasons -- see `_show_rivers`,
+## `_draw()`'s own gate and `viewport_host.gd::set_layer_visible()`'s
+## `"rivers"` arm for how each of the three is now addressed.
+##
+## **Catmull-Rom smoothing is no longer this file's job.** `river_dict()`
+## (`lib.rs`) now carries `render_points`, the same treatment
+## `way_render_geometry` already gives roads/sea-lanes/committed routes:
+## `cartalith_civ::civ_catmull_rom_sample` run over the river's own traced
+## cells at `WAY_RENDER_STEP_CELLS`. `_draw_rivers()` below draws that
+## resampled curve, falling back to the raw `points` for an older
+## GDExtension binary that predates the key -- the identical idiom `_draw()`
+## already uses for a committed route's `render_points`. The lake-surface cut
+## (the reference's `_inLake` skip, reference lines 9524-9532) is still not
+## reproduced: `cartalith_hydrology::river_entities()` runs
+## `split_river_polylines` with `skip: None` -- "a lake reach is real
+## hydrology" is that function's own doc reasoning -- and nothing reaches
+## this file with a per-cell water-body classification to redo the cut with.
+## A river here can draw a short stroke across a lake's own fill; it is not
+## corrupted or misplaced, just not clipped there.
+##
+## Colour ramp (reference line 9561): light shallow blue deepening to river
+## blue as Strahler order rises. A plain three-term lerp, ported as the exact
+## same numbers -- no `geom::js_*` precision hazard applies to a colour ramp.
+const RIVER_COLOR_LO := Color8(118, 150, 180)
+const RIVER_COLOR_HI := Color8(74, 120, 168)
+## `RIVER_ORDER_WIDTH_MIN + RIVER_ORDER_WIDTH_GAIN * tt` is the reference's
+## `(0.9+1.7*tt)` (line 9580), `tt = min(1,(order-1)/6)`. The base width itself
+## is a picked screen-px constant sitting alongside `WAY_STYLE`'s own range
+## (highway overlay 1.45, regional 1.15) rather than a ported number: the
+## reference's `baseW=max(0.6,GW/620)` is a *grid-resolution* term this port
+## already drops for the same reason `_draw_way_segment` drops `rsc`'s own
+## `max(1,GW/512)` half -- this control is fit to itself, not drawn at grid
+## resolution, so there is no `GW` here to divide by. No `sqrt(zk)` zoom
+## damping either, for the same reason `_draw_way_segment` carries none: that
+## damping exists only to tame a width that grows with zoom by default, and
+## this port's linear-feature widths are already screen-constant.
+const RIVER_BASE_WIDTH_PX := 1.1
+const RIVER_ORDER_WIDTH_MIN := 0.9
+const RIVER_ORDER_WIDTH_GAIN := 1.7
+## Order-1 de-emphasis (reference lines 9567-9579): thousands of headwater
+## trickles read as a solid "barcode" mat at full weight, so order-1 alone
+## draws thinner and part-transparent -- fading back to full weight as the
+## camera zooms in, because under this port's own LOD tiling a deeper level
+## still "carries a SHADE RATIO, not colour" (`OUTSTANDING_WORK.md`), so a
+## faded order-1 line at deep zoom can be the only visible sign of a stream.
+## `_camera_zoom` **is** this file's `zk` (`_civ_zoom_k()`'s own doc comment).
+const RIVER_O1_ALPHA_MIN := 0.4
+const RIVER_O1_WIDTH_MIN := 0.55
+const RIVER_DEEMPH_ZOOM_SPAN := 7.0   ## reference's `(zk-1)/7`
+
 ## Sea-lane style: the `sea-lane` arm of the same §2a ladder `WAY_STYLE` above
 ## covers the land types of (reference HTML lines 15511-15514) -- a dark navy
 ## solid underlayer plus a lighter dashed overlay, deliberately away from every
@@ -885,6 +940,11 @@ var _touch_press: Dictionary = {}
 var _settlements: Array = []
 var _roads: Array = []
 var _sea_routes: Array = []
+## `WorldGen.get_rivers(min_order)` entities -- see `set_rivers()`. Each
+## entry's `render_points` (`PackedVector2Array`, grid-cell space, Catmull-Rom
+## resampled -- `RIVER_COLOR_LO`'s own doc comment above) is drawn by
+## `_draw_rivers()`; `order` drives its colour/width/de-emphasis.
+var _rivers: Array = []
 var _gw := 0
 var _gh := 0
 var _hover_index := -1
@@ -896,6 +956,33 @@ var _hover_index := -1
 var _show_settlements := true
 var _show_roads := true
 var _show_sea_routes := true
+## Rivers as ways -- its own flag rather than reusing `_show_roads` (rivers
+## are hydrology, not a way type; `get_rivers()` never reaches `_roads`) or
+## `_way_opacity`/`_way_scale` (both named and documented as the ways layer's
+## own sliders). Driven by the Layers popover's "Visible layers" band
+## (`cartography_workspace.gd::LIVE_LAYERS`, id `"rivers"`), the same switch
+## every other optional overlay in that band uses.
+##
+## **Off by default** -- the reference's own default: `state.viz.riverWays`
+## starts `false` even for a fresh world (`RC_ENGINE_CHANGES.md`'s quoted
+## v2.29 comment, "OFF for fresh worlds too... It is an EITHER/OR with the
+## terrain-blended raster river"). This port keeps that either/or:
+## `viewport_host.gd::set_layer_visible()`'s `"rivers"` arm suppresses the
+## raster river tint exactly while this is on, so turning the vector overlay
+## on always means turning the raster tint off, never both at once.
+var _show_rivers := false
+## Pushed by `viewport_host.gd` from `ViewportHost.debug_view()` on every
+## `set_debug_layer()` call. The reference's `drawRiverWays` runs only when
+## `dbg==="off"` -- this port has no separate "mode" to gate a second time:
+## `_refresh_vp_field()`'s own doc comment states the base map already IS the
+## single relief/biome render (`"off"` reads its label as `relief`), and a
+## picked `debug_view()` is always a translucent overlay drawn on top of it,
+## never a different base-map mode. So the one gate this file needs is
+## "is a debug field currently drawn", which is exactly what this flag is --
+## true whenever `debug_view() != "off"`. This is why the vector overlay used
+## to draw straight over the debug/info views (measured: 19 007 px inked over
+## the temp debug view alone) and was reverted for it 2026-09-13.
+var _debug_active := false
 ## Per-class / per-way-type filters -- the reference's own
 ## `#explSettlementFilterList` and the by-way-type half of `#explShowRoads`
 ## (`design/Cartalith Menu Structure v2.dc.html`, MAP > LAYERS). Stored as
@@ -1706,12 +1793,39 @@ func set_show_sea_routes(shown: bool) -> void:
 	_show_sea_routes = shown
 	queue_redraw()
 
-## The read-back half of the six `set_show_*`/`set_landmark*_visible` setters
-## above -- `viewport_host.gd::layer_visible()`'s own doc comment says why this
-## exists: a checkbox built once from a const default can only drift from
-## whatever a second writer (`civilization_workspace.gd`'s landmark-funnel
-## "Show rejected" chip, calling `set_layer_visible()` directly) last actually
-## set here.
+
+## `WorldGen.get_rivers(min_order)`'s `Array[Dictionary]` -- pushed by
+## `viewport_host.gd::refresh()` alongside `set_civ_data()`'s settlements/
+## roads/sea routes, on the same refresh cadence (not per frame/per redraw).
+## Empty (not an error) before any `generate()` and after `load_save()` --
+## see `get_rivers()`'s own doc comment on the engine side -- so a world with
+## no traced network simply draws no rivers.
+func set_rivers(rivers: Array) -> void:
+	_rivers = rivers
+	queue_redraw()
+
+
+func set_show_rivers(shown: bool) -> void:
+	_show_rivers = shown
+	queue_redraw()
+
+
+## Pushed by `viewport_host.gd::set_debug_layer()` on every call -- see
+## `_debug_active`'s own doc comment for why "a debug field is drawn" is the
+## whole gate this file needs.
+func set_debug_active(active: bool) -> void:
+	if active == _debug_active:
+		return
+	_debug_active = active
+	queue_redraw()
+
+
+## The read-back half of the seven `set_show_*`/`set_landmark*_visible`
+## setters above -- `viewport_host.gd::layer_visible()`'s own doc comment says
+## why this exists: a checkbox built once from a const default can only drift
+## from whatever a second writer (`civilization_workspace.gd`'s landmark-
+## funnel "Show rejected" chip, calling `set_layer_visible()` directly) last
+## actually set here.
 func layer_visible(layer: String) -> bool:
 	match layer:
 		"settlements": return _show_settlements
@@ -1720,6 +1834,7 @@ func layer_visible(layer: String) -> bool:
 		"landmarks": return _landmarks_visible
 		"landmark_rejects": return _landmark_rejects_visible
 		"urban_layouts": return _show_urban_layouts
+		"rivers": return _show_rivers
 		_:
 			push_error("MapOverlay: unknown layer '%s'" % layer)
 			return true
@@ -2049,7 +2164,7 @@ func _draw() -> void:
 			## where the diagnostic matters most. Leaving it out of this guard
 			## would make the layer silently undrawable on the one map worth
 			## drawing it on.
-			and _landmark_rejects.is_empty()):
+			and _landmark_rejects.is_empty() and _rivers.is_empty()):
 		return
 	var rect := _displayed_rect()
 	if rect.size.x <= 0.0:
@@ -2073,6 +2188,14 @@ func _draw() -> void:
 		var ci := get_canvas_item()
 		RenderingServer.canvas_item_set_custom_rect(ci, true, interior)
 		RenderingServer.canvas_item_set_clip(ci, true)
+
+	## Hydrology first: rivers sit under sea routes, roads and manual routes,
+	## the same base-map-then-civil-layer order the reference draws in (see
+	## `_draw_rivers()`'s own doc comment). Gated on `not _debug_active` --
+	## `_debug_active`'s own doc comment is the reason and the measurement
+	## behind it (this is reason 1 of 3 the first build was reverted for).
+	if _show_rivers and not _debug_active:
+		_draw_rivers(rect)
 
 	if _show_sea_routes:
 		for route: Dictionary in _sea_routes:
@@ -3175,6 +3298,55 @@ func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect
 	for i in range(start, end):
 		out[i - start] = _point_to_screen(points[i], rect) * k
 	return out
+
+
+## Rivers-as-ways' `_draw()` pass -- see `RIVER_COLOR_LO`'s own doc comment
+## above for what this does and does not reproduce from `drawRiverWays`, and
+## `_show_rivers`'/`_debug_active`'s own doc comments for the gate this is
+## called under. Drawn FIRST among the linear layers (before sea routes,
+## roads and routes in `_draw()`'s own call order) so those sit visually on
+## top of a river, matching the reference's own layering: `drawRiverWays`
+## composites into the base map render, `drawCivLayer`'s ways/routes/pins are
+## a later, separate pass over it.
+##
+## Reuses `_run_offscreen`/`_segment_chains` -- the same per-run-then-per-
+## segment culling `_draw_way_segment` needs and for the same reason: a world
+## can carry hundreds of traced runs (784 at `min_order=1`, measured on a
+## 192x144 world -- `right_dock.gd`'s own count), most of them short headwater
+## trickles, and every one would otherwise be walked and stroked however far
+## outside the window it lay.
+func _draw_rivers(rect: Rect2) -> void:
+	if _rivers.is_empty():
+		return
+	var k := _crisp_begin()
+	## Reference lines 9577-9579: `deEmph` is 1 at `zk=1` (world scale), 0 by
+	## `zk=8`; order-1 alpha/width interpolate from their floor up to full
+	## weight as it falls. `_camera_zoom` is this file's `zk`
+	## (`_civ_zoom_k()`'s own doc comment).
+	var deemph: float = clampf(1.0 - (_camera_zoom - 1.0) / RIVER_DEEMPH_ZOOM_SPAN, 0.0, 1.0)
+	var o1_alpha: float = RIVER_O1_ALPHA_MIN + (1.0 - RIVER_O1_ALPHA_MIN) * (1.0 - deemph)
+	var o1_width_k: float = RIVER_O1_WIDTH_MIN + (1.0 - RIVER_O1_WIDTH_MIN) * (1.0 - deemph)
+	for river: Dictionary in _rivers:
+		## `render_points`, not `points`: the same `render_points`/fallback
+		## idiom `_draw()`'s own committed-route loop uses -- see
+		## `RIVER_COLOR_LO`'s own doc comment above.
+		var pts: PackedVector2Array = river.get("render_points", river.get("points", PackedVector2Array()))
+		if pts.size() < 2:
+			continue
+		var order: int = maxi(1, int(river.get("order", 1)))
+		var tt: float = clampf(float(order - 1) / 6.0, 0.0, 1.0)   ## reference's `(maxO-1)/6`
+		var width_k: float = o1_width_k if order <= 1 else (RIVER_ORDER_WIDTH_MIN + RIVER_ORDER_WIDTH_GAIN * tt)
+		var width_px: float = RIVER_BASE_WIDTH_PX * width_k
+		var screen_points := _stroke_points(pts, 0, pts.size(), rect, k)
+		var pad := width_px * 0.5
+		if _run_offscreen(screen_points, k, pad):
+			continue
+		var color := RIVER_COLOR_LO.lerp(RIVER_COLOR_HI, tt)
+		color.a = o1_alpha if order <= 1 else 1.0
+		var chains := _segment_chains(screen_points, k, pad)
+		for chain in chains:
+			draw_polyline(screen_points.slice(chain.x, chain.y + 1), color, width_px, true)
+	_crisp_end()
 
 
 ## Draws `points[start:end]` (exclusive) as one stroke, converted to

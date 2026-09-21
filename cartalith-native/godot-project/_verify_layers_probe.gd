@@ -29,9 +29,10 @@ func _initialize() -> void:
 	app.viewport = vp
 	ws.app = app
 
-	# Build the eight checkboxes EXACTLY as cartography_workspace.gd's two
-	# loops do -- same DccWidgets.toggle call, same seed, same callback -- and
-	# record every write-back the callback would make.
+	# Build the LIVE_LAYERS checkboxes (9 as of the vector river overlay row,
+	# was 8) EXACTLY as cartography_workspace.gd's two loops do -- same
+	# DccWidgets.toggle call, same seed, same callback -- and record every
+	# write-back the callback would make.
 	var host := VBoxContainer.new()
 	var ids: Array = []
 	for layer in ws.LIVE_LAYERS:
@@ -42,7 +43,7 @@ func _initialize() -> void:
 			func(on: bool): writebacks.append([id, on]); vp.set_layer_visible(id, on))
 
 	print("== 0. build-time seed matches the engine, and does not write back ==")
-	_ok(writebacks.is_empty(), "constructing 8 toggles fired 0 callbacks")
+	_ok(writebacks.is_empty(), "constructing %d toggles fired 0 callbacks" % ws.LIVE_LAYERS.size())
 	for layer in ws.LIVE_LAYERS:
 		var id := String(layer.id)
 		var cb: CheckBox = ws._layer_checks[id]
@@ -65,7 +66,7 @@ func _initialize() -> void:
 	for id in ids:
 		if (ws._layer_checks[id] as CheckBox).button_pressed != want[id]:
 			stale += 1
-	_ok(stale == 8, "before sync all 8 checkboxes are stale (teeth check): %d/8" % stale)
+	_ok(stale == ids.size(), "before sync all %d checkboxes are stale (teeth check): %d/%d" % [ids.size(), stale, ids.size()])
 
 	writebacks.clear()
 	ws._sync_layers()

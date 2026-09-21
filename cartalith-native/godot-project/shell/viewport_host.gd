@@ -1945,6 +1945,11 @@ func refresh() -> void:
 	var g := _bridge.grid_size()
 	overlay.set_civ_data(_bridge.settlements(), _bridge.roads(),
 		_bridge.sea_routes(), g.x, g.y, _bridge.border_inset_frac())
+	## `1`: trace every headwater trickle, matching `RIVER_O1_ALPHA_MIN`'s own
+	## order-1 de-emphasis in `map_overlay.gd` -- the overlay's own visibility
+	## flag (`_show_rivers`, off by default) gates whether any of this draws,
+	## not this call.
+	overlay.set_rivers(_bridge.rivers(1))
 	refresh_faction_colors()
 	refresh_settlement_traits()
 	## A regenerate empties `InfraTools::routes`, so this also *clears* the
@@ -2169,6 +2174,30 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 		## own "Urban layouts" block owns that gate and states why it is not
 		## the reference's `_umLayoutAlpha` km band.
 		"urban_layouts": overlay.set_show_urban_layouts(shown)
+		## The vector river overlay (`OUTSTANDING_WORK.md` "The vector river
+		## overlay", re-applied 2026-09-21 after its 2026-09-13 revert).
+		## Reason 3 of 3 that revert cited: with the vector overlay on, the
+		## raster river tint baked into `color_texture()` must NOT also draw,
+		## or the map reads as two slightly-offset rivers (the "two engines"
+		## look `RC_ENGINE_CHANGES.md` quotes the owner complaining about in
+		## the source project, v1.14).
+		##
+		## `build_color_texture()`'s own doc comment says the tint "stands in
+		## for the reference's vector river overlay ... not wired into this
+		## port" -- so once the real vector overlay is on, the stand-in is
+		## exactly what has to come off, and only then: this re-bakes the SAME
+		## texture with the tint suppressed rather than drawing a second,
+		## cheaper thing over it, because the tint is baked per-pixel at
+		## texture-build time, not a separate draw-time layer
+		## (`render.rs::channel_tint`, inside `bake_rect`). Guarded inside
+		## `engine_bridge.gd::set_suppress_river_tint`'s own `_has()` check for
+		## a binary built before this landed; the vector overlay itself still
+		## toggles either way.
+		"rivers":
+			overlay.set_show_rivers(shown)
+			if _bridge != null:
+				_bridge.set_suppress_river_tint(shown)
+				map_view.texture = _bridge.color_texture()
 		_:
 			push_error("ViewportHost: unknown layer '%s'" % layer)
 			return
@@ -2345,16 +2374,23 @@ func set_preview_patch(patch: Dictionary) -> bool:
 ## input for) clears it -- the popover reads `debug_view()` back to keep its
 ## own selection honest, so a view that could not be drawn does not stay
 ## highlighted as though it had been.
+##
+## Also the single place `overlay.set_debug_active()` is called from --
+## `map_overlay.gd::_debug_active`'s own doc comment -- so the vector river
+## overlay (and anything gated on it later) stays honest with whichever field
+## view is actually drawn, on every path through this function.
 func set_debug_layer(view: String) -> void:
 	if _bridge == null or view == "off" or not _bridge.has_world:
 		_debug_view = "off"
 		_debug_layer.texture = null
 		_refresh_vp_field()
+		overlay.set_debug_active(false)
 		return
 	var tex := _bridge.debug_texture(view)
 	_debug_layer.texture = tex
 	_debug_view = view if tex != null else "off"
 	_refresh_vp_field()
+	overlay.set_debug_active(_debug_view != "off")
 
 ## Which view `set_debug_layer` actually managed to draw.
 func debug_view() -> String:
