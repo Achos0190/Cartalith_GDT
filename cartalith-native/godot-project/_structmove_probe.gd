@@ -7,6 +7,11 @@ extends Node
 ##   2. `Refine detail for the current view` -- `Preferences ▸ Tiles & LOD ▸
 ##      Atlas cache` becomes a button on the WORLD tool-options bar beside
 ##      `Bake ALL & finalize` (v3 `WORLD ▸ GENERATE ▸ › Bake & finalize`).
+##      **Reversed 2026-09-21, owner Ruling U** (`LARGE_ITEM_RULINGS.md`): the
+##      2026-09-07 canvas never drew it on the WORLD bar, so section 2 below
+##      now checks the row is back on `Preferences ▸ Tiles & LOD ▸ Atlas
+##      cache` and gone from the WORLD bar -- the mirror of what it checked
+##      when this file was written.
 ##   3. `Assets ▸ Asset pack ▸` -- four labelled bands become `03-menu-bar.md`
 ##      §6.3a's flat nine rows.
 ##
@@ -205,43 +210,45 @@ func _ready() -> void:
 		"tool=%s" % app.armed_tool)
 
 	# =====================================================================
-	print("\n=== 2: Refine detail -- off the Atlas submenu, onto the WORLD bar ===")
+	print("\n=== 2: Refine detail -- back on the Atlas submenu, off the WORLD bar (Ruling U) ===")
 
 	var atlas := _popup("AtlasCache")
 	_check("the Atlas cache submenu is still there", atlas != null)
 	if atlas != null:
-		_check("2a OLD HOME: Atlas cache has no Refine row",
-			not _has_row(atlas, "Refine"), "rows=%s" % [_rows(atlas)])
+		_check("2a NEW HOME: Atlas cache has a Refine row again",
+			_has_row(atlas, "Refine"), "rows=%s" % [_rows(atlas)])
 		_check("2a control: its other rows survived",
 			_has_row(atlas, "Export atlas") and _has_row(atlas, "Import atlas")
 				and _has_row(atlas, "Clear atlas cache"))
+		var refine_idx := _row_index(atlas, "Refine detail for the current view")
+		if refine_idx >= 0:
+			_check("2a: it carries the shared limit text, not a fresh one",
+				atlas.get_item_tooltip(refine_idx) == DccMenus.REFINE_TOOLTIP)
 
 	## The WORLD bar is rebuilt on every domain switch, so select WORLD first.
 	app.select_domain("world")
 	await _frames(8)
 	var refine := _button(app.tool_options_row, "Refine detail")
-	_check("2b NEW HOME: a Refine detail button is on the WORLD tool bar",
-		refine != null)
+	_check("2b OLD HOME GONE: no Refine detail button on the WORLD tool bar",
+		refine == null)
 	var bake := _button(app.tool_options_row, "Bake ALL & finalize")
-	_check("2b: beside Bake ALL & finalize, in the same row",
-		refine != null and bake != null and refine.get_parent() == bake.get_parent(),
-		"bake=%s" % [bake != null])
-	if refine != null:
-		_check("2b: it carries the shared limit text, not a fresh one",
-			refine.tooltip_text == DccMenus.REFINE_TOOLTIP)
+	_check("2b control: Bake ALL & finalize is still on the WORLD bar",
+		bake != null)
 
 	## SAME THING. At a fitted view the pyramid is not up, so the honest answer
 	## is the "nothing to refine at this zoom" refusal -- which is still proof
 	## the press reaches `refine_current_view()`, because nothing else in the
 	## shell writes that sentence. A silent press would leave the hint blank.
-	if refine != null:
-		app.set_status("hint", "", "text_dim")
-		await _frames(3)
-		refine.pressed.emit()
-		await _frames(10)
-		var hint := String(app.status_slot_text("hint"))
-		_check("2c SAME THING: the press reaches refine_current_view()",
-			hint.findn("refine") >= 0, "hint=%s" % hint)
+	if atlas != null:
+		var refine_idx2 := _row_index(atlas, "Refine detail for the current view")
+		if refine_idx2 >= 0:
+			app.set_status("hint", "", "text_dim")
+			await _frames(3)
+			atlas.id_pressed.emit(atlas.get_item_id(refine_idx2))
+			await _frames(10)
+			var hint := String(app.status_slot_text("hint"))
+			_check("2c SAME THING: the press reaches refine_current_view()",
+				hint.findn("refine") >= 0, "hint=%s" % hint)
 
 	# =====================================================================
 	print("\n=== 3: Asset pack -- four bands become nine flat rows ===")

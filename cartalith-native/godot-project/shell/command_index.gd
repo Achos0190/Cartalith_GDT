@@ -97,6 +97,14 @@ class_name CommandIndex
 ## that are not menu rows. **Any future move off the menu bar owes this table a
 ## row in the same change.**
 ##
+## **`Refine detail for the current view`'s row came back out 2026-09-21,
+## Ruling U (`LARGE_ITEM_RULINGS.md`).** The move that put it here reversed --
+## it is a real `Preferences ▸ Tiles & LOD ▸ Atlas cache` `PopupMenu` row again
+## (`menus.gd::_build_atlas_cache_menu()`), so `_add_menu_commands()`'s own walk
+## finds it for free and an `EXTRAS` entry would be a second, driftable copy of
+## a title the walk already owns. `Journey planner` stays: that ruling was not
+## revisited, and it is still a rail node with no menu row underneath it.
+##
 ## **The Asset-pack flattening (same day) is the mirror case, decided the other
 ## way -- zero rows, checked rather than assumed.** Its fifteen dropped rows
 ## were never rail nodes or bar buttons; they were shortcuts into the
@@ -128,7 +136,6 @@ const EXTRAS: Array = [
 	{"title": "Zoom to fit", "blurb": "Frame the whole world in the viewport", "group": "View"},
 	{"title": "Point sample", "blurb": "Read elevation, biome and climate under one cell", "group": "View"},
 	{"title": "Journey planner", "blurb": "Plan a route: party, season, carriage, stages and cost. CIVIL rail ▸ Travel, or Shift+J", "group": "Civilization"},
-	{"title": "Refine detail for the current view", "blurb": "Re-render the visible tiles at full detail. WORLD tool options, beside Bake & finalize", "group": "World"},
 	{"title": "Theme", "blurb": "Dark, Light or Follow system. Preferences ▸ Theme -- ☰ ▸ Preferences ▸ Theme on tablet, which also has a one-tap dark/light flip at ☰ ▸ Toggle theme", "group": "Preferences"},
 ]
 

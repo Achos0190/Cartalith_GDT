@@ -2417,34 +2417,16 @@ func _tool_options_generate() -> void:
 			if ws != null:
 				ws.bake_and_finalize())
 		_tool_options_bake = bake
-		## **`Refine detail`, moved here 2026-09-05** from `Preferences ▸ Tiles &
-		## LOD ▸ Atlas cache` by the owner's structural-move ruling
-		## (`LARGE_ITEM_RULINGS.md` item 4: *"Atlas 'Refine detail for the
-		## current view' moves to the WORLD rail beside Bake & finalize"*).
-		## `design/Cartalith Menu Structure v3.dc.html` draws it exactly there --
-		## `LOD terrain data · refine · atlas bake` (`#lodRefineBtn
-		## #lodBakeBtn`) inside `WORLD ▸ GENERATE ▸ › Bake & finalize`, annotated
-		## `from · View ▸ Tiled LOD, Atlas cache` -- and `03-menu-bar.md` §6.5's
-		## TILES & LOD block has no refine row at all.
-		##
-		## Beside `Bake ALL & finalize` literally: this row is the WORLD bar, and
-		## the two are the shell's only two bakes. `menus.gd` keeps the pass
-		## (`refine_current_view()`, public for this one caller) because
-		## everything it needs -- the bridge, the viewport, the status
-		## vocabulary -- is that file's; a copy here would have been a second
-		## implementation rather than a move. `REFINE_TOOLTIP` is shared for the
-		## same reason: it is where the "does NOT speed up panning back" limit is
-		## written down, and two copies is two things to keep in step.
-		##
-		## **Not pushed a state the way `_tool_options_bake` is.** The bake
-		## shortcut mirrors the WORLD dock's own control, so `set_bake_shortcut`
-		## keeps them from drifting; refine has no dock twin and answers for
-		## itself -- `refine_current_view()` reports "no world on screen" and
-		## "the pyramid is not up at this zoom" on the status line rather than
-		## going dark, which is the only honest gate when the precondition is
-		## the *camera*, not the world.
-		DccWidgets.action(row, "Refine detail", func(): menus.refine_current_view()) \
-			.tooltip_text = DccMenus.REFINE_TOOLTIP
+		## **`Refine detail` moved back to `Preferences ▸ Tiles & LOD ▸ Atlas
+		## cache` 2026-09-21, owner Ruling U (`LARGE_ITEM_RULINGS.md`).** It sat
+		## here from 2026-09-05 (`LARGE_ITEM_RULINGS.md` item 4) until the
+		## 2026-09-07 design canvas stopped drawing it on this bar at all -- its
+		## GENERATE panel states atlas/LOD work belongs under Preferences ▸
+		## Tiles & LOD -- and the canvas postdates the ruling it revisits, so
+		## per this project's own newer-canvas-wins rule the owner has ruled to
+		## follow it. See `menus.gd::_build_atlas_cache_menu()` for the row's
+		## new (original) home; the pass itself (`refine_current_view()`) never
+		## moved.
 		var ws0: WorldWorkspace = _world_workspace()
 		if ws0 != null:
 			ws0.on_world_changed()

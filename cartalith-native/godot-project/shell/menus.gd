@@ -72,10 +72,10 @@ const ID_DESELECT := 82
 ## `LARGE_ITEM_RULINGS.md` ruling. `84`-`87` by the same whole-file grep of
 ## `^const ID_[A-Z_]+ := [0-9]+` its neighbours record making: `78`-`83` were
 ## taken (`ID_HELP_DOCS`, `ID_LOD_TILE_BORDERS`, `ID_LOD_REFINE_VIEW`,
-## `ID_DESELECT` and `83`) and no `*_FIRST` block reaches this range. **`81` is
-## free again** since `ID_LOD_REFINE_VIEW` was retired on 2026-09-05 (see its
-## own note below); it is left unallocated rather than recycled, so a reader
-## chasing an old id lands on the note instead of on someone else's row.
+## `ID_DESELECT` and `83`) and no `*_FIRST` block reaches this range. `81`
+## (`ID_LOD_REFINE_VIEW`) was briefly free between its 2026-09-05 retirement
+## and its 2026-09-21 restoration (Ruling U, see its own note below) -- it was
+## left unallocated rather than recycled for exactly that reason.
 const ID_CUT := 84
 const ID_COPY := 85
 const ID_PASTE := 86
@@ -188,13 +188,16 @@ const ID_LOD_DBG_LABELS := 76
 ## but `get_item_index(id)` does not know that, and a probe or a later reader
 ## looking a row up by number would find the wrong menu's. Cheap to avoid.
 const ID_LOD_TILE_BORDERS := 80
-## 81 held `Atlas cache ▸ Refine detail for the current view` until 2026-09-05.
-## The same structural-move ruling put it on the WORLD rail beside Bake &
-## finalize -- v3 draws it as `LOD terrain data · refine · atlas bake` under
-## `WORLD ▸ GENERATE ▸ › Bake & finalize`, and `03-menu-bar.md` §6.5's
-## TILES & LOD block has no refine row at all. The pass itself stayed here as
-## the public `refine_current_view()`; `app.gd::_tool_options_generate()` is
-## what presses it now. Left out rather than left dangling, as above.
+## `Atlas cache ▸ Refine detail for the current view`. Left this submenu
+## 2026-09-05 for the WORLD tool-options bar (`LARGE_ITEM_RULINGS.md` item 4)
+## and returned here 2026-09-21 (Ruling U): the 2026-09-07 design canvas never
+## drew it on the WORLD bar -- its GENERATE panel states atlas/LOD work
+## belongs under Preferences ▸ Tiles & LOD, and `03-menu-bar.md` §6.5's TILES
+## & LOD block draws it here, not there. The pass itself
+## (`refine_current_view()`) never moved and never went private again; the
+## presser is this submenu's own `id_pressed` handler now, not
+## `app.gd::_tool_options_generate()`.
+const ID_LOD_REFINE_VIEW := 81
 const ID_LOD_EXPORT_ATLAS := 82
 const ID_LOD_IMPORT_ATLAS := 83
 
@@ -2849,8 +2852,11 @@ func _stamp_pref_values(p: PopupMenu) -> void:
 ## replacement for it. `command_index.gd`'s `EXTRAS` carries a "Theme" pointer
 ## row so a search for the word "theme" itself (which matches none of "Dark" /
 ## "Light" / "Follow system" / "Toggle theme" by substring) still finds
-## something, the same convention `EXTRAS`' own header documents for
-## Journey planner and Refine detail.
+## something, the same convention `EXTRAS`' own header documents for Journey
+## planner -- a real rail node with no menu row of its own to be found by.
+## (Refine detail carried the same kind of `EXTRAS` row from 2026-09-05 to
+## 2026-09-21, while it too was off the menu bar; Ruling U put it back on a
+## real `PopupMenu` row, so `EXTRAS` no longer needs an entry for it.)
 ##
 ## Units, below, has no such conflict: its own three real choices (km/mi/nmi)
 ## stay in a submenu on both compositions (the canvas's own Units row is a
@@ -4249,9 +4255,9 @@ func _on_tile_size(id: int) -> void:
 ## Clear is the same action as `Memory ▸ Clear caches…` and goes through the
 ## same `_clear_caches()` -- one implementation, two entry points, the shape
 ## `Storage locations…` already has in File and Preferences, not a second
-## clearer. The reference's Refine pass was the third row here and is not any
-## more -- it moved to the WORLD tool-options bar on 2026-09-05, and the note
-## below the `_build_atlas_cap_menu()` call says why and where.
+## clearer. The reference's Refine pass was the third row here, left for the
+## WORLD tool-options bar on 2026-09-05 and returned 2026-09-21 (Ruling U) --
+## the note below the `_build_atlas_cap_menu()` call says the current story.
 ##
 ## # The atlas is still write-only, and every row here says so (2026-08-31)
 ##
@@ -4281,26 +4287,31 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 	## then a live store readout with its own tooltip.
 	_readout(_atlas_popup, "— loading —", "")
 	_build_atlas_cap_menu(_atlas_popup)
-	## **`Refine detail for the current view` left this submenu on 2026-09-05.**
-	## Owner ruling (`LARGE_ITEM_RULINGS.md`, 2026-09-05 item 4): it moves to the
-	## WORLD rail beside Bake & finalize. v3 draws it there --
-	## `design/Cartalith Menu Structure v3.dc.html` puts `LOD terrain data ·
-	## refine · atlas bake` (`#lodRefineBtn #lodBakeBtn`) inside
-	## `WORLD ▸ GENERATE ▸ › Bake & finalize`, annotated `from · View ▸ Tiled
-	## LOD, Atlas cache` -- and `03-menu-bar.md` §6.5's TILES & LOD block draws
-	## two readouts and `Clear caches…` and no refine row at all. It is a bake,
-	## and every other bake in this shell is on the WORLD bar.
+	## **`Refine detail for the current view` is back in this submenu,
+	## 2026-09-21, owner Ruling U.** It left here 2026-09-05
+	## (`LARGE_ITEM_RULINGS.md` item 4) for the WORLD tool-options bar beside
+	## Bake & finalize. The 2026-09-07 design canvas (`design/Cartalith Menu
+	## Structure v3.dc.html`) never drew it there, though -- its GENERATE panel
+	## states atlas/LOD work belongs under Preferences ▸ Tiles & LOD, matching
+	## `03-menu-bar.md` §6.5's TILES & LOD block, which has always drawn it
+	## here. The canvas postdates the ruling it revisits, so per this
+	## project's own "the newer canvas wins" rule the owner has ruled to
+	## follow it back to this submenu.
 	##
-	## The pass stayed in this file as the public `refine_current_view()`; the
-	## presser is `app.gd::_tool_options_generate()`, beside the `Bake ALL &
-	## finalize` shortcut that row already carried. The tooltip moved with it
-	## verbatim rather than being re-worded, because its "does NOT speed up
-	## panning back" clause is still the only place that limit is written down.
+	## The pass (`refine_current_view()`) never left this file; only its
+	## presser moved, and has now moved back to this popup's own
+	## `id_pressed` handler below. The tooltip is unchanged -- `REFINE_TOOLTIP`
+	## is still where the "does NOT speed up panning back" limit is written
+	## down, and staying a shared constant costs nothing now that there is
+	## only the one caller again.
 	##
-	## **The command-index entry went with the row** -- `command_index.gd` walks
-	## the `MenuBar` and cannot see a tool-options button -- so `EXTRAS` needs a
-	## `Refine detail for the current view` row. Reported, not installed: that
-	## file belongs to another lane this batch.
+	## **The command-index entry went with the row, both ways.** It needed an
+	## `EXTRAS` row while off the menu bar (`command_index.gd`'s own header);
+	## now that it is a real `PopupMenu` row again, `_add_menu_commands()`
+	## finds it by walking the tree the same as any other row, and the
+	## `EXTRAS` row has been removed rather than left as a silent duplicate.
+	_atlas_popup.add_item("Refine detail for the current view", ID_LOD_REFINE_VIEW)
+	_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1, REFINE_TOOLTIP)
 	_atlas_popup.add_separator()
 	## **The portable pair, wired 2026-09-01.** `atlas_export_zip(gzip)` and
 	## `atlas_import_zip(bytes)` have been bound, wrapped in
@@ -4336,6 +4347,8 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 	_atlas_popup.id_pressed.connect(func(id: int):
 		if id == ID_LOD_CLEAR_ATLAS:
 			_clear_caches()
+		elif id == ID_LOD_REFINE_VIEW:
+			refine_current_view()
 		elif id == ID_LOD_EXPORT_ATLAS:
 			_export_atlas()
 		elif id == ID_LOD_IMPORT_ATLAS:
@@ -4462,7 +4475,7 @@ func _refresh_atlas_cache_menu() -> void:
 	if clear_idx >= 0:
 		_atlas_popup.set_item_disabled(clear_idx, chunks <= 0)
 		_atlas_popup.set_item_tooltip(clear_idx,
-			"Nothing is baked for this world, so there is no cache to clear. Bake ALL levels & finalize (WORLD dock), or Refine detail beside it on the WORLD tool-options bar, first."
+			"Nothing is baked for this world, so there is no cache to clear. Bake ALL levels & finalize (WORLD dock), or Refine detail for the current view above, first."
 			if chunks <= 0 else
 			"Deletes this world's %d baked chunk%s (%s), asking first. The same action as Preferences > Memory > Clear caches..., confirmation and all -- one clearer with two entry points, since SS2.5 lists it in both groups." % [
 				chunks, "" if chunks == 1 else "s", String(st.get("bytes_text", "0 B"))])
@@ -4480,7 +4493,7 @@ func _refresh_atlas_cache_menu() -> void:
 	if exp_idx >= 0:
 		_atlas_popup.set_item_disabled(exp_idx, chunks <= 0)
 		_atlas_popup.set_item_tooltip(exp_idx,
-			"Nothing is baked for this world, so there is nothing to export. Bake ALL levels & finalize (WORLD dock), or Refine detail beside it on the WORLD tool-options bar, first."
+			"Nothing is baked for this world, so there is nothing to export. Bake ALL levels & finalize (WORLD dock), or Refine detail for the current view above, first."
 			if chunks <= 0 else
 			"Writes this world's %d baked chunk%s (%s) to one portable .zip -- the archive another machine can import to skip the bake. It carries the cache only: the world, its parameters and every edit live in the project .zip and are not in this file." % [
 				chunks, "" if chunks == 1 else "s", String(st.get("bytes_text", "0 B"))])
@@ -5636,10 +5649,12 @@ func _refresh_lod_debug_menu() -> void:
 ##     and baking level 0 would silently do something other than what the row
 ##     says
 ##   - no atlas directory -> `bake_visible` refuses, and its own message says so
-## What a refine actually buys, and what it does not. Carried as a constant so
-## the WORLD bar's button and this file's own status vocabulary read the same
-## sentence -- the row moved out of this menu on 2026-09-05 and a copied string
-## would have been the second thing to keep in step.
+## What a refine actually buys, and what it does not. Carried as a constant
+## rather than an inline string because the row spent 2026-09-05 to 2026-09-21
+## on the WORLD tool-options bar (`app.gd`), and a copied string would have
+## been the second thing to keep in step with this one; kept as a constant now
+## it is back on this submenu's own row (Ruling U) since nothing forces it
+## back to an inline literal and the next move is not this file's to predict.
 ##
 ## **The read side is not wired, and this text does not say it is.** Until
 ## 2026-08-31 the row promised "panning back over this area reads from disk
@@ -5659,11 +5674,15 @@ const REFINE_TOOLTIP := "Bakes the pyramid chunks the current view touches, at t
 ## 256x192 world at 6x zoom: 16 chunks baked in 0.26 s.
 ##
 ## **Public since 2026-09-05**, when the row moved off `Preferences ▸ Atlas
-## cache` and onto the WORLD tool-options bar (see `_build_atlas_cache_menu()`
-## for the ruling). The only caller is `app.gd::_tool_options_generate()`; the
-## pass stayed here because everything it needs -- `_bridge`, `_host.viewport`,
-## the status vocabulary -- is this file's, and moving it would have been a
-## second implementation rather than a move.
+## cache` and onto the WORLD tool-options bar; the caller was
+## `app.gd::_tool_options_generate()` for that stretch. **2026-09-21, Ruling U
+## moved the row back to `Preferences ▸ Tiles & LOD ▸ Atlas cache`** (see
+## `_build_atlas_cache_menu()` for the ruling), and the caller is that popup's
+## own `id_pressed` handler again -- this function never moved either time,
+## because everything it needs (`_bridge`, `_host.viewport`, the status
+## vocabulary) is this file's. Left public rather than reprivatised: nothing
+## depends on the visibility either way, and a second round trip is cheap
+## insurance against a third move costing another rename.
 func refine_current_view() -> void:
 	if _host == null or _host.viewport == null:
 		return

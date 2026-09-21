@@ -140,17 +140,24 @@ func _ready() -> void:
 			_rows_deep(m, all_menu_rows)
 	_ok("A1 gone (whole menu bar): `Journey planner` is in no menu at all",
 		_count_containing(all_menu_rows, "Journey planner") == 0)
-	_ok("A2 gone (whole menu bar): `Refine detail` is in no menu at all",
-		_count_containing(all_menu_rows, "Refine detail") == 0)
+	## **Reversed 2026-09-21, owner Ruling U.** `Refine detail` moved back onto
+	## `Preferences ▸ Tiles & LOD ▸ Atlas cache` (`LARGE_ITEM_RULINGS.md`), so
+	## it is now expected to show up in the whole-menu-bar walk again -- the
+	## mirror of what this row checked when it was written.
+	_ok("A2 present (whole menu bar): `Refine detail` is in a menu again",
+		_count_containing(all_menu_rows, "Refine detail") > 0)
 
 	## --- the command index, built the way the search field builds it -------
 	var idx := CommandIndex.new()
 	idx.build(app, bridge)
 	## **TITLE matches only.** `CommandIndex.search()` also matches a row's
-	## blurb, and counting those reported a false PASS for `Refine detail`: the
-	## two hits were `Clear atlas cache now` and `Export atlas`, whose tooltips
-	## were rewritten in this same pass to say *"or Refine detail beside it on
-	## the WORLD tool-options bar"*. Neither is the command.
+	## blurb, and counting those reported a false PASS for `Refine detail` on
+	## 2026-09-05: the two hits were `Clear atlas cache now` and `Export
+	## atlas`, whose tooltips were rewritten in that pass to point at the
+	## row's new home. Ruling U put the row itself back on the menu bar, so
+	## the title hit below now comes from the real `PopupMenu` row
+	## (`_add_menu_commands()`'s own walk), not from `command_index.gd`'s
+	## `EXTRAS` table, which no longer carries an entry for it.
 	_ok("A: command index still finds `Journey planner`", _title_hits(idx, "journey planner") > 0,
 		"%d title matches" % _title_hits(idx, "journey planner"))
 	_ok("A: command index still finds `Refine detail`", _title_hits(idx, "refine detail") > 0,
@@ -212,32 +219,43 @@ func _ready() -> void:
 	_ok("A1 release: a sibling CIVIL node releases the journey takeover",
 		String(app.armed_tool) != "journey", "still armed_tool=%s" % String(app.armed_tool))
 
-	## --- Move 2: Refine detail at its new home ------------------------------
+	## --- Move 2, reversed 2026-09-21 (Ruling U): Refine detail back on
+	## `Preferences ▸ Tiles & LOD ▸ Atlas cache`, gone from the WORLD bar -----
 	var atlas := _popup_named("AtlasCache")
 	_ok("A2: the Atlas cache submenu still exists", atlas != null)
+	var refine_id := -1
 	if atlas != null:
 		var arows := _rows_deep(atlas, [])
-		_ok("A2 gone: no Refine row in Atlas cache", _count_containing(arows, "Refine") == 0, str(arows))
+		_ok("A2 new home: a Refine row is back in Atlas cache",
+			_count_containing(arows, "Refine") > 0, str(arows))
 		_ok("A2 control: Atlas cache still has Export/Import/Clear",
 			_count_containing(arows, "Export") >= 1 and _count_containing(arows, "Import") >= 1
 				and _count_containing(arows, "Clear") >= 1, str(arows))
+		for i in atlas.item_count:
+			if String(atlas.get_item_text(i)).findn("Refine") >= 0:
+				refine_id = atlas.get_item_id(i)
+				## Literals, never `== DccMenus.REFINE_TOOLTIP`: asserting a
+				## constant against itself passes however the constant is
+				## mutated.
+				_ok("A2 new home: its tooltip is the shared refine text",
+					String(atlas.get_item_tooltip(i)).find("does NOT speed up panning back") >= 0
+						and String(atlas.get_item_tooltip(i)).find("Zoom in first") >= 0,
+					String(atlas.get_item_tooltip(i)).substr(0, 60))
+				break
 
 	app.select_domain_mode("world", "generate")
 	await _frames(3)
 	var refine := _button_named(app, "Refine detail")
-	_ok("A2 new home: a `Refine detail` button is on the WORLD tool-options bar", refine != null)
-	if refine != null:
-		## Literals, never `== DccMenus.REFINE_TOOLTIP`: asserting a constant
-		## against itself passes however the constant is mutated. Shown red by
-		## replacing "does NOT speed up panning back" in `menus.gd` with a
-		## sentinel (file restored, sha256 identical, zero residue).
-		_ok("A2 new home: its tooltip is the shared refine text",
-			String(refine.tooltip_text).find("does NOT speed up panning back") >= 0
-				and String(refine.tooltip_text).find("Zoom in first") >= 0,
-			String(refine.tooltip_text).substr(0, 60))
-		_ok("A2 touch target: >= 44 px tall", refine.size.y >= 44.0,
-			"%.1f x %.1f px" % [refine.size.x, refine.size.y])
-		refine.pressed.emit()
+	_ok("A2 old home gone: no `Refine detail` button on the WORLD tool-options bar",
+		refine == null)
+	var bake := _button_named(app, "Bake ALL & finalize")
+	_ok("A2 control: Bake ALL & finalize is still on the WORLD tool-options bar",
+		bake != null)
+
+	if atlas != null and refine_id >= 0:
+		app.set_status("hint", "", "text_dim")
+		await _frames(2)
+		atlas.id_pressed.emit(refine_id)
 		await _frames(3)
 		var st := _texts(app, [])
 		_ok("A2 works: pressing it reaches menus.refine_current_view()",
