@@ -14,15 +14,22 @@
 //!
 //! [`kinds`] declares all 49 landmark types of research §29 — which family
 //! (§29), which class (§23), a default cap, whether the type leans on the
-//! viewshed field this port does not have (§9.3 of the UI design names exactly
-//! six), and whether the type is **actually generated**. Twenty are: fifteen
-//! off the terrain and hydrology rasters, plus the five M8 closed by threading
+//! viewshed field (§9.3 of the UI design names exactly six; `Derived::vis`
+//! now built, see below), and whether the type is **actually generated**.
+//! **Twenty-six are, as of the border-marker fix (2026-09-21):** fifteen off
+//! the terrain and hydrology rasters, plus the five M8 closed by threading
 //! the **routed way graph** in as [`LandmarkInputs::ways`] — Road junction,
 //! Bridge site, Market site, Caravan station and Trade depot, each of which
 //! named exactly that missing input in the `not_built` reason it used to
-//! carry. See [`EXTRACTION_RESOURCES`] for why Resource extraction site is not
-//! the duplicate its name suggests, and `pool_trade_road` for why the last two
-//! of the five are one function.
+//! carry — plus the five §9.3 viewshed kinds M7 unblocked (Fort, Watchtower,
+//! Fortified pass, Fortified crossing, Volcanic feature) and Border marker,
+//! the sixth and last of §9.3's viewshed kinds, closed the same day by
+//! threading [`LandmarkInputs::territory`] in alongside the viewshed.
+//! `sacred_mountain` is the one §9.3 kind still blocked — not on the
+//! viewshed, but on §26's cultural-meaning input, which nothing here
+//! provides. See [`EXTRACTION_RESOURCES`] for why Resource extraction site
+//! is not the duplicate its name suggests, and `pool_trade_road` for why the
+//! last two of the way-graph five are one function.
 //! One of those inputs is not terrain at all: [`LandmarkInputs::manual_icons`]
 //! carries the **hand-placed** icons, so §30's spacing step can refuse a cell
 //! a person has already marked. That is owner ruling 14's own justification
@@ -236,8 +243,9 @@ pub struct LandmarkKindSpec {
     /// alternative was three dozen-odd reasons living in GDScript where they
     /// would drift from the engine that owns them (36 at the time this field
     /// was added; 34 after the M8 residual pass built Resource extraction
-    /// site; 29 once the way graph closed the five that named it). Purely
-    /// additive.
+    /// site; 29 once the way graph closed the five that named it; 24 once
+    /// M7's viewshed closed five more; 23 once border marker threaded
+    /// territory in behind it, 2026-09-21). Purely additive.
     pub not_built: &'static str,
 }
 
