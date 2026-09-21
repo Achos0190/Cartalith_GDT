@@ -11599,6 +11599,12 @@ fn label_dict(lb: &cartalith_civ::labels::MapLabel) -> VarDictionary {
         "size_mode" => size_mode,
         "font" => lb.font_or_default(),
         "color" => lb.color_or_default(),
+        // `MapLabel::weight`'s own doc: rank within its class only, `0.0` and
+        // meaningless for a hand-placed row. Carried through unconditionally
+        // (never omitted) because it is never a missing value here -- every
+        // `MapLabel` has one, generated or not; a reader gates on `generated`
+        // instead, per that field's own doc comment.
+        "weight" => lb.weight,
     }
 }
 

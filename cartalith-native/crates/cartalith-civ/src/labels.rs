@@ -101,6 +101,20 @@ pub struct MapLabel {
     /// design's own fallback (`parts.js:378` falls back to `CL[2]`, which is
     /// settlement).
     pub class: LabelClass,
+    /// The [`LabelCandidate::weight`] this row was placed from — **rank within
+    /// its own class only**, never comparable across classes (a continent's
+    /// cell count and a landmark's `0..1` importance are not the same
+    /// quantity; see [`LabelCandidate::weight`]'s own doc).
+    ///
+    /// `0.0` for a hand-placed label (no candidate produced it — [`MapLabel::
+    /// new`] and a restored save both leave it at the default), which a
+    /// renderer must not read as "least important"; it means "not applicable".
+    /// This is the one place that rule bends for a real reason: nothing reads
+    /// this field for a hand-placed row, ever — a renderer keying zoom-LOD
+    /// bias off `weight` must gate on `generated` first, the same way
+    /// `map_overlay.gd::_apply_generated_size_mode_override` already only
+    /// touches `generated == true` rows.
+    pub weight: f64,
 }
 
 impl MapLabel {
@@ -119,6 +133,7 @@ impl MapLabel {
             color: None,
             size_mode: LabelSizeMode::Zoom,
             class: LabelClass::Settlement,
+            weight: 0.0,
         }
     }
 
@@ -1110,6 +1125,7 @@ pub fn generate_labels(
             lb.size = ty.size;
             lb.size_mode = settings.size_mode;
             lb.color = Some(ty.ink.to_string());
+            lb.weight = c.weight;
 
             if let Some(m) = settings.cull.as_ref() {
                 let r = label_cull_rect(&lb, ty.tracking, m);

@@ -133,6 +133,66 @@ const VILLAGE_ADDON_LOD := 2.4
 ## wrongly hidden.
 const VILLAGE_ADDON_POP := 0
 
+## Zoom-dependent label density for the GENERIC label layer (`_labels` /
+## `_draw_labels()`) -- owner-requested 2026-09-21, *"can we make the amount
+## of displayed placenames dependent on zoom (akin to how google maps handles
+## zoom/names. The bigger the settlement/importance the less zoom you need to
+## see the place."* Same mechanism as `SETTLEMENT_LOD` above (a minimum RAW
+## `_camera_zoom / _lod_zoom_base()` ratio, `0.0` meaning "always on"), applied
+## to the other four label classes ([`LabelClass`] in `labels.rs`) rather than
+## to the settlement pin, which already has its own gate.
+##
+## **`settlement` is deliberately absent from this table.** `labels.rs::
+## generate_labels` emits one `Settlement`-class candidate per row of
+## `civ.settlements` -- the exact same array, same index order, same name and
+## position `get_settlements()` reads -- so every generated settlement label
+## in `_labels` names the same place, at the same point, as a pin this file's
+## own settlement loop (`_draw()`, ~line 2205) already draws inline with its
+## own text, its own LOD (`_settlement_below_lod`, tier-accurate: capital/
+## city/metropolis always, town/village/hamlet progressively more zoom) and
+## its own collision-avoided placement. Drawing the generic layer's copy on
+## top would not be "not contradicting" the pin's LOD, it would be a second,
+## independently-gated draw of literally the same string at literally the
+## same spot -- measured (`_labeldup_probe.gd`, 2026-09-21, the shell's own
+## default world: seed 483920, 1200 km, 2048x1311, villages on, sea 0.42):
+## 240 settlements, 158 generated `settlement`-class rows in
+## `labels_render_list()`'s 186-row total, and **all 158** matched a
+## `get_settlements()` row on name AND cell position exactly. (The other 82
+## settlements' candidates lost the engine's own collision culler to a
+## higher-weight neighbour -- expected, and irrelevant here: the ones that DO
+## survive are the ones that would have doubled up with their own pin.) So
+## `_draw_labels()`
+## skips a `generated` settlement-class row outright (see the `continue`
+## there) rather than giving it a second LOD schedule to keep in sync with
+## `SETTLEMENT_LOD` by hand -- one settlement name, one gate, the pin's own.
+## A HAND-PLACED label of the settlement role (a user's own authored content,
+## `generated == false`) is untouched by any of this, same as every other
+## class.
+const LABEL_CLASS_LOD := {
+	"continental": 0.0,
+	"region": 0.0,
+	"water": 0.5,
+	"landmark": 0.6,
+}
+## How much further past its class's own `LABEL_CLASS_LOD` floor the LEAST
+## important label in that class is pushed -- the multiplier at weight rank 0
+## (the smallest lake / lowest-importance landmark in the generated set); the
+## MOST important member of the class (rank 1) gets `1.0`, i.e. no push at
+## all, so it shows at its class's own floor. This is the "bigger the
+## settlement/importance, the less zoom you need" half of the owner's request,
+## generalised from settlements to every class via `MapLabel::weight`.
+## Interpolated on a LOG scale (`_label_weight_bias`'s own comment) because
+## `weight` spans wide magnitudes within a class -- lake cell counts and
+## landmark `importance` alike.
+##
+## `3.0`, not derived from a formula: `SETTLEMENT_LOD` itself spans town
+## (0.4) to hamlet (1.4), a 3.5x ratio across three tiers, so a 3x spread
+## across one class's full weight range is the same order of magnitude as
+## the settlement-tier precedent this whole mechanism follows, not an
+## invented number. Tunable -- there is no reference behaviour to match here,
+## this table is new.
+const LABEL_WEIGHT_LOD_SPREAD := 3.0
+
 ## Reference's own low-zoom fallback dot (line 15752-15756):
 ## `dr=(isPoi?1.4:1.9)*lsc` plus a `+0.6*lsc` dark outline ring -- `lsc`
 ## there is this file's own per-frame `sc`.
@@ -1056,6 +1116,14 @@ func _lod_zoom_base() -> float:
 var _manual_icons: Array = []
 var _labels: Array = []
 
+## Per-class `[min, max]` of `log(weight + 1.0)` over this frame's
+## **generated** rows only, keyed by [`LabelClass::key`] -- what
+## `_label_weight_bias()` normalises a row's own weight against. Rebuilt
+## once per `set_labels()` call (generation-time cost, not per-frame): a
+## label's weight never changes between one `_draw()` and the next, only
+## between one `set_labels()` call and the next.
+var _label_weight_log_range: Dictionary = {}
+
 ## Per-class `size_mode` override applied to **generated** rows only, key ->
 ## `"fixed"`/`"zoom"` -- `cartography_workspace.gd`'s existing per-role "Size
 ## mode" control (built for a new hand-placed label's own default) pushes its
@@ -1191,7 +1259,64 @@ func set_manual_icons(icons: Array) -> void:
 func set_labels(labels: Array) -> void:
 	_apply_generated_size_mode_override(labels)
 	_labels = labels
+	_label_weight_log_range = _compute_label_weight_log_range(labels)
 	queue_redraw()
+
+## Per-class `[min, max]` of `log(weight + 1.0)` over every **generated** row
+## -- see `_label_weight_log_range`'s own doc for why this is cached rather
+## than recomputed per glyph. `+ 1.0` keeps a `weight == 0.0` row (there is no
+## such candidate today, but nothing guarantees that) at `log == 0.0` instead
+## of `-inf`, and log rather than linear because weight spans wide magnitudes
+## within a class -- a lake's cell count and a landmark's `0..1` importance
+## alike (`LabelCandidate::weight`'s own doc in `labels.rs`).
+func _compute_label_weight_log_range(labels: Array) -> Dictionary:
+	var out: Dictionary = {}
+	for lb: Dictionary in labels:
+		if not bool(lb.get("generated", false)):
+			continue
+		var klass := String(lb.get("class", ""))
+		var lw := log(maxf(float(lb.get("weight", 0.0)), 0.0) + 1.0)
+		if out.has(klass):
+			var r: Vector2 = out[klass]
+			out[klass] = Vector2(minf(r.x, lw), maxf(r.y, lw))
+		else:
+			out[klass] = Vector2(lw, lw)
+	return out
+
+## `1.0` for the heaviest label in its class (no extra zoom needed beyond the
+## class's own `LABEL_CLASS_LOD` floor); `LABEL_WEIGHT_LOD_SPREAD` for the
+## lightest. A class with one row, or every row tied, has no range to rank
+## within and gets `1.0` uniformly -- there is nothing to bias against.
+func _label_weight_bias(klass: String, weight: float) -> float:
+	if not _label_weight_log_range.has(klass):
+		return 1.0
+	var r: Vector2 = _label_weight_log_range[klass]
+	if r.y <= r.x:
+		return 1.0
+	var lw := log(maxf(weight, 0.0) + 1.0)
+	var t := clampf((lw - r.x) / (r.y - r.x), 0.0, 1.0)
+	return lerp(LABEL_WEIGHT_LOD_SPREAD, 1.0, t)
+
+## True below this row's own zoom-LOD threshold. Hand-placed rows
+## (`generated == false`) are never gated -- the user's own authored content,
+## same rule `_apply_generated_size_mode_override()` already applies. A
+## generated `settlement`-class row is always gated true (see
+## `LABEL_CLASS_LOD`'s own doc comment for why the generic layer never draws
+## one at all: the settlement pin already draws that exact name, at that
+## exact point, with its own `SETTLEMENT_LOD`).
+func _label_below_lod(lb: Dictionary) -> bool:
+	if not bool(lb.get("generated", false)):
+		return false
+	var klass := String(lb.get("class", ""))
+	if klass == "settlement":
+		return true
+	if not LABEL_CLASS_LOD.has(klass):
+		return false
+	var base: float = float(LABEL_CLASS_LOD[klass])
+	if base <= 0.0:
+		return false
+	var bias := _label_weight_bias(klass, float(lb.get("weight", 0.0)))
+	return (_camera_zoom / _lod_zoom_base()) < base * bias
 
 func set_manual_routes(routes: Array) -> void:
 	_manual_routes = routes
@@ -1892,6 +2017,11 @@ func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 		var text: String = lb["text"]
 		if text.is_empty():
 			continue
+		## A label the zoom-LOD gate is hiding this frame must not reserve
+		## occupancy either -- `_draw_labels()`'s own copy of this same test,
+		## and `_settlement_hidden()`'s identical reasoning above.
+		if _label_below_lod(lb):
+			continue
 		var font := _label_font_for(lb)
 		var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
 		var font_px := _label_font_px(lb, rect)
@@ -2569,6 +2699,14 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 	for lb: Dictionary in _labels:
 		var text: String = lb["text"]
 		if text.is_empty():
+			continue
+		## Zoom-dependent label density (owner, 2026-09-21) -- see
+		## `LABEL_CLASS_LOD`'s own doc comment. Tested before any geometry,
+		## same reason the settlement-pin loop tests its own per-class filter
+		## first: a hidden label costs nothing and never reserves occupancy a
+		## visible one would then be pushed out of (`_seed_label_occupancy`
+		## applies the identical gate for the same reason).
+		if _label_below_lod(lb):
 			continue
 		var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
 		if not interior.has_point(pos):

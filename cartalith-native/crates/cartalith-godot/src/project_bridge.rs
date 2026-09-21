@@ -2199,6 +2199,11 @@ impl WorldGen {
                     color: d.color.clone(),
                     size_mode: label_size_mode_from(&d.size_mode),
                     class: cartalith_civ::labels::LabelClass::from_key(&d.class).unwrap_or_default(),
+                    // A restored label is always hand-placed (`LabelsDoc` is
+                    // `SLOT_LABELS`, the Label tool's own list -- the generated
+                    // pass is re-run, not saved), so it carries no candidate
+                    // weight, same as `MapLabel::new`'s default.
+                    weight: 0.0,
                 })
                 .collect();
             self.labels = Some(bridge);
