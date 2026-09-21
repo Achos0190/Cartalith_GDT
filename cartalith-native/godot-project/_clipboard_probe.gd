@@ -6,13 +6,15 @@ extends Node
 ##
 ##   Godot_v4.7.1 --headless --path . _clipboard_probe.tscn
 ##
-## What this cannot cover, said rather than skipped silently: **the icon leg.**
-## `icon_arm()` refuses without an asset pack (`lib.rs`'s `has_asset_pack()`
-## guard) and none ships — `_deselect_probe.gd` records the same limitation as
-## CA-12. Section 7 asserts the icon half that does not need a pack (the
-## `slot` → `variant` reverse map every icon paste goes through) against the
-## same literals `icon_bridge.rs`'s own `resolve_variant` tests pin, and
-## section 8 states plainly which leg went unexercised.
+## **The icon leg used to be skipped here and is not any more.** `icon_arm()`
+## refuses without an asset pack (`lib.rs`'s `has_asset_pack()` guard) and none
+## *ships* — which is true, and was read as meaning none is *reachable*.
+## `cartalith-assets`' own golden-verified `tests/fixtures/reference_pack.zip`
+## is, and `load_asset_pack()` is a `#[func]` taking a native OS path for
+## exactly this purpose. Sections 10 and 11 load it and drive icon
+## Copy → Paste → Cut → Paste, including `_restore_armed()`; section 9 keeps
+## the pack-free half (the `slot` → `variant` reverse map) asserted against the
+## same literals `icon_bridge.rs`'s own `resolve_variant` tests pin.
 
 var _fail := 0
 
@@ -261,8 +263,33 @@ func _ready() -> void:
 	_ok("custom is unaddressable, matching resolve_variant", menus._icon_variant_of("custom", "x"), -1)
 
 	print("")
-	print("=== 10: the icon leg, exercised only if a pack is loaded ===")
-	if bridge.icon_arm("feature", 0, 1.3, 0.0, 0.0):
+	print("=== 10: the icon leg, over the workspace's own pack fixture ===")
+	## The header above used to read *"exercised only if a pack is loaded"*,
+	## and the leg never ran: no pack **ships**, which is true and was taken to
+	## mean no pack is **reachable**. One is: `cartalith-assets`' own
+	## golden-verified `reference_pack.zip`, the fixture its milestone-1/2 tests
+	## already load, and `load_asset_pack()` is a `#[func]` taking a native OS
+	## path for exactly this ("a debug script, this milestone's own verification
+	## pass" -- `lib.rs`' own doc comment). Loaded here through `world_gen`
+	## rather than through a new `EngineBridge` forwarder: the shell has no
+	## importer yet, and a probe is not a reason to grow its API.
+	##
+	## `arm()` needs a pack **loaded**, not art for the slot it arms
+	## (`icon_bridge.rs::arm` -> `resolve_variant`, no art lookup), so the
+	## fixture's five `icons/` files unblock every family the reverse map above
+	## addresses.
+	var pack_path: String = ProjectSettings.globalize_path("res://") \
+		+ "../crates/cartalith-assets/tests/fixtures/reference_pack.zip"
+	var pack_ok: bool = bridge.world_gen.load_asset_pack(pack_path)
+	_ok("the fixture pack loaded", pack_ok, true)
+	_ok("...and has_asset_pack() agrees", bridge.has_asset_pack(), pack_ok)
+	if pack_ok:
+		## Isolate the leg: the label selection is still whatever section 8
+		## left, and `_carto_snapshot()` captures BOTH kinds, so an icon count
+		## taken over a mixed buffer would not be attributable to the icons.
+		bridge.label_select_set(PackedInt64Array())
+		var labels_flat: int = bridge.label_list().size()
+		_ok("icon_arm takes with a pack loaded", bridge.icon_arm("feature", 0, 1.3, 0.0, 0.0), true)
 		var placed: int = bridge.icon_place(50.0, 50.0)
 		_ok("an icon was placed", placed >= 0, true)
 		bridge.icon_select_set(PackedInt64Array([placed]))
@@ -270,22 +297,64 @@ func _ready() -> void:
 		pop.id_pressed.emit(ID_COPY)
 		await _frames(2)
 		_ok("the clipboard has an icons key", (menus._clipboard as Dictionary).has("icons"), true)
+		_ok("...and no labels key, nothing being selected", (menus._clipboard as Dictionary).has("labels"), false)
+
+		## Arm something ELSE before the paste. `icon_place()` stamps whatever
+		## was last armed, so a paste necessarily borrows the arming -- and
+		## `_restore_armed()` is the only thing that gives it back. Asserted
+		## against a distinct family AND a distinct scale, because restoring the
+		## family and dropping the scale would pass a family-only check.
+		_ok("a different brush is armed before the paste",
+			bridge.icon_arm("settlement", 0, 1.9, 0.0, 0.0), true)
 		pop.id_pressed.emit(ID_PASTE)
 		await _frames(6)
 		_ok("an icon was pasted", bridge.icon_list().size(), icons_before + 1)
+		_ok("...and no label came with it", bridge.label_list().size(), labels_flat)
+		var sel: PackedInt64Array = bridge.icon_get_selection()
+		_ok("the paste owns the icon selection", sel.size(), 1)
+		if sel.size() != 1:
+			print("_clipboard_probe: ", str(_fail) + " FAILURE(S)")
+			get_tree().quit(1); return
 		var src: Dictionary = bridge.icon_get(placed)
-		var dst: Dictionary = bridge.icon_get(int(bridge.icon_get_selection()[0]))
+		var dst_i: int = int(sel[0])
+		## A real duplicate, not the same entity reported twice: a distinct
+		## index, and `icon_delete` on the copy below leaves the original.
+		_ok("the paste is a DIFFERENT entity, not the original re-selected",
+			dst_i != placed, true)
+		var dst: Dictionary = bridge.icon_get(dst_i)
 		_ok("family survived", dst["family"], src["family"])
 		_ok("slot survived", dst["slot"], src["slot"])
 		_ok("scale survived", dst["scale"], src["scale"])
+		_ok("...and the scale is the COPIED 1.3, not the armed 1.9", dst["scale"], 1.3)
 		_ok("x moved by exactly 4 cells", dst["x"], float(src["x"]) + 4.0)
+		_ok("y moved by exactly 4 cells", dst["y"], float(src["y"]) + 4.0)
+		var armed_after: Dictionary = bridge.icon_armed()
+		_ok("the user's own brush is back after the paste", armed_after.get("family", ""), "settlement")
+		_ok("...with its slot", armed_after.get("slot", ""), "hamlet")
+		_ok("...and its scale, not the pasted icon's", armed_after.get("scale", 0.0), 1.9)
+
+		print("")
+		print("=== 11: Cut and re-Paste, on icons ===")
+		bridge.icon_select_set(PackedInt64Array([dst_i]))
+		pop.about_to_popup.emit()
+		await _frames(2)
+		_ok("Cut is live over a selected icon", _row(pop, ID_CUT)["disabled"], false)
+		pop.id_pressed.emit(ID_CUT)
+		await _frames(6)
+		_ok("the cut icon is gone", bridge.icon_list().size(), icons_before)
+		_ok("...and the ORIGINAL survived the cut", bridge.icon_get(placed).get("family", ""), src["family"])
+		_ok("the clipboard still holds it", (menus._clipboard["icons"] as Array).size(), 1)
+		pop.id_pressed.emit(ID_PASTE)
+		await _frames(6)
+		_ok("cut's buffer pastes an icon back", bridge.icon_list().size(), icons_before + 1)
+		var back: Dictionary = bridge.icon_get(int(bridge.icon_get_selection()[0]))
+		_ok("with its family", back["family"], src["family"])
+		_ok("with its slot", back["slot"], src["slot"])
+		_ok("with its scale", back["scale"], src["scale"])
 	else:
-		print("  info icon_arm refused: no asset pack ships (CA-12).")
 		print("  info UNEXERCISED: icon copy/cut/paste and _restore_armed.")
-		print("  info Exercised without a pack: the slot->variant map above, and")
-		print("  info the Paste tooltip's own has_asset_pack() disclosure below.")
-		_ok("has_asset_pack() is indeed false, so the skip is honest",
-			bridge.has_asset_pack(), false)
+		print("  info The fixture did not load -- check the path above before")
+		print("  info reading this as 'no pack ships'; one does, for tests.")
 
 	print("")
 	print("_clipboard_probe: ", "PASS" if _fail == 0 else str(_fail) + " FAILURE(S)")
