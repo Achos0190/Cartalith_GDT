@@ -95,7 +95,13 @@ func _ready() -> void:
 		print("[FATAL] no submenu; the rest cannot run.")
 		get_tree().quit(1)
 		return
-	_ok("three rows", lod.item_count, 3)
+	## `_build_lod_debug_submenu` (menus.gd) builds 5 rows: the three checkable
+	## toggles, `add_separator()` (which DOES increment `item_count` -- a
+	## PopupMenu separator is a real row, just an uninteractable one), and the
+	## "Show tile borders on the map" row added after it. Was asserted at 3,
+	## stale since that separator and border row were added.
+	_ok("five rows: Grid, Colors, Labels, a separator, tile borders",
+		lod.item_count, 5)
 	_ok("row 0 label", lod.get_item_text(0), "Grid")
 	_ok("row 1 label", lod.get_item_text(1), "Colors")
 	_ok("row 2 label", lod.get_item_text(2), "Labels")
