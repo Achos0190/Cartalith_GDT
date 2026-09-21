@@ -310,8 +310,7 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "fortified_crossing", label: "Fortified crossing", family: F::Military, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "battlefield", label: "Battlefield", family: F::Military, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: false,
             not_built: "There is no conflict entity in this port. STORY_PLANNING_SCOPE.md SP-4 is not started, so a battlefield could only be a place where nothing recorded happened." },
-        LandmarkKindSpec { key: "border_marker", label: "Border marker", family: F::Military, class: C::Cultural, default_cap: 16, needs_viewshed: true, buildable: false,
-            not_built: "The viewshed §9.3 named is built now (Derived::vis, from a bounded observer set), so that half of this is no longer the blocker. The border is: no faction, territory or ownership field reaches this pass at all — LandmarkInputs carries none — and a marker placed without one would be marking nothing. Wiring one in is the whole remaining job." },
+        LandmarkKindSpec { key: "border_marker", label: "Border marker", family: F::Military, class: C::Cultural, default_cap: 16, needs_viewshed: true, buildable: true, not_built: "" },
         // ---------------- Religious / cultural (8) ----------------
         LandmarkKindSpec { key: "shrine", label: "Shrine", family: F::Cultural, class: C::Local, default_cap: 30, needs_viewshed: false, buildable: false,
             not_built: "§26 is explicit that cultural meaning must not be hardcoded into geography — one mountain, three civilisations, three readings. That needs the civilisation's own traits as an input, which this pass does not take." },
@@ -1141,6 +1140,13 @@ pub struct LandmarkInputs<'a> {
     /// erosion, resistant rock standing proud of soft rock, and this is the
     /// "resistant" half of that test.
     pub resistance: Option<&'a [f32]>,
+    /// `assign_territory`'s per-cell faction-id output (`cartalith-civ/src/
+    /// lib.rs`) — `> 0` a faction id, `0` unowned (water, or unreachable from
+    /// any capital; `assign_territory`'s own tests pin this, e.g.
+    /// `assign_territory_unreachable_cells_stay_unowned`). The field Border
+    /// marker's `kinds()` row named as the whole remaining blocker: nothing
+    /// here read a faction/ownership raster at all until this was added.
+    pub territory: Option<&'a [i32]>,
     /// Named resource-potential fields, `0..1`, keyed by `RESOURCE_KEYS`.
     /// Empty is legal and disarms Mine and Quarry.
     pub resources: &'a [(&'a str, &'a [f32])],
@@ -1249,6 +1255,7 @@ impl<'a> LandmarkInputs<'a> {
             lithology: None,
             volcanism: None,
             resistance: None,
+            territory: None,
             resources: &[],
             settlements: &[],
             manual_icons: &[],
@@ -1382,6 +1389,13 @@ impl Needs {
                 (true, false, true, true, true)
             }
             "volcanic_feature" => (false, false, true, true, false),
+            // Border marker's domain is `LandmarkInputs::territory` alone —
+            // no slope/curvature/TPI/extrema/way-graph term. Its own arm
+            // rather than the wildcard below, for the same reason every
+            // other buildable key gets one: an audit that reads this match
+            // should not have to trust a catch-all to mean "and this kind
+            // too".
+            "border_marker" => (false, false, false, false, false),
             "ford" => (true, false, false, false, false),
             "harbour" => (true, false, false, false, false),
             "mine" | "quarry" | "resource_extraction_site" => (true, false, false, false, false),
@@ -1398,7 +1412,12 @@ impl Needs {
         // `false`s to say nothing.
         let viewshed = matches!(
             key,
-            "fort" | "watchtower" | "fortified_pass" | "fortified_crossing" | "volcanic_feature"
+            "fort"
+                | "watchtower"
+                | "fortified_pass"
+                | "fortified_crossing"
+                | "volcanic_feature"
+                | "border_marker"
         );
         let commanding =
             matches!(key, "fort" | "watchtower" | "fortified_pass" | "fortified_crossing");
@@ -2593,11 +2612,16 @@ const GARRISON_MAX_GRADIENT: f64 = 0.12;
 
 /// §18's `S_castle`, **with one term dropped and said so**:
 /// `0.20·F_visibility + 0.20·F_strategic + 0.15·F_route + 0.15·F_settlement +
-/// 0.10·F_slope + 0.10·F_water + 0.10·F_political`. `F_political` is not here,
-/// because no faction/territory field reaches this pass and inventing one
-/// would be the fabrication this module refuses everywhere else — the same
-/// treatment [`WATERFALL_TERMS`] gives §7's `R`. The remaining six renormalise
-/// (see [`weighted_sum`]), so the ratios §18 states are preserved exactly.
+/// 0.10·F_slope + 0.10·F_water + 0.10·F_political`. `F_political` is not here.
+/// A faction/territory field does now reach this pass
+/// ([`LandmarkInputs::territory`]) — [`pool_border_marker`] is its consumer —
+/// but Fort, Watchtower and the two fortified kinds stay as they were:
+/// folding `F_political` into a hilltop model these four already place well
+/// without it is a separate decision, not a leftover gap, and inventing the
+/// term before that decision would be the fabrication this module refuses
+/// everywhere else — the same treatment [`WATERFALL_TERMS`] gives §7's `R`.
+/// The remaining six renormalise (see [`weighted_sum`]), so the ratios §18
+/// states are preserved exactly.
 ///
 /// The four military kinds share one set of six measurements and differ only
 /// in these weights and in their domain test. A weight of `0.0` means the
@@ -2708,6 +2732,7 @@ struct Ctx<'a> {
     corridors: Option<&'a [f32]>,
     lithology: Option<&'a [u8]>,
     resistance: Option<&'a [f32]>,
+    territory: Option<&'a [i32]>,
     up: Option<Upstream>,
     /// `None` when nothing armed reads the way network, or when the caller
     /// passed no ways at all — the same "absent input, honest `NoTerrain`"
@@ -2772,6 +2797,7 @@ impl<'a> Ctx<'a> {
             corridors: inp.grid(inp.corridors),
             lithology: inp.grid(inp.lithology),
             resistance: inp.grid(inp.resistance),
+            territory: inp.grid(inp.territory),
             up,
             ways: if need.ways && !inp.ways.is_empty() {
                 Some(WayGrid::build(inp.ways, inp.gw, inp.gh, inp.world))
@@ -4177,6 +4203,85 @@ fn pool_volcanic(c: &Ctx<'_>) -> Option<Pool> {
     Some(p)
 }
 
+/// **Category C** — §29 gives Border marker no formula, the same
+/// unelaborated-name situation [`EXTRACTION_RESOURCES`]'s own doc explains
+/// for Resource extraction site. A marker earns most of its weight from
+/// actually being seen (a marker nobody notices fails at what a marker is
+/// for), with the rest from nearby settled weight — the same shape
+/// [`WATCHTOWER_TERMS`] uses and for the same reason.
+const BORDER_MARKER_TERMS: [(&str, f64); 2] =
+    [("visibility", 0.60), ("settlement demand", 0.40)];
+
+/// §29's Border marker (Military family, Cultural class) — the political
+/// sibling [`FORT_TERMS`]'s own doc comment says this whole family lacks:
+/// "no faction/territory field reaches this pass". One now does
+/// ([`LandmarkInputs::territory`]), and this is its only consumer — Fort,
+/// Watchtower and the two fortified kinds are unchanged, deliberately; giving
+/// them `F_political` too is a separate decision this pass does not make.
+///
+/// **Domain: a claimed cell 4-connected to a differently-claimed neighbour.**
+/// `assign_territory`'s `0` is "unowned" (water or unreachable from any
+/// capital, not a faction) — see [`LandmarkInputs::territory`]'s own doc — so
+/// a claimed cell beside unowned ground is a frontier, not a border: there is
+/// no second polity to have agreed a line with. Only faction-vs-different-
+/// faction counts.
+///
+/// §9.3 names this one of six viewshed-dependent kinds, and here that is a
+/// hard gate exactly as it is in [`pool_military`] (`vis > 0`, rejected as a
+/// constraint otherwise) — not a mere term, unlike [`pool_volcanic`]'s: a
+/// marker's whole job is being seen, where a volcano is a volcano whether or
+/// not anyone is looking at it.
+fn pool_border_marker(c: &Ctx<'_>) -> Option<Pool> {
+    let territory = c.territory?;
+    if c.d.vis.is_empty() {
+        return None;
+    }
+    let gw = c.inp.gw;
+    let has_settle = !c.inp.settlements.is_empty();
+    let view_km = c.d.r_view as f64 * c.cell_km;
+    let mut p = Pool::new();
+    let mut t_v: Vec<f32> = Vec::new();
+    let mut t_s: Vec<f32> = Vec::new();
+    for i in 0..c.n {
+        let owner = territory[i];
+        if owner <= 0 || !c.is_land(i) {
+            continue;
+        }
+        let (x, y) = (i % gw, i / gw);
+        let rival = [(-1i64, 0i64), (1, 0), (0, -1), (0, 1)]
+            .into_iter()
+            .filter_map(|(dx, dy)| c.nb(x, y, dx, dy))
+            .find(|&j| territory[j] > 0 && territory[j] != owner);
+        let Some(j) = rival else { continue };
+        let vis = c.d.vis(i);
+        if !(vis > 0.0) {
+            p.rejected_constraint += 1;
+            continue;
+        }
+        let mut facts = vec![
+            format!("boundary between faction {} and faction {}", owner, territory[j]),
+            format!(
+                "in view of settlements and roads within {}, at observer weight {:.1}",
+                fmt_km(view_km),
+                vis
+            ),
+        ];
+        if has_settle {
+            facts.push(format!("nearest settlement {}", fmt_km(c.nearest_settlement_km(x, y))));
+        }
+        p.cands.push(Cand { i, x, y, facts });
+        t_v.push(vis as f32);
+        if has_settle {
+            t_s.push(c.influence(x, y) as f32);
+        }
+    }
+    p.terms = vec![(BORDER_MARKER_TERMS[0].0, BORDER_MARKER_TERMS[0].1, t_v)];
+    if has_settle {
+        p.terms.push((BORDER_MARKER_TERMS[1].0, BORDER_MARKER_TERMS[1].1, t_s));
+    }
+    Some(p)
+}
+
 /// The one place a key becomes a detector. A key with no arm here is not
 /// buildable, and [`kinds`] must say so.
 fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
@@ -4214,6 +4319,7 @@ fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
         "fortified_pass" => pool_military(c, Garrison::Pass),
         "fortified_crossing" => pool_military(c, Garrison::Crossing),
         "volcanic_feature" => pool_volcanic(c),
+        "border_marker" => pool_border_marker(c),
         _ => None,
     }
 }
@@ -4779,6 +4885,14 @@ mod tests {
         /// rather than the flag shipping green over an absent input.
         volcanism: Vec<f32>,
         settlements: Vec<LandmarkSite>,
+        /// `cartalith_civ::assign_territory`'s real cost-distance Voronoi over
+        /// this same terrain and the same eight towns — `places` below makes
+        /// each of them its own faction's sole capital, so the sweep carves
+        /// eight wedges and every settlement boundary in this fixture is a
+        /// real, computed border rather than a hand-drawn mask. Border
+        /// marker's whole domain, and the same "wired through the engine's
+        /// own functions" rule this struct's other fields already follow.
+        territory: Vec<i32>,
         /// The **routed** way network over this same terrain, produced by the
         /// engine's own `civ_hierarchical_network_topology` +
         /// `civ_consolidate_and_smooth_ways` rather than by hand-drawn
@@ -4887,6 +5001,10 @@ mod tests {
             gh,
             width_km,
         );
+        let territory = {
+            let travel_cost = crate::build_travel_cost(&field, gw, gh, SEA);
+            crate::assign_territory(&places, &travel_cost, gw, gh, false)
+        };
         World {
             gw,
             gh,
@@ -4970,6 +5088,7 @@ mod tests {
                     population: *pop as f64,
                 })
                 .collect(),
+            territory,
             ways,
         }
     }
@@ -4985,6 +5104,7 @@ mod tests {
         i.corridors = Some(&w.corridors);
         i.resistance = Some(&w.resistance);
         i.volcanism = Some(&w.volcanism);
+        i.territory = Some(&w.territory);
         i.resources = res;
         i.settlements = &w.settlements;
         i.ways = &w.ways;
@@ -5015,6 +5135,9 @@ mod tests {
         lithology: Vec<u8>,
         order: Vec<i16>,
         sites: Vec<LandmarkSite>,
+        /// `assign_territory`'s real per-cell faction-id output over the six
+        /// factions `place_settlements_with_water_edge_snap` really assigned.
+        territory: Vec<i32>,
         ways: Vec<crate::Way>,
         resources: crate::ResourcePotentials,
     }
@@ -5185,6 +5308,15 @@ mod tests {
                 population: s.pop as f64,
             })
             .collect();
+        // Real territory over this real world: `place_settlements_with_
+        // water_edge_snap`'s own `faction_count` argument above (6) already
+        // split `settlements` across six factions with real capitals, so
+        // this is the same cost-distance Voronoi `compute_civilisation`
+        // runs, not a fixture invention.
+        let territory = {
+            let travel_cost = crate::build_travel_cost(&ws.field, gw, gh, sea);
+            crate::assign_territory(&settlements, &travel_cost, gw, gh, world)
+        };
         RealWorld {
             gw,
             gh,
@@ -5196,6 +5328,7 @@ mod tests {
             lithology,
             order,
             sites,
+            territory,
             ways,
             resources,
             ws,
@@ -5237,6 +5370,7 @@ mod tests {
         i.lithology = Some(&r.lithology);
         i.volcanism = Some(&r.ws.volcanic_field);
         i.resistance = Some(&r.ws.resistance_field);
+        i.territory = Some(&r.territory);
         i.resources = res;
         i.settlements = &r.sites;
         i.ways = &r.ways;
@@ -5293,6 +5427,7 @@ mod tests {
         assert_eq!(
             built,
             vec![
+                "border_marker",
                 "bridge_site",
                 "caravan_station",
                 "cliff",
@@ -5319,7 +5454,7 @@ mod tests {
                 "watchtower",
                 "waterfall",
             ],
-            "the twenty-five kinds this engine actually generates"
+            "the twenty-six kinds this engine actually generates"
         );
         // Every buildable key must have a detector, and no non-buildable key
         // may have one — otherwise the table and the pass disagree about what
@@ -5354,6 +5489,7 @@ mod tests {
                         | "fortified_pass"
                         | "fortified_crossing"
                         | "volcanic_feature"
+                        | "border_marker"
                 ),
                 "{} disagrees with `detect`",
                 k.key
@@ -5620,12 +5756,19 @@ mod tests {
         }
     }
 
-    /// **The five kinds the viewshed closed, on a world nobody shaped for
+    /// **The six kinds the viewshed closed, on a world nobody shaped for
     /// them** — the same bar
     /// `every_way_graph_kind_places_on_a_world_generate_terrain_really_made`
     /// set for the way graph, and for the same reason: a flag flipped to
     /// `buildable` on a kind that then places nothing is the failure
-    /// `UNWIRED_FUNCTIONS.md` exists for.
+    /// `UNWIRED_FUNCTIONS.md` exists for. Border marker joined the other
+    /// five once `real_world`'s own settlements carried real factions
+    /// (`RealWorld::territory`, `assign_territory` over the six
+    /// `place_settlements_with_water_edge_snap` really assigns) — it is
+    /// checked for "placed something real" here alongside the other five,
+    /// but not folded into the fort/watchtower geometry re-open below: its
+    /// domain is a territory boundary, not commanding ground, and has no
+    /// TPI floor, gradient ceiling or settlement-reach test to re-check.
     ///
     /// It asserts more than "something appeared". Every placement is re-opened
     /// against the field that put it there: it must really be seen from
@@ -5638,12 +5781,38 @@ mod tests {
         let inp = real_inputs(&r, &pairs);
         let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
         let out = generate(&inp, &s, 7);
-        for key in
-            ["fort", "watchtower", "fortified_pass", "fortified_crossing", "volcanic_feature"]
-        {
+        for key in [
+            "fort",
+            "watchtower",
+            "fortified_pass",
+            "fortified_crossing",
+            "volcanic_feature",
+            "border_marker",
+        ] {
             let f = out.funnel(key).expect("every kind has a funnel");
             println!("{:20} placed {:3} of {:3}  {:?}", key, f.placed, f.cap, f);
             assert!(f.placed > 0, "{} placed nothing on a real world: {:?}", key, f);
+        }
+        // Border marker's own re-open: every placement really sits where two
+        // different, really-claimed factions meet.
+        for l in out.landmarks.iter().filter(|l| l.kind == "border_marker") {
+            let i = l.y * r.gw + l.x;
+            let owner = r.territory[i];
+            assert!(owner > 0, "border marker at ({}, {}) sits on unowned ground", l.x, l.y);
+            let has_rival = [(-1i64, 0i64), (1, 0), (0, -1), (0, 1)].iter().any(|&(dx, dy)| {
+                let (xx, yy) = (l.x as i64 + dx, l.y as i64 + dy);
+                if xx < 0 || yy < 0 || xx >= r.gw as i64 || yy >= r.gh as i64 {
+                    return false;
+                }
+                let j = yy as usize * r.gw + xx as usize;
+                r.territory[j] > 0 && r.territory[j] != owner
+            });
+            assert!(
+                has_rival,
+                "border marker at ({}, {}) has no differently-owned neighbour",
+                l.x,
+                l.y
+            );
         }
         // Re-open every placement against the fields, not against the funnel.
         let need = ["fort", "watchtower", "fortified_pass", "fortified_crossing"]
@@ -5692,9 +5861,11 @@ mod tests {
     /// **The viewshed is load-bearing, and this is how that is known.**
     ///
     /// Take the same real world and remove every observer — no settlements, no
-    /// ways. The terrain is untouched, every hilltop is still a hilltop, and
-    /// all five kinds must report `NoTerrain` and place nothing. A detector
-    /// that had quietly stopped reading `Derived::vis` would still place here.
+    /// ways. The terrain (and, for Border marker, the territory raster) is
+    /// untouched — every hilltop is still a hilltop and every faction still
+    /// holds the same ground — and all six kinds must report `NoTerrain` and
+    /// place nothing. A detector that had quietly stopped reading
+    /// `Derived::vis` would still place here.
     #[test]
     fn with_no_observers_anywhere_no_viewshed_kind_places_anything() {
         let r = real_world(256, 192, 24601);
@@ -5704,9 +5875,14 @@ mod tests {
         inp.ways = &[];
         let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
         let out = generate(&inp, &s, 7);
-        for key in
-            ["fort", "watchtower", "fortified_pass", "fortified_crossing", "volcanic_feature"]
-        {
+        for key in [
+            "fort",
+            "watchtower",
+            "fortified_pass",
+            "fortified_crossing",
+            "volcanic_feature",
+            "border_marker",
+        ] {
             let f = out.funnel(key).expect("every kind has a funnel");
             assert_eq!(f.limit, LandmarkLimit::NoTerrain, "{}: {:?}", key, f);
             assert_eq!(f.placed, 0, "{} placed with nothing able to see it", key);
@@ -5818,6 +5994,118 @@ mod tests {
         assert_eq!(ctx.d.r_view, 13);
         assert!(ctx.d.vis(32 * gw + 14) > 0.0, "12.5 km of flat ground is inside any horizon");
         assert_eq!(ctx.d.vis(32 * gw + 20), 0.0, "31 km of flat ground is over the horizon");
+    }
+
+    /// **The load-bearing test for `border_marker`.** A flat, fully visible
+    /// world split down the middle into two factions' territory — faction 1
+    /// west of `x = 32`, faction 2 east of it — with one observing settlement
+    /// on each side of the line. If the detector is marking a real boundary
+    /// rather than scattering, every placement must sit exactly on the seam
+    /// (`x == 31` or `x == 32`, the two columns 4-connected across it) and
+    /// must be a real cell of the territory raster where the two owners meet.
+    #[test]
+    fn border_marker_places_on_a_real_faction_boundary_and_nowhere_else() {
+        let (gw, gh) = (64usize, 64usize);
+        let f = vec![0.60f32; gw * gh];
+        let mut territory = vec![0i32; gw * gh];
+        for y in 0..gh {
+            for x in 0..gw {
+                territory[y * gw + x] = if x < 32 { 1 } else { 2 };
+            }
+        }
+        let sites = [
+            LandmarkSite { x: 31, y: 32, population: 9_000.0 },
+            LandmarkSite { x: 32, y: 32, population: 9_000.0 },
+        ];
+        let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, 200.0);
+        inp.peak_m = PEAK_M;
+        inp.settlements = &sites;
+        inp.territory = Some(&territory);
+        let mut s = LandmarkSettings::default();
+        for k in kinds() {
+            s.set_armed(k.key, k.key == "border_marker");
+        }
+        let out = generate(&inp, &s, 1);
+        let fun = out.funnel("border_marker").expect("a funnel");
+        assert!(fun.placed > 0, "no border marker placed on a real boundary: {:?}", fun);
+        let placed: Vec<_> = out.landmarks.iter().filter(|l| l.kind == "border_marker").collect();
+        assert_eq!(placed.len(), fun.placed, "funnel and landmark list disagree");
+        for l in &placed {
+            assert!(
+                l.x == 31 || l.x == 32,
+                "border marker at ({}, {}) is not on the seam between the two factions",
+                l.x,
+                l.y
+            );
+            let i = l.y * gw + l.x;
+            let owner = territory[i];
+            assert!(owner > 0, "border marker at ({}, {}) sits on unowned ground", l.x, l.y);
+            let other_x = if l.x == 31 { 32 } else { 31 };
+            let rival = territory[l.y * gw + other_x];
+            assert!(
+                rival > 0 && rival != owner,
+                "border marker at ({}, {}) has no rival-owned neighbour (owner {}, neighbour {})",
+                l.x,
+                l.y,
+                owner,
+                rival
+            );
+        }
+    }
+
+    /// **The other half of the same decision, proven rather than asserted in
+    /// prose.** Same seam, but the east side is unowned (`0`, `assign_territory`'s
+    /// own sentinel for water or unreachable ground) rather than a second
+    /// faction's. A marker needs a second polity to mark a line *against* —
+    /// the edge of the only claimed territory on the map is a frontier, and
+    /// this pass must refuse to invent a border there.
+    #[test]
+    fn border_marker_refuses_the_edge_of_unclaimed_ground() {
+        let (gw, gh) = (64usize, 64usize);
+        let f = vec![0.60f32; gw * gh];
+        let mut territory = vec![0i32; gw * gh];
+        for y in 0..gh {
+            for x in 0..gw {
+                territory[y * gw + x] = if x < 32 { 1 } else { 0 };
+            }
+        }
+        let sites = [
+            LandmarkSite { x: 31, y: 32, population: 9_000.0 },
+            LandmarkSite { x: 32, y: 32, population: 9_000.0 },
+        ];
+        let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, 200.0);
+        inp.peak_m = PEAK_M;
+        inp.settlements = &sites;
+        inp.territory = Some(&territory);
+        let mut s = LandmarkSettings::default();
+        for k in kinds() {
+            s.set_armed(k.key, k.key == "border_marker");
+        }
+        let out = generate(&inp, &s, 1);
+        assert_eq!(out.placed("border_marker"), 0, "a frontier against unclaimed ground is not a border");
+    }
+
+    /// **The viewshed half of §9.3's gate, load-bearing here too.** Same
+    /// faction seam as the placing test, no settlements and no ways at all —
+    /// `Derived::vis` never gets built, and the honest answer is `NoTerrain`,
+    /// not a marker placed on a boundary nobody can see.
+    #[test]
+    fn border_marker_needs_a_viewshed_same_as_the_other_five() {
+        let (gw, gh) = (64usize, 64usize);
+        let f = vec![0.60f32; gw * gh];
+        let mut territory = vec![0i32; gw * gh];
+        for y in 0..gh {
+            for x in 0..gw {
+                territory[y * gw + x] = if x < 32 { 1 } else { 2 };
+            }
+        }
+        let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, 200.0);
+        inp.peak_m = PEAK_M;
+        inp.territory = Some(&territory);
+        let s = LandmarkSettings::default();
+        let out = generate(&inp, &s, 1);
+        assert_eq!(out.funnel("border_marker").unwrap().limit, LandmarkLimit::NoTerrain);
+        assert_eq!(out.placed("border_marker"), 0);
     }
 
     /// **[`VOLCANIC_MIN_ACTIVITY`] is load-bearing**, and a real world could
@@ -6566,7 +6854,7 @@ mod tests {
         let mut inp = LandmarkInputs::new(&w.field, w.gw, w.gh, SEA, false, w.width_km);
         inp.peak_m = PEAK_M;
         let r = generate(&inp, &LandmarkSettings::default(), 5);
-        for key in ["waterfall", "spring", "river_confluence", "ford", "gorge"] {
+        for key in ["waterfall", "spring", "river_confluence", "ford", "gorge", "border_marker"] {
             let f = r.funnel(key).expect("every kind has a funnel");
             assert_eq!(f.limit, LandmarkLimit::NoTerrain, "{}", key);
             assert_eq!(f.candidates, 0, "{}", key);
@@ -6612,10 +6900,15 @@ mod tests {
         assert_eq!(r.funnel("peak").unwrap().limit, LandmarkLimit::Disarmed);
         assert_eq!(r.placed("peak"), 0);
         assert_eq!(r.funnel("shrine").unwrap().limit, LandmarkLimit::NotBuildable);
-        // Border marker, not Fort: Fort is generated now, and the Military
-        // family's remaining unbuildable row is the one with no territory
-        // field behind it.
-        assert_eq!(r.funnel("border_marker").unwrap().limit, LandmarkLimit::NotBuildable);
+        // Battlefield, not Border marker: Border marker is generated now
+        // (`LandmarkInputs::territory` closed it, and `inputs()`'s own
+        // fixture carries a real one — `every_buildable_kind_can_actually_
+        // place_one` is where its honest-degradation-without-territory case
+        // is checked instead, in `a_kind_whose_input_is_absent_reports_
+        // no_terrain_and_places_none`), and Battlefield is the Military
+        // family's remaining unbuildable row — there is still no conflict
+        // entity in this port for it to read.
+        assert_eq!(r.funnel("battlefield").unwrap().limit, LandmarkLimit::NotBuildable);
         // A cap of zero is the slider's own `off` stop.
         let mut s2 = LandmarkSettings::default();
         s2.set_cap("peak", 0);
@@ -6628,10 +6921,10 @@ mod tests {
         let w = world(128, 96, 1000.0);
         let inp = inputs(&w, &[]);
         let mut s = LandmarkSettings::default();
-        s.set_armed("border_marker", true);
+        s.set_armed("battlefield", true);
         let r = generate(&inp, &s, 1);
-        assert_eq!(r.funnel("border_marker").unwrap().limit, LandmarkLimit::NotBuildable);
-        assert_eq!(r.placed("border_marker"), 0);
+        assert_eq!(r.funnel("battlefield").unwrap().limit, LandmarkLimit::NotBuildable);
+        assert_eq!(r.placed("battlefield"), 0);
     }
 
     #[test]

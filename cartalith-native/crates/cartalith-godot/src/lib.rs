@@ -17606,6 +17606,13 @@ impl WorldGen {
         inputs.recv = ws.channels.as_ref().map(|c| c.recv.as_slice());
         inputs.order = ws.stream_order.as_deref();
         inputs.water = self.civ.as_ref().map(|c| c.water_bodies.as_slice());
+        // Border marker's own input (`kinds()`'s row used to name this as
+        // the whole remaining blocker): `CivData::territory` is always
+        // computed alongside `water_bodies`/`settlements` in
+        // `compute_civilisation`, so it degrades to absent under the exact
+        // same "no civ layer yet" condition those two already do -- no new
+        // pipeline-ordering question, since it is the same struct field.
+        inputs.territory = self.civ.as_ref().map(|c| c.territory.as_slice());
         inputs.corridors = corridors;
         inputs.lithology = lithology;
         inputs.volcanism = Some(&ws.volcanic_field);
