@@ -63,7 +63,7 @@ use cartalith_engine::geojson::{
     export_geojson, GeoFaction, GeoJsonWorld, GeoPlace, GeoProvince, GeoWay,
 };
 
-use crate::{journey_bridge, WorldGen, WorldSource};
+use crate::{geojson_apply, journey_bridge, WorldGen, WorldSource};
 
 /// The reference's `_riverNet` min-order for the export path (reference line
 /// 12599's `traceRiverPolylines(..., 2)`), not the `1` `generate_terrain`
@@ -360,6 +360,104 @@ impl WorldGen {
                     out.set(out_key, v);
                 }
             }
+        }
+        out
+    }
+
+    /// Applies an imported GeoJSON document to this (generated) world —
+    /// `geojson_inspect`'s own doc comment named this as unbuilt, and
+    /// `LARGE_ITEM_RULINGS.md` Ruling V (2026-09-21) settled the question
+    /// that was blocking it: an imported feature naming a faction this
+    /// world doesn't have creates it. See `crate::geojson_apply`'s module
+    /// doc for exactly what this places (`settlement`, `territory`) and
+    /// what it reads but leaves unapplied (`poi`, `way`, `river`,
+    /// `province`), and why each of those is a real reason rather than a
+    /// gap.
+    ///
+    /// Refuses (`ok: false`, unchanged world) for the same parse faults
+    /// `geojson_inspect` reports, plus one more: no generated world to
+    /// apply anything to (before the first `generate()`, or a project
+    /// loaded from a save, which carries no civ layer at all —
+    /// `SAVEFILE_COMPAT.md`).
+    ///
+    /// On success, `ok: true` plus counts of what happened — see this
+    /// method's own field-by-field construction below for which keys are
+    /// **omitted** rather than zeroed when they don't apply (`MISTAKES.md`:
+    /// "omit the key; callers use has()").
+    #[func]
+    fn apply_geojson_document(&mut self, text: GString) -> VarDictionary {
+        let doc = match cartalith_io::parse_geojson(&text.to_string()) {
+            Ok(doc) => doc,
+            Err(e) => {
+                let mut out = vdict! { "ok" => false, "error" => e.to_string() };
+                if let cartalith_io::GeoJsonError::Feature { index, .. } = &e {
+                    out.set("feature", *index as i64);
+                }
+                return out;
+            }
+        };
+
+        let gw = self.gw.max(0) as usize;
+        let gh = self.gh.max(0) as usize;
+        let sea = self.sea_level;
+        let map_width_km = self.map_width_km;
+        let (Some(civ), Some(WorldSource::Generated(ws)), Some(tools)) =
+            (self.civ.as_mut(), self.source.as_mut(), self.civ_tools.as_mut())
+        else {
+            return vdict! {
+                "ok" => false,
+                "error" => "no generated world to apply this document to"
+            };
+        };
+
+        let ctx = geojson_apply::ApplyCtx {
+            gw,
+            gh,
+            map_width_km,
+            sea,
+            field: &ws.field,
+            water_bodies: &civ.water_bodies,
+        };
+        let report = geojson_apply::apply_geojson(
+            &doc,
+            &ctx,
+            &mut civ.settlements,
+            &mut civ.next_tid,
+            &mut tools.name_rng,
+            &mut civ.territory,
+            &mut civ.faction_roster,
+        );
+        // SG-01, the same note `civ_drop_settlement` carries: roads,
+        // territory (the parts this call didn't itself paint), provinces
+        // and trade balances were all derived before any of this existed.
+        self.civ_dirty = true;
+
+        let factions_created: PackedStringArray =
+            report.factions_created.iter().map(GString::from).collect();
+        let mut out = vdict! {
+            "ok" => true,
+            "features" => doc.features.len() as i64,
+            "settlements_placed" => report.settlements_placed() as i64,
+            "settlements_skipped" => report.settlements_skipped() as i64,
+            "territory_features_applied" => report.territory_features_applied() as i64,
+            "territory_cells_painted" => report.territory_cells_painted() as i64,
+            "factions_created" => &factions_created,
+        };
+
+        let unsupported = report.unsupported_layer_counts();
+        if !unsupported.is_empty() {
+            let mut d = VarDictionary::new();
+            for (layer, count) in unsupported {
+                // A feature with no `layer` at all reports here under the
+                // empty string -- `geojson_inspect`'s own `unlabelled`
+                // counter is the precedent for a separate bucket rather
+                // than an invented name.
+                d.set(layer.as_str(), count as i64);
+            }
+            out.set("unsupported_layers", &d);
+        }
+        if report.crs_unstated {
+            out.set("crs_unstated", true);
         }
         out
     }

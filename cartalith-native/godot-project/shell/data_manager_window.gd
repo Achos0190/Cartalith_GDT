@@ -300,7 +300,7 @@ const PATTERN_RULE_BOTTOM := 12
 const PANE_PURPOSE := {
 	"import_maps": "read a tile set back into the world — no importer exists",
 	"import_heightmap": "a PNG becomes the elevation field, with a tectonic substrate inferred under it",
-	"import_gis": "read a FeatureCollection back into places, ways and territory — the parser exists, the ingest does not",
+	"import_gis": "read a FeatureCollection into the world — settlements and faction territory are placed; ways, rivers, POIs and provinces are counted but not yet placed",
 	"import_world": "a .ctl project archive replaces the whole world — the same loader as File ▸ Open project…",
 	"import_assets": "routes to Assets ▸ Import asset pack .zip…",
 	"export_maps": "the Region-select marquee as a zipped grid of height and colour tiles",
@@ -363,9 +363,8 @@ const ROUTES: Array[Dictionary] = [
 		"reason": "No tile-map import path exists. Nothing in the workspace reads a tile set back in. TIFF is also absent, and deliberately: the reference's own file input is accept=\"image/*\" and decodes through the browser, which does not decode TIFF either -- so PNG is parity, not a shortfall. Heightmap import itself is live; see the Heightmaps row."},
 	{"group": "Import", "id": "import_heightmap", "label": "Heightmaps", "badge": "PNG", "kind": "live",
 		"sub": "elevation + inferred tectonics"},
-	{"group": "Import", "id": "import_gis", "label": "GIS / GeoJSON", "badge": "", "kind": "gap",
-		"sub": "no importer",
-		"reason": "The parser exists and the ingest does not, and those are different things. cartalith_io::parse_geojson reads a FeatureCollection back into geometry and properties, and WorldGen::geojson_inspect is a real #[func] over it that reports a document's feature count, layers, geometry types, CRS claim and bounds -- but its own doc says it \"validates and summarises rather than importing\", and it has no GDScript caller: EngineBridge carries export_geojson and nothing else. Nothing anywhere turns a parsed feature into a settlement, a way or a territory cell, which is the half that would make this route real. (Re-checked 2026-09-05; this row previously read \"No GeoJSON import path exists\", which stopped being true when the parser landed.)"},
+	{"group": "Import", "id": "import_gis", "label": "GIS / GeoJSON", "badge": "", "kind": "live",
+		"sub": "settlements + territory · unknown factions created"},
 	{"group": "Import", "id": "import_world", "label": "World Data", "badge": ".ctl", "kind": "live",
 		"sub": "same loader as File ▸ Open project…"},
 	{"group": "Import", "id": "import_assets", "label": "Assets", "badge": "→ Assets", "kind": "route",
@@ -1668,6 +1667,15 @@ func _pattern_prose(col: Control, route: Dictionary) -> void:
 			else:
 				DccWidgets.note(col,
 					"This build's GDExtension predates the heightmap-import binding (WorldGen::import_heightmap). Rebuild cartalith-godot to enable it.")
+		"import_gis":
+			## DM-03's other half, Ruling V (LARGE_ITEM_RULINGS.md, 2026-09-21):
+			## `geojson_apply.rs` over `cartalith_io::parse_geojson`.
+			DccWidgets.note(col,
+				"Reads a FeatureCollection and places what it can: a settlement feature (bounds/occupied/water gates, same as the Settlement tool) and a territory polygon (rasterised cell by cell). A feature naming a faction this world doesn't have creates it -- by its imported name, never a fuzzy remap, never silently dropped to unclaimed.")
+			DccWidgets.note(col,
+				"poi, way, river and province features are read and counted but not placed: this port has no POI concept, a way needs real settlement endpoints an import doesn't carry, a river is generated hydrology rather than user data, and a province must stay inside its own faction's territory in a way an arbitrary polygon isn't checked against. The result after importing names each one.")
+			DccWidgets.note(col,
+				"Coordinates are read as this world's own planar kilometres regardless of what the document's own CRS property claims -- the only coordinate system a generated world has.")
 		"import_world":
 			DccWidgets.note(col,
 				"Opens the same .ctl project picker as File ▸ Open project… -- routed here per §9, not reimplemented.")
@@ -1845,6 +1853,13 @@ func _pattern_actions(route: Dictionary) -> void:
 					_host.open_heightmap_import(), true, 16, 6)
 			else:
 				_footer_note("binding missing in this build")
+		"import_gis":
+			_footer_note("places settlements + territory into the current world")
+			var go_import := DccWidgets.chip(_pane_footer, "Import GeoJSON…", func():
+				_pick_geojson_import(), true, 16, 6)
+			go_import.disabled = _bridge == null or not _bridge.has_world
+			go_import.tooltip_text = ("parse_geojson -> geojson_apply -> apply_geojson_document. An unknown faction is created; see the notes above for what isn't placed yet."
+				if not go_import.disabled else "No world is loaded -- generate or open one first.")
 		"import_world":
 			_footer_note("replaces the whole world")
 			DccWidgets.chip(_pane_footer, "Open project…", func():
@@ -3256,6 +3271,88 @@ func _run_geojson_export(path: String) -> void:
 func _rebuild_gis() -> void:
 	if _selected_id == "export_gis":
 		_select_route("export_gis")
+
+# ---------------------------------------------------------------------------
+# Import ▸ GIS / GeoJSON -- the run (Ruling V, LARGE_ITEM_RULINGS.md, 2026-09-21)
+#
+# One picker, one read, one apply -- `apply_geojson_document`
+# (`engine_bridge.gd` -> `geojson_bridge.rs` -> `geojson_apply.rs`). Unlike
+# Export ▸ GIS this route keeps no receipt in the pane:
+# `_receipt_absent_reason`'s own "hands the file to the shell's own importer"
+# rule for every `import_` route already covers it -- the result lands on the
+# app status line and in the world itself, not in a receipt block here.
+# ---------------------------------------------------------------------------
+
+func _pick_geojson_import() -> void:
+	DccBrowseDialog.choose_file(self, "Import GeoJSON",
+		PackedStringArray(["geojson", "json"]),
+		DccSettings.storage_root("exports"),
+		"reads a FeatureCollection and places what it can into the current world",
+		func(path: String): _run_geojson_import(path))
+
+func _run_geojson_import(path: String) -> void:
+	if _bridge == null or not _bridge.has_world:
+		return
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		_host.set_status("hint",
+			"import failed — could not open %s for reading" % path.get_file(), "warn")
+		return
+	var text := f.get_as_text()
+	f.close()
+
+	_status_left.text = "importing…"
+	_status_left.add_theme_color_override("font_color", DccTheme.c("accent"))
+
+	var result: Dictionary = _bridge.apply_geojson_document(text)
+	if not bool(result.get("ok", false)):
+		_host.set_status("hint",
+			"import failed — %s" % String(result.get("error", "unknown error")), "warn")
+	else:
+		_host.set_status("hint", _geojson_import_summary(result), "accent")
+	_refresh_status()
+
+## The status-line summary for a finished import: every count
+## `apply_geojson_document` reported, in one line. Every clause is
+## conditional on its own count being nonzero -- `MISTAKES.md`'s "never
+## encode no value as a plausible value" applied to a status line rather
+## than a data field: an import that placed nothing says so rather than
+## printing "0 settlements placed".
+func _geojson_import_summary(result: Dictionary) -> String:
+	var parts := PackedStringArray()
+
+	var placed := int(result.get("settlements_placed", 0))
+	var skipped := int(result.get("settlements_skipped", 0))
+	if placed > 0 or skipped > 0:
+		var s := "%d settlement%s placed" % [placed, "" if placed == 1 else "s"]
+		if skipped > 0:
+			s += " (%d skipped)" % skipped
+		parts.append(s)
+
+	var terr := int(result.get("territory_features_applied", 0))
+	if terr > 0:
+		parts.append("%d territory polygon%s -> %d cells" % [terr, "" if terr == 1 else "s",
+			int(result.get("territory_cells_painted", 0))])
+
+	var created := PackedStringArray(result.get("factions_created", PackedStringArray()))
+	if not created.is_empty():
+		parts.append("%d new faction%s: %s" % [created.size(), "" if created.size() == 1 else "s",
+			", ".join(created)])
+
+	var unsupported: Dictionary = result.get("unsupported_layers", {})
+	if not unsupported.is_empty():
+		var uparts := PackedStringArray()
+		for k in unsupported:
+			uparts.append("%d %s" % [int(unsupported[k]), String(k) if String(k) != "" else "unlabelled"])
+		parts.append("not placed: %s" % ", ".join(uparts))
+
+	if bool(result.get("crs_unstated", false)):
+		parts.append("coordinates assumed planar km -- the document did not confirm this")
+
+	if parts.is_empty():
+		var n := int(result.get("features", 0))
+		return "imported %d feature%s, nothing placed" % [n, "" if n == 1 else "s"]
+	return "imported: " + " · ".join(parts)
 
 ## The written document's own feature counts, keyed by `properties.layer`, plus
 ## `"features"` for the whole collection.

@@ -257,6 +257,46 @@ impl FactionRoster {
     pub fn has_religion_flags(&self) -> Vec<bool> {
         self.0.iter().map(|e| e.religion != "none").collect()
     }
+
+    /// **Ruling V** (`LARGE_ITEM_RULINGS.md`, 2026-09-21): a GeoJSON import
+    /// feature naming a faction this roster doesn't have creates it, rather
+    /// than being remapped to the nearest existing name or dropped into
+    /// "unclaimed." This is the resolve-or-create step both `geojson_apply`
+    /// call sites (settlement, territory) share.
+    ///
+    /// Matching is **exact**, after trimming — never fuzzy, never
+    /// case-folded. The ruling explicitly rules out a fuzzy remap, and a
+    /// case-fold is the same hazard at a smaller scale (an importer that
+    /// meant two distinct factions named "Aurelia" and "AURELIA" would
+    /// silently lose one). `name` blank (after trimming) resolves to
+    /// faction `0` ("Unclaimed") and creates nothing — the reference's own
+    /// "no faction on this feature" case, not an unknown name to invent a
+    /// faction for.
+    ///
+    /// Returns `(fid, Some(name))` when a new faction was appended — the
+    /// imported name verbatim, so a caller can report exactly what was
+    /// created — or `(fid, None)` when an existing row matched (including
+    /// the blank/"Unclaimed" case, `fid == 0`).
+    ///
+    /// A created faction gets [`FactionEntry::default_for`]'s ordinary
+    /// defaults (culture/religion/government/ag-tech, and a colour via
+    /// [`civ_faction_color`] at its new index — guaranteed distinct from
+    /// every earlier index by that function's own golden-angle hue
+    /// rotation) with only `name` overridden to the imported string. Its
+    /// territory is whatever the caller paints afterward; nothing here
+    /// claims a cell.
+    pub fn find_or_create_by_name(&mut self, name: &str) -> (usize, Option<String>) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("unclaimed") {
+            return (0, None);
+        }
+        if let Some(i) = self.0.iter().position(|e| e.name == trimmed) {
+            return (i, None);
+        }
+        let i = self.0.len();
+        self.0.push(FactionEntry { name: trimmed.to_string(), ..FactionEntry::default_for(i) });
+        (i, Some(trimmed.to_string()))
+    }
 }
 
 /// The five place-editor fields `NamedSettlement` has no room for. See this
@@ -477,6 +517,61 @@ mod tests {
         assert_eq!(r.0[1].name, "Thalassa");
         assert!(!r.set_field(1, "colour", "red"), "unknown field key");
         assert!(!r.set_field(99, "name", "X"), "unknown faction");
+    }
+
+    /// Ruling V (2026-09-21): the core case this method exists for. Seeded
+    /// past the 7-row `CIV_FACTION_BASE` table so the appended index
+    /// exercises `civ_faction_color`'s hue-rotation branch, not the base
+    /// table's own hand-picked colours — `FactionEntry::default_for`'s own
+    /// rule, unchanged by this method (only `name` is overridden).
+    #[test]
+    fn find_or_create_by_name_makes_a_new_faction_for_an_unknown_import_name() {
+        let mut r = FactionRoster::seeded(7);
+        let (fid, created) = r.find_or_create_by_name("Whitestone Confederacy");
+        assert_eq!(fid, 8, "appended past Unclaimed + the seeded 7");
+        assert_eq!(created, Some("Whitestone Confederacy".to_string()));
+        assert_eq!(r.0[8].name, "Whitestone Confederacy");
+        assert_eq!(r.count(), 8);
+        // Its colour is the ordinary appended-index rule, distinct by
+        // construction, and it starts with the ordinary defaults.
+        assert_eq!(r.0[8].color, civ_faction_color(8));
+        assert_eq!(r.0[8].government, "monarchy");
+
+        // A second feature naming the SAME faction matches, not duplicates.
+        let (fid2, created2) = r.find_or_create_by_name("Whitestone Confederacy");
+        assert_eq!(fid2, 8);
+        assert_eq!(created2, None, "an existing exact match creates nothing");
+        assert_eq!(r.count(), 8, "no duplicate appended");
+    }
+
+    #[test]
+    fn find_or_create_by_name_matches_an_existing_faction_exactly_not_fuzzily() {
+        let mut r = FactionRoster::seeded(6);
+        let (fid, created) = r.find_or_create_by_name("Aurelia");
+        assert_eq!(fid, 1, "matches CIV_FACTION_BASE[1] exactly");
+        assert_eq!(created, None);
+        assert_eq!(r.count(), 6, "no faction appended for an existing name");
+
+        // A near-miss is NOT fuzzy-matched -- it creates its own faction,
+        // exactly the "do not remap by fuzzy name match" half of the ruling.
+        let (fid2, created2) = r.find_or_create_by_name("Aurelia ");
+        assert_eq!(fid2, 1, "trimmed, so the trailing space is not a mismatch");
+        assert_eq!(created2, None);
+        let (fid3, created3) = r.find_or_create_by_name("Aurelian Remnant");
+        assert_ne!(fid3, 1);
+        assert!(created3.is_some(), "a genuinely different name is a genuinely different faction");
+        assert_eq!(r.count(), 7);
+    }
+
+    #[test]
+    fn find_or_create_by_name_resolves_blank_and_unclaimed_without_creating() {
+        let mut r = FactionRoster::seeded(3);
+        for input in ["", "   ", "Unclaimed", "unclaimed", " UNCLAIMED "] {
+            let (fid, created) = r.find_or_create_by_name(input);
+            assert_eq!(fid, 0, "{input:?}");
+            assert_eq!(created, None, "{input:?}");
+        }
+        assert_eq!(r.count(), 3, "none of the above appended a faction");
     }
 
     #[test]

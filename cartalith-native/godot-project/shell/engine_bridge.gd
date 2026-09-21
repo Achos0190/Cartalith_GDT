@@ -3343,6 +3343,28 @@ func export_geojson() -> String:
 		return ""
 	return world_gen.export_geojson()
 
+## `geojson_apply.rs` via `WorldGen::apply_geojson_document` --
+## `LARGE_ITEM_RULINGS.md` Ruling V (2026-09-21), `GUI_GAP_REGISTER.md` DM-03's
+## other half. Settlements and territory from `text` are placed into the live
+## world; an imported feature naming a faction this world doesn't have
+## creates it (never a fuzzy remap, never a silent drop to unclaimed -- the
+## ruling's own words). See `geojson_apply.rs`'s own module doc for exactly
+## which layers place and which are read but left unapplied.
+##
+## Always returns the dictionary `WorldGen::apply_geojson_document` builds
+## (`"ok"` plus either `"error"` or the placement counts) except when this
+## build's GDExtension predates the binding, which is reported the same way
+## a parse fault is -- `"ok": false, "error": ...` -- rather than a silent
+## no-op, so a caller has exactly one shape to branch on.
+func apply_geojson_document(text: String) -> Dictionary:
+	if not _has("apply_geojson_document"):
+		return {"ok": false,
+			"error": "this build's GDExtension predates apply_geojson_document -- rebuild cartalith-godot"}
+	var result: Dictionary = world_gen.apply_geojson_document(text)
+	if bool(result.get("ok", false)):
+		mark_world_dirty()
+	return result
+
 
 # label_bridge/generate.rs -- CARTO's generated labelling pass
 # (LARGE_ITEM_RULINGS.md, owner ruling 2026-08-31, all three steps).
