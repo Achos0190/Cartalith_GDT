@@ -431,7 +431,16 @@ fn check(c: &Case, expect: &[Expect], label: &str) {
 fn smelting_and_salt_case_0_region_no_wrap() {
     let c = build_real(64, 48, 24601, false);
     assert_eq!(fnv_f32(&c.field), "4d5ea30082db2da3", "field hash: not the world the harness saw");
-    assert_eq!(fnv_bytes(&c.biome), "d980d83eb13b114c", "biome hash: the reference's own buildBiomeRaster over the injected fields disagrees");
+    // RE-BASELINED 2026-09-21 (`LARGE_ITEM_RULINGS.md`'s Ruling Q):
+    // `build_water_bodies` moved to a topology-primary ocean/lake rule, a
+    // deliberate divergence from the reference for classification only
+    // (`golden_parity_waterbodies.rs`'s header has the full account), so
+    // this hash no longer matches the reference's own `buildBiomeRaster`
+    // and the comment naming that agreement is stale for this one case.
+    // `res.iron`/`res.timber`/`res.salt` and every `check(...)` value below
+    // were re-verified unaffected (none of this fixture's 9 sampled places
+    // sit on a cell whose classification moved). Was "d980d83eb13b114c".
+    assert_eq!(fnv_bytes(&c.biome), "8727fe76c30e385f", "biome hash");
     assert_eq!(fnv_f32(&c.rain), "bbf800d467046331", "rain hash");
     assert_eq!(fnv_f32(&c.res.iron), "970b5b6cd9a9add9", "iron-potential hash");
     assert_eq!(fnv_f32(&c.res.timber), "60b3746558e5690", "timber-potential hash");

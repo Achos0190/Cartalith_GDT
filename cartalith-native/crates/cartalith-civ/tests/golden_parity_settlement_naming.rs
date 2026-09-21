@@ -193,19 +193,33 @@ fn settlement_naming_case_1_world_wrap() {
     // comment for the full mechanical explanation (fixed civ-naming RNG
     // seed, independent of terrain seed). Settlements 4-5 (factions 4-5)
     // have no counterpart in case0 and are unique.
-    // **Ruling N re-baseline, second pass** (the coastal term). The river
-    // pass left all five cells, factions, ranks and names alone and moved
-    // only `pop`. This pass drops two of the five outright: their seeds fall
-    // under `find_settlement_seeds`' 0.65 floor once the coastal term stops
-    // paying for a lake (see `golden_parity_settlement_placement.rs`'s case 1
-    // for the seed scores). The three that remain keep their cell, faction,
-    // rank, NAME and `pop` bit-for-bit -- 20317 / 20521 / 22462, the same
-    // values the river pass left. Nothing about naming or population moved
-    // here at all; the fixture simply has three settlements now.
+    // **RE-BASELINED 2026-09-21, `LARGE_ITEM_RULINGS.md`'s Ruling Q**,
+    // superseding the "Ruling N, second pass" account below. `build_water_
+    // bodies` moved to a topology-primary ocean/lake rule
+    // (`golden_parity_waterbodies.rs`'s header has the full account), which
+    // reaches `coast_reach`/`landmass`/`SuitabilityCtx::water_bodies` --
+    // `golden_parity_settlement_placement.rs`'s case1 has the full account
+    // of why. Five DIFFERENT cells are now the candidates (not a subset of
+    // the old five or the old three) -- the SAME five names in the SAME
+    // rank order as before (naming is rank-driven, not cell-driven, so this
+    // is the same evidence-of-an-untouched-stream pattern this file's own
+    // module doc comment already establishes), with new `pop` values since
+    // `_civBasePopForKind` reads each settlement's own suitability. Every
+    // value below is `name_and_populate_settlements`'s own actual output on
+    // this fixture, captured 2026-09-21.
+    //
+    // ---- Ruling N re-baseline, second pass (history, superseded above) ----
+    // The river pass left all five cells, factions, ranks and names alone
+    // and moved only `pop`. This pass dropped two of the five outright:
+    // their seeds fell under `find_settlement_seeds`' 0.65 floor once the
+    // coastal term stopped paying for a lake. The three that remained kept
+    // their cell, faction, rank, NAME and `pop` bit-for-bit.
     let expected = vec![
-        (9usize, 3usize, 1i32, "Sevjuniana", 20317u32),
-        (5, 8, 2, "Hurngarngarnhaskcairn", 20521),
-        (8, 9, 3, "Ghalbahrghaltazdune", 22462),
+        (8usize, 10usize, 1i32, "Sevjuniana", 19344u32),
+        (13, 8, 2, "Hurngarngarnhaskcairn", 19529),
+        (1, 2, 3, "Ghalbahrghaltazdune", 21463),
+        (14, 9, 4, "Orenelywash", 15556),
+        (2, 0, 5, "Taela'elorashade", 22022),
     ];
 
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);

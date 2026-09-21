@@ -34,17 +34,20 @@
 //! extraction) that every one of these settlements is genuinely coastal,
 //! and this task's own harness confirmed real mixed land/ocean/lake
 //! geography at both grids (case0: 79 land / 75 ocean / 0 lake of 154
-//! cells; case1: 127 land / 13 ocean / 52 lake of 192 cells) -- large
-//! enough to exercise real Dijkstra sea-pathing and Prim's MST, not
-//! degenerate all-land or all-ocean grids. case0 has 3 ports (n>2, so the
-//! v0.73 nearest-port sea-lane augmentation branch is exercised); case1
-//! has 5 ports (K5 land topology in the sibling test, but sea connectivity
-//! is independent -- MST here only found the reachable pairs).
+//! cells; case1, pre-Ruling-Q: 127 land / 13 ocean / 52 lake of 192 cells,
+//! post-Ruling-Q 2026-09-21 -- `LARGE_ITEM_RULINGS.md`, `build_water_bodies`
+//! moved to a topology-primary ocean/lake rule -- 116 land / 14 ocean / 62
+//! lake) -- large enough to exercise real Dijkstra sea-pathing and Prim's
+//! MST, not degenerate all-land or all-ocean grids. case0 has 3 ports (n>2,
+//! so the v0.73 nearest-port sea-lane augmentation branch is exercised);
+//! case1 has 5 ports (K5 land topology in the sibling test, but sea
+//! connectivity is independent -- MST here only found the reachable
+//! pairs, 3 of them post-Ruling-Q, down from 4).
 //!
 //! `field[0]` cross-checked against both sibling tests' own already-passing
 //! assertions before trusting this harness's extraction.
 //!
-//! Two of case1's four routes carry `km:0` despite having 3 real points --
+//! Two of case1's three routes carry `km:0` despite having 3 real points --
 //! confirmed a genuine reference behavior, not a harness bug: `_civSmoothPath`
 //! accumulates `km` over the ROUNDED sample points (integer pixel
 //! coordinates) BEFORE its own final step restores full-precision
@@ -149,7 +152,11 @@ fn sea_routes_case_1_five_ports_mixed_geography() {
     let land = water_bodies.iter().filter(|&&w| w == 0).count();
     let ocean = water_bodies.iter().filter(|&&w| w == 1).count();
     let lake = water_bodies.iter().filter(|&&w| w == 2).count();
-    assert_eq!((land, ocean, lake), (127, 13, 52), "case1: water-body cell counts mismatch, harness assumption broken");
+    // RE-BASELINED 2026-09-21 (`LARGE_ITEM_RULINGS.md`'s Ruling Q):
+    // `build_water_bodies` moved to a topology-primary ocean/lake rule
+    // (`golden_parity_waterbodies.rs`'s header has the full account). Was
+    // (127, 13, 52).
+    assert_eq!((land, ocean, lake), (116, 14, 62), "case1: water-body cell counts mismatch, harness assumption broken");
 
     let ports = vec![
         named(9, 3, 1, "Sevjuniana", 20354),
@@ -162,7 +169,17 @@ fn sea_routes_case_1_five_ports_mixed_geography() {
     let routes =
         cartalith_civ::civ_sea_routes(&ports, &ws.field, &water_bodies, 16, 12, true, p.map_width_km, None, None);
 
-    assert_eq!(routes.len(), 4, "case1: route count mismatch");
+    // RE-BASELINED 2026-09-21 (`LARGE_ITEM_RULINGS.md`'s Ruling Q):
+    // `build_water_bodies` moved to a topology-primary ocean/lake rule
+    // (`golden_parity_waterbodies.rs`'s header has the full account), which
+    // changes this fixture's navigable-ocean mask (`civ_sea_routes`'
+    // Dijkstra pathing and Prim's MST both key on `water_bodies == 1`).
+    // The route count itself moves (4 -> 3): the
+    // "Ghalbahrghaltazdune -> Hurngarngarnhaskcairn" pair the old MST
+    // found is no longer part of the new MST/augmentation result. Every
+    // value below is `civ_sea_routes`' own actual output on this fixture,
+    // captured 2026-09-21.
+    assert_eq!(routes.len(), 3, "case1: route count mismatch");
 
     struct Expect {
         pts: Vec<(f64, f64)>,
@@ -170,10 +187,13 @@ fn sea_routes_case_1_five_ports_mixed_geography() {
         name: &'static str,
     }
     let expected = [
-        Expect { pts: vec![(9.0, 3.0), (9.0, 4.0), (10.0, 5.0)], km: 0.0, name: "Sevjuniana \u{2192} Orenelywash" },
-        Expect { pts: vec![(9.0, 3.0), (9.0, 5.0), (8.0, 7.0), (8.0, 9.0)], km: 232.51407699364424, name: "Sevjuniana \u{2192} Ghalbahrghaltazdune" },
-        Expect { pts: vec![(8.0, 9.0), (7.0, 8.0), (5.0, 8.0)], km: 111.80339887498948, name: "Ghalbahrghaltazdune \u{2192} Hurngarngarnhaskcairn" },
-        Expect { pts: vec![(5.0, 8.0), (5.0, 7.0), (4.0, 7.0)], km: 0.0, name: "Hurngarngarnhaskcairn \u{2192} Taela'elorashade" },
+        Expect { pts: vec![(9.0, 3.0), (13.0, 9.0), (10.0, 5.0)], km: 0.0, name: "Sevjuniana \u{2192} Orenelywash" },
+        Expect {
+            pts: vec![(9.0, 3.0), (13.0, 9.0), (13.0, 9.0), (12.0, 10.0), (12.0, 11.0), (11.0, 12.0), (9.0, 11.0), (8.0, 9.0)],
+            km: 353.224755112299,
+            name: "Sevjuniana \u{2192} Ghalbahrghaltazdune",
+        },
+        Expect { pts: vec![(5.0, 8.0), (2.0, 11.0), (4.0, 7.0)], km: 0.0, name: "Hurngarngarnhaskcairn \u{2192} Taela'elorashade" },
     ];
 
     for (i, (r, e)) in routes.iter().zip(expected.iter()).enumerate() {

@@ -572,5 +572,16 @@ fn the_two_cases_really_are_different_worlds() {
     let b = case1();
     assert_ne!(fnv_u8(&a.wb), fnv_u8(&b.wb));
     assert_ne!(fnv_u8(&a.biome), fnv_u8(&b.biome));
-    assert!(a.wb.contains(&2) && b.wb.contains(&2), "both fixtures contain a real lake, so the ocean-vs-lake gates are exercised");
+    // RE-BASELINED 2026-09-21 (`LARGE_ITEM_RULINGS.md`'s Ruling Q):
+    // `build_water_bodies` moved to a topology-primary ocean/lake rule --
+    // see `golden_parity_waterbodies.rs`'s header for the full account.
+    // `case0`'s below-sea system no longer has any component that fails to
+    // touch the grid's real boundary, so every one of its below-sea cells
+    // is now ocean and it carries zero lake cells (was `a.wb.contains(&2)`
+    // true; measured 2026-09-21: 186 ocean / 0 lake). The ocean-vs-lake
+    // gates are still exercised -- by `case1` alone (87 ocean / 42 lake) --
+    // so the assertion now states what each fixture actually contains
+    // rather than assuming both still do.
+    assert!(!a.wb.contains(&2), "case0 no longer contains a lake under the topology-primary rule");
+    assert!(b.wb.contains(&1) && b.wb.contains(&2), "case1 alone exercises the ocean-vs-lake gates");
 }

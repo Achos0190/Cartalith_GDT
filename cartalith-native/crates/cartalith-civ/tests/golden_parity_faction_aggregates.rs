@@ -290,9 +290,19 @@ fn faction_aggregates_case_0_region_no_wrap() {
     let w = build_world(24, 18, 24601, false);
     let (gw, gh) = (24, 18);
     assert_eq!(fnv_f32(&w.ws.field), "b2f9815ad751080", "field hash: the harness world and this one are not the same world");
-    assert_eq!(fnv_u8(&w.biome), "b341d60750895ae0", "biome raster hash");
+    // RE-BASELINED 2026-09-21 (`LARGE_ITEM_RULINGS.md`'s Ruling Q):
+    // `build_water_bodies` moved to a topology-primary ocean/lake rule
+    // (`golden_parity_waterbodies.rs`'s header has the full account), a
+    // deliberate divergence from the reference for classification only.
+    // This fixture's below-sea components reclassify under the new rule,
+    // so `w.biome` (built from `wb.classification`) and everything `build_world`
+    // derives from `biome` move too. Was "b341d60750895ae0".
+    assert_eq!(fnv_u8(&w.biome), "22fcf51d331f6edb", "biome raster hash");
     assert_eq!(fnv_u8(&river_mask(&w, gw, gh)), "79a17f2b33015faf", "river-mask hash");
-    assert_eq!(fnv_f32(&w.ocean_dt), "c442e9d0f86bdee2", "ocean distance-transform hash");
+    // RE-BASELINED 2026-09-21 (Ruling Q): `civ_ocean_dist_field` reads
+    // `wb.classification == 1` directly, so it moves with the ocean/lake
+    // reclassification above. Was "c442e9d0f86bdee2".
+    assert_eq!(fnv_f32(&w.ocean_dt), "caa3daff0d97b533", "ocean distance-transform hash");
     assert_eq!(fnv_u8(&w.lith), "cf2f3c988dccebfe", "lithology hash");
     assert_eq!(fnv_f32(&w.water), "dfc4465c7e3792a5", "water-access hash");
     near_rel(land_sum(&w.dens, &w.ws.field, w.ws.sea_level), 1855.1646017581224, 1e-6, "population-density land sum");
@@ -330,7 +340,9 @@ fn faction_aggregates_case_0_region_no_wrap() {
     near(agg.max_territory_km2, 76667.0, "max_territory_km2");
     assert_eq!(agg.max_settlement_count, 3, "max_settlement_count");
     near(agg.world_mean_terrain["river"], 1.0, "world_mean_terrain.river");
-    near(agg.world_mean_terrain["coast"], 0.24796747967479674, "world_mean_terrain.coast");
+    // RE-BASELINED 2026-09-21 (Ruling Q): coast fraction moves with the
+    // biome/ocean reclassification above. Was 0.24796747967479674.
+    near(agg.world_mean_terrain["coast"], 0.25609756097560976, "world_mean_terrain.coast");
     near(agg.world_mean_terrain["arid"], 0.06504065040650407, "world_mean_terrain.arid");
     near(agg.world_mean_terrain["forest"], 0.6463414634146342, "world_mean_terrain.forest");
     near(agg.world_mean_terrain["hills"], 0.4065040650406504, "world_mean_terrain.hills");
@@ -474,7 +486,8 @@ fn faction_aggregates_case_0_region_no_wrap() {
     near(b.sector_output.mining, 0.0, "f2.sector.mining");
     near(b.sector_output.craft, 0.0, "f2.sector.craft");
     near(b.terrain_mix["river"], 1.0, "f2.terrain_mix.river");
-    near(b.terrain_mix["coast"], 0.21739130434782608, "f2.terrain_mix.coast");
+    // RE-BASELINED 2026-09-21 (Ruling Q). Was 0.21739130434782608.
+    near(b.terrain_mix["coast"], 0.2318840579710145, "f2.terrain_mix.coast");
     near(b.terrain_mix["arid"], 0.043478260869565216, "f2.terrain_mix.arid");
     near(b.terrain_mix["forest"], 0.6666666666666666, "f2.terrain_mix.forest");
     near(b.terrain_mix["hills"], 0.4927536231884058, "f2.terrain_mix.hills");
@@ -621,7 +634,8 @@ fn faction_aggregates_case_0_region_no_wrap() {
     near(b.sector_output.mining, 0.0, "f5.sector.mining");
     near(b.sector_output.craft, 0.0, "f5.sector.craft");
     near(b.terrain_mix["river"], 1.0, "f5.terrain_mix.river");
-    near(b.terrain_mix["coast"], 0.24324324324324326, "f5.terrain_mix.coast");
+    // RE-BASELINED 2026-09-21 (Ruling Q). Was 0.24324324324324326.
+    near(b.terrain_mix["coast"], 0.2702702702702703, "f5.terrain_mix.coast");
     near(b.terrain_mix["arid"], 0.08108108108108109, "f5.terrain_mix.arid");
     near(b.terrain_mix["forest"], 0.7027027027027027, "f5.terrain_mix.forest");
     near(b.terrain_mix["hills"], 0.43243243243243246, "f5.terrain_mix.hills");
@@ -750,20 +764,28 @@ fn faction_aggregates_case_0_region_no_wrap() {
     assert_eq!(fit.key, "forest"); near(fit.value, 0.7027027027027027, "sylvan/f5.value"); near(fit.world_mean, 0.6463414634146342, "sylvan/f5.world_mean"); near(fit.ratio, 1.087200407955125, "sylvan/f5.ratio"); assert_eq!(fit.verdict, "typical", "sylvan/f5.verdict");
     let fit = civ_culture_terrain_fit("sylvan", &agg.by_faction[6].terrain_mix, &agg.world_mean_terrain).expect("sylvan/f6");
     assert_eq!(fit.key, "forest"); near(fit.value, 0.0, "sylvan/f6.value"); near(fit.world_mean, 0.6463414634146342, "sylvan/f6.world_mean"); near(fit.ratio, 0.0, "sylvan/f6.ratio"); assert_eq!(fit.verdict, "mismatch", "sylvan/f6.verdict");
+    // The whole "maritime" block below is RE-BASELINED 2026-09-21 (Ruling
+    // Q): `world_mean_terrain["coast"]` moved (see above), so every
+    // `world_mean`/`ratio` here moves with it, and `f2`/`f5`'s own `value`
+    // moved with their `terrain_mix["coast"]` above. `f4`'s `verdict` flips
+    // typical -> mismatch: ratio 0.8719539211342491 -> 0.8442728442728443
+    // crosses `civ_culture_terrain_fit`'s own typical/mismatch band. Every
+    // number below is `civ_culture_terrain_fit`'s own actual output on this
+    // fixture, captured 2026-09-21.
     let fit = civ_culture_terrain_fit("maritime", &agg.by_faction[0].terrain_mix, &agg.world_mean_terrain).expect("maritime/f0");
-    assert_eq!(fit.key, "coast"); near(fit.value, 0.0, "maritime/f0.value"); near(fit.world_mean, 0.24796747967479674, "maritime/f0.world_mean"); near(fit.ratio, 0.0, "maritime/f0.ratio"); assert_eq!(fit.verdict, "mismatch", "maritime/f0.verdict");
+    assert_eq!(fit.key, "coast"); near(fit.value, 0.0, "maritime/f0.value"); near(fit.world_mean, 0.25609756097560976, "maritime/f0.world_mean"); near(fit.ratio, 0.0, "maritime/f0.ratio"); assert_eq!(fit.verdict, "mismatch", "maritime/f0.verdict");
     let fit = civ_culture_terrain_fit("maritime", &agg.by_faction[1].terrain_mix, &agg.world_mean_terrain).expect("maritime/f1");
-    assert_eq!(fit.key, "coast"); near(fit.value, 0.2702702702702703, "maritime/f1.value"); near(fit.world_mean, 0.24796747967479674, "maritime/f1.world_mean"); near(fit.ratio, 1.0899424014178114, "maritime/f1.ratio"); assert_eq!(fit.verdict, "typical", "maritime/f1.verdict");
+    assert_eq!(fit.key, "coast"); near(fit.value, 0.2702702702702703, "maritime/f1.value"); near(fit.world_mean, 0.25609756097560976, "maritime/f1.world_mean"); near(fit.ratio, 1.0553410553410554, "maritime/f1.ratio"); assert_eq!(fit.verdict, "typical", "maritime/f1.verdict");
     let fit = civ_culture_terrain_fit("maritime", &agg.by_faction[2].terrain_mix, &agg.world_mean_terrain).expect("maritime/f2");
-    assert_eq!(fit.key, "coast"); near(fit.value, 0.21739130434782608, "maritime/f2.value"); near(fit.world_mean, 0.24796747967479674, "maritime/f2.world_mean"); near(fit.ratio, 0.8766928011404134, "maritime/f2.ratio"); assert_eq!(fit.verdict, "typical", "maritime/f2.verdict");
+    assert_eq!(fit.key, "coast"); near(fit.value, 0.2318840579710145, "maritime/f2.value"); near(fit.world_mean, 0.25609756097560976, "maritime/f2.world_mean"); near(fit.ratio, 0.9054520358868184, "maritime/f2.ratio"); assert_eq!(fit.verdict, "typical", "maritime/f2.verdict");
     let fit = civ_culture_terrain_fit("maritime", &agg.by_faction[3].terrain_mix, &agg.world_mean_terrain).expect("maritime/f3");
-    assert_eq!(fit.key, "coast"); near(fit.value, 0.275, "maritime/f3.value"); near(fit.world_mean, 0.24796747967479674, "maritime/f3.world_mean"); near(fit.ratio, 1.1090163934426231, "maritime/f3.ratio"); assert_eq!(fit.verdict, "typical", "maritime/f3.verdict");
+    assert_eq!(fit.key, "coast"); near(fit.value, 0.275, "maritime/f3.value"); near(fit.world_mean, 0.25609756097560976, "maritime/f3.world_mean"); near(fit.ratio, 1.0738095238095238, "maritime/f3.ratio"); assert_eq!(fit.verdict, "typical", "maritime/f3.verdict");
     let fit = civ_culture_terrain_fit("maritime", &agg.by_faction[4].terrain_mix, &agg.world_mean_terrain).expect("maritime/f4");
-    assert_eq!(fit.key, "coast"); near(fit.value, 0.21621621621621623, "maritime/f4.value"); near(fit.world_mean, 0.24796747967479674, "maritime/f4.world_mean"); near(fit.ratio, 0.8719539211342491, "maritime/f4.ratio"); assert_eq!(fit.verdict, "typical", "maritime/f4.verdict");
+    assert_eq!(fit.key, "coast"); near(fit.value, 0.21621621621621623, "maritime/f4.value"); near(fit.world_mean, 0.25609756097560976, "maritime/f4.world_mean"); near(fit.ratio, 0.8442728442728443, "maritime/f4.ratio"); assert_eq!(fit.verdict, "mismatch", "maritime/f4.verdict");
     let fit = civ_culture_terrain_fit("maritime", &agg.by_faction[5].terrain_mix, &agg.world_mean_terrain).expect("maritime/f5");
-    assert_eq!(fit.key, "coast"); near(fit.value, 0.24324324324324326, "maritime/f5.value"); near(fit.world_mean, 0.24796747967479674, "maritime/f5.world_mean"); near(fit.ratio, 0.9809481612760302, "maritime/f5.ratio"); assert_eq!(fit.verdict, "typical", "maritime/f5.verdict");
+    assert_eq!(fit.key, "coast"); near(fit.value, 0.2702702702702703, "maritime/f5.value"); near(fit.world_mean, 0.25609756097560976, "maritime/f5.world_mean"); near(fit.ratio, 1.0553410553410554, "maritime/f5.ratio"); assert_eq!(fit.verdict, "typical", "maritime/f5.verdict");
     let fit = civ_culture_terrain_fit("maritime", &agg.by_faction[6].terrain_mix, &agg.world_mean_terrain).expect("maritime/f6");
-    assert_eq!(fit.key, "coast"); near(fit.value, 0.0, "maritime/f6.value"); near(fit.world_mean, 0.24796747967479674, "maritime/f6.world_mean"); near(fit.ratio, 0.0, "maritime/f6.ratio"); assert_eq!(fit.verdict, "mismatch", "maritime/f6.verdict");
+    assert_eq!(fit.key, "coast"); near(fit.value, 0.0, "maritime/f6.value"); near(fit.world_mean, 0.25609756097560976, "maritime/f6.world_mean"); near(fit.ratio, 0.0, "maritime/f6.ratio"); assert_eq!(fit.verdict, "mismatch", "maritime/f6.verdict");
     assert!(civ_culture_terrain_fit("common", &agg.by_faction[0].terrain_mix, &agg.world_mean_terrain).is_none(), "common/f0 must have no verdict");
     assert!(civ_culture_terrain_fit("common", &agg.by_faction[1].terrain_mix, &agg.world_mean_terrain).is_none(), "common/f1 must have no verdict");
     assert!(civ_culture_terrain_fit("common", &agg.by_faction[2].terrain_mix, &agg.world_mean_terrain).is_none(), "common/f2 must have no verdict");

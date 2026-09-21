@@ -148,24 +148,35 @@ fn hierarchical_network_case_1_world_wrap_complete_graph() {
     assert_eq!(net.degree_of, vec![4, 4, 4, 4, 4], "case1: degree_of mismatch (expected complete graph K5)");
     assert_eq!(net.edges.len(), 10, "case1: edge count mismatch (expected complete graph K5 = 10 edges)");
 
+    // RE-BASELINED 2026-09-21 (`LARGE_ITEM_RULINGS.md`'s Ruling Q):
+    // `build_water_bodies` moved to a topology-primary ocean/lake rule
+    // (`golden_parity_waterbodies.rs`'s header has the full account), which
+    // changes this fixture's `water_bodies`/`biome` and therefore the
+    // terrain-cost grid `civ_hierarchical_network_topology` routes over.
+    // The graph SHAPE is unchanged (still K5, same `degree_of`, same 10
+    // edge endpoints) -- only some paths' intermediate cells move, because
+    // cells 58/107/123/138 are cheaper to cross now than they were through
+    // 74/106/121 under the old classification. Every array below is
+    // `civ_hierarchical_network_topology`'s own actual output on this
+    // fixture, captured 2026-09-21.
     let expected_edges: Vec<(usize, usize, Vec<usize>)> = vec![
-        (0, 3, vec![57, 74, 90]),
-        (3, 2, vec![90, 106, 121, 137, 152]),
+        (0, 3, vec![57, 58, 75, 90]),
+        (3, 2, vec![90, 107, 123, 138, 137, 152]),
         (2, 1, vec![152, 151, 150, 133]),
         (1, 4, vec![133, 116]),
-        (0, 2, vec![57, 74, 90, 106, 121, 137, 152]),
-        (0, 1, vec![57, 74, 90, 106, 121, 137, 152, 151, 150, 133]),
-        (0, 4, vec![57, 74, 90, 106, 121, 137, 152, 151, 150, 133, 116]),
-        (1, 3, vec![133, 150, 151, 152, 137, 121, 106, 90]),
+        (0, 2, vec![57, 58, 75, 90, 107, 123, 138, 137, 152]),
+        (0, 1, vec![57, 58, 75, 90, 107, 123, 138, 137, 152, 151, 150, 133]),
+        (0, 4, vec![57, 58, 75, 90, 107, 123, 138, 137, 152, 151, 150, 133, 116]),
+        (1, 3, vec![133, 150, 151, 152, 137, 138, 123, 107, 90]),
         (2, 4, vec![152, 151, 150, 133, 116]),
-        (3, 4, vec![90, 106, 121, 137, 152, 151, 150, 133, 116]),
+        (3, 4, vec![90, 107, 123, 138, 137, 152, 151, 150, 133, 116]),
     ];
     for (i, e) in net.edges.iter().enumerate() {
         assert_eq!((e.a, e.b, e.path.clone()), expected_edges[i], "case1: edge {i} mismatch");
     }
 
     let expected_usage: Vec<(usize, u16)> = vec![
-        (57, 4), (74, 4), (90, 7), (106, 6), (116, 4), (121, 6), (133, 7), (137, 6), (150, 6), (151, 6), (152, 8),
+        (57, 4), (58, 4), (75, 4), (90, 7), (107, 6), (116, 4), (123, 6), (133, 7), (137, 6), (138, 6), (150, 6), (151, 6), (152, 8),
     ];
     let mut nonzero: Vec<(usize, u16)> = net.usage_count.iter().enumerate().filter(|&(_, &u)| u != 0).map(|(i, &u)| (i, u)).collect();
     nonzero.sort_by_key(|&(i, _)| i);

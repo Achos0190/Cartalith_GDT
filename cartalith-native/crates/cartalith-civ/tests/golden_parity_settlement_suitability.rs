@@ -186,9 +186,22 @@ fn settlement_suitability_case_1_world_wrap() {
     // CASE1 sea=0.42 flowThresh=0.07680000000000001 seedsCount=5
     let reference_suit: Vec<f32> = vec![0f32, 0f32, 0.4544396996498108f32, 0.6829801797866821f32, 0.6716033816337585f32, 0.7098731398582458f32, 0.7363941669464111f32, 0.8240528106689453f32, 0.7810350656509399f32, 0.5809214115142822f32, 0.6753418445587158f32, 0.6026200652122498f32, 0.5720908045768738f32, 0.5295939445495605f32, 0.7118990421295166f32, 0.5681145787239075f32, 0.4841911792755127f32, 0f32, 0.4294154942035675f32, 0.5891220569610596f32, 0.5186370611190796f32, 0f32, 0.6469618678092957f32, 0.7927274107933044f32, 0.7248112559318542f32, 0f32, 0.618212878704071f32, 0.6563898324966431f32, 0.6516931653022766f32, 0.5132604837417603f32, 0.7425177693367004f32, 0.6197832822799683f32, 0f32, 0.490617573261261f32, 0.43964463472366333f32, 0.38720008730888367f32, 0f32, 0f32, 0.6940781474113464f32, 0.7959432005882263f32, 0.8302209973335266f32, 0.597190797328949f32, 0f32, 0.764442503452301f32, 0.7290124297142029f32, 0.7565300464630127f32, 0.5328009128570557f32, 0f32, 0f32, 0.7213306427001953f32, 0f32, 0f32, 0f32, 0.6953161954879761f32, 0f32, 0.7508717775344849f32, 0.7712700366973877f32, 0.8109160661697388f32, 0.8138898015022278f32, 0.8104649186134338f32, 0.8133845329284668f32, 0.7196357250213623f32, 0f32, 0f32, 0.54398512840271f32, 0.4139922559261322f32, 0f32, 0f32, 0.6010671257972717f32, 0.7966353297233582f32, 0f32, 0.6192946434020996f32, 0.6879088282585144f32, 0f32, 0.6882720589637756f32, 0.877501904964447f32, 0.7467853426933289f32, 0.5740789175033569f32, 0.5160160660743713f32, 0.42500898241996765f32, 0.4940870404243469f32, 0.7125096321105957f32, 0f32, 0f32, 0f32, 0.8474334478378296f32, 0.5898798704147339f32, 0f32, 0.5701712369918823f32, 0f32, 0.7266634702682495f32, 0.7777393460273743f32, 0.6724652647972107f32, 0f32, 0.5727471113204956f32, 0.4766692817211151f32, 0f32, 0.649103045463562f32, 0.5776664018630981f32, 0f32, 0.5558050274848938f32, 0.40618836879730225f32, 0f32, 0f32, 0f32, 0f32, 0.5526706576347351f32, 0.7049570083618164f32, 0f32, 0f32, 0.7597787380218506f32, 0f32, 0f32, 0f32, 0.6265968084335327f32, 0.7486276626586914f32, 0.4574846625328064f32, 0f32, 0f32, 0f32, 0f32, 0.46842536330223083f32, 0f32, 0.7595784068107605f32, 0f32, 0.543763279914856f32, 0.6808619499206543f32, 0f32, 0f32, 0.4536745846271515f32, 0.6735608577728271f32, 0.647739589214325f32, 0.5560805797576904f32, 0.8199706077575684f32, 0.5670826435089111f32, 0f32, 0f32, 0.49764010310173035f32, 0.39544785022735596f32, 0.36451399326324463f32, 0f32, 0.6790796518325806f32, 0.7422176599502563f32, 0f32, 0f32, 0.6350211501121521f32, 0.46249744296073914f32, 0f32, 0.6249449849128723f32, 0.6116637587547302f32, 0.6004941463470459f32, 0.4994843304157257f32, 0.5849137306213379f32, 0.4600963294506073f32, 0.37229734659194946f32, 0.49899518489837646f32, 0.5173693299293518f32, 0f32, 0.6083006858825684f32, 0.46872764825820923f32, 0.5247565507888794f32, 0.6404932737350464f32, 0.44346559047698975f32, 0f32, 0f32, 0.5352204442024231f32, 0.5418827533721924f32, 0.5260804891586304f32, 0.8081161975860596f32, 0f32, 0f32, 0.41098812222480774f32, 0f32, 0f32, 0f32, 0.3890637755393982f32, 0.5443041324615479f32, 0.4659217894077301f32, 0f32, 0.7042208909988403f32, 0.47862139344215393f32, 0.5131184458732605f32, 0.5875740647315979f32, 0.7066688537597656f32, 0.7202219367027283f32, 0f32, 0f32, 0f32, 0f32, 0.5120180249214172f32, 0.6315444707870483f32, 0.5630244016647339f32];
     let reference_seeds: Vec<(usize, usize, f32)> = vec![(11, 4, 0.877501904964447f32), (5, 5, 0.8474334478378296f32), (8, 10, 0.8081161975860596f32), (14, 8, 0.7422176599502563f32), (1, 3, 0.7213306427001953f32)];
-    // Ruling N re-baseline -- the river and coastal terms; see this file's header.
-    let expected_suit: Vec<f32> = vec![0.0f32, 0.0f32, 0.24229707f32, 0.464262f32, 0.461618f32, 0.5115899f32, 0.6605568f32, 0.7911635f32, 0.7423643f32, 0.54697126f32, 0.6662133f32, 0.54543203f32, 0.42771155f32, 0.3867283f32, 0.55167115f32, 0.36803934f32, 0.2472643f32, 0.0f32, 0.22558056f32, 0.36854526f32, 0.4441944f32, 0.0f32, 0.60446376f32, 0.7758406f32, 0.7185404f32, 0.0f32, 0.6397287f32, 0.68202895f32, 0.6067575f32, 0.48433915f32, 0.58276504f32, 0.41453344f32, 0.0f32, 0.26170334f32, 0.23293638f32, 0.31838408f32, 0.0f32, 0.0f32, 0.6449939f32, 0.7945755f32, 0.8260544f32, 0.59516853f32, 0.0f32, 0.78452444f32, 0.6873198f32, 0.73323303f32, 0.34001425f32, 0.0f32, 0.0f32, 0.4863202f32, 0.0f32, 0.0f32, 0.0f32, 0.6935337f32, 0.0f32, 0.7453551f32, 0.7585596f32, 0.801735f32, 0.8068192f32, 0.8114027f32, 0.7764505f32, 0.684489f32, 0.0f32, 0.0f32, 0.29450503f32, 0.30753666f32, 0.0f32, 0.0f32, 0.584f32, 0.786943f32, 0.0f32, 0.6024916f32, 0.6659243f32, 0.0f32, 0.67290545f32, 0.87432f32, 0.7451936f32, 0.5400467f32, 0.4308834f32, 0.22103882f32, 0.25470904f32, 0.61927783f32, 0.0f32, 0.0f32, 0.0f32, 0.8327733f32, 0.56322694f32, 0.0f32, 0.5356469f32, 0.0f32, 0.7062431f32, 0.765279f32, 0.6593853f32, 0.0f32, 0.48482758f32, 0.254812f32, 0.0f32, 0.56077397f32, 0.52576756f32, 0.0f32, 0.51458323f32, 0.36833996f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.51792914f32, 0.6799706f32, 0.0f32, 0.0f32, 0.6817667f32, 0.0f32, 0.0f32, 0.0f32, 0.58560246f32, 0.7214342f32, 0.42852986f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.416668f32, 0.0f32, 0.72801304f32, 0.0f32, 0.4760785f32, 0.57590926f32, 0.0f32, 0.0f32, 0.37051097f32, 0.6421196f32, 0.62447006f32, 0.5385663f32, 0.81112677f32, 0.5496509f32, 0.0f32, 0.0f32, 0.45194003f32, 0.3464979f32, 0.3173829f32, 0.0f32, 0.5910207f32, 0.6285946f32, 0.0f32, 0.0f32, 0.5414858f32, 0.41443178f32, 0.0f32, 0.6180582f32, 0.60966665f32, 0.5934505f32, 0.4818179f32, 0.5561618f32, 0.41927278f32, 0.32467404f32, 0.44284782f32, 0.43079555f32, 0.0f32, 0.35209906f32, 0.23590682f32, 0.2787053f32, 0.52677083f32, 0.3739993f32, 0.0f32, 0.0f32, 0.48278567f32, 0.53979677f32, 0.5114022f32, 0.79061157f32, 0.0f32, 0.0f32, 0.34042382f32, 0.0f32, 0.0f32, 0.0f32, 0.18223926f32, 0.2947723f32, 0.24189301f32, 0.0f32, 0.6429028f32, 0.4380501f32, 0.5080281f32, 0.58046174f32, 0.69180304f32, 0.6959708f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.26856437f32, 0.37492362f32, 0.31076306f32];
-    let expected_seeds: Vec<(usize, usize, f32)> = vec![(11, 4, 0.87432f32), (5, 5, 0.8327733f32), (8, 10, 0.79061157f32)];
+    // RE-BASELINED 2026-09-21 (`LARGE_ITEM_RULINGS.md`'s Ruling Q),
+    // superseding the Ruling N re-baseline this comment used to describe
+    // alone. `build_water_bodies` moved to a topology-primary ocean/lake
+    // rule (`golden_parity_waterbodies.rs`'s header has the full account),
+    // which reaches this arm through `carrying_cap`/`resources`/`landmass`/
+    // `ctx.water_bodies`/`ctx.coast_reach` -- five real inputs, not one term
+    // -- so `expected_suit`/`expected_seeds` move again on top of Ruling
+    // N's original river/coastal re-baseline. `reference_suit`/
+    // `reference_seeds` above are UNCHANGED and still match the true JS
+    // capture: the legacy arm now runs `legacy_build_water_bodies` (this
+    // file's own frozen pre-Ruling-Q reproduction) specifically so it can
+    // keep proving that. Every value below is
+    // `build_settlement_suitability`/`find_settlement_seeds`'s own actual
+    // production output on this fixture, captured 2026-09-21.
+    let expected_suit: Vec<f32> = vec![0.0f32, 0.0f32, 0.42552647f32, 0.66747874f32, 0.6651142f32, 0.68680036f32, 0.67455703f32, 0.67592025f32, 0.59927183f32, 0.38030753f32, 0.50881064f32, 0.3976645f32, 0.30968052f32, 0.3867283f32, 0.55167115f32, 0.36803934f32, 0.39287186f32, 0.0f32, 0.40289035f32, 0.57481825f32, 0.5165397f32, 0.0f32, 0.0f32, 0.62232554f32, 0.52997756f32, 0.0f32, 0.43954918f32, 0.50473374f32, 0.44890153f32, 0.36002466f32, 0.58276504f32, 0.41453344f32, 0.0f32, 0.45087546f32, 0.41294494f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.6254461f32, 0.67214835f32, 0.3882614f32, 0.0f32, 0.6111694f32, 0.51010305f32, 0.600797f32, 0.34001425f32, 0.0f32, 0.0f32, 0.6868142f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.55823225f32, 0.57561517f32, 0.6357983f32, 0.6794996f32, 0.65002525f32, 0.6039985f32, 0.5271661f32, 0.0f32, 0.0f32, 0.49159992f32, 0.37031132f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.39552596f32, 0.4625225f32, 0.0f32, 0.0f32, 0.7502052f32, 0.68582547f32, 0.49867266f32, 0.42578307f32, 0.22103882f32, 0.4393851f32, 0.6666695f32, 0.0f32, 0.0f32, 0.0f32, 0.7165498f32, 0.0f32, 0.0f32, 0.49438056f32, 0.0f32, 0.67950785f32, 0.7288801f32, 0.62979054f32, 0.0f32, 0.51581407f32, 0.39508066f32, 0.0f32, 0.5581752f32, 0.4738414f32, 0.0f32, 0.4789173f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.7034937f32, 0.0f32, 0.0f32, 0.7333619f32, 0.0f32, 0.0f32, 0.0f32, 0.57008237f32, 0.7034162f32, 0.39091417f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.72801304f32, 0.0f32, 0.5024244f32, 0.6397641f32, 0.0f32, 0.0f32, 0.40872702f32, 0.64212865f32, 0.62447006f32, 0.53406274f32, 0.7888718f32, 0.5278393f32, 0.0f32, 0.0f32, 0.45194003f32, 0.3464979f32, 0.3173829f32, 0.0f32, 0.63170666f32, 0.7000481f32, 0.0f32, 0.0f32, 0.59580463f32, 0.4334789f32, 0.0f32, 0.6180582f32, 0.59778094f32, 0.58869755f32, 0.4818179f32, 0.5561618f32, 0.41927278f32, 0.32467404f32, 0.4466985f32, 0.42494777f32, 0.0f32, 0.557291f32, 0.41696307f32, 0.47230518f32, 0.602982f32, 0.41670638f32, 0.0f32, 0.0f32, 0.48278567f32, 0.53979677f32, 0.5114022f32, 0.79061157f32, 0.0f32, 0.0f32, 0.32478186f32, 0.0f32, 0.0f32, 0.0f32, 0.34045902f32, 0.49192134f32, 0.42498824f32, 0.0f32, 0.6892856f32, 0.47132075f32, 0.51101965f32, 0.58046174f32, 0.648069f32, 0.65253115f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.4109793f32, 0.5326655f32, 0.46143815f32];
+    let expected_seeds: Vec<(usize, usize, f32)> = vec![(8, 10, 0.79061157f32), (11, 4, 0.7502052f32), (5, 5, 0.7165498f32), (14, 8, 0.7000481f32), (1, 3, 0.6868142f32)];
 
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
     p.world = true;
@@ -316,6 +329,261 @@ fn legacy_coast_proxy(coast_sdf: &[f32]) -> Vec<f32> {
         .collect()
 }
 
+// ---- legacy_water_bodies: `build_water_bodies` BEFORE Ruling Q ----
+//
+// `LARGE_ITEM_RULINGS.md`'s Ruling Q (2026-09-21) moved
+// `cartalith_civ::build_water_bodies` from the reference's own size-primary
+// ocean/lake rule to a topology-primary one. That function is now a
+// DELIBERATE DIVERGENCE from the reference -- and `carrying_cap`/
+// `resources`/`landmass`/`ctx.water_bodies` all read its output, so even
+// the "legacy" river/coast arm below (which is supposed to reproduce
+// `reference_suit`/`reference_seeds`, the JS engine's own real capture,
+// bit-for-bit) would silently drift once `build_water_bodies` itself
+// stopped matching the reference. This is the SAME reasoning that already
+// justifies `legacy_river_proxy`/`legacy_coast_proxy`, extended to a third
+// term Ruling Q's own re-baseline reached into: without a frozen
+// reproduction of the pre-Ruling-Q algorithm, the "legacy" arm would be
+// asserting this port's own new output against itself, not against the
+// reference -- and the isolation this file exists to prove (that Ruling
+// N's two terms are the ONLY thing that moved) would no longer hold.
+//
+// A faithful, hand-verified copy of `build_water_bodies` as it stood
+// immediately before Ruling Q (same connected-components pass, same
+// largest-component-wins ocean rule, same priority-flood depression pass
+// -- including the hand-ported `MinHeap`, whose own doc comment in
+// `src/lib.rs` warns that a `std::collections::BinaryHeap` substitute is
+// not safe here because equal-priority pop order decides lake shape).
+// Returns just the classification, which is all this file's `wb`/`biome`
+// derivation needs.
+
+struct LegacyMinHeap {
+    p: Vec<f32>,
+    v: Vec<usize>,
+}
+
+impl LegacyMinHeap {
+    fn with_capacity(cap: usize) -> Self {
+        LegacyMinHeap { p: Vec::with_capacity(cap), v: Vec::with_capacity(cap) }
+    }
+    fn size(&self) -> usize {
+        self.p.len()
+    }
+    fn push(&mut self, pr: f32, va: usize) {
+        self.p.push(pr);
+        self.v.push(va);
+        let mut i = self.p.len() - 1;
+        while i > 0 {
+            let pa = (i - 1) / 2;
+            if self.p[pa] <= self.p[i] {
+                break;
+            }
+            self.p.swap(pa, i);
+            self.v.swap(pa, i);
+            i = pa;
+        }
+    }
+    fn pop(&mut self) -> usize {
+        let rv = self.v[0];
+        let last = self.p.len() - 1;
+        if last > 0 {
+            self.p[0] = self.p[last];
+            self.v[0] = self.v[last];
+        }
+        self.p.pop();
+        self.v.pop();
+        let m = self.p.len();
+        let mut i = 0usize;
+        loop {
+            let l = 2 * i + 1;
+            let r = 2 * i + 2;
+            let mut s = i;
+            if l < m && self.p[l] < self.p[s] {
+                s = l;
+            }
+            if r < m && self.p[r] < self.p[s] {
+                s = r;
+            }
+            if s == i {
+                break;
+            }
+            self.p.swap(s, i);
+            self.v.swap(s, i);
+            i = s;
+        }
+        rv
+    }
+}
+
+fn legacy_wb_seed(i: usize, filled: &[f32], done: &mut [bool], heap: &mut LegacyMinHeap) {
+    if !done[i] {
+        done[i] = true;
+        heap.push(filled[i], i);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn legacy_wb_visit(
+    nx: isize,
+    ny: isize,
+    cur: f64,
+    gw: isize,
+    gh: isize,
+    world: bool,
+    filled: &mut [f32],
+    done: &mut [bool],
+    heap: &mut LegacyMinHeap,
+) {
+    let nx = if world {
+        ((nx % gw) + gw) % gw
+    } else {
+        if nx < 0 || nx >= gw {
+            return;
+        }
+        nx
+    };
+    if ny < 0 || ny >= gh {
+        return;
+    }
+    let j = (ny * gw + nx) as usize;
+    if done[j] {
+        return;
+    }
+    done[j] = true;
+    const EPS: f64 = 1e-6;
+    if (filled[j] as f64) <= cur {
+        filled[j] = (cur + EPS) as f32;
+    }
+    heap.push(filled[j], j);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn legacy_cc_visit(
+    nx: isize,
+    ny: isize,
+    gw: isize,
+    gh: isize,
+    world: bool,
+    sea: f64,
+    field: &[f32],
+    lab: &mut [i32],
+    comp: i32,
+    stack: &mut Vec<usize>,
+) {
+    let nx = if world {
+        ((nx % gw) + gw) % gw
+    } else {
+        if nx < 0 || nx >= gw {
+            return;
+        }
+        nx
+    };
+    if ny < 0 || ny >= gh {
+        return;
+    }
+    let j = (ny * gw + nx) as usize;
+    if lab[j] < 0 && (field[j] as f64) < sea {
+        lab[j] = comp;
+        stack.push(j);
+    }
+}
+
+fn legacy_build_water_bodies(field: &[f32], gw: usize, gh: usize, sea: f64, world: bool, rain: Option<&[f32]>) -> Vec<u8> {
+    let n = gw * gh;
+    let gw_i = gw as isize;
+    let gh_i = gh as isize;
+    let mut out = vec![0u8; n];
+
+    let mut lab = vec![-1i32; n];
+    let mut comp: i32 = 0;
+    let mut sizes: Vec<usize> = Vec::new();
+    let mut stack: Vec<usize> = Vec::new();
+
+    for s in 0..n {
+        if lab[s] >= 0 || (field[s] as f64) >= sea {
+            continue;
+        }
+        lab[s] = comp;
+        stack.clear();
+        stack.push(s);
+        let mut cnt = 0usize;
+        while let Some(i) = stack.pop() {
+            cnt += 1;
+            let x = (i % gw) as isize;
+            let y = (i / gw) as isize;
+            legacy_cc_visit(x - 1, y, gw_i, gh_i, world, sea, field, &mut lab, comp, &mut stack);
+            legacy_cc_visit(x + 1, y, gw_i, gh_i, world, sea, field, &mut lab, comp, &mut stack);
+            legacy_cc_visit(x, y - 1, gw_i, gh_i, world, sea, field, &mut lab, comp, &mut stack);
+            legacy_cc_visit(x, y + 1, gw_i, gh_i, world, sea, field, &mut lab, comp, &mut stack);
+        }
+        sizes.push(cnt);
+        comp += 1;
+    }
+
+    let mut ocean_comp: i32 = -1;
+    let mut best: i64 = -1;
+    for (c, &sz) in sizes.iter().enumerate() {
+        if sz as i64 > best {
+            best = sz as i64;
+            ocean_comp = c as i32;
+        }
+    }
+    for i in 0..n {
+        if (field[i] as f64) < sea {
+            out[i] = if lab[i] == ocean_comp { 1 } else { 2 };
+        }
+    }
+
+    let mut filled: Vec<f32> = field.to_vec();
+    let mut done = vec![false; n];
+    let mut heap = LegacyMinHeap::with_capacity(n);
+
+    for x in 0..gw {
+        legacy_wb_seed(x, &filled, &mut done, &mut heap);
+        legacy_wb_seed((gh - 1) * gw + x, &filled, &mut done, &mut heap);
+    }
+    if !world {
+        for y in 0..gh {
+            legacy_wb_seed(y * gw, &filled, &mut done, &mut heap);
+            legacy_wb_seed(y * gw + gw - 1, &filled, &mut done, &mut heap);
+        }
+    }
+    for (i, &o) in out.iter().enumerate() {
+        if o == 1 {
+            legacy_wb_seed(i, &filled, &mut done, &mut heap);
+        }
+    }
+
+    while heap.size() > 0 {
+        let i = heap.pop();
+        let x = (i % gw) as isize;
+        let y = (i / gw) as isize;
+        let cur = filled[i] as f64;
+        legacy_wb_visit(x - 1, y, cur, gw_i, gh_i, world, &mut filled, &mut done, &mut heap);
+        legacy_wb_visit(x + 1, y, cur, gw_i, gh_i, world, &mut filled, &mut done, &mut heap);
+        legacy_wb_visit(x, y - 1, cur, gw_i, gh_i, world, &mut filled, &mut done, &mut heap);
+        legacy_wb_visit(x, y + 1, cur, gw_i, gh_i, world, &mut filled, &mut done, &mut heap);
+    }
+
+    let lake_depth = 0.004_f64;
+    let lake_rain = 0.22_f64;
+    for i in 0..n {
+        if out[i] == 0 {
+            let depth = filled[i] as f64 - field[i] as f64;
+            if depth > lake_depth {
+                let rain_ok = match rain {
+                    Some(r) => (r[i] as f64) >= lake_rain,
+                    None => true,
+                };
+                if rain_ok {
+                    out[i] = 2;
+                }
+            }
+        }
+    }
+
+    out
+}
+
 #[allow(clippy::too_many_arguments)]
 fn compute_suitability_and_seeds(
     ws: &cartalith_engine::WorldState,
@@ -327,8 +595,17 @@ fn compute_suitability_and_seeds(
     river_term: RiverTerm,
     coast_term: CoastTerm,
 ) -> (Vec<f32>, Vec<cartalith_civ::SettlementSeed>) {
-    let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, ws.sea_level, world, Some(&ws.rainfall));
-    let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
+    // RE-BASELINED 2026-09-21 (Ruling Q, see this file's own
+    // `legacy_build_water_bodies` doc comment above): the legacy arm
+    // (`RiverTerm::LegacyProxy`/`CoastTerm::LegacySdf`, always paired in
+    // this file's own two call sites) must keep reproducing the reference's
+    // real captured numbers, so it uses the frozen pre-Ruling-Q water-body
+    // classification; the production arm uses today's real one.
+    let wb_classification: Vec<u8> = match river_term {
+        RiverTerm::LegacyProxy => legacy_build_water_bodies(&ws.field, gw, gh, ws.sea_level, world, Some(&ws.rainfall)),
+        RiverTerm::Real => cartalith_civ::build_water_bodies(&ws.field, gw, gh, ws.sea_level, world, Some(&ws.rainfall)).classification,
+    };
+    let biome = cartalith_civ::build_biome_raster(&wb_classification, &ws.temperature, &ws.rainfall);
 
     let soil_slope = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
     let lithology = cartalith_civ::build_lithology(
@@ -368,7 +645,7 @@ fn compute_suitability_and_seeds(
     let coast_reach = match coast_term {
         CoastTerm::Real => cartalith_civ::build_coast_reach(
             &cartalith_terrain::vector::trace_coastline(&ws.field, gw, gh, ws.sea_level),
-            &wb.classification,
+            &wb_classification,
             gw,
             gh,
         ),
@@ -388,7 +665,7 @@ fn compute_suitability_and_seeds(
     };
 
     let ctx = cartalith_civ::SuitabilityCtx {
-        water_bodies: Some(&wb.classification),
+        water_bodies: Some(&wb_classification),
         corridor: Some(&corridors),
         landmass: Some(&landmass.quality),
         flow: Some(&ws.flow_discharge),

@@ -183,10 +183,18 @@ fn road_consolidation_case_1_k5_corridor_sharing() {
         b_idx: usize,
         hidden: bool,
     }
+    // RE-BASELINED 2026-09-21 (`LARGE_ITEM_RULINGS.md`'s Ruling Q): ways 0
+    // and 2 move -- `civ_hierarchical_network_topology`'s own edges for
+    // this fixture already moved for the same reason
+    // (`golden_parity_hierarchical_network.rs`'s header has the full
+    // account), and `civ_consolidate_and_smooth_ways` smooths whatever
+    // edge topology it is handed. Both are this function's own actual
+    // output, captured 2026-09-21. Ways 1, 3-9 are unaffected (their
+    // underlying edges did not move).
     let expected = [
-        Expect { pts: vec![(10.0, 5.0), (9.0, 7.0), (8.0, 9.0)], km: 223.60679774997897, name: "Orenelywash \u{2192} Ghalbahrghaltazdune", way_type: "highway", a_idx: 3, b_idx: 2, hidden: false },
+        Expect { pts: vec![(10.0, 5.0), (11.0, 6.0), (11.0, 7.0), (10.0, 8.0), (8.0, 9.0)], km: 303.224755112299, name: "Orenelywash \u{2192} Ghalbahrghaltazdune", way_type: "highway", a_idx: 3, b_idx: 2, hidden: false },
         Expect { pts: vec![(8.0, 9.0), (7.0, 9.0), (5.0, 8.0)], km: 161.80339887498948, name: "Ghalbahrghaltazdune \u{2192} Hurngarngarnhaskcairn", way_type: "highway", a_idx: 2, b_idx: 1, hidden: false },
-        Expect { pts: vec![(9.0, 3.0), (10.0, 4.0), (10.5, 5.5)], km: 182.51407699364424, name: "Sevjuniana \u{2192} Ghalbahrghaltazdune", way_type: "highway", a_idx: 0, b_idx: 2, hidden: false },
+        Expect { pts: vec![(9.0, 3.0), (9.0, 3.0), (10.5, 5.5)], km: 180.2775637731995, name: "Sevjuniana \u{2192} Ghalbahrghaltazdune", way_type: "highway", a_idx: 0, b_idx: 2, hidden: false },
         Expect { pts: vec![(9.0, 3.0), (5.0, 8.0)], km: 0.0, name: "Sevjuniana \u{2192} Hurngarngarnhaskcairn", way_type: "highway", a_idx: 0, b_idx: 1, hidden: true },
         Expect { pts: vec![(5.5, 8.5), (5.0, 8.0), (4.0, 7.0)], km: 141.4213562373095, name: "Sevjuniana \u{2192} Taela'elorashade", way_type: "highway", a_idx: 0, b_idx: 4, hidden: false },
         Expect { pts: vec![(5.0, 8.0), (10.0, 5.0)], km: 0.0, name: "Hurngarngarnhaskcairn \u{2192} Orenelywash", way_type: "highway", a_idx: 1, b_idx: 3, hidden: true },
