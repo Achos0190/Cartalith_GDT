@@ -124,8 +124,14 @@ func _rail(rail_w: int) -> void:
 	var keys: Array = rows.keys()
 	keys.sort()
 	_ok("ten node rows, no more and no fewer", keys.size(), 10)
+	## Ruling L (`04b3b27`, WORLD/CARTO half) re-sorted CARTO's four nodes from
+	## style/labels/icons/terrain to style/layers/labels/icons -- "every
+	## visibility toggle lives in Layers" (`LARGE_ITEM_RULINGS.md` 2026-09-13).
+	## Updated 2026-09-21 re-verifying the rail-subtitles row against the
+	## post-Ruling-L structure; the count (ten) and every other key are
+	## unchanged.
 	_ok("the exact ten (domain/mode) keys", ",".join(PackedStringArray(keys)),
-		"cartography/icons,cartography/labels,cartography/style,cartography/terrain," \
+		"cartography/icons,cartography/labels,cartography/layers,cartography/style," \
 		+ "civilization/factions,civilization/infra,civilization/landmarks," \
 		+ "civilization/planner,world/a,world/b")
 	var all_buttons := true
