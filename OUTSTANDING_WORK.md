@@ -41,7 +41,14 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**92 outstanding items** — 2026-09-21, after Ruling Y (GPU device reuse with real loss handling, measured
+**91 outstanding items** — 2026-09-21, after world-wrap support for the GPU warp/heterogeneity kernels
+landed and was independently verified (commit `023c904`; full diff read against every claim in the
+report, `cargo test --workspace --no-fail-fast` re-run matching exactly at 163/3487/0/34, no golden-parity
+file touched, `project.godot`/every `.gd` file confirmed unchanged). The report corrected its own brief's
+premise along the way: the CPU-shape GPU twins were never "already correct" for `world=true` — the real
+CPU reference calls a genuinely different periodic noise algorithm (`pfbm`/`pvnoise`), which this batch
+built as `gpu_pvnoise`/`gpu_pfbm`. Net: 92 − 1 = 91.
+92 outstanding items — 2026-09-21, after Ruling Y (GPU device reuse with real loss handling, measured
 on this session's own hardware) landed and was independently verified (commit `b6f2816`; both device-loss
 tests re-run on the same real GPU). The Markdown Vault reader (owner-requested the same day) also landed
 and was independently verified (commit `7749763`) — filed and closed in the same pass, no net count
@@ -1587,7 +1594,7 @@ it described the file that had already implemented them.
 | Water-body priority-flood (`build_water_bodies`) on GPU | `GPU_LAYER_INTEGRATION_SCOPE.md` | large | Half tractable, half genuinely hard — the above-sea depression fill is a global priority queue, and parallel Planchon-Darboux is a research task. ~92 ms at 1024² |
 | Rendering / colour synthesis on GPU (`render.rs`) | `GPU_LAYER_INTEGRATION_SCOPE.md` | medium | The feasibility table calls it "best fit, no golden-parity tension at all", and the pilot named it the natural next target. Distinct from §21's beachhead argument in §5 |
 | `cartalith-godot`'s own sequential orchestration | `CPU_MULTITHREADING_SCOPE.md` | medium | Named explicitly as untouched, and as "the real ceiling left" alongside the hard-hazard functions |
-| World-wrap support for the milestone 1-5 kernels (warp, heterogeneity) | `GPU_LAYER_INTEGRATION_SCOPE.md` | medium | Both stages fall back to CPU whenever `world=true` (`cartalith-engine/src/lib.rs:778`, `:894`) |
+| ~~World-wrap support for the milestone 1-5 kernels (warp, heterogeneity)~~ — **CLOSED 2026-09-21 (verified)** | `GPU_LAYER_INTEGRATION_SCOPE.md` | medium | Both stages now dispatch on GPU under `world=true`. The real CPU reference (`compute_warp`/`compute_heterogeneity` in `cartalith-terrain`) calls `pfbm`/`pvnoise` under `world=true` — a genuinely different periodic noise algorithm, not a coordinate-wrap trick — so this added `gpu_pvnoise`/`gpu_pfbm` (periodic siblings of `gpu_vnoise`/`gpu_fbm`) to `cartalith-noise`, matching WGSL functions in both shaders behind a `world` flag (warp reuses its `_pad2` slot; heterogeneity stays 16-byte aligned), and threaded `world`/`p_x` through every dispatch function and both CPU-shape reference twins. No golden-parity risk (`WorldParams::defaults()` ships `use_gpu: false`). Verified independently: full diff read against every claim, `cargo test --workspace --no-fail-fast` re-run (163/3487/0/34, matching exactly), `project.godot`/every `.gd` file confirmed untouched. Commit `023c904`. |
 | Full `ComputeTier` capability classifier | `GPU_COMPUTE_PILOT_SCOPE.md` §4 | medium | `crates/cartalith-gpu/src` contains only `lib.rs` and `multi.rs`; grep for `ComputeTier` returns nothing |
 | Performance telemetry system | `GPU_COMPUTE_PILOT_SCOPE.md` §24 | medium | Deferred until more than one workload needs monitoring; nine kernels exist now |
 | GPU memory pooling across persistent fields | `GPU_COMPUTE_PILOT_SCOPE.md` §14 | medium |  |
