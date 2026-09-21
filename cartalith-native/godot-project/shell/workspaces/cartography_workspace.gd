@@ -1728,12 +1728,18 @@ var _label_class_fields: Array = []        ## The three `DccWidgets.slider()` di
 # not follow: nothing binds them, and the mark is a comparison made when the
 # list is rebuilt.
 
-## Per-role `size_mode` for hand-placed labels, `key -> "fixed"`/`"zoom"`.
-##
-## Shell-side, and the engine is the reason rather than the obstacle:
-## `LabelTypography` carries size/halo/tracking/italic/ink and no size mode, and
-## `LabelTypography::set_field()` has exactly three arms. A size mode is a
-## property of a placed label, not of the type spec the pass draws with.
+## Per-role `size_mode`, `key -> "fixed"`/`"zoom"`. **Two consumers now, not
+## one.** It always drove a new hand-placed label's own starting default
+## (shell-side, and the engine is the reason rather than the obstacle:
+## `LabelTypography` carries size/halo/tracking/italic/ink and no size mode,
+## and `LabelTypography::set_field()` has exactly three arms -- a size mode is
+## a property of a placed label, not of the type spec the pass draws with).
+## Since 2026-09-21 it also drives what `map_overlay.gd` draws the
+## **generated** pass's own labels of that role at -- every change here is
+## pushed to it via `_push_generated_size_mode_override()`, so the two never
+## disagree about what "this role's size mode" means. That does not touch a
+## hand-placed label already on the map, which keeps whatever it has until
+## the explicit Apply below, exactly as it always did.
 var _label_role_size_mode: Dictionary = {}
 
 ## `MapLabel::new`'s own two defaults, transcribed with their source for the
@@ -1745,6 +1751,39 @@ var _label_role_size_mode: Dictionary = {}
 ## `sizeMode: 'zoom'`).
 const LABEL_NEW_SIZE := 16.0
 const LABEL_NEW_SIZE_MODE := "zoom"
+
+## The per-label font picker's real, bundled choices -- parallel arrays
+## because an `OptionButton` wants display strings and `_apply_label_field`
+## wants the exact value `map_overlay.gd::_label_font_for()` matches on.
+## `""` is `set_font`'s own "reset to default" sentinel (`label_bridge.rs`);
+## it round-trips as `"Georgia, serif"` (`font_or_default()`), which is why a
+## label loaded from disk still resolves to index 0 below rather than -1.
+const LABEL_FONT_CHOICE_LABELS := ["Default", "IBM Plex Mono", "Fira Code"]
+const LABEL_FONT_CHOICE_VALUES := ["", "IBM Plex Mono", "Fira Code"]
+
+## The practical default this panel seeds `_label_role_size_mode` with,
+## per class, rather than `LABEL_NEW_SIZE_MODE` uniformly. Owner-approved,
+## 2026-09-21: settlement names and POI (landmark) markers hold a constant
+## on-screen size as the user zooms -- "fixed" in this shell's own vocabulary,
+## see `map_overlay.gd::_label_font_px()` -- so they stay legible rather than
+## growing to unreadable or shrinking away; broad geographic names
+## (continent/region/water) keep the untouched `LABEL_NEW_SIZE_MODE` default,
+## which also matches `MapLabel::new`'s own engine-side default for a
+## hand-placed label of those roles. Not an engine change: `cartalith-civ`'s
+## own `LabelGenSettings::default()` still emits every class at `Zoom`; this
+## table is what this shell chooses to draw with it, and only this shell.
+const LABEL_PRACTICAL_SIZE_MODE_BY_CLASS := {
+	"settlement": "fixed",
+	"landmark": "fixed",
+}
+
+## Send the current `_label_role_size_mode` to the overlay so a generated
+## label of each role draws at that role's own mode. Called once after the
+## panel seeds its defaults, and again on every explicit change through the
+## "Size mode" role-default control below.
+func _push_generated_size_mode_override() -> void:
+	if app != null and app.viewport != null and app.viewport.overlay != null:
+		app.viewport.overlay.set_generated_size_mode_override(_label_role_size_mode)
 
 var _label_role_rows: Dictionary = {}          ## key -> the row `Button`.
 var _label_role_tally: Dictionary = {}         ## key -> `{placed, matching}`.
@@ -1873,11 +1912,13 @@ func _build_label_classes(parent: Control) -> void:
 	for entry in _label_class_specs:
 		var cl: Dictionary = entry
 		var key := String(cl.get("key", ""))
-		## Every role starts at the engine's own new-label mode, so an untouched
-		## panel and an untouched `MapLabel::new` agree before the first click --
-		## the same discipline `_build_settlement_class_filter()` states for its
-		## own defaults ("an untouched panel and an untouched overlay agree").
-		_label_role_size_mode[key] = LABEL_NEW_SIZE_MODE
+		## Every role starts at its practical default (`LABEL_PRACTICAL_
+		## SIZE_MODE_BY_CLASS`) -- `LABEL_NEW_SIZE_MODE` for every role that
+		## table does not name, so an untouched panel and an untouched
+		## `MapLabel::new` still agree for those, the same discipline
+		## `_build_settlement_class_filter()` states for its own defaults ("an
+		## untouched panel and an untouched overlay agree").
+		_label_role_size_mode[key] = LABEL_PRACTICAL_SIZE_MODE_BY_CLASS.get(key, LABEL_NEW_SIZE_MODE)
 		## **The row is the route into the role.** A flat `Button` carrying the
 		## row as a full-rect child, which is `right_dock.gd::_stacked_bar()`'s
 		## own shape for "a composed row that is one control": a `Button` lays
@@ -1965,6 +2006,11 @@ func _build_label_classes(parent: Control) -> void:
 		_label_class_rows[key] = name_l
 		_label_role_rows[key] = {"btn": btn, "mark": mark}
 		_label_class_count_cells[key] = {"count": count, "spec": spec_l, "placed": placed, "btn": btn}
+
+	## Every role is seeded now; tell the overlay before anything draws, so a
+	## fresh panel and a fresh render agree from the first frame rather than
+	## drawing at the engine's own uniform `Zoom` default until a dial moves.
+	_push_generated_size_mode_override()
 
 	## One line under the list rather than a per-row second number: the design
 	## draws a single summary (`parts.js:372`, "122 drawn · 9 culled") and the
@@ -2094,11 +2140,12 @@ func _build_label_classes(parent: Control) -> void:
 		+ "so the role's generated names and its new hand-placed ones start at "
 		+ "the same figure.")
 	_label_role_mode = DccWidgets.choice(defaults, "Size mode",
-		["Fixed", "Zoom with map"], 1,
+		["Fixed", "Zoom with map"], 0 if _label_role_size_mode.get(_label_class, LABEL_NEW_SIZE_MODE) == "fixed" else 1,
 		func(i: int):
 			_label_role_size_mode[_label_class] = "fixed" if i == 0 else "zoom"
+			_push_generated_size_mode_override()
 			_refresh_label_role_controls(),
-		"Fixed grows and shrinks with the terrain; Zoom holds a constant on-screen size. Applies to new labels of this role, and to existing ones only through Apply below.")
+		"Fixed grows and shrinks with the terrain; Zoom holds a constant on-screen size. Two things happen when you change this: it becomes the base for any NEW hand-placed label of this role (existing ones keep theirs until you press Apply below), and it takes effect immediately on the generated pass's OWN labels of this role -- no Apply needed for those, since a generated label is redrawn from this role's own settings on every run.")
 	## `italic` is a real attribute and is deliberately not a dial: the water
 	## row is the only spec that carries it (`parts.js:363`), and
 	## `set_field(\"italic\", ...)` returns `None` with a Rust test pinning that
@@ -2110,19 +2157,11 @@ func _build_label_classes(parent: Control) -> void:
 		_apply_role_defaults_to_labels)
 
 	_dead_text_row(defaults, "Font family",
-		"No field to hold it -- LabelTypography is size/halo/tracking/italic/ink and set_field() has three arms -- and nothing that would read one: map_overlay.gd::_draw_labels draws every label with get_theme_default_font(), the one face this shell has. Even the per-label font string the engine already stores is never read there.")
+		"No field to hold a ROLE-level default -- LabelTypography is size/halo/tracking/italic/ink and set_field() has three arms. The per-label field is a different thing and is no longer dead: see the Font picker on the label's own edit form below, and map_overlay.gd::_label_font_for().")
 	_dead_text_row(defaults, "Weight",
-		"The same two gaps: no weight field on LabelTypography or MapLabel, and one loaded face with no weight axis to select from.")
+		"The same two gaps: no weight field on LabelTypography or MapLabel, and every loaded face this picker offers has no weight axis to select from.")
 	_dead_text_row(defaults, "Case",
 		"Nothing records a case rule and nothing applies one -- the string goes from MapLabel.name to draw_string untouched.")
-	## Where a per-label font picker would have gone, and why it is not there.
-	DccWidgets.note(defaults,
-		"There is deliberately no font picker per label. Inkarnate makes label "
-		+ "editing one click and per layer instead of solving scaling, and that "
-		+ "is the trade this panel takes: a role's base size fixes every label "
-		+ "of that role at once, where per-label type would turn 118 labels "
-		+ "into 118 decisions and would not survive a change of style. If "
-		+ "families ever land, they belong on the role, beside the dials above.")
 	_sync_label_class()
 
 
@@ -2945,18 +2984,23 @@ func _rebuild_label_edit_form() -> void:
 	DccWidgets.slider(_label_edit_body, "Angle", -180.0, 180.0, 1.0, float(lb.get("angle", 0.0)), "°",
 		func(v: float): _apply_label_field(idx, "angle", v))
 
-	var font_row := HBoxContainer.new()
-	font_row.add_theme_constant_override("separation", 8)
-	font_row.custom_minimum_size.y = 24
-	font_row.add_child(DccTheme.mono_label("Font", "text_dim", DccTheme.FS_SMALL))
-	var font_edit := LineEdit.new()
-	font_edit.text = String(lb.get("font", ""))
-	font_edit.placeholder_text = "Georgia, serif"
-	font_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	font_edit.text_submitted.connect(func(v: String): _apply_label_field(idx, "font", v))
-	font_edit.focus_exited.connect(func(): _apply_label_field(idx, "font", font_edit.text))
-	font_row.add_child(font_edit)
-	_label_edit_body.add_child(font_row)
+	## A real picker over what this project actually has, not free text. The
+	## three entries are exactly what `map_overlay.gd::_label_font_for()`
+	## recognises: this shell's own default face (Fira Sans, `dark_theme.tres`'
+	## `default_font`) and the two other faces already bundled and loaded --
+	## IBM Plex Mono (`DccTheme.FONT_MONO`) and Fira Code
+	## (`map_overlay.gd::FONT_CODE`, sourced since 2026-08-25 but unwired until
+	## now). Not a system-font scan: this project ships exactly these faces
+	## (`fonts/`) and offering more would be offering names nothing can draw.
+	var font_now := String(lb.get("font", ""))
+	var font_idx := LABEL_FONT_CHOICE_VALUES.find(font_now)
+	if font_idx < 0:
+		font_idx = 0   ## Anything unrecognised -- an older save's free text
+						## included -- reads as Default, matching what
+						## `_label_font_for()` actually draws it as.
+	DccWidgets.choice(_label_edit_body, "Font", LABEL_FONT_CHOICE_LABELS, font_idx,
+		func(i: int): _apply_label_field(idx, "font", LABEL_FONT_CHOICE_VALUES[i]),
+		"Real, bundled faces this build can render a label in. Default is the shell's own theme face (Fira Sans).")
 
 	var color_row := HBoxContainer.new()
 	color_row.add_theme_constant_override("separation", 8)
@@ -2977,12 +3021,12 @@ func _rebuild_label_edit_form() -> void:
 	_label_edit_body.add_child(color_row)
 
 	DccWidgets.note(_label_edit_body,
-		"The literal CSS font string the engine stores -- Godot has no web-font "
-		+ "fallback chain, so only size/angle/arc/color render from this form "
-		+ "(map_overlay.gd's own doc comment). Letter-spacing is not per label: "
-		+ "it belongs to the class, in the section above, and this label takes "
-		+ "its class's value. Anchor still has no backing field on MapLabel "
-		+ "(label_bridge.rs's own \"Not modelled\" note) and is not exposed here.")
+		"Font now renders (since 2026-09-21): the engine still stores whatever "
+		+ "string this picker writes, and map_overlay.gd draws it in that real "
+		+ "face. Letter-spacing is not per label: it belongs to the class, in "
+		+ "the section above, and this label takes its class's value. Anchor "
+		+ "still has no backing field on MapLabel (label_bridge.rs's own \"Not "
+		+ "modelled\" note) and is not exposed here.")
 
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override("separation", 6)

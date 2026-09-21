@@ -574,13 +574,42 @@ const LM_REJECT_FALLBACK := Color(0.373, 0.392, 0.408, 0.55)
 ## §4.5.5's Label tool. `color`/`font` are always the label's *effective*
 ## value (`label_dict` calls `color_or_default`/`font_or_default`), so no
 ## further fallback is needed here. `font` is a CSS font-family list (e.g.
-## `"Georgia, serif"`) -- there is no web-font fallback chain in Godot, so
-## the theme's own default font is used regardless of that string; only
-## size/angle/arc/color are real per-label rendering.
+## `"Georgia, serif"`) and Godot has no web-font fallback chain for one, so an
+## arbitrary string still draws in the theme's own default face -- but
+## **`cartography_workspace.gd`'s font picker only ever writes one of the
+## three values `_label_font_for()` below recognises**: the shell's own
+## default face, or one of the two bundled faces already loaded for the
+## shell's chrome (`DccTheme.FONT_MONO`, and `FONT_CODE` below). Real
+## per-label rendering now covers size/angle/arc/color **and** font for those
+## three; a free-form family string from an older save, or written through
+## some other caller, still falls through to the default honestly rather than
+## pretending to draw a face nothing loaded.
 const LABEL_STROKE_COLOR := Color(0.031, 0.024, 0.016, 0.8)
 const LABEL_ZOOM_BASE_PX_PER_CELL := 2.0 ## tuning constant, see `_label_font_px`
 const LABEL_FONT_PX_MIN := 8.0
 const LABEL_FONT_PX_MAX := 96.0
+
+## Bundled, unwired until now: `dcc_theme.gd`'s own header says Fira Code "is
+## sourced too... but stays unwired since Plex Mono already fills that exact
+## role" for the shell's *chrome*. This is a different consumer -- one label
+## field's font choice, not the UI type system -- so it is preloaded locally
+## rather than promoted into `DccTheme`.
+const FONT_CODE := preload("res://fonts/FiraCode-Regular.ttf")
+
+## Resolve one label's stored `font` string to a real, loaded `Font`. The two
+## named cases are exactly the two non-default entries
+## `cartography_workspace.gd`'s font picker can write; everything else --
+## `""`, the engine's own literal default `"Georgia, serif"`, or any other
+## string -- draws in the theme's own default face, same as before this field
+## did anything.
+func _label_font_for(lb: Dictionary) -> Font:
+	match String(lb.get("font", "")):
+		"IBM Plex Mono":
+			return DccTheme.FONT_MONO
+		"Fira Code":
+			return FONT_CODE
+		_:
+			return get_theme_default_font()
 
 ## `drawArcLabel`'s three layout numbers. **`cartalith-civ/src/labels.rs` is
 ## the source of truth for all three** -- `ARC_STRAIGHT_THRESHOLD` (`:164`) and
@@ -1027,6 +1056,63 @@ func _lod_zoom_base() -> float:
 var _manual_icons: Array = []
 var _labels: Array = []
 
+## Per-class `size_mode` override applied to **generated** rows only, key ->
+## `"fixed"`/`"zoom"` -- `cartography_workspace.gd`'s existing per-role "Size
+## mode" control (built for a new hand-placed label's own default) pushes its
+## whole dict here through `set_generated_size_mode_override()`, so one
+## control now answers both "what does a new hand-placed label of this role
+## start at" and "what does this role's own generated pass draw at".
+##
+## **This is a display-only, shell-side override, not an engine default.**
+## `LabelGenSettings::default()` (`cartalith-civ/src/labels.rs`) is
+## unchanged and still emits every class at `LabelSizeMode::Zoom` --
+## deliberately, since this whole generated-pass section carries no reference
+## behaviour to match and changing what the engine *emits* would be a second
+## thing to keep in step with whatever this dict says. `set_labels()` below
+## is the one place the override is applied, to a row's own copy of
+## `size_mode` (`labels_render_list()` returns a fresh `Dictionary` per row
+## per call, so mutating it here never reaches back into the engine).
+##
+## Seeded to the practical default a fresh session should show even if the
+## CARTO ▸ Labels panel is never opened this session: settlement and landmark
+## (POI) names hold a constant on-screen size as the user zooms, matching how
+## a real map keeps place names legible; broad geographic names (continent,
+## region, water) keep the engine's own zoom-with-the-terrain default. Owner-
+## approved practical default, 2026-09-21 -- see `_label_font_px()`'s own doc
+## comment for what "fixed" and "zoom" actually do to the drawn pixel size in
+## THIS renderer (the reference/engine's own `LabelSizeMode` doc comments
+## describe a canvas-zoom-transform model this shell does not use; the two
+## disagree in words and agree in the string values, which is the only thing
+## that crosses the boundary -- see `labels.rs::civ_zoom_k`'s own disclosure
+## of a sibling disagreement).
+var _generated_size_mode_override: Dictionary = {"settlement": "fixed", "landmark": "fixed"}
+
+## Push a new per-class override and re-apply it to whatever `_labels` already
+## holds, so flipping the control repaints immediately rather than waiting on
+## the next `set_labels()` call (which on this path only arrives on the next
+## drag sample or regenerate -- see `viewport_host.gd::refresh_annotations()`'s
+## own comment on why labels ride that path rather than a dedicated one).
+func set_generated_size_mode_override(overrides: Dictionary) -> void:
+	_generated_size_mode_override = overrides.duplicate()
+	_apply_generated_size_mode_override(_labels)
+	queue_redraw()
+
+## `lb["size_mode"]` is only ever read for **drawing** (`_label_font_px`,
+## `_seed_label_occupancy`) -- generated rows are not indexed into
+## `label_list()` and cannot be edited, so overwriting this key on the copy
+## `labels_render_list()` handed us changes nothing but what gets drawn.
+## Hand-placed rows (`generated == false`) are never touched: their
+## `size_mode` is the user's own, set per label or applied from a role's base.
+func _apply_generated_size_mode_override(rows: Array) -> void:
+	if _generated_size_mode_override.is_empty():
+		return
+	for lb: Dictionary in rows:
+		if not bool(lb.get("generated", false)):
+			continue
+		var key := String(lb.get("class", ""))
+		if _generated_size_mode_override.has(key):
+			lb["size_mode"] = _generated_size_mode_override[key]
+
 ## §4.5.4's Route tool. Each entry is one `route_get(i)` dictionary --
 ## `{points: PackedVector2Array, brks: PackedInt32Array, render_points,
 ## render_brks, km, mode, unreachable_legs, name}` -- so `brks` is honoured
@@ -1103,6 +1189,7 @@ func set_manual_icons(icons: Array) -> void:
 	queue_redraw()
 
 func set_labels(labels: Array) -> void:
+	_apply_generated_size_mode_override(labels)
 	_labels = labels
 	queue_redraw()
 
@@ -1801,11 +1888,11 @@ func _settlement_label_candidates(pos: Vector2, radius: float, sc: float, w: flo
 ## and generated labels are still never measured against each other.
 func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 	var boxes: Array[Rect2] = []
-	var font := get_theme_default_font()
 	for lb: Dictionary in _labels:
 		var text: String = lb["text"]
 		if text.is_empty():
 			continue
+		var font := _label_font_for(lb)
 		var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
 		var font_px := _label_font_px(lb, rect)
 		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
@@ -2479,7 +2566,6 @@ func _draw_landmark_rejects(rect: Rect2, interior: Rect2) -> void:
 func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 	if _labels.is_empty():
 		return
-	var font := get_theme_default_font()
 	for lb: Dictionary in _labels:
 		var text: String = lb["text"]
 		if text.is_empty():
@@ -2487,6 +2573,7 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 		var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
 		if not interior.has_point(pos):
 			continue
+		var font := _label_font_for(lb)
 		var font_px := _label_font_px(lb, rect)
 		## Rasterise at the size this label actually occupies ON SCREEN, then
 		## divide the whole glyph run back down, so the camera's own multiply
