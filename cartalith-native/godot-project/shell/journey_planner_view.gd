@@ -78,14 +78,25 @@ class_name JourneyPlannerView
 ##
 ## - **Journeys list**: real as of 2026-08-23 (JP-06/JP-08) — "save journey"
 ##   names the selected route *plus* the whole party form and adds it to the
-##   list, which reloads it in one click. **Persistent as of 2026-08-26**: the
-##   list is written into the project archive as `entities/journeys.json` (the
-##   §9.6 slot `SAVEFILE_COMPAT.md` reserved) and restored on open — see the
-##   "Journeys, on disk (F10)" section at the foot of this file. It stays in
-##   GDScript rather than in `cartalith-civ` because a saved journey is exactly
-##   the request `jp_compute` already takes, so the engine would own nothing
-##   the shell does not already hold; the archive channel is
-##   `project_save_with_documents`, which takes caller-owned slots as text.
+##   list, which reloads it in one click, for the duration of this session.
+##   **A real, engine-owned `Journey` entity as of `STORY_PLANNING_SCOPE.md`
+##   SP-1**: `entities/journeys.json` (the §9.6 slot `SAVEFILE_COMPAT.md`
+##   reserved) moved from this file's own caller-built document to
+##   `cartalith_civ::travel_library::Journey` / `InfraTools::journeys`
+##   (`ENGINE_OWNED_SLOTS`), because the old shape here was never actually
+##   the §9.6 one — a route **array index** (renumbers on delete, meaningless
+##   across a regenerate) and a raw party-form snapshot, not an `id`-bearing
+##   entity naming a `PartyPreset`. `_save_journey()` below now ALSO registers
+##   a real `Journey` — a captured `PartyPreset` plus the committed route's
+##   own geometry, snapshotted — through `journey_save()`, and `_delete_journey()`
+##   mirrors a delete through `journey_delete()`. **What did not move**: the
+##   richer per-journey working state a session actually edits
+##   (`stage_overrides`/`layovers`/`animal_entries`/`trim`) is Journey
+##   Planner UI state, not part of SP-1's entity, and stays exactly where it
+##   already lived — in this file's own `_journeys`, local to the session and
+##   no longer round-tripped through the archive (`journeys_document()` below
+##   is now a stub: the slot is the engine's to write). See
+##   "Journeys, on disk (F10)" at the foot of this file for the restore half.
 ## - **Carriage auto/manual**: real as of 2026-08-23 (JP-01).
 ##   `jpAutoPickTransport` was already ported (`cartalith_civ::
 ##   jp_auto_pick_transport`); what was missing was the call. Auto now sends
@@ -3133,6 +3144,25 @@ func _save_journey() -> void:
 		"Journey %d — %s" % [_journeys.size() + 1, DccUnits.format_thousands(km)],
 		"Save",
 		func(jname: String):
+			## SP-1 (`STORY_PLANNING_SCOPE.md`): register a real, engine-owned
+			## `Journey` alongside this session's own richer local entry
+			## below. `journey_save()` needs a `PartyPreset` id, and this
+			## planner's `_plan_values` is a raw form snapshot with no
+			## tracked "which preset is this" identity -- so every save mints
+			## a fresh preset from the current form
+			## (`tl_capture_preset_from_plan`, the same call `_capture_preset()`
+			## below already makes by hand), named after the journey so it is
+			## identifiable in the Travel Library. Honest and minimal: it can
+			## leave one preset per save rather than reusing an unchanged one,
+			## a small cost against inventing "was the form edited since the
+			## last apply" tracking that is not part of SP-1's own scope.
+			var engine_id := -1
+			if _route_index >= 0:
+				var cap: Dictionary = bridge.tl_capture_preset_from_plan(
+					"%s — party" % jname, _plan_values.duplicate(true))
+				if bool(cap.get("ok", false)):
+					engine_id = bridge.journey_save(
+						jname, String(cap.get("id", "")), _route_index, bridge.get_civ_year())
 			_journeys.append({
 				"name": jname,
 				"route": _route_index,
@@ -3141,6 +3171,12 @@ func _save_journey() -> void:
 				"layovers": _layovers.duplicate(true),
 				"animal_entries": _animal_entries.duplicate(),
 				"trim": _trim,
+				## The engine `Journey`'s own stable id, or `-1` if the
+				## registration above could not run (no committed route).
+				## `_delete_journey()` uses this to keep the two in sync;
+				## nothing else in this file reads it -- this list's own
+				## richer fields stay the working state a session edits.
+				"engine_id": engine_id,
 			})
 			_active_journey = _journeys.size() - 1
 			_refresh_route_choice()
@@ -3168,6 +3204,12 @@ func _load_journey(i: int) -> void:
 func _delete_journey(i: int) -> void:
 	if i < 0 or i >= _journeys.size():
 		return
+	## Mirrors the delete through to the engine's own `Journey` store, so the
+	## two never drift while the session runs -- see `_save_journey()`'s own
+	## comment on why `engine_id` exists.
+	var engine_id := int((_journeys[i] as Dictionary).get("engine_id", -1))
+	if engine_id >= 0:
+		bridge.journey_delete(engine_id)
 	_journeys.remove_at(i)
 	if _active_journey == i:
 		_active_journey = -1
@@ -4852,91 +4894,44 @@ class _TimelineBandView extends Control:
 
 # ================================================ Journeys, on disk (F10) ====
 #
-# `entities/journeys.json`, the slot `SAVEFILE_COMPAT.md` §9.6 reserved and
-# nothing wrote. The list was in-session only, and this file's own header said
-# so — the reason given was that no save-writer existed, which stopped being
-# true on 2026-08-23, and then that GDScript state had no channel to the
-# archive, which stopped being true when `project_save_with_documents` landed.
-# What was actually missing by 2026-08-26 was a reader that returned the bytes
-# that were stored rather than a re-serialisation of them; that is `afc2d57`,
-# and this is the consumer it was built for.
+# `entities/journeys.json`, the slot `SAVEFILE_COMPAT.md` §9.6 reserved.
+# Written and read by *this file* from 2026-08-26 until `STORY_PLANNING_SCOPE.md`
+# SP-1, in a shape that never actually matched §9.6 (a route **array index**,
+# not the nested `{points, breaks, length_km, mode}` object; a raw party-form
+# snapshot, not a `party_preset` id; no `id`/`next_id`). SP-1 gave the slot a
+# real engine type (`cartalith_civ::travel_library::Journey`,
+# `InfraTools::journeys`) and moved it into `ENGINE_OWNED_SLOTS`
+# (`project_bridge.rs`) — this view no longer owns the document, and
+## `_save_journey()`/`_delete_journey()` above keep a real `Journey` in sync
+## through `journey_save()`/`journey_delete()` instead.
 
-## This view's half of the project file, as JSON **text**.
-##
-## `Vector2` is written as a two-element array because JSON has no vector, and
-## `_trim` is the only field in a journey that is not already a JSON-native
-## type. Everything else is exactly what `_save_journey` stored.
+## Stubbed out (SP-1): `entities/journeys.json` is engine-owned now, so
+## `app.gd::_project_documents()` -- which still calls this, unchanged, to
+## build its caller-owned merge -- must get back `""` and add nothing. This
+## view's own `_journeys` (the richer per-session working state:
+## `stage_overrides`/`layovers`/`animal_entries`/`trim`) is not part of SP-1's
+## persisted entity and no longer round-trips through the archive at all; see
+## this section's own header.
 func journeys_document() -> String:
-	var out: Array = []
-	for j in _journeys:
-		var d: Dictionary = (j as Dictionary).duplicate(true)
-		var t: Vector2 = d.get("trim", Vector2(0.0, 1.0))
-		d["trim"] = [t.x, t.y]
-		out.append(d)
-	return JSON.stringify({"journeys": out})
+	return ""
 
-## The inverse. `app.gd::_restore_project_documents()` calls this with whatever
-## the archive's `entities/journeys.json` slot held, once per project open.
-##
-## **Two guards, each of which was data loss before it existed.**
-##
-## 1. *Restore only when the documents are new.* This used to hang off `app.gd`'s
-##    `world_loaded` handler, and that signal is emitted for seven different
-##    reasons while only `EngineBridge.load_save()` ever assigns
-##    `last_documents` — so centring the landmasses, carving fjords, applying an
-##    asset pack or closing the world all replayed the *previous* archive's
-##    journeys over everything planned since the file was opened. `app.gd` has
-##    since moved the call to `_load_project()`, which is the right end of the
-##    fix; this is the view's own half of it, and it is what makes the function
-##    safe to call from any handler rather than from exactly one. `is_same()`
-##    on the dictionary is the test: `load_save` assigns a **fresh**
-##    `Dictionary` on every open (a re-open of the same path included), and
-##    nothing else assigns it at all, so object identity means "new documents
-##    arrived" and nothing else. Value equality would not do — two opens of the
-##    same file carry equal text and must both restore.
-## 2. *New documents with no journeys slot clear the list.* Keeping it was how
-##    project A's journeys followed the user into project B, to be written into
-##    B's archive by `journeys_document()` on the next save — carrying route
-##    indices that index B's routes, which is the same corruption seen from the
-##    other end. A flat legacy archive lands here too: `load_save` leaves
-##    `documents` empty for it, which is a new (empty) dictionary and therefore
-##    a genuine "this project has no journeys".
-##
-## A slot that is present but unparseable still leaves the list alone: that is
-## a corrupt document, not an empty one, and it must not silently delete work.
-func restore_journeys_document(text: String) -> void:
+## Also stubbed (SP-1): `text` is always `""` now (the engine slot is
+## excluded from `bridge.last_documents`, `caller_slot_refusal`'s own
+## contract), so parsing it is dead code. What still matters is the
+## **world-changed** signal this call carries: opening a project (or an
+## import that lands here through the same call site) means every route
+## index this session's `_journeys` might be holding is stale, so the local
+## list is still cleared, the same rule regenerate/`clear_journeys()` already
+## enforce. Restoring the persisted `Journey`s themselves needs no call here
+## at all — `project_open` (Rust) restores them into `InfraTools::journeys`
+## directly; `journey_list()`/`journey_get()` read them back whenever a
+## caller wants them.
+func restore_journeys_document(_text: String) -> void:
 	if bridge != null:
 		if is_same(bridge.last_documents, _restored_documents):
 			return
 		_restored_documents = bridge.last_documents
-	if text.strip_edges() == "":
-		clear_journeys()
-		return
-	var parsed = JSON.parse_string(text)
-	if not (parsed is Dictionary):
-		push_warning("Cartalith: entities/journeys.json is not an object; the journeys list is left alone")
-		return
-	var arr = (parsed as Dictionary).get("journeys", [])
-	if not (arr is Array):
-		return
-	var loaded: Array = []
-	for e in arr:
-		if not (e is Dictionary):
-			continue
-		var d: Dictionary = (e as Dictionary).duplicate(true)
-		var t = d.get("trim", [0.0, 1.0])
-		## `route` is an index into the committed routes and MUST stay an int:
-		## `JSON.parse_string` floats every number, and `jp_compute` rejects a
-		## float where it wants an index. This is the shell's half of §14.1 —
-		## the engine guarantees the bytes, not what GDScript does after
-		## parsing them.
-		d["route"] = int(d.get("route", 0))
-		d["trim"] = Vector2(float(t[0]), float(t[1])) if (t is Array and (t as Array).size() == 2) else Vector2(0.0, 1.0)
-		loaded.append(d)
-	_journeys = loaded
-	_active_journey = -1
-	if _bound:
-		_refresh_route_choice()
+	clear_journeys()
 
 ## Empties the list because the world its route indices pointed into is gone.
 ##

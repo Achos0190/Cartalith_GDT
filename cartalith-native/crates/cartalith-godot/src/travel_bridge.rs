@@ -243,12 +243,15 @@ impl TravelLibrary {
     }
 
     /// TRAVEL_LIBRARY_SPEC.md §4 also asks for "how many saved journeys
-    /// reference it". No persistent, referenceable "saved journey" exists
-    /// anywhere in this port today: `route_get`/`WorldGen.infra.routes` are
-    /// drawn polylines with no attached party plan, and `jp_compute`
-    /// computes and returns a plan without storing it. Always `0`, honestly
-    /// disclosed rather than invented -- see this module's own doc comment
-    /// and `TRAVEL_LIBRARY_SPEC.md`'s own note for this dispatch.
+    /// reference it". A persistent, referenceable `Journey` exists since
+    /// SP-1 (`STORY_PLANNING_SCOPE.md`, `InfraTools::journey_save`) -- but it
+    /// carries a `PartyPreset` reference only, not a per-animal override map
+    /// (SP-1's own scope boundary: it is the entity and its persistence, not
+    /// `jp_compute`'s animal-resolver plumbing). So a *preset's* usage in
+    /// journeys is real (`InfraTools::preset_usage_in_journeys`, wired at
+    /// `lib.rs`'s `tl_list`/`tl_get("preset", ...)`), while an *animal's* is
+    /// still honestly `0` here: no journey field names an animal id directly
+    /// to count.
     pub fn animal_usage_in_journeys(&self, _id: &str) -> usize {
         0
     }
@@ -1110,11 +1113,15 @@ mod tests {
 
     #[test]
     fn journey_usage_is_honestly_always_zero() {
+        // Still true after SP-1: a `Journey` names a `PartyPreset`, not an
+        // animal, so no journey field could ever make this positive --
+        // see `preset_usage_in_journeys` (`infra_tools_bridge.rs`) for the
+        // count that SP-1 made real.
         let lib = TravelLibrary::new();
         assert_eq!(
             lib.animal_usage_in_journeys("donkey"),
             0,
-            "no persistent saved journey exists in this port yet"
+            "a Journey carries a PartyPreset reference, not a per-animal one"
         );
     }
 

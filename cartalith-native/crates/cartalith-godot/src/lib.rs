@@ -2653,11 +2653,27 @@ fn way_render_polyline(pts: &[(f64, f64)], brks: &[usize]) -> (Vec<(f64, f64)>, 
 fn river_dict(f: &sample_bridge::FieldRefs<'_>, r: &cartalith_hydrology::River, index: usize) -> VarDictionary {
     let ck = cartalith_spatial::cell_km(f.map_width_km, f.gw);
     let points: PackedVector2Array = r.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
+    // `render_points`: the river's own traced cells (one per grid cell,
+    // `trace_river_polylines`' own density, no thinning) re-sampled through
+    // `way_render_geometry` -- the identical Catmull-Rom treatment
+    // `route_get()`/`get_roads()`/`get_sea_routes()` already give a way's
+    // `points`, at the same `WAY_RENDER_STEP_CELLS` density. A river entity
+    // carries no `brks` (`cartalith_hydrology::River`'s own doc comment: one
+    // `split_river_polylines` run, not a consolidated multi-run way), so
+    // `&[]` is passed and the returned breaks are always empty -- kept as a
+    // `_` rather than a second dict key for that reason.
+    //
+    // This is `map_overlay.gd`'s `_draw_rivers()` fix for the "pixilated,
+    // not flowing" defect: `points` still zigzags cell-to-cell along the D8
+    // receiver tree it was traced from, and a straight stroke through it
+    // reads exactly like the raster river's own stair-stepped disc edge.
+    let (render_points, _) = way_render_geometry(&r.pts, &[]);
     let (head, mouth) = (r.head as usize, r.mouth as usize);
     let (source_m, mouth_m) = (f.elevation_m(head), f.elevation_m(mouth));
     let mut d = vdict! {
         "index" => index as i64,
         "points" => &points,
+        "render_points" => &render_points,
         "order" => r.order as i64,
         "km" => r.length_cells * ck,
         "cells" => r.pts.len() as i64,
@@ -3215,6 +3231,32 @@ struct WorldGen {
     /// `CART_BIOME_COLS` has always had, so there is no unknown key to guard
     /// against and no reason to pay a hash map for 15 slots.
     biome_col_overrides: [Option<(u8, u8, u8)>; 15],
+    /// The vector river overlay's raster-tint suppression
+    /// (`OUTSTANDING_WORK.md` "The vector river overlay", reason 3 of the
+    /// three the 2026-09-13 revert cited). `build_color_texture`'s own doc
+    /// comment says the baked-in blue channel tint "stands in for the
+    /// reference's vector river overlay ... not wired into this port" — once
+    /// the real vector overlay is wired and a caller turns it on, the
+    /// stand-in has to come off or the map reads as two slightly-offset
+    /// rivers, so this is the flag `set_suppress_river_tint` writes and
+    /// `build_color_texture` reads.
+    ///
+    /// `false` by default, so an untouched `WorldGen` renders exactly what it
+    /// rendered before this field existed — presentation only, on
+    /// `set_appearance`'s exact terms: nothing here touches the heightmap,
+    /// climate, hydrology, biomes, settlements, routes or the seed. Call
+    /// `build_color_texture()` again to see it, with no regeneration.
+    ///
+    /// **Scoped to `build_color_texture` alone, deliberately not folded into
+    /// `river_ink()`.** `river_ink()` is also `export_raster_png`'s,
+    /// `export_snapshot_png`'s and `export_layer_previews`'s one source of
+    /// truth for river ink (`export_raster.rs`'s own doc comment on why it is
+    /// the single choke point) — none of those write a Godot draw-time
+    /// overlay, so gating there would make a PNG export silently lose its
+    /// rivers whenever the interactive viewport's own vector toggle happened
+    /// to be on. This flag is read nowhere but the one texture the viewport
+    /// itself displays.
+    suppress_river_tint: bool,
     /// `UNIFIED_TOOL_PLAN.md` milestone F (`STRANDED_TOOLS.md` rows 4-8):
     /// the live, non-destructive Sculpt-editor draft. See
     /// `sculpt_bridge.rs`'s own module doc for why this lives here rather
@@ -3734,6 +3776,7 @@ impl IRefCounted for WorldGen {
             appearance_preset: None,
             color_space: render::ColorSpace::Srgb,
             biome_col_overrides: [None; 15],
+            suppress_river_tint: false,
             sculpt: None,
             icons: None,
             civ_tools: None,
@@ -6714,6 +6757,17 @@ impl WorldGen {
         n
     }
 
+    /// Turns the raster river tint `build_color_texture` bakes on and off —
+    /// see `suppress_river_tint`'s own doc comment for the reasoning and its
+    /// deliberately narrow scope. Presentation only, on `set_appearance`'s
+    /// exact terms: nothing here touches the heightmap, climate, hydrology,
+    /// biomes, settlements, routes or the seed. Call `build_color_texture()`
+    /// again to see it, with no regeneration.
+    #[func]
+    fn set_suppress_river_tint(&mut self, on: bool) {
+        self.suppress_river_tint = on;
+    }
+
     // -- The biome colour table (`OUTSTANDING_WORK.md`/`PARITY_AUDIT.md`
     //    CA-19, `LARGE_ITEM_RULINGS.md` Ruling P, 2026-09-21) ----------------
 
@@ -7307,10 +7361,12 @@ impl WorldGen {
     /// renderer (`render.rs`'s doc comment lists exactly what's ported vs.
     /// deliberately excluded) — no longer the MVP placeholder tint this
     /// method used before. A blue tint on channelized cells stands in for
-    /// the reference's vector river overlay (`drawRiverWays`, not wired
-    /// into this port), keeping "rivers visible" (`MVP_SCOPE.md`'s "done"
-    /// checklist, point 2) satisfied. Returns `None` before the first
-    /// `generate()` call.
+    /// the reference's vector river overlay, keeping "rivers visible"
+    /// (`MVP_SCOPE.md`'s "done" checklist, point 2) satisfied. **The vector
+    /// overlay is wired now** (`map_overlay.gd::_draw_rivers`, off by
+    /// default) — see `suppress_river_tint`'s own doc comment for how the
+    /// two stay an either/or rather than drawing both at once. Returns
+    /// `None` before the first `generate()` call.
     #[func]
     fn build_color_texture(&self) -> Option<Gd<ImageTexture>> {
         let (field, temperature, rainfall, flow) = match self.source.as_ref()? {
@@ -7323,7 +7379,13 @@ impl WorldGen {
         // the only copy of that rule** -- this used to be an inline `match`
         // here and three more in `export_raster.rs`, and on 2026-08-30 only
         // this one learned about the stamp. See `WorldGen::river_ink`.
-        let chan_mask: Option<RiverInk<'_>> = self.river_ink();
+        //
+        // `suppress_river_tint` short-circuits it to `None` here only --
+        // `river_ink()` itself is untouched, so `export_raster_png` and its
+        // siblings keep painting the tint regardless of this viewport-only
+        // flag. See `suppress_river_tint`'s own doc comment for why that
+        // scope is deliberate.
+        let chan_mask: Option<RiverInk<'_>> = if self.suppress_river_tint { None } else { self.river_ink() };
         let gw = self.gw as usize;
         let gh = self.gh as usize;
         let appearance = self.appearance();
@@ -7977,6 +8039,13 @@ impl WorldGen {
     /// * `points` (`PackedVector2Array`) -- cell-centre grid coordinates, head
     ///   first, mouth last. The same coordinate space `get_roads()`' `points`
     ///   uses, so a caller draws or hit-tests both the same way.
+    /// * `render_points` (`PackedVector2Array`) -- `points` re-sampled through
+    ///   a Catmull-Rom curve at render density, `route_get()`'s own
+    ///   `render_points`/`render_brks` treatment applied to a river's single
+    ///   run (a river carries no `brks` to remap). Draw this, not `points`,
+    ///   for `map_overlay.gd`'s vector river overlay -- see `river_dict`'s own
+    ///   doc comment for why `points` alone reads as stair-stepped as the
+    ///   raster river it is meant to replace.
     /// * `order` (int) -- Strahler, `drawRiverWays`' `maxO`.
     /// * `km` (float) -- routed length, `length_cells * cell_km`.
     /// * `cells` (int) -- point count.
@@ -10567,6 +10636,86 @@ impl WorldGen {
             "unreachable_legs" => r.unreachable_legs as i64,
             "name" => r.name.as_str(),
         }
+    }
+
+    // ===================== Journey (STORY_PLANNING_SCOPE.md SP-1) =====================
+
+    /// Saves a [`cartalith_civ::travel_library::Journey`]: `route_index`
+    /// names a committed route (`route_get`'s own index space), whose
+    /// geometry is copied in rather than referenced -- see
+    /// [`cartalith_civ::travel_library::JourneyRoute`]'s doc comment.
+    /// `party_preset` is a `library/travel.json` party-preset id (`tl_list`/
+    /// `tl_get("preset", ...)`) and is not validated against the Travel
+    /// Library here: `SAVEFILE_COMPAT.md` §9.6 requires a reader to tolerate
+    /// a preset id that resolves to nothing, so this store does too. Returns
+    /// the new journey's stable id, or `-1` for an out-of-range
+    /// `route_index` or before any route has ever been committed.
+    #[func]
+    fn journey_save(&mut self, name: GString, party_preset: GString, route_index: i64, start_year: i64) -> i64 {
+        let Ok(i) = usize::try_from(route_index) else { return -1 };
+        let Some(infra) = self.infra.as_mut() else { return -1 };
+        match infra.journey_save(&name.to_string(), &party_preset.to_string(), i, start_year) {
+            Some(id) => id as i64,
+            None => -1,
+        }
+    }
+
+    /// Every saved journey, in save order: `id`, `name`, `party_preset`,
+    /// `start_year`, plus the route snapshot's own `km`/`mode` (not its full
+    /// point list -- `journey_get` carries that, the same "list is light,
+    /// one row is heavy" split `route_get`/`route_count` already draw for
+    /// committed routes).
+    #[func]
+    fn journey_list(&self) -> Array<VarDictionary> {
+        let Some(infra) = self.infra.as_ref() else { return Array::new() };
+        infra
+            .journeys
+            .iter()
+            .map(|j| {
+                vdict! {
+                    "id" => j.id as i64,
+                    "name" => j.name.as_str(),
+                    "party_preset" => j.party_preset.as_str(),
+                    "start_year" => j.start_year,
+                    "km" => j.route.length_km,
+                    "mode" => project_bridge::route_mode_key(j.route.mode),
+                }
+            })
+            .collect()
+    }
+
+    /// One journey's full detail, `journey_list`'s own keys plus the route's
+    /// `points`/`brks` (`PackedVector2Array`/`PackedInt32Array`, `route_get`'s
+    /// own field names and `f32` precision). Empty `Dictionary` for an
+    /// unknown id.
+    #[func]
+    fn journey_get(&self, id: i64) -> VarDictionary {
+        let Ok(id) = u64::try_from(id) else { return VarDictionary::new() };
+        let Some(j) = self.infra.as_ref().and_then(|i| i.journey_get(id)) else {
+            return VarDictionary::new();
+        };
+        let points: PackedVector2Array =
+            j.route.points.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
+        let brks: PackedInt32Array = j.route.breaks.iter().map(|&b| b as i32).collect();
+        vdict! {
+            "id" => j.id as i64,
+            "name" => j.name.as_str(),
+            "party_preset" => j.party_preset.as_str(),
+            "start_year" => j.start_year,
+            "km" => j.route.length_km,
+            "mode" => project_bridge::route_mode_key(j.route.mode),
+            "points" => &points,
+            "brks" => &brks,
+        }
+    }
+
+    /// Deletes one saved journey by its stable id (`journey_list`'s own
+    /// `id`, not an array index -- see `InfraTools::journey_delete`). `false`
+    /// if no journey carries that id.
+    #[func]
+    fn journey_delete(&mut self, id: i64) -> bool {
+        let Ok(id) = u64::try_from(id) else { return false };
+        self.infra.as_mut().is_some_and(|i| i.journey_delete(id))
     }
 
     // ===================== Measure (DCC_SHELL_SPEC.md §4.5.1, global) =====================
@@ -13820,8 +13969,12 @@ impl WorldGen {
     /// (bool), `subtitle`, `species_key` (animals only, else `""`),
     /// `validation_state` (`"ok"`/`"incomplete"`/`"conflicting"`),
     /// `validation_missing`/`validation_conflicts` (`PackedStringArray`),
-    /// `usage_presets`/`usage_journeys` (int; always `0` for vehicles/
-    /// vessels/presets themselves -- see `tl_get`'s own doc comment).
+    /// `usage_presets`/`usage_journeys` (int; `usage_presets` is always `0`
+    /// for vehicles/vessels/presets themselves -- see `tl_get`'s own doc
+    /// comment. `usage_journeys` is real for a **preset** (SP-1,
+    /// `STORY_PLANNING_SCOPE.md`: how many saved journeys name this preset's
+    /// id) and stays `0` for vehicles/vessels, which no `Journey` field
+    /// references directly).
     /// Animal rows carry two more: `species_slot` and `usable_as_mount` --
     /// see `tl_animal_slot_keys`. Empty `Array` for an unrecognised `kind`.
     #[func]
@@ -13889,7 +14042,7 @@ impl WorldGen {
                         &travel_bridge::preset_subtitle(p),
                         &cartalith_civ::travel_library::validate_party_preset(p),
                         0,
-                        0,
+                        self.infra.as_ref().map_or(0, |i| i.preset_usage_in_journeys(&p.id)),
                         "",
                     )
                 })
@@ -13907,14 +14060,18 @@ impl WorldGen {
     /// test `has()`, not read a fabricated default). `{"ok": false}` for an
     /// unknown `kind` or `id`.
     ///
-    /// `usage_presets`/`usage_journeys` are always `0` for vehicles/vessels/
-    /// presets themselves: no `vehicle_key`/`vessel_key` equivalent to
+    /// `usage_presets` is always `0` for vehicles/vessels/presets
+    /// themselves: no `vehicle_key`/`vessel_key` equivalent to
     /// `AnimalDef::species_key` exists to attribute a `JpParty` vehicle
     /// count (`carts`/`wagons`/`sleds`/`travois`) back to one specific
-    /// `VehicleDef` id, and a party preset does not reference itself --
-    /// disclosed here rather than approximated, the same honesty
-    /// `TravelLibrary::animal_usage_in_journeys` already applies to §4's
-    /// "saved journeys" count.
+    /// `VehicleDef` id, and a party preset does not reference itself.
+    /// `usage_journeys` is likewise always `0` for vehicles/vessels (no
+    /// `Journey` field references either directly), but for a **preset** it
+    /// is `InfraTools::preset_usage_in_journeys` -- real since SP-1
+    /// (`STORY_PLANNING_SCOPE.md`), closing the "saved journeys" `0`
+    /// `TravelLibrary::animal_usage_in_journeys`'s own doc comment still
+    /// discloses for the per-animal count, which SP-1's `Journey` does not
+    /// model.
     #[func]
     fn tl_get(&self, kind: GString, id: GString) -> VarDictionary {
         let lib = &self.travel_library;
@@ -13978,7 +14135,7 @@ impl WorldGen {
                     &travel_bridge::preset_subtitle(p),
                     &cartalith_civ::travel_library::validate_party_preset(p),
                     0,
-                    0,
+                    self.infra.as_ref().map_or(0, |i| i.preset_usage_in_journeys(&p.id)),
                     "",
                 );
                 merge_pairs(&mut d, &travel_bridge::preset_to_pairs(p));

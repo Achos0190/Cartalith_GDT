@@ -32,6 +32,7 @@
 //! | settlements, factions, ways, provinces, continents, timeline, civ rasters | the DTOs below, from `CivData` |
 //! | labels, icons, region | the DTOs below, from the tool bridges |
 //! | landmark settings **and the last run's placements** | `LandmarksDoc` below, from `WorldGen::landmark_store` |
+//! | journeys (`STORY_PLANNING_SCOPE.md` SP-1) | the DTOs below, from `InfraTools::journeys` -- see "The Journey entity" section further down |
 //! | vault links | `vault_state_json()`/`vault_restore_state()`, the pair `vault_bridge.rs` already publishes |
 //! | anything GDScript owns | [`WorldGen::project_save_with_documents`]'s dictionary |
 //!
@@ -126,6 +127,39 @@
 //! The distinction is between *recalling* the civilisation layer, which the
 //! archive now carries, and *recomputing* it, which needs rasters the
 //! archive deliberately does not store (`SAVEFILE_COMPAT.md` §16.2).
+//!
+//! ## The Journey entity (`STORY_PLANNING_SCOPE.md` SP-1)
+//!
+//! `entities/journeys.json` moved from the shell's own caller-built slot
+//! (§9.6 was specified before anything could write it) to
+//! [`ENGINE_OWNED_SLOTS`], the day a real `Journey` type
+//! (`cartalith_civ::travel_library::Journey`) landed. The mutable store is
+//! `InfraTools::journeys`, beside `routes` rather than a new `WorldGen`
+//! field -- a journey's `route` is a **snapshot** of a committed route's
+//! geometry taken at `journey_save` time (`JourneyRoute`'s own doc comment:
+//! committed routes have no stable id to reference instead), so the two
+//! share `InfraTools`' exact lifecycle (reset on regenerate/`load_save`,
+//! restored together below whenever the archive carries either).
+//!
+//! `journey_to_dto`/`dto_to_journey` below are this document's DTOs, same
+//! shape as every other entity in this file: the archive's member names
+//! (§9.6: `party_preset`, nested `route`) are not this port's own
+//! (`Journey::party_preset`, flat `JourneyRoute`), so the DTO is what keeps
+//! a future rename of the Rust type from becoming a format break.
+//!
+//! **What the shell no longer owns.** Before this, `journey_planner_view.gd`
+//! built and parsed this document itself, in its own ad hoc shape -- a route
+//! **array index** (renumbers on delete, meaningless across a regenerate)
+//! plus a raw party-form snapshot, neither `id`-bearing nor matching §9.6's
+//! own long-published shape. That local, richer, in-session list
+//! (`stage_overrides`/`layovers`/`animal_entries`/`trim`, the Journey
+//! Planner's own working state) is **out of SP-1's scope** -- the scope
+//! document is explicit that SP-1 is "the entity and its persistence only" --
+//! and does not round-trip through this slot any more; see
+//! `journey_planner_view.gd`'s own updated doc comment on `_save_journey`
+//! for the bridge this pass wired instead (capture a real `PartyPreset`,
+//! register a real `Journey`, still track the richer fields locally for the
+//! duration of the session).
 
 use crate::{
     civ_roster_bridge, icon_bridge, infra_tools_bridge, journey_bridge, label_bridge, params,
@@ -154,6 +188,7 @@ const SLOT_REGIONS: &str = "annotations/regions.json";
 const SLOT_APPEARANCE: &str = "appearance.json";
 const SLOT_VAULT: &str = "vault.json";
 const SLOT_LANDMARKS: &str = "entities/landmarks.json";
+const SLOT_JOURNEYS: &str = "entities/journeys.json";
 
 // The four caller-owned slots this file builds the *contents* of without
 // owning the slot itself. They stay out of [`ENGINE_OWNED_SLOTS`] below --
@@ -187,6 +222,13 @@ const ENGINE_OWNED_SLOTS: &[&str] = &[
     // that arrive as a failing test rather than as a shell that can
     // overwrite the engine's own document.
     SLOT_LANDMARKS,
+    // `STORY_PLANNING_SCOPE.md` SP-1: a `Journey` is real engine state
+    // (`InfraTools::journeys`) since this slot's payload became a typed
+    // entity rather than shell-only state. Until SP-1 this was one of the
+    // shell's own two caller-built slots (see this file's own module doc,
+    // "the SHELL's two"); that paragraph is now stale for this slot and only
+    // describes `annotations/measurements.json`.
+    SLOT_JOURNEYS,
 ];
 
 // ===================== the document schemas =====================
@@ -361,6 +403,47 @@ struct RouteDto {
     mode: String,
     #[serde(default)]
     unreachable_legs: usize,
+}
+
+/// `entities/journeys.json`, `SAVEFILE_COMPAT.md` §9.6. `next_id` mirrors
+/// `SettlementsDoc::next_id`'s own convention (§9.1: "raised to `max(id)+1`
+/// if the stored value is lower").
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct JourneysDoc {
+    #[serde(default)]
+    next_id: u64,
+    #[serde(default)]
+    journeys: Vec<JourneyDto>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct JourneyDto {
+    #[serde(default)]
+    id: u64,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    party_preset: String,
+    #[serde(default)]
+    route: JourneyRouteDto,
+    #[serde(default)]
+    start_year: i64,
+}
+
+/// §9.6's embedded route snapshot -- deliberately a leaner sibling of
+/// [`RouteDto`] (no `name`, no `unreachable_legs`): those two describe a
+/// *committed route in the tool's own list*, and a journey's route is a copy
+/// taken out of one, not that entry itself.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct JourneyRouteDto {
+    #[serde(default)]
+    points: Vec<[f64; 2]>,
+    #[serde(default)]
+    breaks: Vec<usize>,
+    #[serde(default)]
+    length_km: f64,
+    #[serde(default)]
+    mode: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1103,7 +1186,7 @@ fn manual_way_kind_from(key: &str) -> cartalith_civ::tools::ManualWayType {
     }
 }
 
-fn route_mode_key(m: cartalith_civ::tools::RouteMode) -> &'static str {
+pub(crate) fn route_mode_key(m: cartalith_civ::tools::RouteMode) -> &'static str {
     use cartalith_civ::tools::RouteMode as R;
     match m {
         R::Land => "land",
@@ -1247,6 +1330,38 @@ fn dto_to_road(d: &RoadDto) -> cartalith_civ::Way {
         a_idx: d.from,
         b_idx: d.to,
         hidden: d.hidden,
+    }
+}
+
+fn journey_to_dto(j: &cartalith_civ::travel_library::Journey) -> JourneyDto {
+    JourneyDto {
+        id: j.id,
+        name: j.name.clone(),
+        party_preset: j.party_preset.clone(),
+        route: JourneyRouteDto {
+            points: pts_to_dto(&j.route.points),
+            breaks: j.route.breaks.clone(),
+            length_km: j.route.length_km,
+            mode: route_mode_key(j.route.mode).to_string(),
+        },
+        start_year: j.start_year,
+    }
+}
+
+fn dto_to_journey(d: &JourneyDto) -> cartalith_civ::travel_library::Journey {
+    let pts = dto_to_pts(&d.route.points);
+    let brks = sane_breaks(&d.route.breaks, pts.len());
+    cartalith_civ::travel_library::Journey {
+        id: d.id,
+        name: d.name.clone(),
+        party_preset: d.party_preset.clone(),
+        route: cartalith_civ::travel_library::JourneyRoute {
+            points: pts,
+            breaks: brks,
+            length_km: d.route.length_km,
+            mode: route_mode_from(&d.route.mode),
+        },
+        start_year: d.start_year,
     }
 }
 
@@ -1656,8 +1771,9 @@ fn caller_slot_refusal(slot: &str) -> Option<String> {
     if ENGINE_OWNED_SLOTS.contains(&slot) {
         return Some(format!(
             "{slot} is written and read by the engine itself; ask the engine for its \
-             contents (get_settlements(), get_ways(), the faction roster, the timeline) \
-             rather than round-tripping the document through the shell"
+             contents (get_settlements(), get_ways(), the faction roster, the timeline, \
+             journey_list()/journey_get()) rather than round-tripping the document \
+             through the shell"
         ));
     }
     None
@@ -1862,6 +1978,20 @@ impl WorldGen {
                             w: region.w,
                             h: region.h,
                         }),
+                    },
+                );
+            }
+            // `STORY_PLANNING_SCOPE.md` SP-1. Written only when there is at
+            // least one, same "absent, not empty" discipline as `ways`/
+            // `region` just above -- an untouched project should not gain a
+            // zero-length `entities/journeys.json`.
+            if !infra.journeys.is_empty() {
+                insert_doc(
+                    &mut documents,
+                    SLOT_JOURNEYS,
+                    &JourneysDoc {
+                        next_id: infra.next_journey_id(),
+                        journeys: infra.journeys.iter().map(journey_to_dto).collect(),
                     },
                 );
             }
@@ -2305,6 +2435,31 @@ impl WorldGen {
             }
         }
 
+        // `STORY_PLANNING_SCOPE.md` SP-1. A parse failure (an archive
+        // written by the pre-SP-1 shell, whose `route` member was a bare
+        // integer index rather than this shape's nested object) is not
+        // fatal to the archive -- `SAVEFILE_COMPAT.md` §6.4a rung 3: a
+        // damaged document costs that document, silently skipped here the
+        // same way `WaysDoc`/`RegionsDoc` above are on their own parse
+        // failure, never `restored.push`ed. Every other document in the
+        // archive still opens.
+        if let Some(Ok(doc)) = data.parse::<JourneysDoc>(SLOT_JOURNEYS) {
+            let journeys: Vec<cartalith_civ::travel_library::Journey> =
+                doc.journeys.iter().map(dto_to_journey).collect();
+            if !journeys.is_empty() || doc.next_id > 0 {
+                let infra = self
+                    .infra
+                    .get_or_insert_with(infra_tools_bridge::InfraTools::new);
+                // §9.1's own "next_id must not trail its data" rule, applied
+                // to journeys: raised, never lowered, past the highest id
+                // actually present.
+                let max_present = journeys.iter().map(|j| j.id + 1).max().unwrap_or(0);
+                infra.set_next_journey_id(doc.next_id.max(max_present));
+                infra.journeys = journeys;
+                restored.push("journeys");
+            }
+        }
+
         if let Some(Ok(doc)) = data.parse::<AppearanceDoc>(SLOT_APPEARANCE) {
             // Every member is applied only if this build recognises it: an
             // unknown tier or look name leaves the current one rather than
@@ -2488,10 +2643,13 @@ impl WorldGen {
     ///
     /// The other half of `project_save_with_documents`, for the case
     /// `project_open`'s `documents` does not cover: reading a project's
-    /// journeys — or any other shell-owned payload — while the session keeps
-    /// the world it already has. Opening the archive to get at one small
-    /// JSON document would replace the current world as a side effect, which
-    /// is not a price a "load my saved journeys" command should pay.
+    /// saved measurements — or any other shell-owned payload — while the
+    /// session keeps the world it already has. Opening the archive to get at
+    /// one small JSON document would replace the current world as a side
+    /// effect, which is not a price a "peek at another project" command
+    /// should pay. (Journeys used to be this function's own example; since
+    /// `STORY_PLANNING_SCOPE.md` SP-1, `entities/journeys.json` is
+    /// engine-owned and this function refuses it -- see the bullet below.)
     ///
     /// Returns `{ok, error, slot, present, text}`. `present` is `false` with
     /// `ok` still `true` when the archive simply does not carry that
@@ -2524,11 +2682,14 @@ impl WorldGen {
     ///   function refuses by design. Widening the refusal to feed a caption
     ///   would break the writer's symmetry for a readout the dialog already
     ///   has by its own `ZIPReader`.
-    /// * The other candidate is the Journey Planner loading saved journeys
-    ///   without replacing the world. It has no such command: journeys ride
-    ///   `project_open`'s own `documents` dictionary, restored in
-    ///   `app.gd`'s `world_loaded` handler, which is the whole round trip
-    ///   `_savereopen_probe.gd` asserts.
+    /// * The other candidate used to be the Journey Planner loading saved
+    ///   journeys without replacing the world. Since SP-1,
+    ///   `entities/journeys.json` is **engine-owned**
+    ///   (`ENGINE_OWNED_SLOTS`), so this function refuses it outright the
+    ///   same as `params.json` above -- `journey_list()`/`journey_get()` are
+    ///   the read path now, and both need a world open already (they read
+    ///   `WorldGen::infra`), which is the same "no shell caller for the
+    ///   read-without-opening case" shape this whole doc comment describes.
     ///
     /// So this is a public API with no shell caller **yet**, not a gap: the
     /// capability `project_open` structurally cannot offer (read one document,
@@ -2841,10 +3002,11 @@ impl WorldGen {
     /// `cartalith-io` registered, removes that step rather than documenting
     /// around it.
     ///
-    /// Merge it into whatever the shell owns (`entities/journeys.json` and,
-    /// since 2026-09-03, `annotations/measurements.json`) and pass the union;
-    /// the sets never collide, since none of these four is a slot GDScript
-    /// writes.
+    /// Merge it into whatever the shell owns (`annotations/measurements.json`
+    /// as of 2026-09-03; `entities/journeys.json` was the other one until
+    /// `STORY_PLANNING_SCOPE.md` SP-1 moved it to `ENGINE_OWNED_SLOTS`) and
+    /// pass the union; the sets never collide, since none of these four is a
+    /// slot GDScript writes.
     #[func]
     fn project_engine_built_documents(&mut self) -> VarDictionary {
         let mut out = VarDictionary::new();
@@ -3547,7 +3709,190 @@ mod tests {
         civ_from_project(&data, n).expect("a civ layer that was written must come back")
     }
 
+    /// `STORY_PLANNING_SCOPE.md` SP-1's own round trip, at the same level
+    /// `round_trip` above exercises the civ layer at -- through a real
+    /// in-memory `.ctl` archive (`project::write_project`/
+    /// `cartalith_io::read_project`), never through a live `WorldGen`
+    /// (`InfraTools`/`Journey` need no `godot` dependency at all, so this
+    /// runs under plain `cargo test`, no Godot runtime).
+    fn journeys_round_trip(
+        next_id: u64,
+        journeys: &[cartalith_civ::travel_library::Journey],
+    ) -> (u64, Vec<cartalith_civ::travel_library::Journey>) {
+        let params = cartalith_io::SaveParams {
+            gw: 4,
+            gh: 3,
+            seed: 4242,
+            map_width_km: 800.0,
+            sea_level: 0.42,
+            world: false,
+            origin: None,
+            name: None,
+        };
+        let fields = cartalith_io::SaveFields {
+            heightmap: std::sync::Arc::new(vec![0.5; 12]),
+            temperature: std::sync::Arc::new(vec![10.0; 12]),
+            rainfall: std::sync::Arc::new(vec![1.0; 12]),
+            volcanic_field: vec![0.0; 12],
+            impact_field: vec![0.0; 12],
+            strahler_order: vec![0; 12],
+        };
+        let mut write = ProjectWrite::new(&params, &fields);
+        let mut documents = BTreeMap::new();
+        insert_doc(
+            &mut documents,
+            SLOT_JOURNEYS,
+            &JourneysDoc {
+                next_id,
+                journeys: journeys.iter().map(journey_to_dto).collect(),
+            },
+        );
+        write.documents = documents;
 
+        let mut buf = Vec::new();
+        project::write_project(std::io::Cursor::new(&mut buf), &write)
+            .expect("write_project should succeed");
+        let data = cartalith_io::read_project(std::io::Cursor::new(&buf))
+            .expect("read_project should succeed");
+        assert!(data.warnings.is_empty(), "{:?}", data.warnings);
+
+        let doc: JourneysDoc = data
+            .parse(SLOT_JOURNEYS)
+            .expect("entities/journeys.json must be present")
+            .expect("entities/journeys.json must parse");
+        (doc.next_id, doc.journeys.iter().map(dto_to_journey).collect())
+    }
+
+    #[test]
+    fn a_journey_survives_save_load_reopen() {
+        // The scope document's own acceptance bar, verbatim: "a journey
+        // survives save -> load -> reopen". Every SP-1 field, checked
+        // individually rather than via `assert_eq!` on the whole struct, so
+        // a future field added to `Journey` without a matching DTO member
+        // fails loudly here instead of silently not round-tripping.
+        let journey = cartalith_civ::travel_library::Journey {
+            id: 7,
+            name: "The salt road".to_string(),
+            party_preset: "merchant_caravan".to_string(),
+            route: cartalith_civ::travel_library::JourneyRoute {
+                points: vec![(10.0, 4.0), (11.5, 5.25), (13.0, 6.0)],
+                breaks: vec![0],
+                length_km: 120.5,
+                mode: cartalith_civ::tools::RouteMode::Mixed,
+            },
+            start_year: 412,
+        };
+        let (next_id, back) = journeys_round_trip(8, std::slice::from_ref(&journey));
+        assert_eq!(next_id, 8);
+        assert_eq!(back.len(), 1);
+        let b = &back[0];
+        assert_eq!(b.id, journey.id);
+        assert_eq!(b.name, journey.name);
+        assert_eq!(b.party_preset, journey.party_preset);
+        assert_eq!(b.start_year, journey.start_year);
+        assert_eq!(b.route.points, journey.route.points);
+        assert_eq!(b.route.breaks, journey.route.breaks);
+        assert_eq!(b.route.length_km, journey.route.length_km);
+        assert_eq!(b.route.mode, journey.route.mode);
+        // The whole point of `PartialEq` on `Journey`/`JourneyRoute`: one
+        // assertion that nothing above was a partial check in disguise.
+        assert_eq!(*b, journey);
+    }
+
+    #[test]
+    fn an_empty_journeys_list_writes_no_document() {
+        // `project_save_with_documents`'s own gate (`if !infra.journeys.is_empty()`)
+        // is exercised at the `WorldGen` level, not here -- this asserts the
+        // reader's own honest-absence half: a document this test never wrote
+        // is absent, not an empty array standing in for "never saved any".
+        let data_has_no_slot = {
+            let params = cartalith_io::SaveParams {
+                gw: 4,
+                gh: 3,
+                seed: 1,
+                map_width_km: 800.0,
+                sea_level: 0.42,
+                world: false,
+                origin: None,
+                name: None,
+            };
+            let fields = cartalith_io::SaveFields {
+                heightmap: std::sync::Arc::new(vec![0.5; 12]),
+                temperature: std::sync::Arc::new(vec![10.0; 12]),
+                rainfall: std::sync::Arc::new(vec![1.0; 12]),
+                volcanic_field: vec![0.0; 12],
+                impact_field: vec![0.0; 12],
+                strahler_order: vec![0; 12],
+            };
+            let write = ProjectWrite::new(&params, &fields);
+            let mut buf = Vec::new();
+            project::write_project(std::io::Cursor::new(&mut buf), &write).unwrap();
+            let data = cartalith_io::read_project(std::io::Cursor::new(&buf)).unwrap();
+            data.document(SLOT_JOURNEYS).is_none()
+        };
+        assert!(data_has_no_slot);
+    }
+
+    #[test]
+    fn a_pre_sp1_journeys_document_is_skipped_not_fatal() {
+        // Backward compatibility: an archive written by the pre-SP-1 shell
+        // stored `route` as a bare array INDEX (`journey_planner_view.gd`'s
+        // old `_save_journey`), not this shape's nested `{points, breaks,
+        // length_km, mode}` object. `data.parse::<JourneysDoc>` must fail to
+        // deserialize that -- proving the type mismatch is real, not an
+        // assumption -- and `project_open`'s own `if let Some(Ok(doc))` gate
+        // (`SAVEFILE_COMPAT.md` §6.4a rung 3) then skips just this document.
+        // Nothing else in this test's archive is touched by that.
+        let old_shape = serde_json::json!({
+            "journeys": [
+                {"name": "Journey 1", "route": 0, "plan": {"transport": "Walking"},
+                 "stage_overrides": {}, "layovers": {}, "animal_entries": {},
+                 "trim": [0.0, 1.0]}
+            ]
+        });
+        let params = cartalith_io::SaveParams {
+            gw: 4,
+            gh: 3,
+            seed: 1,
+            map_width_km: 800.0,
+            sea_level: 0.42,
+            world: false,
+            origin: None,
+            name: None,
+        };
+        let fields = cartalith_io::SaveFields {
+            heightmap: std::sync::Arc::new(vec![0.5; 12]),
+            temperature: std::sync::Arc::new(vec![10.0; 12]),
+            rainfall: std::sync::Arc::new(vec![1.0; 12]),
+            volcanic_field: vec![0.0; 12],
+            impact_field: vec![0.0; 12],
+            strahler_order: vec![0; 12],
+        };
+        let mut write = ProjectWrite::new(&params, &fields);
+        write.document(SLOT_JOURNEYS, old_shape.to_string());
+        let mut buf = Vec::new();
+        project::write_project(std::io::Cursor::new(&mut buf), &write).unwrap();
+        // `read_project` succeeding at all is §6.4's own proof: only a
+        // missing/unparseable `project.json` or a wrong-length heightmap may
+        // refuse the whole archive, and this one has neither -- a damaged
+        // `entities/journeys.json` is not among the four bullets that can.
+        let data = cartalith_io::read_project(std::io::Cursor::new(&buf))
+            .expect("a damaged entities/journeys.json must not refuse the archive");
+
+        // The document is present (this archive really does carry the old
+        // shape)...
+        assert!(data.document(SLOT_JOURNEYS).is_some());
+        // ...and does not fit the new schema: `route` is an integer where
+        // `JourneyRouteDto` needs an object -- proving `project_open`'s own
+        // `if let Some(Ok(doc)) = data.parse::<JourneysDoc>(...)` gate really
+        // does skip this document (§6.4a rung 3) rather than silently
+        // coercing it or panicking.
+        let parsed: Option<Result<JourneysDoc, _>> = data.parse(SLOT_JOURNEYS);
+        assert!(
+            matches!(parsed, Some(Err(_))),
+            "an old-shape document must fail to parse as JourneysDoc, not silently coerce"
+        );
+    }
 
     #[test]
     fn a_restored_counter_clears_every_id_the_timeline_remembers() {
@@ -4553,14 +4898,20 @@ mod tests {
                 "{slot}"
             );
         }
-        // The six the shell may have today, named so that a change to the
+        // The five the shell may have today, named so that a change to the
         // split has to be deliberate. `annotations/measurements.json` joined
-        // on 2026-09-03 and is the *second* one GDScript writes itself: a
+        // on 2026-09-03 and is the one GDScript still writes itself: a
         // saved measurement is a mode, the clicked points and the reading,
         // and `measure_bridge.rs`'s own rule is that the caller owns the
         // points. It is deliberately not in `ENGINE_OWNED_SLOTS`, and this
         // list is what makes moving it there a failing test rather than a
         // silently unwritable store.
+        //
+        // `entities/journeys.json` was the *second* shell-owned slot until
+        // `STORY_PLANNING_SCOPE.md` SP-1 gave it a real engine type
+        // (`cartalith_civ::travel_library::Journey`) and moved it into
+        // `ENGINE_OWNED_SLOTS` -- see this file's own module doc, "The
+        // Journey entity" section.
         let callers: Vec<&str> = cartalith_io::DOCUMENT_SLOTS
             .iter()
             .copied()
@@ -4569,7 +4920,6 @@ mod tests {
         assert_eq!(
             callers,
             vec![
-                "entities/journeys.json",
                 "annotations/measurements.json",
                 "library/assets.json",
                 "library/travel.json",

@@ -875,6 +875,19 @@ func reference_grid_height(grid_w: int, world: bool) -> int:
 func color_texture() -> Texture2D:
 	return world_gen.build_color_texture()
 
+## The vector river overlay's raster-tint suppression (`OUTSTANDING_WORK.md`
+## "The vector river overlay", reason 3 of 3 for its 2026-09-13 revert --
+## `viewport_host.gd::set_layer_visible()`'s `"rivers"` arm calls this then
+## re-fetches `color_texture()`, the same "no regeneration, call
+## build_color_texture() again to see it" contract every other presentation-
+## only toggle on `WorldGen` already follows. `_has()`-guarded like `rivers()`
+## above: a binary built before this landed simply keeps drawing the tint,
+## which is the same fallback that binary already had.
+func set_suppress_river_tint(on: bool) -> void:
+	if not _has("set_suppress_river_tint"):
+		return
+	world_gen.set_suppress_river_tint(on)
+
 ## `LOD_TILING_INTEGRATION_SCOPE.md` milestone M1. `has_method` guards match
 ## `sized_api`'s own reasoning above: a binary built before this milestone
 ## landed simply has no `lod_synthesize_tile`, and `ViewportHost`'s deep-zoom
@@ -3173,6 +3186,33 @@ func route_set_name(index: int, name: String) -> bool:
 		return false
 	mark_world_dirty()
 	return world_gen.route_set_name(index, name)
+
+
+## `STORY_PLANNING_SCOPE.md` SP-1. `route_index` is `route_get`'s own index
+## space; the route's geometry is copied into the journey at save time, not
+## referenced -- see `cartalith_civ::travel_library::JourneyRoute`'s doc
+## comment. Returns the new journey's stable id, or `-1`.
+func journey_save(name: String, party_preset: String, route_index: int, start_year: int) -> int:
+	if not _has("journey_save"):
+		return -1
+	mark_world_dirty()
+	return world_gen.journey_save(name, party_preset, route_index, start_year)
+
+func journey_list() -> Array:
+	if not _has("journey_list"):
+		return []
+	return world_gen.journey_list()
+
+func journey_get(id: int) -> Dictionary:
+	if not _has("journey_get"):
+		return {}
+	return world_gen.journey_get(id)
+
+func journey_delete(id: int) -> bool:
+	if not _has("journey_delete"):
+		return false
+	mark_world_dirty()
+	return world_gen.journey_delete(id)
 
 
 # measure_bridge.rs

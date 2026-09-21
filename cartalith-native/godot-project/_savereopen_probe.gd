@@ -28,12 +28,17 @@ func _init() -> void:
 		return
 
 	# A caller-owned document with an integer above 2^31, to prove the shell's
-	# half of §14.1 as well as the engine's.
-	var doc := JSON.stringify({"next_id": 4294967297, "journeys": [
-		{"name": "Ærik's road — 城壁", "route": 0, "trim": [0.25, 0.75]}]})
+	# half of §14.1 as well as the engine's. `annotations/measurements.json`,
+	# not `entities/journeys.json` -- the latter moved to `ENGINE_OWNED_SLOTS`
+	# under `STORY_PLANNING_SCOPE.md` SP-1 (a real `Journey` type now owns
+	# that slot; see `project_bridge.rs`'s own module doc), so a caller
+	# offering it here would now be refused by design.
+	var doc := JSON.stringify({"gw": 4294967297, "measurements": [
+		{"mode": "distance", "unit": "km", "value": 120.25, "note": "Ærik's road — 城壁",
+		 "points": [[10.5, 4.0], [88.0, 12.25]]}]})
 	var path := OS.get_user_data_dir().path_join("_savereopen_probe.zip")
 
-	if not bridge.save_project(path, {"entities/journeys.json": doc}):
+	if not bridge.save_project(path, {"annotations/measurements.json": doc}):
 		print("  FAIL: save_project refused")
 		quit(1)
 		return
@@ -50,7 +55,7 @@ func _init() -> void:
 		print("  FAIL: the civ layer did not survive File Save -> File Open (%d -> %d)" % [before, after])
 		fails += 1
 
-	var got := String(b2.last_documents.get("entities/journeys.json", ""))
+	var got := String(b2.last_documents.get("annotations/measurements.json", ""))
 	print("  document returned: %d bytes" % got.length())
 	if got != doc:
 		print("  FAIL: the document did not come back byte-identical")

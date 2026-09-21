@@ -696,6 +696,51 @@ pub fn validate_party_preset(p: &PartyPreset) -> ValidationState {
 }
 
 // ---------------------------------------------------------------------------
+// SP-1 -- the Journey entity (`STORY_PLANNING_SCOPE.md` §4)
+// ---------------------------------------------------------------------------
+
+/// A journey's route: a **snapshot** of the polyline it was planned against,
+/// not a live reference to a committed route's array index. Committed routes
+/// (`InfraTools::routes`) have no stable id -- `route_delete`'s own doc
+/// comment states that indices renumber, and this port's own shell already
+/// discards every saved journey on a regenerate for exactly that reason. A
+/// snapshot sidesteps the instability rather than inventing a `tid` space for
+/// routes, and it is what `SAVEFILE_COMPAT.md` §9.6 already specifies:
+/// `entities/journeys.json`'s `route` member is `{points, breaks, length_km,
+/// mode}`, not an index.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JourneyRoute {
+    pub points: Vec<(f64, f64)>,
+    pub breaks: Vec<usize>,
+    pub length_km: f64,
+    pub mode: crate::tools::RouteMode,
+}
+
+/// `STORY_PLANNING_SCOPE.md` §4, SP-1 -- "the keystone": *"a `Journey` in
+/// `cartalith-civ`: a `PartyPreset` reference, a route (the existing
+/// polyline), a start year, and a name/id."* Closes the Travel Library's
+/// honest `0` for "saved journeys" usage (`TRAVEL_LIBRARY_SPEC.md` §4).
+///
+/// `id` is a stable id in the same `civ_assign_tid`-style sense §2's "shared
+/// spine" rule requires for any story record ("keyed on `tid`, not on array
+/// index") -- the mutable store that assigns and owns it lives in
+/// `cartalith-godot` (`InfraTools::journey_save`), matching the stateless
+/// `cartalith-civ` / stateful `cartalith-godot` split every other entity in
+/// this crate already follows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Journey {
+    pub id: u64,
+    pub name: String,
+    /// [`PartyPreset::id`]. May name a preset that no longer exists (deleted
+    /// after the journey was saved) -- `SAVEFILE_COMPAT.md` §9.6: "a reader
+    /// MUST tolerate a name that resolves to nothing and MUST show the
+    /// journey rather than drop it."
+    pub party_preset: String,
+    pub route: JourneyRoute,
+    pub start_year: i64,
+}
+
+// ---------------------------------------------------------------------------
 // Stock data
 // ---------------------------------------------------------------------------
 

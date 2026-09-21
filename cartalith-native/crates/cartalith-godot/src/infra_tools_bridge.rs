@@ -140,6 +140,15 @@ pub struct InfraTools {
     /// copy, so setting it here and reading it from the export route really
     /// are "two views of one rect", not values that could drift apart.
     pub region: Option<Region>,
+    /// `STORY_PLANNING_SCOPE.md` SP-1: saved journeys, in save order. Lives
+    /// beside `routes` rather than as its own `WorldGen` field because a
+    /// journey's route is a **snapshot** of a committed route's geometry
+    /// (`cartalith_civ::travel_library::JourneyRoute`) taken at save time --
+    /// the two share the exact lifecycle every other field on this struct
+    /// already has (reset on regenerate/`load_save`, meaningless carried
+    /// across a differently-sized or entirely different grid).
+    pub journeys: Vec<cartalith_civ::travel_library::Journey>,
+    next_journey_id: u64,
 }
 
 impl Default for InfraTools {
@@ -157,6 +166,8 @@ impl InfraTools {
             routes: Vec::new(),
             measure_points: Vec::new(),
             region: None,
+            journeys: Vec::new(),
+            next_journey_id: 1,
         }
     }
 
@@ -304,6 +315,82 @@ impl InfraTools {
             }
             None => false,
         }
+    }
+
+    // ===================== Journey (SP-1) =====================
+
+    /// Saves a new [`Journey`](cartalith_civ::travel_library::Journey):
+    /// `route_index` names a committed route in `self.routes`, and its
+    /// geometry is copied into the journey rather than referenced (see
+    /// [`cartalith_civ::travel_library::JourneyRoute`]'s own doc comment on
+    /// why). Returns the new journey's stable id, or `None` for an
+    /// out-of-range route index -- the same "no route, no journey" guard
+    /// `route_get` already applies.
+    ///
+    /// Id assignment is `civ_assign_tid`'s own idempotent-counter shape,
+    /// scoped to this store rather than sharing `CivData::next_tid`: a
+    /// journey is not a settlement or a way, and nothing cross-references a
+    /// journey by id from outside this store today.
+    pub fn journey_save(
+        &mut self,
+        name: &str,
+        party_preset: &str,
+        route_index: usize,
+        start_year: i64,
+    ) -> Option<u64> {
+        let r = self.routes.get(route_index)?;
+        let id = self.next_journey_id;
+        self.next_journey_id += 1;
+        self.journeys.push(cartalith_civ::travel_library::Journey {
+            id,
+            name: name.to_string(),
+            party_preset: party_preset.to_string(),
+            route: cartalith_civ::travel_library::JourneyRoute {
+                points: r.pts.clone(),
+                breaks: r.brks.clone(),
+                length_km: r.km,
+                mode: r.mode,
+            },
+            start_year,
+        });
+        Some(id)
+    }
+
+    /// Removes one saved journey by its stable `id`. `false` if no journey
+    /// carries that id -- unlike [`Self::route_delete`], nothing else holds
+    /// this id across the call (a journey's own `id` is never used as an
+    /// array index), so no renumbering-across-delete hazard exists here.
+    pub fn journey_delete(&mut self, id: u64) -> bool {
+        let before = self.journeys.len();
+        self.journeys.retain(|j| j.id != id);
+        self.journeys.len() != before
+    }
+
+    pub fn journey_get(&self, id: u64) -> Option<&cartalith_civ::travel_library::Journey> {
+        self.journeys.iter().find(|j| j.id == id)
+    }
+
+    /// `TRAVEL_LIBRARY_SPEC.md` §4's "how many saved journeys reference it",
+    /// made real for a [`PartyPreset`](cartalith_civ::travel_library::
+    /// PartyPreset) id -- `TravelLibrary::animal_usage_in_journeys` stays
+    /// honestly `0` (SP-1's `Journey` carries no per-animal override to
+    /// count), but a preset's own usage no longer has to.
+    pub fn preset_usage_in_journeys(&self, preset_id: &str) -> usize {
+        self.journeys.iter().filter(|j| j.party_preset == preset_id).count()
+    }
+
+    /// The next id [`Self::journey_save`] will hand out -- restored from an
+    /// archive's `entities/journeys.json` `next_id` member so a re-save
+    /// never collides with a journey the file already carries. Raised, never
+    /// lowered, by [`project_bridge`](crate::project_bridge)'s own restore
+    /// path, the same `next_id`-cannot-trail-its-data rule §9.1 states for
+    /// settlements.
+    pub fn set_next_journey_id(&mut self, next: u64) {
+        self.next_journey_id = self.next_journey_id.max(next);
+    }
+
+    pub fn next_journey_id(&self) -> u64 {
+        self.next_journey_id
     }
 
     // ===================== Measure =====================
@@ -753,6 +840,71 @@ mod tests {
         assert!(!t.route_set_name(5, "nowhere"));
     }
 
+    // ---------- Journey (SP-1) ----------
+
+    #[test]
+    fn journey_save_snapshots_the_named_route_and_assigns_increasing_ids() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        two_routes(&mut t, &ctx);
+        let route1_pts = t.routes[1].pts.clone();
+
+        let id_a = t.journey_save("Salt road", "merchant_caravan", 1, 412).expect("route 1 exists");
+        let id_b = t.journey_save("Second trip", "merchant_caravan", 1, 500).expect("route 1 exists");
+        assert_ne!(id_a, id_b, "each save gets its own stable id");
+        assert!(id_b > id_a, "ids increase, matching civ_assign_tid's own counter shape");
+
+        let j = t.journey_get(id_a).expect("just saved");
+        assert_eq!(j.name, "Salt road");
+        assert_eq!(j.party_preset, "merchant_caravan");
+        assert_eq!(j.start_year, 412);
+        assert_eq!(j.route.points, route1_pts, "the route is copied, not re-derived");
+        assert_eq!(j.route.mode, RouteMode::Mixed);
+    }
+
+    #[test]
+    fn journey_save_refuses_an_out_of_range_route_index() {
+        let mut t = InfraTools::new();
+        assert_eq!(t.journey_save("x", "p", 0, 1), None, "no route committed yet");
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        two_routes(&mut t, &ctx);
+        assert_eq!(t.journey_save("x", "p", 5, 1), None);
+        assert!(t.journeys.is_empty(), "a refused save must not push a partial entry");
+    }
+
+    #[test]
+    fn journey_delete_removes_by_id_not_by_position() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        two_routes(&mut t, &ctx);
+        let id_a = t.journey_save("A", "p", 0, 1).unwrap();
+        let id_b = t.journey_save("B", "p", 1, 1).unwrap();
+        assert!(t.journey_delete(id_a));
+        assert!(!t.journey_delete(id_a), "already gone");
+        assert_eq!(t.journeys.len(), 1);
+        assert_eq!(t.journeys[0].id, id_b, "deleting by id must not touch the survivor");
+        assert!(t.journey_get(id_a).is_none());
+        assert!(t.journey_get(id_b).is_some());
+    }
+
+    #[test]
+    fn preset_usage_in_journeys_counts_only_the_named_preset() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        two_routes(&mut t, &ctx);
+        assert_eq!(t.preset_usage_in_journeys("merchant_caravan"), 0, "the honest 0 before any journey exists");
+        t.journey_save("A", "merchant_caravan", 0, 1).unwrap();
+        t.journey_save("B", "merchant_caravan", 1, 1).unwrap();
+        t.journey_save("C", "hunting_party", 0, 1).unwrap();
+        assert_eq!(t.preset_usage_in_journeys("merchant_caravan"), 2);
+        assert_eq!(t.preset_usage_in_journeys("hunting_party"), 1);
+        assert_eq!(t.preset_usage_in_journeys("no_such_preset"), 0);
+    }
+
     /// `WorldGen::absorb`/`load_save` reset this whole tool set by swapping
     /// in a fresh `InfraTools::new()` (`Option<InfraTools>`, matching every
     /// sibling milestone-F binding's own lifecycle -- see the module doc's
@@ -764,6 +916,8 @@ mod tests {
         let mut t = InfraTools::new();
         assert!(t.ways.is_empty());
         assert!(t.routes.is_empty());
+        assert!(t.journeys.is_empty());
+        assert_eq!(t.next_journey_id(), 1);
         assert!(t.measure_points().is_empty());
         assert!(t.region.is_none());
         assert!(!t.way_append_point(1.0, 1.0), "no way draft armed yet");

@@ -3597,8 +3597,11 @@ func _build_measure_section(body: Control) -> void:
 #
 # `annotations/measurements.json` -- registered in `cartalith-io`'s
 # `DOCUMENT_SLOTS` on 2026-09-03 and **caller-owned**, so the shell writes it
-# and the engine carries it without modelling it, exactly the way
-# `entities/journeys.json` already works (`SAVEFILE_COMPAT.md` §6.5, §11.4).
+# and the engine carries it without modelling it. `entities/journeys.json`
+# used to be the other example of this shape; `STORY_PLANNING_SCOPE.md` SP-1
+# gave it a real engine type (`cartalith_civ::travel_library::Journey`) and
+# moved it to `ENGINE_OWNED_SLOTS` (`project_bridge.rs`), so this slot is now
+# the caller-owned one of its kind (`SAVEFILE_COMPAT.md` §6.5, §11.4).
 #
 # The owner's ruling was that a measurement store is a save SLOT and
 # "deliberately not a second persistence mechanism", and that is what this is:
@@ -3634,7 +3637,9 @@ func measurements_document() -> String:
 ## rule rather than two.
 ##
 ## `Vector2` becomes a two-element array because JSON has no vector -- the same
-## conversion `journey_planner_view.gd::journeys_document()` makes for `trim`.
+## conversion `journey_planner_view.gd::journeys_document()` made for its own
+## `trim` field before `STORY_PLANNING_SCOPE.md` SP-1 moved that slot to
+## `ENGINE_OWNED_SLOTS` and stubbed this file's counterpart out.
 static func measurements_document_text(entries: Array, gw: int, gh: int) -> String:
 	var out: Array = []
 	for raw in entries:
