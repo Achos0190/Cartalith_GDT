@@ -571,6 +571,30 @@ fn two_generate_guards_are_dead_against_the_live_profiles() {
     // `walls_is_a_strict_false_test` above does.
 }
 
+/// v2.73, direct rather than via the golden: a village-tier settlement's plaza
+/// is a green with no market cross, and a chartered town's is a market place
+/// with one — checked positively on both sides, not just "no error".
+#[test]
+fn a_village_gets_a_green_and_a_chartered_town_gets_a_market_cross() {
+    let village = generate(4242, &GenOpts { pop: Some(450.0), ..GenOpts::default() });
+    assert_eq!(village.pop_target, 450.0, "below the chartered-town population");
+    let vp = village.plaza.as_ref().expect("a village still has an open centre");
+    assert_eq!(vp.kind, crate::plaza::PlazaKind::Green, "450 people is a village, not a chartered town");
+    assert!(
+        !village.details.iter().any(|d| d.kind == "cross"),
+        "a village green must carry no market cross"
+    );
+
+    let town = generate(4242, &GenOpts { pop: Some(9000.0), ..GenOpts::default() });
+    assert_eq!(town.pop_target, 9000.0, "well over the chartered-town population");
+    let tp = town.plaza.as_ref().expect("a chartered town has a plaza");
+    assert_eq!(tp.kind, crate::plaza::PlazaKind::Market, "9000 people is a chartered town");
+    assert!(
+        town.details.iter().any(|d| d.kind == "cross"),
+        "a chartered town's plaza must carry its market cross"
+    );
+}
+
 /// `detectRiverCrossings` must run on the FINAL graph. Nothing in its signature
 /// can enforce that, so this asserts the consequence the reference's own comment
 /// names: every recorded bridge sits on a **live** edge.

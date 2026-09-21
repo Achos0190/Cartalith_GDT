@@ -420,7 +420,7 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         }
         // LAST on this branch, after the wall — not between the streets and the
         // growth, because there is no growth here.
-        plaza = build_plaza(seed, &site, &anchors, &mut g);
+        plaza = build_plaza(seed, &site, &anchors, &mut g, pop_target);
     } else {
         // v0.97: grow around the host's real roads when supplied, else
         // synthesise primaries from `routeEnds`. Both returns are discarded.
@@ -431,7 +431,7 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         }
         // BEFORE `grow`: the market square's three streets are in the graph
         // before the epoch loop, so the town accretes around it.
-        plaza = build_plaza(seed, &site, &anchors, &mut g);
+        plaza = build_plaza(seed, &site, &anchors, &mut g, pop_target);
         harbour_outcome = build_harbour(seed, &site, &anchors, &mut g, Some(&harbour_opts));
         if site.through {
             add_river_bridges(seed, &site, &anchors, &mut g, 2);

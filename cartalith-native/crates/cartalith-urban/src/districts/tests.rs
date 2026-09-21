@@ -75,7 +75,7 @@ use crate::districts::{
 use crate::geom::{Vec2, js_max, js_min, poly_area, poly_centroid};
 use crate::graph::Graph;
 use crate::growth::{GrowOpts, RecordingWallBuilder, WallState, grow};
-use crate::plaza::build_plaza;
+use crate::plaza::{PlazaKind, build_plaza};
 use crate::rng::fnv1a;
 use crate::routes::{Anchors, build_primaries, place_anchors};
 use crate::rules::{CULTURE_PROFILES, CultureProfile, MEDIEVAL, resolve_rules};
@@ -271,6 +271,7 @@ fn setup(c: &Case) -> Fixture {
                         Vec2::new(market.x + 30.0, market.y + 20.0),
                         Vec2::new(market.x - 30.0, market.y + 20.0),
                     ],
+                    kind: PlazaKind::Market,
                 })
             } else {
                 None
@@ -299,7 +300,7 @@ fn setup(c: &Case) -> Fixture {
             let mut g = Graph::new();
             let mut wall_state = WallState::default();
             build_primaries(c.seed, &site, &anchors, &mut g);
-            let plaza = build_plaza(c.seed, &site, &anchors, &mut g);
+            let plaza = build_plaza(c.seed, &site, &anchors, &mut g, pop_target);
             let opts = GrowOpts {
                 target_len,
                 max_rf,

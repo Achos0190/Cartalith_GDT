@@ -121,7 +121,7 @@ use crate::amenities::{
 // rows stayed here, where milestone 15 captured them, and now pin the moved one.
 use crate::geom::{Vec2, js_cos, js_log10, js_sin, poly_centroid};
 use crate::graph::Graph;
-use crate::plaza::{Plaza, build_plaza};
+use crate::plaza::{Plaza, PlazaKind, build_plaza};
 use crate::routes::{Anchors, place_anchors};
 use crate::rules::resolve_profile;
 use crate::site::{Site, SiteOpts, build_site};
@@ -201,7 +201,7 @@ fn fixture(seed: u32, kind: &str) -> Fixture {
         let (cls, w) = if i == 2 { ("primary", 8.0) } else { ("street", 5.0) };
         g.add_street(*x, ys[0], *x, ys[5], cls, w, 0, "fixture");
     }
-    let plaza = build_plaza(seed, &site, &anchors, &mut g);
+    let plaza = build_plaza(seed, &site, &anchors, &mut g, 5000.0);
 
     let mut parcels = Vec::new();
     for x in &xs {
@@ -359,6 +359,7 @@ fn band_fixture(d: f64, spokes: usize) -> (Site, Anchors, Graph, Plaza) {
     let plaza = Plaza {
         center: Vec2::new(m.x, m.y - 200.0),
         poly: vec![m, Vec2::new(m.x + 10.0, m.y), Vec2::new(m.x + 10.0, m.y - 10.0)],
+        kind: PlazaKind::Market,
     };
     (site, anchors, g, plaza)
 }
@@ -430,6 +431,7 @@ fn two_candidate_fixture(dm_west: f64, dm_east: f64) -> (Site, Anchors, Graph, P
     let plaza = Plaza {
         center: Vec2::new(m.x, m.y - 400.0),
         poly: vec![m, Vec2::new(m.x + 10.0, m.y), Vec2::new(m.x + 10.0, m.y - 10.0)],
+        kind: PlazaKind::Market,
     };
     (site, anchors, g, plaza, west, east)
 }
@@ -713,6 +715,7 @@ fn a_degenerate_plaza_collapses_and_a_nan_one_falls_back() {
             Vec2::new(120.0, 140.0),
             Vec2::new(80.0, 140.0),
         ],
+        kind: PlazaKind::Market,
     };
     // centre == midpoint of p0 -> p1, so `c - mid` is the zero vector.
     let c = build_civic(7, Some(&flat), 9000.0, "loggia", "church").unwrap();
@@ -720,7 +723,8 @@ fn a_degenerate_plaza_collapses_and_a_nan_one_falls_back() {
     assert!(c.hall.iter().all(|v| *v == c.center), "a zero frame collapses the hall");
 
     // A NaN centre is the case the guard is actually for.
-    let nan = Plaza { center: Vec2::new(f64::NAN, 100.0), poly: flat.poly.clone() };
+    let nan =
+        Plaza { center: Vec2::new(f64::NAN, 100.0), poly: flat.poly.clone(), kind: PlazaKind::Market };
     let c = build_civic(7, Some(&nan), 9000.0, "loggia", "church").unwrap();
     // inl = (0, 1), perp = (-1, 0), base = mid + inl * 8 = (100, 108).
     eq_bits(c.center.x, 100.0, "fallback base x");

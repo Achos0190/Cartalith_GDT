@@ -23,6 +23,31 @@
 //! harbourless site, real river bridges, a town with markets and one without,
 //! a civic hall and none, a games building, churches and none, ruined parcels,
 //! the Venus canal, and a swept (`cleared`) parcel.
+//!
+//! ## 2026-09-21 hand re-baseline — four `details`/`detail_kinds` rows only
+//!
+//! This capture predates v2.73's `buildPlaza`, which the reference source now
+//! withholds the market cross from a plaza below the chartered-town population
+//! (`PLAZA_MARKET_POP = 1500`, reused from `buildCivic`'s own gate) — a village
+//! green carries no market right, so nothing marks one. The frozen reference
+//! `um_capture.js` reads from predates that change and cannot re-produce it, so
+//! the four village-tier scenarios below were corrected **by hand**, each by
+//! exactly the one withheld cross, verified against this port's own new
+//! `build_plaza`/`build_details` output rather than re-captured:
+//!
+//! | scenario | `pop_target` | `details` | `detail_kinds` |
+//! |---|---|---|---|
+//! | `landlockedHamlet` | 450 | 115 → 114 | `("cross", 1)` removed |
+//! | `popFloorClamp` | 400 | 113 → 112 | `("cross", 1)` removed |
+//! | `hamletBoundary` | 600 | 120 → 119 | `("cross", 1)` removed |
+//! | `venusTinyCanal` | 1000 | 49 → 48 | `("cross", 1)` removed |
+//!
+//! Every other field on all 29 cases, including `hash` (`hashModel` covers
+//! graph/blocks/parcels/buildings and not plaza or details, so it does not and
+//! must not move) and `detail_bbox` (the withheld cross point sits well inside
+//! the farmland extent that already sets the box), is untouched from the
+//! original capture. See `plaza.rs`'s and `hinterland.rs`'s own module
+//! comments for the port side of this change.
 
 #![allow(clippy::approx_constant, clippy::unreadable_literal, clippy::excessive_precision)]
 
@@ -609,11 +634,11 @@ pub const CASES: &[Case] = &[
         churches: 0,
         markets: 0,
         games: 0,
-        details: 115,
+        details: 114,
         ruined_parcels: 0,
         cleared_parcels: 0,
         district_counts: &[("burgher", 4), ("market", 102), ("suburb", 7)],
-        detail_kinds: &[("cross", 1), ("field", 93), ("pasture", 18), ("tree", 1), ("well", 2)],
+        detail_kinds: &[("field", 93), ("pasture", 18), ("tree", 1), ("well", 2)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x40882d0bbbb5fa1a), f64::from_bits(0x4076e5e888940bd5))),
@@ -2154,11 +2179,11 @@ pub const CASES: &[Case] = &[
         churches: 0,
         markets: 0,
         games: 0,
-        details: 113,
+        details: 112,
         ruined_parcels: 0,
         cleared_parcels: 0,
         district_counts: &[("artisan", 4), ("burgher", 71), ("harbour", 62), ("suburb", 31)],
-        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 1), ("field", 85), ("pasture", 17), ("tree", 3), ("well", 3)],
+        detail_kinds: &[("bollard", 2), ("crane", 1), ("fence", 1), ("field", 85), ("pasture", 17), ("tree", 3), ("well", 3)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x409443bda9944fe9), f64::from_bits(0x4081e7fffffffff2))),
@@ -2360,11 +2385,11 @@ pub const CASES: &[Case] = &[
         churches: 1,
         markets: 0,
         games: 0,
-        details: 120,
+        details: 119,
         ruined_parcels: 0,
         cleared_parcels: 0,
         district_counts: &[("burgher", 12), ("church", 3), ("market", 83)],
-        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("field", 80), ("pasture", 25), ("tree", 9), ("well", 2)],
+        detail_kinds: &[("bollard", 2), ("crane", 1), ("field", 80), ("pasture", 25), ("tree", 9), ("well", 2)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x408ec840b97d1fb4), f64::from_bits(0x408347ffffffffc5))),
@@ -3081,11 +3106,11 @@ pub const CASES: &[Case] = &[
         churches: 0,
         markets: 0,
         games: 0,
-        details: 49,
+        details: 48,
         ruined_parcels: 0,
         cleared_parcels: 12,
         district_counts: &[("harbour", 31), ("market", 1)],
-        detail_kinds: &[("bollard", 1), ("crane", 1), ("cross", 1), ("field", 28), ("pasture", 15), ("tree", 1), ("waterway", 1), ("well", 1)],
+        detail_kinds: &[("bollard", 1), ("crane", 1), ("field", 28), ("pasture", 15), ("tree", 1), ("waterway", 1), ("well", 1)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x4095951efe2d3dbb), f64::from_bits(0x4088f3bee6b66c3c))),

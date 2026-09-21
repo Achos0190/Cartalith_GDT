@@ -253,7 +253,7 @@ fn fixture(c: &Case) -> Fx {
         }
     }
 
-    let plaza = build_plaza(c.seed, &site, &anchors, &mut g);
+    let plaza = build_plaza(c.seed, &site, &anchors, &mut g, 5000.0);
     let blocks = build_blocks(&g, plaza.as_ref(), &site);
     let profile = resolve_profile(c.culture);
     let parcels = build_parcels(c.seed, &g, &blocks, anchors.market, 6, &site, None);

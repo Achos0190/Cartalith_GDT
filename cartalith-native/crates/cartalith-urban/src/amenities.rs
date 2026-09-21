@@ -70,7 +70,7 @@ use crate::geom::{
 };
 use crate::graph::Graph;
 use crate::hinterland::crosses_street;
-use crate::plaza::Plaza;
+use crate::plaza::{PLAZA_MARKET_POP, Plaza};
 use crate::rng::stream;
 use crate::routes::Anchors;
 use crate::rules::CultureProfile;
@@ -242,9 +242,11 @@ pub struct Civic {
 /// `buildCivic` (line 29189) — one civic hall on the plaza, rank-scaled.
 ///
 /// [`None`] on either of the reference's two refusals: no plaza or fewer than
-/// 1500 people (a civic hall appears once a place is a chartered town), and a
-/// resolved style of `'none'` (Islamic governance was not a monumental civic
-/// building). Both are real states, not errors.
+/// [`PLAZA_MARKET_POP`] people (a civic hall appears once a place is a
+/// chartered town — v2.73's `build_plaza` reuses this exact constant for the
+/// same distinction rather than a second threshold), and a resolved style of
+/// `'none'` (Islamic governance was not a monumental civic building). Both are
+/// real states, not errors.
 ///
 /// `style` is resolved when it is `'auto'` or falsy — which in JS includes the
 /// empty string, so `""` resolves rather than falling through to the default
@@ -258,7 +260,7 @@ pub fn build_civic(
     faith: &str,
 ) -> Option<Civic> {
     let plaza = plaza?;
-    if pop < 1500.0 {
+    if pop < PLAZA_MARKET_POP {
         return None;
     }
     let style: &str = if style == "auto" || style.is_empty() {
@@ -305,7 +307,9 @@ pub fn build_civic(
     // as clearly as the latest. Declared a PoC convention by the reference
     // itself (L confidence), not a measured curve. `js_max` because JS
     // propagates a NaN population where Rust's `f64::max` would absorb it.
-    let size_mult = 1.0 + 0.9 * js_log10(js_max(pop, 1500.0) / 1500.0) / js_log10(20000.0 / 1500.0);
+    let size_mult = 1.0
+        + 0.9 * js_log10(js_max(pop, PLAZA_MARKET_POP) / PLAZA_MARKET_POP)
+            / js_log10(20000.0 / PLAZA_MARKET_POP);
 
     let (hall, name, prov);
     match style {

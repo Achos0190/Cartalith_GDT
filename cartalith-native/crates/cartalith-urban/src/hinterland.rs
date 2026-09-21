@@ -138,7 +138,7 @@ use crate::geom::{
 };
 use crate::graph::Graph;
 use crate::growth::WallState;
-use crate::plaza::Plaza;
+use crate::plaza::{Plaza, PlazaKind};
 use crate::rng::{Substream, fnv1a, stream};
 use crate::routes::Anchors;
 use crate::rules::CultureProfile;
@@ -640,7 +640,9 @@ const PROV_ORCHARD: &str =
 ///    apart. The plaza gets one free, before the loop and outside the spacing
 ///    test.
 /// 2. **The market cross** — the legal marker of market right, offset `(+8, -6)`
-///    from the plaza centre (M-DEN-6).
+///    from the plaza centre (M-DEN-6). v2.73: withheld when the plaza is a
+///    village green (`PlazaKind::Green`) rather than a chartered market place —
+///    there is no market right below the chartered-town population to mark.
 /// 3. **The crane and bollards** — the quayside hoist at the break-of-bulk
 ///    point, set 7 m inland from the quay's midpoint, and one bollard per pier
 ///    root.
@@ -716,10 +718,16 @@ pub fn build_details(
         did += 1;
     }
 
-    // --- the market cross -------------------------------------------------
+    // --- the market cross ---------------------------------------------------
+    // v2.73: the legal marker of market right stands only where that right
+    // exists. A village green (`plaza.kind == Green`, below the
+    // chartered-town population `build_civic` also gates on) is common land —
+    // grazing, assembly, the pond — and gets no cross.
     if let Some(pl) = plaza {
-        details.push(Detail::point(did, "cross", pl.center.x + 8.0, pl.center.y - 6.0, PROV_CROSS));
-        did += 1;
+        if pl.kind == PlazaKind::Market {
+            details.push(Detail::point(did, "cross", pl.center.x + 8.0, pl.center.y - 6.0, PROV_CROSS));
+            did += 1;
+        }
     }
 
     // --- the quayside crane and its bollards ------------------------------

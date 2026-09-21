@@ -36,6 +36,26 @@
 //! the `const L=…,Wd=…` declarators left to right). Nothing else in the
 //! subsystem reads that substream, so adding this stage cannot perturb any
 //! other milestone's sequence — only the *graph* changes, which is the point.
+//!
+//! ## v2.73 — market place or village green
+//!
+//! A village green and a chartered town's market place are the same widened
+//! bay; what differs is what the space is *for*, decided by market right, not
+//! size. [`build_civic`](crate::amenities::build_civic) already draws the
+//! chartered line at [`PLAZA_MARKET_POP`] ("a civic hall appears once a place
+//! is a chartered town"), and v2.73 reuses that exact number rather than
+//! inventing a second threshold for the same distinction (v2.63's rule) — so
+//! this module owns the constant and `build_civic` reads it from here.
+//!
+//! The geometry is untouched: verified byte-for-byte against the reference's
+//! own v2.71→v2.73 diff, the same three `addStreet` calls run in the same
+//! order with the same widths regardless of `kind`, so blocks, parcels and
+//! buildings stay bit-identical and `hashModel` (which covers
+//! graph/blocks/parcels/buildings and NOT plaza or details) cannot move. Only
+//! [`PlazaKind`] and the edge `prov` text are new. [`crate::hinterland`]'s
+//! market-cross detail is the one downstream consumer: it is gated on
+//! `kind == Market`, since a village green carries no market right and so no
+//! cross stands in it.
 
 use crate::geom::{Vec2, dist_pt_seg, poly_centroid};
 use crate::graph::Graph;
@@ -43,8 +63,15 @@ use crate::rng::stream;
 use crate::routes::Anchors;
 use crate::site::Site;
 
+/// The population at which a settlement is a chartered town rather than a
+/// village (v2.73's own `const PLAZA_MARKET_POP=1500`) — the same number
+/// [`build_civic`](crate::amenities::build_civic) has gated its civic hall on
+/// since milestone 14, reused rather than restated.
+pub const PLAZA_MARKET_POP: f64 = 1500.0;
+
 /// The provenance string the reference writes on the plaza and on all three of
-/// the streets it lays (line 28960), verbatim.
+/// the streets it lays, when `kind` is [`PlazaKind::Market`] (line 28960
+/// pre-v2.73; v2.73's own market-branch literal is unchanged), verbatim.
 ///
 /// A constant rather than a field on [`Plaza`]: there is exactly one of these,
 /// where `Anchors::prov` is one of three chosen by site kind. Golden-asserted
@@ -53,7 +80,25 @@ pub const PROV: &str =
     "Market place formed by widening the principal street (additive plaza mode, M-DEN-6); \
      stall encroachment shapes later frontages.";
 
-/// `buildPlaza`'s return value — the market square.
+/// The provenance string for a village green ([`PlazaKind::Green`]), v2.73's
+/// other branch, verbatim.
+pub const PROV_GREEN: &str =
+    "Village green: the common open centre the settlement grew around — grazing, assembly \
+     and the pond. Below the chartered-town threshold there is no market right, so no cross \
+     stands in it (M-DEN-6).";
+
+/// What the widened bay off the principal street *is for* — v2.73's addition.
+///
+/// Decided by market right, not size: a chartered town's plaza is commercial
+/// (a market cross stands in it); a village's green is common land (grazing,
+/// assembly, the pond — no cross, because there is no right to mark).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlazaKind {
+    Market,
+    Green,
+}
+
+/// `buildPlaza`'s return value — the market square, or the village green.
 ///
 /// `poly` is the reference's own `[p1, p2, q2, q1]` winding: `p1`/`p2` are the
 /// two ends *on* the widened street and `q1`/`q2` the far side, so `p1 → p2` is
@@ -64,6 +109,7 @@ pub const PROV: &str =
 pub struct Plaza {
     pub center: Vec2,
     pub poly: Vec<Vec2>,
+    pub kind: PlazaKind,
 }
 
 /// `buildPlaza` (line 28942) — the market place, by widening the principal
@@ -82,7 +128,12 @@ pub struct Plaza {
 /// it. The two are not the same rectangle when `add_street` moved an endpoint,
 /// and the reference uses the un-moved one for both the centroid and the
 /// polygon; reproduced.
-pub fn build_plaza(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph) -> Option<Plaza> {
+///
+/// `pop` is v2.73's addition — the reference's own `popTarget`, the same value
+/// [`build_civic`](crate::amenities::build_civic) is gated on, not the later
+/// realised `pop` [`crate::hinterland::build_details`] reads. It decides
+/// [`PlazaKind`] only; the geometry above this point does not read it.
+pub fn build_plaza(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph, pop: f64) -> Option<Plaza> {
     let mut r = stream(seed, "plaza");
 
     // Nearest live primary edge to the market. Strict `<`, so a tie keeps the
@@ -127,16 +178,21 @@ pub fn build_plaza(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph) -> 
     let q1 = p1 + nl * (side * wd);
     let q2 = p2 + nl * (side * wd);
 
+    // v2.73: market right, not size, decides what the space is for. Reuses
+    // `build_civic`'s own chartered-town threshold rather than a second one.
+    let kind = if pop >= PLAZA_MARKET_POP { PlazaKind::Market } else { PlazaKind::Green };
+    let prov = if kind == PlazaKind::Market { PROV } else { PROV_GREEN };
+
     // Three sides only: `p1 → p2` is the street being widened and is already in
     // the graph. Width 5, epoch 0 -- the plaza's edges are as old as the
     // primaries they hang off, which is what `build_parcels`' age gate reads
     // for any lot that ends up fronting one.
-    g.add_street(p1.x, p1.y, q1.x, q1.y, "street", 5.0, 0, PROV);
-    g.add_street(q1.x, q1.y, q2.x, q2.y, "street", 5.0, 0, PROV);
-    g.add_street(q2.x, q2.y, p2.x, p2.y, "street", 5.0, 0, PROV);
+    g.add_street(p1.x, p1.y, q1.x, q1.y, "street", 5.0, 0, prov);
+    g.add_street(q1.x, q1.y, q2.x, q2.y, "street", 5.0, 0, prov);
+    g.add_street(q2.x, q2.y, p2.x, p2.y, "street", 5.0, 0, prov);
 
     let poly = vec![p1, p2, q2, q1];
-    Some(Plaza { center: poly_centroid(&poly), poly })
+    Some(Plaza { center: poly_centroid(&poly), poly, kind })
 }
 
 #[cfg(test)]

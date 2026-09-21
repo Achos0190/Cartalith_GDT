@@ -87,7 +87,7 @@ mod golden;
 use crate::blocks::build_blocks;
 use crate::geom::Vec2;
 use crate::graph::Graph;
-use crate::plaza::{PROV, build_plaza};
+use crate::plaza::{PLAZA_MARKET_POP, PROV, PROV_GREEN, PlazaKind, build_plaza};
 use crate::rng::{fnv1a, stream};
 use crate::routes::{Anchors, build_primaries, place_anchors};
 use crate::site::{Site, SiteOpts, build_site};
@@ -173,7 +173,11 @@ fn golden_every_scenario_reproduces_the_reference_exactly() {
         let primaries = g.edges.iter().filter(|e| e.alive && e.cls == "primary").count();
         assert_eq!(primaries, c.primary_count, "{what}: live primary edges before buildPlaza");
 
-        let plaza = build_plaza(c.seed, &site, &anchors, &mut g);
+        // 5000.0: this golden is v2.71-era geometry (captured before v2.73
+        // added `kind`) and stays `PlazaKind::Market` throughout this file, so
+        // `PROV` below is the string every scenario laid. The chartered/green
+        // split has its own tests in this module's tests.
+        let plaza = build_plaza(c.seed, &site, &anchors, &mut g, 5000.0);
 
         match (&plaza, c.plaza_center) {
             (None, None) => {}
@@ -235,7 +239,7 @@ fn a_plaza_always_carves_exactly_one_open_block() {
             continue;
         }
         let (site, anchors, mut g) = setup(c);
-        let plaza = build_plaza(c.seed, &site, &anchors, &mut g).expect("golden says there is one");
+        let plaza = build_plaza(c.seed, &site, &anchors, &mut g, 5000.0).expect("golden says there is one");
         let blocks = build_blocks(&g, Some(&plaza), &site);
         let flagged: Vec<_> = blocks.iter().filter(|b| b.plaza).collect();
         assert_eq!(flagged.len(), 1, "{}: expected exactly one market square", c.name);
@@ -281,7 +285,7 @@ fn no_primary_edge_leaves_the_graph_alone() {
         }
         let (site, anchors, mut g) = setup(c);
         let before = (g.nodes.len(), g.edges.len(), graph_hash(&g));
-        assert!(build_plaza(c.seed, &site, &anchors, &mut g).is_none(), "{}", c.name);
+        assert!(build_plaza(c.seed, &site, &anchors, &mut g, 5000.0).is_none(), "{}", c.name);
         assert_eq!(
             (g.nodes.len(), g.edges.len(), graph_hash(&g)),
             before,
@@ -308,7 +312,7 @@ fn the_two_draws_are_the_length_then_the_width() {
         let l = r.range(55.0, 80.0);
         let wd = r.range(26.0, 40.0);
         let (site, anchors, mut g) = setup(c);
-        let p = build_plaza(c.seed, &site, &anchors, &mut g).expect("golden says there is one");
+        let p = build_plaza(c.seed, &site, &anchors, &mut g, 5000.0).expect("golden says there is one");
         // `p1 → p2` is the frontage (length L); `p2 → q2` is the widening (Wd).
         let got_l = p.poly[0].dist(p.poly[1]);
         let got_w = p.poly[1].dist(p.poly[2]);
@@ -349,7 +353,7 @@ fn the_side_probe_distance_is_load_bearing() {
             continue;
         }
         let (site, anchors, mut g) = setup(c);
-        let p = build_plaza(c.seed, &site, &anchors, &mut g).expect("golden says there is one");
+        let p = build_plaza(c.seed, &site, &anchors, &mut g, 5000.0).expect("golden says there is one");
         let dir = (p.poly[1] - p.poly[0]).norm();
         let nl = dir.rot90();
         let side = (p.poly[3] - p.poly[0]).dot(nl);
@@ -390,7 +394,7 @@ fn three_streets_are_laid_and_the_fourth_side_is_the_existing_primary() {
         .expect("river7 is in the golden set");
     let (site, anchors, mut g) = setup(c);
     let before = g.edges.len();
-    let p = build_plaza(c.seed, &site, &anchors, &mut g).expect("river7 has a plaza");
+    let p = build_plaza(c.seed, &site, &anchors, &mut g, 5000.0).expect("river7 has a plaza");
     let laid: Vec<_> = g.edges.iter().skip(before).filter(|e| e.cls == "street").collect();
     assert_eq!(laid.len(), 3, "buildPlaza laid {} plaza streets, not 3", laid.len());
     for e in &laid {
@@ -466,7 +470,7 @@ fn side_probe_fixture(c: f64) -> (Site, Anchors, Graph) {
 fn the_side_probe_boundary_at_an_exact_tie_and_a_quarter_metre_off_it() {
     // An exact tie loses `>`: the square opens to `-nl`.
     let (site, anchors, mut g) = side_probe_fixture(0.0);
-    let p = build_plaza(7, &site, &anchors, &mut g).expect("one primary is enough");
+    let p = build_plaza(7, &site, &anchors, &mut g, 5000.0).expect("one primary is enough");
     assert!(
         p.poly[3].y < p.poly[0].y,
         "an exact tie must take the `else` arm, got q1.y = {} vs p1.y = {}",
@@ -477,7 +481,7 @@ fn the_side_probe_boundary_at_an_exact_tie_and_a_quarter_metre_off_it() {
     // A quarter metre of separation wins it: the square opens to `+nl`, away
     // from the channel.
     let (site, anchors, mut g) = side_probe_fixture(0.25);
-    let p = build_plaza(7, &site, &anchors, &mut g).expect("one primary is enough");
+    let p = build_plaza(7, &site, &anchors, &mut g, 5000.0).expect("one primary is enough");
     assert!(
         p.poly[3].y > p.poly[0].y,
         "a 0.5 m probe gap must take the `then` arm, got q1.y = {} vs p1.y = {}",
@@ -513,7 +517,7 @@ fn an_exact_distance_tie_keeps_the_lower_indexed_primary() {
     assert_eq!(d.len(), 2, "the fixture must lay exactly two primaries");
     assert_eq!(d[0], d[1], "the two distances must be bit-identical");
 
-    let p = build_plaza(7, &site, &anchors, &mut g).expect("two primaries is enough");
+    let p = build_plaza(7, &site, &anchors, &mut g, 5000.0).expect("two primaries is enough");
     // Edge 0 is the y = 500 street, so its midpoint — and the square built on
     // it — sits there, not on y = 700.
     assert!(
@@ -534,7 +538,7 @@ fn the_quad_is_wound_as_a_rectangle_not_a_bowtie() {
             continue;
         }
         let (site, anchors, mut g) = setup(c);
-        let p = build_plaza(c.seed, &site, &anchors, &mut g).expect("golden says there is one");
+        let p = build_plaza(c.seed, &site, &anchors, &mut g, 5000.0).expect("golden says there is one");
         assert!(
             !crate::geom::poly_self_intersects(&p.poly),
             "{}: the plaza quad is self-intersecting",
@@ -545,6 +549,51 @@ fn the_quad_is_wound_as_a_rectangle_not_a_bowtie() {
         for i in 0..2 {
             let cross = d[i].cross(d[i + 2]);
             assert!(cross.abs() < 1e-6, "{}: side {i} is not parallel to its opposite", c.name);
+        }
+    }
+}
+
+/// v2.73: `kind` is `>=`, not `>` — a settlement at exactly the chartered-town
+/// population is a market place, and one metre below it is a green. Both
+/// halves of `PLAZA_MARKET_POP` are pinned so a `>` mutation would fail on the
+/// boundary case rather than surviving on every generated town, none of which
+/// lands on the tie.
+#[test]
+fn plaza_kind_switches_on_the_chartered_town_population() {
+    let c = golden::GOLDEN.iter().find(|c| c.name == "river7").expect("river7 is in the golden set");
+
+    let (site, anchors, mut g) = setup(c);
+    let market = build_plaza(c.seed, &site, &anchors, &mut g, PLAZA_MARKET_POP)
+        .expect("river7 has a plaza");
+    assert_eq!(market.kind, PlazaKind::Market, "exactly at the threshold is chartered");
+
+    let (site, anchors, mut g) = setup(c);
+    let green = build_plaza(c.seed, &site, &anchors, &mut g, PLAZA_MARKET_POP - 1.0)
+        .expect("river7 has a plaza");
+    assert_eq!(green.kind, PlazaKind::Green, "one below the threshold is a green");
+
+    // Geometry is unaffected by `pop` -- same seed, same fixture, same quad.
+    assert_eq!(market.poly, green.poly, "kind must not perturb the geometry");
+    assert_eq!(market.center, green.center);
+}
+
+/// The three laid streets carry the market string or the green string as a
+/// pair -- never a mix, and never the wrong one for the kind returned.
+#[test]
+fn the_laid_streets_carry_the_provenance_for_their_own_kind() {
+    let c = golden::GOLDEN.iter().find(|c| c.name == "river7").expect("river7 is in the golden set");
+
+    for (pop, want_prov, want_kind) in
+        [(PLAZA_MARKET_POP, PROV, PlazaKind::Market), (0.0, PROV_GREEN, PlazaKind::Green)]
+    {
+        let (site, anchors, mut g) = setup(c);
+        let before = g.edges.len();
+        let p = build_plaza(c.seed, &site, &anchors, &mut g, pop).expect("river7 has a plaza");
+        assert_eq!(p.kind, want_kind);
+        let laid: Vec<_> = g.edges.iter().skip(before).filter(|e| e.cls == "street").collect();
+        assert_eq!(laid.len(), 3);
+        for e in &laid {
+            assert_eq!(e.prov, want_prov, "{:?}: plaza street carries the wrong provenance", p.kind);
         }
     }
 }
