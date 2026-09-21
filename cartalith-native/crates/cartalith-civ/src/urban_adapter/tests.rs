@@ -233,6 +233,57 @@ fn an_inland_settlement_gets_a_real_street_skeleton() {
     assert_eq!(layout.max_rf, js_min(720.0, (4_000.0f64 * 21.0).sqrt() * 1.35 + 80.0));
 }
 
+/// Batch F's own correctness bar, the positive half: `settlement_layout_with`'s
+/// new `rules` argument actually reaches `generate()` now, rather than merely
+/// compiling. `None` (every other test in this file) must keep reproducing
+/// `DEFAULT_RULES`'s exact behaviour — proven workspace-wide by the
+/// `cargo test --workspace` before/after re-run this batch's own report
+/// carries — and a genuinely different [`Rules`] value must produce a
+/// genuinely different town from the identical seed and site.
+///
+/// The pushed fields are chosen off streets `grow` (milestone 7) actually
+/// reads: `segment_length_median` more than doubled (56 -> 140, driving fewer,
+/// longer segments) and `branch_angle_jitter` pushed to its `apply_wildness`
+/// ceiling (0.70), so the two towns cannot land on the same edge count or
+/// street length by coincidence.
+#[test]
+fn a_non_default_rules_value_reaches_the_generator_and_changes_the_layout() {
+    let f = Fixture::new();
+    let w = f.world();
+    let s = settlement(50, 8, 4_000);
+
+    let default = settlement_layout_with(&w, &s, &[], &PlaceOverrides::default(), None)
+        .expect("a layout");
+
+    let mut wild = DEFAULT_RULES;
+    wild.street.segment_length_median = 140.0;
+    wild.street.branch_angle_jitter = 0.70;
+    let changed =
+        settlement_layout_with(&w, &s, &[], &PlaceOverrides::default(), Some(&wild))
+            .expect("a layout");
+
+    assert_ne!(
+        default.edges.len(),
+        changed.edges.len(),
+        "default={} changed={} -- rules did not reach grow()",
+        default.edges.len(),
+        changed.edges.len()
+    );
+    assert_ne!(
+        default.street_len,
+        changed.street_len,
+        "default={} changed={} -- rules did not reach grow()",
+        default.street_len,
+        changed.street_len
+    );
+
+    // `settlement_layout` (no `rules` argument at all) is exactly the `None`
+    // case -- the entry point every existing call site and golden still uses.
+    let via_settlement_layout = settlement_layout(&w, &s, &[]).expect("a layout");
+    assert_eq!(default.edges.len(), via_settlement_layout.edges.len());
+    assert_eq!(default.street_len, via_settlement_layout.street_len);
+}
+
 /// Determinism: the same settlement on the same world lays out identically.
 /// A per-settlement seed derived from position and world seed is the whole
 /// contract `_umPlaceContext` establishes.
@@ -271,7 +322,7 @@ fn a_town_gets_a_wall_buildings_districts_markets_and_fields() {
     // Landlocked, so `_umHarbourScale`'s own "unused" return.
     assert_eq!(ctx.harbour_scale, 1.0);
 
-    let l = run_layout(&ctx).expect("a layout");
+    let l = run_layout(&ctx, None).expect("a layout");
     assert_eq!(l.wall_spec, "stone");
     let ring = l.wall.ring.as_ref().expect("buildWall built no circuit");
     assert!(ring.len() > 2, "a wall ring needs at least a triangle, got {}", ring.len());
@@ -344,7 +395,7 @@ fn a_hamlet_is_not_walled() {
     let ctx = um_place_context(&w, &s, &[]);
     assert_eq!(ctx.wall_style, "none");
     assert!(!ctx.walls);
-    let l = run_layout(&ctx).expect("a layout");
+    let l = run_layout(&ctx, None).expect("a layout");
     assert!(l.wall.ring.is_none(), "a hamlet was given a circuit");
     // ...and it is still a real town: the street graph does not depend on it.
     assert!(!l.edges.is_empty());
@@ -378,7 +429,7 @@ fn real_roads_become_the_towns_primaries() {
     assert_eq!(paths[0][0], Vec2::new(0.0, 0.0));
     assert!(ctx.route_ends.is_some(), "a connected road gives a real route end");
 
-    let with_road = run_layout(&ctx).expect("a layout");
+    let with_road = run_layout(&ctx, None).expect("a layout");
     let without = settlement_layout(&w, &p, &[]).expect("a layout");
     assert!(!with_road.edges.is_empty());
     assert_ne!(
@@ -695,7 +746,7 @@ fn a_mining_specialisation_reaches_assign_districts_and_tags_an_ore_yard() {
 
     let mining =
         PlaceOverrides { specialisation: Some("mining"), resources: Some(&pots), ..Default::default() };
-    let mined = settlement_layout_with(&w, &s, &[], &mining).expect("a layout");
+    let mined = settlement_layout_with(&w, &s, &[], &mining, None).expect("a layout");
     let yards = mined.parcels.iter().filter(|p| p.district == "oreyard").count();
     assert!(yards > 0, "the mining branch of assign_districts was never reached");
     // `retag(..., 4, "oreyard")` -- the reference's own cap on the block.
@@ -1620,7 +1671,7 @@ fn a_road_that_crosses_the_river_becomes_a_bridge_on_the_layout() {
     let water = ctx.water.as_ref().expect("a river town has a real water context");
     assert!(water.ctx.river_path.is_some(), "no river_path -- the detector's second guard");
 
-    let l = run_layout(&ctx).expect("a layout");
+    let l = run_layout(&ctx, None).expect("a layout");
     assert!(l.uses_real_water, "the detector's first guard");
     // Not a through town, so the ford arm is not the one under test here.
     assert!(l.ford.is_none());
@@ -1666,7 +1717,7 @@ fn a_through_town_with_no_crossing_road_gets_a_ford() {
 
     let ctx = um_place_context(&w, &settlement(20, 46, 4_000), &[]);
     assert_eq!(ctx.site_kind, "riverthrough", "the ford arm needs site.through");
-    let l = run_layout(&ctx).expect("a layout");
+    let l = run_layout(&ctx, None).expect("a layout");
     assert!(l.bridges.is_none(), "no road crosses here, so there is no bridge");
     let ford = l.ford.as_ref().expect("a through town with no crossing road fords it");
     // `site.ford = {pt: site.bridgePt, dir: site.bridgeDir}` -- the fallback is

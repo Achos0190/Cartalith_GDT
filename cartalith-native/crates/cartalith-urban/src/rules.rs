@@ -551,6 +551,50 @@ pub fn apply_plot_chaos(rules: &mut Rules, c: f64) {
 }
 
 impl Rules {
+    /// `self` as a fully-populated [`RulesPatch`] — every field explicitly
+    /// `Some`. Feeding this back through [`resolve_rules`] reproduces `self`
+    /// exactly (each group is a wholesale overwrite of the `DEFAULT_RULES`
+    /// clone, not a merge onto it), which is what lets a caller holding a
+    /// fully resolved `Rules` (a settlement editor's "active rules", say)
+    /// reach [`crate::generate::GenOpts::rules`] — the same partial-merge
+    /// entry point `generate()` already exposes to a caller supplying only
+    /// part of a rule set — without duplicating the field list a second time
+    /// at the call site.
+    pub fn to_patch(&self) -> RulesPatch {
+        let (s, p, t, m) = (&self.street, &self.parcels, &self.settlement, &self.meta);
+        RulesPatch {
+            street: Some(StreetPatch {
+                branch_angle_jitter: Some(s.branch_angle_jitter),
+                continuation_jitter: Some(s.continuation_jitter),
+                exploration_start: Some(s.exploration_start),
+                exploration_decay: Some(s.exploration_decay),
+                exploration_minimum: Some(s.exploration_minimum),
+                segment_length_median: Some(s.segment_length_median),
+                segment_length_variance: Some(s.segment_length_variance),
+                pierce_chance: Some(s.pierce_chance),
+                junction_angle_limit: Some(s.junction_angle_limit),
+                market_gradient_decay: Some(s.market_gradient_decay),
+                parallel_street_spacing: Some(s.parallel_street_spacing),
+                dead_end_bias: Some(s.dead_end_bias),
+                bridgehead_distance: Some(s.bridgehead_distance),
+                bridgehead_probability: Some(s.bridgehead_probability),
+            }),
+            parcels: Some(ParcelPatch {
+                frontage_width_variance: Some(p.frontage_width_variance),
+                plot_depth_variance: Some(p.plot_depth_variance),
+                subdivision_cap: Some(p.subdivision_cap),
+            }),
+            settlement: Some(SettlementPatch {
+                wall_generation_threshold: Some(t.wall_generation_threshold),
+                wall_generation_min_age_gap: Some(t.wall_generation_min_age_gap),
+                wall_generation_extramural_share: Some(t.wall_generation_extramural_share),
+                max_wall_generations: Some(t.max_wall_generations),
+                carrying_capacity_weight: Some(t.carrying_capacity_weight),
+            }),
+            meta: Some(MetaPatch { wildness: Some(m.wildness), plot_chaos: Some(m.plot_chaos) }),
+        }
+    }
+
     /// The canonical field order the milestone-4 goldens are captured in — the
     /// reference's own key order within each group, and the groups in the
     /// reference's own order. The capture asserts the reference's objects still

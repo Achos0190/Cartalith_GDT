@@ -579,7 +579,9 @@ impl WorldGen {
                 age_override: e.age.map(f64::from),
                 resources: resources.as_ref(),
             };
-            if let Some(layout) = urban_adapter::settlement_layout_with(&world, s, &civ.ways, &o) {
+            if let Some(layout) =
+                urban_adapter::settlement_layout_with(&world, s, &civ.ways, &o, self.urban_rules.as_ref())
+            {
                 out.push(&layout_dict(idx as i64, &layout));
             }
         }
@@ -747,4 +749,183 @@ impl WorldGen {
         }
         out
     }
+
+    // --------------------------------------------------- generation rules --
+    //
+    // Design canvas artboard `1h` ("Generation rules") — the batch F engine
+    // change: `urban_adapter::settlement_layout_with`'s new `rules` argument
+    // threaded down to `Self::urban_layouts` via `self.urban_rules`. See that
+    // field's own doc comment (`lib.rs`) for the "in-memory only, world-level"
+    // scope decision.
+    //
+    // `apply_urban_wildness`/`apply_urban_plot_chaos` are the two convenience
+    // sliders the canvas draws — deliberately implemented by calling the real,
+    // golden-tested `cartalith_urban::apply_wildness`/`apply_plot_chaos`
+    // rather than re-deriving their formulas in GDScript, so the values a
+    // slider shows are the values `generate()` actually uses, not a second
+    // copy of the same arithmetic that could drift from it.
+
+    /// Every field of `DEFAULT_RULES`, as the flat dotted-key `Dictionary`
+    /// [`rules_to_dict`] defines — what a "reset to default" control, or a
+    /// window seeding itself before the first edit, should show. Never
+    /// affected by `set_active_urban_rules`/`apply_urban_wildness`/
+    /// `apply_urban_plot_chaos`.
+    #[func]
+    fn get_default_urban_rules(&self) -> VarDictionary {
+        rules_to_dict(&urban_adapter::DEFAULT_RULES)
+    }
+
+    /// The rules `Self::urban_layouts` is actually generating against right
+    /// now: `self.urban_rules`, or `DEFAULT_RULES` when nothing has edited it
+    /// yet (the same value `settlement_layout_with(..., None)` reproduces).
+    #[func]
+    fn get_active_urban_rules(&self) -> VarDictionary {
+        rules_to_dict(self.urban_rules.as_ref().unwrap_or(&urban_adapter::DEFAULT_RULES))
+    }
+
+    /// Applies a partial `Dictionary` of dotted key -> value (the same key
+    /// vocabulary [`rules_to_dict`] emits, e.g. `"street.branch_angle_jitter"`,
+    /// `"parcels.subdivision_cap"`) onto the current active rules (starting
+    /// from `DEFAULT_RULES` if nothing has been set yet). Unknown keys are
+    /// reported back rather than silently ignored — the parameter tables'
+    /// direct-edit path, not the two sliders (see [`Self::apply_urban_wildness`]
+    /// for those). Returns the resulting full rules `Dictionary` merged with
+    /// a `"rejected"` (`PackedStringArray`) entry of any keys that did not
+    /// resolve, so a caller can render both in one read-back.
+    #[func]
+    fn set_active_urban_rules(&mut self, values: VarDictionary) -> VarDictionary {
+        let mut r = self.urban_rules.unwrap_or(urban_adapter::DEFAULT_RULES);
+        let mut rejected: PackedStringArray = PackedStringArray::new();
+        for (k, v) in values.iter_shared() {
+            let key = k.to_string();
+            match (crate::variant_to_num(&v), set_rules_field(&mut r, &key)) {
+                (Some(n), Some(slot)) => *slot = n,
+                _ => {
+                    godot_print!("cartalith-godot: set_active_urban_rules rejected '{key}'");
+                    rejected.push(&GString::from(&key));
+                }
+            }
+        }
+        self.urban_rules = Some(r);
+        let mut out = rules_to_dict(&r);
+        out.set("rejected", &rejected);
+        out
+    }
+
+    /// The "Wildness" convenience slider (design canvas `1h`) — clones the
+    /// current active rules (or `DEFAULT_RULES`), runs the reference's own
+    /// `applyWildness(rules, w)` on it via [`cartalith_urban::apply_wildness`],
+    /// stores the result as the new active rules and returns it as a
+    /// `Dictionary` so the parameter tables can show the computed values
+    /// live. **Not idempotent**, exactly as the reference's own function
+    /// is not: `dead_end_bias` accumulates rather than recomputes (see
+    /// [`cartalith_urban::apply_wildness`]'s own doc for why), so calling
+    /// this twice at the same `w` is not a no-op. A dragged slider should
+    /// therefore re-apply from the *last committed* rules, matching the
+    /// canvas's own "computing individual field values live" framing rather
+    /// than reapplying onto a running accumulator on every drag tick.
+    #[func]
+    fn apply_urban_wildness(&mut self, w: f64) -> VarDictionary {
+        let mut r = self.urban_rules.unwrap_or(urban_adapter::DEFAULT_RULES);
+        urban_adapter::apply_wildness(&mut r, w);
+        self.urban_rules = Some(r);
+        rules_to_dict(&r)
+    }
+
+    /// The "Plot chaos" convenience slider — the parcel-metrology counterpart
+    /// to [`Self::apply_urban_wildness`], via
+    /// [`cartalith_urban::apply_plot_chaos`]. Idempotent (unlike wildness):
+    /// three `parcels` fields recomputed from a literal each time, nothing
+    /// accumulated.
+    #[func]
+    fn apply_urban_plot_chaos(&mut self, c: f64) -> VarDictionary {
+        let mut r = self.urban_rules.unwrap_or(urban_adapter::DEFAULT_RULES);
+        urban_adapter::apply_plot_chaos(&mut r, c);
+        self.urban_rules = Some(r);
+        rules_to_dict(&r)
+    }
+
+    /// Clears the active rules back to "unedited" — `Self::urban_layouts`
+    /// then generates every town at exactly `DEFAULT_RULES` again, the same
+    /// `None` case every golden-parity test in `cartalith-urban` is pinned
+    /// against.
+    #[func]
+    fn reset_active_urban_rules(&mut self) {
+        self.urban_rules = None;
+    }
+}
+
+/// `Rules` as the flat dotted-key `Dictionary`
+/// [`Self::get_default_urban_rules`]/[`WorldGen::get_active_urban_rules`]
+/// return — group-prefixed the same way `params_to_dict` prefixes nothing
+/// (single flat namespace) because `Rules`' own four groups
+/// (`street`/`parcels`/`settlement`/`meta`) already disambiguate every field
+/// name, and the design canvas's own parameter tables are grouped the same
+/// way.
+fn rules_to_dict(r: &cartalith_civ::urban_adapter::Rules) -> VarDictionary {
+    let (s, p, t, m) = (&r.street, &r.parcels, &r.settlement, &r.meta);
+    vdict! {
+        "street.branch_angle_jitter" => s.branch_angle_jitter,
+        "street.continuation_jitter" => s.continuation_jitter,
+        "street.exploration_start" => s.exploration_start,
+        "street.exploration_decay" => s.exploration_decay,
+        "street.exploration_minimum" => s.exploration_minimum,
+        "street.segment_length_median" => s.segment_length_median,
+        "street.segment_length_variance" => s.segment_length_variance,
+        "street.pierce_chance" => s.pierce_chance,
+        "street.junction_angle_limit" => s.junction_angle_limit,
+        "street.market_gradient_decay" => s.market_gradient_decay,
+        "street.parallel_street_spacing" => s.parallel_street_spacing,
+        "street.dead_end_bias" => s.dead_end_bias,
+        "street.bridgehead_distance" => s.bridgehead_distance,
+        "street.bridgehead_probability" => s.bridgehead_probability,
+        "parcels.frontage_width_variance" => p.frontage_width_variance,
+        "parcels.plot_depth_variance" => p.plot_depth_variance,
+        "parcels.subdivision_cap" => p.subdivision_cap,
+        "settlement.wall_generation_threshold" => t.wall_generation_threshold,
+        "settlement.wall_generation_min_age_gap" => t.wall_generation_min_age_gap,
+        "settlement.wall_generation_extramural_share" => t.wall_generation_extramural_share,
+        "settlement.max_wall_generations" => t.max_wall_generations,
+        "settlement.carrying_capacity_weight" => t.carrying_capacity_weight,
+        "meta.wildness" => m.wildness,
+        "meta.plot_chaos" => m.plot_chaos,
+    }
+}
+
+/// The mutable `f64` slot on `r` that dotted key `key` names, or `None` for
+/// an unknown key — [`WorldGen::set_active_urban_rules`]'s field lookup,
+/// covering exactly the 24 keys [`rules_to_dict`] emits.
+fn set_rules_field<'a>(
+    r: &'a mut cartalith_civ::urban_adapter::Rules,
+    key: &str,
+) -> Option<&'a mut f64> {
+    Some(match key {
+        "street.branch_angle_jitter" => &mut r.street.branch_angle_jitter,
+        "street.continuation_jitter" => &mut r.street.continuation_jitter,
+        "street.exploration_start" => &mut r.street.exploration_start,
+        "street.exploration_decay" => &mut r.street.exploration_decay,
+        "street.exploration_minimum" => &mut r.street.exploration_minimum,
+        "street.segment_length_median" => &mut r.street.segment_length_median,
+        "street.segment_length_variance" => &mut r.street.segment_length_variance,
+        "street.pierce_chance" => &mut r.street.pierce_chance,
+        "street.junction_angle_limit" => &mut r.street.junction_angle_limit,
+        "street.market_gradient_decay" => &mut r.street.market_gradient_decay,
+        "street.parallel_street_spacing" => &mut r.street.parallel_street_spacing,
+        "street.dead_end_bias" => &mut r.street.dead_end_bias,
+        "street.bridgehead_distance" => &mut r.street.bridgehead_distance,
+        "street.bridgehead_probability" => &mut r.street.bridgehead_probability,
+        "parcels.frontage_width_variance" => &mut r.parcels.frontage_width_variance,
+        "parcels.plot_depth_variance" => &mut r.parcels.plot_depth_variance,
+        "parcels.subdivision_cap" => &mut r.parcels.subdivision_cap,
+        "settlement.wall_generation_threshold" => &mut r.settlement.wall_generation_threshold,
+        "settlement.wall_generation_min_age_gap" => &mut r.settlement.wall_generation_min_age_gap,
+        "settlement.wall_generation_extramural_share" => {
+            &mut r.settlement.wall_generation_extramural_share
+        }
+        "settlement.max_wall_generations" => &mut r.settlement.max_wall_generations,
+        "settlement.carrying_capacity_weight" => &mut r.settlement.carrying_capacity_weight,
+        "meta.wildness" => &mut r.meta.wildness,
+        "meta.plot_chaos" => &mut r.meta.plot_chaos,
+        _ => return None,
+    })
 }

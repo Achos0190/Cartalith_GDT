@@ -1024,6 +1024,56 @@ func settlement_diagnostics(indices: PackedInt32Array) -> Array:
 func explain_settlement(index: int) -> Dictionary:
 	return world_gen.explain_settlement(index)
 
+## Design canvas artboard `1h`'s "Generation rules" window, `lazy-riding-piglet.md`
+## Batch F -- `urban_bridge.rs`'s flat dotted-key `Rules` surface. World-level,
+## in-memory only: `get_active_urban_rules()` is `DEFAULT_RULES` until one of
+## the writers below has run, matching `urban_layouts()`'s own unedited case.
+
+## `DEFAULT_RULES`, as the dotted-key `Dictionary` every function below reads
+## and writes (`"street.branch_angle_jitter"`, `"parcels.subdivision_cap"`, …).
+## Empty against a binary built before this landed.
+func get_default_urban_rules() -> Dictionary:
+	if not _has("get_default_urban_rules"):
+		return {}
+	return world_gen.get_default_urban_rules()
+
+## The rules `urban_layouts()` is actually generating against right now.
+func get_active_urban_rules() -> Dictionary:
+	if not _has("get_active_urban_rules"):
+		return {}
+	return world_gen.get_active_urban_rules()
+
+## Applies a partial dotted-key `Dictionary` onto the active rules (the
+## parameter tables' direct-edit path). Returns the resulting full rules
+## `Dictionary` plus a `"rejected"` `PackedStringArray` of any keys that did
+## not resolve.
+func set_active_urban_rules(values: Dictionary) -> Dictionary:
+	if not _has("set_active_urban_rules"):
+		return {}
+	return world_gen.set_active_urban_rules(values)
+
+## The "Wildness" slider -- runs the real `applyWildness(rules, w)` on the
+## current active rules (via `cartalith_urban::apply_wildness`, the same
+## formula the design canvas's own script documents) and returns the
+## resulting full rules `Dictionary`.
+func apply_urban_wildness(w: float) -> Dictionary:
+	if not _has("apply_urban_wildness"):
+		return {}
+	return world_gen.apply_urban_wildness(w)
+
+## The "Plot chaos" slider -- `cartalith_urban::apply_plot_chaos`'s real
+## formula, the parcel-metrology counterpart to [apply_urban_wildness].
+func apply_urban_plot_chaos(c: float) -> Dictionary:
+	if not _has("apply_urban_plot_chaos"):
+		return {}
+	return world_gen.apply_urban_plot_chaos(c)
+
+## Clears the active rules back to unedited -- `urban_layouts()` then
+## generates every town at exactly `DEFAULT_RULES` again.
+func reset_active_urban_rules() -> void:
+	if _has("reset_active_urban_rules"):
+		world_gen.reset_active_urban_rules()
+
 func border_inset_frac() -> float:
 	return world_gen.get_border_inset_frac()
 

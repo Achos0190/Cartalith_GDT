@@ -180,7 +180,8 @@ use cartalith_urban::{
 /// able to spell their types. It grew again on 2026-09-05 with [`Bridge`] and
 /// [`Ford`], for [`UrbanLayout::bridges`] / [`UrbanLayout::ford`].
 pub use cartalith_urban::{
-    Bridge, Building, Detail, DetailGeom, Ford, Gate, Market, Plaza, Vec2, WallState,
+    Bridge, Building, DEFAULT_RULES, Detail, DetailGeom, Ford, Gate, Market, Plaza, Rules, Vec2,
+    WallState, apply_plot_chaos, apply_wildness,
 };
 
 /// `Math.atan2` and `x||0`; neither is re-exported by `cartalith-urban`, and
@@ -1968,7 +1969,16 @@ pub struct UrbanLayout {
 /// `None` when the settlement sits in open water (`ctx.water.mostlyWater`),
 /// which is `_umModelFor`'s own refusal: there is no shore to build on, so the
 /// bare pin stays.
-pub fn run_layout(ctx: &UrbanContext) -> Option<UrbanLayout> {
+///
+/// `rules`: `None` reproduces `_umPlaceContext`'s own behaviour exactly —
+/// `generate()` takes `DEFAULT_RULES` — and is the load-bearing case every
+/// existing golden-parity test in this crate and `cartalith-urban` is pinned
+/// against. `Some(r)` reaches [`GenOpts::rules`] as `r.to_patch()`
+/// ([`Rules::to_patch`]): a fully-populated patch, so it overwrites every
+/// group of the `DEFAULT_RULES` clone `resolve_rules` starts from rather than
+/// merging onto it — `generate()` then sees exactly `r`, not `r` blended with
+/// the defaults.
+pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayout> {
     if ctx.water.as_ref().is_some_and(|w| w.mostly_water) {
         return None;
     }
@@ -1977,8 +1987,10 @@ pub fn run_layout(ctx: &UrbanContext) -> Option<UrbanLayout> {
         // faction-culture table, so the `|| 'medieval'` arm, which is also
         // `resolve_profile`'s own fallback for a `None`.
         culture: None,
-        // `_umPlaceContext` passes no `rules`; `generate()` takes DEFAULT_RULES.
-        rules: None,
+        // `_umPlaceContext` itself passes no `rules` — `generate()` takes
+        // `DEFAULT_RULES` unless this function's own caller supplies one (the
+        // Generation rules window's world-level "active rules", 2026-09-21).
+        rules: rules.map(Rules::to_patch),
         site: Some(ctx.site_kind.to_string()),
         // `terrainAware:!!terrain` (line 22663) — real relief in, so let it gate
         // building suitability too.
@@ -2121,19 +2133,21 @@ pub fn settlement_layout(
     s: &NamedSettlement,
     ways: &[Way],
 ) -> Option<UrbanLayout> {
-    settlement_layout_with(w, s, ways, &PlaceOverrides::default())
+    settlement_layout_with(w, s, ways, &PlaceOverrides::default(), None)
 }
 
 /// [`um_place_context_with`] then [`run_layout`] — the one call a caller with
 /// place-editor overrides needs. See [`PlaceOverrides`] for where those live in
-/// `cartalith-godot` and what each one reaches.
+/// `cartalith-godot` and what each one reaches, and [`run_layout`] for what
+/// `rules` does.
 pub fn settlement_layout_with(
     w: &UrbanWorld,
     s: &NamedSettlement,
     ways: &[Way],
     o: &PlaceOverrides,
+    rules: Option<&Rules>,
 ) -> Option<UrbanLayout> {
-    run_layout(&um_place_context_with(w, s, ways, o))
+    run_layout(&um_place_context_with(w, s, ways, o), rules)
 }
 
 #[cfg(test)]

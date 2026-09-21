@@ -546,3 +546,25 @@ fn apply_wildness_accumulates_dead_end_bias_and_is_therefore_not_idempotent() {
     apply_plot_chaos(&mut twice, 1.3);
     assert_eq!(once, twice, "apply_plot_chaos is idempotent");
 }
+
+/// [`Rules::to_patch`]'s own correctness bar, batch F: `resolve_rules(Some(&
+/// r.to_patch()))` must reproduce `r` exactly, for `DEFAULT_RULES` and for a
+/// rule set every group of which has been pushed off its default (wildness,
+/// plot chaos, and a direct settlement-group edit `apply_wildness`/
+/// `apply_plot_chaos` never touch). Bit-exact via [`same`], not `==`, so a
+/// mutant that let a field round-trip through a lossy `f32` could not pass.
+#[test]
+fn to_patch_round_trips_through_resolve_rules() {
+    for r in [DEFAULT_RULES, {
+        let mut r = DEFAULT_RULES;
+        apply_wildness(&mut r, 1.6);
+        apply_plot_chaos(&mut r, 0.4);
+        r.settlement.max_wall_generations = 2.0;
+        r
+    }] {
+        let back = resolve_rules(Some(&r.to_patch()));
+        for (a, b) in r.flatten().iter().zip(back.flatten().iter()) {
+            assert!(same(*a, *b), "{a} != {b}");
+        }
+    }
+}

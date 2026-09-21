@@ -753,9 +753,9 @@ func _build_political(parent: Control, s: Dictionary) -> void:
 ## includes every tab switch onto it. A button that reruns the same call the
 ## tab just ran would be inert.
 ##
-## **The Rules link is a disabled placeholder, not a dead link.** Batch F's
-## Generation rules window does not exist yet; the row says so instead of
-## calling a method nothing implements.
+## **The Rules link opens `GenerationRulesWindow`** (Batch F, landed) --
+## world-level, so editing it from here affects every settlement's layout,
+## not just this one; the tooltip says so.
 ##
 ## **Empty state.** `urban_layouts()`'s own doc comment gives two real,
 ## distinct reasons for an empty return that this call site cannot tell
@@ -901,9 +901,8 @@ func _build_layout(parent: Control, s: Dictionary) -> void:
 	DccWidgets.note(in_grp, "Population and Age are the two real inputs this layout reads "
 		+ "(pop_target, and the growth-epoch spread) -- both are the same fields Overview "
 		+ "already edits, not a second control for one piece of state. Edit them there.")
-	var rules := DccWidgets.action(in_grp, "Generation rules… ↗", func(): pass)
-	rules.disabled = true
-	rules.tooltip_text = "World-level, not per-settlement (canvas 1h). Batch F's own window -- not built yet, so this stays a stated placeholder rather than a call to a method nothing implements."
+	var rules := DccWidgets.action(in_grp, "Generation rules… ↗", func(): app.generation_rules_window.open())
+	rules.tooltip_text = "World-level, not per-settlement (canvas 1h). Opens the Generation rules window -- the active rule set it edits feeds every urban_layouts() call, this settlement's included."
 
 
 ## `layout_dict`'s own class list (`urban_bridge.rs`, the `for cls in ["lane",

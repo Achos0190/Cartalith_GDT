@@ -3710,6 +3710,19 @@ struct WorldGen {
     /// nothing Godot knows about. See `lod_worker`'s own module doc for why
     /// this is a Rust-side pool and not Godot's `WorkerThreadPool`.
     lod_worker: std::sync::Arc<lod_worker::LodWorker>,
+    /// The Generation rules window's world-level "active rules"
+    /// (`URBAN_MORPHOLOGY_SCOPE.md`/design canvas artboard `1h`) —
+    /// `cartalith_civ::urban_adapter::Rules` (re-exported from
+    /// `cartalith_urban`), or `None` for `DEFAULT_RULES` unedited. Feeds
+    /// every `urban_layouts()` call (`urban_adapter::settlement_layout_with`'s
+    /// `rules` argument), replacing the `rules: None` `run_layout` hardcoded
+    /// until this field existed.
+    ///
+    /// **In-memory only, deliberately** — it does not survive a save/reload.
+    /// One value per world session, not per faction: the plan that scheduled
+    /// this batch named per-faction scope as a real architectural fork for
+    /// the owner to rule on separately, once this ships and is judged.
+    urban_rules: Option<cartalith_civ::urban_adapter::Rules>,
 }
 
 /// The one piece of LOD-D2's tile-context cache that **cannot** move to a
@@ -3826,6 +3839,7 @@ impl IRefCounted for WorldGen {
             // by `absorb()` once a real seed exists, and before that there
             // is no seed to derive one from.
             world_name: None,
+            urban_rules: None,
         }
     }
 }

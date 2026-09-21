@@ -50,6 +50,12 @@ var culture_profiles_window: CultureProfilesWindow
 ## framing. A pure UI over `SettlementTypeStore`'s static state (see that
 ## file's own top-of-file doc), not a data path of its own.
 var settlement_types_window: SettlementTypesWindow
+## `lazy-riding-piglet.md` Batch F -- artboard 1h. World-level (one active
+## rule set feeds every `urban_layouts()` call), opened from the Place
+## editor's Layout tab ("Generation rules… ↗", previously a disabled
+## placeholder). Not a data path of its own beyond `EngineBridge`'s
+## `*_urban_rules` calls, which read/write `WorldGen.urban_rules` directly.
+var generation_rules_window: GenerationRulesWindow
 ## The Markdown Vault panel (`MARKDOWN_VAULT_SCOPE.md` milestone 1). Opened
 ## scoped to one entity, or on its overview. The kinds it can be scoped to are
 ## `EngineBridge.vault_entity_kinds()`, never a list written here -- that list
@@ -502,6 +508,10 @@ func _ready() -> void:
 	settlement_types_window = SettlementTypesWindow.new()
 	add_child(settlement_types_window)
 	settlement_types_window.setup(self, bridge)
+
+	generation_rules_window = GenerationRulesWindow.new()
+	add_child(generation_rules_window)
+	generation_rules_window.setup(self, bridge)
 
 	gen_info_dialog = GenInfoDialog.new()
 	add_child(gen_info_dialog)
