@@ -111,14 +111,31 @@ pub struct LodBudget {
 /// # Why `cache_tiles` is the size it is, which is not a taste
 ///
 /// LOD-D6's memory bar is *"steady memory at most 60 MiB above the recorded
-/// steady state"* = 62.91 MB, and the two things this milestone adds to steady
-/// memory are the snapshot's clone of the world and the shell's parked tiles.
-/// **The first was measured, not estimated**: `_d6async_probe.gd` section 9
-/// reports `retained_bytes` at 2048x1311 as **51.21 MB** (this machine,
-/// 2026-09-21; the probe prints the figure so it can be re-taken rather than
-/// remembered). That leaves **11.7 MB**, and a parked tile is `TILE_PX`-square
-/// RGBA8 = 262 144 B, so **44 tiles** is the whole remaining budget at that
-/// grid.
+/// steady state"* = 62.91 MB, and the two things this milestone added to
+/// steady memory were the snapshot's clone of the world and the shell's
+/// parked tiles. **The first was measured, not estimated**: section 9 of
+/// `_d6async_probe.gd` reported `retained_bytes` at 2048x1311 as **51.21 MB**
+/// (this machine, 2026-09-21; the probe prints the figure so it can be
+/// re-taken rather than remembered). That left **11.7 MB**, and a parked tile
+/// is `TILE_PX`-square RGBA8 = 262 144 B, so **44 tiles** was the whole
+/// remaining budget at that grid.
+///
+/// **43.0 MB of that 51.21 MB is no longer copied, and the table below was
+/// NOT re-tuned for it.** `WorldState`'s four grids became `Arc<Vec<f32>>`,
+/// so a snapshot takes a refcount on each instead of a copy. The in-app
+/// figure has NOT been re-taken — that needs the probe and a rebuilt
+/// `cartalith_godot.dll`. What *was* measured is the clone shape itself, at
+/// the same 2 684 928 cells: a host-polled peak working set of 89 862 144 B
+/// for four deep clones against 46 886 912 B for four `Arc` clones, 5 runs
+/// each, spread under 0.01 MB — a **42 975 232 B** difference, which is the
+/// four grids plus 16 KB. That is the mechanism, not this struct.
+///
+/// The budgets stay exactly where LOD-D6 set them, deliberately: `Quality`
+/// must keep scheduling the pre-D6 shell's constants or a measured difference
+/// cannot be attributed to the threading, and spending the new headroom is a
+/// separate decision with its own measurement to take. **The bar assertion
+/// below therefore still uses the PRE-`Arc` snapshot size** — an upper bound
+/// now, so the guard is conservative and still refuses a `cache_tiles` rise.
 ///
 /// The first draft of this table had `Quality` at 96 and `Ultra` at 128, which
 /// is 25.2 MB and 33.6 MB — 76.4 MB and 84.8 MB of D6 delta, comfortably over
@@ -216,20 +233,22 @@ pub struct LithoSource {
 /// Everything [`LodSnapshot::build`] consumes — assembled on the main thread
 /// (it reads `WorldGen`), moved to a worker, and dropped there.
 ///
-/// **The clone is the cost of this milestone and is stated rather than
-/// hidden.** At 2048x1311 (2 684 928 cells) the retained part is
-/// `field`/`temperature`/`rainfall`/`flow` at 10.74 MB each — **43.0 MB** —
-/// plus the ink (10.74 MB stamped, 2.68 MB as a flag). The transient part is
-/// [`LithoSource`]'s four fields, another 43.0 MB, live only for the duration
-/// of one build. A pack's splat and ground textures are cloned too and are
-/// whatever the pack weighs.
+/// **The four world grids are no longer copied.** They were, and LOD-D6
+/// stated it as this milestone's cost: at 2048x1311 (2 684 928 cells)
+/// `field`/`temperature`/`rainfall`/`flow` are 10.74 MB each — **43.0 MB** —
+/// and the fix was deferred because it reaches into `cartalith-engine`. It
+/// has since been taken: those four are `Arc<Vec<f32>>` on
+/// [`cartalith_engine::WorldState`], so a snapshot's copy of them is four
+/// refcount bumps. A *loaded* save still pays for its three, because the save
+/// format owns plain `Vec`s (`cartalith_io::SaveFields`) — an `Arc::new` of a
+/// clone, the same bytes it always cost.
 ///
-/// There is no way around it that does not reach into `cartalith-engine`:
-/// `WorldState`'s fields are plain `Vec<f32>` owned by the world, and a
-/// background thread cannot borrow them. Making them `Arc<Vec<f32>>` at the
-/// source would remove every byte of this and is the obvious follow-on, but it
-/// is a cross-crate change to a type six crates read and is not this
-/// milestone's.
+/// What is still copied: the ink (10.74 MB stamped, 2.68 MB as a flag), the
+/// paint grids, a pack's splat and ground textures, and — transiently, for
+/// the duration of one build — [`LithoSource`]'s four fields, another 43.0 MB.
+/// Those four are the obvious next follow-on and are deliberately not this
+/// change's: they are `age_field`/`volcanic_field`/`crust_field`/
+/// `resistance_field` on `WorldState`, still plain `Vec`s.
 pub struct SnapshotInputs {
     pub key: String,
     pub gw: usize,
@@ -240,10 +259,12 @@ pub struct SnapshotInputs {
     pub lat_s: f64,
     pub map_width_km: f64,
     pub seed: i32,
-    pub field: Vec<f32>,
-    pub temperature: Vec<f32>,
-    pub rainfall: Vec<f32>,
-    pub flow: Option<Vec<f32>>,
+    /// `Arc`, so the four `WorldState` grids cross to the worker as refcount
+    /// bumps rather than as 43.0 MB of memcpy. See this struct's own doc.
+    pub field: Arc<Vec<f32>>,
+    pub temperature: Arc<Vec<f32>>,
+    pub rainfall: Arc<Vec<f32>>,
+    pub flow: Option<Arc<Vec<f32>>>,
     pub litho: Option<LithoSource>,
     pub appearance: TerrainAppearance,
     pub color_space: ColorSpace,
@@ -284,10 +305,10 @@ pub struct LodSnapshot {
     lat_n: f64,
     lat_s: f64,
     seed: i32,
-    field: Vec<f32>,
-    temperature: Vec<f32>,
-    rainfall: Vec<f32>,
-    flow: Option<Vec<f32>>,
+    field: Arc<Vec<f32>>,
+    temperature: Arc<Vec<f32>>,
+    rainfall: Arc<Vec<f32>>,
+    flow: Option<Arc<Vec<f32>>>,
     appearance: TerrainAppearance,
     color_space: ColorSpace,
     pre: GridPrecompute,
@@ -354,7 +375,7 @@ impl LodSnapshot {
         if gw < 2 || gh < 2 || field.len() < gw.checked_mul(gh)? {
             return None;
         }
-        let pre = GridPrecompute::build(&field, &temperature, &rainfall, flow.as_deref(), gw, gh, sea_level, world, &appearance, Some(map_width_km));
+        let pre = GridPrecompute::build(&field, &temperature, &rainfall, flow.as_ref().map(|v| v.as_slice()), gw, gh, sea_level, world, &appearance, Some(map_width_km));
         // The same call `build_color_texture` makes, and `None` under the same
         // condition: a loaded save's format stores none of the tectonic
         // substrate this needs (`SAVEFILE_COMPAT.md`), which is why its
@@ -364,7 +385,7 @@ impl LodSnapshot {
         // signature takes. It borrows everything above, which is why the
         // struct is assembled after this block and not before it.
         let fields = {
-            let mut ctx = RenderCtx::from_precomputed(&field, &temperature, &rainfall, flow.as_deref(), gw, gh, sea_level, world, lat_n, lat_s, appearance.clone(), &pre)?;
+            let mut ctx = RenderCtx::from_precomputed(&field, &temperature, &rainfall, flow.as_ref().map(|v| v.as_slice()), gw, gh, sea_level, world, lat_n, lat_s, appearance.clone(), &pre)?;
             if let Some(l) = lithology.as_ref() {
                 ctx = ctx.with_lithology(l);
             }
@@ -377,7 +398,7 @@ impl LodSnapshot {
             // branch here**: `flow` is already `None` for a loaded save and
             // `build_glacier_potential` returns an empty field for a `None`
             // flow, with that reason in its own doc comment.
-            let glacier = render::build_glacier_potential(&field, &temperature, flow.as_deref(), gw, gh, sea_level, glacial_snowline, map_width_km / gw.max(1) as f64, world);
+            let glacier = render::build_glacier_potential(&field, &temperature, flow.as_ref().map(|v| v.as_slice()), gw, gh, sea_level, glacial_snowline, map_width_km / gw.max(1) as f64, world);
             let cryo = TileCryo {
                 lapse_rate,
                 g: gravity,
@@ -433,7 +454,7 @@ impl LodSnapshot {
     /// again would recompute two full-grid distance transforms per tile and
     /// overwrite them with identical values.
     pub fn render_tile(&self, z: i32, col: i32, row: i32) -> Option<(Vec<u8>, usize, usize)> {
-        let mut ctx = RenderCtx::from_precomputed(&self.field, &self.temperature, &self.rainfall, self.flow.as_deref(), self.gw, self.gh, self.sea_level, self.world, self.lat_n, self.lat_s, self.appearance.clone(), &self.pre)?;
+        let mut ctx = RenderCtx::from_precomputed(&self.field, &self.temperature, &self.rainfall, self.flow.as_ref().map(|v| v.as_slice()), self.gw, self.gh, self.sea_level, self.world, self.lat_n, self.lat_s, self.appearance.clone(), &self.pre)?;
         if let Some(l) = self.lithology.as_ref() {
             ctx = ctx.with_lithology(l);
         }
@@ -456,16 +477,24 @@ impl LodSnapshot {
     /// against (*"steady memory at most 60 MiB above the recorded steady
     /// state"*).
     ///
-    /// **The four world fields and the ink only** — the parts that did not
-    /// exist before this milestone. `pre`, `lithology` and `fields` were
-    /// already retained by LOD-D2's cache and are not this milestone's cost,
-    /// so counting them here would overstate it; a pack's textures are
-    /// counted because the clone is new. Reported rather than estimated from
+    /// **What this snapshot COPIED, which is no longer the four world
+    /// grids.** `field`/`temperature`/`rainfall`/`flow` used to be counted
+    /// here and were 43.0 MB of the 51.21 MB measured at 2048x1311. They are
+    /// `Arc`s shared with `WorldState` now and add nothing to steady memory,
+    /// so counting them would report bytes that are not there. `pre`,
+    /// `lithology` and `fields` were already retained by LOD-D2's cache and
+    /// were never counted, for the same reason. A pack's textures are counted
+    /// because that clone is still real. Reported rather than estimated from
     /// a formula, so the shell can show the real number.
+    ///
+    /// **A shared `Arc` is not free in every case** — see
+    /// [`cartalith_engine::WorldState::field`]: a sculpt or erode landing
+    /// while a snapshot is alive copies the one grid it touches, once. That
+    /// copy belongs to the world, not to this snapshot, and is not counted
+    /// here either.
     pub fn retained_bytes(&self) -> usize {
         let f = std::mem::size_of::<f32>();
-        let mut n = (self.field.len() + self.temperature.len() + self.rainfall.len()) * f;
-        n += self.flow.as_ref().map_or(0, |v| v.len() * f);
+        let mut n = 0usize;
         n += match self.ink.as_ref() {
             Some(OwnedInk::Stamped(v)) => v.len() * f,
             Some(OwnedInk::Flag(v)) => v.len(),
@@ -799,10 +828,10 @@ mod tests {
             lat_s: 5.0,
             map_width_km: 800.0,
             seed: 1234,
-            field,
-            temperature,
-            rainfall,
-            flow: Some(flow),
+            field: Arc::new(field),
+            temperature: Arc::new(temperature),
+            rainfall: Arc::new(rainfall),
+            flow: Some(Arc::new(flow)),
             litho: None,
             appearance: TerrainAppearance::default(),
             color_space: ColorSpace::Srgb,
@@ -947,6 +976,15 @@ mod tests {
         // 256*256*4. A tier whose cache pushes the pair over the bar is a
         // regression this catches, and raising any `cache_tiles` above 35 with
         // that snapshot size fails it.
+        //
+        // **That 53 698 560 is the PRE-`Arc` figure and is deliberately kept.**
+        // Four of the five grids it counted are shared with `WorldState` now
+        // and cost nothing, so the real snapshot is smaller and this is an
+        // UPPER BOUND: the guard still refuses a `cache_tiles` rise, which is
+        // its whole job, and it does so without a number nobody re-measured.
+        // Re-taking it needs `_d6async_probe.gd` section 9 and a rebuilt
+        // `cartalith_godot.dll`; substituting arithmetic for that run is the
+        // exact mistake the paragraph above this test records twice.
         const BAR: usize = 60 * 1024 * 1024;
         const SNAPSHOT_2048X1311: usize = 53_698_560;
         const TILE_BYTES: usize = 256 * 256 * 4;
@@ -970,19 +1008,26 @@ mod tests {
     }
 
     /// `retained_bytes` is what the memory bar is read off, so it has to
-    /// count the right things: the four world fields, and nothing that LOD-D2
-    /// already retained.
+    /// count the right things — and since the four world grids became `Arc`s
+    /// shared with `WorldState`, the right count for them is **zero**. This
+    /// used to assert `n * 4 * 4`; it asserts the opposite now, and the rest
+    /// of it proves the counter is not merely broken: the buffer is asserted
+    /// to be the same allocation, and something that IS copied is still
+    /// counted.
     #[test]
-    fn retained_bytes_counts_the_four_world_fields() {
+    fn retained_bytes_counts_only_what_the_snapshot_copied() {
         let (gw, gh) = (64usize, 48usize);
-        let snap = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
         let n = gw * gh;
-        assert_eq!(snap.retained_bytes(), n * 4 * 4, "height, temperature, rainfall and flow at 4 bytes each, and nothing else for a pack-less, paint-less, ink-less world");
+        let i = inputs(gw, gh);
+        let held = i.field.clone();
+        let snap = LodSnapshot::build(i).expect("snapshot");
+        assert!(Arc::ptr_eq(&held, &snap.field), "the snapshot must hold the SAME buffer as its input, not a copy of it");
+        assert_eq!(snap.retained_bytes(), 0, "the four world grids are shared, not copied: a pack-less, paint-less, ink-less world costs nothing");
         let mut no_flow = inputs(gw, gh);
         no_flow.flow = None;
         no_flow.ink = Some(OwnedInk::Flag(vec![0u8; n]));
         let snap2 = LodSnapshot::build(no_flow).expect("snapshot");
-        assert_eq!(snap2.retained_bytes(), n * 3 * 4 + n, "three f32 fields plus a one-byte-per-cell flag ink");
+        assert_eq!(snap2.retained_bytes(), n, "a one-byte-per-cell flag ink is copied, and is the only thing counted");
     }
 
     /// A degenerate grid must return `None` rather than panic — this runs on
@@ -993,7 +1038,7 @@ mod tests {
         i.gw = 1;
         assert!(LodSnapshot::build(i).is_none(), "a one-column grid is not a grid");
         let mut i = inputs(8, 8);
-        i.field.truncate(3);
+        Arc::make_mut(&mut i.field).truncate(3);
         assert!(LodSnapshot::build(i).is_none(), "a height field shorter than the grid it claims");
     }
 

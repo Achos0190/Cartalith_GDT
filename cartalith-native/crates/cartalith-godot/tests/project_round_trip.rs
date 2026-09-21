@@ -28,9 +28,9 @@ use cartalith_io::project::{ProjectWrite, Raster};
 
 fn fields_of(ws: &WorldState, n: usize) -> cartalith_io::SaveFields {
     cartalith_io::SaveFields {
-        heightmap: ws.field.clone(),
-        temperature: ws.temperature.clone(),
-        rainfall: ws.rainfall.clone(),
+        heightmap: ws.field.as_ref().clone(),
+        temperature: ws.temperature.as_ref().clone(),
+        rainfall: ws.rainfall.as_ref().clone(),
         volcanic_field: ws.volcanic_field.clone(),
         impact_field: ws.impact_field.clone(),
         strahler_order: match ws.stream_order.as_ref() {
@@ -108,9 +108,9 @@ fn a_real_world_survives_the_tree_and_regenerates_bit_for_bit() {
     // Bit-exact: a raster entry is a byte reinterpretation, not a second
     // computation, so anything short of equality is a format-handling bug
     // rather than floating-point drift.
-    assert_eq!(back.save.fields.heightmap, ws.field, "heightmap");
-    assert_eq!(back.save.fields.temperature, ws.temperature, "temperature");
-    assert_eq!(back.save.fields.rainfall, ws.rainfall, "rainfall");
+    assert_eq!(back.save.fields.heightmap, *ws.field, "heightmap");
+    assert_eq!(back.save.fields.temperature, *ws.temperature, "temperature");
+    assert_eq!(back.save.fields.rainfall, *ws.rainfall, "rainfall");
     assert_eq!(back.save.fields.volcanic_field, ws.volcanic_field, "volcanic_field");
     assert_eq!(back.save.fields.impact_field, ws.impact_field, "impact_field");
     assert_eq!(back.save.fields.strahler_order, fields.strahler_order, "strahler_order");
@@ -233,7 +233,7 @@ fn a_flat_legacy_export_still_opens_through_the_project_reader() {
     let back = cartalith_io::read_project(std::io::Cursor::new(&buf)).expect("a flat archive must still open");
     assert_eq!(back.layout, cartalith_io::Layout::Flat);
     assert_eq!(back.save.params, sp);
-    assert_eq!(back.save.fields.heightmap, ws.field);
+    assert_eq!(back.save.fields.heightmap, *ws.field);
     assert!(back.documents.is_empty(), "a flat archive carries no project layer, and says so by being empty");
 
     // The parameters survive the flat path too -- unchanged behaviour, held

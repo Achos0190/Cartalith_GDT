@@ -362,8 +362,8 @@ impl WorldGen {
     /// a change to one is visible as a diff against the other.
     fn export_render<T>(&self, run: impl FnOnce(&RenderCtx<'_>) -> T) -> Option<T> {
         let (field, temperature, rainfall, flow) = match self.source.as_ref()? {
-            WorldSource::Generated(ws) => (&ws.field, &ws.temperature, &ws.rainfall, Some(ws.flow_discharge.as_slice())),
-            WorldSource::Loaded(save) => (&save.fields.heightmap, &save.fields.temperature, &save.fields.rainfall, None),
+            WorldSource::Generated(ws) => (ws.field.as_slice(), ws.temperature.as_slice(), ws.rainfall.as_slice(), Some(ws.flow_discharge.as_slice())),
+            WorldSource::Loaded(save) => (save.fields.heightmap.as_slice(), save.fields.temperature.as_slice(), save.fields.rainfall.as_slice(), None),
         };
         let (gw, gh) = (self.gw as usize, self.gh as usize);
         if gw == 0 || gh == 0 {

@@ -1721,9 +1721,9 @@ impl WorldGen {
         // 255 : o`): `stream_order` is wider in memory than in the archive.
         let fields = match source {
             WorldSource::Generated(ws) => cartalith_io::SaveFields {
-                heightmap: ws.field.clone(),
-                temperature: ws.temperature.clone(),
-                rainfall: ws.rainfall.clone(),
+                heightmap: ws.field.as_ref().clone(),
+                temperature: ws.temperature.as_ref().clone(),
+                rainfall: ws.rainfall.as_ref().clone(),
                 volcanic_field: ws.volcanic_field.clone(),
                 impact_field: ws.impact_field.clone(),
                 strahler_order: match ws.stream_order.as_ref() {

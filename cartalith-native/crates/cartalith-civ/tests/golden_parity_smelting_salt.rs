@@ -224,9 +224,9 @@ fn build_real(gw: usize, gh: usize, seed: i32, world: bool) -> Case {
         false,
     );
     Case {
-        field: ws.field,
-        temp: ws.temperature,
-        rain: ws.rainfall,
+        field: ws.field.as_ref().clone(),
+        temp: ws.temperature.as_ref().clone(),
+        rain: ws.rainfall.as_ref().clone(),
         res,
         biome,
         gw,

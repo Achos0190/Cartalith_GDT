@@ -68,7 +68,7 @@ fn generate_terrain_case_0_region() {
     let mut p = p;
     p.crater.physical_model = false;
     let ws = cartalith_engine::generate_terrain(&p);
-    assert_eq!(ws.field, field, "field");
+    assert_eq!(*ws.field, field, "field");
     assert_eq!(ws.plate_id, plate_id, "plate_id");
     assert_eq!(ws.boundary_mask, boundary_mask, "boundary_mask");
     assert_eq!(ws.stress_field, stress_field, "stress_field");
@@ -100,7 +100,7 @@ fn generate_terrain_case_1_world_wrap() {
     let mut p = p;
     p.crater.physical_model = false;
     let ws = cartalith_engine::generate_terrain(&p);
-    assert_eq!(ws.field, field, "field");
+    assert_eq!(*ws.field, field, "field");
     assert_eq!(ws.plate_id, plate_id, "plate_id");
     assert_eq!(ws.boundary_mask, boundary_mask, "boundary_mask");
     assert_eq!(ws.stress_field, stress_field, "stress_field");

@@ -79,6 +79,7 @@
 use cartalith_spatial::{StageGraph, StageId};
 
 use crate::{climate_params_for, refresh_climate, weather_params_for, WorldParams, WorldState};
+use std::sync::Arc;
 
 /// The pipeline stages a tool edit can invalidate. Discriminants match the
 /// ids [`pipeline_stage_graph`] assigns, so [`PipelineStage::id`] is a plain
@@ -217,9 +218,9 @@ pub fn recompute_stale(g: &mut StageGraph, p: &WorldParams, ws: &mut WorldState)
             &ws.field,
             &climate_params_for(p, ws.sea_level),
             &weather_params_for(p, ws.sea_level),
-            &mut ws.temperature,
-            &mut ws.rainfall,
-            &mut ws.flow_discharge,
+            Arc::make_mut(&mut ws.temperature),
+            Arc::make_mut(&mut ws.rainfall),
+            Arc::make_mut(&mut ws.flow_discharge),
         );
         // Order is load-bearing: hydrology's own version bumps here, and
         // climate must observe *that* version, not the one before it.
@@ -334,10 +335,11 @@ mod tests {
         let p = WorldParams::defaults(64, 40, 1234);
         let mut ws = crate::generate_terrain(&p);
         let mut touched = Vec::new();
+        let f = Arc::make_mut(&mut ws.field);
         for y in 10..30 {
             for x in 20..28 {
                 let i = y * p.gw + x;
-                ws.field[i] = 1.0;
+                f[i] = 1.0;
                 touched.push(i);
             }
         }
@@ -421,11 +423,11 @@ mod tests {
         g.mark_changed(PipelineStage::Height.id(), 0, "sculpt");
         assert_eq!(recompute_stale(&mut g, &p, &mut ws).ran.len(), 2);
 
-        let (t, r, q) = (ws.temperature.clone(), ws.rainfall.clone(), ws.flow_discharge.clone());
+        let (t, r, q) = (ws.temperature.as_ref().clone(), ws.rainfall.as_ref().clone(), ws.flow_discharge.as_ref().clone());
         let second = recompute_stale(&mut g, &p, &mut ws);
         assert!(second.ran.is_empty(), "nothing was stale, so nothing may run");
         assert_eq!(second.still_stale, vec!["civ"]);
-        assert_eq!((ws.temperature, ws.rainfall, ws.flow_discharge), (t, r, q));
+        assert_eq!((ws.temperature.as_ref(), ws.rainfall.as_ref(), ws.flow_discharge.as_ref()), (&t, &r, &q));
     }
 
     #[test]
@@ -435,14 +437,14 @@ mod tests {
         // this is the "not everything" half of the minimal-set contract, and
         // it is decided by the graph, not by a special case here.
         let (p, mut ws, _) = edited_world();
-        let (t, r, q) = (ws.temperature.clone(), ws.rainfall.clone(), ws.flow_discharge.clone());
+        let (t, r, q) = (ws.temperature.as_ref().clone(), ws.rainfall.as_ref().clone(), ws.flow_discharge.as_ref().clone());
         let mut g = pipeline_stage_graph(1);
         g.mark_changed(PipelineStage::Civ.id(), 0, "biome_painted");
 
         let report = recompute_stale(&mut g, &p, &mut ws);
         assert!(report.ran.is_empty());
         assert!(report.still_stale.is_empty(), "a stage's own edit does not make it stale");
-        assert_eq!((ws.temperature, ws.rainfall, ws.flow_discharge), (t, r, q));
+        assert_eq!((ws.temperature.as_ref(), ws.rainfall.as_ref(), ws.flow_discharge.as_ref()), (&t, &r, &q));
     }
 
     /// `GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §3.2.4 estimated this

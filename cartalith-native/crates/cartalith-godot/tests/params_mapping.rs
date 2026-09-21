@@ -545,12 +545,12 @@ fn the_shipped_defaults_generate_a_different_world_from_the_parity_baseline() {
     assert_eq!(a.field.len(), 96 * 72, "the probe generated nothing");
     assert!(a.field.iter().any(|&v| v > 0.0), "the probe generated an empty field");
 
-    let moved = a.field.iter().zip(&b.field).filter(|(x, y)| x != y).count();
+    let moved = a.field.iter().zip(b.field.iter()).filter(|(x, y)| x != y).count();
     let pct = 100.0 * moved as f64 / a.field.len() as f64;
-    let mean_abs = a.field.iter().zip(&b.field).map(|(x, y)| (x - y).abs() as f64).sum::<f64>()
+    let mean_abs = a.field.iter().zip(b.field.iter()).map(|(x, y)| (x - y).abs() as f64).sum::<f64>()
         / a.field.len() as f64;
     let max_abs =
-        a.field.iter().zip(&b.field).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max);
+        a.field.iter().zip(b.field.iter()).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max);
     let land = |f: &[f32], s: f32| f.iter().filter(|&&v| v > s).count();
     println!(
         "shipped vs parity: {moved} of {} cells differ ({pct:.1}%), mean |d| {mean_abs:.4}, \
@@ -602,9 +602,9 @@ fn tunable_baseline() -> (WorldParams, WorldState) {
 /// from `p` (`WorldState::sea_level`, and the height field itself).
 fn refreshed(p: &WorldParams, ws: &WorldState) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
     let (mut t, mut r, mut q) = (
-        ws.temperature.clone(),
-        ws.rainfall.clone(),
-        ws.flow_discharge.clone(),
+        ws.temperature.as_ref().clone(),
+        ws.rainfall.as_ref().clone(),
+        ws.flow_discharge.as_ref().clone(),
     );
     cartalith_engine::refresh_climate(
         p,
@@ -674,11 +674,11 @@ fn river_density_makes_civ_stale_and_costs_no_climate_pass() {
     assert!(!g.any_stale(PipelineStage::Hydrology.id()));
     assert!(!g.any_stale(PipelineStage::Climate.id()), "a stage's own mark does not make it stale");
 
-    let before = (ws.temperature.clone(), ws.rainfall.clone(), ws.flow_discharge.clone());
+    let before = (ws.temperature.as_ref().clone(), ws.rainfall.as_ref().clone(), ws.flow_discharge.as_ref().clone());
     let r = cartalith_engine::staleness::recompute_stale(&mut g, &p, &mut ws);
     assert!(r.ran.is_empty(), "a civ-only dial must not pay for a climate pass");
     assert_eq!(r.still_stale, vec!["civ"]);
-    assert_eq!((ws.temperature, ws.rainfall, ws.flow_discharge), before);
+    assert_eq!((ws.temperature.as_ref().clone(), ws.rainfall.as_ref().clone(), ws.flow_discharge.as_ref().clone()), before);
 }
 
 /// And the climate half's own behaviour, end to end: marking `Hydrology` is
@@ -691,12 +691,12 @@ fn a_climate_dial_marks_the_node_that_actually_triggers_a_recompute() {
     let mut g = cartalith_engine::staleness::pipeline_stage_graph(4);
     p.climate.rain_k = 2.0;
     g.mark_changed_tiles(PipelineStage::Hydrology.id(), 0..4, "param:climate.rain_k");
-    let rain_before = ws.rainfall.clone();
+    let rain_before = ws.rainfall.as_ref().clone();
 
     let r = cartalith_engine::staleness::recompute_stale(&mut g, &p, &mut ws);
     assert_eq!(r.ran, vec!["hydrology", "climate"]);
     assert_eq!(r.still_stale, vec!["civ"], "civ waits for its own button");
-    assert_ne!(ws.rainfall, rain_before, "the moved dial has to actually apply");
+    assert_ne!(*ws.rainfall, rain_before, "the moved dial has to actually apply");
 }
 
 /// A parameter with no live-apply path marks nothing — the half of the table

@@ -160,6 +160,8 @@ use cartalith_terrain::{
 // `Math.round` (ties toward `+Infinity`), from `cartalith-jsmath`.
 use cartalith_jsmath::js_round;
 
+use std::sync::Arc;
+
 /// `state.tect` (reference HTML line 2264-2265) — the formula's real tuning
 /// knobs, plus `resist` (`streamParams()`'s erodibility-resistance weight,
 /// now read by `carveRiverValleys`'s light stream-power pass) and
@@ -771,7 +773,37 @@ pub struct WorldState {
     /// ocean (a renderer, a land-fraction check) must use this, not
     /// `p.sea_level` directly.
     pub sea_level: f64,
-    pub field: Vec<f32>,
+    /// `Arc`, not a plain `Vec` — and so are `temperature`, `rainfall` and
+    /// `flow_discharge` below. These four are the grids a background LOD
+    /// worker needs a whole copy of (`cartalith_godot::lod_worker::
+    /// SnapshotInputs`), and LOD-D6 reported the per-snapshot clone of them
+    /// at **43.0 MB** at 2 048 × 1 311 — 10.74 MB each — against its own
+    /// 60 MiB budget. A worker cannot borrow from the world, so the only way
+    /// not to copy the bytes is for the world to hold them behind a refcount.
+    /// Making the difference real was measured, at that same 2 684 928 cells,
+    /// as a host-polled peak working set: **89 862 144 B** for four deep
+    /// clones against **46 886 912 B** for four `Arc` clones, 5 runs each,
+    /// spread under 0.01 MB.
+    ///
+    /// **Reads are unchanged**: `Arc<Vec<f32>>` derefs to `Vec<f32>` derefs
+    /// to `[f32]`, so `&ws.field`, `ws.field[i]` and `ws.field.len()` all
+    /// compile and mean exactly what they did. The four crates that only read
+    /// these grids (`cartalith-civ`, `-hydrology`, `-terrain`, `-spatial`)
+    /// needed no change at all.
+    ///
+    /// **Writes go through `Arc::make_mut`**, which clones only when a second
+    /// holder exists — i.e. only when a sculpt, erode, undo or re-centre
+    /// lands while an LOD snapshot is still alive. That case costs one copy
+    /// of one grid, which is what the old code paid on every snapshot for all
+    /// four. The mutating call sites are `erode_op`, `center_landmasses`,
+    /// `recompute_stale` and `cartalith-godot`'s sculpt-commit and undo/redo.
+    ///
+    /// `Arc<[f32]>` was the other candidate and was rejected on two counts:
+    /// it has no `make_mut`, so every one of those call sites would need
+    /// interior mutability or a rebuild-and-replace; and it cannot be made
+    /// from an existing `Vec<f32>` without copying it, so `generate_terrain`
+    /// would pay a full copy of each grid to hand it over.
+    pub field: Arc<Vec<f32>>,
     /// `u16`, not `usize`: `tect.plates` is clamped to `4..=40` at every
     /// entry point (`params.rs`'s `ParamSpec`, and the World-Structure
     /// override's own `.clamp(4, 40)`), and the import path's
@@ -802,9 +834,10 @@ pub struct WorldState {
     pub shear_field: Vec<f32>,
     pub volcanic_field: Vec<f32>,
     pub impact_field: Vec<f32>,
-    pub temperature: Vec<f32>,
-    pub rainfall: Vec<f32>,
-    pub flow_discharge: Vec<f32>,
+    /// See [`WorldState::field`] for why these three are `Arc` too.
+    pub temperature: Arc<Vec<f32>>,
+    pub rainfall: Arc<Vec<f32>>,
+    pub flow_discharge: Arc<Vec<f32>>,
     /// **`ChannelResult::slope` is released before this is stored** and is
     /// an empty `Vec` here — see `generate_terrain`'s own note at the point
     /// it drops it (`MEMORY_OPTIMIZATION_SCOPE.md` R2). `recv` and `chan`
@@ -2052,7 +2085,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
 
     WorldState {
         sea_level,
-        field,
+        field: Arc::new(field),
         plate_id,
         boundary_mask: stress.boundary_mask,
         stress_field: stress.stress_field,
@@ -2063,9 +2096,9 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         shear_field: stress.shear_field,
         volcanic_field,
         impact_field,
-        temperature,
-        rainfall,
-        flow_discharge,
+        temperature: Arc::new(temperature),
+        rainfall: Arc::new(rainfall),
+        flow_discharge: Arc::new(flow_discharge),
         channels,
         stream_order,
         river_mask,
@@ -2389,7 +2422,7 @@ mod tests {
             } else {
                 base.field.clone()
             };
-            let moved = ws.field.iter().zip(&reference).filter(|(a, b)| a != b).count();
+            let moved = ws.field.iter().zip(reference.iter()).filter(|(a, b)| a != b).count();
             assert!(moved > 0, "{name}: the pass ran but nothing moved");
             assert!(ws.field.iter().all(|v| v.is_finite()), "{name}: produced a non-finite height");
             assert!(
@@ -2415,7 +2448,7 @@ mod tests {
         let sea = base.sea_level;
         assert_eq!(ws.sea_level, sea, "the pass must not move sea level");
         let mut moved = 0usize;
-        for (i, (&after, &before)) in ws.field.iter().zip(&base.field).enumerate() {
+        for (i, (&after, &before)) in ws.field.iter().zip(base.field.iter()).enumerate() {
             if after == before {
                 continue;
             }

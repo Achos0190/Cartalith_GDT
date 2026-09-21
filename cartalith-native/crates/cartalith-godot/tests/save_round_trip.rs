@@ -29,9 +29,9 @@ use cartalith_engine::{generate_terrain, WorldParams, WorldState};
 /// What `WorldGen::save_project` builds out of a generated world.
 fn fields_of(ws: &WorldState, n: usize) -> cartalith_io::SaveFields {
     cartalith_io::SaveFields {
-        heightmap: ws.field.clone(),
-        temperature: ws.temperature.clone(),
-        rainfall: ws.rainfall.clone(),
+        heightmap: ws.field.as_ref().clone(),
+        temperature: ws.temperature.as_ref().clone(),
+        rainfall: ws.rainfall.as_ref().clone(),
         volcanic_field: ws.volcanic_field.clone(),
         impact_field: ws.impact_field.clone(),
         strahler_order: match ws.stream_order.as_ref() {
@@ -99,9 +99,9 @@ fn a_generated_world_survives_save_and_reload() {
     // Bit-exact: a `.f32` entry is a byte reinterpretation, not a second
     // computation, so anything short of equality is a bug in the format
     // handling rather than floating-point drift.
-    assert_eq!(back.fields.heightmap, ws.field, "heightmap");
-    assert_eq!(back.fields.temperature, ws.temperature, "temperature");
-    assert_eq!(back.fields.rainfall, ws.rainfall, "rainfall");
+    assert_eq!(back.fields.heightmap, *ws.field, "heightmap");
+    assert_eq!(back.fields.temperature, *ws.temperature, "temperature");
+    assert_eq!(back.fields.rainfall, *ws.rainfall, "rainfall");
     assert_eq!(back.fields.volcanic_field, ws.volcanic_field, "volcanic_field");
     assert_eq!(back.fields.impact_field, ws.impact_field, "impact_field");
     assert_eq!(back.fields.strahler_order, fields.strahler_order, "strahler_order");
@@ -175,5 +175,5 @@ fn a_world_with_no_channels_still_writes_a_full_strahler_raster() {
     let back = cartalith_io::load_save(std::io::Cursor::new(&buf)).expect("it should reopen");
     assert_eq!(back.fields.strahler_order.len(), n);
     assert!(back.fields.strahler_order.iter().all(|&v| v == 0));
-    assert_eq!(back.fields.heightmap, ws.field);
+    assert_eq!(back.fields.heightmap, *ws.field);
 }

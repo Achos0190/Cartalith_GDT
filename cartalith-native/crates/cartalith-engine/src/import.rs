@@ -311,7 +311,7 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
 
     WorldState {
         sea_level,
-        field,
+        field: std::sync::Arc::new(field),
         plate_id,
         boundary_mask: stress.boundary_mask,
         stress_field: stress.stress_field,
@@ -324,9 +324,9 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
         // No craters on an imported world: `stampCraters` is a *height*
         // stage, and this pass must not touch the imported height.
         impact_field: vec![0f32; n],
-        temperature,
-        rainfall,
-        flow_discharge,
+        temperature: std::sync::Arc::new(temperature),
+        rainfall: std::sync::Arc::new(rainfall),
+        flow_discharge: std::sync::Arc::new(flow_discharge),
         // River carving is likewise a height stage. The reference's
         // inferTectonics does not carve either -- it stops at computeFlow.
         channels: None,
@@ -430,7 +430,7 @@ mod tests {
         p.gh = gh;
         let before = field.clone();
         let state = infer_tectonics(field, &p);
-        assert_eq!(state.field, before, "the imported elevation was overwritten");
+        assert_eq!(*state.field, before, "the imported elevation was overwritten");
     }
 
     #[test]

@@ -5241,7 +5241,7 @@ impl WorldGen {
             format!("{} x {}", self.gw, self.gh),
             undo::EntryKind::HeightSnapshot,
         );
-        ws.field = carved;
+        ws.field = std::sync::Arc::new(carved);
         let cells_masked = mask.iter().filter(|&&m| m > 0.0).count() as i64;
         // A coastal carve is not tile-local -- it can touch any coast on the
         // map -- so the whole graph is marked, which is also all a
@@ -6162,9 +6162,9 @@ impl WorldGen {
         // "no channels", and is what the loader reads back.
         let fields = match source {
             WorldSource::Generated(ws) => cartalith_io::SaveFields {
-                heightmap: ws.field.clone(),
-                temperature: ws.temperature.clone(),
-                rainfall: ws.rainfall.clone(),
+                heightmap: ws.field.as_ref().clone(),
+                temperature: ws.temperature.as_ref().clone(),
+                rainfall: ws.rainfall.as_ref().clone(),
                 volcanic_field: ws.volcanic_field.clone(),
                 impact_field: ws.impact_field.clone(),
                 strahler_order: match ws.stream_order.as_ref() {
@@ -7214,8 +7214,8 @@ impl WorldGen {
     #[func]
     fn build_color_texture(&self) -> Option<Gd<ImageTexture>> {
         let (field, temperature, rainfall, flow) = match self.source.as_ref()? {
-            WorldSource::Generated(ws) => (&ws.field, &ws.temperature, &ws.rainfall, Some(ws.flow_discharge.as_slice())),
-            WorldSource::Loaded(save) => (&save.fields.heightmap, &save.fields.temperature, &save.fields.rainfall, None),
+            WorldSource::Generated(ws) => (ws.field.as_slice(), ws.temperature.as_slice(), ws.rainfall.as_slice(), Some(ws.flow_discharge.as_slice())),
+            WorldSource::Loaded(save) => (save.fields.heightmap.as_slice(), save.fields.temperature.as_slice(), save.fields.rainfall.as_slice(), None),
         };
         // The stamped width raster when the world carries one, falling back to
         // the binary channel flag; a loaded save's `strahler_order` for the
@@ -8906,7 +8906,7 @@ impl WorldGen {
         let WorldSource::Generated(ws) = self.source.as_ref()? else { return None };
         let gw = self.gw as usize;
         let gh = self.gh as usize;
-        let mut scratch = ws.field.clone();
+        let mut scratch = ws.field.as_ref().clone();
         s.draft.preview_into(&ws.field, &mut scratch);
 
         let appearance = self.appearance();
@@ -9006,7 +9006,7 @@ impl WorldGen {
             format!("{} x {}", self.gw, self.gh),
             undo::EntryKind::HeightSnapshot,
         );
-        let summary = sculpt.commit(&mut ws.field, sea_level, &reason);
+        let summary = sculpt.commit(std::sync::Arc::make_mut(&mut ws.field).as_mut_slice(), sea_level, &reason);
         // Keep WorldState's own optional river fields in sync with what the
         // Sculpt layer has now locked. `WaterState` (`sculpt.water`) is the
         // real source of truth for river locks from this point on -- both
@@ -11383,7 +11383,7 @@ impl WorldGen {
         let Some(store) = self.bake.store() else { return bake_error("no atlas root set") };
         let (gw, gh) = (self.gw as usize, self.gh as usize);
         let field: Vec<f32> = match self.source.as_ref() {
-            Some(WorldSource::Generated(ws)) => ws.field.clone(),
+            Some(WorldSource::Generated(ws)) => ws.field.as_ref().clone(),
             Some(WorldSource::Loaded(save)) => save.fields.heightmap.clone(),
             None => return bake_error("no world generated yet"),
         };
@@ -12306,12 +12306,15 @@ impl WorldGen {
     /// happen on the main thread, because it is the only part that reads
     /// `WorldGen`.
     ///
-    /// It is a clone, and the clone is this milestone's cost:
-    /// `SnapshotInputs`' own doc comment states the bytes. The four
-    /// tectonic-substrate fields are cloned too and are dropped by the build,
-    /// so they are a transient peak rather than a retained one. `None` before
-    /// any world, and on the same degenerate-grid guard the pre-D6
-    /// `build_lod_cache` used.
+    /// **The four world grids are no longer copied** -- `WorldState` holds
+    /// them behind an `Arc` and this takes a refcount on each, which was
+    /// LOD-D6's own stated follow-on and is what `SnapshotInputs`' doc
+    /// comment now describes. A *loaded* save still copies its three, since
+    /// `cartalith_io::SaveFields` owns plain `Vec`s. The four
+    /// tectonic-substrate fields are still cloned and are still dropped by
+    /// the build, so they remain a transient peak rather than a retained one.
+    /// `None` before any world, and on the same degenerate-grid guard the
+    /// pre-D6 `build_lod_cache` used.
     ///
     /// The attachments are read in the same order `lod_tile_bytes` attached
     /// them before LOD-D6 — lithology, pack splat and ground tiles, paint —
@@ -12322,6 +12325,10 @@ impl WorldGen {
             return None;
         }
         let (field, temperature, rainfall, flow, litho) = match self.source.as_ref()? {
+            // **Four `Arc::clone`s, not four memcpys** — 43.0 MB at
+            // 2048x1311 before `WorldState` held these behind a refcount.
+            // The `Loaded` arm below is unchanged and still copies its
+            // three: `cartalith_io::SaveFields` owns plain `Vec`s.
             WorldSource::Generated(ws) => (
                 ws.field.clone(),
                 ws.temperature.clone(),
@@ -12339,7 +12346,13 @@ impl WorldGen {
                     resistance: ws.resistance_field.clone(),
                 }),
             ),
-            WorldSource::Loaded(save) => (save.fields.heightmap.clone(), save.fields.temperature.clone(), save.fields.rainfall.clone(), None, None),
+            WorldSource::Loaded(save) => (
+                std::sync::Arc::new(save.fields.heightmap.clone()),
+                std::sync::Arc::new(save.fields.temperature.clone()),
+                std::sync::Arc::new(save.fields.rainfall.clone()),
+                None,
+                None,
+            ),
         };
         if field.len() < gw.checked_mul(gh)? {
             return None;
@@ -16633,7 +16646,7 @@ impl WorldGen {
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
             return GString::new();
         };
-        let Some(label) = undo_one(&mut self.undo, &mut self.redo, &mut ws.field) else {
+        let Some(label) = undo_one(&mut self.undo, &mut self.redo, std::sync::Arc::make_mut(&mut ws.field).as_mut_slice()) else {
             return GString::new();
         };
         // ED-02: the ledger's row for that operation goes with it.
@@ -16751,7 +16764,7 @@ impl WorldGen {
     #[func]
     fn redo_last(&mut self) -> bool {
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else { return false };
-        let Some(label) = redo_one(&mut self.undo, &mut self.redo, &mut ws.field) else {
+        let Some(label) = redo_one(&mut self.undo, &mut self.redo, std::sync::Arc::make_mut(&mut ws.field).as_mut_slice()) else {
             return false;
         };
         self.ledger.record(
@@ -16848,7 +16861,7 @@ impl WorldGen {
         for _ in 0..steps {
             // Through the cursor, so a multi-step rollback is as redoable as
             // a single `undo_last()` is -- one `redo_last()` per step.
-            if undo_one(&mut self.undo, &mut self.redo, &mut ws.field).is_none() {
+            if undo_one(&mut self.undo, &mut self.redo, std::sync::Arc::make_mut(&mut ws.field).as_mut_slice()).is_none() {
                 break;
             }
             done += 1;

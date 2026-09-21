@@ -317,7 +317,7 @@ mod tests {
     fn world(field: Vec<f32>, sea_level: f64) -> WorldState {
         WorldState {
             sea_level,
-            field,
+            field: std::sync::Arc::new(field),
             plate_id: Vec::new(),
             boundary_mask: Vec::new(),
             stress_field: Vec::new(),
@@ -328,9 +328,9 @@ mod tests {
             shear_field: Vec::new(),
             volcanic_field: Vec::new(),
             impact_field: Vec::new(),
-            temperature: Vec::new(),
-            rainfall: Vec::new(),
-            flow_discharge: Vec::new(),
+            temperature: std::sync::Arc::new(Vec::new()),
+            rainfall: std::sync::Arc::new(Vec::new()),
+            flow_discharge: std::sync::Arc::new(Vec::new()),
             channels: None,
             stream_order: None,
             river_mask: None,

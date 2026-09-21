@@ -227,7 +227,7 @@ fn commit_fixture(gw: usize, gh: usize, ws: &cartalith_engine::WorldState) -> (P
     lake.globals.brush_size = 30.0;
     buf.push(lake);
 
-    let field = ws.field.clone();
+    let field = ws.field.as_ref().clone();
 
     // A realistic "earlier commit already locked a channel" fixture --
     // `cartalith-engine/src/sculpt_commit.rs`'s own

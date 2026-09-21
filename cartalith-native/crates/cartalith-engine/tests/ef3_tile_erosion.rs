@@ -549,7 +549,7 @@ fn tile_erosion_incises_along_a_fixed_drainage_network_only_with_deposition_off(
     let coarse_net = network(&ws.field, GW, GH, &vec![1f32; GW * GH]);
     let (_, rw0, _) = incision_vs_area(&ws.field, GW, GH, &coarse_net);
     let world_moved = |dep: f64| {
-        let mut f = ws.field.clone();
+        let mut f = ws.field.as_ref().clone();
         let wp = StreamPowerParams { deposit: dep, ..sp };
         stream_power_kernel_bounded(&mut f, &ws.stress_field, &ws.resistance_field, &ws.rainfall, GW, GH, &wp, None, None);
         incision_vs_area(&f, GW, GH, &coarse_net).1 - rw0

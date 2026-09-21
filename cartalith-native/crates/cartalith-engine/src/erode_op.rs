@@ -65,6 +65,7 @@
 //! immediately after this returns.
 
 use crate::{WorldParams, WorldState};
+use std::sync::Arc;
 use cartalith_erosion::{droplet_kernel, erode_thermal, isostatic_rebound, DropletParams};
 
 /// `state.erosion` (reference HTML line 2268) — the fourteen knobs
@@ -205,10 +206,15 @@ pub fn erode_op(ws: &mut WorldState, p: &WorldParams, opts: &ErodeOpts) -> Erode
 
     // `pre=field.slice()` — isostatic rebound is measured against the surface
     // as it stood *before* the droplets, not before the thermal pass.
-    let pre: Vec<f32> = ws.field.clone();
+    let pre: Vec<f32> = ws.field.as_ref().clone();
+
+    // One `make_mut` for the whole op rather than four: it is the point at
+    // which a shared grid (an LOD snapshot still rendering) is copied, and
+    // four calls would ask that question four times for the same answer.
+    let f = Arc::make_mut(&mut ws.field);
 
     droplet_kernel(
-        &mut ws.field,
+        f,
         rain,
         gw,
         gh,
@@ -234,7 +240,7 @@ pub fn erode_op(ws: &mut WorldState, p: &WorldParams, opts: &ErodeOpts) -> Erode
             seed: p.tect.seed as u32,
         },
     );
-    erode_thermal(&mut ws.field, gw, gh, opts.thermal_passes, opts.talus);
+    erode_thermal(f, gw, gh, opts.thermal_passes, opts.talus);
 
     // `erodeFinish`'s clamp, written as the reference's own two-branch
     // `if/else if` rather than `f32::clamp`. Deliberate: JS lets a NaN fall
@@ -242,14 +248,14 @@ pub fn erode_op(ws: &mut WorldState, p: &WorldParams, opts: &ErodeOpts) -> Erode
     // the `cartalith-rust-conventions` "JS propagates NaN where Rust absorbs
     // it" rule. Reproducing the divergence is the point; a NaN that vanishes
     // here would hide the bug that produced it.
-    for v in ws.field.iter_mut() {
+    for v in f.iter_mut() {
         if *v < 0.0 {
             *v = 0.0;
         } else if *v > 1.0 {
             *v = 1.0;
         }
     }
-    isostatic_rebound(&mut ws.field, &pre, gw, gh, p.tect.blur_r, p.world);
+    isostatic_rebound(f, &pre, gw, gh, p.tect.blur_r, p.world);
 
     let mut s = ErodeSummary { climate_coupled: ck > 0.0, ..Default::default() };
     for (a, b) in ws.field.iter().zip(pre.iter()) {
@@ -294,7 +300,7 @@ mod tests {
     fn world(field: Vec<f32>, rainfall: Vec<f32>) -> WorldState {
         WorldState {
             sea_level: 0.42,
-            field,
+            field: Arc::new(field),
             plate_id: Vec::new(),
             boundary_mask: Vec::new(),
             stress_field: Vec::new(),
@@ -305,9 +311,9 @@ mod tests {
             shear_field: Vec::new(),
             volcanic_field: Vec::new(),
             impact_field: Vec::new(),
-            temperature: Vec::new(),
-            rainfall,
-            flow_discharge: Vec::new(),
+            temperature: Arc::new(Vec::new()),
+            rainfall: Arc::new(rainfall),
+            flow_discharge: Arc::new(Vec::new()),
             channels: None,
             stream_order: None,
             river_mask: None,
@@ -334,7 +340,7 @@ mod tests {
 
         assert!(sa.cells_changed > 0, "the op must actually erode: {sa:?}");
         assert!(sa.cells_lowered > 0, "droplets must cut somewhere: {sa:?}");
-        assert!(a.field != before, "the height field must change");
+        assert!(*a.field != before, "the height field must change");
         assert!(
             a.field.iter().all(|&v| (0.0..=1.0).contains(&v)),
             "erodeFinish's clamp must hold the field inside [0,1]"
@@ -429,7 +435,7 @@ mod tests {
         let before = synthetic(gw, gh);
         let mut w = world(before.clone(), Vec::new());
         let s = erode_op(&mut w, &params(gw, gh, 1), &opts);
-        assert_eq!(w.field, before);
+        assert_eq!(*w.field, before);
         assert_eq!(s, ErodeSummary::default());
     }
 
@@ -441,7 +447,7 @@ mod tests {
         // Claim a bigger grid than the field actually holds.
         let s = erode_op(&mut w, &params(48, 32, 7), &ErodeOpts::default());
         assert_eq!(s, ErodeSummary::default());
-        assert_eq!(w.field, before, "a refusal must not have half-eroded the field");
+        assert_eq!(*w.field, before, "a refusal must not have half-eroded the field");
     }
 
     /// `radius: 0` would divide by zero inside `droplet_kernel`'s brush

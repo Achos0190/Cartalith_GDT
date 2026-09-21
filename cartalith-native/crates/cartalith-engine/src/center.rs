@@ -7,6 +7,7 @@
 //! [`WorldState`]'s grids move and which are invalidated.
 
 use crate::WorldState;
+use std::sync::Arc;
 use cartalith_terrain::center::{best_empty_column, feather_seam_x, seam_column, shift_grid_x};
 
 /// What one `center_landmasses` call did, so a caller can report it
@@ -76,20 +77,24 @@ pub fn center_landmasses(ws: &mut WorldState, gw: usize, gh: usize, world: bool)
     }
     let o = off as isize;
 
+    // `&mut [f32]`, not `&mut Vec<f32>`: four of these eleven are
+    // `Arc<Vec<f32>>` on `WorldState` and the other seven are plain, so a
+    // list of references cannot be homogeneous any other way. `make_mut` is
+    // where a grid still shared with a live LOD snapshot gets copied.
     for a in [
-        &mut ws.field,
-        &mut ws.stress_field,
-        &mut ws.age_field,
-        &mut ws.resistance_field,
-        &mut ws.crust_field,
-        &mut ws.shear_field,
-        &mut ws.volcanic_field,
-        &mut ws.impact_field,
-        &mut ws.temperature,
-        &mut ws.rainfall,
-        &mut ws.flow_discharge,
+        Arc::make_mut(&mut ws.field).as_mut_slice(),
+        ws.stress_field.as_mut_slice(),
+        ws.age_field.as_mut_slice(),
+        ws.resistance_field.as_mut_slice(),
+        ws.crust_field.as_mut_slice(),
+        ws.shear_field.as_mut_slice(),
+        ws.volcanic_field.as_mut_slice(),
+        ws.impact_field.as_mut_slice(),
+        Arc::make_mut(&mut ws.temperature).as_mut_slice(),
+        Arc::make_mut(&mut ws.rainfall).as_mut_slice(),
+        Arc::make_mut(&mut ws.flow_discharge).as_mut_slice(),
     ] {
-        shift_grid_x(a.as_mut_slice(), gw, gh, o);
+        shift_grid_x(a, gw, gh, o);
     }
     shift_grid_x(ws.plate_id.as_mut_slice(), gw, gh, o);
     for a in [&mut ws.boundary_mask, &mut ws.boundary_type] {
@@ -154,8 +159,12 @@ pub fn center_landmasses(ws: &mut WorldState, gw: usize, gh: usize, world: bool)
     // vertical line. Feather it away -- the same four fields the reference
     // feathers, minus the geoid this port does not have.
     let sc = seam_column(gw, off);
-    for a in [&mut ws.field, &mut ws.temperature, &mut ws.rainfall] {
-        feather_seam_x(a.as_mut_slice(), gw, gh, sc, 2);
+    for a in [
+        Arc::make_mut(&mut ws.field).as_mut_slice(),
+        Arc::make_mut(&mut ws.temperature).as_mut_slice(),
+        Arc::make_mut(&mut ws.rainfall).as_mut_slice(),
+    ] {
+        feather_seam_x(a, gw, gh, sc, 2);
     }
 
     Some(CenterResult { offset: off, seam_column: sc, channels_dropped })
@@ -176,16 +185,16 @@ mod tests {
     #[test]
     fn region_mode_is_refused_rather_than_silently_rotated() {
         let (mut ws, gw, gh) = world(32, 24, 7);
-        let before = ws.field.clone();
+        let before = ws.field.as_ref().clone();
         assert_eq!(center_landmasses(&mut ws, gw, gh, false), None);
-        assert_eq!(ws.field, before, "a refused call must not have moved anything");
+        assert_eq!(*ws.field, before, "a refused call must not have moved anything");
     }
 
     #[test]
     fn every_retained_raster_moves_together() {
         let (mut ws, gw, gh) = world(48, 32, 24601);
-        let before_field = ws.field.clone();
-        let before_temp = ws.temperature.clone();
+        let before_field = ws.field.as_ref().clone();
+        let before_temp = ws.temperature.as_ref().clone();
         let before_plates = ws.plate_id.clone();
 
         let r = center_landmasses(&mut ws, gw, gh, true).expect("a world-mode call should run");
@@ -198,8 +207,8 @@ mod tests {
                 assert_eq!(ws.plate_id[y * gw + x], before_plates[y * gw + (x + r.offset) % gw]);
             }
         }
-        assert_ne!(ws.field, before_field);
-        assert_ne!(ws.temperature, before_temp);
+        assert_ne!(*ws.field, before_field);
+        assert_ne!(*ws.temperature, before_temp);
         // Away from the feathered band, height is the same permutation.
         let far = (r.seam_column + gw / 2) % gw;
         assert_eq!(ws.field[far], before_field[(far + r.offset) % gw]);
@@ -266,9 +275,9 @@ mod tests {
     fn a_second_call_finds_nothing_left_to_do() {
         let (mut ws, gw, gh) = world(48, 32, 24601);
         assert_ne!(center_landmasses(&mut ws, gw, gh, true).unwrap().offset, 0);
-        let after = ws.field.clone();
+        let after = ws.field.as_ref().clone();
         let second = center_landmasses(&mut ws, gw, gh, true).unwrap();
         assert_eq!(second.offset, 0);
-        assert_eq!(ws.field, after, "an offset of 0 must touch nothing at all");
+        assert_eq!(*ws.field, after, "an offset of 0 must touch nothing at all");
     }
 }
