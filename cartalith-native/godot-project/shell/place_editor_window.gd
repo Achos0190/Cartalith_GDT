@@ -166,13 +166,17 @@ const KIND_ORDER := ["metropolis", "capital", "city", "town", "village", "hamlet
 ## Tab strip (see this file's own top-of-file doc for the canvas citation and
 ## the placement rationale). Order is display order; keys are what `_active_tab`
 ## and `_switch_tab()` carry.
-const TAB_ORDER := ["overview", "economy", "timeline", "political", "vault"]
+## "Layout" is placed last -- canvas 1g calls itself "THE SIXTH TAB" in its own
+## artboard header, after the five Batches A-D already shipped (Overview /
+## Economy & notables / Timeline / Political history / Vault notes).
+const TAB_ORDER := ["overview", "economy", "timeline", "political", "vault", "layout"]
 const TAB_LABELS := {
 	"overview": "Overview",
 	"economy": "Economy & notables",
 	"timeline": "Timeline",
 	"political": "Political history",
 	"vault": "Vault notes",
+	"layout": "Layout",
 }
 var _active_tab := "overview"
 
@@ -390,6 +394,8 @@ func _rebuild() -> void:
 			_build_political(tab_content, s)
 		"vault":
 			_build_knowledge(tab_content, s)
+		"layout":
+			_build_layout(tab_content, s)
 		_:
 			pass
 	## Global to the settlement, not tab-scoped -- see this file's top-of-file
@@ -698,6 +704,248 @@ func _build_political(parent: Control, s: Dictionary) -> void:
 		+ "reason: a hand-authored political period has no precedence rule against the derived "
 		+ "ones above -- if the two disagreed over the same years, nothing says which wins. Not "
 		+ "built: that rule does not exist yet.")
+
+
+# -- Layout (`lazy-riding-piglet.md` Batch E, 2026-09-21) --------------------
+
+## Canvas `1g` (`design/settlement-editor-2026-09-21/Cartalith Settlement
+## Editor.dc.html`): a readout over `urban_bridge.rs`'s `bridge.urban_layouts()`
+## -- fact chips, a street-class breakdown bar, the stages-that-ran checklist,
+## the "not generated -- no key emitted" dashed list, substrate flags, and two
+## real inputs (Population/Age) the canvas frames as "the same fields as
+## Overview". Access pattern matched to the two existing callers rather than
+## invented here: `city_viewer_window.gd::_reload()` and
+## `right_dock.gd::_build_settlement_layout()` both call
+## `bridge.urban_layouts(PackedInt32Array([_index]))` and take `got[0]`; this
+## does the same.
+##
+## **The canvas's own claim about what the bridge withholds is stale, and this
+## does not repeat it.** Its 1g intro says the bridge "emits no key at all for
+## buildings, districts, amenities or the wall circuit". Read at the symbol
+## (`urban_bridge.rs::layout_dict`, every `d.set(...)` call, 2026-09-21):
+## `"buildings"`/`"building_district"`/`"building_courtyard"`/`"building_tone"`,
+## `"parcel_district"`, `"markets"`/`"market_centers"`/`"market_names"`
+## (the amenities that exist), and `"walls"`/`"wall_ring"`/`"wall_gates"` are
+## all present keys -- none of those four is withheld today. What
+## `layout_dict` genuinely never sets, per its own module doc comment on
+## `urban_layouts()` ("Two things the reference's model carries are still not
+## surfaced here"), is **the civic hall and places of worship**
+## (`cartalith_urban::Town::civic`, and the games buildings beside it) and
+## **the hinterland clutter beyond field/pasture** (trees, fences, drying
+## racks -- `Town::details` minus the two kinds this dictionary already
+## keeps). `LAYOUT_ABSENT` below is that verified pair, not the canvas's four.
+##
+## **Population/Age are omitted here, not shown read-only.** The canvas frames
+## them as "the same field as Overview" and "also Overview" -- i.e. not a
+## second control, a second *view*. This window's own working discipline
+## (`_build_actions`'s footer, `_build_political`'s dashed panel) is to state a
+## gap rather than half-build it; a read-only duplicate here would be a second
+## surface for one piece of state with no refresh link between them, the exact
+## defect class `right_dock.gd`'s "sibling surface" doc comment above already
+## measured for this window against the dock. A one-line pointer costs nothing
+## and cannot drift.
+##
+## **No "Regenerate layout" button.** The canvas draws one; `urban_layouts()`
+## has no cache to invalidate -- it re-runs `cartalith_urban::generate()` from
+## the world's current substrate on every call (no `_umModelCache` equivalent
+## anywhere in this call path, per its own doc comment), so this tab already
+## shows a freshly generated layout every time `_rebuild()` runs it, which
+## includes every tab switch onto it. A button that reruns the same call the
+## tab just ran would be inert.
+##
+## **The Rules link is a disabled placeholder, not a dead link.** Batch F's
+## Generation rules window does not exist yet; the row says so instead of
+## calling a method nothing implements.
+##
+## **Empty state.** `urban_layouts()`'s own doc comment gives two real,
+## distinct reasons for an empty return that this call site cannot tell
+## apart: "empty on a loaded save or before the first generate()" (no
+## substrate rasters to build streets from) and a settlement whose site is
+## open water (`_umModelFor`'s own refusal -- skipped, not errored). Both are
+## stated together rather than one guessed; inventing a specific cause the
+## bridge does not report would be worse than naming both (MISTAKES.md's
+## "dash a field with a reason" entry).
+func _build_layout(parent: Control, s: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Layout")
+	var got: Array = bridge.urban_layouts(PackedInt32Array([_index]))
+	if got.is_empty():
+		DccWidgets.note(sec,
+			"No layout for this settlement right now. Two real reasons, and this bridge call "
+			+ "cannot tell which applies: layouts carry none of the substrate on a freshly "
+			+ "loaded save or before this world's own first generate (a save carries no "
+			+ "field/flow rasters to build streets from); or this settlement's site sits in "
+			+ "open water, which urban_layouts() skips rather than errors on (_umModelFor's "
+			+ "own refusal -- there is no shore to build). Generate a world, or open a "
+			+ "settlement with dry ground under it.")
+		return
+	var l: Dictionary = got[0]
+
+	# -- Fact chips -----------------------------------------------------------
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 6)
+	flow.add_theme_constant_override("v_separation", 6)
+	var blocks_n := (l.get("blocks", []) as Array).size()
+	var parcels_n := (l.get("parcels", []) as Array).size()
+	var facts := [
+		["site", String(l.get("site_kind", "?"))],
+		["box", "%d × %d m" % [int(l.get("wm", 0)), int(l.get("hm", 0))]],
+		["orient", "%.2f rad" % float(l.get("orient", 0.0))],
+		["edges", str(int(l.get("edge_count", 0)))],
+		["blocks", str(blocks_n)],
+		["parcels", str(parcels_n)],
+	]
+	for f in facts:
+		flow.add_child(_fact_chip(String(f[0]), String(f[1])))
+	sec.add_child(flow)
+
+	# -- Street-class breakdown ------------------------------------------------
+	var streets: Dictionary = l.get("streets", {})
+	var placed_m := float(l.get("street_len_m", 0.0))
+	var target_m := float(l.get("target_len_m", 0.0))
+	var net := DccWidgets.group(sec, "Street network", true)
+	DccWidgets.note(net, "Placed %s m of %s m target." % [
+		FactionRosterWindow._thousands(int(round(placed_m))),
+		FactionRosterWindow._thousands(int(round(target_m)))])
+	## Per-class length is not a field this dictionary carries -- `street_len_m`
+	## is the total off `computeMetrics`, measured once on the whole graph.
+	## Summed here from the class's own `PackedVector2Array` (A,B,A,B... segment
+	## pairs, already in local box metres per `layout_dict`'s own comment on
+	## `"streets"`, so a raw `distance_to` needs no scale conversion).
+	var cls_len := {}
+	var cls_total := 0.0
+	for cls in _STREET_CLASS_ORDER:
+		var pts: PackedVector2Array = streets.get(cls, PackedVector2Array())
+		var length := 0.0
+		var i := 0
+		while i + 1 < pts.size():
+			length += pts[i].distance_to(pts[i + 1])
+			i += 2
+		if length > 0.0:
+			cls_len[cls] = length
+			cls_total += length
+	if cls_len.is_empty():
+		DccWidgets.note(net, "No street classes present -- a bare site with no grown network.")
+	else:
+		var bar := HBoxContainer.new()
+		bar.custom_minimum_size.y = 14
+		bar.add_theme_constant_override("separation", 1)
+		for cls in _STREET_CLASS_ORDER:
+			if not cls_len.has(cls):
+				continue
+			var seg := ColorRect.new()
+			seg.color = _STREET_CLASS_COLOR.get(cls, DccTheme.c("text_dim"))
+			seg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			seg.size_flags_stretch_ratio = maxf(0.02, float(cls_len[cls]) / maxf(1.0, cls_total))
+			seg.tooltip_text = "%s -- %s m" % [cls, FactionRosterWindow._thousands(int(round(cls_len[cls])))]
+			bar.add_child(seg)
+		net.add_child(bar)
+		var legend := HFlowContainer.new()
+		legend.add_theme_constant_override("h_separation", 14)
+		legend.add_theme_constant_override("v_separation", 4)
+		for cls in _STREET_CLASS_ORDER:
+			if not cls_len.has(cls):
+				continue
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 6)
+			var sw := ColorRect.new()
+			sw.color = _STREET_CLASS_COLOR.get(cls, DccTheme.c("text_dim"))
+			sw.custom_minimum_size = Vector2(8, 8)
+			row.add_child(sw)
+			row.add_child(DccTheme.mono_label(cls, "text_dim", DccTheme.FS_TINY))
+			row.add_child(DccTheme.mono_label(FactionRosterWindow._thousands(int(round(cls_len[cls]))),
+				"text", DccTheme.FS_SMALL))
+			legend.add_child(row)
+		net.add_child(legend)
+	DccWidgets.note(net, "The classes come across pre-grouped so a renderer strokes them in draw "
+		+ "order without re-sorting a flat list every frame; this breakdown is derived here by "
+		+ "summing each class's own segments, since the engine only totals the whole graph.")
+
+	# -- Stages that ran --------------------------------------------------------
+	var stages_grp := DccWidgets.group(sec, "Stages that ran", true)
+	for stage in (l.get("stages", PackedStringArray()) as PackedStringArray):
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.add_child(DccTheme.mono_label("✓", "accent", DccTheme.FS_SMALL))
+		row.add_child(DccTheme.mono_label(String(stage), "text", DccTheme.FS_TINY))
+		stages_grp.add_child(row)
+	DccWidgets.note(stages_grp, "Kept as data by the bridge so the disclosure cannot drift from "
+		+ "the code -- a stage that ran without an input says so in its own row.")
+
+	# -- Not generated -- no key emitted ----------------------------------------
+	var absent_grp := DccWidgets.group(sec, "Not generated -- no key emitted", true)
+	for a in LAYOUT_ABSENT:
+		DccWidgets.note(absent_grp, "%s -- %s" % [String(a[0]), String(a[1])])
+	DccWidgets.note(absent_grp, "Deliberately absent rather than empty: a viewer that wants to "
+		+ "say \"no wall\" must first be able to tell that apart from \"no wall generator\", "
+		+ "and every other key this dictionary carries (buildings, districts, walls, markets, "
+		+ "farmland, bridges) IS present today -- this pair is the real gap, not the canvas's "
+		+ "wider four (see this function's own doc comment).")
+
+	# -- Substrate flags --------------------------------------------------------
+	var sub_grp := DccWidgets.group(sec, "Substrate flags", true)
+	for row_data in [
+		["uses_real_water", "real" if bool(l.get("uses_real_water", false)) else "synthetic"],
+		["uses_real_terrain", "real" if bool(l.get("uses_real_terrain", false)) else "synthetic"],
+		["market_prov", String(l.get("market_prov", "?"))],
+	]:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.add_child(DccTheme.mono_label(String(row_data[0]), "text_dim", DccTheme.FS_TINY))
+		row.add_child(DccTheme.mono_label(String(row_data[1]), "text", DccTheme.FS_SMALL))
+		sub_grp.add_child(row)
+	DccWidgets.note(sub_grp, "Whether the generator used this world's real water and terrain, or "
+		+ "fell back to a synthetic stand-in. A layout built on a fallback is a different claim.")
+
+	# -- Inputs and Rules link out -----------------------------------------------
+	var in_grp := DccWidgets.group(sec, "Inputs -- and where they really live", true)
+	DccWidgets.note(in_grp, "Population and Age are the two real inputs this layout reads "
+		+ "(pop_target, and the growth-epoch spread) -- both are the same fields Overview "
+		+ "already edits, not a second control for one piece of state. Edit them there.")
+	var rules := DccWidgets.action(in_grp, "Generation rules… ↗", func(): pass)
+	rules.disabled = true
+	rules.tooltip_text = "World-level, not per-settlement (canvas 1h). Batch F's own window -- not built yet, so this stays a stated placeholder rather than a call to a method nothing implements."
+
+
+## `layout_dict`'s own class list (`urban_bridge.rs`, the `for cls in ["lane",
+## "street", "quay", "ringroad", "primary"]` loop) -- draw order, matched here
+## so the breakdown legend reads in the same order `urban_layout_draw.gd`'s own
+## `DRAW_ORDER` strokes them.
+const _STREET_CLASS_ORDER := ["lane", "street", "quay", "ringroad", "primary"]
+
+## No shared palette exists for street class -- `urban_layout_draw.gd` varies
+## only stroke *width* by class (`W_FILL`), not colour. Derived from the accent
+## token rather than five hand-picked literals, so a theme flip (`DccTheme`'s
+## own light/dark tables) repaints these the same way it repaints everything
+## else built from `c("accent")`/`c("text_dim")`.
+var _STREET_CLASS_COLOR := {
+	"lane": DccTheme.c("text_dim"),
+	"street": DccTheme.c("text_dim").lightened(0.35),
+	"quay": DccTheme.c("accent").darkened(0.35),
+	"ringroad": DccTheme.c("accent").lightened(0.25),
+	"primary": DccTheme.c("accent"),
+}
+
+## Verified 2026-09-21 against `urban_bridge.rs::layout_dict` itself (see
+## `_build_layout`'s own doc comment) -- not copied from the canvas, whose own
+## text is stale. `[label, reason]`.
+const LAYOUT_ABSENT := [
+	["Civic hall & places of worship",
+		"Town::civic + the games buildings beside it -- read by the adapter, never set on this dictionary"],
+	["Hinterland clutter (trees, fences, drying racks)",
+		"Town::details minus the field/pasture kinds this dictionary already keeps as \"farmland\""],
+]
+
+
+func _fact_chip(key: String, value: String) -> PanelContainer:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", DccTheme.outline("border"))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.add_theme_constant_override("margin_left", 2)
+	row.add_child(DccTheme.mono_label(key, "text_dim", DccTheme.FS_TINY))
+	row.add_child(DccTheme.mono_label(value, "text", DccTheme.FS_SMALL))
+	p.add_child(row)
+	return p
 
 
 # -- Name + re-roll ---------------------------------------------------------
