@@ -274,8 +274,7 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "delta", label: "Delta", family: F::Physical, class: C::Regional, default_cap: 6, needs_viewshed: false, buildable: false,
             not_built: "A river mouth is detectable; a delta is a deposition landform and this engine carries no sediment budget. Placing one at every mouth would be a rename, not a detection." },
         LandmarkKindSpec { key: "river_confluence", label: "River confluence", family: F::Physical, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
-        LandmarkKindSpec { key: "volcanic_feature", label: "Volcanic feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: true, buildable: false,
-            not_built: "The volcanism raster now reaches this pass (LandmarkInputs::volcanism, plumbed from WorldState::volcanic_field alongside lithology and resistance) — but nothing here reads it yet, and §9.3 still marks this as one of the six types whose dominant term is the missing viewshed. Owner decision 2 (LM-7) is the real blocker, not the input." },
+        LandmarkKindSpec { key: "volcanic_feature", label: "Volcanic feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: true, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "rock_formation", label: "Rock formation", family: F::Physical, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "glacial_feature", label: "Glacial feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: false, buildable: false,
             not_built: "No general glaciation model. cartalith-terrain's fjord module reconstructs one specific glacial landform from paleoclimate temperature, relief and lithology, but covers coastal fjords only — not a cirque, moraine or esker inland — and needs three inputs this pass does not take." },
@@ -305,18 +304,14 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "market_site", label: "Market site", family: F::Economic, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "trade_depot", label: "Trade depot", family: F::Economic, class: C::Local, default_cap: 10, needs_viewshed: false, buildable: true, not_built: "" },
         // ---------------- Military (6) ----------------
-        LandmarkKindSpec { key: "fort", label: "Fort", family: F::Military, class: C::Regional, default_cap: 16, needs_viewshed: true, buildable: false,
-            not_built: "§18's own model puts F_visibility at 0.20 — the joint-largest term — and there is no viewshed field anywhere in this workspace. A fort scored without it is a defensible hill, not a fort." },
-        LandmarkKindSpec { key: "watchtower", label: "Watchtower", family: F::Military, class: C::Local, default_cap: 20, needs_viewshed: true, buildable: false,
-            not_built: "A watchtower is visibility and nothing else. Without a viewshed there is no term left to score." },
-        LandmarkKindSpec { key: "fortified_pass", label: "Fortified pass", family: F::Military, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "Downstream of Fort. The pass half is generated; the fortification half waits on the same viewshed." },
-        LandmarkKindSpec { key: "fortified_crossing", label: "Fortified crossing", family: F::Military, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "Downstream of Fort, over a Ford or a bridge site." },
+        LandmarkKindSpec { key: "fort", label: "Fort", family: F::Military, class: C::Regional, default_cap: 16, needs_viewshed: true, buildable: true, not_built: "" },
+        LandmarkKindSpec { key: "watchtower", label: "Watchtower", family: F::Military, class: C::Local, default_cap: 20, needs_viewshed: true, buildable: true, not_built: "" },
+        LandmarkKindSpec { key: "fortified_pass", label: "Fortified pass", family: F::Military, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
+        LandmarkKindSpec { key: "fortified_crossing", label: "Fortified crossing", family: F::Military, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "battlefield", label: "Battlefield", family: F::Military, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: false,
             not_built: "There is no conflict entity in this port. STORY_PLANNING_SCOPE.md SP-4 is not started, so a battlefield could only be a place where nothing recorded happened." },
         LandmarkKindSpec { key: "border_marker", label: "Border marker", family: F::Military, class: C::Cultural, default_cap: 16, needs_viewshed: true, buildable: false,
-            not_built: "Territory boundaries exist, but §9.3 lists this among the six viewshed-dominant types: a marker is placed to be seen from the border." },
+            not_built: "The viewshed §9.3 named is built now (Derived::vis, from a bounded observer set), so that half of this is no longer the blocker. The border is: no faction, territory or ownership field reaches this pass at all — LandmarkInputs carries none — and a marker placed without one would be marking nothing. Wiring one in is the whole remaining job." },
         // ---------------- Religious / cultural (8) ----------------
         LandmarkKindSpec { key: "shrine", label: "Shrine", family: F::Cultural, class: C::Local, default_cap: 30, needs_viewshed: false, buildable: false,
             not_built: "§26 is explicit that cultural meaning must not be hardcoded into geography — one mountain, three civilisations, three readings. That needs the civilisation's own traits as an input, which this pass does not take." },
@@ -325,7 +320,7 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "sacred_grove", label: "Sacred grove", family: F::Cultural, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: false,
             not_built: "The same gap as Shrine, plus the forest-age gap Ancient forest names." },
         LandmarkKindSpec { key: "sacred_mountain", label: "Sacred mountain", family: F::Cultural, class: C::Cultural, default_cap: 6, needs_viewshed: true, buildable: false,
-            not_built: "§19's model is 0.20 F_visibility and 0.15 F_cultural. Both are missing; the physical half is already generated as Peak." },
+            not_built: "§19's model is 0.20 F_visibility and 0.15 F_cultural. The visibility half is built now (Derived::vis) and this kind reads none of it, because F_cultural still has nothing behind it and §26 is explicit that cultural meaning must not be hardcoded into geography — one mountain, three civilisations, three readings. The physical half is already generated as Peak." },
         LandmarkKindSpec { key: "pilgrimage_site", label: "Pilgrimage site", family: F::Cultural, class: C::Cultural, default_cap: 8, needs_viewshed: false, buildable: false,
             not_built: "§35's chain reaches a pilgrimage route through a shrine. The shrine is not generated, so this cannot be either." },
         LandmarkKindSpec { key: "tomb", label: "Tomb", family: F::Cultural, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: false,
@@ -344,7 +339,7 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "battlefield_historic", label: "Historic battlefield", family: F::Historical, class: C::Cultural, default_cap: 8, needs_viewshed: false, buildable: false,
             not_built: "§29 lists Battlefield in both Military and Historical; this is the second listing, keyed apart so the table has 49 unique rows. Blocked on the same missing conflict entity." },
         LandmarkKindSpec { key: "destroyed_fortress", label: "Destroyed fortress", family: F::Historical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "Downstream of Fort and of the conflict entity — both missing." },
+            not_built: "Downstream of the conflict entity, which does not exist (STORY_PLANNING_SCOPE.md SP-4). This reason named Fort as a second blocker until Fort was built; the destruction is what is missing now, not the fortress." },
         LandmarkKindSpec { key: "historic_crossing", label: "Historic crossing", family: F::Historical, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: false,
             not_built: "A crossing that mattered. The crossing is generated as Ford; what made it matter is route history, which is not retained." },
     ]
@@ -954,6 +949,23 @@ pub struct LandmarkStore {
     /// session. What it implies is unchanged and is the thing readers depend
     /// on — these placements belong to the world currently loaded.
     pub last: Option<LandmarkResult>,
+    /// `OUTSTANDING_WORK.md`'s *"Nothing tells the user a landmark result
+    /// predates their icons"* row: since owner ruling 14 (2026-09-06) a
+    /// hand-placed icon can move where a landmark would be sited, but
+    /// `invalidate()` is deliberately NOT called for an icon edit (see that
+    /// method's own doc comment) — so `last` can go stale relative to the
+    /// icons on the map with nothing recording it. This is that record.
+    ///
+    /// Set by [`mark_icon_committed`](LandmarkStore::mark_icon_committed),
+    /// which a caller reaches only for a **committed** placement (one real
+    /// icon actually added), never for a mid-drag sample that placed nothing
+    /// — the brush can sample up to `ICON_BRUSH_MAX_DARTS` times per stroke,
+    /// and this flag is cheap enough that setting it redundantly costs
+    /// nothing, but it is only ever set from an add that happened. Cleared by
+    /// [`run`](LandmarkStore::run) (a fresh result cannot predate anything)
+    /// and by [`invalidate`](LandmarkStore::invalidate) (once `last` is
+    /// `None` there is no standing result left to call stale).
+    pub icon_placed_since_run: bool,
 }
 
 impl LandmarkStore {
@@ -965,6 +977,7 @@ impl LandmarkStore {
     pub fn run(&mut self, inputs: &LandmarkInputs<'_>, world_seed: u64) -> &LandmarkResult {
         let r = generate(inputs, &self.settings, world_seed);
         self.last = Some(r);
+        self.icon_placed_since_run = false;
         self.last.as_ref().expect("just assigned")
     }
 
@@ -973,6 +986,15 @@ impl LandmarkStore {
     /// exists.
     pub fn invalidate(&mut self) {
         self.last = None;
+        self.icon_placed_since_run = false;
+    }
+
+    /// Record a **committed** hand-placed icon (see
+    /// [`icon_placed_since_run`](Self::icon_placed_since_run)'s own doc
+    /// comment for what "committed" excludes). Idempotent and cheap to call
+    /// from every placement path.
+    pub fn mark_icon_committed(&mut self) {
+        self.icon_placed_since_run = true;
     }
 
     /// `caps total`, the first third of §4.4's headroom line.
@@ -1330,6 +1352,13 @@ struct Needs {
     /// The [`WayGrid`], which is one pass over the polylines rather than over
     /// the grid — cheap, but still not built when nothing reads it.
     ways: bool,
+    /// §9's visibility field — [`Derived::vis`]. Bounded twice over (a capped
+    /// observer set, a capped radius) and still the most expensive optional
+    /// field here, so nothing builds it that does not read it.
+    viewshed: bool,
+    /// [`Derived::tpi_hi`], the local maximum of the broad TPI — the shared
+    /// domain of the four military kinds and nothing else.
+    commanding: bool,
 }
 
 impl Needs {
@@ -1345,6 +1374,14 @@ impl Needs {
             "river_confluence" => (false, false, false, true, false),
             "lake" => (false, false, false, true, false),
             "mountain_pass" => (true, false, false, true, false),
+            // §18's model is visibility + commanding ground + route +
+            // settlement + slope + water, so a fort reads every field a peak
+            // does and the way graph besides. The other three military kinds
+            // share its domain exactly — see `pool_military`.
+            "fort" | "watchtower" | "fortified_pass" | "fortified_crossing" => {
+                (true, false, true, true, true)
+            }
+            "volcanic_feature" => (false, false, true, true, false),
             "ford" => (true, false, false, false, false),
             "harbour" => (true, false, false, false, false),
             "mine" | "quarry" | "resource_extraction_site" => (true, false, false, false, false),
@@ -1356,7 +1393,16 @@ impl Needs {
             }
             _ => (false, false, false, false, false),
         };
-        Needs { slope, curv, tpi, extrema, ways }
+        // A list rather than two more tuple columns: five keys set these
+        // and every one of the sixteen arms above would otherwise grow two
+        // `false`s to say nothing.
+        let viewshed = matches!(
+            key,
+            "fort" | "watchtower" | "fortified_pass" | "fortified_crossing" | "volcanic_feature"
+        );
+        let commanding =
+            matches!(key, "fort" | "watchtower" | "fortified_pass" | "fortified_crossing");
+        Needs { slope, curv, tpi, extrema, ways, viewshed, commanding }
     }
 
     fn merge(self, o: Needs) -> Needs {
@@ -1366,6 +1412,8 @@ impl Needs {
             tpi: self.tpi || o.tpi,
             extrema: self.extrema || o.extrema,
             ways: self.ways || o.ways,
+            viewshed: self.viewshed || o.viewshed,
+            commanding: self.commanding || o.commanding,
         }
     }
 }
@@ -1385,8 +1433,21 @@ struct Derived {
     tpi_broad: Vec<f32>,
     hmin: Vec<f32>,
     hmax: Vec<f32>,
+    /// §9's `V(x)`, raw accumulated observer weight — see [`view_observers`]
+    /// for the observer set and [`VIEW_RADIUS_KM`] for the horizon. Empty when
+    /// nothing armed reads it, **and also when the world has no observers at
+    /// all**, which is the honest `NoTerrain` every viewshed kind degrades to.
+    vis: Vec<f32>,
+    /// The maximum of [`tpi_broad`](Self::tpi_broad) over an `r_fine` window —
+    /// "is this the most commanding ground within a few km". One separable
+    /// pass, shared by all four military kinds.
+    tpi_hi: Vec<f32>,
     r_fine: i64,
     r_broad: i64,
+    /// The viewshed horizon actually in force, in cells — [`VIEW_RADIUS_KM`]
+    /// after both clamps. Stored rather than recomputed, so the number a
+    /// causal chain quotes is the number the field was built at.
+    r_view: i64,
 }
 
 impl Derived {
@@ -1406,6 +1467,54 @@ impl Derived {
         } else {
             (Vec::new(), Vec::new())
         };
+        // §5: curvature is evaluated after a blur, never on the raw field —
+        // see the `curv` line below. TPI is lifted out of the struct literal
+        // only because `tpi_hi` is a second pass over `tpi_broad`.
+        let tpi_fine =
+            if need.tpi { analysis::tpi(inp.field, gw, gh, r_fine, inp.world) } else { Vec::new() };
+        let tpi_broad = if need.tpi {
+            analysis::tpi(inp.field, gw, gh, r_broad, inp.world)
+        } else {
+            Vec::new()
+        };
+        let tpi_hi = if need.commanding && !tpi_broad.is_empty() {
+            sep_min_max(&tpi_broad, gw, gh, r_fine, inp.world).1
+        } else {
+            Vec::new()
+        };
+        let r_view = if cell_km > 0.0 {
+            ((VIEW_RADIUS_KM / cell_km).round() as i64).clamp(VIEW_MIN_CELLS, VIEW_MAX_CELLS)
+        } else {
+            VIEW_MIN_CELLS
+        };
+        let obs = if need.viewshed && cell_km > 0.0 {
+            view_observers(inp)
+        } else {
+            Vec::new()
+        };
+        // No observers, no field — **not** a field of zeros. The difference is
+        // the whole `NoTerrain` contract: a zero-filled `vis` is a field that
+        // exists and answers "nobody", and every viewshed detector would take
+        // it and run.
+        let vis = if !obs.is_empty() {
+            analysis::visibility(
+                inp.field,
+                gw,
+                gh,
+                inp.world,
+                &obs,
+                &analysis::ViewParams {
+                    radius_cells: r_view,
+                    cell_m: cell_km * 1000.0,
+                    m_per_unit: inp.mpu(),
+                    eye_m: VIEW_EYE_M,
+                    target_m: VIEW_TARGET_M,
+                    earth_radius_m: VIEW_EARTH_RADIUS_M,
+                },
+            )
+        } else {
+            Vec::new()
+        };
         Derived {
             slope: if need.slope { analysis::slope(inp.field, gw, gh) } else { Vec::new() },
             // §5: curvature is evaluated after a blur, never on the raw field,
@@ -1416,20 +1525,15 @@ impl Derived {
             } else {
                 Vec::new()
             },
-            tpi_fine: if need.tpi {
-                analysis::tpi(inp.field, gw, gh, r_fine, inp.world)
-            } else {
-                Vec::new()
-            },
-            tpi_broad: if need.tpi {
-                analysis::tpi(inp.field, gw, gh, r_broad, inp.world)
-            } else {
-                Vec::new()
-            },
+            tpi_fine,
+            tpi_broad,
             hmin,
             hmax,
+            vis,
+            tpi_hi,
             r_fine,
             r_broad,
+            r_view,
         }
     }
 
@@ -1445,6 +1549,12 @@ impl Derived {
     fn tpi_broad(&self, i: usize) -> f32 {
         self.tpi_broad.get(i).copied().unwrap_or(0.0)
     }
+    /// §9's `V(x)` at one cell, `0.0` where the field was not built. A zero is
+    /// a real answer — "no observer in the set can see this cell" — and the
+    /// detectors that read it treat it as one.
+    fn vis(&self, i: usize) -> f64 {
+        self.vis.get(i).copied().unwrap_or(0.0) as f64
+    }
     /// `max − min` over the broad window — **identical to
     /// [`analysis::local_relief`] at the same radius**, and
     /// `relief_agrees_with_the_analysis_module` pins that.
@@ -1454,6 +1564,115 @@ impl Derived {
             _ => 0.0,
         }
     }
+}
+
+/// **§9's observer set** — the bounded list of important places a landmark is
+/// judged to be visible *from*, and the reason this pass is affordable.
+///
+/// §9 names settlements, roads, crossings, passes and ports; this takes the
+/// first two, which are the two this pass already has as entities rather than
+/// as rasters. A pass or a port is a *cell*, and a cell is already inside some
+/// settlement's or some road's horizon far more often than not — adding them
+/// would multiply the cost by their count and move the field very little.
+///
+/// Route sampling is §10 verbatim: walk each visible polyline and drop an
+/// observer every [`VIEW_WAY_SAMPLE_KM`], carrying the remainder across
+/// segment joins so a wiggly road is not over-sampled relative to a straight
+/// one.
+///
+/// **Settlements first.** Over [`VIEW_OBSERVER_CAP`] the list is strided, not
+/// truncated, so the sample stays spread over the map; and the road samples
+/// are strided to whatever the settlements leave, so a crowded world loses
+/// road detail before it loses towns.
+fn view_observers(inp: &LandmarkInputs<'_>) -> Vec<analysis::ViewObserver> {
+    let (gw, gh) = (inp.gw, inp.gh);
+    let cell_km = inp.cell_km();
+    let towns: Vec<analysis::ViewObserver> = inp
+        .settlements
+        .iter()
+        .filter(|s| s.x < gw && s.y < gh)
+        .map(|s| analysis::ViewObserver { x: s.x, y: s.y, weight: 1.0 })
+        .collect();
+    let mut road: Vec<analysis::ViewObserver> = Vec::new();
+    let step = if cell_km > 0.0 { (VIEW_WAY_SAMPLE_KM / cell_km).max(1.0) } else { 1.0 };
+    for w in inp.ways {
+        if w.hidden || w.pts.len() < 2 {
+            continue;
+        }
+        // `step`, so the first point of every way is sampled.
+        let mut carry = step;
+        for pair in w.pts.windows(2) {
+            let (ax, ay) = pair[0];
+            let (bx, by) = pair[1];
+            if !ax.is_finite() || !ay.is_finite() || !bx.is_finite() || !by.is_finite() {
+                continue;
+            }
+            let mut dx = bx - ax;
+            let dy = by - ay;
+            // The seam rule `WayGrid::build` and `Ctx::influence` both use.
+            if inp.world {
+                let gwf = gw as f64;
+                if dx > gwf * 0.5 {
+                    dx -= gwf;
+                } else if dx < -gwf * 0.5 {
+                    dx += gwf;
+                }
+            }
+            let len = (dx * dx + dy * dy).sqrt();
+            if !(len > 0.0) {
+                continue;
+            }
+            let mut t = 0f64;
+            loop {
+                let want = step - carry;
+                if t + want > len {
+                    carry += len - t;
+                    break;
+                }
+                t += want;
+                carry = 0.0;
+                let f = t / len;
+                let y = ay + dy * f;
+                if !(y >= 0.0) || y >= gh as f64 {
+                    continue;
+                }
+                let mut x = (ax + dx * f).floor() as i64;
+                if inp.world {
+                    x = x.rem_euclid(gw as i64);
+                } else if x < 0 || x >= gw as i64 {
+                    continue;
+                }
+                road.push(analysis::ViewObserver {
+                    x: x as usize,
+                    y: y.floor() as usize,
+                    weight: VIEW_WAY_WEIGHT,
+                });
+            }
+        }
+    }
+    let mut out = stride_to(towns, VIEW_OBSERVER_CAP);
+    let room = VIEW_OBSERVER_CAP.saturating_sub(out.len());
+    out.append(&mut stride_to(road, room));
+    out
+}
+
+/// At most `cap` of `v`, evenly spread through it rather than taken from the
+/// front — a truncated observer list would put every observer in one corner of
+/// the map, which is a different field, not a cheaper one.
+fn stride_to(
+    v: Vec<analysis::ViewObserver>,
+    cap: usize,
+) -> Vec<analysis::ViewObserver> {
+    if cap == 0 {
+        return Vec::new();
+    }
+    if v.len() <= cap {
+        return v;
+    }
+    let step = (v.len() as f64 / cap as f64).ceil().max(1.0) as usize;
+    let mut out: Vec<analysis::ViewObserver> = v.into_iter().step_by(step).collect();
+    out.truncate(cap);
+    out
 }
 
 /// The separable min and max of `field` over a `rad`-cell window — the two
@@ -2251,6 +2470,196 @@ const BRIDGE_TERMS: [(&str, f64); 4] = [
     ("settlement access", 0.15),
 ];
 
+/// **The viewshed sizing decision, made here and stated out loud.**
+///
+/// `LANDMARK_GENERATION_SCOPE.md` M7 records this as "blocked on an owner
+/// decision on the accuracy/cost tradeoff" and deliberately chooses no number.
+/// These six constants are that number, taken as a **conservative default
+/// subject to owner revision** rather than left blocking — the same posture
+/// `LOD_DETAIL_SCOPE.md`'s six owner questions already ship with. What was
+/// decided, and why:
+///
+/// 1. **A bounded horizon, not the map.** A naive all-pairs viewshed is
+///    `O(n²)` — 4.5 × 10¹⁵ cell pairs at the 8 192² ceiling, which is not a
+///    budget, it is a refusal. 40 km is roughly where a real landmark stops
+///    being a feature of *this* place: the geometric horizon from 100 m of
+///    elevation is 36 km, and haze takes most of what is past it.
+/// 2. **A bounded observer set, not every cell.** §9's own framing — `V(x) =
+///    Σ w_i · visibility(i, x)` over *important* places, not over the grid.
+///    [`view_observers`] builds it from the settlements and §10's route
+///    samples, capped at [`VIEW_OBSERVER_CAP`]. That makes the whole pass
+///    `O(k · r²)` in the observer count and the radius, and **independent of
+///    the grid size**.
+/// 3. **Curvature is kept, because it was measured and it is not small.** At
+///    this radius the refracted drop `d² / 2R_eff` is **109 m** at 40 km and
+///    27 m at 20 km, against a default `peak_m` of 4 000 m. Dropping it would
+///    make a 2 m observer on a plain see 40 km of flat ground, which is wrong
+///    by an order of magnitude — the real two-horizon distance for a 2 m eye
+///    and a 10 m target is 17.5 km, and
+///    `the_curvature_term_ends_a_flat_plains_visibility_at_the_horizon` pins
+///    exactly that. It costs one multiply per cell visited.
+///
+/// ## What it costs, measured
+///
+/// `cargo test -p cartalith-civ --lib -- --test-threads=1`, this machine,
+/// 2026-09-21, on worlds `cartalith_engine::generate_terrain` really made at
+/// 800 km across (seed 24601). Median of 7 for the field, of 5 for the pass,
+/// the harness run alone:
+///
+/// | grid | cell | observers | radius | **`analysis::visibility`** | whole landmark pass, these five disarmed → armed |
+/// |---|---|---|---|---|---|
+/// | 256 × 192 | 3.12 km | 210 | 13 cells (41 km) | **2.75 ms** (2.72..2.87) | 21.9 → 26.6 ms |
+/// | 512 × 384 | 1.56 km | 234 | 26 cells (41 km) | **10.37 ms** (10.34..10.49) | 100.9 → 116.2 ms |
+/// | 1024 × 768 | 0.78 km | 209 | 51 cells (40 km) | **30.50 ms** (30.25..30.76) | 434.7 → 488.7 ms |
+/// | 2048 × 1536 | 0.39 km | 185 | 102 cells (40 km) | **137.96 ms** (97.10..142.52) | — |
+///
+/// Four times the cells for four times the cost is `r²`, not `n` — the grid
+/// grew 64-fold across those rows and the radius is what moved the number. The
+/// whole field is a tenth of the pass it sits inside at every size measured.
+///
+/// **The consequence of the cell clamps, stated rather than hidden** (the same
+/// disclosure [`SCALE_MAX_CELLS`] carries): the radius is clamped in *cells*
+/// at both ends, so on a very coarse world it means more than 40 km and on a
+/// very fine one less. At 800 km it is honest up to 2048 (see
+/// [`VIEW_MAX_CELLS`]); at 4096 the cap means 20 km and at 8192 it means 10
+/// km, and on a 40 000 km world at 512 the *floor* of two cells means 156 km.
+const VIEW_RADIUS_KM: f64 = 40.0;
+/// The compute bound on [`VIEW_RADIUS_KM`], in cells, and **the number the
+/// cost is actually decided by** — the pass is `O(r²)` per observer.
+///
+/// `104`, and not a round number, because `800 km / 2048` is a 0.39 km cell
+/// and [`VIEW_RADIUS_KM`] is 102 cells there: this is the smallest cap that
+/// leaves the stated 40 km *true* at the resolution this project actually
+/// ships (`analysis::box_h`'s own doc comment names 2048 as the shipping
+/// default). It was 48 first, which cost 36.5 ms instead of 138 ms at that
+/// size and quietly meant 19 km — a constant whose name is twice its effect is
+/// the kind of thing that gets quoted later as if it were the radius.
+const VIEW_MAX_CELLS: i64 = 104;
+/// Below two cells a viewshed is the cell's own neighbourhood and says
+/// nothing — [`SCALE_MIN_CELLS`]' reasoning, for the same reason.
+const VIEW_MIN_CELLS: i64 = 2;
+/// **Category C, and a cost ceiling rather than a claim about importance.**
+/// The pass is linear in this. 256 observers at a 48-cell radius is about
+/// 4.8 million cell visits, which is the budget this row was blocked on.
+/// Settlements are taken first and route samples fill what is left, so a world
+/// with more than 256 towns loses road samples before it loses towns.
+const VIEW_OBSERVER_CAP: usize = 256;
+/// **§10's "sample observation points"**, in km of way per observer. Ten km is
+/// about a quarter of the horizon, so consecutive samples see overlapping
+/// ground and a road contributes a band rather than a string of discs.
+const VIEW_WAY_SAMPLE_KM: f64 = 10.0;
+/// **Category C — §9's `w_i`, "observer importance".** A settlement is `1.0`;
+/// a point on a road is half that, because a town watches its own horizon all
+/// day and a traveller passes once. The two numbers are the whole of the
+/// weighting model, and a consumer reads only their sum.
+const VIEW_WAY_WEIGHT: f32 = 0.5;
+/// Eye height above the observer's own ground, in metres. A person.
+const VIEW_EYE_M: f64 = 2.0;
+/// The height of what is being looked at, above its own ground, in metres —
+/// a tower, a monument, a fortification, not the bare cell.
+const VIEW_TARGET_M: f64 = 10.0;
+/// **The standard refracted Earth radius**: `6 371 km × 1.149`, the usual
+/// `k = 0.13` atmospheric-refraction correction folded into the radius so the
+/// drop is a plain `d² / 2R`. **Not Category C** — this is surveying practice,
+/// and it is the same planet the rest of this engine's km-and-metres already
+/// assume.
+const VIEW_EARTH_RADIUS_M: f64 = 7_320_000.0;
+
+/// **Category C.** How far a fortification can be from the thing it guards and
+/// still be guarding it — one day's march, and just above the 34 km Regional
+/// exclusion radius the design's own artboards draw, so a fort and the town it
+/// watches are never forced onto the same ring.
+///
+/// **Read from both sides, exactly as [`FORD_MAX_FLOW_MULT`] is.** A hilltop
+/// inside this distance of a settlement is a Fort; one outside it is a
+/// Watchtower. One number, two kinds, no cell claimed twice — and
+/// `the_four_military_kinds_partition_one_set_of_hilltops` pins it.
+const FORT_SETTLEMENT_REACH_KM: f64 = 35.0;
+/// **Category C.** How far the fortification sits from the pass or the
+/// crossing it overlooks. A fortified pass is not *in* the gap — it is on the
+/// shoulder above it, which is both what a real one is and what keeps this
+/// kind off `mountain_pass`'s own cell.
+const GARRISON_REACH_KM: f64 = 10.0;
+/// [`SCALE_MAX_CELLS`]' bound, applied to [`GARRISON_REACH_KM`]: this one is a
+/// per-candidate square scan rather than a separable pass, so its square is
+/// paid once per hilltop.
+const GARRISON_REACH_MAX_CELLS: i64 = 12;
+/// **Category C**, between [`RIDGE_MIN_TPI_M`] (40) and [`PEAK_MIN_PROMINENCE_M`]
+/// (100): commanding ground is more than a swell and less than a summit.
+const GARRISON_MIN_TPI_M: f64 = 60.0;
+/// **Category C.** You can build a keep on a steep hill and not on a face —
+/// well below [`CLIFF_MIN_GRADIENT`], well above [`HARBOUR_MAX_GRADIENT`].
+const GARRISON_MAX_GRADIENT: f64 = 0.12;
+
+/// §18's `S_castle`, **with one term dropped and said so**:
+/// `0.20·F_visibility + 0.20·F_strategic + 0.15·F_route + 0.15·F_settlement +
+/// 0.10·F_slope + 0.10·F_water + 0.10·F_political`. `F_political` is not here,
+/// because no faction/territory field reaches this pass and inventing one
+/// would be the fabrication this module refuses everywhere else — the same
+/// treatment [`WATERFALL_TERMS`] gives §7's `R`. The remaining six renormalise
+/// (see [`weighted_sum`]), so the ratios §18 states are preserved exactly.
+///
+/// The four military kinds share one set of six measurements and differ only
+/// in these weights and in their domain test. A weight of `0.0` means the
+/// term is not part of that kind's model at all.
+const FORT_TERMS: [(&str, f64); 6] = [
+    ("visibility", 0.20),
+    ("commanding ground", 0.20),
+    ("route access", 0.15),
+    ("settlement demand", 0.15),
+    ("buildable slope", 0.10),
+    ("water at hand", 0.10),
+];
+/// `kinds()`' own reason for this type reads "a watchtower is visibility and
+/// nothing else", and these weights are that sentence: half the model is the
+/// viewshed, and what is left is the ground it stands on and the road it
+/// watches. Water and buildable slope carry `0.0` — a tower is not a garrison
+/// and does not need a well or a bailey.
+const WATCHTOWER_TERMS: [(&str, f64); 6] = [
+    ("visibility", 0.50),
+    ("commanding ground", 0.25),
+    ("route access", 0.15),
+    ("settlement demand", 0.10),
+    ("buildable slope", 0.00),
+    ("water at hand", 0.00),
+];
+/// [`FORT_TERMS`] with the route weight raised at the settlement term's
+/// expense: what a fortified pass exists for is the corridor, and §8's own
+/// `S_pass` already ranks the gap itself.
+const FORTIFIED_PASS_TERMS: [(&str, f64); 6] = [
+    ("visibility", 0.20),
+    ("commanding ground", 0.25),
+    ("route access", 0.25),
+    ("settlement demand", 0.10),
+    ("buildable slope", 0.10),
+    ("water at hand", 0.10),
+];
+/// [`FORTIFIED_PASS_TERMS`]' shape over water instead of over a gap: the
+/// water term is the crossing, so it carries what the pass model gives the
+/// corridor.
+const FORTIFIED_CROSSING_TERMS: [(&str, f64); 6] = [
+    ("visibility", 0.20),
+    ("commanding ground", 0.20),
+    ("route access", 0.20),
+    ("settlement demand", 0.10),
+    ("buildable slope", 0.10),
+    ("water at hand", 0.20),
+];
+
+/// **Category C**, and the same line `build_lithology` already draws: its own
+/// `volc_th` is `0.35` (`cartalith-civ/src/lib.rs`), so a cell this pass calls
+/// volcanic is a cell the geology map already calls volcanic. Inventing a
+/// second threshold would be two engines disagreeing about one rock.
+const VOLCANIC_MIN_ACTIVITY: f64 = 0.35;
+/// A cone is seen before it is reached. §9.3 files this among the six
+/// viewshed-dominant types, so visibility carries nearly as much as the
+/// volcanism that defines the kind.
+const VOLCANIC_TERMS: [(&str, f64); 3] = [
+    ("volcanic activity", 0.45),
+    ("visibility", 0.30),
+    ("stands above its surroundings", 0.25),
+];
+
 /// §13's distance-decay exponent `β`.
 const GRAVITY_BETA: f64 = 1.5;
 
@@ -2467,6 +2876,37 @@ impl<'a> Ctx<'a> {
             let d = (dx * dx + dy * dy).sqrt() * cell;
             if d < best {
                 best = d;
+            }
+        }
+        best
+    }
+
+    /// A distance in km as a cell radius, floored at one cell and capped at
+    /// `max` for [`SCALE_MAX_CELLS`]' compute reason.
+    fn cells(&self, km: f64, max: i64) -> i64 {
+        if !(self.cell_km > 0.0) {
+            return 1;
+        }
+        ((km / self.cell_km).round() as i64).clamp(1, max)
+    }
+
+    /// The maximum of `f` over a `rad`-cell square window around `(x, y)`.
+    ///
+    /// **Per candidate, deliberately, and not a [`sep_min_max`] pass.** That
+    /// one answers the same question for every cell on the map and its own doc
+    /// comment records it as the largest line in this pass; the military
+    /// detectors ask it of a few thousand hilltops, where `(2r+1)²` per
+    /// candidate is far the cheaper of the two.
+    fn window_max(&self, x: usize, y: usize, rad: i64, f: impl Fn(usize) -> f64) -> f64 {
+        let mut best = f64::NEG_INFINITY;
+        for dy in -rad..=rad {
+            for dx in -rad..=rad {
+                if let Some(j) = self.nb(x, y, dx, dy) {
+                    let v = f(j);
+                    if v > best {
+                        best = v;
+                    }
+                }
             }
         }
         best
@@ -3477,6 +3917,266 @@ fn pool_depot(c: &Ctx<'_>) -> Option<Pool> {
     Some(p)
 }
 
+/// Which of the four things a fortified hilltop is. The roles **partition**
+/// one candidate set; see [`pool_military`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Garrison {
+    /// Overlooking a mountain pass.
+    Pass,
+    /// Overlooking a river crossing a way really uses.
+    Crossing,
+    /// Inside a settlement's own reach, guarding its approaches.
+    Fort,
+    /// Beyond every settlement's reach — an outpost, not a garrison.
+    Watch,
+}
+
+/// **§18's `S_castle` and its three relatives — one detector, four roles.**
+///
+/// The domain is commanding ground: a local maximum of the broad TPI, which is
+/// a knoll or a spur rather than [`pool_peak`]'s summit (that one is a maximum
+/// of the *height* over the broad window, and the two coincide only by
+/// accident). The hard constraints are §18's own preconditions read literally
+/// — it must command something ([`GARRISON_MIN_TPI_M`]), you must be able to
+/// build on it ([`GARRISON_MAX_GRADIENT`]), and **something must be able to
+/// see it**.
+///
+/// ## The viewshed is the gate, not a garnish
+///
+/// `vis > 0` is a hard constraint here, and it is the whole reason these four
+/// kinds were `buildable: false` until now. A hilltop no settlement and no
+/// road can see is not a fort site — it is a hill — and §18 puts `F_visibility`
+/// at the joint-largest weight in the model. A candidate that fails it is
+/// counted as a constraint rejection, so the funnel says so out loud.
+///
+/// ## Why one function
+///
+/// Because the four **partition** one set of hilltops rather than each
+/// detecting their own, and a partition is only trustworthy if it is written
+/// once. A hilltop over a pass is a fortified pass; failing that, one over a
+/// crossing is a fortified crossing; failing both, one inside
+/// [`FORT_SETTLEMENT_REACH_KM`] of a town is a fort and one outside it is a
+/// watchtower. No cell can satisfy two of those, which is the same
+/// double-count refusal `river_crossing`'s own `not_built` reason makes and
+/// the same one-number-read-from-both-sides shape Ford and Bridge site
+/// already use.
+///
+/// The six measurements are shared and the weights are each role's own; a
+/// `0.0` weight means the term is not in that model at all, and a measurement
+/// whose input this world lacks is dropped from the sum rather than scored
+/// zero (`an_absent_term_renormalises_instead_of_scoring_zero`).
+fn pool_military(c: &Ctx<'_>, role: Garrison) -> Option<Pool> {
+    // The viewshed **is** this family's input. No observers, no field, no
+    // military landmark — the same honest `NoTerrain` a missing raster gets.
+    if c.d.vis.is_empty() || c.d.tpi_hi.is_empty() || c.d.tpi_broad.is_empty() {
+        return None;
+    }
+    let has_settle = !c.inp.settlements.is_empty();
+    // Fort and Watchtower are the two sides of one distance test. With no
+    // settlement anywhere there is no test, and neither kind has a domain —
+    // the refusal `a_trade_road_kind_refuses_rather_than_fabricating_without_
+    // settlements` already pins for the trade kinds.
+    if matches!(role, Garrison::Fort | Garrison::Watch) && !has_settle {
+        return None;
+    }
+    if role == Garrison::Pass && c.corridors.is_none() {
+        return None;
+    }
+    let ways = c.ways.as_ref();
+    if role == Garrison::Crossing && (ways.is_none() || c.chan.is_none()) {
+        return None;
+    }
+    let gw = c.inp.gw;
+    let reach = c.cells(GARRISON_REACH_KM, GARRISON_REACH_MAX_CELLS);
+    let view_km = c.d.r_view as f64 * c.cell_km;
+    let terms: &[(&'static str, f64); 6] = match role {
+        Garrison::Fort => &FORT_TERMS,
+        Garrison::Watch => &WATCHTOWER_TERMS,
+        Garrison::Pass => &FORTIFIED_PASS_TERMS,
+        Garrison::Crossing => &FORTIFIED_CROSSING_TERMS,
+    };
+    let mut p = Pool::new();
+    // The six raw vectors, in the order the role tables list them.
+    let mut raw: [Vec<f32>; 6] = [vec![], vec![], vec![], vec![], vec![], vec![]];
+    for i in 0..c.n {
+        // Domain: land, and the most commanding ground within a few km.
+        if !c.is_land(i) || c.d.tpi_broad(i) < c.d.tpi_hi[i] {
+            continue;
+        }
+        // **Never the pass cell itself.** That record belongs to
+        // `mountain_pass`, and a second one on the same cell would be the
+        // double-count `river_crossing`'s own `not_built` reason refuses. The
+        // fortification is on the shoulder; the gap is the pass.
+        if let Some(cor) = c.corridors
+            && (cor[i] as f64) >= PASS_MIN_CORRIDOR
+        {
+            continue;
+        }
+        let (x, y) = (i % gw, i / gw);
+        // The partition. Both questions are asked of every candidate, whatever
+        // role is running, so the four answers cannot drift apart.
+        let near_pass = match c.corridors {
+            Some(cor) => c.window_max(x, y, reach, |j| cor[j] as f64) >= PASS_MIN_CORRIDOR,
+            None => false,
+        };
+        let near_crossing = match (ways, c.chan) {
+            (Some(g), Some(ch)) => {
+                ch[i] == 0
+                    && c.window_max(x, y, reach, |j| {
+                        if g.ways_here[j] > 0 && ch[j] != 0 { 1.0 } else { 0.0 }
+                    }) > 0.0
+            }
+            _ => false,
+        };
+        let town_km =
+            if has_settle { c.nearest_settlement_km(x, y) } else { f64::INFINITY };
+        let near_town = town_km <= FORT_SETTLEMENT_REACH_KM;
+        let mine = match role {
+            Garrison::Pass => near_pass,
+            Garrison::Crossing => !near_pass && near_crossing,
+            Garrison::Fort => !near_pass && !near_crossing && near_town,
+            Garrison::Watch => !near_pass && !near_crossing && !near_town,
+        };
+        if !mine {
+            // Another role's cell, or nobody's. Not a rejection: it never
+            // entered this kind's funnel.
+            continue;
+        }
+        let tpi_m = c.inp.dh_m(c.d.tpi_broad(i) as f64);
+        let vis = c.d.vis(i);
+        let grad = c.gradient(i);
+        if tpi_m < GARRISON_MIN_TPI_M || !(vis > 0.0) || grad > GARRISON_MAX_GRADIENT {
+            p.rejected_constraint += 1;
+            continue;
+        }
+        // `rank` is meaningless where no way runs, so the measure is
+        // "rank + 1 where there is a way, 0 where there is none" — otherwise a
+        // track and open country would score the same.
+        let route = match ways {
+            Some(g) => c.window_max(x, y, reach, |j| {
+                if g.ways_here[j] > 0 { g.rank[j] as f64 + 1.0 } else { 0.0 }
+            }),
+            None => 0.0,
+        };
+        let water = match c.flow {
+            Some(f) => c.window_max(x, y, reach, |j| f[j] as f64),
+            None => 0.0,
+        };
+        let cause = match role {
+            Garrison::Pass => "commanding ground on the shoulder of a mountain pass",
+            Garrison::Crossing => "commanding ground over a crossing a way really uses",
+            Garrison::Fort => "commanding ground inside a settlement's own reach",
+            Garrison::Watch => "an isolated vantage beyond every settlement's reach",
+        };
+        let mut facts = vec![
+            cause.to_string(),
+            format!("stands {} above its surroundings", fmt_m(tpi_m)),
+            format!(
+                "in view of settlements and roads within {}, at observer weight {:.1}",
+                fmt_km(view_km),
+                vis
+            ),
+        ];
+        if has_settle {
+            facts.push(format!("nearest settlement {}", fmt_km(town_km)));
+        }
+        if ways.is_some() && route > 0.0 {
+            facts.push(format!(
+                "a {} within {}",
+                rank_label((route as u8).saturating_sub(1)),
+                fmt_km(reach as f64 * c.cell_km)
+            ));
+        }
+        p.cands.push(Cand { i, x, y, facts });
+        raw[0].push(vis as f32);
+        raw[1].push(tpi_m as f32);
+        if ways.is_some() {
+            raw[2].push(route as f32);
+        }
+        if has_settle {
+            raw[3].push(c.influence(x, y) as f32);
+        }
+        raw[4].push(-grad as f32);
+        if c.flow.is_some() {
+            raw[5].push(water as f32);
+        }
+    }
+    let ncands = p.cands.len();
+    for (k, (label, w)) in terms.iter().enumerate() {
+        if *w > 0.0 && raw[k].len() == ncands {
+            p.terms.push((*label, *w, std::mem::take(&mut raw[k])));
+        }
+    }
+    Some(p)
+}
+
+/// A cone, a caldera or a lava field — a local maximum of the volcanism field
+/// the geology map already reads, seen from somewhere that matters.
+///
+/// The raster has reached this pass since the M8 residual work
+/// ([`LandmarkInputs::volcanism`]) and nothing read it, because §9.3 files this
+/// among the six types whose dominant term is the viewshed. Both halves are
+/// here now. **Visibility is a term and not a gate**, unlike
+/// [`pool_military`]'s: a volcano nobody can see is still a volcano, and the
+/// honest statement is that it ranks below one that can be seen — which is
+/// exactly what a weight is for.
+fn pool_volcanic(c: &Ctx<'_>) -> Option<Pool> {
+    let vol = c.inp.grid(c.inp.volcanism)?;
+    if c.d.vis.is_empty() || c.d.tpi_broad.is_empty() {
+        return None;
+    }
+    let gw = c.inp.gw;
+    let (vmin, vmax) = sep_min_max(vol, gw, c.inp.gh, c.d.r_fine, c.inp.world);
+    let view_km = c.d.r_view as f64 * c.cell_km;
+    let mut p = Pool::new();
+    let (mut t_v, mut t_s, mut t_t) = (vec![], vec![], vec![]);
+    for i in 0..c.n {
+        // One vent per centre: a local maximum of activity, not every cell
+        // above the floor — **and a window with some variation in it**. The
+        // volcanic field is zero over most of the map, and without the second
+        // test every cell of that plateau is its own window's maximum: 37 792
+        // "candidates" on a 256 x 192 world, 37 777 of them rejected by the
+        // floor. A funnel that reports the whole map has told the user
+        // nothing, which is the same objection this file's own detector
+        // header already makes about six million candidates.
+        if !c.is_land(i) || vol[i] < vmax[i] || !(vmax[i] > vmin[i]) {
+            continue;
+        }
+        let a = vol[i] as f64;
+        if !(a >= VOLCANIC_MIN_ACTIVITY) {
+            p.rejected_constraint += 1;
+            continue;
+        }
+        let (x, y) = (i % gw, i / gw);
+        let tpi_m = c.inp.dh_m(c.d.tpi_broad(i) as f64);
+        let vis = c.d.vis(i);
+        p.cands.push(Cand {
+            i,
+            x,
+            y,
+            facts: vec![
+                "a local maximum of the same volcanism field the geology map reads".to_string(),
+                format!("volcanic activity {:.2}", a),
+                format!("stands {} above its surroundings", fmt_m(tpi_m)),
+                format!(
+                    "in view of settlements and roads within {}, at observer weight {:.1}",
+                    fmt_km(view_km),
+                    vis
+                ),
+            ],
+        });
+        t_v.push(a as f32);
+        t_s.push(vis as f32);
+        t_t.push(tpi_m as f32);
+    }
+    p.terms = vec![
+        (VOLCANIC_TERMS[0].0, VOLCANIC_TERMS[0].1, t_v),
+        (VOLCANIC_TERMS[1].0, VOLCANIC_TERMS[1].1, t_s),
+        (VOLCANIC_TERMS[2].0, VOLCANIC_TERMS[2].1, t_t),
+    ];
+    Some(p)
+}
+
 /// The one place a key becomes a detector. A key with no arm here is not
 /// buildable, and [`kinds`] must say so.
 fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
@@ -3509,6 +4209,11 @@ fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
             pool_trade_road(c, false, CARAVAN_MIN_SETTLEMENT_KM, &CARAVAN_TERMS)
         }
         "trade_depot" => pool_depot(c),
+        "fort" => pool_military(c, Garrison::Fort),
+        "watchtower" => pool_military(c, Garrison::Watch),
+        "fortified_pass" => pool_military(c, Garrison::Pass),
+        "fortified_crossing" => pool_military(c, Garrison::Crossing),
+        "volcanic_feature" => pool_volcanic(c),
         _ => None,
     }
 }
@@ -4066,6 +4771,13 @@ mod tests {
         /// uniform low background everywhere else. Rock formation's whole
         /// domain; nothing else reads this field.
         resistance: Vec<f32>,
+        /// Two vents on the western belt, standing in for
+        /// `WorldState::volcanic_field`. Volcanic feature's whole domain is a
+        /// local maximum of this above `VOLCANIC_MIN_ACTIVITY`, and the
+        /// fixture had no such field at all until that kind was built — which
+        /// is why `every_buildable_kind_can_actually_place_one` caught it
+        /// rather than the flag shipping green over an absent input.
+        volcanism: Vec<f32>,
         settlements: Vec<LandmarkSite>,
         /// The **routed** way network over this same terrain, produced by the
         /// engine's own `civ_hierarchical_network_topology` +
@@ -4238,6 +4950,18 @@ mod tests {
                 }
                 v
             },
+            volcanism: {
+                // Both centres sit on the land strip west of `fx = 0.38` and
+                // clear of the closed basin at (0.20, 0.50).
+                let mut v = blob(gw, gh, 0.12, 0.35, 0.030);
+                let b = blob(gw, gh, 0.25, 0.75, 0.030);
+                for i in 0..v.len() {
+                    if b[i] > v[i] {
+                        v[i] = b[i];
+                    }
+                }
+                v
+            },
             settlements: towns(gw, gh)
                 .iter()
                 .map(|(x, y, pop)| LandmarkSite {
@@ -4260,6 +4984,7 @@ mod tests {
         i.water = Some(&w.water);
         i.corridors = Some(&w.corridors);
         i.resistance = Some(&w.resistance);
+        i.volcanism = Some(&w.volcanism);
         i.resources = res;
         i.settlements = &w.settlements;
         i.ways = &w.ways;
@@ -4572,6 +5297,9 @@ mod tests {
                 "caravan_station",
                 "cliff",
                 "ford",
+                "fort",
+                "fortified_crossing",
+                "fortified_pass",
                 "gorge",
                 "harbour",
                 "lake",
@@ -4587,9 +5315,11 @@ mod tests {
                 "rock_formation",
                 "spring",
                 "trade_depot",
+                "volcanic_feature",
+                "watchtower",
                 "waterfall",
             ],
-            "the twenty kinds this engine actually generates"
+            "the twenty-five kinds this engine actually generates"
         );
         // Every buildable key must have a detector, and no non-buildable key
         // may have one — otherwise the table and the pass disagree about what
@@ -4619,6 +5349,11 @@ mod tests {
                         | "market_site"
                         | "caravan_station"
                         | "trade_depot"
+                        | "fort"
+                        | "watchtower"
+                        | "fortified_pass"
+                        | "fortified_crossing"
+                        | "volcanic_feature"
                 ),
                 "{} disagrees with `detect`",
                 k.key
@@ -4881,6 +5616,314 @@ mod tests {
                 l.kind,
                 l.x,
                 l.y
+            );
+        }
+    }
+
+    /// **The five kinds the viewshed closed, on a world nobody shaped for
+    /// them** — the same bar
+    /// `every_way_graph_kind_places_on_a_world_generate_terrain_really_made`
+    /// set for the way graph, and for the same reason: a flag flipped to
+    /// `buildable` on a kind that then places nothing is the failure
+    /// `UNWIRED_FUNCTIONS.md` exists for.
+    ///
+    /// It asserts more than "something appeared". Every placement is re-opened
+    /// against the field that put it there: it must really be seen from
+    /// somewhere, really stand above its surroundings, and really be on the
+    /// side of [`FORT_SETTLEMENT_REACH_KM`] its own kind claims.
+    #[test]
+    fn every_viewshed_kind_places_on_a_world_generate_terrain_really_made() {
+        let r = real_world(256, 192, 24601);
+        let pairs = real_resource_pairs(&r.resources);
+        let inp = real_inputs(&r, &pairs);
+        let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
+        let out = generate(&inp, &s, 7);
+        for key in
+            ["fort", "watchtower", "fortified_pass", "fortified_crossing", "volcanic_feature"]
+        {
+            let f = out.funnel(key).expect("every kind has a funnel");
+            println!("{:20} placed {:3} of {:3}  {:?}", key, f.placed, f.cap, f);
+            assert!(f.placed > 0, "{} placed nothing on a real world: {:?}", key, f);
+        }
+        // Re-open every placement against the fields, not against the funnel.
+        let need = ["fort", "watchtower", "fortified_pass", "fortified_crossing"]
+            .iter()
+            .fold(Needs::default(), |a, k| a.merge(Needs::of(k)));
+        let ctx = Ctx::build(&inp, need);
+        let military = ["fort", "watchtower", "fortified_pass", "fortified_crossing"];
+        let mut checked = 0usize;
+        for l in out.landmarks.iter().filter(|l| military.contains(&l.kind.as_str())) {
+            let i = l.y * r.gw + l.x;
+            checked += 1;
+            assert!(
+                ctx.d.vis(i) > 0.0,
+                "{} at ({}, {}) is visible from nowhere — the gate did not fire",
+                l.kind,
+                l.x,
+                l.y
+            );
+            // Literals, not the constants: `x >= GARRISON_MIN_TPI_M` is true
+            // for every value of `GARRISON_MIN_TPI_M` and would survive any
+            // re-pointing of it. These are the numbers as they stand
+            // (`GARRISON_MIN_TPI_M` 60 m, `GARRISON_MAX_GRADIENT` 0.12), and a
+            // change to either is meant to bring this test down with it.
+            assert!(
+                inp.dh_m(ctx.d.tpi_broad(i) as f64) >= 60.0,
+                "{} at ({}, {}) does not command its surroundings",
+                l.kind,
+                l.x,
+                l.y
+            );
+            assert!(ctx.gradient(i) <= 0.12, "{} is on a face", l.kind);
+            let km = ctx.nearest_settlement_km(l.x, l.y);
+            // 35.0 is `FORT_SETTLEMENT_REACH_KM`, written out for the reason
+            // above — and read from both sides, which is what makes the two
+            // kinds a partition rather than two models.
+            if l.kind == "fort" {
+                assert!(km <= 35.0, "a fort {} from any town", fmt_km(km));
+            }
+            if l.kind == "watchtower" {
+                assert!(km > 35.0, "a watchtower {} from a town", fmt_km(km));
+            }
+        }
+        assert!(checked >= 4, "only {} military placements to check", checked);
+    }
+
+    /// **The viewshed is load-bearing, and this is how that is known.**
+    ///
+    /// Take the same real world and remove every observer — no settlements, no
+    /// ways. The terrain is untouched, every hilltop is still a hilltop, and
+    /// all five kinds must report `NoTerrain` and place nothing. A detector
+    /// that had quietly stopped reading `Derived::vis` would still place here.
+    #[test]
+    fn with_no_observers_anywhere_no_viewshed_kind_places_anything() {
+        let r = real_world(256, 192, 24601);
+        let pairs = real_resource_pairs(&r.resources);
+        let mut inp = real_inputs(&r, &pairs);
+        inp.settlements = &[];
+        inp.ways = &[];
+        let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
+        let out = generate(&inp, &s, 7);
+        for key in
+            ["fort", "watchtower", "fortified_pass", "fortified_crossing", "volcanic_feature"]
+        {
+            let f = out.funnel(key).expect("every kind has a funnel");
+            assert_eq!(f.limit, LandmarkLimit::NoTerrain, "{}: {:?}", key, f);
+            assert_eq!(f.placed, 0, "{} placed with nothing able to see it", key);
+        }
+        // The control: a kind that reads no observer is unaffected, so this is
+        // the viewshed going away and not the world.
+        assert!(out.placed("peak") > 0, "peak needs no observer and must still place");
+    }
+
+    /// **[`GARRISON_MAX_GRADIENT`] is load-bearing**, and — like the volcanic
+    /// floor — no real world here reaches it: a local maximum of the broad TPI
+    /// is nearly always a hilltop, where the central differences cancel and
+    /// the gradient is ~0. Mutating the constant to `9.0` changed nothing on
+    /// either the fixture world or a `generate_terrain` one, which is what
+    /// sent this fixture looking for the shape that does reach it.
+    ///
+    /// That shape is an **escarpment crest**, not a spire: a symmetric summit
+    /// has no gradient at its own apex, so only an asymmetric high point can
+    /// be both the most commanding ground around and unbuildable. Plateau at
+    /// 0.80 west of `x = 31`, plain at 0.50 east of it, and the last high
+    /// column is the TPI maximum — gradient 0.33 against a limit of 0.12.
+    ///
+    /// **The control is a cone and not a Gaussian, and that is not a detail.**
+    /// The first draft used a Gaussian hill and it placed nothing: a convex
+    /// flank hides its own summit from a low observer (the angle to the
+    /// hillside at 15 km beat the angle to the top at 22 km, once the
+    /// curvature drop was taken off both), so the "control" was invisible and
+    /// the viewshed gate — correctly — refused it. A cone's angle rises
+    /// monotonically toward its apex, which is the shape a false-crest test
+    /// does not want.
+    #[test]
+    fn commanding_ground_you_cannot_build_on_is_refused() {
+        let (gw, gh) = (64usize, 64usize);
+        let mut f = vec![0.50f32; gw * gh];
+        for y in 0..gh {
+            for x in 0..gw {
+                if x <= 31 {
+                    f[y * gw + x] = 0.80;
+                } else {
+                    // A cone of radius 6 cells and 0.12 units (~830 m),
+                    // clear of the escarpment's own 8-cell blur window.
+                    let d = (((x as f64 - 48.0).powi(2) + (y as f64 - 48.0).powi(2)).sqrt()
+                        / 6.0)
+                        .min(1.0);
+                    f[y * gw + x] = (0.50 + 0.12 * (1.0 - d)) as f32;
+                }
+            }
+        }
+        // One town for each feature, both inside `FORT_SETTLEMENT_REACH_KM`
+        // (3.125 km cells: 9 cells to the crest, 8 to the cone's apex).
+        let sites = [
+            LandmarkSite { x: 40, y: 32, population: 9_000.0 },
+            LandmarkSite { x: 56, y: 48, population: 9_000.0 },
+        ];
+        let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, 200.0);
+        inp.peak_m = PEAK_M;
+        inp.settlements = &sites;
+        let mut set = LandmarkSettings::default();
+        for k in kinds() {
+            set.set_armed(k.key, k.key == "fort");
+        }
+        let out = generate(&inp, &set, 5);
+        let fun = out.funnel("fort").expect("a funnel");
+        let ctx = Ctx::build(&inp, Needs::of("fort"));
+        // The fixture really does present the crest to the detector: in the
+        // domain, in sight, commanding — and unbuildable. Without these four
+        // the rejection below could be some other cell entirely.
+        let crest = 32 * gw + 31;
+        assert!(ctx.d.tpi_broad(crest) >= ctx.d.tpi_hi[crest], "the crest is not in the domain");
+        assert!(ctx.d.vis(crest) > 0.0, "the crest is not in sight of the town");
+        assert!(inp.dh_m(ctx.d.tpi_broad(crest) as f64) >= 60.0, "the crest does not command");
+        assert!(ctx.gradient(crest) > 0.12, "the crest is not steep");
+        assert!(
+            ctx.nearest_settlement_km(31, 32) <= 35.0,
+            "the crest is out of the fort's reach and would be a watchtower"
+        );
+        assert!(fun.placed > 0, "the cone must still be a fort site: {:?}", fun);
+        for l in &out.landmarks {
+            let i = l.y * gw + l.x;
+            // 0.12 is `GARRISON_MAX_GRADIENT`, written out so re-pointing the
+            // constant brings this down rather than following it.
+            assert!(
+                ctx.gradient(i) <= 0.12,
+                "a fort at ({}, {}) on ground of {:.3}",
+                l.x,
+                l.y,
+                ctx.gradient(i)
+            );
+        }
+    }
+
+    /// **The field these kinds read is the curved one.** A flat plain, one
+    /// settlement, nothing in the way: visibility still stops, because a 2 m
+    /// eye and a 10 m target part company at about 17.5 km. Both cells tested
+    /// are inside the 40 km radius, so a zero here is the curvature term and
+    /// not the cap — mutate [`VIEW_EARTH_RADIUS_M`] to `0.0` and the far one
+    /// lights up.
+    #[test]
+    fn the_visibility_field_these_kinds_read_carries_the_curve() {
+        let (gw, gh) = (64usize, 64usize);
+        let f = vec![0.60f32; gw * gh];
+        let site = [LandmarkSite { x: 10, y: 32, population: 9_000.0 }];
+        let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, 200.0);
+        inp.peak_m = PEAK_M;
+        inp.settlements = &site;
+        let ctx = Ctx::build(&inp, Needs::of("fort"));
+        // 3.125 km cells: 4 cells is 12.5 km, 10 cells is 31.2 km, and the
+        // radius in force is 13 cells (40.6 km).
+        assert_eq!(ctx.d.r_view, 13);
+        assert!(ctx.d.vis(32 * gw + 14) > 0.0, "12.5 km of flat ground is inside any horizon");
+        assert_eq!(ctx.d.vis(32 * gw + 20), 0.0, "31 km of flat ground is over the horizon");
+    }
+
+    /// **[`VOLCANIC_MIN_ACTIVITY`] is load-bearing**, and a real world could
+    /// not show it: every vent `generate_terrain` produced is well above the
+    /// floor, so the funnel there reports zero constraint rejections and the
+    /// constant is never exercised. This is the fixture shaped to reach the
+    /// code — one vent, twice, once either side of the line.
+    ///
+    /// The assertion is against a **literal** `0.30`/`0.50` rather than
+    /// against the constant, so re-pointing the constant cannot make the test
+    /// agree with itself.
+    #[test]
+    fn the_volcanic_activity_floor_is_load_bearing() {
+        let (gw, gh) = (64usize, 64usize);
+        let field = flat(gw, gh);
+        let site = [LandmarkSite { x: 10, y: 32, population: 5_000.0 }];
+        let run = |peak: f32| -> LandmarkFunnel {
+            let mut vol = vec![0f32; gw * gh];
+            for y in 0..gh {
+                for x in 0..gw {
+                    let d2 = (x as f64 - 40.0).powi(2) + (y as f64 - 32.0).powi(2);
+                    vol[y * gw + x] = (peak as f64 * (-d2 / 18.0).exp()) as f32;
+                }
+            }
+            let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, 200.0);
+            inp.peak_m = PEAK_M;
+            inp.volcanism = Some(&vol);
+            inp.settlements = &site;
+            let mut s = LandmarkSettings::default();
+            for k in kinds() {
+                s.set_armed(k.key, k.key == "volcanic_feature");
+            }
+            generate(&inp, &s, 3).funnel("volcanic_feature").cloned().expect("a funnel")
+        };
+        let hot = run(0.50);
+        assert_eq!(hot.placed, 1, "a vent at 0.50 is a volcanic feature: {:?}", hot);
+        let cold = run(0.30);
+        assert_eq!(cold.placed, 0, "a vent at 0.30 is below the floor: {:?}", cold);
+        assert!(
+            cold.rejected_constraint >= 1,
+            "and it must be rejected by the constraint, not missing from the domain: {:?}",
+            cold
+        );
+    }
+
+    /// The four military kinds **partition** one set of hilltops: no cell is
+    /// claimed by two of them. Run with cross-type competition off, so it is
+    /// the partition being tested and not the spacing rings.
+    #[test]
+    fn the_four_military_kinds_partition_one_set_of_hilltops() {
+        let r = real_world(256, 192, 24601);
+        let pairs = real_resource_pairs(&r.resources);
+        let inp = real_inputs(&r, &pairs);
+        let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
+        let out = generate(&inp, &s, 7);
+        // Not the placements — the *candidates*, which is where a partition
+        // either holds or does not. A placement set can be disjoint by luck.
+        let need = ["fort", "watchtower", "fortified_pass", "fortified_crossing"]
+            .iter()
+            .fold(Needs::default(), |a, k| a.merge(Needs::of(k)));
+        let ctx = Ctx::build(&inp, need);
+        let mut seen: std::collections::BTreeMap<usize, &str> = Default::default();
+        let mut total = 0usize;
+        for (key, role) in [
+            ("fort", Garrison::Fort),
+            ("watchtower", Garrison::Watch),
+            ("fortified_pass", Garrison::Pass),
+            ("fortified_crossing", Garrison::Crossing),
+        ] {
+            let p = pool_military(&ctx, role).expect("every role has a pool on this world");
+            println!("{:20} {:5} candidates", key, p.cands.len());
+            assert!(!p.cands.is_empty(), "{} found no candidate at all", key);
+            total += p.cands.len();
+            for c in &p.cands {
+                if let Some(other) = seen.insert(c.i, key) {
+                    panic!("cell {} is both a {} and a {}", c.i, other, key);
+                }
+            }
+        }
+        assert_eq!(seen.len(), total, "a cell was counted twice");
+        // And none of them is a mountain pass's own cell or a ford's. The four
+        // reasons these kinds carried while unbuilt all turned on not putting
+        // a second record on a cell that already has one.
+        let military: std::collections::BTreeSet<(usize, usize)> = out
+            .landmarks
+            .iter()
+            .filter(|l| {
+                matches!(
+                    l.kind.as_str(),
+                    "fort" | "watchtower" | "fortified_pass" | "fortified_crossing"
+                )
+            })
+            .map(|l| (l.x, l.y))
+            .collect();
+        for l in &out.landmarks {
+            if matches!(l.kind.as_str(), "mountain_pass" | "ford" | "bridge_site")
+                && military.contains(&(l.x, l.y))
+            {
+                panic!("a {} at ({}, {}) already carries a military landmark", l.kind, l.x, l.y);
+            }
+        }
+        for l in out.landmarks.iter().filter(|l| l.kind == "fortified_pass") {
+            let i = l.y * r.gw + l.x;
+            assert!(
+                (r.corridors[i] as f64) < 0.35,
+                "a fortified pass is standing in the gap, not over it (0.35 is PASS_MIN_CORRIDOR)"
             );
         }
     }
@@ -5569,7 +6612,10 @@ mod tests {
         assert_eq!(r.funnel("peak").unwrap().limit, LandmarkLimit::Disarmed);
         assert_eq!(r.placed("peak"), 0);
         assert_eq!(r.funnel("shrine").unwrap().limit, LandmarkLimit::NotBuildable);
-        assert_eq!(r.funnel("fort").unwrap().limit, LandmarkLimit::NotBuildable);
+        // Border marker, not Fort: Fort is generated now, and the Military
+        // family's remaining unbuildable row is the one with no territory
+        // field behind it.
+        assert_eq!(r.funnel("border_marker").unwrap().limit, LandmarkLimit::NotBuildable);
         // A cap of zero is the slider's own `off` stop.
         let mut s2 = LandmarkSettings::default();
         s2.set_cap("peak", 0);
@@ -5582,10 +6628,10 @@ mod tests {
         let w = world(128, 96, 1000.0);
         let inp = inputs(&w, &[]);
         let mut s = LandmarkSettings::default();
-        s.set_armed("fort", true);
+        s.set_armed("border_marker", true);
         let r = generate(&inp, &s, 1);
-        assert_eq!(r.funnel("fort").unwrap().limit, LandmarkLimit::NotBuildable);
-        assert_eq!(r.placed("fort"), 0);
+        assert_eq!(r.funnel("border_marker").unwrap().limit, LandmarkLimit::NotBuildable);
+        assert_eq!(r.placed("border_marker"), 0);
     }
 
     #[test]
@@ -6466,5 +7512,43 @@ mod tests {
         assert_eq!(LandmarkClass::Regional.index(), 1);
         assert_eq!(LandmarkClass::Local.index(), 2);
         assert_eq!(LandmarkClass::Cultural.index(), 3);
+    }
+
+    /// `OUTSTANDING_WORK.md`'s *"Nothing tells the user a landmark result
+    /// predates their icons"* row: `LandmarkStore::icon_placed_since_run`'s
+    /// own bookkeeping, isolated from `generate`'s placement logic (that is
+    /// what every other test in this file already exercises). A trivial 4x4
+    /// flat field is enough — this test asserts on the flag, not on what
+    /// `run` placed.
+    #[test]
+    fn icon_placed_since_run_tracks_commit_and_run_not_every_call() {
+        let field = vec![0.6f32; 16];
+        let inputs = LandmarkInputs::new(&field, 4, 4, SEA, false, 40.0);
+        let mut store = LandmarkStore::new();
+
+        assert!(!store.icon_placed_since_run, "false before anything happened");
+        assert!(store.last.is_none());
+
+        store.run(&inputs, 1);
+        assert!(!store.icon_placed_since_run, "a fresh run cannot predate anything");
+        assert!(store.last.is_some());
+
+        store.mark_icon_committed();
+        assert!(store.icon_placed_since_run, "a committed placement after the run sets it");
+        // Idempotent -- repeated commits (a brush stroke's several real
+        // stamps) must not need a second read to matter.
+        store.mark_icon_committed();
+        assert!(store.icon_placed_since_run);
+
+        store.run(&inputs, 1);
+        assert!(!store.icon_placed_since_run, "re-running the pass clears it");
+
+        // `invalidate()` (the world moved underneath it) also clears it: once
+        // `last` is gone there is no standing result left to call stale.
+        store.mark_icon_committed();
+        assert!(store.icon_placed_since_run);
+        store.invalidate();
+        assert!(store.last.is_none());
+        assert!(!store.icon_placed_since_run, "nothing left to predate once `last` is gone");
     }
 }

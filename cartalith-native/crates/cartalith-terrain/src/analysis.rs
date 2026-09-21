@@ -479,6 +479,189 @@ pub fn normalise<F: Fn(usize) -> bool>(field: &[f32], mask: F) -> Vec<f32> {
     out
 }
 
+// ===========================================================================
+// §9 — visibility / viewshed
+// ===========================================================================
+
+/// One observation point for [`visibility`] — §9's `i` in
+/// `V(x) = Σ w_i · visibility(i, x)`.
+///
+/// `weight` is §9's `w_i`, the observer's own importance. It is the caller's
+/// judgement (a town watches, a traveller passes) and deliberately not
+/// something this module invents.
+#[derive(Clone, Copy, Debug)]
+pub struct ViewObserver {
+    pub x: usize,
+    pub y: usize,
+    pub weight: f32,
+}
+
+/// The sizing and the physics of one [`visibility`] pass.
+///
+/// Every field is the caller's, because every one of them is a world-scale
+/// decision this module has no way to make: the radius is a cost budget, the
+/// two offsets are what an observer and a target *are* in the caller's world,
+/// and the effective Earth radius is a claim about the planet.
+#[derive(Clone, Copy, Debug)]
+pub struct ViewParams {
+    /// The horizon cap, in cells. Nothing beyond it is tested, whatever the
+    /// terrain would allow — this is what bounds the pass to `O(r²)` per
+    /// observer instead of `O(n)`.
+    pub radius_cells: i64,
+    /// Metres per grid cell.
+    pub cell_m: f64,
+    /// Metres per unit of `field` — the caller's height anchoring.
+    pub m_per_unit: f64,
+    /// The observer's eye above its own ground, in metres.
+    pub eye_m: f64,
+    /// The height of the thing being looked *at*, above its own ground, in
+    /// metres. A target offset is what makes this a "how visible is that
+    /// hilltop" field rather than a "what ground can I see" one; the running
+    /// horizon is still taken from bare terrain, which is the standard R3
+    /// treatment and not a shortcut.
+    pub target_m: f64,
+    /// Effective Earth radius in metres, for the `d² / 2R` curvature drop.
+    /// **`0.0` or non-finite means a flat plane** and the drop term vanishes
+    /// entirely — which is the right model for a small map and the wrong one
+    /// for a continent, so the caller says which.
+    pub earth_radius_m: f64,
+}
+
+/// **§9's `V(x) = Σ w_i · visibility(i, x)`** — accumulated, radius-bounded
+/// visibility of every cell from a bounded set of observers.
+///
+/// Category A: this is textbook R3 line-of-sight (a ray per perimeter cell,
+/// each walked outward carrying the running maximum vertical angle, a cell
+/// visible when its own angle is not below that maximum), plus the standard
+/// refracted-curvature drop `d² / 2R_eff`. Nothing here is tuned to make a
+/// landmark appear; every number that could be comes in through
+/// [`ViewParams`].
+///
+/// ## Cost, stated rather than implied
+///
+/// `O(observers · r²)` and **independent of the grid size** — `8r + 4` rays of
+/// at most `r` steps each, per observer. It is the observer count and the
+/// radius that pay, which is the whole reason both are the caller's to cap. A
+/// dense whole-map viewshed (every cell an observer) is the `O(n · r²)` this
+/// deliberately does not offer.
+///
+/// Serial on purpose: the accumulation is `f32` addition into a shared grid,
+/// and doing it in observer order keeps the sum reproducible run to run.
+///
+/// ## What it returns
+///
+/// Raw accumulated weight, **not** normalised — a consumer that wants `0..1`
+/// says so with [`normalise`] over its own mask. `0.0` means "no observer in
+/// this set can see this cell", which for a cell more than `radius_cells` from
+/// every observer means only that nobody was near enough to ask.
+///
+/// An observer's own cell is credited with its own weight: it is visible to
+/// itself, and the alternative is a zero hole at every observation point.
+pub fn visibility(
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    world: bool,
+    observers: &[ViewObserver],
+    p: &ViewParams,
+) -> Vec<f32> {
+    let n = gw.saturating_mul(gh);
+    let mut out = vec![0f32; n];
+    let r = p.radius_cells;
+    if n == 0
+        || field.len() != n
+        || observers.is_empty()
+        || r < 1
+        || !(p.cell_m > 0.0)
+        || !p.m_per_unit.is_finite()
+    {
+        return out;
+    }
+    // `d² / 2R`, with R the caller's *effective* radius — the refraction
+    // correction is folded into that number, not applied again here.
+    let drop_k = if p.earth_radius_m.is_finite() && p.earth_radius_m > 0.0 {
+        1.0 / (2.0 * p.earth_radius_m)
+    } else {
+        0.0
+    };
+    let radius_m = r as f64 * p.cell_m;
+    // One cell of the observer's own window, so a cell reached by several rays
+    // is credited once. Sized `(2r+1)²` and reused across observers with a
+    // generation counter — the whole-grid alternative is an `n`-sized
+    // allocation for a window that can never exceed this.
+    let side = (2 * r + 1) as usize;
+    let mut stamp = vec![0u32; side * side];
+    // Every `(dx, dy)` on the perimeter of the r-square. Corners repeat, which
+    // costs four extra rays and no correctness.
+    let mut rays: Vec<(i64, i64)> = Vec::with_capacity(8 * r as usize + 4);
+    for d in -r..=r {
+        rays.push((d, -r));
+        rays.push((d, r));
+        rays.push((-r, d));
+        rays.push((r, d));
+    }
+    for (oi, o) in observers.iter().enumerate() {
+        if o.x >= gw || o.y >= gh || !o.weight.is_finite() || o.weight == 0.0 {
+            continue;
+        }
+        let mark = oi as u32 + 1;
+        let h0 = field[o.y * gw + o.x] as f64;
+        if !h0.is_finite() {
+            continue;
+        }
+        out[o.y * gw + o.x] += o.weight;
+        for (tx, ty) in &rays {
+            let len = tx.abs().max(ty.abs()) as f64;
+            if len <= 0.0 {
+                continue;
+            }
+            let (sx, sy) = (*tx as f64 / len, *ty as f64 / len);
+            let mut max_ang = f64::NEG_INFINITY;
+            for k in 1..=r {
+                let dx = (sx * k as f64).round() as i64;
+                let dy = (sy * k as f64).round() as i64;
+                let yy = o.y as i64 + dy;
+                if yy < 0 || yy >= gh as i64 {
+                    break;
+                }
+                let mut xx = o.x as i64 + dx;
+                if world {
+                    xx = xx.rem_euclid(gw as i64);
+                } else if xx < 0 || xx >= gw as i64 {
+                    break;
+                }
+                let d_m = ((dx * dx + dy * dy) as f64).sqrt() * p.cell_m;
+                if d_m > radius_m {
+                    break;
+                }
+                let j = yy as usize * gw + xx as usize;
+                let hz = field[j] as f64;
+                if !hz.is_finite() {
+                    continue;
+                }
+                // This cell's ground relative to the observer's, already
+                // dropped for the curve.
+                let dz = (hz - h0) * p.m_per_unit - drop_k * d_m * d_m;
+                // The target stands on it; the eye is above the observer.
+                if (dz + p.target_m - p.eye_m) / d_m >= max_ang {
+                    let li = ((dy + r) * side as i64 + (dx + r)) as usize;
+                    if stamp[li] != mark {
+                        stamp[li] = mark;
+                        out[j] += o.weight;
+                    }
+                }
+                // The running horizon is bare ground — a target's own height
+                // must not occlude what is behind it.
+                let a_h = (dz - p.eye_m) / d_m;
+                if a_h > max_ang {
+                    max_ang = a_h;
+                }
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -736,5 +919,138 @@ mod tests {
         assert_eq!(slope(&one, 1, 1).len(), 1);
         assert_eq!(local_relief(&one, 1, 1, 3, true).len(), 1);
         assert_eq!(ruggedness(&one, 1, 1, true).len(), 1);
+    }
+
+    // -- visibility ---------------------------------------------------------
+
+    /// The sizing every viewshed test below shares: 1 km cells, 4 000 m at
+    /// `field == 1.0`, a 2 m eye and a 10 m target. `earth_radius_m` is the
+    /// one thing each test sets for itself, because it is the term under test.
+    fn view(radius_cells: i64, earth_radius_m: f64) -> ViewParams {
+        ViewParams {
+            radius_cells,
+            cell_m: 1000.0,
+            m_per_unit: 4000.0,
+            eye_m: 2.0,
+            target_m: 10.0,
+            earth_radius_m,
+        }
+    }
+
+    #[test]
+    fn a_flat_plain_is_visible_to_the_radius_when_the_planet_is_flat() {
+        let (gw, gh) = (81usize, 41usize);
+        let f = vec![0.25f32; gw * gh];
+        let obs = [ViewObserver { x: 40, y: 20, weight: 1.0 }];
+        let v = visibility(&f, gw, gh, false, &obs, &view(30, 0.0));
+        // Nothing occludes anything, so every cell the rays reach is seen —
+        // including the far end of the radius, which is the half a curvature
+        // term would take away.
+        for d in [1usize, 10, 20, 29] {
+            assert!(v[20 * gw + 40 + d] > 0.0, "flat ground at {} cells is not visible", d);
+            assert!(v[20 * gw + 40 - d] > 0.0, "flat ground at -{} cells is not visible", d);
+        }
+        // The radius is a hard cap, not a suggestion.
+        assert_eq!(v[20 * gw + 40 + 31], 0.0, "a cell beyond the radius was tested anyway");
+        assert_eq!(v[20 * gw + 40], 1.0, "the observer sees its own cell exactly once");
+    }
+
+    /// The same plain, with the curve switched on: a 2 m eye and a 10 m target
+    /// part company at `sqrt(2·R·2) + sqrt(2·R·10)` ≈ **17.5 km**, which is the
+    /// textbook two-horizon distance and not a number this test invented.
+    #[test]
+    fn the_curvature_term_ends_a_flat_plains_visibility_at_the_horizon() {
+        let (gw, gh) = (81usize, 41usize);
+        let f = vec![0.25f32; gw * gh];
+        let obs = [ViewObserver { x: 40, y: 20, weight: 1.0 }];
+        // 1.13 × 6 371 km — the standard k = 0.13 refracted radius.
+        let v = visibility(&f, gw, gh, false, &obs, &view(30, 7_320_000.0));
+        assert!(v[20 * gw + 40 + 10] > 0.0, "10 km of flat ground is inside any horizon");
+        assert!(v[20 * gw + 40 + 15] > 0.0, "15 km is still inside the two-horizon distance");
+        assert_eq!(v[20 * gw + 40 + 25], 0.0, "25 km of flat ground is over the horizon");
+        assert_eq!(v[20 * gw + 40 - 25], 0.0, "and over it in the other direction too");
+    }
+
+    /// A ridge hides the ground behind it and **not** the summit beyond it.
+    /// The second half is the positive control: an occlusion test that says no
+    /// to everything passes the first half on its own.
+    #[test]
+    fn a_ridge_occludes_the_ground_behind_it_but_not_the_summit_beyond() {
+        let (gw, gh) = (41usize, 9usize);
+        let mut f = vec![0f32; gw * gh];
+        for y in 0..gh {
+            // A 200 m wall across the whole map at x = 10 …
+            f[y * gw + 10] = 0.05;
+            // … and a 2 000 m summit at x = 20, which clears it comfortably.
+            f[y * gw + 20] = 0.5;
+        }
+        let obs = [ViewObserver { x: 5, y: 4, weight: 1.0 }];
+        let v = visibility(&f, gw, gh, false, &obs, &view(18, 0.0));
+        assert!(v[4 * gw + 9] > 0.0, "the ground in front of the ridge is visible");
+        assert!(v[4 * gw + 10] > 0.0, "the ridge crest itself is visible");
+        for x in [11usize, 12, 15, 19] {
+            assert_eq!(v[4 * gw + x], 0.0, "ground at x={} is behind the ridge", x);
+        }
+        assert!(v[4 * gw + 20] > 0.0, "the summit beyond the ridge stands above the sightline");
+        // Flatten the wall and the shadow goes away — the occlusion is the
+        // ridge's doing and not the radius'.
+        let flat = vec![0f32; gw * gh];
+        let v2 = visibility(&flat, gw, gh, false, &obs, &view(18, 0.0));
+        assert!(v2[4 * gw + 15] > 0.0, "without the ridge the same cell is visible");
+    }
+
+    #[test]
+    fn observers_accumulate_their_own_weights() {
+        let (gw, gh) = (21usize, 21usize);
+        let f = vec![0.3f32; gw * gh];
+        let one = [ViewObserver { x: 5, y: 10, weight: 1.0 }];
+        let two = [
+            ViewObserver { x: 5, y: 10, weight: 1.0 },
+            ViewObserver { x: 15, y: 10, weight: 0.5 },
+        ];
+        let a = visibility(&f, gw, gh, false, &one, &view(8, 0.0));
+        let b = visibility(&f, gw, gh, false, &two, &view(8, 0.0));
+        let i = 10 * gw + 10;
+        assert_eq!(a[i], 1.0, "one observer, its own weight");
+        assert_eq!(b[i], 1.5, "two observers in reach sum their weights");
+        // A cell only the first can reach is unchanged by adding the second.
+        assert_eq!(a[10 * gw + 2], b[10 * gw + 2]);
+    }
+
+    #[test]
+    fn visibility_survives_the_degenerate_cases() {
+        let empty: Vec<f32> = Vec::new();
+        let o = [ViewObserver { x: 0, y: 0, weight: 1.0 }];
+        assert!(visibility(&empty, 0, 0, false, &o, &view(4, 0.0)).is_empty());
+        let one = vec![0.5f32];
+        // No observers, a zero radius, an off-grid observer and a wrongly
+        // sized field are four different ways for a caller to ask for nothing,
+        // and none of them may panic.
+        assert_eq!(visibility(&one, 1, 1, true, &[], &view(4, 0.0)), vec![0.0]);
+        assert_eq!(visibility(&one, 1, 1, true, &o, &view(0, 0.0)), vec![0.0]);
+        let off = [ViewObserver { x: 9, y: 9, weight: 1.0 }];
+        assert_eq!(visibility(&one, 1, 1, false, &off, &view(4, 0.0)), vec![0.0]);
+        assert!(visibility(&one, 4, 4, false, &o, &view(4, 0.0)).iter().all(|v| *v == 0.0));
+        // A NaN weight and a NaN cell are data, not a crash.
+        let nanw = [ViewObserver { x: 0, y: 0, weight: f32::NAN }];
+        assert_eq!(visibility(&one, 1, 1, false, &nanw, &view(4, 0.0)), vec![0.0]);
+        let mut holed = vec![0f32; 25];
+        holed[12] = f32::NAN;
+        assert!(visibility(&holed, 5, 5, false, &o, &view(3, 0.0)).iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn a_world_map_wraps_the_viewshed_in_x_and_never_in_y() {
+        let (gw, gh) = (32usize, 16usize);
+        let f = vec![0.3f32; gw * gh];
+        let obs = [ViewObserver { x: 1, y: 8, weight: 1.0 }];
+        let w = visibility(&f, gw, gh, true, &obs, &view(6, 0.0));
+        let r = visibility(&f, gw, gh, false, &obs, &view(6, 0.0));
+        assert!(w[8 * gw + 30] > 0.0, "a world map sees across its own seam");
+        assert_eq!(r[8 * gw + 30], 0.0, "a region map stops at its west edge");
+        // Y clamps in both, so the row-0 cells above the observer are reached
+        // and nothing wraps to the bottom row.
+        assert!(w[2 * gw + 1] > 0.0);
+        assert_eq!(w[15 * gw + 1], 0.0, "y must not wrap");
     }
 }
