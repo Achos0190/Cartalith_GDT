@@ -752,14 +752,26 @@ func _build_generate_head(parent: Control) -> void:
 		var number_label := DccTheme.mono_label("%02d" % (i + 1),
 			"text_faint", DccTheme.FS_MICRO, 1)
 		number_label.custom_minimum_size.x = 18
+		## Stage 9/10's state label wraps to 3 lines when the dock is narrow
+		## (see the `state_label` comment below); an HBoxContainer's default
+		## cross-axis behaviour stretches/centres every child to the row's
+		## own tallest member, so the fixed-size number/dot/name columns
+		## drifted off the state label's own first line instead of sitting
+		## beside it. `SIZE_SHRINK_BEGIN` pins every column's own natural
+		## (unstretched) height to the row's top edge, so a 1-line label and
+		## a 3-line label always share the same top line regardless of which
+		## one made the row taller.
+		number_label.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 		row.add_child(number_label)
 		var dot_label := DccTheme.mono_label(DccIcons.SYMBOLS["off"],
 			"text_ghost", DccTheme.FS_MICRO, 0)
 		dot_label.custom_minimum_size.x = 9
+		dot_label.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 		row.add_child(dot_label)
 		var name_label := DccTheme.mono_label(String(STAGES[i]["name"]),
 			"text_secondary", DccTheme.FS_MICRO, 1)
 		name_label.custom_minimum_size.x = DccWidgets.ROW_LABEL_W - 33
+		name_label.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 		## Lane GRID 2026-09-13, corrected same day (see `MISTAKES.md`'s
 		## `clip_text` row): this four-column row (number, dot, name, state)
 		## is this port's own readout mirror of the canvas's `hStage`
@@ -793,6 +805,12 @@ func _build_generate_head(parent: Control) -> void:
 		row.add_child(name_label)
 		var state_label := DccTheme.mono_label("pending", "text_ghost", DccTheme.FS_MICRO, 1)
 		state_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		## Cross-axis stays `SIZE_SHRINK_BEGIN` (see the number/dot/name
+		## columns above) so a 3-line wrap grows the row downward from a
+		## shared top edge instead of the row's default stretch/centre
+		## pushing this label's own first line up past its siblings.
+		state_label.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		state_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 		## DS-03. Most of this column is two words -- "pending", "no world",
 		## "running...". Two rows are not: stages 9 and 10 append
 		## `_paint_stage_rows()`'s gap note, and the finished string is
