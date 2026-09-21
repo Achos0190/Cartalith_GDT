@@ -835,6 +835,15 @@ pub fn last_backend() -> Option<&'static str> {
 // -- Device set ----------------------------------------------------------------
 
 /// One or more live devices plus the mode they were opened for.
+///
+/// `Clone` is what makes [`init_gpu_device_set`]'s process-wide cache
+/// possible: cloning a [`GpuDevice`] clones its `wgpu::Device`/`wgpu::Queue`
+/// (cheap, `Arc`-backed handles onto the same underlying device -- confirmed
+/// by reading `wgpu` 30's own source, not assumed, the same fact
+/// [`GpuDevice`]'s own doc comment already leans on) and its `lost` flag
+/// (an `Arc<AtomicBool>` clone, so every clone of a lost device agrees that
+/// it is lost). Nothing here opens a second device.
+#[derive(Clone)]
 pub struct GpuDeviceSet {
     devices: Vec<GpuDevice>,
     mode: MultiGpuMode,
@@ -953,16 +962,72 @@ pub(crate) fn pick_primary_adapter(instance: &wgpu::Instance) -> Option<wgpu::Ad
     pick_primary_adapter_for(instance, &preferences().selected_keys)
 }
 
+/// What decides which adapters [`init_gpu_device_set_with`] opens -- the two
+/// [`GpuPreferences`] fields that reach `wgpu::Instance::request_adapter`
+/// through `pick_primary_adapter_for`/`adapter_for_key`. `vram_budget_bytes`
+/// and `fallback` are deliberately excluded: `cartalith-engine` already
+/// gates the *call* to [`init_gpu_device_set`] on [`gpu_allowed_for_grid`]
+/// before it happens, so those two fields never change which device a
+/// successful open would have picked, only whether the call is made at all.
+type DeviceCacheKey = (Vec<String>, MultiGpuMode);
+
+fn device_cache_key(prefs: &GpuPreferences) -> DeviceCacheKey {
+    (prefs.selected_keys.clone(), prefs.mode)
+}
+
+/// Ruling Y (`LARGE_ITEM_RULINGS.md`, 2026-09-21): the process-wide cache
+/// [`init_gpu_device_set`] serves from instead of paying a fresh
+/// adapter/device handshake on every call. `None` before the first
+/// successful open this process, and cleared to `None` by nothing -- a
+/// cache miss (wrong key, or a lost device) simply overwrites it, matching
+/// [`set_preferences`]'s own "takes effect on the next device request"
+/// contract, which this reuses rather than inventing a second one.
+static DEVICE_CACHE: RwLock<Option<(DeviceCacheKey, GpuDeviceSet)>> = RwLock::new(None);
+
 /// Open every device the current preferences call for.
 ///
 /// Takes **one** snapshot of the process-global preferences and hands it to
 /// [`init_gpu_device_set_with`], which does the actual work. Callers that
 /// already hold a [`GpuPreferences`] should call that directly.
 ///
+/// **Cached across calls (Ruling Y).** Before this, every call paid its own
+/// adapter/device handshake -- measured at ~190-235 ms
+/// ([`crate::GpuDevice`]'s own doc comment), against ~3 ms for every pipeline
+/// built on top of it, so a `generate_terrain` that used to open one device
+/// per call now reuses the same one across a session's worth of them. A
+/// cached set is only served when its key (the preferences that decided
+/// which adapters it opened) still matches the current ones **and** none of
+/// its devices are lost ([`GpuDevice`]'s `lost` flag, written either by a
+/// failed [`read_back`](crate::read_back) or by `wgpu`'s own
+/// `set_device_lost_callback`, registered in `request_gpu_device_from`) --
+/// this is the "handled explicitly" half of the ruling: a lost device is
+/// never handed back, it is silently replaced by a fresh open on the next
+/// call, and `generate_terrain`'s own per-stage `device_is_unusable` guards
+/// (unchanged by this) are what keep the *current* generation from reading
+/// a half-finished GPU result off it in the meantime -- see
+/// `crates/cartalith-gpu/tests/multi_gpu.rs`'s
+/// `a_full_8192_generation_on_the_integrated_gpu_completes_or_falls_back`
+/// for that path, which this reuses rather than duplicates.
+///
 /// # Errors
 /// [`GpuInitError::NoAdapter`] when no device could be opened at all.
 pub fn init_gpu_device_set() -> Result<GpuDeviceSet, GpuInitError> {
-    init_gpu_device_set_with(&preferences())
+    let prefs = preferences();
+    let key = device_cache_key(&prefs);
+
+    if let Ok(cache) = DEVICE_CACHE.read()
+        && let Some((cached_key, set)) = cache.as_ref()
+        && *cached_key == key
+        && set.devices.iter().all(|d| !d.lost.load(std::sync::atomic::Ordering::Relaxed))
+    {
+        return Ok(set.clone());
+    }
+
+    let set = init_gpu_device_set_with(&prefs)?;
+    if let Ok(mut cache) = DEVICE_CACHE.write() {
+        *cache = Some((key, set.clone()));
+    }
+    Ok(set)
 }
 
 /// Open every device `prefs` calls for, touching no global state.
@@ -1508,5 +1573,74 @@ mod tests {
         assert_eq!(p.vram_budget_bytes, 0);
         assert_eq!(p.fallback, VramFallback::CpuTilePass);
         assert!(gpu_allowed_for_grid(8192, 8192), "no cap set => never refused");
+    }
+
+    /// Ruling Y (`LARGE_ITEM_RULINGS.md`, 2026-09-21) end to end, for the
+    /// half of it that lives in this module: [`init_gpu_device_set`] must
+    /// **reuse** a healthy cached device across calls, and must **not** hand
+    /// a device back once it is lost -- reopening fresh instead, which is
+    /// the "handled explicitly" the ruling asked for. This is the decisive,
+    /// non-flaky proof of both halves: `GpuDevice::lost` is an
+    /// `Arc<AtomicBool>`, so a genuine reuse clones the *same* `Arc`
+    /// (`Arc::ptr_eq` true) while a fresh open allocates a new one
+    /// (`Arc::ptr_eq` false) -- no timing, no polling, no race with the
+    /// hardware's own clock.
+    ///
+    /// The complementary half -- that `wgpu`'s own `set_device_lost_callback`
+    /// really does write this same flag when the driver (not this test)
+    /// reports loss -- is `lib.rs`'s `device_lost_callback_flips_the_shared_flag`,
+    /// which this test does not duplicate: that one proves the *signal*,
+    /// this one proves the *cache's reaction* to the signal, using a direct
+    /// flag flip to stand in for a signal this process cannot fabricate on
+    /// real hardware. Between the two, every link in the ruling's chain
+    /// (driver loss -> flag -> no reuse -> fresh device next call) has a
+    /// test.
+    ///
+    /// Own lock, following `READBACK_TEST_LOCK`'s convention just above:
+    /// this is the only test in the crate that touches `DEVICE_CACHE`, but a
+    /// second one would race it, so the guard is here from the start rather
+    /// than added after the fact.
+    static DEVICE_CACHE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn init_gpu_device_set_reuses_a_healthy_device_and_drops_a_lost_one() {
+        let _guard = DEVICE_CACHE_TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let saved = preferences();
+        set_preferences(GpuPreferences::default());
+        *DEVICE_CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+
+        let Ok(first) = init_gpu_device_set() else {
+            println!("skipped: no GPU adapter on this machine");
+            set_preferences(saved);
+            return;
+        };
+        let first_lost = std::sync::Arc::clone(&first.primary().lost);
+
+        let second = init_gpu_device_set().expect("the first call already opened a device; the second must too");
+        assert!(
+            std::sync::Arc::ptr_eq(&second.primary().lost, &first_lost),
+            "a healthy device must be reused (the same `lost` Arc), not reopened"
+        );
+
+        // Simulate the signal this process cannot fabricate on real
+        // hardware -- `wgpu` itself reporting the device lost, which
+        // `device_lost_callback_flips_the_shared_flag` (`lib.rs`) proves
+        // really does write this flag. Writing it directly here is the
+        // fault injection; what this test is actually checking is what the
+        // *cache* does once it sees it.
+        first_lost.store(true, std::sync::atomic::Ordering::Relaxed);
+
+        let third = init_gpu_device_set().expect("a lost cached device must not stop the next call from opening one");
+        assert!(
+            !std::sync::Arc::ptr_eq(&third.primary().lost, &first_lost),
+            "a lost device must never be handed back -- the next call must re-acquire a fresh one"
+        );
+        assert!(
+            !third.primary().lost.load(std::sync::atomic::Ordering::Relaxed),
+            "the freshly re-acquired device must start healthy"
+        );
+
+        set_preferences(saved);
+        *DEVICE_CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
 }

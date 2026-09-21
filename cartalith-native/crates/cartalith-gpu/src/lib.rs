@@ -860,12 +860,18 @@ struct RawGpuDevice {
     device_type: wgpu::DeviceType,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    /// Set once this device has failed a readback: a `wgpu` device that
-    /// loses a `map_async` is *gone*, not merely out of room at that size --
-    /// measured, the very next `create_buffer_init` on it panics with
-    /// "Buffer ... is invalid". Shared (`Arc`) with every context built from
-    /// the same device, so one stage's failure closes the GPU path for all of
-    /// them. See [`read_back`].
+    /// Set once this device has failed a readback, or once `wgpu` itself
+    /// reports it lost: a `wgpu` device that loses a `map_async` is *gone*,
+    /// not merely out of room at that size -- measured, the very next
+    /// `create_buffer_init` on it panics with "Buffer ... is invalid". Shared
+    /// (`Arc`) with every context built from the same device, so one stage's
+    /// failure closes the GPU path for all of them. Two sources write it,
+    /// both in [`request_gpu_device_from`]: [`read_back`]'s own reactive
+    /// catch, and the explicit `set_device_lost_callback` registered right
+    /// after this device is created (Ruling Y, `LARGE_ITEM_RULINGS.md`,
+    /// 2026-09-21) -- the one that can fire with no dispatch of this crate's
+    /// own in flight at all, which matters now that [`multi::init_gpu_device_set`]
+    /// can hand the same device back across several `generate_terrain` calls.
     lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -939,6 +945,37 @@ fn request_gpu_device_from(
     }))
     .map_err(GpuInitError::RequestDevice)?;
 
+    // Ruling Y (`LARGE_ITEM_RULINGS.md`, 2026-09-21): now that a device can
+    // outlive one `generate_terrain` call ([`init_gpu_device_set`]'s cache in
+    // `multi.rs`), `lost` needs a source that does not depend on this device
+    // ever being asked to do anything. Before this, the only way `lost` was
+    // ever set was reactively, from [`read_back`] noticing a failed
+    // `map_async` -- which only fires because *this crate* was in the middle
+    // of a dispatch. `wgpu`'s own device-lost callback is the explicit
+    // signal the ruling asks for: it fires for driver-initiated loss (a GPU
+    // reset, `forward_plus`/Vulkan already measured losing this device once,
+    // `HARDWARE_ACCELERATION.md`) with no dispatch in flight at all, which a
+    // reused-across-calls device can now sit idle through between
+    // generations. Registered on the *shared* `lost` flag, not a private one
+    // of its own, so a loss reported this way is indistinguishable
+    // downstream from one [`read_back`] caught -- [`device_is_unusable`] and
+    // every dispatch guard checks the one flag either way.
+    let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let lost_flag = std::sync::Arc::clone(&lost);
+        let label = device_label.to_string();
+        let name = info.name.clone();
+        device.set_device_lost_callback(move |reason, message| {
+            eprintln!(
+                "cartalith-gpu: device {label:?} ({name}) lost ({reason:?}): {message} -- \
+                 the current generation's remaining GPU stages fall back to CPU \
+                 (HARDWARE_ACCELERATION.md §27); the next generate_terrain call re-acquires \
+                 a fresh device (Ruling Y)"
+            );
+            lost_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        });
+    }
+
     Ok(RawGpuDevice {
         adapter_name: info.name,
         adapter_vendor: info.vendor,
@@ -946,7 +983,7 @@ fn request_gpu_device_from(
         device_type: info.device_type,
         device,
         queue,
-        lost: std::sync::Arc::default(),
+        lost,
     })
 }
 
@@ -1072,21 +1109,32 @@ fn init_gpu_with(
 /// against these:
 ///
 /// - *"Per-pipeline caching across repeated `generate_terrain` calls."*
-///   `generate_terrain` holds this device in a local and drops it at the end,
-///   so **call two rebuilds one handshake plus every pipeline** -- each
+///   **Built 2026-09-21, Ruling Y (`LARGE_ITEM_RULINGS.md`).** Before that
+///   ruling, `generate_terrain` held this device in a local and dropped it at
+///   the end, so call two rebuilt one handshake plus every pipeline -- each
 ///   `*_grid_gpu_with` entry point calls its own `init_gpu_*_with` inside the
 ///   dispatch rather than accepting a built context (`gpu_flow` is the lone
 ///   exception, hoisted by milestone 9 because one call uses it four times).
-///   The two halves are nothing like equal: ~3 ms of pipeline against ~190 ms
-///   of handshake, so caching *pipelines* -- the thing the row asks for -- is
-///   the smaller half by roughly two orders of magnitude. Caching the *device* is where that row's value
-///   actually is, and that conclusion is the one thing here that does not turn
-///   on the exact figures: the ranges do not come close to overlapping.
+///   The two halves were never close to equal -- ~3 ms of pipeline against
+///   ~190 ms of handshake -- so caching *pipelines* was the smaller half by
+///   roughly two orders of magnitude; caching the *device* is where the
+///   value is. [`multi::init_gpu_device_set`] now caches the opened
+///   [`GpuDeviceSet`] process-wide, keyed on the preferences that would
+///   decide which adapters open (`selected_keys`, `mode`), and hands out a
+///   `.clone()` of it -- cheap, because `wgpu::Device`/`wgpu::Queue` clones
+///   are `Arc`-backed handles, not new devices. A cache hit is only served
+///   when every device in it still reports [`Self`]'s own `lost` flag as
+///   `false`; a lost device (this crate's own `set_device_lost_callback`,
+///   just above, or a reactive [`read_back`] failure -- both flags are the
+///   same `Arc`) is never handed back, and the *next* call re-opens and
+///   re-caches a fresh set instead. `generate_terrain` itself needed no
+///   change: it already only ever borrows the set it gets back.
 /// - *"Hardware capability cache (§30)"*, re-opened because the handshake was
 ///   thought to be 1.3-1.4 s. At ~190 ms the original deferral ("nothing
 ///   expensive enough to cache") is much closer to right than the row
 ///   supposes. **Re-measure before building anything**, which is what that
 ///   row asked for and what this note records.
+#[derive(Clone)]
 pub struct GpuDevice {
     pub adapter_name: String,
     pub adapter_vendor: u32,
@@ -1094,12 +1142,14 @@ pub struct GpuDevice {
     pub device_type: wgpu::DeviceType,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    /// Set once this device has failed a readback: a `wgpu` device that
-    /// loses a `map_async` is *gone*, not merely out of room at that size --
-    /// measured, the very next `create_buffer_init` on it panics with
-    /// "Buffer ... is invalid". Shared (`Arc`) with every context built from
-    /// the same device, so one stage's failure closes the GPU path for all of
-    /// them. See [`read_back`].
+    /// Set once this device has failed a readback, or once `wgpu`'s own
+    /// `set_device_lost_callback` reports it lost (both write the one `Arc`
+    /// -- see [`RawGpuDevice`]'s own copy of this field for which call sets
+    /// which). Shared with every context built from the same device, so one
+    /// stage's failure closes the GPU path for all of them, and checked
+    /// again before [`multi::init_gpu_device_set`] hands a cached set back
+    /// across calls: a device this flag names lost is never reused, only
+    /// re-acquired fresh.
     lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -3278,6 +3328,45 @@ mod tests {
         );
     }
 
+    /// Ruling Y (`LARGE_ITEM_RULINGS.md`, 2026-09-21): the `set_device_lost_callback`
+    /// registered in `request_gpu_device_from` really does flip the shared
+    /// `lost` flag when `wgpu` reports the device gone -- not merely "the
+    /// callback compiles and is never proven to run".
+    ///
+    /// `wgpu`'s own device-loss test surface has no hook to simulate a
+    /// driver-level reset (the actual `forward_plus`/Vulkan loss this
+    /// project has already measured, `HARDWARE_ACCELERATION.md`) from a
+    /// unit test on any machine, real GPU or not -- there is no fault to
+    /// inject from here. But `Device::destroy()` is real, public `wgpu` API
+    /// documented to report `DeviceLostReason::Destroyed` through exactly
+    /// this callback (confirmed by reading `wgpu-core`'s own
+    /// `device_destroy`/`Device::maintain`, not assumed from the docs
+    /// alone: destroy marks the device invalid, and the closure fires once
+    /// its queue is next observed empty), so it is a real signal from `wgpu`
+    /// itself, not a value this test pokes in by hand the way
+    /// `multi.rs`'s `init_gpu_device_set_reuses_a_healthy_device_and_drops_a_lost_one`
+    /// has to. This is the one end of that chain this test proves; the other
+    /// end (the cache's reaction) is that one's job.
+    #[test]
+    fn device_lost_callback_flips_the_shared_flag() {
+        let Ok(gpu) = init_gpu_shared_device() else {
+            eprintln!("no GPU available on this run -- skipping (needs a real adapter to destroy)");
+            return;
+        };
+        assert!(!gpu.lost.load(std::sync::atomic::Ordering::Relaxed), "a freshly opened device must not start lost");
+
+        gpu.device.destroy();
+        // The lost closure fires once the device's queue is observed empty
+        // (`wgpu-core`'s `Device::maintain`), which a poll drives -- the
+        // same call `read_back` already makes to wait out a real dispatch.
+        let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
+
+        assert!(
+            gpu.lost.load(std::sync::atomic::Ordering::Relaxed),
+            "destroy() must reach the registered set_device_lost_callback and flip the shared flag"
+        );
+    }
+
     /// This is the pilot's actual correctness gate (`GPU_COMPUTE_PILOT_SCOPE.md`
     /// "Done means" #2) -- not a smoke test to skip if inconvenient.
     #[test]
@@ -4335,17 +4424,26 @@ mod tests {
     /// `OUTSTANDING_WORK.md` §2.6, the two rows that both turn on one number:
     /// *"per-pipeline caching across repeated `generate_terrain` calls"* and
     /// *"hardware capability cache (§30) -- re-measure the handshake before
-    /// building anything"*. This is that measurement, and it is what a second
-    /// `generate_terrain` call pays before it computes anything.
+    /// building anything"*. This is that measurement -- what a second
+    /// `generate_terrain` call in a fresh process pays before it computes
+    /// anything, i.e. the cost [`multi::init_gpu_device_set`]'s cache now
+    /// removes (Ruling Y, `LARGE_ITEM_RULINGS.md`, 2026-09-21).
     ///
-    /// `generate_terrain` opens its device set once per call
-    /// (`cartalith-engine/src/lib.rs`, `init_gpu_device_set`) and drops it at
-    /// the end, so **call two rebuilds all of it**: one adapter/device
-    /// handshake, plus one pipeline per stage, since every `*_grid_gpu_with`
-    /// entry point calls its own `init_gpu_*_with` inside the dispatch rather
-    /// than taking a built context. (`gpu_flow` is the one exception already
-    /// fixed -- milestone 9 hoisted it because it is called four times within
-    /// a single call.)
+    /// **Before Ruling Y**, `generate_terrain` opened its device set once
+    /// *per call* (`cartalith-engine/src/lib.rs`, `init_gpu_device_set`) and
+    /// dropped it at the end, so call two rebuilt all of it: one
+    /// adapter/device handshake, plus one pipeline per stage, since every
+    /// `*_grid_gpu_with` entry point calls its own `init_gpu_*_with` inside
+    /// the dispatch rather than taking a built context. **After it**, a
+    /// second call in the same process reuses the cached
+    /// [`multi::GpuDeviceSet`] (a cheap `Clone` of `Arc`-backed handles, no
+    /// new handshake at all) and pays only the pipeline side -- this test's
+    /// own figures below are exactly that remaining cost. (`gpu_flow` is the
+    /// one *pipeline* still hoisted out of the per-call rebuild -- milestone
+    /// 9 hoisted it because it is called four times within a single call --
+    /// pipeline caching across separate `generate_terrain` calls is what
+    /// stays unbuilt, correctly, per this test's own conclusion below: ~3 ms
+    /// is not worth chasing next to what the handshake alone used to cost.)
     ///
     /// `#[ignore]`d: it opens fresh adapters in a loop, which is slow and is
     /// exactly the cost being measured. Run it with
@@ -4413,9 +4511,10 @@ mod tests {
             eprintln!("  init_gpu_{label}_with (shader compile + pipeline) = {t}");
         }
         eprintln!(
-            "a second generate_terrain call in the same process rebuilds: 1 warm handshake ({warm}) + every pipeline \
-             (medians sum to {pipeline_total:?} for all six; the dearest single stage's median is {pipeline_max:?}, \
-             the cheapest {pipeline_min:?})"
+            "before Ruling Y, a second generate_terrain call in the same process rebuilt: 1 warm handshake ({warm}) \
+             + every pipeline (medians sum to {pipeline_total:?} for all six; dearest {pipeline_max:?}, cheapest \
+             {pipeline_min:?}). After it, init_gpu_device_set()'s cache removes the {warm} handshake entirely for \
+             every call after the process's first, leaving only the {pipeline_total:?} of pipeline builds."
         );
 
         assert!(cold > std::time::Duration::ZERO, "the cold handshake took no measurable time -- nothing ran");

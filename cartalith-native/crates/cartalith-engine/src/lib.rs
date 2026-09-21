@@ -2643,6 +2643,58 @@ mod tests {
         }
     }
 
+    /// Ruling Y (`LARGE_ITEM_RULINGS.md`, 2026-09-21): the actual entry
+    /// point the ruling is about, not `cartalith-gpu`'s own lower-level
+    /// handshake measurement. Before the ruling, every `use_gpu=true`
+    /// `generate_terrain` call opened (and dropped) its own device, so call
+    /// two paid the same ~190-235 ms adapter/device handshake as call one
+    /// (`cartalith_gpu::GpuDevice`'s own doc comment carries that figure and
+    /// its range). After it, `cartalith_gpu::init_gpu_device_set`'s
+    /// process-wide cache means only the *first* GPU-path call of the
+    /// process pays it.
+    ///
+    /// `#[ignore]`d for the same reason as `cartalith-gpu`'s own
+    /// `measured_device_handshake_and_per_stage_pipeline_build`: it wants an
+    /// uncontended device, and this project's own timing rule
+    /// (`MISTAKES.md`) is that a figure taken under a parallel `cargo test`
+    /// run is a figure about contention, not about the code. Run alone:
+    /// `cargo test --release -p cartalith-engine measured_generate_terrain_reuses_the_gpu_device -- --ignored --test-threads=1 --nocapture`.
+    ///
+    /// Tiny grid (24x18, `generate_terrain_gpu_path_is_deterministic_and_valid`'s
+    /// own size) on purpose: at this size the CPU-equivalent work is a
+    /// rounding error next to the handshake, so the wall-clock gap between
+    /// call one and every call after it is almost entirely the thing this
+    /// test is measuring, not noise from the generation itself.
+    #[test]
+    #[ignore = "wants an uncontended device; run alone with --ignored --test-threads=1 --nocapture"]
+    fn measured_generate_terrain_reuses_the_gpu_device_across_calls() {
+        let mut p = WorldParams::defaults(24, 18, 777);
+        p.use_gpu = true;
+
+        let mut elapsed = Vec::new();
+        for _ in 0..3 {
+            let t = std::time::Instant::now();
+            let ws = generate_terrain(&p);
+            elapsed.push(t.elapsed());
+            assert!(!ws.field.is_empty(), "a generation that produces nothing measures nothing");
+        }
+        eprintln!(
+            "generate_terrain(use_gpu=true) x3, same process: call 1 = {:?}, call 2 = {:?}, call 3 = {:?}",
+            elapsed[0], elapsed[1], elapsed[2]
+        );
+
+        if cartalith_gpu::last_backend().is_none() {
+            eprintln!("no GPU opened on this run (CPU fallback) -- the device-reuse cost has nothing to measure here");
+            return;
+        }
+        assert!(
+            elapsed[1] < elapsed[0],
+            "call 2 must be faster than call 1 once the device is cached -- call 1 = {:?}, call 2 = {:?}",
+            elapsed[0],
+            elapsed[1]
+        );
+    }
+
     /// The structural requirement: `use_gpu=true`/`false` must never change
     /// which fields exist or their shapes -- only, potentially, the actual
     /// substrate values (per §7c). A crash or a length mismatch here would
