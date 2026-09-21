@@ -41,7 +41,12 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**89 outstanding items** — 2026-09-21, unchanged in count: Settlement Editor Batch C (real Political
+**89 outstanding items** — 2026-09-21, unchanged in count: Settlement Editor Batch D (the Settlement types
+library — new window, new static store, new caller-owned document slot, drop-tool wiring) landed and was
+independently verified (commit `933f164`; document-slot classification confirmed at the symbol, all
+touched files parse clean, `cargo test --workspace --no-fail-fast` reproduced exactly). The row stays
+open — Batches E/F remain.
+89 outstanding items — 2026-09-21, unchanged in count: Settlement Editor Batch C (real Political
 history tab, one new additive Rust function) landed and was independently verified (commit `86f3ecd`;
 full diff read for all four files, `cargo test --workspace --no-fail-fast` reproduced exactly at
 163/3494/0/34, +4 matching the new tests). The row stays open — Batches D/E/F remain.
@@ -1683,8 +1688,20 @@ a stacked ownership bar + period list, both read-only per the canvas's own frami
 dashed with the canvas's stated reason. Verified independently: full diff read for all four touched files,
 `cargo test --workspace --no-fail-fast` reproduced exactly (163/3494/0/34, +4 matching the new tests
 exactly), both `.gd` files parse clean, `git status` confirms scope, `project.godot` unchanged. Commit
-`86f3ecd`. **Batches D (Settlement types library), E (Layout tab readout), F (Generation rules window —
-the real engine change) remain**, each independently shippable; this row stays open until all six land. |
+`86f3ecd`. **Batch D CLOSED 2026-09-21 (verified)**: the Settlement types library. New window
+(`settlement_types_window.gd`) over a new static store (`settlement_type_store.gd`, `TradeStore`'s own
+shape): named field bundles (kind, specialisation, traits, walls, age policy) plus a per-faction default
+column, reusing the place editor's own toggle-chip and vocabulary patterns. Storage: a new caller-owned
+document slot, `library/settlement_types.json` — registered in `DOCUMENT_SLOTS`, deliberately absent from
+`ENGINE_OWNED_SLOTS`, confirmed at the symbol (not assumed). Wiring: the settlement-drop tool applies a
+faction's default bundle via the same `civ_edit_settlement`/`civ_settlement_toggle_trait` calls the place
+editor already uses — a no-op, today's behaviour unchanged, when no default is set. Placement rules and
+name-pool override beyond Inherit stay dashed per the canvas's own stated reasons. Verified independently:
+document-slot classification confirmed at the symbol, all four touched/new `.gd` files parse clean,
+`cargo test --workspace --no-fail-fast` reproduced exactly (163/3494/0/34, unchanged from Batch C as
+expected), `project.godot` unchanged, `git status` confirms scope. Commit `933f164`. **Batches E (Layout
+tab readout), F (Generation rules window — the real engine change) remain**, each independently
+shippable; this row stays open until all six land. |
 | **Three-platform design-conformance verification — owner request, 2026-09-05** | `DESIGN_HANDOFF.md` | large | **Trigger: when ALL GUI work is done, not before.** Owner instruction, verbatim: *"When all GUI work is completed I want you to use fable 5.1 to verify tablet (simulated), pc and on the connected phone by adb. All windows, panels functions should be in-line for 100% to the design."* Three targets, and they are **not** interchangeable: **tablet simulated** (the `tabL`/`tabP` frames — 2560×1600 and 1600×2560, the full 17-token touch density override), **PC** (`w1920`, and `w1366` which carries its own 3-token override), and **a real handset over `adb`**. **Model: Fable 5.1.** Scope is every window, panel and function, at 100% conformance — wider than the menu audit below, which walked menus only. **Two things to establish before dispatching, not during:** **a device IS attached** — checked at the moment this row was written rather than assumed: `adb devices` → `9608b26b  device`, 2026-09-05. That matters because the last recorded USB session was **2026-08-24** and six features have been carried as *unverified on device* ever since, so the row was first drafted saying an unattached phone was the likely state; measuring took ten seconds and it was wrong. **Re-check at dispatch anyway** — a handset is unplugged between sessions. And confirm that the APK on the handset is the build under test — a shipped APK once carried a `.so` 25 commits stale, so the row below's `.so` check is a precondition for this one, not a parallel task. **Headless cannot stand in for any of the three**: `ImageTexture.update()` is a no-op under `--headless`, so anything pixel-shaped runs windowed |
 | ~~**`File ▸ Recent worlds` leaves show a filename where the canvas shows the world**~~ — **CLOSED 2026-09-21 (verified) — both halves now** | `DCC_SHELL_SPEC.md` §2.1 | small | Seed half closed 2026-09-13 (batch wf53). **Name half closed this pass — and the premise this row carried ("ELDRA" implied a name generator already existed) was checked and found FALSE first**: "ELDRA" was a hardcoded literal in `app.gd`, not a generated name. Built: `cartalith_civ::naming::world_name(seed)` (reuses existing culture/syllable pools, a fresh non-parity-bound RNG stream since this concept has no reference equivalent); `cartalith-io::SaveParams::name`, additive (`world.origin`'s own precedent, no `format_version` bump), documented in `SAVEFILE_COMPAT.md`; wired through `WorldGen::absorb`/`get_world_name()` into Recent worlds, welcome tiles, gallery tiles and the phone picker, all with filename fallback. Two bugs caught and fixed in passing, not introduced by this change: the status pill never updated when opening a project from Recent worlds; a `split(" · ")[0]`-unconditional parse in `phone_menu.gd` that this change's own bare-seed fallback would have made misread a seed as a name. 11 new tests (4 `cartalith-civ`, 7 `cartalith-io`) plus a real headless probe round-tripping a generated name through both save formats and confirming a pre-existing archive with no `world.name` still opens with an empty name, never an invented one. Commits `5e25c40`, `c16151f`. |
 | ~~**Ruling 29 versus the `Data ▸ Export ▸ Maps ▸ tiles` row**~~ — **CLOSED 2026-09-21 (verified) — Ruling X: does not cover it, stays in Export** | `EXPORT_SCOPE.md` | small | Ruling 29 (*"the tiled output should only live in the save menu"*) scopes its own body to the LOD pyramid and the proposed Build Manager. `Data ▸ Export ▸ Maps ▸ tiles` is a different artefact — a region-marquee PNG grid (`PANE_PURPOSE.export_maps`), not the LOD pyramid. **Owner ruling: Ruling 29 does not cover this row; leave it in the export menu.** No code change — this closed the ambiguity, not a build. |
