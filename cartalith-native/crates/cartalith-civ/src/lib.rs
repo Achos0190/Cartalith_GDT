@@ -729,6 +729,172 @@ pub fn build_water_bodies(
     }
 }
 
+/// A single connected water body's topology, derived from
+/// [`WaterBodies::classification`] without moving a single classified cell.
+///
+/// `OUTSTANDING_WORK.md` §2.3 names this `HYDROLOGY_CLASSIFICATION_RESEARCH.md`'s
+/// own "cheapest honest first step": the paper's central argument is that a
+/// water body's classification should describe its physical relationship to
+/// the world's hydrological system, not merely its size, and
+/// [`build_water_bodies`] is size-primary (largest below-sea component wins
+/// the ocean label, golden-pinned, reference HTML line 5753). Reclassifying
+/// that raster needs an owner ruling -- it is golden-tested and feeds biome,
+/// route costing and landmark placement. This function does not touch it:
+/// it re-derives per-body facts as metadata *beside* the raster, from the
+/// raster's own output, so nothing else on this list moves.
+///
+/// Only the two facts this port can establish without a river/flow network
+/// crossing this crate's boundary are computed: whether a body IS the ocean
+/// (`ocean_connected`, the raster's own size-primary rule, stated as a fact
+/// about the body rather than inferred from its value each time), and
+/// whether it touches the generated region's own edge
+/// (`map_boundary_contact`) -- the paper's §8 "the water may continue
+/// outside the generated region" case, which today's raster has no
+/// representation for at all. `inflow_count`/`outflow_count`/`salinity`
+/// from the paper's §9 `WaterBody` record are deliberately not attempted
+/// here: they need a channel network this crate does not carry into this
+/// function, and inventing a value for them would be exactly what
+/// `MISTAKES.md`'s "never encode 'no value' as a plausible value" rule
+/// forbids.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WaterBodyTopology {
+    /// This body's [`WaterBodies::classification`] value: `1` (ocean) or
+    /// `2` (lake). Never `0` -- land cells are not water bodies.
+    pub kind: u8,
+    /// Cells belonging to this connected component.
+    pub cell_count: usize,
+    /// `true` only for the single body carrying `kind == 1` -- the raster's
+    /// own definition of "ocean" (largest below-sea connected component),
+    /// restated as a per-body fact so a caller need not compare `kind`
+    /// itself. Always `false` for a lake, by the raster's own construction:
+    /// a second below-sea component is a lake regardless of its size.
+    pub ocean_connected: bool,
+    /// `true` if any cell of this body sits on an edge the grid does not
+    /// wrap. `world` only wraps in X (matching [`build_water_bodies`]'s own
+    /// `cc_visit`/`wb_visit` adjacency), so `x == 0`/`x == gw - 1` count
+    /// only when `world` is `false`, while `y == 0`/`y == gh - 1` always
+    /// count -- a toroidal *world* map still has real poles.
+    pub map_boundary_contact: bool,
+    /// Derived from the two facts above. See [`WaterBodyBasin`]'s own doc
+    /// comment for what each state does and does not claim.
+    pub basin_type: WaterBodyBasin,
+}
+
+/// A conservative subset of `HYDROLOGY_CLASSIFICATION_RESEARCH.md` §9's
+/// recommended states (`OCEAN`, `SEA`, `INLAND_LAKE`, `ENDOREIC_LAKE`,
+/// `MARINE_BASIN`, `MAP_BOUNDED_WATER`, `UNKNOWN` -- the paper's own
+/// spelling, "ENDOREIC" rather than the dictionary "endorheic", kept
+/// verbatim so a search for the paper's term finds this). Only the three
+/// states this port can actually tell apart today are represented; `Sea`,
+/// `InlandLake`, `MarineBasin` and `Unknown` all need the connection-type
+/// and salinity data `WaterBodyTopology`'s own doc comment says this
+/// function does not have, and are not guessed at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaterBodyBasin {
+    /// `kind == 1`: the single largest below-sea component.
+    Ocean,
+    /// `kind == 2`, no boundary contact: closed on every side within the
+    /// generated region, so nothing outside the map can be feeding or
+    /// draining it. The paper's own `ENDOREIC` state (§9's worked example).
+    EndoreicLake,
+    /// `kind == 2`, touches the map's edge: the paper's §8
+    /// `MAP-BOUNDED / UNRESOLVED` case, restated with its §9 record name.
+    /// This port cannot tell a genuinely landlocked lake the map happened
+    /// to clip from a marine inlet or sea the map edge truncated --
+    /// resolvable only by generating past the boundary, which the paper's
+    /// own text defers to "when a larger world region becomes available".
+    MapBoundedWater,
+}
+
+/// Walks [`WaterBodies::classification`] and groups it into connected
+/// bodies via the same 4-connectivity and `world` wraparound
+/// [`build_water_bodies`] itself uses (`cc_visit`/`wb_visit`), so a body
+/// found here is never split or merged differently than the raster's own
+/// components. Purely additive: `wb` is read, never written, and no
+/// existing caller of [`build_water_bodies`] is touched by adding this.
+///
+/// Two classes of components already exist per the array's own semantics
+/// and both are covered by one flood fill: below-sea components from
+/// [`build_water_bodies`]' first pass, and above-sea rain-pooled
+/// depressions its priority-flood pass separately marks `2` -- re-deriving
+/// topology from the *output* value rather than threading through both
+/// internal passes keeps this function correct for either origin without
+/// duplicating either algorithm.
+pub fn water_body_topology(
+    wb: &WaterBodies,
+    gw: usize,
+    gh: usize,
+    world: bool,
+) -> Vec<WaterBodyTopology> {
+    let n = gw * gh;
+    debug_assert_eq!(wb.classification.len(), n);
+    let gw_i = gw as isize;
+    let gh_i = gh as isize;
+    let mut seen = vec![false; n];
+    let mut out = Vec::new();
+    let mut stack: Vec<usize> = Vec::new();
+
+    for start in 0..n {
+        let kind = wb.classification[start];
+        if kind == 0 || seen[start] {
+            continue;
+        }
+        seen[start] = true;
+        stack.clear();
+        stack.push(start);
+        let mut cell_count = 0usize;
+        let mut touches_boundary = false;
+        while let Some(i) = stack.pop() {
+            cell_count += 1;
+            let x = (i % gw) as isize;
+            let y = (i / gw) as isize;
+            // `world` only wraps X (`cc_visit`/`wb_visit` fold `nx` modulo
+            // `gw` when `world`, but always bound-check `ny` against `gh`
+            // regardless of it) -- so an X edge is a real boundary only when
+            // `!world`, while a Y edge is always one, wrapped or not.
+            if (!world && (x == 0 || x == gw_i - 1)) || y == 0 || y == gh_i - 1 {
+                touches_boundary = true;
+            }
+            for (dx, dy) in [(-1isize, 0isize), (1, 0), (0, -1), (0, 1)] {
+                let nx_raw = x + dx;
+                let ny = y + dy;
+                if ny < 0 || ny >= gh_i {
+                    continue;
+                }
+                let nx = if world {
+                    ((nx_raw % gw_i) + gw_i) % gw_i
+                } else {
+                    if nx_raw < 0 || nx_raw >= gw_i {
+                        continue;
+                    }
+                    nx_raw
+                };
+                let j = (ny * gw_i + nx) as usize;
+                if !seen[j] && wb.classification[j] == kind {
+                    seen[j] = true;
+                    stack.push(j);
+                }
+            }
+        }
+        let ocean_connected = kind == 1;
+        let basin_type = if ocean_connected {
+            WaterBodyBasin::Ocean
+        } else if touches_boundary {
+            WaterBodyBasin::MapBoundedWater
+        } else {
+            WaterBodyBasin::EndoreicLake
+        };
+        out.push(WaterBodyTopology {
+            kind,
+            cell_count,
+            ocean_connected,
+            map_boundary_contact: touches_boundary,
+            basin_type,
+        });
+    }
+    out
+}
+
 /// `buildWaterBodies`' `opts.forceLake` (reference HTML lines 5808-5809):
 /// user-deposited lakes are classified as lakes unconditionally, whether or
 /// not their floor ends up below sea level or holds enough rain to pool.
@@ -15540,6 +15706,119 @@ mod tests {
         let mut c = vec![1u8, 1, 0];
         apply_force_lake(&mut c, &[1, 0, 1]);
         assert_eq!(c, vec![2, 1, 2]);
+    }
+
+    #[test]
+    fn water_body_topology_ocean_is_ocean_connected_regardless_of_boundary() {
+        // Same fixture as `build_water_bodies_smaller_below_sea_component_is_lake`:
+        // a 3-cell ocean touching x=0, and a 1-cell lake touching x=gw-1.
+        let field = [0.1f32, 0.1, 0.1, 0.9, 0.1];
+        let wb = build_water_bodies(&field, 5, 1, 0.4, false, None);
+        let mut bodies = water_body_topology(&wb, 5, 1, false);
+        bodies.sort_by_key(|b| b.cell_count);
+        assert_eq!(bodies.len(), 2, "one ocean component, one lake component");
+
+        let lake = &bodies[0];
+        assert_eq!(lake.kind, 2);
+        assert_eq!(lake.cell_count, 1);
+        assert!(!lake.ocean_connected);
+        assert!(
+            lake.map_boundary_contact,
+            "the lone lake cell sits at x=gw-1"
+        );
+        assert_eq!(lake.basin_type, WaterBodyBasin::MapBoundedWater);
+
+        let ocean = &bodies[1];
+        assert_eq!(ocean.kind, 1);
+        assert_eq!(ocean.cell_count, 3);
+        assert!(ocean.ocean_connected);
+        assert_eq!(
+            ocean.basin_type,
+            WaterBodyBasin::Ocean,
+            "ocean_connected wins basin_type even though this component also touches x=0"
+        );
+    }
+
+    #[test]
+    fn water_body_topology_interior_lake_is_endorheic() {
+        // Same fixture as the pooled-depression test: a single interior
+        // pit, (2,2) on a 5x5 grid, nowhere near any edge.
+        let mut field = vec![0.9f32; 25];
+        field[12] = 0.5;
+        let rain_wet = vec![0.9f32; 25];
+        let wb = build_water_bodies(&field, 5, 5, 0.05, false, Some(&rain_wet));
+        let bodies = water_body_topology(&wb, 5, 5, false);
+        assert_eq!(bodies.len(), 1);
+        let lake = &bodies[0];
+        assert_eq!(lake.kind, 2);
+        assert_eq!(lake.cell_count, 1);
+        assert!(!lake.map_boundary_contact, "(2,2) on a 5x5 grid touches no edge");
+        assert_eq!(lake.basin_type, WaterBodyBasin::EndoreicLake);
+    }
+
+    #[test]
+    fn water_body_topology_world_map_never_reports_x_boundary_contact() {
+        // A lake component pinned to x=0 on a non-world map is
+        // MapBoundedWater (mirrors the fixture above); the same field
+        // under `world=true` must NOT report boundary contact, because X
+        // wraps rather than ending. Built by hand rather than reusing
+        // `build_water_bodies` here, so the fixture exercises exactly the
+        // fact under test without `world`'s effect on ocean/lake sizing
+        // getting in the way.
+        let classification = vec![
+            0u8, 0, 0, 0, 0, //
+            2, 0, 0, 0, 0, // lake cell at (0,1) -- x=0, not y-edge
+            0, 0, 0, 0, 0, //
+        ];
+        let wb = WaterBodies {
+            classification,
+            fill_level: vec![0.0; 15],
+        };
+        let flat = water_body_topology(&wb, 5, 3, false);
+        assert!(
+            flat.iter().any(|b| b.map_boundary_contact),
+            "control: the same fixture DOES report boundary contact when world=false"
+        );
+
+        let wrapped = water_body_topology(&wb, 5, 3, true);
+        assert_eq!(wrapped.len(), 1);
+        assert!(
+            !wrapped[0].map_boundary_contact,
+            "x=0 wraps under world=true, so it is not a real boundary"
+        );
+        assert_eq!(wrapped[0].basin_type, WaterBodyBasin::EndoreicLake);
+    }
+
+    #[test]
+    fn water_body_topology_world_map_still_reports_y_boundary_contact() {
+        // Y never wraps, world or not (`cc_visit`/`wb_visit` bound-check
+        // `ny` unconditionally) -- a lake on the top row must still count
+        // as boundary contact even when `world` is true.
+        let classification = vec![
+            0u8, 2, 0, 0, 0, // lake cell at (1,0) -- y=0, the pole
+            0, 0, 0, 0, 0, //
+            0, 0, 0, 0, 0, //
+        ];
+        let wb = WaterBodies {
+            classification,
+            fill_level: vec![0.0; 15],
+        };
+        let wrapped = water_body_topology(&wb, 5, 3, true);
+        assert_eq!(wrapped.len(), 1);
+        assert!(
+            wrapped[0].map_boundary_contact,
+            "y=0 is a real edge even under world=true"
+        );
+        assert_eq!(wrapped[0].basin_type, WaterBodyBasin::MapBoundedWater);
+    }
+
+    #[test]
+    fn water_body_topology_land_only_grid_is_empty() {
+        let wb = WaterBodies {
+            classification: vec![0u8; 9],
+            fill_level: vec![0.0; 9],
+        };
+        assert!(water_body_topology(&wb, 3, 3, false).is_empty());
     }
 
     #[test]
