@@ -573,15 +573,27 @@ fn the_two_cases_really_are_different_worlds() {
     assert_ne!(fnv_u8(&a.wb), fnv_u8(&b.wb));
     assert_ne!(fnv_u8(&a.biome), fnv_u8(&b.biome));
     // RE-BASELINED 2026-09-21 (`LARGE_ITEM_RULINGS.md`'s Ruling Q):
-    // `build_water_bodies` moved to a topology-primary ocean/lake rule --
-    // see `golden_parity_waterbodies.rs`'s header for the full account.
-    // `case0`'s below-sea system no longer has any component that fails to
-    // touch the grid's real boundary, so every one of its below-sea cells
-    // is now ocean and it carries zero lake cells (was `a.wb.contains(&2)`
-    // true; measured 2026-09-21: 186 ocean / 0 lake). The ocean-vs-lake
-    // gates are still exercised -- by `case1` alone (87 ocean / 42 lake) --
-    // so the assertion now states what each fixture actually contains
-    // rather than assuming both still do.
+    // `build_water_bodies` moved to a topology-primary ocean/lake rule for
+    // a bounded map -- see `golden_parity_waterbodies.rs`'s header for the
+    // full account. `case0` is `world=false`, so it is unaffected by the
+    // later Ruling T (which only special-cases `world=true`): its below-sea
+    // system still has no component that fails to touch the grid's real
+    // boundary, so every one of its below-sea cells is ocean and it carries
+    // zero lake cells (was `a.wb.contains(&2)` true; measured 2026-09-21:
+    // 186 ocean / 0 lake). The ocean-vs-lake gates are still exercised --
+    // by `case1` alone -- so the assertion states what each fixture
+    // actually contains rather than assuming both still do.
+    //
+    // `case1` is `world=true` (gw=20 gh=16 seed=314159), so Ruling T
+    // (2026-09-21) reverts its `build_water_bodies` call to the original
+    // size-primary rule. Re-checked directly against this file's own
+    // `case1()` rather than assumed: the counts (87 ocean / 42 lake) are
+    // UNCHANGED by that reversion for this specific fixture -- this
+    // world's single largest below-sea component happens to also be the
+    // one touching a pole, so the size-primary and topology-primary rules
+    // pick the same component here (same coincidence `case_0_region`
+    // documents for `golden_parity_waterbodies.rs`'s bounded fixture). No
+    // value in this file needed a further edit for Ruling T.
     assert!(!a.wb.contains(&2), "case0 no longer contains a lake under the topology-primary rule");
     assert!(b.wb.contains(&1) && b.wb.contains(&2), "case1 alone exercises the ocean-vs-lake gates");
 }

@@ -14,25 +14,31 @@
 //! both cases (same harness-seeding fix that milestone required:
 //! `state.tect.seed`, not `state.seed`); (2) each case's biome category
 //! counts sum exactly to that same file's already-verified ocean/lake/land
-//! counts (case 0: 75 ocean + 79 land; case 1, pre-Ruling-Q: 13 ocean + 52
-//! lake + 127 land, and post-Ruling-Q, matching `expected_biome` below: 14
-//! ocean + 62 lake + 116 land) -- a biome raster with a real
-//! classification bug would not reproduce those totals by coincidence.
+//! counts (case 0: 75 ocean + 79 land; case 1: 13 ocean + 52 lake + 127
+//! land) -- a biome raster with a real classification bug would not
+//! reproduce those totals by coincidence.
 //!
 //! Both `classifyBiome` and `buildBiomeRaster`'s output are categorical
 //! (`Uint8`) -- bit-exact match required.
 //!
-//! **`case_1_world_wrap`'s `expected_biome` was re-baselined 2026-09-21,
-//! `LARGE_ITEM_RULINGS.md`'s Ruling Q.** `build_water_bodies` moved to a
-//! topology-primary ocean/lake rule (`golden_parity_waterbodies.rs`'s own
-//! header has the full account) -- a deliberate divergence from the
-//! reference for classification only, so `expected_biome`'s
-//! ocean(13)/lake(2) cells move wherever `classification` moved and are no
-//! longer a reference-parity assertion on those cells specifically.
-//! `case_0_region`'s water-body classification is unchanged, so its biome
-//! raster needed no update. `case_1_world_wrap`'s new value is
-//! `build_biome_raster`'s own actual output on the new classification,
-//! captured 2026-09-21.
+//! **`case_1_world_wrap`'s `expected_biome` was re-baselined TWICE, both
+//! 2026-09-21.** First by `LARGE_ITEM_RULINGS.md`'s Ruling Q:
+//! `build_water_bodies` moved to a topology-primary ocean/lake rule for a
+//! bounded map (`golden_parity_waterbodies.rs`'s own header has the full
+//! account) -- a deliberate divergence from the reference for
+//! classification only, so `expected_biome`'s ocean/lake cells moved
+//! wherever `classification` moved (14 ocean + 62 lake + 116 land under
+//! Ruling Q, up from 13/52/127). Then Ruling T special-cased `world=true`
+//! back to the original size-primary rule (X has no real edge on a wrapped
+//! map, so Ruling Q's argument doesn't transfer), and `case_1_world_wrap`
+//! is `world=true` -- so this fixture reverts a second time, back to its
+//! ORIGINAL 13/52/127 counts and the exact biome values below, which are
+//! identical to this file's own pre-Ruling-Q content (`git show
+//! c6de2a2:crates/cartalith-civ/tests/golden_parity_biome.rs`) because
+//! `build_water_bodies`'s own classification for `world=true` is once again
+//! bit-identical to its pre-Ruling-Q output. `case_0_region`
+//! (`world=false`) is untouched by either ruling. Re-run and confirmed
+//! against this crate's own current actual output.
 
 #[test]
 fn biome_raster_case_0_region() {
@@ -59,13 +65,14 @@ fn biome_raster_case_0_region() {
 #[test]
 fn biome_raster_case_1_world_wrap() {
     // case 1: world_wrap: gw=16 gh=12 seed=314159 world=true. RE-BASELINED
-    // 2026-09-21 (Ruling Q, see this file's own header).
+    // AGAIN 2026-09-21 (Ruling T, see this file's own header) -- reverted
+    // to its pre-Ruling-Q values.
     let expected_biome: Vec<u8> = vec![
-        0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 13, 13, 1, 1, 13, 1, 1, 1, 1, 1, 1, 13, 2, 2, 13, 13, 13, 13, 2, 2,
-        3, 13, 2, 3, 2, 2, 13, 13, 6, 13, 13, 13, 13, 13, 6, 6, 6, 6, 6, 6, 6, 13, 13, 6, 6, 13, 13, 13, 13, 13, 6, 6, 13, 13, 6, 12, 6, 6,
-        6, 6, 12, 13, 13, 13, 12, 13, 13, 12, 13, 12, 12, 12, 13, 6, 6, 13, 12, 12, 13, 6, 13, 13, 13, 13, 13, 13, 6, 13, 13, 12, 13, 13,
-        13, 6, 6, 6, 13, 13, 13, 13, 13, 13, 6, 13, 6, 6, 13, 13, 6, 6, 6, 6, 6, 6, 13, 13, 3, 2, 2, 13, 6, 6, 13, 13, 1, 3, 13, 3, 3, 3, 2,
-        1, 3, 1, 1, 2, 0, 1, 3, 1, 1, 1, 13, 13, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1,
+        13, 13, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 13, 1, 1, 1, 13, 1, 1, 1, 13, 1, 1, 1, 1, 1, 1, 13, 2, 2, 2, 13, 13, 3, 2, 2,
+        3, 13, 2, 3, 2, 2, 13, 13, 6, 13, 13, 13, 6, 13, 6, 6, 6, 6, 6, 6, 6, 13, 13, 6, 6, 13, 13, 12, 12, 13, 6, 6, 0, 12, 6, 12, 6, 6, 6,
+        6, 12, 13, 13, 13, 12, 12, 0, 12, 0, 12, 12, 12, 13, 6, 6, 13, 12, 12, 13, 6, 12, 0, 0, 0, 0, 12, 6, 13, 13, 12, 13, 13, 13, 6, 6,
+        6, 0, 0, 0, 0, 12, 13, 6, 13, 6, 6, 13, 13, 6, 6, 6, 6, 6, 6, 0, 0, 3, 2, 2, 13, 6, 6, 13, 13, 1, 3, 13, 3, 3, 3, 2, 1, 3, 1, 1, 2,
+        13, 1, 3, 1, 1, 1, 13, 13, 1, 1, 1, 1, 13, 13, 1, 13, 13, 13, 1, 1, 1, 13, 1, 1, 1, 1, 1, 1, 13, 13, 13, 13, 1, 1, 1,
     ];
 
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);

@@ -129,40 +129,36 @@ fn settlement_placement_case_1_world_wrap() {
     // All seeds land on ONE connected landmass (world-wrap). factionCount=6
     // > L=1 landmass, so every candidate earns its own seat and becomes its
     // own capital -- the K>1 multi-capital spacing branch, which this fixture
-    // exercises at K=5 as of the 2026-09-21 re-baseline below (was K=3).
+    // still exercises at K=3.
     //
-    // **RE-BASELINED 2026-09-21, `LARGE_ITEM_RULINGS.md`'s Ruling Q**,
-    // superseding the "Ruling N, second pass" account below (kept for
-    // history -- it described the PRIOR re-baseline, not this one).
-    // `build_water_bodies` moved to a topology-primary ocean/lake rule
-    // (`golden_parity_waterbodies.rs`'s header has the full account): this
-    // 16x12 fixture's `wb.classification` moved substantially (116 land /
-    // 14 ocean / 62 lake, was 127/13/52), which reaches `coast_reach`
-    // (traced against `wb.classification`), `landmass` (via
-    // `carrying_cap`, which reads `biome`) and `SuitabilityCtx::water_bodies`
-    // itself -- three of `build_settlement_suitability`'s real inputs, not
-    // one term. The suitability landscape's local maxima moved enough that
-    // `find_settlement_seeds` now finds five DIFFERENT candidates in
-    // different cells entirely, not a subset of the old five. Verified
-    // non-degenerate: 5 capitals, one per faction, all still `coastal:
-    // true`. Every value below is `place_settlements_with_water_edge_snap`'s
-    // own actual output on this fixture, captured 2026-09-21.
+    // **Ruling N re-baseline, second pass**: 5 settlements become 3. The two
+    // that go, (14,8) at 0.7000 and (1,3) at 0.6868 under the river pass,
+    // fall below `find_settlement_seeds`' 0.65 floor once the coastal term
+    // stops paying for a lake. This 16x12 fixture is lake-heavy -- 102 of its
+    // 127 scored cells had `coast > 0` with a *lake* as their nearest water
+    // under `build_coast_sdf` -- so it feels the change harder than a
+    // production world does. The three survivors keep their cells, factions,
+    // ranks and `coastal: true` exactly.
     //
-    // ---- Ruling N re-baseline, second pass (history, superseded above) ----
-    // 5 settlements become 3. The two that go, (14,8) at 0.7000 and (1,3) at
-    // 0.6868 under the river pass, fall below `find_settlement_seeds`' 0.65
-    // floor once the coastal term stops paying for a lake. This 16x12
-    // fixture is lake-heavy -- 102 of its 127 scored cells had `coast > 0`
-    // with a *lake* as their nearest water under `build_coast_sdf` -- so it
-    // feels the change harder than a production world does. The three
-    // survivors keep their cells, factions, ranks and `coastal: true`
-    // exactly.
+    // **RE-BASELINED then RE-REVERTED, both 2026-09-21.**
+    // `LARGE_ITEM_RULINGS.md`'s Ruling Q briefly superseded the account
+    // above with a topology-primary `build_water_bodies` rule (this
+    // fixture's `wb.classification` moved to 116 land / 14 ocean / 62 lake,
+    // was 127/13/52 -- see `golden_parity_waterbodies.rs`'s header), which
+    // reached `coast_reach`/`landmass`/`SuitabilityCtx::water_bodies` and
+    // moved `find_settlement_seeds` to five different candidate cells
+    // entirely. Ruling T then special-cased this fixture's `world=true`
+    // map back to the original size-primary rule, reverting `expected`
+    // below a second time to this file's own pre-Ruling-Q content (`git
+    // show c6de2a2:crates/cartalith-civ/tests/golden_parity_settlement_placement.rs`)
+    // -- i.e. back to the three-capital, K=3 account just above, which is
+    // accurate again. Re-run and confirmed against
+    // `place_settlements_with_water_edge_snap`'s own current actual
+    // output.
     let expected = vec![
-        ExpectedPlace { x: 8, y: 10, faction: 1, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
-        ExpectedPlace { x: 13, y: 8, faction: 2, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
-        ExpectedPlace { x: 1, y: 2, faction: 3, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
-        ExpectedPlace { x: 14, y: 9, faction: 4, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
-        ExpectedPlace { x: 2, y: 0, faction: 5, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
+        ExpectedPlace { x: 9, y: 3, faction: 1, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
+        ExpectedPlace { x: 5, y: 8, faction: 2, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
+        ExpectedPlace { x: 8, y: 9, faction: 3, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
     ];
 
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);

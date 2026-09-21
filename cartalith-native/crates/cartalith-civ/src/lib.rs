@@ -519,28 +519,59 @@ fn cc_visit(
     }
 }
 
+/// The reference's own (and Ruling T's restored, and Ruling Q's fallback)
+/// size-primary tie-break: the largest below-sea connected component, first
+/// index wins ties. Matches the pre-Ruling-Q Rust body of
+/// [`build_water_bodies`] (`git show c6de2a2:crates/cartalith-civ/src/lib.rs`)
+/// exactly -- `sz > best_size` with a `0` floor behaves identically to that
+/// version's `sz as i64 > best` with a `-1` floor, since every component
+/// has at least one cell.
+fn largest_component(sizes: &[usize]) -> Option<usize> {
+    let mut best_idx: Option<usize> = None;
+    let mut best_size: usize = 0;
+    for (c, &sz) in sizes.iter().enumerate() {
+        if sz > best_size {
+            best_size = sz;
+            best_idx = Some(c);
+        }
+    }
+    best_idx
+}
+
 /// `buildWaterBodies` (reference HTML line 5753 for the raster's presence
-/// and shape) with the reference's own SIZE-PRIMARY ocean/lake rule
-/// REPLACED by a TOPOLOGY-PRIMARY one, per `LARGE_ITEM_RULINGS.md`'s Ruling
-/// Q (2026-09-21) and its source, `HYDROLOGY_CLASSIFICATION_RESEARCH.md`
-/// (owner-supplied, imported verbatim 2026-09-08). **This is a deliberate
-/// divergence from the reference, not a straight port** -- the reference
-/// itself calls the largest connected below-sea component the ocean and
-/// every other one a lake, which the research paper's whole argument is
-/// against (§1: "surface area must not be the primary determinant").
+/// and shape). For a **bounded** map (`world == false`) the reference's own
+/// SIZE-PRIMARY ocean/lake rule is REPLACED by a TOPOLOGY-PRIMARY one, per
+/// `LARGE_ITEM_RULINGS.md`'s Ruling Q (2026-09-21) and its source,
+/// `HYDROLOGY_CLASSIFICATION_RESEARCH.md` (owner-supplied, imported verbatim
+/// 2026-09-08). **This is a deliberate divergence from the reference, not a
+/// straight port** -- the reference itself calls the largest connected
+/// below-sea component the ocean and every other one a lake, which the
+/// research paper's whole argument is against (§1: "surface area must not
+/// be the primary determinant").
 ///
-/// The new rule, restated from the research's own §8/§11 (a below-sea
-/// component that reaches the generated region's real edge "may continue
-/// outside... should not automatically be classified as a lake" --
-/// PRESUMED marine, not confirmed enclosed):
+/// **A `world == true` (toroidal, X-wrapped) map is special-cased back to
+/// the reference's original SIZE-PRIMARY rule, per `LARGE_ITEM_RULINGS.md`'s
+/// Ruling T (2026-09-21).** Ruling Q's own agent flagged rather than
+/// silently decided this: the boundary-touching argument is about a
+/// component that "may continue outside" the generated region, and on a
+/// wrapped map X has no real edge to continue past in the first place --
+/// `HYDROLOGY_CLASSIFICATION_RESEARCH.md` never addresses wrapped-world
+/// topology at all. The owner ruled the argument does not transfer, so a
+/// wrapped map keeps the exact pre-Ruling-Q rule below; only a bounded map
+/// uses Ruling Q's rule. The two rules:
+///
+/// **Bounded (`world == false`), Ruling Q -- restated from the research's
+/// own §8/§11** (a below-sea component that reaches the generated region's
+/// real edge "may continue outside... should not automatically be
+/// classified as a lake" -- PRESUMED marine, not confirmed enclosed):
 ///
 /// - A below-sea connected component that touches the grid's real boundary
-///   (`world`-aware: an X edge counts only when `!world`, since `world`
-///   wraps X; a Y edge always counts, wrapped or not -- the same edge test
-///   [`water_body_topology`] uses) becomes OCEAN (`1`), **regardless of
-///   size**. Two disconnected below-sea components can both be boundary-
-///   touching and both become ocean -- the research's own point that
-///   multiple marine basins can coexist with the world ocean.
+///   (an X edge counts, `!world` always holding here; a Y edge always
+///   counts too -- the same edge test [`water_body_topology`] uses) becomes
+///   OCEAN (`1`), **regardless of size**. Two disconnected below-sea
+///   components can both be boundary-touching and both become ocean -- the
+///   research's own point that multiple marine basins can coexist with the
+///   world ocean.
 /// - A below-sea component that touches no real boundary is fully enclosed
 ///   within the generated region, so nothing outside the map can be feeding
 ///   or draining it: it becomes LAKE (`2`) unconditionally, however large
@@ -548,15 +579,25 @@ fn cc_visit(
 ///   third of the generated world may still be a lake").
 /// - **Fallback, disclosed rather than silent:** if NO below-sea component
 ///   touches a real boundary at all (an entirely interior below-sea
-///   system -- a landlocked bounded map, or a `world`-wrapped map with no
-///   polar water), there is no topological signal left to pick an ocean
-///   from. The research argues against size as the PRIMARY signal; it does
-///   not forbid using it as a last-resort tiebreak when no better signal
-///   exists, and leaving the whole map with zero ocean cells would be a
-///   far larger behaviour change than this reclassification and is not
-///   required by anything in the research. So the largest below-sea
-///   component is chosen ocean in this case only -- the reference's old
-///   rule, kept as the degenerate fallback rather than removed outright.
+///   system -- a landlocked bounded map), there is no topological signal
+///   left to pick an ocean from. The research argues against size as the
+///   PRIMARY signal; it does not forbid using it as a last-resort tiebreak
+///   when no better signal exists, and leaving the whole map with zero
+///   ocean cells would be a far larger behaviour change than this
+///   reclassification and is not required by anything in the research. So
+///   the largest below-sea component is chosen ocean in this case only --
+///   the reference's old rule, kept as the degenerate fallback rather than
+///   removed outright.
+///
+/// **Wrapped (`world == true`), Ruling T -- the reference's original rule,
+/// restored bit-for-bit** (the pre-Ruling-Q Rust body, `git show
+/// c6de2a2:crates/cartalith-civ/src/lib.rs`): the single largest below-sea
+/// connected component is OCEAN (`1`), first index wins ties; every other
+/// below-sea component is LAKE (`2`), whatever its size and whatever it
+/// touches. No boundary test runs for this branch at all -- a wrapped map's
+/// only real edges are its poles, and a below-sea polar component that is
+/// not the largest is a LAKE under this rule, same as it was before Ruling
+/// Q existed.
 ///
 /// Above-sea depressions a priority-flood fill pools past `lakeDepth`
 /// (gated on local rainfall) are untouched by this reclassification: they
@@ -672,24 +713,28 @@ pub fn build_water_bodies(
         comp += 1;
     }
 
-    // Topology-primary ocean selection (Ruling Q): every boundary-touching
-    // component is ocean, regardless of size. Only when NONE touch the
-    // boundary -- no topological signal available at all -- fall back to
-    // the reference's old largest-component rule, so the map is never left
-    // with zero ocean cells. See this function's doc comment for the full
-    // reasoning and citations.
-    let mut is_ocean_comp = touches_boundary.clone();
-    if !is_ocean_comp.iter().any(|&t| t) {
-        let mut best_idx: Option<usize> = None;
-        let mut best_size: usize = 0;
-        for (c, &sz) in sizes.iter().enumerate() {
-            if sz > best_size {
-                best_size = sz;
-                best_idx = Some(c);
-            }
-        }
-        if let Some(c) = best_idx {
+    // Ocean-component selection: branches on `world` per Ruling T. See this
+    // function's doc comment for the full reasoning and citations.
+    let mut is_ocean_comp = vec![false; sizes.len()];
+    if world {
+        // Ruling T (2026-09-21): a wrapped map has no real X edge for the
+        // boundary-touching argument to apply to, so it keeps the
+        // pre-Ruling-Q rule unconditionally -- the single largest below-sea
+        // component is ocean, whatever it touches.
+        if let Some(c) = largest_component(&sizes) {
             is_ocean_comp[c] = true;
+        }
+    } else {
+        // Ruling Q (2026-09-21): every boundary-touching component is
+        // ocean, regardless of size. Only when NONE touch the boundary --
+        // no topological signal available at all -- fall back to the
+        // reference's old largest-component rule, so the map is never left
+        // with zero ocean cells.
+        is_ocean_comp = touches_boundary.clone();
+        if !is_ocean_comp.iter().any(|&t| t) {
+            if let Some(c) = largest_component(&sizes) {
+                is_ocean_comp[c] = true;
+            }
         }
     }
     for i in 0..n {
@@ -803,12 +848,15 @@ pub fn build_water_bodies(
 /// system, not merely its size, and at the time [`build_water_bodies`] was
 /// still size-primary (largest below-sea component wins the ocean label).
 /// **`LARGE_ITEM_RULINGS.md`'s Ruling Q (2026-09-21) has since moved
-/// [`build_water_bodies`] itself onto a topology-primary rule** (see that
-/// function's own doc comment) -- this function's own body is unchanged
-/// (still a read-only re-derivation of the raster's own output, still
-/// never moving a classified cell), but the facts it restates now describe
-/// the NEW rule rather than the old one, because `kind` itself means
-/// something different now.
+/// [`build_water_bodies`] onto a topology-primary rule for a bounded map,
+/// and Ruling T (2026-09-21) special-cases a `world`-wrapped one back to
+/// the original size-primary rule** (see that function's own doc comment
+/// for both) -- this function's own body is unchanged either time (still a
+/// read-only re-derivation of the raster's own output, still never moving a
+/// classified cell, still indifferent to which rule chose `kind`), but the
+/// facts it restates now describe whichever rule [`build_water_bodies`]
+/// applied for that map's own `world` flag, because `kind` itself can mean
+/// a different thing depending on it.
 ///
 /// Only the two facts this port can establish without a river/flow network
 /// crossing this crate's boundary are computed: whether a body IS the ocean
@@ -831,14 +879,18 @@ pub struct WaterBodyTopology {
     /// Cells belonging to this connected component.
     pub cell_count: usize,
     /// `true` for every body carrying `kind == 1` -- the raster's own
-    /// definition of "ocean" (Ruling Q: any below-sea component touching the
-    /// grid's real boundary, or the largest below-sea component when none
-    /// do), restated as a per-body fact so a caller need not compare `kind`
-    /// itself. **Can now be `true` for more than one body at once** -- two
-    /// disconnected below-sea components can both touch the boundary (two
-    /// separate marine basins), unlike the old largest-wins rule, which
-    /// picked exactly one. Always `false` for a lake, by the raster's own
-    /// construction.
+    /// definition of "ocean", restated as a per-body fact so a caller need
+    /// not compare `kind` itself. What decides `kind == 1` depends on the
+    /// map's own `world` flag ([`build_water_bodies`]'s own doc comment has
+    /// the full rule): on a **bounded** map (Ruling Q) it is any below-sea
+    /// component touching the grid's real boundary, or the largest below-sea
+    /// component when none do -- **can be `true` for more than one body at
+    /// once**, since two disconnected below-sea components can both touch
+    /// the boundary (two separate marine basins). On a **wrapped**
+    /// (`world == true`) map (Ruling T) it is the single largest below-sea
+    /// component only, exactly the reference's own pre-Ruling-Q rule --
+    /// `true` for at most one body. Always `false` for a lake, by the
+    /// raster's own construction, on either map kind.
     pub ocean_connected: bool,
     /// `true` if any cell of this body sits on an edge the grid does not
     /// wrap. `world` only wraps in X (matching [`build_water_bodies`]'s own
@@ -862,10 +914,13 @@ pub struct WaterBodyTopology {
 /// function does not have, and are not guessed at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WaterBodyBasin {
-    /// `kind == 1`: a below-sea component classified ocean under Ruling Q's
-    /// topology-primary rule -- normally because it touches the grid's real
-    /// boundary (possibly one of several such components), or the largest
-    /// below-sea component in the fallback case where none touch it.
+    /// `kind == 1`: a below-sea component classified ocean under whichever
+    /// rule [`build_water_bodies`] applied for the map's own `world` flag
+    /// -- on a bounded map (Ruling Q), normally because it touches the
+    /// grid's real boundary (possibly one of several such components), or
+    /// the largest below-sea component in the fallback case where none
+    /// touch it; on a wrapped map (Ruling T), the single largest below-sea
+    /// component unconditionally.
     Ocean,
     /// `kind == 2`, no boundary contact: closed on every side within the
     /// generated region, so nothing outside the map can be feeding or
@@ -15804,6 +15859,78 @@ mod tests {
         }
         assert_eq!(wb.classification[0], 0);
         assert_eq!(wb.classification[6], 0);
+    }
+
+    // ---- Ruling T (2026-09-21): a `world`-wrapped map special-cases back
+    // to the pre-Ruling-Q size-primary rule; only a bounded map uses
+    // Ruling Q's boundary-touching rule. Same 5x3 shape used for both the
+    // positive check (load-bearing: proves the special-case actually took
+    // effect) and its `world=false` control (proves the bounded case is
+    // untouched) -- only the `world` flag differs between them.
+    //
+    // Row 0 (y=0, a real pole edge under either `world` value): a 1-cell
+    // below-sea component at x=0 -- the SMALLER component, touching a pole.
+    // Row 1 (interior): a 3-cell below-sea component at x=1..3 -- the
+    // LARGER component, touching no edge at all (x=1..3 never reaches
+    // x=0/x=gw-1, so it can't wrap-connect to anything either).
+    // Row 2: all land.
+
+    #[test]
+    fn build_water_bodies_wrapped_world_pole_touching_minority_component_is_lake_ruling_t() {
+        // world=true: Ruling T applies, so the pole-touching component does
+        // NOT automatically win ocean just for touching a pole -- the
+        // largest component does, exactly the reference's pre-Ruling-Q
+        // rule. If Ruling Q's uniform rule still applied here, the pole-
+        // touching 1-cell component would be OCEAN; it is not.
+        #[rustfmt::skip]
+        let field = [
+            0.1f32, 0.9, 0.9, 0.9, 0.9,
+            0.9,    0.1, 0.1, 0.1, 0.9,
+            0.9,    0.9, 0.9, 0.9, 0.9,
+        ];
+        let wb = build_water_bodies(&field, 5, 3, 0.4, true, None);
+        assert_eq!(
+            wb.classification[0], 2,
+            "1-cell pole-touching component is the MINORITY component -> lake under \
+             Ruling T's size-primary rule, not ocean"
+        );
+        for i in [6usize, 7, 8] {
+            assert_eq!(
+                wb.classification[i], 1,
+                "3-cell interior component is the LARGEST -> ocean under Ruling T, \
+                 even though it touches no edge at all"
+            );
+        }
+    }
+
+    #[test]
+    fn build_water_bodies_bounded_control_same_shape_still_ruling_q() {
+        // Same shape, world=false: this is the control proving the branch
+        // did not also revert the bounded case. Under Ruling Q, y=0 is
+        // always a real boundary (wrapped or not), so the 1-cell component
+        // at x=0 touches it and is ocean regardless of size; the 3-cell
+        // interior component touches no boundary at all (x=1..3, and
+        // `!world` now also makes x=0/x=gw-1 real edges, which it still
+        // doesn't reach) and is lake despite being three times larger --
+        // unchanged from Ruling Q's own behaviour.
+        #[rustfmt::skip]
+        let field = [
+            0.1f32, 0.9, 0.9, 0.9, 0.9,
+            0.9,    0.1, 0.1, 0.1, 0.9,
+            0.9,    0.9, 0.9, 0.9, 0.9,
+        ];
+        let wb = build_water_bodies(&field, 5, 3, 0.4, false, None);
+        assert_eq!(
+            wb.classification[0], 1,
+            "pole/boundary-touching 1-cell component is ocean under Ruling Q, unchanged"
+        );
+        for i in [6usize, 7, 8] {
+            assert_eq!(
+                wb.classification[i], 2,
+                "boundary-untouched 3-cell interior component is lake under Ruling Q, \
+                 unchanged, despite being the larger component"
+            );
+        }
     }
 
     #[test]

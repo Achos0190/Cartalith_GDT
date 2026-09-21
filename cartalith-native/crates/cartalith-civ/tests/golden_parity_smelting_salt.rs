@@ -451,6 +451,14 @@ fn smelting_and_salt_case_0_region_no_wrap() {
 
 #[test]
 fn smelting_and_salt_case_1_world_wrap() {
+    // `world=true`, so `LARGE_ITEM_RULINGS.md`'s Ruling T (2026-09-21)
+    // reverts this fixture's `build_water_bodies` call to the original
+    // size-primary rule. Re-checked directly rather than assumed: every
+    // hash below is UNCHANGED by that reversion -- this fixture was never
+    // touched by Ruling Q's own diff either (only
+    // `smelting_and_salt_case_0_region_no_wrap`, `world=false`, moved, and
+    // stays exactly as Ruling Q left it, unaffected by Ruling T). No value
+    // in this function needed an edit for either ruling.
     let c = build_real(48, 36, 314159, true);
     assert_eq!(fnv_f32(&c.field), "ff792a79c88c72a3", "field hash: not the world the harness saw");
     assert_eq!(fnv_bytes(&c.biome), "e8a30c1895843612", "biome hash");
