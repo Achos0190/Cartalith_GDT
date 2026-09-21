@@ -1123,3 +1123,21 @@ Siting itself changes, not just the downstream render binding: a settlement only
 **The finding is `OUTSTANDING_WORK.md`'s `FUNCTIONAL_CONTRACT.md` cap. 6 row**, re-derived 2026-09-13: the pack-import warning names only `trait` as unused, but `structures.settlement`, `structures.poi`, `custom` and `seamarks` art are every bit as undrawn — none has a compositor reaching the live map. `manifest.rs`'s own comment above `unused.push("trait")` said widening the list was a behaviour decision the owner had not made, and is golden-pinned (`golden_parity_pack_manifest.rs`, `golden_parity_pack_zip.rs`, plus a test asserting the OLD behaviour, `settlement_and_poi_are_not_named_by_the_unused_warning`, which this ruling makes false by name).
 
 **Owner ruling, 2026-09-21: name all four.** Honest disclosure now; drawing any of the four into the live map composite is separate, unauthorised future work. Needs a build: extend the `unused` push-list in `manifest.rs`, invert or remove the now-false test, and re-derive whatever golden fixture pins the warning string's exact wording — the standard re-baseline discipline, not a silent string change.
+
+## 2026-09-21 — Ruling X: `Data ▸ Export ▸ Maps ▸ tiles` stays in the export menu
+
+**The finding is `OUTSTANDING_WORK.md`'s own row, deliberately not ruled on by the 2026-09-07 menu audit that found it.** Ruling 29 (*"the tiled output should only live in the save menu. It has no merit in the export menu"*) scopes its own body to the LOD pyramid and the proposed Build Manager. `Data ▸ Export ▸ Maps ▸ tiles` is a different artefact — a region-marquee PNG tile grid (`PANE_PURPOSE.export_maps`), not the LOD pyramid — and the row's badge, tooltip and code all describe that different thing.
+
+**Owner ruling, 2026-09-21: Ruling 29 does not cover this row. Leave it in the export menu.** No code change — this closes the ambiguity, not a build.
+
+## 2026-09-21 — Ruling Y: build GPU device reuse across generations, with explicit device-loss handling
+
+**The finding is `OUTSTANDING_WORK.md`'s own row, re-scoped by measurement 2026-09-03.** Six pipeline builds total 2.60 ms against a device handshake of several hundred milliseconds — the device, not the pipelines, is where the reuse value is. Holding a `wgpu::Device` alive between `generate_terrain` calls changes lifetime and failure semantics around Wgpu's `lost` flag, which this project has already measured losing on `forward_plus`/Vulkan.
+
+**Owner ruling, 2026-09-21: build it, with a real recovery path for device loss** — not a feature that assumes the device never dies. The `lost` flag must be handled explicitly (re-acquire the device and retry, or fall back to CPU for that generation, rather than an unhandled panic/hang) since this project has already measured hitting it.
+
+## 2026-09-21 — Ruling Z: shrink the phone MAP tab's half-open detent to fit its real content
+
+**The finding is `OUTSTANDING_WORK.md`'s own row, reported and deliberately left unchanged 2026-09-06.** The half-open detent height (`PHONE_DETENT_HALF_FRAC = 0.46`) was transcribed faithfully from the prototype's own `Math.round(fh*0.46)`. The sheet it opens is ~92% blank regardless of world state (933 of 1 003 rows blank with no world, 912 WITH one) — not an empty-state bug, genuinely more vertical space than the real content needs.
+
+**Owner ruling, 2026-09-21: shrink the detent to fit the real content.** A deliberate deviation from the transcribed prototype value, authorised because the prototype's own proportion does not describe this content's actual size. Needs a build: re-derive the half-open fraction (or switch to a content-sized detent if this shell has that mechanism elsewhere) rather than the flat transcribed 0.46.
