@@ -279,6 +279,8 @@ pub struct PaintEditor {
     draft_biome: PassBuffer<PaintStamp>,
     draft_terrain: PassBuffer<PaintStamp>,
     draft_splat: PassBuffer<PaintStamp>,
+    /// How many times a **committed** layer has changed — see [`Self::epoch`].
+    epoch: u64,
 }
 
 impl PaintEditor {
@@ -307,7 +309,28 @@ impl PaintEditor {
             draft_biome,
             draft_terrain,
             draft_splat,
+            epoch: 0,
         }
+    }
+
+    /// How many times a **committed** layer has changed, for a consumer that
+    /// caches something derived from [`Self::layer_cells`].
+    ///
+    /// Added for `WorldGen::lod_cache_key` (`LOD_DETAIL_SCOPE.md` LOD-D2),
+    /// which needs "have the paint overrides moved" per LOD tile and cannot
+    /// afford the O(gw*gh) scan `painted_counts` is.
+    ///
+    /// **Derived from the definition, not from a guess about usage:** the
+    /// three committed layers are private to this struct and exactly two
+    /// methods write them — `commit_all` (through `PaintLayer::cells_mut`,
+    /// the only mutable accessor) and `restore_layers` (which replaces all
+    /// three outright). Both bump this. `discard_all`, `set_layer`,
+    /// `set_brush` and `stroke_at` touch only drafts, which no consumer of
+    /// `layer_cells` can see, so they deliberately do not.
+    /// `grep -n 'cells_mut\|self\.biome = \|self\.terrain = \|self\.splat = ' paint_bridge.rs`
+    /// is how that list was produced and is how to re-check it.
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     pub fn active_layer(&self) -> &PaintLayer {
@@ -431,6 +454,7 @@ impl PaintEditor {
         self.draft_biome.discard();
         self.draft_terrain.discard();
         self.draft_splat.discard();
+        self.epoch = self.epoch.wrapping_add(1);
         let painted = |l: &PaintLayer| l.cells().map_or(0, |c| c.iter().filter(|&&v| v != 0).count());
         (painted(&self.biome), painted(&self.terrain), painted(&self.splat))
     }
@@ -575,6 +599,11 @@ impl PaintEditor {
         let biome = commit_one(&mut self.draft_biome, &mut self.biome, &mut self.tracker, n, PaintTarget::Biome.commit_reason());
         let terrain = commit_one(&mut self.draft_terrain, &mut self.terrain, &mut self.tracker, n, PaintTarget::Terrain.commit_reason());
         let splat = commit_one(&mut self.draft_splat, &mut self.splat, &mut self.tracker, n, PaintTarget::Splat.commit_reason());
+        // Bumped unconditionally rather than only when a stamp landed: a
+        // commit whose three drafts were all empty writes nothing, and a
+        // consumer rebuilding a cache for it costs one rebuild, where a
+        // missed bump costs a wrong picture. See `epoch`.
+        self.epoch = self.epoch.wrapping_add(1);
         [biome, terrain, splat]
     }
 

@@ -4288,16 +4288,19 @@ class _RouteMapView extends Control:
 	## LOD-tile `Sprite2D` children (`_sync_lod`), which every other layer
 	## must NOT carry.
 	##
-	## **Why only "map" gets LOD tiles.** `lod_bridge.rs`'s own "What a tile
-	## actually contains" section is explicit: a tile is a relief-detail
-	## *shade ratio*, not a picture -- `lod_tile.gdshader` multiplies it into
-	## `color_texture()`'s own colour, sampled at the tile's footprint. There
-	## is no equivalent shade-ratio synthesis for `debug_texture()`'s four
-	## field views: `bclass`/`cterrain` are categorical class ids (no
-	## sub-cell value to refine), and `water`/`wildlife` are derived scores
-	## with no relief-detail model behind them either. Feeding any of those
-	## into `LOD_TILE_SHADER`'s `base_tex` would multiply a real detail ratio
-	## into a field it was never computed against -- wrong, not just blurry.
+	## **Why only "map" gets LOD tiles.** Since `LOD_DETAIL_SCOPE.md` LOD-D2
+	## a tile is the **terrain's own biome colour** at tile resolution
+	## (`render::render_biome_tile_rgba`), and `debug_texture()`'s four field
+	## views are not that picture at any resolution: `bclass`/`cterrain` are
+	## categorical class ids and `water`/`wildlife` are derived scores.
+	## Drawing a biome tile over one of them would replace the field the user
+	## asked to see with the terrain underneath it -- wrong, not just blurry.
+	##
+	## The conclusion is older than the reason. Until 2026-09-21 a tile was a
+	## relief-detail *shade ratio* the shader multiplied into
+	## `color_texture()`'s colour, and the argument was that multiplying a
+	## real detail ratio into a field it was never computed against is
+	## meaningless. The tile changed; which layer may carry one did not.
 	## Those four (and "off") keep the flat, bilinear-smoothed crop `_draw()`
 	## already draws; only "map" gets the sharper composited version.
 	func set_backdrop(tex: Texture2D, use_lod: bool, bridge: EngineBridge) -> void:

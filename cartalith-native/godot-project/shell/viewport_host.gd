@@ -58,8 +58,9 @@ signal pan_mode_changed(on: bool)
 
 const OVERLAY_SCRIPT := preload("res://map_overlay.gd")
 ## Deep-zoom tile compositing -- see `_build_lod_tile()` and the shader's own
-## header. A tile texture is a relief-detail shade ratio, not a picture; this
-## is what turns it back into map pixels using `map_view`'s own colours.
+## header. Since `LOD_DETAIL_SCOPE.md` LOD-D2 a tile texture IS map pixels
+## (`renderBiomeTileRGBA`'s own output), so the shader draws it; it keeps
+## `base_tex` bound for LOD-D3's morph and reads it nowhere today.
 const LOD_TILE_SHADER := preload("res://shell/lod_tile.gdshader")
 
 var map_view: TextureRect
@@ -372,13 +373,15 @@ func _ready() -> void:
 	## transparent and empty; `_update_lod()` is the only thing that ever
 	## adds children to it.
 	##
-	## Since 2026-08-23 a tile *literally* is the base map: its shader
-	## samples `map_view`'s own texture for colour and uses the tile texture
-	## only as a relief-detail shade ratio (`_build_lod_tile()`,
-	## `lod_bridge.rs`). Before that it carried
+	## A tile carries the **same coloriser the map itself runs**, evaluated
+	## at tile resolution (`render::render_biome_tile_rgba`, LOD-D2). Two
+	## earlier answers are worth knowing about: until 2026-08-23 it carried
 	## `render_height_tile_rgba`'s hypsometric ramp, which is the reference's
 	## *Relief* view mode, and covering the biome-coloured plate with it is
-	## exactly the owner's "a zoom action exposes the underlying heightmap".
+	## exactly the owner's "a zoom action exposes the underlying heightmap";
+	## from then until 2026-09-21 it carried a relief-detail shade ratio the
+	## shader multiplied into `map_view`'s own colour, which agreed with the
+	## map by construction and could not add detail the map did not have.
 	##
 	## **This node's position in the stack is load-bearing, and once got it
 	## wrong.** It used to be added after `territory_view`, `province_view`
@@ -2781,14 +2784,20 @@ func _build_lod_tile(key: String, idx: Vector3i, n: int, g: Vector2i, displayed_
 	## the same artifact at its own, finer texel size.
 	tile_node.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_place_lod_tile(tile_node, rect)
-	## `tex` is a relief-detail shade ratio, not a picture (`lod_bridge.rs`,
-	## "What a tile actually contains"). The shader multiplies it into the
-	## base map's own colour, sampled from `map_view.texture` over this
-	## tile's footprint -- so a deep-zoom tile can no longer disagree with
-	## the map it sits on, which is what the pre-2026-08-23 hypsometric
-	## tile did at every pixel. The UVs are the same rect in `[0,1]` map
-	## space, so the two agree by construction rather than by a second
-	## derivation.
+	## `tex` is the map's own biome colour at tile resolution
+	## (`LOD_DETAIL_SCOPE.md` LOD-D2 -- `render::render_biome_tile_rgba`,
+	## the reference's `renderBiomeTileRGBA`), so the shader draws it
+	## directly. It carried a relief-detail *shade ratio* from 2026-08-23
+	## until then, which the shader multiplied into `base_tex`; the two
+	## paths agreed by construction and a deeper level could not show
+	## anything the base raster did not already have.
+	##
+	## `base_tex` and its UVs are still set: the shader keeps the sampler
+	## for LOD-D3's morph, and its own header says it reads it only where a
+	## tile is transparent -- which nothing in this build produces. Passing
+	## the parameters here is what keeps that mapping exercised rather than
+	## re-derived later against a camera transform whose errors read as
+	## seams. The UVs are the same rect in `[0,1]` map space.
 	var mat := ShaderMaterial.new()
 	mat.shader = LOD_TILE_SHADER
 	mat.set_shader_parameter("base_tex", map_view.texture)
@@ -2839,7 +2848,7 @@ func _clear_lod_tiles() -> void:
 ## camera does not move. For a caller that just wrote `map_view.texture`
 ## directly instead of going through `refresh()` (`world_workspace.gd`'s
 ## `_on_sculpt_commit()`, and `_run_erode()` beside it): an already-built
-## tile `Sprite2D` holds its own synthesized shade-ratio texture AND a
+## tile `Sprite2D` holds its own synthesized colour texture AND a
 ## shader `base_tex` parameter captured from the OLD `map_view.texture`
 ## (`_build_lod_tile`), and `_apply_lod_tiles`'s reconciliation only rebuilds
 ## a key that is MISSING from `_lod_tiles` -- so with the camera unmoved,

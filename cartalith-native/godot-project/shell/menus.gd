@@ -4251,18 +4251,22 @@ func _on_tile_size(id: int) -> void:
 ## # The atlas is still write-only, and every row here says so (2026-08-31)
 ##
 ## Bake fills the store; nothing reads it back at draw time. That is not an
-## oversight that a one-line branch closes: a baked chunk is a stored *picture*
-## (`atlas_tile_png` -> PNG bytes), while the tile `_build_lod_tile()` draws is
-## a relief-detail **shade ratio** that `LOD_TILE_SHADER` multiplies into the
-## base raster's own colour, sampled over the tile's footprint
-## (`viewport_host.gd`, and `lod_bridge.rs`'s "What a tile actually contains").
-## Substituting one for the other would put a second, disagreeing picture on
-## top of the map -- exactly the pre-2026-08-23 defect that shader was written
-## to end. Closing it needs either a second material path that draws a baked
-## chunk as colour and bypasses the multiply, or a bake that stores the ratio
-## rather than the picture. Until one of those exists, the honest thing is what
-## these tooltips now do: describe the cache, the skip and the finalize lock,
+## oversight that a one-line branch closes, and the reason changed on
+## 2026-09-21 without the conclusion changing. Both halves are pictures now:
+## a baked chunk is `atlas_tile_png`'s **Relief** colouring (the hypsometric
+## height ramp), while the tile `_build_lod_tile()` draws is the **biome**
+## colouring the map itself uses (`render::render_biome_tile_rgba`,
+## `LOD_DETAIL_SCOPE.md` LOD-D2). Substituting one for the other would put a
+## second, disagreeing picture on top of the map -- which is the owner's own
+## "a zoom action exposes the underlying heightmap", the pre-2026-08-23 defect
+## verbatim. Until the bake stores the same coloriser the screen runs, or a
+## second material path draws a Relief chunk deliberately, the honest thing is
+## what these tooltips do: describe the cache, the skip and the finalize lock,
 ## and promise no read.
+##
+## (Until LOD-D2 the argument ran the other way -- a live tile was a
+## relief-detail shade ratio rather than a picture, so the mismatch was of
+## *kind* rather than of palette. The stored chunk has not moved.)
 func _build_atlas_cache_menu(p: PopupMenu) -> void:
 	_atlas_popup = PopupMenu.new()
 	_atlas_popup.name = "AtlasCache"

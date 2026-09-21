@@ -201,6 +201,8 @@
 //!   reduction of an owner-authorised value, made because this instruction is
 //!   the later one and names the number explicitly.
 
+use std::borrow::Cow;
+
 use cartalith_noise::{fbm, vnoise};
 // Milestone 6 (§21/§23): the per-pixel appearance pass and the
 // whole-raster local-contrast pass are element-wise over the grid, so they
@@ -3229,15 +3231,15 @@ pub struct RenderCtx<'a> {
     /// 2260) so this isn't a stretch feature to skip: without it, shallow
     /// water reads with visible per-cell seabed noise the real app never
     /// shows. Computed once in `RenderCtx::new` rather than per cell.
-    sea_h: Vec<f32>,
-    sea_shade: Vec<f32>,
+    sea_h: Cow<'a, [f32]>,
+    sea_shade: Cow<'a, [f32]>,
     /// The reference's `aoC` (8167): the cavity-map AO multiplier
     /// (`build_ao`) **times** the sky-view and cast-shadow multipliers
     /// ([`fold_lighting_fields`]) when either of those is on. All `1.0` when
     /// all three strengths are `0`, which is the reference's own state — and
     /// exactly `build_ao`'s output alone whenever only AO is on, which is
     /// `default()`'s state and every tier's.
-    ao: Vec<f32>,
+    ao: Cow<'a, [f32]>,
     /// `_coastSDF` (12089) — signed distance to the coastline in cells,
     /// negative inland and positive offshore
     /// (`cartalith_civ::build_coast_sdf`, whose sign convention is the
@@ -3248,7 +3250,7 @@ pub struct RenderCtx<'a> {
     /// Not the same field as [`Self::coast_d`], despite the names: that one
     /// is an unsigned chamfer distance to land, built only for the wave
     /// contours and only over water.
-    coast_sdf: Vec<f32>,
+    coast_sdf: Cow<'a, [f32]>,
     /// `_riverSDF` (8486) — signed distance to the discharge channel mask,
     /// **negative inside a channel** ([`build_river_sdf`], whose sign is the
     /// reference's and is the opposite way round from [`Self::coast_sdf`]).
@@ -3259,29 +3261,29 @@ pub struct RenderCtx<'a> {
     /// this struct carries. A caller that never attaches one gets the off
     /// state rather than a guessed width, and every consumer tests this
     /// field's length rather than `appearance.sdf_rivers`.
-    river_sdf: Vec<f32>,
+    river_sdf: Cow<'a, [f32]>,
     /// `_biomeBD` (8487) — unsigned distance in cells to the nearest cell of
     /// a different biome ([`build_biome_boundary_dist`]). Empty by
     /// construction, on `river_sdf`'s contract; where it is empty the
     /// ecotone widener is the literal `1.0`, not a computed one.
-    biome_bd: Vec<f32>,
+    biome_bd: Cow<'a, [f32]>,
     /// Per-cell "near water" tint strength (`build_hydro_wetness`). All
     /// `0.0` when `appearance.hydro_wet_strength == 0`, which is the
     /// reference's own state.
-    hydro_wet: Vec<f32>,
+    hydro_wet: Cow<'a, [f32]>,
     /// Precomputed weighted light directions (`build_lights`).
-    lights: Vec<(f64, f64, f64, f64)>,
+    lights: Cow<'a, [(f64, f64, f64, f64)]>,
     /// `_coastDCache` (8440) — per-cell distance in cells to the nearest
     /// land, for the wave/foam contours. **Empty** unless `npr.waves` is on,
     /// which is what makes the whole stage free at the default settings
     /// (`cell_color` tests the length, not a flag, so the two can never
     /// disagree).
-    coast_d: Vec<f32>,
+    coast_d: Cow<'a, [f32]>,
     /// `_crestField` (8434) — per-cell ridge-crest stroke strength
     /// (`build_crest`). **Empty** unless `crest_strength > 0`, on `coast_d`'s
     /// own contract: the consumer tests the length rather than a flag, so the
     /// two cannot disagree.
-    crest: Vec<f32>,
+    crest: Cow<'a, [f32]>,
     /// The renderer's colour data/shading constants (`TerrainAppearance`'s
     /// own doc comment). Settable via `with_appearance` as of milestone 2 —
     /// still not wired to any UI/`#[func]` (that's `GUI_SHELL_SCOPE.md`'s
@@ -3332,6 +3334,116 @@ pub struct RenderCtx<'a> {
     ground: GroundTiles<'a>,
 }
 
+/// Everything [`RenderCtx::with_appearance`] and [`RenderCtx::with_map_scale`]
+/// compute for themselves, owned separately from any `RenderCtx` — so a
+/// caller that builds many contexts over **one world and one appearance** pays
+/// for them once.
+///
+/// This exists for the LOD tile path (`LOD_DETAIL_SCOPE.md` LOD-D2) and for
+/// nothing else today. A `RenderCtx` borrows five input slices plus a
+/// lithology `Vec` its caller owns, so it cannot be stored beside the world it
+/// reads (`export_raster.rs::export_render`'s own doc comment records that
+/// conclusion, and takes a closure instead). What *can* be stored is this:
+/// grid-resolution rasters that depend only on `(field, temperature, rainfall,
+/// flow, sea_level, world, appearance, map_width_km)` and on nothing the
+/// caller re-derives per call.
+///
+/// **Measured, which is why it exists:** at 2048x1311, release, this machine —
+/// `with_appearance` + `with_map_scale` is 201.5 ms (199.5..202.2 over 5) and
+/// [`TileFields::new`] a further 278.2 ms (273.2..281.7). One 256^2 tile is
+/// 5.98 ms on all cores (51 ms single-threaded), so rebuilding either per tile
+/// would cost eighty times the tile itself, and `viewport_host.gd` asks for up
+/// to 48 of them on one zoom notch. `lod_bridge`'s
+/// `the_tile_context_costs_an_order_of_magnitude_more_than_the_tile_it_serves`
+/// is where those numbers come from and is how to re-take them.
+///
+/// **Byte-identical by construction, not by re-derivation.**
+/// `with_appearance` now calls [`Self::build`] rather than holding a second
+/// copy of the same eight calls, so there is one place where a precompute is
+/// defined and the cached and uncached paths cannot drift.
+pub struct GridPrecompute {
+    sea_h: Vec<f32>,
+    sea_shade: Vec<f32>,
+    ao: Vec<f32>,
+    coast_sdf: Vec<f32>,
+    river_sdf: Vec<f32>,
+    biome_bd: Vec<f32>,
+    hydro_wet: Vec<f32>,
+    lights: Vec<(f64, f64, f64, f64)>,
+    coast_d: Vec<f32>,
+    crest: Vec<f32>,
+    river_thresh: f64,
+    /// The grid this was built for, so [`RenderCtx::from_precomputed`] can
+    /// refuse a mismatched one rather than index out of bounds — a panic here
+    /// crosses the gdext boundary (`cartalith-rust-conventions`).
+    gw: usize,
+    gh: usize,
+}
+
+impl GridPrecompute {
+    /// The prologue of [`RenderCtx::with_appearance`], plus
+    /// [`RenderCtx::with_map_scale`]'s two fields when `map_width_km` is
+    /// `Some`.
+    ///
+    /// `map_width_km: None` is exactly the state a `RenderCtx` is in before
+    /// `with_map_scale` is called — empty `river_sdf`/`biome_bd` and a
+    /// `river_thresh` of `0.0` — which is what makes `with_appearance`'s own
+    /// call to this function a no-behaviour-change refactor.
+    #[allow(clippy::too_many_arguments, dead_code)]
+    pub fn build(
+        field: &[f32],
+        temperature: &[f32],
+        rainfall: &[f32],
+        flow: Option<&[f32]>,
+        gw: usize,
+        gh: usize,
+        sea_level: f64,
+        world: bool,
+        appearance: &TerrainAppearance,
+        map_width_km: Option<f64>,
+    ) -> Self {
+        let sea_h = smooth_sea_h(field, gw, gh, world);
+        let sea_shade = sea_shade_from(&sea_h, gw, gh, appearance);
+        let mut ao = build_ao(field, gw, gh, sea_level, world, appearance);
+        fold_lighting_fields(&mut ao, field, gw, gh, appearance);
+        let hydro_wet = build_hydro_wetness(flow, gw, gh, world, appearance);
+        let lights = build_lights(appearance);
+        let coast_d = if appearance.npr.waves { coast_distance(field, gw, gh, sea_level) } else { Vec::new() };
+        // The reference builds its SDFs in `renderNow` (8446) rather than in
+        // the material path, and only while the slider is up — `_coastSDF`'s
+        // own comment is "null ⇒ off ⇒ render unchanged". A JFA over the whole
+        // grid is far too expensive to pay for per render when nothing reads
+        // it, so the gate is the allocation, not a branch inside the loop.
+        let coast_sdf = if appearance.sdf_coast > 0.0 { cartalith_civ::build_coast_sdf(field, gw, gh, sea_level) } else { Vec::new() };
+        let crest = build_crest(field, gw, gh, sea_level, 1.0, 1.0, appearance);
+        // `with_map_scale`'s own body, to its own gates — see its doc comment
+        // for why the threshold is set whenever a width is supplied and the
+        // SDF only while its slider is up.
+        let (mut river_sdf, mut biome_bd, mut river_thresh) = (Vec::new(), Vec::new(), 0.0);
+        if let Some(km) = map_width_km {
+            river_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, km);
+            if appearance.sdf_rivers > 0.0
+                && let Some(flow) = flow
+            {
+                river_sdf = build_river_sdf(flow, gw, gh, river_thresh);
+            }
+            if appearance.sdf_biomes > 0.0 {
+                let wb = cartalith_civ::build_water_bodies(field, gw, gh, sea_level, world, Some(rainfall));
+                let biome = cartalith_civ::build_biome_raster(&wb.classification, temperature, rainfall);
+                biome_bd = build_biome_boundary_dist(&biome, gw, gh);
+            }
+        }
+        GridPrecompute { sea_h, sea_shade, ao, coast_sdf, river_sdf, biome_bd, hydro_wet, lights, coast_d, crest, river_thresh, gw, gh }
+    }
+
+    /// Retained bytes — the figure `LOD_DETAIL_SCOPE.md`'s Android line needs,
+    /// counted rather than estimated.
+    #[allow(dead_code)]
+    pub fn bytes(&self) -> usize {
+        (self.sea_h.len() + self.sea_shade.len() + self.ao.len() + self.coast_sdf.len() + self.river_sdf.len() + self.biome_bd.len() + self.hydro_wet.len() + self.coast_d.len() + self.crest.len()) * 4 + self.lights.len() * 32
+    }
+}
+
 impl<'a> RenderCtx<'a> {
     // Used by `lib.rs`'s real render path; the test target (which calls
     // `with_appearance` directly) alone sees it as unreachable.
@@ -3368,21 +3480,105 @@ impl<'a> RenderCtx<'a> {
         lat_s: f64,
         appearance: TerrainAppearance,
     ) -> Self {
-        let sea_h = smooth_sea_h(field, gw, gh, world);
-        let sea_shade = sea_shade_from(&sea_h, gw, gh, &appearance);
-        let mut ao = build_ao(field, gw, gh, sea_level, world, &appearance);
-        fold_lighting_fields(&mut ao, field, gw, gh, &appearance);
-        let hydro_wet = build_hydro_wetness(flow, gw, gh, world, &appearance);
-        let lights = build_lights(&appearance);
-        let coast_d = if appearance.npr.waves { coast_distance(field, gw, gh, sea_level) } else { Vec::new() };
-        // The reference builds its SDFs in `renderNow` (8446) rather than in
-        // the material path, and only while the slider is up — `_coastSDF`'s
-        // own comment is "null ⇒ off ⇒ render unchanged". A JFA over the whole
-        // grid is far too expensive to pay for per render when nothing reads
-        // it, so the gate is the allocation, not a branch inside the loop.
-        let coast_sdf = if appearance.sdf_coast > 0.0 { cartalith_civ::build_coast_sdf(field, gw, gh, sea_level) } else { Vec::new() };
-        let crest = build_crest(field, gw, gh, sea_level, 1.0, 1.0, &appearance);
-        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, coast_sdf, river_sdf: Vec::new(), biome_bd: Vec::new(), river_thresh: 0.0, hydro_wet, lights, coast_d, crest, appearance, splat: None, lithology: None, paint_biome: None, paint_terrain: None, paint_splat: None, ground: GroundTiles::default() }
+        // One body, shared with the cached path — see [`GridPrecompute`].
+        // `None` for the map width is this constructor's own prior state:
+        // `river_sdf`/`biome_bd` empty and `river_thresh` `0.0` until
+        // `with_map_scale` is called.
+        let p = GridPrecompute::build(field, temperature, rainfall, flow, gw, gh, sea_level, world, &appearance, None);
+        RenderCtx {
+            field,
+            temperature,
+            rainfall,
+            flow,
+            gw,
+            gh,
+            sea_level,
+            world,
+            lat_n,
+            lat_s,
+            sea_h: Cow::Owned(p.sea_h),
+            sea_shade: Cow::Owned(p.sea_shade),
+            ao: Cow::Owned(p.ao),
+            coast_sdf: Cow::Owned(p.coast_sdf),
+            river_sdf: Cow::Owned(p.river_sdf),
+            biome_bd: Cow::Owned(p.biome_bd),
+            river_thresh: p.river_thresh,
+            hydro_wet: Cow::Owned(p.hydro_wet),
+            lights: Cow::Owned(p.lights),
+            coast_d: Cow::Owned(p.coast_d),
+            crest: Cow::Owned(p.crest),
+            appearance,
+            splat: None,
+            lithology: None,
+            paint_biome: None,
+            paint_terrain: None,
+            paint_splat: None,
+            ground: GroundTiles::default(),
+        }
+    }
+
+    /// [`Self::with_appearance`] + [`Self::with_map_scale`] against rasters
+    /// **already built**, borrowed rather than recomputed — the LOD tile
+    /// path's own constructor (`LOD_DETAIL_SCOPE.md` LOD-D2).
+    ///
+    /// Every field a `RenderCtx` derives from the world comes from `p`; every
+    /// field it borrows from the caller is still passed in, so the world's own
+    /// slices are read in place and nothing is copied. The result is the same
+    /// struct `with_appearance(...).with_map_scale(km)` would have produced,
+    /// **provided `p` was built from the same arguments** — which is the
+    /// caller's cache key to get right, not something this function can check
+    /// (`MISTAKES.md`: *"Derive the list from the definition — every argument
+    /// of the function you are guarding"*). What it *can* check is the grid,
+    /// and it does: a `p` of the wrong size is refused with `None` rather than
+    /// indexed.
+    #[allow(clippy::too_many_arguments, dead_code)]
+    pub fn from_precomputed(
+        field: &'a [f32],
+        temperature: &'a [f32],
+        rainfall: &'a [f32],
+        flow: Option<&'a [f32]>,
+        gw: usize,
+        gh: usize,
+        sea_level: f64,
+        world: bool,
+        lat_n: f64,
+        lat_s: f64,
+        appearance: TerrainAppearance,
+        p: &'a GridPrecompute,
+    ) -> Option<Self> {
+        if p.gw != gw || p.gh != gh || gw == 0 || gh == 0 {
+            return None;
+        }
+        Some(RenderCtx {
+            field,
+            temperature,
+            rainfall,
+            flow,
+            gw,
+            gh,
+            sea_level,
+            world,
+            lat_n,
+            lat_s,
+            sea_h: Cow::Borrowed(&p.sea_h),
+            sea_shade: Cow::Borrowed(&p.sea_shade),
+            ao: Cow::Borrowed(&p.ao),
+            coast_sdf: Cow::Borrowed(&p.coast_sdf),
+            river_sdf: Cow::Borrowed(&p.river_sdf),
+            biome_bd: Cow::Borrowed(&p.biome_bd),
+            river_thresh: p.river_thresh,
+            hydro_wet: Cow::Borrowed(&p.hydro_wet),
+            lights: Cow::Borrowed(&p.lights),
+            coast_d: Cow::Borrowed(&p.coast_d),
+            crest: Cow::Borrowed(&p.crest),
+            appearance,
+            splat: None,
+            lithology: None,
+            paint_biome: None,
+            paint_terrain: None,
+            paint_splat: None,
+            ground: GroundTiles::default(),
+        })
     }
 
     /// Attach the world's real map width in km, which is the one input the
@@ -3417,7 +3613,7 @@ impl<'a> RenderCtx<'a> {
             && let Some(flow) = self.flow
         {
             let thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
-            self.river_sdf = build_river_sdf(flow, gw, gh, thresh);
+            self.river_sdf = Cow::Owned(build_river_sdf(flow, gw, gh, thresh));
         }
         // Retained separately from the field it built, because the **tile**
         // path needs the number and not the grid's distance transform: it
@@ -3429,7 +3625,7 @@ impl<'a> RenderCtx<'a> {
         if self.appearance.sdf_biomes > 0.0 {
             let wb = cartalith_civ::build_water_bodies(self.field, gw, gh, self.sea_level, self.world, Some(self.rainfall));
             let biome = cartalith_civ::build_biome_raster(&wb.classification, self.temperature, self.rainfall);
-            self.biome_bd = build_biome_boundary_dist(&biome, gw, gh);
+            self.biome_bd = Cow::Owned(build_biome_boundary_dist(&biome, gw, gh));
         }
         self
     }
@@ -3633,7 +3829,7 @@ impl<'a> RenderCtx<'a> {
         // light is clamped at the horizon *before* weighting, so a light
         // below the surface contributes nothing rather than subtracting.
         let mut sum = 0.0;
-        for &(lx, ly, lz, w) in &self.lights {
+        for &(lx, ly, lz, w) in self.lights.iter() {
             sum += w * (nx * lx + ny * ly + nz * lz).max(0.0);
         }
         sum
@@ -6512,18 +6708,18 @@ pub struct TileFields<'a> {
     /// `local_contrast == 0.0` or no grid raster was supplied, and the
     /// consumer tests the length rather than the flag (`RenderCtx::coast_d`'s
     /// contract).
-    contrast_d: Vec<f32>,
+    contrast_d: Cow<'a, [f32]>,
     /// [`build_grade_influence`]'s per-cell multiplier. Empty when all four
     /// field weights are `0.0`, which is every render that leaves them alone.
-    grade_influence: Vec<f32>,
+    grade_influence: Cow<'a, [f32]>,
     /// `currentWaterBodies()` (reference 5846) — `0` land, `1` ocean, `2`
     /// lake. Empty when lakes are switched off.
-    lake_class: Vec<u8>,
+    lake_class: Cow<'a, [u8]>,
     /// `_lakeFill` — the pooled lake surface from the same priority-flood
     /// (`cartalith_civ::WaterBodies::fill_level`). The v1.05 shoreline needs
     /// it; without it the lake branch falls back to the reference's own
     /// nearest-cell stamp, which is what draws square lakes.
-    lake_fill: Vec<f32>,
+    lake_fill: Cow<'a, [f32]>,
     /// The river ink `build_color_texture` composites over its own raster.
     /// `None` renders the terrain alone.
     ink: Option<RiverInk<'a>>,
@@ -6583,12 +6779,39 @@ impl<'a> TileFields<'a> {
         TileFields {
             gw,
             gh,
-            contrast_d,
-            grade_influence,
-            lake_class: wb.classification,
-            lake_fill: wb.fill_level,
+            contrast_d: Cow::Owned(contrast_d),
+            grade_influence: Cow::Owned(grade_influence),
+            lake_class: Cow::Owned(wb.classification),
+            lake_fill: Cow::Owned(wb.fill_level),
             ink: None,
             color_space: ColorSpace::Srgb,
+        }
+    }
+
+    /// A second `TileFields` over the **same rasters**, borrowed rather than
+    /// copied — so a cached one can be re-pointed at this call's river ink
+    /// without rebuilding anything.
+    ///
+    /// [`Self::new`] is 278.2 ms at 2048x1311 with the local-contrast band and
+    /// 243.5 ms without it (273.2..281.7 and 243.0..246.2, release, this
+    /// machine, medians over five), and its four rasters are 9 B/cell — so
+    /// neither recomputing nor cloning them per tile is affordable. The returned value carries no ink
+    /// and sRGB; chain [`Self::with_ink`] / [`Self::with_color_space`] /
+    /// [`Self::without_lakes`] onto it exactly as onto a fresh one. Those
+    /// builders take `self` by value, and on a borrowed `TileFields`
+    /// `without_lakes` re-points the two lake `Cow`s at an empty slice rather
+    /// than dropping the cache's own — the cache is untouched either way.
+    #[allow(dead_code)]
+    pub fn borrowed(&'a self) -> TileFields<'a> {
+        TileFields {
+            gw: self.gw,
+            gh: self.gh,
+            contrast_d: Cow::Borrowed(&self.contrast_d),
+            grade_influence: Cow::Borrowed(&self.grade_influence),
+            lake_class: Cow::Borrowed(&self.lake_class),
+            lake_fill: Cow::Borrowed(&self.lake_fill),
+            ink: None,
+            color_space: self.color_space,
         }
     }
 
@@ -6611,8 +6834,8 @@ impl<'a> TileFields<'a> {
     /// so above-sea pools render as the terrain under them.
     #[allow(dead_code)]
     pub fn without_lakes(mut self) -> Self {
-        self.lake_class = Vec::new();
-        self.lake_fill = Vec::new();
+        self.lake_class = Cow::Borrowed(&[]);
+        self.lake_fill = Cow::Borrowed(&[]);
         self
     }
 

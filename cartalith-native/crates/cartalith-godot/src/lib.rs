@@ -3591,6 +3591,90 @@ struct WorldGen {
     /// [`world_origin`]: WorldGen::world_origin
     /// [`get_world_name`]: WorldGen::get_world_name
     world_name: Option<String>,
+    /// Bumped on **every** assignment to [`Self::source`] — the three sites
+    /// `git grep -n 'self\.source = ' crates/cartalith-godot/src` finds
+    /// (`release_world`, `absorb`, `load_save`).
+    ///
+    /// It exists because [`Self::stages`] structurally cannot tell two worlds
+    /// apart: every stage in a fresh `pipeline_stage_graph` starts at version
+    /// 0, so a generate leaves the graph looking exactly like the previous
+    /// world's did (`lod_bridge`'s own "Invalidation is two problems" section
+    /// records the same limitation for the archive). The LOD tile cache keys
+    /// on `(world_epoch, height version, climate version, hydrology version)`
+    /// and would otherwise serve the *previous* world's precomputes to the
+    /// new one's tiles — a whole-map colour error with nothing failing.
+    world_epoch: u64,
+    /// Bumped on every assignment to [`Self::asset_pack`] — the two sites
+    /// `git grep -n 'self\.asset_pack = '` finds. A loaded pack changes
+    /// `land_color`'s splat and ground-tile branches, so it is an input to
+    /// the LOD tile cache; two different packs can carry the same manifest
+    /// name, so a counter is the honest key and the name is not.
+    pack_epoch: u64,
+    /// LOD-D2's tile context cache (`LOD_DETAIL_SCOPE.md`: *"`WorldGen` caches
+    /// `TileFields`, keyed by every argument of the function it guards"*).
+    ///
+    /// `RefCell` rather than `&mut self` because `lod_synthesize_tile` and
+    /// `build_color_texture` are both `&self` today and neither has any
+    /// business becoming `&mut` for a cache: this is memoisation of a pure
+    /// function of the world, not a state change. Re-entrancy cannot occur —
+    /// both borrows are taken and dropped inside one `#[func]` body, and
+    /// nothing in between calls back into `WorldGen`.
+    lod: std::cell::RefCell<LodCtxCache>,
+}
+
+/// Everything a coloured LOD tile needs beyond its own amplified height,
+/// built once per world-and-appearance rather than once per tile.
+///
+/// **The measurement that forces this to exist** (release, this machine,
+/// 2048x1311, medians over 5): `RenderCtx::with_appearance` + `with_map_scale`
+/// is 201.5 ms (199.5..202.2) and `TileFields::new` a further 278.2 ms
+/// (273.2..281.7), against **5.98 ms (5.97..6.10)** for one tile on all
+/// cores — a ratio of **80x**. Medians over five, printed by `lod_bridge`'s
+/// own `the_tile_context_costs_an_order_of_magnitude_more_than_the_tile_it_serves`,
+/// which is `#[ignore]`d and runs alone so the figures stay reproducible
+/// rather than remembered.
+/// `viewport_host.gd` asks for up to `MAX_LOD_TILES_PER_UPDATE` = 48 tiles on
+/// one zoom notch, so rebuilding either per tile would spend 24 s where the
+/// tiles themselves spend 2.4.
+///
+/// **The key is the whole point and is the thing to get right.** It is built
+/// by [`WorldGen::lod_cache_key`] from every input the three members below are
+/// a function of; `MISTAKES.md`'s rule for a staleness key is to derive the
+/// list from the *definition* of what it guards, and that function names each
+/// argument with the reason it is there.
+#[derive(Default)]
+struct LodCtxCache {
+    /// Empty before anything is cached, so the first call always misses.
+    key: String,
+    /// `RenderCtx`'s grid-scale precomputes — sea surface, AO, crest, wetness,
+    /// lights, and the SDFs when their sliders are up.
+    pre: Option<render::GridPrecompute>,
+    /// `cartalith_civ::build_lithology`, which `build_color_texture` builds
+    /// per render and throws away. `None` for a loaded save, whose format
+    /// stores none of the tectonic substrate (`SAVEFILE_COMPAT.md`) — the
+    /// same condition under which `flow` is `None`.
+    lithology: Option<Vec<u8>>,
+    /// The local-contrast band, the grade influence and the lake surface.
+    /// Carries no river ink: that borrows from the live world and is attached
+    /// per call through `TileFields::borrowed().with_ink(...)`.
+    fields: Option<render::TileFields<'static>>,
+    /// The finished grid raster the local-contrast band is measured from,
+    /// snapshotted by `build_color_texture` at exactly the point
+    /// `apply_local_contrast` reads it — after the river ink tint, before the
+    /// correction itself — together with the key it was taken under.
+    ///
+    /// **Not re-rendered here when it is missing.** A whole-grid `cell_color`
+    /// pass is the most expensive thing in this renderer — of the order of a
+    /// second at 2048x1311 serially, several times the rest of this cache put
+    /// together (a scratch bench put it at ~1.5 s; that figure is not
+    /// reproducible from any committed test, so it is quoted as a magnitude
+    /// and not as a measurement). And the *right* band is the one from the
+    /// raster actually on screen, not from a second render that might
+    /// disagree with it. When no snapshot matches the key, tiles are
+    /// built with the stage off — `TileFields::new`'s own documented `None`
+    /// case — and they then differ from the screen by exactly local contrast
+    /// rather than by a guess.
+    grid_rgb: Option<(String, Vec<u8>)>,
 }
 
 #[godot_api]
@@ -3605,6 +3689,9 @@ impl IRefCounted for WorldGen {
             sea_level: 0.42,
             params: params::defaults(),
             gpu_stages_used: Vec::new(),
+            world_epoch: 0,
+            pack_epoch: 0,
+            lod: std::cell::RefCell::new(LodCtxCache::default()),
             world: false,
             lat_n: 55.0,
             lat_s: 5.0,
@@ -3847,6 +3934,8 @@ impl WorldGen {
     ///
     /// Whichever is chosen, the four names above are the list.
     fn release_world(&mut self) {
+        // Every assignment to `source` bumps this -- see `world_epoch`.
+        self.world_epoch = self.world_epoch.wrapping_add(1);
         self.source = None;
         self.civ = None;
         self.sculpt = None;
@@ -4073,6 +4162,8 @@ impl WorldGen {
         // atlas key, and the one thing about the incoming field that is not
         // derivable from anything else here. See the `world_origin` field.
         self.world_origin = Some(origin.to_string());
+        // Every assignment to `source` bumps this -- see `world_epoch`.
+        self.world_epoch = self.world_epoch.wrapping_add(1);
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         self.seed = seed;
         // A fresh display name for this seed -- see the `world_name` field.
@@ -5997,6 +6088,8 @@ impl WorldGen {
         // fresh world. A save written before `world.name` existed leaves
         // this `None`, exactly as `world_origin` above does for `origin`.
         self.world_name = save.params.name.clone();
+        // Every assignment to `source` bumps this -- see `world_epoch`.
+        self.world_epoch = self.world_epoch.wrapping_add(1);
         self.source = Some(WorldSource::Loaded(Box::new(save)));
         true
     }
@@ -6120,6 +6213,7 @@ impl WorldGen {
         match pack::load_pack_from_bytes(bytes) {
             Ok(loaded) => {
                 self.trait_textures = Self::build_trait_textures(&loaded);
+                self.pack_epoch = self.pack_epoch.wrapping_add(1);
                 self.asset_pack = Some(loaded);
                 true
             }
@@ -7232,6 +7326,31 @@ impl WorldGen {
                 row[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
             }
         });
+
+        // **The LOD tile path's snapshot** (`LOD_DETAIL_SCOPE.md` LOD-D2),
+        // taken here and nowhere else because *here* is the state
+        // `apply_local_contrast` is about to read: after the river ink tint,
+        // before the correction. `TileFields`' detail band is `fine - blurred`
+        // of this raster's luma, so a tile's local contrast matches the
+        // screen's only if it is measured from the same bytes -- and the
+        // alternative, re-rendering the grid inside the LOD cache, measures
+        // 1 513 ms serial at 2048x1311 and could still disagree with what is
+        // actually on screen.
+        //
+        // One `gw * gh * 3` clone per render — 8.05 MB at 2048x1311, and the
+        // same again retained. The copy is a `memcpy` beside a pass that took
+        // of the order of a second to produce the bytes; it is not separately
+        // measured and is not claimed to be. It is written unconditionally
+        // rather than only while the LOD layer is up, because this function
+        // has no way to know that and because the key is what decides whether
+        // the bytes are usable, not the timing of the write.
+        {
+            // The key is computed *before* the borrow: `lod_cache_key` calls
+            // `appearance()`, and taking a `RefCell` borrow across a call that
+            // reads the rest of `self` is how a re-entrant panic gets written.
+            let key = self.lod_cache_key();
+            self.lod.borrow_mut().grid_rgb = Some((key, bytes.clone()));
+        }
 
         // Milestone 5 (`TERRAIN_APPEARANCE_SCOPE.md`, research §18): local
         // contrast. The one appearance stage that cannot live inside
@@ -11824,7 +11943,18 @@ impl WorldGen {
     /// One synthesized deep-zoom tile — what `viewport_host.gd`'s deep-zoom
     /// compositor calls per visible tile once the camera's zoom crosses the
     /// "more than roughly one screen pixel per grid cell" threshold
-    /// (`LOD_TILING_INTEGRATION_SCOPE.md` milestone M1).
+    /// (`LOD_TILING_INTEGRATION_SCOPE.md` milestone M1), **in the map's own
+    /// biome colour since `LOD_DETAIL_SCOPE.md` LOD-D2**.
+    ///
+    /// Until 2026-09-21 the returned texture was not a picture: it was a
+    /// relief-detail shade ratio that `lod_tile.gdshader` multiplied into the
+    /// base map's colour. That made the two paths agree by construction and
+    /// capped what a deeper level could ever show at "the same colours,
+    /// shaded differently" — measured as detail per screen pixel falling from
+    /// 0.0220 at zoom 1 to 0.0017 at zoom 40. It is `renderBiomeTileRGBA` now
+    /// (LOD-D1's port, golden-verified byte-identical against the frozen
+    /// reference), so a tile carries material boundaries, crest strokes and
+    /// river bands the base raster does not have at that scale.
     ///
     /// `z`/`col`/`row` are the reference's own pyramid chunk address, the
     /// same one the bake stores under: level `z` divides the map into
@@ -11836,9 +11966,21 @@ impl WorldGen {
     /// `generate()`/`generate_sized()` or a loaded save both carry a
     /// heightmap, unlike `civ`/`sculpt`/the tool layers, which a loaded
     /// save never populates (`SAVEFILE_COMPAT.md`) — the same fallback
-    /// `build_color_texture`/`region_export_tiles` already use. `seed`/
-    /// `sea` come from this world's own state, never a caller-guessed one,
-    /// matching `region_export_tiles`'s own documented convention.
+    /// `build_color_texture`/`region_export_tiles` already use. `seed` comes
+    /// from this world's own state, never a caller-guessed one, matching
+    /// `region_export_tiles`'s own documented convention.
+    ///
+    /// # The cache, and what it costs
+    ///
+    /// Colouring a tile needs a `RenderCtx` and a `TileFields`, which cost
+    /// 201.5 ms and 278.2 ms respectively at 2048x1311 against a 5.98 ms tile
+    /// on all cores (51 ms single-threaded),
+    /// so they are built once per world-and-appearance and held in
+    /// [`LodCtxCache`]. The first call after a generate, a sculpt commit, an
+    /// appearance change or a pack/paint change therefore pays the build; the
+    /// next 47 tiles of the same zoom notch do not. `lod_cache_key` is what
+    /// decides which of those a call is, and its doc comment names every
+    /// input it covers.
     ///
     /// Returns `None` (not a texture Godot would have to special-case) for
     /// an out-of-range tile index, before any world exists, or on any
@@ -11846,17 +11988,182 @@ impl WorldGen {
     /// guards against — see that function's own doc comment.
     #[func]
     fn lod_synthesize_tile(&self, z: i32, col: i32, row: i32) -> Option<Gd<ImageTexture>> {
-        let field: &[f32] = match self.source.as_ref()? {
-            WorldSource::Generated(ws) => &ws.field,
-            WorldSource::Loaded(save) => &save.fields.heightmap,
-        };
-        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        let (rgba, out_w, out_h) = lod_bridge::synthesize_tile_rgba(
-            field, gw, gh, z, col, row, self.seed, self.sea_level,
-        )?;
+        let (rgba, out_w, out_h) = self.lod_tile_bytes(z, col, row)?;
         let packed = PackedByteArray::from(rgba);
         let image = Image::create_from_data(out_w as i32, out_h as i32, false, Format::RGBA8, &packed)?;
         ImageTexture::create_from_image(&image)
+    }
+
+    /// [`Self::lod_synthesize_tile`] without the Godot half — the seam the
+    /// probe-free tests reach, and the one place the cache is consulted.
+    ///
+    /// Split out rather than inlined because everything above the
+    /// `Image::create_from_data` call is pure compute on plain slices, and a
+    /// `#[func]` returning `Gd<ImageTexture>` cannot be called from a unit
+    /// test at all (`MISTAKES.md`: *"`WorldGen` is a cdylib `GodotClass` and
+    /// cannot be constructed in a unit test"* — which is true of the class,
+    /// and is exactly why the part that can be tested elsewhere should not be
+    /// welded to the part that cannot).
+    fn lod_tile_bytes(&self, z: i32, col: i32, row: i32) -> Option<(Vec<u8>, usize, usize)> {
+        let (field, temperature, rainfall, flow) = match self.source.as_ref()? {
+            WorldSource::Generated(ws) => (&ws.field, &ws.temperature, &ws.rainfall, Some(ws.flow_discharge.as_slice())),
+            WorldSource::Loaded(save) => (&save.fields.heightmap, &save.fields.temperature, &save.fields.rainfall, None),
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw < 2 || gh < 2 {
+            return None;
+        }
+        let key = self.lod_cache_key();
+        // Refresh first, in its own scope: the mutable borrow must be dropped
+        // before the immutable one below, and a `RefCell` enforces that at
+        // runtime rather than at compile time, so the scope is load-bearing.
+        if self.lod.borrow().key != key {
+            let built = self.build_lod_cache(&key)?;
+            let mut slot = self.lod.borrow_mut();
+            // The raster snapshot is keyed separately and survives a cache
+            // rebuild only when it is still for this key -- `build_lod_cache`
+            // has already read it, so dropping a stale one here is what keeps
+            // a superseded 8 MB raster from being held for the rest of the
+            // session.
+            let keep = slot.grid_rgb.take().filter(|(k, _)| *k == key);
+            *slot = built;
+            slot.grid_rgb = keep;
+        }
+        let cache = self.lod.borrow();
+        let appearance = self.appearance();
+        let mut ctx = render::RenderCtx::from_precomputed(
+            field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance, cache.pre.as_ref()?,
+        )?;
+        // The same four builders `build_color_texture` attaches, in the same
+        // order, for the reason `export_raster.rs::export_render` records
+        // about its own copy: a capability wired to one consumer path and not
+        // the other is this port's own documented failure mode, and a tile
+        // that ignores the paint brush or the loaded pack is a tile that
+        // disagrees with the map it sits on.
+        if let Some(lith) = cache.lithology.as_ref() {
+            ctx = ctx.with_lithology(lith);
+        }
+        // **`with_map_scale` is deliberately NOT called here**, although
+        // `build_color_texture` calls it in exactly this slot. Its three
+        // outputs -- the river SDF, the biome boundary distance and
+        // `river_thresh` -- are already in the cached `GridPrecompute`
+        // (`build_lod_cache` passes `Some(map_width_km)`, which is what that
+        // argument is for), and calling it again would recompute two full-grid
+        // distance transforms per tile and overwrite the cache's own with
+        // identical values. `map_width_km` is part of the cache key, so the
+        // two cannot disagree.
+        if let Some(loaded) = self.asset_pack.as_ref() {
+            ctx = ctx.with_splat(SplatTextures {
+                grass: loaded.splat.get("grass"),
+                rock: loaded.splat.get("rock"),
+                sand: loaded.splat.get("sand"),
+                snow: loaded.splat.get("snow"),
+                wetland: loaded.splat.get("wetland"),
+                canopy: loaded.splat.get("canopy"),
+            });
+            ctx = ctx.with_ground_tiles(render::GroundTiles { biomes: &loaded.biomes, terrains: &loaded.terrains });
+        }
+        if let Some(p) = self.paint.as_ref() {
+            ctx = ctx.with_paint(p.layer_cells(paint_bridge::PaintTarget::Biome), p.layer_cells(paint_bridge::PaintTarget::Terrain), p.layer_cells(paint_bridge::PaintTarget::Splat));
+        }
+        let mut tf = cache.fields.as_ref()?.borrowed();
+        if let Some(ink) = self.river_ink() {
+            tf = tf.with_ink(ink);
+        }
+        tf = tf.with_color_space(self.color_space);
+        lod_bridge::synthesize_tile_rgba(&ctx, &tf, z, col, row, self.seed)
+    }
+
+    /// Everything [`LodCtxCache`]'s three members are a function of, as one
+    /// string.
+    ///
+    /// **Derived from the definition, argument by argument** (`MISTAKES.md`:
+    /// *"Add a capability, or write a staleness/cache key → derive the list
+    /// from the definition — every consumer path, every `match` arm, every
+    /// argument of the function you are guarding"*). What it guards is
+    /// `GridPrecompute::build(field, temperature, rainfall, flow, gw, gh,
+    /// sea_level, world, appearance, map_width_km)`, `build_lithology(field,
+    /// age, volcanic, crust, resistance, rainfall, sea_level)` and
+    /// `TileFields::new(ctx, grid_rgb)`:
+    ///
+    /// - **The fields** — `world_epoch` plus the height, climate and
+    ///   hydrology stage versions. The epoch covers *which world*, which the
+    ///   `StageGraph` cannot (see its own field doc); the three versions cover
+    ///   an in-place edit — `sculpt_commit`, `carve_fjords`, `erode`, `undo`
+    ///   and `redo` all mark `PipelineStage::Height`, and
+    ///   `recompute_stale_stages` marks the two downstream of it.
+    /// - **The grid** — `gw`, `gh`, and the sea level, which is a separate
+    ///   input from the height field and moves without it (`set_sea_level`).
+    /// - **The world flags** — `world`, `lat_n`, `lat_s`, `map_width_km`.
+    /// - **The look** — the appearance's own serde fingerprint, which covers
+    ///   the tier, the named look, a loaded preset, the ramp, the layer stack
+    ///   and every tunable override, because `appearance()` merges all six
+    ///   into the value fingerprinted. The colour space is separate (it is not
+    ///   part of `TerrainAppearance`) and is included by name.
+    /// - **The pack and the paint** — a pack changes `land_color`'s splat and
+    ///   ground-tile branches and the paint grids override cells outright.
+    ///   Both are covered by content: `paint_epoch()` is the paint layers'
+    ///   own change counter and the pack by its id.
+    ///
+    /// **One input is deliberately absent:** `seed`. It reaches a tile
+    /// through `AmplifyOpts`, not through any cached member, and is passed
+    /// per call — a seed change without a regenerate is not reachable anyway
+    /// (`absorb` sets both), and keying on it would only cost a rebuild.
+    fn lod_cache_key(&self) -> String {
+        let a = self.appearance();
+        format!(
+            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{}",
+            self.world_epoch,
+            self.stages.version(PipelineStage::Height.id(), 0),
+            self.stages.version(PipelineStage::Climate.id(), 0),
+            self.stages.version(PipelineStage::Hydrology.id(), 0),
+            self.gw,
+            self.gh,
+            self.sea_level.to_bits(),
+            self.world,
+            self.lat_n.to_bits(),
+            self.lat_s.to_bits(),
+            self.map_width_km.to_bits(),
+            lod_bridge::appearance_fingerprint(&a),
+            self.color_space,
+            self.pack_epoch,
+            self.paint.as_ref().map(|p| p.epoch()).unwrap_or(0),
+        )
+    }
+
+    /// Builds [`LodCtxCache`] for `key`. `None` before any world.
+    fn build_lod_cache(&self, key: &str) -> Option<LodCtxCache> {
+        let (field, temperature, rainfall, flow) = match self.source.as_ref()? {
+            WorldSource::Generated(ws) => (&ws.field, &ws.temperature, &ws.rainfall, Some(ws.flow_discharge.as_slice())),
+            WorldSource::Loaded(save) => (&save.fields.heightmap, &save.fields.temperature, &save.fields.rainfall, None),
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw < 2 || gh < 2 || field.len() < gw * gh {
+            return None;
+        }
+        let appearance = self.appearance();
+        let pre = render::GridPrecompute::build(field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, &appearance, Some(self.map_width_km));
+        // The same call `build_color_texture` makes, and `None` under the same
+        // condition: a loaded save's format stores none of the tectonic
+        // substrate this needs (`SAVEFILE_COMPAT.md`).
+        let lithology = match self.source.as_ref()? {
+            WorldSource::Generated(ws) => Some(cartalith_civ::build_lithology(&ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, self.sea_level)),
+            WorldSource::Loaded(_) => None,
+        };
+        // A throwaway context, only so `TileFields::new` has the `ctx` its
+        // signature takes. It borrows `pre`, which is why `pre` is moved into
+        // the cache after this block and not before it.
+        let fields = {
+            let mut ctx = render::RenderCtx::from_precomputed(field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance.clone(), &pre)?;
+            if let Some(lith) = lithology.as_ref() {
+                ctx = ctx.with_lithology(lith);
+            }
+            let snapshot = self.lod.borrow();
+            let rgb = snapshot.grid_rgb.as_ref().filter(|(k, _)| k == key).map(|(_, b)| b.clone());
+            drop(snapshot);
+            render::TileFields::new(&ctx, rgb.as_deref())
+        };
+        Some(LodCtxCache { key: key.to_string(), pre: Some(pre), lithology, fields: Some(fields), grid_rgb: None })
     }
 }
 
@@ -14706,6 +15013,7 @@ impl WorldGen {
         };
         match pack::load_pack_from_bytes(bytes) {
             Ok(loaded) => {
+                self.pack_epoch = self.pack_epoch.wrapping_add(1);
                 self.asset_pack = Some(loaded);
                 vdict! { "ok" => true, "error" => "" }
             }

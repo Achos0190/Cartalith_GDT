@@ -111,22 +111,33 @@
 //! lithology, biome) bilinearly off the same coarse grid — only the
 //! height-derived terms (slope, curvature, shade) run at tile resolution.
 //!
-//! So a tile now carries exactly the height-derived part the base raster
-//! cannot have: the **relief-detail shade ratio**, the factor by which
-//! `amplify_region`'s procedural sub-cell detail changes the hillshade at that
-//! pixel, relative to the same tile with no detail added. `viewport_host.gd`'s
-//! `lod_tile.gdshader` multiplies it into the base colour sampled at the same
-//! ground position. Where the amplifier adds nothing — underwater, on plains,
-//! wherever `taper` is zero — the ratio is exactly `1.0` and the map is
-//! byte-unchanged. That is the property that makes the two paths agree by
-//! construction rather than by coincidence.
+//! **That paragraph described this module from 2026-08-23 to 2026-09-21, and
+//! LOD-D2 ended it.** `renderBiomeTileRGBA` is ported (LOD-D1,
+//! `render::render_biome_tile_rgba`, golden-verified byte-identical against
+//! the frozen reference), so the milestone that was "not a bug fix" is built
+//! and a tile is a **picture** again — this time the same coloriser the map
+//! itself runs, not the Relief ramp that disagreed with it at every pixel.
 //!
-//! The encoding is [`SHADE_RATIO_MID`]/[`SHADE_RATIO_GAIN`] fixed point stored
-//! in R, G and B (the same byte three times, so a caller that ignores the
-//! shader still sees a plausible grey mask rather than a colour cast),
-//! alpha `255`, because
-//! `lib.rs`'s `lod_synthesize_tile` builds a `Format::RGBA8` `Image` and that
-//! signature is not this module's to change.
+//! What a tile carries now: RGBA8, alpha `255`, the full biome look evaluated
+//! at *tile* resolution. The height-derived terms (slope, macro and meso
+//! shade, relative height, TWI, the crest field, the coast SDF) are computed
+//! from the tile's own amplified heightmap, and the colour inputs (T, M, flow,
+//! AO, lithology, the local-contrast band) are sampled bilinearly off the same
+//! coarse grid the map reads — so a deeper level genuinely shows more, which
+//! the shade ratio structurally could not (a scalar multiplier cannot add a
+//! material boundary, a river band or a crest stroke that the base raster does
+//! not already have).
+//!
+//! **The two inputs a tile cannot derive** are therefore `&RenderCtx` and
+//! `&TileFields`, and [`synthesize_tile_rgba`] takes them rather than the
+//! loose `(field, gw, gh, seed, sea)` it used to: those five were enough to
+//! shade a tile and are nowhere near enough to colour one. Building them costs
+//! **201.5 ms + 278.2 ms** at 2048x1311 (release, this machine, medians over
+//! five — `the_tile_context_costs_an_order_of_magnitude_more_than_the_tile_it_serves`
+//! below prints them), against 5.98 ms for a tile on all cores, so they
+//! are built once per world-and-appearance and cached by the caller;
+//! `lib.rs`'s `WorldGen::lod_ctx` is the only such caller today and owns the
+//! cache key.
 //!
 //! # Why a *pyramid* tile, since 2026-08-24 — the owner's "LOD zooming doesn't
 //! seem to go that deep either"
@@ -182,8 +193,8 @@ use cartalith_spatial::pyramid::{
     pyramid_dims, pyramid_level_for_zoom, pyramid_tile_bounds, ChunkId,
 };
 use cartalith_spatial::{tile_dims, FloatRegion, Region};
-use cartalith_terrain::amplify::{refine_tile, AmplifyOpts};
-use cartalith_terrain::tile_render::{shade_tile, u8_clamped};
+use cartalith_terrain::amplify::AmplifyOpts;
+use crate::render::{self, RenderCtx, TileBounds, TileFields};
 
 /// Output resolution (pixels) for one interactive pyramid tile — the
 /// reference's `_lodTile`, at a quarter of its 1024 px default.
@@ -214,37 +225,14 @@ pub const REFERENCE_TILE_PX: usize = 1024;
 /// the finest octave is fixed from level `zBase + 6` on.
 pub const MAX_LEVEL: i32 = 10;
 
-/// The reference's own `TileVisual::default()` values
-/// (`cartalith_engine::region_export`), mirrored here as plain constants
-/// rather than pulled in as a dependency on that struct: a Z2 screen tile
-/// and a Z4 export tile over the same ground should shade under the same
-/// sun, and this is the smallest way to keep that true without adding an
-/// `cartalith-engine` import to a module that otherwise has none.
-const SUN_AZ_DEG: f64 = 315.0;
-const EXAG: f64 = 3.4;
-
-/// Fixed point for the relief-detail shade ratio a tile carries (see this
-/// module's own "What a tile actually contains" section): the encoded byte is
-/// `SHADE_RATIO_MID + (ratio - 1) * `[`SHADE_RATIO_GAIN`], so a ratio of
-/// exactly `1.0` — "the detail changes nothing here" — is byte `128` and
-/// round-trips with no error at all rather than landing one least-significant
-/// bit off and tinting an untouched map.
-///
-/// **Centred and gained rather than a plain `ratio * 128`**, which was the
-/// first cut and measured wrong: the ratio lives within a few percent of `1.0`
-/// (it is the *difference* one octave of sub-cell detail makes to a hillshade,
-/// not the hillshade), so a scale that spans `[0, 2]` resolved a whole
-/// synthetic tile into three distinct byte values. At `SHADE_RATIO_GAIN` the
-/// quantisation step is `1/256` of the multiplier — finer than the 8-bit
-/// colour it multiplies, so nothing bands — over a representable window of
-/// `[0.5, 1.5]`. The theoretical extreme is `1.0 / 0.4 = 2.5×` (a fully
-/// backlit plain surface relit by detail), which clips; a 50% shading swing
-/// from one detail octave does not occur on real terrain, and clipping it is
-/// better than spending precision nothing uses.
-pub const SHADE_RATIO_MID: f64 = 128.0;
-/// See [`SHADE_RATIO_MID`]. Kept in step with `lod_tile.gdshader`, which
-/// hardcodes both numbers on the decode side.
-pub const SHADE_RATIO_GAIN: f64 = 256.0;
+// `SUN_AZ_DEG`, `EXAG`, `SHADE_RATIO_MID` and `SHADE_RATIO_GAIN` lived here
+// until LOD-D2 (2026-09-21) and are **gone, not deprecated**: they were the
+// shade-ratio encoding's own constants, and a tile is a picture now. The sun
+// and the exaggeration come from `TerrainAppearance` (the same values the map
+// shades under, which is stronger than the `TileVisual::default()` mirror they
+// were), and there is no fixed point to keep in step with
+// `lod_tile.gdshader`, which no longer decodes one. `tile_producer_id`'s `v2`
+// is what stops last week's shade-ratio tiles being read back as colour.
 
 /// `opts.zBase` for a [`TILE_PX`]-sized tile.
 ///
@@ -309,49 +297,59 @@ pub fn tile_size_px(gw: usize, gh: usize, z: i32) -> (usize, usize) {
     (d.w, d.h)
 }
 
-/// Synthesizes one deep-zoom tile's **relief-detail shade ratio** — not a
-/// picture. See this module's own "What a tile actually contains, and why it
-/// is not a picture" section for the full argument; the short version is that
-/// the reference colours an LOD tile with the *view mode's* coloriser
-/// (`_lodBuildTileRGBA`, reference 11148) and this port only ever had the
-/// Relief-mode one, so a tile now carries the one thing the base raster
-/// genuinely cannot — the sub-cell relief — and takes its colour from that
-/// raster instead of inventing a second, disagreeing palette.
+/// Synthesizes one deep-zoom tile as **the map's own biome colour**, at tile
+/// resolution — `renderBiomeTileRGBA` over `pyramid_tile`'s amplified height.
 ///
-/// The detailed half is [`pyramid_tile`] verbatim — `refine_tile`'s bilinear
+/// This is `LOD_DETAIL_SCOPE.md` LOD-D2's whole scope line: *"`lod_bridge::
+/// synthesize_tile_rgba` returns `render_biome_tile_rgba(pyramid_tile(...))`"*.
+///
+/// # The two halves, and why each is where it is
+///
+/// **The height** is [`pyramid_tile`] verbatim — `refine_tile`'s bilinear
 /// upsample plus its fixed coarse-frequency detail, then `add_zoom_detail`'s
-/// `min(6, z − `[`z_base`]`)` progressively finer octaves — so a tile drawn
+/// `min(6, z - `[`z_base`]`)` progressively finer octaves — so a tile drawn
 /// here and a chunk baked into the atlas over the same ground are the same
-/// numbers. The plain half is the same `refine_tile` call with `detail_amp =
-/// 0` and no zoom detail: the pure bilinear upsample the base raster's own
-/// shading already reflects. `shade_tile` reduces each to the multiplier
-/// `render_height_tile_rgba` would have applied, and their ratio is what the
-/// detail *adds* — exactly what is missing from the base raster and nothing
-/// else.
+/// numbers. Unchanged by this milestone.
 ///
-/// `seed`/`sea` are read from the caller's own world state (`WorldGen::seed`/
-/// `sea_level`), the same convention `region_export_tiles` already uses —
-/// "an export must match the world it was drawn over, not a caller-guessed
-/// one" applies just as much to an interactive tile.
+/// **The colour** is [`render::render_biome_tile_rgba`], which is the
+/// reference's own function (LOD-D1: golden, worst delta `0`). Everything it
+/// needs beyond the tile's own height comes from `ctx` and `tf`, which the
+/// caller owns and caches — see this module's header for the measurement that
+/// forces that split, and `render::GridPrecompute` for the mechanism.
 ///
-/// Returns `(rgba_bytes, out_w, out_h)` — `rgba_bytes.len() == out_w * out_h
-/// * 4`, ready to hand `Image::create_from_data` directly. `None` for
-/// anything [`tile_bounds`] itself rejects, or when `field` is shorter than
-/// `gw * gh` — the same precondition `refine_tile` would otherwise panic
-/// on, checked here instead so a caller error surfaces as "no tile" rather
-/// than taking the whole Godot process down with it
-/// (`cartalith-rust-conventions`: no panic crosses the gdext boundary).
+/// `bounds` is [`tile_bounds`] unchanged, and the two conventions line up
+/// exactly rather than approximately: `pyramid_tile_bounds` returns the tile's
+/// span in **sample** coordinates (`x = col * step`, `w = step`, `step =
+/// (gw-1)/2^z`), and `amplify_region` maps output pixel `ox` to `rx + ox/(W-1)
+/// * step` — so pixel `0` sits at `bounds.x` and pixel `W-1` at `bounds.x +
+/// bounds.w`, which is `TileBounds`' documented "first pixel centre to last
+/// pixel centre" to the letter. `adjacent_tiles_share_their_edge_column`
+/// asserts it rather than leaving it to this comment.
+///
+/// `seed` is the caller's own world seed (`WorldGen::seed`), the same
+/// convention `region_export_tiles` uses — "an export must match the world it
+/// was drawn over, not a caller-guessed one" applies just as much to an
+/// interactive tile. The **sea level and the height field come from `ctx`**,
+/// not from separate arguments: they used to be passed in beside a field the
+/// caller also passed in, which made it possible to amplify one world and
+/// colour another. One source now.
+///
+/// Returns `(rgba_bytes, out_w, out_h)` — `rgba_bytes.len() == out_w * out_h *
+/// 4`, ready to hand `Image::create_from_data` directly. `None` for anything
+/// [`tile_bounds`] itself rejects, for a `ctx` whose field is shorter than
+/// `gw * gh`, and for a `tf` built for a different grid (which
+/// `render_biome_tile_rgba` reports as an empty `Vec`, checked here so a
+/// caller error surfaces as "no tile" rather than as a mis-sized `Image`) —
+/// `cartalith-rust-conventions`: no panic crosses the gdext boundary.
 pub fn synthesize_tile_rgba(
-    field: &[f32],
-    gw: usize,
-    gh: usize,
+    ctx: &RenderCtx,
+    tf: &TileFields,
     z: i32,
     col: i32,
     row: i32,
     seed: i32,
-    sea: f64,
 ) -> Option<(Vec<u8>, usize, usize)> {
-    synthesize_tile_rgba_with_z_base(field, gw, gh, z, col, row, seed, sea, z_base())
+    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base())
 }
 
 /// [`synthesize_tile_rgba`] with `opts.zBase` supplied rather than taken from
@@ -361,22 +359,21 @@ pub fn synthesize_tile_rgba(
 /// `#[func]` surface: the shell has no business choosing this.
 #[allow(clippy::too_many_arguments)]
 fn synthesize_tile_rgba_with_z_base(
-    field: &[f32],
-    gw: usize,
-    gh: usize,
+    ctx: &RenderCtx,
+    tf: &TileFields,
     z: i32,
     col: i32,
     row: i32,
     seed: i32,
-    sea: f64,
     zb: i32,
 ) -> Option<(Vec<u8>, usize, usize)> {
-    if field.len() < gw.checked_mul(gh)? {
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    if ctx.field.len() < gw.checked_mul(gh)? {
         return None;
     }
-    tile_bounds(gw, gh, z, col, row)?;
-    let opts = AmplifyOpts { seed, sea, z_base: zb, ..AmplifyOpts::default() };
-    let tile = pyramid_tile(field, gw, gh, ChunkId::new(z as u32, col as u32, row as u32), TILE_PX, &opts);
+    let bounds = tile_bounds(gw, gh, z, col, row)?;
+    let opts = AmplifyOpts { seed, sea: ctx.sea_level, z_base: zb, ..AmplifyOpts::default() };
+    let tile = pyramid_tile(ctx.field, gw, gh, ChunkId::new(z as u32, col as u32, row as u32), TILE_PX, &opts);
     // `pyramid_tile` sizes itself with the same `tile_dims` call; taking the
     // dimensions from `tile_size_px` and checking rather than reading them
     // off the result is what lets a caller (`viewport_host.gd`'s tile rect,
@@ -386,54 +383,16 @@ fn synthesize_tile_rgba_with_z_base(
     if (tile.w, tile.h) != (out_w, out_h) {
         return None;
     }
-    let detailed = tile.data;
-
-    // The same level, same sub-region, same sampler -- only the detail term
-    // switched off, and `add_zoom_detail` not applied at all. Reusing
-    // `refine_tile` (which is what `pyramid_tile` calls first) rather than
-    // reimplementing its bilinear upsample is what guarantees the two differ
-    // *only* by the detail, which is the entire meaning of the ratio below.
-    let n = pyramid_dims(z).cols as usize;
-    let region = Region { x: 0, y: 0, w: gw - 1, h: gh - 1 }.to_float();
-    let plain_opts = AmplifyOpts { detail_amp: 0.0, ..opts };
-    let plain = refine_tile(
-        field, gw, gh, &region, n, n, col as usize, row as usize, out_w, out_h, &plain_opts,
+    let rgba = render::render_biome_tile_rgba(
+        ctx,
+        &tile.data,
+        out_w,
+        out_h,
+        TileBounds { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h },
+        tf,
     );
-
-    // `shade_tile` differences *adjacent pixels* with a fixed exaggeration, so
-    // the same ground slope shades `1/px_per_cell` as hard once a tile spreads
-    // one coarse cell over many pixels -- which is every level past the first.
-    // Measured before compensating: on a dome fixture the mask went from 34%
-    // of pixels carrying any shading at level 4 to 3% at level 7, i.e. deep
-    // zoom converged on "no relief at all" no matter how many octaves
-    // `add_zoom_detail` put into the height. Scaling the exaggeration by the
-    // tile's own pixels per cell undoes exactly that geometric factor and
-    // makes the ratio scale-invariant instead: the same terrain reads with the
-    // same relief at every depth.
-    //
-    // Free to choose, and chosen rather than inherited: the shade *ratio* is
-    // this port's own construct (the reference colours an LOD tile outright,
-    // it never computes a ratio), so `EXAG` here is a parameter of this
-    // module's encoding, not a reference constant under a parity obligation.
-    // It stays `TileVisual::default()`'s 3.4 at one pixel per cell, which is
-    // the resolution a Z4 export tile is written at.
-    let exag = EXAG * (out_w as f64 / tile_bounds(gw, gh, z, col, row)?.w).max(1.0);
-    let sd = shade_tile(&detailed, out_w, out_h, sea, SUN_AZ_DEG, exag);
-    let sp = shade_tile(&plain, out_w, out_h, sea, SUN_AZ_DEG, exag);
-
-    let mut rgba = vec![255u8; out_w * out_h * 4];
-    for i in 0..out_w * out_h {
-        // `shade_tile` never returns zero for a real height (its bands floor
-        // at 0.4 and 0.75), but a NaN tile -- `amplify_region`'s documented
-        // `out_w == 1` division by zero -- makes both terms NaN, and NaN/NaN
-        // is NaN, which `u8_clamped` maps to 0. Guard to a neutral 1.0 so a
-        // degenerate tile leaves the map alone instead of blacking it out.
-        let ratio = if sp[i] > 0.0 { sd[i] / sp[i] } else { 1.0 };
-        let ratio = if ratio.is_nan() { 1.0 } else { ratio };
-        let b = u8_clamped(SHADE_RATIO_MID + (ratio - 1.0) * SHADE_RATIO_GAIN);
-        rgba[i * 4] = b;
-        rgba[i * 4 + 1] = b;
-        rgba[i * 4 + 2] = b;
+    if rgba.len() != out_w * out_h * 4 {
+        return None;
     }
     Some((rgba, out_w, out_h))
 }
@@ -456,33 +415,40 @@ fn synthesize_tile_rgba_with_z_base(
 // and silencing it would make "wired" and "unwired" look the same.
 // ---------------------------------------------------------------------------
 
-/// One tile's storable form: the shade-ratio byte per pixel, without the two
-/// duplicate channels and the constant alpha [`synthesize_tile_rgba`] pads it
-/// out to.
+/// One tile's storable form: **RGB**, three bytes per pixel, without the
+/// constant alpha [`synthesize_tile_rgba`] pads it out to.
 ///
-/// **Lossless by construction, not by luck.** That function writes the same
-/// byte into R, G and B and leaves A at `255` for one stated reason — a
-/// caller that ignores `lod_tile.gdshader` sees a plausible grey mask rather
-/// than a colour cast — so three of every four bytes are recoverable from the
-/// first. [`mask_to_rgba`] is the exact inverse, and the round trip is
-/// asserted on real synthesized tiles rather than assumed.
+/// **This dropped from four bytes to one and back to three, and the middle
+/// number is why the producer id has to change.** Until 2026-09-21 a tile was
+/// a shade-ratio mask -- one byte written three times, so `tile_mask` took the
+/// R channel and `mask_to_rgba` fanned it back out, losslessly, at a quarter
+/// of the bytes. A tile is a picture now (LOD-D2), R/G/B differ, and taking
+/// one channel would store a greyscale map of a colour one. So the ratio the
+/// archive pays moves with it: the *raw* cost is **3x** the old mask
+/// ([`pyramid_mask_bytes`] is multiplied by exactly that), and the deflated
+/// cost is **not** predictable from the old measurement, because what
+/// compressed so well before was the three-identical-channels redundancy that
+/// no longer exists. The old figures (levels 0..=6 over three real 2048x1311
+/// worlds: masks 21.9 / 23.6 / 27.8 MiB against RGB PNGs at 65.2 / 69.9 /
+/// 81.1 MiB) are kept here as the **prior** they are, not carried forward as a
+/// claim about what RGB tiles will deflate to. Whoever wires ruling 28's save
+/// path re-measures it; `measure_a_stored_pyramid` in this file's tests is the
+/// harness that produced them and is still the way to.
 ///
-/// It is also the whole difference between a storable slot and an unstorable
-/// one. Measured on three real 2048×1311 worlds, levels 0..=6, in the
-/// archive: these masks deflate to **21.9 / 23.6 / 27.8 MiB**; the same tiles
-/// as RGB PNGs are **65.2 / 69.9 / 81.1 MiB** — **2.9-3.0× larger** — because
-/// a PNG carries its own deflate, so the container never sees the
-/// three-identical-channels redundancy.
+/// Alpha is dropped rather than stored because
+/// [`render::render_biome_tile_rgba`] documents it as *"alpha always `255`"*
+/// -- and the round trip below asserts that on real synthesized tiles instead
+/// of trusting the sentence.
 pub fn tile_mask(rgba: &[u8]) -> Vec<u8> {
-    rgba.chunks_exact(4).map(|px| px[0]).collect()
+    rgba.chunks_exact(4).flat_map(|px| [px[0], px[1], px[2]]).collect()
 }
 
-/// [`tile_mask`]'s inverse — a stored tile back in the `RGBA8` shape
+/// [`tile_mask`]'s inverse -- a stored tile back in the `RGBA8` shape
 /// `Image::create_from_data` takes.
 pub fn mask_to_rgba(mask: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(mask.len() * 4);
-    for &b in mask {
-        out.extend_from_slice(&[b, b, b, 255]);
+    let mut out = Vec::with_capacity(mask.len() / 3 * 4);
+    for px in mask.chunks_exact(3) {
+        out.extend_from_slice(&[px[0], px[1], px[2], 255]);
     }
     out
 }
@@ -490,35 +456,60 @@ pub fn mask_to_rgba(mask: &[u8]) -> Vec<u8> {
 /// What this build's tile synthesizer calls itself, for
 /// `cartalith_io::project::LodTiles::producer`.
 ///
-/// The archive's own key covers the *world* — the heightmap, the grid, the
-/// seed and the sea level, which are `synthesize_tile_rgba`'s four
-/// world-derived arguments. It cannot cover the producer's **constants**,
-/// which is what this is for: a build that moves `TILE_PX`, the shade-ratio
-/// fixed point (which `lod_tile.gdshader` hardcodes on the decode side) or
-/// the octave schedule would otherwise decode last week's tiles with this
-/// week's shader and tint a map that has not changed.
+/// The archive's own key covers the *world* -- the heightmap, the grid, the
+/// seed and the sea level. It cannot cover the producer's **constants** or the
+/// **look**, which is what this is for: a build that moves `TILE_PX` or the
+/// octave schedule, or a user who changes the appearance, would otherwise
+/// decode last week's tiles over this week's map.
 ///
-/// **What is derived and what is not, separately.** Every constant this
-/// module and [`AmplifyOpts::default`] contribute is interpolated in, so
-/// changing one changes the id with nothing to remember. The leading `v1` is
-/// **not** derived: it covers the *arithmetic* — `shade_tile`, the ratio
-/// reduction, `pyramid_tile`'s own content — which can change with no
-/// constant moving, and it has to be bumped by hand when it does.
+/// # `v2`, and why a stored `v1` must be refused rather than decoded
 ///
-/// The interpolation itself is not test-covered and cannot be: no test can
-/// vary a `const`, so `px={TILE_PX}` and the literal `px=256` are the same
-/// string to any assertion. The test beside this one covers *membership* —
-/// a constant dropped from the id — and says so.
+/// `LOD_DETAIL_SCOPE.md` LOD-D2: *"`tile_producer_id` becomes
+/// `cartalith-lod/v2`. Stored v1 masks are refused by producer id, never
+/// decoded under the new shader."* A v1 tile is a **shade-ratio mask** -- one
+/// byte per pixel, `128` meaning "the detail changes nothing here" -- and
+/// `lod_tile.gdshader` no longer multiplies anything, so a v1 pyramid read as
+/// RGB would draw a flat mid-grey sheet over the map and read as a rendering
+/// bug rather than as a stale cache. The leading version is **not** derived
+/// and has to be bumped by hand when the arithmetic moves; this is that bump.
+///
+/// # The appearance is part of the id now, and that is new
+///
+/// A shade ratio was a property of the *height* alone, so a look change could
+/// not invalidate a v1 tile. A coloured tile is `land_color`'s output, so
+/// every ramp, strength, light and NPR flag on `TerrainAppearance` is an input
+/// (`MISTAKES.md`: *"derive the list from the definition -- every argument of
+/// the function you are guarding"*). `fp` below is an FNV-1a-64 of the
+/// appearance's own **serde serialization**, which is derived from the struct
+/// definition rather than from a hand-list -- so a field added to
+/// `TerrainAppearance` is covered the day it is added, with nothing to
+/// remember here. `the_producer_id_moves_with_every_appearance_field`
+/// exercises that rather than asserting it.
+///
+/// **What it does not cover, stated rather than implied:** the river ink, the
+/// lake mask, the colour space and the paint/pack overrides also reach a tile,
+/// through `TileFields` and the `RenderCtx` builders. Those are *world* state,
+/// which is the archive key's half of this contract -- except the colour
+/// space, which is neither, and is the one honest gap here. It is a display
+/// setting, it changes a stored tile's bytes, and nothing in this id or in the
+/// archive key moves when it changes. Recorded rather than assumed away: the
+/// storage path is unwired (see the section header above), so it costs nothing
+/// today and it is whoever wires it who has to close it.
+///
+/// The interpolation of the `const`s is not test-covered and cannot be: no
+/// test can vary a `const`, so `px={TILE_PX}` and the literal `px=256` are the
+/// same string to any assertion. The test beside this one covers *membership*
+/// -- a constant dropped from the id -- and says so.
 ///
 /// `AmplifyOpts::default()`'s `seed` and `sea` are deliberately absent:
 /// [`synthesize_tile_rgba`] overrides both from the live world, so the
 /// defaults are never used and the live values are the archive key's job.
-pub fn tile_producer_id() -> String {
+pub fn tile_producer_id(appearance: &render::TerrainAppearance) -> String {
     let o = AmplifyOpts::default();
     format!(
-        "cartalith-lod/v1;px={TILE_PX};zb={};mid={SHADE_RATIO_MID};gain={SHADE_RATIO_GAIN};\
-         exag={EXAG};az={SUN_AZ_DEG};freq={};amp={};ridged={};k={}",
+        "cartalith-lod/v2;px={TILE_PX};zb={};fp={:016x};freq={};amp={};ridged={};k={}",
         z_base(),
+        appearance_fingerprint(appearance),
         o.detail_freq,
         o.detail_amp,
         o.ridged,
@@ -526,8 +517,36 @@ pub fn tile_producer_id() -> String {
     )
 }
 
+/// FNV-1a-64 of `serde_json` of the appearance -- the whole struct, field by
+/// field, without this file naming any of them.
+///
+/// Serialization rather than `Debug` deliberately: `TerrainAppearance` carries
+/// `#[serde(default)]` and is already the format a saved look is written in
+/// (`WorldGen::set_appearance_preset`), so this fingerprint changes exactly
+/// when a saved look would, and it cannot be moved by someone tidying a
+/// `Debug` impl. A serialization failure returns `0` -- a fingerprint that
+/// matches nothing rather than a panic across the gdext boundary.
+pub(crate) fn appearance_fingerprint(a: &render::TerrainAppearance) -> u64 {
+    let json = match serde_json::to_string(a) {
+        Ok(j) => j,
+        Err(_) => return 0,
+    };
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in json.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
 /// The **raw** bytes a stored pyramid of levels `0..=z_max` occupies, before
-/// the archive's deflate — `sum(4^z) * tile_w * tile_h`.
+/// the archive's deflate — `sum(4^z) * tile_w * tile_h * 3`.
+///
+/// **The `* 3` is LOD-D2's** (*"`pyramid_mask_bytes` is recomputed for RGB
+/// tiles, since the size Rulings 28/29 show at save grows about 3x raw"*): a
+/// stored tile was one byte per pixel while it was a shade ratio and is three
+/// now that it is a picture. See [`tile_mask`] for why the *deflated* figure
+/// does not simply scale with it.
 ///
 /// Exact and instant: it synthesizes nothing, so a save dialog can show the
 /// cost before the user commits to paying it (ruling 28: *"off, with the
@@ -545,7 +564,7 @@ pub fn pyramid_mask_bytes(gw: usize, gh: usize, z_max: i32) -> Option<u64> {
         return None;
     }
     let (w, h) = tile_size_px(gw, gh, 0);
-    Some(cartalith_spatial::pyramid::pyramid_tile_count(z_max) * (w * h) as u64)
+    Some(cartalith_spatial::pyramid::pyramid_tile_count(z_max) * (w * h * 3) as u64)
 }
 
 /// Synthesizes every tile of levels `0..=z_max` as storable masks — the
@@ -602,14 +621,16 @@ pub fn pyramid_mask_bytes(gw: usize, gh: usize, z_max: i32) -> Option<u64> {
 /// comment says why) — so a commit at a fixed zoom is a case worth checking
 /// before assuming the in-session half is already covered.
 pub fn synthesize_pyramid_masks(
-    field: &[f32],
-    gw: usize,
-    gh: usize,
+    ctx: &RenderCtx,
+    tf: &TileFields,
     z_max: i32,
     seed: i32,
-    sea: f64,
 ) -> Option<(usize, usize, std::collections::BTreeMap<ChunkId, Vec<u8>>)> {
     if !(0..=MAX_LEVEL).contains(&z_max) {
+        return None;
+    }
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    if gw < 2 || gh < 2 {
         return None;
     }
     let (tile_w, tile_h) = tile_size_px(gw, gh, 0);
@@ -618,7 +639,7 @@ pub fn synthesize_pyramid_masks(
         let n = tiles_per_axis(z) as i32;
         for col in 0..n {
             for row in 0..n {
-                let (rgba, _, _) = synthesize_tile_rgba(field, gw, gh, z, col, row, seed, sea)?;
+                let (rgba, _, _) = synthesize_tile_rgba(ctx, tf, z, col, row, seed)?;
                 tiles.insert(ChunkId::new(z as u32, col as u32, row as u32), tile_mask(&rgba));
             }
         }
@@ -734,24 +755,114 @@ mod tests {
 
     // -- synthesis --------------------------------------------------------
 
+    /// One world's worth of the inputs a coloured tile needs, owned together
+    /// so a `RenderCtx` can borrow them all.
+    ///
+    /// Since LOD-D2 a tile is `render_biome_tile_rgba`'s output, so every test
+    /// below needs a temperature and a moisture field as well as a height one
+    /// — the height alone could shade a tile and cannot colour it. They are
+    /// synthesised here rather than captured: what these tests assert is this
+    /// module's own contract (sizes, addressing, determinism, the storage
+    /// round trip, detail against depth), and the *colour* is
+    /// `tests/golden_parity_tile_biome.rs`'s job, against the real reference.
+    ///
+    /// The climate is a north-south temperature ramp crossed with an
+    /// east-west moisture one, so a tile of any size spans several biomes —
+    /// a single-biome fixture would make `land_color`'s material path
+    /// constant and several assertions below vacuous.
+    struct TestWorld {
+        field: Vec<f32>,
+        temp: Vec<f32>,
+        rain: Vec<f32>,
+        gw: usize,
+        gh: usize,
+        pre: render::GridPrecompute,
+    }
+
+    const TEST_SEA: f64 = 0.42;
+
+    impl TestWorld {
+        fn new(field: Vec<f32>, gw: usize, gh: usize) -> Self {
+            let mut temp = vec![0f32; gw * gh];
+            let mut rain = vec![0f32; gw * gh];
+            for y in 0..gh {
+                for x in 0..gw {
+                    let (u, v) = (x as f64 / gw as f64, y as f64 / gh as f64);
+                    temp[y * gw + x] = (24.0 - 38.0 * v) as f32;
+                    rain[y * gw + x] = (0.28 + 0.60 * (u * 3.0 + 0.7).sin().abs()) as f32;
+                }
+            }
+            let a = Self::appearance();
+            let pre = render::GridPrecompute::build(&field, &temp, &rain, Some(&field), gw, gh, TEST_SEA, false, &a, Some(800.0));
+            TestWorld { field, temp, rain, gw, gh, pre }
+        }
+
+        /// The look `WorldGen` opens on, not `default()` — the tiles these
+        /// tests measure should be the tiles the app draws.
+        fn appearance() -> render::TerrainAppearance {
+            render::TerrainAppearance::default().with_look(render::LOOK_VIBRANT)
+        }
+
+        fn ctx(&self) -> RenderCtx<'_> {
+            render::RenderCtx::from_precomputed(
+                &self.field, &self.temp, &self.rain, Some(&self.field), self.gw, self.gh, TEST_SEA, false, 55.0, 5.0, Self::appearance(), &self.pre,
+            )
+            .expect("the precompute is for this grid")
+        }
+
+        /// No grid raster, so the local-contrast band is off — `TileFields`'
+        /// own documented `None` case. Deliberate: rendering a full grid
+        /// raster per test would dominate their runtime, and no assertion
+        /// below is about local contrast.
+        fn fields(&self, ctx: &RenderCtx) -> TileFields<'static> {
+            TileFields::new(ctx, None)
+        }
+    }
+
+    /// Rec.709 luma of one pixel, for the tests that measure *structure*
+    /// rather than colour.
+    fn luma(px: &[u8]) -> f64 {
+        0.2126 * px[0] as f64 + 0.7152 * px[1] as f64 + 0.0722 * px[2] as f64
+    }
+
     #[test]
     fn synthesize_tile_rgba_none_for_a_too_short_field() {
         // Guards `refine_tile`'s own panic precondition rather than letting it
-        // panic across what would be the gdext boundary.
+        // panic across what would be the gdext boundary. Built by pointing a
+        // valid context at a short field, which is the shape the real failure
+        // takes: `WorldGen` hands `synthesize_tile_rgba` whatever its live
+        // `WorldSource` carries, and a truncated one must not be indexed.
+        let w = TestWorld::new(synthetic_field(64, 64), 64, 64);
         let short = vec![0.5f32; 10];
-        assert_eq!(synthesize_tile_rgba(&short, 64, 64, 0, 0, 0, 1234, 0.42), None);
+        let ctx = render::RenderCtx::from_precomputed(&short, &w.temp, &w.rain, None, 64, 64, TEST_SEA, false, 55.0, 5.0, TestWorld::appearance(), &w.pre).unwrap();
+        let tf = w.fields(&w.ctx());
+        assert_eq!(synthesize_tile_rgba(&ctx, &tf, 0, 0, 0, 1234), None);
     }
 
     #[test]
     fn synthesize_tile_rgba_none_for_an_out_of_range_tile() {
-        let field = synthetic_field(128, 128);
-        assert_eq!(synthesize_tile_rgba(&field, 128, 128, 2, 10, 10, 1234, 0.42), None);
+        let w = TestWorld::new(synthetic_field(128, 128), 128, 128);
+        let (ctx, tf) = (w.ctx(), w.fields(&w.ctx()));
+        assert_eq!(synthesize_tile_rgba(&ctx, &tf, 2, 10, 10, 1234), None);
+    }
+
+    #[test]
+    fn a_tile_fields_built_for_another_grid_is_refused_rather_than_indexed() {
+        // `render_biome_tile_rgba` returns an empty `Vec` for a mismatched
+        // `TileFields`; this module turns that into `None` rather than letting
+        // a mis-sized buffer reach `Image::create_from_data`. Reached from the
+        // LOD bridge on every zoom notch, so it is the gdext-boundary rule.
+        let w = TestWorld::new(synthetic_field(128, 128), 128, 128);
+        let other = TestWorld::new(synthetic_field(64, 64), 64, 64);
+        let other_ctx = other.ctx();
+        assert_eq!(synthesize_tile_rgba(&w.ctx(), &other.fields(&other_ctx), 1, 0, 0, 1234), None);
     }
 
     #[test]
     fn synthesize_tile_rgba_produces_the_right_number_of_opaque_pixels() {
-        let field = synthetic_field(256, 256);
-        let (rgba, w, h) = synthesize_tile_rgba(&field, 256, 256, 2, 0, 0, 1234, 0.42).unwrap();
+        let tw = TestWorld::new(synthetic_field(256, 256), 256, 256);
+        let ctx = tw.ctx();
+        let (rgba, w, h) = synthesize_tile_rgba(&ctx, &tw.fields(&ctx), 2, 0, 0, 1234).unwrap();
         assert_eq!((w, h), tile_size_px(256, 256, 2));
         assert_eq!((w, h), (TILE_PX, TILE_PX), "a square map gives a square tile");
         assert_eq!(rgba.len(), w * h * 4);
@@ -763,62 +874,74 @@ mod tests {
         // `tile_dims` keeps the tile's aspect, so a 2:1 map gives 2:1 tiles --
         // which is what `_lod_tile_rect`'s half-texel maths reads back off the
         // real texture rather than assuming square.
-        let field = synthetic_field(257, 129);
-        let (rgba, w, h) = synthesize_tile_rgba(&field, 257, 129, 2, 1, 1, 1234, 0.42).unwrap();
+        let tw = TestWorld::new(synthetic_field(257, 129), 257, 129);
+        let ctx = tw.ctx();
+        let (rgba, w, h) = synthesize_tile_rgba(&ctx, &tw.fields(&ctx), 2, 1, 1, 1234).unwrap();
         assert_eq!((w, h), (TILE_PX, TILE_PX / 2));
         assert_eq!(rgba.len(), w * h * 4);
     }
 
     #[test]
-    fn synthesize_tile_rgba_is_not_a_flat_mask() {
-        // A silently-constant tile passes every structural check above, so
-        // say it explicitly -- same reasoning tile_render.rs's own
-        // `render_is_not_flat` test states. A ratio mask sits close to 1.0 by
-        // design (that is the point: it perturbs the base map, it does not
-        // replace it), so the bar is "really varies", not "spans the byte
-        // range".
-        let field = synthetic_field(256, 256);
+    fn synthesize_tile_rgba_is_not_a_flat_picture() {
+        // A silently-constant tile passes every structural check above, so say
+        // it explicitly -- the same reasoning `tile_render.rs`'s own
+        // `render_is_not_flat` states, and the same bar LOD-D1's capture
+        // script refuses a fixture under (*"fewer than 16 distinct colours"*).
+        //
+        // Two claims, not one, because a shade ratio could satisfy the first
+        // and never the second: the tile VARIES, and it is in COLOUR. Before
+        // LOD-D2 every pixel here was grey by construction (one byte written
+        // into R, G and B), so `r != b` somewhere is the assertion that goes
+        // red if this module ever regresses to a mask.
+        let tw = TestWorld::new(synthetic_field(256, 256), 256, 256);
+        let ctx = tw.ctx();
         // The eastern half: `synthetic_field` ramps west-to-east from 0.25, so
-        // the western tiles are entirely below `sea` and correctly come back
-        // flat-neutral (deep water gets no detail). Asserting variation there
-        // would pin the wrong thing.
-        let (rgba, _, _) = synthesize_tile_rgba(&field, 256, 256, 2, 3, 2, 1234, 0.42).unwrap();
-        let distinct: std::collections::HashSet<u8> = rgba.chunks(4).map(|p| p[0]).collect();
-        assert!(distinct.len() > 8, "only {} distinct shade levels", distinct.len());
-        // Grey, not tinted: R == G == B everywhere, alpha opaque.
-        assert!(rgba.chunks(4).all(|p| p[0] == p[1] && p[1] == p[2] && p[3] == 255));
+        // the western tiles are entirely below sea level and correctly come
+        // back as flat water. Asserting variety there would pin the wrong
+        // thing.
+        let (rgba, _, _) = synthesize_tile_rgba(&ctx, &tw.fields(&ctx), 2, 3, 2, 1234).unwrap();
+        let distinct: std::collections::HashSet<[u8; 3]> = rgba.chunks(4).map(|p| [p[0], p[1], p[2]]).collect();
+        assert!(distinct.len() > 16, "only {} distinct colours", distinct.len());
+        assert!(rgba.chunks(4).any(|p| p[0] != p[2]), "every pixel is grey -- this is a mask, not a picture");
+        assert!(rgba.chunks(4).all(|p| p[3] == 255), "every pixel must be opaque");
     }
 
     #[test]
-    fn a_tile_with_no_added_detail_is_exactly_neutral() {
-        // The property the whole compositor rests on: where the amplifier adds
-        // nothing, the ratio is 1.0 and the shader leaves the base map's own
-        // pixels alone. Deep water tapers the detail term to zero
-        // (`amplify_region`'s `underwater`/`taper`) and `add_zoom_detail` skips
-        // anything below `sea` outright, so a field well below sea level must
-        // come back as the encoded identity, byte for byte -- not "close to"
-        // it, which is what centring the fixed point on `SHADE_RATIO_MID` buys.
-        let field = vec![0.10f32; 128 * 128];
-        let (rgba, _, _) = synthesize_tile_rgba(&field, 128, 128, 2, 1, 1, 1234, 0.42).unwrap();
-        let neutral = SHADE_RATIO_MID as u8;
-        assert!(
-            rgba.chunks(4).all(|p| p[0] == neutral && p[1] == neutral && p[2] == neutral),
-            "a detail-free tile must encode exactly {neutral}"
-        );
+    fn where_the_amplifier_adds_nothing_the_octaves_change_nothing() {
+        // The property the compositor rested on when a tile was a ratio was
+        // "a detail-free tile encodes exactly the identity byte". There is no
+        // identity colour to compare against now, so the same claim is made
+        // the way it survives the change: deep water is where
+        // `amplify_region`'s `taper` is zero and `add_zoom_detail` skips
+        // outright, so the tile with the octaves and the tile without them
+        // must be **byte-identical** -- not close.
+        //
+        // The positive control is the test below: the same comparison on land
+        // must differ, or this one would pass on a build where the octaves
+        // were removed entirely.
+        let tw = TestWorld::new(vec![0.10f32; 128 * 128], 128, 128);
+        let ctx = tw.ctx();
+        let tf = tw.fields(&ctx);
+        let z = z_base() + 3;
+        let (with, _, _) = synthesize_tile_rgba(&ctx, &tf, z, 1, 1, 1234).unwrap();
+        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, 1, 1, 1234, z).unwrap();
+        assert_eq!(with, without, "a wholly underwater tile must not move when the zoom octaves are switched off");
     }
 
     #[test]
-    fn a_detailed_land_tile_actually_perturbs_the_base() {
-        // The other half of the property above: where detail *is* added, the
-        // mask must leave neutral.
-        let field = synthetic_field(256, 256);
-        let (rgba, _, _) = synthesize_tile_rgba(&field, 256, 256, 2, 3, 2, 1234, 0.42).unwrap();
-        let neutral = SHADE_RATIO_MID as u8;
-        let moved = rgba.chunks(4).filter(|p| p[0] != neutral).count();
-        assert!(moved > rgba.len() / 4 / 2, "only {moved} pixels carry any detail shading");
+    fn a_detailed_land_tile_actually_moves_under_the_octaves() {
+        // The other half, and the positive control for the test above.
+        let tw = TestWorld::new(relief_field(256, 256), 256, 256);
+        let ctx = tw.ctx();
+        let tf = tw.fields(&ctx);
+        let z = z_base() + 3;
+        let n = 1 << z;
+        let (col, row) = (5 * n / 16, 7 * n / 16);
+        let (with, w, h) = synthesize_tile_rgba(&ctx, &tf, z, col, row, 1234).unwrap();
+        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z).unwrap();
+        let moved = with.chunks(4).zip(without.chunks(4)).filter(|(a, b)| a[..3] != b[..3]).count();
+        assert!(moved > w * h / 10, "only {moved} of {} pixels moved when the octaves were switched on", w * h);
     }
-
-    /// A field with real coarse *relief*, unlike `synthetic_field`'s
     /// near-linear west-to-east ramp -- the same dome-plus-ridge shape
     /// `amplify.rs`'s own golden fixture uses, and for the same reason the
     /// depth test below needs it: `add_zoom_detail` multiplies every octave by
@@ -853,7 +976,10 @@ mod tests {
     /// gets more intricate" means is precisely that neighbouring pixels stop
     /// agreeing. That is this.
     fn fine_detail(rgba: &[u8], w: usize, h: usize) -> f64 {
-        let px = |x: usize, y: usize| rgba[(y * w + x) * 4] as f64;
+        // Luma of the pixel rather than its red byte: a tile is a colour
+        // picture since LOD-D2, and red alone would measure one channel of a
+        // material change as if it were relief.
+        let px = |x: usize, y: usize| luma(&rgba[(y * w + x) * 4..]);
         let mut sum = 0.0;
         for y in 0..h {
             for x in 1..w {
@@ -865,32 +991,53 @@ mod tests {
 
     #[test]
     fn deeper_levels_carry_strictly_finer_detail() {
-        // THE regression test for the owner report this change answers: "LOD
-        // zooming does not seem to go that deep either". Before it, this module
-        // called `amplify_region` alone, whose detail sits at a fixed
-        // coarse-space frequency -- so zooming past the first tier resolved the
-        // *same* relief more smoothly and nothing new ever appeared. With
-        // `add_zoom_detail` in the path, each level past `z_base()` adds an
-        // octave, and the mask over the same ground must therefore keep gaining
-        // structure. Compared over the SAME ground at every level -- the tile
-        // whose north-west corner sits at (0.75, 0.25) of the map, which
-        // `synthetic_field`'s west-to-east ramp puts well above `sea` (tile
-        // (0,0) is deep water there, where the detail is correctly zero and
-        // the spread is flat 0 at every level).
+        // THE regression test for the owner report this subsystem answers:
+        // "LOD zooming does not seem to go that deep either". Before
+        // 2026-08-24 this module called `amplify_region` alone, whose detail
+        // sits at a fixed coarse-space frequency -- so zooming past the first
+        // tier resolved the *same* relief more smoothly and nothing new ever
+        // appeared. With `add_zoom_detail` in the path, each level past
+        // `z_base()` adds an octave.
         //
-        // Two separate claims, because they come from two separate halves of
-        // the change and either could regress alone:
+        // # Rewritten for LOD-D2, and the statistic had to change with it
         //
-        // 1. The mask keeps *gaining* fine structure with depth. That is what
-        //    the scale-normalised `exag` above buys, and it is the half the
-        //    owner actually sees: before it the numbers ran the other way
-        //    (0.30 -> 0.20 -> 0.096 -> 0.031 on this very fixture), i.e. deep
-        //    zoom converged on a flat mask over a smooth blur.
-        // 2. `add_zoom_detail`'s octaves are what carry that at depth. Stated
-        //    against a no-octave baseline synthesised the same way, and as a
-        //    ratio rather than a difference, since the baseline moves too.
+        // `LOD_DETAIL_SCOPE.md` LOD-D2: *"`deeper_levels_carry_strictly_finer_detail`
+        // is rewritten against colour tiles and stays red if `add_zoom_detail`
+        // is removed."* The old test measured mean |difference| between
+        // horizontally adjacent bytes of a shade-ratio mask and asserted it
+        // rose with depth. That assertion is **geometrically wrong for a
+        // picture** and would have been kept only by accident: a deeper tile
+        // covers less ground per pixel, so two adjacent pixels are physically
+        // closer together and *must* differ less. Measured on this very
+        // fixture, per adjacent pixel pair: 7.29, 4.63, 3.55, 3.46 L-units
+        // across four levels. The old path hid that behind a scale-normalised
+        // exaggeration of its own invention (`EXAG * px_per_cell`), which a
+        // ratio was free to choose and a colour is not -- a tile shades under
+        // the same sun and the same `exag` as the map, or it does not match it.
+        //
+        // So the same question is asked over the same GROUND instead:
+        // adjacent-pixel difference times pixels per coarse cell, i.e. how
+        // much the picture varies across one cell of terrain. That is what
+        // "a deeper level shows more" means, and it is what the owner sees.
+        //
+        // Three claims, because they come from three separate halves and any
+        // one could regress alone:
+        //
+        // 1. **Per unit ground, a deeper level carries strictly more.**
+        //    Measured 58.3 -> 74.1 -> 113.5 -> 221.4 at the four levels below.
+        // 2. **At `z_base` the octaves are a no-op**, byte for byte -- the
+        //    property `add_zoom_detail` documents, restated at this caller's
+        //    own `z_base()` so a `TILE_PX` change that forgets to move it
+        //    fails here.
+        // 3. **The octaves are what carry it at depth**, stated against a
+        //    no-octave baseline synthesised the same way and as a ratio, since
+        //    the baseline moves too. Measured 1.000, 1.048, 1.258, 1.787 --
+        //    and every one of them is exactly 1.000 if `add_zoom_detail` is
+        //    removed, which is the red this test owes the scope.
         let (gw, gh) = (512usize, 512usize);
-        let field = relief_field(gw, gh);
+        let world = TestWorld::new(relief_field(gw, gh), gw, gh);
+        let ctx = world.ctx();
+        let tf = world.fields(&ctx);
         let mut seen = Vec::new();
         for z in [z_base(), z_base() + 1, z_base() + 2, z_base() + 3] {
             // The same ground at every level: the tile whose north-west corner
@@ -900,20 +1047,21 @@ mod tests {
             // the test would pin the taper instead.
             let n = 1 << z;
             let (col, row) = (5 * n / 16, 7 * n / 16);
-            let (with, tw, th) =
-                synthesize_tile_rgba(&field, gw, gh, z, col, row, 1234, 0.42).unwrap();
+            let (with, tw, th) = synthesize_tile_rgba(&ctx, &tf, z, col, row, 1234).unwrap();
             // `zb == z` makes `add_zoom_detail`'s `extra` non-positive, i.e.
             // exactly the pre-2026-08-24 `amplify_region`-only content.
-            let (without, _, _) =
-                synthesize_tile_rgba_with_z_base(&field, gw, gh, z, col, row, 1234, 0.42, z)
-                    .unwrap();
-            seen.push((z, fine_detail(&with, tw, th), fine_detail(&without, tw, th)));
+            let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z).unwrap();
+            // Pixels per coarse cell, from the tile's own bounds rather than
+            // from `2^z` -- the two agree, and reading it off the addressing
+            // is what makes this survive a `TILE_PX` change.
+            let per_cell = tw as f64 / tile_bounds(gw, gh, z, col, row).unwrap().w;
+            seen.push((z, fine_detail(&with, tw, th) * per_cell, fine_detail(&without, tw, th) * per_cell));
         }
 
         let fine: Vec<f64> = seen.iter().map(|&(_, w, _)| w).collect();
         assert!(
             fine.windows(2).all(|p| p[1] > p[0]),
-            "the mask stopped gaining detail with depth: {seen:?}"
+            "a deeper level stopped carrying more detail per unit ground: {seen:?}"
         );
 
         let (z0, w0, o0) = seen[0];
@@ -923,9 +1071,9 @@ mod tests {
             ratios[1..].windows(2).all(|p| p[1] > p[0]),
             "the octaves stopped paying off with depth: {seen:?} ratios {ratios:?}"
         );
-        // One octave over `amplify_region`'s own detail is nearly a wash (the
-        // measured ratio at `z_base + 1` is 0.99); by three it is not, and
-        // that is the depth the camera now reaches.
+        // One octave over `amplify_region`'s own detail is nearly a wash
+        // (measured 1.048 at `z_base + 1`); by three it is not, and that is
+        // the depth the camera now reaches.
         assert!(
             *ratios.last().unwrap() > 1.05,
             "the deepest level barely differs from no octaves at all: {ratios:?}"
@@ -944,7 +1092,7 @@ mod tests {
         let n = pyramid_dims(z).cols as usize;
         let region = Region { x: 0, y: 0, w: 511, h: 511 }.to_float();
         let (w, h) = tile_size_px(512, 512, z);
-        let plain = refine_tile(&field, 512, 512, &region, n, n, 0, 0, w, h, &opts);
+        let plain = cartalith_terrain::amplify::refine_tile(&field, 512, 512, &region, n, n, 0, 0, w, h, &opts);
         let via_pyramid =
             pyramid_tile(&field, 512, 512, ChunkId::new(z as u32, 0, 0), TILE_PX, &opts).data;
         assert_eq!(plain, via_pyramid, "at z == z_base the extra octaves must change nothing");
@@ -952,9 +1100,11 @@ mod tests {
 
     #[test]
     fn different_tiles_of_the_same_world_synthesize_different_content() {
-        let field = synthetic_field(256, 256);
-        let (a, _, _) = synthesize_tile_rgba(&field, 256, 256, 2, 2, 2, 1234, 0.42).unwrap();
-        let (b, _, _) = synthesize_tile_rgba(&field, 256, 256, 2, 3, 2, 1234, 0.42).unwrap();
+        let tw = TestWorld::new(synthetic_field(256, 256), 256, 256);
+        let ctx = tw.ctx();
+        let tf = tw.fields(&ctx);
+        let (a, _, _) = synthesize_tile_rgba(&ctx, &tf, 2, 2, 2, 1234).unwrap();
+        let (b, _, _) = synthesize_tile_rgba(&ctx, &tf, 2, 3, 2, 1234).unwrap();
         assert_ne!(a, b);
     }
 
@@ -962,37 +1112,40 @@ mod tests {
     fn deterministic_for_the_same_inputs() {
         // Same standard `PARITY_TESTING.md`-adjacent expectation every
         // synthesis path in this crate holds to: no hidden randomness.
-        let field = synthetic_field(200, 200);
-        let (a, _, _) = synthesize_tile_rgba(&field, 200, 200, 3, 1, 1, 42, 0.42).unwrap();
-        let (b, _, _) = synthesize_tile_rgba(&field, 200, 200, 3, 1, 1, 42, 0.42).unwrap();
+        let tw = TestWorld::new(synthetic_field(200, 200), 200, 200);
+        let ctx = tw.ctx();
+        let tf = tw.fields(&ctx);
+        let (a, _, _) = synthesize_tile_rgba(&ctx, &tf, 3, 1, 1, 42).unwrap();
+        let (b, _, _) = synthesize_tile_rgba(&ctx, &tf, 3, 1, 1, 42).unwrap();
         assert_eq!(a, b);
     }
 
     // -- storing a pyramid: the round trip, the id, and the real cost -----
 
     #[test]
-    fn a_stored_mask_is_the_synthesized_tile_exactly() {
-        // The claim that makes a 1-byte-per-pixel slot legitimate: three of
-        // every four bytes `synthesize_tile_rgba` writes are recoverable from
-        // the first. Asserted over real tiles, not a hand-built buffer -- and
-        // over several, since a tile whose ratio is uniformly 1.0 would pass
-        // on a constant mask.
-        let field = relief_field(256, 256);
+    fn a_stored_tile_is_the_synthesized_tile_exactly() {
+        // The claim that makes a 3-byte-per-pixel slot legitimate: the fourth
+        // byte `synthesize_tile_rgba` writes is always `255`. Asserted over
+        // real tiles, not a hand-built buffer -- and over several, since a
+        // uniformly flat tile would pass on a constant buffer.
+        let tw = TestWorld::new(relief_field(256, 256), 256, 256);
+        let ctx = tw.ctx();
+        let tf = tw.fields(&ctx);
         let mut distinct = std::collections::BTreeSet::new();
         for (z, col, row) in [(0, 0, 0), (2, 1, 2), (4, 5, 9)] {
-            let (rgba, w, h) = synthesize_tile_rgba(&field, 256, 256, z, col, row, 7, 0.42).unwrap();
-            let mask = tile_mask(&rgba);
-            assert_eq!(mask.len(), w * h);
+            let (rgba, w, h) = synthesize_tile_rgba(&ctx, &tf, z, col, row, 7).unwrap();
+            let stored = tile_mask(&rgba);
+            assert_eq!(stored.len(), w * h * 3, "a stored tile is three bytes per pixel since LOD-D2");
             assert_eq!(
-                mask_to_rgba(&mask),
+                mask_to_rgba(&stored),
                 rgba,
                 "the stored form must be lossless at ({z},{col},{row})"
             );
-            distinct.extend(mask.iter().copied());
+            distinct.extend(stored.chunks_exact(3).map(|p| [p[0], p[1], p[2]]));
         }
         assert!(
-            distinct.len() > 4,
-            "the fixture's tiles carry only {} distinct bytes -- a constant mask would pass this vacuously",
+            distinct.len() > 16,
+            "the fixture's tiles carry only {} distinct colours -- a constant tile would pass this vacuously",
             distinct.len()
         );
     }
@@ -1007,36 +1160,82 @@ mod tests {
     /// That half is verified by reading the one format string in
     /// [`tile_producer_id`], not by an assertion, and is stated here rather
     /// than claimed as coverage it does not have.
+    ///
+    /// The appearance half is different and **is** covered, by
+    /// `the_producer_id_moves_with_every_appearance_field` below: a
+    /// serialization fingerprint is derived from the struct, so a test can
+    /// vary it.
     #[test]
     fn the_producer_id_names_every_constant_a_stored_tile_depends_on() {
-        let id = tile_producer_id();
+        let a = TestWorld::appearance();
+        let id = tile_producer_id(&a);
         let o = AmplifyOpts::default();
         for (what, needle) in [
             ("tile size", format!("px={TILE_PX}")),
             ("z_base", format!("zb={}", z_base())),
-            ("fixed-point midpoint", format!("mid={SHADE_RATIO_MID}")),
-            ("fixed-point gain", format!("gain={SHADE_RATIO_GAIN}")),
-            ("exaggeration", format!("exag={EXAG}")),
-            ("sun azimuth", format!("az={SUN_AZ_DEG}")),
+            ("appearance fingerprint", format!("fp={:016x}", appearance_fingerprint(&a))),
             ("detail frequency", format!("freq={}", o.detail_freq)),
             ("detail amplitude", format!("amp={}", o.detail_amp)),
             ("zoom detail k", format!("k={}", o.zoom_detail_k)),
         ] {
             assert!(id.contains(&needle), "{what} is not in the producer id: {id}");
         }
-        // And the two that must NOT be: `synthesize_tile_rgba` overrides both
-        // from the live world, so the defaults are never used -- keying the
-        // cache on them would invalidate on a value nothing reads.
+        // And the two that must NOT be: `synthesize_tile_rgba` takes both from
+        // the live world, so the defaults are never used -- keying the cache
+        // on them would invalidate on a value nothing reads.
         assert!(!id.contains(&format!("seed={}", o.seed)), "{id}");
         assert!(!id.contains(&format!("sea={}", o.sea)), "{id}");
         // The hand-bumped half, asserted so a reader knows it is not derived.
-        assert!(id.starts_with("cartalith-lod/v1;"), "{id}");
+        // `v2` is LOD-D2's: a v1 tile is a shade-ratio mask and must be
+        // refused by this id rather than decoded as colour.
+        assert!(id.starts_with("cartalith-lod/v2;"), "{id}");
+        assert!(!id.contains("cartalith-lod/v1"), "{id}");
     }
 
+    /// The appearance reaches a stored tile through `land_color`, so a look
+    /// change has to move the producer id — and the id must cover the whole
+    /// struct, not the fields someone remembered.
+    ///
+    /// **Exercised field by field rather than asserted**, on the rule that a
+    /// capability's coverage is derived from the definition: every tunable
+    /// `TerrainAppearance` exposes is nudged in turn and each must move the
+    /// id. A hand-list would only ever test the fields whose omission
+    /// somebody already thought of.
+    #[test]
+    fn the_producer_id_moves_with_every_appearance_field() {
+        let base = TestWorld::appearance();
+        let id = tile_producer_id(&base);
+        let mut checked = 0usize;
+        for (name, lo, hi, _label) in render::TerrainAppearance::TUNABLE {
+            let mut a = base.clone();
+            // Away from wherever it currently sits, and inside its own range.
+            let now = a.tunable(name).unwrap_or(*lo);
+            let next = if (now - hi).abs() > 1e-9 { (now + (hi - lo) * 0.37).min(*hi) } else { *lo };
+            if (next - now).abs() < 1e-12 {
+                continue;
+            }
+            a.set_tunable(name, next);
+            assert_ne!(tile_producer_id(&a), id, "moving `{name}` from {now} to {next} did not move the producer id");
+            checked += 1;
+        }
+        assert!(checked > 20, "only {checked} tunables were actually varied -- this test is not covering what it claims");
+        // The three that are not tunables: the light count, the named look's
+        // whole ramp set, and the NPR flags.
+        let mut a = base.clone();
+        a.relief_lights += 1;
+        assert_ne!(tile_producer_id(&a), id, "the light count is not in the producer id");
+        let other = render::TerrainAppearance::default().with_look(render::LOOK_ANTIQUE);
+        assert_ne!(tile_producer_id(&other), id, "a different named look is not in the producer id");
+        let mut a = base.clone();
+        a.npr.waves = !a.npr.waves;
+        assert_ne!(tile_producer_id(&a), id, "the NPR flags are not in the producer id");
+    }
     #[test]
     fn a_synthesized_pyramid_holds_every_tile_of_every_level() {
-        let field = relief_field(128, 96);
-        let (tw, th, tiles) = synthesize_pyramid_masks(&field, 128, 96, 2, 7, 0.42).unwrap();
+        let world = TestWorld::new(relief_field(128, 96), 128, 96);
+        let ctx = world.ctx();
+        let tf = world.fields(&ctx);
+        let (tw, th, tiles) = synthesize_pyramid_masks(&ctx, &tf, 2, 7).unwrap();
         assert_eq!((tw, th), (256, 191), "one tile is 256 x round(256*95/127) px");
         assert_eq!(tiles.len(), 1 + 4 + 16);
         // Every tile is the one `synthesize_tile_rgba` would have produced on
@@ -1047,11 +1246,8 @@ mod tests {
                 for row in 0..n {
                     let id = ChunkId::new(z as u32, col, row);
                     let mask = tiles.get(&id).expect("every address of every level");
-                    assert_eq!(mask.len(), tw * th);
-                    let (rgba, _, _) = synthesize_tile_rgba(
-                        &field, 128, 96, z, col as i32, row as i32, 7, 0.42,
-                    )
-                    .unwrap();
+                    assert_eq!(mask.len(), tw * th * 3);
+                    let (rgba, _, _) = synthesize_tile_rgba(&ctx, &tf, z, col as i32, row as i32, 7).unwrap();
                     assert_eq!(*mask, tile_mask(&rgba), "tile {id:?} disagrees with on-demand synthesis");
                 }
             }
@@ -1060,11 +1256,20 @@ mod tests {
 
     #[test]
     fn a_pyramid_is_refused_wherever_a_single_tile_would_be() {
-        let field = relief_field(64, 64);
-        assert!(synthesize_pyramid_masks(&field, 64, 64, -1, 7, 0.42).is_none());
-        assert!(synthesize_pyramid_masks(&field, 64, 64, MAX_LEVEL + 1, 7, 0.42).is_none());
-        assert!(synthesize_pyramid_masks(&field, 1, 1, 0, 7, 0.42).is_none());
-        assert!(synthesize_pyramid_masks(&field[..10], 64, 64, 0, 7, 0.42).is_none());
+        let world = TestWorld::new(relief_field(64, 64), 64, 64);
+        let ctx = world.ctx();
+        let tf = world.fields(&ctx);
+        assert!(synthesize_pyramid_masks(&ctx, &tf, -1, 7).is_none());
+        assert!(synthesize_pyramid_masks(&ctx, &tf, MAX_LEVEL + 1, 7).is_none());
+        // A grid too small to tile at all, and a field shorter than its own
+        // grid -- the two `synthesize_tile_rgba` itself refuses, reached here
+        // through the same contexts it would be in production.
+        let tiny = TestWorld::new(vec![0.5f32; 1], 1, 1);
+        let tiny_ctx = tiny.ctx();
+        assert!(synthesize_pyramid_masks(&tiny_ctx, &tiny.fields(&tiny_ctx), 0, 7).is_none());
+        let short = vec![0.5f32; 10];
+        let short_ctx = render::RenderCtx::from_precomputed(&short, &world.temp, &world.rain, None, 64, 64, TEST_SEA, false, 55.0, 5.0, TestWorld::appearance(), &world.pre).unwrap();
+        assert!(synthesize_pyramid_masks(&short_ctx, &tf, 0, 7).is_none());
         assert!(pyramid_mask_bytes(1, 1, 0).is_none());
         assert!(pyramid_mask_bytes(64, 64, MAX_LEVEL + 1).is_none());
         assert!(pyramid_mask_bytes(64, 64, -1).is_none());
@@ -1075,9 +1280,11 @@ mod tests {
         // A "size shown at save time" that disagrees with the save is worse
         // than none, so the estimate is checked against real bytes rather
         // than against its own formula.
-        let field = relief_field(128, 96);
+        let world = TestWorld::new(relief_field(128, 96), 128, 96);
+        let ctx = world.ctx();
+        let tf = world.fields(&ctx);
         for z_max in 0..=2 {
-            let (_, _, tiles) = synthesize_pyramid_masks(&field, 128, 96, z_max, 7, 0.42).unwrap();
+            let (_, _, tiles) = synthesize_pyramid_masks(&ctx, &tf, z_max, 7).unwrap();
             let real: u64 = tiles.values().map(|t| t.len() as u64).sum();
             assert_eq!(pyramid_mask_bytes(128, 96, z_max), Some(real), "at z_max {z_max}");
         }
@@ -1085,7 +1292,110 @@ mod tests {
         // aspect is (128-1)/(96-1) = 127/95, so `tile_dims` gives 256 x
         // round(256*95/127) = 256x191 px at every level, and levels 0..=1 are
         // five of them. Hand-computing 192 here is what this assertion caught.
-        assert_eq!(pyramid_mask_bytes(128, 96, 1), Some(5 * 256 * 191));
+        assert_eq!(pyramid_mask_bytes(128, 96, 1), Some(5 * 256 * 191 * 3));
+    }
+
+    /// **The measurement the cache exists for**, kept runnable rather than
+    /// reported once — every figure quoted in [`render::GridPrecompute`]'s doc
+    /// comment, in `WorldGen::lod_synthesize_tile`'s and in this module's
+    /// header comes from here.
+    ///
+    /// `#[ignore]` because a timing taken under a parallel test suite is not a
+    /// timing (`MISTAKES.md`: *"Run the harness alone, never under a parallel
+    /// suite"*), and because it allocates a real 2048x1311 world's worth of
+    /// rasters. Run it on its own, in release:
+    ///
+    /// ```text
+    /// cargo test -p cartalith-godot --release --lib -- --ignored --nocapture --test-threads=1 the_tile_context_costs
+    /// ```
+    ///
+    /// Median with min..max over five, never a point estimate. What it
+    /// establishes is the **ratio**, which is what the design decision rested
+    /// on: the context costs an order of magnitude more than the tile it
+    /// serves, and `viewport_host.gd` asks for up to
+    /// `MAX_LOD_TILES_PER_UPDATE` = 48 tiles per zoom notch.
+    ///
+    /// It asserts a regression ceiling rather than a budget. The budget for a
+    /// once-per-world build is not this file's to set, and asserting the
+    /// measured value as if it were one would turn an overrun into a green
+    /// test — the same reasoning `golden_parity_tile_biome.rs`'s own timing
+    /// test states for the per-tile figure.
+    #[test]
+    #[ignore = "a real 2048x1311 context; run alone, in release"]
+    fn the_tile_context_costs_an_order_of_magnitude_more_than_the_tile_it_serves() {
+        let (gw, gh) = (2048usize, 1311usize);
+        let mut field = vec![0f32; gw * gh];
+        for y in 0..gh {
+            for x in 0..gw {
+                let (u, v) = (x as f64 / gw as f64, y as f64 / gh as f64);
+                field[y * gw + x] = (0.46 + 0.30 * (u * 6.0).sin() * (v * 5.0).cos() + 0.02 * (u * 61.0).sin()) as f32;
+            }
+        }
+        let world = TestWorld::new(field, gw, gh);
+        let med = |mut v: Vec<f64>| {
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            (v[v.len() / 2], v[0], v[v.len() - 1])
+        };
+        let a = TestWorld::appearance();
+        let pre_ms: Vec<f64> = (0..5)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                let p = render::GridPrecompute::build(&world.field, &world.temp, &world.rain, Some(&world.field), gw, gh, TEST_SEA, false, &a, Some(800.0));
+                let e = t.elapsed().as_secs_f64() * 1000.0;
+                assert!(p.bytes() > 0, "the precompute came back empty -- the timing below would be meaningless");
+                e
+            })
+            .collect();
+        let ctx = world.ctx();
+        // **Both `TileFields` cases, because they are different functions.**
+        // With a grid raster it also builds the local-contrast band (a luma
+        // pass and two blurs); without one that stage is off, which is the
+        // state a tile is in when no raster snapshot matches the cache key.
+        // The band's cost is a function of the buffer's SIZE, not of its
+        // content, so a cheap fill is a legitimate stand-in for a real raster
+        // here and nothing but the timing reads it.
+        let fake_rgb = vec![96u8; gw * gh * 3];
+        let tf_ms: Vec<f64> = (0..5)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                let f = TileFields::new(&ctx, None);
+                let e = t.elapsed().as_secs_f64() * 1000.0;
+                assert!(f.bytes() > 0, "TileFields came back empty");
+                e
+            })
+            .collect();
+        let tfb_ms: Vec<f64> = (0..5)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                let f = TileFields::new(&ctx, Some(&fake_rgb));
+                let e = t.elapsed().as_secs_f64() * 1000.0;
+                assert!(f.bytes() > 0, "TileFields came back empty");
+                e
+            })
+            .collect();
+        let tf = world.fields(&ctx);
+        // One tile of the same world, for the ratio. Warmed once, untimed.
+        let _ = synthesize_tile_rgba(&ctx, &tf, 6, 20, 20, 1234).unwrap();
+        let tile_ms: Vec<f64> = (0..5)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                let (px, tw, th) = synthesize_tile_rgba(&ctx, &tf, 6, 20, 20, 1234).unwrap();
+                let e = t.elapsed().as_secs_f64() * 1000.0;
+                // A 2048x1311 world is not square, so its tiles are not
+                // `TILE_PX` on both axes -- `tile_size_px` is the one formula.
+                assert_eq!((tw, th), tile_size_px(gw, gh, 6));
+                assert_eq!(px.len(), tw * th * 4, "the timed tile came back the wrong size");
+                e
+            })
+            .collect();
+        let (p50, plo, phi) = med(pre_ms);
+        let (f50, flo, fhi) = med(tf_ms);
+        let (b50, blo, bhi) = med(tfb_ms);
+        let (t50, tlo, thi) = med(tile_ms);
+        println!("{gw}x{gh}: GridPrecompute {p50:.1} ms ({plo:.1}..{phi:.1}) | TileFields no band {f50:.1} ms ({flo:.1}..{fhi:.1}) | TileFields with band {b50:.1} ms ({blo:.1}..{bhi:.1}) | one tile {t50:.2} ms ({tlo:.2}..{thi:.2}), all cores");
+        println!("context/tile ratio: {:.1}x with the band, {:.1}x without", (p50 + b50) / t50.max(1e-9), (p50 + f50) / t50.max(1e-9));
+        assert!(p50 + b50 > t50 * 3.0, "the context is no longer worth caching against the tile it serves: {p50:.1} + {b50:.1} vs {t50:.2} ms");
+        assert!(p50 < 900.0 && b50 < 1400.0, "a context build regressed past its measured cost by 4x: {p50:.1} / {b50:.1} ms");
     }
 
     // -- what a stored pyramid actually costs ------------------------------
@@ -1136,10 +1446,12 @@ mod tests {
         let hi = ws.field.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         assert!(hi - lo > 0.2, "the generated world is nearly flat: [{lo}, {hi}]");
 
+        let a = TestWorld::appearance();
+        let pre = render::GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, &a, Some(p.map_width_km));
+        let ctx = render::RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a, &pre).expect("a real world builds a context");
+        let tf = TileFields::new(&ctx, None);
         let t_all = std::time::Instant::now();
-        let (tw, th, tiles) =
-            synthesize_pyramid_masks(&ws.field, gw, gh, zmax, seed, ws.sea_level)
-                .expect("the pyramid synthesizes");
+        let (tw, th, tiles) = synthesize_pyramid_masks(&ctx, &tf, zmax, seed).expect("the pyramid synthesizes");
         println!(
             "{} tiles of {tw}x{th}px, synth {:.2}s",
             tiles.len(),
@@ -1162,12 +1474,7 @@ mod tests {
             for (id, mask) in &tiles {
                 w.start_file(format!("mask/{}/{}/{}.u8", id.z, id.col, id.row), opts).unwrap();
                 w.write_all(mask).unwrap();
-                let png = cartalith_assets::raster::encode_png_rgb8(
-                    tw as u32,
-                    th as u32,
-                    mask.iter().flat_map(|&b| [b, b, b]).collect(),
-                )
-                .expect("the tile encodes");
+                let png = cartalith_assets::raster::encode_png_rgb8(tw as u32, th as u32, mask.clone()).expect("the tile encodes");
                 w.start_file(format!("png/{}/{}/{}.png", id.z, id.col, id.row), stored).unwrap();
                 w.write_all(&png).unwrap();
             }
