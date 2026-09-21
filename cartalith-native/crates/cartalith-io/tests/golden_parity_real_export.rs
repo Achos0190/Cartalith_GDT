@@ -71,9 +71,9 @@ fn load_save_matches_real_html_app_export() {
     assert_eq!(save.fields.heightmap.len(), n);
 
     // Bit-exact: a lossless byte round-trip, not a second computation.
-    assert_eq!(save.fields.heightmap, as_f32_vec("heightmap"), "heightmap");
-    assert_eq!(save.fields.temperature, as_f32_vec("temperature"), "temperature");
-    assert_eq!(save.fields.rainfall, as_f32_vec("rainfall"), "rainfall");
+    assert_eq!(*save.fields.heightmap, as_f32_vec("heightmap"), "heightmap");
+    assert_eq!(*save.fields.temperature, as_f32_vec("temperature"), "temperature");
+    assert_eq!(*save.fields.rainfall, as_f32_vec("rainfall"), "rainfall");
     assert_eq!(save.fields.volcanic_field, as_f32_vec("volcanic_field"), "volcanic_field");
     assert_eq!(save.fields.impact_field, as_f32_vec("impact_field"), "impact_field");
     assert_eq!(save.fields.strahler_order, as_u8_vec("strahler_order"), "strahler_order");

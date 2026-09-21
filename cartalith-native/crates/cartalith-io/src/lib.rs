@@ -40,6 +40,7 @@ pub use tiles::{
 };
 
 use std::io::Read;
+use std::sync::Arc;
 
 /// `params.json`'s subset this port's terrain pipeline actually reads
 /// (`SAVEFILE_COMPAT.md`'s own "two workable approaches" — this is
@@ -102,9 +103,20 @@ pub struct SaveParams {
 /// needs anything wider than a byte.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SaveFields {
-    pub heightmap: Vec<f32>,
-    pub temperature: Vec<f32>,
-    pub rainfall: Vec<f32>,
+    /// `Arc`, not a plain `Vec` — and so are `temperature` and `rainfall`
+    /// below. These are the same three grids that are `Arc<Vec<f32>>` on
+    /// `cartalith_engine::WorldState` (`WorldState::field`'s own doc
+    /// comment): a loaded project's `WorldSource::Loaded` arm hands them
+    /// straight to `lod_worker::SnapshotInputs` the same way a generated
+    /// world's does, and before this an `Arc::new` there wrapped a fresh
+    /// clone on every LOD snapshot rather than bumping a refcount
+    /// (`lod_worker.rs`'s `SnapshotInputs` doc used to say so explicitly).
+    /// `flow_discharge` has no counterpart here: the save format never
+    /// stores it (`SAVEFILE_COMPAT.md`), which is also why a loaded save's
+    /// `flow` is always `None`.
+    pub heightmap: Arc<Vec<f32>>,
+    pub temperature: Arc<Vec<f32>>,
+    pub rainfall: Arc<Vec<f32>>,
     pub volcanic_field: Vec<f32>,
     pub impact_field: Vec<f32>,
     pub strahler_order: Vec<u8>,
@@ -299,7 +311,14 @@ pub(crate) fn load_from_archive(
 
     Ok(SaveData {
         params: SaveParams { gw, gh, seed, map_width_km, sea_level, world, origin, name },
-        fields: SaveFields { heightmap, temperature, rainfall, volcanic_field, impact_field, strahler_order },
+        fields: SaveFields {
+            heightmap: Arc::new(heightmap),
+            temperature: Arc::new(temperature),
+            rainfall: Arc::new(rainfall),
+            volcanic_field,
+            impact_field,
+            strahler_order,
+        },
         state: params_json.get("state").cloned().unwrap_or(serde_json::Value::Null),
     })
 }
@@ -403,9 +422,9 @@ mod tests {
         assert_eq!(save.fields.strahler_order.len(), n);
 
         let expected_heightmap: Vec<f32> = (0..n).map(|i| (i as f32) / (n as f32)).collect();
-        assert_eq!(save.fields.heightmap, expected_heightmap);
+        assert_eq!(*save.fields.heightmap, expected_heightmap);
         let expected_temperature: Vec<f32> = (0..n).map(|i| 20.0 - (i as f32) * 0.1).collect();
-        assert_eq!(save.fields.temperature, expected_temperature);
+        assert_eq!(*save.fields.temperature, expected_temperature);
         let expected_strahler: Vec<u8> = (0..n).map(|i| (i % 4) as u8).collect();
         assert_eq!(save.fields.strahler_order, expected_strahler);
     }

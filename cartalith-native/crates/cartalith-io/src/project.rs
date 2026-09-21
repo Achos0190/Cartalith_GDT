@@ -46,6 +46,7 @@
 use crate::{LoadError, SaveData, SaveError, SaveFields, SaveParams};
 use std::collections::BTreeMap;
 use std::io::{Read, Seek, Write};
+use std::sync::Arc;
 
 /// The entry whose **presence** selects the tree layout
 /// (`SAVEFILE_COMPAT.md` §4). One central-directory lookup, no heuristics.
@@ -995,12 +996,16 @@ pub fn write_project<W: Write + Seek>(
         )?;
     }
 
+    // `.as_slice()` uniformly: `heightmap`/`temperature`/`rainfall` are
+    // `Arc<Vec<f32>>` and `volcanic_field`/`impact_field` are plain
+    // `Vec<f32>` (`SaveFields`'s own doc), so a literal array of `&f.<name>`
+    // would mix two reference types and fail to compile.
     for (path, values) in [
-        (CORE_RASTERS[0], &f.heightmap),
-        (CORE_RASTERS[1], &f.temperature),
-        (CORE_RASTERS[2], &f.rainfall),
-        (CORE_RASTERS[3], &f.volcanic_field),
-        (CORE_RASTERS[4], &f.impact_field),
+        (CORE_RASTERS[0], f.heightmap.as_slice()),
+        (CORE_RASTERS[1], f.temperature.as_slice()),
+        (CORE_RASTERS[2], f.rainfall.as_slice()),
+        (CORE_RASTERS[3], f.volcanic_field.as_slice()),
+        (CORE_RASTERS[4], f.impact_field.as_slice()),
     ] {
         writer.start_file(path, opts)?;
         write_f32_slice(&mut writer, values)?;
@@ -1627,9 +1632,9 @@ fn read_tree(
         save: SaveData {
             params,
             fields: SaveFields {
-                heightmap,
-                temperature,
-                rainfall,
+                heightmap: Arc::new(heightmap),
+                temperature: Arc::new(temperature),
+                rainfall: Arc::new(rainfall),
                 volcanic_field,
                 impact_field,
                 strahler_order,
@@ -1713,9 +1718,9 @@ mod tests {
             name: None,
         };
         let fields = SaveFields {
-            heightmap: (0..n).map(|i| i as f32 * 0.25).collect(),
-            temperature: (0..n).map(|i| 30.0 - i as f32 * 0.5).collect(),
-            rainfall: (0..n).map(|i| (i % 13) as f32 * 0.125).collect(),
+            heightmap: Arc::new((0..n).map(|i| i as f32 * 0.25).collect()),
+            temperature: Arc::new((0..n).map(|i| 30.0 - i as f32 * 0.5).collect()),
+            rainfall: Arc::new((0..n).map(|i| (i % 13) as f32 * 0.125).collect()),
             volcanic_field: (0..n).map(|i| (i % 5) as f32 * 0.5).collect(),
             impact_field: (0..n).map(|i| (i % 3) as f32 * 0.75).collect(),
             strahler_order: (0..n).map(|i| (i % 251) as u8).collect(),
@@ -2142,7 +2147,7 @@ mod tests {
     fn stale_tiles_are_dropped_by_the_writer_not_restamped() {
         let (params, fields) = sample(6, 4);
         let mut sculpted = fields.clone();
-        sculpted.heightmap[0] += 1.0; // one cell is a different world
+        Arc::make_mut(&mut sculpted.heightmap)[0] += 1.0; // one cell is a different world
 
         let stale_key = lod_source_key(&params, &fields.heightmap);
         let live_key = lod_source_key(&params, &sculpted.heightmap);
@@ -2180,7 +2185,7 @@ mod tests {
     fn write_project_reports_a_dropped_pyramid() {
         let (params, fields) = sample(6, 4);
         let mut sculpted = fields.clone();
-        sculpted.heightmap[0] += 1.0; // one cell is a different world
+        Arc::make_mut(&mut sculpted.heightmap)[0] += 1.0; // one cell is a different world
 
         let stale_key = lod_source_key(&params, &fields.heightmap);
         let mut pyr = a_pyramid(4, 3, 1);
@@ -2321,7 +2326,7 @@ mod tests {
         // the tiles across verbatim -- what a build that stored the pyramid
         // and forgot to re-synthesize it would produce.
         let mut sculpted = fields.clone();
-        sculpted.heightmap[17] += 0.25;
+        Arc::make_mut(&mut sculpted.heightmap)[17] += 0.25;
         let stale = {
             let mut w = Vec::new();
             let mut r = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
@@ -2386,15 +2391,19 @@ mod tests {
             );
         }
 
-        let mut moved = fields.heightmap.clone();
+        // `.as_ref().clone()`, not `.clone()` -- the latter is a cheap `Arc`
+        // clone that would still alias `fields.heightmap`'s own storage, so
+        // mutating `moved`/`swapped` below would corrupt the fixture `base`
+        // was hashed from.
+        let mut moved = fields.heightmap.as_ref().clone();
         moved[7] += 0.0001;
         assert_ne!(lod_source_key(&params, &moved), base, "a sculpted cell must move the key");
         // A cell *swapped* with another, not changed in value: an order-blind
         // hash (a sum, an xor of whole words) passes everything above and
         // fails here.
-        let mut swapped = fields.heightmap.clone();
+        let mut swapped = fields.heightmap.as_ref().clone();
         swapped.swap(3, 9);
-        assert_ne!(swapped, fields.heightmap, "the fixture must actually differ");
+        assert_ne!(swapped, *fields.heightmap, "the fixture must actually differ");
         assert_ne!(lod_source_key(&params, &swapped), base, "the key must depend on cell order");
 
         // And the two things that are NOT inputs: no argument of
@@ -2847,7 +2856,7 @@ mod tests {
 
         let back = read_project(Cursor::new(rebuild("rasters/temperature.f32")))
             .expect("climate is not fatal");
-        assert_eq!(back.save.fields.temperature, vec![0.0f32; 16]);
+        assert_eq!(*back.save.fields.temperature, vec![0.0f32; 16]);
         assert_eq!(
             back.warnings.len(),
             1,
@@ -2878,7 +2887,7 @@ mod tests {
     #[test]
     fn a_short_core_field_is_refused() {
         let (params, mut fields) = sample(6, 5);
-        fields.rainfall.pop();
+        Arc::make_mut(&mut fields.rainfall).pop();
         let mut buf = Vec::new();
         let err = write_project(Cursor::new(&mut buf), &ProjectWrite::new(&params, &fields))
             .expect_err("a short field must not be written");

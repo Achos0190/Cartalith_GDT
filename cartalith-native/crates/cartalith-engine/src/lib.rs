@@ -814,15 +814,35 @@ pub struct WorldState {
     pub plate_id: Vec<u16>,
     pub boundary_mask: Vec<u8>,
     pub stress_field: Vec<f32>,
-    pub age_field: Vec<f32>,
-    pub resistance_field: Vec<f32>,
+    /// **The second `Arc` group**, with `resistance_field`, `crust_field` and
+    /// `volcanic_field` below — the four tectonic-substrate grids
+    /// `cartalith_godot::lod_worker::LithoSource` needs, for the one call
+    /// `LodSnapshot::build` makes to `cartalith_civ::build_lithology`. They
+    /// were plain `Vec`s and were deep-cloned into every LOD snapshot, which
+    /// [`WorldState::field`]'s own doc flagged as the next ~43 MB of the same
+    /// shape it had just removed: four grids of 2 684 928 cells at 2 048 ×
+    /// 1 311 is 10.74 MB each. Same reasoning, same `Arc<Vec<f32>>`, same
+    /// rejection of `Arc<[f32]>` (no `make_mut`; `Arc::from(vec)` copies).
+    ///
+    /// **Transient rather than retained, and that is the only difference**
+    /// from the four grids above: `LodSnapshot::build` drops the
+    /// `LithoSource` as soon as the lithology is built, so this never showed
+    /// up in `LodSnapshot::retained_bytes` — it was a peak, not a residency.
+    /// The peak is what a small device runs out of.
+    ///
+    /// Reads are unchanged (`Deref`), and the one mutating site is
+    /// `center_landmasses`, which goes through `Arc::make_mut`.
+    pub age_field: Arc<Vec<f32>>,
+    pub resistance_field: Arc<Vec<f32>>,
     /// `plateCrust()` (reference HTML line 3083): raw, unblurred per-cell
     /// plate base (`<0` = oceanic crust). Already computed internally as
     /// `base_raw` for orogeny/height, but not previously retained past
     /// `generate_terrain` -- added for `cartalith-civ`'s `buildLithology`
     /// port, which reads this exact same value (`currentLithology()`'s
     /// `crust` argument in the reference).
-    pub crust_field: Vec<f32>,
+    ///
+    /// `Arc` for the reason [`WorldState::age_field`] gives.
+    pub crust_field: Arc<Vec<f32>>,
     /// `StressResult::boundary_type`/`shear_field` (`cartalith-terrain`):
     /// per-cell plate-boundary classification and shear magnitude. Already
     /// computed for T2+T3 orogeny (`tag_boundary_types`/`OrogenyParams::
@@ -832,7 +852,11 @@ pub struct WorldState {
     /// `shearField` arguments the reference passes it.
     pub boundary_type: Vec<u8>,
     pub shear_field: Vec<f32>,
-    pub volcanic_field: Vec<f32>,
+    /// `Arc` for the reason [`WorldState::age_field`] gives. Note this is
+    /// also the one of the four that `cartalith_io::SaveFields` carries, so
+    /// the save path takes an explicit `.as_ref().clone()` — a save is a
+    /// serialisation, and it owns its bytes.
+    pub volcanic_field: Arc<Vec<f32>>,
     pub impact_field: Vec<f32>,
     /// See [`WorldState::field`] for why these three are `Arc` too.
     pub temperature: Arc<Vec<f32>>,
@@ -2089,12 +2113,12 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         plate_id,
         boundary_mask: stress.boundary_mask,
         stress_field: stress.stress_field,
-        age_field,
-        resistance_field,
-        crust_field: base_raw,
+        age_field: Arc::new(age_field),
+        resistance_field: Arc::new(resistance_field),
+        crust_field: Arc::new(base_raw),
         boundary_type: stress.boundary_type,
         shear_field: stress.shear_field,
-        volcanic_field,
+        volcanic_field: Arc::new(volcanic_field),
         impact_field,
         temperature: Arc::new(temperature),
         rainfall: Arc::new(rainfall),

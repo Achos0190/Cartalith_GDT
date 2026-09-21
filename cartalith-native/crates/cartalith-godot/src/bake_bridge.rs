@@ -456,9 +456,9 @@ mod tests {
             name: None,
         };
         let fields = cartalith_io::SaveFields {
-            heightmap: vec![0.5; n],
-            temperature: vec![10.0; n],
-            rainfall: vec![0.25; n],
+            heightmap: std::sync::Arc::new(vec![0.5; n]),
+            temperature: std::sync::Arc::new(vec![10.0; n]),
+            rainfall: std::sync::Arc::new(vec![0.25; n]),
             volcanic_field: vec![0.0; n],
             impact_field: vec![0.0; n],
             strahler_order: vec![0u8; n],

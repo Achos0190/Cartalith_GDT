@@ -6162,10 +6162,14 @@ impl WorldGen {
         // "no channels", and is what the loader reads back.
         let fields = match source {
             WorldSource::Generated(ws) => cartalith_io::SaveFields {
-                heightmap: ws.field.as_ref().clone(),
-                temperature: ws.temperature.as_ref().clone(),
-                rainfall: ws.rainfall.as_ref().clone(),
-                volcanic_field: ws.volcanic_field.clone(),
+                // `.clone()`, not `.as_ref().clone()` -- `SaveFields::heightmap`/
+                // `temperature`/`rainfall` are `Arc<Vec<f32>>` too (the same
+                // three grids a loaded save's `WorldSource::Loaded` arm hands
+                // to an LOD snapshot), so this is a refcount bump, not a copy.
+                heightmap: ws.field.clone(),
+                temperature: ws.temperature.clone(),
+                rainfall: ws.rainfall.clone(),
+                volcanic_field: ws.volcanic_field.as_ref().clone(),
                 impact_field: ws.impact_field.clone(),
                 strahler_order: match ws.stream_order.as_ref() {
                     Some(order) => order.iter().map(|&o| o.clamp(0, 255) as u8).collect(),
@@ -11384,7 +11388,7 @@ impl WorldGen {
         let (gw, gh) = (self.gw as usize, self.gh as usize);
         let field: Vec<f32> = match self.source.as_ref() {
             Some(WorldSource::Generated(ws)) => ws.field.as_ref().clone(),
-            Some(WorldSource::Loaded(save)) => save.fields.heightmap.clone(),
+            Some(WorldSource::Loaded(save)) => save.fields.heightmap.as_ref().clone(),
             None => return bake_error("no world generated yet"),
         };
         if gw == 0 || gh == 0 || field.len() < gw * gh {
@@ -12306,13 +12310,18 @@ impl WorldGen {
     /// happen on the main thread, because it is the only part that reads
     /// `WorldGen`.
     ///
-    /// **The four world grids are no longer copied** -- `WorldState` holds
-    /// them behind an `Arc` and this takes a refcount on each, which was
-    /// LOD-D6's own stated follow-on and is what `SnapshotInputs`' doc
-    /// comment now describes. A *loaded* save still copies its three, since
-    /// `cartalith_io::SaveFields` owns plain `Vec`s. The four
-    /// tectonic-substrate fields are still cloned and are still dropped by
-    /// the build, so they remain a transient peak rather than a retained one.
+    /// **Nothing a generated world owns is copied here any more** --
+    /// `WorldState` holds all eight grids this reads behind an `Arc` and
+    /// this takes a refcount on each. The first four (`field`,
+    /// `temperature`, `rainfall`, `flow_discharge`) were LOD-D6's own stated
+    /// follow-on; the four tectonic-substrate fields behind `LithoSource`
+    /// were the follow-on to THAT, another 43.0 MB at 2 048 x 1 311, and
+    /// differ only in being transient -- the build drops them, so they cost
+    /// a peak rather than a residency. **A *loaded* save's three are also
+    /// refcount bumps now** -- `cartalith_io::SaveFields::heightmap`/
+    /// `temperature`/`rainfall` are `Arc<Vec<f32>>`, the same shape as
+    /// `WorldState`'s and for the same reason; this used to be an
+    /// `Arc::new` of a fresh clone on every snapshot.
     /// `None` before any world, and on the same degenerate-grid guard the
     /// pre-D6 `build_lod_cache` used.
     ///
@@ -12327,8 +12336,9 @@ impl WorldGen {
         let (field, temperature, rainfall, flow, litho) = match self.source.as_ref()? {
             // **Four `Arc::clone`s, not four memcpys** — 43.0 MB at
             // 2048x1311 before `WorldState` held these behind a refcount.
-            // The `Loaded` arm below is unchanged and still copies its
-            // three: `cartalith_io::SaveFields` owns plain `Vec`s.
+            // The `Loaded` arm below is likewise three `Arc::clone`s now:
+            // `cartalith_io::SaveFields::heightmap`/`temperature`/`rainfall`
+            // are `Arc<Vec<f32>>` too, for the same reason.
             WorldSource::Generated(ws) => (
                 ws.field.clone(),
                 ws.temperature.clone(),
@@ -12339,6 +12349,11 @@ impl WorldGen {
                 // the tectonic substrate (`SAVEFILE_COMPAT.md`), which is why
                 // the `Loaded` arm below passes `None` and gets the no-geology
                 // picture rather than an invented rock type.
+                //
+                // **Four more `Arc::clone`s** -- another 43.0 MB of memcpy at
+                // 2048x1311 before these four were `Arc`s too. Transient
+                // (`LodSnapshot::build` drops the `LithoSource`), so it never
+                // showed in `retained_bytes`; it showed in the peak.
                 Some(lod_worker::LithoSource {
                     age: ws.age_field.clone(),
                     volcanic: ws.volcanic_field.clone(),
@@ -12347,9 +12362,9 @@ impl WorldGen {
                 }),
             ),
             WorldSource::Loaded(save) => (
-                std::sync::Arc::new(save.fields.heightmap.clone()),
-                std::sync::Arc::new(save.fields.temperature.clone()),
-                std::sync::Arc::new(save.fields.rainfall.clone()),
+                save.fields.heightmap.clone(),
+                save.fields.temperature.clone(),
+                save.fields.rainfall.clone(),
                 None,
                 None,
             ),

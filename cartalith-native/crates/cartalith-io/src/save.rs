@@ -237,11 +237,15 @@ pub fn write_save<W: Write + Seek>(sink: W, save: &SaveWrite<'_>) -> Result<(), 
     writer.write_all(&serde_json::to_vec_pretty(&json).expect("a Value always serializes"))?;
 
     for (name, values) in [
-        ("heightmap.f32", &f.heightmap),
-        ("temperature.f32", &f.temperature),
-        ("rainfall.f32", &f.rainfall),
-        ("volcanic_field.f32", &f.volcanic_field),
-        ("impact_field.f32", &f.impact_field),
+        // `.as_slice()` on every entry, uniformly: `heightmap`/`temperature`/
+        // `rainfall` are `Arc<Vec<f32>>` and `volcanic_field`/`impact_field`
+        // are plain `Vec<f32>` (`SaveFields`'s own doc), so a literal array
+        // of `&f.<name>` would mix two reference types and fail to compile.
+        ("heightmap.f32", f.heightmap.as_slice()),
+        ("temperature.f32", f.temperature.as_slice()),
+        ("rainfall.f32", f.rainfall.as_slice()),
+        ("volcanic_field.f32", f.volcanic_field.as_slice()),
+        ("impact_field.f32", f.impact_field.as_slice()),
     ] {
         writer.start_file(name, opts)?;
         write_f32_entries(&mut writer, values)?;
@@ -277,6 +281,7 @@ mod tests {
     use super::*;
     use crate::load_save;
     use std::io::Cursor;
+    use std::sync::Arc;
 
     fn sample(gw: usize, gh: usize) -> (SaveParams, SaveFields) {
         let n = gw * gh;
@@ -296,9 +301,9 @@ mod tests {
             // Values chosen to survive an f64 -> f32 -> f64 trip exactly and
             // to differ per index, so a swapped or truncated entry cannot
             // pass by accident.
-            heightmap: (0..n).map(|i| i as f32 * 0.25).collect(),
-            temperature: (0..n).map(|i| 30.0 - i as f32 * 0.5).collect(),
-            rainfall: (0..n).map(|i| (i % 13) as f32 * 0.125).collect(),
+            heightmap: Arc::new((0..n).map(|i| i as f32 * 0.25).collect()),
+            temperature: Arc::new((0..n).map(|i| 30.0 - i as f32 * 0.5).collect()),
+            rainfall: Arc::new((0..n).map(|i| (i % 13) as f32 * 0.125).collect()),
             volcanic_field: (0..n).map(|i| (i % 5) as f32 * 0.5).collect(),
             impact_field: (0..n).map(|i| (i % 3) as f32 * 0.75).collect(),
             strahler_order: (0..n).map(|i| (i % 251) as u8).collect(),
@@ -440,7 +445,7 @@ mod tests {
     #[test]
     fn a_short_field_is_refused_not_truncated() {
         let (params, mut fields) = sample(6, 5);
-        fields.rainfall.pop();
+        Arc::make_mut(&mut fields.rainfall).pop();
         let mut buf = Vec::new();
         let err = write_save(Cursor::new(&mut buf), &SaveWrite { params: &params, state: serde_json::json!({}), fields: &fields })
             .expect_err("a short field must not be written");

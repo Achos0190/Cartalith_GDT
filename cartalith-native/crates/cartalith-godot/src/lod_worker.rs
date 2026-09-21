@@ -217,17 +217,27 @@ impl OwnedSplat {
 
 /// The four tectonic-substrate fields `cartalith_civ::build_lithology` needs.
 ///
-/// **Transient, and that is the point.** They are cloned into
+/// **Transient, and that is the point.** They are shared into
 /// [`SnapshotInputs`], consumed by [`LodSnapshot::build`] and dropped there —
 /// the finished `Vec<u8>` lithology is a quarter the width of one of them and
 /// is all that is retained. `None` for a loaded save, whose format stores none
 /// of this (`SAVEFILE_COMPAT.md`), which is the same condition under which
 /// `flow` is `None`.
+///
+/// **`Arc`, not `Vec` — four refcount bumps, not four memcpys.** These four
+/// were plain `Vec<f32>` and were deep-cloned out of `WorldState` on every
+/// snapshot: 10.74 MB each at 2 048 × 1 311, **43.0 MB** of transient peak,
+/// which is what [`SnapshotInputs`]' own doc flagged as the follow-on to the
+/// four world grids. Because the build drops them, this never appeared in
+/// [`LodSnapshot::retained_bytes`] and never will — the win is in the peak,
+/// not in steady residency, and the peak is what a small device runs out of.
+/// `cartalith_civ::build_lithology` takes `&[f32]`, which `&Arc<Vec<f32>>`
+/// still coerces to, so the consuming call is unchanged.
 pub struct LithoSource {
-    pub age: Vec<f32>,
-    pub volcanic: Vec<f32>,
-    pub crust: Vec<f32>,
-    pub resistance: Vec<f32>,
+    pub age: Arc<Vec<f32>>,
+    pub volcanic: Arc<Vec<f32>>,
+    pub crust: Arc<Vec<f32>>,
+    pub resistance: Arc<Vec<f32>>,
 }
 
 /// Everything [`LodSnapshot::build`] consumes — assembled on the main thread
@@ -239,16 +249,21 @@ pub struct LithoSource {
 /// and the fix was deferred because it reaches into `cartalith-engine`. It
 /// has since been taken: those four are `Arc<Vec<f32>>` on
 /// [`cartalith_engine::WorldState`], so a snapshot's copy of them is four
-/// refcount bumps. A *loaded* save still pays for its three, because the save
-/// format owns plain `Vec`s (`cartalith_io::SaveFields`) — an `Arc::new` of a
-/// clone, the same bytes it always cost.
+/// refcount bumps. **A *loaded* save's three are refcount bumps too now** —
+/// `cartalith_io::SaveFields::heightmap`/`temperature`/`rainfall` are
+/// `Arc<Vec<f32>>`, the same shape as `WorldState`'s. This used to be an
+/// `Arc::new` of a fresh clone on every snapshot, since the save format owned
+/// plain `Vec`s.
+///
+/// **[`LithoSource`]'s four are no longer copied either.** They were the
+/// follow-on this doc named — `age_field`/`volcanic_field`/`crust_field`/
+/// `resistance_field` on `WorldState`, another 43.0 MB, transient for the
+/// duration of one build rather than retained. All four are `Arc<Vec<f32>>`
+/// on `WorldState` now, so `litho` costs four refcount bumps as well.
 ///
 /// What is still copied: the ink (10.74 MB stamped, 2.68 MB as a flag), the
-/// paint grids, a pack's splat and ground textures, and — transiently, for
-/// the duration of one build — [`LithoSource`]'s four fields, another 43.0 MB.
-/// Those four are the obvious next follow-on and are deliberately not this
-/// change's: they are `age_field`/`volcanic_field`/`crust_field`/
-/// `resistance_field` on `WorldState`, still plain `Vec`s.
+/// paint grids, and a pack's splat and ground textures. A *loaded* save's
+/// three fields are refcount bumps too now, the same as a generated world's.
 pub struct SnapshotInputs {
     pub key: String,
     pub gw: usize,
@@ -1028,6 +1043,45 @@ mod tests {
         no_flow.ink = Some(OwnedInk::Flag(vec![0u8; n]));
         let snap2 = LodSnapshot::build(no_flow).expect("snapshot");
         assert_eq!(snap2.retained_bytes(), n, "a one-byte-per-cell flag ink is copied, and is the only thing counted");
+    }
+
+    /// [`LithoSource`]'s four grids are **shared with `WorldState`, not
+    /// copied** — the 43.0 MB transient peak a snapshot used to pay for them.
+    ///
+    /// No test passed `litho: Some(..)` at all before this one, so
+    /// [`LodSnapshot::build`]'s `build_lithology` branch was unexercised as
+    /// well; this asserts the sharing, that the branch still produces a real
+    /// per-cell lithology, and — via `strong_count` — that the build drops
+    /// the source, which is what makes the cost a peak rather than a
+    /// residency.
+    #[test]
+    fn a_litho_source_shares_its_grids_and_still_builds_a_lithology() {
+        let (gw, gh) = (64usize, 48usize);
+        let n = gw * gh;
+        let mut i = inputs(gw, gh);
+        let age = Arc::new(vec![0.7f32; n]);
+        let volcanic = Arc::new(vec![0.9f32; n]);
+        let crust = Arc::new(vec![-0.2f32; n]);
+        let resistance = Arc::new(vec![0.5f32; n]);
+        i.litho = Some(LithoSource {
+            age: Arc::clone(&age),
+            volcanic: Arc::clone(&volcanic),
+            crust: Arc::clone(&crust),
+            resistance: Arc::clone(&resistance),
+        });
+        {
+            let l = i.litho.as_ref().expect("just set");
+            for (held, got, name) in [(&age, &l.age, "age"), (&volcanic, &l.volcanic, "volcanic"), (&crust, &l.crust, "crust"), (&resistance, &l.resistance, "resistance")] {
+                assert!(Arc::ptr_eq(held, got), "{name} must be the SAME allocation the world holds, not a copy of it");
+            }
+        }
+        let snap = LodSnapshot::build(i).expect("snapshot");
+        let lith = snap.lithology.as_ref().expect("a LithoSource must produce a lithology");
+        assert_eq!(lith.len(), n, "one rock class per cell");
+        for (held, name) in [(&age, "age"), (&volcanic, "volcanic"), (&crust, "crust"), (&resistance, "resistance")] {
+            assert_eq!(Arc::strong_count(held), 1, "{name}: the build must drop the LithoSource, leaving only this test holding it");
+        }
+        assert_eq!(snap.retained_bytes(), 0, "a lithology is built, not copied, so the substrate costs no retained bytes");
     }
 
     /// A degenerate grid must return `None` rather than panic — this runs on

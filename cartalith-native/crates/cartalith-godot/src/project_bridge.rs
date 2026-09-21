@@ -1721,10 +1721,13 @@ impl WorldGen {
         // 255 : o`): `stream_order` is wider in memory than in the archive.
         let fields = match source {
             WorldSource::Generated(ws) => cartalith_io::SaveFields {
-                heightmap: ws.field.as_ref().clone(),
-                temperature: ws.temperature.as_ref().clone(),
-                rainfall: ws.rainfall.as_ref().clone(),
-                volcanic_field: ws.volcanic_field.clone(),
+                // See `lib.rs`'s own `save_project`: `heightmap`/`temperature`/
+                // `rainfall` are `Arc<Vec<f32>>` on `SaveFields` now, so this is
+                // a refcount bump rather than a copy.
+                heightmap: ws.field.clone(),
+                temperature: ws.temperature.clone(),
+                rainfall: ws.rainfall.clone(),
+                volcanic_field: ws.volcanic_field.as_ref().clone(),
                 impact_field: ws.impact_field.clone(),
                 strahler_order: match ws.stream_order.as_ref() {
                     Some(order) => order.iter().map(|&o| o.clamp(0, 255) as u8).collect(),
@@ -3491,9 +3494,9 @@ mod tests {
             name: None,
         };
         let fields = cartalith_io::SaveFields {
-            heightmap: vec![0.5; n],
-            temperature: vec![10.0; n],
-            rainfall: vec![1.0; n],
+            heightmap: std::sync::Arc::new(vec![0.5; n]),
+            temperature: std::sync::Arc::new(vec![10.0; n]),
+            rainfall: std::sync::Arc::new(vec![1.0; n]),
             volcanic_field: vec![0.0; n],
             impact_field: vec![0.0; n],
             strahler_order: vec![0; n],
@@ -3600,9 +3603,9 @@ mod tests {
             name: None,
         };
         let fields = cartalith_io::SaveFields {
-            heightmap: vec![0.5; 12],
-            temperature: vec![10.0; 12],
-            rainfall: vec![1.0; 12],
+            heightmap: std::sync::Arc::new(vec![0.5; 12]),
+            temperature: std::sync::Arc::new(vec![10.0; 12]),
+            rainfall: std::sync::Arc::new(vec![1.0; 12]),
             volcanic_field: vec![0.0; 12],
             impact_field: vec![0.0; 12],
             strahler_order: vec![0; 12],
@@ -3662,9 +3665,9 @@ mod tests {
             name: None,
         };
         let fields = cartalith_io::SaveFields {
-            heightmap: vec![0.5; 12],
-            temperature: vec![10.0; 12],
-            rainfall: vec![1.0; 12],
+            heightmap: std::sync::Arc::new(vec![0.5; 12]),
+            temperature: std::sync::Arc::new(vec![10.0; 12]),
+            rainfall: std::sync::Arc::new(vec![1.0; 12]),
             volcanic_field: vec![0.0; 12],
             impact_field: vec![0.0; 12],
             strahler_order: vec![0; 12],
@@ -4116,9 +4119,9 @@ mod tests {
             name: None,
         };
         let fields = cartalith_io::SaveFields {
-            heightmap: vec![0.5; n],
-            temperature: vec![10.0; n],
-            rainfall: vec![1.0; n],
+            heightmap: std::sync::Arc::new(vec![0.5; n]),
+            temperature: std::sync::Arc::new(vec![10.0; n]),
+            rainfall: std::sync::Arc::new(vec![1.0; n]),
             volcanic_field: vec![0.0; n],
             impact_field: vec![0.0; n],
             strahler_order: vec![0; n],

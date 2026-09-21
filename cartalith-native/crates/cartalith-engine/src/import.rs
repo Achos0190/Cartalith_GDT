@@ -315,12 +315,12 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
         plate_id,
         boundary_mask: stress.boundary_mask,
         stress_field: stress.stress_field,
-        age_field,
-        resistance_field,
-        crust_field,
+        age_field: std::sync::Arc::new(age_field),
+        resistance_field: std::sync::Arc::new(resistance_field),
+        crust_field: std::sync::Arc::new(crust_field),
         boundary_type: stress.boundary_type,
         shear_field: stress.shear_field,
-        volcanic_field,
+        volcanic_field: std::sync::Arc::new(volcanic_field),
         // No craters on an imported world: `stampCraters` is a *height*
         // stage, and this pass must not touch the imported height.
         impact_field: vec![0f32; n],

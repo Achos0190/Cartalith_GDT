@@ -77,18 +77,18 @@ pub fn center_landmasses(ws: &mut WorldState, gw: usize, gh: usize, world: bool)
     }
     let o = off as isize;
 
-    // `&mut [f32]`, not `&mut Vec<f32>`: four of these eleven are
-    // `Arc<Vec<f32>>` on `WorldState` and the other seven are plain, so a
+    // `&mut [f32]`, not `&mut Vec<f32>`: eight of these eleven are
+    // `Arc<Vec<f32>>` on `WorldState` and the other three are plain, so a
     // list of references cannot be homogeneous any other way. `make_mut` is
     // where a grid still shared with a live LOD snapshot gets copied.
     for a in [
         Arc::make_mut(&mut ws.field).as_mut_slice(),
         ws.stress_field.as_mut_slice(),
-        ws.age_field.as_mut_slice(),
-        ws.resistance_field.as_mut_slice(),
-        ws.crust_field.as_mut_slice(),
+        Arc::make_mut(&mut ws.age_field).as_mut_slice(),
+        Arc::make_mut(&mut ws.resistance_field).as_mut_slice(),
+        Arc::make_mut(&mut ws.crust_field).as_mut_slice(),
         ws.shear_field.as_mut_slice(),
-        ws.volcanic_field.as_mut_slice(),
+        Arc::make_mut(&mut ws.volcanic_field).as_mut_slice(),
         ws.impact_field.as_mut_slice(),
         Arc::make_mut(&mut ws.temperature).as_mut_slice(),
         Arc::make_mut(&mut ws.rainfall).as_mut_slice(),

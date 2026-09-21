@@ -72,9 +72,9 @@ fn generate_terrain_case_0_region() {
     assert_eq!(ws.plate_id, plate_id, "plate_id");
     assert_eq!(ws.boundary_mask, boundary_mask, "boundary_mask");
     assert_eq!(ws.stress_field, stress_field, "stress_field");
-    assert_eq!(ws.age_field, age_field, "age_field");
-    assert_eq!(ws.resistance_field, resistance_field, "resistance_field");
-    assert_eq!(ws.volcanic_field, volcanic_field, "volcanic_field");
+    assert_eq!(*ws.age_field, age_field, "age_field");
+    assert_eq!(*ws.resistance_field, resistance_field, "resistance_field");
+    assert_eq!(*ws.volcanic_field, volcanic_field, "volcanic_field");
     assert_eq!(ws.impact_field, impact_field, "impact_field");
 }
 
@@ -104,8 +104,8 @@ fn generate_terrain_case_1_world_wrap() {
     assert_eq!(ws.plate_id, plate_id, "plate_id");
     assert_eq!(ws.boundary_mask, boundary_mask, "boundary_mask");
     assert_eq!(ws.stress_field, stress_field, "stress_field");
-    assert_eq!(ws.age_field, age_field, "age_field");
-    assert_eq!(ws.resistance_field, resistance_field, "resistance_field");
-    assert_eq!(ws.volcanic_field, volcanic_field, "volcanic_field");
+    assert_eq!(*ws.age_field, age_field, "age_field");
+    assert_eq!(*ws.resistance_field, resistance_field, "resistance_field");
+    assert_eq!(*ws.volcanic_field, volcanic_field, "volcanic_field");
     assert_eq!(ws.impact_field, impact_field, "impact_field");
 }

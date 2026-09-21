@@ -64,9 +64,9 @@ fn rewriting_a_real_export_preserves_every_value() {
     assert_eq!(back.params.map_width_km, captured["mapWidthKm"].as_f64().unwrap());
     assert_eq!(back.params.sea_level, captured["seaLevel"].as_f64().unwrap());
 
-    assert_eq!(back.fields.heightmap, as_f32("heightmap"), "heightmap");
-    assert_eq!(back.fields.temperature, as_f32("temperature"), "temperature");
-    assert_eq!(back.fields.rainfall, as_f32("rainfall"), "rainfall");
+    assert_eq!(*back.fields.heightmap, as_f32("heightmap"), "heightmap");
+    assert_eq!(*back.fields.temperature, as_f32("temperature"), "temperature");
+    assert_eq!(*back.fields.rainfall, as_f32("rainfall"), "rainfall");
     assert_eq!(back.fields.volcanic_field, as_f32("volcanic_field"), "volcanic_field");
     assert_eq!(back.fields.impact_field, as_f32("impact_field"), "impact_field");
     assert_eq!(back.fields.strahler_order, as_u8("strahler_order"), "strahler_order");

@@ -87,10 +87,10 @@ fn write_with_documents(
     let (p, ws) = a_small_world();
     let n = p.gw * p.gh;
     let fields = cartalith_io::SaveFields {
-        heightmap: ws.field.as_ref().clone(),
-        temperature: ws.temperature.as_ref().clone(),
-        rainfall: ws.rainfall.as_ref().clone(),
-        volcanic_field: ws.volcanic_field.clone(),
+        heightmap: ws.field.clone(),
+        temperature: ws.temperature.clone(),
+        rainfall: ws.rainfall.clone(),
+        volcanic_field: ws.volcanic_field.as_ref().clone(),
         impact_field: ws.impact_field.clone(),
         strahler_order: vec![0u8; n],
     };
@@ -260,10 +260,10 @@ fn a_flat_legacy_export_carries_no_documents_and_that_is_not_an_error() {
     let (p, ws) = a_small_world();
     let n = p.gw * p.gh;
     let fields = cartalith_io::SaveFields {
-        heightmap: ws.field.as_ref().clone(),
-        temperature: ws.temperature.as_ref().clone(),
-        rainfall: ws.rainfall.as_ref().clone(),
-        volcanic_field: ws.volcanic_field.clone(),
+        heightmap: ws.field.clone(),
+        temperature: ws.temperature.clone(),
+        rainfall: ws.rainfall.clone(),
+        volcanic_field: ws.volcanic_field.as_ref().clone(),
         impact_field: ws.impact_field.clone(),
         strahler_order: vec![0u8; n],
     };
@@ -366,10 +366,10 @@ fn the_writer_refuses_a_document_it_would_have_to_edit() {
     let (p, ws) = a_small_world();
     let n = p.gw * p.gh;
     let fields = cartalith_io::SaveFields {
-        heightmap: ws.field.as_ref().clone(),
-        temperature: ws.temperature.as_ref().clone(),
-        rainfall: ws.rainfall.as_ref().clone(),
-        volcanic_field: ws.volcanic_field.clone(),
+        heightmap: ws.field.clone(),
+        temperature: ws.temperature.clone(),
+        rainfall: ws.rainfall.clone(),
+        volcanic_field: ws.volcanic_field.as_ref().clone(),
         impact_field: ws.impact_field.clone(),
         strahler_order: vec![0u8; n],
     };
