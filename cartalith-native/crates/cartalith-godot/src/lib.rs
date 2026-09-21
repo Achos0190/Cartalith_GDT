@@ -1164,6 +1164,17 @@ impl CivData {
     fn civ_year_diff(&self, year: i64) -> cartalith_civ::timeline::YearDiff {
         cartalith_civ::timeline::civ_year_diff(&self.timeline, year)
     }
+
+    /// The Settlement Editor's "Political history" tab (`lazy-riding-piglet.md`
+    /// Batch C) over this instance's own timeline -- thin passthrough to
+    /// `cartalith_civ::timeline::civ_settlement_ownership_periods`, kept as a
+    /// method for the same reason [`CivData::civ_year_diff`] above is.
+    fn civ_settlement_ownership_periods(
+        &self,
+        tid: u64,
+    ) -> Vec<cartalith_civ::timeline::OwnershipSpan> {
+        cartalith_civ::timeline::civ_settlement_ownership_periods(&self.timeline, tid)
+    }
 }
 
 /// The religions a settlement actually holds, as `(roster key, share)` in
@@ -15148,6 +15159,51 @@ impl WorldGen {
         let removed: PackedInt64Array = diff.removed.iter().map(|&t| t as i64).collect();
         let added: PackedInt64Array = diff.added.iter().map(|&t| t as i64).collect();
         vdict! { "present" => &present, "removed" => &removed, "added" => &added }
+    }
+
+    /// The Settlement Editor's "Political history" tab (`lazy-riding-piglet.md`
+    /// Batch C, `cartalith_civ::timeline::civ_settlement_ownership_periods`):
+    /// derived, read-only ownership spans for one settlement's `tid`, walking
+    /// every recorded [`cartalith_civ::timeline::TimelineSnapshot`] in year
+    /// order. New surface, not a reference port -- the legacy HTML has no
+    /// per-settlement ownership-history readout.
+    ///
+    /// Genuinely **per-settlement**, not [`WorldGen::civ_food_shed`]'s whole-
+    /// world-then-filter shape: `civ_settlement_ownership_periods`'s own doc
+    /// comment states the cost check this call site relies on (a linear scan
+    /// of the recorded years for one `tid`, not a network match).
+    ///
+    /// Returns one entry per contiguous span, oldest first:
+    /// `{"start_year": int, "faction_id": int, "current": bool, "end_year":
+    /// int}` -- `end_year` is present only when `current` is `false`, per
+    /// this shell's own "omit the key, don't marshal a plausible-looking
+    /// value" convention (`MISTAKES.md`'s preflight table): a still-open span
+    /// has no real end year to report, so none is set rather than a sentinel
+    /// like `-1` or the request year.
+    ///
+    /// Empty before any `generate()`/`civ_add_year` call, for `tid == 0`
+    /// (the unassigned sentinel), and for a `tid` the timeline never
+    /// recorded -- all legitimate outcomes, not errors.
+    #[func]
+    fn civ_settlement_ownership_periods(&self, tid: i64) -> Array<VarDictionary> {
+        let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        if tid <= 0 {
+            return Array::new();
+        }
+        civ.civ_settlement_ownership_periods(tid as u64)
+            .iter()
+            .map(|span| {
+                let mut d = vdict! {
+                    "start_year" => span.start_year,
+                    "faction_id" => span.faction_id,
+                    "current" => span.end_year.is_none(),
+                };
+                if let Some(end_year) = span.end_year {
+                    d.set("end_year", end_year);
+                }
+                d
+            })
+            .collect()
     }
 
     /// `_civRunCollapseSimulation` (reference lines 24896-24950) -- the mechanistic

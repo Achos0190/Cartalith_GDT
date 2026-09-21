@@ -3861,6 +3861,18 @@ func civ_year_diff(year: int) -> Dictionary:
 		return {}
 	return world_gen.civ_year_diff(year)
 
+## The Settlement Editor's "Political history" tab (`lazy-riding-piglet.md`
+## Batch C): derived, read-only ownership spans for one settlement's `tid`,
+## walking every recorded timeline year. One entry per contiguous span,
+## oldest first: `{"start_year": int, "faction_id": int, "current": bool,
+## "end_year": int}` -- `end_year` is present only when `current` is
+## `false`. Empty before any generate/`civ_add_year` call, for `tid <= 0`,
+## or for a `tid` the timeline never recorded.
+func civ_settlement_ownership_periods(tid: int) -> Array:
+	if not _has("civ_settlement_ownership_periods"):
+		return []
+	return world_gen.civ_settlement_ownership_periods(tid)
+
 ## `_civRunCollapseSimulation`: runs the mechanistic collapse/recovery
 ## timeline simulator over the live settlements and writes one timeline entry
 ## per step. `request` keys (all optional): `mode` ("collapse"/"recovery"),

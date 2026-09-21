@@ -1871,6 +1871,140 @@ pub fn civ_year_diff(timeline: &[TimelineSnapshot], year: i64) -> YearDiff {
     }
 }
 
+/// One contiguous stretch of years during which a settlement (identified by
+/// its stable `tid`, [`civ_assign_tid`]'s own key) was recorded as belonging
+/// to one faction.
+///
+/// New surface, not a port -- the legacy HTML has no per-settlement
+/// ownership-history readout to cite a reference line for
+/// (`DECISIONS.md` §7d, "genuinely new capability"; `cartalith-porting-
+/// discipline`'s own carve-out for exactly this case).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OwnershipSpan {
+    pub start_year: i64,
+    /// `None` means "still current" -- the settlement was present, under
+    /// `faction_id`, in the timeline's own most-recently-recorded year.
+    /// Never a magic year value standing in for "no end" (`MISTAKES.md`'s
+    /// "omit the key, don't marshal a plausible-looking value" rule, applied
+    /// here as `Option` rather than a sentinel `i64`).
+    pub end_year: Option<i64>,
+    pub faction_id: i32,
+}
+
+/// Derives contiguous ownership spans for one settlement (`tid`) from every
+/// recorded [`TimelineSnapshot`], in year order (`TIMELINE_SCOPE.md`/the
+/// Settlement Editor's own "Political history" tab, `lazy-riding-piglet.md`
+/// Batch C).
+///
+/// Purely additive: reads `timeline` and `tid`, writes nothing, holds no
+/// state anywhere -- structurally incapable of moving a golden, since no
+/// golden-parity test exercises a UI-derived readout function that mutates
+/// nothing it is handed.
+///
+/// **Cost, checked rather than assumed** (`lazy-riding-piglet.md`'s own
+/// instruction not to default to `TradeStore`'s whole-network-then-filter
+/// shape without checking): this walks every recorded year once
+/// (`O(years)`) and, per year, scans that year's own `settlements` once
+/// (`O(settlements)`) -- a linear search for one `tid`, not a reconstruction
+/// of anything. `TimelineDoc`'s own recorded-year cap is 2 000
+/// (`SAVEFILE_COMPAT.md` §10.2) and a settlement roster runs to a few
+/// hundred at most, so the worst case here is on the order of `2000 * a few
+/// hundred` simple field comparisons -- nowhere near the cost that made
+/// `TradeStore` batch its whole network up front. This is genuinely
+/// per-settlement, the way [`civ_food_shed`](crate::trade::civ_food_shed)
+/// is genuinely per-settlement: run fresh on every call, never cached.
+///
+/// **Reads `NamedSettlement::placement::faction`, not the `territory`
+/// raster.** The two are kept in sync at every write site that can move one
+/// without the other (`civ_roster_bridge::FactionRoster::remove_last` clears
+/// a removed faction from both a settlement's own `faction` field and every
+/// `territory` cell in the same pass) -- so the settlement's own recorded
+/// faction is the direct, already-correct answer to "who owned this
+/// settlement," and reading it avoids reconstructing a
+/// [`TerritoryFrame`] delta chain ([`civ_territory_at`]) and then indexing
+/// into it by cell, for no different an answer.
+///
+/// A year in which `tid` is absent from that year's `settlements` (not yet
+/// founded, destroyed, or simply a year nobody recorded) is a gap: it neither
+/// extends nor is covered by any span. Two consecutive appearances under the
+/// same faction are one span; the moment the recorded faction differs, the
+/// old span closes (`end_year` = the last year still under the old faction)
+/// and a new one opens. `tid == 0` (the unassigned sentinel, matching JS's
+/// `tid==null`) names no real settlement and returns empty, matching every
+/// other `tid`-keyed lookup in this module (e.g. [`civ_snapshot_tids`]'s own
+/// `p.tid != 0` guard).
+pub fn civ_settlement_ownership_periods(
+    timeline: &[TimelineSnapshot],
+    tid: u64,
+) -> Vec<OwnershipSpan> {
+    if tid == 0 || timeline.is_empty() {
+        return Vec::new();
+    }
+    let mut sorted: Vec<&TimelineSnapshot> = timeline.iter().collect();
+    sorted.sort_by_key(|s| s.year);
+    let last_recorded_year = sorted
+        .last()
+        .expect("checked non-empty above")
+        .year;
+
+    // `open` is the span currently being extended, if any: `(start_year,
+    // faction_id)`. `open_last_year` is the most recent year that span was
+    // actually observed at -- distinct from "the year just visited", which
+    // is exactly what lets a gap (an absent year) be told apart from a
+    // same-faction re-appearance: walking EVERY sorted snapshot (not just
+    // the years `tid` appears in) is what makes an absence visible at all.
+    let mut spans: Vec<OwnershipSpan> = Vec::new();
+    let mut open: Option<(i64, i32)> = None;
+    let mut open_last_year: i64 = 0;
+    for snap in &sorted {
+        let faction = snap
+            .settlements
+            .iter()
+            .find(|s| s.tid == tid)
+            .map(|s| s.placement.faction);
+        match (faction, open) {
+            (Some(f), None) => {
+                open = Some((snap.year, f));
+                open_last_year = snap.year;
+            }
+            (Some(f), Some((_, cur_f))) if cur_f == f => {
+                open_last_year = snap.year;
+            }
+            (Some(f), Some((start, cur_f))) => {
+                spans.push(OwnershipSpan {
+                    start_year: start,
+                    end_year: Some(open_last_year),
+                    faction_id: cur_f,
+                });
+                open = Some((snap.year, f));
+                open_last_year = snap.year;
+            }
+            (None, Some((start, cur_f))) => {
+                spans.push(OwnershipSpan {
+                    start_year: start,
+                    end_year: Some(open_last_year),
+                    faction_id: cur_f,
+                });
+                open = None;
+            }
+            (None, None) => {}
+        }
+    }
+    if let Some((start, faction_id)) = open {
+        let end_year = if open_last_year == last_recorded_year {
+            None
+        } else {
+            Some(open_last_year)
+        };
+        spans.push(OwnershipSpan {
+            start_year: start,
+            end_year,
+            faction_id,
+        });
+    }
+    spans
+}
+
 /// `civSnapshotSave` (reference lines 20596-20606): captures `territory`/`settlements`/`ways` --
 /// the live, always-current civ state -- into (or over) `timeline`'s entry for `year`, then
 /// re-sorts by year (reference: `civTimeline.sort((a,b)=>a.year-b.year)`).
@@ -3232,6 +3366,170 @@ mod tests {
         assert!(diff.present.is_empty());
         assert!(diff.removed.is_empty());
         assert!(diff.added.is_empty());
+    }
+
+    // ---------- Settlement Editor "Political history" tab: civ_settlement_ownership_periods ----------
+
+    fn mk_settlement_faction(
+        tid: u64,
+        x: usize,
+        y: usize,
+        name: &str,
+        pop: u32,
+        faction: i32,
+    ) -> NamedSettlement {
+        let mut s = mk_settlement(tid, x, y, name, pop);
+        s.placement.faction = faction;
+        s
+    }
+
+    #[test]
+    fn ownership_periods_is_empty_for_an_empty_timeline_or_the_unassigned_sentinel() {
+        assert_eq!(civ_settlement_ownership_periods(&[], 1), Vec::new());
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(
+            &mut timeline,
+            0,
+            vec![],
+            vec![mk_settlement_faction(1, 5, 5, "Riverside", 10, 1)],
+            vec![],
+        );
+        // tid==0 is the unassigned sentinel and names no real settlement,
+        // even if (as here) nothing in the fixture actually carries it.
+        assert_eq!(civ_settlement_ownership_periods(&timeline, 0), Vec::new());
+    }
+
+    #[test]
+    fn ownership_periods_one_faction_throughout_is_one_open_span() {
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        for year in [0, 50, 100] {
+            civ_snapshot_save(
+                &mut timeline,
+                year,
+                vec![],
+                vec![mk_settlement_faction(1, 5, 5, "Riverside", 10, 2)],
+                vec![],
+            );
+        }
+        let spans = civ_settlement_ownership_periods(&timeline, 1);
+        assert_eq!(
+            spans,
+            vec![OwnershipSpan {
+                start_year: 0,
+                end_year: None,
+                faction_id: 2,
+            }]
+        );
+    }
+
+    #[test]
+    fn ownership_periods_splits_on_a_faction_change_and_the_final_span_stays_open() {
+        // tid=1: faction 1 at years 0 and 50, conquered by faction 3 at year
+        // 100, held by faction 3 through the timeline's own last recorded
+        // year (150) -- two spans, the second still "current".
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(
+            &mut timeline,
+            0,
+            vec![],
+            vec![mk_settlement_faction(1, 5, 5, "Riverside", 10, 1)],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            50,
+            vec![],
+            vec![mk_settlement_faction(1, 5, 5, "Riverside", 11, 1)],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            100,
+            vec![],
+            vec![mk_settlement_faction(1, 5, 5, "Riverside", 9, 3)],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            150,
+            vec![],
+            vec![mk_settlement_faction(1, 5, 5, "Riverside", 12, 3)],
+            vec![],
+        );
+        let spans = civ_settlement_ownership_periods(&timeline, 1);
+        assert_eq!(
+            spans,
+            vec![
+                OwnershipSpan {
+                    start_year: 0,
+                    end_year: Some(50),
+                    faction_id: 1,
+                },
+                OwnershipSpan {
+                    start_year: 100,
+                    end_year: None,
+                    faction_id: 3,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn ownership_periods_treats_an_absence_as_a_gap_not_an_extension() {
+        // tid=1 present under faction 1 at years 0 and 50, then absent at
+        // year 100 (destroyed, or simply a year the settlement did not
+        // exist), then present again at year 150 under faction 1 again --
+        // this must NOT read as one continuous span across the gap; the
+        // settlement's actual absence at year 100 breaks it into two closed
+        // spans, even though the faction on both sides is the same.
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(
+            &mut timeline,
+            0,
+            vec![],
+            vec![mk_settlement_faction(1, 5, 5, "Riverside", 10, 1)],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            50,
+            vec![],
+            vec![mk_settlement_faction(1, 5, 5, "Riverside", 11, 1)],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            100,
+            vec![],
+            // tid=1 absent this year -- a different settlement (tid=2)
+            // stands in, matching this file's own established
+            // tid-not-name-or-position disambiguation fixture shape.
+            vec![mk_settlement_faction(2, 5, 5, "Riverside", 3, 9)],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            150,
+            vec![],
+            vec![mk_settlement_faction(1, 5, 5, "Riverside", 4, 1)],
+            vec![],
+        );
+        let spans = civ_settlement_ownership_periods(&timeline, 1);
+        assert_eq!(
+            spans,
+            vec![
+                OwnershipSpan {
+                    start_year: 0,
+                    end_year: Some(50),
+                    faction_id: 1,
+                },
+                OwnershipSpan {
+                    start_year: 150,
+                    end_year: None,
+                    faction_id: 1,
+                },
+            ]
+        );
     }
 
     #[test]

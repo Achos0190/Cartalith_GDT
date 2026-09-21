@@ -387,7 +387,7 @@ func _rebuild() -> void:
 		"timeline":
 			_build_timeline(tab_content)
 		"political":
-			_build_political_placeholder(tab_content)
+			_build_political(tab_content, s)
 		"vault":
 			_build_knowledge(tab_content, s)
 		_:
@@ -610,13 +610,94 @@ func _report_stat(parent: Control, key: String, value: String) -> void:
 	parent.add_child(col)
 
 
-## `lazy-riding-piglet.md` Batch C fills this tab: derived ownership periods
-## over this settlement's recorded `TimelineSnapshot`s, read-only, once the new
-## `civ_settlement_ownership_periods`-shaped `#[func]` exists. Not attempted in
-## this batch -- no bridge function for this exists yet.
-func _build_political_placeholder(parent: Control) -> void:
+## `lazy-riding-piglet.md` Batch C: derived ownership periods over this
+## settlement's recorded `TimelineSnapshot`s, via the new
+## `civ_settlement_ownership_periods` bridge call -- **read-only**, matching
+## artboard 1d (`Cartalith Settlement Editor.dc.html`, `id="1d"`): the canvas
+## draws no edit affordance for a derived stacked bar or period table, only
+## for the SEPARATE "manual political entries" panel, which stays dashed
+## below.
+##
+## A stacked ownership bar (proportional segments by faction, each in that
+## faction's own `get_factions()` colour) plus the period list underneath --
+## the canvas's own two 1d elements. Proportions are drawn against the
+## timeline's own latest recorded year (not "now" in any real-world sense --
+## this settlement's own timeline has no other reference point), so an open
+## final span reaches the right edge of the bar exactly as far as its own
+## recorded years justify.
+func _build_political(parent: Control, s: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "Political history")
-	DccWidgets.note(sec, "Not built yet — see OUTSTANDING_WORK.md.")
+	var tid := int(s.get("tid", 0))
+	var periods: Array = bridge.civ_settlement_ownership_periods(tid)
+	if periods.is_empty():
+		DccWidgets.note(sec, "No recorded ownership history yet -- derived from the Timeline "
+			+ "tab's own recorded years. Add a year (or run a collapse/recovery simulation) to "
+			+ "build one.")
+	else:
+		var colors := {}   ## faction id (int) -> Color, from get_factions()
+		var names := {}    ## faction id (int) -> String
+		for f in bridge.get_factions():
+			var fd: Dictionary = f
+			var fid := int(fd.get("id", 0))
+			colors[fid] = Color8(int(fd.get("color_r", 150)), int(fd.get("color_g", 150)),
+				int(fd.get("color_b", 150)))
+			names[fid] = String(fd.get("name", "Faction %d" % fid))
+
+		# -- Stacked bar ------------------------------------------------------
+		var earliest := int((periods[0] as Dictionary).get("start_year", 0))
+		var latest := earliest
+		for p in periods:
+			var pd: Dictionary = p
+			var end_y := int(pd.get("end_year", latest)) if not bool(pd.get("current", false)) else latest
+			latest = maxi(latest, end_y)
+		# A still-current final span (or a single-year timeline) has no span
+		# of its own to measure -- floor the total width at 1 year so the bar
+		# never divides by zero.
+		var total_years := maxi(1, latest - earliest)
+
+		var bar := HBoxContainer.new()
+		bar.custom_minimum_size.y = 22
+		bar.add_theme_constant_override("separation", 1)
+		for p in periods:
+			var pd: Dictionary = p
+			var fid := int(pd.get("faction_id", 0))
+			var start_y := int(pd.get("start_year", earliest))
+			var current := bool(pd.get("current", false))
+			var end_y := latest if current else int(pd.get("end_year", start_y))
+			var seg := ColorRect.new()
+			seg.color = colors.get(fid, DccTheme.c("sunken"))
+			seg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			seg.size_flags_stretch_ratio = maxf(0.02, float(end_y - start_y) / float(total_years))
+			seg.tooltip_text = "%s · %d – %s" % [names.get(fid, "Faction %d" % fid), start_y,
+				"present" if current else str(end_y)]
+			bar.add_child(seg)
+		sec.add_child(bar)
+
+		# -- Period list --------------------------------------------------------
+		var list := DccWidgets.group(sec, "Ownership periods", true)
+		for p in periods:
+			var pd: Dictionary = p
+			var fid := int(pd.get("faction_id", 0))
+			var current := bool(pd.get("current", false))
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 8)
+			var sw := ColorRect.new()
+			sw.color = colors.get(fid, DccTheme.c("sunken"))
+			sw.custom_minimum_size = Vector2(12, 12)
+			row.add_child(sw)
+			var range_str := "%d – present" % int(pd.get("start_year", 0)) if current \
+				else "%d – %d" % [int(pd.get("start_year", 0)), int(pd.get("end_year", 0))]
+			row.add_child(DccTheme.mono_label(range_str, "text", DccTheme.FS_SMALL))
+			row.add_child(DccTheme.mono_label(names.get(fid, "Faction %d" % fid), "text_dim",
+				DccTheme.FS_SMALL))
+			list.add_child(row)
+
+	# -- Manual political entries (canvas's own dashed panel) -----------------
+	var man := DccWidgets.section(parent, "Manual political entries")
+	DccWidgets.note(man, "Dashed in the canvas, and left dashed here for the canvas's own stated "
+		+ "reason: a hand-authored political period has no precedence rule against the derived "
+		+ "ones above -- if the two disagreed over the same years, nothing says which wins. Not "
+		+ "built: that rule does not exist yet.")
 
 
 # -- Name + re-roll ---------------------------------------------------------
