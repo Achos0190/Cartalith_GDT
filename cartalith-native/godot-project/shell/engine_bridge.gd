@@ -4240,6 +4240,24 @@ func vault_read_file(rel: String) -> String:
 		return ""
 	return world_gen.vault_read_file(rel)
 
+## The browse panel's edit path: a whole file's raw text plus the hash it was
+## read at (`{ok, text, hash}`), for a note picked but not attached to any
+## entity. `hash` must be handed back to `vault_write_file` unchanged.
+func vault_read_file_for_edit(rel: String) -> Dictionary:
+	if not _has("vault_read_file_for_edit"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_read_file_for_edit(rel)
+
+## Writes a whole file with no attached link -- `vault_write_section`'s
+## simpler cousin. Refuses with the file unchanged if it was edited since
+## `expect_hash` was read. `{ok, hash}` on success, `{ok: false, error}`
+## otherwise.
+func vault_write_file(rel: String, text: String, expect_hash: String) -> Dictionary:
+	if not _has("vault_write_file"):
+		return _VAULT_UNAVAILABLE
+	mark_world_dirty()
+	return world_gen.vault_write_file(rel, text, expect_hash)
+
 func vault_attach(kind: String, entity_id: int, label: String, rel: String, heading: String) -> Dictionary:
 	if not _has("vault_attach"):
 		return _VAULT_UNAVAILABLE

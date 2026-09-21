@@ -88,6 +88,30 @@ var _pick_file := ""
 var _pick_heading := ""
 var _pick_data := false
 
+## The raw-text preview+edit panel (owner request, 2026-09-21):
+## `_build_note_editor`'s own state, shared by Attach a note and the
+## standalone browse view. `_browse_path` is the file the panel is open on
+## and `"" ` means closed; it is deliberately not the same variable as
+## `_pick_file`, because picking a *different* file in the dropdown must
+## close a stale editor rather than silently keep showing the old one's text
+## under the new one's name.
+##
+## `_browse_text` is held here rather than re-read from `_reader_edit`-style
+## engine state on every `_rebuild()`, because there is no working copy for
+## an unattached file to round-trip through the way `_build_reader` does via
+## `vault_set_link_text` — see `_build_note_editor`'s own header.
+var _browse_path := ""
+var _browse_hash := ""
+var _browse_text := ""
+var _browse_edit: TextEdit
+
+## True only for the standalone entry point (`open_browse()`): no entity, no
+## Attach, just Search and the file browser/editor — as opposed to
+## `open_overview()`'s `_kind == ""`, which lists every link in the store
+## instead. Distinct flag rather than overloading `_kind == ""` because both
+## are valid "no entity" states that draw different bodies.
+var _browse_only := false
+
 ## The vault search. `_search_result` is the last `vault_search` answer held
 ## verbatim — `indexed`/`scanned`/`truncated` included, because the panel has
 ## to report those and not only `hits`.
@@ -171,10 +195,14 @@ func open_for(kind: String, entity_id: int, label: String) -> void:
 	_kind = kind
 	_entity_id = entity_id
 	_entity_label = label
+	_browse_only = false
 	_reader_link = ""
 	_pick_file = ""
 	_pick_heading = ""
 	_pick_data = false
+	_browse_path = ""
+	_browse_text = ""
+	_browse_hash = ""
 	_selected_fields = {}
 	_rebuild()
 	if not DccWidgets.phone_present(self, app):
@@ -186,11 +214,42 @@ func open_overview() -> void:
 	open_for("", 0, "")
 
 
+## The standalone browse-and-edit entry point (owner request, 2026-09-21):
+## the same window, no entity/kind scope and no Attach — Search plus the file
+## browser and its raw-text preview+edit panel (`_build_browse`), so a note
+## can be read and written without first attaching it to anything.
+##
+## `open_for("", 0, "")` already exists as "the overview" (every link in the
+## store), which is a different zero-entity view and not this one — hence the
+## separate `_browse_only` flag rather than overloading `_kind == ""` a
+## second way. Reusing this window rather than a new scene: `setup()`,
+## `_clear()`/`_rebuild()`, the phone-fit passes and every `DccWidgets`/
+## `DccTheme` helper this file already leans on would otherwise have to be
+## duplicated into a second script for one extra body variant.
+func open_browse() -> void:
+	_kind = ""
+	_entity_id = 0
+	_entity_label = ""
+	_browse_only = true
+	_reader_link = ""
+	_pick_file = ""
+	_pick_heading = ""
+	_pick_data = false
+	_browse_path = ""
+	_browse_text = ""
+	_browse_hash = ""
+	_selected_fields = {}
+	_rebuild()
+	if not DccWidgets.phone_present(self, app):
+		popup_centered()
+
+
 func _clear() -> void:
 	for c in _body.get_children():
 		_body.remove_child(c)
 		c.queue_free()
 	_reader_edit = null
+	_browse_edit = null
 	## Nulled, not left dangling: `_fill_search_results()` can be reached from a
 	## callback that outlives the rebuild that freed the box it was writing into.
 	_search_box = null
@@ -199,15 +258,16 @@ func _clear() -> void:
 func _rebuild() -> void:
 	_clear()
 	var scoped := _kind != ""
-	title = "Markdown vault — %s" % _entity_label if scoped else "Markdown vault"
+	var header := _entity_label if scoped else ("Browse a note" if _browse_only else "Markdown vault")
+	title = "Markdown vault — %s" % header if scoped or _browse_only else header
 	if _phone_title != null:
-		_phone_title.text = (_entity_label if scoped else "Markdown vault").to_upper()
+		_phone_title.text = header.to_upper()
 
 	var info := bridge.vault_info()
 	var bound := bool(info.get("bound", false))
 	_build_connection(info)
 	## Search sits directly under the connection and above everything else in
-	## both modes: the owner's sentence starts with finding the note, and in the
+	## every mode: the owner's sentence starts with finding the note, and in the
 	## scoped view "find it, then attach it" is the order the two acts happen in.
 	if bound:
 		_build_search()
@@ -225,6 +285,9 @@ func _rebuild() -> void:
 		if _reader_link != "":
 			_build_reader()
 			_build_feedback()
+	elif _browse_only:
+		if bound:
+			_build_browse()
 	else:
 		_build_overview()
 	_build_write_prefs()
@@ -520,13 +583,21 @@ func _build_create() -> void:
 
 # -- Attaching (§11, §12, §13) ---------------------------------------------
 
-func _build_attach() -> void:
-	var sec := DccWidgets.section(_body, "Attach a note")
+## The file dropdown shared by Attach a note and the standalone browse view
+## (`_build_browse`) — one `_pick_file` state variable and one
+## `vault_list_files` call, so the two entry points can never list different
+## files or disagree about which one is selected. Returns the file list so a
+## caller with nothing else to show can bail out on "no .md files" without a
+## second `vault_list_files` round trip.
+##
+## Picking a different file closes a stale `_build_note_editor` panel rather
+## than leaving it showing the old file's text under the new file's name —
+## see `_browse_path`'s own header for why the two variables are distinct.
+func _build_file_picker(sec: Control) -> PackedStringArray:
 	var files := bridge.vault_list_files(2000)
 	if files.is_empty():
-		DccWidgets.note(sec, "No .md files found in this vault folder.")
-		return
-	if _pick_file == "":
+		return files
+	if _pick_file == "" or not Array(files).has(_pick_file):
 		_pick_file = files[0]
 	var labels: Array = []
 	for f in files:
@@ -536,21 +607,95 @@ func _build_attach() -> void:
 			_pick_file = files[i]
 			_pick_heading = ""
 			_pick_data = false
+			_browse_path = ""
 			_rebuild(),
 		"Listed lazily and capped — the vault is never fully read into memory.")
+	return files
 
-	## §17's reading half, at the one moment it is worth the read: what this
-	## note actually holds, *before* the user commits to attaching it. Opened by
-	## request rather than drawn always, because `vault_file_data` opens the
-	## file and this section is rebuilt on every pick change.
+
+## §17's reading half, at the one moment it is worth the read: what a picked
+## note actually holds. Opened by request rather than drawn always, because
+## `vault_file_data` opens the file and the caller's section is rebuilt on
+## every unrelated change to this window, not only on a pick change.
+func _build_note_data_toggle(sec: Control, empty_note: String) -> void:
 	if _pick_data:
 		var g := DccWidgets.group(sec, "what %s holds" % _pick_file.get_file(), true)
-		_build_note_data(g, bridge.vault_file_data(_pick_file),
-			"No frontmatter and no filled-in template fields. Attaching still copies the prose — this readout is about the parts a program can read back.")
+		_build_note_data(g, bridge.vault_file_data(_pick_file), empty_note)
 	else:
 		DccWidgets.text_button(sec, "What does this note hold?", func():
 			_pick_data = true
 			_rebuild())
+
+
+## The raw-text preview+edit panel (owner request, 2026-09-21), shared by
+## Attach a note and the standalone browse view: `vault_read_file`'s own text,
+## made editable and written straight back through `vault_write_file`'s hash
+## guard. No working copy and no local-copy-vs-source distinction the way
+## `_build_reader` has — there is no link here for either of those ideas to
+## be *about*, so a browsed-but-unattached note is simpler: read, edit, Save.
+##
+## Gated behind an explicit button for the same §31 reason `_pick_data` is:
+## `_rebuild()` runs for reasons that have nothing to do with this pick, and
+## reading the file on every one of them would be exactly the casual-read
+## this vault's own doc comments keep warning against.
+##
+## `_browse_text` carries the in-progress edit across a `_rebuild()` that
+## reason triggers, because there is no engine-side working copy for it to
+## round-trip through the way `_build_reader`'s `TextEdit` does via
+## `vault_set_link_text` — see this window's own state block for why.
+func _build_note_editor(sec: Control) -> void:
+	if _browse_path != _pick_file:
+		var open_btn := DccWidgets.text_button(sec, "Preview & edit this note…", func():
+			var r := bridge.vault_read_file_for_edit(_pick_file)
+			if not bool(r.get("ok", false)):
+				app.set_status("hint", "Read: %s" % String(r.get("error", "")), "accent")
+				return
+			_browse_path = _pick_file
+			_browse_text = String(r.get("text", ""))
+			_browse_hash = String(r.get("hash", ""))
+			_rebuild())
+		open_btn.tooltip_text = "Reads the whole file so it can be edited here. Writing back replaces the whole file and refuses if it changed on disk since this read."
+		return
+
+	var g := DccWidgets.group(sec, "%s — preview & edit" % _browse_path.get_file(), true)
+	_browse_edit = TextEdit.new()
+	_browse_edit.text = _browse_text
+	_browse_edit.custom_minimum_size.y = 200
+	_browse_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	_browse_edit.text_changed.connect(func(): _browse_text = _browse_edit.text)
+	g.add_child(_browse_edit)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	g.add_child(row)
+	var save := DccWidgets.action(row, "Save", func():
+		var r := bridge.vault_write_file(_browse_path, _browse_edit.text, _browse_hash)
+		if bool(r.get("ok", false)):
+			_browse_text = _browse_edit.text
+			_browse_hash = String(r.get("hash", ""))
+			app.set_status("hint", "%s saved." % _browse_path.get_file(), "text_ghost")
+		else:
+			app.set_status("hint", "Save refused: %s" % String(r.get("error", "")), "accent")
+		_rebuild())
+	save.tooltip_text = "Writes this file's whole text back to the vault. Refuses and changes nothing if the file was edited outside Cartalith since it was opened here — reopen it with Preview & edit to see the current version."
+	var close := DccWidgets.text_button(row, "Close without saving", func():
+		_browse_path = ""
+		_browse_text = ""
+		_browse_hash = ""
+		_rebuild())
+	close.tooltip_text = "Discards this edit. The file on disk is untouched either way until Save is pressed."
+
+
+func _build_attach() -> void:
+	var sec := DccWidgets.section(_body, "Attach a note")
+	var files := _build_file_picker(sec)
+	if files.is_empty():
+		DccWidgets.note(sec, "No .md files found in this vault folder.")
+		return
+
+	_build_note_data_toggle(sec,
+		"No frontmatter and no filled-in template fields. Attaching still copies the prose — this readout is about the parts a program can read back.")
+	_build_note_editor(sec)
 
 	## §11's own priority order: whole document first, then a heading section.
 	var headings := bridge.vault_file_headings(_pick_file)
@@ -574,6 +719,26 @@ func _build_attach() -> void:
 			store_changed.emit()
 		_rebuild(), true)
 	attach.tooltip_text = "Reads the selection now and records the source's timestamp and content hash, so Cartalith can tell later whether the note changed."
+
+
+# -- Standalone browse (owner request, 2026-09-21, `open_browse`) -----------
+
+## The `_browse_only` body: pick a note, see what it holds, preview and edit
+## its raw text — everything `_build_attach` offers except the section
+## picker and the Attach button, both of which need `_entity_label` and
+## `_kind` this entry point deliberately has neither of. Built from the same
+## `_build_file_picker`/`_build_note_data_toggle`/`_build_note_editor` the
+## scoped view uses, so there is exactly one file list, one "what does this
+## note hold" reader and one raw editor in this file, not two of each.
+func _build_browse() -> void:
+	var sec := DccWidgets.section(_body, "Browse a note")
+	var files := _build_file_picker(sec)
+	if files.is_empty():
+		DccWidgets.note(sec, "No .md files found in this vault folder.")
+		return
+	_build_note_data_toggle(sec,
+		"No frontmatter and no filled-in template fields — this note is prose, which Cartalith reads and does not model.")
+	_build_note_editor(sec)
 
 
 # -- Linked notes (§28) -----------------------------------------------------

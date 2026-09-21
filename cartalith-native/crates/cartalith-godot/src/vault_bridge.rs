@@ -191,6 +191,43 @@ impl WorldGen {
         GString::from(self.vault.read(&rel.to_string()).unwrap_or_default().as_str())
     }
 
+    /// The browse panel's edit path: a whole file's raw text plus the hash it
+    /// was read at, for a note picked but not attached to any entity.
+    /// `{ok, error, text, hash}`. `hash` must be handed back to
+    /// `vault_write_file` unchanged — same pairing as
+    /// `vault_preview_section_write`/`vault_write_section`, just with no
+    /// link and no section splice in between.
+    #[func]
+    fn vault_read_file_for_edit(&self, rel: GString) -> VarDictionary {
+        match self.vault.read_for_edit(&rel.to_string()) {
+            Ok((text, hash)) => {
+                let mut d = ok();
+                d.set("text", text);
+                d.set("hash", hash);
+                d
+            }
+            Err(e) => err(e),
+        }
+    }
+
+    /// Writes a whole file with no attached link — the browse panel's
+    /// simpler cousin of `vault_write_section`. `expect_hash` must be the
+    /// hash `vault_read_file_for_edit` returned; refuses with the file
+    /// unchanged if the file was edited since. `{ok, error, hash}` — the
+    /// returned `hash` is what the next write of the same session should
+    /// guard against.
+    #[func]
+    fn vault_write_file(&mut self, rel: GString, text: GString, expect_hash: GString) -> VarDictionary {
+        match self.vault.write_file(&rel.to_string(), &text.to_string(), &expect_hash.to_string()) {
+            Ok(hash) => {
+                let mut d = ok();
+                d.set("hash", hash);
+                d
+            }
+            Err(e) => err(e),
+        }
+    }
+
     /// Every entity kind this build can address in a vault, in the order the
     /// docks list them (`cartalith_vault::EntityKind`) — so GDScript passes a
     /// string this engine actually parses rather than a transcribed literal.

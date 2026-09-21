@@ -382,6 +382,35 @@ impl VaultSession {
         Ok(self.bound()?.read(rel)?)
     }
 
+    /// The whole file's raw text and its current content hash, in one read —
+    /// the browse panel's edit path for a note that has no link and so no
+    /// working copy of its own. The caller edits `text` directly and hands
+    /// `hash` back to [`Self::write_file`] unchanged; there is no import step
+    /// here the way [`Self::attach`] has one, because there is no link to
+    /// hold the result.
+    pub fn read_for_edit(&self, rel: &str) -> Result<(String, String), Error> {
+        let text = self.bound()?.read(rel)?;
+        let hash = provider::content_hash(&text);
+        Ok((text, hash))
+    }
+
+    /// A whole-file write for a note that is not attached to any entity —
+    /// the browse panel's simpler cousin of [`Self::write_section`]: no
+    /// section splice, no link to update. Same `expect_hash` contract:
+    /// `expect_hash` must be the hash [`Self::read_for_edit`] returned, and a
+    /// file that changed since then refuses with [`Error::SourceChanged`]
+    /// and writes nothing. Returns the hash of what was just written, so the
+    /// caller can guard its next write without an extra read.
+    pub fn write_file(&self, rel: &str, text: &str, expect_hash: &str) -> Result<String, Error> {
+        let v = self.bound()?;
+        let actual = provider::content_hash(&v.read(rel)?);
+        if actual != expect_hash {
+            return Err(Error::SourceChanged { expected: expect_hash.to_string(), actual });
+        }
+        v.write(rel, text)?;
+        Ok(provider::content_hash(text))
+    }
+
     // ---------------------------------------------------- backlinks (VA-01)
 
     /// Bring the backlink index up to date, reading only the notes whose
@@ -1093,6 +1122,39 @@ rows
         let after = std::fs::read_to_string(root.join("Locations/Nareth.md")).unwrap();
         assert!(after.contains("Mine."));
         assert!(after.contains("and wool."), "the author's concurrent edit survived");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The browse panel's own write path -- no link, no section, just a
+    /// whole file -- round trips, and carries the same hash-guard
+    /// [`Error::SourceChanged`] discipline as [`VaultSession::write_section`]
+    /// above, proved the same way: an edit lands between the read and the
+    /// write, and the write must refuse rather than clobber it.
+    #[test]
+    fn a_browsed_files_edit_round_trips_and_refuses_a_concurrent_change() {
+        let root = scratch("browse-edit");
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+
+        let (text, hash) = s.read_for_edit("Locations/Nareth.md").unwrap();
+        assert_eq!(text, HAND, "read_for_edit hands back the raw file, not a section");
+
+        // The ordinary path: nobody else touched the file, the write lands.
+        let edited = text.replace("Narrow streets, older than the walls.", "Narrow streets, newly cobbled.");
+        let new_hash = s.write_file("Locations/Nareth.md", &edited, &hash).unwrap();
+        assert_eq!(std::fs::read_to_string(root.join("Locations/Nareth.md")).unwrap(), edited);
+        assert_ne!(new_hash, hash, "the file changed, so must its hash");
+
+        // The conflict path: read again, then someone else's editor changes
+        // the file before this session writes its own edit back.
+        let (text2, hash2) = s.read_for_edit("Locations/Nareth.md").unwrap();
+        let theirs = text2.replace("newly cobbled.", "cobbled last spring.");
+        std::fs::write(root.join("Locations/Nareth.md"), &theirs).unwrap();
+
+        let mine = text2.replace("newly cobbled.", "cobbled in my own edit.");
+        assert!(matches!(s.write_file("Locations/Nareth.md", &mine, &hash2), Err(Error::SourceChanged { .. })));
+        assert_eq!(std::fs::read_to_string(root.join("Locations/Nareth.md")).unwrap(), theirs, "not one byte of the external edit was overwritten");
+
         let _ = std::fs::remove_dir_all(&root);
     }
 

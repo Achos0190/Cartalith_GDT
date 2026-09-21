@@ -3617,6 +3617,13 @@ func open_vault(kind: String, entity_id: int, label: String) -> void:
 func open_vault_overview() -> void:
 	vault_window.open_overview()
 
+## The standalone browse-and-edit entry point (owner request, 2026-09-21):
+## the same window, no entity/kind scope and no Attach — pick any note in the
+## vault, see what it holds, and preview/edit/write its raw text without
+## first linking it to anything.
+func open_vault_browse() -> void:
+	vault_window.open_browse()
+
 func open_gen_info() -> void:
 	gen_info_dialog.open()
 

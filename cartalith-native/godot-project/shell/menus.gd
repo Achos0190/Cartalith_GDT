@@ -119,6 +119,10 @@ const ID_DATA_MANAGER := 40
 const ID_TRAVEL_LIBRARY := 48
 const ID_VAULT := 45
 const ID_WORLD_DATA := 47
+## The standalone browse-and-edit row (owner request, 2026-09-21): opens
+## `vault_window.gd` with no entity/kind scope at all, via `open_vault_browse()`
+## -- a fourth destination alongside `ID_VAULT`'s three, so it needs its own id.
+const ID_VAULT_BROWSE := 716
 ## One id per Data-manager route, allocated above every other id in this file.
 ## The Data dropdown draws all fourteen routes the canvas draws (see `_data()`),
 ## and each one is its own destination rather than a group's first.
@@ -2660,6 +2664,7 @@ func _data(p: PopupMenu) -> void:
 			ID_WORLD_DATA: _host.open_world_data()
 			ID_TRAVEL_LIBRARY: _host.open_travel_library()
 			ID_VAULT: _host.open_vault_overview()
+			ID_VAULT_BROWSE: _host.open_vault_browse()
 	)
 
 ## **The Markdown vault's program-scope entry point** (2026-08-24, `design/
@@ -2731,6 +2736,20 @@ func _build_vault_rows(p: PopupMenu) -> void:
 		+ "Cartalith blocks and a 64-bit word fingerprint -- never the prose. Backlinks "
 		+ "and unlinked mentions for one entity are on that entity's own panel. "
 		+ "GUI_GAP_REGISTER.md VA-01.")
+	## Owner request, 2026-09-21: the file browser gained a raw-text preview
+	## and edit panel, and the owner wanted it reachable without attaching a
+	## note to an entity first. A fourth row rather than folding it into
+	## `ID_VAULT`'s first row, because those three all open the panel *for* an
+	## entity picked elsewhere (or the whole link store) and this one opens it
+	## for no entity at all -- a different id, per this function's own header
+	## on why three of v3's seven collapsed onto one id and not seven onto one.
+	_live(p, "Browse & edit a note…", ID_VAULT_BROWSE)
+	p.set_item_tooltip(p.item_count - 1,
+		"Opens the vault panel with no entity scope: pick any note, see its "
+		+ "frontmatter and filled-in fields, and preview/edit/write its raw text "
+		+ "-- without attaching it to a settlement, province or continent first. "
+		+ "Writing refuses and changes nothing if the note was edited outside "
+		+ "Cartalith since it was opened here.")
 
 # -- §2.5 Preferences ---------------------------------------------------------
 
