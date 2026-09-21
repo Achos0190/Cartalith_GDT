@@ -1231,6 +1231,53 @@ fn channel_cell_drainage(recv: &[i32], flow: &[f32], chan: &[u8]) -> Vec<i32> {
 /// <= 0.0` disables the gate entirely (every channel cell inks, the pre-v2.72
 /// behaviour), which is what a caller that has not computed
 /// [`river_render_area_bar`] gets by passing `0.0`.
+///
+/// # Connectivity across a diagonal receiver step
+///
+/// Each channel cell stamps its own disc independently, with no reference to
+/// its neighbours in the receiver chain — so a cell with `half_w < 1.0`
+/// (common: the floor in [`channel_disc`] is 0.5, and `slope_fac` narrows a
+/// disc further on steep ground) inks *only* its own centre, since `d==1`
+/// for an orthogonal neighbour and `d~=1.414` for a diagonal one both exceed
+/// `half_w`. A D8 chain steps diagonally about 42% of the time (measured in
+/// the reference, `RC_ENGINE_CHANGES.md` §6l), so two consecutive narrow
+/// channel cells one diagonal step apart can paint two discs that never
+/// touch — a visible break. This is v2.60's fix in the reference, ported
+/// forward here after this port shipped ahead of it: after the main stamp
+/// loop, a second pass finds every channel cell whose receiver is a genuine
+/// diagonal step away (wrap-aware in `x`, matching [`d8_receiver`]'s own "`x`
+/// only" rule) and raises the two cells common to both endpoints to the
+/// dimmer of the two centres, guaranteeing 4-connectivity along the actual
+/// flow chain without touching any river's rendered width elsewhere. An
+/// orthogonal or same-cell receiver is already 4-connected on its own and
+/// untouched by this pass; a receiver that is not a true grid neighbour at
+/// all cannot occur (`d8_receiver` only ever returns one of the 8 immediate
+/// neighbours or `-1`), so this is not a heuristic distance cutoff — it is
+/// the complete set of steps a receiver chain can take that are not already
+/// connected.
+/// The shortest signed offset from grid coordinate `a` to `b` along one axis,
+/// wrapping through the seam when `wrap` is set (mirrors `d8_receiver`'s own
+/// "`world` wraps `x` only" rule — call this only for the `x` axis, never
+/// `y`). Used by [`stamp_river_intensity`]'s connectivity bridge to tell a
+/// genuine one-cell diagonal step (raw index difference near `w`, because the
+/// step crosses the antimeridian) from any other receiver relationship.
+#[inline]
+fn wrapped_axis_delta(a: usize, b: usize, w: usize, wrap: bool) -> i64 {
+    let raw = b as i64 - a as i64;
+    if !wrap || w == 0 {
+        return raw;
+    }
+    let w = w as i64;
+    let half = w / 2;
+    if raw > half {
+        raw - w
+    } else if raw < -half {
+        raw + w
+    } else {
+        raw
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn stamp_river_intensity(
     fld: &[f32],
@@ -1288,6 +1335,62 @@ pub fn stamp_river_intensity(
             }
         }
     }
+
+    // Connectivity bridge (v2.60's reference fix this port never carried,
+    // `RC_ENGINE_CHANGES.md` §6l): each channel cell stamps its own disc
+    // independently, so a `half_w < 1.0` cell (an order-1 headwater at the
+    // 0.5 floor, or any cell narrowed by `slope_fac`) inks *only* its own
+    // centre — `d==1` for an orthogonal neighbour and `d~=1.414` for a
+    // diagonal one are both `> half_w`. A D8 receiver chain steps diagonally
+    // about 42% of the time (the reference's own measurement), and when two
+    // consecutive channel cells with sub-1 half-widths are a diagonal step
+    // apart, their discs do not touch even at a shared corner: the rendered
+    // river breaks.
+    //
+    // Fix, scoped to exactly that gap: for each channel cell `i` whose
+    // receiver `recv[i]` is a diagonal step away (wrap-aware in `x`, per
+    // `wrapped_axis_delta`; never in `y`, which never wraps) and whose own
+    // centre and its receiver's centre both actually inked, raise the two
+    // cells common to both -- `(recv.x, i.y)` and `(i.x, recv.y)`, the only
+    // cells 4-adjacent to *both* endpoints of a diagonal step -- to at most
+    // the dimmer of the two centres. That guarantees a 4-connected path
+    // `i -> bridge -> recv[i]` without touching `half_w`, `amp`, or any other
+    // river's rendered width: an orthogonal or non-adjacent receiver (the
+    // v2.72 "cut the stem where it wraps" case this port already tests) is
+    // untouched, because `d8_receiver` only ever points at one of the 8
+    // immediate neighbours, so every *other* receiver relationship already
+    // has `|dx|<=1 && |dy|<=1` with at least one of them 0 -- already
+    // 4-connected on its own.
+    for i in 0..n {
+        if chan[i] == 0 || intensity[i] <= 0.0 {
+            continue;
+        }
+        let r = recv[i];
+        if r < 0 {
+            continue;
+        }
+        let r = r as usize;
+        if r >= n || chan[r] == 0 || intensity[r] <= 0.0 {
+            continue;
+        }
+        let (x, y) = (i % w, i / w);
+        let (rx, ry) = (r % w, r / w);
+        let dx = wrapped_axis_delta(x, rx, w, wrap);
+        let dy = ry as i64 - y as i64;
+        if dx.abs() != 1 || dy.abs() != 1 {
+            continue;
+        }
+        let bridge_val = intensity[i].min(intensity[r]);
+        let b1 = y * w + rx;
+        if bridge_val > intensity[b1] {
+            intensity[b1] = bridge_val;
+        }
+        let b2 = ry * w + x;
+        if bridge_val > intensity[b2] {
+            intensity[b2] = bridge_val;
+        }
+    }
+
     intensity
 }
 
@@ -1956,6 +2059,202 @@ mod tests {
         // the empty middle above is a real finding and not an all-zero stamp.
         let seam_inked = (0..h).any(|y| intensity[y * w] > 0.0 || intensity[y * w + w - 1] > 0.0);
         assert!(seam_inked, "the valley straddling the seam must ink on at least one side, or nothing channelized there");
+    }
+
+    /// The port's own defect (`RC_ENGINE_CHANGES.md` §6l, ported forward
+    /// unfixed until now): each channel cell stamps its disc independently of
+    /// its neighbours in the receiver chain, so a diagonal receiver step
+    /// between two `half_w < 1.0` cells left two discs that never touch, not
+    /// even at a shared corner.
+    ///
+    /// # Proving the gap exists before the fix
+    ///
+    /// A disc only inks a cell at grid distance `d <= half_w`. The nearest
+    /// possible *other* grid cell is `d == 1` (orthogonal); a diagonal
+    /// neighbour is `d == sqrt(2)`. So **`half_w < 1.0` is not a heuristic
+    /// trigger, it is a mathematical guarantee that a disc centred on cell
+    /// `i` paints nothing but `i` itself** — no separate "run the old code"
+    /// step is possible (the old, unbridged loop no longer exists to run),
+    /// so this test establishes the gap the same way the fix's own doc
+    /// comment does: by computing each fixture cell's real `half_w` through
+    /// [`super::channel_disc`] (the exact function the stamp loop calls) and
+    /// asserting it is under 1.0, which makes "the two centres' own discs
+    /// cannot reach each other or the cell between them" a certainty rather
+    /// than an assumption.
+    ///
+    /// # The fixture
+    ///
+    /// A flat field (`slope_fac == 1`, so `half_w` is driven by `mag` alone)
+    /// with four channel cells on a straight diagonal, `(5,5)->(6,6)->(7,7)
+    /// ->(8,8)`, `recv` chained exactly along that diagonal (the same D8 step
+    /// shape the reference measured at ~42% of a real chain) and `flow` just
+    /// above `thresh` at each, which keeps `mag` small and `half_w` in
+    /// `[0.6, 0.66]` -- comfortably under the 1.0 bound the proof above needs,
+    /// and nowhere near `channel_disc`'s own 0.5 floor, so this is an ordinary
+    /// reachable case, not an edge one.
+    #[test]
+    fn diagonal_channel_steps_are_bridged_to_stay_4_connected() {
+        let (w, h) = (20usize, 20usize);
+        let n = w * h;
+        let fld = vec![0.5f32; n]; // flat: gx=gy=0, slope_fac=1 exactly
+        let mut flow = vec![0f32; n];
+        let mut chan = vec![0u8; n];
+        let mut recv = vec![-1i32; n];
+        let order = vec![1i16; n];
+
+        let chain = [(5usize, 5usize), (6, 6), (7, 7), (8, 8)];
+        let flows = [120.0f32, 130.0, 140.0, 150.0]; // all > thresh, mag small and positive
+        let idx = |x: usize, y: usize| y * w + x;
+        for (k, &(x, y)) in chain.iter().enumerate() {
+            let i = idx(x, y);
+            chan[i] = 1;
+            flow[i] = flows[k];
+            recv[i] = if k + 1 < chain.len() {
+                let (nx, ny) = chain[k + 1];
+                idx(nx, ny) as i32
+            } else {
+                -1 // the chain's own pit
+            };
+        }
+
+        let thresh = 100.0f64;
+        let width_k = 1.0f64;
+        let lmax = super::channel_lmax(n);
+
+        // The proof: every fixture cell's own half-width is under 1.0, so its
+        // disc cannot reach any other grid cell on its own.
+        for &(x, y) in &chain {
+            let i = idx(x, y);
+            let d = super::channel_disc(&fld, &flow, &order, w, h, false, thresh, width_k, lmax, i)
+                .expect("every fixture cell has positive flow and must produce a disc");
+            assert!(
+                d.half_w < 1.0,
+                "fixture cell ({x},{y}) must have half_w < 1.0 for the proof to hold, got {}",
+                d.half_w
+            );
+        }
+
+        let intensity = super::stamp_river_intensity(&fld, &flow, &chan, &recv, &order, w, h, false, thresh, width_k, 0.0);
+
+        // Each centre still inks itself.
+        for &(x, y) in &chain {
+            assert!(intensity[idx(x, y)] > 0.0, "channel cell ({x},{y}) must ink its own centre");
+        }
+
+        // The bridge cells the fix adds: for the (5,5)->(6,6) step, the two
+        // cells 4-adjacent to both endpoints are (6,5) and (5,6). Grid
+        // distance from either endpoint to either bridge cell is exactly 1,
+        // which is `> half_w` for every fixture cell proven above -- so
+        // under disc-only painting these would be 0. After the fix, at least
+        // one must be > 0 (the doc comment raises both, so assert both here
+        // to pin that, not just "at least one").
+        assert!(intensity[idx(6, 5)] > 0.0, "bridge cell (6,5) between (5,5) and (6,6) must be inked");
+        assert!(intensity[idx(5, 6)] > 0.0, "bridge cell (5,6) between (5,5) and (6,6) must be inked");
+        assert!(intensity[idx(7, 6)] > 0.0, "bridge cell (7,6) between (6,6) and (7,7) must be inked");
+        assert!(intensity[idx(6, 7)] > 0.0, "bridge cell (6,7) between (6,6) and (7,7) must be inked");
+        assert!(intensity[idx(8, 7)] > 0.0, "bridge cell (8,7) between (7,7) and (8,8) must be inked");
+        assert!(intensity[idx(7, 8)] > 0.0, "bridge cell (7,8) between (7,7) and (8,8) must be inked");
+
+        // The bridge value must never exceed the dimmer of the two centres it
+        // connects -- the fix must not brighten a river, only connect it.
+        for w2 in chain.windows(2) {
+            let (ax, ay) = w2[0];
+            let (bx, by) = w2[1];
+            let dimmer = intensity[idx(ax, ay)].min(intensity[idx(bx, by)]);
+            assert!(
+                intensity[idx(bx, ay)] <= dimmer + f32::EPSILON,
+                "bridge ({bx},{ay}) must not exceed the dimmer of its two endpoints"
+            );
+            assert!(
+                intensity[idx(ax, by)] <= dimmer + f32::EPSILON,
+                "bridge ({ax},{by}) must not exceed the dimmer of its two endpoints"
+            );
+        }
+
+        // Whole-chain 4-connectivity: flood-fill from the first channel cell
+        // over every nonzero-intensity cell and confirm all four chain cells
+        // land in the same connected component.
+        let mut seen = vec![false; n];
+        let mut stack = vec![idx(chain[0].0, chain[0].1)];
+        seen[stack[0]] = true;
+        while let Some(i) = stack.pop() {
+            let (x, y) = (i % w, i / w);
+            let mut push4 = |nx: i64, ny: i64| {
+                if nx < 0 || ny < 0 || nx as usize >= w || ny as usize >= h {
+                    return;
+                }
+                let j = ny as usize * w + nx as usize;
+                if !seen[j] && intensity[j] > 0.0 {
+                    seen[j] = true;
+                    stack.push(j);
+                }
+            };
+            push4(x as i64 - 1, y as i64);
+            push4(x as i64 + 1, y as i64);
+            push4(x as i64, y as i64 - 1);
+            push4(x as i64, y as i64 + 1);
+        }
+        for &(x, y) in &chain {
+            assert!(
+                seen[idx(x, y)],
+                "channel cell ({x},{y}) must be 4-connected to the rest of the chain through nonzero intensity"
+            );
+        }
+    }
+
+    /// [`super::wrapped_axis_delta`] is what tells the connectivity bridge a
+    /// genuine one-cell diagonal step (short via the wrap) from any other
+    /// receiver relationship, and it must give the *same* short-distance
+    /// answer the existing wrap-crossing test's own seam-detection code uses
+    /// (`(xi - xr).abs() > half`) — this test exercises the bridge itself,
+    /// not just the helper in isolation, on a receiver step that actually
+    /// crosses the seam.
+    #[test]
+    fn diagonal_step_across_the_wrap_seam_is_bridged_without_reaching_the_map_middle() {
+        let (w, h) = (10usize, 10usize);
+        let n = w * h;
+        let fld = vec![0.5f32; n];
+        let mut flow = vec![0f32; n];
+        let mut chan = vec![0u8; n];
+        let mut recv = vec![-1i32; n];
+        let order = vec![1i16; n];
+        let idx = |x: usize, y: usize| y * w + x;
+
+        // (9,5) -> (0,6): a diagonal step only because x wraps (raw dx is -9,
+        // wrapped it is +1).
+        let a = (9usize, 5usize);
+        let b = (0usize, 6usize);
+        chan[idx(a.0, a.1)] = 1;
+        chan[idx(b.0, b.1)] = 1;
+        flow[idx(a.0, a.1)] = 120.0;
+        flow[idx(b.0, b.1)] = 130.0;
+        recv[idx(a.0, a.1)] = idx(b.0, b.1) as i32;
+        recv[idx(b.0, b.1)] = -1;
+
+        let thresh = 100.0f64;
+        let width_k = 1.0f64;
+        let lmax = super::channel_lmax(n);
+        for &(x, y) in &[a, b] {
+            let d = super::channel_disc(&fld, &flow, &order, w, h, true, thresh, width_k, lmax, idx(x, y)).unwrap();
+            assert!(d.half_w < 1.0, "fixture cell ({x},{y}) must have half_w < 1.0, got {}", d.half_w);
+        }
+
+        let intensity = super::stamp_river_intensity(&fld, &flow, &chan, &recv, &order, w, h, true, thresh, width_k, 0.0);
+
+        // The bridge cells for a wrapped (9,5)->(0,6) step are (0,5) and
+        // (9,6) -- both 4-adjacent to (9,5) through the wrap and to (0,6)
+        // directly or through the wrap.
+        assert!(intensity[idx(0, 5)] > 0.0, "wrap bridge cell (0,5) must be inked");
+        assert!(intensity[idx(9, 6)] > 0.0, "wrap bridge cell (9,6) must be inked");
+
+        // And the bridge must not have painted anywhere near the map's own
+        // middle column -- confirming `wrapped_axis_delta` picked the short
+        // wrap distance (1), not the long raw one (9), which would place a
+        // bridge cell far from the seam.
+        for y in 0..h {
+            assert_eq!(intensity[idx(4, y)], 0.0, "the wrap bridge must stay local to the seam, not reach column 4");
+            assert_eq!(intensity[idx(5, y)], 0.0, "the wrap bridge must stay local to the seam, not reach column 5");
+        }
     }
 
     /// `enforce_channel_descent`'s carve radius is `Math.hypot(x-px, y-py)`
