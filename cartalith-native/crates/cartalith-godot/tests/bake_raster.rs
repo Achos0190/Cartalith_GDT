@@ -369,7 +369,9 @@ fn a_grid_resolution_export_carries_the_river_tint() {
             for x in 0..GW {
                 let i = y * GW + x;
                 let (mut r, mut g, mut b) = render::cell_color(&ctx, x, y);
-                let t = ink.at(i) as f64;
+                // Land only -- `build_color_texture`'s own guard, added the
+                // same day rivers stopped drawing across lakes and the ocean.
+                let t = if (field[i] as f64) < 0.42 { 0.0 } else { ink.at(i) as f64 };
                 if t > 1.0 / 255.0 {
                     let cover = render::border_cover(&a, x, y, GW, GH);
                     if cover < 1.0 {
@@ -536,7 +538,13 @@ fn the_river_tint_keeps_its_world_width_at_every_resolution() {
     let (field, temp, rain, flow) = fixture();
     let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, 0.42, false, 55.0, 5.0, TerrainAppearance::default());
     let bf = BakeFields::new(&ctx);
-    let mask: Vec<u8> = (0..GW * GH).map(|i| u8::from(i % GW % 3 == 0)).collect();
+    // Land only, `i % GW % 3 == 0` and above the fixture's own `0.42` sea
+    // level -- `bake_rect` no longer tints a water cell at all (rivers must
+    // not draw across a lake or the ocean, and a real `chan` mask never sets
+    // one to begin with, since `build_channels` skips `fld[i] < sea`), so a
+    // mask that ignores the fixture's sea-level basin can no longer probe
+    // this property on those columns.
+    let mask: Vec<u8> = (0..GW * GH).map(|i| u8::from(i % GW % 3 == 0 && field[i] as f64 >= 0.42)).collect();
 
     let mut fracs = Vec::new();
     for mult in [1usize, 2, 4] {
@@ -548,7 +556,12 @@ fn the_river_tint_keeps_its_world_width_at_every_resolution() {
     }
     let (lo, hi) = (fracs.iter().cloned().fold(f64::MAX, f64::min), fracs.iter().cloned().fold(0.0, f64::max));
     assert!(hi - lo < 0.05, "the tinted fraction moves with resolution: {fracs:?}");
-    assert!(lo > 0.1, "the tint barely covers anything at some resolution: {fracs:?}");
+    // Was `> 0.1` against an unguarded mask that tinted water too. Restricting
+    // the mask to land (above) is the correct fixture, and it measures
+    // ~0.091-0.094 here on this 24x17 world -- still comfortably above the
+    // near-zero a truly degenerate (empty or off-by-one) mask would give, and
+    // the floor this assertion actually exists to catch.
+    assert!(lo > 0.05, "the tint barely covers anything at some resolution: {fracs:?}");
 }
 
 /// **Where the integer identity stops being bit-exact, and why that is the

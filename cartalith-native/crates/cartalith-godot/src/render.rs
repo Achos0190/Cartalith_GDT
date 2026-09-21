@@ -6887,7 +6887,14 @@ pub fn bake_rect(ctx: &RenderCtx, bf: &BakeFields, ink: Option<RiverInk<'_>>, ou
             // `build_color_texture`'s own two lines: the same nearest-cell
             // lookup, and the same `1/255` floor below which the tint cannot
             // move a byte anyway.
-            let t = ink.map_or(0.0, |m| m.at(cy * gw + (gx.round().clamp(0.0, (gw - 1) as f64)) as usize)) as f64;
+            let ci = cy * gw + (gx.round().clamp(0.0, (gw - 1) as f64)) as usize;
+            // **Land only** -- see `build_color_texture`'s identical guard
+            // for why: `bf.pixel` already branched sea vs. land internally
+            // (`h < ctx.sea_level`) to pick `sea_color_core` or `land_color`,
+            // but that branch never reached this caller, so the ink used to
+            // get composited over a water pixel's finished colour with no
+            // way to tell. Checked at the same nearest cell `t` itself reads.
+            let t = if (ctx.field[ci] as f64) < ctx.sea_level { 0.0 } else { ink.map_or(0.0, |m| m.at(ci)) as f64 };
             let (r, g, b) = if t > 1.0 / 255.0 { channel_tint(&ctx.appearance, (r, g, b), t, gx, gy, gw, gh) } else { (r, g, b) };
             let o = col * 3;
             out[o] = (r * 255.0) as u8;
@@ -8320,8 +8327,19 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
             // the shared `channel_tint`, nearest cell exactly as `bake_rect`
             // takes it and for the same reason (a river keeps its world width
             // at every zoom).
+            //
+            // **Land only.** `water` (stage 3 above) already carries this
+            // pixel's real ocean-or-lake classification -- `Some` took the
+            // early-return sea/lake colour, `None` fell through to
+            // `land_color`. The reference's own tile renderer (11719 ocean,
+            // 11753 lake) never reaches its per-pixel material path for a
+            // water pixel at all: both branches `continue` before it. This
+            // ink stage is a port-only addition on top of that path (see the
+            // section header above), so it has to repeat the same land-only
+            // guard rather than being reachable for a `water` pixel the
+            // reference itself never colours through the land path.
             let ci = (wy.round().clamp(0.0, (gh - 1) as f64) as usize) * gw + (wx.round().clamp(0.0, (gw - 1) as f64) as usize);
-            let ink_t = ink.map_or(0.0, |mk| mk.at(ci)) as f64;
+            let ink_t = if water.is_some() { 0.0 } else { ink.map_or(0.0, |mk| mk.at(ci)) as f64 };
             let (cr, cg, cb) = if ink_t > 1.0 / 255.0 { channel_tint(a, (cr, cg, cb), ink_t, wx, wy, gw, gh) } else { (cr, cg, cb) };
 
             // --- 5. quantize, then the whole-raster stages -------------------

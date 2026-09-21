@@ -7418,6 +7418,12 @@ impl WorldGen {
         // §27's determinism therefore holds by construction, not by
         // convention -- the same standard `DECISIONS.md` §7a asks of the
         // parity path.
+        //
+        // Not `self.sea_level` inside the closure below: capturing `self`
+        // itself (rather than this one `f64`) drags `Gd<ImageTexture>` --
+        // present elsewhere on `WorldGen`, never `Sync` -- into the rayon
+        // closure's bound and the crate fails to build.
+        let sea_level = self.sea_level;
         let mut bytes = vec![0u8; gw * gh * 3];
         bytes.par_chunks_mut(gw * 3).enumerate().for_each(|(y, row)| {
             for x in 0..gw {
@@ -7428,7 +7434,27 @@ impl WorldGen {
                 // legacy binary flag, and the stamped intensity otherwise, so
                 // a wide river fades at its banks instead of ending on a hard
                 // edge. Below 1/255 it cannot change a byte, so it is skipped.
-                let ink = chan_mask.map_or(0.0, |m| m.at(i)) as f64;
+                //
+                // **Land only.** The reference's own dispatch (`isWater(vw) ?
+                // seaColor : surfaceColor`, 8588) never runs the river-ink
+                // blend on a water pixel at all — it lives inside
+                // `surfaceColor`, which a water cell never reaches, because
+                // `buildWaterBodies` classifies a lake exactly like the
+                // ocean: any below-`seaLevel` component that is not the
+                // largest one, not a separate above-water body. `cell_color`
+                // makes the identical branch (`ctx.h(x, y) < ctx.sea_level`)
+                // but this loop was compositing the ink onto its *result*
+                // without knowing which side of that branch produced it, so
+                // a river's disc (up to 9 cells wide, `stamp_river_intensity`'s
+                // own doc comment) painted straight across a lake or the
+                // ocean it flows into instead of stopping at the shore.
+                //
+                // `field[i]`, not a call into `render`'s private `RenderCtx::h`
+                // -- the identical value (`ctx.field` is this same slice,
+                // `RenderCtx::with_appearance`'s first argument above), read
+                // where it is already in scope rather than widening that
+                // method's visibility for one caller.
+                let ink = if (field[i] as f64) < sea_level { 0.0 } else { chan_mask.map_or(0.0, |m| m.at(i)) as f64 };
                 if ink > 1.0 / 255.0 {
                     // The tint composites *over* a colour `cell_color` has
                     // already stamped the plate frame onto (milestone 4), so
