@@ -89,6 +89,17 @@ func _ready() -> void:
 
 	var bridge = app.bridge
 	var vh = app.viewport
+	## **LOD-D6.** This probe reads `_lod_tiles` a frame or four after
+	## moving the camera and asserts on what it finds, so it needs a tile
+	## to exist the moment `_update_lod()` returns. Since LOD-D6 synthesis
+	## runs on a worker and a tile lands some frames later, which is a
+	## different premise from the one this probe was written against.
+	## `_lod_sync` puts synthesis back on this thread; it moves no pixel
+	## (both paths end in `lod_worker::LodSnapshot::render_tile`) and only
+	## changes WHEN the tile appears. What this probe measures -- the
+	## compositor -- is unaffected. `_d6async_probe.gd` is what exercises
+	## the threading.
+	vh._lod_sync = true
 	var ws = app._world_workspace()
 
 	print("\n=== 1: a world, zoomed past the LOD threshold ===")

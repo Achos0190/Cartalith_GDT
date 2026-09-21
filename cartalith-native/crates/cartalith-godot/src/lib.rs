@@ -33,6 +33,7 @@ mod label_bridge;
 mod landmark_bridge;
 mod lod_bridge;
 mod lod_sweep;
+mod lod_worker;
 mod measure_bridge;
 mod pack;
 mod ops_bridge;
@@ -3619,61 +3620,62 @@ struct WorldGen {
     /// function of the world, not a state change. Re-entrancy cannot occur —
     /// both borrows are taken and dropped inside one `#[func]` body, and
     /// nothing in between calls back into `WorldGen`.
+    ///
+    /// **LOD-D6 moved everything else out of it.** The precompute, the
+    /// lithology and the `TileFields` now live in a `lod_worker::LodSnapshot`
+    /// behind an `Arc`, because a `RefCell` is not `Sync` and a background
+    /// thread cannot touch one. What is left here is the raster snapshot,
+    /// which only the main thread can take: it is `build_color_texture`'s own
+    /// output, sampled at the exact point `apply_local_contrast` reads it.
     lod: std::cell::RefCell<LodCtxCache>,
+    /// **LOD-D6's background tile synthesis** (`LOD_DETAIL_SCOPE.md`:
+    /// *"synthesis moves to a worker; Rust computes RGBA from a snapshot of
+    /// the height slice and an `Arc` of `TileFields`; the main thread uploads
+    /// the texture; a world version checked on landing drops stale tiles. No
+    /// `Gd` crosses a thread."*).
+    ///
+    /// An `Arc` rather than a plain field because the `Arc` is exactly what a
+    /// job captures — `WorldGen` itself holds `Gd<...>` handles and a
+    /// `RefCell` and can never cross a thread, while `LodWorker` holds
+    /// nothing Godot knows about. See `lod_worker`'s own module doc for why
+    /// this is a Rust-side pool and not Godot's `WorkerThreadPool`.
+    lod_worker: std::sync::Arc<lod_worker::LodWorker>,
 }
 
-/// Everything a coloured LOD tile needs beyond its own amplified height,
-/// built once per world-and-appearance rather than once per tile.
+/// The one piece of LOD-D2's tile-context cache that **cannot** move to a
+/// background thread: the finished grid raster the local-contrast band is
+/// measured from.
 ///
-/// **The measurement that forces this to exist** (release, this machine,
-/// 2048x1311, medians over 5): `RenderCtx::with_appearance` + `with_map_scale`
-/// is 201.5 ms (199.5..202.2) and `TileFields::new` a further 278.2 ms
-/// (273.2..281.7), against **5.98 ms (5.97..6.10)** for one tile on all
-/// cores — a ratio of **80x**. Medians over five, printed by `lod_bridge`'s
-/// own `the_tile_context_costs_an_order_of_magnitude_more_than_the_tile_it_serves`,
+/// **LOD-D2's measurement, kept here because it is why any of this exists**
+/// (release, this machine, 2048x1311, medians over 5): `RenderCtx::with_appearance`
+/// + `with_map_scale` is 201.5 ms (199.5..202.2) and `TileFields::new` a
+/// further 278.2 ms (273.2..281.7), against **5.98 ms (5.97..6.10)** for one
+/// tile on all cores — a ratio of **80x**. Printed by `lod_bridge`'s own
+/// `the_tile_context_costs_an_order_of_magnitude_more_than_the_tile_it_serves`,
 /// which is `#[ignore]`d and runs alone so the figures stay reproducible
-/// rather than remembered.
-/// `viewport_host.gd` asks for up to `MAX_LOD_TILES_PER_UPDATE` = 48 tiles on
-/// one zoom notch, so rebuilding either per tile would spend 24 s where the
-/// tiles themselves spend 2.4.
-///
-/// **The key is the whole point and is the thing to get right.** It is built
-/// by [`WorldGen::lod_cache_key`] from every input the three members below are
-/// a function of; `MISTAKES.md`'s rule for a staleness key is to derive the
-/// list from the *definition* of what it guards, and that function names each
-/// argument with the reason it is there.
+/// rather than remembered. Those two builds are what **LOD-D6** moved off the
+/// main thread, into `lod_worker::LodSnapshot::build`; the cache that held
+/// their output is now `lod_worker::LodSnapshot` behind an `Arc`, and this
+/// struct is what remained.
 #[derive(Default)]
 struct LodCtxCache {
-    /// Empty before anything is cached, so the first call always misses.
-    key: String,
-    /// `RenderCtx`'s grid-scale precomputes — sea surface, AO, crest, wetness,
-    /// lights, and the SDFs when their sliders are up.
-    pre: Option<render::GridPrecompute>,
-    /// `cartalith_civ::build_lithology`, which `build_color_texture` builds
-    /// per render and throws away. `None` for a loaded save, whose format
-    /// stores none of the tectonic substrate (`SAVEFILE_COMPAT.md`) — the
-    /// same condition under which `flow` is `None`.
-    lithology: Option<Vec<u8>>,
-    /// The local-contrast band, the grade influence and the lake surface.
-    /// Carries no river ink: that borrows from the live world and is attached
-    /// per call through `TileFields::borrowed().with_ink(...)`.
-    fields: Option<render::TileFields<'static>>,
     /// The finished grid raster the local-contrast band is measured from,
     /// snapshotted by `build_color_texture` at exactly the point
     /// `apply_local_contrast` reads it — after the river ink tint, before the
     /// correction itself — together with the key it was taken under.
     ///
-    /// **Not re-rendered here when it is missing.** A whole-grid `cell_color`
-    /// pass is the most expensive thing in this renderer — of the order of a
-    /// second at 2048x1311 serially, several times the rest of this cache put
-    /// together (a scratch bench put it at ~1.5 s; that figure is not
-    /// reproducible from any committed test, so it is quoted as a magnitude
-    /// and not as a measurement). And the *right* band is the one from the
-    /// raster actually on screen, not from a second render that might
-    /// disagree with it. When no snapshot matches the key, tiles are
-    /// built with the stage off — `TileFields::new`'s own documented `None`
-    /// case — and they then differ from the screen by exactly local contrast
-    /// rather than by a guess.
+    /// **Not re-rendered when it is missing.** A whole-grid `cell_color` pass
+    /// is the most expensive thing in this renderer — of the order of a
+    /// second at 2048x1311 serially, several times the rest of the tile
+    /// context put together. And the *right* band is the one from the raster
+    /// actually on screen, not from a second render that might disagree with
+    /// it. When no snapshot matches the key, tiles are built with the stage
+    /// off — `TileFields::new`'s own documented `None` case — and they then
+    /// differ from the screen by exactly local contrast rather than by a
+    /// guess.
+    ///
+    /// **Read on the main thread and cloned into the snapshot inputs.** The
+    /// worker never sees this `RefCell`; it receives the bytes by value.
     grid_rgb: Option<(String, Vec<u8>)>,
 }
 
@@ -3692,6 +3694,7 @@ impl IRefCounted for WorldGen {
             world_epoch: 0,
             pack_epoch: 0,
             lod: std::cell::RefCell::new(LodCtxCache::default()),
+            lod_worker: std::sync::Arc::new(lod_worker::LodWorker::default()),
             world: false,
             lat_n: 55.0,
             lat_s: 5.0,
@@ -3952,6 +3955,15 @@ impl WorldGen {
         // would refuse itself over the next world regardless; this returns its
         // one `i32`-per-cell buffer while there is no world to plan over.
         self.wildlife = None;
+        // LOD-D6, memory hygiene on the same terms. The snapshot's key would
+        // refuse itself over the next world (`lod_cache_key` includes
+        // `world_epoch`), but until something asked for a tile it would go on
+        // holding a clone of the outgoing world's four fields -- 43 MB at
+        // 2048x1311, and the largest single thing this class retains.
+        // Bumping the generation here also means a tile still being coloured
+        // for the outgoing world lands stale and is discarded rather than
+        // queued for a shell that has moved on.
+        self.lod_worker.invalidate();
         // The bytes of the last-opened project's unmodelled entries. They
         // belong to *that file*; a generate makes them nobody's, and leaving
         // them here would write another project's payloads into this world's
@@ -12015,6 +12027,126 @@ impl WorldGen {
         ImageTexture::create_from_image(&image)
     }
 
+    // ------------------------------------------------------------------
+    // LOD-D6 — the asynchronous half of the same path
+    //
+    // `lod_synthesize_tile` above stays exactly what it was, synchronous and
+    // callable, and is what `_lodsweep_probe.gd`'s metric 5 times. The four
+    // `#[func]`s below are the non-blocking route the shell takes instead:
+    // prepare, request, drain, release. Both end in
+    // `lod_worker::LodSnapshot::render_tile`, which is the whole of the
+    // determinism argument (`lod_worker`'s module doc).
+    // ------------------------------------------------------------------
+
+    /// Ensure a tile context for the current world and appearance exists,
+    /// building one on a worker if it does not.
+    ///
+    /// Returns **0** unavailable (no world, or a degenerate grid — the shell
+    /// keeps the pyramid down), **1** ready (tiles can be requested now) or
+    /// **2** building (nothing can be requested yet; the base-map and
+    /// parent-level fallbacks LOD-D3 built are what covers the screen
+    /// meanwhile, which is the state they were built for).
+    ///
+    /// An `i32` rather than a `bool` because "not yet" and "never" want
+    /// different behaviour from the caller: one keeps `_process` alive, the
+    /// other takes the layer down.
+    #[func]
+    fn lod_prepare(&self) -> i32 {
+        let key = self.lod_cache_key();
+        match self.lod_worker.prepare(&key, || self.lod_snapshot_inputs(&key)) {
+            lod_worker::PrepareState::Unavailable => 0,
+            lod_worker::PrepareState::Ready => 1,
+            lod_worker::PrepareState::Building => 2,
+        }
+    }
+
+    /// Queue one tile for background synthesis.
+    ///
+    /// `false` when it was not queued — no snapshot yet, the same tile is
+    /// already in flight or already waiting to be collected, or the quality
+    /// tier's `max_in_flight` cap is full. A refusal is not an error: the
+    /// caller asks again next frame, which is what `viewport_host.gd`'s
+    /// backlog drain already does.
+    #[func]
+    fn lod_request_tile(&self, z: i32, col: i32, row: i32) -> bool {
+        self.lod_worker.request(z, col, row, lod_worker::budget_for_tier(self.quality).max_in_flight)
+    }
+
+    /// Collect up to `max` finished tiles, **as textures created here, on the
+    /// main thread** — the scope's *"the main thread uploads the texture"*.
+    ///
+    /// Each entry is `{z, col, row, tex}`. A tile whose `Image` cannot be
+    /// created is dropped rather than returned with a null `tex`, so the
+    /// shell never has to test for one (`MISTAKES.md`: *"omit the key"*).
+    #[func]
+    fn lod_take_ready_tiles(&self, max: i32) -> Array<VarDictionary> {
+        let mut out: Array<VarDictionary> = Array::new();
+        for t in self.lod_worker.take_ready(max.max(0) as usize) {
+            let packed = PackedByteArray::from(t.rgba);
+            let Some(image) = Image::create_from_data(t.w as i32, t.h as i32, false, Format::RGBA8, &packed) else {
+                continue;
+            };
+            let Some(tex) = ImageTexture::create_from_image(&image) else {
+                continue;
+            };
+            out.push(&dict! { "z" => t.z, "col" => t.col, "row" => t.row, "tex" => &tex });
+        }
+        out
+    }
+
+    /// The background synthesiser's own state, for the shell's diagnostics
+    /// and for `_d6async_probe.gd`.
+    ///
+    /// `pending` is the number the shell polls on: in-flight plus collected
+    /// but not yet drained. `retained_bytes` is what the milestone's memory
+    /// bar is read off and is measured from the live snapshot rather than
+    /// estimated from a formula.
+    #[func]
+    fn lod_worker_stats(&self) -> VarDictionary {
+        let (ready, building, in_flight, waiting, built, dropped, bytes) = self.lod_worker.stats();
+        dict! {
+            "ready" => ready,
+            "building" => building,
+            "in_flight" => in_flight as i64,
+            "waiting" => waiting as i64,
+            "pending" => (in_flight + waiting) as i64,
+            "built" => built as i64,
+            "dropped" => dropped as i64,
+            "retained_bytes" => bytes as i64,
+        }
+    }
+
+    /// **LOD-D6's *"the tier sets tile budget, maximum level and cache
+    /// size"***, for the tier this `WorldGen` is set to.
+    ///
+    /// Answered by the engine for the same reason [`Self::lod_level_for_zoom`]
+    /// is: `viewport_host.gd` held these as its own constants, and two places
+    /// deciding how deep the pyramid may go is the drift
+    /// [`Self::lod_max_level`] already exists to remove.
+    #[func]
+    fn lod_budget(&self) -> VarDictionary {
+        let b = lod_worker::budget_for_tier(self.quality);
+        dict! {
+            "tier" => self.quality.name(),
+            "tiles_per_update" => b.tiles_per_update as i64,
+            "tiles_per_catchup" => b.tiles_per_catchup as i64,
+            "max_level" => b.max_level,
+            "cache_tiles" => b.cache_tiles as i64,
+            "max_in_flight" => b.max_in_flight as i64,
+        }
+    }
+
+    /// Drop the tile context and everything queued against it.
+    ///
+    /// The shell calls this when it takes the pyramid down for good, so the
+    /// snapshot's clone of the world is not held for the rest of the session.
+    /// Jobs already running are not cancelled — nothing in `rayon` can — they
+    /// land against a bumped generation and are discarded.
+    #[func]
+    fn lod_release_worker(&self) {
+        self.lod_worker.invalidate();
+    }
+
     /// [`Self::lod_synthesize_tile`] without the Godot half — the seam the
     /// probe-free tests reach, and the one place the cache is consulted.
     ///
@@ -12026,73 +12158,26 @@ impl WorldGen {
     /// and is exactly why the part that can be tested elsewhere should not be
     /// welded to the part that cannot).
     fn lod_tile_bytes(&self, z: i32, col: i32, row: i32) -> Option<(Vec<u8>, usize, usize)> {
-        let (field, temperature, rainfall, flow) = match self.source.as_ref()? {
-            WorldSource::Generated(ws) => (&ws.field, &ws.temperature, &ws.rainfall, Some(ws.flow_discharge.as_slice())),
-            WorldSource::Loaded(save) => (&save.fields.heightmap, &save.fields.temperature, &save.fields.rainfall, None),
-        };
-        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        if gw < 2 || gh < 2 {
-            return None;
-        }
+        self.lod_snapshot()?.render_tile(z, col, row)
+    }
+
+    /// The live snapshot for this world and appearance, **built here and now
+    /// if there is not one** — the synchronous path, unchanged in what it
+    /// costs the caller and unchanged in what it produces.
+    ///
+    /// LOD-D6 put the same object behind [`Self::lod_prepare`], which builds
+    /// it on a worker instead. Both install into the same `LodWorker`, so a
+    /// shell that prepares asynchronously and a probe that calls
+    /// [`Self::lod_synthesize_tile`] directly share one copy rather than
+    /// holding two of the 50 MB.
+    fn lod_snapshot(&self) -> Option<std::sync::Arc<lod_worker::LodSnapshot>> {
         let key = self.lod_cache_key();
-        // Refresh first, in its own scope: the mutable borrow must be dropped
-        // before the immutable one below, and a `RefCell` enforces that at
-        // runtime rather than at compile time, so the scope is load-bearing.
-        if self.lod.borrow().key != key {
-            let built = self.build_lod_cache(&key)?;
-            let mut slot = self.lod.borrow_mut();
-            // The raster snapshot is keyed separately and survives a cache
-            // rebuild only when it is still for this key -- `build_lod_cache`
-            // has already read it, so dropping a stale one here is what keeps
-            // a superseded 8 MB raster from being held for the rest of the
-            // session.
-            let keep = slot.grid_rgb.take().filter(|(k, _)| *k == key);
-            *slot = built;
-            slot.grid_rgb = keep;
+        if let Some(s) = self.lod_worker.snapshot_for(&key) {
+            return Some(s);
         }
-        let cache = self.lod.borrow();
-        let appearance = self.appearance();
-        let mut ctx = render::RenderCtx::from_precomputed(
-            field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance, cache.pre.as_ref()?,
-        )?;
-        // The same four builders `build_color_texture` attaches, in the same
-        // order, for the reason `export_raster.rs::export_render` records
-        // about its own copy: a capability wired to one consumer path and not
-        // the other is this port's own documented failure mode, and a tile
-        // that ignores the paint brush or the loaded pack is a tile that
-        // disagrees with the map it sits on.
-        if let Some(lith) = cache.lithology.as_ref() {
-            ctx = ctx.with_lithology(lith);
-        }
-        // **`with_map_scale` is deliberately NOT called here**, although
-        // `build_color_texture` calls it in exactly this slot. Its three
-        // outputs -- the river SDF, the biome boundary distance and
-        // `river_thresh` -- are already in the cached `GridPrecompute`
-        // (`build_lod_cache` passes `Some(map_width_km)`, which is what that
-        // argument is for), and calling it again would recompute two full-grid
-        // distance transforms per tile and overwrite the cache's own with
-        // identical values. `map_width_km` is part of the cache key, so the
-        // two cannot disagree.
-        if let Some(loaded) = self.asset_pack.as_ref() {
-            ctx = ctx.with_splat(SplatTextures {
-                grass: loaded.splat.get("grass"),
-                rock: loaded.splat.get("rock"),
-                sand: loaded.splat.get("sand"),
-                snow: loaded.splat.get("snow"),
-                wetland: loaded.splat.get("wetland"),
-                canopy: loaded.splat.get("canopy"),
-            });
-            ctx = ctx.with_ground_tiles(render::GroundTiles { biomes: &loaded.biomes, terrains: &loaded.terrains });
-        }
-        if let Some(p) = self.paint.as_ref() {
-            ctx = ctx.with_paint(p.layer_cells(paint_bridge::PaintTarget::Biome), p.layer_cells(paint_bridge::PaintTarget::Terrain), p.layer_cells(paint_bridge::PaintTarget::Splat));
-        }
-        let mut tf = cache.fields.as_ref()?.borrowed();
-        if let Some(ink) = self.river_ink() {
-            tf = tf.with_ink(ink);
-        }
-        tf = tf.with_color_space(self.color_space);
-        lod_bridge::synthesize_tile_rgba(&ctx, &tf, z, col, row, self.seed)
+        let snap = std::sync::Arc::new(lod_worker::LodSnapshot::build(self.lod_snapshot_inputs(&key)?)?);
+        self.lod_worker.install(std::sync::Arc::clone(&snap));
+        Some(snap)
     }
 
     /// Everything [`LodCtxCache`]'s three members are a function of, as one
@@ -12167,67 +12252,112 @@ impl WorldGen {
         )
     }
 
-    /// Builds [`LodCtxCache`] for `key`. `None` before any world.
-    fn build_lod_cache(&self, key: &str) -> Option<LodCtxCache> {
-        let (field, temperature, rainfall, flow) = match self.source.as_ref()? {
-            WorldSource::Generated(ws) => (&ws.field, &ws.temperature, &ws.rainfall, Some(ws.flow_discharge.as_slice())),
-            WorldSource::Loaded(save) => (&save.fields.heightmap, &save.fields.temperature, &save.fields.rainfall, None),
-        };
+    /// Everything `lod_worker::LodSnapshot::build` consumes, assembled from
+    /// this world — the **only** part of building a tile context that has to
+    /// happen on the main thread, because it is the only part that reads
+    /// `WorldGen`.
+    ///
+    /// It is a clone, and the clone is this milestone's cost:
+    /// `SnapshotInputs`' own doc comment states the bytes. The four
+    /// tectonic-substrate fields are cloned too and are dropped by the build,
+    /// so they are a transient peak rather than a retained one. `None` before
+    /// any world, and on the same degenerate-grid guard the pre-D6
+    /// `build_lod_cache` used.
+    ///
+    /// The attachments are read in the same order `lod_tile_bytes` attached
+    /// them before LOD-D6 — lithology, pack splat and ground tiles, paint —
+    /// so the snapshot carries exactly the inputs the synchronous path did.
+    fn lod_snapshot_inputs(&self, key: &str) -> Option<lod_worker::SnapshotInputs> {
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        if gw < 2 || gh < 2 || field.len() < gw * gh {
+        if gw < 2 || gh < 2 {
             return None;
         }
-        let appearance = self.appearance();
-        let pre = render::GridPrecompute::build(field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, &appearance, Some(self.map_width_km));
-        // The same call `build_color_texture` makes, and `None` under the same
-        // condition: a loaded save's format stores none of the tectonic
-        // substrate this needs (`SAVEFILE_COMPAT.md`).
-        let lithology = match self.source.as_ref()? {
-            WorldSource::Generated(ws) => Some(cartalith_civ::build_lithology(&ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, self.sea_level)),
-            WorldSource::Loaded(_) => None,
+        let (field, temperature, rainfall, flow, litho) = match self.source.as_ref()? {
+            WorldSource::Generated(ws) => (
+                ws.field.clone(),
+                ws.temperature.clone(),
+                ws.rainfall.clone(),
+                Some(ws.flow_discharge.clone()),
+                // The same call `build_color_texture` makes, and absent under
+                // the same condition: a loaded save's format stores none of
+                // the tectonic substrate (`SAVEFILE_COMPAT.md`), which is why
+                // the `Loaded` arm below passes `None` and gets the no-geology
+                // picture rather than an invented rock type.
+                Some(lod_worker::LithoSource {
+                    age: ws.age_field.clone(),
+                    volcanic: ws.volcanic_field.clone(),
+                    crust: ws.crust_field.clone(),
+                    resistance: ws.resistance_field.clone(),
+                }),
+            ),
+            WorldSource::Loaded(save) => (save.fields.heightmap.clone(), save.fields.temperature.clone(), save.fields.rainfall.clone(), None, None),
         };
-        // A throwaway context, only so `TileFields::new` has the `ctx` its
-        // signature takes. It borrows `pre`, which is why `pre` is moved into
-        // the cache after this block and not before it.
-        let fields = {
-            let mut ctx = render::RenderCtx::from_precomputed(field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance.clone(), &pre)?;
-            if let Some(lith) = lithology.as_ref() {
-                ctx = ctx.with_lithology(lith);
-            }
-            let snapshot = self.lod.borrow();
-            let rgb = snapshot.grid_rgb.as_ref().filter(|(k, _)| k == key).map(|(_, b)| b.clone());
-            drop(snapshot);
-            // `LOD_DETAIL_SCOPE.md` LOD-D4. Built HERE, in the cache, and not
-            // inside `TileFields::new`: the field needs `glacial_snowline`
-            // and `peak_m`, which are *generation* parameters, and the map
-            // width in km -- three numbers a `RenderCtx` does not carry, so
-            // `new` would have to guess them.
-            //
-            // A **loaded save takes the snow-only fallback by data, not by a
-            // branch here**: `flow` is already `None` above for a loaded
-            // save, and `build_glacier_potential` returns an empty field for
-            // a `None` flow with that reason in its own doc comment. So there
-            // is one place that decides, and this call site cannot disagree
-            // with it.
-            let glacier = render::build_glacier_potential(
-                field,
-                temperature,
-                flow,
-                gw,
-                gh,
-                self.sea_level,
-                self.params.passes.glacial_snowline,
-                self.map_width_km / gw.max(1) as f64,
-                self.world,
-            );
-            let cryo = render::TileCryo {
-                lapse_rate: self.params.climate.lapse_rate,
-                g: self.params.planet.g,
-                meters_per_unit: if (1.0 - self.sea_level).abs() > 1e-9 { self.params.peak_m / (1.0 - self.sea_level) } else { self.params.peak_m / 1e-6 },
-            };
-            render::TileFields::new(&ctx, rgb.as_deref()).with_cryo(glacier, cryo)
+        if field.len() < gw.checked_mul(gh)? {
+            return None;
+        }
+        // `RiverInk` is two borrowed slices by design; a worker cannot borrow
+        // from `WorldGen`, so the bytes are copied. The *rule* for which of
+        // the two it is stays `river_ink`'s own, read through it rather than
+        // re-decided here, so the tile path and the screen cannot disagree
+        // about whether a world has a stamp.
+        let ink = self.river_ink().map(|i| match i {
+            render::RiverInk::Stamped(v) => lod_worker::OwnedInk::Stamped(v.to_vec()),
+            render::RiverInk::Flag(v) => lod_worker::OwnedInk::Flag(v.to_vec()),
+        });
+        let (splat, ground_biomes, ground_terrains) = match self.asset_pack.as_ref() {
+            Some(loaded) => (
+                Some(lod_worker::OwnedSplat {
+                    grass: loaded.splat.get("grass").cloned(),
+                    rock: loaded.splat.get("rock").cloned(),
+                    sand: loaded.splat.get("sand").cloned(),
+                    snow: loaded.splat.get("snow").cloned(),
+                    wetland: loaded.splat.get("wetland").cloned(),
+                    canopy: loaded.splat.get("canopy").cloned(),
+                }),
+                loaded.biomes.clone(),
+                loaded.terrains.clone(),
+            ),
+            None => (None, Vec::new(), Vec::new()),
         };
-        Some(LodCtxCache { key: key.to_string(), pre: Some(pre), lithology, fields: Some(fields), grid_rgb: None })
+        let paint = self.paint.as_ref();
+        let grid_rgb = {
+            let slot = self.lod.borrow();
+            slot.grid_rgb.as_ref().filter(|(k, _)| k == key).map(|(_, b)| b.clone())
+        };
+        Some(lod_worker::SnapshotInputs {
+            key: key.to_string(),
+            gw,
+            gh,
+            sea_level: self.sea_level,
+            world: self.world,
+            lat_n: self.lat_n,
+            lat_s: self.lat_s,
+            map_width_km: self.map_width_km,
+            // From this world's own state, never a caller-guessed one —
+            // `region_export_tiles`' documented convention, and the reason
+            // `seed` is deliberately absent from `lod_cache_key`.
+            seed: self.seed,
+            field,
+            temperature,
+            rainfall,
+            flow,
+            litho,
+            appearance: self.appearance(),
+            color_space: self.color_space,
+            ink,
+            splat,
+            ground_biomes,
+            ground_terrains,
+            paint_present: paint.is_some(),
+            paint_biome: paint.and_then(|p| p.layer_cells(paint_bridge::PaintTarget::Biome)).map(|c| c.to_vec()),
+            paint_terrain: paint.and_then(|p| p.layer_cells(paint_bridge::PaintTarget::Terrain)).map(|c| c.to_vec()),
+            paint_splat: paint.and_then(|p| p.layer_cells(paint_bridge::PaintTarget::Splat)).map(|c| c.to_vec()),
+            grid_rgb,
+            glacial_snowline: self.params.passes.glacial_snowline,
+            peak_m: self.params.peak_m,
+            lapse_rate: self.params.climate.lapse_rate,
+            gravity: self.params.planet.g,
+        })
     }
 }
 

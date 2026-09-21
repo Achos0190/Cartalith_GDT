@@ -4645,6 +4645,82 @@ func lod_morph(px_per_cell: float, z: int) -> float:
 		return 1.0
 	return world_gen.lod_morph(px_per_cell, z)
 
+# -- LOD-D6 · tile synthesis off the main thread ------------------------------
+#
+# `lod_synthesize_tile()` above stays exactly what it was: synchronous, and
+# what `_lodsweep_probe.gd`'s metric 5 times. The five below are the
+# non-blocking route -- prepare, request, drain, inspect, release. Both end in
+# the same coloriser in Rust (`lod_worker::LodSnapshot::render_tile`), so a
+# worker-built tile and a main-thread one are the same bytes by construction.
+
+## Whether this binary can synthesise tiles off the main thread at all.
+##
+## **The gate the shell must use, and not `has_method` on this object.** These
+## forwarders are shipped GDScript and always exist, so `has_method` on the
+## bridge answers a question about *this file* rather than about the loaded
+## `.dll`. Only `_has()` reaches through to the extension, and an older
+## extension has to degrade to the pre-LOD-D6 synchronous path rather than to
+## a pyramid that never fills in.
+func lod_async_available() -> bool:
+	return _has("lod_prepare") and _has("lod_request_tile") and _has("lod_take_ready_tiles")
+
+## Start, or confirm, the background build of the tile context -- the
+## `RenderCtx` precomputes and `TileFields` that LOD-D2 measured at 201.5 ms +
+## 278.2 ms at 2048x1311 and that every tile of a zoom notch shares.
+##
+## `0` unavailable (no world), `1` ready (tiles can be requested), `2`
+## building. **`0` against a binary without it**, which is the same answer as
+## "no world" and is what makes the caller fall back rather than wait forever
+## -- callers gate on `lod_async_available()` first.
+func lod_prepare() -> int:
+	if not _has("lod_prepare"):
+		return 0
+	return world_gen.lod_prepare()
+
+## Queue one chunk for background synthesis. `false` when it was not queued:
+## no context yet, the same chunk already in flight, or the quality tier's
+## in-flight cap full. Not an error -- the caller asks again next frame.
+func lod_request_tile(z: int, col: int, row: int) -> bool:
+	if not _has("lod_request_tile"):
+		return false
+	return world_gen.lod_request_tile(z, col, row)
+
+## Collect up to `max` finished tiles as `{z, col, row, tex}`. The textures
+## are created inside the engine call, on the calling (main) thread -- the
+## scope's *"the main thread uploads the texture"*.
+func lod_take_ready_tiles(max: int) -> Array:
+	if not _has("lod_take_ready_tiles"):
+		return []
+	return world_gen.lod_take_ready_tiles(max)
+
+## The background synthesiser's own state: `{ready, building, in_flight,
+## waiting, pending, built, dropped, retained_bytes}`. `{}` against a binary
+## without it, so a caller tests the key it wants rather than a version.
+func lod_worker_stats() -> Dictionary:
+	if not _has("lod_worker_stats"):
+		return {}
+	return world_gen.lod_worker_stats()
+
+## The quality tier's LOD policy: `{tier, tiles_per_update, tiles_per_catchup,
+## max_level, cache_tiles, max_in_flight}` (`lod_worker::budget_for_tier`).
+##
+## `{}` against a binary without it, which is what makes `ViewportHost` fall
+## back to its own pre-LOD-D6 constants rather than to zero -- a budget of
+## zero tiles is an empty pyramid, and a silent one.
+func lod_budget() -> Dictionary:
+	if not _has("lod_budget"):
+		return {}
+	return world_gen.lod_budget()
+
+## Drop the tile context and everything queued against it. The retained clone
+## of the world's four fields is the largest single thing the LOD path holds
+## (43 MB at 2048x1311), so this is what a caller leaving deep zoom for good,
+## or a probe wanting a cold start, uses.
+func lod_release_worker() -> void:
+	if not _has("lod_release_worker"):
+		return
+	world_gen.lod_release_worker()
+
 # -- F13 · the two ops_bridge bindings the shell reaches for -----------------
 
 ## `_civRegionalPopulation` (reference line 23297): the modeled persons/km²

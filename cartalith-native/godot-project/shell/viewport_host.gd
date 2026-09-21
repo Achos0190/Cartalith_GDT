@@ -316,6 +316,54 @@ var _lod_backlog_size := Vector2.ZERO   ## `_process()` reuses it rather than
 	## Every consumer derives it from the tile's own level instead -- one
 	## fewer thing that can be right for one of the two.
 
+## **LOD-D6.** `"%d,%d,%d"` -> `Vector3i(z, col, row)` for every chunk handed
+## to the background synthesiser and not yet landed.
+##
+## Distinct from `_lod_backlog`, which is the chunks nobody has *asked* for
+## yet: a tile in flight must not be asked for twice, and a tile that lands
+## after its chunk stopped being wanted must be dropped rather than added.
+## `_drain_lod_tiles()` is the only thing that removes an entry.
+var _lod_pending: Dictionary = {}
+
+## **LOD-D6's tile cache** -- `"%d,%d,%d"` -> a detached `Sprite2D`, kept alive
+## after its chunk left the view so that panning back or re-entering a level
+## costs no synthesis at all. `_lod_cache_order` is the LRU order, oldest
+## first, and the cap is the quality tier's `cache_tiles`
+## (`lod_worker::budget_for_tier`).
+##
+## A parked tile is `remove_child`ed from `_lod_layer`, not freed, so it draws
+## nothing while parked. `_clear_lod_tiles()` frees the whole cache: every
+## entry belongs to the world and appearance that built it, and the engine's
+## own cache key is what decides that -- this side must never outlive it.
+var _lod_cache: Dictionary = {}
+var _lod_cache_order: Array[String] = []
+
+## **LOD-D6's escape hatch, for probes and for a binary that cannot thread.**
+##
+## `true` puts tile synthesis back on the main thread, inside `_update_lod()`,
+## exactly as it ran before LOD-D6. It changes no pixel -- both paths end in
+## `lod_worker::LodSnapshot::render_tile`, which is the milestone's whole
+## determinism argument -- only *when* the tile appears.
+##
+## It exists because several committed probes read `_lod_tiles` one to four
+## frames after moving the camera and assert on what they find
+## (`_d3morph_probe`'s level census, `_mapsharp_probe`'s two
+## nothing-owed-to-a-redraw pixel diffs, `_lodsweep_probe`'s planted-defect
+## runs, which erase entries from `_lod_tiles` and re-capture three frames
+## later). Those probes test the *compositor*, not the threading, and a
+## deterministic tile arrival is the premise they were written against. They
+## set this, in one line each, and keep testing what they were built to test.
+##
+## It is also what `_update_lod()` falls back to against a binary built before
+## `lod_prepare` existed, so an older `.dll` degrades to the pre-D6 behaviour
+## rather than to a blank pyramid.
+var _lod_sync := false
+
+## The engine's answer to `lod_budget()` for the live quality tier, re-read
+## once per `_update_lod()` call rather than per tile. Empty against a binary
+## built before LOD-D6, which is what `_lod_budget_value()` tests.
+var _lod_budget: Dictionary = {}
+
 ## **LOD-D3's morph table**: pyramid level -> how far that level has faded in
 ## at the current zoom, `WorldGen::lod_morph` (`lod_bridge::morph_for_zoom`).
 ##
@@ -2579,6 +2627,13 @@ func _update_lod() -> void:
 		_set_lod_active(false)
 		return
 
+	## **LOD-D6.** The quality tier's tile budget, maximum level and cache
+	## size, read once per call and never per tile. Asked of the engine for
+	## the reason `lod_level_for_zoom` is: these were this file's own
+	## constants, and two places deciding how deep the pyramid may go is the
+	## drift `lod_max_level()` already exists to remove.
+	_refresh_lod_budget()
+
 	var g := _bridge.grid_size()
 	if g.x <= 1 or g.y <= 1 or size.x <= 0.0 or size.y <= 0.0:
 		_set_lod_active(false)
@@ -2627,10 +2682,39 @@ func _update_lod() -> void:
 	var max_z := _bridge.lod_max_level()
 	if max_z > 0:
 		z = mini(z, max_z)
+	## **LOD-D6's per-tier ceiling**, on top of the engine's absolute one.
+	## `lod_max_level()` is what the pyramid *can* reach; this is what this
+	## device's tier is willing to pay for, and the scope's own example is
+	## "Android Performance gets `MAX_LEVEL - 1`". `0` means a binary built
+	## before LOD-D6, which leaves the absolute ceiling alone.
+	var tier_max: int = _lod_budget_value("max_level", 0)
+	if tier_max > 0:
+		z = mini(z, tier_max)
 	var n: int = _bridge.lod_tiles_per_axis(z)
 	if n <= 0:
 		_set_lod_active(false)
 		return
+
+	## **LOD-D6.** Start, or confirm, the background context build.
+	##
+	## This is the only thing that ever starts it. It used to happen inside
+	## the first `lod_synthesize_tile()` of a zoom notch, on this thread, and
+	## LOD-D2 measured it at 201.5 ms + 278.2 ms at 2048x1311 -- LOD-D3
+	## recorded the consequence as a 132 ms -> 225 ms worst camera step at LOD
+	## entry and filed it as this milestone. Now it returns immediately and
+	## the build runs on a worker.
+	##
+	## `2` (building) is not a failure and does not take the layer down: every
+	## `lod_request_tile` below refuses while it is true, the whole wanted set
+	## lands in the backlog, and `_process()` retries each frame until the
+	## context arrives. What covers the screen meanwhile is LOD-D3's base-map
+	## fallback, which is the state it was built for. `0` means there is
+	## nothing to build a context from, which is what the guards above answer
+	## the same way.
+	if not _lod_sync and _bridge.lod_async_available():
+		if _bridge.lod_prepare() == 0:
+			_set_lod_active(false)
+			return
 
 	var displayed_size := Vector2(g.x, g.y) * native_scale
 	var displayed_origin := (size - displayed_size) * 0.5
@@ -2785,7 +2869,7 @@ func _update_lod() -> void:
 
 	var build_keys: Dictionary = missing
 	var trimmed := false
-	if missing.size() > MAX_LOD_TILES_PER_UPDATE:
+	if missing.size() > _lod_budget_value("tiles_per_update", MAX_LOD_TILES_PER_UPDATE):
 		## **Build what the viewer can see first.** With two levels wanted at
 		## once, "closest to the centre" is no longer the whole priority: which
 		## LEVEL a missing tile belongs to decides whether its absence is
@@ -2797,7 +2881,7 @@ func _update_lod() -> void:
 		var prefer := z
 		if pz >= 0 and float(_lod_morph[z]) < 0.5:
 			prefer = pz
-		build_keys = _nearest_tiles(missing, Vector2((c0 + c1) * 0.5, (r0 + r1) * 0.5), z, prefer)
+		build_keys = _nearest_tiles(missing, Vector2((c0 + c1) * 0.5, (r0 + r1) * 0.5), z, prefer, _lod_budget_value("tiles_per_update", MAX_LOD_TILES_PER_UPDATE))
 		trimmed = true
 
 	## Whatever didn't make this call's budget -- replaces the previous
@@ -2839,7 +2923,10 @@ func _lod_step(g: Vector2i, n: int) -> Vector2:
 ## parent as twice as close to the origin as it is, which at a screen edge is
 ## the difference between queueing the parent that is on screen and the one
 ## that is not.
-func _nearest_tiles(wanted: Dictionary, centre: Vector2, child_level: int, prefer_level: int) -> Dictionary:
+## `budget` is the quality tier's `tiles_per_update` (LOD-D6); it was the
+## constant `MAX_LOD_TILES_PER_UPDATE` until then, which is still what the
+## caller passes against a binary that cannot answer `lod_budget()`.
+func _nearest_tiles(wanted: Dictionary, centre: Vector2, child_level: int, prefer_level: int, budget: int) -> Dictionary:
 	var rank := func(idx: Vector3i) -> Vector2:
 		var f := float(1 << maxi(0, child_level - idx.x))
 		var group := 0.0 if idx.x == prefer_level else 1.0
@@ -2853,7 +2940,7 @@ func _nearest_tiles(wanted: Dictionary, centre: Vector2, child_level: int, prefe
 			return ra.x < rb.x
 		return ra.y < rb.y)
 	var trimmed: Dictionary = {}
-	for i in range(MAX_LOD_TILES_PER_UPDATE):
+	for i in range(mini(budget, keys.size())):
 		trimmed[keys[i]] = wanted[keys[i]]
 	return trimmed
 
@@ -2872,8 +2959,11 @@ func _nearest_tiles(wanted: Dictionary, centre: Vector2, child_level: int, prefe
 func _apply_lod_tiles(wanted: Dictionary, build_keys: Dictionary, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> void:
 	for key in _lod_tiles.keys().duplicate():
 		if not wanted.has(key):
-			(_lod_tiles[key] as Sprite2D).queue_free()
-			_lod_tiles.erase(key)
+			## **LOD-D6**: parked, not freed. A chunk that scrolled out is
+			## very often the chunk that scrolls back in, and re-synthesising
+			## it costs a worker job and a frame of absence. `_park_lod_tile`
+			## falls back to freeing when the tier authorises no cache.
+			_park_lod_tile(key)
 
 	for key in wanted.keys():
 		var idx: Vector3i = wanted[key]
@@ -3061,7 +3151,48 @@ func _place_lod_tile(sprite: Sprite2D, rect: Rect2) -> void:
 ## (`MAX_LOD_TILES_PER_UPDATE` per input event, or
 ## `MAX_LOD_TILES_PER_CATCHUP` per idle frame).
 func _build_lod_tile(key: String, idx: Vector3i, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> void:
+	## **LOD-D6, first**: a parked tile for this chunk is already the finished
+	## article. Nothing is synthesised, on either thread.
+	if _restore_lod_tile(key, idx, g, displayed_origin, displayed_size):
+		return
+	## **LOD-D6, second**: hand it to the background synthesiser and return.
+	## `_drain_lod_tiles()` installs it when it lands, some frames later.
+	##
+	## `lod_async_available()` and NOT `_bridge.has_method(...)`: the bridge
+	## forwarders are shipped GDScript and always exist, so `has_method` on
+	## the bridge answers a question about that file rather than about the
+	## loaded `.dll`. A `.dll` built before this milestone falls back to the
+	## synchronous path below -- the same bytes through the same coloriser,
+	## only on this thread.
+	if not _lod_sync and _bridge.lod_async_available():
+		if _lod_pending.has(key):
+			return
+		if _bridge.lod_request_tile(idx.x, idx.y, idx.z):
+			_lod_pending[key] = idx
+		else:
+			## Refused. Not an error and not a drop: the tier's in-flight cap
+			## is full, or the context is still building. It goes back into
+			## the backlog and `_process()` asks again next frame, which is
+			## the mechanism that already existed for a tile that missed the
+			## per-call budget.
+			_lod_backlog[key] = idx
+		set_process(true)
+		return
 	var tex := _bridge.lod_synthesize_tile(idx.x, idx.y, idx.z)
+	if tex == null:
+		return
+	_install_lod_tile(key, idx, tex, g, displayed_origin, displayed_size)
+
+## The Godot half of `_build_lod_tile`, reached from both paths: a finished
+## texture becomes a positioned, blended `Sprite2D` in `_lod_layer`.
+##
+## Split out by LOD-D6 because the synchronous path has the texture in hand
+## the moment it asks for it and the asynchronous one gets it frames later,
+## from `lod_take_ready_tiles()` -- and everything after "there is a texture"
+## is identical for the two. A second copy of this is how a tile built on a
+## worker would come to be laid out or blended differently from one built
+## here, which is the failure this milestone must not have.
+func _install_lod_tile(key: String, idx: Vector3i, tex: Texture2D, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> void:
 	if tex == null:
 		return
 	## After synthesis, not before: the rect is derived from the texture's own
@@ -3128,12 +3259,17 @@ func _build_lod_tile(key: String, idx: Vector3i, g: Vector2i, displayed_origin: 
 ## processing the moment the backlog empties, so this costs nothing once
 ## everything wanted is on screen.
 func _process(_delta: float) -> void:
-	if _lod_backlog.is_empty():
+	if _lod_backlog.is_empty() and _lod_pending.is_empty():
 		set_process(false)
 		return
+	## **LOD-D6**: collect what the background synthesiser finished, first.
+	## Before asking for more, so a frame's `tiles_per_catchup` is spent on
+	## tiles that exist rather than on queueing against a full in-flight cap.
+	var landed := _drain_lod_tiles()
+	var per_frame: int = _lod_budget_value("tiles_per_catchup", MAX_LOD_TILES_PER_CATCHUP)
 	var n := 0
 	for key in _lod_backlog.keys().duplicate():
-		if n >= MAX_LOD_TILES_PER_CATCHUP:
+		if n >= per_frame:
 			break
 		var idx: Vector3i = _lod_backlog[key]
 		_lod_backlog.erase(key)
@@ -3144,10 +3280,178 @@ func _process(_delta: float) -> void:
 	## A tile arriving here can be some other tile's parent, which flips that
 	## tile's blend partner from the base map to this one -- see
 	## `_refresh_lod_blend()`.
-	_refresh_lod_blend()
-	_lod_debug_dirty()
-	if _lod_backlog.is_empty():
+	if landed or n > 0:
+		_refresh_lod_blend()
+		_lod_debug_dirty()
+	if _lod_backlog.is_empty() and _lod_pending.is_empty():
 		set_process(false)
+
+## **LOD-D6.** Installs every tile the background synthesiser has finished,
+## up to the tier's per-frame budget. Returns whether anything landed, which
+## is what decides whether the blend pass and the debug overlay are worth
+## re-running this frame.
+##
+## The geometry is `_update_lod()`'s own, the same values `_process()`'s
+## backlog drain already reuses and safe for the same reason: any camera
+## motion that would stale it runs `_update_lod()` first, which replaces both
+## the backlog and this geometry before `_process()` next runs.
+##
+## **Three kinds of arrival are dropped rather than drawn**, and none is an
+## error. A chunk already live was built by a path in between. A chunk whose
+## level is neither the level being drawn nor its parent fallback belongs to a
+## pyramid level the camera has left; `_apply_lod_tiles()` would free it on
+## the next call anyway, and drawing it for those frames is a wrong-resolution
+## flash at exactly the transition LOD-D3's morph exists to hide. And a tile
+## that lands before any `_update_lod()` has recorded a geometry has nowhere
+## to be placed.
+func _drain_lod_tiles() -> bool:
+	if _lod_pending.is_empty() or not _bridge.lod_async_available():
+		return false
+	var per_frame: int = _lod_budget_value("tiles_per_catchup", MAX_LOD_TILES_PER_CATCHUP)
+	var ready: Array = _bridge.lod_take_ready_tiles(per_frame)
+	if ready.is_empty():
+		_reconcile_lod_pending()
+		return false
+	var installed := false
+	for entry in ready:
+		var d: Dictionary = entry
+		var idx := Vector3i(int(d.get("z", -1)), int(d.get("col", 0)), int(d.get("row", 0)))
+		var key := "%d,%d,%d" % [idx.x, idx.y, idx.z]
+		_lod_pending.erase(key)
+		if _lod_tiles.has(key):
+			continue
+		if idx.x != _lod_child_level and idx.x != _lod_parent_level:
+			continue
+		if _lod_backlog_grid.x <= 1 or _lod_backlog_size.x <= 0.0:
+			continue
+		_install_lod_tile(key, idx, d.get("tex", null) as Texture2D, _lod_backlog_grid, _lod_backlog_origin, _lod_backlog_size)
+		installed = true
+	_reconcile_lod_pending()
+	return installed
+
+## **A chunk this side is waiting for and the engine is not working on.**
+##
+## `lod_request_tile()` is accepted for a chunk the coloriser then refuses --
+## an index outside its level, or a world that stopped being buildable while
+## the job was queued. The engine counts those as dropped and they are never
+## handed back, so without this the key would sit in `_lod_pending` for the
+## rest of the session: `lod_pending()` would never reach zero, `_process()`
+## would never turn itself off, and a probe waiting to settle would wait for
+## ever. The symptom is quiet, which is what makes it worth a function.
+##
+## The condition is the engine's own book-keeping, not a timeout: nothing in
+## flight **and** nothing waiting to be collected means every request this
+## side is holding has already been answered, one way or the other. A chunk
+## dropped here is simply re-requested by the next `_update_lod()` if it is
+## still wanted, and is forgotten if it is not.
+func _reconcile_lod_pending() -> void:
+	if _lod_pending.is_empty():
+		return
+	var st: Dictionary = _bridge.lod_worker_stats()
+	if st.is_empty():
+		return
+	if int(st.get("in_flight", 1)) == 0 and int(st.get("waiting", 1)) == 0:
+		_lod_pending.clear()
+
+## **LOD-D6's tile cache, the taking side.** Re-attaches a parked `Sprite2D`
+## for `key` and returns whether it did.
+##
+## The material parameters are re-set rather than trusted: `base_tex` is
+## `map_view.texture`, which a re-render replaces, and the two UV corners are
+## a function of the fit rect, which a resize moves. The tile's own pixels are
+## keyed by the engine's cache key and are invalidated by
+## `_clear_lod_tiles()`; these three are not, and re-setting them costs three
+## calls against a whole synthesis.
+func _restore_lod_tile(key: String, idx: Vector3i, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> bool:
+	if not _lod_cache.has(key):
+		return false
+	var s := _lod_cache[key] as Sprite2D
+	_lod_cache.erase(key)
+	_lod_cache_order.erase(key)
+	if s == null or not is_instance_valid(s):
+		return false
+	var rect = _lod_tile_rect(idx, s.texture, g, displayed_origin, displayed_size)
+	if rect == null:
+		s.queue_free()
+		return false
+	_place_lod_tile(s, rect)
+	var mat := s.material as ShaderMaterial
+	if mat != null:
+		mat.set_shader_parameter("base_tex", map_view.texture)
+		mat.set_shader_parameter("base_uv0", (rect.position - displayed_origin) / displayed_size)
+		mat.set_shader_parameter("base_uv1", (rect.end - displayed_origin) / displayed_size)
+	_lod_layer.add_child(s)
+	if idx.x < _lod_child_level:
+		_lod_layer.move_child(s, 0)
+	_lod_tiles[key] = s
+	return true
+
+## **LOD-D6's tile cache, the giving side.** Detaches the live tile for `key`
+## and parks it, evicting the least recently used entry when the tier's
+## `cache_tiles` is full.
+##
+## `remove_child` rather than `visible = false`: a hidden child still costs a
+## canvas item every frame, and the point of parking is that it costs nothing
+## until it is wanted. A tier authorising no cache frees outright, which is
+## exactly what this call site did before this function existed.
+func _park_lod_tile(key: String) -> void:
+	var s := _lod_tiles[key] as Sprite2D
+	_lod_tiles.erase(key)
+	if s == null or not is_instance_valid(s):
+		return
+	var cap: int = _lod_budget_value("cache_tiles", 0)
+	if cap <= 0:
+		s.queue_free()
+		return
+	_lod_layer.remove_child(s)
+	_lod_cache[key] = s
+	_lod_cache_order.erase(key)
+	_lod_cache_order.append(key)
+	while _lod_cache_order.size() > cap:
+		var oldest: String = _lod_cache_order.pop_front()
+		var victim := _lod_cache.get(oldest, null) as Sprite2D
+		_lod_cache.erase(oldest)
+		if victim != null and is_instance_valid(victim):
+			victim.queue_free()
+
+## Frees every parked tile. Called from `_clear_lod_tiles()` and from nowhere
+## else: a parked tile belongs to the world, size and appearance that built
+## it, and the one place that knows all three have stopped being current is
+## the clear.
+func _drop_lod_cache() -> void:
+	for key in _lod_cache.keys():
+		var s := _lod_cache[key] as Sprite2D
+		if s != null and is_instance_valid(s):
+			s.queue_free()
+	_lod_cache.clear()
+	_lod_cache_order.clear()
+
+## **LOD-D6.** Re-reads the quality tier's budget from the engine. One call
+## per `_update_lod()`. `EngineBridge.lod_budget()` answers `{}` against a
+## binary built before the milestone, which is what makes every
+## `_lod_budget_value()` fall back to this file's own pre-D6 constants
+## rather than to a budget of zero -- an empty pyramid, and a silent one.
+func _refresh_lod_budget() -> void:
+	_lod_budget = _bridge.lod_budget()
+
+## One number out of the tier budget, with the pre-LOD-D6 constant as the
+## fallback. A missing key and an old binary are the same answer deliberately:
+## both mean "this file decides", and both are the behaviour that shipped.
+func _lod_budget_value(key: String, fallback: int) -> int:
+	if _lod_budget.has(key):
+		return int(_lod_budget[key])
+	return fallback
+
+## **LOD-D6.** How many chunks are wanted and not yet on screen: queued for a
+## worker, plus waiting for a per-call budget. `0` means the pyramid has
+## caught up with the camera.
+##
+## Public because a probe cannot otherwise tell a still-filling pyramid from
+## a finished one, and a fixed frame count is a claim about how fast the
+## machine is rather than about the work (`MISTAKES.md`'s rule for a timing
+## applies to a wait as much as to a measurement).
+func lod_pending() -> int:
+	return _lod_pending.size() + _lod_backlog.size()
 
 ## Frees every live tile (they belong to whatever world/size was live before)
 ## and whenever `_set_lod_active(false)` turns the layer off.
@@ -3156,6 +3460,16 @@ func _clear_lod_tiles() -> void:
 		(_lod_tiles[key] as Sprite2D).queue_free()
 	_lod_tiles.clear()
 	_lod_backlog.clear()
+	## **LOD-D6.** The parked set belongs to the same world and appearance the
+	## live set did, so it goes with it -- and the pending set is forgotten
+	## here rather than cancelled, because nothing can cancel a job already
+	## running. Those tiles still land; the engine drops anything built for a
+	## superseded generation on its own (`lod_worker::LodWorker`'s generation
+	## counter), and `_drain_lod_tiles()` returns at its first line while
+	## `_lod_pending` is empty, so a late arrival for the world just cleared is
+	## never installed.
+	_drop_lod_cache()
+	_lod_pending.clear()
 	## Nothing is live, so no level is drawn and no morph applies. `-1` rather
 	## than a stale level: `_update_lod()` compares against `_lod_child_level`
 	## to decide whether the layer needs re-sorting, and a level that survived
@@ -3276,6 +3590,14 @@ func visible_grid_rect() -> Dictionary:
 	var max_z := _bridge.lod_max_level()
 	if max_z > 0:
 		z = mini(z, max_z)
+	## **LOD-D6's per-tier ceiling**, on top of the engine's absolute one.
+	## `lod_max_level()` is what the pyramid *can* reach; this is what this
+	## device's tier is willing to pay for, and the scope's own example is
+	## "Android Performance gets `MAX_LEVEL - 1`". `0` means a binary built
+	## before LOD-D6, which leaves the absolute ceiling alone.
+	var tier_max: int = _lod_budget_value("max_level", 0)
+	if tier_max > 0:
+		z = mini(z, tier_max)
 	return {"ok": true, "z": z, "x0": x0, "y0": y0, "x1": x1, "y1": y1,
 		"px_per_cell": px_per_cell, "lod_active": _lod_active}
 

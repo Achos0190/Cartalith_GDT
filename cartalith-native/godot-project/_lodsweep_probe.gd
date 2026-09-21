@@ -1181,6 +1181,19 @@ func _side_by_side(seed_v: int, grid: Vector2i, centre: Vector2i) -> void:
 ## Each plant is made from OUTSIDE the shell -- no shipping file is edited, so
 ## the "no pixel change" condition on this milestone holds for the plant run too.
 func _run_plants() -> void:
+	## **LOD-D6.** The plant run mutates `_lod_tiles` from outside the shell
+	## -- `_plant_holes` erases half its entries and `_plant_seam` nudges
+	## sprites -- and then captures three frames later. Since LOD-D6 the
+	## backlog drain can synthesise a replacement inside exactly that window
+	## and undo the plant, so the positive control would measure the shell
+	## healing rather than the metric detecting. `_lod_sync` puts synthesis
+	## back on this thread, which is the premise these plants were written
+	## against; it moves no pixel, only the moment a tile appears.
+	##
+	## **The SWEEP (`_run_sweep`) is deliberately left asynchronous** -- its
+	## timings and pop counts are what LOD-D6 is graded on, and a sweep run
+	## with this flag set would measure the build this milestone replaced.
+	_vh._lod_sync = true
 	if not await _load_world(_seeds[0], _grids[_grids.size() - 1]):
 		return
 	var pivot := await _pick_pivot()
