@@ -247,6 +247,13 @@ const LOD_DOT_OUTLINE_SC := 0.6
 ## to port), sized so a typical dock-width viewport lands close to the
 ## pre-formula `TIER_RADIUS` constants it replaces.
 const PIN_SCALE_REF_PX := 1400.0
+## A local-unit radius offset / stroke width, always used `* sc` at its call
+## site (`_draw()`'s settlement loop) -- see that loop's own comment on the
+## ring/outline stroke-width fix (2026-09-21) for why an unscaled use of this
+## constant is a real defect, not a style choice: past `_civ_zoom_k()`'s own
+## deliberately-unclamped deep-zoom range, an unscaled fixed-local-unit stroke
+## outgrows the pin's own (correctly zoom-held) radius and balloons into a
+## many-hundred-screen-pixel blob.
 const CAPITAL_RING_WIDTH := 2.5
 
 ## The faith-divergence ring (see the `_faith_diverged` block further down for
@@ -2395,25 +2402,52 @@ func _draw() -> void:
 			## layering, just with one extra pass underneath.
 			draw_circle(pos + Vector2(0, PIN_SHADOW_OFFSET_SC * sc), radius, PIN_SHADOW_COLOR, true, -1.0, true)
 			draw_circle(pos, radius, color, true, -1.0, true)
-			draw_arc(pos, radius, 0, TAU, 24, MARKER_OUTLINE, 1.2, true)
+			## Stroke widths below are `* sc` for the same reason `radius` already
+			## is (`PIN_SCALE_REF_PX`'s own doc comment): `sc` carries the inverse-
+			## zoom term (`_civ_zoom_k()`) that cancels the camera's own multiply,
+			## so a quantity built from it holds constant ON-SCREEN. Left as bare
+			## local-unit literals, these five did not, and the omission was inert
+			## until real deep zoom: at the reference window/zoom this loop was
+			## authored and tested against (z<=60, `_umreveal_shot.gd`), a 1.2 or
+			## 2.5 local-unit stroke is a thin, barely-visible ring next to a
+			## radius of several local units. Past `PIN_SCALE_REF_PX`'s own
+			## `_civ_zoom_k()` note that deep zoom here runs to `lodMaxZoom()` (160
+			## on an 800 km world, 240 on 1200 km) `radius` itself shrinks toward
+			## that same tiny fraction of a local unit while these stayed fixed --
+			## so the stroke, not the disc, became the dominant shape: a capital's
+			## outline+ring measured a soft ~600 screen-px blob in faction colour
+			## swallowing the pin (and the settlement under it) at z=240, confirmed
+			## by `_pinlabelovr_probe.gd` (owner report, OnePlus 12 APK, commit
+			## 8e71a01: "labels don't fade away... obscuring the settlement"). The
+			## generated NAME label was not the defect -- it is placed off the pin
+			## by construction (`_settlement_label_candidates`) and the probe's own
+			## ink-overlap check confirms zero label pixels ever land inside the
+			## pin's radius at any zoom -- but a label sitting beside a pin that has
+			## itself ballooned into a many-hundred-pixel blob reads exactly like
+			## "the label won't get out of the way", which is how it was reported.
+			draw_arc(pos, radius, 0, TAU, 24, MARKER_OUTLINE, 1.2 * sc, true)
 			if s["capital"]:
-				draw_arc(pos, radius + CAPITAL_RING_WIDTH, 0, TAU, 28, color, CAPITAL_RING_WIDTH, true)
+				draw_arc(pos, radius + CAPITAL_RING_WIDTH * sc, 0, TAU, 28, color, CAPITAL_RING_WIDTH * sc, true)
 			## Outside the capital ring, so a diverged capital shows both.
 			## Under the coastal badge and the glyph for the same reason the
 			## landmark rejects draw under the placements: this is context
 			## about the pin, and must not win a pixel from the pin itself.
 			if _faith_diverged(s):
-				var ring_r: float = radius + CAPITAL_RING_WIDTH + FAITH_RING_PAD_SC * sc
+				var ring_r: float = radius + CAPITAL_RING_WIDTH * sc + FAITH_RING_PAD_SC * sc
 				for a in FAITH_RING_ARCS:
 					var from: float = TAU * float(a) / float(FAITH_RING_ARCS)
 					draw_arc(pos, ring_r, from, from + FAITH_RING_SPAN, 10,
-						FAITH_RING_SHADOW, FAITH_RING_WIDTH + 1.2, true)
+						FAITH_RING_SHADOW, (FAITH_RING_WIDTH + 1.2) * sc, true)
 					draw_arc(pos, ring_r, from, from + FAITH_RING_SPAN, 10,
-						FAITH_RING_COLOR, FAITH_RING_WIDTH, true)
+						FAITH_RING_COLOR, FAITH_RING_WIDTH * sc, true)
 			if s.get("coastal", false):
 				var badge_r: float = COASTAL_BADGE_R_SC * sc
 				var badge_pos := pos + Vector2(radius, radius) * 0.62
-				draw_circle(badge_pos, badge_r + 0.5, COASTAL_BADGE_OUTLINE, true, -1.0, true)
+				## `+ 0.5` is the same bare-local-unit pattern as the outline/ring
+				## widths above (see that block's comment) -- scaled here too so
+				## the badge's outline ring does not outgrow the badge itself at
+				## deep zoom the same way the pin's own ring did.
+				draw_circle(badge_pos, badge_r + 0.5 * sc, COASTAL_BADGE_OUTLINE, true, -1.0, true)
 				draw_circle(badge_pos, badge_r, COASTAL_BADGE_COLOR, true, -1.0, true)
 
 			# Glyph (reference: `ctx.fillText(klass.glyph,px,py)`, line 15178-
