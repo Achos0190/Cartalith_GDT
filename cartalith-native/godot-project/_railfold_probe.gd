@@ -326,31 +326,108 @@ func _ready() -> void:
 
 	# =====================================================================
 	print("\n=== 6: the two new panels are drawn, and drawn honestly ===")
-	## BUILD_ANSWERS §2.1: "LABELS and ICONS are new and real". They are drawn
-	## in full and disabled with their reason (`cartography_workspace.gd`'s own
-	## header on the block) — so the assertion is that the controls EXIST and
-	## that every one of them is inert. A panel that quietly omitted the
-	## unbindable half would pass a "does it have controls" test; this fails it.
+	## BUILD_ANSWERS §2.1: "LABELS and ICONS are new and real". This section
+	## used to assert the opposite of what it says below: `cartography_workspace.gd`
+	## drew Labels' three per-class dials and Icons' two generation sliders and
+	## three placement-rule checkboxes disabled, with a reason, because nothing
+	## in the engine backed them yet. That was true when this section was
+	## written (2026-08-31, `c03b43c`) and stopped being true within days: the
+	## owner's 2026-09-02/09-03 rulings (`LARGE_ITEM_RULINGS.md`) built
+	## `LabelTypography` (size/halo/tracking, `cartalith-civ/src/labels.rs`) and
+	## the generated icon-placement pass (`icon_bridge/generate.rs`), and
+	## `cartography_workspace.gd`'s own header block says so at length — "Both
+	## dials are live... All three are live now". Two later rail-fold edits to
+	## THIS file (`5f839d7`, `04b3b27`, 2026-09-20/21) touched this section only
+	## to rename a category string ("Assets & landmarks" -> "Icons") and never
+	## re-checked the assertion itself, so it kept asserting pre-ruling
+	## behaviour for three weeks after it went false. Confirmed stale by
+	## running this probe live, 2026-09-21: `got=0` inert dials against a
+	## `want=3`, `got=0` against `want=2`, and `got=3` enabled rules against a
+	## `want=0` — the exact three failures this reinvestigation started from.
+	## Reasserted here as LIVE, and with a real effect when driven, not a bare
+	## `disabled == false` (the house rule this file's own brief names: a
+	## control's state is a claim about the live build, checked at the build,
+	## not read off a comment).
 	var carto_body := _category_body(carto, "Labels")
 	_ok("the Labels category has a body", carto_body != null, true)
-	## Counted by inertness, not by total. The Labels category also hosts the
-	## LIVE region-label edit form, whose Size/Arc/Angle sliders appear the
-	## moment a label is selected — so "every slider under Labels is inert"
-	## would be true at boot and false after one click, which is a probe that
-	## reports the shell's state rather than its correctness. Exactly three
-	## inert dials is the claim: size, halo, tracking.
+	## Counted by editability, not by total, for the reason the old comment
+	## here gave for inertness: the Labels category also hosts the region-label
+	## edit form, whose Size/Arc/Angle sliders exist only once a label is
+	## selected. Exactly three live per-class dials is the claim: size, halo,
+	## tracking.
 	var lab_sliders := _sliders_in(carto_body)
-	var lab_dead := _inert(lab_sliders)
-	print("  info sliders under Labels: %d (%d inert)" % [lab_sliders.size(), lab_dead.size()])
-	_ok("the design's three per-class dials are drawn, and inert", lab_dead.size(), 3)
-	_ok("...each carrying its reason", _silent(lab_dead).size(), 0)
+	var lab_live := 0
+	for s in lab_sliders:
+		if (s as HSlider).editable:
+			lab_live += 1
+	print("  info sliders under Labels: %d (%d live)" % [lab_sliders.size(), lab_live])
+	_ok("the design's three per-class dials are drawn, and live", lab_live, 3)
+
+	## Real effect, not a flag read back: drag the halo dial to a value
+	## nothing starts at, release it (`_regenerate_labels`'s own tooltip:
+	## "Released, not dragged: letting go re-runs the labelling pass" --
+	## exercised here so the release path is proven not to crash even with no
+	## world generated), and read the change back out of the class spec the
+	## dial's `on_change` writes into (`_label_class_dial()`'s own
+	## `spec[field] = v`).
+	##
+	## **Not** read back through the engine's `label_class_table()`: this probe
+	## never calls `generate()`, and `labels_generate()` discards `typography`
+	## and returns `ok:false` before any world exists
+	## (`label_bridge/generate.rs`'s own early return on `self.labels.is_none()`)
+	## -- so `label_class_table()` would still report the shipped defaults no
+	## matter what the dial did, and that absence would be this probe's, not
+	## the control's.
+	var halo_slider: HSlider = null
+	for s in lab_sliders:
+		if _row_label(s) == "halo":
+			halo_slider = s
+	_ok("the halo dial is one of the three", halo_slider != null, true)
+	if halo_slider != null:
+		var active_class := String(carto.get("_label_class"))
+		var want_halo: float = halo_slider.min_value if is_equal_approx(halo_slider.value, halo_slider.max_value) else halo_slider.max_value
+		halo_slider.value = want_halo
+		halo_slider.drag_ended.emit(true)
+		await _frames(2)
+		var got_halo := -1.0
+		for entry in (carto.get("_label_class_specs") as Array):
+			var d: Dictionary = entry
+			if String(d.get("key", "")) == active_class:
+				got_halo = float(d.get("halo", -1.0))
+		_ok("...and dragging it changes the class's own spec",
+			is_equal_approx(got_halo, want_halo), true)
 
 	var icons_body := _category_body(carto, "Icons")
 	var ico_sliders := _sliders_in(icons_body)
-	var ico_dead := _inert(ico_sliders)
-	print("  info sliders under Icons: %d (%d inert)" % [ico_sliders.size(), ico_dead.size()])
-	_ok("icon scale and min spacing are drawn, and inert", ico_dead.size(), 2)
-	_ok("...each carrying its reason", _silent(ico_dead).size(), 0)
+	var ico_live := 0
+	for s in ico_sliders:
+		if (s as HSlider).editable:
+			ico_live += 1
+	print("  info sliders under Icons: %d (%d live)" % [ico_sliders.size(), ico_live])
+	_ok("icon scale and min spacing are drawn, and live", ico_live, 2)
+
+	## Real effect for both: drive each to a value distinct from its default
+	## and confirm the GDScript state `_run_icon_placement()` actually sends
+	## into `bridge.icon_generate()` moved with it — the same private vars
+	## named at that call site, `_icon_gen_scale` / `_icon_gen_spacing`.
+	var scale_slider: HSlider = null
+	var spacing_slider: HSlider = null
+	for s in ico_sliders:
+		if _row_label(s) == "icon scale":
+			scale_slider = s
+		elif _row_label(s) == "min spacing":
+			spacing_slider = s
+	if scale_slider != null:
+		scale_slider.value = scale_slider.max_value
+		await _frames(1)
+		_ok("...and dragging icon scale updates the value the engine call sends",
+			is_equal_approx(float(carto.get("_icon_gen_scale")), scale_slider.max_value), true)
+	if spacing_slider != null:
+		spacing_slider.value = spacing_slider.max_value
+		await _frames(1)
+		_ok("...and dragging min spacing updates the value the engine call sends",
+			is_equal_approx(float(carto.get("_icon_gen_spacing")), spacing_slider.max_value), true)
+
 	## The three placement rules. `snap sea marks to coast` is the one whose
 	## family has no engine counterpart at all, so it is named specifically.
 	var checks := _checks_in(icons_body)
@@ -365,19 +442,38 @@ func _ready() -> void:
 	_ok("the three placement rules are drawn",
 		rule_names.has("avoid label boxes") and rule_names.has("enforce min spacing")
 		and rule_names.has("snap sea marks to coast"), true)
-	var enabled_rules := 0
+	var disabled_rules := 0
 	for c in checks:
-		if not (c as CheckBox).disabled:
-			enabled_rules += 1
-	_ok("every placement rule is disabled", enabled_rules, 0)
-	## Disabled is not enough — the house rule is "disabled WITH its reason".
-	var silent := []
+		if (c as CheckBox).disabled:
+			disabled_rules += 1
+	_ok("every placement rule is live, none disabled", disabled_rules, 0)
+	## Each rule's own backing var, so a checkbox miswired to a NEIGHBOUR's
+	## flag (live, but the wrong one) would still fail here even though
+	## "disabled_rules == 0" above cannot see that.
+	var rule_vars := {
+		"avoid label boxes": "_icon_gen_avoid_labels",
+		"enforce min spacing": "_icon_gen_enforce_spacing",
+		"snap sea marks to coast": "_icon_gen_snap_coast",
+	}
 	for c in checks:
-		if (c as CheckBox).disabled and String((c as CheckBox).tooltip_text).strip_edges().is_empty():
-			silent.append(_row_label(c))
-	if not silent.is_empty():
-		print("  SILENT  disabled with no reason: ", silent)
-	_ok("every disabled rule carries a reason", silent.size(), 0)
+		var rlabel := _row_label(c)
+		var field: String = rule_vars.get(rlabel, "")
+		if field.is_empty():
+			continue
+		var before := bool(carto.get(field))
+		(c as CheckBox).toggled.emit(not before)
+		await _frames(1)
+		_ok("...and toggling '%s' flips its own flag" % rlabel,
+			bool(carto.get(field)), not before)
+	## Live controls still owe the user a description, even though it is no
+	## longer a disabled-reason.
+	var no_tooltip := []
+	for c in checks:
+		if String((c as CheckBox).tooltip_text).strip_edges().is_empty():
+			no_tooltip.append(_row_label(c))
+	if not no_tooltip.is_empty():
+		print("  MISSING  no tooltip: ", no_tooltip)
+	_ok("every placement rule still carries an explanatory tooltip", no_tooltip.size(), 0)
 
 	print("\n_railfold_probe: ", "PASS" if _fail == 0 else str(_fail) + " FAILURE(S)")
 	get_tree().quit(1 if _fail > 0 else 0)
@@ -391,23 +487,6 @@ func _sliders_in(node: Node) -> Array:
 			out.append(c)
 		else:
 			out.append_array(_sliders_in(c))
-	return out
-
-## The sliders among `all` that cannot be moved.
-func _inert(all: Array) -> Array:
-	var out := []
-	for s in all:
-		if not (s as HSlider).editable:
-			out.append(s)
-	return out
-
-## Of those, the ones that do not say why — the house rule is "disabled WITH its
-## reason", so an inert control with an empty tooltip is a defect, not a pass.
-func _silent(controls: Array) -> Array:
-	var out := []
-	for c in controls:
-		if String((c as Control).tooltip_text).strip_edges().is_empty():
-			out.append(_row_label(c))
 	return out
 
 ## The caption `DccWidgets._row()` drew for a control -- the first `Label` among
