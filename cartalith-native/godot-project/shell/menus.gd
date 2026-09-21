@@ -2882,7 +2882,7 @@ func _build_theme_submenu(p: PopupMenu) -> void:
 	## `is_dark`, no `rebuild_theme` and no palette reference at all, so the map
 	## genuinely cannot follow.
 	_theme_popup.set_item_tooltip(1,
-		"Repaints the shell chrome. The map canvas stays dark either way -- a light map is a style preset, not a theme consequence. The map's own palette is chosen in CARTO ▸ Map style, on the style chips (Antique, Ink, Watercolor, Print) and the Base look beside them.")
+		"Repaints the shell chrome. The map canvas stays dark either way -- a light map is a style preset, not a theme consequence. The map's own palette is chosen in CARTO ▸ Style ▸ Look, on the style chips (Antique, Ink, Watercolor, Print) and the Base look beside them.")
 	_theme_popup.add_radio_check_item("Follow system", ID_PREF_THEME_SYSTEM)
 	if not DisplayServer.is_dark_mode_supported():
 		_theme_popup.set_item_disabled(2, true)
@@ -3342,7 +3342,7 @@ func _build_relief_exag_menu(p: PopupMenu) -> void:
 	p.add_child(_exag_popup)
 	p.add_submenu_item("Relief exaggeration", "ReliefExag")
 	p.set_item_tooltip(p.item_count - 1,
-		"The vertical exaggeration a fresh Generate starts from -- the relief the hillshade is computed from, the reference's own Relief slider. Per world it stays live under CARTO ▸ Map style; this is only where a new world begins. Applied on Generate and never on opening a project, which carries its own stored appearance.")
+		"The vertical exaggeration a fresh Generate starts from -- the relief the hillshade is computed from, the reference's own Relief slider. Per world it stays live under CARTO ▸ Relief & light ▸ Map view; this is only where a new world begins. Applied on Generate and never on opening a project, which carries its own stored appearance.")
 	_refresh_relief_exag_menu()
 
 func _refresh_relief_exag_menu() -> void:
@@ -3903,7 +3903,7 @@ func _build_lighting_menu(p: PopupMenu) -> void:
 	## `appearance_over`, which nothing clears on Generate -- only
 	## `reset_appearance()` and a preset load do. So a rung sent by an earlier
 	## Generate is still overriding the tier after this row runs, and the
-	## control that takes it back is CARTO ▸ Terrain appearance's own
+	## control that takes it back is CARTO ▸ Relief & light's own
 	## `Reset to quality tier`. The
 	## tooltip says so rather than claiming a reach this row does not have.
 	##
@@ -3915,7 +3915,7 @@ func _build_lighting_menu(p: PopupMenu) -> void:
 	## and 6 lights (10 on Ultra).
 	_lighting_popup.add_item("Use the engine's own rig", ID_LIGHT_RESET)
 	_lighting_popup.set_item_tooltip(_lighting_popup.item_count - 1,
-		"Forgets all four stored rungs, so this menu stops sending them and a new world takes the engine's own rig instead. That is NOT the reference HTML's single-sun shading: render.rs ships six light directions (ten on Ultra), 40 deg elevation and 0.34 ambient. It does NOT undo a rung already applied -- once sent, a value stays an override until CARTO > Terrain appearance > Reset to quality tier hands it back.")
+		"Forgets all four stored rungs, so this menu stops sending them and a new world takes the engine's own rig instead. That is NOT the reference HTML's single-sun shading: render.rs ships six light directions (ten on Ultra), 40 deg elevation and 0.34 ambient. It does NOT undo a rung already applied -- once sent, a value stays an override until CARTO > Relief & light > Reset to quality tier hands it back.")
 	_lighting_popup.id_pressed.connect(_on_lighting)
 	_lighting_popup.about_to_popup.connect(_refresh_lighting_menu)
 	p.add_child(_lighting_popup)
@@ -4039,7 +4039,7 @@ func _on_lighting(id: int) -> void:
 		DccSettings.reset_lighting_defaults()
 		_refresh_lighting_menu()
 		_host.set_status("hint",
-			"lighting rig defaults forgotten — nothing is sent on the next Generate; CARTO ▸ Terrain appearance ▸ Reset to quality tier takes back one already applied", "text_dim")
+			"lighting rig defaults forgotten — nothing is sent on the next Generate; CARTO ▸ Relief & light ▸ Reset to quality tier takes back one already applied", "text_dim")
 		return
 	for row in _light_ladders():
 		var steps: Array = row[1]

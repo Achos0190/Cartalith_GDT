@@ -193,8 +193,9 @@ func _run(app: Node, tag: String) -> void:
 	var fold: float = scroll.global_position.y + scroll.size.y
 	_note("dock scroll bottom (the fold), y", fold)
 	var before: Dictionary = {}
-	for t in ["Generate", "Terrain", "Geology", "Hydrology", "Climate",
-			"Biomes", "Ecology", "Resources", "World data"]:
+	## Ruling L's nine, 2026-09-21: seven PIPELINE then two SCULPT.
+	for t in ["Generate", "Planet", "Geology", "Hydrology", "Climate",
+			"Ecology", "World data", "Terrain", "Biomes"]:
 		before[t] = _category_top(app, t)
 	pill.visible = false
 	await _frames(6)
@@ -230,7 +231,9 @@ func _run(app: Node, tag: String) -> void:
 		var wrap := (e["body"] as Control).get_parent() as Control
 		if wrap.visible:
 			shown.append(String(e["title"]))
-	_ok("mode b shows exactly one category", shown, ["Terrain"])
+	## Ruling L gives SCULPT two categories, not one: Terrain (height molding)
+	## and Biomes (the brush, decision 2's one home for it).
+	_ok("mode b shows exactly Ruling L's two categories", shown, ["Terrain", "Biomes"])
 	_ok("mode b lights segment b", (_segments(pill)[1] as Button).get_theme_color("font_color"),
 		DccTheme.c("accent"))
 	shell.select_domain_mode("world", "a")

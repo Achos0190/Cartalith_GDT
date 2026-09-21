@@ -37,7 +37,8 @@ signal phone_insets_changed()  ## §13: fires whenever a rotation changes where
 ## Logistics) and its Way/Route tools now live under CIVIL, via
 ## `civilization_workspace.gd` composing an `InfrastructureWorkspace` instance
 ## into its own dock rather than that class getting its own rail button.
-## RENDER's one subject (Terrain appearance) now lives under CARTO the same
+## RENDER's one subject (the terrain appearance tunables) now lives under
+## CARTO the same
 ## way, via `cartography_workspace.gd` composing a `RenderWorkspace` instance.
 ## Nothing was deleted -- both classes still exist, still own their own
 ## category builders and tool click handlers, they are just reached through a
@@ -80,15 +81,28 @@ const DOMAINS: Array = [
 #     header, so no CARTO node carries `shows` either.
 #   - **§3 rows 1 and 2** -- `ldPipe` and `ldSculpt` are genuine complements,
 #     and WORLD is the only domain in the whole table where one block's presence
-#     is another's absence. That is the one gate, and it is `world/b`'s.
+#     is another's absence. That is the gate, and since Ruling L it is **both**
+#     WORLD nodes' rather than `world/b`'s alone -- see the next paragraph.
 #
 # `shows` therefore means: *while this mode is active, the dock renders exactly
-# these category headers.* Absent (nine nodes of ten) means no gate at all.
-# `world/b`'s `["Terrain"]` is §3 row 2 -- the sculpt block alone -- and
-# `world/a` deliberately has none, so the Generation pipeline block keeps all
-# nine WORLD categories including `Terrain`'s stage-5 erosion parameters, which
-# are pipeline parameters and belong in the pipeline view. `Workspace.apply_mode()`
-# is what reads this, and `_select_domain()` is the one place that calls it.
+# these category headers.* Absent (eight nodes of ten) means no gate at all.
+# `world/b`'s `["Terrain", "Biomes"]` is §3 row 2 -- the sculpt block, which
+# Ruling L (2026-09-21) makes two categories rather than one: height molding and
+# biome painting, *"everything done by hand on the map surface"*.
+#
+# **`world/a` now carries a `shows` too, and before Ruling L it deliberately did
+# not.** The old table left `a` ungated on purpose: `Terrain` carried stage 5's
+# erosion parameters as well as the sculpt block, so the pipeline view had to
+# render a category the sculpt node owned, and "absent means render everything"
+# was exactly the behaviour `a` wanted. Ruling L moves those parameters out (to
+# `Hydrology` and `Geology`) and states the complement outright -- *"the mode
+# pill is the only gate: SCULPT shows Terrain and Biomes; PIPELINE shows the
+# rest"* -- so `a` renders nine categories where the specification says seven
+# until it lists its own. `shows` and `owns` are identical strings here today
+# and are still two keys, because they answer two questions (`owns` is *which
+# node lights*, `shows` is *what the dock draws*) and CIVIL/CARTO keep them
+# apart. `Workspace.apply_mode()` is what reads this, and `_select_domain()` is
+# the one place that calls it.
 #
 # **A gate is only allowed where a route exists.** `world/b` is reachable from
 # its rail node, from the dock's own mode switch (`_build_mode_switch()`), and
@@ -104,7 +118,7 @@ const DOMAINS: Array = [
 # Economy, Timeline -- reachable only by a rail trip. That is the
 # failure this stage's own rule forbids ("every category reachable before must
 # be reachable after"), and §3 does not ask for it. So a node click *opens* its
-# category and lights the rail; outside `world/b` it never hides a sibling.
+# category and lights the rail; outside WORLD's two it never hides a sibling.
 #
 # **One node does more than that, and the design is why.** CIVIL ▸ `planner`
 # opens the `Travel` category exactly like its siblings *and* arms the Journey
@@ -128,12 +142,15 @@ const DOMAINS: Array = [
 # the design's.
 const RAIL_NODES: Array = [
 	{"kind": "head", "domain": "world", "label": "WORLD"},
-	{"kind": "node", "domain": "world", "mode": "a", "label": "Generation pipeline",
+	{"kind": "node", "domain": "world", "mode": "a", "label": "Generate",
 		"category": "Generate",
-		"owns": ["Generate", "Geology", "Hydrology", "Climate", "Biomes",
-			"Ecology", "Resources", "World data"]},
+		"owns": ["Generate", "Planet", "Geology", "Hydrology", "Climate",
+			"Ecology", "World data"],
+		"shows": ["Generate", "Planet", "Geology", "Hydrology", "Climate",
+			"Ecology", "World data"]},
 	{"kind": "node", "domain": "world", "mode": "b", "label": "Sculpt",
-		"category": "Terrain", "owns": ["Terrain"], "shows": ["Terrain"]},
+		"category": "Terrain", "owns": ["Terrain", "Biomes"],
+		"shows": ["Terrain", "Biomes"]},
 
 	{"kind": "head", "domain": "civilization", "label": "CIVIL"},
 	{"kind": "node", "domain": "civilization", "mode": "landmarks", "label": "Landmarks",
@@ -148,30 +165,32 @@ const RAIL_NODES: Array = [
 		"category": "Travel", "owns": ["Travel"]},
 
 	{"kind": "head", "domain": "cartography", "label": "CARTO"},
-	{"kind": "node", "domain": "cartography", "mode": "style", "label": "Layers & style",
-		"category": "Layers",
-		"owns": ["Layers", "Map style", "Colours", "Roads & routes",
-			"Political display", "Visibility / zoom", "Map presets"]},
+	{"kind": "node", "domain": "cartography", "mode": "style", "label": "Style",
+		"category": "Style",
+		"owns": ["Style", "Relief & light", "Colours", "Feature style"]},
+	{"kind": "node", "domain": "cartography", "mode": "layers", "label": "Layers",
+		"category": "Layers", "owns": ["Layers"]},
 	{"kind": "node", "domain": "cartography", "mode": "labels", "label": "Labels",
 		"category": "Labels", "owns": ["Labels"]},
 	{"kind": "node", "domain": "cartography", "mode": "icons", "label": "Icons",
-		"category": "Assets & landmarks", "owns": ["Assets & landmarks"]},
-	{"kind": "node", "domain": "cartography", "mode": "terrain", "label": "Terrain appearance",
-		"category": "Terrain appearance", "owns": ["Terrain appearance"]},
+		"category": "Icons", "owns": ["Icons"]},
 ]
 
 # `RAIL_NODES` -- where this port had to decide, because the prototype's ten
-# nodes do not cover this shell's thirty-two categories. Written down rather than invented in
+# nodes do not cover every category the three docks build. Written down rather than invented in
 # silence, per the house rule; each line is a claim a reader can disagree with.
 #
-# - **WORLD `b` owns `Terrain` and nothing else.** `Terrain` is where
-#   `world_workspace.gd:_build_categories()` parents `_sculpt_body`, so it is
-#   the only category that contains the sculpt UI the prototype's `ldSculpt`
-#   block draws. The eight remaining WORLD categories are pipeline stages and
-#   go to `a`, which is what `ldPipe:s.domain==='WORLD'&&wm==='a'` (`ENV:1945`)
-#   means. `Terrain` therefore does NOT appear under `a` even though it carries
-#   stage 5's parameters -- a node owns a category exactly once, and the
-#   accordion shows all nine regardless, so nothing is lost.
+# - **WORLD `b` owns `Terrain` and `Biomes`.** They are where
+#   `world_workspace.gd:_build_categories()` parents `_sculpt_body` and
+#   `_paint_body`, so they are the two categories that contain the by-hand UI
+#   the prototype's `ldSculpt` block draws. The seven remaining WORLD categories
+#   are pipeline stages and go to `a`, which is what
+#   `ldPipe:s.domain==='WORLD'&&wm==='a'` (`ENV:1945`) means.
+#   **`a`'s label is `Generate`, not `Generation pipeline`** -- Ruling L's node
+#   list, whose own parenthetical is *"names now match their targets"*, and this
+#   node's target is `WORLD ▸ Generate`. The mode pill still reads `PIPELINE`
+#   (`_MODE_SWITCH_LABELS`), which is the canvas's own word for the mode rather
+#   than for the node.
 # - **CIVIL `factions` is the catch-all.** Ruling L
 #   (`design/owner-references-2026-09-12/left_rail_tree_resorted.md` L22-27,
 #   2026-09-13) names five CIVIL nodes -- Settlements, Landmarks, Factions,
@@ -196,11 +215,32 @@ const RAIL_NODES: Array = [
 #   Commit/Discard row differently from before Ruling L. Reordering this table
 #   contradicts the tree's node order and a Settlements node needs a fifth mode
 #   id; both are the owner's call (plan C1).
-# - **CARTO `style` is the catch-all**, for the same reason: `Layers & style` is
-#   the node the prototype gives the layer tree, the ramp editor and
-#   `caDomains`/`caLight` (`ENV:496`), and this shell's Map style, Colours,
-#   Political display, Visibility / zoom, Map presets and Roads & routes are all
-#   layer-and-style subjects with no node of their own.
+# - **CARTO `style` is the catch-all**, and since Ruling L its own node list
+#   says so. The tree (`left_rail_tree_resorted.md` L28-32) names four CARTO
+#   shortcuts -- Style, Layers, Labels, Icons -- with the note that "names now
+#   match their targets", so each node's label IS its category and the three
+#   remaining categories (Relief & light, Colours, Feature style) hang off
+#   `style`: they are the look of the map, which is what that node opens.
+#   `style` is also CARTO's *first* node, so it is what `_domain_mode` seeds the
+#   rail with, and it owns Style, which is the tab's default-open category --
+#   entry lights the node that owns the open body, which is the property CIVIL
+#   could not have (plan C1).
+#
+#   **One instruction in Ruling L's retarget list is NOT satisfied here, and it
+#   is left standing rather than guessed at.** That list also says *"Rail footer
+#   TERRAIN → RELIEF"*. The foot prints the mode id upper-cased
+#   (`app.gd::_refresh_rail_foot()`), and `TERRAIN` was this table's fourth
+#   CARTO mode, whose node opened `Terrain appearance` -- the category Ruling L
+#   renames to `Relief & light`. But the tree's node list puts **Layers** in
+#   that fourth slot, not Relief & light, and its own rule says a node's name
+#   matches its target. The two cannot both hold with four nodes: the fourth
+#   mode is either `relief` (footer RELIEF, no Layers shortcut) or `layers`
+#   (footer LAYERS, no Relief shortcut). The tree is the specification and
+#   Ruling L's own tie-break is "tree is leading", so this table takes `layers`
+#   -- the word TERRAIN does leave the footer, which is what the instruction was
+#   for, but it becomes LAYERS rather than RELIEF. **Whether the owner wants a
+#   fifth CARTO node, or Relief & light in the fourth slot instead of Layers, is
+#   the owner's call.**
 
 # -- Region handles -----------------------------------------------------------
 #
@@ -3706,14 +3746,14 @@ static func rail_node(id: String, mode: String) -> Dictionary:
 ## of `RAIL_NODES`' `shows` key, whose header block above is the reasoning.
 ##
 ## `[]` and "this mode hides everything" are deliberately not the same value:
-## nine of the ten nodes carry no `shows` at all, and a gate that defaulted to
-## an empty allow-list would blank nine docks. Absent means ungated, which is
+## eight of the ten nodes carry no `shows` at all, and a gate that defaulted to
+## an empty allow-list would blank eight docks. Absent means ungated, which is
 ## why this returns the key's own value untouched rather than something derived
 ## from `owns` -- `owns` answers *which node lights*, and every category is in
-## exactly one `owns` list, so deriving a gate from it would take `Terrain`'s
-## erosion parameters out of the pipeline in WORLD `a`, and leave CIVIL showing
+## exactly one `owns` list, so deriving a gate from it would leave CIVIL showing
 ## only the categories one node happens to own -- one header in `landmarks`, two
-## in `infra`, one in `planner`.
+## in `infra`, one in `planner`. WORLD's two nodes are where the two keys happen
+## to coincide since Ruling L, and that coincidence is not the rule.
 static func mode_shows(id: String, mode: String) -> Array:
 	var n := rail_node(id, mode)
 	return (n.get("shows", []) as Array) if not n.is_empty() else []
@@ -4239,8 +4279,9 @@ func _collapse_button(is_left: bool) -> Button:
 # WORLD has a gate, so no other label is on screen today; if one gains one, the
 # derived text is `LANDMARKS` / `FACTIONS` / `ROUTES & WAYS` /
 # `JOURNEY PLANNER` for CIVIL (9/8/13/15 characters over four halves) and
-# `LAYERS & STYLE` / `LABELS` / `ICONS` / `TERRAIN APPEARANCE` for CARTO
-# (14/6/5/19). Those are legible strings, not placeholders, and whether four of
+# `STYLE` / `LAYERS` / `LABELS` / `ICONS` for CARTO (5/6/6/5, shortened by
+# Ruling L from `LAYERS & STYLE`/`LABELS`/`ICONS`/`TERRAIN APPEARANCE`, and not
+# re-measured since). Those are legible strings, not placeholders, and whether four of
 # them fit is a measurement rather than an opinion -- the pill sits in the header
 # band *above* the scroll, so an overflow there has no scrollbar anywhere to
 # reveal it, which is this tree's recurring class. `_leftdock12_probe.gd` §7(f)

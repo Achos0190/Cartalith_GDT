@@ -195,10 +195,15 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	##
 	## **This is the necessary half, not the whole condition.** `domain_gates()`
 	## is true of a *domain* that gates in **some** mode; the floor is only owed
-	## in the mode that actually gates. WORLD ▸ Generation pipeline satisfies
-	## this connect and must not floor, and until 2026-09-05 it did -- closing
-	## the one open header of nine re-opened it. `_enforce_open_floor()` asks
-	## `_floor_applies()` first, which is where the per-mode half lives; this
+	## in the mode that actually needs one. WORLD ▸ PIPELINE satisfies this
+	## connect and must not floor, and until 2026-09-05 it did -- closing the
+	## one open header of nine re-opened it. `_enforce_open_floor()` asks
+	## `_floor_applies()` first, which is where the per-mode half lives --
+	## **and since Ruling L, 2026-09-21, `WorldWorkspace` overrides that method**
+	## rather than letting the base infer it: PIPELINE now carries a `shows`
+	## list of its own, so *"does this mode gate"* no longer separates WORLD's
+	## two halves and the base predicate alone would restore the 2026-09-05
+	## defect. See `WorldWorkspace._floor_applies()` for the whole reasoning; this
 	## line stays as the cheap filter that keeps CARTO from connecting ten
 	## signals it can never use. CIVIL does not connect here either: it wires the
 	## same handler itself through `_lm_enforce_floor()`, and reaches the floor

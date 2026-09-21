@@ -266,7 +266,8 @@ func _ready() -> void:
 
 	# ================================================= §2 the gallery's content
 	_p("=== §2 the gallery ===")
-	app.select_domain_category("cartography", "Map style")
+	## `Map style` -> `Style` under Ruling L's 2026-09-21 CARTO re-sort.
+	app.select_domain_category("cartography", "Style")
 	await _frames(8)
 	rw = _find(app, "render_workspace.gd")
 	_ok(rw != null, "the RenderWorkspace node is reachable")

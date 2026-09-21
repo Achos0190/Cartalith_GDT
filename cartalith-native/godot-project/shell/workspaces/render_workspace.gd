@@ -180,7 +180,14 @@ const STYLE_MANAGED := {
 ## Which appearance keys go in which group, in panel order. Keys the running
 ## cdylib does not publish are skipped, so an older binary loses rows rather
 ## than drawing dead ones -- the same degrade `appearance_api` already gives.
-const APPEARANCE_VIEW := ["exag", "sun_az_deg", "sun_alt_deg", "bio_blend"]
+## Ruling L (`left_rail_tree_resorted.md` L269-283) splits this row in two:
+## `exag` and the two sun angles are relief, and go to CARTO ▸ Relief & light ▸
+## Map view beside the Multi-sun toggle; `bio_blend` is colour, and goes to
+## CARTO ▸ Colours ▸ Biome colours beside the biome-table link. One list per
+## destination rather than a slice, because these four are not ordered by
+## anything a slice index could stand for.
+const APPEARANCE_VIEW := ["exag", "sun_az_deg", "sun_alt_deg"]
+const APPEARANCE_BIOME := ["bio_blend"]
 const APPEARANCE_GROUPS := [
 	## `svf_strength` and `shadow_strength` joined this group 2026-09-03
 	## (`OUTSTANDING_WORK.md` §2.5) and sit **beside** the two occlusion rows
@@ -391,6 +398,10 @@ func _build() -> void:
 	## relief row's content, and this is the stack that orders it.
 	_build_layer_stack()
 	_build_appearance(APPEARANCE_GROUPS)
+	## Not folded into `_build_map_view()`: `bio_blend` left that block for
+	## Colours ▸ Biome colours with Ruling L, and this standalone path has to
+	## draw it somewhere or the slider exists only in the nested composition.
+	_build_biome_colours()
 	_build_color_management()
 	_build_look_presets()
 	_build_npr()
@@ -402,37 +413,42 @@ func _build() -> void:
 # runs the unchanged builders, and hands `_host` back so a later standalone
 # call still draws into `self`.
 
-## v3 CARTO ▸ MAP STYLE: style preset · mode · relief↔biome mix · sun, then
-## `+ Painter styles (NPR)`.
-func build_map_style_into(parent: Control) -> void:
+## Ruling L CARTO ▸ STYLE (`left_rail_tree_resorted.md` L257-268): the look
+## gallery, the painter styles, the water rows, and -- absorbed from the retired
+## Map presets category -- the saved-look library and the still-owed inventory.
+##
+## Was `build_map_style_into()`, which also drew Map view here; Ruling L moves
+## that block to Relief & light, where the rest of the lighting is.
+func build_style_into(parent: Control) -> void:
 	_host = parent
 	_build_map_style()
-	_build_map_view()
 	_build_npr()
+	_build_look_presets()
+	_build_owed_inventory()
 	_host = null
 
-## v3 CARTO ▸ TERRAIN APPEARANCE: `§ Colour relief ramp`, then the relief,
-## sheet, material, atmosphere and multi-scale-detail groups. v3 keeps this
-## category "whole, unchanged in scope" -- its migration audit's own words --
-## so the split below is only the grade leaving for COLOURS, which v3 does
-## ask for. (§16's group joined the other five here 2026-09-02, after v3's
-## own migration -- a relief control, not a colour one, so it grew this slice
-## rather than the other.)
-func build_terrain_appearance_into(parent: Control) -> void:
+## Ruling L CARTO ▸ RELIEF & LIGHT (`left_rail_tree_resorted.md` L269-283): the
+## Map view block -- vertical exaggeration and the two sun angles, plus the
+## Multi-sun toggle that used to sit under Water & light -- then the relief,
+## sheet, material, ice, atmosphere and multi-scale-detail groups.
+##
+## Was `build_terrain_appearance_into()`. Two things left it: `_build_ramp()`
+## went to Colours with the rest of the colour, and `bio_blend` went with it.
+func build_relief_into(parent: Control) -> void:
 	_host = parent
-	_build_ramp()
+	_build_map_view()
 	# 6, not 5: LOD-D4's "Ice & snow" group was inserted at index 3, so the
-	# boundary between Terrain appearance and Colours moved with it. Leaving
-	# these at 5 would have pushed "Multi-scale detail" under "Colour grade"
-	# silently -- a positional slice over a hand-ordered table.
+	# boundary between this category and Colours moved with it. Leaving these at
+	# 5 would have pushed "Multi-scale detail" under "Colour grade" silently -- a
+	# positional slice over a hand-ordered table.
 	_build_appearance(APPEARANCE_GROUPS.slice(0, 6))
 	_host = null
 
 ## v3 CARTO ▸ LAYERS: the terrain raster's three separable categories
 ## (`GUI_GAP_REGISTER.md` CA-03/CA-04). Drawn into CARTO's own Layers category
-## rather than into Terrain appearance, because §7 draws one layer list and this
-## is the part of it that is a stack rather than a set of switches -- the eight
-## rows `cartography_workspace.gd` already builds there are whole overlays with
+## rather than into the relief tunables, because §7 draws one layer list and this
+## is the part of it that is a stack rather than a set of switches -- the rows
+## `cartography_workspace.gd` already builds there are whole overlays with
 ## nothing to order.
 ##
 ## It lives in *this* file all the same, with the ramp and the tunables: the
@@ -444,8 +460,10 @@ func build_layer_stack_into(parent: Control) -> void:
 	_build_layer_stack()
 	_host = null
 
-## v3 CARTO ▸ COLOURS: vibrancy/saturation/contrast/brightness/gamma/temp/tint
-## (the colour grade), `+ Field influence weights`, then colour management.
+## Ruling L CARTO ▸ COLOURS (`left_rail_tree_resorted.md` L284-300): the colour
+## relief ramp (◄ Terrain appearance), the grade and its field weights, the
+## biome pair (◄ Map view's `bio_blend` and the table link that was under the
+## grade), then colour management.
 ##
 ## Colour management sits **after** the grade rather than before it, and the
 ## order is the pipeline's: the grade decides what the picture is, the output
@@ -454,16 +472,10 @@ func build_layer_stack_into(parent: Control) -> void:
 ## order.
 func build_colours_into(parent: Control) -> void:
 	_host = parent
-	_build_appearance(APPEARANCE_GROUPS.slice(6), "Colour grade")  # see build_terrain_appearance_into for why 6
+	_build_ramp()
+	_build_appearance(APPEARANCE_GROUPS.slice(6), "Colour grade")  # see build_relief_into for why 6
+	_build_biome_colours()
 	_build_color_management()
-	_host = null
-
-## v3 CARTO ▸ MAP PRESETS: the saved-look library, plus the inventory of what
-## this dock still owes.
-func build_presets_into(parent: Control) -> void:
-	_host = parent
-	_build_look_presets()
-	_build_owed_inventory()
 	_host = null
 
 # -- The reference's Map view block (reference HTML 1706-1717) -----------------
@@ -479,13 +491,64 @@ func _build_map_view() -> void:
 	var body := DccWidgets.section(_h(), "Map view")
 	for key in APPEARANCE_VIEW:
 		_appearance_slider(body, key)
+	## Ruling L (`left_rail_tree_resorted.md` L274): the Multi-sun toggle joins
+	## the two sun angles it changes the meaning of, out of the water rows it
+	## had nothing to do with. Guarded on `npr_api` and not on `appearance_api`
+	## because it is an NPR key -- the two bindings degrade independently, so
+	## this row can be absent while the three sliders above it are present.
+	if bridge.npr_api:
+		var npr: Dictionary = bridge.npr_settings()
+		_npr_rows["multi_sun"] = {"check": DccWidgets.toggle(body, "Multi-sun lighting",
+			bool(npr.get("multi_sun", false)),
+			func(v: bool): _push({"multi_sun": v}),
+			"The reference's softer four-light painterly relief: a primary sun, a "
+			+ "fill sun 90° round, a zenith light and an ambient floor.")}
+
+## Ruling L CARTO ▸ Colours ▸ Biome colours (`left_rail_tree_resorted.md`
+## L294-296): `bio_blend`, which used to sit in Map view among the relief
+## sliders, and the read-only biome table it is the mix control for, which used
+## to sit under the colour grade. Neither moved for tidiness: the slider decides
+## how far the biome palette pulls away from grey relief, and the link is what
+## shows that palette, so they are one row and its legend.
+func _build_biome_colours() -> void:
+	if not bridge.appearance_api:
+		return
+	var body := DccWidgets.section(_h(), "Biome colours")
+	for key in APPEARANCE_BIOME:
+		_appearance_slider(body, key)
+	## `GUI_GAP_REGISTER.md` **CA-19**, corrected 2026-08-25: the table has
+	## been *readable* all along -- `debug_layers()` carries all fifteen
+	## classes, name and swatch, as the Biomes field's own legend, and the
+	## paint palette reads the same constant. What it is not is *writable*.
+	var n := 0
+	for g in bridge.debug_layers():
+		for it in (g as Dictionary).get("items", []):
+			if String((it as Dictionary).get("id", "")) == "bclass":
+				n = ((it as Dictionary).get("legend", []) as Array).size()
+	var see := DccWidgets.action(body,
+		"Biome colour table (%d classes) → Layers ▸ Biomes" % n,
+		func():
+			app.viewport.set_debug_layer("bclass")
+			app.layers_popover.open())
+	see.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	see.tooltip_text = "CART_BIOME_COLS, the reference's own fifteen-class table, rendered as the Biomes field's legend -- one picker, not a second copy of the list."
+	DccWidgets.note(body,
+		"A writable biome table  ·  costs a re-baseline\n"
+		+ "All fifteen classes are readable today; making one writable is what "
+		+ "is not built (GUI_GAP_REGISTER.md CA-19). It is a frozen "
+		+ "reference constant compiled into render.rs, which five test targets "
+		+ "include standalone, and it is what a painted biome cell blends "
+		+ "toward -- so a rewritable palette is a field threaded through "
+		+ "RenderCtx and re-baselined golden expectations, not a picker. The "
+		+ "four field weights under Colour grade are the influence half of the "
+		+ "same subject and are live.")
 
 # -- The reference's Map style presets (reference HTML 1719-1729) --------------
 
 func _build_map_style() -> void:
 	if not bridge.npr_api:
 		return
-	var body := DccWidgets.section(_h(), "Map style")
+	var body := DccWidgets.section(_h(), "Look")
 	## The engine's own look list, read **before** the gallery rather than after
 	## it: a tile names the base look it selects, and whether this cdylib
 	## actually has that look is a fact only this list can answer.
@@ -860,8 +923,8 @@ func _build_appearance(groups: Array, title: String = "Rendering - advanced") ->
 			+ "later tier or look change; Reset hands every one of them back -- "
 			+ "including the colour grade under Colours, which is the same "
 			+ "appearance record. Reset "
-			+ "deliberately leaves the base look alone -- that picker is above, and "
-			+ "a button in this section silently moving it is the desync this dock "
+			+ "deliberately leaves the base look alone -- that picker is under Style, "
+			+ "and a button in this section silently moving it is the desync this dock "
 			+ "keeps having to fix. All presentation -- nothing here marks a "
 			+ "generation stage stale.")
 		## **This note has now been wrong twice in one day, in the same
@@ -890,34 +953,8 @@ func _build_appearance(groups: Array, title: String = "Rendering - advanced") ->
 			"A post-process over the finished terrain raster, before rivers, labels "
 			+ "and icons draw -- nothing here describes the ground, it describes the "
 			+ "print. Every weight in Grade field influence is inert while every "
-			+ "slider above it sits at rest. Reset to quality tier, under Terrain "
-			+ "appearance, hands these back too: it is one appearance record.")
-		## `GUI_GAP_REGISTER.md` **CA-19**, corrected 2026-08-25: the table has
-		## been *readable* all along -- `debug_layers()` carries all fifteen
-		## classes, name and swatch, as the Biomes field's own legend, and the
-		## paint palette reads the same constant. What it is not is *writable*.
-		var n := 0
-		for g in bridge.debug_layers():
-			for it in (g as Dictionary).get("items", []):
-				if String((it as Dictionary).get("id", "")) == "bclass":
-					n = ((it as Dictionary).get("legend", []) as Array).size()
-		var see := DccWidgets.action(body,
-			"Biome colour table (%d classes) → Layers ▸ Biomes" % n,
-			func():
-				app.viewport.set_debug_layer("bclass")
-				app.layers_popover.open())
-		see.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		see.tooltip_text = "CART_BIOME_COLS, the reference's own fifteen-class table, rendered as the Biomes field's legend -- one picker, not a second copy of the list."
-		DccWidgets.note(body,
-			"A writable biome table  ·  costs a re-baseline\n"
-			+ "All fifteen classes are readable today; making one writable is what "
-			+ "is not built (GUI_GAP_REGISTER.md CA-19). It is a frozen "
-			+ "reference constant compiled into render.rs, which five test targets "
-			+ "include standalone, and it is what a painted biome cell blends "
-			+ "toward -- so a rewritable palette is a field threaded through "
-			+ "RenderCtx and re-baselined golden expectations, not a picker. The "
-			+ "four field weights above are the influence half of v3's category "
-			+ "and are live.")
+			+ "slider above it sits at rest. Reset to quality tier, under Relief & "
+			+ "light, hands these back too: it is one appearance record.")
 
 ## One row, with the engine's range and this file's own step/unit/scale.
 func _appearance_slider(parent: Control, key: String) -> void:
@@ -1335,7 +1372,7 @@ func _build_layer_stack() -> void:
 		+ "underneath.")
 	DccWidgets.note(body,
 		"Presentation only, and session-scoped with one exception: Save look "
-		+ "(Map presets) writes the arrangement into the look file, and Reset to "
+		+ "(Style ▸ Saved looks) writes the arrangement into the look file, and Reset to "
 		+ "quality tier drops it. A project .zip does NOT carry it -- the saved "
 		+ "appearance document round-trips the tier, the look, the overrides, the "
 		+ "ramp and the Painter block, and has no layers field -- so this is one "
@@ -1528,7 +1565,7 @@ func _dark_layer_row(parent: Control, label_text: String) -> void:
 	row.tooltip_text = "Colour relief is not drawing: its ramp strength is 0, " \
 		+ "so the renderer skips the layer and a dot, an opacity, a blend and " \
 		+ "an order over it would move no pixel. Raise the Colour relief " \
-		+ "slider under Terrain appearance and the full row comes back."
+		+ "slider under Colours ▸ Colour relief and the full row comes back."
 	## The dash this shell writes for a field with no value, in the slot the
 	## visibility dot occupies on a live row -- not the "off" glyph, which would
 	## claim the layer had been hidden by hand.
@@ -1729,7 +1766,7 @@ func _build_npr() -> void:
 		+ "interval (1/20th of the world's relief). Only affects Contour veins.",
 		npr)
 
-	var water := DccWidgets.section(_h(), "Water & light")
+	var water := DccWidgets.section(_h(), "Water")
 	_npr_rows["waves"] = {"check": DccWidgets.toggle(water, "Coastal wave lines",
 		bool(npr.get("waves", false)),
 		func(v: bool): _push({"waves": v}),
@@ -1746,11 +1783,6 @@ func _build_npr() -> void:
 		_on_animate_water,
 		"A travelling shimmer along river channels. Drawn as a shader overlay "
 		+ "on the map, not baked into the raster -- see water_anim_layer.gd.")
-	_npr_rows["multi_sun"] = {"check": DccWidgets.toggle(water, "Multi-sun lighting",
-		bool(npr.get("multi_sun", false)),
-		func(v: bool): _push({"multi_sun": v}),
-		"The reference's softer four-light painterly relief: a primary sun, a "
-		+ "fill sun 90° round, a zenith light and an ambient floor.")}
 	## v2.70 (`RC_ENGINE_CHANGES.md`): a flat limited-palette look, land and
 	## water both -- see `render.rs`'s `Npr::village`. An on/off replacement,
 	## not a slider, so it gets a checkbox like the two above rather than an
@@ -1764,7 +1796,7 @@ func _build_npr() -> void:
 		func(v: bool): _push({"village": v}),
 		"A flat, limited-palette look: quantises the finished shaded colour "
 		+ "into a few flat bands. Pair with zero hillshade weights (the "
-		+ "\"Village\" Map style tile does this for you) or the bands follow "
+		+ "\"Village\" tile under Style ▸ Look does this for you) or the bands follow "
 		+ "the shading gradient instead of reading as flat colour.")}
 
 func _npr_slider(parent: Control, label_text: String, key: String, maximum: float,

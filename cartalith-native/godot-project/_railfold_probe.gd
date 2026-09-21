@@ -20,12 +20,14 @@ extends Node
 ## `_dock_hosted` was set early enough. Nothing at the time would have caught
 ## the opposite mistake — building them zero times.
 ##
-## So §3 below does not count categories. It **names all thirty-two**, one
-## string at a time, and asserts each is still openable and still owned by a rail
-## node. A count would pass a build that dropped `Trade` and gained `Trade ` with
-## a trailing space; a name list will not. That is the same discipline
-## `_cmdindex_probe` §2 uses when it asserts the engine's own labels rather than
-## a row count, and for the same reason.
+## So §3 below does not count categories. It **names all twenty-nine**
+## (re-derived 2026-09-21 for Ruling L's WORLD/CARTO re-sort: WORLD swaps
+## `Resources` for `Planet`, CARTO folds ten categories into seven — the total
+## moved 32 -> 29), one string at a time, and asserts each is still openable and
+## still owned by a rail node. A count would pass a build that dropped `Trade`
+## and gained `Trade ` with a trailing space; a name list will not. That is the
+## same discipline `_cmdindex_probe` §2 uses when it asserts the engine's own
+## labels rather than a row count, and for the same reason.
 ##
 ## Every assertion drives the shell's real entry points — `select_domain_mode`,
 ## `select_domain_category`, `Workspace.open_category` — rather than reading
@@ -50,9 +52,10 @@ func _ok(name: String, got, want) -> void:
 ## in `world_workspace.gd`, `civilization_workspace.gd` and
 ## `cartography_workspace.gd` — including the CIVIL ones
 ## `infrastructure_workspace.gd` fills (`Routes & ways` and `Travel`, and since
-## Ruling L parts of `Settlements` and `Economy`) and the four CARTO ones filled
-## by `render_workspace.gd` (`Map style`, `Terrain appearance`, `Colours`,
-## `Map presets`). Those are the fold's actual cargo and the reason the list is
+## Ruling L parts of `Settlements` and `Economy`) and the CARTO ones filled
+## by `render_workspace.gd` (`Style`, `Relief & light`, `Colours` — re-sorted
+## 2026-09-21, `render_workspace.gd`'s composed categories renamed and its
+## tenth, `Map presets`, folded into `Style ▸ Saved looks`). Those are the fold's actual cargo and the reason the list is
 ## written out rather than walked. CIVIL's thirteen are Ruling L's, in its order
 ## (`design/owner-references-2026-09-12/left_rail_tree_resorted.md` L143-247).
 ##
@@ -63,8 +66,8 @@ func _ok(name: String, got, want) -> void:
 ## the same commit and the diff says so.
 const EXPECTED: Dictionary = {
 	"world": [
-		"Generate", "Terrain", "Geology", "Hydrology", "Climate",
-		"Biomes", "Ecology", "Resources", "World data",
+		"Generate", "Planet", "Geology", "Hydrology", "Climate",
+		"Ecology", "World data", "Terrain", "Biomes",
 	],
 	"civilization": [
 		"Populate", "Settlements", "Landmarks", "Routes & ways", "Travel",
@@ -72,9 +75,8 @@ const EXPECTED: Dictionary = {
 		"Religion", "Economy", "Timeline",
 	],
 	"cartography": [
-		"Map style", "Terrain appearance", "Colours", "Layers", "Roads & routes",
-		"Labels", "Assets & landmarks", "Political display", "Visibility / zoom",
-		"Map presets",
+		"Style", "Relief & light", "Colours", "Feature style", "Layers",
+		"Labels", "Icons",
 	],
 }
 
@@ -86,16 +88,16 @@ const EXPECTED: Dictionary = {
 ## `Factions & settlements` and `Ways & routes` are stale for those two nodes,
 ## and L23's Settlements node is not built (it would need a fifth CIVIL mode id).
 const DESIGN_NODES: Array = [
-	["world", "a", "Generation pipeline"],
+	["world", "a", "Generate"],
 	["world", "b", "Sculpt"],
 	["civilization", "landmarks", "Landmarks"],
 	["civilization", "factions", "Factions"],
 	["civilization", "infra", "Routes & ways"],
 	["civilization", "planner", "Journey planner"],
-	["cartography", "style", "Layers & style"],
+	["cartography", "style", "Style"],
+	["cartography", "layers", "Layers"],
 	["cartography", "labels", "Labels"],
 	["cartography", "icons", "Icons"],
-	["cartography", "terrain", "Terrain appearance"],
 ]
 
 func _category_body(panel: Control, title: String) -> Control:
@@ -183,7 +185,7 @@ func _ready() -> void:
 				body != null and body.visible, true)
 
 	# =====================================================================
-	print("\n=== 3: nothing was stranded — all 32 categories, named ===")
+	print("\n=== 3: nothing was stranded — all 29 categories, named ===")
 	var total := 0
 	for dom in EXPECTED:
 		var panel: Control = app.call("workspace_panel", dom)
@@ -214,7 +216,7 @@ func _ready() -> void:
 		_ok("[%s] the dock builds no category EXPECTED does not name" % dom,
 			titles.size(), (EXPECTED[dom] as Array).size())
 	print("  info categories asserted by name: ", total)
-	_ok("all thirty-two were asserted", total, 32)
+	_ok("all twenty-nine were asserted", total, 29)
 
 	## Every real `select_domain_category()` call site in the shell, by (domain,
 	## category), each resolving to the node that will light. These are grepped
@@ -232,9 +234,8 @@ func _ready() -> void:
 		["civilization", "Factions", "factions"],
 		["civilization", "Economy", "factions"],
 		["cartography", "Labels", "labels"],
-		["cartography", "Political display", "style"],
-		["cartography", "Assets & landmarks", "icons"],
-		["cartography", "Roads & routes", "style"],
+		["cartography", "Feature style", "style"],
+		["cartography", "Icons", "icons"],
 		["world", "Ecology", "a"],
 		["world", "World data", "a"],
 	]:
@@ -294,8 +295,8 @@ func _ready() -> void:
 	## times over.
 	var carto: Control = app.call("workspace_panel", "cartography")
 	var carto_nodes := {
-		"style": "Layers", "labels": "Labels",
-		"icons": "Assets & landmarks", "terrain": "Terrain appearance",
+		"style": "Style", "layers": "Layers",
+		"labels": "Labels", "icons": "Icons",
 	}
 	var reached := {}
 	for mode in carto_nodes:
@@ -344,10 +345,10 @@ func _ready() -> void:
 	_ok("the design's three per-class dials are drawn, and inert", lab_dead.size(), 3)
 	_ok("...each carrying its reason", _silent(lab_dead).size(), 0)
 
-	var icons_body := _category_body(carto, "Assets & landmarks")
+	var icons_body := _category_body(carto, "Icons")
 	var ico_sliders := _sliders_in(icons_body)
 	var ico_dead := _inert(ico_sliders)
-	print("  info sliders under Assets & landmarks: %d (%d inert)" % [ico_sliders.size(), ico_dead.size()])
+	print("  info sliders under Icons: %d (%d inert)" % [ico_sliders.size(), ico_dead.size()])
 	_ok("icon scale and min spacing are drawn, and inert", ico_dead.size(), 2)
 	_ok("...each carrying its reason", _silent(ico_dead).size(), 0)
 	## The three placement rules. `snap sea marks to coast` is the one whose
@@ -360,7 +361,7 @@ func _ready() -> void:
 	var rule_names := []
 	for c in checks:
 		rule_names.append(_row_label(c))
-	print("  info toggles under Assets & landmarks: ", rule_names)
+	print("  info toggles under Icons: ", rule_names)
 	_ok("the three placement rules are drawn",
 		rule_names.has("avoid label boxes") and rule_names.has("enforce min spacing")
 		and rule_names.has("snap sea marks to coast"), true)

@@ -183,31 +183,56 @@ const EROSION_STAGE_INDEX := 5 ## Zero-based -- STAGES[5] is "Erosion".
 ##
 ## `stages` is in dependency order within a category, so a category hosting two
 ## stages still reads top-to-bottom the way the pipeline runs. A category with
-## an empty list is one v3 names that the engine does not parameterise at all --
-## it carries prose, never a dead control.
+## an empty list is one that carries no pipeline parameters of its own -- either
+## prose and readouts (World data), or a hand-editing block (Terrain, Biomes).
+##
+## **Re-sorted 2026-09-21 by the owner** (`LARGE_ITEM_RULINGS.md` Ruling L;
+## `design/owner-references-2026-09-12/left_rail_tree_resorted.md` is the
+## specification and the tree there is leading where its notes disagree with
+## it). v3's nine categories became **seven PIPELINE plus two SCULPT**, and the
+## split is the mode pill's, not a category's:
+##
+## - `Terrain` stops doing double duty. Its stage-05/06 half moves out (erosion
+##   water & ice to `Hydrology`, hillslope diffuse to `Geology`) and its
+##   heightmap entry point moves to `Generate ▸ Import`, leaving the sculpt
+##   block alone behind the SCULPT pill.
+## - `Planet` is new, and is the *input* half of the old `World data` (01, 02)
+##   plus `Generate`'s stage 03. `World data` keeps only readouts.
+## - `Biomes` stops being a pipeline category: stage 09 folds into `Ecology`
+##   ("stage 09 is one stage"), and `Biomes` becomes SCULPT's paint block --
+##   Ruling L decision 2, which makes the left dock the ONE home for the brush.
+## - `Resources` is removed outright -- Ruling L decision 3: its values are
+##   calculated rather than set, so stage 10 stays a read-only row in Pipeline
+##   status and nothing here claims a dial that does not exist.
+##
+## The order below IS the tree's order, and the last two rows are the ones
+## `RAIL_NODES`' `world/b` gates (`dcc_shell.gd`).
 const CATEGORIES: Array = [
-	{"name": "Generate", "stages": [2],
-	 "lead": "The one act: seed, extent, steering, run. Every parameter in the eight categories below feeds this call, and this call resolves all ten pipeline stages at once -- there is no partial recompute in this engine or in the app it ports."},
-	{"name": "Terrain", "stages": [5],
-	 "lead": "The surface itself: what erosion does to it, and what a hand does to it. Elevation, slope, curvature and relief are readable as analysis fields -- Cartography ▸ Visibility / zoom ▸ Data overlays."},
+	{"name": "Generate", "stages": [],
+	 "lead": "The one act: seed, extent, steering, run -- plus the non-seed way in, and the terminal bake. Every parameter in the categories below feeds this call, and this call resolves all ten pipeline stages at once -- there is no partial recompute in this engine or in the app it ports."},
+	{"name": "Planet", "stages": [0, 1, 2],
+	 "lead": "The planet the world sits on, the scale it is measured in, and the continental steering that shapes it. Everything here is an input to generation rather than a product of it."},
 	{"name": "Geology", "stages": [3, 4],
 	 "lead": "What the rock is and where it was pushed: plates, uplift, volcanism, impacts and rock resistance. Everything here runs before erosion and is what erosion cuts into."},
 	{"name": "Hydrology", "stages": [6],
-	 "lead": "Rivers, lakes, drainage and flow accumulation, derived from the finished surface."},
+	 "lead": "Water and ice over the finished surface: what they cut into it, and the rivers, lakes, drainage and flow accumulation that come out."},
 	{"name": "Climate", "stages": [7],
 	 "lead": "Temperature, rainfall, wind and currents, over the finished surface and under the planet's own geometry."},
-	{"name": "Biomes", "stages": [8],
-	 "lead": "Classification off the finished temperature/rainfall/elevation fields, and the brush that overrides it by hand. Biome *colours* are Cartography's -- v3's own split."},
-	{"name": "Ecology", "stages": [],
-	 "lead": ""},
-	{"name": "Resources", "stages": [9],
-	 "lead": "Soil, ore and fertility, downstream of geology, climate and biomes."},
-	{"name": "World data", "stages": [0, 1],
-	 "lead": "The planet the world sits on and the scale it is measured in. Everything here is an input to generation rather than a product of it."},
+	{"name": "Ecology", "stages": [8],
+	 "lead": "Classification off the finished temperature/rainfall/elevation fields, and what lives on it. Biome *colours* are Cartography's -- v3's own split; the brush that overrides the classification by hand is Sculpt ▸ Biomes."},
+	{"name": "World data", "stages": [],
+	 "lead": "Readouts over the finished world: the field browser, the GeoJSON export, and the coordinate frame both are written in."},
+	{"name": "Terrain", "stages": [],
+	 "lead": "Height molding by hand, over the current surface. Elevation, slope, curvature and relief are readable as analysis fields -- Cartography ▸ Layers ▸ Data overlays."},
+	{"name": "Biomes", "stages": [],
+	 "lead": "Painting biome and terrain classes by hand, over the classified fields. Ruling L decision 2: this is the brush's one home, and Biome paint (B) in the Tools row above is the way to arm it."},
 ]
 
 var _sculpt_body: VBoxContainer
 var _paint_body: VBoxContainer
+## The TOOLS block's second row -- WORLD's one domain tool, `Biome paint (B)`.
+## Ruling L shows it in SCULPT mode only; see `_build()` and `apply_mode()`.
+var _paint_tool_row: Control
 ## ECOLOGY's whole body (`GUI_GAP_REGISTER.md` WW-14). Refilled wholesale on
 ## every generate/load for the same reason the two above are: every number in
 ## it is this world's.
@@ -387,9 +412,25 @@ func _build() -> void:
 	## the existing grid costs one extra click (open Terrain) beyond what a
 	## TOOLS-block pill would; `F` closes the one real gap that click cost
 	## has -- see `_build_feature_picker`'s own Freehand `Shortcut` below.
+	##
+	## **Ruling L gates this row on SCULPT mode**, 2026-09-21 -- the tree's own
+	## condition on the row (*"Biome paint (B) [tool] (SCULPT mode only)"*), and
+	## the grouping rule behind it: *"each tab's Tools row lists only tools that
+	## can be armed there"*, and WORLD ▸ PIPELINE has no brush in it. The `B`
+	## shortcut follows the pill by construction rather than by a second rule:
+	## `BaseButton::shortcut_input` fires only while the button
+	## `is_visible_in_tree()`, which is the same mechanism `F` already relies on
+	## in `_build_feature_picker`.
+	##
+	## The row is recovered from the button `tools_block()` just built rather
+	## than by child index, because `tools_block()` returns nothing and a
+	## positional read of a shared factory's output is a silent breakage the day
+	## that factory adds a node.
 	DccWidgets.tools_block(self, app, app.tool_group, [
 		{"id": "paint", "glyph": "tool_paint", "label": "Biome paint (B)"},
 	])
+	_paint_tool_row = _find_tool_row("Biome paint (B)")
+	_refresh_paint_tool_row(app.active_mode(domain_id) if app.has_method("active_mode") else "")
 
 	## **The two-button switch (Generation pipeline | Sculpt) came back on
 	## 2026-09-05, in the dock chrome rather than here.** It was removed on
@@ -425,16 +466,18 @@ func _build() -> void:
 	## why the canvas's two words are the right ones for what these modes hold,
 	## and it is probe-verified:
 	##
-	## - **mode `a`** owns eight of the nine `CATEGORIES` above -- Generate,
-	##   Geology, Hydrology, Climate, Biomes, Ecology, Resources, World data --
-	##   and `Generate`'s own `lead` says what they are collectively for: *"The
+	## - **mode `a`** owns seven of the nine `CATEGORIES` above -- Generate,
+	##   Planet, Geology, Hydrology, Climate, Ecology, World data -- and
+	##   `Generate`'s own `lead` says what they are collectively for: *"The
 	##   one act: seed, extent, steering, run … this call resolves all ten
-	##   pipeline stages at once."* Eight categories whose every parameter feeds
+	##   pipeline stages at once."* Seven categories whose every parameter feeds
 	##   one `generate()` call are a **pipeline**.
-	## - **mode `b`** owns and `shows` exactly `Terrain`, the one category
-	##   `_build_sculpt()` parents `_sculpt_body` into, and the mode arming the
-	##   sculpt tool jumps the dock to. One category holding the sculpt block is
-	##   **sculpt**.
+	## - **mode `b`** owns and `shows` exactly `Terrain` and `Biomes`, the two
+	##   categories `_build_categories()` parents `_sculpt_body` and
+	##   `_paint_body` into, and the two the hand tools jump the dock to. Two
+	##   categories holding the height-molding and the biome brush are
+	##   **sculpt** -- Ruling L's own grouping rule, *"everything done by hand
+	##   on the map surface"*.
 	##
 	## `DccShell._MODE_SWITCH_LABELS` carries the resulting `PIPELINE` /
 	## `SCULPT`. The rail-node labels (`Generation pipeline` / `Sculpt`) reach
@@ -448,34 +491,30 @@ func _build() -> void:
 	_sculpt_body = VBoxContainer.new()
 	_sculpt_body.add_theme_constant_override("separation", 0)
 	_sculpt_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	## **Owner instruction, 2026-09-07: the sculpt tools must appear ONLY when
-	## the sculpt menu is accessed.** They were on screen whenever the Terrain
-	## block was, armed or not, because this body carried no initial state and
-	## nothing toggled it. This overrides the design recorded twenty lines up
-	## (*"the mode hides the category, it does not re-home the body"*), and the
-	## override is written here so a later conformance pass does not restore
-	## the old behaviour by citing that comment.
+	## **The `armed_tool == "sculpt"` gate is gone, 2026-09-21.** The 2026-09-07
+	## owner instruction it implemented -- *"the sculpt tools must appear ONLY
+	## when the sculpt menu is accessed"* -- is superseded **in mechanism, not
+	## in intent**, by Ruling L: *"the re-sort makes SCULPT mode itself that
+	## gate and has picking a feature arm the tool, so the armed-tool gate
+	## goes."* The body is unconditionally visible and the SCULPT pill (plus
+	## the `Terrain` accordion header) is what hides it, which is the design
+	## recorded twenty lines up, restored deliberately rather than by drift.
 	##
-	## **`_paint_body` below is NOT the precedent it looks like.** It is set
-	## `false` here and never set true anywhere in this file, because Biome
-	## paint's controls live in the RIGHT dock (`_on_tool_armed` calls
-	## `right_dock_ctrl.show_paint()`); that body is vestigial, not
-	## hidden-until-armed. Copying it would have hidden the sculpt controls
-	## permanently.
-	##
-	## Derived from the armed tool rather than hardcoded `false`, because
-	## `_build_categories()` re-runs on rebuild and a hardcoded false would
-	## blank the panel underneath someone mid-stroke.
-	_sculpt_body.visible = (str(app.armed_tool) == "sculpt")
+	## `_paint_body` below is the same shape for the same reason. It was set
+	## `false` here and never set true, because Biome paint's controls lived in
+	## the RIGHT dock only; Ruling L decision 2 makes `WORLD ▸ Sculpt ▸ Biomes`
+	## the brush's real home, so the body it always built is now on screen. The
+	## right-dock copy is a duplicate to retire once this is live -- not retired
+	## here; see `_refresh_right_dock_paint()`, which keeps the two in step.
+	_sculpt_body.visible = true
 
-	## Biome paint stays a panel of its own, shown whenever the Biome-paint
-	## tool is armed -- the same "arming a tool never changes the workspace"
-	## independence §4.5 establishes for every other domain. It now lives
-	## inside the BIOMES category rather than at the foot of the dock.
+	## Biome paint stays a panel of its own, inside the BIOMES category --
+	## SCULPT mode and the accordion are what show and hide it, the same two
+	## gates `_sculpt_body` above answers to.
 	_paint_body = VBoxContainer.new()
 	_paint_body.add_theme_constant_override("separation", 0)
 	_paint_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_paint_body.visible = false
+	_paint_body.visible = true
 
 	_ecology_body = VBoxContainer.new()
 	_ecology_body.add_theme_constant_override("separation", 0)
@@ -556,7 +595,63 @@ func _on_world_loaded() -> void:
 	_fill_ecology(_ecology_body)
 	_build_crs(_crs_body)
 
-# -- v3's nine categories ------------------------------------------------------
+## Ruling L's *"(SCULPT mode only)"* on the TOOLS row's `Biome paint (B)`.
+##
+## The base `apply_mode()` gates category wraps off `RAIL_NODES`' `shows`; the
+## TOOLS block is not a category and is outside that gate, so this is the one
+## extra thing WORLD's mode has to move. Called through the same single choke
+## point every other transition into a mode passes through
+## (`DccShell._select_domain()`), so there is no route into PIPELINE that can
+## leave the pill on screen.
+func apply_mode(mode: String) -> void:
+	super.apply_mode(mode)
+	_refresh_paint_tool_row(mode)
+
+func _refresh_paint_tool_row(mode: String) -> void:
+	if is_instance_valid(_paint_tool_row):
+		_paint_tool_row.visible = mode == "b"
+
+## **SCULPT owes a floor; PIPELINE does not.** `Workspace._floor_applies()`
+## decides that by asking whether the active mode carries a `shows` list, which
+## was a sound proxy while `world/b` was the only gated mode in the whole table.
+## Ruling L makes PIPELINE the explicit complement (*"the mode pill is the only
+## gate"*), so `world/a` carries a `shows` too and the proxy now answers "yes"
+## for both halves -- which would re-open a PIPELINE header the user had just
+## closed. That exact regression was fixed on 2026-09-05 and is pinned by
+## `_leftdock12_probe.gd` §6(i) (*"closing it in an ungated mode leaves it
+## closed"*); its own comment calls the pipeline view *"nine headers on screen,
+## hiding nothing"*, which Ruling L turns into seven headers that do hide two,
+## without changing what the floor was for.
+##
+## So WORLD names the mode that owes a floor rather than inferring it. The
+## reason is SCULPT's alone and does not generalise: it renders the by-hand
+## block and nothing else, so collapsing it leaves a dock of two headings with
+## nothing under them, where PIPELINE's seven closing to zero is the same
+## legible state CARTO's own headers are allowed to reach.
+##
+## This leaves the base's `mode_shows()` clause with no live caller -- CIVIL
+## answers the first clause (`floor_category()` is `Populate`) and CARTO gates
+## nothing -- so it is now the fallback for a domain that later gains a gate,
+## which is what it was written as.
+func _floor_applies() -> bool:
+	if app == null or domain_id.is_empty() or not app.has_method("active_mode"):
+		return false
+	return String(app.call("active_mode", domain_id)) == "b"
+
+## The TOOLS row holding the tool whose tooltip is `label` -- `tools_block()`
+## builds one `HFlowContainer` per row and returns neither, and the button's own
+## tooltip is its label (`DccWidgets.tool_button()`), so the row is found by
+## what is in it rather than by where it sits.
+func _find_tool_row(label: String) -> Control:
+	var stack: Array = [self]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is Button and String((n as Button).tooltip_text) == label:
+			return n.get_parent() as Control
+		stack.append_array(n.get_children())
+	return null
+
+# -- Ruling L's nine categories ------------------------------------------------
 
 ## One L2 category per `CATEGORIES` row, each hosting whichever pipeline stages
 ## own its subject. Everything a stage contributes -- its dependency prose, its
@@ -572,9 +667,10 @@ func _build_categories() -> void:
 
 		match name:
 			"Generate": _build_generate_head(body)
-			"Terrain": _build_terrain_head(body)
-			"Biomes": pass
-			"Ecology": _build_ecology(body)
+			## Ruling L files `06 Erosion · water & ice` above `River network`,
+			## so it is a head rather than a foot: stage 05's water and ice
+			## passes cut the surface stage 07 then drains.
+			"Hydrology": _build_erosion_water_ice(body)
 			_: pass
 
 		var stages: Array = cat["stages"]
@@ -584,8 +680,9 @@ func _build_categories() -> void:
 		match name:
 			"Generate": _build_generate_foot(body)
 			"Terrain": body.add_child(_sculpt_body)
-			"Geology": _build_geology_foot(body)
+			"Geology": _build_erosion_hillslope(body)
 			"Hydrology": _build_hydrology_foot(body)
+			"Ecology": _build_ecology(body)
 			"Biomes": body.add_child(_paint_body)
 			"World data": _build_world_data_foot(body)
 			_: pass
@@ -625,6 +722,8 @@ func _build_generate_head(parent: Control) -> void:
 	seed_btn.tooltip_text = "The reference's #reseedBtn. Rolls a new seed in File ▸ New world and regenerates from it."
 	var centre := DccWidgets.action(sec, "Center landmasses", func(): app._center_landmasses())
 	centre.tooltip_text = "The reference's #centerBtn. Rotates the world in longitude so the emptiest meridian sits at the map edge, then feathers the join it moved into the interior. Whole-world mode only; the outcome is reported in the status bar."
+
+	_build_import(parent)
 
 	var status := DccWidgets.section(parent, "Pipeline status")
 	## `bridge.generation_stage` (`engine_bridge.gd`, 2026-08-30) made this a
@@ -745,27 +844,35 @@ func _build_generate_foot(parent: Control) -> void:
 		+ "rather than re-eroding it. Auto-detail on zoom, tile size and the chunk "
 		+ "debug overlay stay program scope -- Preferences ▸ Tiles & LOD.")
 
-	var not_stage := DccWidgets.section(parent, "Not a generation stage")
-	DccWidgets.note(not_stage,
-		"GPU acceleration and multi-GPU → Preferences ▸ Performance. Render quality, lighting, 3D viewport → Preferences ▸ Graphics. Auto-detail on zoom, tile size, chunk debug → Preferences ▸ Tiles & LOD. Terrain appearance, style presets, ramps → Cartography. Settlements, routes, politics → Civilization.")
+	## **The `Not a generation stage` section is gone, 2026-09-21.** Ruling L
+	## removes it outright -- *"the grouping rule says it"*: the re-sorted tree's
+	## own grouping rules state where each of the five things it routed to
+	## lives (Preferences for program scope, CARTO for map style, CIVIL for
+	## people), so a section restating them under Finalize is a second source
+	## for placement that the tree itself now answers.
 
-## v3 TERRAIN's head: the heightmap entry point, above the erosion passes.
-func _build_terrain_head(parent: Control) -> void:
-	var sec := DccWidgets.section(parent, "Heightmap")
+## Ruling L's `Generate ▸ Import` -- *"the non-seed way in; both halves of it
+## together"*. Both buttons already existed and neither changed: `Load
+## heightmap…` was `Terrain ▸ Heightmap` and `Infer tectonics from heightmap…`
+## was `Geology ▸ From an imported surface`, two sections apart in two
+## categories, for one import that performs both acts in one call.
+##
+## The note's last clause used to read *"see Geology below for that pass on its
+## own"*. That pointer is now false in the direction it points -- the pass sits
+## in this same section, three rows down -- so it is rewritten rather than left
+## to age (`MISTAKES.md`: hunt the prose that described the old placement).
+func _build_import(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Import")
 	var load_btn := DccWidgets.action(sec, "Load heightmap…",
 		func(): app.open_data_manager("Import"))
 	load_btn.tooltip_text = "The reference's #loadBtn. Opens Data ▸ Import, whose Heightmaps route decodes a PNG, takes it as the elevation field and infers tectonics under it."
-	DccWidgets.note(sec,
-		"An imported heightmap replaces the generated surface. Tectonics are "
-		+ "inferred from it rather than kept -- see Geology below for that pass "
-		+ "on its own.")
-
-## v3 GEOLOGY's foot: the one geology action that is not a parameter.
-func _build_geology_foot(parent: Control) -> void:
-	var sec := DccWidgets.section(parent, "From an imported surface")
 	var infer := DccWidgets.action(sec, "Infer tectonics from heightmap…",
 		func(): app.open_data_manager("Import"))
 	infer.tooltip_text = "The reference's #inferTectBtn. Runs as part of the heightmap import (cartalith_engine::import::infer_tectonics) -- there is no separate #[func] to re-run it over an already-imported surface, so this opens the import that performs it."
+	DccWidgets.note(sec,
+		"An imported heightmap replaces the generated surface, and tectonics are "
+		+ "inferred from it rather than kept -- which is why both rows above open "
+		+ "the same import: one pass performs both.")
 
 ## v3 names ECOLOGY as its own category, and `GUI_GAP_REGISTER.md` **WW-14**
 ## registered it as having nothing behind it -- "ecological productivity and
@@ -1143,27 +1250,7 @@ func _build_stage_body(parent: Control, index: int, label_stage: bool) -> void:
 	if label_stage:
 		body = DccWidgets.section(parent, "%02d %s" % [index + 1, String(stage["name"])])
 
-	## The mockup indents a stage's `needs`/`produces` under its title rather
-	## than running them to the dock's own edge, which is what `note()` on a
-	## bare body does.
-	var meta := VBoxContainer.new()
-	meta.add_theme_constant_override("separation", 1)
-	var meta_pad := MarginContainer.new()
-	meta_pad.add_theme_constant_override("margin_left", 0 if label_stage else 14)
-	meta_pad.add_theme_constant_override("margin_right", 0 if label_stage else 12)
-	meta_pad.add_theme_constant_override("margin_top", 0 if label_stage else 6)
-	meta_pad.add_theme_constant_override("margin_bottom", 2)
-	meta_pad.add_child(meta)
-	body.add_child(meta_pad)
-
-	DccWidgets.note(meta, "needs — %s" % String(stage["needs"]))
-	DccWidgets.note(meta, "produces — %s" % String(stage["produces"]))
-	if not String(stage["gap"]).is_empty():
-		DccWidgets.note(meta, String(stage["gap"]))
-
-	if index == EROSION_STAGE_INDEX:
-		_build_erosion_passes(body, index)
-		return
+	_build_stage_meta(body, index, label_stage)
 
 	## A stage that already carries its own `NN NAME` heading and holds exactly
 	## one block of parameters does not get a second heading naming the same
@@ -1193,6 +1280,34 @@ func _build_stage_body(parent: Control, index: int, label_stage: bool) -> void:
 			var adv := DccWidgets.advanced(host)
 			for key in advanced_keys:
 				_build_param_row(adv, key, index)
+
+## A stage's `needs` / `produces` / `gap` prose, indented under its title.
+##
+## Split out of `_build_stage_body()` 2026-09-21: Ruling L takes stage 05 out
+## of the `CATEGORIES` stage lists entirely and splits its two halves across
+## `Hydrology` and `Geology`, so the meta block has a caller that is not a
+## stage body any more (`_build_erosion_water_ice`, which owns the half the
+## `needs`/`produces` prose is actually about).
+##
+## The mockup indents a stage's `needs`/`produces` under its title rather than
+## running them to the dock's own edge, which is what `note()` on a bare body
+## does.
+func _build_stage_meta(body: Control, index: int, label_stage: bool) -> void:
+	var stage: Dictionary = STAGES[index]
+	var meta := VBoxContainer.new()
+	meta.add_theme_constant_override("separation", 1)
+	var meta_pad := MarginContainer.new()
+	meta_pad.add_theme_constant_override("margin_left", 0 if label_stage else 14)
+	meta_pad.add_theme_constant_override("margin_right", 0 if label_stage else 12)
+	meta_pad.add_theme_constant_override("margin_top", 0 if label_stage else 6)
+	meta_pad.add_theme_constant_override("margin_bottom", 2)
+	meta_pad.add_child(meta)
+	body.add_child(meta_pad)
+
+	DccWidgets.note(meta, "needs — %s" % String(stage["needs"]))
+	DccWidgets.note(meta, "produces — %s" % String(stage["produces"]))
+	if not String(stage["gap"]).is_empty():
+		DccWidgets.note(meta, String(stage["gap"]))
 
 ## One params.rs `group`, in the reference's own within-panel order (the
 ## engine builds PARAMS in that order, and Dictionary iteration in GDScript
@@ -1232,12 +1347,26 @@ func _build_group_section(parent: Control, group_name: String, stage_index: int,
 ## they are in the "Stream-power carve" group above, because `params.rs` files
 ## them all under `group: "erosion"`. So the honest note is "run as a
 ## generation toggle above", not "not ported".
-func _build_erosion_passes(body: VBoxContainer, stage_index: int) -> void:
+##
+## **Ruling L splits this stage across two categories, 2026-09-21.** Five of the
+## six passes cut with water or ice and go to `Hydrology`, above the drainage
+## they feed (`_build_erosion_water_ice`); hillslope diffuse is creep, not
+## water, and goes to `Geology` (`_build_erosion_hillslope`). Nothing about any
+## pass changed -- the same `group()` bodies in the same order, with the same
+## `stage_index` for staleness, in two homes instead of one.
+##
+## Decision 1 of Ruling L is what keeps `Erode (droplet)` and `Carve fjords`
+## here rather than under Sculpt: *"on-demand passes grouped with the domain
+## they act on"*.
+func _build_erosion_water_ice(parent: Control) -> void:
+	var body := DccWidgets.section(parent, "06 Erosion · water & ice")
+	_build_stage_meta(body, EROSION_STAGE_INDEX, true)
+
 	var real := DccWidgets.group(body, "Stream-power carve", true)
 	for key in bridge.param_keys():
 		var info := bridge.param_info(key)
 		if String(info.get("group", "")) == "erosion":
-			_build_param_row(real, key, stage_index)
+			_build_param_row(real, key, EROSION_STAGE_INDEX)
 
 	## Droplet is the one that is genuinely a BUTTON in this port too -- the
 	## reference runs it from `#erodeBtn` over the finished field and
@@ -1245,18 +1374,37 @@ func _build_erosion_passes(body: VBoxContainer, stage_index: int) -> void:
 	## its own control. §23 F11.
 	_build_droplet_erosion(DccWidgets.group(body, "Droplet hydraulic", false))
 
-	for pass_name in ["Hillslope diffuse", "Velocity (momentum)", "Glacial", "Coastal"]:
+	for pass_name in ["Velocity (momentum)", "Glacial", "Coastal"]:
 		var grp := DccWidgets.group(body, pass_name, false)
-		DccWidgets.note(grp,
-			"Ported. This port runs it as a generation-time toggle rather than a button " +
-			"(DECISIONS.md §7d) -- its passes.* switch and dials are in Stream-power carve above, " +
-			"off by default. There is no separate run button because the pass is part of generate().")
+		DccWidgets.note(grp, _erosion_pass_note())
 		## The reference's Glacial panel carries two buttons, not one:
 		## `#glacBtn` (glacialErode, which this port runs as `passes.glacial`)
 		## and `#fjordBtn` (carveFjordsOp), a real, golden-verified port since
 		## 2026-08-23 and the one true opt-in button of the four.
 		if pass_name == "Glacial":
 			_build_fjord_row(grp)
+
+## The creep half of stage 06, filed under `Geology` by Ruling L -- *"06 Erosion
+## · hillslope diffuse (note only -- generation-time toggle) ◄ Terrain ▸ 06
+## Erosion (creep, not water)"*.
+##
+## `category_expander()` rather than a bare `DccWidgets.group()`: this is an
+## expander at category level, beside two `§` sections, and a bare group draws
+## flush against the dock edge while a section sits 14 px in. That is L2 of the
+## CIVIL half's own repair round, and the helper is the one it added.
+func _build_erosion_hillslope(parent: Control) -> void:
+	DccWidgets.note(
+		CivilizationWorkspace.category_expander(parent, "06 Erosion · hillslope diffuse", false),
+		_erosion_pass_note())
+
+## The one sentence the four note-only erosion passes share. One copy, because
+## Ruling L now draws them in two different categories and two divergent
+## transcriptions of the same disclosure is how a stale one survives.
+func _erosion_pass_note() -> String:
+	return ("Ported. This port runs it as a generation-time toggle rather than a button "
+		+ "(DECISIONS.md §7d) -- its passes.* switch and dials are in Hydrology ▸ 06 Erosion · "
+		+ "water & ice ▸ Stream-power carve, off by default. There is no separate run button "
+		+ "because the pass is part of generate().")
 
 # -- §23 F11 · the reference's `erode()` op --------------------------------------
 #
@@ -2719,12 +2867,12 @@ func _sculpt_escape() -> void:
 ## leaving both Sculpt and Paint hides the brush cursor, which only either of
 ## those two tools ever shows.
 func _on_tool_armed(id: String) -> void:
-	## The owner's rule, applied on BOTH edges. `MISTAKES.md`: *"the disarm
-	## path is the obvious one and the arm-another-tool path is the one that
-	## gets missed"* — a single equality covers both, where an `if id ==
-	## "sculpt": show` would only cover arming.
-	if is_instance_valid(_sculpt_body):
-		_sculpt_body.visible = (id == "sculpt")
+	## **No `_sculpt_body.visible` write here any more, 2026-09-21.** It carried
+	## the 2026-09-07 armed-tool gate (*"a single equality covers both edges"*),
+	## and Ruling L replaces that mechanism with SCULPT mode itself -- see
+	## `_build()`. `_follow_tool_to_its_block()` at the foot of this function is
+	## what makes arming still land the user on the controls: it switches the
+	## mode and opens the category, rather than revealing a body in place.
 	if id != "sculpt" and not _sculpt_stroke_points.is_empty():
 		bridge.sculpt_cancel_stroke()
 		_sculpt_stroke_points = PackedVector2Array()

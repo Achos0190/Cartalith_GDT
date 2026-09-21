@@ -1181,8 +1181,8 @@ func _fill_factions(parent: Control) -> void:
 	## No second *Faction roster…* button: this category already has one
 	## above, and two openers onto one window is the shape this shell keeps
 	## having to undo.
-	var paint_btn := DccWidgets.action(identity, "How heavily it paints → Cartography ▸ Political display",
-		func(): app.select_domain_category("cartography", "Political display"))
+	var paint_btn := DccWidgets.action(identity, "How heavily it paints → Cartography ▸ Feature style",
+		func(): app.select_domain_category("cartography", "Feature style"))
 	paint_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	paint_btn.tooltip_text = "v3's own split: which colour a faction *is* belongs here, how heavily the wash is laid on belongs to CARTO."
 
@@ -4314,8 +4314,8 @@ func _lm_not_built(parent: Control) -> void:
 		+ "not entities, and they live where annotation lives -- a hand-placed "
 		+ "mark has no causal chain and no emergent importance, which is what a "
 		+ "generated landmark is, so the two lists never merge into one count.")
-	var go := DccWidgets.action(parent, "Place an icon → Cartography ▸ Assets & landmarks",
-		func(): app.select_domain_category("cartography", "Assets & landmarks"))
+	var go := DccWidgets.action(parent, "Place an icon → Cartography ▸ Icons",
+		func(): app.select_domain_category("cartography", "Icons"))
 	go.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 # -- § PLACEMENT --------------------------------------------------------------
@@ -4770,8 +4770,8 @@ func _lm_last_run(parent: Control) -> void:
 		"%d icon(s) stamped on the map by hand. They are annotation, not " % icons.size()
 		+ "entities: no causal chain, no emergent importance, and never counted "
 		+ "into a family above.")
-	var go := DccWidgets.action(hand, "Place an icon → Cartography ▸ Assets & landmarks",
-		func(): app.select_domain_category("cartography", "Assets & landmarks"))
+	var go := DccWidgets.action(hand, "Place an icon → Cartography ▸ Icons",
+		func(): app.select_domain_category("cartography", "Icons"))
 	go.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 ## `_recompute_civ`'s pattern, in this panel's own subject.

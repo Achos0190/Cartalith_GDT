@@ -17,7 +17,8 @@ extends Node
 ##      building leaves an empty body that looks like a closed one.
 ##   4. Prove the rows that claim real capability actually reach it:
 ##      Territories' two recompute shortcuts, Timeline's years and simulator,
-##      Layers/Political display's split, and Data ▸ Markdown vault.
+##      the political layers' Ruling L consolidation back into Layers, and
+##      Data ▸ Markdown vault.
 ##   5. Assert every disabled row carries a reason (the `_todo` contract).
 ##   6. One screenshot per rail, every category forced open.
 ##
@@ -50,15 +51,18 @@ var _fail := 0
 ## re-sorts it to thirteen, in the owner's order: Civilizations renamed
 ## Populate, Trade folded into Economy, Politics renamed Timeline and
 ## Simulation folded into it. `GONE` carries the four retired titles.
+## Re-sorted 2026-09-21 for Ruling L's WORLD/CARTO re-sort
+## (`design/owner-references-2026-09-12/left_rail_tree_resorted.md`). WORLD's
+## PIPELINE seven then SCULPT's two, the order `_worldcensus_probe.gd`
+## independently confirms; CARTO folds ten categories into seven.
 const WANT := {
-	"world": ["Generate", "Terrain", "Geology", "Hydrology", "Climate",
-		"Biomes", "Ecology", "Resources", "World data"],
+	"world": ["Generate", "Planet", "Geology", "Hydrology", "Climate",
+		"Ecology", "World data", "Terrain", "Biomes"],
 	"civilization": ["Populate", "Settlements", "Landmarks", "Routes & ways",
 		"Travel", "Factions", "Territories", "Relationships", "Military",
 		"Culture", "Religion", "Economy", "Timeline"],
-	"cartography": ["Map style", "Terrain appearance", "Colours", "Layers",
-		"Roads & routes", "Labels", "Assets & landmarks", "Political display",
-		"Visibility / zoom", "Map presets"],
+	"cartography": ["Style", "Relief & light", "Colours", "Feature style",
+		"Layers", "Labels", "Icons"],
 }
 
 ## Categories the v3 pass RETIRED. Any of these still on a rail is the
@@ -69,7 +73,17 @@ const GONE := ["Roads", "Rivers", "Ports", "Logistics", "Layer properties",
 	## Renamed to `Landmarks`, not deleted -- see the note on `WANT` above.
 	"Points of interest",
 	## Ruling L's four (L342): renamed or folded, never deleted -- see `WANT`.
-	"Civilizations", "Trade", "Politics", "Simulation"]
+	"Civilizations", "Trade", "Politics", "Simulation",
+	## Ruling L's WORLD/CARTO re-sort, 2026-09-21 -- see `WANT` above.
+	## `Resources` (decision 3: calculated, not set -- stays a read-only row
+	## in Pipeline status, not a category) and CARTO's ten folded to seven:
+	## `Map style`/`Terrain appearance` -> `Style`/`Relief & light`,
+	## `Roads & routes` -> `Feature style` (Ways), `Assets & landmarks` ->
+	## `Icons`, `Political display` -> back into `Layers`, `Visibility /
+	## zoom` -> `Layers`, `Map presets` -> `Style` (Saved looks).
+	"Resources", "Map style", "Terrain appearance", "Roads & routes",
+	"Assets & landmarks", "Political display", "Visibility / zoom",
+	"Map presets"]
 
 
 func _fail_msg(s: String) -> void:
@@ -276,22 +290,27 @@ func _ready() -> void:
 		else:
 			_fail_msg("CIVIL ▸ Territories ▸ Recalculate left no provinces")
 
-	## Layers / Political display split: the two political switches must have
-	## left the Layers list and appear exactly once, under their own category.
+	## Ruling L reverses the pre-2026-09-21 split this section used to assert:
+	## `Political display` is retired and the two political switches move BACK
+	## into Layers, under its own `§ Political layers` section
+	## (`cartography_workspace.gd:501`, "◄ Political display") — the rule
+	## being "every visibility toggle lives in Layers". So the assertion now
+	## is that the switches are IN Layers and no `Political display` category
+	## exists to hold a second copy.
 	var carto_cats := _all_categories(carto)
 	var layers_txt := ""
-	var poli_txt := ""
+	var has_political_display := false
 	for e in carto_cats:
 		var entry: Dictionary = e
 		if String(entry["title"]) == "Layers":
 			layers_txt = "\n".join(_texts(entry["body"], []))
 		elif String(entry["title"]) == "Political display":
-			poli_txt = "\n".join(_texts(entry["body"], []))
-	if layers_txt.find("Political — territory") < 0 and poli_txt.find("Political — territory") >= 0:
-		_ok("CARTO ▸ the two political layers moved to Political display, once")
+			has_political_display = true
+	if layers_txt.find("Political — territory") >= 0 and not has_political_display:
+		_ok("CARTO ▸ the two political layers are in Layers, and Political display is gone")
 	else:
-		_fail_msg("CARTO political layer split is wrong (layers=%s / political=%s)" % [
-			layers_txt.find("Political — territory"), poli_txt.find("Political — territory")])
+		_fail_msg("CARTO political layer consolidation is wrong (layers has it=%s / Political display still exists=%s)" % [
+			layers_txt.find("Political — territory") >= 0, has_political_display])
 
 	## Data ▸ Markdown vault. Pressed through the real popup, and asserted by
 	## the window actually being on screen afterwards.
@@ -356,11 +375,10 @@ func _ready() -> void:
 			"Timeline", "Factions", "Territories"]:
 		await _solo_shot("civ", civ, want)
 	_app._select_domain("cartography")
-	for want in ["Roads & routes", "Political display", "Visibility / zoom",
-			"Map presets"]:
+	for want in ["Style", "Relief & light", "Feature style", "Layers"]:
 		await _solo_shot("carto", carto, want)
 	_app._select_domain("world")
-	for want in ["Terrain", "Geology", "Ecology", "World data"]:
+	for want in ["Planet", "Geology", "Ecology", "World data", "Terrain"]:
 		await _solo_shot("world", world, want)
 
 	_check_bindings()

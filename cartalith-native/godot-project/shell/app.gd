@@ -2565,8 +2565,9 @@ func _new_seed() -> void:
 ##   shipped `10`/`00` reading survives: "does a world exist at all".
 ## - **The mode word for WORLD `a` is the counter, not a word.** That is the
 ##   prototype's own asymmetry (`'SCULPT'` versus `'NN / 10'`), kept because the
-##   counter is the more useful of the two and the node label already says
-##   "Generation pipeline".
+##   counter is the more useful of the two and the mode is already named
+##   elsewhere on the same dock -- the pill's `PIPELINE` half, and the rail
+##   node, whose label Ruling L shortened to `Generate` on 2026-09-21.
 func _refresh_rail_foot() -> void:
 	var domain := active_domain()
 	var mode := active_mode(domain)

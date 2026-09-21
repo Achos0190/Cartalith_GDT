@@ -304,19 +304,39 @@ func _build() -> void:
 	add_child(_render)
 	_render.setup(app, bridge)
 
-	## 1 -- MAP STYLE
-	_render.build_map_style_into(
-		DccWidgets.category(self, "Map style", categories, true))
+	## Ruling L's seven CARTO categories, in the tree's order
+	## (`design/owner-references-2026-09-12/left_rail_tree_resorted.md` L249-341;
+	## `LARGE_ITEM_RULINGS.md` Ruling L). Ten became seven: Map style absorbed Map
+	## presets and became **Style**, Terrain appearance became **Relief & light**
+	## and gained the Map view block, the style halves of Roads & routes and
+	## Political display became **Feature style**, and everything with a
+	## visibility switch -- including Visibility / zoom's one button -- became
+	## **Layers**, which is the grouping rule the owner wrote for this tab:
+	## *"every visibility toggle lives in Layers"*.
+	##
+	## Nothing new is built here. Every builder below is the one that was already
+	## in this file or in `render_workspace.gd`, called with a different parent --
+	## the same property v3's own migration had, and the reason a control census
+	## (`_cartocensus_probe.gd`) can diff the two sides row for row.
 
-	## 2 -- TERRAIN APPEARANCE
-	_render.build_terrain_appearance_into(
-		DccWidgets.category(self, "Terrain appearance", categories))
+	## 1 -- STYLE (default-open; absorbs Map presets)
+	_render.build_style_into(
+		DccWidgets.category(self, "Style", categories, true))
 
-	## 3 -- COLOURS
+	## 2 -- RELIEF & LIGHT (was Terrain appearance; Colour relief → Colours)
+	_render.build_relief_into(
+		DccWidgets.category(self, "Relief & light", categories))
+
+	## 3 -- COLOURS (gains Colour relief and the biome pair)
 	_render.build_colours_into(
 		DccWidgets.category(self, "Colours", categories))
 
-	## 4 -- LAYERS
+	## 4 -- FEATURE STYLE: the style halves of the two categories that used to
+	## carry both their visibility rows and their styling rows. The visibility
+	## rows are under Layers now; these are what is left.
+	_build_feature_style(DccWidgets.category(self, "Feature style", categories))
+
+	## 5 -- LAYERS
 	##
 	## **CA-09's footer tabs -- Blocks / Verticality -- are deliberately not
 	## built, and this is the record of why** (`GUI_GAP_REGISTER.md` §7.16,
@@ -331,9 +351,9 @@ func _build() -> void:
 	##
 	## - **Verticality = vertical exaggeration.** That is `exag`, and it is a
 	##   live slider today: `render_workspace.gd`'s `APPEARANCE_VIEW` puts it
-	##   in CARTO ▸ Map style ▸ § Map view, tooltipped "Vertical exaggeration
-	##   of the relief the hillshade is computed from. The reference's own
-	##   Relief slider", beside the two sun angles. Backed by
+	##   in CARTO ▸ Relief & light ▸ § Map view, tooltipped "Vertical
+	##   exaggeration of the relief the hillshade is computed from. The
+	##   reference's own Relief slider", beside the two sun angles. Backed by
 	##   `render.rs`'s `TerrainAppearance::exag`. A tab holding one existing
 	##   slider is not a tab.
 	## - **Blocks = a 2.5D block diagram**, the usual companion to
@@ -345,33 +365,38 @@ func _build() -> void:
 	##   defect.
 	## - **Blocks = tiles, or a style bundle.** Both are built and named:
 	##   tiling is Preferences ▸ Tiles & LOD (`dcc_settings.gd` §2.5) and style
-	##   bundles are `render_workspace.gd`'s `STYLE_PRESETS`, drawn in Map
-	##   style.
+	##   bundles are `render_workspace.gd`'s `STYLE_PRESETS`, drawn in Style.
 	##
 	## So nothing is added here. If the owner meant something the three
 	## readings miss, it costs one sentence to say so -- which is what §7.16
 	## recommended, and the reason this is a note and not a control.
+	##
+	## The order inside it is the tree's: the whole-overlay switches, the
+	## settlement-class expander, the way-type switches (◄ Roads & routes), the
+	## political switches (◄ Political display), the terrain raster's own stack,
+	## the one button onto the analysis-field picker (◄ Visibility / zoom), and
+	## the gap notes last.
 	var cat := DccWidgets.category(self, "Layers", categories)
 	var body := DccWidgets.section(cat, "Visible layers")
 	for layer in LIVE_LAYERS:
 		if POLITICAL_LAYERS.has(String(layer.id)):
-			continue   ## v3 gives these their own category -- see Political display.
+			continue   ## their own section below, kept apart as the tree draws them.
 		_layer_checks[layer.id] = DccWidgets.toggle(body, layer.label,
 			app.viewport.layer_visible(layer.id),
 			func(on: bool): app.viewport.set_layer_visible(layer.id, on))
 	DccWidgets.note(body,
 		"Each row above is a whole overlay with nothing inside it to order. "
 		+ "The terrain raster's own three categories are the stack below.")
+	_build_settlement_class_filter(cat)
+	_build_way_type_filter(cat)
+	_build_political_layers(cat)
 	## §7's layer list, for the part of it that is a *stack* -- Terrain, Colour
 	## relief and Hillshade, with visibility, opacity, blend mode and order.
 	## `render_workspace.gd` owns it beside the ramp and the tunables (it is
 	## `TerrainAppearance` state); this is where §7 draws it.
 	_render.build_layer_stack_into(cat)
-	_build_settlement_class_filter(cat)
+	_build_data_overlays(cat)
 	_build_layer_gaps(cat)
-
-	## 5 -- ROADS & ROUTES
-	_build_way_style(DccWidgets.category(self, "Roads & routes", categories))
 
 	## 6 -- LABELS. The rail's `labels` node lands here (`RAIL_NODES`).
 	##
@@ -383,23 +408,13 @@ func _build() -> void:
 	_build_label_classes(labels_cat)
 	_build_label_panel(labels_cat)
 
-	## 7 -- ASSETS & LANDMARKS. The rail's `icons` node lands here.
+	## 7 -- ICONS (was Assets & landmarks). The rail's `icons` node lands here.
 	##
 	## Same shape: the prototype's automatic-placement block (`ENV:731`-`755`),
 	## then the live list of icons the Icon tool has stamped.
-	var icons_cat := DccWidgets.category(self, "Assets & landmarks", categories)
+	var icons_cat := DccWidgets.category(self, "Icons", categories)
 	_build_icon_placement(icons_cat)
 	_build_icon_panel(icons_cat)
-
-	## 8 -- POLITICAL DISPLAY
-	_build_political_display(DccWidgets.category(self, "Political display", categories))
-
-	## 9 -- VISIBILITY / ZOOM
-	_build_visibility(DccWidgets.category(self, "Visibility / zoom", categories))
-
-	## 10 -- MAP PRESETS
-	_render.build_presets_into(
-		DccWidgets.category(self, "Map presets", categories))
 
 	_register_tools()
 	bridge.generation_finished.connect(func(ok: bool): if ok: _on_world_changed())
@@ -433,7 +448,7 @@ func _build() -> void:
 ## agree before the first click, the same discipline `world_workspace.gd`'s
 ## `_paint_brush` mirror already follows.
 func _build_settlement_class_filter(parent: Control) -> void:
-	var kinds := DccWidgets.group(parent, "Settlements · by class", false)
+	var kinds := category_expander(parent, "Settlements · by class", false)
 	for kind in SETTLEMENT_KINDS:
 		DccWidgets.toggle(kinds, String(kind).capitalize() + "s", true,
 			func(on: bool): app.viewport.set_settlement_kind_visible(String(kind), on))
@@ -444,14 +459,35 @@ func _build_settlement_class_filter(parent: Control) -> void:
 		+ "whole layer.")
 
 
-## v3 CARTO ▸ ROADS & ROUTES. The per-type visibility switches are real and
-## have been since the way-type filter shipped; they moved out of Layers
-## because v3 gives ways and routes a category of their own.
+## A category-level expander that shares a section's geometry: heading and rows
+## at the § inset, 14 px in from the body's edge like the sections beside it.
 ##
-## **Its geometry is not here, and that is the category's whole point**: v3's
-## own footnote reads *"Geometry, class and cost belong to CIVIL ▸ Routes &
-## Ways. Nothing here changes where a road runs."*
-func _build_way_style(parent: Control) -> void:
+## The CIVIL half of this same re-sort found the defect and wrote this helper
+## (`civilization_workspace.gd::category_expander()`, commit 5f839d7, defect
+## L2): `DccWidgets.group()` called with a *category* as its parent draws flush
+## at x=0, a whole inset left of every `§` heading around it. CARTO has one such
+## expander -- Settlements · by class -- and it had the defect before Ruling L
+## touched it (measured at heading_x=0 against section_x=14 by
+## `_cartocensus_probe.gd`'s "before" run). Copied rather than shared because
+## the two files are owned by different lanes in this batch and a shared helper
+## would have to land in `dcc_widgets.gd`, which neither owns.
+static func category_expander(parent: Control, title: String, open: bool = true) -> VBoxContainer:
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 14)
+	parent.add_child(pad)
+	var col := VBoxContainer.new()
+	pad.add_child(col)
+	var body := DccWidgets.group(col, title, open)
+	(body.get_parent() as MarginContainer).add_theme_constant_override("margin_left", 0)
+	return body
+
+
+## Ruling L CARTO ▸ LAYERS ▸ § Ways · by type (◄ Roads & routes,
+## `left_rail_tree_resorted.md` L318). The per-type visibility switches, with
+## the rest of the visibility switches -- the owner's own grouping rule for this
+## tab. What used to sit beside them in Roads & routes was *styling*, and that
+## is Feature style ▸ Ways now.
+func _build_way_type_filter(parent: Control) -> void:
 	var types := DccWidgets.section(parent, "Ways · by type")
 	for t in WAY_TYPES:
 		DccWidgets.toggle(types, String(t["label"]), true,
@@ -459,11 +495,74 @@ func _build_way_style(parent: Control) -> void:
 	DccWidgets.note(types,
 		"Every land way type get_roads() can emit: the generated network's four "
 		+ "usage tiers (cartalith_civ::WayType) plus hand-drawn ancient routes. "
-		+ "Sea lanes are a whole-layer switch under Layers rather than a sixth "
-		+ "row here.")
-	DccWidgets.action(types, "Draw and edit ways → Civilization ▸ Routes & ways",
-		func(): app.select_domain_category("civilization", "Routes & ways")).alignment = HORIZONTAL_ALIGNMENT_LEFT
+		+ "Sea lanes are a whole-layer switch above rather than a sixth row here.")
 
+
+## Ruling L CARTO ▸ LAYERS ▸ § Political layers (◄ Political display,
+## `left_rail_tree_resorted.md` L319). The two political *switches* only: the
+## tint slider, the reset and the two CIVIL jump buttons that used to sit with
+## them are styling, and are Feature style ▸ Territories now.
+func _build_political_layers(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Political layers")
+	for layer in LIVE_LAYERS:
+		if not POLITICAL_LAYERS.has(String(layer.id)):
+			continue
+		_layer_checks[layer.id] = DccWidgets.toggle(sec, layer.label,
+			app.viewport.layer_visible(layer.id),
+			func(on: bool): app.viewport.set_layer_visible(layer.id, on))
+	DccWidgets.note(sec,
+		"Territory is the per-cell claim map; provinces are its partition into "
+		+ "named administrative units. Both are recomputed by Civilization ▸ "
+		+ "Territories, never by anything in this dock. How heavily the claim is "
+		+ "painted is Feature style ▸ Territories.")
+
+
+## Ruling L CARTO ▸ LAYERS ▸ § Data overlays (◄ Visibility / zoom,
+## `left_rail_tree_resorted.md` L321). The reference's own Analysis field, which
+## this shell already has in full as the map canvas's Layers popover
+## (`layers_popover.gd`, built from the engine's own `debug_layers()` table).
+##
+## A second copy of that list in this dock would be two pickers over one
+## `set_debug_layer()`, and this shell has been bitten by exactly that shape
+## before (the bake button, the recompute rows). So this is one button onto the
+## one picker, not a reimplementation -- which is also why it is a row under
+## Layers rather than a category of its own now.
+func _build_data_overlays(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Data overlays")
+	var groups := bridge.debug_layers()
+	var n := 0
+	for g in groups:
+		n += (g as Dictionary).get("items", []).size()
+	if n == 0:
+		DccWidgets.note(sec,
+			"No field views: this build's engine has no debug_layers() binding.")
+	else:
+		DccWidgets.note(sec,
+			("%d analysis fields across %d groups -- elevation, slope, aspect, "
+			+ "curvature, flow accumulation, temperature, rainfall, wind, currents, "
+			+ "soil, lithology, biome and political control, each with its own "
+			+ "legend and a shared opacity. A view whose input this world lacks is "
+			+ "greyed with its reason.") % [n, groups.size()])
+	var open := DccWidgets.action(sec, "Data overlays…", func(): app.layers_popover.open(), true)
+	open.tooltip_text = "The map canvas's Layers popover -- the one picker for every analysis field, anchored under the viewport's own Layers button. Hotkeys 1-8 select the first eight available views."
+
+
+## Ruling L CARTO ▸ FEATURE STYLE (`left_rail_tree_resorted.md` L301-311): the
+## style halves of the two categories that used to carry visibility and styling
+## together. The switches went to Layers; these are what is left, plus the
+## cross-links to the CIVIL categories that own the underlying geometry and
+## identity.
+##
+## v3's rule for the political half still holds and is now the rule for the
+## whole category: identity colour is CIVIL's, *how* it paints is CARTO's.
+## Today the overlay owns both -- `map_overlay.gd` derives a faction's tint from
+## its index and takes no style argument -- which is why nothing below offers a
+## colour.
+##
+## **Geometry is not here, and that is the category's whole point**: v3's own
+## footnote reads *"Geometry, class and cost belong to CIVIL ▸ Routes & Ways.
+## Nothing here changes where a road runs."*
+func _build_feature_style(parent: Control) -> void:
 	## `GUI_GAP_REGISTER.md` **CA-16**, the reference's own two per-layer way
 	## style controls (`#civWayScaleR` line 1485, `#wayOpacityR` line 1491).
 	## Registered as unbacked on the reading that "map_overlay.gd draws every
@@ -472,7 +571,7 @@ func _build_way_style(parent: Control) -> void:
 	## styles, and what was genuinely missing was the user multiplier those two
 	## sliders are. Both are now the third term of the reference's own `rsc`
 	## and its `globalAlpha`.
-	var style := DccWidgets.section(parent, "Way style")
+	var style := DccWidgets.section(parent, "Ways")
 	DccWidgets.slider(style, "Line width", 0.2, 2.5, 0.05,
 		app.viewport.overlay.way_scale(), "×",
 		func(v: float): app.viewport.overlay.set_way_scale(v),
@@ -488,31 +587,100 @@ func _build_way_style(parent: Control) -> void:
 
 	## `GUI_GAP_REGISTER.md` **IN-13**'s map surface. Here and not in the
 	## Layers popover: that popover is the one picker for *field rasters*
-	## (`set_debug_layer`), and trade load is not a field — it is a value on a
+	## (`set_debug_layer`), and trade load is not a field -- it is a value on a
 	## way, drawn by the way layer this section already owns. Two pickers over
-	## one concept is the shape this shell keeps having to undo.
-	var load_sec := DccWidgets.section(parent, "Trade load")
-	_trade_load_toggle = DccWidgets.toggle(load_sec, "Thicken ways by carried volume",
+	## one concept is the shape this shell keeps having to undo. Ruling L folds
+	## it into § Ways rather than leaving it a section of its own: it is a third
+	## way-drawing control beside width and opacity, which is what the tree
+	## lists (L304).
+	_trade_load_toggle = DccWidgets.toggle(style, "Thicken ways by carried volume",
 		app.viewport.overlay.show_trade_load(),
 		func(on: bool): app.viewport.overlay.set_show_trade_load(on),
 		"Draws each way at up to 2.6x its normal width in proportion to the trade it carries, on its own colour -- width and not hue, because a way's colour is already its type. Relative to the busiest way on this world, since volume is a population sum and populations are not comparable between worlds.")
 	## `GUI_GAP_REGISTER.md` **RF-05**. This category is built once, at launch,
 	## against an engine with no world in it -- so the row was born disabled and
-	## the match that makes it valid (CIVIL ▸ Trade ▸ Match trade flows, a
+	## the match that makes it valid (CIVIL ▸ Economy ▸ Match trade flows, a
 	## different workspace) had no way to say so. Driven from the overlay's own
 	## `set_trade_load`, which is the single funnel both the match and the
 	## world-change clear already pass through, so the row cannot disagree with
 	## the data it draws in either direction.
 	app.viewport.overlay.trade_load_changed.connect(_refresh_trade_load_row)
 	_refresh_trade_load_row(app.viewport.overlay.has_trade_load())
-	DccWidgets.note(load_sec,
+	DccWidgets.note(style,
 		"The numbers behind it -- which ways carry what, and which carry nothing -- "
-		+ "are in Civilization ▸ Trade ▸ Way load.")
+		+ "are in Civilization ▸ Economy ▸ Way load.")
+	DccWidgets.action(style, "Draw and edit ways → Civilization ▸ Routes & ways",
+		func(): app.select_domain_category("civilization", "Routes & ways")).alignment = HORIZONTAL_ALIGNMENT_LEFT
 
+	## `GUI_GAP_REGISTER.md` **CA-17**, the CARTO half of v3's split: CIVIL
+	## owns *which* colour a faction is, this owns *how heavily* it is laid on.
+	## The reference's own `#territoryOpacityR` (line 1490), which this port had
+	## as a hardcoded 82/255 in `build_territory_texture`.
+	var tint := DccWidgets.section(parent, "Territories")
+	var op := DccWidgets.slider(tint, "Fill opacity", 0.0, 1.0, 0.01,
+		bridge.territory_opacity(), "",
+		func(v: float):
+			bridge.set_territory_opacity(v)
+			app.viewport.territory_view.texture = bridge.territory_texture(),
+		"state.viz.territoryOpacity. This port starts at %.2f rather than the reference's 0.51: there is a hillshade, a splat and a colour grade under this wash that the reference's flat biome fill does not have, and a heavier tint buries them." % bridge.territory_opacity_default())
+	var reset := DccWidgets.text_button(tint, "Reset to %.2f" % bridge.territory_opacity_default(),
+		func():
+			bridge.set_territory_opacity(-1.0)
+			## Drive the slider rather than rebuild the category: `value` fires
+			## `value_changed`, which re-applies the same number and repaints,
+			## so the control and the map cannot disagree about what Reset did.
+			(op["slider"] as HSlider).value = bridge.territory_opacity_default())
+	reset.tooltip_text = "Back to this port's own default fill opacity."
+	var colour := DccWidgets.action(tint, "Faction identity colours → Civilization ▸ Factions",
+		func(): app.select_domain_category("civilization", "Factions"))
+	colour.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	colour.tooltip_text = "v3's own rule for this category: which colour a faction *is* belongs to CIVIL, how heavily it is painted belongs here. The roster's colour picker writes the identity colour this wash draws in."
+	var edit := DccWidgets.action(tint, "Edit territories → Civilization ▸ Territories",
+		func(): app.select_domain_category("civilization", "Territories"))
+	edit.alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+	## **Rewritten 2026-09-01: two of these three stopped being data gaps and
+	## nobody moved the note.** It said claim hatching and the influence
+	## gradient "rest on data that does not exist" -- that
+	## `CivData::territory` is one plurality owner per cell "with no
+	## contested-claim value and no influence field for a gradient to ramp".
+	## CV-23 closed exactly that: `sample_bridge::territory_influence` builds
+	## owner, rival, influence and contested per cell on demand, `#[func]
+	## civ_territory_influence` aggregates it, and `sample_bridge`'s own
+	## `"contested"` debug raster already *draws* it -- dimmed owner tint
+	## inside, the rival's colour hatched in past `CONTEST_HATCH_T`, with a
+	## four-row legend. So what is missing here is a control and a legend in
+	## THIS panel, not a quantity in the engine, and the note says which.
+	##
+	## One `§ Not built` for the category, not one per section: Ruling L gives
+	## Feature style a single one (L311), and the way-style gap beneath it is
+	## the same kind of statement about the same category.
 	var gaps := DccWidgets.section(parent, "Not built")
+	var contested := DccWidgets.action(gaps, "Claim hatching and the influence ramp → Layers ▸ Civilization ▸ Contested borders",
+		func():
+			## `set_debug_layer` then open the popover, the same pair
+			## `render_workspace.gd`'s own "Biome colour table → Layers ▸
+			## Biomes" row uses: setting the layer behind the picker's back
+			## would leave its rows naming a different view, and the popover
+			## rebuilds its rows on open.
+			app.viewport.set_debug_layer("contested")
+			app.layers_popover.open())
+	contested.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	contested.tooltip_text = "territory_influence(): how evenly the owner and its nearest rival reach each cell. Secure interiors keep a dimmed owner tint, frontiers hatch into the rival's colour, and the popover carries the ramp's own legend. Built on demand from the capitals -- one Dijkstra per capital -- and held nowhere."
+	DccWidgets.note(gaps,
+		"Border line width and style (GUI_GAP_REGISTER.md CA-17). The faction "
+		+ "wash has no outline at all -- build_territory_texture() is a per-cell "
+		+ "fill and nothing traces its edge -- and the province line that does "
+		+ "exist (build_province_boundary_texture) is one cell wide in one "
+		+ "hard-coded ink tone, with no argument for either. Claim hatching and "
+		+ "the influence gradient are NOT in that state: both are real and both "
+		+ "are drawn, as the Contested borders view above. What they lack is a "
+		+ "styling control and a legend inside this category, which is a "
+		+ "different kind of gap from a missing quantity. Fill opacity and "
+		+ "identity colour, above, are the two that already have one.")
 	DccWidgets.note(gaps,
 		"Per-class colour, casing, dash pattern and route glow "
-		+ "(GUI_GAP_REGISTER.md CA-16). Width and opacity above are the two "
+		+ "(GUI_GAP_REGISTER.md CA-16). Width and opacity under Ways are the two "
 		+ "controls the reference ships and they act on the whole layer; the "
 		+ "five per-type styles under them are ported literals (§36), and making "
 		+ "one editable means a style record keyed by way type for the overlay "
@@ -545,14 +713,14 @@ func _build_layer_gaps(parent: Control) -> void:
 		+ "live for the terrain raster's three categories -- the stack above. "
 		+ "Colour relief's row is folded to a name and a state until its ramp has "
 		+ "a strength, because the renderer skips that layer while it contributes "
-		+ "nothing; the Colour relief slider under Terrain appearance brings the "
+		+ "nothing; the Colour relief slider under Colours brings the "
 		+ "row's controls back. "
 		+ "They are not live for the rest of the design's layer list, and that is "
 		+ "a different problem, not the same one half-finished: Water is a sibling "
 		+ "of Terrain rather than one of its children (sea colour folds its own "
 		+ "shade in and has no ramp at all), the design's fourth child "
 		+ "\"Hand-drawn hillshade\" is the Painter block and is already switchable "
-		+ "under Map style, and the annotation and civilisation rows are separate "
+		+ "under Style, and the annotation and civilisation rows are separate "
 		+ "overlay passes drawn after the raster, with a visibility switch each "
 		+ "and no slot in it to order. Per-layer zoom range and the picking/clip "
 		+ "switches rest on that second separation, not on the one that landed.")
@@ -572,126 +740,16 @@ func _build_layer_gaps(parent: Control) -> void:
 		"Sharper ecotones (biome-detail sharpening) is not parameterised: biome "
 		+ "classification runs off the finished temperature/rainfall fields with no "
 		+ "dials of its own -- see World ▸ Biomes for the same finding.")
-
-
-## v3 CARTO ▸ POLITICAL DISPLAY. The two political layer switches, out of the
-## Layers list, plus the honest statement of what the rest of v3's category
-## (border line style, claim hatching, influence gradient, legend) rests on.
-##
-## v3's own rule for this category: identity colour is CIVIL's, *how* it paints
-## is CARTO's. Today the overlay owns both -- `map_overlay.gd` derives a
-## faction's tint from its index and takes no style argument -- which is why
-## nothing below offers a colour.
-func _build_political_display(parent: Control) -> void:
-	var sec := DccWidgets.section(parent, "Political layers")
-	for layer in LIVE_LAYERS:
-		if not POLITICAL_LAYERS.has(String(layer.id)):
-			continue
-		_layer_checks[layer.id] = DccWidgets.toggle(sec, layer.label,
-			app.viewport.layer_visible(layer.id),
-			func(on: bool): app.viewport.set_layer_visible(layer.id, on))
-	DccWidgets.note(sec,
-		"Territory is the per-cell claim map; provinces are its partition into "
-		+ "named administrative units. Both are recomputed by Civilization ▸ "
-		+ "Territories, never by anything in this dock.")
-	var edit := DccWidgets.action(sec, "Edit territories → Civilization ▸ Territories",
-		func(): app.select_domain_category("civilization", "Territories"))
-	edit.alignment = HORIZONTAL_ALIGNMENT_LEFT
-
-	## `GUI_GAP_REGISTER.md` **CA-17**, the CARTO half of v3's split: CIVIL
-	## owns *which* colour a faction is, this owns *how heavily* it is laid on.
-	## The reference's own `#territoryOpacityR` (line 1490), which this port had
-	## as a hardcoded 82/255 in `build_territory_texture`.
-	var tint := DccWidgets.section(parent, "Territory tint")
-	var op := DccWidgets.slider(tint, "Fill opacity", 0.0, 1.0, 0.01,
-		bridge.territory_opacity(), "",
-		func(v: float):
-			bridge.set_territory_opacity(v)
-			app.viewport.territory_view.texture = bridge.territory_texture(),
-		"state.viz.territoryOpacity. This port starts at %.2f rather than the reference's 0.51: there is a hillshade, a splat and a colour grade under this wash that the reference's flat biome fill does not have, and a heavier tint buries them." % bridge.territory_opacity_default())
-	var reset := DccWidgets.text_button(tint, "Reset to %.2f" % bridge.territory_opacity_default(),
-		func():
-			bridge.set_territory_opacity(-1.0)
-			## Drive the slider rather than rebuild the category: `value` fires
-			## `value_changed`, which re-applies the same number and repaints,
-			## so the control and the map cannot disagree about what Reset did.
-			(op["slider"] as HSlider).value = bridge.territory_opacity_default())
-	reset.tooltip_text = "Back to this port's own default fill opacity."
-	var colour := DccWidgets.action(tint, "Faction identity colours → Civilization ▸ Factions",
-		func(): app.select_domain_category("civilization", "Factions"))
-	colour.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	colour.tooltip_text = "v3's own rule for this category: which colour a faction *is* belongs to CIVIL, how heavily it is painted belongs here. The roster's colour picker writes the identity colour this wash draws in."
-
-	## **Rewritten 2026-09-01: two of these three stopped being data gaps and
-	## nobody moved the note.** It said claim hatching and the influence
-	## gradient "rest on data that does not exist" -- that
-	## `CivData::territory` is one plurality owner per cell "with no
-	## contested-claim value and no influence field for a gradient to ramp".
-	## CV-23 closed exactly that: `sample_bridge::territory_influence` builds
-	## owner, rival, influence and contested per cell on demand, `#[func]
-	## civ_territory_influence` aggregates it, and `sample_bridge`'s own
-	## `"contested"` debug raster already *draws* it -- dimmed owner tint
-	## inside, the rival's colour hatched in past `CONTEST_HATCH_T`, with a
-	## four-row legend. So what is missing here is a control and a legend in
-	## THIS panel, not a quantity in the engine, and the note says which.
-	var gaps := DccWidgets.section(parent, "Not built")
-	var contested := DccWidgets.action(gaps, "Claim hatching and the influence ramp → Layers ▸ Civilization ▸ Contested borders",
-		func():
-			## `set_debug_layer` then open the popover, the same pair
-			## `render_workspace.gd`'s own "Biome colour table → Layers ▸
-			## Biomes" row uses: setting the layer behind the picker's back
-			## would leave its rows naming a different view, and the popover
-			## rebuilds its rows on open.
-			app.viewport.set_debug_layer("contested")
-			app.layers_popover.open())
-	contested.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	contested.tooltip_text = "territory_influence(): how evenly the owner and its nearest rival reach each cell. Secure interiors keep a dimmed owner tint, frontiers hatch into the rival's colour, and the popover carries the ramp's own legend. Built on demand from the capitals -- one Dijkstra per capital -- and held nowhere."
-	DccWidgets.note(gaps,
-		"Border line width and style (GUI_GAP_REGISTER.md CA-17). The faction "
-		+ "wash has no outline at all -- build_territory_texture() is a per-cell "
-		+ "fill and nothing traces its edge -- and the province line that does "
-		+ "exist (build_province_boundary_texture) is one cell wide in one "
-		+ "hard-coded ink tone, with no argument for either. Claim hatching and "
-		+ "the influence gradient are NOT in that state: both are real and both "
-		+ "are drawn, as the Contested borders view above. What they lack is a "
-		+ "styling control and a legend inside this category, which is a "
-		+ "different kind of gap from a missing quantity. Fill opacity and "
-		+ "identity colour, above, are the two that already have one.")
-
-
-## v3 CARTO ▸ VISIBILITY / ZOOM. Its `§ Data overlays` band is the reference's
-## own Analysis field, which v3's migration audit moves here from View -- and
-## which this shell already has, in full, as the map canvas's Layers popover
-## (`layers_popover.gd`, built from the engine's own `debug_layers()` table).
-##
-## A second copy of that list in this dock would be two pickers over one
-## `set_debug_layer()`, and this shell has been bitten by exactly that shape
-## before (the bake button, the recompute rows). So this is one button onto the
-## one picker, not a reimplementation.
-func _build_visibility(parent: Control) -> void:
-	var sec := DccWidgets.section(parent, "Data overlays")
-	var groups := bridge.debug_layers()
-	var n := 0
-	for g in groups:
-		n += (g as Dictionary).get("items", []).size()
-	if n == 0:
-		DccWidgets.note(sec,
-			"No field views: this build's engine has no debug_layers() binding.")
-	else:
-		DccWidgets.note(sec,
-			("%d analysis fields across %d groups -- elevation, slope, aspect, "
-			+ "curvature, flow accumulation, temperature, rainfall, wind, currents, "
-			+ "soil, lithology, biome and political control, each with its own "
-			+ "legend and a shared opacity. A view whose input this world lacks is "
-			+ "greyed with its reason.") % [n, groups.size()])
-	var open := DccWidgets.action(sec, "Data overlays…", func(): app.layers_popover.open(), true)
-	open.tooltip_text = "The map canvas's Layers popover -- the one picker for every analysis field, anchored under the viewport's own Layers button. Hotkeys 1-8 select the first eight available views."
-
+	## ◄ Visibility / zoom's own `§ Partly built`: Ruling L folds that
+	## category into Layers (L321-322), and its gap notes are about per-layer
+	## zoom ranges and the declutter budget -- both statements about the layer
+	## stack this category now holds, so they come with it rather than being
+	## dropped with the category name.
 	var gaps := DccWidgets.section(parent, "Partly built")
 	DccWidgets.note(gaps,
 		"The zoom ladder exists for the two layers the reference ships one for: "
-		+ "ways drop by type below their CIV_LOD_ROAD threshold (Roads & routes "
-		+ "▸ Way style), and a town's drawn layout crossfades in over a 24-10 km "
+		+ "ways drop by type below their CIV_LOD_ROAD threshold (Feature "
+		+ "style ▸ Ways), and a town's drawn layout crossfades in over a 24-10 km "
 		+ "span. Neither is a *user* range, and the other fourteen layers v3 "
 		+ "lists have none at all (GUI_GAP_REGISTER.md CA-18) -- a per-layer "
 		+ "zoom range needs each of those layers to be a stack row, which the "

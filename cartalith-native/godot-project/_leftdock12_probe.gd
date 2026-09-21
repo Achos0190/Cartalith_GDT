@@ -16,7 +16,7 @@ extends Node
 ## already shipped the mirror-image failure once (a rail node that selected a
 ## mode and opened nothing, `dcc_shell.gd::_on_rail_node_pressed()`'s own
 ## header). So §2 below does not count what survives: it **names every one of
-## the thirty-two categories** and, for each, prints the modes that render it
+## the twenty-nine categories** and, for each, prints the modes that render it
 ## and the rail node that reaches each of those modes. A count would pass a
 ## build where `Climate` vanished and `Climate ` appeared; a route census will
 ## not.
@@ -39,14 +39,16 @@ func _ok(name: String, got, want) -> void:
 
 ## Every L2 category the three docks build, by name. Independent of
 ## `panel.categories` on purpose — asserting a dock against itself proves
-## nothing. Thirty-two, the same list `_railfold_probe.gd` names: CIVIL's
+## nothing. Twenty-nine (re-derived 2026-09-21 for Ruling L's WORLD/CARTO
+## re-sort), the same list `_railfold_probe.gd` names: CIVIL's
 ## thirteen are Ruling L's, in its order
 ## (`design/owner-references-2026-09-12/left_rail_tree_resorted.md` L143-247),
 ## `Religion` included -- which that probe used to omit and report as `EXTRA`.
 const EXPECTED: Dictionary = {
 	"world": [
-		"Generate", "Terrain", "Geology", "Hydrology", "Climate",
-		"Biomes", "Ecology", "Resources", "World data",
+		## Ruling L, 2026-09-21: seven PIPELINE then two SCULPT.
+		"Generate", "Planet", "Geology", "Hydrology", "Climate",
+		"Ecology", "World data", "Terrain", "Biomes",
 	],
 	"civilization": [
 		"Populate", "Settlements", "Landmarks", "Routes & ways", "Travel",
@@ -54,9 +56,9 @@ const EXPECTED: Dictionary = {
 		"Religion", "Economy", "Timeline",
 	],
 	"cartography": [
-		"Map style", "Terrain appearance", "Colours", "Layers", "Roads & routes",
-		"Labels", "Assets & landmarks", "Political display", "Visibility / zoom",
-		"Map presets",
+		## Ruling L, 2026-09-21: ten categories folded to seven.
+		"Style", "Relief & light", "Colours", "Feature style", "Layers",
+		"Labels", "Icons",
 	],
 }
 
@@ -64,15 +66,28 @@ const EXPECTED: Dictionary = {
 ## two sources rather than one source with itself. `04-left-dock.md` §3 row 2:
 ## `ldSculpt = domain==='WORLD' && worldMode==='b'`, and row 1's `ldPipe` is its
 ## complement. Every other row's condition is a plain `domain===` with no mode
-## in it, which is why nine of the ten nodes are ungated.
-const DESIGN_GATES: Dictionary = {"world/b": ["Terrain"]}
+## in it, which is why eight of the ten nodes are ungated.
+##
+## **`world/a` is listed here from 2026-09-21 and was not before.** Ruling L
+## states the complement outright -- *"the mode pill is the only gate: SCULPT
+## shows Terrain and Biomes; PIPELINE shows the rest"* -- and before it, `a`
+## was left ungated on purpose because `Terrain` carried stage 5's erosion
+## parameters and the pipeline view had to render a category the sculpt node
+## owned. Ruling L moves those parameters to `Hydrology` and `Geology`, so `a`
+## can and must name its own seven.
+const DESIGN_GATES: Dictionary = {
+	"world/a": ["Generate", "Planet", "Geology", "Hydrology", "Climate",
+		"Ecology", "World data"],
+	"world/b": ["Terrain", "Biomes"],
+}
 
 ## The mode-switch pill's text for every rail node, written out rather than
 ## derived, so §7 compares two sources instead of one source with itself.
 ##
 ## WORLD's two are `DccShell._MODE_SWITCH_LABELS`' recorded decision --
 ## `04-left-dock.md` §9.1 lost the drawn ones with the prototype's truncated
-## tail, and `Generation pipeline` at 19 characters is not a `flex:1` half. The
+## tail, and the node label (`Generate` since Ruling L, `Generation pipeline`
+## at 19 characters before it) is not what the pill draws either way. The
 ## other eight are the fallback: the node's own `label`, upper-cased. They are on
 ## no screen today, because WORLD is the only domain that gates; they are pinned
 ## here because a fallback nothing exercises is a fallback nobody has read.
@@ -83,10 +98,10 @@ const EXPECTED_PILL_LABELS: Dictionary = {
 	"civilization/factions": "FACTIONS",
 	"civilization/infra": "ROUTES & WAYS",
 	"civilization/planner": "JOURNEY PLANNER",
-	"cartography/style": "LAYERS & STYLE",
+	"cartography/style": "STYLE",
+	"cartography/layers": "LAYERS",
 	"cartography/labels": "LABELS",
 	"cartography/icons": "ICONS",
-	"cartography/terrain": "TERRAIN APPEARANCE",
 }
 
 func _boot(w: int, h: int) -> Node:
@@ -156,7 +171,7 @@ func _run(app: Node, label: String) -> void:
 	print("\n########## ", label, " ##########")
 
 	# =====================================================================
-	print("\n=== 1: the gate table — one node gates, nine do not ===")
+	print("\n=== 1: the gate table — WORLD's two nodes gate, the other eight do not ===")
 	var gated: Array = []
 	for n in app.get("RAIL_NODES"):
 		if String(n.get("kind", "")) != "node":
@@ -166,7 +181,9 @@ func _run(app: Node, label: String) -> void:
 		if not shows.is_empty():
 			gated.append("%s=%s" % [key, ",".join(shows)])
 	_ok("exactly the design's gates, and no others",
-		"; ".join(gated), "world/b=Terrain")
+		"; ".join(gated),
+		"world/a=Generate,Planet,Geology,Hydrology,Climate,Ecology,World data;"
+		+ " world/b=Terrain,Biomes")
 	## The accessor, not just the constant: `apply_mode()` reads through
 	## `mode_shows()`, and a key spelt right in a table nothing reads is the
 	## same defect as a key spelt wrong.
@@ -240,7 +257,7 @@ func _run(app: Node, label: String) -> void:
 			_ok("[civilization] the thirteen are drawn in Ruling L's order",
 				", ".join(PackedStringArray(_drawn_order(panel))),
 				", ".join(PackedStringArray(EXPECTED[dom])))
-	_ok("all thirty-two were asserted by name", total, 32)
+	_ok("all twenty-nine were asserted by name", total, 29)
 
 	# =====================================================================
 	print("\n=== 3: every rail node reaches its block ===")
@@ -279,11 +296,11 @@ func _run(app: Node, label: String) -> void:
 	var carto: Control = app.call("workspace_panel", "cartography")
 	app.call("select_domain_mode", "world", "a")
 	await _frames(2)
-	_ok("WORLD ▸ a renders the whole pipeline", _rendered(world).size(), 9)
+	_ok("WORLD ▸ a renders the whole pipeline", _rendered(world).size(), 7)
 	app.call("select_domain_mode", "world", "b")
 	await _frames(2)
 	_ok("WORLD ▸ b renders the Sculpt block alone",
-		", ".join(_rendered(world)), "Terrain")
+		", ".join(_rendered(world)), "Terrain, Biomes")
 	for mode in _modes(app, "civilization"):
 		app.call("select_domain_mode", "civilization", String(mode))
 		await _frames(2)
@@ -293,7 +310,7 @@ func _run(app: Node, label: String) -> void:
 		app.call("select_domain_mode", "cartography", String(mode))
 		await _frames(2)
 		_ok("CARTO ▸ %s keeps every header (§3 point 2)" % mode,
-			_rendered(carto).size(), 10)
+			_rendered(carto).size(), 7)
 
 	# =====================================================================
 	print("\n=== 5: every transition INTO the gated state ===")
@@ -311,7 +328,7 @@ func _run(app: Node, label: String) -> void:
 	(segs["a"] as Button).pressed.emit()
 	await _frames(2)
 	_ok("(b) mode switch → a", app.call("active_mode", "world"), "a")
-	_ok("(b) ...and the pipeline is back", _rendered(world).size(), 9)
+	_ok("(b) ...and the pipeline is back", _rendered(world).size(), 7)
 	(segs["b"] as Button).pressed.emit()
 	await _frames(2)
 	_ok("(b) mode switch → b", app.call("active_mode", "world"), "b")
@@ -350,7 +367,10 @@ func _run(app: Node, label: String) -> void:
 	## `Terrain` — so it must land in the other mode, not the same one.
 	app.call("arm_tool", "paint")
 	await _frames(3)
-	_ok("(f) arming Biome paint selects mode a", app.call("active_mode", "world"), "a")
+	## Ruling L moves `Biomes` under the SCULPT pill with `Terrain`, so arming
+	## the brush now lands in mode b rather than mode a. Same derivation --
+	## `mode_for_category()` -- different answer, because the table moved.
+	_ok("(f) arming Biome paint selects mode b", app.call("active_mode", "world"), "b")
 	_ok("(f) ...and Biomes is rendered and open",
 		_wrap(world, "Biomes").visible and _body(world, "Biomes").visible, true)
 	app.call("arm_tool", "inspect")
@@ -367,7 +387,7 @@ func _run(app: Node, label: String) -> void:
 	await _frames(2)
 	_ok("(g) returning to WORLD restores mode b", app.call("active_mode", "world"), "b")
 	_ok("(g) ...and the Sculpt block, not the pipeline",
-		", ".join(_rendered(world)), "Terrain")
+		", ".join(_rendered(world)), "Terrain, Biomes")
 
 	## (h) the floor. Re-clicking the one open header in a gated dock would
 	## otherwise leave a dock with a header and nothing under it.
@@ -397,15 +417,22 @@ func _run(app: Node, label: String) -> void:
 		_body(civ, "Populate").visible, true)
 	_ok("(h) CIVIL names Populate as its floor", civ.call("floor_category"), "Populate")
 
-	## (i) and the floor stops where the need stops. The floor exists so a
-	## **gated** dock cannot be left as headings with nothing under them; until
-	## 2026-09-05 it was scoped to gating *domains*, so WORLD ▸ Generation
-	## pipeline -- nine headers on screen, hiding nothing -- re-opened a header
-	## the user had just closed. `Workspace._floor_applies()` is now the whole of
-	## that judgement and this is the transition OUT of the state that needs one.
+	## (i) and the floor stops where the need stops. The floor exists so the
+	## **sculpt** block cannot be left as headings with nothing under them;
+	## until 2026-09-05 it was scoped to gating *domains*, so WORLD ▸ Generation
+	## pipeline -- then nine headers on screen, hiding nothing -- re-opened a
+	## header the user had just closed. This is the transition OUT of the state
+	## that needs a floor.
+	##
+	## **Ruling L moved where that judgement is made**, 2026-09-21, and this
+	## assertion is why it had to move: PIPELINE now gates too, so
+	## `Workspace._floor_applies()`'s *"does the active mode carry a `shows`"*
+	## proxy answers yes for both halves and would restore the 2026-09-05
+	## defect. `WorldWorkspace._floor_applies()` overrides it and names mode `b`,
+	## and this section is what fails if that override is ever dropped.
 	app.call("select_domain_mode", "world", "a")
 	await _frames(2)
-	_ok("(i) precondition: WORLD ▸ a renders nine headers", _rendered(world).size(), 9)
+	_ok("(i) precondition: WORLD ▸ a renders seven headers", _rendered(world).size(), 7)
 	var open_a: Button = null
 	## Seeded with a real WORLD category, not `""`: `_body()` returns null for a
 	## name no dock has, and a null deref below would end the script instead of
@@ -453,7 +480,7 @@ func _run(app: Node, label: String) -> void:
 	await _frames(2)
 	_ok("(j) entering the gated mode floors the dock", _body(world, "Terrain").visible, true)
 	_ok("(j) ...on the gated block, not a hidden sibling",
-		", ".join(_rendered(world)), "Terrain")
+		", ".join(_rendered(world)), "Terrain, Biomes")
 
 	## (k) CARTO, the case the scope comment names: ten headers, no gate, so
 	## closing them all is a legible state and nothing may re-open one.
@@ -525,7 +552,7 @@ func _run(app: Node, label: String) -> void:
 	_ok("(b) two halves, in RAIL_NODES order", ", ".join(texts), "PIPELINE, SCULPT")
 	_ok("(b) built for WORLD and recorded as such", app.get("_mode_switch_domain"), "world")
 	_ok("(b) the tooltip names the node's own label, not a constant",
-		(segs["a"] as Button).tooltip_text, "Generation pipeline — showing")
+		(segs["a"] as Button).tooltip_text, "Generate — showing")
 
 	## (c) rebuilt for a domain that is not WORLD. The halves it replaces must
 	## actually go: `_rebuild_mode_switch()` removes them from the pill and
@@ -543,10 +570,10 @@ func _run(app: Node, label: String) -> void:
 	for c in pill.get_children():
 		ctexts.append((c as Button).text)
 	_ok("(c) four CARTO halves, derived from the nodes", ", ".join(ctexts),
-		"LAYERS & STYLE, LABELS, ICONS, TERRAIN APPEARANCE")
+		"STYLE, LAYERS, LABELS, ICONS")
 	_ok("(c) ...and the button map is keyed by CARTO's modes",
 		", ".join((app.get("_mode_switch_buttons") as Dictionary).keys()),
-		"style, labels, icons, terrain")
+		"style, layers, labels, icons")
 
 	## (d) a CARTO half presses to CARTO. The domain is bound per button beside
 	## the mode, so this cannot be right by accident from a live `_active_domain`
@@ -572,7 +599,7 @@ func _run(app: Node, label: String) -> void:
 	await _frames(3)
 	_ok("(e) the §5 reference still presses a live segment",
 		app.call("active_mode", "world"), "b")
-	_ok("(e) ...and it gated the dock", ", ".join(_rendered(world)), "Terrain")
+	_ok("(e) ...and it gated the dock", ", ".join(_rendered(world)), "Terrain, Biomes")
 
 	## (f) what the derived label costs, measured with the **shipped** segment
 	## builder rather than a replica of it. The pill sits in the header band
