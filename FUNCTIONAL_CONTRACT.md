@@ -285,15 +285,23 @@ lines and multi-sun lighting are literal per-pixel ports
 `golden_parity_npr.rs`), bound through `WorldGen::get_npr`/`set_npr` and
 built as real controls in the RENDER dock (`render_workspace.gd`'s
 `_build_npr`). Animated water is a Godot `ShaderMaterial` overlay
-(principled-equivalent, not golden — `DECISIONS.md` §7a). **Still absent as
-user controls**: geology microtexture, AO/SVF/shadow toggles (the effects
-exist internally — `TerrainAppearance`'s AO/SVF fields — but are not
-switchable), and SDF coast/river/biome tinting. **Corrected 2026-08-23**
-(`PARITY_AUDIT.md` C2): the tile pyramid/LOD/region-export system is **not**
-entirely absent — deep-zoom LOD tile synthesis is live and region-tile
-export is golden-verified and wired to a real route; only the persistent
-atlas/tile cache and the bake/finalize-lock remain unbuilt. See this
-capability's §7d tag below for the detail.
+(principled-equivalent, not golden — `DECISIONS.md` §7a). **Corrected
+2026-09-21 — this paragraph itself had gone stale, contradicting both the
+summary table above and the absent-entirely list below in the same
+document**: geology microtexture, AO/SVF/shadow toggles and SDF coast/
+river/biome tinting are **not** still-absent — all shipped 2026-09-03 as
+real user controls in the RENDER dock (`render_workspace.gd`'s `geo_micro`,
+`ao_strength`, `svf_strength`, `shadow_strength`, `sdf_coast`, `sdf_rivers`,
+`sdf_biomes` rows, each with its own tooltip; the Rust side is
+`render.rs`'s param table plus `build_svf`/`build_sun_shadow`). **Corrected
+2026-08-23** (`PARITY_AUDIT.md` C2): the tile pyramid/LOD/region-export
+system is **not** entirely absent — deep-zoom LOD tile synthesis is live and
+region-tile export is golden-verified and wired to a real route; the
+persistent atlas/tile cache and the bake/finalize-lock **also landed**
+(`cartalith_engine::bake::AtlasStore`/`FinalizeLock`, corrected
+2026-08-25, `PARITY_AUDIT.md` pass 3, F4 — this paragraph had not been
+updated to say so until now). See this capability's §7d tag below for the
+detail.
 
 **§7d tag**: mixed, itemized:
 - Default render, atlas look, splat: port as-is / already modernized (the
@@ -301,25 +309,31 @@ capability's §7d tag below for the detail.
   own default, not merely equivalent).
 - NPR Painter styles: port as-is, **and done** — built exactly as literal
   per-pixel ports, corrected 2026-08-24. Geology microtexture toggle,
-  AO/SVF/shadow toggles, SDF tinting: port as-is — these are presentation
-  choices with no efficiency problem to modernize, just still unbuilt.
+  AO/SVF/shadow toggles, SDF tinting: port as-is, **and also done —
+  corrected 2026-09-21** (this bullet was 18 days stale; all shipped
+  2026-09-03 as real `render_workspace.gd` controls, see the corrected
+  paragraph above).
 - **Tile pyramid / LOD / region export: mostly landed, corrected 2026-08-23**
   (`PARITY_AUDIT.md` C2/§3.1). Deep-zoom LOD **tile synthesis is live**
   (`lod_bridge.rs`, `lod_synthesize_tile`/`lod_tile_cells`, driven
   automatically by `viewport_host.gd`), and **region-tile export is
   golden-verified and wired to a real route**
   (`crates/cartalith-godot/src/lib.rs:4632` `region_export_tiles`, Data
-  manager's Export ▸ Maps pane, DM-13). Genuinely still absent: the
-  *persistent* atlas/tile cache and the bake/finalize-lock. The reference's
-  own tiled-LOD system exists because a single `<canvas>` could not hold a
-  20,000km world at full resolution — a browser-memory workaround, not a
-  design goal. Mapbox GL's real architecture (verified via current
-  documentation) is the leading answer for what remains: tiles form a
-  quadtree pyramid, `2^zoom × 2^zoom` grid per level, geometry simplified at
-  lower zoom so detail cost scales with what's actually visible, not the
-  whole world. `cartalith-spatial`'s `QuadTree<T>`/`TiledField<T>` are
-  already shaped for exactly this and are now real consumers of it (the
-  LOD tiles), not unintegrated.
+  manager's Export ▸ Maps pane, DM-13). **Corrected 2026-09-21 — the
+  persistent atlas/tile cache and the bake/finalize-lock are not absent
+  either**: they landed 2026-08-25 (`cartalith_engine::bake::AtlasStore`/
+  `FinalizeLock`, `cartalith-godot/src/bake_bridge.rs`), a full month before
+  this bullet was corrected to say so. What genuinely remains here is
+  slippy-map (XYZ/TMS/WMTS) tile *addressing* — see `OUTSTANDING_WORK.md`
+  §2.5. The reference's own tiled-LOD system exists because a single
+  `<canvas>` could not hold a 20,000km world at full resolution — a
+  browser-memory workaround, not a design goal. Mapbox GL's real
+  architecture (verified via current documentation) is the leading answer
+  for what remains: tiles form a quadtree pyramid, `2^zoom × 2^zoom` grid
+  per level, geometry simplified at lower zoom so detail cost scales with
+  what's actually visible, not the whole world. `cartalith-spatial`'s
+  `QuadTree<T>`/`TiledField<T>` are already shaped for exactly this and are
+  now real consumers of it (the LOD tiles), not unintegrated.
 
 ### 7. Labels, annotation, icons
 
@@ -572,7 +586,7 @@ with its own canvas, wheel-zoom, drag-pan, legend and info panel. The
 place-edit popup's thumbnail (`peCityPreview`/`peCityOpen`) is not, though
 `app.open_city_viewer(index)` now exists for a popup to call.
 
-What that produces is a **street skeleton on a real site**: the map's own
+~~What that produces is a **street skeleton on a real site**: the map's own
 river/coast and relief fed into `buildSite`, the market anchor, the arterial
 primaries (grown around the port's real inter-settlement roads when any
 reach the settlement), and the organic street growth off them. Blocks,
@@ -586,7 +600,32 @@ functions are out of scope for every milestone by the scope document's own
 statement. **The adapter is not golden-verified** — the capture harness this
 repository's goldens come from slices block 4, and there is no block-2
 fixture; the engine beneath it is golden-verified milestone by milestone, the
-adapter is ported by reading and covered by ordinary unit tests.
+adapter is ported by reading and covered by ordinary unit tests.~~
+
+**Corrected 2026-09-21 — every claim in the paragraph above is stale; this
+port has all 17 milestones, and status for this subsystem lives in
+`STATUS.md` (Phase 5 row: "milestones closed, defects remain"), not here.
+Verified directly at the code rather than taken from that row, per
+`CLAUDE.md`'s "a document's claim about itself is a claim, not evidence":**
+`crates/cartalith-urban/src/lib.rs` declares `amenities`, `astar`, `blocks`,
+`cleanup`, `districts`, `fortify`, `generate`, `geom`, `graph`, `growth`,
+`hinterland`, `plaza`, `radial`, `routes`, `rules`, `site` and `water` —
+milestones 8-17's own subject matter, all present as real modules, not
+stubs. `shell/urban_layout_draw.gd` (842 lines) draws blocks/parcels/
+buildings via `_draw_roofs`, the wall circuit via `_draw_wall`, hinterland
+farmland via `_draw_farmland`, and settlement-side water infrastructure via
+`_draw_water_mask` — so "drawn nowhere, stubbed nowhere" no longer holds.
+`grep -c "^pub fn um_" crates/cartalith-civ/src/urban_adapter.rs` returns
+**17**, including `um_harbour_scale`, `um_site_profile` and `um_ore_bearing`
+— the three this paragraph names as unported. **"The adapter is not
+golden-verified" is also false**: `crates/cartalith-civ/tests/
+golden_parity_urban_adapter.rs` exists and holds real `#[test]` fixtures
+extracted from the unmodified reference (`tools/um_block2_capture.js`), not
+replayed from the port. Refinement work remains — a fort-trace bridge gap,
+a reverted intramural/extramural roof tint, and several owner-ruling-gated
+additions (a third culture profile, a citadel, a per-settlement regenerate
+menu) — tracked in `OUTSTANDING_WORK.md` §2.1, which is where that remainder
+belongs, not this contract.
 
 **§7d tag**: port as-is. This is deep procedural-generation domain logic
 with real reference precedent line-for-line (`URBAN_MORPHOLOGY_SCOPE.md`
@@ -620,7 +659,7 @@ modernize-over-port angle the way tile pyramids or layer compositing do.
 | Theme | Done, incl. light + follow-system | Already modernized (minor) |
 | Credits | Done | Port as-is |
 | Undo | **Done at both tiers** — draft-scoped and global (corrected 2026-08-24) | Draft: new implementation, necessarily. Global: close behavioral port |
-| Urban morphology | **Milestones 1-7, 17a, 8a and 12 of ~17 done, and wired end to end** — adapter, bridge, deep-zoom map layer and City Viewer; the plaza and blocks/parcels landed 2026-08-24; what draws is a street skeleton with a market square, not a city (added and updated 2026-08-23; **8a/12 added 2026-08-25**, `PARITY_AUDIT.md` pass 3, F2) | Port as-is |
+| Urban morphology | ~~**Milestones 1-7, 17a, 8a and 12 of ~17 done, and wired end to end** — adapter, bridge, deep-zoom map layer and City Viewer; the plaza and blocks/parcels landed 2026-08-24; what draws is a street skeleton with a market square, not a city (added and updated 2026-08-23; **8a/12 added 2026-08-25**, `PARITY_AUDIT.md` pass 3, F2)~~ **All 17 milestones have code and are wired end to end — walls, blocks/parcels/buildings, districts, amenities and hinterland all draw (corrected 2026-09-21, verified at the code; see capability 13 above). Defects and owner-ruling-gated refinement remain — status is `STATUS.md`'s, tracked in `OUTSTANDING_WORK.md` §2.1** | Port as-is |
 
 ## Honest absent-entirely list, with real size
 
@@ -632,20 +671,26 @@ settlement/place editing plus the map's right-click context menu, all
 verified against real code rather than the audit's own list). What is
 genuinely still absent, as of this correction:
 
-- **Urban morphology, milestones 8, 9, 10, 11, 13, 14, 15, 16 and the rest of
+- ~~**Urban morphology, milestones 8, 9, 10, 11, 13, 14, 15, 16 and the rest of
   17**: radial (Venus) streets and the waterway (2 fns), water infrastructure
   (4), fortification (9, ~407 lines — the largest single milestone),
   graph-cleanup passes (6), districts/buildings (7), amenities (5),
   hinterland/decay/details/metrics (7), `generate()`/`hashModel` (2) — **~42
   of block 4's 92 functions**, plus 5 of the 20 `_um*` adapter functions
   (`_umHarbourScale`, `_umPt`, `_umSiteProfile`, `_umOreBearing`,
-  `_umCacheKey`). Milestones 1-7 are done **and wired** (adapter, bridge, map
-  layer, City Viewer), and **8a (the plaza) and 12 (blocks and parcels) landed
-  2026-08-24**; 15 of the 20 adapter functions are ported. By far the largest
-  item on this list — see capability 13 above. *Corrected 2026-08-25
-  (`PARITY_AUDIT.md` pass 3, F2): this bullet read "milestones 8-17 … ~45
-  functions" and named **blocks/parcels** as absent a day after milestone 12
-  shipped.*
+  `_umCacheKey`).~~ **No longer absent — corrected 2026-09-21, verified at the
+  code, not merely taken from `STATUS.md`'s own claim about itself.** Every
+  module this bullet named as missing exists in `crates/cartalith-urban/src/`
+  (`fortify.rs`, `districts.rs`, `amenities.rs`, `hinterland.rs`,
+  `blocks.rs`, `water.rs`, `cleanup.rs`, `generate.rs`, `radial.rs`), all 17
+  `_um*` adapter functions this list's denominator implies are ported
+  (`grep -c "^pub fn um_" crates/cartalith-civ/src/urban_adapter.rs` = 17,
+  including the three named here as absent), and `shell/urban_layout_draw.gd`
+  draws walls, roofs/buildings, farmland and the water mask. This was **by
+  far the largest item on this list**; it no longer belongs on it. What
+  remains is refinement and owner-ruling-gated additions, tracked in
+  `OUTSTANDING_WORK.md` §2.1, not an absent capability — see capability 13
+  above.
 - **GeoJSON import**: absent. (GeoJSON *export* is no longer on this list —
   it went live end to end on 2026-08-24; see capability 9.)
 - ~~**Geology microtexture, SVF/cast-shadow fields, SDF tinting**~~: **all three
