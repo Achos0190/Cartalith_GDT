@@ -52,7 +52,7 @@ class_name PlaceEditorWindow
 ## - **`§`-headed sections, noun-phrase titles** — `DccTheme.header()`'s `§
 ##   TITLE`, the L3 sigil the DCC Environment markup uses for its own panels
 ##   (`§ TOOLS`, `§ LAYERS`, `§ RESULTS`, `§ PARTY FORM`, `§ BRUSH · GLOBAL`).
-##   All nine section titles here are already that shape.
+##   All section titles here are already that shape.
 ## - **The re-roll button beside the name field** — `06-phone.md` §6.7's New
 ##   World modal, whose dice button is the same control in the same slot: `44 ×
 ##   42`, radius 12. See `_build_identity`.
@@ -95,6 +95,52 @@ class_name PlaceEditorWindow
 ## worse half: after a delete the dock keeps drawing a settlement that no longer
 ## exists, and every action row in it is keyed to a `_settlement_index` the
 ## delete has just renumbered.
+##
+## ## Tab-strip restructuring (`lazy-riding-piglet.md` Batch A, 2026-09-21)
+##
+## This window was a single `§`-sectioned scrolling form until this batch. The
+## owner-supplied design canvas (`design/settlement-editor-2026-09-21/Cartalith
+## Settlement Editor.dc.html`, artboards 1a/1b/1e) draws a five/six-tab strip
+## instead; this batch reshapes the window to match, reusing every existing
+## `_build_*` function's logic **verbatim** -- only their signatures gained an
+## explicit `parent: Control` so the same section-building code can be handed
+## either the Overview or the Economy & notables tab's content container. No
+## engine call changed. Timeline and Political history (canvas 1c/1d) are
+## placeholder tabs here -- filled in Batches B and C of the same plan.
+##
+## **Tab placement, and the one deviation from the plan's own suggested
+## default:** `_build_urban()` (age/walls, "Settlement fabric") went to
+## **Overview**, not Economy & notables. The canvas's own artboard 1a draws Age
+## and Walls inside its persistent "QUICK FACTS" panel beside Population/Kind/
+## Faction; artboard 1b's actual content is Connections, Food shed, Trade
+## ledger, Leadership (dashed) and Notable landmarks (dashed) -- nothing there
+## reads as settlement fabric. This is not the "genuinely ambiguous" case the
+## plan allows a default fallback for; the canvas states a placement and this
+## follows it.
+##
+## **Tab switching reuses PE-01's own fix, not a new mechanism.** `_switch_tab()`
+## calls `_commit_focused_field()` before moving `_active_tab`, exactly the way
+## `open_for()` commits before moving `_index` -- because switching away from
+## Overview tears the name/history fields out of the tree, and without an
+## explicit pre-move commit, `_rebuilding`'s teardown guard (which exists to
+## stop exactly that write) would silently drop the edit instead of losing it
+## the OLD way. See `_switch_tab()`'s own comment.
+##
+## **Actions and the footer disclosure stay outside the tab content**, rebuilt
+## on every tab switch same as everything else, because they describe the
+## settlement itself rather than one tab's slice of it -- matching the canvas's
+## own "Centre on map" button living in the persistent Quick Facts panel rather
+## than inside any one tab.
+##
+## Tab switching is **not** `TabContainer` -- this shell's established avoidance
+## of it (`faction_roster_window.gd`, `culture_profiles_window.gd`'s own
+## `_build_phone_switcher()`, cited there over `TabContainer` explicitly) --
+## and it is **one row for both desktop and phone** rather than a separate
+## phone-only switcher: unlike `culture_profiles_window.gd`'s three side-by-side
+## panes (which only need to collapse to sequential screens on phone), this
+## window is tabbed -- mutually exclusive content -- on every form factor the
+## canvas draws, so the same segmented-button row serves both, with `phone_fit`
+## already flooring its buttons to the 44 dp touch target on rebuild.
 
 var app                       ## `DccApp`
 var bridge: EngineBridge
@@ -116,6 +162,19 @@ signal place_changed
 signal place_deleted
 
 const KIND_ORDER := ["metropolis", "capital", "city", "town", "village", "hamlet"]
+
+## Tab strip (see this file's own top-of-file doc for the canvas citation and
+## the placement rationale). Order is display order; keys are what `_active_tab`
+## and `_switch_tab()` carry.
+const TAB_ORDER := ["overview", "economy", "timeline", "political", "vault"]
+const TAB_LABELS := {
+	"overview": "Overview",
+	"economy": "Economy & notables",
+	"timeline": "Timeline",
+	"political": "Political history",
+	"vault": "Vault notes",
+}
+var _active_tab := "overview"
 
 
 func setup(a, b: EngineBridge) -> void:
@@ -194,6 +253,12 @@ func open_for(index: int) -> void:
 	## text onto the new one.
 	_commit_focused_field()
 	_index = index
+	## Every place opens on Overview -- the tab the name field (and §4.5.3's
+	## own "focused on the name field" request, just below) lives on. Without
+	## this an editor left on, say, Vault notes from the previous place would
+	## reopen on Vault notes for the new one instead of the identity fields a
+	## fresh open is for.
+	_active_tab = "overview"
 	_rebuild()
 	if _index < 0:
 		return
@@ -223,7 +288,7 @@ func open_for(index: int) -> void:
 ## which releases focus and fires `focus_exited` **synchronously** -- and that
 ## handler writes the field's text back through `civ_edit_settlement`. Any
 ## rebuild triggered by something that changed the name therefore had the OLD
-## name written back over the new one before the rebuilt form ever read it.
+## name written back over the new name before the rebuilt form ever read it.
 ##
 ## Measured, not reasoned: the ⟳ re-roll button left the engine name at
 ## `Yusnashharwell` across a real press with the field focused, and changed it
@@ -231,12 +296,17 @@ func open_for(index: int) -> void:
 ## first. Every press after the first worked, because only `open_for()` grabs
 ## focus -- which is exactly why this survived to be found by a probe rather
 ## than by the eye.
+##
+## **This guard now also protects a tab switch**, since `_rebuild()` is the
+## same teardown-and-rebuild path a tab switch drives -- `_switch_tab()` calls
+## `_commit_focused_field()` first for the same reason `open_for()` does.
 var _rebuilding := false
 
-## Commit whatever field is focused **before** `_index` moves, so a half-typed
-## rename lands on the settlement it was typed for instead of being dropped by
-## the guard. Releasing focus is what makes the `focus_exited` commit fire
-## here, against the right index, rather than inside `_clear()`.
+## Commit whatever field is focused **before** `_index` (or `_active_tab`)
+## moves, so a half-typed rename lands on the settlement (or tab) it was typed
+## for instead of being dropped by the guard. Releasing focus is what makes the
+## `focus_exited` commit fire here, against the right index, rather than inside
+## `_clear()`.
 func _commit_focused_field() -> void:
 	if _body == null:
 		return
@@ -279,16 +349,34 @@ func _rebuild() -> void:
 		## be read from is gone -- the in-content header is where it lives now.
 		_phone_title.text = String(s.get("name", "(unnamed)")).to_upper()
 
-	_build_identity(s)
-	_build_class_and_polity(s)
-	_build_economy(s, details)
-	_build_trade()
-	_build_traits(details)
-	_build_urban(details)
-	_build_history(details)
-	_build_knowledge(s)
-	_build_actions(s)
-	_build_footer()
+	_build_tab_strip(_body)
+	var tab_content := VBoxContainer.new()
+	tab_content.add_theme_constant_override("separation", 4)
+	tab_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_body.add_child(tab_content)
+	match _active_tab:
+		"overview":
+			_build_identity(tab_content, s)
+			_build_class_and_polity(tab_content, s)
+			_build_traits(tab_content, details)
+			_build_economy(tab_content, s, details)
+			_build_urban(tab_content, details)
+			_build_history(tab_content, details)
+		"economy":
+			_build_trade(tab_content)
+		"timeline":
+			_build_timeline_placeholder(tab_content)
+		"political":
+			_build_political_placeholder(tab_content)
+		"vault":
+			_build_knowledge(tab_content, s)
+		_:
+			pass
+	## Global to the settlement, not tab-scoped -- see this file's top-of-file
+	## doc. Rebuilt every time same as the tab content, matching this window's
+	## existing full-rebuild-per-change discipline.
+	_build_actions(_body, s)
+	_build_footer(_body)
 	## Every row above comes from `dcc_widgets.gd`, which is authored in desktop
 	## pixels; this floors the tappable ones at §13's 44 dp. Re-run per rebuild
 	## because a rebuild makes fresh nodes, and safe to re-run because the walk
@@ -297,10 +385,77 @@ func _rebuild() -> void:
 		app.phone_fit(self, 1.0)
 
 
+# -- Tab strip ----------------------------------------------------------------
+
+## One segmented-button row for both desktop and phone -- see this file's
+## top-of-file doc for why this window does not need a separate `if _phone:`
+## switcher the way `culture_profiles_window.gd`'s three side-by-side panes do.
+## Styling matches that file's own `_show_phone_pane()` active-tab treatment
+## (accent wash fill + accent text on the active tab, dim text on the rest) so
+## a segmented control looks the same wherever this shell already draws one.
+func _build_tab_strip(parent: Control) -> void:
+	var wrap := PanelContainer.new()
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"bottom": 1}))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 0)
+	wrap.add_child(row)
+	for key in TAB_ORDER:
+		var on: bool = key == _active_tab
+		var b := Button.new()
+		b.text = String(TAB_LABELS[key])
+		b.focus_mode = Control.FOCUS_NONE
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.clip_text = false
+		b.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+		var fill: StyleBox = DccTheme.flat(DccTheme.c("accent_wash")) if on else DccTheme.empty()
+		for sb_name in ["normal", "hover", "pressed"]:
+			b.add_theme_stylebox_override(sb_name, fill)
+		b.add_theme_stylebox_override("focus", DccTheme.empty())
+		b.add_theme_color_override("font_color",
+			DccTheme.c("accent") if on else DccTheme.c("text_dim"))
+		b.pressed.connect(func(): _switch_tab(key))
+		row.add_child(b)
+	parent.add_child(wrap)
+
+
+## The PE-01 fix, applied to a tab move instead of an index move -- see this
+## file's top-of-file doc and `_rebuilding`'s own comment. `_rebuild()`'s
+## teardown removes the currently-focused field (if the active tab holds one)
+## from the tree, firing `focus_exited` under the `_rebuilding` guard -- which
+## exists specifically to make that fire a no-op, not a write. Without this
+## call landing FIRST, a half-typed name commit at tab-switch time would be
+## silently dropped by the same guard that protects a re-roll or a generate.
+func _switch_tab(tab: String) -> void:
+	if tab == _active_tab:
+		return
+	_commit_focused_field()
+	_active_tab = tab
+	_rebuild()
+
+
+# -- Timeline / Political history placeholders ---------------------------------
+
+## `lazy-riding-piglet.md` Batch B fills this tab: a year-dot scrubber over
+## `TimelineSnapshot` years, Add/Go to/Remove, a `civ_year_diff` readout, and
+## the collapse/recovery simulator. Not attempted in this batch.
+func _build_timeline_placeholder(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Timeline")
+	DccWidgets.note(sec, "Not built yet — see OUTSTANDING_WORK.md.")
+
+
+## `lazy-riding-piglet.md` Batch C fills this tab: derived ownership periods
+## over this settlement's recorded `TimelineSnapshot`s, read-only, once the new
+## `civ_settlement_ownership_periods`-shaped `#[func]` exists. Not attempted in
+## this batch -- no bridge function for this exists yet.
+func _build_political_placeholder(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Political history")
+	DccWidgets.note(sec, "Not built yet — see OUTSTANDING_WORK.md.")
+
+
 # -- Name + re-roll ---------------------------------------------------------
 
-func _build_identity(s: Dictionary) -> void:
-	var sec := DccWidgets.section(_body, "Identity")
+func _build_identity(parent: Control, s: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Identity")
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	_name_edit = LineEdit.new()
@@ -349,8 +504,8 @@ func _build_identity(s: Dictionary) -> void:
 
 # -- Class + polity ---------------------------------------------------------
 
-func _build_class_and_polity(s: Dictionary) -> void:
-	var sec := DccWidgets.section(_body, "Classification")
+func _build_class_and_polity(parent: Control, s: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Classification")
 	var kind := String(s.get("kind", "town"))
 	DccWidgets.choice(sec, "Class", KIND_ORDER.map(func(k): return String(k).capitalize()),
 		maxi(0, KIND_ORDER.find(kind)),
@@ -374,8 +529,8 @@ func _build_class_and_polity(s: Dictionary) -> void:
 
 # -- Population + economy ---------------------------------------------------
 
-func _build_economy(s: Dictionary, details: Dictionary) -> void:
-	var sec := DccWidgets.section(_body, "Population & economy")
+func _build_economy(parent: Control, s: Dictionary, details: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Population & economy")
 	## Step 1, not the reference's own `step="500"`: an HTML number input
 	## only steps its ARROWS by that, while Godot's `SpinBox` snaps the
 	## displayed value to `min + k*step` -- which would show a population of
@@ -423,8 +578,8 @@ const REACH_BY_WATER := {
 ## When no match has run the section says so and points at the one control
 ## that runs it — a section that silently showed nothing would be
 ## indistinguishable from a settlement that trades nothing.
-func _build_trade() -> void:
-	var sec := DccWidgets.section(_body, "Trade")
+func _build_trade(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Trade")
 	if not TradeStore.is_matched():
 		DccWidgets.note(sec,
 			"No trade match on this world yet. Civilization ▸ Trade ▸ Match trade flows "
@@ -619,8 +774,8 @@ func _trade_row(parent: Control, flow: Variant, name_key: String, arrow: String)
 
 # -- Traits -----------------------------------------------------------------
 
-func _build_traits(details: Dictionary) -> void:
-	var sec := DccWidgets.section(_body, "Traits")
+func _build_traits(parent: Control, details: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Traits")
 	var vocab := bridge.civ_trait_vocabulary()
 	if vocab.is_empty():
 		DccWidgets.note(sec, "No trait vocabulary -- the engine build is older than civ_trait_vocabulary().")
@@ -688,8 +843,8 @@ func _build_traits(details: Dictionary) -> void:
 
 # -- Age + walls ------------------------------------------------------------
 
-func _build_urban(details: Dictionary) -> void:
-	var sec := DccWidgets.section(_body, "Settlement fabric")
+func _build_urban(parent: Control, details: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Settlement fabric")
 	var age := int(details.get("age", -1))
 	## Step 1 for the same reason Population above uses it -- see there.
 	DccWidgets.number(sec, "Age (yr)", -1.0, 1000.0, 1.0, float(age),
@@ -728,8 +883,8 @@ func _build_urban(details: Dictionary) -> void:
 
 # -- History ----------------------------------------------------------------
 
-func _build_history(details: Dictionary) -> void:
-	var sec := DccWidgets.section(_body, "History")
+func _build_history(parent: Control, details: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "History")
 	var te := TextEdit.new()
 	te.text = String(details.get("history", ""))
 	te.placeholder_text = "Lore, founding, notable events…"
@@ -760,8 +915,8 @@ func _build_history(details: Dictionary) -> void:
 ## an earlier one is deleted, and a knowledge link that followed the index
 ## would silently re-point at a different town. `tid` is this port's own
 ## stable id and is what the engine stores.
-func _build_knowledge(s: Dictionary) -> void:
-	var sec := DccWidgets.section(_body, "Knowledge")
+func _build_knowledge(parent: Control, s: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Knowledge")
 	var tid := int(s.get("tid", 0))
 	if tid == 0:
 		DccWidgets.note(sec, "This settlement has no stable id yet, so nothing can be linked to it.")
@@ -843,8 +998,8 @@ func _build_backlinks(sec: Control, kind: String, entity_id: int, name: String) 
 
 # -- Actions ----------------------------------------------------------------
 
-func _build_actions(s: Dictionary) -> void:
-	var sec := DccWidgets.section(_body, "Actions")
+func _build_actions(parent: Control, s: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Actions")
 	DccWidgets.action(sec, "Focus camera on settlement", func():
 		app.viewport.move_view_to(float(int(s.get("x", 0))), float(int(s.get("y", 0)))))
 	## `peCityOpen` (`GUI_GAP_REGISTER.md` UM-03). That row predicted "a popup
@@ -886,8 +1041,8 @@ func confirm_delete(index: int) -> void:
 					_rebuild())
 
 
-func _build_footer() -> void:
-	_footer = DccWidgets.note(_body,
+func _build_footer(parent: Control) -> void:
+	_footer = DccWidgets.note(parent,
 		"Not built here, each for a stated reason: Category (settlement ↔ POI) -- POI is not a "
 		+ "ported concept (GUI_GAP_REGISTER.md CV-01); the inline town-layout thumbnail (UM-03) "
 		+ "-- no layout renders at icon size yet, though its City Viewer launcher above is live; "
