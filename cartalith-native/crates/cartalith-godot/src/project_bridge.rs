@@ -4717,6 +4717,95 @@ mod tests {
     }
 
     #[test]
+    fn a_recorded_year_comes_back_holding_what_was_true_then_not_what_is_live_now() {
+        // The claim `GUI_GAP_REGISTER.md`'s CV-23 row is about, end to end: which faction
+        // held which cells *in a given past year*, surviving an archive.
+        //
+        // `the_timeline_comes_back_sorted_and_unique` above is the ordering test -- it
+        // builds `TerritoryFrame::Key` entries by hand, so nothing in it goes through the
+        // production recording path and no delta chain crosses the archive boundary. This
+        // one records through `civ_add_year`, one of the three production routes into
+        // `civ_snapshot_save` (the others are `timeline_bridge`'s simulation recorder and
+        // `civ_from_project`'s own re-encode below), and the two years it records hold
+        // *genuinely different* rasters: a fixture where the territory never changed
+        // cannot tell a historical read from a live one, so it would pass whether or not
+        // any history was kept at all.
+        let mut civ = sample_civ();
+        let a = vec![1i32; 12];
+        let mut b = a.clone();
+        // Faction 9 takes two cells somewhere between year 100 and year 300.
+        b[5] = 9;
+        b[6] = 9;
+        assert_ne!(a, b, "the fixture's whole point is that these differ");
+
+        // Recorded from an empty timeline rather than on top of `sample_civ`'s own year
+        // 120 entry, so the years below are a plain recording sequence. Worth stating why
+        // rather than just doing it: `civ_add_year` carries forward from the nearest
+        // *earlier* recorded year and has no earlier year to carry when there is none, so
+        // a year added below every recorded one records an empty raster (its documented
+        // `None` branch -- the reference's behaviour, not a defect). A fixture that left
+        // year 120 in place and recorded years beneath it would therefore assert zeroes.
+        civ.timeline.clear();
+        civ.territory = a.clone();
+        civ.civ_add_year(100);
+        civ.civ_add_year(300); // carries year 100's raster forward, year cursor lands on 300
+        civ.territory = b.clone(); // the live edit made while year 300 is the active year
+        civ.civ_add_year(500); // snapshots the active year 300 with `b` before jumping
+
+        // The live grid then moves on again, to a state *no* recorded year holds. Without
+        // this, "the read answered the past" and "the read answered the present" have the
+        // same value at year 300 and the assertions below would not separate them.
+        let live = vec![4i32; 12];
+        civ.territory = live.clone();
+
+        let back = round_trip(&civ, 4, 3);
+
+        assert_eq!(
+            cartalith_civ::timeline::civ_territory_at(&back.timeline, 100).unwrap(),
+            a,
+            "year 100 must come back holding the raster that was live when it was recorded"
+        );
+        assert_eq!(
+            cartalith_civ::timeline::civ_territory_at(&back.timeline, 300).unwrap(),
+            b,
+            "year 300 must come back holding its own later raster, not year 100's"
+        );
+        assert_eq!(
+            back.territory, live,
+            "the live grid is `rasters/territory.i32`, and is none of the recorded years"
+        );
+        assert_ne!(
+            cartalith_civ::timeline::civ_territory_at(&back.timeline, 100).unwrap(),
+            back.territory,
+            "a reader that answered the live state would satisfy every other shape here"
+        );
+
+        // ...and the compact encoding survived the trip rather than being flattened by it.
+        // The archive carries one whole raster per recorded year (§10.2) and `civ_from_
+        // project` re-encodes in year order on the way in, so year 300 comes back as a
+        // difference naming year 100 and carrying exactly the two cells that changed --
+        // which is also what makes the historical record affordable (owner ruling 27, and
+        // `TERRITORY_KEYFRAME_INTERVAL`'s own doc comment for the measured bound).
+        let y300 = back.timeline.iter().find(|s| s.year == 300).unwrap();
+        assert_eq!(
+            y300.territory,
+            cartalith_civ::timeline::TerritoryFrame::Delta {
+                base_year: 100,
+                cells: vec![(5, 9), (6, 9)]
+            }
+        );
+        // Year 500 changed nothing, and costs nothing: the ruling's own case.
+        let y500 = back.timeline.iter().find(|s| s.year == 500).unwrap();
+        assert_eq!(
+            y500.territory,
+            cartalith_civ::timeline::TerritoryFrame::Delta {
+                base_year: 300,
+                cells: Vec::new()
+            }
+        );
+    }
+
+    #[test]
     fn the_documents_are_the_shapes_the_specification_publishes() {
         // The specification is what a second implementation is written
         // from, so the member *names* are the contract. A rename here that
