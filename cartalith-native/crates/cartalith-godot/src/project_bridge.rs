@@ -1801,7 +1801,7 @@ impl WorldGen {
     /// of the project layer.
     #[func]
     fn project_save(&mut self, path: GString) -> VarDictionary {
-        self.project_save_with_documents(path, VarDictionary::new())
+        self.project_save_with_documents(path, VarDictionary::new(), PackedByteArray::new())
     }
 
     /// [`WorldGen::project_save`] plus the caller's own documents.
@@ -1822,11 +1822,20 @@ impl WorldGen {
     ///
     /// A slot the engine writes itself is refused rather than merged — see
     /// [`ENGINE_OWNED_SLOTS`].
+    ///
+    /// `preview_png` is optional, caller-encoded PNG bytes for
+    /// `preview.png` (`SAVEFILE_COMPAT.md`'s thumbnail slot) — Rust has no
+    /// rendered world texture to encode at save time, so the shell captures
+    /// and encodes it (`Image.save_png_to_buffer()`) and hands the bytes
+    /// down. An empty array (the default for every existing call site)
+    /// writes no `preview.png` entry at all, exactly as before this
+    /// parameter existed.
     #[func]
     fn project_save_with_documents(
         &mut self,
         path: GString,
         extra_documents: VarDictionary,
+        #[opt(default = &PackedByteArray::new())] preview_png: PackedByteArray,
     ) -> VarDictionary {
         let Some(source) = self.source.as_ref() else {
             return err("no world to save");
@@ -1878,6 +1887,13 @@ impl WorldGen {
 
         let mut write = ProjectWrite::new(&params, &fields);
         write.readme = Some(project::DEFAULT_README.to_string());
+        // `preview.png` — see the doc comment above for why this is
+        // caller-supplied. Empty/absent writes no entry (the damage ladder
+        // for a missing thumbnail is "no thumbnail", never a zero-byte
+        // file), matching every call site before this parameter existed.
+        if !preview_png.is_empty() {
+            write.preview_png = Some(preview_png.to_vec());
+        }
 
         // params.json's two views. `params::save_state` builds one object
         // carrying both -- the reference-named block with this port's own

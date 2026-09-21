@@ -3183,6 +3183,50 @@ func _project_documents() -> Dictionary:
 			documents["annotations/measurements.json"] = meas
 	return documents
 
+## A small thumbnail of the current map view for the archive's `preview.png`
+## slot (`SAVEFILE_COMPAT.md`'s own comment: "a thumbnail; not map data").
+## Captured here rather than in Rust because nothing on that side has a
+## rendered world texture at save time (`EngineBridge.save_project()`'s own
+## doc) -- this shell does, in `viewport`.
+##
+## 256 px on the longer edge, aspect preserved: enough to recognise a world
+## by its coastline in a recents list, small enough that a dozen of them cost
+## nothing next to a multi-megabyte archive. Not a figure taken from a spec --
+## none of the reachable documents name a thumbnail size -- disclosed here as
+## a choice rather than a measurement.
+##
+## Returns an empty `PackedByteArray` (which writes no `preview.png` entry at
+## all -- `project_save_with_documents`'s own contract) whenever there is
+## nothing sensible to capture: headless, where `get_viewport().get_texture()`
+## is a no-op (`MISTAKES.md`'s pixel-probe row), no viewport host yet, or a
+## degenerate rect.
+const PREVIEW_THUMBNAIL_MAX_PX := 256
+
+func _capture_preview_png() -> PackedByteArray:
+	if DisplayServer.get_name() == "headless":
+		return PackedByteArray()
+	if viewport == null:
+		return PackedByteArray()
+	var rect := viewport.get_global_rect()
+	if rect.size.x < 1.0 or rect.size.y < 1.0:
+		return PackedByteArray()
+	var img := get_viewport().get_texture().get_image()
+	if img == null:
+		return PackedByteArray()
+	var region := Rect2i(Vector2i(rect.position), Vector2i(rect.size)) \
+		.intersection(Rect2i(Vector2i.ZERO, img.get_size()))
+	if region.size.x < 1 or region.size.y < 1:
+		return PackedByteArray()
+	img = img.get_region(region)
+	var w := img.get_width()
+	var h := img.get_height()
+	var scale: float = float(PREVIEW_THUMBNAIL_MAX_PX) / float(maxi(w, h))
+	if scale < 1.0:
+		img.resize(maxi(1, roundi(w * scale)), maxi(1, roundi(h * scale)), Image.INTERPOLATE_LANCZOS)
+	if img.get_format() != Image.FORMAT_RGBA8:
+		img.convert(Image.FORMAT_RGBA8)
+	return img.save_png_to_buffer()
+
 ## The one place a project is actually written. Everything above routes here
 ## so the bookkeeping -- `current_project_path`, the recents list, the status
 ## line, the optional continuation -- happens once.
@@ -3193,7 +3237,8 @@ func _write_project(path: String, then: Callable = Callable()) -> void:
 	## volume costs a full serialisation before anyone hears about it.
 	if _save_blocked_by_space(path):
 		return
-	if not bridge.save_project(path, documents):
+	var preview_png := _capture_preview_png()
+	if not bridge.save_project(path, documents, preview_png):
 		## **Was "save failed -- see console".** That named somewhere an exported
 		## Android build has no way to reach, which is the half of
 		## `BUILD_ANSWERS.md` §4's storage/failure gap that cost nothing to fix.

@@ -1894,6 +1894,28 @@ mod tests {
         assert_eq!(back.save.state["cartalith"]["tect.seed"], 4242);
     }
 
+    /// Backward compatibility for `preview_png: None` (`ProjectWrite::new`'s
+    /// default, and what every call site got before the Godot bridge learned
+    /// to populate it): the archive must carry no `preview.png` entry at
+    /// all, not an empty one -- SAVEFILE_COMPAT.md's damage ladder treats a
+    /// present-but-empty thumbnail differently from an absent one.
+    #[test]
+    fn no_preview_is_the_default_and_writes_no_entry() {
+        let (params, fields) = sample(4, 4);
+        let buf = write_to_vec(&ProjectWrite::new(&params, &fields));
+        let mut r = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+        let names: Vec<String> = (0..r.len())
+            .map(|i| r.by_index_raw(i).unwrap().name().to_string())
+            .collect();
+        assert!(
+            !names.iter().any(|n| n == "preview.png"),
+            "no preview_png must write no entry: {names:?}"
+        );
+        let back = read_project(Cursor::new(&buf)).expect("the archive reads");
+        assert!(back.preview_png.is_none());
+        assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+    }
+
     /// The landmark slot end to end at *this* crate's boundary: registered,
     /// writable, and read back as a document rather than counted a foreign
     /// entry. `cartalith-godot` owns the payload's shape and pins that

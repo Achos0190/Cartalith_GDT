@@ -1735,7 +1735,12 @@ func load_save(path: String) -> bool:
 ## `SAVEFILE_COMPAT.md` documents. Returns `false` (leaving any existing file
 ## untouched) when the engine has no writer, when there is no world, or when
 ## the write itself fails; the engine logs the reason.
-func save_project(path: String, extra_documents: Dictionary = {}) -> bool:
+## `preview_png` is optional PNG bytes for the archive's `preview.png`
+## thumbnail slot (`SAVEFILE_COMPAT.md`) -- the caller captures and encodes
+## it (`DccApp._capture_preview_png()`), because this bridge has no
+## rendered world texture of its own. Empty writes no `preview.png` entry,
+## same as omitting it.
+func save_project(path: String, extra_documents: Dictionary = {}, preview_png: PackedByteArray = PackedByteArray()) -> bool:
 	if not save_api or not has_world:
 		return false
 	## `project_save` writes the documented tree (`SAVEFILE_COMPAT.md`) and
@@ -1746,16 +1751,18 @@ func save_project(path: String, extra_documents: Dictionary = {}) -> bool:
 	## ways, the timeline and the vault links would be the worst kind of
 	## regression -- one the user only discovers on reopening.
 	## `project_save_with_documents` when the caller has state of its own to
-	## store, `project_save` otherwise -- the former is what the latter calls
-	## anyway, so this is one branch for one guard rather than two paths.
+	## store (a document, OR a preview thumbnail), `project_save` otherwise --
+	## the former is what the latter calls anyway, so this is one branch for
+	## one guard rather than two paths.
 	## `extra_documents` maps a registered slot to that document's JSON TEXT;
 	## a Dictionary would go through Godot's JSON, which floats every integer,
 	## and that is precisely how KV-04 discarded every knowledge link.
 	var r: Dictionary
-	if extra_documents.is_empty() or not _has("project_save_with_documents"):
+	var need_with_documents := not extra_documents.is_empty() or not preview_png.is_empty()
+	if not need_with_documents or not _has("project_save_with_documents"):
 		r = world_gen.project_save(path)
 	else:
-		r = world_gen.project_save_with_documents(path, extra_documents)
+		r = world_gen.project_save_with_documents(path, extra_documents, preview_png)
 	var ok: bool = bool(r.get("ok", false))
 	if ok:
 		_set_dirty(false)
