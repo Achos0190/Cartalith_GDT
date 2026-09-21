@@ -2642,18 +2642,31 @@ answer for the save format, the control surface and the tooling debt they carry.
 
 ## 9. Deliberately NOT in the HTML — do not port these
 
-- **Multi-ridge orogenic belts ("the Himalaya problem").** The HTML's mountain ranges
-  are a single symmetric ridge by construction: `stressField = gaussBlur(raw, blurR)`
-  over a 1–2 cell boundary line, and the whole mountain term in `fillHeightRows` is one
-  variable, `T = oro ? oro[i] + Math.min(sf,0) : sf`. A multi-sheet thrust-belt profile
-  was prototyped and calibrated as a **runtime override only** — it is **not in any
-  shipped file** and nothing was committed. Do not implement it from this note.
+- ~~**Multi-ridge orogenic belts ("the Himalaya problem").** ... not in any shipped
+  file, nothing was committed. Do not implement it from this note.~~ **CORRECTED
+  2026-09-21 — BOTH claims below were false, checked directly against
+  `Cartalith_v2.71_DCC_test.html` (the real DCC-line file, `VERSION='2.71'` at its
+  own line 2682), owner-supplied to resolve exactly this contradiction with
+  `§6b.2` below.** `buildOrogenyField` (line 3865) is real, present, shipped code —
+  multi-sheet stacking (`nSheet`), `beltSpan=1.55*halfBelt` (line 3884, the exact
+  figure `§6b.2` cites), per-sheet tapering toward the foreland, an orogenic-plateau
+  fill and a foreland basin term. It runs whenever `state.tect.tectonicGraph` is on,
+  which is not a rare manual override: any active World-Structure archetype sets it
+  automatically (`state.tect.tectonicGraph=true`, line 3252, "T5: an active
+  World-Structure archetype turns on structured orogeny"). `§6b.2` was right; this
+  bullet was wrong, and the false claim carried no version or evidence to check it
+  against — an unfalsifiable bullet is not a safer default than a wrong one.
 - **Causal landmark generation** — not started in the HTML. `LANDMARK_GENERATION_SCOPE.md`
   in this repository is the port's own design, not a port target.
-- **Real-km-aware orogenic belt width.** `blurR` is in grid cells and never reads
-  `mapWidthKm`, so belt width does not scale with map extent — the same defect shape
-  that `terrainDetailK` / `riverCoarseEase` / `lodDetailFreqK` / `riverWidthScaleK`
-  each fixed in their own subsystem. Known and open on the HTML side.
+- ~~**Real-km-aware orogenic belt width.** `blurR` is in grid cells and never reads
+  `mapWidthKm`... Known and open on the HTML side.~~ **CORRECTED 2026-09-21 —
+  also false, same file.** `orogenyWidthScaleK(mapWidthKm)` (line 3472) exists,
+  reads `mapWidthKm` directly, and is threaded into every `buildOrogenyField` call
+  (lines 4006, 4370) as `widthK`. Its own doc comment names it the sixth sibling of
+  `terrainDetailK`/`riverCoarseEase`/`lodDetailFreqK`/`riverWidthScaleK` — the
+  identical family `§6b.2` and this file's `v2.36`/`v2.49` rows already document —
+  and dates it v2.36, the same version `§6b.2` describes. Not open; fixed at the
+  same time as the multi-sheet belt itself.
 
 ---
 
