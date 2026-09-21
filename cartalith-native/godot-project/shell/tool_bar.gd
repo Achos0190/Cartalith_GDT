@@ -344,6 +344,11 @@ func _build_sculpt_options(row: HBoxContainer) -> void:
 func _on_sculpt_commit() -> void:
 	bridge.sculpt_commit("sculpt")
 	app.viewport.map_view.texture = bridge.color_texture()
+	## `world_workspace.gd::_on_sculpt_commit`'s third line, same reason: a
+	## live LOD tile keeps its own captured `base_tex` from the OLD texture
+	## (`OUTSTANDING_WORK.md`, "the in-session tile cache is not invalidated
+	## by a sculpt").
+	app.viewport.invalidate_lod_tiles()
 	app.viewport.set_preview_texture(null)
 	rebuild()
 	if app.right_dock_ctrl.has_method("show_sculpt_stack"):
@@ -497,6 +502,9 @@ func _on_paint_commit() -> void:
 	## opaque draft overlay has to come off, or it covers the blend it was
 	## standing in for with a flat sticker.
 	app.viewport.map_view.texture = bridge.color_texture()
+	## Same third line as `_on_sculpt_commit` above, same reason: a live LOD
+	## tile keeps its own captured `base_tex` from the OLD texture.
+	app.viewport.invalidate_lod_tiles()
 	app.viewport.set_preview_texture(null)
 	var stale: PackedStringArray = summary.get("stale_stages", PackedStringArray())
 	app.set_status("hint", ("painted -- stale: %s" % ", ".join(stale)) if stale.size() > 0 else "painted", "text_ghost")

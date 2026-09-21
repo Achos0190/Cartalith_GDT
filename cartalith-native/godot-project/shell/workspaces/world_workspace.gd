@@ -1429,6 +1429,12 @@ func _run_erode() -> void:
 	## `_on_sculpt_commit` does it this way rather than calling
 	## `ViewportHost.refresh()`, which would also reset the camera to fit.
 	app.viewport.map_view.texture = bridge.color_texture()
+	## Same reason `_on_sculpt_commit` also calls this: an already-built LOD
+	## tile keeps its OWN synthesized texture and a shader reference to the
+	## OLD `map_view.texture`, so reassigning the field above alone leaves a
+	## live deep-zoom pyramid compositing pre-erode relief. Cheap no-op when
+	## nothing is live (`invalidate_lod_tiles()`'s own guard).
+	app.viewport.invalidate_lod_tiles()
 	var cells := int(r.get("cells_changed", 0))
 	## `climate_coupled` false means this world carried no rainfall and the
 	## droplets spawned uniformly instead of through the rain field. A real
@@ -2625,7 +2631,7 @@ func _on_sculpt_commit() -> void:
 	## up: an already-built LOD tile keeps its OWN synthesized texture and a
 	## shader reference to the OLD `map_view.texture`, and nothing about
 	## reassigning that field tells `ViewportHost` to rebuild a tile it
-	## already has (`GUI_GAP_REGISTER.md`, "the in-session tile cache is not
+	## already has (`OUTSTANDING_WORK.md`, "the in-session tile cache is not
 	## invalidated by a sculpt"). `invalidate_lod_tiles()` is the same
 	## camera-preserving trade as the line above -- it does not call
 	## `reset_view()` either -- so Commit still never moves the camera.
@@ -2990,6 +2996,12 @@ func _on_paint_commit() -> void:
 	## re-fetched -- and the opaque draft overlay must come off, or it hides
 	## that blend behind the flat swatch colour it was standing in for.
 	app.viewport.map_view.texture = bridge.color_texture()
+	## And the third line `_on_sculpt_commit` uses, for the same reason: a
+	## live LOD tile keeps its own captured `base_tex` from the OLD texture,
+	## so a paint commit at a fixed zoom would otherwise leave pre-paint
+	## relief on screen (`OUTSTANDING_WORK.md`, "the in-session tile cache is
+	## not invalidated by a sculpt" -- the row also covers paint).
+	app.viewport.invalidate_lod_tiles()
 	app.viewport.set_preview_texture(null)
 	var stale: PackedStringArray = summary.get("stale_stages", PackedStringArray())
 	app.set_status("hint", ("painted -- stale: %s" % ", ".join(stale)) if stale.size() > 0 else "painted", "text_ghost")

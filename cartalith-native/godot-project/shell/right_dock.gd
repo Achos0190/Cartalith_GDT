@@ -4459,6 +4459,11 @@ func _do_revert(seq: int) -> void:
 	## exactly where you were looking.
 	if app.viewport != null:
 		app.viewport.map_view.texture = bridge.color_texture()
+		## Same third line `app.gd::undo_last()` uses, same reason: a live LOD
+		## tile keeps its own captured `base_tex` from the OLD texture
+		## (`OUTSTANDING_WORK.md`, "the in-session tile cache is not
+		## invalidated by a sculpt").
+		app.viewport.invalidate_lod_tiles()
 		app.viewport.set_preview_texture(null)
 	var stats: Dictionary = bridge.undo_stats()
 	app.set_status("pass", "reverted %d step%s" % [done, "" if done == 1 else "s"], "text_dim")
@@ -4857,6 +4862,10 @@ func _on_sculpt_stack_commit() -> void:
 	bridge.sculpt_commit("sculpt")
 	if app != null and app.viewport != null:
 		app.viewport.map_view.texture = bridge.color_texture()
+		## Same third line `world_workspace.gd::_on_sculpt_commit` uses, same
+		## reason: a live LOD tile keeps its own captured `base_tex` from the
+		## OLD texture.
+		app.viewport.invalidate_lod_tiles()
 		app.viewport.set_preview_texture(null)
 	show_sculpt_stack()
 
@@ -5045,6 +5054,9 @@ func _on_paint_commit_from_dock() -> void:
 	var summary: Dictionary = bridge.paint_commit()
 	if app != null and app.viewport != null:
 		app.viewport.map_view.texture = bridge.color_texture()
+		## Same third line the other commit paths use, same reason: a live
+		## LOD tile keeps its own captured `base_tex` from the OLD texture.
+		app.viewport.invalidate_lod_tiles()
 		app.viewport.set_preview_texture(null)
 	var stale: PackedStringArray = summary.get("stale_stages", PackedStringArray())
 	if app != null:

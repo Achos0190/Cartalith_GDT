@@ -1214,6 +1214,11 @@ func _redo_last() -> void:
 		return
 	if _host.viewport != null:
 		_host.viewport.map_view.texture = _bridge.color_texture()
+		## `app.gd::redo_last()`'s third line, same reason: a live LOD tile
+		## keeps its own captured `base_tex` from the OLD texture
+		## (`OUTSTANDING_WORK.md`, "the in-session tile cache is not
+		## invalidated by a sculpt").
+		_host.viewport.invalidate_lod_tiles()
 		_host.viewport.set_preview_texture(null)
 	_host.set_status("pass", "redid %s" % label.to_lower(), "text_dim")
 	## ED-02: the ledger moved, so the panel showing it is stale. A no-op

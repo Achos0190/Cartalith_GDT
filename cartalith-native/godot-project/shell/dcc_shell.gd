@@ -8436,6 +8436,11 @@ func _phone_revert_history(seq: int) -> void:
 	var host := _find_viewport_host()
 	if host != null:
 		host.map_view.texture = bridge.color_texture()
+		## Same third line the desktop revert path (`right_dock.gd::_do_revert`)
+		## uses, same reason: a live LOD tile keeps its own captured
+		## `base_tex` from the OLD texture (`OUTSTANDING_WORK.md`, "the
+		## in-session tile cache is not invalidated by a sculpt").
+		host.invalidate_lod_tiles()
 		host.set_preview_texture(null)
 	_refresh_phone_undo_chip()
 	_show_phone_toast("Reverted %d step%s" % [done, "" if done == 1 else "s"],

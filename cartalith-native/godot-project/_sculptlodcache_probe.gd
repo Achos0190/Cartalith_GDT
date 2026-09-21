@@ -43,6 +43,34 @@ func _ok(name: String, cond: bool, detail: String = "") -> void:
 	if not cond:
 		_fail += 1
 
+## Runs one more of the nine other stale-by-code paths through the same
+## before/after, base-vs-screen shape section 2-4 above uses, but WITHOUT the
+## hard `quit(2)` those sections use on a failed premise -- a later section's
+## setup problem should not hide whether the earlier ones passed. `action`
+## does the engine call AND the repaint (it IS the function under test, called
+## exactly as its real caller calls it). `vh`/`screen_centre`/`half_w`/`half_h`
+## are `_ready()`'s own locals, passed in because a nested `func` cannot close
+## over another top-level function's locals in GDScript.
+func _measure_path(name: String, action: Callable,
+		vh: ViewportHost, screen_centre: Vector2, half_w: float, half_h: float) -> void:
+	print("\n=== ", name, " ===")
+	await _frames(3)
+	var base_before := _crop_centre(vh.map_view.texture.get_image(), 0.3)
+	var screen_before := _crop_at(_vp.get_texture().get_image(), screen_centre, half_w, half_h)
+	await action.call()
+	await _frames(20)
+	var base_after := _crop_centre(vh.map_view.texture.get_image(), 0.3)
+	var screen_after := _crop_at(_vp.get_texture().get_image(), screen_centre, half_w, half_h)
+	var base_changed := base_before != base_after
+	var screen_changed := screen_before != screen_after
+	_ok(name + " -- PREMISE (base texture really changed)", base_changed)
+	if not base_changed:
+		print("  [SKIP] premise failed -- this path's setup did not change the field; ",
+			"nothing to say about its LOD repaint")
+		return
+	_ok(name + " -- on-screen region shows the change", screen_changed,
+		"base_changed=%s screen_changed=%s" % [base_changed, screen_changed])
+
 ## Centred square crop of `img`, `frac` of its SHORTER side per side.
 func _crop_centre(img: Image, frac: float) -> PackedByteArray:
 	var w := img.get_width()
@@ -188,6 +216,167 @@ func _ready() -> void:
 	_ok("the ON-SCREEN (LOD-composited) region shows the post-sculpt relief",
 		screen_changed, "base_changed=%s screen_changed=%s (%d bytes sampled)"
 			% [base_changed, screen_changed, screen_before.size()])
+
+	## === 5-14: the other nine "stale by code" paths (`OUTSTANDING_WORK.md`,
+	## "the in-session tile cache is not invalidated by a sculpt") plus the
+	## erode path found beside them. Each does its own real edit through the
+	## bridge and then calls the EXACT shell function under test -- never
+	## `refresh()`, which would hide a missing `invalidate_lod_tiles()` call
+	## behind the reset it performs anyway.
+	var rd = app.right_dock_ctrl
+	var tb = app.tool_bar
+
+	var stroke := func():
+		bridge.sculpt_begin_stroke()
+		bridge.sculpt_add_point(gx - 5.0, gy - 5.0)
+		bridge.sculpt_add_point(gx - 1.0, gy - 1.0)
+		bridge.sculpt_add_point(gx + 1.0, gy + 1.0)
+		bridge.sculpt_add_point(gx + 5.0, gy + 5.0)
+		bridge.sculpt_end_stroke()
+		await _frames(3)
+
+	print("\n=== 5: tool_bar.gd::_on_sculpt_commit (the 'Commit' chip) ===")
+	await stroke.call()
+	await _measure_path("tool_bar._on_sculpt_commit", func(): tb._on_sculpt_commit(),
+		vh, screen_centre, half_w, half_h)
+
+	print("\n=== 6: right_dock.gd::_on_sculpt_stack_commit ('Commit to map') ===")
+	await stroke.call()
+	await _measure_path("right_dock._on_sculpt_stack_commit", func(): rd._on_sculpt_stack_commit(),
+		vh, screen_centre, half_w, half_h)
+
+	## `land_only=false` so the dab lands whatever the cell under it is now,
+	## after five height edits above -- the point under test is the repaint,
+	## not the paint tool's own land/water gating. A distinct cell AND a
+	## distinct paint value per call, but kept inside the SAME small offset
+	## the earlier stroke used (+-6): the on-screen crop is a screen-space
+	## window sized off `vh.size`, not the grid, so a +-16 grid-cell offset
+	## painted well outside it at this zoom while still registering on the
+	## wide texture-space BASE crop -- a probe bug, not a product one (first
+	## run of this probe: sections 8/9 passed the premise and failed the
+	## on-screen check because the dab was never in frame to begin with).
+	## Radius widened to 14 (from the shell's own 6 default): a single small
+	## dab can land entirely inside a patch that already carries the same
+	## biome as the palette value being painted, which committed with zero
+	## byte-level change and read as a false premise failure (measured: value
+	## 1 at radius 6 did exactly that on one offset and not another, in two
+	## otherwise-identical runs). A wide dab spans enough biome variety that
+	## some of it differs from every palette value tried, almost always.
+	var dab := func(ox: float, oy: float, value: int):
+		bridge.paint_set_brush(value, 14.0, 1.0, 0.0, false, false)
+		bridge.paint_stroke_at(gx + ox, gy + oy)
+		await _frames(3)
+
+	print("\n=== 7: world_workspace.gd::_on_paint_commit (paint commit 1/3) ===")
+	await dab.call(-5.0, -5.0, 1)
+	await _measure_path("world_workspace._on_paint_commit", func(): ws._on_paint_commit(),
+		vh, screen_centre, half_w, half_h)
+
+	print("\n=== 8: tool_bar.gd::_on_paint_commit (paint commit 2/3) ===")
+	await dab.call(5.0, -5.0, 2)
+	await _measure_path("tool_bar._on_paint_commit", func(): tb._on_paint_commit(),
+		vh, screen_centre, half_w, half_h)
+
+	print("\n=== 9: right_dock.gd::_on_paint_commit_from_dock (paint commit 3/3) ===")
+	await dab.call(0.0, 5.0, 3)
+	await _measure_path("right_dock._on_paint_commit_from_dock", func(): rd._on_paint_commit_from_dock(),
+		vh, screen_centre, half_w, half_h)
+
+	print("\n=== 10: world_workspace.gd::_run_erode ===")
+	if bridge.has_world and bridge._has("erode_op"):
+		await _measure_path("world_workspace._run_erode", func(): ws._run_erode(),
+			vh, screen_centre, half_w, half_h)
+	else:
+		print("  [SKIP] this build's GDExtension has no WorldGen.erode_op()")
+
+	print("\n=== 11: app.gd::undo_last ===")
+	await stroke.call()
+	await ws._on_sculpt_commit()   ## A fresh committed step for undo_last to pop --
+	                                 ## already fixed, used only as setup here.
+	await _frames(5)
+	await _measure_path("app.undo_last", func(): app.undo_last(),
+		vh, screen_centre, half_w, half_h)
+
+	print("\n=== 12: app.gd::redo_last ===")
+	await _measure_path("app.redo_last", func(): app.redo_last(),
+		vh, screen_centre, half_w, half_h)
+
+	print("\n=== 13: menus.gd::_redo_last ===")
+	## A FRESH commit for setup, then `bridge.undo_last()` called RAW --
+	## deliberately bypassing the shell's own repaint, since this section
+	## means to measure `_redo_last()`'s repaint alone. But `map_view.texture`
+	## is a plain field: skipping the repaint after the raw undo leaves it
+	## showing the PRE-undo (committed) image, and `_measure_path`'s "before"
+	## snapshot is read straight off it -- so without the explicit resync
+	## below, "before" already equals what `_redo_last()` is about to
+	## produce, and the premise fails on a stale baseline, not a real
+	## no-op (measured: `_bridge.redo_last()` returned `true` -- the field
+	## really did move -- while the crop still read unchanged).
+	await stroke.call()
+	await ws._on_sculpt_commit()   ## Setup only -- already fixed, proven above.
+	await _frames(5)
+	var undone_label13: String = bridge.undo_last()   ## Setup: NOT the path under test.
+	if undone_label13 != "":
+		vh.map_view.texture = bridge.color_texture()   ## Resync the baseline to the
+		                                                 ## now-reverted field (see above).
+		## And invalidate the LOD tiles for THIS raw setup undo too -- a real
+		## undo path always repaints AND invalidates now, so skipping the
+		## second half here would leave "before"'s ON-SCREEN region stuck
+		## showing the pre-undo relief while "before"'s BASE crop already
+		## shows the reverted one; "after" (post-redo, correctly invalidated
+		## by the fix under test) would then match that same stale screen by
+		## coincidence and the on-screen assertion would pass or fail for the
+		## wrong reason. Measured: without this line, screen_changed read
+		## `false` even though the fix's own `invalidate_lod_tiles()` call
+		## demonstrably ran (PREMISE passed) -- the "before" screen was never
+		## desynced from "after" in the first place.
+		vh.invalidate_lod_tiles()
+		await _frames(5)
+		await _measure_path("menus._redo_last", func(): app.menus._redo_last(),
+			vh, screen_centre, half_w, half_h)
+	else:
+		print("  [SKIP] nothing left on the undo stack to set up a redo with")
+
+	## Picks a real `seq` from the live ledger rather than guessing one --
+	## `undo_revert_to()` answers `0` (a silent no-op, not an error) for any
+	## `seq` that is not a reversible height row.
+	var height_rows := func() -> Array:
+		var out: Array = []
+		for row in bridge.undo_ledger():
+			var d: Dictionary = row
+			if String(d.get("kind", "")) == "height" and bool(d.get("reversible", false)):
+				out.append(int(d["seq"]))
+		out.sort()
+		return out
+
+	print("\n=== 14: right_dock.gd::_do_revert ===")
+	var rows14: Array = height_rows.call()
+	## The middle row, not the oldest: `_do_revert` drops every row AFTER its
+	## target, and section 15 below needs an EARLIER row still on the ledger
+	## to revert to in turn.
+	if rows14.size() >= 2:
+		var seq14: int = rows14[rows14.size() / 2]
+		print("  info ledger has ", rows14.size(), " reversible height rows; reverting to seq=", seq14)
+		await _measure_path("right_dock._do_revert(%d)" % seq14, func(): rd._do_revert(seq14),
+			vh, screen_centre, half_w, half_h)
+	else:
+		print("  [SKIP] fewer than 2 reversible height rows on the ledger (", rows14.size(), ")")
+
+	print("\n=== 15: dcc_shell.gd::_phone_revert_history ===")
+	## Callable directly on `app` (`DccApp extends DccShell`) without booting
+	## the phone shell: `_find_engine_bridge()`/`_find_viewport_host()` walk
+	## the real tree, and `_show_phone_toast()` no-ops when `_phone` is false
+	## (this probe never passes `--force-touch`), so nothing here needs the
+	## phone UI to exist.
+	var rows15: Array = height_rows.call()
+	if rows15.size() >= 1:
+		var seq15: int = rows15[0]
+		print("  info ledger has ", rows15.size(), " reversible height rows; reverting to seq=", seq15)
+		await _measure_path("app._phone_revert_history(%d)" % seq15,
+			func(): app._phone_revert_history(seq15),
+			vh, screen_centre, half_w, half_h)
+	else:
+		print("  [SKIP] no reversible height rows left on the ledger")
 
 	print("\n_sculptlodcache_probe: ", "PASS" if _fail == 0 else str(_fail) + " FAILURE(S)")
 	get_tree().quit(1 if _fail > 0 else 0)

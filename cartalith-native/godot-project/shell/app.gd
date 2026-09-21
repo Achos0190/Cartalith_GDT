@@ -3845,6 +3845,11 @@ func undo_last() -> void:
 		return
 	if viewport != null:
 		viewport.map_view.texture = bridge.color_texture()
+		## `world_workspace.gd::_on_sculpt_commit`'s third line, same reason:
+		## a live LOD tile keeps its own captured `base_tex` from the OLD
+		## texture (`OUTSTANDING_WORK.md`, "the in-session tile cache is not
+		## invalidated by a sculpt").
+		viewport.invalidate_lod_tiles()
 		viewport.set_preview_texture(null)
 	var stats: Dictionary = bridge.undo_stats()
 	set_status("pass", "undid %s" % label.to_lower(), "text_dim")
@@ -3878,6 +3883,8 @@ func redo_last() -> void:
 		return
 	if viewport != null:
 		viewport.map_view.texture = bridge.color_texture()
+		## Same third line `undo_last()` above uses, same reason.
+		viewport.invalidate_lod_tiles()
 		viewport.set_preview_texture(null)
 	set_status("pass", "redid %s" % label.to_lower(), "text_dim")
 	## ED-02: the ledger cursor moved, so the panel showing it is stale. A no-op

@@ -3499,7 +3499,7 @@ func _clear_lod_tiles() -> void:
 ## rebuilds all of them through the normal incremental machinery
 ## (`MAX_LOD_TILES_PER_UPDATE` per call, the rest via `_lod_backlog`/
 ## `_process()`), each one re-reading the live field AND capturing the new
-## `map_view.texture` reference fresh. `GUI_GAP_REGISTER.md`, "the
+## `map_view.texture` reference fresh. `OUTSTANDING_WORK.md`, "the
 ## in-session tile cache is not invalidated by a sculpt".
 ##
 ## Cheap no-op when the pyramid has nothing live: `_lod_tiles` and
