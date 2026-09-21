@@ -147,13 +147,24 @@ fn parsing_a_real_reference_pack_matches_the_reference_parser() {
     // One warning, the "not yet used by the live map" notice -- and this is
     // the authorised divergence this file's module doc names. A real pack the
     // reference exported carries art in three families ITS renderer does not
-    // consume; this port consumes two of them, so it names one.
+    // consume; this port consumes two of them (`biomes`/`terrains`), so its
+    // own list only ever had `trait`, `biomes` and `terrains` to start from.
+    // This fixture pack also carries settlement/poi/custom art this port does
+    // not draw either, so since Ruling W (`LARGE_ITEM_RULINGS.md`, owner,
+    // 2026-09-21) widened the clause list, this warning now names four
+    // sections rather than one.
     //
     // Both literals are spelled out rather than only compared against the
     // fixture: a fixture compared only against itself cannot fail, and a
     // revert of `manifest.rs`'s emit site has to turn one of these red.
     assert_eq!(manifest.warnings, strs(&cap["warnings"]));
-    assert_eq!(manifest.warnings, ["1 pack section(s) not yet used by the live map (trait)"]);
+    assert_eq!(
+        manifest.warnings,
+        [
+            "4 pack section(s) not yet used by the live map \
+             (trait, structures.settlement, structures.poi, custom)"
+        ]
+    );
     assert_eq!(
         strs(&cap["warningsAsCapturedFromReference"]),
         ["3 pack section(s) not yet used by the live map (trait, biomes, terrains)"],

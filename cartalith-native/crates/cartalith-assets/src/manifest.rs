@@ -635,8 +635,12 @@ pub fn parse_pack_manifest(m: &RawManifest, files: &BTreeSet<String>) -> PackMan
     //
     // **THIS STRING DIVERGES FROM THE REFERENCE. Owner ruling 2026-09-03
     // (`LARGE_ITEM_RULINGS.md`, "the pack-import warning") — the first
-    // authorised golden re-baseline this project has taken.** The reference
-    // names three families here; this port names one. A parity run against
+    // authorised golden re-baseline this project has taken; widened by
+    // Ruling W, 2026-09-21, to name the rest of what this port genuinely
+    // leaves undrawn (see below).** The reference names three families here;
+    // this port originally named one (`trait`) and now names up to five
+    // (`trait`, `structures.settlement`, `structures.poi`, `custom`,
+    // `seamarks`), on a pack that populates all of them. A parity run against
     // `parsePackManifest` will meet the difference on this string and nothing
     // else, and that is expected rather than a regression.
     //
@@ -666,20 +670,42 @@ pub fn parse_pack_manifest(m: &RawManifest, files: &BTreeSet<String>) -> PackMan
     // dropping it is a behaviour change on a golden-pinned string: an owner
     // ruling, the same as widening the list would be.
     //
-    // **`settlement` and `poi` are undrawn in this port too, and are
-    // deliberately NOT named here.** Neither has a compositor at all — not
-    // even the unwired kind `trait` now has — and `map_overlay.gd`'s `_draw_manual_icons`
-    // draws a settlement icon as a filled rectangle and a POI as a diamond,
-    // never a pack sprite. The ruling's scope is one string and three fixtures
-    // and it was taken on the premise that `trait` is the only true clause;
-    // widening the list is a behaviour decision the owner has not made.
-    // Reported, not taken — do not add them without a ruling that says to.
+    // **`settlement`, `poi`, `custom` and `seamarks` are undrawn in this port
+    // too, and are named here as of Ruling W (`LARGE_ITEM_RULINGS.md`, owner,
+    // 2026-09-21).** Until that ruling this block named only `trait`, on the
+    // premise (recorded above, and still true of it) that `trait` was the
+    // only section this port could show was genuinely unreachable; widening
+    // the list to the rest was explicitly deferred as "a behaviour decision
+    // the owner has not made" (`settlement_and_poi_are_not_named_by_the_unused_warning`
+    // pinned that gap). The owner has now made it: none of the four has a
+    // compositor a live map path calls. `structures.settlement` and
+    // `structures.poi` have no compositor at all — not even the unwired kind
+    // `trait` has — and `map_overlay.gd`'s `_draw_manual_icons` draws a
+    // settlement icon as a filled rectangle and a POI as a diamond, never a
+    // pack sprite. `custom` has no consumer anywhere in this port. `seamarks`
+    // is decoded by nothing here either (see its own doc comment above:
+    // "empty for every pack the reference ever wrote" is true of every pack
+    // parsed so far, but the section is unused by the renderer regardless of
+    // whether a pack fills it).
     //
-    // The `Vec` is kept for a single family so the emitted text stays the
-    // reference's own `count + join` rather than a hand-written "1".
+    // The `Vec` is kept (rather than a fixed-size array) so the emitted text
+    // stays the reference's own `count + join` shape for any subset of the
+    // five that a given pack actually populates.
     let mut unused: Vec<&str> = Vec::new();
     if !m.structures.traits.is_empty() {
         unused.push("trait");
+    }
+    if !m.structures.settlement.is_empty() {
+        unused.push("structures.settlement");
+    }
+    if !m.structures.poi.is_empty() {
+        unused.push("structures.poi");
+    }
+    if !m.custom.is_empty() {
+        unused.push("custom");
+    }
+    if !m.seamarks.is_empty() {
+        unused.push("seamarks");
     }
     if !unused.is_empty() {
         out.warnings.push(format!(
@@ -816,22 +842,73 @@ mod tests {
     }
 
     /// `settlement` and `poi` art is undrawn in this port too (`crate::pack`
-    /// in `cartalith-godot` composites the `icons` family and nothing else),
-    /// and the ruling did **not** authorise naming them. This pins the
-    /// decision rather than leaving it to be re-litigated by whoever next
-    /// reads the warning: a settlement/POI-only pack is silent here.
-    ///
-    /// If an owner ruling later widens the list, this test is the one to
-    /// change, and changing it is the disclosure.
+    /// in `cartalith-godot` composites the `icons` family and nothing else).
+    /// Until Ruling W (`LARGE_ITEM_RULINGS.md`, owner, 2026-09-21) that gap
+    /// was reported for `trait` only, and the test this replaces
+    /// (`settlement_and_poi_are_not_named_by_the_unused_warning`) pinned the
+    /// decision *not* to widen it, with its own doc comment naming itself as
+    /// the one to change if a ruling ever did. Ruling W is that ruling: it
+    /// widens the pack-import warning to name `structures.settlement` and
+    /// `structures.poi` alongside `trait`, so a settlement/POI-only pack is no
+    /// longer silent here. This is now the test that proves the widening
+    /// landed, not the one pinning its absence.
     #[test]
-    fn settlement_and_poi_are_not_named_by_the_unused_warning() {
+    fn settlement_and_poi_are_now_named_by_the_unused_warning() {
         let raw: RawManifest = serde_json::from_str(
             r#"{"structures":{"settlement":{"town":["s/t.png"]},"poi":{"cave":["s/c.png"]}}}"#,
         )
         .unwrap();
         let m = parse_pack_manifest(&raw, &files(&["s/t.png", "s/c.png"]));
-        assert!(m.warnings.is_empty(), "{:?}", m.warnings);
+        assert_eq!(
+            m.warnings,
+            ["2 pack section(s) not yet used by the live map (structures.settlement, structures.poi)"]
+        );
         assert_eq!(m.structures.len(), 2);
+    }
+
+    /// `custom` and `seamarks` are the other two sections Ruling W widened the
+    /// warning to name (`LARGE_ITEM_RULINGS.md`, owner, 2026-09-21): neither
+    /// has a live-map consumer in this port (`custom` has no compositor at
+    /// all; `seamarks` is decoded by nothing under `cartalith-godot`).
+    #[test]
+    fn custom_and_seamarks_are_named_by_the_unused_warning() {
+        let raw: RawManifest = serde_json::from_str(
+            r#"{"custom":{"Naval":{"anchor":["c/a.png"]}},
+                "seamarks":{"lighthouse":["s/l.png"]}}"#,
+        )
+        .unwrap();
+        let m = parse_pack_manifest(&raw, &files(&["c/a.png", "s/l.png"]));
+        assert_eq!(
+            m.warnings,
+            ["2 pack section(s) not yet used by the live map (custom, seamarks)"]
+        );
+        assert_eq!(m.custom_paths("Naval", "anchor").unwrap(), ["c/a.png"]);
+        assert_eq!(m.slot_paths(Family::SeaMark, "lighthouse").unwrap(), ["s/l.png"]);
+    }
+
+    /// A pack populating all five sections the warning can name: the readable,
+    /// stable order (`trait`, `structures.settlement`, `structures.poi`,
+    /// `custom`, `seamarks`) is the order the emit site checks them in, not
+    /// manifest document order or alphabetical order.
+    #[test]
+    fn all_five_unused_sections_are_named_together_in_order() {
+        let raw: RawManifest = serde_json::from_str(
+            r#"{"structures":{"settlement":{"town":["s/t.png"]},
+                              "trait":{"port":["s/p.png"]},
+                              "poi":{"cave":["s/c.png"]}},
+                "custom":{"Naval":{"anchor":["c/a.png"]}},
+                "seamarks":{"lighthouse":["s/l.png"]}}"#,
+        )
+        .unwrap();
+        let m = parse_pack_manifest(
+            &raw,
+            &files(&["s/t.png", "s/p.png", "s/c.png", "c/a.png", "s/l.png"]),
+        );
+        assert_eq!(
+            m.warnings,
+            ["5 pack section(s) not yet used by the live map \
+              (trait, structures.settlement, structures.poi, custom, seamarks)"]
+        );
     }
 
     #[test]

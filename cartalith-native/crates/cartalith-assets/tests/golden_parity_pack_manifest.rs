@@ -29,10 +29,16 @@
 //! not match `parsePackManifest`'s output and is not meant to.** Owner ruling
 //! 2026-09-03 (`LARGE_ITEM_RULINGS.md`, "the pack-import warning"), the first
 //! authorised golden re-baseline in this project: the reference emits
-//! `trait, biomes, terrains`; this port emits `trait` alone, because
-//! `biomes`/`terrains` really are consumed here (`cartalith-godot`'s
+//! `trait, biomes, terrains`; this port dropped `biomes`/`terrains` from its
+//! own list, because they really are consumed here (`cartalith-godot`'s
 //! `pack::decode_ground_family` → `render.rs`'s `land_color` paint branch)
 //! and the reference's list is stale about them.
+//!
+//! **Widened a second time by Ruling W** (`LARGE_ITEM_RULINGS.md`, owner,
+//! 2026-09-21): the port's own list, which for a while named `trait` alone,
+//! now also names `structures.settlement`, `structures.poi`, `custom` and
+//! `seamarks` when a pack carries art in them — none of the four have a
+//! live-map consumer either, and the owner has now authorised saying so.
 //!
 //! **Scope of the re-baseline, exactly:** that one string, in the two cases
 //! below and in `tests/fixtures/reference_pack_captured.json`. Nothing else in
@@ -42,8 +48,8 @@
 //!
 //! `cartalith-assets/src/manifest.rs`'s own comment at the emit site carries
 //! the reasoning, including why `trait` survives (the reference draws trait
-//! badges; this port does not) and why `settlement`/`poi` were **not** added
-//! even though they are undrawn here too.
+//! badges; this port does not) and why `settlement`/`poi`/`custom`/`seamarks`
+//! went **unnamed until Ruling W** even though they were undrawn here too.
 
 use cartalith_assets::{
     Family, PACK_BIOME_SLOTS, PACK_ICON_SLOTS, PACK_POI_SLOTS, PACK_SETTLEMENT_SLOTS,
@@ -145,9 +151,13 @@ fn case_a_warnings_match_the_reference_exactly_including_order() {
     //
     // **The last line is the divergence.** The reference emitted
     // `"3 pack section(s) not yet used by the live map (trait, biomes,
-    // terrains)"` for this manifest; the port emits one family, because it
-    // draws the other two. Owner ruling 2026-09-03. Everything above it is
-    // still the capture, untouched.
+    // terrains)"` for this manifest; the port dropped `biomes`/`terrains`
+    // from its own list (owner ruling 2026-09-03, because it draws both) and
+    // then widened the rest of the list to name `structures.settlement`,
+    // `structures.poi` and `custom` too (Ruling W, owner, 2026-09-21) --
+    // this manifest carries surviving art in all three, so all three are now
+    // named alongside `trait`. Everything above it is still the capture,
+    // untouched.
     let expected = [
         "texture snow: file missing (textures/missing_snow.png)",
         "unknown texture slot: gravel",
@@ -157,7 +167,8 @@ fn case_a_warnings_match_the_reference_exactly_including_order() {
         "unknown icon slot: obelisk",
         "unknown settlement slot: metropolis",
         "custom Naval/anchor: file missing (custom/naval/anchor_missing.png)",
-        "1 pack section(s) not yet used by the live map (trait)",
+        "4 pack section(s) not yet used by the live map \
+         (trait, structures.settlement, structures.poi, custom)",
     ];
     assert_eq!(case_a().warnings, expected);
 }
