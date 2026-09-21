@@ -8340,7 +8340,28 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
             // reference itself never colours through the land path.
             let ci = (wy.round().clamp(0.0, (gh - 1) as f64) as usize) * gw + (wx.round().clamp(0.0, (gw - 1) as f64) as usize);
             let ink_t = if water.is_some() { 0.0 } else { ink.map_or(0.0, |mk| mk.at(ci)) as f64 };
-            let (cr, cg, cb) = if ink_t > 1.0 / 255.0 { channel_tint(a, (cr, cg, cb), ink_t, wx, wy, gw, gh) } else { (cr, cg, cb) };
+            // `channel_tint`'s contract is [`bake_rect`]'s (and the screen's
+            // own `build_color_texture`): an Rgb normalised to `[0, 1]`, which
+            // is what its two `.min(1.0)` clamps and its `0.3`/`0.45` literals
+            // are written against (see its own doc comment's blend, and
+            // `bake_rect`'s `(r * 255.0) as u8` right after the same call).
+            // This tile loop's own `cr, cg, cb` are this **file's other**
+            // convention -- byte-scale `[0, 255]`, the same scale
+            // `u8_clamped` consumes a few lines below with no further
+            // multiply. Calling `channel_tint` directly on the byte-scale
+            // triple made `g * 0.5 + 0.3` and `b * 0.5 + 0.45` clamp to `1.0`
+            // for any pixel brighter than a few levels -- collapsing the
+            // green and blue channels of the tint's own target colour to
+            // near-black while the red channel stayed at half its value, so
+            // every inked river pixel this loop ever drew went dark red-brown
+            // instead of the intended blue-green brightening. Scale down,
+            // tint, scale back -- `bake_rect`'s own round trip, not a new one.
+            let (cr, cg, cb) = if ink_t > 1.0 / 255.0 {
+                let (tr, tg, tb) = channel_tint(a, (cr / 255.0, cg / 255.0, cb / 255.0), ink_t, wx, wy, gw, gh);
+                (tr * 255.0, tg * 255.0, tb * 255.0)
+            } else {
+                (cr, cg, cb)
+            };
 
             // --- 5. quantize, then the whole-raster stages -------------------
             // `Uint8ClampedArray`'s `ToUint8Clamp` (round, ties to even) — the
