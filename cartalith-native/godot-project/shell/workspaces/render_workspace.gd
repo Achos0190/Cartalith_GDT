@@ -218,6 +218,26 @@ const APPEARANCE_GROUPS := [
 		"hydro_wet_strength", "wetness",
 		"sdf_coast", "sdf_rivers", "sdf_biomes",
 		"local_contrast", "splat_strength", "sea_grain_warp"]],
+	## `LOD_DETAIL_SCOPE.md` LOD-D4's own GUI line: *"one 'Ice & snow' group in
+	## the render workspace"*. It is the scope that asks for a group of its
+	## own rather than a row inside Materials, and the group is one row
+	## because the milestone deliberately exposes one number: the lapse
+	## relation and the glacial gate underneath it are `cartalith-climate`'s
+	## and `glacial_kernel`'s own, and a slider over either would let the
+	## picture disagree with the simulation that produced the field.
+	##
+	## **Derived from the `sdf_coast` row, not designed** -- the same ruling
+	## and the same reasoning the Materials block above records: no canvas
+	## draws an ice group, the sibling rows are the vocabulary, and the range
+	## and label come from the engine's own `TUNABLE` table rather than from
+	## anything written here.
+	##
+	## It is inert in three states worth knowing before reading the slider as
+	## broken: a loaded save (no flow field, so no catchment -- the scope's
+	## documented snow-only fallback), a world whose glacial pass never ran
+	## (`ErosionPassParams::off()` is the shipped default), and any ground
+	## below the snowline or above freezing.
+	["Ice & snow", ["ice_strength"]],
 	## §19 (`TERRAIN_APPEARANCE_RESEARCH.md`, `OUTSTANDING_WORK.md` §2.5): the
 	## other two atmospheric-perspective axes research named, over the same
 	## plate-edge distance `haze_strength` already reads -- there is no
@@ -294,6 +314,7 @@ const APPEARANCE_HELP := {
 	"hydro_wet_strength": "Darkens and cools ground near real channels -- a soft halo around the drainage network, applied to the finished pixel. Not the reference's Wetness slider, which this row was mislabelled as until 2026-09-03 and which is the separate Wet ground (TWI) row below. Gated on real upstream drainage area, so it marks the same rivers whatever the map's resolution (GUI_GAP_REGISTER.md CA-11 -- it used to fade out as the grid got finer, and at 2048 wide it moved nothing at all).",
 	"ramp_strength": "How far the colour relief ramp takes over from the material colour. 0 is the material model alone (climate, slope, relief); 1 is a full hypsometric tint. The ramp is applied before the light, so the hillshade, occlusion and paper still read through it at any strength.",
 	"local_contrast": "Adds band-limited detail back after the paper wash. The gain falls to zero on strong edges, so coastlines and snowlines cannot halo.",
+	"ice_strength": "Glacier ice: how much of the glacier-potential field reaches the colour. The field is `glacial_kernel`'s own gate -- ground above the snowline and below freezing -- weighted by the catchment that ground drains, so ice fills troughs and thins to snow on the ridges between them, and it is taken off any face steep enough that the rock-exposure term already calls it bare. Inert in three states: a loaded save, which stores no flow field and so has no catchment (snow only, which is the honest fallback rather than a guess); a world whose glacial erosion pass never ran, which is every world at the shipped default; and ground that is below the snowline or above freezing. 0 also turns off the tile-resolution temperature this milestone adds, so it is the whole feature's off switch and not a fade.",
 	"splat_strength": "How strongly a loaded asset pack's ground textures blend in. Inert with no pack loaded. The reference's Texture strength.",
 	"relief_chroma": "How far the relief lighting keeps the map's colour instead of fading it toward grey. 0 is the reference exactly -- shaded ground is pulled toward one fixed neutral, which costs value as well as chroma. At 1 the shading desaturates about each pixel's own luminance, and shadow cools while sunlight warms, the way a real scene's sky-lit shadow and warm sun differ.",
 	"crest_strength": "Thin bright strokes along convex, steep ridge lines -- the reference's Ridge crests. Costs one whole-grid pass when on and nothing when off.",
@@ -400,7 +421,11 @@ func build_map_style_into(parent: Control) -> void:
 func build_terrain_appearance_into(parent: Control) -> void:
 	_host = parent
 	_build_ramp()
-	_build_appearance(APPEARANCE_GROUPS.slice(0, 5))
+	# 6, not 5: LOD-D4's "Ice & snow" group was inserted at index 3, so the
+	# boundary between Terrain appearance and Colours moved with it. Leaving
+	# these at 5 would have pushed "Multi-scale detail" under "Colour grade"
+	# silently -- a positional slice over a hand-ordered table.
+	_build_appearance(APPEARANCE_GROUPS.slice(0, 6))
 	_host = null
 
 ## v3 CARTO ▸ LAYERS: the terrain raster's three separable categories
@@ -429,7 +454,7 @@ func build_layer_stack_into(parent: Control) -> void:
 ## order.
 func build_colours_into(parent: Control) -> void:
 	_host = parent
-	_build_appearance(APPEARANCE_GROUPS.slice(5), "Colour grade")
+	_build_appearance(APPEARANCE_GROUPS.slice(6), "Colour grade")  # see build_terrain_appearance_into for why 6
 	_build_color_management()
 	_host = null
 
@@ -552,10 +577,11 @@ func _build_map_style() -> void:
 ##
 ## So route "cache a render per preset at generate time" costs **2.4 seconds**
 ## on a world this shell generates routinely, re-paid on every world change --
-## and any of the **49** keys `APPEARANCE_GROUPS` above lists, the ramp, the
+## and any of the **50** keys `APPEARANCE_GROUPS` above lists, the ramp, the
 ## layer stack, the quality tier or a sculpt invalidates all six the moment it
-## moves. (49 counted from this file's own table, 2026-09-06: the seven groups
-## hold 49 keys and `APPEARANCE_VIEW` four more; `_build_appearance` draws
+## moves. (50 re-counted from this file's own table, 2026-09-21: the eight
+## groups hold 50 keys and `APPEARANCE_VIEW` four more -- LOD-D4's "Ice & snow"
+## group added the fiftieth; `_build_appearance` draws
 ## whichever of them the running cdylib publishes, so the drawn count is that
 ## or fewer, never more.) Static shipped thumbnails would show *a* world rather
 ## than *this* one, which is the same defect wearing a cheaper coat.

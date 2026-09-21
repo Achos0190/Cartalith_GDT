@@ -1452,6 +1452,43 @@ pub struct TerrainAppearance {
     /// rather than a hope about the tuning.
     pub local_contrast_knee: f64,
 
+    // ---- `LOD_DETAIL_SCOPE.md` LOD-D4: ice and snow from existing fields ----
+    /// How much of [`TileFields`]' glacier-potential field reaches the
+    /// colour — the strength of LOD-D4's third stage (*"where glacier
+    /// potential is high, snow takes `snow_glac` plus a slope- and
+    /// flow-aligned brightness term"*).
+    ///
+    /// **`0.0` in [`Self::js_reference`], which is what makes the whole
+    /// milestone inert on the parity path** — the scope's own requirement
+    /// (*"Three derived stages, all inert under `js_reference()`"*). The
+    /// reference HTML has no ice layer at all, so there is nothing for a
+    /// golden to disagree with; the gate is a dedicated branch in
+    /// [`land_color`] rather than a `* 0.0`, on the same rule
+    /// `relief_lights <= 1` and `litho_strength` already follow.
+    ///
+    /// It scales the *potential*, not the colour, so at `0.0` the ice cover
+    /// is zero and `material_weights`' own Σ=1 blend is returned untouched —
+    /// including the rock fraction, which is what keeps the scope's third
+    /// acceptance bar (*"pixels above the snowline with slope > 0.08 are
+    /// rock-dominant"*) a property of the same arithmetic in both states.
+    ///
+    /// # It gates stage 2 as well, and is therefore the milestone's off switch
+    ///
+    /// `> 0.0` also decides whether [`TileFields`]' [`TileCryo`] is applied at
+    /// all. That is deliberate and it is **not** a second meaning smuggled
+    /// into one number: the scope asks for *"three derived stages, all inert
+    /// under `js_reference()`"*, and the sub-cell temperature is one of the
+    /// three. A tile carrying a lapse correction is not the reference's tile
+    /// whatever its ice looks like.
+    ///
+    /// The gate is a **branch**, not a factor: the lapse rate is
+    /// `cartalith-climate`'s own relation and scaling it by a render slider
+    /// would let the picture disagree with the simulation that produced the
+    /// temperature raster. So this number is continuous for stage 3 and
+    /// boolean for stage 2, which is why the GUI row is one group called
+    /// *"Ice & snow"* rather than a strength beside an unrelated checkbox.
+    pub ice_strength: f64,
+
     // ---- `GUI_GAP_REGISTER.md` CA-02: the elevation colour ramp ----
     /// How far the material colour is pulled toward [`Self::ramp`]'s colour
     /// for that cell's relative elevation. `0.0` is the shipped default and
@@ -1820,6 +1857,13 @@ impl Default for TerrainAppearance {
             local_contrast: 0.55,
             local_contrast_radius_frac: 0.010,
             local_contrast_knee: 26.0,
+            // LOD-D4. Full strength, because the field it scales is itself
+            // `0.0` everywhere the glacial gate does not hold: on a world
+            // whose ground is below the snowline or above freezing this
+            // changes no pixel whatever this number is, and on a glaciated
+            // one the stage is the milestone. The `0.0` that matters is
+            // `js_reference`'s.
+            ice_strength: 1.0,
             // CA-02: off, so the shipped look is unchanged; the ramp behind it
             // is real so the slider has something to reveal.
             ramp_strength: 0.0,
@@ -2091,6 +2135,11 @@ impl TerrainAppearance {
             litho_strength: 0.0,
             litho_exposure: 0.0,
             local_contrast: 0.0,
+            // LOD-D4, same rule a third time: the reference has no ice layer,
+            // so the parity path must not have one either. `land_color`'s ice
+            // block is inside an `if`, so this is off by control flow and not
+            // by arithmetic.
+            ice_strength: 0.0,
             ..TerrainAppearance::default()
         }
     }
@@ -2288,6 +2337,18 @@ tunables! {
     // looks live and is not.
     "geo_micro"             => geo_micro,             0.0,   1.0,  "Rock microtexture";
     "local_contrast"        => local_contrast,        0.0,   1.0,  "Local contrast";
+    // -- `LOD_DETAIL_SCOPE.md` LOD-D4's "Ice & snow" group. One row, not
+    //    three: the lapse term and the glacier gate are not tuning, they are
+    //    `cartalith-climate`'s own lapse relation and `glacial_kernel`'s own
+    //    gate, and a slider over either would let the render disagree with
+    //    the simulation that produced the field. This row scales how much of
+    //    the resulting potential reaches the colour, and nothing else.
+    //
+    //    The LABEL is "Glacier ice" and the GROUP the shell draws it in is
+    //    "Ice & snow" (`render_workspace.gd`'s `APPEARANCE_GROUPS`). The scope
+    //    names the group, not the row, and a one-row group whose header and
+    //    whose slider carry the same words reads as a bug --
+    "ice_strength"          => ice_strength,          0.0,   1.0,  "Glacier ice";
     // -- `GUI_GAP_REGISTER.md` CA-02's colour relief (no reference counterpart:
     //    the reference has no elevation ramp either) --
     "ramp_strength"         => ramp_strength,         0.0,   1.0,  "Colour relief";
@@ -4150,6 +4211,94 @@ pub(crate) fn geo_exposure(slope: f64, r: f64, snow: f64) -> f64 {
     clamp01(gr2 * 0.85 + smoothstep(0.5, 0.8, r) * 0.45) * (1.0 - snow)
 }
 
+/// How far the tile's own meso-versus-macro shade difference brightens or
+/// darkens glacier ice — LOD-D4 stage 3's *"slope- and flow-aligned brightness
+/// term from the tile's own height"*.
+///
+/// **Both alignments are already in the two factors it multiplies**, which is
+/// why no new geometry is derived for it: `sh_m - sh` is the meso shade minus
+/// the macro shade, both taken from the *tile's* height at two sample steps,
+/// so it is the local slope structure and nothing else; and it is scaled by
+/// `ice`, which is [`build_glacier_potential`]'s catchment-weighted field, so
+/// it is strongest down the line the ice flows and fades on the ground beside
+/// it. On a smooth trough floor the two shades agree and the factor is `1`.
+///
+/// `0.6` against a difference that is empirically inside `±0.3` is a `±18%`
+/// swing — enough for a tongue to read as ribbed rather than as a flat sheet,
+/// short of the banding a `1.0` gives on a crevassed field.
+const ICE_SHEEN: f64 = 0.6;
+
+/// LOD-D4 stage 3, the fraction half: how much of this pixel's surface is
+/// glacier ice, and the six material fractions rebalanced around it.
+///
+/// **The slope term is [`geo_exposure`]'s own `gr2`, reused rather than
+/// re-invented.** The scope's line is *"rock exposure keeps
+/// `geo_exposure(slope, r, snow)`, so steep faces above the snowline stay
+/// rock"*, and the cheapest way to make that true is to take ice off exactly
+/// the ground that term already calls bare: `gr2` is `min(1, slope/0.08)^1.5`,
+/// the fraction of a face at this slope that is rock rather than cover, and
+/// ice is what lies **on** ground. A separate ice-slope constant would have
+/// been a second opinion about the same question, free to disagree with the
+/// first — and disagreeing is exactly how the scope's second and third
+/// acceptance bars (*"potential >= 0.5 renders as ice or snow"* against
+/// *"slope > 0.08 is rock-dominant"*) would have been made to contradict each
+/// other.
+///
+/// `Σ = 1` is preserved by construction and not by arithmetic luck: the five
+/// non-snow fractions are scaled by `1 - ice` and `ice` is added to snow, so
+/// the sum is `(1 - ice) * 1 + ice`.
+///
+/// Returns the rebalanced weights and the ice fraction itself, because the
+/// colour stage needs the second number and cannot recover it from the first.
+pub(crate) fn apply_ice_cover(mut w: Weights, glacier: f64, slope: f64) -> (Weights, f64) {
+    let gr2 = (slope / 0.08).min(1.0).powf(1.5);
+    let ice = clamp01(glacier) * (1.0 - gr2);
+    if ice <= 0.0 {
+        return (w, 0.0);
+    }
+    let keep = 1.0 - ice;
+    w.rock *= keep;
+    w.sand *= keep;
+    w.wetland *= keep;
+    w.canopy *= keep;
+    w.grass *= keep;
+    w.snow = w.snow * keep + ice;
+    (w, ice)
+}
+
+/// [`snow_col`] with LOD-D4's ice tint and sheen folded in.
+///
+/// Where `ice` is zero this **is** [`snow_col`], returned from a dedicated
+/// early branch rather than through a `lerp` by `0.0` — the same
+/// identity-by-control-flow rule the rest of this file follows, and what makes
+/// `js_reference()` (where `ice_strength` is `0.0`, so `ice` is always `0.0`)
+/// bit-identical to the renderer before this milestone.
+///
+/// `pub(crate)` so `tests/lod_d4_ice_and_snow.rs`'s
+/// `the_ice_sheen_constant_is_pinned` can pin [`ICE_SHEEN`] against an
+/// independently-computed ratio. Mutation-tested 2026-09-21: without that
+/// test, setting `ICE_SHEEN` to `0.0` SURVIVED the whole suite.
+///
+/// The tint target is [`TerrainAppearance::snow_glac`], the glacier-ice ramp
+/// this appearance has carried since milestone 1 and which nothing but a
+/// `t < -12` test had ever reached. That is the scope's own instruction
+/// (*"snow takes `snow_glac`"*) and it means the ice palette is editable
+/// through the same three stops as every other material, rather than through
+/// a constant introduced here.
+pub(crate) fn snow_material_col(a: &TerrainAppearance, t: f64, tt: f64, ice: f64, sh: f64, sh_m: f64) -> Rgb {
+    let base = snow_col(a, t, tt);
+    if ice <= 0.0 {
+        return base;
+    }
+    let g = ramp3(&a.snow_glac, tt);
+    let k = 1.0 + ICE_SHEEN * ice * (sh_m - sh);
+    (
+        (base.0 + (g.0 - base.0) * ice) * k,
+        (base.1 + (g.1 - base.1) * ice) * k,
+        (base.2 + (g.2 - base.2) * ice) * k,
+    )
+}
+
 fn snow_col(a: &TerrainAppearance, t: f64, tt: f64) -> Rgb {
     if t < -12.0 {
         ramp3(&a.snow_glac, tt)
@@ -4165,19 +4314,23 @@ fn wetland_col(a: &TerrainAppearance, t: f64, mangrove: bool, tt: f64) -> Rgb {
 }
 
 /// `materialWeights` (7655-7707) — the six material fractions, Σ=1.
-struct Weights {
-    snow: f64,
-    rock: f64,
-    sand: f64,
-    wetland: f64,
-    canopy: f64,
-    grass: f64,
-    c: f64,
-    meff: f64,
-    is_mangrove: bool,
+///
+/// `pub(crate)` so `tests/lod_d4_ice_and_snow.rs` can assert that LOD-D4's
+/// ice cover preserves that Σ rather than taking the two lines that do it on
+/// trust — the same visibility, for the same reason, as [`geo_exposure`].
+pub(crate) struct Weights {
+    pub(crate) snow: f64,
+    pub(crate) rock: f64,
+    pub(crate) sand: f64,
+    pub(crate) wetland: f64,
+    pub(crate) canopy: f64,
+    pub(crate) grass: f64,
+    pub(crate) c: f64,
+    pub(crate) meff: f64,
+    pub(crate) is_mangrove: bool,
 }
 
-fn material_weights(t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64) -> Weights {
+pub(crate) fn material_weights(t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64) -> Weights {
     let slope_str = (slope / 0.04).min(1.0);
     let asp_dry = clamp01(asp * slope_str * 0.22);
     let asp_wet = clamp01(-asp * slope_str * 0.12);
@@ -4296,7 +4449,7 @@ pub(crate) fn apply_wetness(c: Rgb, twi: f64, k: f64) -> Rgb {
 /// `1.0` is what it is under `js_reference()` and at `default()`, which is a
 /// statement about those two appearance records rather than about this port.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64) -> Rgb {
     // CA-03/CA-04's one per-pixel test. At the default it selects the original
     // expressions at both composite sites below, so no blend-mode arithmetic
     // exists on the shipped path — see the section above [`RasterLayer`] for
@@ -4333,13 +4486,26 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     let w = material_weights(te, me, slope, r, twi_e, asp_e, curv);
     let tt = clamp01(0.5 + (n_low - 0.5) * 1.1 + (n_hi - 0.5) * 0.5);
 
+    // `LOD_DETAIL_SCOPE.md` LOD-D4 stage 3. `glacier` is the caller's already
+    // strength-scaled glacier potential — `0.0` at every grid-resolution call
+    // site and under `js_reference()`, where this whole block is skipped by
+    // the branch rather than evaluated to a no-op. See [`apply_ice_cover`] for
+    // why the slope term is `geo_exposure`'s and not a new one.
+    let (w, ice) = if glacier > 0.0 { apply_ice_cover(w, glacier, slope) } else { (w, 0.0) };
+
     let mut c = (0.0, 0.0, 0.0);
     let add = |c: &mut Rgb, m: Rgb, w: f64| {
         c.0 += m.0 * w;
         c.1 += m.1 * w;
         c.2 += m.2 * w;
     };
-    add(&mut c, snow_col(appearance, te, tt), w.snow);
+    // The snow colour is computed ONCE and reused by the splat path below,
+    // because the two must be the same material: a pack-textured world
+    // re-tints its snow channel by this exact colour (`splat_sample`'s own
+    // argument), and a glacier that was ice in the flat blend and plain snow
+    // under a pack would be one material with two identities.
+    let snow_c = snow_material_col(appearance, te, tt, ice, sh, sh_m);
+    add(&mut c, snow_c, w.snow);
     add(&mut c, rock_material_col(appearance, te, me, r, tt, lith), w.rock);
     add(&mut c, sand_col(appearance, te, me, tt), w.sand);
     add(&mut c, wetland_col(appearance, te, w.is_mangrove, tt), w.wetland);
@@ -4383,7 +4549,7 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
                 1 => (splat.grass, grass_col(appearance, te, me, r, tt)),
                 2 => (splat.rock, rock_material_col(appearance, te, me, r, tt, lith)),
                 3 => (splat.sand, sand_col(appearance, te, me, tt)),
-                4 => (splat.snow, snow_col(appearance, te, tt)),
+                4 => (splat.snow, snow_c),
                 5 => (splat.wetland, wetland_col(appearance, te, w.is_mangrove, tt)),
                 6 => (splat.canopy, forest_col(appearance, te, w.meff, tt)),
                 _ => (None, (0.0, 0.0, 0.0)),
@@ -4402,7 +4568,7 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
                 splat_sample(tex, sand_col(appearance, te, me, tt), w.sand, x, y, &mut acc, &mut cov);
             }
             if let Some(tex) = splat.snow {
-                splat_sample(tex, snow_col(appearance, te, tt), w.snow, x, y, &mut acc, &mut cov);
+                splat_sample(tex, snow_c, w.snow, x, y, &mut acc, &mut cov);
             }
             if let Some(tex) = splat.wetland {
                 splat_sample(tex, wetland_col(appearance, te, w.is_mangrove, tt), w.wetland, x, y, &mut acc, &mut cov);
@@ -6154,7 +6320,16 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         // — the literal `1.0` where the field is empty is the reference's own
         // `ecoK != null ? ecoK : 1`, not a stand-in for a missing distance.
         let eco_k = if ctx.biome_bd.is_empty() { 1.0 } else { sdf_eco_k(ctx.biome_bd[i] as f64, ctx.appearance.sdf_biomes, ctx.gw) };
-        let c = land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, eco_k, ctx.hydro_wet[i] as f64, ctx.litho_at(x, y), grad, x as f64, y as f64, ctx.gw, ctx.gh, ctx.splat.as_ref(), ctx.paint_at(i), ctx.ground);
+        let c = land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, eco_k, ctx.hydro_wet[i] as f64, ctx.litho_at(x, y), grad, x as f64, y as f64, ctx.gw, ctx.gh, ctx.splat.as_ref(), ctx.paint_at(i), ctx.ground,
+            // LOD-D4 is a TILE stage. The grid path passes a literal `0.0`,
+            // which takes `land_color`'s dedicated no-ice branch, so the
+            // shipped screen render is byte-identical to what it was before
+            // the milestone. The scope's stage 1 says the glacier field is
+            // *"usable by the main map"* -- `build_glacier_potential` is
+            // `pub` and takes only grid inputs, so it is -- and stops short
+            // of saying the main map uses it, which would re-baseline every
+            // default-appearance render in the tree.
+            0.0);
         // R2 ridge crests (8171) — the reference's own slot, immediately after
         // `landColorCore` and folded with its own `0.7`. `crest` is empty
         // unless the stage is on, so this is a length test everywhere else.
@@ -6429,6 +6604,9 @@ impl BakeFields {
                 ctx.splat.as_ref(),
                 ctx.paint_at_f(gx, gy),
                 ctx.ground,
+                // The bake draws the grid, not a tile -- same `0.0`, same
+                // reason as `cell_color`'s above.
+                0.0,
             );
             // R2 ridge crests, the bake's own slot (11971) — `sampleArr` of
             // the same field, folded with the same `0.7`.
@@ -6749,6 +6927,158 @@ fn channel_tint(a: &TerrainAppearance, c: (f64, f64, f64), t: f64, gx: f64, gy: 
 // finding for its sea blur). So [`TileFields`] carries the grid's detail band
 // and the tile samples it, which two adjacent tiles cannot disagree about.
 
+// ---------------------------------------------------------------------------
+// `LOD_DETAIL_SCOPE.md` LOD-D4 — ice and snow from fields that already exist
+//
+// The milestone's own framing is that **nothing here is a new simulation**:
+// every input already exists and is already computed by a shipped pass. What
+// was missing was a *field* — the scope's gap table says so in one line,
+// *"No ice or glacier field exists anywhere; the kernel keeps no mask"* — and
+// the three stages below are that field, a sub-cell temperature, and a colour.
+//
+// 1. [`build_glacier_potential`]: `glacial_kernel`'s **own gate**, verbatim
+//    (`h >= sea + (1 - sea) * snowline` and `T < 0`), weighted by the
+//    catchment the cell drains and blurred one cell.
+// 2. [`TileCryo`]: `cartalith_climate::compute_temperature`'s **own lapse
+//    relation**, applied to the difference between the tile's height and the
+//    grid's, so snow follows sub-cell relief instead of stopping at the cell
+//    boundary.
+// 3. [`land_color`]'s ice block: the potential raises the snow fraction and
+//    tints it toward [`TerrainAppearance::snow_glac`], the glacier-ice ramp
+//    this appearance has carried since milestone 1 and which nothing but a
+//    `T < -12` test has ever reached.
+//
+// **Why the discharge weight is keyed on catchment km² and not on flow cells.**
+// `RC_ENGINE_CHANGES.md` §6k measured the alternative and ruled against it: an
+// `order >= 3` label spans 6 417 km² on an 800 km map and 1 429 009 km² on a
+// 40 000 km one, while catchment area is resolution-free (483 vs 482 km²
+// across a 4x cell-count change). A glacier that appeared at one map width and
+// not another would be the same defect in a third subsystem, so the two
+// thresholds below are areas and the caller converts.
+// ---------------------------------------------------------------------------
+
+/// The catchment at which a cirque starts to hold ice, in km².
+///
+/// Sized from the ground the feature is named after rather than from the
+/// render: the small alpine cirque glaciers around the Aletsch basin sit in
+/// the 0.5-2 km² class, and below that a hollow collects snow but not a body
+/// of ice. It is the **lower** edge of a `smoothstep`, so it is where the
+/// potential leaves zero, not where ice is drawn.
+const GLACIER_CIRQUE_KM2: f64 = 0.5;
+
+/// The catchment at which the potential is saturated — a valley tongue rather
+/// than a cirque. The Aletsch's own catchment is of the order of 200 km²;
+/// `8.0` is two orders below that on purpose, because this is the point at
+/// which ice *fills* its trough, not the point at which it is the largest
+/// glacier in the Alps.
+const GLACIER_TONGUE_KM2: f64 = 8.0;
+
+/// The one-cell blur the scope asks for (*"then blurred one cell so trough
+/// floors read as tongues"*). Named so it can be mutated; at `0` the field is
+/// the raw per-cell gate and tongues break up at the cell lattice.
+const GLACIER_BLUR_CELLS: i64 = 1;
+
+/// LOD-D4 stage 1 — **glacier potential** at grid resolution, `0.0..=1.0`.
+///
+/// `glacial_kernel`'s own gate (`cartalith_erosion::passes::glacial_kernel`:
+/// *"A cell erodes only where it is both above the snowline and below
+/// freezing"*), weighted by the catchment that cell drains and blurred by
+/// [`GLACIER_BLUR_CELLS`].
+///
+/// # This is the kernel's gate, not a model of it
+///
+/// `snowline` is `ErosionPassParams::glacial_snowline` — the same number the
+/// carving pass used — and `sea_level` the same sea level, so the ice is drawn
+/// exactly where the trough was cut. The scope's non-goal is explicit: *"any
+/// change to `glacial_kernel` or its golden"*, and there is none. This reads
+/// two fields the kernel also read and writes a third the kernel never kept.
+///
+/// # `None` flow returns an empty field, deliberately
+///
+/// A **loaded save stores no flow accumulation** (`SAVEFILE_COMPAT.md`, and
+/// `RenderCtx::flow` is already `None` there for the same reason). Without it
+/// there is no catchment, so there is no honest weight — and the scope says
+/// what to do: *"On a loaded save, which has no flow, it falls back to snow
+/// only"*. An empty field is that fallback, and it is the absence rather than
+/// a plausible substitute (`MISTAKES.md`: never encode "no value" as a value).
+/// Every consumer tests the length, not a flag.
+#[allow(clippy::too_many_arguments)]
+pub fn build_glacier_potential(
+    field: &[f32],
+    temperature: &[f32],
+    flow: Option<&[f32]>,
+    gw: usize,
+    gh: usize,
+    sea_level: f64,
+    snowline: f64,
+    km_per_cell: f64,
+    world: bool,
+) -> Vec<f32> {
+    let n = gw * gh;
+    let flow = match flow {
+        Some(f) if n > 0 && f.len() >= n && field.len() >= n && temperature.len() >= n => f,
+        _ => return Vec::new(),
+    };
+    if !(km_per_cell.is_finite() && km_per_cell > 0.0) {
+        return Vec::new();
+    }
+    // The kernel's own `snow_el`, spelled the same way it spells it.
+    let snow_el = sea_level + (1.0 - sea_level) * snowline;
+    let cell_km2 = km_per_cell * km_per_cell;
+    let mut p = vec![0f32; n];
+    p.par_iter_mut().enumerate().for_each(|(i, v)| {
+        if (field[i] as f64) < snow_el || temperature[i] as f64 >= 0.0 {
+            return;
+        }
+        // `flow` is in cells of upslope contributing area; one cell is
+        // `cell_km2` of ground, so this is the catchment in km².
+        let km2 = flow[i] as f64 * cell_km2;
+        *v = smoothstep(GLACIER_CIRQUE_KM2, GLACIER_TONGUE_KM2, km2) as f32;
+    });
+    if GLACIER_BLUR_CELLS > 0 { blur_once(&p, gw, gh, GLACIER_BLUR_CELLS, world) } else { p }
+}
+
+/// LOD-D4 stage 2 — the **lapse relation** a tile needs to give its own
+/// height a temperature, carried beside the tile fields because
+/// `RenderCtx` holds a temperature *raster* and not the relation that
+/// produced it.
+///
+/// `cartalith_climate::compute_temperature` is
+/// `t_sea - lapse_rate * g * (above_sea * mpu / 1000)`, where `mpu` is
+/// `meters_per_unit(peak_m, sea_level)`. The grid's raster already carries
+/// that term for the **coarse** height, so a tile only owes the *difference*:
+///
+/// ```text
+/// t_tile = t_sampled - lapse_rate * g * (h_tile - h_coarse) * mpu / 1000
+/// ```
+///
+/// which is `LOD_DETAIL_SCOPE.md` LOD-D4 stage 2 written out. At one tile
+/// pixel per grid cell `h_tile == h_coarse` and the correction is exactly
+/// zero, which is why `golden_parity_tile_biome.rs`'s screen-identity check
+/// is unaffected by this milestone rather than merely close to unaffected.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TileCryo {
+    /// `state.climate.lapseRate`, °C per km.
+    pub lapse_rate: f64,
+    /// `state.planet.g`. The reference scales the lapse rate by gravity and
+    /// so does this.
+    pub g: f64,
+    /// `meters_per_unit(peak_m, sea_level)` — metres of real elevation per
+    /// unit of normalised height. Kept as metres, not km, so the three
+    /// numbers here are the three the climate pass itself holds.
+    pub meters_per_unit: f64,
+}
+
+impl TileCryo {
+    /// The temperature correction for a sub-cell height difference `dh`, in
+    /// normalised height units. Positive `dh` (the tile is higher than the
+    /// cell it sits in) returns a positive number, which the caller
+    /// **subtracts**.
+    pub fn delta_t(&self, dh: f64) -> f64 {
+        self.lapse_rate * self.g * (dh * self.meters_per_unit / 1000.0)
+    }
+}
+
 /// The coarse-coordinate rectangle a tile covers — `bounds` in
 /// `renderBiomeTileRGBA(tile, W, H, bounds)`, the reference's `{x, y, w, h}`
 /// in grid cells.
@@ -6806,6 +7136,22 @@ pub struct TileFields<'a> {
     /// The river ink `build_color_texture` composites over its own raster.
     /// `None` renders the terrain alone.
     ink: Option<RiverInk<'a>>,
+    /// [`build_glacier_potential`] — LOD-D4's grid-resolution glacier field.
+    /// **Empty by construction**, on `RenderCtx::coast_d`'s contract: attach
+    /// it with [`Self::with_cryo`], and the tile path tests this slice's
+    /// length rather than `appearance.ice_strength`, so the field and its
+    /// gate cannot disagree. Empty is also the honest state for a loaded
+    /// save, which stores no flow to derive a catchment from.
+    glacier: Cow<'a, [f32]>,
+    /// The lapse relation the sub-cell temperature needs ([`TileCryo`]).
+    /// `None` leaves the tile on the grid's own sampled temperature, which
+    /// is exactly what every tile did before LOD-D4.
+    ///
+    /// **An attached `TileCryo` is still ignored where
+    /// [`TerrainAppearance::ice_strength`] is `0.0`**, so this being `Some`
+    /// is not on its own enough to move a pixel — see that field for why the
+    /// milestone's two live stages share one gate.
+    cryo: Option<TileCryo>,
     /// The display device the finished tile is encoded for, so a tile and the
     /// map under it are in the same gamut. `Srgb` is an early return.
     color_space: ColorSpace,
@@ -6867,6 +7213,14 @@ impl<'a> TileFields<'a> {
             lake_class: Cow::Owned(wb.classification),
             lake_fill: Cow::Owned(wb.fill_level),
             ink: None,
+            // LOD-D4 is **opt-in here and not built by `new`**, on the same
+            // argument `with_ink` and `with_lithology` already make: the
+            // glacier field needs two generation parameters (`peak_m` and
+            // `glacial_snowline`) and a map width that a `RenderCtx` does not
+            // carry, so building it here would mean guessing three numbers.
+            // `with_cryo` is where a caller that has them says so.
+            glacier: Cow::Borrowed(&[]),
+            cryo: None,
             color_space: ColorSpace::Srgb,
         }
     }
@@ -6894,6 +7248,12 @@ impl<'a> TileFields<'a> {
             lake_class: Cow::Borrowed(&self.lake_class),
             lake_fill: Cow::Borrowed(&self.lake_fill),
             ink: None,
+            // Carried, not dropped: the cached `TileFields` is the only place
+            // the glacier field is built, and a re-pointed borrow that lost
+            // it would silently draw the world without its ice while every
+            // other stage matched.
+            glacier: Cow::Borrowed(&self.glacier),
+            cryo: self.cryo,
             color_space: self.color_space,
         }
     }
@@ -6903,6 +7263,26 @@ impl<'a> TileFields<'a> {
     #[allow(dead_code)]
     pub fn with_ink(mut self, ink: RiverInk<'a>) -> Self {
         self.ink = Some(ink);
+        self
+    }
+
+    /// Attach LOD-D4's two derived inputs: [`build_glacier_potential`]'s
+    /// field and the [`TileCryo`] lapse relation.
+    ///
+    /// **Both or neither, in one call, on purpose.** They are the two halves
+    /// of one milestone and they answer the same question at two scales — the
+    /// field says *where ice can be* at grid resolution, the relation says
+    /// *how cold this pixel is* below it. A builder per half would make
+    /// "glacier field attached, lapse relation missing" reachable, which
+    /// renders ice at a temperature the ice was not derived from.
+    ///
+    /// A `glacier` of the wrong length is treated as absent by the consumer
+    /// (it tests `len() == gw * gh`), which is what makes a loaded save's
+    /// empty field the documented snow-only fallback rather than an error.
+    #[allow(dead_code)]
+    pub fn with_cryo(mut self, glacier: impl Into<Cow<'a, [f32]>>, cryo: TileCryo) -> Self {
+        self.glacier = glacier.into();
+        self.cryo = Some(cryo);
         self
     }
 
@@ -6922,12 +7302,23 @@ impl<'a> TileFields<'a> {
         self
     }
 
-    /// Retained bytes, for the scope's own budget line. Counts the four
-    /// rasters; the two `usize`s and the two enums are not worth counting and
-    /// are not counted, which is stated so the number is reproducible.
+    /// Retained bytes, for the scope's own budget line. Counts the five
+    /// rasters; the two `usize`s, the two enums and [`TileCryo`]'s three
+    /// `f64`s are not worth counting and are not counted, which is stated so
+    /// the number is reproducible.
+    ///
+    /// LOD-D4's own budget line is *"glacier field <= 10 MiB"*, and
+    /// [`Self::glacier_bytes`] reports that one on its own so the two budgets
+    /// are not read off one number.
     #[allow(dead_code)]
     pub fn bytes(&self) -> usize {
-        self.contrast_d.len() * 4 + self.grade_influence.len() * 4 + self.lake_class.len() + self.lake_fill.len() * 4
+        self.contrast_d.len() * 4 + self.grade_influence.len() * 4 + self.lake_class.len() + self.lake_fill.len() * 4 + self.glacier_bytes()
+    }
+
+    /// The glacier field's own retained bytes — LOD-D4's `<= 10 MiB` budget.
+    #[allow(dead_code)]
+    pub fn glacier_bytes(&self) -> usize {
+        self.glacier.len() * 4
     }
 }
 
@@ -6944,6 +7335,136 @@ const MESO_STEP_DIV: f64 = 64.0;
 /// brush-painted and keeps its whole cell (reference 11734 and 11737).
 const LAKE_MEMBERSHIP_MIN: f64 = 0.35;
 const LAKE_FLAT_EPS: f64 = 0.004;
+
+/// One land pixel of a tile, as `LOD_DETAIL_SCOPE.md`'s **Aletsch comparison
+/// sheet** needs to see it — the quantities LOD-D4's four acceptance bars are
+/// written in, at the resolution the milestone changed.
+///
+/// LOD-D0 built that sheet *"as far as today's fields allow and NO further"*
+/// and it reads `sample_cell` at **grid** resolution, which is exactly where
+/// LOD-D4's lapse correction is zero by construction — so the D0 sheet cannot
+/// see this milestone at all, whatever it does. That is not a defect in the
+/// D0 probe; it is the measurement moving with the thing measured, and this
+/// struct is where it moves to.
+///
+/// # Why this carries `#[allow(dead_code)]`
+///
+/// Its only callers are `tests/lod_d4_ice_and_snow.rs` (checked present
+/// 2026-09-21) — the harness that measures the scope's four acceptance bars,
+/// and `the_metrics_agree_with_the_picture`, which holds it to the same
+/// answer the renderer gives. A test is not part of the lib build, so the
+/// lib-only `cargo check` cannot see either use.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CryoSample {
+    /// The tile's own amplified height at this pixel, normalised as the rest
+    /// of the engine spells height.
+    pub elevation: f64,
+    /// The coarse-unit slope the renderer classifies rock with — the tile's
+    /// central difference over the ground it spans, identical to the
+    /// expression in [`render_biome_tile_rgba`]'s land branch.
+    pub slope: f64,
+    /// `cos(aspect)`, pole-ward positive — the same number the D0 probe takes
+    /// as `cos(deg_to_rad(aspect_deg))`, from the same `(dx, dy)` convention
+    /// `sample_bridge::aspect_deg` documents (`+y` is south, so the downslope
+    /// northward component is `+dy`). `0.0` on a pixel with no slope, where
+    /// an aspect is undefined.
+    pub northness: f64,
+    /// The **tile's own** temperature — LOD-D4 stage 2 applied, or the
+    /// grid's sampled value where no [`TileCryo`] is attached.
+    pub temperature_c: f64,
+    /// `material_weights`' own snow term at that temperature, then raised by
+    /// the ice cover. This is the D0 sheet's `snow` with the milestone in it.
+    pub snow: f64,
+    /// The ice cover itself — [`apply_ice_cover`]'s second return. The
+    /// numerator of the sheet's **ice fraction**, which D0 could only report
+    /// as absent.
+    pub ice: f64,
+    /// The rock fraction after the same rebalance, for the scope's third bar.
+    pub rock: f64,
+    /// The glacier potential sampled at this pixel, before `ice_strength` and
+    /// before the slope term — the population the scope's second bar selects
+    /// on (*"cells with glacier potential >= 0.5"*).
+    pub glacier: f64,
+}
+
+/// The [`CryoSample`] of every **land** pixel of one tile, in row-major order,
+/// skipping sea and lake exactly as the D0 sheet skips anything whose `water`
+/// is not `"land"`.
+///
+/// # What this shares with the renderer, and what it repeats
+///
+/// It calls the same [`TileCryo::delta_t`], the same [`material_weights`] and
+/// the same [`apply_ice_cover`] the colour path calls, so the three stages the
+/// milestone adds are measured, not modelled. What it repeats is two
+/// one-liners — the slope expression and the world-coordinate mapping — which
+/// are repeated rather than factored out because factoring them would put a
+/// function call inside the per-pixel loop of the hot path to buy a guarantee
+/// that `the_metrics_agree_with_the_picture` already gives by measurement.
+///
+/// The eco-jitter is deliberately **not** applied here: the D0 sheet's own
+/// baseline is `smoothstep(3, -5, t)` on the plain temperature, and a metric
+/// that quietly added a noise term would not be comparable to the number it
+/// is supposed to be moving.
+#[allow(dead_code)]
+pub fn tile_cryo_samples(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize, bounds: TileBounds, tf: &TileFields) -> Vec<CryoSample> {
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    if w == 0 || h == 0 || tile.len() < w * h || gw == 0 || gh == 0 || tf.gw != gw || tf.gh != gh {
+        return Vec::new();
+    }
+    let a = &ctx.appearance;
+    let sl = ctx.sea_level;
+    let denom = if (1.0 - sl) > 0.0 { 1.0 - sl } else { 1.0 };
+    let cx = bounds.w / (w.max(2) - 1) as f64;
+    let cy = bounds.h / (h.max(2) - 1) as f64;
+    let lakes = tf.lake_class.len() == gw * gh;
+    let lake_fill_ok = tf.lake_fill.len() == gw * gh;
+    let glacier_on = tf.glacier.len() == gw * gh && a.ice_strength > 0.0;
+    let cryo = if a.ice_strength > 0.0 { tf.cryo } else { None };
+    let mut out = Vec::with_capacity(w * h);
+    for y in 0..h {
+        let wy = bounds.y + y as f64 * cy;
+        let ro = y * w;
+        for x in 0..w {
+            let i = ro + x;
+            let ht = tile[i] as f64;
+            let wx = bounds.x + x as f64 * cx;
+            if ht < sl || (lakes && is_lake_pixel(tf, ctx, wx, wy, ht, lake_fill_ok)) {
+                continue;
+            }
+            let l = cartalith_terrain::tile_render::edge_l(tile, w, x, ro);
+            let r = cartalith_terrain::tile_render::edge_r(tile, w, x, ro);
+            let u = cartalith_terrain::tile_render::edge_u(tile, w, h, x, y);
+            let d = cartalith_terrain::tile_render::edge_d(tile, w, h, x, y);
+            let (gx, gy) = ((r - l) / (2.0 * cx), (d - u) / (2.0 * cy));
+            let slope = cartalith_jsmath::js_hypot(gx, gy);
+            let northness = if slope > 0.0 { gy / slope } else { 0.0 };
+
+            let t0 = sample_arr(ctx.temperature, wx, wy, gw, gh);
+            // The same gate `render_biome_tile_rgba` applies, spelled the same
+            // way. If the metrics applied the lapse correction where the
+            // picture does not, `the_metrics_agree_with_the_picture` would be
+            // measuring two different renders.
+            let t = match cryo {
+                Some(c) => t0 - c.delta_t(ht - sample_arr(ctx.field, wx, wy, gw, gh)),
+                None => t0,
+            };
+            let m = sample_arr(ctx.rainfall, wx, wy, gw, gh);
+            let r_frac = (ht - sl) / denom;
+            let flow = ctx.flow.map(|f| sample_arr(f, wx, wy, gw, gh)).unwrap_or(0.0);
+            let acc = (flow / (gw * gh) as f64).max(1e-4);
+            let twi = (acc / slope.max(0.002)).ln();
+            let asp = ctx.aspect_factor_f(wx, wy);
+            let curv = ctx.curvature_at_f(wx, wy);
+            let glacier = if glacier_on { sample_arr(&tf.glacier, wx, wy, gw, gh) } else { 0.0 };
+            let wts = material_weights(t, m, slope, r_frac, twi, asp, curv);
+            let scaled = glacier * a.ice_strength;
+            let (wts, ice) = if scaled > 0.0 { apply_ice_cover(wts, scaled, slope) } else { (wts, 0.0) };
+            out.push(CryoSample { elevation: ht, slope, northness, temperature_c: t, snow: wts.snow, ice, rock: wts.rock, glacier });
+        }
+    }
+    out
+}
 
 /// `renderBiomeTileRGBA(tile, W, H, bounds)` (reference HTML 11668-11779) —
 /// one LOD/atlas tile of **amplified** height as the full biome look, RGBA8,
@@ -7060,6 +7581,23 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
     let lake_fill_ok = tf.lake_fill.len() == gw * gh;
     let ink = tf.ink.filter(|m| m.cells() >= gw * gh);
     let has_grade_influence = tf.grade_influence.len() == gw * gh;
+    // LOD-D4's two gates, both length/`Option` tests rather than a re-read of
+    // `appearance.ice_strength`, on `RenderCtx::coast_d`'s contract. The
+    // strength still multiplies the sampled potential below, so `0.0` (which
+    // is `js_reference()`'s value) reaches `land_color` as a literal zero and
+    // takes its no-ice branch.
+    //
+    // **`ice_strength` gates stage 2 as well, and that is not decoration.**
+    // The scope's requirement is *"three derived stages, all inert under
+    // `js_reference()`"*, and the sub-cell temperature is one of the three: it
+    // moves the WHOLE material path, not just snow, so a tile rendered with a
+    // `TileCryo` attached and `ice_strength = 0.0` is not the reference's
+    // tile. Measured, not reasoned: with this gate absent,
+    // `the_whole_milestone_is_inert_under_js_reference` fails on the first
+    // pixel of a 64x64 glaciated tile. The gate is a branch and not a `* 0.0`
+    // so the off state is identity by control flow.
+    let glacier_on = tf.glacier.len() == gw * gh && a.ice_strength > 0.0;
+    let cryo = if a.ice_strength > 0.0 { tf.cryo } else { None };
     let contrast_on = a.local_contrast > 0.0 && tf.contrast_d.len() == gw * gh;
     let knee = a.local_contrast_knee.max(1e-3);
     let inv_knee2 = 1.0 / (knee * knee);
@@ -7121,6 +7659,28 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
                 None => {
                     // --- Land (11743-11772) ---------------------------------
                     let m = sample_arr(ctx.rainfall, wx, wy, gw, gh);
+
+                    // LOD-D4 stage 2: the tile's OWN temperature. `ctx.
+                    // temperature` is a grid raster, so `t` above is the
+                    // temperature of the CELL this pixel sits in; the tile
+                    // knows its own height and `cartalith-climate` owns the
+                    // relation between height and temperature, so the pixel
+                    // can have its own. `h_coarse` is the same bilinear read
+                    // of the grid height the temperature raster was built
+                    // from, which is what makes the correction a difference
+                    // rather than a second opinion — and what makes it
+                    // EXACTLY zero at one tile pixel per cell, where
+                    // `sample_arr` at integer coordinates returns the cell.
+                    //
+                    // It replaces `t` for the WHOLE material path and not
+                    // just for snow, deliberately: the scope's stage is
+                    // *"tile temperature"*, and a sub-cell ridge 300 m above
+                    // its cell centre is colder for the treeline exactly as
+                    // it is colder for the snowline.
+                    let t = match cryo {
+                        Some(c) => t - c.delta_t(ht - sample_arr(ctx.field, wx, wy, gw, gh)),
+                        None => t,
+                    };
 
                     // Meso shade at the `ms` step. **No `/ ms`** — see
                     // departure 2 in the section comment; that normaliser is
@@ -7187,6 +7747,13 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
                         ctx.splat.as_ref(),
                         ctx.paint_at_f(wx, wy),
                         ctx.ground,
+                        // LOD-D4 stage 3's input: the grid-resolution
+                        // potential, sampled bilinearly like every other
+                        // world-scale field a tile reads, scaled by the one
+                        // tunable this milestone adds. Two tiles over the
+                        // same ground cannot disagree about it, which a
+                        // per-tile derivation could not promise.
+                        if glacier_on { sample_arr(&tf.glacier, wx, wy, gw, gh) * a.ice_strength } else { 0.0 },
                     );
                     // R2 crest, then the two SDF bands — `applyCrest` and
                     // `applyCoastRiverSDFv`, in the reference's own order and

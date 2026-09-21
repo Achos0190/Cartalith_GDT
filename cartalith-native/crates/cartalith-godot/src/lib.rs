@@ -12133,7 +12133,18 @@ impl WorldGen {
     fn lod_cache_key(&self) -> String {
         let a = self.appearance();
         format!(
-            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{}",
+            // LOD-D4 added four inputs to what a cached `TileFields` is a
+            // function of, and the preflight rule is that a cache key is
+            // derived from the DEFINITION -- every argument of the thing it
+            // guards. `peak_m`, `lapse_rate` and `g` each reach the tile
+            // through `TileCryo`, and `glacial_snowline` through
+            // `build_glacier_potential`. Three of the four also move a
+            // pipeline stage version, so they would usually be covered
+            // twice; `glacial_snowline` would NOT be -- changing it with the
+            // glacial pass off moves no stage version at all, and the ice
+            // would have gone on being drawn at the old snowline until
+            // something else invalidated the cache.
+            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{}",
             self.world_epoch,
             self.stages.version(PipelineStage::Height.id(), 0),
             self.stages.version(PipelineStage::Climate.id(), 0),
@@ -12149,6 +12160,10 @@ impl WorldGen {
             self.color_space,
             self.pack_epoch,
             self.paint.as_ref().map(|p| p.epoch()).unwrap_or(0),
+            self.params.passes.glacial_snowline.to_bits(),
+            self.params.peak_m.to_bits(),
+            self.params.climate.lapse_rate.to_bits(),
+            self.params.planet.g.to_bits(),
         )
     }
 
@@ -12182,7 +12197,35 @@ impl WorldGen {
             let snapshot = self.lod.borrow();
             let rgb = snapshot.grid_rgb.as_ref().filter(|(k, _)| k == key).map(|(_, b)| b.clone());
             drop(snapshot);
-            render::TileFields::new(&ctx, rgb.as_deref())
+            // `LOD_DETAIL_SCOPE.md` LOD-D4. Built HERE, in the cache, and not
+            // inside `TileFields::new`: the field needs `glacial_snowline`
+            // and `peak_m`, which are *generation* parameters, and the map
+            // width in km -- three numbers a `RenderCtx` does not carry, so
+            // `new` would have to guess them.
+            //
+            // A **loaded save takes the snow-only fallback by data, not by a
+            // branch here**: `flow` is already `None` above for a loaded
+            // save, and `build_glacier_potential` returns an empty field for
+            // a `None` flow with that reason in its own doc comment. So there
+            // is one place that decides, and this call site cannot disagree
+            // with it.
+            let glacier = render::build_glacier_potential(
+                field,
+                temperature,
+                flow,
+                gw,
+                gh,
+                self.sea_level,
+                self.params.passes.glacial_snowline,
+                self.map_width_km / gw.max(1) as f64,
+                self.world,
+            );
+            let cryo = render::TileCryo {
+                lapse_rate: self.params.climate.lapse_rate,
+                g: self.params.planet.g,
+                meters_per_unit: if (1.0 - self.sea_level).abs() > 1e-9 { self.params.peak_m / (1.0 - self.sea_level) } else { self.params.peak_m / 1e-6 },
+            };
+            render::TileFields::new(&ctx, rgb.as_deref()).with_cryo(glacier, cryo)
         };
         Some(LodCtxCache { key: key.to_string(), pre: Some(pre), lithology, fields: Some(fields), grid_rgb: None })
     }

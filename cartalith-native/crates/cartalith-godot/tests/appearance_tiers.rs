@@ -385,8 +385,27 @@ fn tunable_ranges_clamp_and_are_ordered() {
 /// expensive one that checks it at the three real grid sizes.
 #[test]
 fn every_tunable_is_load_bearing() {
-    const EXEMPT: [&str; 6] =
-        ["splat_strength", "border_width_frac", "grade_field_biome", "grade_field_elevation", "grade_field_moisture", "grade_field_geology"];
+    // Every exemption here owes a replacement proof at the bottom of this
+    // function, because the point of the sweep is that a slider cannot go
+    // dead unnoticed.
+    //
+    // `ice_strength` is the newest, and it is exempt for a reason that is the
+    // milestone's design rather than an oversight: `LOD_DETAIL_SCOPE.md`
+    // LOD-D4 is a **tile** stage, and `cell_color` -- the grid path
+    // `render_serial` walks -- passes its glacier argument a literal `0.0` so
+    // that the shipped screen render stays byte-identical to what it was
+    // before the milestone. A sweep of the grid path therefore cannot see it,
+    // and making it able to would re-baseline every default-appearance render
+    // in the tree. The tile check below is where it is proved load-bearing.
+    const EXEMPT: [&str; 7] = [
+        "splat_strength",
+        "border_width_frac",
+        "ice_strength",
+        "grade_field_biome",
+        "grade_field_elevation",
+        "grade_field_moisture",
+        "grade_field_geology",
+    ];
     let s = synth();
     let base = render_serial(&s, &TerrainAppearance::default());
     for (key, lo, hi, label) in TerrainAppearance::TUNABLE {
@@ -412,6 +431,45 @@ fn every_tunable_is_load_bearing() {
     assert!(render::border_cover(&wide, 1, 1, GW, GH) > render::border_cover(&off, 1, 1, GW, GH),
         "border_width_frac does not reach border_cover");
     assert_eq!(render::border_cover(&off, 1, 1, GW, GH), 0.0, "0 must remove the frame");
+
+    // `ice_strength`, through the stage that actually draws it: one tile, with
+    // a glacier field attached.
+    //
+    // The field is a hand-built `1.0` everywhere rather than
+    // `build_glacier_potential`'s output, deliberately. This test asks one
+    // question -- *does moving this slider move a pixel* -- and answering it
+    // through the gate would make a failure here ambiguous between "the
+    // slider is dead" and "this synthetic world has no glaciers".
+    // `tests/lod_d4_ice_and_snow.rs` is where the gate itself is asserted.
+    {
+        let a_on = TerrainAppearance::default();
+        assert!(a_on.ice_strength > 0.0, "the default must have ice on, or the pair below is two offs");
+        let a_off = TerrainAppearance { ice_strength: 0.0, ..TerrainAppearance::default() };
+        let (tw, th) = (48usize, 48usize);
+        let bounds = render::TileBounds { x: 24.0, y: 16.0, w: 8.0, h: 8.0 };
+        let cryo = render::TileCryo { lapse_rate: 6.5, g: 1.0, meters_per_unit: 6000.0 };
+        let glacier = vec![1.0f32; GW * GH];
+        let draw = |a: &TerrainAppearance| -> Vec<u8> {
+            let c = ctx(&s, a.clone());
+            let mut tile = vec![0f32; tw * th];
+            for y in 0..th {
+                for x in 0..tw {
+                    let (wx, wy) = (bounds.x + x as f64 * bounds.w / (tw - 1) as f64, bounds.y + y as f64 * bounds.h / (th - 1) as f64);
+                    tile[y * tw + x] = s.field[(wy as usize).min(GH - 1) * GW + (wx as usize).min(GW - 1)];
+                }
+            }
+            let tf = render::TileFields::new(&c, None).with_cryo(glacier.clone(), cryo);
+            render::render_biome_tile_rgba(&c, &tile, tw, th, bounds, &tf)
+        };
+        let (on, offt) = (draw(&a_on), draw(&a_off));
+        assert_eq!(on.len(), tw * th * 4, "the tile came back empty");
+        let moved_px = on.chunks(4).zip(offt.chunks(4)).filter(|(p, q)| p[..3] != q[..3]).count();
+        assert!(
+            moved_px * 100 > tw * th,
+            "ice_strength moved {moved_px} of {} tile pixels; it does not reach the tile colour path",
+            tw * th
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
