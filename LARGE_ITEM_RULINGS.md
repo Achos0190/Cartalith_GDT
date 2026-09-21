@@ -1099,3 +1099,27 @@ Siting itself changes, not just the downstream render binding: a settlement only
 **The finding is `OUTSTANDING_WORK.md`'s v2.71-half-2 row (`RC_ENGINE_CHANGES.md` §8.2).** This port has zero spatial representation for woodland anywhere — only an abstract `woodland_ha` hectare figure feeding trade/fuel economics. The RC spec states two behavioural rules (arable wins in a conflict; no street-crossing guard, unlike farmland) but names no siting algorithm, polygon shape or density constants, and `Cartalith_RC` was not reachable from this session's filesystem to check the real `buildFarmland` v2.71 code. The row asked the owner to choose between waiting for the real source or building a non-ported placeholder now.
 
 **Owner ruling, 2026-09-21: disregard woodland as a spatial area, for now.** *"I'm not satisfied with it in the HTML version."* Not a resourcing deferral — the owner has looked at how the reference itself handles woodland and does not want it ported as-is, faithfully or not. Moved to `OUTSTANDING_WORK.md` §5 (declined and shelved). Reversible by a word, but a future re-proposal should design something the owner finds satisfying rather than default back to a faithful port of the reference's own woodland placement.
+
+## 2026-09-21 — Ruling T: hydrology's world-wrap case gets its own rule, size-primary
+
+**The finding is `OUTSTANDING_WORK.md`'s own follow-up row to Ruling Q**, flagged by the agent that built Ruling Q rather than decided silently: the topology-primary boundary-touching-is-ocean rule was applied uniformly to `world=true` (toroidal) maps, where the X edge is not a real edge at all — `HYDROLOGY_CLASSIFICATION_RESEARCH.md` never addresses wrapped-world topology, so this was a judgment call, not something the research dictated. Confirmed to move real output: every golden file's `case_1_world_wrap` fixture moved under the uniform rule.
+
+**Owner ruling, 2026-09-21: special-case `world=true`.** A wrapped map keeps the old size-primary (largest-below-sea-component-is-ocean) rule; only bounded (non-wrapped) maps use Ruling Q's boundary-touching rule. Needs a build: `build_water_bodies` branches on `world`, and `case_1_world_wrap`'s golden fixture in `golden_parity_waterbodies.rs` (and any of the twelve other re-baselined files whose fixtures are wrapped-world) reverts toward its pre-Ruling-Q values for the wrapped case specifically — re-derive, don't guess, per the standing discipline.
+
+## 2026-09-21 — Ruling U: Refine detail moves to Preferences ▸ Tiles & LOD
+
+**The finding is `OUTSTANDING_WORK.md`'s §3.1 row.** A 2026-09-05 ruling put "Refine detail for the current view" on the WORLD rail beside Bake & finalize; the 2026-09-07 design canvas doesn't draw it there at all, and its GENERATE panel explicitly routes atlas/LOD work to Preferences ▸ Tiles & LOD instead. The canvas postdates the ruling.
+
+**Owner ruling, 2026-09-21: follow the canvas.** Move the control from the WORLD tool-options bar (`app.gd::_tool_options_generate()`) to Preferences ▸ Tiles & LOD. This is the standing "an owner decision is newer than any canvas" rule read the other way around — here the canvas is newer than the ruling it revisits, so the canvas wins.
+
+## 2026-09-21 — Ruling V: GeoJSON import creates an unknown faction rather than remapping or dropping it
+
+**The finding is `OUTSTANDING_WORK.md`'s `FUNCTIONAL_CONTRACT.md` DM-03 row.** The GeoJSON parser is built and hardened (`cartalith_io::parse_geojson`, verified against a 25-case table plus a 20 000-level nest); applying an imported document stalled on one open question: what happens when an imported feature names a faction this world does not have.
+
+**Owner ruling, 2026-09-21: create it.** An unknown faction name in an imported document becomes a new faction in this world, preserving the import's own intent rather than remapping by fuzzy name match or silently dropping authorship into "unclaimed." Still owed alongside the apply logic itself: the Data-manager Import route in GDScript, which doesn't exist yet.
+
+## 2026-09-21 — Ruling W: the pack-import unused-section warning names all four undrawn sections
+
+**The finding is `OUTSTANDING_WORK.md`'s `FUNCTIONAL_CONTRACT.md` cap. 6 row**, re-derived 2026-09-13: the pack-import warning names only `trait` as unused, but `structures.settlement`, `structures.poi`, `custom` and `seamarks` art are every bit as undrawn — none has a compositor reaching the live map. `manifest.rs`'s own comment above `unused.push("trait")` said widening the list was a behaviour decision the owner had not made, and is golden-pinned (`golden_parity_pack_manifest.rs`, `golden_parity_pack_zip.rs`, plus a test asserting the OLD behaviour, `settlement_and_poi_are_not_named_by_the_unused_warning`, which this ruling makes false by name).
+
+**Owner ruling, 2026-09-21: name all four.** Honest disclosure now; drawing any of the four into the live map composite is separate, unauthorised future work. Needs a build: extend the `unused` push-list in `manifest.rs`, invert or remove the now-false test, and re-derive whatever golden fixture pins the warning string's exact wording — the standard re-baseline discipline, not a silent string change.
