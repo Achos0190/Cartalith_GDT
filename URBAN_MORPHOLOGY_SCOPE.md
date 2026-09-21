@@ -82,9 +82,17 @@ entire input surface is:
 
 That is scalars and rasters. No `Settlement`, no faction, no territory. The
 dependency the roadmap describes is real but it lives **one layer up**, in
-script block 2's `_um*` adapter (lines ~22036-22960, 28 functions, 925 lines),
-which turns a settlement `p` into that opts object. That adapter is genuinely
-civ-coupled; the engine is not.
+script block 2's `_um*` adapter (lines ~22036-22960, 925 lines), which turns a
+settlement `p` into that opts object. That adapter is genuinely civ-coupled;
+the engine is not. **Corrected 2026-09-21: the range holds 27 `_um*`
+functions, verified by grepping the frozen reference (`OUTSTANDING_WORK.md`
+§6.8 flagged this figure against milestone 17's own count of "20"; the two
+are not actually in tension — the 27 split into milestone 17's own 20 pure
+functions (including `_umCacheKey`, itemised below) plus 7 more that "Out of
+scope for every milestone" (also below) excludes: 3 canvas-draw functions and
+4 single-thread scheduling functions.** The earlier "28" here was a rough
+headline tally that predated that itemised breakdown and is corrected to
+match it.
 
 **Consequence for the crate graph:** `cartalith-urban` must **not** depend on
 `cartalith-civ`. It depends on `cartalith-rng` and nothing else. The adapter is
