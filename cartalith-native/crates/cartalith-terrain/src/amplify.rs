@@ -266,6 +266,49 @@ pub fn refine_tile(
 /// sampled at the shared coarse coordinate it maps each output texel to, which
 /// is the whole reason two neighbouring tiles agree on their shared edge.
 ///
+/// # Two scale properties, checked 2026-09-21 for `LOD_DETAIL_SCOPE.md`
+/// LOD-D5 and recorded here rather than changed
+///
+/// LOD-D5's last scope bullet is *"check at the symbols whether
+/// `add_zoom_detail`'s frequency ignores cell size. If it does, record it for
+/// an owner ruling; the golden schedule does not change here."* It does, in
+/// two independent ways, and neither is touched:
+///
+/// 1. **The frequency is per COARSE CELL, not per kilometre.** `cx`/`cy` are
+///    coarse sample coordinates and `f` starts at `opts.detail_freq * 2` —
+///    `AmplifyOpts::detail_freq`'s own doc says *"noise cycles per coarse cell
+///    at octave 0"*. Nothing in this function, or in the `AmplifyOpts` it
+///    reads, carries a map width. So a 40 000 km world and an 800 km world on
+///    the same grid get detail of the same wavelength **in cells** and
+///    therefore of fifty times the wavelength **in kilometres**: the same
+///    pyramid level renders mountain-scale corrugation on one and
+///    continent-scale on the other. Whether that is wrong is a judgement about
+///    what a fantasy map should look like at scale, not a defect in the port
+///    — the reference does exactly this — which is why it is an owner ruling
+///    and not a fix. Keying it on `cartalith_spatial::cell_km` would move
+///    every pyramid tile and is a golden re-baseline.
+///
+/// 2. **The octave COUNT is keyed on the pyramid level, not on ground scale
+///    either** (`min(6, z - z_base)`), so the same `z` adds the same six
+///    octaves whatever a cell is worth on the ground. This is the same ruling
+///    in its second half and moves with it.
+///
+/// A third property is **not** a defect and is recorded so it is not
+/// re-reported as one: the amplitude decays `0.6` per octave while the
+/// frequency doubles, so per-pixel relief falls by `0.6` for each level a
+/// viewer descends. That is why LOD-D5's *"detail per screen pixel is
+/// non-decreasing from zoom 4 to 40"* is not attainable without changing this
+/// schedule — measured and attributed in `cartalith-godot`'s
+/// `lod_d5_detail_per_screen_pixel_and_the_bar_it_does_not_meet`. It is the
+/// same ruling a third time.
+///
+/// # A defect disclosed elsewhere, not fixed here
+///
+/// The `if base < sea { continue }` in property 3 above gives land cells the
+/// extra octaves unconditionally and water cells none. That is filed against
+/// `OUTSTANDING_WORK.md`'s v2.69 row and is deliberately left alone by
+/// LOD-D5, which changes no height.
+///
 /// # Panics
 ///
 /// Panics if `data` is shorter than `w * h`, or `coarse` shorter than

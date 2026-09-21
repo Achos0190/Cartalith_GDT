@@ -397,10 +397,22 @@ fn every_tunable_is_load_bearing() {
     // before the milestone. A sweep of the grid path therefore cannot see it,
     // and making it able to would re-baseline every default-appearance render
     // in the tree. The tile check below is where it is proved load-bearing.
-    const EXEMPT: [&str; 7] = [
+    //
+    // `detail_scale_strength` (LOD-D5) is exempt for exactly `ice_strength`'s
+    // reason, one milestone later: it is a **tile** stage, `cell_color` passes
+    // `land_color`'s `scale` argument a literal `None`, and every one of its
+    // four sub-stages is additionally the identity at one pixel per coarse
+    // cell -- which is what the grid path draws by definition. A sweep of the
+    // grid path therefore cannot see it, and making it able to would
+    // re-baseline every default-appearance render in the tree. The tile check
+    // below is where it is proved load-bearing, and
+    // `tests/lod_d5_scale_aware.rs` is where the four stages are held to their
+    // identities and their curves.
+    const EXEMPT: [&str; 8] = [
         "splat_strength",
         "border_width_frac",
         "ice_strength",
+        "detail_scale_strength",
         "grade_field_biome",
         "grade_field_elevation",
         "grade_field_moisture",
@@ -467,6 +479,56 @@ fn every_tunable_is_load_bearing() {
         assert!(
             moved_px * 100 > tw * th,
             "ice_strength moved {moved_px} of {} tile pixels; it does not reach the tile colour path",
+            tw * th
+        );
+    }
+
+    // `detail_scale_strength`, through the stage that actually draws it: one
+    // tile **past grid resolution**, which is the only place it does anything.
+    //
+    // The bounds span 3 coarse cells over 48 pixels -- 16 pixels per cell,
+    // four octaves in -- because at one pixel per cell this control is the
+    // identity by design and a test drawn there would report a dead slider.
+    // The tile's height is the bilinear coarse field plus a sub-cell term, so
+    // the micro band has a residual to read; without one, only three of the
+    // four stages would be exercised.
+    {
+        let a_on = TerrainAppearance::default();
+        assert!(a_on.detail_scale_strength > 0.0, "the default must have the scale curve on, or the pair below is two offs");
+        let a_off = TerrainAppearance { detail_scale_strength: 0.0, ..TerrainAppearance::default() };
+        let (tw, th) = (48usize, 48usize);
+        let bounds = render::TileBounds { x: 24.0, y: 16.0, w: 3.0, h: 3.0 };
+        let draw = |a: &TerrainAppearance| -> Vec<u8> {
+            let c = ctx(&s, a.clone());
+            let mut tile = vec![0f32; tw * th];
+            for y in 0..th {
+                for x in 0..tw {
+                    let (wx, wy) = (bounds.x + x as f64 * bounds.w / (tw - 1) as f64, bounds.y + y as f64 * bounds.h / (th - 1) as f64);
+                    let (x0, y0) = (wx as usize, wy as usize);
+                    let (x1, y1) = ((x0 + 1).min(GW - 1), (y0 + 1).min(GH - 1));
+                    let (fx, fy) = (wx - x0 as f64, wy - y0 as f64);
+                    let a0 = s.field[y0 * GW + x0] as f64 * (1.0 - fx) + s.field[y0 * GW + x1] as f64 * fx;
+                    let b0 = s.field[y1 * GW + x0] as f64 * (1.0 - fx) + s.field[y1 * GW + x1] as f64 * fx;
+                    let base = a0 * (1.0 - fy) + b0 * fy;
+                    // Sub-cell relief, exactly zero on a cell boundary in
+                    // either axis, so the residual is real inside a cell and
+                    // absent at grid resolution.
+                    let sub = 0.02 * (fx * (1.0 - fx)) * (fy * (1.0 - fy)) * 16.0 * ((wx * 11.0).sin() + (wy * 13.0).cos());
+                    tile[y * tw + x] = (base + sub) as f32;
+                }
+            }
+            // Lakes off: this fixture's field is a ridge lattice with no
+            // ocean, so every hollow pools and the tile would draw water --
+            // the same trap `tests/lod_d5_scale_aware.rs` records measuring.
+            let tf = render::TileFields::new(&c, None).without_lakes();
+            render::render_biome_tile_rgba(&c, &tile, tw, th, bounds, &tf)
+        };
+        let (on, offt) = (draw(&a_on), draw(&a_off));
+        assert_eq!(on.len(), tw * th * 4, "the tile came back empty");
+        let moved_px = on.chunks(4).zip(offt.chunks(4)).filter(|(p, q)| p[..3] != q[..3]).count();
+        assert!(
+            moved_px * 100 > tw * th,
+            "detail_scale_strength moved {moved_px} of {} tile pixels; it does not reach the tile colour path",
             tw * th
         );
     }

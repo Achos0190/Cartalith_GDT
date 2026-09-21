@@ -1249,6 +1249,45 @@ pub struct TerrainAppearance {
     /// by high-frequency coherent noise (`land_color`'s own `n_hi`), which is
     /// what reads as fine surface grain rather than a smooth gradient.
     pub detail_micro_weight: f64,
+    /// **LOD-D5** (`LOD_DETAIL_SCOPE.md`, *"scale-aware shading weights, and
+    /// hydrology that resolves"*) — how far the four scale-dependent tile
+    /// stages are allowed to move from the grid's own answer. `0.0` is the
+    /// grid's answer at every zoom, which is what this port did before the
+    /// milestone and is what [`Self::js_reference`] carries.
+    ///
+    /// # It is one number over four stages, and all four are continuous in it
+    ///
+    /// Every stage is written so that `0.0` is the **identity**, by
+    /// arithmetic that cannot round to it:
+    ///
+    /// 1. the three [`detail_macro_weight`](Self::detail_macro_weight)-family
+    ///    band weights are re-balanced by a transfer fraction that is a
+    ///    product with this number;
+    /// 2. the micro band cross-fades from value noise to the tile's own
+    ///    relief residual at a mix that is a product with this number;
+    /// 3. the crest stencil's ground width is `(1/cells_per_px)^k`, which is
+    ///    exactly `1` at `k = 0`;
+    /// 4. the per-tile river threshold is `river_thresh ·
+    ///    cells_per_px^(2k)`, which is exactly `river_thresh` at `k = 0`.
+    ///
+    /// # And all four are the identity at grid resolution whatever it is
+    ///
+    /// The curve's own argument is `-log2(cells_per_px)` — **octaves past the
+    /// simulation grid**, not an absolute ground size. At one tile pixel per
+    /// coarse cell that argument is exactly `0` and every stage above returns
+    /// the grid's own value, which is what makes
+    /// `golden_parity_tile_biome.rs`'s screen-identity check unaffected by
+    /// this milestone rather than merely close to unaffected. See
+    /// [`detail_scale_octaves`] for why the parameterisation is in octaves
+    /// and not in km.
+    ///
+    /// **A tile stage only.** `cell_color` passes [`land_color`]'s
+    /// `scale` argument a literal `None`, so the shipped screen render is
+    /// byte-identical to what it was before the milestone whatever this
+    /// number is — which is why `every_tunable_is_load_bearing` exempts it
+    /// from the grid sweep and proves it on a tile instead, exactly as it
+    /// does for [`Self::ice_strength`].
+    pub detail_scale_strength: f64,
 
     // ---- Milestone 2: ambient occlusion ----
     /// AO darkening strength (`TERRAIN_APPEARANCE_RESEARCH.md` §15).
@@ -1839,6 +1878,12 @@ impl Default for TerrainAppearance {
             detail_macro_weight: 0.40,
             detail_meso_weight: 0.40,
             detail_micro_weight: 0.20,
+            // LOD-D5. Full strength, for `ice_strength`'s reason a second
+            // time: the quantity it scales is itself exactly zero at grid
+            // resolution, so on the main map and on a tile drawn at one pixel
+            // per cell this changes no pixel whatever this number is. The
+            // `0.0` that matters is `js_reference`'s.
+            detail_scale_strength: 1.0,
             ao_strength: 0.28,
             ao_radius_frac: 0.012,
             hydro_wet_strength: 0.38,
@@ -2140,6 +2185,14 @@ impl TerrainAppearance {
             // block is inside an `if`, so this is off by control flow and not
             // by arithmetic.
             ice_strength: 0.0,
+            // LOD-D5, same rule a fourth time: the reference's tile shades at
+            // one fixed balance of bands, draws its crest over a one-pixel
+            // stencil and hands its river SDF the grid's own threshold at
+            // every level. `0.0` is that behaviour exactly, and each of the
+            // four stages is a product with this number rather than a
+            // branch — see the field's own doc comment for why the identity
+            // is safe here where `ice_strength` needed a branch.
+            detail_scale_strength: 0.0,
             ..TerrainAppearance::default()
         }
     }
@@ -2303,6 +2356,9 @@ tunables! {
     "detail_macro_weight"   => detail_macro_weight,   0.0,   1.0,  "Macro detail";
     "detail_meso_weight"    => detail_meso_weight,    0.0,   1.0,  "Meso detail";
     "detail_micro_weight"   => detail_micro_weight,   0.0,   1.0,  "Micro detail";
+    // -- LOD-D5: the same three bands, re-balanced by how far past the
+    //    simulation grid the view has zoomed. A tile stage only --
+    "detail_scale_strength" => detail_scale_strength, 0.0,   1.0,  "Scale-aware detail";
     // -- Reference Rendering-advanced ▸ Ambient occlusion (`aoR`) --
     "ao_strength"           => ao_strength,           0.0,   1.0,  "Ambient occlusion";
     "ao_radius_frac"        => ao_radius_frac,        0.0,   0.05, "AO radius";
@@ -2913,12 +2969,35 @@ const CREST_SLOPE_HI: f64 = 0.05;
 ///
 /// Built only when `crest_strength > 0`; `RenderCtx` holds an empty `Vec`
 /// otherwise, so the stage costs one length test on every other path.
-fn build_crest(field: &[f32], gw: usize, gh: usize, sea: f64, sx: f64, sy: f64, a: &TerrainAppearance) -> Vec<f32> {
+/// `step` is the stencil's half-width **in samples**, added 2026-09-21 for
+/// LOD-D5's *"crest and AO radii are set in ground units"*. `1` is the
+/// reference's own stencil and every pre-LOD-D5 call site passes it, so those
+/// calls are bit-identical to what they were before the parameter existed
+/// (`golden_parity_tile_biome.rs`'s
+/// `build_crest_at_unit_scale_leaves_the_screen_unchanged`, which holds the
+/// screen path, and `tests/lod_d5_scale_aware.rs`'s
+/// `a_unit_step_is_the_stencil_the_crest_always_had`, which holds the field
+/// itself). A tile drawn at
+/// `cells_per_px < 1` passes a larger step **and scales `sx`/`sy` by the same
+/// number**, so the curvature and the slope gate keep measuring one coarse
+/// cell of ground however far past the grid the view has zoomed — which is
+/// what stops the crest stroke from collapsing onto whatever single tile pixel
+/// happens to be convex and shimmering as the view moves.
+///
+/// **The trade-off is real and is chosen deliberately.** A one-pixel stencil
+/// at deep zoom picks out the crests of `add_zoom_detail`'s own octaves, which
+/// is *more* line work, not less. It is refused because that line work is a
+/// screen-space feature — one pixel wide at every zoom — and a feature whose
+/// size is fixed in pixels is exactly the thing LOD-D3's no-popping criterion
+/// is written against. A crest that keeps its ground width grows on screen as
+/// the view comes in, which is what a ridge does.
+fn build_crest(field: &[f32], gw: usize, gh: usize, sea: f64, sx: f64, sy: f64, step: usize, a: &TerrainAppearance) -> Vec<f32> {
     if a.crest_strength <= 0.0 {
         return Vec::new();
     }
     // `sx=sy=1` in the reference's own default-argument form (`sx=sx||1`).
     let invc = 1.0 / (sx * sy);
+    let p = step.max(1);
     let mut out = vec![0f32; gw * gh];
     for y in 0..gh {
         for x in 0..gw {
@@ -2927,10 +3006,10 @@ fn build_crest(field: &[f32], gw: usize, gh: usize, sea: f64, sx: f64, sy: f64, 
             if h < sea {
                 continue;
             }
-            let xl = if x > 0 { x - 1 } else { x };
-            let xr = if x + 1 < gw { x + 1 } else { x };
-            let yu = if y > 0 { y - 1 } else { y };
-            let yd = if y + 1 < gh { y + 1 } else { y };
+            let xl = if x >= p { x - p } else { x };
+            let xr = if x + p < gw { x + p } else { x };
+            let yu = if y >= p { y - p } else { y };
+            let yd = if y + p < gh { y + p } else { y };
             let l = field[y * gw + xl] as f64;
             let r = field[y * gw + xr] as f64;
             let u = field[yu * gw + x] as f64;
@@ -3497,7 +3576,11 @@ impl GridPrecompute {
         // grid is far too expensive to pay for per render when nothing reads
         // it, so the gate is the allocation, not a branch inside the loop.
         let coast_sdf = if appearance.sdf_coast > 0.0 { cartalith_civ::build_coast_sdf(field, gw, gh, sea_level) } else { Vec::new() };
-        let crest = build_crest(field, gw, gh, sea_level, 1.0, 1.0, appearance);
+        // LOD-D5 gave `build_crest` a stencil step. The screen and bake path
+        // passes `1` -- the reference's own stencil and the one this call has
+        // always used -- so it is bit-identical to what it was before the
+        // parameter existed.
+        let crest = build_crest(field, gw, gh, sea_level, 1.0, 1.0, 1, appearance);
         // `with_map_scale`'s own body, to its own gates — see its doc comment
         // for why the threshold is set whenever a width is supplied and the
         // SDF only while its slider is up.
@@ -4449,7 +4532,7 @@ pub(crate) fn apply_wetness(c: Rgb, twi: f64, k: f64) -> Rgb {
 /// `1.0` is what it is under `js_reference()` and at `default()`, which is a
 /// statement about those two appearance records rather than about this port.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>) -> Rgb {
     // CA-03/CA-04's one per-pixel test. At the default it selects the original
     // expressions at both composite sites below, so no blend-mode arithmetic
     // exists on the shipped path — see the section above [`RasterLayer`] for
@@ -4870,8 +4953,29 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         c = saturate(c, 1.0 + appearance.biome_sat);
     }
 
-    let sh_micro = clamp01(sh + (n_hi - 0.5) * 0.20);
-    let sh_combined = appearance.detail_macro_weight * sh + appearance.detail_meso_weight * sh_m + appearance.detail_micro_weight * sh_micro;
+    // LOD-D5 stages 1 and 2. `None` is the pre-milestone expression by
+    // control flow -- `cell_color` and `BakeFields::pixel` pass it and never
+    // evaluate either curve, so the shipped screen and bake are byte-identical
+    // whatever `detail_scale_strength` says. On the `Some` path the two
+    // substitutions are, in order:
+    //
+    // 1. the three band weights come from `scaled_detail_weights` rather than
+    //    from the appearance directly (they ARE the appearance's own three at
+    //    grid resolution, bit for bit, which is what that function returns
+    //    there);
+    // 2. the micro band's `n` cross-fades from `n_hi` -- coherent value noise,
+    //    which is grain and not relief -- toward the tile's own residual over
+    //    the coarse field. At `micro_mix == 0` the `lerp` is `n_hi + 0.0`,
+    //    which is `n_hi` exactly.
+    //
+    // The `(n - 0.5) * 0.20` fold and the `clamp01` are untouched: what
+    // changes is what `n` is a measurement OF, not how it enters the light.
+    let (w_macro, w_meso, w_micro, n_micro) = match scale {
+        Some(s) => (s.weights.0, s.weights.1, s.weights.2, n_hi + (s.micro_n - n_hi) * s.micro_mix),
+        None => (appearance.detail_macro_weight, appearance.detail_meso_weight, appearance.detail_micro_weight, n_hi),
+    };
+    let sh_micro = clamp01(sh + (n_micro - 0.5) * 0.20);
+    let sh_combined = w_macro * sh + w_meso * sh_m + w_micro * sh_micro;
     let light = appearance.relief_ambient + appearance.relief_gain * clamp01(sh_combined).powf(0.85);
     // The stack's second and last composite site. The default arm is the line
     // this file has always had; the other arm is the only place a blend mode
@@ -6329,7 +6433,13 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
             // `pub` and takes only grid inputs, so it is -- and stops short
             // of saying the main map uses it, which would re-baseline every
             // default-appearance render in the tree.
-            0.0);
+            0.0,
+            // LOD-D5 is a TILE stage for the same reason, and the `None` is
+            // the same kind of gate: the grid path has no cells-per-pixel to
+            // put through the curve (it draws one pixel per cell by
+            // definition, where the curve is the identity anyway), so there
+            // is nothing for it to evaluate.
+            None);
         // R2 ridge crests (8171) — the reference's own slot, immediately after
         // `landColorCore` and folded with its own `0.7`. `crest` is empty
         // unless the stage is on, so this is a length test everywhere else.
@@ -6607,6 +6717,17 @@ impl BakeFields {
                 // The bake draws the grid, not a tile -- same `0.0`, same
                 // reason as `cell_color`'s above.
                 0.0,
+                // LOD-D5. `None` here is NOT "the bake is one pixel per
+                // cell" -- `bake_rect` magnifies, and this path samples the
+                // grid at fractional coordinates exactly as a tile does. It
+                // is that the bake upsamples the **coarse** field and never
+                // runs `add_zoom_detail`, so the residual the micro band
+                // would read is identically zero and the extra relief the
+                // re-weighting exists to expose is not in this buffer. The
+                // bake's own golden (`tests/bake_raster.rs`) is the second
+                // reason: giving it the curve would re-baseline it for a
+                // stage with no input.
+                None,
             );
             // R2 ridge crests, the bake's own slot (11971) — `sampleArr` of
             // the same field, folded with the same `0.7`.
@@ -7097,6 +7218,301 @@ pub struct TileBounds {
     pub h: f64,
 }
 
+// ---------------------------------------------------------------------------
+// LOD-D5 — scale-aware shading and hydrology that resolves
+// (`LOD_DETAIL_SCOPE.md`, *"the balance of shading scales and the drainage
+// detail change continuously with ground scale"*).
+//
+// # The one judgment call, stated rather than taken silently
+//
+// The scope writes every stage here as a curve over **km per pixel**; this
+// implementation parameterises them by **coarse cells per tile pixel**, and
+// the two are the same curve whenever the anchor is the map's own resolution:
+// `km_per_px = cells_per_px · km_per_cell`, so a curve in `km_per_px` that is
+// the identity at `km_per_cell` is exactly a curve in `cells_per_px` that is
+// the identity at `1`. They differ only if the anchor is an absolute ground
+// size (*"one kilometre per pixel"*), which would make the shading of a
+// 40 000 km world differ from an 800 km world's at the same pyramid level and
+// the same grid — and, decisively, would make the zoom-1 identity the scope
+// itself requires (*"a test holds the zoom-1 weights byte-identical to
+// today"*) unreachable. Cells per pixel is therefore the parameterisation,
+// and the consequence of the choice is that these stages respond to *how far
+// past the simulation grid the view has zoomed* and not to world size.
+//
+// A second consequence, recorded so it is not mistaken for an oversight: none
+// of this needs a map width, so `RenderCtx` gains no field and
+// `with_map_scale` is unchanged.
+//
+// # What was checked and NOT changed
+//
+// **AO's radius is already in ground units.** `TerrainAppearance::
+// ao_radius_frac` is a fraction of grid width and `build_ao` multiplies it by
+// `gw`, and the tile path reads the finished grid field through
+// `sample_arr(&ctx.ao, ...)` — so a tile's occlusion already has a fixed
+// ground radius at every zoom, and the scope's *"crest and AO radii are set
+// in ground units"* is half already true. Only the crest needed a step.
+// ---------------------------------------------------------------------------
+
+/// LOD-D5 — how many octaves past the simulation grid the scale curve takes
+/// to saturate.
+///
+/// **`6` is `add_zoom_detail`'s own cap**, not a tuning constant:
+/// `cartalith_terrain::amplify::add_zoom_detail` adds `min(6, z − z_base)`
+/// extra octaves, so from six levels past `z_base` onward a tile's height
+/// stops gaining detail and there is nothing further for the shading to
+/// rebalance toward. Saturating the curve at the same depth is what keeps the
+/// two from disagreeing about where "as close as this gets" is.
+const DETAIL_SCALE_OCTAVES: f64 = 6.0;
+
+/// LOD-D5 — `add_zoom_detail`'s own `Math.min(6, …)` octave cap, quoted here
+/// because [`zoom_detail_peak_amplitude`] has to walk the same schedule.
+const ZOOM_DETAIL_MAX_OCTAVES: usize = 6;
+
+/// LOD-D5 — the fraction of the **macro** band's weight handed to the meso
+/// and micro bands at full saturation and full strength.
+///
+/// At the shipped `0.40/0.40/0.20` this takes macro to `0.20` and gives the
+/// other two `0.20` split in their own existing ratio (`0.533/0.267`), so the
+/// three still sum to what they summed to and the light curve's input keeps
+/// its range. Half rather than all, because a deep-zoom view with no macro
+/// band at all loses the landform the fine bands are detail *of*.
+const DETAIL_SHIFT_MAX: f64 = 0.5;
+
+/// LOD-D5 — how far below its theoretical peak the tile's relief residual is
+/// taken to be "full scale" for the micro band.
+///
+/// [`zoom_detail_peak_amplitude`] is the amplitude the octave schedule could
+/// reach if every octave landed at its extreme simultaneously and the relief
+/// taper were `1`, which no real pixel does. Dividing by this is what stops
+/// the micro band from being a barely-visible wobble around `0.5`. **It is a
+/// global constant and not a per-tile normalisation on purpose**: two
+/// adjacent tiles normalised by their own residual spreads would shade the
+/// same ground differently and the difference would land exactly on their
+/// shared edge, which is the seam metric LOD-D2 left open.
+const MICRO_RESIDUAL_HEADROOM: f64 = 4.0;
+
+/// LOD-D5 — the exponent on cells-per-pixel in the per-tile river threshold.
+///
+/// **Two, because the threshold is an area.** `river_flow_thresh` is
+/// `gw·gh·0.0004 / (detail_k · ease)` in units of coarse cells of catchment,
+/// which in km² is `0.0004 · map_w · map_h / (detail_k · ease)` — independent
+/// of the grid, and the resolution-free *area* threshold
+/// `RC_ENGINE_CHANGES.md` §6k argues every hydrological threshold should be.
+/// Keeping the drawn channel's catchment a fixed multiple of the ground **one
+/// drawn pixel covers** therefore means scaling the threshold by the pixel's
+/// own ground area, which is `cells_per_px²`.
+const RIVER_THRESH_SCALE_EXP: f64 = 2.0;
+
+/// LOD-D5 — the floor on the per-tile river threshold, in coarse cells of
+/// accumulated catchment.
+///
+/// `compute_flow` seeds one unit per cell, so a cell that drains only itself
+/// carries `1.0` and a threshold at or below that draws **every land pixel**
+/// as a river. The floor is four rather than one because a D8 tree's
+/// finest branches are single cells: four cells of catchment is the smallest
+/// upstream area that can be a *line* in the sampled field rather than a
+/// point, and below it the bilinear read of one coarse cell is a blob.
+///
+/// It is also the point past which zooming reveals nothing further — the
+/// sampled flow field is the coarse grid's, and no depth of zoom puts a
+/// channel into it that the coarse pass did not accumulate. That limit is
+/// structural, and `cartalith_hydrology::tile` (EF-1) is the mechanism that
+/// would lift it; wiring it is out of this milestone's scope by its own
+/// non-goal (*"channels the flow field does not carry"*).
+const RIVER_TILE_THRESH_FLOOR: f64 = 4.0;
+
+/// LOD-D5 — the scale curve's argument: **octaves past the simulation grid**,
+/// `−log2(cells_per_px)`, normalised by [`DETAIL_SCALE_OCTAVES`] and clamped
+/// to `[−1, 1]`.
+///
+/// `0.0` at one tile pixel per coarse cell — exactly, since `log2(1.0)` is
+/// exactly zero — which is what makes every stage below the identity there.
+/// Positive is zoomed **in** (a pixel covers less than a cell), negative is
+/// zoomed out. A non-finite or non-positive argument returns `0.0` rather
+/// than a plausible-looking number.
+pub(crate) fn detail_scale_u(cells_per_px: f64) -> f64 {
+    if !(cells_per_px.is_finite() && cells_per_px > 0.0) {
+        return 0.0;
+    }
+    (-cells_per_px.log2() / DETAIL_SCALE_OCTAVES).clamp(-1.0, 1.0)
+}
+
+/// LOD-D5 stage 1 — the three shading-band weights at scale `u`
+/// ([`detail_scale_u`]).
+///
+/// Weight is moved **out of** the macro band as the view comes in and back
+/// into it as the view pulls out, and the amount moved is redistributed
+/// between meso and micro **in their own existing ratio** — so the only thing
+/// this curve decides is how much leaves macro, and the shipped balance
+/// between the two fine bands is preserved rather than re-invented. The sum
+/// is conserved wherever no clamp bites, which keeps `sh_combined` on the same
+/// range the light curve was tuned against.
+///
+/// Returns the appearance's own three weights **bit-identically** whenever the
+/// transfer fraction is zero — which is `detail_scale_strength == 0.0`
+/// (`js_reference()`), `u == 0.0` (grid resolution), or a degenerate
+/// `meso + micro`.
+pub(crate) fn scaled_detail_weights(a: &TerrainAppearance, u: f64) -> (f64, f64, f64) {
+    let (mac, mes, mic) = (a.detail_macro_weight, a.detail_meso_weight, a.detail_micro_weight);
+    let f = a.detail_scale_strength * DETAIL_SHIFT_MAX * u;
+    let fine = mes + mic;
+    if f == 0.0 || fine <= 0.0 {
+        return (mac, mes, mic);
+    }
+    let moved = mac * f;
+    ((mac - moved).max(0.0), (mes + moved * (mes / fine)).max(0.0), (mic + moved * (mic / fine)).max(0.0))
+}
+
+/// LOD-D5 stage 2 — the peak height `add_zoom_detail` can add, from its own
+/// schedule.
+///
+/// `amp = detail_amp · 0.6 · zoom_detail_k`, halved because `fbm − 0.5` spans
+/// `±0.5`, geometric at `0.6` over [`ZOOM_DETAIL_MAX_OCTAVES`] octaves. It is
+/// derived from `AmplifyOpts::default()` rather than written as a literal, so
+/// a change to the detail amplitude moves the micro band's normaliser with it
+/// instead of leaving a stale number behind.
+pub(crate) fn zoom_detail_peak_amplitude() -> f64 {
+    let o = cartalith_terrain::amplify::AmplifyOpts::default();
+    let mut amp = o.detail_amp * 0.6 * o.zoom_detail_k;
+    let mut peak = 0.0;
+    for _ in 0..ZOOM_DETAIL_MAX_OCTAVES {
+        peak += amp * 0.5;
+        amp *= 0.6;
+    }
+    peak
+}
+
+/// LOD-D5 stage 2 — the micro band's `n` from the tile's own relief residual,
+/// on the same `[0, 1]` scale `land_color`'s value noise produces.
+///
+/// `residual` is the tile's amplified height minus the bilinear read of the
+/// coarse field at the same world coordinate: **everything the tile added
+/// beyond the simulation grid** — `refine_tile`'s own fixed-frequency detail
+/// as well as `add_zoom_detail`'s progressive octaves. It is deliberately not
+/// claimed to be `add_zoom_detail`'s output alone: separating the two would
+/// mean synthesising the tile twice, and both terms are relief the grid does
+/// not carry, which is the property the micro band wants.
+///
+/// `full_scale` is the residual at which the band **saturates** — `±full_scale`
+/// maps to `1.0` and `0.0`, the two ends `vnoise` itself can reach. Written
+/// that way round, rather than as a half-range, so the name and the number
+/// agree: a caller reading "full scale" gets the residual that produces a
+/// full-strength micro band.
+///
+/// `0.5` — the neutral value, where `(n − 0.5)` is zero — for a zero residual
+/// and for a degenerate scale, so a tile at grid resolution contributes
+/// nothing rather than a plausible-looking jitter.
+pub(crate) fn micro_n_from_residual(residual: f64, full_scale: f64) -> f64 {
+    if !(full_scale > 0.0) || !residual.is_finite() {
+        return 0.5;
+    }
+    0.5 * (1.0 + (residual / full_scale).clamp(-1.0, 1.0))
+}
+
+/// LOD-D5 stage 2 — the residual at which the micro band saturates, from the
+/// octave schedule and [`MICRO_RESIDUAL_HEADROOM`].
+///
+/// A named function rather than an expression at the one call site, so the
+/// headroom constant is reachable by a test: written inline it survives
+/// mutation, because nothing outside the renderer can see the number the
+/// renderer divided by. `tests/lod_d5_scale_aware.rs`'s
+/// `the_micro_band_reads_the_residual_and_saturates_at_a_derived_scale`
+/// asserts this against `zoom_detail_peak_amplitude() / 4.0` with the `4.0`
+/// as a literal.
+pub(crate) fn micro_full_scale() -> f64 {
+    zoom_detail_peak_amplitude() / MICRO_RESIDUAL_HEADROOM
+}
+
+/// LOD-D5 stage 3 — [`build_crest`]'s stencil half-width in tile pixels, so
+/// the stroke keeps a **ground** width of about one coarse cell.
+///
+/// `(1 / cells_per_px)^k`, rounded: exactly `1` at `k == 0` (the identity, by
+/// `x^0`), exactly `1` at one pixel per cell, and growing as the view comes
+/// in.
+///
+/// # Why the cap is a fraction of the tile and not a constant
+///
+/// `build_crest`'s stencil **clamps at the tile's edge** — a pixel closer than
+/// `step` to the border reads itself instead of its neighbour, exactly as the
+/// reference's own one-pixel version does at the outermost column. At `step ==
+/// 1` that is a one-pixel skirt nobody can see; at a free-running ground-unit
+/// step it is a `step`-pixel skirt on each side. Holding that skirt to a fixed
+/// *fraction* of the tile rather than a fixed pixel count is the reason for
+/// the cap, and the divisor is [`CREST_STEP_TILE_FRAC`]: 8 px on a 256 px
+/// `TILE_PX` tile, 3.1% of each edge. It takes the tile's own dimension as an
+/// argument rather than reading `TILE_PX`, because `render_biome_tile_rgba`
+/// renders whatever size it is handed and an atlas chunk is not a screen tile.
+///
+/// **What the cap is NOT for, recorded because it is what it was first built
+/// for and the hypothesis was wrong.** The LOD-D0 harness at 512x384, seed
+/// 483920, shows the median per-frame seam ratio rising from 1.7383 with the
+/// control off to 1.8315 with it on — 5.4%, on a bar (`<= 1.5`) LOD-D2 left
+/// open. The skirt was the obvious suspect. Tightening the cap from a flat 32
+/// to a thirty-second of the tile (6 px on that grid's 256x192 tiles) and
+/// re-running the identical probe gave **1.8361** — no movement. The cap is
+/// kept on its own reasoning and for the detail it recovers (zoom-40 detail
+/// 50.0% -> 50.7% of the zoom-1 value), and the seam rise is **unattributed**;
+/// `tests/lod_d5_scale_aware.rs`'s
+/// `which_stage_moves_the_shared_column_between_two_tiles` carries the rest of
+/// that measurement.
+pub(crate) fn crest_step_for_scale(cells_per_px: f64, k: f64, tile_min_dim: usize) -> usize {
+    if k <= 0.0 || !(cells_per_px.is_finite() && cells_per_px > 0.0) {
+        return 1;
+    }
+    let s = (1.0 / cells_per_px).powf(k);
+    if !s.is_finite() {
+        return 1;
+    }
+    let cap = (tile_min_dim / CREST_STEP_TILE_FRAC).max(1);
+    s.round().clamp(1.0, cap as f64) as usize
+}
+
+/// The widest stencil [`crest_step_for_scale`] will ask for, as a divisor of
+/// the tile's shorter side. `32` puts the clamped skirt at 3.1% of each edge.
+const CREST_STEP_TILE_FRAC: usize = 32;
+
+/// LOD-D5 stage 4 — the discharge a per-tile river SDF calls a channel at
+/// this zoom.
+///
+/// `base · cells_per_px^(2k)`, clamped into `[floor, base]`:
+///
+/// - **never above `base`**, so pulling the view out can only ever return the
+///   map's own answer and never erase a river the map draws (a parent tile at
+///   level 0 has `cells_per_px` well above `1`);
+/// - **never below [`RIVER_TILE_THRESH_FLOOR`]**, and never below `base`
+///   either, so a world whose own threshold is already under the floor is not
+///   raised to it.
+///
+/// Exactly `base` at `k == 0` and at one pixel per cell, by `x^0` and `1^x`.
+pub(crate) fn tile_river_thresh(base: f64, cells_per_px: f64, k: f64) -> f64 {
+    if !(base > 0.0) || k <= 0.0 || !(cells_per_px.is_finite() && cells_per_px > 0.0) {
+        return base;
+    }
+    let t = base * cells_per_px.powf(RIVER_THRESH_SCALE_EXP * k);
+    if !t.is_finite() {
+        return base;
+    }
+    t.clamp(RIVER_TILE_THRESH_FLOOR.min(base), base)
+}
+
+/// LOD-D5's per-pixel inputs to [`land_color`], resolved once per tile
+/// (the three weights, the micro mix) and once per pixel (the residual `n`).
+///
+/// `None` at the call site is the pre-LOD-D5 behaviour by **control flow**:
+/// `cell_color` passes `None` and never touches any of this, so the shipped
+/// screen render is byte-identical whatever `detail_scale_strength` says.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DetailScale {
+    /// [`scaled_detail_weights`]' three bands, in macro/meso/micro order.
+    pub weights: (f64, f64, f64),
+    /// How far the micro band has crossed from value noise to relief —
+    /// `detail_scale_strength · max(u, 0)`, so it is `0` at and outside grid
+    /// resolution and `1` at full strength six octaves in.
+    pub micro_mix: f64,
+    /// [`micro_n_from_residual`] at this pixel.
+    pub micro_n: f64,
+}
+
 /// The grid-resolution precomputes a tile needs and cannot build for itself,
 /// built **once per world and appearance** and shared by every tile.
 ///
@@ -7466,6 +7882,59 @@ pub fn tile_cryo_samples(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize, boun
     out
 }
 
+/// LOD-D5's river seeds for one tile — the mask [`build_river_sdf`] measures
+/// its distance from, as `1`/`0` bytes in the tile's own row-major order.
+///
+/// This is `render_biome_tile_rgba`'s own river prologue with the SDF left
+/// off: the same `sample_arr` of the same `ctx.flow` at the same world
+/// coordinates, and the same [`tile_river_thresh`] of the same
+/// `ctx.river_thresh`. It exists because the milestone's acceptance bar is
+/// written about the seeds — *"the count of distinct channel components in
+/// view rises with zoom, and every drawn channel pixel has sampled discharge
+/// ≥ the threshold"* — and a metric that re-derived either the sampling or
+/// the threshold would be measuring a second renderer.
+///
+/// Returns the threshold beside the mask, because the second half of that bar
+/// is a statement about a number the caller cannot otherwise see.
+///
+/// Empty (and `0.0`) for a malformed call, for a `ctx` with no flow, and for
+/// a threshold that was never attached — the same three conditions under
+/// which the renderer itself builds no river SDF, so the two agree about
+/// "there are no seeds" rather than this one inventing some.
+///
+/// # Why this carries `#[allow(dead_code)]`
+///
+/// Its only caller is `tests/lod_d5_scale_aware.rs` (checked present
+/// 2026-09-21), and a test is not part of the lib build — `tile_cryo_samples`
+/// carries the same attribute for the same reason.
+#[allow(dead_code)]
+pub fn tile_river_seeds(ctx: &RenderCtx, w: usize, h: usize, bounds: TileBounds) -> (Vec<u8>, f64) {
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    let flow = match ctx.flow {
+        Some(f) if w > 0 && h > 0 && gw > 0 && gh > 0 && f.len() >= gw * gh && ctx.river_thresh > 0.0 => f,
+        _ => return (Vec::new(), 0.0),
+    };
+    let cx = bounds.w / (w.max(2) - 1) as f64;
+    let cy = bounds.h / (h.max(2) - 1) as f64;
+    let thresh = tile_river_thresh(ctx.river_thresh, (cx * cy).sqrt(), ctx.appearance.detail_scale_strength);
+    let mut mask = vec![0u8; w * h];
+    for y in 0..h {
+        let wy = bounds.y + y as f64 * cy;
+        for x in 0..w {
+            // `build_river_sdf`'s own `f as f64 > thresh`, **through the same
+            // `f32`**: the renderer stores its sampled flow into an `f32`
+            // buffer before the comparison, so a mask that compared the `f64`
+            // sample would disagree with it on any pixel whose two roundings
+            // straddle the threshold. The boundary is strict for the same
+            // reason — `>=` would disagree on a pixel that sampled it exactly.
+            if (sample_arr(flow, bounds.x + x as f64 * cx, wy, gw, gh) as f32) as f64 > thresh {
+                mask[y * w + x] = 1;
+            }
+        }
+    }
+    (mask, thresh)
+}
+
 /// `renderBiomeTileRGBA(tile, W, H, bounds)` (reference HTML 11668-11779) —
 /// one LOD/atlas tile of **amplified** height as the full biome look, RGBA8,
 /// row-major, four bytes per pixel, alpha always `255`.
@@ -7513,9 +7982,35 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
     // the flag — `RenderCtx::coast_d`'s contract, so a gate and its field can
     // never disagree.
 
+    // ---- LOD-D5's four scale-dependent quantities, resolved once per tile --
+    //
+    // `cells_per_px` is the geometric mean of the two axes' cell steps. The
+    // mean rather than one axis because `pyramid_tile_bounds` is aspect-
+    // matched and the two differ on a non-square map, and *geometric* because
+    // the curve's argument is a `log2` — the geometric mean is the one whose
+    // log is the mean of the logs, so a 2:1 tile sits exactly half an octave
+    // from a square one instead of somewhere that depends on which axis was
+    // picked.
+    let cells_per_px = (cx * cy).sqrt();
+    let u = detail_scale_u(cells_per_px);
+    let scale_k = a.detail_scale_strength;
+    let detail_w = scaled_detail_weights(a, u);
+    // `max(u, 0.0)`: the micro band crosses to relief only as the view comes
+    // IN. Pulled out past grid resolution there is no residual to read (the
+    // tile is a decimation of the grid, not a refinement of it), and fading
+    // toward a field that is structurally zero would just remove the grain.
+    let micro_mix = scale_k * u.max(0.0);
+    let micro_full_scale = micro_full_scale();
+    let crest_step = crest_step_for_scale(cells_per_px, scale_k, w.min(h));
+
     // R2 crest, from the tile's own height, coarse-scaled by `cx, cy` — the
-    // reference's `buildCrestField(tile, W, H, sl, cx, cy)`.
-    let crest_b = build_crest(tile, w, h, sl, cx, cy, a);
+    // reference's `buildCrestField(tile, W, H, sl, cx, cy)`, with LOD-D5's
+    // ground-unit stencil. **Both the step and the scale move together**: the
+    // stencil spans `crest_step` pixels and `cx * crest_step` coarse cells, so
+    // the curvature and the slope gate are still read in coarse-cell units and
+    // `CREST_SLOPE_HI` still means what it meant. Passing one without the
+    // other would silently re-scale the gate by the step.
+    let crest_b = build_crest(tile, w, h, sl, cx * crest_step as f64, cy * crest_step as f64, crest_step, a);
 
     // B5 coast SDF, from the tile's own height. `buildCoastSDF` and this are
     // the same function over the same mask; `build_river_sdf`'s doc comment
@@ -7536,7 +8031,14 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
                     tfl[yy * w + xx] = sample_arr(flow, bounds.x + xx as f64 * cx, wyy, gw, gh) as f32;
                 }
             }
-            build_river_sdf(&tfl, w, h, ctx.river_thresh)
+            // LOD-D5 stage 4: the grid's threshold at grid resolution, and
+            // continuously lower as the view comes in, so a tributary the
+            // coarse pass accumulated but the map does not call a river is
+            // drawn once one drawn pixel covers little enough ground. The
+            // reference's own argument (11683) is preserved where it bites —
+            // `tile_river_thresh` never returns more than `ctx.river_thresh`,
+            // so a tile can still only ever agree with the map or add to it.
+            build_river_sdf(&tfl, w, h, tile_river_thresh(ctx.river_thresh, cells_per_px, scale_k))
         }
         _ => Vec::new(),
     };
@@ -7677,8 +8179,14 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
                     // *"tile temperature"*, and a sub-cell ridge 300 m above
                     // its cell centre is colder for the treeline exactly as
                     // it is colder for the snowline.
+                    // The tile's relief residual over the coarse field, read
+                    // once and used twice: LOD-D4's lapse correction needs
+                    // exactly this difference, and LOD-D5's micro band is a
+                    // measurement of it. Computed only when one of the two is
+                    // live, so a tile with both off pays nothing.
+                    let residual = if cryo.is_some() || micro_mix > 0.0 { ht - sample_arr(ctx.field, wx, wy, gw, gh) } else { 0.0 };
                     let t = match cryo {
-                        Some(c) => t - c.delta_t(ht - sample_arr(ctx.field, wx, wy, gw, gh)),
+                        Some(c) => t - c.delta_t(residual),
                         None => t,
                     };
 
@@ -7754,6 +8262,17 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
                         // same ground cannot disagree about it, which a
                         // per-tile derivation could not promise.
                         if glacier_on { sample_arr(&tf.glacier, wx, wy, gw, gh) * a.ice_strength } else { 0.0 },
+                        // LOD-D5 stages 1 and 2. `Some` unconditionally on
+                        // the tile path, because at `detail_scale_strength ==
+                        // 0.0` and at one pixel per cell the three weights
+                        // ARE the appearance's own and `micro_mix` is `0.0`,
+                        // so this branch is the identity by arithmetic that
+                        // cannot round -- which is what keeps
+                        // `golden_parity_tile_biome.rs`'s reference goldens
+                        // and its screen-identity check green rather than
+                        // nearly green. Asserted, not claimed, by
+                        // `tests/lod_d5_scale_aware.rs`.
+                        Some(DetailScale { weights: detail_w, micro_mix, micro_n: micro_n_from_residual(residual, micro_full_scale) }),
                     );
                     // R2 crest, then the two SDF bands — `applyCrest` and
                     // `applyCoastRiverSDFv`, in the reference's own order and

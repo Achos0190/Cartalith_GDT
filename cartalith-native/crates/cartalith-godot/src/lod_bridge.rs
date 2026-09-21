@@ -1161,16 +1161,28 @@ mod tests {
         // one could regress alone:
         //
         // 1. **Per unit ground, a deeper level carries strictly more.**
-        //    Measured 58.3 -> 74.1 -> 113.5 -> 221.4 at the four levels below.
+        //    Measured 57.3 -> 65.0 -> 86.3 -> 146.8 at the four levels below.
+        //    **These four numbers moved on 2026-09-21 and the claim did not.**
+        //    They were 58.3 -> 74.1 -> 113.5 -> 221.4 until LOD-D5 gave
+        //    `build_crest` a ground-unit stencil (`render.rs`'s LOD-D5
+        //    section): `TestWorld::appearance()` is `default().with_look(
+        //    LOOK_VIBRANT)`, which carries `crest_strength: 0.12` and
+        //    `detail_scale_strength: 1.0`, so the crest these tiles draw is no
+        //    longer a one-pixel stroke at every depth. The ladder still rises
+        //    strictly, which is what this test asserts; the numbers are
+        //    recorded here so the next person to read them is reading this
+        //    build's.
         // 2. **At `z_base` the octaves are a no-op**, byte for byte -- the
         //    property `add_zoom_detail` documents, restated at this caller's
         //    own `z_base()` so a `TILE_PX` change that forgets to move it
         //    fails here.
         // 3. **The octaves are what carry it at depth**, stated against a
         //    no-octave baseline synthesised the same way and as a ratio, since
-        //    the baseline moves too. Measured 1.000, 1.048, 1.258, 1.787 --
+        //    the baseline moves too. Measured 1.000, 1.044, 1.306, 1.961 --
         //    and every one of them is exactly 1.000 if `add_zoom_detail` is
-        //    removed, which is the red this test owes the scope.
+        //    removed, which is the red this test owes the scope. (1.048,
+        //    1.258, 1.787 before LOD-D5, for the reason recorded above: the
+        //    ratio's own baseline is drawn with the same crest.)
         let (gw, gh) = (512usize, 512usize);
         let world = TestWorld::new(relief_field(gw, gh), gw, gh);
         let ctx = world.ctx();
@@ -1209,7 +1221,7 @@ mod tests {
             "the octaves stopped paying off with depth: {seen:?} ratios {ratios:?}"
         );
         // One octave over `amplify_region`'s own detail is nearly a wash
-        // (measured 1.048 at `z_base + 1`); by three it is not, and that is
+        // (measured 1.044 at `z_base + 1`); by three it is not, and that is
         // the depth the camera now reaches.
         assert!(
             *ratios.last().unwrap() > 1.05,
@@ -1651,5 +1663,134 @@ mod tests {
             100.0 * deflated as f64 / raw_total as f64,
             mib(png_z.iter().sum::<u64>())
         );
+    }
+
+    // -- LOD-D5 -----------------------------------------------------------
+
+    /// **`LOD_DETAIL_SCOPE.md` LOD-D5, acceptance bar 2**: *"Detail per screen
+    /// pixel is non-decreasing from zoom 4 to 40."*
+    ///
+    /// # The bar is NOT met, it was not met before this milestone either, and
+    /// this test says so rather than asserting something weaker and calling it
+    /// the bar
+    ///
+    /// Measured on this fixture, `detail_per_pixel` at the level
+    /// `level_for_zoom` picks for each rung of `_mapsharp_probe.gd`'s own R3
+    /// ladder:
+    ///
+    /// | zoom | level | LOD-D5 off | LOD-D5 on |
+    /// |---|---|---|---|
+    /// | 4  | 3 | 0.029634 | 0.030507 |
+    /// | 8  | 4 | 0.023733 | 0.023076 |
+    /// | 16 | 5 | 0.011305 | 0.009412 |
+    /// | 24 | 6 | 0.010940 | 0.007292 |
+    /// | 40 | 6 | 0.010940 | 0.007292 |
+    ///
+    /// It **falls** on both sides. Two findings, and they are separate:
+    ///
+    /// 1. **The fall is structural and predates LOD-D5.** `add_zoom_detail`
+    ///    adds each octave at `0.6` of the last one's amplitude and twice its
+    ///    frequency, while a level down halves the ground one pixel covers.
+    ///    The height difference between two adjacent pixels from the newest
+    ///    octave therefore goes as `0.6 * 2 / 2 = 0.6` per level, and from
+    ///    every older octave as `0.5`. A picture whose relief per pixel falls
+    ///    by 40% a level cannot have a non-decreasing detail statistic. Making
+    ///    it non-decreasing means an amplitude decay of `0.5` or slower, which
+    ///    is a change to the octave schedule — this milestone's own stated
+    ///    non-goal (*"the golden schedule does not change here"*) and a golden
+    ///    re-baseline that needs an owner ruling.
+    /// 2. **LOD-D5 deepens it, and the whole of that is the crest stencil.**
+    ///    Isolated by pinning `crest_step` at `1` and re-running: on and off
+    ///    then agree to within 0.5% at every rung (0.029633/0.029634,
+    ///    0.023731/0.023733, 0.011312/0.011305, 0.010991/0.010940) — so the
+    ///    band re-weighting, the micro band and the river threshold together
+    ///    cost **nothing**, and are a slight net gain at depth (ratios 1.0001,
+    ///    0.9996, 1.0006, 1.0015 with the crest off both sides). The
+    ///    ground-unit crest is the entire 34% at level 6 — and measured
+    ///    against a crest-off baseline it is not detail being destroyed but
+    ///    the crest ceasing to ADD it: crest off measures 0.007084 at level 6,
+    ///    a one-pixel crest 0.010940 (+54%) and a ground-unit crest 0.007292
+    ///    (+3%). What the statistic was reading was a stroke one pixel wide at
+    ///    every zoom. That is the deliberate trade
+    ///    `build_crest`'s own doc comment records: a one-pixel stroke at every
+    ///    zoom carries more high-frequency energy and is exactly the
+    ///    fixed-in-pixels feature LOD-D3's no-popping criterion is written
+    ///    against. Capping the stencil lower does not escape it, only scales
+    ///    it — measured at flat caps 2/4/8/32 at level 6: 0.009211, 0.008015,
+    ///    0.007292, 0.007171. The shipped cap is a thirty-second of the tile,
+    ///    which on the 256 px tiles this ladder synthesises is the 8 row.
+    ///
+    /// # What this test therefore asserts
+    ///
+    /// Not the bar, which would be red. The finding, so that it cannot
+    /// silently change: **with the crest out of both arms, LOD-D5 does not
+    /// cost detail at any rung**. That is the claim a future edit could break
+    /// with nothing else noticing, and it is the one that justifies leaving
+    /// the other three stages on. Both halves of "it falls" are asserted too,
+    /// so a change that fixed the bar turns this red and forces the comment to
+    /// be rewritten instead of quietly outliving the finding.
+    #[test]
+    fn lod_d5_detail_per_screen_pixel_and_the_bar_it_does_not_meet() {
+        let (gw, gh) = (512usize, 512usize);
+        const ZOOMS: [f64; 5] = [4.0, 8.0, 16.0, 24.0, 40.0];
+        let measure = |k: f64, crest: f64| -> Vec<(f64, i32, f64)> {
+            let a = render::TerrainAppearance { detail_scale_strength: k, crest_strength: crest, ..TestWorld::appearance() };
+            let field = relief_field(gw, gh);
+            let mut temp = vec![0f32; gw * gh];
+            let mut rain = vec![0f32; gw * gh];
+            for y in 0..gh {
+                for x in 0..gw {
+                    let (u, v) = (x as f64 / gw as f64, y as f64 / gh as f64);
+                    temp[y * gw + x] = (24.0 - 38.0 * v) as f32;
+                    rain[y * gw + x] = (0.28 + 0.60 * (u * 3.0 + 0.7).sin().abs()) as f32;
+                }
+            }
+            let pre = render::GridPrecompute::build(&field, &temp, &rain, Some(&field), gw, gh, TEST_SEA, false, &a, Some(800.0));
+            let ctx = render::RenderCtx::from_precomputed(&field, &temp, &rain, Some(&field), gw, gh, TEST_SEA, false, 55.0, 5.0, a, &pre).expect("the precompute is for this grid");
+            let tf = TileFields::new(&ctx, None);
+            ZOOMS
+                .iter()
+                .map(|&zoom| {
+                    let z = level_for_zoom(zoom, gw);
+                    // The tile holding the same ground at every level:
+                    // `relief_field` puts its dome at (0.42, 0.55) of the grid.
+                    let n = tiles_per_axis(z) as i32;
+                    let (col, row) = (((n as f64 * 0.42) as i32).min(n - 1), ((n as f64 * 0.55) as i32).min(n - 1));
+                    let (rgba, w, h) = synthesize_tile_rgba(&ctx, &tf, z, col, row, 24601).expect("a tile at every level of the ladder");
+                    // `crate::lod_sweep::detail_per_pixel` and not a local
+                    // copy: this is the LOD-D0 harness's own statistic, the
+                    // one `LodSweepMetrics::detail` wraps and the one
+                    // `_mapsharp_probe.gd::_hf_energy` was ported from, so the
+                    // numbers above are in the units the scope's bar is
+                    // written in.
+                    let d = crate::lod_sweep::detail_per_pixel(&rgba, w, h).expect("a non-degenerate measurement box");
+                    (zoom, z, d)
+                })
+                .collect()
+        };
+
+        let crest_on = TestWorld::appearance().crest_strength;
+        assert!(crest_on > 0.0, "the fixture's look has no crest, so the attribution below is between two offs");
+        let on = measure(1.0, crest_on);
+        let off = measure(0.0, crest_on);
+        println!("-- the bar, as shipped (crest at {crest_on}) --");
+        for ((zoom, z, d_on), (_, _, d_off)) in on.iter().zip(off.iter()) {
+            println!("zoom {zoom:>5} -> level {z}: detail/px {d_on:.6} (LOD-D5 on), {d_off:.6} (off)");
+        }
+        let falls = on.windows(2).filter(|w| w[1].2 < w[0].2 - 1e-12).count();
+        let off_falls = off.windows(2).filter(|w| w[1].2 < w[0].2 - 1e-12).count();
+        assert!(falls > 0, "detail per screen pixel no longer falls with LOD-D5 on -- the bar may now be MET; re-read this test's doc comment and rewrite it");
+        assert!(off_falls > 0, "detail per screen pixel no longer falls with the milestone OFF -- finding 1 (the octave schedule) has changed");
+
+        // The finding this test exists to pin: with the crest out of both
+        // arms, the other three stages cost nothing.
+        let on_nc = measure(1.0, 0.0);
+        let off_nc = measure(0.0, 0.0);
+        println!("-- the other three stages, crest off both sides --");
+        for ((zoom, z, a), (_, _, b)) in on_nc.iter().zip(off_nc.iter()) {
+            println!("zoom {zoom:>5} -> level {z}: detail/px {a:.6} (on), {b:.6} (off), ratio {:.4}", a / b);
+            assert!(*a > 0.0 && *b > 0.0, "a zero detail reading at zoom {zoom}");
+            assert!(*a >= b * 0.995, "at zoom {zoom} the band re-weighting, micro band and river threshold together cost detail: {a:.6} against {b:.6}");
+        }
     }
 }
