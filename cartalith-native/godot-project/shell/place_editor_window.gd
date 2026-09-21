@@ -176,6 +176,26 @@ const TAB_LABELS := {
 }
 var _active_tab := "overview"
 
+## Timeline tab state (`lazy-riding-piglet.md` Batch B). World-level, not
+## settlement-scoped -- `civ_add_year`/`civ_goto_year`/`civ_remove_year`/
+## `civ_run_collapse_simulation` all act on `CivData`'s own timeline, the same
+## one every settlement's editor sees. Kept as instance state rather than
+## re-read from the engine on every rebuild because a SpinBox/slider mid-edit
+## must not snap back to a stale default the moment an unrelated field commits
+## a rebuild -- the same reasoning `_name_edit` already needs a guard for.
+var _tl_target_year := 0
+var _sim_mode := "collapse"
+var _sim_character := "mixed"
+var _sim_severity := 0.5
+var _sim_rate := 0.01
+var _sim_start_year := 0
+var _sim_duration := 100
+var _sim_step_years := 10
+## The last `civ_run_collapse_simulation` response, `{}` before any run this
+## session. Holds either a `needs_confirm` gate (the canvas's own "nothing is
+## written until you confirm" banner) or a completed run's report.
+var _sim_last_result := {}
+
 
 func setup(a, b: EngineBridge) -> void:
 	app = a
@@ -365,7 +385,7 @@ func _rebuild() -> void:
 		"economy":
 			_build_trade(tab_content)
 		"timeline":
-			_build_timeline_placeholder(tab_content)
+			_build_timeline(tab_content)
 		"political":
 			_build_political_placeholder(tab_content)
 		"vault":
@@ -435,12 +455,159 @@ func _switch_tab(tab: String) -> void:
 
 # -- Timeline / Political history placeholders ---------------------------------
 
-## `lazy-riding-piglet.md` Batch B fills this tab: a year-dot scrubber over
-## `TimelineSnapshot` years, Add/Go to/Remove, a `civ_year_diff` readout, and
-## the collapse/recovery simulator. Not attempted in this batch.
-func _build_timeline_placeholder(parent: Control) -> void:
-	var sec := DccWidgets.section(parent, "Timeline")
-	DccWidgets.note(sec, "Not built yet — see OUTSTANDING_WORK.md.")
+## Canvas `1c` (`design/settlement-editor-2026-09-21/Cartalith Settlement
+## Editor.dc.html`): "The mockup drew a hand-authored event log. The engine
+## has something better and different: recorded years you can scrub, and a
+## collapse/recovery simulator that writes them." World-level, not
+## settlement-scoped -- see `_tl_target_year`'s own doc comment above.
+##
+## **Mode/Character use `DccWidgets.choice()`, not the canvas's own segmented
+## row.** Every other enumerated picker in this file (Class, Polity, Economy,
+## Walls) already goes through `choice()`; a bespoke segmented-button pair for
+## these two alone would be a second, untested pattern for the same job the
+## tab strip above already solved. Recorded as a divergence, the same way
+## `_build_identity`'s re-roll glyph records its own.
+func _build_timeline(parent: Control) -> void:
+	var years: PackedInt64Array = bridge.get_civ_timeline_years()
+	var cursor := bridge.get_civ_year()
+
+	# -- Recorded years scrubber --------------------------------------------
+	var sec := DccWidgets.section(parent, "Recorded years")
+	if years.is_empty():
+		DccWidgets.note(sec, "No recorded years yet. Add one below to start the timeline.")
+	else:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+		for y in years:
+			var on := int(y) == cursor
+			DccWidgets.chip(row, "y%d" % int(y), func():
+				bridge.civ_goto_year(int(y))
+				place_changed.emit()
+				_rebuild(), on)
+		sec.add_child(row)
+	DccWidgets.note(sec, "Cursor: year %d." % cursor)
+
+	DccWidgets.number(sec, "Year", -100000.0, 100000.0, 1.0, float(_tl_target_year),
+		func(v: float): _tl_target_year = int(v))
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 6)
+	DccWidgets.action(btn_row, "Add year", func():
+		bridge.civ_add_year(_tl_target_year)
+		place_changed.emit()
+		_rebuild())
+	DccWidgets.action(btn_row, "Go to year", func():
+		bridge.civ_goto_year(_tl_target_year)
+		place_changed.emit()
+		_rebuild())
+	DccWidgets.action(btn_row, "Remove", func():
+		bridge.civ_remove_year(_tl_target_year)
+		place_changed.emit()
+		_rebuild())
+	sec.add_child(btn_row)
+
+	## `civ_year_diff` diffs `year` against the chronologically previous
+	## recorded year (`timeline_bridge.rs`'s own doc comment) -- there is no
+	## "changed" set in the returned dictionary (only tid membership), so this
+	## reports what the engine actually returns rather than inventing the
+	## canvas's own "N changed" figure it has no data for.
+	var diff := bridge.civ_year_diff(cursor)
+	var present: PackedInt64Array = diff.get("present", PackedInt64Array())
+	var added: PackedInt64Array = diff.get("added", PackedInt64Array())
+	var removed: PackedInt64Array = diff.get("removed", PackedInt64Array())
+	DccWidgets.note(sec, "Diff vs. the previous recorded year: %d present · %d added · %d removed."
+		% [present.size(), added.size(), removed.size()])
+
+	# -- Collapse / recovery simulator --------------------------------------
+	var sim := DccWidgets.section(parent, "Collapse / recovery simulation")
+	DccWidgets.choice(sim, "Mode", ["Collapse", "Recovery"],
+		0 if _sim_mode == "collapse" else 1,
+		func(i: int): _sim_mode = "collapse" if i == 0 else "recovery")
+	DccWidgets.choice(sim, "Character", ["Mixed", "Trade", "Disease", "Conflict"],
+		["mixed", "trade", "disease", "conflict"].find(_sim_character),
+		func(i: int): _sim_character = ["mixed", "trade", "disease", "conflict"][i],
+		"Collapse mode only -- ignored in Recovery.")
+	DccWidgets.slider(sim, "Severity", 0.0, 100.0, 1.0, _sim_severity * 100.0, "%",
+		func(v: float): _sim_severity = v / 100.0,
+		"Collapse mode only -- fraction of the stress applied per step.")
+	DccWidgets.slider(sim, "Rate", 0.0, 10.0, 0.1, _sim_rate * 100.0, "%/yr",
+		func(v: float): _sim_rate = v / 100.0,
+		"Recovery mode only -- regrowth rate per year.")
+	DccWidgets.number(sim, "Start year", -100000.0, 100000.0, 1.0, float(_sim_start_year),
+		func(v: float): _sim_start_year = int(v))
+	DccWidgets.number(sim, "Duration (yr)", 1.0, 100000.0, 1.0, float(_sim_duration),
+		func(v: float): _sim_duration = int(v))
+	DccWidgets.number(sim, "Step (yr)", 1.0, 10000.0, 1.0, float(_sim_step_years),
+		func(v: float): _sim_step_years = int(v))
+	DccWidgets.action(sim, "Run simulation", func(): _run_collapse_sim(false))
+
+	if bool(_sim_last_result.get("needs_confirm", false)):
+		var clobber: PackedInt64Array = _sim_last_result.get("clobber_years", PackedInt64Array())
+		var years_str: Array = []
+		for y in clobber:
+			years_str.append("y%d" % int(y))
+		var warn := PanelContainer.new()
+		warn.add_theme_stylebox_override("panel", DccWidgets.box("accent", "accent_wash", 10, 9))
+		var warn_col := VBoxContainer.new()
+		warn_col.add_theme_constant_override("separation", 6)
+		warn.add_child(warn_col)
+		DccWidgets.note(warn_col, "This run would overwrite %d recorded year%s -- %s. Nothing is "
+			% [clobber.size(), "" if clobber.size() == 1 else "s", ", ".join(years_str)]
+			+ "written until you confirm.")
+		DccWidgets.action(warn_col, "Run & overwrite", func(): _run_collapse_sim(true))
+		sim.add_child(warn)
+	elif bool(_sim_last_result.get("ok", false)):
+		var rep := DccWidgets.group(sim, "Run report")
+		var grid := HBoxContainer.new()
+		grid.add_theme_constant_override("separation", 16)
+		_report_stat(grid, "STEPS", str(int(_sim_last_result.get("steps", 0))))
+		_report_stat(grid, "END YEAR", str(int(_sim_last_result.get("end_year", 0))))
+		_report_stat(grid, "DIED", str(int(_sim_last_result.get("died", 0))))
+		_report_stat(grid, "MIGRATED", str(int(_sim_last_result.get("migrated", 0))))
+		_report_stat(grid, "UNPLACED", str(int(_sim_last_result.get("unplaced", 0))))
+		_report_stat(grid, "FAILED", str(int(_sim_last_result.get("failed", 0))))
+		_report_stat(grid, "GREW", str(int(_sim_last_result.get("grew", 0))))
+		_report_stat(grid, "SETTLEMENTS", str(int(_sim_last_result.get("final_settlements", 0))))
+		rep.add_child(grid)
+	elif _sim_last_result.has("error"):
+		DccWidgets.note(sim, "Run refused: %s" % String(_sim_last_result.get("error", "")))
+
+	# -- Authored events (canvas's own dashed panel) -------------------------
+	var ev := DccWidgets.section(parent, "Authored events")
+	DccWidgets.note(ev, "Dashed in the canvas, and left dashed here for the same reason it "
+		+ "states: a hand-written \"Siege, -250\" has nowhere to live. A TimelineSnapshot stores "
+		+ "settlements, territory and ways -- no event list, no per-event population delta. The "
+		+ "right shape is an annotation keyed to a recorded year, with its delta read FROM two "
+		+ "snapshots rather than typed by hand. Not built: that store does not exist.")
+
+
+## One `civ_run_collapse_simulation` call, then a rebuild so the confirmation
+## banner or the report reads the fresh response. `confirm` re-sends the same
+## drafted request with `confirm_overwrite` set, matching the bridge's own
+## documented re-send-to-proceed protocol (`timeline_bridge.rs`'s
+## `CollapseSimRequest::confirm_overwrite` doc comment).
+func _run_collapse_sim(confirm: bool) -> void:
+	var request := {
+		"mode": _sim_mode,
+		"character": _sim_character,
+		"severity": _sim_severity,
+		"rate": _sim_rate,
+		"start_year": _sim_start_year,
+		"duration": _sim_duration,
+		"step_years": _sim_step_years,
+		"confirm_overwrite": confirm,
+	}
+	_sim_last_result = bridge.civ_run_collapse_simulation(request)
+	if bool(_sim_last_result.get("ok", false)):
+		place_changed.emit()
+	_rebuild()
+
+
+func _report_stat(parent: Control, key: String, value: String) -> void:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 2)
+	col.add_child(DccTheme.mono_label(key, "text_faint", DccTheme.FS_MICRO, 1))
+	col.add_child(DccTheme.mono_label(value, "text", DccTheme.FS_SMALL))
+	parent.add_child(col)
 
 
 ## `lazy-riding-piglet.md` Batch C fills this tab: derived ownership periods
