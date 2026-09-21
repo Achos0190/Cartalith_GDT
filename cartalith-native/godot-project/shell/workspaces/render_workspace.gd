@@ -108,6 +108,10 @@ const WATER_ANIM_SCRIPT := preload("res://shell/water_anim_layer.gd")
 ## styles". A preset whose look this cdylib does not have simply keeps the look
 ## that is already selected -- `EngineBridge.set_look` returns false and the
 ## Painter half still applies.
+## `entry[3]`, present only on "Village" below, is an **appearance**-tunable
+## override bundle (`bridge.set_appearance()`'s own keys) rather than an NPR
+## one -- see `_apply_preset`'s own comment for why this one preset needs a
+## fourth element the other five do not.
 const STYLE_PRESETS := [
 	["Natural Vibrant", "Natural Vibrant", {"multi_sun": true}],
 	["Default", "Quality tier", {}],
@@ -115,6 +119,14 @@ const STYLE_PRESETS := [
 	["Ink", "Natural Vibrant", {"ink": 0.6, "contours": 0.35, "multi_sun": true}],
 	["Watercolor", "Natural Vibrant", {"watercolor": 0.65, "multi_sun": true}],
 	["Print", "Natural Vibrant", {"risograph": 0.5, "contours": 0.25}],
+	## v2.70 (`RC_ENGINE_CHANGES.md`): the "Village map" flat limited-palette
+	## style. The row's own two rules, both taken: `village: true` quantises
+	## the *lit* colour (`Npr::village`), and the hillshade weights go to zero
+	## here ("turn the hillshade off in the recipe") so the quantiser is not
+	## fed a smooth per-pixel gradient it would just re-sample into more,
+	## still-graded bands instead of a few flat ones.
+	["Village", "Quality tier", {"village": true},
+		{"detail_macro_weight": 0.0, "detail_meso_weight": 0.0, "detail_micro_weight": 0.0}],
 ]
 
 ## The gallery tile's own minimum width. **Not a `DccTheme.ROLE` row**: `ROLE`
@@ -152,6 +164,7 @@ const MANAGED_LABEL := {
 	"contour_m": "Contour interval",
 	"waves": "Coastal wave lines",
 	"multi_sun": "Multi-sun lighting",
+	"village": "Village map",
 }
 
 ## What a preset resets before applying itself -- the reference's own
@@ -161,7 +174,7 @@ const STYLE_MANAGED := {
 	"watercolor": 0.0, "contours": 0.0, "contour_m": 0.0, "ink": 0.0,
 	"hachure": 0.0, "cel": 0.0, "crosshatch": 0.0, "stipple": 0.0,
 	"sepia": 0.0, "risograph": 0.0, "pointillism": 0.0,
-	"waves": false, "multi_sun": false,
+	"waves": false, "multi_sun": false, "village": false,
 }
 
 ## Which appearance keys go in which group, in panel order. Keys the running
@@ -678,7 +691,7 @@ func _bundle_line(index: int) -> String:
 			parts.append("%s %d%%" % [String(entry[1]), int(round(float(over[key]) * 100.0))])
 	if over.has("contour_m") and float(over["contour_m"]) > 0.0:
 		parts.append("Contour interval %d m" % int(round(float(over["contour_m"]))))
-	for key in ["waves", "multi_sun"]:
+	for key in ["waves", "multi_sun", "village"]:
 		if over.has(key) and bool(over[key]):
 			parts.append(String(MANAGED_LABEL[key]))
 	if parts.is_empty():
@@ -724,6 +737,14 @@ func _apply_preset(index: int) -> void:
 	bridge.set_look(String(STYLE_PRESETS[index][1]))
 	_sync_look_pick()
 	bridge.set_npr(values)
+	## The optional 4th element: raw `set_appearance()` overrides, so far only
+	## "Village"'s hillshade-off recipe (see `STYLE_PRESETS`'s own comment).
+	## Every other preset's entry has three elements and this is a no-op for
+	## them. Before `_sync_appearance()` below, which is what pulls the new
+	## values back into the Rendering-advanced rows -- the same order
+	## `set_look`/`set_npr` already use, so one re-render carries all three.
+	if STYLE_PRESETS[index].size() > 3:
+		bridge.set_appearance(Dictionary(STYLE_PRESETS[index][3]))
 	_sync_appearance()
 	_refresh_map()
 	for key in values:
@@ -1704,6 +1725,21 @@ func _build_npr() -> void:
 		func(v: bool): _push({"multi_sun": v}),
 		"The reference's softer four-light painterly relief: a primary sun, a "
 		+ "fill sun 90° round, a zenith light and an ambient floor.")}
+	## v2.70 (`RC_ENGINE_CHANGES.md`): a flat limited-palette look, land and
+	## water both -- see `render.rs`'s `Npr::village`. An on/off replacement,
+	## not a slider, so it gets a checkbox like the two above rather than an
+	## `_npr_slider` row. Toggling it here alone leaves the hillshade weights
+	## wherever the current look put them; the "Village" tile in the Map style
+	## gallery below also zeroes them, which is the RC row's own "recipe" --
+	## quantising a still-shaded gradient reads as many thin bands, not a flat
+	## map.
+	_npr_rows["village"] = {"check": DccWidgets.toggle(water, "Village map",
+		bool(npr.get("village", false)),
+		func(v: bool): _push({"village": v}),
+		"A flat, limited-palette look: quantises the finished shaded colour "
+		+ "into a few flat bands. Pair with zero hillshade weights (the "
+		+ "\"Village\" Map style tile does this for you) or the bands follow "
+		+ "the shading gradient instead of reading as flat colour.")}
 
 func _npr_slider(parent: Control, label_text: String, key: String, maximum: float,
 		step: float, unit: String, tooltip: String, npr: Dictionary,

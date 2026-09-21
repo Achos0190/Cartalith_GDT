@@ -7062,6 +7062,7 @@ impl WorldGen {
         d.set("wave_dist", n.wave_dist);
         d.set("multi_sun", n.multi_sun);
         d.set("animate_water", n.animate_water);
+        d.set("village", n.village);
         d
     }
 
@@ -7119,6 +7120,7 @@ impl WorldGen {
         flag("waves", &mut self.npr.waves);
         flag("multi_sun", &mut self.npr.multi_sun);
         flag("animate_water", &mut self.npr.animate_water);
+        flag("village", &mut self.npr.village);
         applied
     }
 

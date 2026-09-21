@@ -492,6 +492,27 @@ pub struct Npr {
     /// `state.viz.waterAnim` — see this struct's own doc comment for why a
     /// flag this renderer never reads lives here.
     pub animate_water: bool,
+    /// The v2.70 "Village map" style (`RC_ENGINE_CHANGES.md`'s v2.70 row) — a
+    /// flat, limited-palette look, opt-in and land **and** water (unlike every
+    /// flag above it in this struct, which is water-only or land-only). A
+    /// single on/off flag rather than an intensity, matching [`Self::waves`]/
+    /// [`Self::multi_sun`]'s shape: the reference names it a *whole style*
+    /// costing "one flag", not a slider.
+    ///
+    /// Read in two places: [`apply_npr`]'s own last step (the land half — see
+    /// [`quantize_flat_palette`]) and [`sea_color_core`]'s final line (the
+    /// water half, a REPLACEMENT rather than another mix-in, per the same
+    /// row). Both quantise the already-fully-lit colour rather than the raw
+    /// material mix, which is the row's own first rule: the lit colour has
+    /// already absorbed slope, aspect, material and shading, so quantising it
+    /// keeps every distinction and removes only the gradient.
+    ///
+    /// **`Cartalith_RC` was not present on this machine**, so the exact
+    /// reference quantisation constant could not be read from
+    /// `hash_gen1.js`'s `landColorCore`/`seaColorCore` — only the row's prose
+    /// description was available. [`quantize_flat_palette`]'s own doc records
+    /// the band count this port chose and why.
+    pub village: bool,
 }
 
 /// One breakpoint of an elevation-keyed colour ramp: a position in
@@ -4840,19 +4861,24 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
 /// The reference's `state.viz` **"Painter" NPR block** (7903-7962) — ten
 /// opt-in hand-drawn styles, each with its own intensity, applied in the
 /// reference's own order: watercolor wash → contour veins → ink edges →
-/// hachure → cel → engraving → stipple → sepia → risograph → pointillism.
+/// hachure → cel → engraving → stipple → sepia → risograph → pointillism —
+/// plus an eleventh added 2026-09-21, v2.70's "Village map" flat
+/// limited-palette style (see [`Npr::village`] and
+/// [`quantize_flat_palette`]), a single on/off replacement rather than a
+/// blended intensity and deliberately last in the chain.
 ///
-/// **A literal per-pixel port, constant for constant.** These are ordinary
-/// arithmetic on the finished land colour — no per-frame state, no
-/// neighbourhood, no texture sampling — so there is nothing here a shader
-/// would do differently, and porting them literally keeps them inside the
-/// `rayon`-parallel `cell_color` pass milestone 6 already built rather than
-/// adding a second compositing stage.
+/// **A literal per-pixel port, constant for constant, for the original ten.**
+/// These are ordinary arithmetic on the finished land colour — no per-frame
+/// state, no neighbourhood, no texture sampling — so there is nothing here a
+/// shader would do differently, and porting them literally keeps them inside
+/// the `rayon`-parallel `cell_color` pass milestone 6 already built rather
+/// than adding a second compositing stage. The eleventh could not be checked
+/// against source — see [`quantize_flat_palette`]'s doc.
 ///
-/// Every style is skipped by its own `> 0.0` gate exactly as the reference
-/// skips it, and the whole block is skipped on water (`r > 0.0`) and when
-/// nothing at all is on — so `TerrainAppearance::default()` and
-/// `js_reference()` are both bit-untouched.
+/// Every style is skipped by its own `> 0.0` gate (or, for the eleventh, its
+/// own `false`) exactly as the reference skips the first ten, and the whole
+/// block is skipped on water (`r > 0.0`) and when nothing at all is on — so
+/// `TerrainAppearance::default()` and `js_reference()` are both bit-untouched.
 ///
 /// **Position in the pipeline is the reference's**: after every colour and
 /// lighting step and before the final `ao * vignette` multiply, which is why
@@ -5036,6 +5062,20 @@ pub fn apply_npr(
         l2 = l2 * (1.0 - n.pointillism) + cb * n.pointillism;
     }
 
+    // D-village ("Village map", `RC_ENGINE_CHANGES.md` v2.70): the land half
+    // of the flat limited-palette style — see [`Npr::village`]'s own doc and
+    // [`quantize_flat_palette`]. Deliberately last in this chain (the row's
+    // own text: "one more step in the existing per-pixel style chain"), so it
+    // quantises whatever every earlier Painter style produced rather than
+    // being undone by one running after it. A REPLACEMENT, not a blend by
+    // intensity — the flag is a single on/off switch, not a slider.
+    if n.village {
+        let (q0, q1, q2) = quantize_flat_palette((l0, l1, l2));
+        l0 = q0;
+        l1 = q1;
+        l2 = q2;
+    }
+
     (l0, l1, l2)
 }
 
@@ -5088,6 +5128,36 @@ fn npr_any(n: &Npr) -> bool {
         || n.sepia > 0.0
         || n.risograph > 0.0
         || n.pointillism > 0.0
+        || n.village
+}
+
+/// The v2.70 "Village map" style's shared quantiser (`RC_ENGINE_CHANGES.md`'s
+/// v2.70 row) — a flat, limited-palette look applied as a REPLACEMENT over an
+/// already-fully-lit/shaded colour, never over the raw material mix. Shared
+/// between [`apply_npr`]'s land step and [`sea_color_core`]'s water step so
+/// the two halves of one map style cannot drift onto two different band
+/// counts.
+///
+/// Deliberately coarser than D-cel's own four divisions (`apply_npr`'s
+/// `n.cel` step, just above this style in the chain): a *slider* style reads
+/// correctly with subtle banding blended in; a *flat-palette replacement*
+/// needs bands coarse enough to actually read as a limited palette rather
+/// than as smoothed toon shading.
+///
+/// **The exact reference constant could not be checked against source.**
+/// `Cartalith_RC` (`hash_gen1.js`'s `landColorCore`/`seaColorCore`) is not
+/// present on this machine — `RC_ENGINE_CHANGES.md`'s v2.70 row gives the
+/// *shape* of the change (quantise the lit colour; water is a replacement,
+/// not a mix-in; turn the hillshade off in the recipe) but not this constant.
+/// Three divisions (four flat levels per channel) is this port's own choice.
+/// `js_round`, not `f64::round`, for the same reason [`apply_npr`]'s own
+/// rounding sites use it: a channel can sit fractionally below an exact band
+/// edge after earlier blends, and JS rounds half toward `+∞` where Rust
+/// rounds half away from zero (`cartalith-rust-conventions`).
+fn quantize_flat_palette(c: Rgb) -> Rgb {
+    const BANDS: f64 = 3.0;
+    let q = |v: f64| (cartalith_jsmath::js_round((v / 255.0 * BANDS).clamp(0.0, BANDS)) / BANDS * 255.0).clamp(0.0, 255.0);
+    (q(c.0), q(c.1), q(c.2))
 }
 
 /// The sea's own noise sample — the `nLow` argument `seaColor` (8280) and the
@@ -5152,7 +5222,20 @@ fn sea_color_core(appearance: &TerrainAppearance, depth: f64, t: f64, n_low: f64
     }
     let tex = (n_low - 0.5) * 5.0;
     let sh2 = 0.82 + 0.18 * clamp01(sh);
-    ((wc.0 + tex) * sh2 * vig, (wc.1 + tex) * sh2 * vig, (wc.2 + tex) * sh2 * vig)
+    let out = ((wc.0 + tex) * sh2 * vig, (wc.1 + tex) * sh2 * vig, (wc.2 + tex) * sh2 * vig);
+    // v2.70 "Village map" (`RC_ENGINE_CHANGES.md`): the water half of the
+    // flat limited-palette style, applied at the very end of this function —
+    // the row's own instruction, because by this line the seabed grain
+    // (`tex`), the bathymetric hillshade (`sh2`) and the smooth depth ramp
+    // are all already folded into `out`. **A REPLACEMENT, not another mix
+    // into the colour** — the row's own distinction from every ramp/tint
+    // stage above, which all blend toward a target. See [`Npr::village`]'s
+    // doc and the land half in [`apply_npr`].
+    if appearance.npr.village {
+        quantize_flat_palette(out)
+    } else {
+        out
+    }
 }
 
 /// The paper/vellum ground as a **per-channel multiplicative tone** around
