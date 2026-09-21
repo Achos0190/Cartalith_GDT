@@ -2685,27 +2685,6 @@ pub fn dispatch_gpu_flow(
     Some(GpuFlowResult { acc, recv, fixed_point_scale: scale })
 }
 
-/// Convenience wrapper: build a flow pipeline on `gpu` and run one
-/// accumulation. Callers issuing several accumulations per generation
-/// (`generate_terrain` issues up to four) should hold one
-/// [`init_gpu_flow_with`] context and call [`dispatch_gpu_flow`] instead,
-/// so the shader is compiled once rather than once per call.
-pub fn flow_accumulation_gpu_with(
-    gpu: &GpuDevice,
-    gw: usize,
-    gh: usize,
-    field: &[f32],
-    rain: Option<&[f32]>,
-    use_rain: bool,
-    world: bool,
-) -> Option<Vec<f32>> {
-    on_grid(gpu, gw as u32, gh as u32, || {
-        let ctx = init_gpu_flow_with(gpu);
-        dispatch_gpu_flow(&ctx, gw, gh, field, rain, use_rain, world)
-    })
-    .map(|r| r.acc)
-}
-
 /// Brute-force exact nearest-plate ground truth (no JFA at all) -- what
 /// both `assign_plates` (CPU, in-place JFA) and [`dispatch_gpu_assign_plates`]
 /// (GPU, double-buffered JFA) are each an *approximation* of. Used to
@@ -2919,19 +2898,6 @@ pub fn gpu_gauss_blur_grid_cpu(src: &[f32], radius: f64, width: u32, height: u32
     a
 }
 
-/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 4: CPU twin for
-/// [`dispatch_gpu_resistance`] -- identical trivial formula, no precision
-/// concerns either side.
-pub fn gpu_resistance_grid_cpu(width: u32, height: u32, plate_id: &[u32], age: &[f32], crustal_per_plate: &[f32]) -> Vec<f32> {
-    let n = (width * height) as usize;
-    let mut out = vec![0.0f32; n];
-    for i in 0..n {
-        let crustal = crustal_per_plate[plate_id[i] as usize];
-        out[i] = (crustal * 0.6 + age[i] * 0.4).min(1.0);
-    }
-    out
-}
-
 /// The CPU reference path -- same sampling convention as [`dispatch_gpu`]
 /// (`vnoise(x*scale, y*scale, seed)` per cell), so the two are directly
 /// comparable. This is not a fallback re-implementation; it calls the
@@ -2969,84 +2935,24 @@ pub fn gpu_safe_noise_grid_cpu(width: u32, height: u32, seed: i32, scale: f32) -
 
 // ===================== GPU_LAYER_INTEGRATION_SCOPE.md milestone 6 =====================
 //
-// Public grid-level entry points for the four kernels a caller outside
-// this crate (`cartalith-engine`) actually needs to invoke end-to-end:
-// domain warp, crustal heterogeneity, flexure/base-field blur, and plate
-// assignment. Each kernel's own *numerical correctness* was already
-// separately verified in its own milestone's tests (2, 4, 5) -- what these
-// wrappers add is the runtime `HARDWARE_ACCELERATION.md` §27 gate: `init_
-// gpu_*()`'s own `Result` IS the self-test here (adapter/device/pipeline
-// creation failing on THIS machine is exactly the failure mode a
-// per-kernel self-test would also catch; re-deriving a bespoke numerical
-// self-test per kernel would just re-prove what milestone 2/4/5's own
-// tests already established). `None` means "GPU unavailable for this
-// kernel right now" -- the caller falls back to the CPU function, never a
-// panic (§27: "GPU failure must never crash Cartalith").
-//
-// A fresh `GpuContext` is created per call rather than cached across
-// `generate_terrain()` invocations -- acceptable for a one-shot batch
-// generation (`HARDWARE_ACCELERATION.md`'s own static-generation scope
-// correction: no per-frame budget to protect), unlike a real-time app
-// where context churn would matter far more.
+// Milestone 6 originally added four public grid-level entry points for the
+// kernels a caller outside this crate (`cartalith-engine`) needs to invoke
+// end-to-end: domain warp, crustal heterogeneity, flexure/base-field blur,
+// and plate assignment -- each building its own single-use `GpuContext`.
+// Milestone 8 (below) then added `_with` siblings that take an
+// already-created [`GpuDevice`] instead, for context reuse across
+// `generate_terrain`'s several GPU stages, and every caller migrated to
+// them. The milestone-6 per-call wrappers (`warp_grid_gpu`,
+// `heterogeneity_grid_gpu`, `gauss_blur_grid_gpu`, `assign_plates_grid_gpu`)
+// had zero callers left anywhere in the workspace and were deleted
+// 2026-09-21 (`OUTSTANDING_WORK.md` §2.6, "Delete the seven uncalled
+// `cartalith-gpu` public functions") -- only the `_with` siblings remain.
 
-/// Domain warp (`compute_warp`'s GPU sibling, milestone 2's `gpu_compute_
-/// warp`/`gpu_fbm`). Returns `None` if GPU init fails for any reason.
-pub fn warp_grid_gpu(width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> Option<(Vec<f32>, Vec<f32>)> {
-    let ctx = init_gpu_warp().ok()?;
-    dispatch_gpu_warp(&ctx, width, height, seed, wf, amp)
-}
-
-/// Crustal heterogeneity's pre-normalize value (`compute_heterogeneity`'s
-/// GPU sibling, milestone 2). The caller must still run the CPU max-reduce
-/// normalize pass on the result -- this kernel only computes the raw
-/// per-cell value, matching `compute_heterogeneity`'s own two-phase shape
-/// (loop, then a separate normalize pass over the whole field).
-pub fn heterogeneity_grid_gpu(
-    width: u32,
-    height: u32,
-    hetero_seed: i32,
-    scale: f32,
-    age: &[f32],
-    warp_x: &[f32],
-    warp_y: &[f32],
-) -> Option<Vec<f32>> {
-    let ctx = init_gpu_heterogeneity().ok()?;
-    dispatch_gpu_heterogeneity(&ctx, width, height, hetero_seed, scale, age, warp_x, warp_y)
-}
-
-/// `gauss_blur`'s GPU sibling (milestone 4) -- used for both `base_field`
-/// and, via the caller wrapping `compute_flexure`'s own thin-blur logic,
-/// `flexure_field`.
-pub fn gauss_blur_grid_gpu(src: &[f32], radius: f64, width: u32, height: u32, wrap_x: bool) -> Option<Vec<f32>> {
-    let ctx = init_gpu_gauss_blur().ok()?;
-    dispatch_gpu_gauss_blur(&ctx, src, radius, width, height, wrap_x)
-}
-
-/// Plate assignment via JFA (`assign_plates`'s GPU sibling, milestone 5).
-/// **Not a port of the CPU function** -- the GPU path is double-buffered
-/// (frozen-read/separate-write per pass), while the CPU function mutates
-/// in-place mid-scan; milestone 5's own verification found the GPU
-/// variant is actually *more* accurate against brute-force ground truth,
-/// not just different. Returns plate indices as `i32`, matching `dispatch_
-/// gpu_assign_plates`'s own output type (the caller casts to `usize` as
-/// `assign_plates`'s own return type requires, after checking for `-1`/
-/// unassigned cells the same way the CPU path's callers already must).
-pub fn assign_plates_grid_gpu(
-    width: u32,
-    height: u32,
-    plate_x: &[f32],
-    plate_y: &[f32],
-    warp_x: Option<&[f32]>,
-    warp_y: Option<&[f32]>,
-) -> Option<Vec<i32>> {
-    let ctx = init_gpu_jfa_plates().ok()?;
-    dispatch_gpu_assign_plates(&ctx, width, height, plate_x, plate_y, warp_x, warp_y)
-}
-
-/// `_with` sibling of [`warp_grid_gpu`] -- builds its pipeline on an
-/// already-created [`GpuDevice`] (milestone 8, context reuse across
-/// `generate_terrain`'s several GPU stages) instead of requesting its own
-/// adapter/device.
+/// Builds its pipeline on an already-created [`GpuDevice`] (milestone 8,
+/// context reuse across `generate_terrain`'s several GPU stages) rather
+/// than requesting its own adapter/device -- domain warp
+/// (`compute_warp`'s GPU sibling, milestone 2's `gpu_compute_warp`/
+/// `gpu_fbm`).
 ///
 /// `None` when the device cannot reach this grid -- either because its
 /// reported limits say so, or because a readback on it has already failed at
@@ -3194,7 +3100,13 @@ pub fn warp_grid_gpu_split(
     every_band_landed.then_some((out_x, out_y))
 }
 
-/// `_with` sibling of [`heterogeneity_grid_gpu`].
+/// Context-reusing sibling of the deleted milestone-6 `heterogeneity_grid_gpu`
+/// (see the milestone-6 header comment above) -- crustal heterogeneity's
+/// pre-normalize value (`compute_heterogeneity`'s GPU sibling, milestone 2).
+/// The caller must still run the CPU max-reduce normalize pass on the
+/// result -- this kernel only computes the raw per-cell value, matching
+/// `compute_heterogeneity`'s own two-phase shape (loop, then a separate
+/// normalize pass over the whole field).
 #[allow(clippy::too_many_arguments)]
 pub fn heterogeneity_grid_gpu_with(
     gpu: &GpuDevice,
@@ -3212,7 +3124,10 @@ pub fn heterogeneity_grid_gpu_with(
     })
 }
 
-/// `_with` sibling of [`gauss_blur_grid_gpu`].
+/// Context-reusing sibling of the deleted milestone-6 `gauss_blur_grid_gpu`
+/// (see the milestone-6 header comment above) -- `gauss_blur`'s GPU sibling
+/// (milestone 4), used for both `base_field` and, via the caller wrapping
+/// `compute_flexure`'s own thin-blur logic, `flexure_field`.
 pub fn gauss_blur_grid_gpu_with(
     gpu: &GpuDevice,
     src: &[f32],
@@ -3227,7 +3142,17 @@ pub fn gauss_blur_grid_gpu_with(
     })
 }
 
-/// `_with` sibling of [`assign_plates_grid_gpu`].
+/// Context-reusing sibling of the deleted milestone-6 `assign_plates_grid_gpu`
+/// (see the milestone-6 header comment above) -- plate assignment via JFA
+/// (`assign_plates`'s GPU sibling, milestone 5). **Not a port of the CPU
+/// function** -- the GPU path is double-buffered (frozen-read/separate-write
+/// per pass), while the CPU function mutates in-place mid-scan; milestone
+/// 5's own verification found the GPU variant is actually *more* accurate
+/// against brute-force ground truth, not just different. Returns plate
+/// indices as `i32`, matching `dispatch_gpu_assign_plates`'s own output
+/// type (the caller casts to `usize` as `assign_plates`'s own return type
+/// requires, after checking for `-1`/unassigned cells the same way the CPU
+/// path's callers already must).
 pub fn assign_plates_grid_gpu_with(
     gpu: &GpuDevice,
     width: u32,

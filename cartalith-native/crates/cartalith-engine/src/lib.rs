@@ -2607,9 +2607,9 @@ mod tests {
     /// `generate_terrain` at the four established sizes -- not isolated
     /// kernel dispatch time (already measured per-kernel in milestones
     /// 2/4/5), but the real cost including a *fresh `GpuContext` per stage,
-    /// per call* (see the doc comment on `warp_grid_gpu` et al. in
-    /// `cartalith-gpu` for why that's an accepted tradeoff for one-shot
-    /// batch generation). `--nocapture` to see the numbers; `#[ignore]`d
+    /// per call* (see the milestone-6 header comment above `warp_grid_gpu_with`
+    /// et al. in `cartalith-gpu` for why that's an accepted tradeoff for
+    /// one-shot batch generation). `--nocapture` to see the numbers; `#[ignore]`d
     /// since it's a timing report, not a correctness check, and full
     /// 2048x2048 CPU pipeline runs are slow enough to not want in the
     /// default `cargo test` loop.
