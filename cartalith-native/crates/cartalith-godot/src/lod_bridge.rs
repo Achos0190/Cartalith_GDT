@@ -263,6 +263,60 @@ pub fn level_for_zoom(px_per_cell: f64, gw: usize) -> i32 {
     pyramid_level_for_zoom(px_per_cell, gw as f64, TILE_PX as f64, Some(MAX_LEVEL))
 }
 
+/// **LOD-D3's morph parameter**: how far level `z` has faded in at
+/// `px_per_cell` screen pixels per coarse cell. `0.0` means "draw this tile's
+/// parent", `1.0` means "draw this tile", and `lod_tile.gdshader` mixes the
+/// two — `LOD_DETAIL_SCOPE.md` LOD-D3, *"the shader takes `t = smoothstep(0,
+/// 1, log2(screen_px_per_cell / level_px_per_cell(z)) + 0.5)` and outputs
+/// `mix(parent_sample, tile_sample, t)`, so a level fades in across its own
+/// half-level band instead of switching at the `js_round` boundary."*
+///
+/// # Why this lives here and not in GDScript
+///
+/// It is the **same expression** [`level_for_zoom`] rounds, minus the
+/// rounding: `level_px_per_cell(z)` is `TILE_PX · 2^z / gw`, so
+/// `log2(px_per_cell / level_px_per_cell(z))` is `log2(gw · px_per_cell /
+/// TILE_PX) − z`, which is `pyramid_level_for_zoom`'s own `log2(want) − z`.
+/// Written out again on the shell side it would be two expressions that have
+/// to agree, and the one thing this milestone cannot afford is for the fade
+/// and the level switch to disagree about *where* the boundary is — that
+/// disagreement is visible as exactly the pop the fade exists to remove. The
+/// guards are shared for the same reason: `max(0.01, px_per_cell)` and
+/// `max(1.0, …)` are `pyramid_level_for_zoom`'s, reproduced so that the two
+/// functions are evaluating one quantity.
+///
+/// # The invariant, which `the_morph_hands_over_exactly_at_the_level_boundary`
+/// asserts rather than this comment claiming it
+///
+/// At the zoom where [`level_for_zoom`] switches from `z` to `z + 1` —
+/// `want = 2^(z+0.5)`, where JS's round-half-up takes the level up — this
+/// returns **`1.0` for `z`** and **`0.0` for `z + 1`**. So the frame before
+/// the switch draws level `z`'s tile at full strength, and the frame after
+/// draws level `z + 1`'s parent, which *is* level `z`'s tile. The picture is
+/// the same on both sides of the switch; nothing pops. Drop the `+ 0.5` and
+/// the frame before the switch is a 50/50 blend instead, which is the pop
+/// back.
+///
+/// `1.0` (not `0.0`) for a degenerate world, so a caller that asks before
+/// `generate()` draws its tile rather than dissolving it into nothing.
+pub fn morph_for_zoom(px_per_cell: f64, gw: usize, z: i32) -> f64 {
+    if gw < 2 {
+        return 1.0;
+    }
+    let want = f64::max(1.0, (gw as f64 * f64::max(0.01, px_per_cell)) / TILE_PX as f64);
+    smoothstep01(want.log2() - z as f64 + 0.5)
+}
+
+/// GLSL `smoothstep(0.0, 1.0, x)` — clamp, then `x²(3 − 2x)`.
+///
+/// Spelled out here rather than left to the shader because [`morph_for_zoom`]
+/// hands the shell a finished number: one implementation, one set of tests,
+/// and no second copy of the curve to keep in step.
+fn smoothstep01(x: f64) -> f64 {
+    let t = x.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 /// Tiles per axis at pyramid level `z` — `2^z`, [`pyramid_dims`] re-exported
 /// so the GDScript compositor reads the count rather than recomputing it.
 pub fn tiles_per_axis(z: i32) -> u32 {
@@ -726,6 +780,89 @@ mod tests {
         // ...and a degenerate zoom does not fall off the bottom.
         assert_eq!(level_for_zoom(0.0, gw), 0);
         assert_eq!(level_for_zoom(-4.0, gw), 0);
+    }
+
+    /// The zoom at which [`level_for_zoom`] hands `z` over to `z + 1`:
+    /// `want = 2^(z + 0.5)`, where JS round-half-up takes the level up.
+    fn handover_px(gw: usize, z: i32) -> f64 {
+        TILE_PX as f64 * (2.0f64).powf(z as f64 + 0.5) / gw as f64
+    }
+
+    /// **LOD-D3's whole no-pop argument, as arithmetic.** At the zoom where
+    /// the level switches, the outgoing level is fully drawn and the incoming
+    /// level is fully its parent — and the incoming level's parent *is* the
+    /// outgoing level. So the two frames either side of the switch draw the
+    /// same picture.
+    ///
+    /// Checked at every real level on two grid widths, because `gw` is the
+    /// only other term in the expression and a formula that held at one width
+    /// and not the other would be a seam nobody would find until a world of
+    /// that size was opened.
+    #[test]
+    fn the_morph_hands_over_exactly_at_the_level_boundary() {
+        for gw in [512usize, 2048] {
+            for z in 0..MAX_LEVEL {
+                let px = handover_px(gw, z);
+                // The switch really is here, not near here.
+                assert_eq!(level_for_zoom(px, gw), z + 1, "gw {gw}, z {z}: the level does not flip at {px}");
+                assert_eq!(
+                    level_for_zoom(px * (1.0 - 1e-12), gw),
+                    z,
+                    "gw {gw}, z {z}: the level flips early"
+                );
+                // ...and the fade hands over across it with nothing left in
+                // between. 0 and 1 EXACTLY: `smoothstep` is flat at both ends,
+                // so an approximate boundary would still read as exact here --
+                // which is why the two `level_for_zoom` assertions above come
+                // first and pin where the boundary is.
+                let out = morph_for_zoom(px, gw, z);
+                let inc = morph_for_zoom(px, gw, z + 1);
+                assert!((out - 1.0).abs() < 1e-9, "gw {gw}, z {z}: outgoing level at {out}, not fully drawn");
+                assert!(inc.abs() < 1e-9, "gw {gw}, z {z}: incoming level at {inc}, not fully its parent");
+            }
+        }
+    }
+
+    /// The curve is `smoothstep`, not a ramp. Both agree at the ends and at
+    /// the midpoint, so the quarter point is the only place a linear
+    /// substitution shows — asserted as a literal (`0.25² · (3 − 0.5)`), not
+    /// against a second call to the function under test.
+    #[test]
+    fn the_morph_curve_is_smoothstep_and_not_a_ramp() {
+        let gw = 2048usize;
+        let z = 4;
+        // A quarter of the way up level 4's band: `log2(want) - z + 0.5 = 0.25`.
+        let px = TILE_PX as f64 * (2.0f64).powf(z as f64 - 0.25) / gw as f64;
+        let t = morph_for_zoom(px, gw, z);
+        assert!((t - 0.15625).abs() < 1e-9, "quarter of the band reads {t}, not smoothstep's 0.15625");
+        // The midpoint, where a ramp and a smoothstep agree, is 0.5 -- stated
+        // so the test's own coverage is legible rather than implied.
+        let mid = morph_for_zoom(TILE_PX as f64 * (2.0f64).powi(z) / gw as f64, gw, z);
+        assert!((mid - 0.5).abs() < 1e-9, "the band midpoint reads {mid}, not 0.5");
+    }
+
+    /// Monotone in zoom, clamped at both ends, and safe on the inputs a shell
+    /// can actually hand it: a world that has not generated yet, and a zoom of
+    /// zero while a viewport is still sizing itself.
+    #[test]
+    fn the_morph_is_monotone_clamped_and_degenerate_safe() {
+        let gw = 1024usize;
+        let z = 5;
+        let mut prev = -1.0;
+        for i in 0..400 {
+            let px = 0.01 * (1.03f64).powi(i);
+            let t = morph_for_zoom(px, gw, z);
+            assert!((0.0..=1.0).contains(&t), "morph {t} outside [0,1] at {px}");
+            assert!(t >= prev - 1e-12, "morph fell from {prev} to {t} at {px}");
+            prev = t;
+        }
+        // Far below the level's own band: nothing of this tile, all parent.
+        assert_eq!(morph_for_zoom(1e-6, gw, MAX_LEVEL), 0.0);
+        // Far above it: the tile, whole.
+        assert_eq!(morph_for_zoom(1e6, gw, 0), 1.0);
+        // No world yet -- draw the tile rather than dissolve it.
+        assert_eq!(morph_for_zoom(4.0, 0, 3), 1.0);
+        assert_eq!(morph_for_zoom(4.0, 1, 3), 1.0);
     }
 
     #[test]

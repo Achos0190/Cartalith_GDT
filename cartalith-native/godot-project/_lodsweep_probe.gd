@@ -491,8 +491,12 @@ func _row_detail(rows: Array, zoom_target: float):
 ## the frame with `_lod_layer` shown against the same frame with it hidden, in
 ## BOTH units the scope's bars are quoted in.
 ##
-## `visible`, not the `modulate:a` tween `_set_lod_active` drives -- a tween
-## would land mid-fade and the reading would be of an arbitrary alpha.
+## `visible`, not `_lod_layer.modulate:a` -- which was a 0.15 s tween until
+## LOD-D3 removed it, and a reading taken mid-tween would have been of an
+## arbitrary alpha. `visible` is still the right switch for a different reason
+## now: the layer's alpha is a straight 1, and what fades is each TILE's own
+## morph against its parent, which is part of what this measurement is
+## supposed to see rather than something to switch off.
 func _layer_on_off() -> Dictionary:
 	var on_full := await _capture_full()
 	var on := await _capture()
@@ -556,6 +560,7 @@ func _run_test(kind: String, seed_v: int, grid: Vector2i, pivot: Vector2i) -> Di
 	var detail: PackedFloat64Array = []
 	var seam_max: PackedFloat64Array = []
 	var holes: PackedFloat64Array = []
+	var holey: PackedInt32Array = []   ## Frame indices whose coverage was incomplete.
 	var step_us: PackedFloat64Array = []
 	var frame_us: PackedFloat64Array = []
 	var zooms: PackedFloat64Array = []
@@ -620,6 +625,17 @@ func _run_test(kind: String, seed_v: int, grid: Vector2i, pivot: Vector2i) -> Di
 			if hr.get("ok", false):
 				holes.append(float(hr["holes"]))
 				hole_frames += 1
+				## **Which frames**, not just how many pixels.
+				## `LOD_DETAIL_SCOPE.md` LOD-D3 asks for *"zero hole pixels
+				## after the first built frame"*, and a max over every measured
+				## frame cannot answer that: the frames right after the pyramid
+				## comes up are a viewful arriving through
+				## `MAX_LOD_TILES_PER_UPDATE` and the backlog, and they are the
+				## ones the bar's own wording sets aside. Recording the indices
+				## lets the reading say *where* the uncovered ground was rather
+				## than only that there was some.
+				if float(hr["holes"]) > 0.0:
+					holey.append(n)
 			var sr: Dictionary = _m.call("seam", cap["data"], cap["w"], cap["h"], tiles["cols"])
 			if sr.get("ok", false):
 				seam_max.append(sr["max"])
@@ -651,6 +667,10 @@ func _run_test(kind: String, seed_v: int, grid: Vector2i, pivot: Vector2i) -> Di
 	if hole_frames > 0:
 		out["holes"] = _m.call("stats", holes)
 		out["hole_frames"] = hole_frames
+		out["holey_frames"] = holey.size()
+		if holey.size() > 0:
+			out["holey_first"] = holey[0]
+			out["holey_last"] = holey[holey.size() - 1]
 	if entry_frame >= 0:
 		out["lod_entry_frame"] = entry_frame
 		out["lod_entry_step_us"] = entry_step_us
@@ -727,6 +747,15 @@ func _print_run(r: Dictionary) -> void:
 			r["detail_last"] if r["detail_last"] != null else NAN])
 	print("     seam ratio (max per frame): %s" % (_fmt(r["seam_max"]) if r.has("seam_max") else "-- no scorable tile boundary in any frame"))
 	print("     hole px per frame: %s" % (_fmt(r["holes"]) if r.has("holes") else "-- the pyramid was never up, so coverage is not defined"))
+	if r.has("holey_frames"):
+		## `LOD_DETAIL_SCOPE.md` LOD-D3's bar is *"zero hole pixels after the
+		## first built frame"*, so the frames matter as much as the pixels:
+		## the reading says how many frames were uncovered and over what span,
+		## beside the LOD entry frame printed below, rather than leaving the
+		## bar to be read off a maximum that includes the pyramid arriving.
+		print("     frames with any hole: %d of %d measured   (first at frame %s, last at %s)"
+			% [r["holey_frames"], r.get("hole_frames", 0),
+				str(r.get("holey_first", "--")), str(r.get("holey_last", "--"))])
 	print("     frame time us: %s" % _fmt(r["frame_us"]))
 	print("     camera-step cost us (this is where a synthesis stall lands): %s" % _fmt(r["step_us"]))
 	if r.has("lod_entry_frame"):
@@ -1179,7 +1208,11 @@ func _run_plants() -> void:
 
 
 ## Metric 1. A quiet pan, then one frame with the tile layer switched off --
-## exactly the discontinuity `_set_lod_active`'s tween exists to avoid.
+## exactly the discontinuity the deep-zoom layer's fade exists to avoid. (That
+## fade was `_set_lod_active`'s 0.15 s `modulate:a` tween when this was
+## written; LOD-D3 replaced it with a per-tile morph against the parent level.
+## The plant is unchanged either way: it is a whole layer vanishing for one
+## frame, which no fade of either kind smooths.)
 func _plant_pop() -> Dictionary:
 	var ti := PackedFloat64Array()
 	var prev: Dictionary = {}

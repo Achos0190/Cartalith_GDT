@@ -110,9 +110,10 @@ func _ready() -> void:
 		vh.zoom_step(1.35)
 		guard += 1
 		await _frames(2)
-	await _frames(20)   ## Lets `_set_lod_active`'s 0.15 s fade tween AND the
-	                     ## tile backlog (`_process()`) both finish before
-	                     ## anything gets sampled.
+	await _frames(20)   ## Lets the tile backlog (`_process()`) finish before
+	                     ## anything gets sampled. It also waited out
+	                     ## `_set_lod_active`'s 0.15 s fade tween until LOD-D3
+	                     ## removed that; the backlog alone still needs it.
 	print("  info zoom=", vh.zoom(), " in ", guard, " steps")
 	_ok("LOD is active", vh.lod_active())
 	var tiles: Dictionary = vh.get("_lod_tiles")

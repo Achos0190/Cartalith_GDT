@@ -284,9 +284,15 @@ var _lod_tiles: Dictionary = {}   ## `"%d,%d,%d" % [z, col, row]` -> the live
 	## parallel `_lod_tile_detail` dictionary: at the old fixed 64-cell tile
 	## grid an index meant the same ground at every detail tier, so the tier
 	## had to be tracked beside it and compared; under the pyramid a chunk
-	## index only means anything *with* its level, and a level change makes
-	## every old key simply absent from `wanted`, which the reconciliation in
-	## `_apply_lod_tiles` already frees.
+	## index only means anything *with* its level, and a chunk at a level
+	## nobody wants any more is simply a key absent from `wanted`, which the
+	## reconciliation in `_apply_lod_tiles` already frees.
+	##
+	## **Two levels live here at once since LOD-D3** -- the level being drawn
+	## and the level above it, kept as the parent fallback (`_lod_child_level`
+	## / `_lod_parent_level`). So a level change no longer empties this
+	## dictionary: going one level deeper leaves every tile of the level just
+	## left in `wanted` as a parent, and only the level *above that* is freed.
 var _lod_backlog: Dictionary = {}   ## `"%d,%d,%d"` -> `Vector3i(z, col, row)`
 	## -- chunks the most recent `_update_lod()` wanted but couldn't fit inside
 	## `MAX_LOD_TILES_PER_UPDATE`'s per-call synthesis budget. Replaced
@@ -295,15 +301,66 @@ var _lod_backlog: Dictionary = {}   ## `"%d,%d,%d"` -> `Vector3i(z, col, row)`
 	## time `_update_lod()` runs, rather than `_process()` wastefully
 	## building it anyway. See `MAX_LOD_TILES_PER_UPDATE`'s own doc comment
 	## for why this queue exists at all.
-var _lod_backlog_n := 0   ## Tiles per axis at the level `_lod_backlog`'s
-var _lod_backlog_grid := Vector2i.ZERO   ## entries belong to, and the geometry
-var _lod_backlog_origin := Vector2.ZERO   ## they were computed against --
+var _lod_backlog_grid := Vector2i.ZERO   ## The geometry `_lod_backlog`'s
+var _lod_backlog_origin := Vector2.ZERO   ## entries were computed against --
 var _lod_backlog_size := Vector2.ZERO   ## `_process()` reuses it rather than
 	## re-deriving it from the camera, since it is exactly what the
 	## `_update_lod()` call that filled the backlog already had on hand, and is
 	## guaranteed current: any camera motion that would invalidate it also
 	## calls `_update_lod()`, which replaces the whole backlog (and this
 	## geometry) before `_process()` next runs.
+	##
+	## A `_lod_backlog_n` (tiles per axis) sat beside these until LOD-D3 and is
+	## gone rather than kept: the backlog now holds **two levels at once**
+	## (`_lod_parent_level`), so there is no single tiles-per-axis for it.
+	## Every consumer derives it from the tile's own level instead -- one
+	## fewer thing that can be right for one of the two.
+
+## **LOD-D3's morph table**: pyramid level -> how far that level has faded in
+## at the current zoom, `WorldGen::lod_morph` (`lod_bridge::morph_for_zoom`).
+##
+## Rebuilt by each `_update_lod()` for the at most two levels on screen, rather
+## than asked per tile: it is a function of the zoom and the level only, so a
+## per-tile call would be sixty crossings of the gdext boundary per mouse-motion
+## sample for two distinct answers. `_process()`'s backlog drain reads the same
+## table for the same reason the geometry above is cached -- any camera motion
+## that would stale it runs `_update_lod()` first.
+var _lod_morph: Dictionary = {}
+
+## The level `_update_lod()` last chose, and the level drawn **beneath** it.
+##
+## **LOD-D3's parent fallback.** `_update_lod()` wants both: the chosen level's
+## tiles, and the tiles one level up covering the same ground. The second set
+## costs about a quarter of the first (a parent tile covers four children) and
+## it is what removes holes -- a child that has not been synthesised yet has
+## its parent underneath rather than the base map, and a level change reuses
+## the level it came from instead of freeing it and leaving bare ground.
+##
+## `-1` for both when nothing is live, and `_lod_parent_level` is `-1` at level
+## 0, which has no parent: a tile at level 0 blends against `map_view` through
+## the shader's `base_tex` instead, which is also what every tile does on the
+## frame the pyramid first comes up.
+var _lod_child_level := -1
+var _lod_parent_level := -1
+
+## Whether a parent level is wanted at all -- **false until the camera has
+## changed pyramid level at least once since the pyramid came up.**
+##
+## This is the scope's entry rule, kept as one flag rather than inferred from
+## the levels: *"the entry level's parent is `map_view.texture` sampled
+## linearly. The 0.15 s layer tween is removed, and `t` supplies the fade."*
+## The transition the pyramid coming up has to survive is the whole LAYER
+## against the base map, and the only thing that can fade that is the entry
+## level's own `t` against `base_tex`. Give the entry level a parent TILE and
+## the parent arrives opaque, the base map is covered immediately, and the
+## fade has nothing left to do -- measured at `mean |dL*|` 2.34 on entry
+## (512x384, seed 483920) against 2.25 before this milestone, i.e. no better.
+##
+## A flag rather than "is `z` one more than last time": it has to stay false
+## for the entry level's whole band and then true for good, and it has to be
+## right when the camera jumps more than one level in a notch, which
+## comparing adjacent levels is not.
+var _lod_parents_due := false
 var _lod_active := false
 
 ## **§2.5's "Tiled LOD — `auto on zoom` (default) · `manual`", the reference's
@@ -405,9 +462,13 @@ func _ready() -> void:
 	## Chunk-debug overlay -- the reference's `drawLODChunkDebug` (line 10946),
 	## reached there from `drawLODView`'s tail and gated on the same three
 	## toggles. A CHILD of `_lod_layer` rather than a sibling, deliberately:
-	## it inherits the `modulate:a` fade `_set_lod_active()` tweens, so the
-	## overlay appears and leaves exactly with the tiles it annotates instead
-	## of popping a frame early. `z_index` puts it above the `Sprite2D` tiles
+	## it inherits `_lod_layer`'s own `modulate:a`, so the overlay appears and
+	## leaves exactly with the tiles it annotates instead of popping a frame
+	## early. (That alpha was a 0.15 s tween until LOD-D3 and is a straight
+	## on/off now -- the fade moved into the tiles themselves, as a per-level
+	## morph; `_set_lod_active()` says why. The overlay still arrives and
+	## leaves with the layer, which is all this note ever depended on.)
+	## `z_index` puts it above the `Sprite2D` tiles
 	## added to the same parent later; `_clear_lod_tiles()` only frees nodes
 	## it tracks in `_lod_tiles`, so this one survives a level change.
 	_lod_debug_layer = Control.new()
@@ -2609,6 +2670,109 @@ func _update_lod() -> void:
 		for col in range(c0, c1 + 1):
 			wanted["%d,%d,%d" % [z, col, row]] = Vector3i(z, col, row)
 
+	## **LOD-D3's parent fallback.** The level above, over the same ground,
+	## wanted alongside the level being drawn -- `LOD_DETAIL_SCOPE.md`'s *"a
+	## tile's parent (`chunk_parent`) stays alive until all four children are
+	## built and draws under the missing ones. This removes holes."*
+	##
+	## `>> 1` is `chunk_parent` exactly and not an approximation of it: level
+	## `z`'s tile grid is `2^z` per axis and level `z-1`'s is `2^(z-1)`, so
+	## tile `(z-1, c, r)` covers precisely children `2c` and `2c+1` on each
+	## axis (`pyramid_tile_bounds` splits the same sample span `2^z` and
+	## `2^(z-1)` ways). The range therefore covers the child range exactly,
+	## with no edge left uncovered and none wasted.
+	##
+	## The cost is about a **quarter** of the child set, which is the scope's
+	## own budget: at the level `level_for_zoom` picks, a tile is roughly
+	## `TILE_PX` on screen at any depth, so one level up each tile is twice as
+	## wide and a quarter as many cover the view.
+	##
+	## Almost always free at a level change: zooming IN, the level just left
+	## becomes the parent set and every one of its tiles is already live.
+	## Zooming OUT, the old parent set becomes the child set and only the new
+	## parents have to be synthesised -- a quarter of a viewful, where before
+	## LOD-D3 a level change freed everything and rebuilt a whole one.
+	##
+	## **Not at LOD entry**, and that is the scope's own rule rather than an
+	## optimisation: *"the entry level's parent is `map_view.texture`
+	## sampled linearly. The 0.15 s layer tween is removed, and `t` supplies
+	## the fade."* The pyramid coming up is the one transition whose parent is
+	## the base map, so wanting a parent LEVEL here would defeat exactly the
+	## fade this milestone is for -- the parent would arrive opaque and the
+	## layer would appear at full strength again, with the morph only blending
+	## the child against it.
+	##
+	## Measured, not reasoned: wanting the parent level unconditionally left
+	## the LOD-entry `mean |dL*|` at 2.34 (512x384, seed 483920) against 2.25
+	## before this milestone -- no better, because what the fade has to hide at
+	## entry is the whole layer against the base map, not one level against
+	## another.
+	##
+	## So the condition is `_lod_parents_due` -- *has the camera changed
+	## pyramid level at all since the pyramid came up* -- and its own doc
+	## comment carries the reasoning. It is false for the whole ENTRY BAND,
+	## not merely for the entry frame: the layer has to fade in against the
+	## base map across the entry level's own half-level band, and a parent
+	## arriving on the second frame would end that fade on the second frame.
+	##
+	## Zooming in, the parent it then wants is already live (it is the level
+	## the camera just left), so the common case costs no synthesis at all.
+	## Zooming out is the one case that has to build: coming down from `z+1`,
+	## level `z` is the retained set and `z-1` has never existed. It is needed
+	## at the BOTTOM of the band and the camera arrives at the TOP (`t` is 1 at
+	## a downward crossing), so there are many frames to fill it in before any
+	## of it is visible -- and it is a quarter of a viewful, not a viewful.
+	## **The flag is raised here, before `pz` is read, and that ordering is the
+	## whole of it.** Raising it after would make the parent set start one call
+	## LATE -- and the call it would be late for is the level change itself,
+	## which is precisely the call whose parent set is free because it is the
+	## level the camera is leaving. Getting it wrong frees the entry level on
+	## the frame the camera steps past it and then synthesises it again from
+	## scratch a frame later, so the layer thins out at the one transition the
+	## morph exists to hide.
+	##
+	## Caught by `_d3morph_probe.gd`, which asserts that at the boundary frame
+	## the outgoing level is still on screen at `morph` 1: it read **0 tiles**
+	## at the outgoing level against 48 at the incoming one, and the boundary
+	## `mean |dL*|` was 4.4619 against 4.2543 for the pre-LOD-D3 compositor --
+	## i.e. the milestone was making its own target metric worse. That is the
+	## assertion earning its place; the pop rule and the level-boundary ratio
+	## both passed straight through it.
+	var level_changed := _lod_child_level >= 0 and z != _lod_child_level
+	if level_changed:
+		_lod_parents_due = true
+	var pz := -1
+	if z >= 1 and _lod_parents_due:
+		pz = z - 1
+		for row in range(r0 >> 1, (r1 >> 1) + 1):
+			for col in range(c0 >> 1, (c1 >> 1) + 1):
+				wanted["%d,%d,%d" % [pz, col, row]] = Vector3i(pz, col, row)
+
+	## The morph table for the levels now on screen (`_lod_morph`'s own doc
+	## comment): asked of the engine, once per level, never per tile.
+	##
+	## The parent's own morph is `1.0` by construction rather than by
+	## assumption -- `smoothstep(0, 1, log2(px/level_px(z-1)) + 0.5)` with
+	## `log2(px/level_px(z)) >= -0.5` (which is what `js_round` choosing `z`
+	## means) is `smoothstep` of at least `1.5` -- so a parent draws whole and
+	## the child fades in over it. It is read from the table anyway, so that
+	## the one place the rule lives is the engine and not this sentence.
+	_lod_morph.clear()
+	_lod_morph[z] = _bridge.lod_morph(screen_px_per_cell, z)
+	if pz >= 0:
+		_lod_morph[pz] = _bridge.lod_morph(screen_px_per_cell, pz)
+	## A level change re-sorts the layer, and it is done here -- before
+	## anything is built -- so `_build_lod_tile`'s own "a tile built as a
+	## parent goes to the back" rule is the only other thing that ever touches
+	## the order.
+	_lod_parent_level = pz
+	if z != _lod_child_level:
+		_lod_child_level = z
+		## The tiles that were children a moment ago are parents now, so they
+		## have to fall behind the new ones. `_lod_child_level` is already the
+		## new level here, which is what `_sink_lod_parents()` compares against.
+		_sink_lod_parents()
+
 	## Only the tiles this call would actually have to *synthesize* --
 	## already-built ones cost nothing but a reposition below, so they stay
 	## in `wanted` (and so never get freed) regardless of whether they'd have
@@ -2622,7 +2786,18 @@ func _update_lod() -> void:
 	var build_keys: Dictionary = missing
 	var trimmed := false
 	if missing.size() > MAX_LOD_TILES_PER_UPDATE:
-		build_keys = _nearest_tiles(missing, Vector2((c0 + c1) * 0.5, (r0 + r1) * 0.5))
+		## **Build what the viewer can see first.** With two levels wanted at
+		## once, "closest to the centre" is no longer the whole priority: which
+		## LEVEL a missing tile belongs to decides whether its absence is
+		## visible at all. Below half-fade the parent is most of the picture
+		## and a missing child contributes almost nothing; above it the child
+		## is most of the picture and the parent is nearly hidden behind it.
+		## So the morph itself picks the level to satisfy first, and distance
+		## orders within it.
+		var prefer := z
+		if pz >= 0 and float(_lod_morph[z]) < 0.5:
+			prefer = pz
+		build_keys = _nearest_tiles(missing, Vector2((c0 + c1) * 0.5, (r0 + r1) * 0.5), z, prefer)
 		trimmed = true
 
 	## Whatever didn't make this call's budget -- replaces the previous
@@ -2635,13 +2810,12 @@ func _update_lod() -> void:
 		for key in missing.keys():
 			if not build_keys.has(key):
 				_lod_backlog[key] = missing[key]
-	_lod_backlog_n = n
 	_lod_backlog_grid = g
 	_lod_backlog_origin = displayed_origin
 	_lod_backlog_size = displayed_size
 	set_process(not _lod_backlog.is_empty())
 
-	_apply_lod_tiles(wanted, build_keys, n, g, displayed_origin, displayed_size)
+	_apply_lod_tiles(wanted, build_keys, g, displayed_origin, displayed_size)
 	_set_lod_active(true)
 
 ## `pyramid_tile_bounds`' own step: the *sample* range `[0, gw-1] x [0, gh-1]`
@@ -2655,13 +2829,29 @@ func _lod_step(g: Vector2i, n: int) -> Vector2:
 ## (in chunk-index space) -- see `MAX_LOD_TILES_PER_UPDATE`'s own doc comment
 ## for why this bound exists at all rather than synthesizing every candidate
 ## unconditionally.
-func _nearest_tiles(wanted: Dictionary, centre: Vector2) -> Dictionary:
+## `centre` and the ranking are in **level `child_level`'s index space**, and
+## `prefer_level` is satisfied first -- see the call site for why the morph,
+## not the distance, decides which level that is.
+##
+## A parent index is mapped into the child level's space rather than compared
+## raw: tile `(z-1, c, r)` covers children `2c`/`2c+1`, so its centre there is
+## `2c + 0.5`. Comparing `c` against a child's `2c` directly would rank every
+## parent as twice as close to the origin as it is, which at a screen edge is
+## the difference between queueing the parent that is on screen and the one
+## that is not.
+func _nearest_tiles(wanted: Dictionary, centre: Vector2, child_level: int, prefer_level: int) -> Dictionary:
+	var rank := func(idx: Vector3i) -> Vector2:
+		var f := float(1 << maxi(0, child_level - idx.x))
+		var group := 0.0 if idx.x == prefer_level else 1.0
+		var pos := Vector2(idx.y, idx.z) * f + Vector2(f - 1.0, f - 1.0) * 0.5
+		return Vector2(group, pos.distance_squared_to(centre))
 	var keys: Array = wanted.keys()
 	keys.sort_custom(func(a, b) -> bool:
-		var ai: Vector3i = wanted[a]
-		var bi: Vector3i = wanted[b]
-		return Vector2(ai.y, ai.z).distance_squared_to(centre) \
-			< Vector2(bi.y, bi.z).distance_squared_to(centre))
+		var ra: Vector2 = rank.call(wanted[a])
+		var rb: Vector2 = rank.call(wanted[b])
+		if ra.x != rb.x:
+			return ra.x < rb.x
+		return ra.y < rb.y)
 	var trimmed: Dictionary = {}
 	for i in range(MAX_LOD_TILES_PER_UPDATE):
 		trimmed[keys[i]] = wanted[keys[i]]
@@ -2673,10 +2863,13 @@ func _nearest_tiles(wanted: Dictionary, centre: Vector2) -> Dictionary:
 ## else missing from `wanted` was already queued in `_lod_backlog` by
 ## `_update_lod()`, and `_process()` builds it shortly.
 ##
-## A tile at the wrong *level* needs no special handling since 2026-08-24:
-## the level is part of the key, so a level change leaves every old key out
-## of `wanted` and the free loop below collects them.
-func _apply_lod_tiles(wanted: Dictionary, build_keys: Dictionary, n: int, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> void:
+## A tile at a level nobody wants needs no special handling since 2026-08-24:
+## the level is part of the key, so it is simply a key absent from `wanted`
+## and the free loop below collects it. Since LOD-D3 `wanted` names **two**
+## levels -- the one being drawn and its parent fallback -- so a level change
+## frees only what is now two levels off, and the tiles of the level just left
+## carry straight over as parents with no synthesis at all.
+func _apply_lod_tiles(wanted: Dictionary, build_keys: Dictionary, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> void:
 	for key in _lod_tiles.keys().duplicate():
 		if not wanted.has(key):
 			(_lod_tiles[key] as Sprite2D).queue_free()
@@ -2686,15 +2879,83 @@ func _apply_lod_tiles(wanted: Dictionary, build_keys: Dictionary, n: int, g: Vec
 		var idx: Vector3i = wanted[key]
 		if _lod_tiles.has(key):
 			var existing := _lod_tiles[key] as Sprite2D
-			var rect = _lod_tile_rect(idx, existing.texture, n, g, displayed_origin, displayed_size)
+			var rect = _lod_tile_rect(idx, existing.texture, g, displayed_origin, displayed_size)
 			if rect != null:
 				_place_lod_tile(existing, rect)
 			continue
 		if build_keys.has(key):
-			_build_lod_tile(key, idx, n, g, displayed_origin, displayed_size)
+			_build_lod_tile(key, idx, g, displayed_origin, displayed_size)
 		## else: outside this call's synthesis budget, already queued in
 		## `_lod_backlog` by `_update_lod()`, built by `_process()` shortly.
+	_refresh_lod_blend()
 	_lod_debug_dirty()
+
+## **LOD-D3's morph, applied.** Re-reads `_lod_morph` and the live parent set
+## onto every tile's material.
+##
+## Both values change without the tile itself changing, which is why this is a
+## pass over the whole set rather than something `_build_lod_tile` does once:
+## `morph` moves on every zoom notch, and `under_parent` flips the moment a
+## tile's own parent finishes synthesising -- which happens in `_process()`'s
+## backlog drain, frames after the child was built. A child whose
+## `under_parent` went stale at `false` would keep blending against the base
+## map with a much finer parent sitting unused underneath it.
+##
+## Called from the two places that can change either: `_apply_lod_tiles()` and
+## the backlog drain. About sixty `set_shader_parameter` calls, and only while
+## the camera is moving or the backlog is draining.
+## **All of the level's children blend against parents, or none of them do**,
+## and that is a seam rule rather than a convenience. A child whose own parent
+## (`chunk_parent` = `(z-1, col >> 1, row >> 1)`) has landed blends against a
+## tile of the level above; one whose parent has not blends against the base
+## map. Those are two different pictures at the same ground resolution -- the
+## measured disagreement between the tile coloriser and the map raster is the
+## `mean |dL*|` LOD entry reads, 1.5 to 2.3 -- so letting the two modes meet
+## along a tile edge would paint a seam of half that, mid-fade, exactly where
+## the pyramid is already hardest to get right. It is also a seam that only
+## exists while a parent set is filling in, which is the worst kind: it moves.
+##
+## So completeness is decided once for the whole level, then applied.
+func _refresh_lod_blend() -> void:
+	var parents_ready := _lod_parent_level >= 0 and _lod_child_level == _lod_parent_level + 1
+	if parents_ready:
+		for key in _lod_tiles.keys():
+			var idx: Vector3i = (_lod_tiles[key] as Sprite2D).get_meta("lod_idx", Vector3i(-1, 0, 0))
+			if idx.x == _lod_child_level \
+					and not _lod_tiles.has("%d,%d,%d" % [_lod_parent_level, idx.y >> 1, idx.z >> 1]):
+				parents_ready = false
+				break
+	for key in _lod_tiles.keys():
+		var s := _lod_tiles[key] as Sprite2D
+		var mat := s.material as ShaderMaterial
+		if mat == null:
+			continue
+		var idx: Vector3i = s.get_meta("lod_idx", Vector3i(-1, 0, 0))
+		mat.set_shader_parameter("morph", float(_lod_morph.get(idx.x, 1.0)))
+		mat.set_shader_parameter("under_parent", parents_ready and idx.x == _lod_child_level)
+
+## Pushes every tile shallower than `_lod_child_level` to the back of
+## `_lod_layer`, so a parent draws *under* its children.
+##
+## Ordering is by sibling index, not `z_index`: `z_as_relative` accumulates a
+## `CanvasItem`'s z against its ancestors and the result is resolved across the
+## whole canvas rather than among siblings, so a tile given `z_index = level`
+## would also rise above `_lod_layer`'s own siblings -- `overlay` among them.
+## This project has already paid for that lesson once in the other direction:
+## `journey_planner_view.gd`'s route backdrop tried a NEGATIVE `z_index` on
+## exactly this kind of sprite and every one of them vanished behind a panel
+## background several levels up. `_lod_debug_layer` keeps its `z_index = 1` and
+## stays on top of every tile regardless of where this moves things.
+##
+## Only needed when the chosen level *changes*, because that is the only event
+## that turns an existing tile into a parent; a tile built as a parent is sunk
+## by `_build_lod_tile` as it is added.
+func _sink_lod_parents() -> void:
+	for key in _lod_tiles.keys():
+		var s := _lod_tiles[key] as Sprite2D
+		var idx: Vector3i = s.get_meta("lod_idx", Vector3i(-1, 0, 0))
+		if idx.x >= 0 and idx.x < _lod_child_level:
+			_lod_layer.move_child(s, 0)
 
 ## The screen rect one chunk occupies, in `_camera`-local space.
 ##
@@ -2716,13 +2977,18 @@ func _apply_lod_tiles(wanted: Dictionary, build_keys: Dictionary, n: int, g: Vec
 ##
 ## `null` (not a `Rect2`) for a degenerate texture, the same "no tile" answer
 ## `_build_lod_tile` gives for a `null` synthesis result.
-func _lod_tile_rect(idx: Vector3i, tex: Texture2D, n: int, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> Variant:
+## Since LOD-D3 the tiles-per-axis comes from the chunk's **own** level rather
+## than from the caller's: `_lod_tiles` holds two levels at once (the drawn
+## level and its parent fallback), so one `n` for the whole set would place
+## every parent at a quarter of its real footprint.
+func _lod_tile_rect(idx: Vector3i, tex: Texture2D, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> Variant:
 	if tex == null:
 		return null
 	var tw := tex.get_width()
 	var th := tex.get_height()
 	if tw < 2 or th < 2:
 		return null
+	var n: int = _bridge.lod_tiles_per_axis(idx.x)
 	if n <= 0:
 		return null
 	var step := _lod_step(g, n)
@@ -2730,8 +2996,37 @@ func _lod_tile_rect(idx: Vector3i, tex: Texture2D, n: int, g: Vector2i, displaye
 	## Cell-space span of the drawn rect: half a texel out from the first and
 	## last sample, and hence `tw/(tw-1)` of the chunk's own sample span.
 	var half := Vector2(0.5 * step.x / float(tw - 1), 0.5 * step.y / float(th - 1))
-	var c0 := b + Vector2(0.5, 0.5) - half
 	var span := Vector2(step.x * tw / float(tw - 1), step.y * th / float(th - 1))
+	## **A parent is inset by its CHILD's half texel, not its own** -- LOD-D3,
+	## and it is worth the four lines because it was measured, not reasoned.
+	##
+	## The inset above is half of *this* tile's texel, which is correct for a
+	## tile drawn on its own. A parent's texel is twice a child's, so a parent
+	## laid out that way overhangs the union of the four children it stands
+	## behind by half a child texel on every side. While the children are
+	## opaque that overhang is invisible -- it is covered by the neighbouring
+	## children. The moment the morph makes a child partly transparent it is
+	## not: every parent boundary paints a band of pure parent, about a pixel
+	## wide, offset from the child boundary it is supposed to sit under.
+	##
+	## Measured on `_lodsweep_probe.gd`'s constant-zoom pan (seed 483920,
+	## 512x384, seam ratio, median of 120 frames, reproduced to the digit
+	## across two runs): **3.4707 with the parent laid out by its own texel,
+	## 1.2327 laid out by its child's.** Suppressing the parent level entirely
+	## gives 1.3179, so this is not the morph's seam and it is not the
+	## parent's content -- it is the quarter of a texel between two rects that
+	## are supposed to cover the same ground.
+	##
+	## The cost is that a parent's texel centres land half a child texel off
+	## their own ground. That is a sub-pixel resample of the *blend partner*,
+	## which is what a parent is; a hard band at a tile edge is not.
+	##
+	## The child path is left arithmetically untouched -- same expressions,
+	## same order -- so nothing about the level being drawn moves by an ULP.
+	if idx.x == _lod_parent_level and _lod_child_level == idx.x + 1:
+		half *= 0.5
+		span = step + half * 2.0
+	var c0 := b + Vector2(0.5, 0.5) - half
 	var scale_v := displayed_size / Vector2(g)
 	return Rect2(displayed_origin + c0 * scale_v, span * scale_v)
 
@@ -2765,19 +3060,23 @@ func _place_lod_tile(sprite: Sprite2D, rect: Rect2) -> void:
 ## `_process()`'s backlog drain, which reach it from two different budgets
 ## (`MAX_LOD_TILES_PER_UPDATE` per input event, or
 ## `MAX_LOD_TILES_PER_CATCHUP` per idle frame).
-func _build_lod_tile(key: String, idx: Vector3i, n: int, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> void:
+func _build_lod_tile(key: String, idx: Vector3i, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> void:
 	var tex := _bridge.lod_synthesize_tile(idx.x, idx.y, idx.z)
 	if tex == null:
 		return
 	## After synthesis, not before: the rect is derived from the texture's own
 	## texel count (`_lod_tile_rect`), which for a non-square map is not
 	## `TILE_PX` on both axes.
-	var rect = _lod_tile_rect(idx, tex, n, g, displayed_origin, displayed_size)
+	var rect = _lod_tile_rect(idx, tex, g, displayed_origin, displayed_size)
 	if rect == null:
 		return
 	var tile_node := Sprite2D.new()
 	tile_node.texture = tex
 	tile_node.centered = false
+	## Its own chunk address, kept on the node so `_refresh_lod_blend()` and
+	## `_sink_lod_parents()` can read a tile's level without parsing the
+	## dictionary key back out of a string every frame.
+	tile_node.set_meta("lod_idx", idx)
 	## `LINEAR`, not `_raster()`'s `NEAREST` -- the entire reason this
 	## milestone exists is to stop showing blocky single-cell squares at
 	## deep zoom, so the tile that replaces them must not reintroduce
@@ -2792,12 +3091,16 @@ func _build_lod_tile(key: String, idx: Vector3i, n: int, g: Vector2i, displayed_
 	## paths agreed by construction and a deeper level could not show
 	## anything the base raster did not already have.
 	##
-	## `base_tex` and its UVs are still set: the shader keeps the sampler
-	## for LOD-D3's morph, and its own header says it reads it only where a
-	## tile is transparent -- which nothing in this build produces. Passing
-	## the parameters here is what keeps that mapping exercised rather than
-	## re-derived later against a camera transform whose errors read as
-	## seams. The UVs are the same rect in `[0,1]` map space.
+	## `base_tex` and its UVs are **LOD-D3's fallback partner**, live since
+	## this milestone: the base map at this tile's own ground position, which
+	## is what a tile blends against when it has no parent TILE underneath --
+	## the scope's *"the entry level's parent is `map_view.texture` sampled
+	## linearly"*, reached by every tile whose parent has not been synthesised
+	## yet as well as by the entry level itself. The UVs are the same rect in
+	## `[0,1]` map space. LOD-D2 wired the sampler with no consumer and said
+	## in as many words that it was reserved for this; it was, and re-deriving
+	## the mapping here instead would have meant getting a camera transform
+	## right whose errors read as seams rather than as bugs.
 	var mat := ShaderMaterial.new()
 	mat.shader = LOD_TILE_SHADER
 	mat.set_shader_parameter("base_tex", map_view.texture)
@@ -2805,7 +3108,16 @@ func _build_lod_tile(key: String, idx: Vector3i, n: int, g: Vector2i, displayed_
 	mat.set_shader_parameter("base_uv1", (rect.end - displayed_origin) / displayed_size)
 	tile_node.material = mat
 	_lod_layer.add_child(tile_node)
+	## A parent goes behind its children (`_sink_lod_parents()`'s own note on
+	## why this is sibling order and not `z_index`). Done at add time for a
+	## tile BUILT as a parent; `_update_lod()` handles the other case, an
+	## existing tile that becomes a parent when the level changes under it.
+	if idx.x < _lod_child_level:
+		_lod_layer.move_child(tile_node, 0)
 	_lod_tiles[key] = tile_node
+	## Its blend is set by the caller's own `_refresh_lod_blend()` pass, which
+	## runs after the whole batch: a tile built before its parent in the same
+	## batch would otherwise be stamped `under_parent = false` and keep it.
 
 ## Backlog catch-up (`_lod_backlog`'s own doc comment): drains up to
 ## `MAX_LOD_TILES_PER_CATCHUP` entries per frame, reusing the geometry the
@@ -2826,9 +3138,13 @@ func _process(_delta: float) -> void:
 		var idx: Vector3i = _lod_backlog[key]
 		_lod_backlog.erase(key)
 		if not _lod_tiles.has(key):   ## Not already built by a call in between.
-			_build_lod_tile(key, idx, _lod_backlog_n, _lod_backlog_grid,
+			_build_lod_tile(key, idx, _lod_backlog_grid,
 				_lod_backlog_origin, _lod_backlog_size)
 		n += 1
+	## A tile arriving here can be some other tile's parent, which flips that
+	## tile's blend partner from the base map to this one -- see
+	## `_refresh_lod_blend()`.
+	_refresh_lod_blend()
 	_lod_debug_dirty()
 	if _lod_backlog.is_empty():
 		set_process(false)
@@ -2840,6 +3156,17 @@ func _clear_lod_tiles() -> void:
 		(_lod_tiles[key] as Sprite2D).queue_free()
 	_lod_tiles.clear()
 	_lod_backlog.clear()
+	## Nothing is live, so no level is drawn and no morph applies. `-1` rather
+	## than a stale level: `_update_lod()` compares against `_lod_child_level`
+	## to decide whether the layer needs re-sorting, and a level that survived
+	## a clear would make the first rebuild at that same level skip the sort.
+	_lod_child_level = -1
+	_lod_parent_level = -1
+	## The next `_update_lod()` is an entry again, so the entry rule applies
+	## again: the layer fades in against the base map before any parent level
+	## is wanted.
+	_lod_parents_due = false
+	_lod_morph.clear()
 	set_process(false)
 	_lod_debug_dirty()
 
@@ -2886,10 +3213,15 @@ func invalidate_lod_tiles() -> void:
 ## of where the tiles used to be.
 ##
 ## Zooming happened to look right and that is why this survived: crossing the
-## deep-zoom threshold runs `_set_lod_active()`'s `modulate:a` tween, which
-## redraws the subtree as a side effect. A pan at a steady zoom runs no tween,
-## and `_apply_lod_tiles()` reconciles the tile set underneath a picture that
-## nothing re-issues.
+## deep-zoom threshold then ran a 0.15 s `modulate:a` tween in
+## `_set_lod_active()`, which redrew the subtree as a side effect. A pan at a
+## steady zoom ran no tween, and `_apply_lod_tiles()` reconciled the tile set
+## underneath a picture that nothing re-issued.
+##
+## **That accidental redraw is gone** -- LOD-D3 removed the tween (the fade is
+## per-tile now), so nothing at all re-issues the overlay for free and the
+## explicit calls below are the only thing keeping it current. The 2026-09-08
+## fix stopped being a fix for a pan and became the whole mechanism.
 ##
 ## Called from the three places that mutate `_lod_tiles`: `_apply_lod_tiles()`
 ## (frees, repositions and the builds it drives), `_process()`'s backlog drain
@@ -2986,14 +3318,34 @@ func release_lod_entry() -> void:
 func lod_active() -> bool:
 	return _lod_active
 
+## **The 0.15 s `modulate:a` tween was removed by LOD-D3** -- the scope's *"the
+## 0.15 s layer tween is removed, and `t` supplies the fade."*
+##
+## The tween existed because the layer used to arrive all at once: every tile
+## appeared at full strength on one frame, and a fade over the whole layer was
+## the only thing standing between that and a visible switch. The morph is a
+## better answer to the same problem and it is a *different* answer, not a
+## faster one. The tween faded the layer in over time regardless of the
+## camera, so zooming in and stopping mid-fade showed an arbitrary alpha, and
+## zooming straight back out faded a layer that was already being freed. `t`
+## is a function of the zoom alone: at the entry threshold the level the
+## pyramid comes up at is barely into its own band, so the tiles arrive at a
+## few per cent and deepen as the camera keeps going in. Reverse the camera
+## and they thin out again along exactly the same curve, because it is the
+## same function of the same zoom.
+##
+## What is lost is worth naming: a MANUAL entry (`request_lod_entry()`) at a
+## zoom well inside a level's band now appears at that band's `t` immediately
+## rather than fading up over 0.15 s. That is the honest picture -- the layer
+## really is that far faded in at that zoom -- and it is the same frame an
+## auto entry would have reached a sixth of a second later.
 func _set_lod_active(active: bool) -> void:
 	if active == _lod_active:
 		return
 	_lod_active = active
 	if not active:
 		_clear_lod_tiles()
-	var tw := create_tween()
-	tw.tween_property(_lod_layer, "modulate:a", 1.0 if active else 0.0, 0.15)
+	_lod_layer.modulate.a = 1.0 if active else 0.0
 	## The export preview is of the full-resolution split and hides while the
 	## pyramid is up (reference line 8658's `&& !_lodOn`), so it has to be
 	## re-evaluated here and not only when the checkbox moves.

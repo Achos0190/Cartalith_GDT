@@ -31,23 +31,72 @@ uniform vec2 base_uv1;
 
 // The base map, sampled at the same ground position as this fragment.
 //
-// **Read only where the tile is transparent**, which is nowhere today:
-// `render_biome_tile_rgba` writes alpha `255` at every pixel, so `mix` below
-// resolves to the tile and this sampler contributes nothing to a shipped
-// frame. It is kept, wired and correct rather than deleted for one stated
-// reason: LOD-D3 ("Continuous transitions: parent fallback and a colour-space
-// morph") needs exactly this -- a second colour to blend toward, at the same
-// ground position, with the UV mapping already derived and already exercised.
-// Deleting it would mean re-deriving `base_uv0`/`base_uv1` in the milestone
-// that needs them most, against a camera transform that is easy to get subtly
-// wrong and whose error looks like a seam rather than like a bug.
+// **This is LOD-D3's morph partner for a tile that has no live parent tile**
+// -- the scope's *"the entry level's parent is `map_view.texture` sampled
+// linearly"*. It was declared and wired by LOD-D2 with no consumer, reserved
+// in as many words for this milestone; the UV mapping `_build_lod_tile()`
+// derives for it has been exercised since, which is the whole reason it was
+// kept rather than re-derived here against a camera transform whose errors
+// read as seams rather than as bugs.
 //
-// Stated as an unused input rather than dressed up as a fallback: nothing in
-// this build can produce a partially transparent tile.
+// `filter_linear` is load-bearing and is not what the screen would do on its
+// own: `map_view`'s own sprite draws with `TEXTURE_FILTER_NEAREST`
+// (`_raster()`), so letting the base show through from underneath would blend
+// a deep-zoom tile against visible coarse-cell squares. Sampled here it is
+// smooth, which is what a parent is supposed to look like.
 uniform sampler2D base_tex : filter_linear, repeat_disable;
+
+// **LOD-D3's morph parameter `t`**, from `WorldGen::lod_morph` -- see
+// `lod_bridge::morph_for_zoom`, which is `lod_level_for_zoom`'s own expression
+// without the rounding. `0.0` draw the parent, `1.0` draw this tile.
+//
+// Not computed here, and not in GDScript either: the fade and the level switch
+// have to agree about where the level boundary is, and two copies of one
+// expression is exactly how they would come to disagree. The engine answers
+// both questions from one place.
+//
+// Defaults to `1.0` so a material whose parameter was never set draws its tile
+// whole. A `0.0` default would make a missed `set_shader_parameter` look like
+// an empty layer, which is the failure mode hardest to attribute.
+uniform float morph : hint_range(0.0, 1.0) = 1.0;
+
+// Whether a parent TILE is drawn underneath this one (`viewport_host.gd` keeps
+// the level above alive and orders it behind -- LOD-D3's parent fallback), as
+// opposed to nothing but the base map.
+//
+// Set the same way for **every tile of a level at once**, never per tile:
+// `_refresh_lod_blend()` turns it on only when the whole parent set is live,
+// because two children side by side in different modes would meet along their
+// shared edge with the base map on one side of it and a parent tile on the
+// other -- a seam of half the tile-versus-raster difference, mid-fade, that
+// moves as the parent set fills in. Its own note there carries the reasoning.
+//
+// It selects which of the two blends below is correct, and they are not
+// interchangeable:
+//
+//   * with a parent underneath, this fragment must leave the parent visible,
+//     so it emits `morph` as its ALPHA and the hardware blend does the mix --
+//     `tile*t + parent*(1-t)`, which is the scope's `mix(parent_sample,
+//     tile_sample, t)` with the parent supplied by the node below instead of
+//     by a second sampler. One texture sample, which is the milestone's own
+//     per-fragment budget.
+//   * with no parent, the blend partner is `base_tex`, which is sampled here
+//     rather than drawn underneath (see its own note), so the mix happens in
+//     the shader and the fragment stays opaque.
+//
+// Emitting alpha in the second case too would blend against `map_view`'s
+// NEAREST-filtered sprite and reintroduce coarse-cell squares under a fading
+// tile; sampling `base_tex` in the first case would blend against the base map
+// where a much finer parent tile is available, which is a visible loss of
+// detail at every level change.
+uniform bool under_parent = false;
 
 void fragment() {
 	vec4 tile = texture(TEXTURE, UV);
-	vec4 base = texture(base_tex, mix(base_uv0, base_uv1, UV));
-	COLOR = vec4(mix(base.rgb, tile.rgb, tile.a), 1.0);
+	if (under_parent) {
+		COLOR = vec4(tile.rgb, morph * tile.a);
+	} else {
+		vec4 base = texture(base_tex, mix(base_uv0, base_uv1, UV));
+		COLOR = vec4(mix(base.rgb, tile.rgb, morph * tile.a), 1.0);
+	}
 }

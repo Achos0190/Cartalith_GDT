@@ -11942,6 +11942,25 @@ impl WorldGen {
         lod_bridge::MAX_LEVEL
     }
 
+    /// **How far level `z` has faded in** at `px_per_cell` screen pixels per
+    /// coarse cell — `0.0` draw the tile's parent, `1.0` draw the tile,
+    /// anything between is the CDLOD-style blend `lod_tile.gdshader` applies
+    /// (`LOD_DETAIL_SCOPE.md` LOD-D3).
+    ///
+    /// Asked of the engine for the same reason [`Self::lod_level_for_zoom`]
+    /// is: it is that function's own expression without the rounding, so the
+    /// fade and the level switch cannot disagree about where the boundary is
+    /// — and a disagreement there is visible as exactly the pop the fade
+    /// exists to remove. [`lod_bridge::morph_for_zoom`] carries the argument
+    /// and the tests.
+    ///
+    /// `1.0` before any world, so a shell that asks too early draws its tile
+    /// rather than dissolving it into nothing.
+    #[func]
+    fn lod_morph(&self, px_per_cell: f64, z: i32) -> f64 {
+        lod_bridge::morph_for_zoom(px_per_cell, self.gw.max(0) as usize, z)
+    }
+
     /// One synthesized deep-zoom tile — what `viewport_host.gd`'s deep-zoom
     /// compositor calls per visible tile once the camera's zoom crosses the
     /// "more than roughly one screen pixel per grid cell" threshold

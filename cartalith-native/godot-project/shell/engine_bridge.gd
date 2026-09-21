@@ -4626,6 +4626,25 @@ func lod_max_level() -> int:
 		return 0
 	return world_gen.lod_max_level()
 
+## **LOD-D3's morph parameter**: how far pyramid level `z` has faded in at
+## `px_per_cell` screen pixels per coarse cell. `0.0` means "draw this tile's
+## parent", `1.0` means "draw this tile" (`LOD_DETAIL_SCOPE.md` LOD-D3;
+## `lod_bridge::morph_for_zoom` carries the argument and the tests).
+##
+## Asked of the engine rather than written out in `ViewportHost` because it is
+## `lod_level_for_zoom`'s own expression minus the rounding: two copies of it
+## could disagree about where a level boundary is, and that disagreement is
+## visible as exactly the pop the fade exists to remove.
+##
+## `1.0` against a binary built before this milestone -- which is the
+## pre-LOD-D3 picture exactly (every tile drawn whole, no blend), so the
+## compositor degrades to the previous behaviour rather than to an empty
+## layer.
+func lod_morph(px_per_cell: float, z: int) -> float:
+	if not _has("lod_morph"):
+		return 1.0
+	return world_gen.lod_morph(px_per_cell, z)
+
 # -- F13 · the two ops_bridge bindings the shell reaches for -----------------
 
 ## `_civRegionalPopulation` (reference line 23297): the modeled persons/km²
