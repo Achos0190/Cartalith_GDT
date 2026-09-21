@@ -159,15 +159,22 @@ call sites (`sculpt_commit`, `carve_fjords`, `paint_commit`,
 `recompute_stale_stages()`): a **committed edit** to the height field now
 re-derives hydrology and climate (temperature/rainfall/flow discharge)
 without a full `generate()`. That is genuine live re-tuning for the editing
-case `UNIFIED_TOOL_PLAN.md`'s staleness section always scoped. What is still
-absent is the case this row originally meant — moving a **slider**
-(erosion/climate/hydrology parameters) and seeing the effect without a full
-regenerate: nothing marks the stage graph stale from a `param_set` call, only
-the three commit paths do (`GUI_GAP_REGISTER.md` SG-03, "needs a design
-first" — a per-parameter → stage table over `params.rs`'s entries does not
-exist yet). So "live tuning" is accurate for edits, not yet for dials; stating
-both halves rather than picking one is deliberate, per the audit's own
-instruction not to force a clean answer here.
+case `UNIFIED_TOOL_PLAN.md`'s staleness section always scoped. **Corrected
+2026-09-21 — the dial half below had gone stale against the Summary table
+and the absent-list in this same document, both of which already record SG-
+03 closed 2026-08-24.** Checked at the symbol: `set_params`'s own doc
+comment (`lib.rs`) reads *"Marks the staleness graph (`GUI_GAP_REGISTER.md`
+SG-03) for the 25 keys that have a live-apply path"*, backed by
+`params::invalidates`'s per-key table. So the claim "nothing marks the stage
+graph stale from a `param_set` call" is false — moving one of those 25
+dials now correctly flags the stage it affects as stale, the same signal
+the three commit paths already gave. **What genuinely remains, and it is
+narrower than the old paragraph implied**: `set_params`'s own doc comment
+says so directly — *"Marking only: no stage is recomputed here, because a
+slider writes on every drag tick."* So a dial move is now visibly flagged
+stale rather than silently wrong, but seeing the *effect* still needs a
+separate recompute trigger, not an automatic one — the real, narrower gap
+SG-03 leaves open.
 
 **§7d tag**: port behavior (users must be able to change a generation
 parameter and see the effect), implementation open for the dial case — this
