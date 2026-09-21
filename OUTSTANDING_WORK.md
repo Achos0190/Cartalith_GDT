@@ -41,7 +41,11 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**118 outstanding items** — 2026-09-21, after closing LOD-D2 (`9d2a800`; real RGB tiles reach the
+**115 outstanding items** — 2026-09-21, after closing three rows in one pass: the 28-vs-20 `_um*`
+function-count contradiction (`58d9003`, re-derived by grepping the frozen reference directly: 27
+functions, never actually in tension), and two PROVENANCE.md rows found already satisfied on
+re-verification (Nortantis credits disclosure live since `fb9c5b8`; the upstream-notes row already
+met by its own stated fallback paragraph). 118 immediately before, after closing LOD-D2 (`9d2a800`; real RGB tiles reach the
 screen through a real cache, 3 of 6 D0 acceptance bars pass and 3 disclosed failing rather than
 claimed — see its row). 119 immediately before, after closing LOD-D1 (`f6d1bd5`; byte-identical golden parity
 against the real reference, two owner decisions surfaced but not blocking — see its row) and the
@@ -1441,8 +1445,8 @@ measurement.
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
 | **Re-freeze the reference and regenerate `FUNCTION_INDEX.md` in the same pass** | `CLAUDE.md`, `FUNCTIONAL_CONTRACT.md` | large | **This row said "to v2.11" and that is twelve versions out of date.** Measured 2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1 v*.html` (newest **v2.22**) plus **44** DCC-line files (newest **v2.66**); `reference/` still holds only v2.10 and the index still enumerates v2.10's 1 094 functions. **Every capability tag in `FUNCTIONAL_CONTRACT.md` is measured against a reference the source moved past** — that file's own "no drift, no re-freeze question to raise" paragraph was corrected the same day. Re-freezing now also means **choosing a line**: the source forked at v2.22 and every engine change from v2.25 on exists only on the DCC line, so "newest" is two different files. See §2.9 |
-| Carry the Nortantis studied-not-copied disclosure into the credits screen | `PROVENANCE.md` | small | The constants are live (`cartalith-assets/src/scatter.rs`; `cartalith-civ/src/naming.rs:3` cites Nortantis directly) and `grep -i nortantis godot-project/credits.gd` returns nothing |
-| Copy in the two upstream owner notes the research briefs cross-reference (`Gravity influence.md`, `Weather Model.md`) | `PROVENANCE.md` | small | They live only in the upstream `Cartalith_RC` / `Cartalith-Gen1` repositories. The alternative the doc itself allows is keeping the paragraph so the dangling reference is a known one |
+| ~~Carry the Nortantis studied-not-copied disclosure into the credits screen~~ — **CLOSED 2026-09-21 (verified, already done)** | `PROVENANCE.md` | small | **Re-derived at the symbol: the row's own test is now false.** `credits.gd:44` carries the full disclosure verbatim (AGPL-3.0, studied-for-algorithm-only, the specific elevation thresholds and the naming-rejection rule it shaped), landed in commit `fb9c5b8`. `grep -i nortantis godot-project/credits.gd` returns real content, not nothing. |
+| ~~Copy in the two upstream owner notes the research briefs cross-reference~~ (`Gravity influence.md`, `Weather Model.md`) — **CLOSED 2026-09-21 (verified, satisfied under the row's own fallback)** | `PROVENANCE.md` | small | `PROVENANCE.md:47-56` already keeps the disclosing paragraph — the exact alternative the row itself sanctions ("keep this paragraph so the dangling reference is at least a known one"). Confirmed `Cartalith_RC` (the only source of the real note text) is not present on this machine, so copying the files in is not currently possible; the fallback is what's live. |
 
 ### 2.9 Source-engine changes specified but not routed
 
