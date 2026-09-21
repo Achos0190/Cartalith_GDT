@@ -2212,16 +2212,13 @@ Save layout** (§7.10 — all state is already in `DccShell`).
   something to "fix".
 - **No Rust was changed and none is proposed line-by-line.** (B) rows name the
   missing capability; they do not design it.
-- **One real defect found and deliberately not fixed here**, because fixing it is
-  a design change rather than a factual correction: **`timeline_bar` is visible
-  and empty in CIVIL and INFRA.** `app.gd:271` shows it for both domains;
-  `dcc_shell.gd:628-641` builds an empty `timeline_row`; and
-  `TIMELINE_SCOPE.md` §4 explains why milestone 6 deliberately built its own
-  panel instead. The result is a 70 px empty strip with no disclosure — the one
-  place the shell shows a region with nothing in it and says nothing about why.
-  Two honest fixes exist (hide it until something fills it, or put a
-  one-line disclosure in it, per the `_todo()` convention), and JP-13 fills it
-  for INFRA outright. **Recommended as the first follow-up dispatch.**
+- ~~**One real defect found and deliberately not fixed here** ... `timeline_bar` is visible
+  and empty in CIVIL and INFRA.~~ **CLOSED 2026-09-21 (verified, already done) — stale.**
+  Re-opened at the symbol: `app.gd`'s timeline strip (`_fill_timeline_strip()`,
+  `_build_timeline_expanded()`/`_build_timeline_collapsed()`, ~line 1290 on) is
+  now a fully built control — transport/speed pills, a scrub track, layer
+  toggles, a year readout — not an undisclosed empty 70 px region. Landed in
+  the 2026-08-31→2026-09-05 timeline-strip work, after this bullet was written.
 - **Not re-verified**: `DCC_CONTROL_INDEX.md`'s own 452-row counts. That
   document indexes the design; this one indexes the shell. Where they disagree
   about engine capability, this document is newer (the `#[func]` surface went
