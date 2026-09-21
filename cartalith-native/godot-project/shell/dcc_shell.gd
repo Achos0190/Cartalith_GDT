@@ -6959,6 +6959,23 @@ func _phone_nav_reserve() -> float:
 ## The three detent heights, from the prototype's `_detH()` -- see the constant
 ## block above for the transcription. Landscape has no detents (the sheet is
 ## width-driven there), so this is portrait-only and its callers all guard.
+##
+## **`half` is content-sized for the MAP tab specifically, Ruling Z
+## (`LARGE_ITEM_RULINGS.md`, 2026-09-21).** `PHONE_DETENT_HALF_FRAC` is
+## transcribed from the prototype's own four-tab sheet, where every tab fills
+## the space it opens. MAP's sheet body is `tool_options_row` alone --
+## `_tool_options_cartography_default()`'s one label row -- so the flat
+## fraction opened a sheet 92% blank regardless of world state
+## (`OUTSTANDING_WORK.md`'s own measured row, 933/1003 px blank with no world,
+## 912/1003 with one). GENERATE keeps the untouched flat fraction: its sheet
+## body is `_phone_gen_col`'s real multi-row parameter column, which the
+## fraction was sized for, and every other tab (`plan`/`more`) doesn't drive
+## the sheet's height at all (`_phone_tab_drives_sheet()`). Gated on
+## `_phone_tab == "map"` rather than on `_phone_gen_scroll.visible` --
+## `_pick_phone_tab()` sets `_phone_tab` before it calls
+## `_set_phone_detent("half")`, but only calls `_refresh_phone_gen_panel()`
+## (which flips that visibility) AFTER, so the visibility flag would still
+## name the PREVIOUS tab's content on the very transition that matters most.
 func _phone_detent_height(det: String) -> float:
 	var fh: float = get_viewport_rect().size.y - _phone_nav_reserve()
 	var peek := float(_pscale(PHONE_DETENT_PEEK))
@@ -6971,7 +6988,39 @@ func _phone_detent_height(det: String) -> float:
 			## under the peek height and the sheet would *shrink* on "full".
 			return maxf(peek, fh - float(_pscale(PHONE_DETENT_FULL_GAP)))
 		_:
-			return maxf(peek, round(fh * PHONE_DETENT_HALF_FRAC))
+			var half := maxf(peek, round(fh * PHONE_DETENT_HALF_FRAC))
+			if _phone_tab == "map":
+				## Never grow past what the flat fraction already gives (the
+				## ceiling every other tab still gets) and never shrink below
+				## `peek` -- `clampf`'s own bounds enforce both without a second
+				## `maxf`/`minf` pair.
+				half = clampf(_phone_map_sheet_content_height(), peek, half)
+			return half
+
+## MAP's real content height: the header block (`_phone_sheet_grab` -- pill row
+## plus title row, whatever it is actually laid out to, not the constant it
+## happens to be floored at) plus `tool_options_row`'s own minimum (a single
+## line for MAP), plus that row's own bottom margin and the sheet panel's own
+## stylebox margins -- every piece `_build_phone_tool_sheet()` actually stacks
+## above and around the scroller, read back rather than re-derived by formula.
+## `_phone_sheet_box(false)` is called again rather than cached: its own doc
+## comment already calls the function pure and a second call harmless.
+##
+## Runs only from `_phone_detent_height("half")`, which `_pick_phone_tab()`
+## reaches only after it has already set `_phone_tab` and repopulated
+## `tool_options_row` for the new domain (`_pick_bar_domain()` runs before the
+## detent call in that function) -- so this never measures stale or empty
+## content from the tab being left.
+func _phone_map_sheet_content_height() -> float:
+	var header_h := 0.0
+	if _phone_sheet_grab != null and is_instance_valid(_phone_sheet_grab):
+		header_h = _phone_sheet_grab.get_combined_minimum_size().y
+	var row_h := 0.0
+	if tool_options_row != null and is_instance_valid(tool_options_row):
+		row_h = tool_options_row.get_combined_minimum_size().y
+	var sheet_style := _phone_sheet_box(false)
+	var vpad := sheet_style.get_margin(SIDE_TOP) + sheet_style.get_margin(SIDE_BOTTOM)
+	return header_h + row_h + float(_pscale(10)) + vpad
 
 ## The phone tool sheet's current detent, and the way back to one.
 ##
