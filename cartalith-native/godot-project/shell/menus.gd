@@ -123,7 +123,10 @@ const ID_WORLD_DATA := 47
 ## `vault_window.gd` with no entity/kind scope at all, via `open_vault_browse()`
 ## -- a second destination alongside `ID_VAULT`'s one, so it needs its own id.
 const ID_VAULT_BROWSE := 716
-## One id per Data-manager route, allocated above every other id in this file.
+## One id per Data-manager route: the run is 400 .. 400 + ROUTES.size() - 1,
+## and `_data()`'s handler claims only that run. It is NOT above every other id
+## in this file (it once said so): the Data popup itself carries
+## `ID_VAULT_BROWSE` (716), which an open-ended `id >= 400` check silently ate.
 ## The Data dropdown draws all fourteen routes the canvas draws (see `_data()`),
 ## and each one is its own destination rather than a group's first.
 const ID_DATA_ROUTE_FIRST := 400
@@ -2654,10 +2657,15 @@ func _data(p: PopupMenu) -> void:
 
 	_build_vault_rows(p)
 	p.id_pressed.connect(func(id: int) -> void:
-		if id >= ID_DATA_ROUTE_FIRST:
-			var i := id - ID_DATA_ROUTE_FIRST
-			if i < _data_route_ids.size():
-				_host.open_data_manager_route(_data_route_ids[i])
+		## Bounded on BOTH ends. This used to be `if id >= ID_DATA_ROUTE_FIRST:
+		## ... return`, which swallowed every id at or above 400 whether or not
+		## it was a route -- and `ID_VAULT_BROWSE` (716) is one, so "Browse &
+		## edit a note…" landed here as route 316 of 15, failed the size check,
+		## and returned before the `match` below: the row did nothing, silently,
+		## from the day it shipped (`_vaultclick_probe.gd`).
+		var i := id - ID_DATA_ROUTE_FIRST
+		if i >= 0 and i < _data_route_ids.size():
+			_host.open_data_manager_route(_data_route_ids[i])
 			return
 		match id:
 			ID_DATA_MANAGER: _host.open_data_manager()
