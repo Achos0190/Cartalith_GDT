@@ -7,13 +7,13 @@
 //! (10933-10934, which the reference keeps beside its chunk-debug overlay but
 //! which `bakedCover`'s ancestor walk is the real consumer of).
 //!
-//! **Why `cartalith-spatial`, and why not `TiledField`.** This is the same
+//! **Why `cartalith-spatial`, and why not fixed-size tiles.** This is the same
 //! placement argument [`crate::region`]'s own header makes — *"a clamped
 //! integer rectangle over a grid is exactly the generic spatial machinery this
 //! crate exists for: neither function knows what a heightmap is"* — and it
 //! holds here word for word. Nothing below reads a single cell of any field.
-//! [`crate::TiledField`] is a different tiling: **fixed-size** tiles over a
-//! field it owns, whereas a pyramid level splits the *whole* field into
+//! [`crate::PassBuffer`]'s tiles are a different tiling: **fixed-size** tiles
+//! over the field, whereas a pyramid level splits the *whole* field into
 //! `2^z × 2^z` tiles whose coarse-cell footprint therefore shrinks with depth
 //! and is generally fractional. Both are "tiling"; only one of them is this.
 //!

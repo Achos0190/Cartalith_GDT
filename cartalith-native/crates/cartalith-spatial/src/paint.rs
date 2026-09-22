@@ -20,7 +20,7 @@
 //! exclusion mask, is generic machinery with no Cartalith semantics in it at
 //! all — this module never learns what a biome is, only that `0` means
 //! "unpainted" and that the caller may veto cells. That is the same
-//! caller-defined-flags precedent [`crate::QuadTree`] and [`crate::DirtyTracker`]
+//! caller-defined-semantics precedent [`crate::DirtyTracker`]'s reason string
 //! already set, and [`crate::pass`]'s own module doc anticipated this exact
 //! type: *"a biome-paint disc, a territory-paint disc, and a 13-feature
 //! landform stamp can all implement it"*.

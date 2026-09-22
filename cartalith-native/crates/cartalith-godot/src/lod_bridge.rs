@@ -36,13 +36,16 @@
 //! manual toggle (auto-on-zoom-threshold is what `viewport_host.gd` ships),
 //! no chunk debug overlay (needs this to exist first).
 //!
-//! # Why not `TiledField`/`QuadTree` literally, despite the scope doc naming
-//! them as "exactly the shape a Z2 compositor would want"
+//! # Why not `TiledField`/`QuadTree`, despite the scope doc naming them as
+//! "exactly the shape a Z2 compositor would want"
 //!
 //! Both were checked against this port's own real numbers, the same
-//! discipline §1 applies to the base-raster question:
+//! discipline §1 applies to the base-raster question. Neither ever found
+//! another caller either, and both were retired from `cartalith-spatial` on
+//! 2026-09-22 (git history holds them); the reasoning is kept because it is
+//! why:
 //!
-//! - [`cartalith_spatial::TiledField`]'s constructor takes ownership of a
+//! - `TiledField`'s constructor takes ownership of a
 //!   `width * height` `Vec<T>`. Wrapping the *live* height field (up to
 //!   8192² = 192 MiB — §1's own table, one-third of it for the height field
 //!   alone at `f32`) would mean cloning that on every tile request just to
@@ -51,7 +54,7 @@
 //!   answers the same question from borrowed `gw`/`gh` via
 //!   `cartalith_spatial::pyramid`, at the actual cost the query has — O(1),
 //!   not O(field size).
-//! - [`cartalith_spatial::QuadTree`]'s whole value is rejecting subtrees by
+//! - `QuadTree`'s whole value is rejecting subtrees by
 //!   their aggregate *value* range (min/max over cells) without visiting
 //!   every cell — real for a predicate like "which regions contain water".
 //!   "Which fixed-size tiles intersect this rect" has no such predicate to
@@ -65,7 +68,7 @@
 //!
 //! `cartalith_spatial::Region`/`FloatRegion` — the actually-generic pieces,
 //! not the two data structures built for a different access pattern — are
-//! used directly below. Nothing in `cartalith-spatial` is modified.
+//! used directly below.
 //!
 //! # Where "which tiles are visible" is decided
 //!

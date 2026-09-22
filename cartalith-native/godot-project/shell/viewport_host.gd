@@ -2650,8 +2650,9 @@ func _fmt_thousands(v: float, decimals: int) -> String:
 ## the cost of a viewful does not grow with zoom.
 ##
 ## Which tiles are "visible" is resolved with plain arithmetic here, in
-## GDScript, rather than via `cartalith_spatial::QuadTree::query_region` --
-## see `lod_bridge.rs`'s own module doc for why: building a quadtree over
+## GDScript, rather than via a quadtree query (`cartalith_spatial::QuadTree`,
+## retired 2026-09-22 with no caller) -- see `lod_bridge.rs`'s own module doc
+## for why: building a quadtree over
 ## the live height field just to answer a pure index-range question would
 ## cost a real O(field size) scan for a query whose real cost, done
 ## directly, is O(tiles on screen). This file already owns the

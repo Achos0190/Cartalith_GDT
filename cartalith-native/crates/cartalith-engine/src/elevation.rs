@@ -73,8 +73,9 @@
 //! **Nothing here belongs in `cartalith-spatial`,** and the reason is already
 //! written down: `pyramid`'s own header separates a *pyramid level* (the whole
 //! field split `2^z × 2^z` ways, footprints shrinking with depth and generally
-//! fractional) from [`cartalith_spatial::TiledField`] (fixed-size tiles over a
-//! field it owns) — *"Both are 'tiling'; only one of them is this."*
+//! fractional) from fixed-size tiles over a field — *"Both are 'tiling'; only
+//! one of them is this."* (`TiledField`/`QuadTree`, named below, were retired
+//! from `cartalith-spatial` on 2026-09-22, never having had a caller.)
 //! `LOD_TILING_INTEGRATION_SCOPE.md` says the same thing from the other end:
 //! its tier table files `TiledField`/`QuadTree` under **Z3** (splitting the
 //! base raster because holding it whole is the bottleneck), *"not triggered by

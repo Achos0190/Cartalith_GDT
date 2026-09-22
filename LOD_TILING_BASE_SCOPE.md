@@ -154,3 +154,18 @@ That also retires the *Done means* clause above about not being a dependency
 of any other crate: it described this pass's own boundary, not a standing
 property of the crate. How many crates depend on it is a status question —
 `cartalith-native/docs/STATUS.md`.
+
+## Items 1 and 2 were retired (2026-09-22)
+
+`TiledField<T>` and the packed `QuadTree<T>` never gained a caller, and were
+deleted from `cartalith-spatial` along with their tests. Every consumer that
+looked at them needed tile *dimensions*, not an owned field: `PassBuffer`
+holds `width`/`height`/`tile_size` and borrows the data, and the Z2 compositor
+(`cartalith_godot::lod_bridge`'s module doc, *"Why not `TiledField`/
+`QuadTree`"*) resolves visible chunks by `pyramid` index arithmetic, where a
+quadtree would first cost an O(field) min/max scan. The Z3 tier they were
+shaped for is out of scope by `LOD_TILING_INTEGRATION_SCOPE.md` §1's numbers.
+The tile-size benchmark item 1 deferred was never written, and has no
+workload left to run against. Item 3, `DirtyTracker`, stays: it is the one
+with real callers. Recover the other two from git history if Z3 is ever
+triggered.

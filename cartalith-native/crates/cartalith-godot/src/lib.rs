@@ -12249,8 +12249,8 @@ impl WorldGen {
 /// only reachable through. See `lod_bridge.rs`'s own module doc for the
 /// full "why" — the real-numbers case against tiling the base raster (Z3),
 /// and for tiling the deep-zoom *synthesis* instead (Z2), plus why this
-/// binding computes tile bounds directly rather than routing through a real
-/// `TiledField`/`QuadTree` instance.
+/// binding computes tile bounds directly rather than routing through a
+/// `TiledField`/`QuadTree` instance (both since retired for that reason).
 ///
 /// `#[godot_api(secondary)]`, not a plain `#[godot_api]`: only the first
 /// `#[godot_api] impl WorldGen` block in the crate may omit `secondary` —

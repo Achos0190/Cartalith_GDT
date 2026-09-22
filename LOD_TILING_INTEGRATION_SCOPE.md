@@ -384,7 +384,10 @@ cheap enough (GPU-resident, not disk-resident) that a cache buys nothing.
   number in §1 at this port's real 512-8192 range. Revisit only if the
   resolution ceiling itself moves well past 8192, or if the Preferences
   panel's "Multi-GPU mode: split tiles" row (`DCC_CONTROL_INDEX.md` §2.5,
-  its own "owner decision before any scoping") becomes real.
+  its own "owner decision before any scoping") becomes real. The
+  `TiledField`/`QuadTree` this tier would have used were retired on
+  2026-09-22 with no caller (see `LOD_TILING_BASE_SCOPE.md`), so Z3 would
+  start by recovering them from git history. M1 shipped without them.
 - **Multi-resolution generation** (fields cheaper than the height grid).
   `LOD_TILING_BASE_SCOPE.md`'s own boundary, unchanged: "a pipeline-wide
   numerical-parity change... not a free architectural win." Nothing in this

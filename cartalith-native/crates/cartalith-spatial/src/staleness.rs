@@ -79,8 +79,8 @@ pub struct Staleness<'a> {
 /// A DAG of pipeline stages with per-tile, lazily-evaluated staleness.
 ///
 /// Nothing here knows what a stage *is* — height, hydrology, climate and civ
-/// are the caller's names, exactly as [`crate::QuadTree`]'s flag bitmask is
-/// the caller's semantics. Cartalith's own chain is built in
+/// are the caller's names, exactly as [`crate::DirtyTracker`]'s reason string
+/// is the caller's semantics. Cartalith's own chain is built in
 /// `cartalith_engine::staleness`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StageGraph {
@@ -90,7 +90,7 @@ pub struct StageGraph {
 
 impl StageGraph {
     /// Every stage in this graph tracks the same `tile_count` tiles (the
-    /// same tiling a [`crate::TiledField`]/[`crate::PassBuffer`] pair uses).
+    /// same tiling a [`crate::PassBuffer`] uses).
     pub fn new(tile_count: usize) -> Self {
         Self {
             tile_count,

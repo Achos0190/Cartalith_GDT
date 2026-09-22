@@ -23,13 +23,13 @@
 //! recipe (which landform, which parameters, which noise) is
 //! Cartalith-terrain-specific and belongs with the feature registry that
 //! Milestone B ports; the *stack semantics* around it are generic and belong
-//! here, next to [`crate::DirtyTracker`] and [`crate::TiledField`]. So
+//! here, next to [`crate::DirtyTracker`]. So
 //! [`Stamp`] is a trait with exactly the two operations the stack semantics
 //! need — "what do you touch" and "write yourself into this caller-supplied
 //! destination" — and a biome-paint disc, a territory-paint disc, and a
 //! 13-feature landform stamp can all implement it without this crate learning
 //! what a biome is (the same "stay generic, no Cartalith semantics baked in"
-//! precedent [`crate::QuadTree`]'s caller-defined flag bitmask already set).
+//! precedent [`crate::DirtyTracker`]'s caller-supplied reason string already set).
 //!
 //! ## Why `apply` writes into a caller-supplied slice
 //!
@@ -110,9 +110,8 @@ pub struct CommitSummary {
 /// buffer never writes to until [`PassBuffer::commit`].
 ///
 /// The buffer holds field *dimensions*, not the field itself: the live data
-/// stays owned by whoever owns the pipeline (a `Vec<f32>`, a
-/// [`crate::TiledField`]'s backing store), and is passed in by reference at
-/// preview/commit time. That keeps the non-destructive guarantee visible in
+/// stays owned by whoever owns the pipeline (a `Vec<f32>`), and is passed in
+/// by reference at preview/commit time. That keeps the non-destructive guarantee visible in
 /// the type system — [`PassBuffer::preview_into`] takes the field as `&[_]`
 /// and so *cannot* mutate it, whatever a stamp implementation does.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,9 +130,9 @@ pub struct PassBuffer<S> {
 }
 
 impl<S: Stamp + Clone> PassBuffer<S> {
-    /// `tile_size` matches the [`crate::TiledField`] whose tile indexing the
-    /// paired [`DirtyTracker`] uses (`ty * tiles_x + tx`), so that
-    /// [`PassBuffer::tile_count`] can size that tracker directly.
+    /// `tile_size` fixes the tile indexing the paired [`DirtyTracker`] uses
+    /// (`ty * tiles_x + tx`), so that [`PassBuffer::tile_count`] can size
+    /// that tracker directly.
     pub fn new(width: usize, height: usize, tile_size: usize) -> Self {
         assert!(tile_size > 0, "tile_size must be positive");
         Self {
