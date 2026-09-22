@@ -455,22 +455,44 @@ fn synthesize_tile_rgba_with_z_base(
 }
 
 // ---------------------------------------------------------------------------
-// Storing a pyramid in the project archive — owner ruling 28, 2026-09-06
+// Storing a pyramid in the project archive — owner rulings 28/29
 //
-// The five functions below are `pub` and, as of 2026-09-06, have **no caller
-// outside this file's own tests**, so a plain `cargo build -p cartalith-godot`
-// reports each of them "is never used". That is accurate and is left visible
-// on purpose: they are the producer half of ruling 28, and the `#[func]` plus
-// `project_bridge.rs` save path that consumes them is the next step, not part
-// of this pass.
-//
-// **This note is here so a dead-code sweep reads it before deleting them** —
-// the same protection ruling 22 required for `--good`/`--accH`, and for the
-// same reason: without a recorded reason, a sweep removing them is right by
-// its own rule. An `#[allow(dead_code)]` was the alternative and was refused,
-// because the warning is a true signal that the slot is built and unwired,
-// and silencing it would make "wired" and "unwired" look the same.
+// **Wired 2026-09-22.** The five functions below were `pub` with no caller
+// outside this file's own tests from 2026-09-06 until now; `project_bridge.rs`
+// `WorldGen::project_save_with_documents`'s `include_lod_tiles` argument is
+// the consumer, via `LodSnapshot::render_pyramid_masks`
+// (`lod_worker.rs`) rather than [`synthesize_pyramid_masks`] directly — that
+// method loops over the caller's own live `render_tile`, so a stored pyramid
+// draws through exactly the attachments (lithology, splat, paint, ink, colour
+// space) an interactive tile does, instead of a second, hand-built
+// `RenderCtx`/`TileFields` pair that could silently disagree with them.
+// `WorldGen::lod_save_pyramid_estimate_bytes` (`lib.rs`) is [`pyramid_mask_bytes`]'s
+// `#[func]` — ruling 28's *"the size shown at save time"*. Both are still kept
+// here rather than duplicated into a `#[cfg]`-free call site, which is what
+// this note used to warn a sweep away from removing.
 // ---------------------------------------------------------------------------
+
+/// The pyramid depth `WorldGen::project_save_with_documents` stores when its
+/// `include_lod_tiles` flag is set — rulings 28/29's *"the depth is the
+/// writer's choice"* (`SAVEFILE_COMPAT.md` §16.1), made once here rather than
+/// exposed as a second save-dialog control the rulings do not ask for.
+///
+/// **`4`, not [`MAX_LEVEL`], and not `5` or `6` either — measured, not
+/// guessed, on the real target grid, 2026-09-22** (`CARTALITH_LOD_GW=2048
+/// CARTALITH_LOD_GH=1311 CARTALITH_LOD_SEED=24601 cargo test -p
+/// cartalith-godot --release --lib -- --ignored --nocapture
+/// measure_a_stored_pyramid`, one world, one sample per depth — see
+/// [`pyramid_mask_bytes`]'s own doc for the fuller table): `0..=4` deflates to
+/// **18.10 MiB** in 1.45 s of synthesis, `0..=5` to **49.60 MiB** in 6.29 s,
+/// `0..=6` to **131.02 MiB** in 32.91 s. Against the ~24.9 MiB whole archive
+/// this grid was previously measured at (`LodTiles`'s own doc, §18.1), `4` is
+/// the deepest level that does not roughly double the file on its own — `5`
+/// already does, and `6` is 5x the archive by itself. A save dialog's opt-in
+/// control should not multiply the file it is attached to by default; a
+/// depth past `4` is exactly the kind of choice ruling 28 left the writer,
+/// and this is that choice, named so a future pass can revisit it rather
+/// than rediscover why `4` and not `5` or `10`.
+pub const SAVE_PYRAMID_MAX_LEVEL: i32 = 4;
 
 /// One tile's storable form: **RGB**, three bytes per pixel, without the
 /// constant alpha [`synthesize_tile_rgba`] pads it out to.
@@ -611,11 +633,21 @@ pub(crate) fn appearance_fingerprint(a: &render::TerrainAppearance) -> u64 {
 /// would reject.
 ///
 /// **The stored figure is smaller and is content-dependent, so it is not
-/// returned from here.** Measured on three real 2048×1311 worlds
-/// (`measure_a_stored_pyramid`): levels 0-5 deflate to **8.1-9.4%** of this
-/// number and levels 0-6 to **10.0-12.7%** — the band widens with depth
-/// because deeper tiles carry more sub-cell detail and compress less. A
-/// single ratio baked in here would be a model presented as a measurement.
+/// returned from here.** Re-measured 2026-09-22 on the real target grid
+/// (`CARTALITH_LOD_GW=2048 CARTALITH_LOD_GH=1311 CARTALITH_LOD_SEED=24601
+/// cargo test -p cartalith-godot --release --lib -- --ignored --nocapture
+/// measure_a_stored_pyramid`, one world, one sample per depth — the
+/// **previous** paragraph here (8.1-9.4% / 10.0-12.7%) was the pre-LOD-D2
+/// one-channel figure, silently carried into a doc comment that already
+/// said `* 3` above it, and was wrong in *direction* as well as magnitude:
+/// levels `0..=4` deflate to **44.2%** of raw (18.10 of 40.96 MiB), `0..=5`
+/// to **30.3%** (49.60 of 163.96 MiB), `0..=6` to **20.0%** (131.02 of
+/// 655.96 MiB) — the ratio *falls* with depth (a colour tile compresses
+/// better than the old three-identical-channels mask did, not worse), and
+/// the absolute deflated bytes are 5-6x the pre-LOD-D2 numbers at the same
+/// `z_max`. A single ratio baked in here would still be a model presented
+/// as a measurement; re-run the command above rather than trust either
+/// paragraph past its own date.
 pub fn pyramid_mask_bytes(gw: usize, gh: usize, z_max: i32) -> Option<u64> {
     if gw < 2 || gh < 2 || !(0..=MAX_LEVEL).contains(&z_max) {
         return None;
@@ -630,6 +662,21 @@ pub fn pyramid_mask_bytes(gw: usize, gh: usize, z_max: i32) -> Option<u64> {
 /// deferred at `LOD_TILING_INTEGRATION_SCOPE.md` M3, so nothing held a tile
 /// set to write.
 ///
+/// **Not what `project_bridge.rs`'s save path calls, since 2026-09-22, and
+/// that is deliberate.** `WorldGen::project_save_with_documents`'s
+/// `include_lod_tiles` flag calls
+/// [`crate::lod_worker::LodSnapshot::render_pyramid_masks`] instead, which
+/// loops over [`crate::lod_worker::LodSnapshot::render_tile`] — the one
+/// function this module's caller (`lib.rs`'s `lod_synthesize_tile`) also
+/// calls for a live interactive tile — rather than a `ctx`/`tf` pair this
+/// function's own caller has to build and keep in sync with that path's
+/// attachments (lithology, splat, paint, ink, colour space) by hand. This
+/// function stays live through `measure_a_stored_pyramid` below, which is
+/// still the right harness for re-measuring the deflate ratio, and through
+/// its own tests; the `#[warn(dead_code)]` on it outside `#[cfg(test)]` is
+/// the accurate report that nothing in the shipped save path calls it any
+/// more, not a sign it should be deleted.
+///
 /// Returns `(tile_w, tile_h, tiles)` in exactly the shape
 /// `cartalith_io::project::LodTiles` takes. `None` on the same preconditions
 /// [`synthesize_tile_rgba`] rejects, plus a `z_max` outside `0..=`[`MAX_LEVEL`].
@@ -639,7 +686,7 @@ pub fn pyramid_mask_bytes(gw: usize, gh: usize, z_max: i32) -> Option<u64> {
 /// count. This loop does **not** re-check that per tile — a guard here proved
 /// unreachable under a mutation run, and the format layer already enforces it
 /// where it matters: `write_project` refuses any tile that is not exactly
-/// `tile_w * tile_h` bytes, naming the tile
+/// `tile_w * tile_h * 3` (RGB) bytes, naming the tile
 /// (`a_tile_of_the_wrong_size_is_refused_at_write_time`).
 ///
 /// # This is O(4^z_max) and the caller has to mean it

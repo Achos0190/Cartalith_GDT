@@ -162,8 +162,8 @@
 //! duration of the session).
 
 use crate::{
-    civ_roster_bridge, icon_bridge, infra_tools_bridge, journey_bridge, label_bridge, params,
-    CivData, WorldGen, WorldSource,
+    civ_roster_bridge, icon_bridge, infra_tools_bridge, journey_bridge, label_bridge, lod_bridge,
+    params, CivData, WorldGen, WorldSource,
 };
 use cartalith_io::project::{self, ProjectWrite, Raster};
 use godot::prelude::*;
@@ -1801,7 +1801,7 @@ impl WorldGen {
     /// of the project layer.
     #[func]
     fn project_save(&mut self, path: GString) -> VarDictionary {
-        self.project_save_with_documents(path, VarDictionary::new(), PackedByteArray::new())
+        self.project_save_with_documents(path, VarDictionary::new(), PackedByteArray::new(), false)
     }
 
     /// [`WorldGen::project_save`] plus the caller's own documents.
@@ -1830,12 +1830,27 @@ impl WorldGen {
     /// down. An empty array (the default for every existing call site)
     /// writes no `preview.png` entry at all, exactly as before this
     /// parameter existed.
+    ///
+    /// `include_lod_tiles` is owner rulings 28/29's optional stored LOD
+    /// pyramid — **default `false`**, matching ruling 28's *"off by
+    /// default"* and every call site before this parameter existed. `true`
+    /// synthesizes [`lod_bridge::SAVE_PYRAMID_MAX_LEVEL`] levels of the deep-
+    /// zoom tile pyramid through [`crate::lod_worker::LodSnapshot::render_pyramid_masks`]
+    /// and writes them into `cartography/tiles/**`
+    /// (`cartalith_io::project::LodTiles`); the shell should show
+    /// [`Self::lod_save_pyramid_estimate_bytes`]'s number next to whatever
+    /// control sets this flag, per ruling 28's *"the size shown at save
+    /// time"*. Silently omitted (as if `false`) rather than failing the save
+    /// if no world context can be built — the archive is still complete
+    /// without a cached pyramid (`SAVEFILE_COMPAT.md` §16.1: it is a
+    /// derived cache, never authored data).
     #[func]
     fn project_save_with_documents(
         &mut self,
         path: GString,
         extra_documents: VarDictionary,
         #[opt(default = &PackedByteArray::new())] preview_png: PackedByteArray,
+        #[opt(default = false)] include_lod_tiles: bool,
     ) -> VarDictionary {
         let Some(source) = self.source.as_ref() else {
             return err("no world to save");
@@ -1893,6 +1908,29 @@ impl WorldGen {
         // file), matching every call site before this parameter existed.
         if !preview_png.is_empty() {
             write.preview_png = Some(preview_png.to_vec());
+        }
+
+        // Owner rulings 28/29's optional stored LOD pyramid — off unless the
+        // caller asked. `source_key` is left empty deliberately:
+        // `cartalith_io::project::write_project` computes and stamps the real
+        // key itself from the heightmap this very call is writing, and an
+        // **empty** key is that writer's documented contract for "a fresh
+        // producer" (its own doc comment on `LodTiles::source_key`) — filling
+        // it in here would be asserting a claim this function cannot verify.
+        if include_lod_tiles {
+            if let Some(snapshot) = self.lod_snapshot() {
+                if let Some((tile_w, tile_h, tiles)) =
+                    snapshot.render_pyramid_masks(lod_bridge::SAVE_PYRAMID_MAX_LEVEL)
+                {
+                    write.lod_tiles = Some(project::LodTiles {
+                        source_key: String::new(),
+                        producer: lod_bridge::tile_producer_id(&self.appearance()),
+                        tile_w,
+                        tile_h,
+                        tiles,
+                    });
+                }
+            }
         }
 
         // params.json's two views. `params::save_state` builds one object

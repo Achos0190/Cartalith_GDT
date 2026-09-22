@@ -58,6 +58,8 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use cartalith_spatial::pyramid::ChunkId;
+
 use crate::lod_bridge;
 use crate::render::{
     self, ColorSpace, GridPrecompute, GroundTile, GroundTiles, QualityTier, RenderCtx, RiverInk, SplatChannel, SplatTextures, TerrainAppearance, TileCryo, TileFields,
@@ -486,6 +488,47 @@ impl LodSnapshot {
         }
         tf = tf.with_color_space(self.color_space);
         lod_bridge::synthesize_tile_rgba(&ctx, &tf, z, col, row, self.seed)
+    }
+
+    /// Every tile of levels `0..=z_max`, as storable masks — owner rulings
+    /// 28/29's producer, `SAVEFILE_COMPAT.md` §16.1.
+    ///
+    /// Loops over [`render_tile`](Self::render_tile) rather than calling
+    /// [`lod_bridge::synthesize_pyramid_masks`] with a hand-built
+    /// `RenderCtx`/`TileFields` pair: `render_tile` is the one function that
+    /// attaches lithology, the pack splat, ground tiles, paint and the river
+    /// ink exactly the way the interactive path does (this module's own
+    /// determinism argument, in its header), so a stored pyramid can never
+    /// silently disagree with what the same world draws live. The per-tile
+    /// cost is the same either way — `render_tile` rebuilds only the cheap
+    /// `RenderCtx::from_precomputed` borrow each call, not the ~480 ms
+    /// `GridPrecompute`/`TileFields` build this snapshot already paid once.
+    ///
+    /// Returns `(tile_w, tile_h, tiles)` in exactly the shape
+    /// `cartalith_io::project::LodTiles` takes. `None` for a `z_max` outside
+    /// `0..=`[`lod_bridge::MAX_LEVEL`], or if any tile [`render_tile`](Self::render_tile)
+    /// itself would refuse — which nothing in a snapshot that already built
+    /// successfully should reach, but the caller must not receive a partial
+    /// pyramid silently either way.
+    pub fn render_pyramid_masks(
+        &self,
+        z_max: i32,
+    ) -> Option<(usize, usize, std::collections::BTreeMap<ChunkId, Vec<u8>>)> {
+        if !(0..=lod_bridge::MAX_LEVEL).contains(&z_max) {
+            return None;
+        }
+        let (tile_w, tile_h) = lod_bridge::tile_size_px(self.gw, self.gh, 0);
+        let mut tiles = std::collections::BTreeMap::new();
+        for z in 0..=z_max {
+            let n = lod_bridge::tiles_per_axis(z) as i32;
+            for col in 0..n {
+                for row in 0..n {
+                    let (rgba, _, _) = self.render_tile(z, col, row)?;
+                    tiles.insert(ChunkId::new(z as u32, col as u32, row as u32), lod_bridge::tile_mask(&rgba));
+                }
+            }
+        }
+        Some((tile_w, tile_h, tiles))
     }
 
     /// Bytes retained by this snapshot, for the memory bar LOD-D6 is graded
@@ -1116,5 +1159,141 @@ mod tests {
         let (_, _, in_flight, waiting, built, dropped, _) = worker.stats();
         assert_eq!((in_flight, waiting, built), (0, 0, 0), "nothing left in flight, nothing to hand over, nothing built");
         assert_eq!(dropped, 1, "the refusal is counted");
+    }
+
+    // -- owner rulings 28/29: the stored pyramid, real end to end ---------
+
+    /// [`LodSnapshot::render_pyramid_masks`] produces **real, non-trivial**
+    /// tile data — not a placeholder — whose total byte count matches
+    /// [`lod_bridge::pyramid_mask_bytes`]'s save-time estimate exactly, and
+    /// which survives a genuine `cartalith_io::project` write/read cycle
+    /// intact: every tile entry present, `ProjectData::lod_tiles` populated
+    /// on read, and nothing dropped as stale (the empty `source_key` this
+    /// test leaves, like the real save path does, is exactly the "a fresh
+    /// producer" contract `LodTiles::source_key`'s own doc names).
+    #[test]
+    fn render_pyramid_masks_round_trips_through_the_project_archive() {
+        let (gw, gh) = (48usize, 36usize);
+        let inp = inputs(gw, gh);
+        let heightmap: Vec<f32> = (*inp.field).clone();
+        let snap = LodSnapshot::build(inp).expect("snapshot");
+
+        let z_max = 2;
+        let (tile_w, tile_h, tiles) = snap.render_pyramid_masks(z_max).expect("pyramid synthesizes");
+        let expected_tile_count: usize =
+            (0..=z_max).map(|z| (lod_bridge::tiles_per_axis(z) as usize).pow(2)).sum();
+        assert_eq!(tiles.len(), expected_tile_count, "one tile per (z, col, row) across the whole pyramid");
+        assert!(tile_w > 1 && tile_h > 1, "a degenerate tile size would make the byte checks vacuous");
+        assert!(tiles.values().all(|t| t.len() == tile_w * tile_h * 3), "every mask must be tile_w*tile_h*3 RGB bytes");
+        // Not every byte zero -- a placeholder/fake payload would still pass
+        // the length checks above.
+        assert!(tiles.values().any(|t| t.iter().any(|&b| b != 0)), "a real tile must carry real colour, not an all-zero placeholder");
+
+        let raw_total: u64 = tiles.values().map(|t| t.len() as u64).sum();
+        let estimate = lod_bridge::pyramid_mask_bytes(gw, gh, z_max).expect("estimate for a real grid");
+        assert_eq!(raw_total, estimate, "the save-time size estimate must equal the real byte count");
+
+        let params = cartalith_io::SaveParams {
+            gw,
+            gh,
+            seed: 1234,
+            map_width_km: 800.0,
+            sea_level: 0.42,
+            world: false,
+            origin: None,
+            name: None,
+        };
+        let fields = cartalith_io::SaveFields {
+            heightmap: Arc::new(heightmap),
+            temperature: Arc::new(vec![15.0f32; gw * gh]),
+            rainfall: Arc::new(vec![0.5f32; gw * gh]),
+            volcanic_field: vec![0.0f32; gw * gh],
+            impact_field: vec![0.0f32; gw * gh],
+            strahler_order: vec![0u8; gw * gh],
+        };
+        let mut write = cartalith_io::project::ProjectWrite::new(&params, &fields);
+        write.lod_tiles = Some(cartalith_io::project::LodTiles {
+            source_key: String::new(),
+            producer: lod_bridge::tile_producer_id(&TerrainAppearance::default()),
+            tile_w,
+            tile_h,
+            tiles: tiles.clone(),
+        });
+
+        let mut buf: Vec<u8> = Vec::new();
+        let warnings = cartalith_io::project::write_project(std::io::Cursor::new(&mut buf), &write)
+            .expect("write succeeds");
+        assert!(warnings.is_empty(), "a fresh producer's empty source_key must be trusted, not warned about: {warnings:?}");
+
+        {
+            let mut zr = zip::ZipArchive::new(std::io::Cursor::new(&buf)).expect("a valid zip");
+            // `.ends_with(".u8")` excludes `LOD_TILE_INDEX`
+            // (`cartography/tiles/index.json`), which also starts with the
+            // prefix but is the one index entry, not a tile.
+            let tile_entries = (0..zr.len())
+                .filter(|&i| {
+                    let name = zr.by_index_raw(i).unwrap().name().to_string();
+                    name.starts_with(cartalith_io::project::LOD_TILE_PREFIX) && name.ends_with(".u8")
+                })
+                .count();
+            assert_eq!(tile_entries, tiles.len(), "one archive entry per tile");
+        }
+
+        let data = cartalith_io::project::read_project(std::io::Cursor::new(&buf)).expect("read succeeds");
+        assert!(data.warnings.is_empty(), "a just-written archive must read back with no warnings: {:?}", data.warnings);
+        let got = data.lod_tiles.expect("the pyramid must round-trip, not be dropped as stale");
+        assert_eq!(got.tile_w, tile_w);
+        assert_eq!(got.tile_h, tile_h);
+        assert_eq!(got.tiles.len(), tiles.len());
+        assert_eq!(got.tiles, tiles, "every tile's bytes must survive the round trip exactly");
+    }
+
+    /// The **default** path — `include_lod_tiles` never set, so
+    /// `ProjectWrite::lod_tiles` stays `None` — must write no
+    /// `cartography/tiles/**` entries and no index at all, matching every
+    /// save before this feature existed (ruling 28: *"off by default"*).
+    /// This is the "structurally identical to today's un-ticked save" half
+    /// of the round-trip check.
+    #[test]
+    fn no_lod_tiles_means_no_cartography_entries_at_all() {
+        let (gw, gh) = (8usize, 8usize);
+        let params = cartalith_io::SaveParams {
+            gw,
+            gh,
+            seed: 1,
+            map_width_km: 100.0,
+            sea_level: 0.4,
+            world: false,
+            origin: None,
+            name: None,
+        };
+        let fields = cartalith_io::SaveFields {
+            heightmap: Arc::new(vec![0.5f32; gw * gh]),
+            temperature: Arc::new(vec![15.0f32; gw * gh]),
+            rainfall: Arc::new(vec![0.5f32; gw * gh]),
+            volcanic_field: vec![0.0f32; gw * gh],
+            impact_field: vec![0.0f32; gw * gh],
+            strahler_order: vec![0u8; gw * gh],
+        };
+        // `lod_tiles` is `None` by construction (`ProjectWrite::new`'s own
+        // contract) -- never set here, the same as every save before this
+        // feature existed.
+        let write = cartalith_io::project::ProjectWrite::new(&params, &fields);
+        let mut buf: Vec<u8> = Vec::new();
+        cartalith_io::project::write_project(std::io::Cursor::new(&mut buf), &write).expect("write succeeds");
+
+        let mut zr = zip::ZipArchive::new(std::io::Cursor::new(&buf)).expect("a valid zip");
+        let names: Vec<String> = (0..zr.len()).map(|i| zr.by_index_raw(i).unwrap().name().to_string()).collect();
+        assert!(
+            names.iter().all(|n| !n.starts_with(cartalith_io::project::LOD_TILE_PREFIX) && n != cartalith_io::project::LOD_TILE_INDEX),
+            "no LOD entries at all when lod_tiles is None: {names:?}"
+        );
+
+        // And a pre-existing archive with no LOD entries at all -- the exact
+        // shape of every project saved before this feature existed -- still
+        // opens clean, with no pyramid and no warning about one.
+        let data = cartalith_io::project::read_project(std::io::Cursor::new(&buf)).expect("read succeeds");
+        assert!(data.lod_tiles.is_none(), "no tiles were written, so none must be read back");
+        assert!(data.warnings.is_empty(), "an archive with no LOD entries is not a damaged one: {:?}", data.warnings);
     }
 }

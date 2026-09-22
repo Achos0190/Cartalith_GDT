@@ -1907,26 +1907,37 @@ reader that cannot find or parse it MUST drop every tile under
   covers the *renderer*, and neither substitutes for the other.
 - **`tile_w`, `tile_h`** — one tile's pixel dimensions, the same for every
   level (a level changes a tile's **footprint**, not its pixel count). Every
-  tile entry MUST be exactly `tile_w * tile_h` bytes; a shorter one is a
-  truncated tile and MUST be skipped, exactly as §8's rasters are.
+  tile entry MUST be exactly `tile_w * tile_h * 3` bytes (RGB — see below); a
+  shorter one is a truncated tile and MUST be skipped, exactly as §8's rasters
+  are.
 
 #### `cartography/tiles/<z>/<col>/<row>.u8`
 
-One tile: **one byte per pixel**, row-major, no header and no length prefix —
-the same bare-dump rule §8 gives the rasters, and the same reason the extension
-names the element type. `z` is the pyramid level, `col`/`row` the tile's index
-within that level's `2^z × 2^z` grid. Leading zeros are not permitted in any of
-the three, so one tile has exactly one name.
+One tile: **three `u8` bytes per pixel, R/G/B, row-major**, no header and no
+length prefix — the same bare-dump rule §8 gives the rasters, and the same
+reason the extension names the *element* type (one byte) rather than the pixel
+width. `z` is the pyramid level, `col`/`row` the tile's index within that
+level's `2^z × 2^z` grid. Leading zeros are not permitted in any of the three,
+so one tile has exactly one name.
 
-The payload is one channel because this port's tiles *are* one channel — a
-relief-detail shade multiplier the renderer applies over the base raster. **A
-producer whose tiles are colour pictures must not squeeze them in here**: it
-needs its own extension under the same prefix, and §6.3's unknown-entry rule
-carries anything unrecognised through untouched. `cartography/tiles/0/0/0.png`
-is already exactly that case — it is the entry §6.2's own round-trip fixture
-uses — and remains a foreign entry. (The reference's *baked atlas* is also
-PNG, but under a path of its own outside the archive entirely; it is a
-different payload, not this one in another format.)
+**This was one channel — a relief-detail shade multiplier the renderer applied
+over the base raster — until `LOD_DETAIL_SCOPE.md` LOD-D2 (2026-09-21), and is
+a colour picture now** (`renderBiomeTileRGBA`'s own output, alpha dropped since
+it is always `255`): a deeper level shows real material boundaries, river bands
+and crest strokes the base raster does not have, which a scalar shade multiplier
+structurally could not. `producer` is the field that tells the two shapes apart
+without a second extension — a reader MUST refuse a stored pyramid whose
+`producer` string it does not recognise exactly (this section's own MUST,
+above) rather than guess which layout it is from the byte count alone.
+
+A producer whose tiles are some *other* encoding (not this RGB layout) must not
+squeeze them in under this extension either: it needs its own extension under
+the same prefix, and §6.3's unknown-entry rule carries anything unrecognised
+through untouched. `cartography/tiles/0/0/0.png` is already exactly that case —
+it is the entry §6.2's own round-trip fixture uses — and remains a foreign
+entry. (The reference's *baked atlas* is also PNG, but under a path of its own
+outside the archive entirely; it is a different payload, not this one in
+another format.)
 
 #### The baked atlas is still not stored
 

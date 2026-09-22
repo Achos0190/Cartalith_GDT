@@ -77,6 +77,20 @@ var phone_project_picker: PhoneProjectPicker
 ## `DCC_SHELL_SPEC.md` §2.1. Empty until a project has been opened.
 var current_project_path := ""
 
+## Owner rulings 28/29's optional stored LOD tile pyramid: "optional, default
+## off, with its size shown at save time," home is the save affordance
+## (`LARGE_ITEM_RULINGS.md`, `OUTSTANDING_WORK.md` §2.4). No canvas draws
+## this control -- the owner explicitly authorised building it now anyway as
+## a plain undesigned checkbox, a disclosed exception to this project's usual
+## "GUI needs canvas parity" rule, approved specifically for this row.
+##
+## Sticky for the session, not per-save: the checkbox only appears in
+## `save_project_as()`'s dialog (there is no dialog on a quick File ▸ Save
+## over an already-chosen path), so the last choice a person made carries
+## forward to `save_project()`'s quiet re-saves rather than silently reverting
+## to off every time. Starts `false`, matching ruling 28's own default.
+var _include_lod_tiles_pref := false
+
 ## Lane GATE part B, 2026-09-13. The exact sentence `_load_project()`'s own
 ## failure branch already sends to `set_status("hint", …)` and
 ## `_show_phone_toast()`, kept here too for a caller whose own screen has
@@ -3097,9 +3111,19 @@ func _report_failure(text: String) -> void:
 const SAVE_BYTES_PER_CELL := 21
 const SAVE_PROJECT_LAYER_ALLOWANCE := 4 * 1024 * 1024
 
-func _save_bytes_needed() -> int:
+## `include_lod_tiles` adds the real, exact estimate
+## (`EngineBridge.lod_save_pyramid_estimate_bytes()`, ruling 28's own "size
+## shown at save time" figure) rather than another guessed constant -- the
+## pyramid can be tens of megabytes (`lod_bridge::SAVE_PYRAMID_MAX_LEVEL`'s
+## own doc has the measured numbers), and leaving it out of this guard would
+## make the guard it belongs to blind to the one option that can legitimately
+## push a save over a full volume.
+func _save_bytes_needed(include_lod_tiles: bool = false) -> int:
 	var g := bridge.grid_size()
-	return g.x * g.y * SAVE_BYTES_PER_CELL + SAVE_PROJECT_LAYER_ALLOWANCE
+	var need := g.x * g.y * SAVE_BYTES_PER_CELL + SAVE_PROJECT_LAYER_ALLOWANCE
+	if include_lod_tiles:
+		need += bridge.lod_save_pyramid_estimate_bytes()
+	return need
 
 ## The storage-full guard. `grep` for disk / space / ENOSPC / free-bytes across
 ## this workspace found nothing at all before this, so a save onto a full volume
@@ -3114,11 +3138,11 @@ func _save_bytes_needed() -> int:
 ## refuse every save on any build that cannot answer. When it is unknown the
 ## save proceeds and the real failure surfaces through `_report_failure()`,
 ## which is the whole reason that path was made visible on the phone first.
-func _save_blocked_by_space(path: String) -> bool:
+func _save_blocked_by_space(path: String, include_lod_tiles: bool = false) -> bool:
 	var free := bridge.disk_free_bytes(path)
 	if free < 0:
 		return false
-	var need := _save_bytes_needed()
+	var need := _save_bytes_needed(include_lod_tiles)
 	if free >= need:
 		return false
 	var where := path.get_base_dir()
@@ -3130,6 +3154,10 @@ func _save_blocked_by_space(path: String) -> bool:
 ## File ▸ Save project. Falls through to Save as… when the world has never
 ## been written anywhere -- the behaviour every application has, and the
 ## reason there is no separate "Save" disabled state to explain.
+##
+## No dialog on this path, so no checkbox: `_include_lod_tiles_pref` carries
+## forward whatever was last chosen in `save_project_as()`'s dialog (ruling
+## 28's default, `false`, until that dialog has run once this session).
 func save_project() -> void:
 	if not bridge.has_world:
 		set_status("hint", "no world to save", "accent")
@@ -3137,7 +3165,7 @@ func save_project() -> void:
 	if current_project_path == "":
 		save_project_as()
 		return
-	_write_project(current_project_path)
+	_write_project(current_project_path, Callable(), _include_lod_tiles_pref)
 
 ## File ▸ Save as… Uses the shell's own browser in its save mode rather than
 ## a stock `FileDialog`, for the same reason `open_project_picker()` uses the
@@ -3155,20 +3183,42 @@ func save_project_as(then: Callable = Callable()) -> void:
 	var start := current_project_path.get_base_dir()
 	if start == "":
 		start = DccSettings.storage_root("projects")
+	## Owner rulings 28/29: "optional, default off, with its size shown at
+	## save time," home is the save affordance. **No canvas draws this
+	## control** -- the owner explicitly authorised building it now anyway as
+	## a plain, functionally-worded checkbox (`OUTSTANDING_WORK.md` §2.4), a
+	## disclosed exception to this project's usual "GUI needs canvas parity"
+	## rule, approved specifically for this row. The size is read once, before
+	## the dialog opens, from `lod_save_pyramid_estimate_bytes()` -- exact and
+	## instant (it synthesizes nothing), so there is nothing to keep in sync
+	## with the checkbox's own on/off state.
+	var lod_option := "Include zoomable map tiles"
+	var lod_bytes := bridge.lod_save_pyramid_estimate_bytes()
+	if lod_bytes > 0:
+		lod_option += " (adds about %s)" % String.humanize_size(lod_bytes)
+	## Forward-declared so the `on_choose` closure below -- built before the
+	## dialog exists -- can still read the checkbox state the dialog ends up
+	## holding: `choose_save_path()` returns the `DccBrowseDialog` instance,
+	## assigned to `dlg` immediately after, and `on_choose` only fires later,
+	## once a person has interacted with it.
+	##
 	## **Writes `.ctl`; the picker still OPENS `.zip`** (`PROJECT_EXTENSIONS`).
 	## Owner decision 2026-09-07. The container is unchanged -- this is a
 	## filename, and `SAVEFILE_COMPAT.md` §3 does not constrain one. Asset
 	## packs, the atlas cache and tile exports keep `.zip`: they are different
 	## artefacts, and renaming them would break formats unrelated to saves.
-	DccBrowseDialog.choose_save_path(self, "Save project as", "ctl", start,
+	var dlg: DccBrowseDialog
+	dlg = DccBrowseDialog.choose_save_path(self, "Save project as", "ctl", start,
 		"", suggested, func(path: String):
+			_include_lod_tiles_pref = dlg != null and dlg.lod_tiles_checked
 			if FileAccess.file_exists(path):
 				_confirm(
 					"Overwrite %s?" % path.get_file(),
 					"That file already exists. Saving replaces it.",
-					"Overwrite", func(): _write_project(path, then))
+					"Overwrite", func(): _write_project(path, then, _include_lod_tiles_pref))
 			else:
-				_write_project(path, then))
+				_write_project(path, then, _include_lod_tiles_pref),
+		lod_option)
 
 ## Every caller-owned document that belongs in the archive, `{slot: json_text}`
 ## over the slots `bridge.project_document_slots()` registers.
@@ -3269,15 +3319,20 @@ func _capture_preview_png() -> PackedByteArray:
 ## The one place a project is actually written. Everything above routes here
 ## so the bookkeeping -- `current_project_path`, the recents list, the status
 ## line, the optional continuation -- happens once.
-func _write_project(path: String, then: Callable = Callable()) -> void:
+##
+## `include_lod_tiles` is owner rulings 28/29's checkbox state, read out of
+## `save_project_as()`'s dialog (or carried forward from it by
+## `save_project()`'s quiet re-save path) -- `false` unless a caller passes
+## it explicitly, matching ruling 28's own default.
+func _write_project(path: String, then: Callable = Callable(), include_lod_tiles: bool = false) -> void:
 	var documents := _project_documents()
 	## Checked before the writer is called, not after it fails: the engine
 	## assembles the whole archive in memory first, so a doomed save on a full
 	## volume costs a full serialisation before anyone hears about it.
-	if _save_blocked_by_space(path):
+	if _save_blocked_by_space(path, include_lod_tiles):
 		return
 	var preview_png := _capture_preview_png()
-	if not bridge.save_project(path, documents, preview_png):
+	if not bridge.save_project(path, documents, preview_png, include_lod_tiles):
 		## **Was "save failed -- see console".** That named somewhere an exported
 		## Android build has no way to reach, which is the half of
 		## `BUILD_ANSWERS.md` §4's storage/failure gap that cost nothing to fix.
@@ -3497,7 +3552,7 @@ func confirm_unsaved_world(prompt_title: String, question: String,
 			if current_project_path == "":
 				save_project_as(then)
 			else:
-				_write_project(current_project_path, then)},
+				_write_project(current_project_path, then, _include_lod_tiles_pref)},
 	})
 	## `_close_requested()` and `_backnav_probe.gd` both resolve this prompt by
 	## calling `hide()` on it directly, so the free has to hang off visibility

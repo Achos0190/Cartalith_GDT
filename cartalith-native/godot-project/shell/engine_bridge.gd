@@ -875,19 +875,6 @@ func reference_grid_height(grid_w: int, world: bool) -> int:
 func color_texture() -> Texture2D:
 	return world_gen.build_color_texture()
 
-## The vector river overlay's raster-tint suppression (`OUTSTANDING_WORK.md`
-## "The vector river overlay", reason 3 of 3 for its 2026-09-13 revert --
-## `viewport_host.gd::set_layer_visible()`'s `"rivers"` arm calls this then
-## re-fetches `color_texture()`, the same "no regeneration, call
-## build_color_texture() again to see it" contract every other presentation-
-## only toggle on `WorldGen` already follows. `_has()`-guarded like `rivers()`
-## above: a binary built before this landed simply keeps drawing the tint,
-## which is the same fallback that binary already had.
-func set_suppress_river_tint(on: bool) -> void:
-	if not _has("set_suppress_river_tint"):
-		return
-	world_gen.set_suppress_river_tint(on)
-
 ## `LOD_TILING_INTEGRATION_SCOPE.md` milestone M1. `has_method` guards match
 ## `sized_api`'s own reasoning above: a binary built before this milestone
 ## landed simply has no `lod_synthesize_tile`, and `ViewportHost`'s deep-zoom
@@ -1790,7 +1777,16 @@ func load_save(path: String) -> bool:
 ## it (`DccApp._capture_preview_png()`), because this bridge has no
 ## rendered world texture of its own. Empty writes no `preview.png` entry,
 ## same as omitting it.
-func save_project(path: String, extra_documents: Dictionary = {}, preview_png: PackedByteArray = PackedByteArray()) -> bool:
+## `include_lod_tiles` is owner rulings 28/29's optional stored LOD pyramid
+## -- default `false` (`GUI_GAP_REGISTER.md`, `OUTSTANDING_WORK.md` §2.4).
+## `true` synthesizes and writes `cartography/tiles/**`
+## (`WorldGen::project_save_with_documents`'s own doc has the cost); an
+## older binary with no `project_save_with_documents` degrades the same way
+## `extra_documents`/`preview_png` already do, with a warning rather than a
+## silent drop.
+func save_project(path: String, extra_documents: Dictionary = {},
+		preview_png: PackedByteArray = PackedByteArray(),
+		include_lod_tiles: bool = false) -> bool:
 	if not save_api or not has_world:
 		return false
 	## `project_save` writes the documented tree (`SAVEFILE_COMPAT.md`) and
@@ -1801,18 +1797,22 @@ func save_project(path: String, extra_documents: Dictionary = {}, preview_png: P
 	## ways, the timeline and the vault links would be the worst kind of
 	## regression -- one the user only discovers on reopening.
 	## `project_save_with_documents` when the caller has state of its own to
-	## store (a document, OR a preview thumbnail), `project_save` otherwise --
-	## the former is what the latter calls anyway, so this is one branch for
-	## one guard rather than two paths.
+	## store (a document, a preview thumbnail, OR the LOD-tile flag),
+	## `project_save` otherwise -- the former is what the latter calls
+	## anyway, so this is one branch for one guard rather than two paths.
 	## `extra_documents` maps a registered slot to that document's JSON TEXT;
 	## a Dictionary would go through Godot's JSON, which floats every integer,
 	## and that is precisely how KV-04 discarded every knowledge link.
 	var r: Dictionary
-	var need_with_documents := not extra_documents.is_empty() or not preview_png.is_empty()
+	var need_with_documents := not extra_documents.is_empty() or not preview_png.is_empty() \
+		or include_lod_tiles
 	if not need_with_documents or not _has("project_save_with_documents"):
+		if include_lod_tiles and not _has("project_save_with_documents"):
+			push_warning("Cartalith: this binary has no project_save_with_documents -- " +
+				"the LOD tile pyramid was not written to %s" % path)
 		r = world_gen.project_save(path)
 	else:
-		r = world_gen.project_save_with_documents(path, extra_documents, preview_png)
+		r = world_gen.project_save_with_documents(path, extra_documents, preview_png, include_lod_tiles)
 	var ok: bool = bool(r.get("ok", false))
 	if ok:
 		_set_dirty(false)
@@ -4774,6 +4774,18 @@ func lod_max_level() -> int:
 	if not _has("lod_max_level"):
 		return 0
 	return world_gen.lod_max_level()
+
+## Owner rulings 28/29's *"the size shown at save time"* -- the raw bytes a
+## stored LOD tile pyramid would cost this project right now, at the depth
+## `save_project()`'s `include_lod_tiles` flag actually stores
+## (`lod_bridge::SAVE_PYRAMID_MAX_LEVEL`). Exact and instant, so the save
+## dialog can show it before the user opts in. `0` against a binary built
+## before this exists, or before any world -- the save flow reads that as
+## "nothing to show", not as a real zero-byte pyramid.
+func lod_save_pyramid_estimate_bytes() -> int:
+	if not _has("lod_save_pyramid_estimate_bytes") or not has_world:
+		return 0
+	return int(world_gen.lod_save_pyramid_estimate_bytes())
 
 ## **LOD-D3's morph parameter**: how far pyramid level `z` has faded in at
 ## `px_per_cell` screen pixels per coarse cell. `0.0` means "draw this tile's

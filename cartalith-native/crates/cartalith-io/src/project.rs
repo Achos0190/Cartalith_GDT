@@ -35,7 +35,7 @@
 //!    on the way out.** A raster entry carries no length of its own, so a
 //!    short one is not a parse error; it is a truncated world. The same
 //!    check covers the optional stored LOD tiles against their own
-//!    `tile_w * tile_h` ([`LodTiles`]), for the same reason.
+//!    `tile_w * tile_h * 3` (RGB, [`LodTiles`]), for the same reason.
 //! 2. **Integral floats are coerced to integers before any schema sees a
 //!    document** ([`coerce_integral_floats`]). `SAVEFILE_COMPAT.md` §14.2
 //!    is the rule; `GUI_GAP_REGISTER.md` KV-04 is what forgetting it cost —
@@ -399,8 +399,23 @@ pub const LOD_TILE_INDEX: &str = "cartography/tiles/index.json";
 
 /// The `.u8` element extension every stored tile carries, for the reason
 /// §8 gives for the rasters: a payload with no header carries its element
-/// width in its name. A tile is one byte per pixel.
+/// width in its name.
+///
+/// **This is `u8` the element type, not "one byte per pixel."** A tile was
+/// one byte per pixel — a relief-detail shade ratio — until
+/// `LOD_DETAIL_SCOPE.md` LOD-D2 (2026-09-21) made a tile a colour picture:
+/// `cartalith_godot::lod_bridge::tile_mask` now emits three `u8` bytes per
+/// pixel (R, G, B). The extension still names the *element width* correctly
+/// (one byte, same as the rasters' own `.u8` slots) — it was never a
+/// per-pixel-count claim, and [`LodTiles::tile_w`]/[`LodTiles::tile_h`] carry
+/// the pixel geometry a reader needs to turn bytes back into pixels.
 const LOD_TILE_EXT: &str = ".u8";
+
+/// Bytes per pixel in a stored tile — **`3`, RGB**, since LOD-D2
+/// (2026-09-21). See [`LOD_TILE_EXT`]'s own doc comment for the one-channel
+/// history; every per-tile length check in this module multiplies by this
+/// rather than repeating the literal.
+const LOD_TILE_CHANNELS: usize = 3;
 
 /// One stored LOD tile pyramid: what it was made from, how big one tile is,
 /// and the tiles themselves.
@@ -411,12 +426,22 @@ const LOD_TILE_EXT: &str = ".u8";
 /// three reasons. Ruling 28 overrode the decision, not the reasons, and two
 /// of them are still true and are handled here rather than argued away:
 ///
-/// - **It is enormous.** Measured on three real 2048×1311 worlds, in the
-///   archive, deflated: levels 0-5 cost 4.40 / 4.79 / 5.12 MiB and levels
-///   0-6 cost 21.87 / 23.58 / 27.75 MiB, against a whole archive of 24.9 MiB
-///   for that grid (§18.1). A six-level pyramid roughly **doubles the file**.
-///   So the slot is optional, `None` is what [`ProjectWrite::new`] builds,
-///   and the depth is the caller's to choose.
+/// - **It is enormous, and more so since the tile format tripled.** The
+///   figures immediately below this bullet until 2026-09-22 were the
+///   *pre-LOD-D2* one-channel measurement (4.40-5.12 MiB at levels 0-5,
+///   21.87-27.75 MiB at 0-6) and were stale from the day `LOD_TILE_CHANNELS`
+///   became `3` — a shade-ratio mask compresses far better than a colour
+///   picture, so the real numbers are not a small correction. Re-measured on
+///   the real target grid (`cartalith_godot::lod_bridge::pyramid_mask_bytes`'s
+///   own doc carries the exact command): levels 0-4 deflate to **18.10 MiB**,
+///   0-5 to **49.60 MiB**, 0-6 to **131.02 MiB**, against a whole archive of
+///   ~24.9 MiB for that grid (§18.1, itself pre-dating this feature and worth
+///   re-checking rather than trusting). A five-level pyramid alone now
+///   **roughly doubles the file**; a six-level one is **five times** it.
+///   `cartalith_godot::lod_bridge::SAVE_PYRAMID_MAX_LEVEL` (`4`) is where the
+///   one caller that writes this slot today draws that line, and its own doc
+///   comment carries the reasoning. So the slot is optional, `None` is what
+///   [`ProjectWrite::new`] builds, and the depth is the caller's to choose.
 /// - **It goes stale invisibly** — §16.1's own words, *"a reader cannot
 ///   cheaply tell which is older"*. It can now: [`LodTiles::source_key`] is
 ///   computed by the writer from the heightmap it is writing, and
@@ -459,11 +484,14 @@ pub struct LodTiles {
     ///
     /// Stored so that the length guard this format applies to every other
     /// headerless payload applies here too: a tile entry that is not exactly
-    /// `tile_w * tile_h` bytes is a truncated tile, not a parse error, and
-    /// nothing else in the archive would catch it.
+    /// `tile_w * tile_h * 3` bytes (RGB, since LOD-D2 — see [`LOD_TILE_EXT`]'s
+    /// own doc comment) is a truncated tile, not a parse error, and nothing
+    /// else in the archive would catch it.
     pub tile_w: usize,
     pub tile_h: usize,
-    /// `(z, col, row)` -> that tile's bytes, one per pixel, row-major.
+    /// `(z, col, row)` -> that tile's bytes, **R, G, B per pixel, row-major**
+    /// (`tile_w * tile_h * 3` bytes; see [`LOD_TILE_EXT`]'s own doc comment
+    /// for why a tile was one channel before LOD-D2 and is three now).
     ///
     /// [`cartalith_spatial::pyramid::ChunkId`] rather than a tuple for the
     /// reason `atlas.rs` already gives: the pyramid geometry, the atlas key
@@ -965,11 +993,15 @@ pub fn write_project<W: Write + Seek>(
     }
     // The same guard the rasters get, for the same reason: a tile carries no
     // length of its own, so a short one is not a parse error, it is a
-    // truncated picture. `tile_w * tile_h` is checked here rather than
-    // inferred from the first tile, so a pyramid of uniformly-wrong tiles
-    // still fails.
+    // truncated picture. `tile_w * tile_h * LOD_TILE_CHANNELS` is checked
+    // here rather than inferred from the first tile, so a pyramid of
+    // uniformly-wrong tiles still fails.
     if let Some(lod) = &project.lod_tiles {
-        let per_tile = lod.tile_w.checked_mul(lod.tile_h).unwrap_or(0);
+        let per_tile = lod
+            .tile_w
+            .checked_mul(lod.tile_h)
+            .and_then(|px| px.checked_mul(LOD_TILE_CHANNELS))
+            .unwrap_or(0);
         if per_tile == 0 {
             return Err(SaveError::RasterLength {
                 entry: LOD_TILE_INDEX.to_string(),
@@ -1603,7 +1635,10 @@ fn read_tree(
         }
         let dim = |k: &str| index.get(k).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
         let (tile_w, tile_h) = (dim("tile_w"), dim("tile_h"));
-        let per_tile = tile_w.checked_mul(tile_h).unwrap_or(0);
+        let per_tile = tile_w
+            .checked_mul(tile_h)
+            .and_then(|px| px.checked_mul(LOD_TILE_CHANNELS))
+            .unwrap_or(0);
         if per_tile == 0 {
             warnings.push(format!(
                 "{LOD_TILE_INDEX}: no usable tile size ({tile_w}x{tile_h}) -- stored LOD tiles dropped"
@@ -2282,6 +2317,10 @@ mod tests {
         assert!(warnings.is_empty(), "{warnings:?}");
     }
 
+    /// **RGB fixture bytes** — `tile_w * tile_h * LOD_TILE_CHANNELS` per
+    /// tile, matching what a real producer writes since LOD-D2 (see
+    /// `LOD_TILE_EXT`'s own doc comment for the one-channel history this
+    /// helper used to fix at).
     fn a_pyramid(tile_w: usize, tile_h: usize, levels: i32) -> LodTiles {
         let mut tiles = BTreeMap::new();
         for z in 0..=levels {
@@ -2293,14 +2332,14 @@ mod tests {
                     let seed = (z as u8).wrapping_mul(37).wrapping_add(col as u8 * 11 + row as u8);
                     tiles.insert(
                         ChunkId::new(z as u32, col, row),
-                        (0..tile_w * tile_h).map(|i| seed.wrapping_add(i as u8)).collect(),
+                        (0..tile_w * tile_h * LOD_TILE_CHANNELS).map(|i| seed.wrapping_add(i as u8)).collect(),
                     );
                 }
             }
         }
         LodTiles {
             source_key: String::new(), // the writer computes it
-            producer: "lod/shade-ratio/256/1".to_string(),
+            producer: "lod/rgb/256/2".to_string(),
             tile_w,
             tile_h,
             tiles,
@@ -2321,7 +2360,7 @@ mod tests {
         assert_eq!(got.tiles.len(), 1 + 4 + 16, "every tile of levels 0..=2");
         assert_eq!(got.tiles, lod.tiles, "the bytes must come back unchanged");
         assert_eq!((got.tile_w, got.tile_h), (4, 3));
-        assert_eq!(got.producer, "lod/shade-ratio/256/1");
+        assert_eq!(got.producer, "lod/rgb/256/2");
         assert_eq!(got.source_key, lod_source_key(&params, &fields.heightmap));
         assert!(back.warnings.is_empty(), "{:?}", back.warnings);
         // And the tiles are the writer's, not the foreign carrier's.
@@ -2475,7 +2514,7 @@ mod tests {
         match write_project(&mut sink, &p) {
             Err(SaveError::RasterLength { entry, expected, got }) => {
                 assert_eq!(entry, "cartography/tiles/1/0/0.u8");
-                assert_eq!((expected, got), (12, 11));
+                assert_eq!((expected, got), (36, 11), "4*3*LOD_TILE_CHANNELS(3) = 36");
             }
             other => panic!("a short tile must be refused: {other:?}"),
         }

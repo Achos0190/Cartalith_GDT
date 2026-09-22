@@ -72,6 +72,18 @@ var _rows: Dictionary = {}   ## absolute path -> PanelContainer
 ## SAVE mode only: the foot's file-name field and the name it opens with.
 var _name_edit: LineEdit
 var _default_name := ""
+## Owner rulings 28/29's save-time LOD-tile control -- a plain,
+## non-canvas-backed checkbox the owner authorised for this one row (see
+## `app.gd`'s `save_project_as()` for the citation). Empty means "this save
+## flow carries no such option", which is every call site except the
+## project-save one, so every other `choose_save_path()` caller draws its
+## foot exactly as before. `lod_tiles_checked` is read by the caller AFTER
+## `on_choose` fires (the dialog instance is still alive then; see
+## `app.gd`'s forward-declared `dlg` pattern), never passed as a second
+## argument to `on_choose` -- that signature is shared with every other
+## save flow and changing it would ripple into all of them.
+var _lod_option_text := ""
+var lod_tiles_checked := false
 ## Phone (§13, PH-06). `_shell` is the `DccShell` this dialog's treatment is
 ## measured against; it is **not** always `host`, because two call sites hand
 ## `_spawn()` a `Window` (`open_project_dialog.gd`) rather than the shell, and
@@ -364,18 +376,25 @@ static func _saf_say(host: Node, line: String) -> void:
 ## with one absolute path, which may or may not already exist -- overwrite
 ## confirmation belongs to the caller, which is the only side that knows what
 ## is about to be overwritten.
+##
+## `lod_option_text`, left empty by every call site but the project-save one:
+## when non-empty, the foot draws one extra checkbox with this exact text,
+## unchecked by default (owner rulings 28/29 -- see `_lod_option_text`'s own
+## field comment).
 static func choose_save_path(host: Node, dialog_title: String, extension: String,
 		start_dir: String, footnote: String, default_name: String,
-		on_choose: Callable) -> DccBrowseDialog:
+		on_choose: Callable, lod_option_text: String = "") -> DccBrowseDialog:
 	return _spawn(host, dialog_title, PickKind.SAVE, PackedStringArray([extension]),
-		start_dir, footnote, on_choose, default_name)
+		start_dir, footnote, on_choose, default_name, lod_option_text)
 
 static func _spawn(host: Node, dialog_title: String, mode: PickKind,
 		extensions: PackedStringArray, start_dir: String, footnote: String,
-		on_choose: Callable, default_name: String = "") -> DccBrowseDialog:
+		on_choose: Callable, default_name: String = "",
+		lod_option_text: String = "") -> DccBrowseDialog:
 	var d := DccBrowseDialog.new()
 	host.add_child(d)
 	d._default_name = default_name
+	d._lod_option_text = lod_option_text
 	d._shell = _shell_of(host)
 	d.setup(dialog_title, mode, extensions, footnote, on_choose)
 	## One dialog per invocation, freed when it closes -- the same lifetime the
@@ -701,6 +720,26 @@ func _build_foot(footnote: String) -> Control:
 	if _mode == PickKind.SAVE:
 		_foot_note.visible = footnote != ""
 		stack.add_child(_foot_note)
+		## Owner rulings 28/29 -- a plain, non-canvas-backed control the owner
+		## authorised for this one row (`app.gd::save_project_as()`'s own
+		## comment carries the full citation). Only drawn when the caller
+		## asked for it (`_lod_option_text != ""`), so every other
+		## `choose_save_path()` flow (asset pack export, raster export, tile
+		## export, GeoJSON export, atlas cache export) is unchanged.
+		##
+		## A bare `CheckBox` with its own native `.text`, not
+		## `DccWidgets.toggle()`: that helper's row fixes its label at
+		## `ROW_LABEL_W` for a docked "label: value" property row, which would
+		## clip a full sentence like this one's size readout. Unstyled is the
+		## point here -- this is the explicitly-authorised undesigned
+		## exception, not a widget this shell's canvases define.
+		if _lod_option_text != "":
+			var lod_check := CheckBox.new()
+			lod_check.text = _lod_option_text
+			lod_check.button_pressed = false  ## ruling 28: off by default.
+			lod_check.focus_mode = Control.FOCUS_NONE
+			lod_check.toggled.connect(func(v: bool): lod_tiles_checked = v)
+			stack.add_child(lod_check)
 		## The one control the mockup's browser does not draw, because the
 		## mockup never had a save flow. Kept in the foot beside the primary
 		## button -- the "what shall it be called" question belongs next to

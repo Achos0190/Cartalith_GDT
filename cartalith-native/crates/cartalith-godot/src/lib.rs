@@ -3242,32 +3242,6 @@ struct WorldGen {
     /// `CART_BIOME_COLS` has always had, so there is no unknown key to guard
     /// against and no reason to pay a hash map for 15 slots.
     biome_col_overrides: [Option<(u8, u8, u8)>; 15],
-    /// The vector river overlay's raster-tint suppression
-    /// (`OUTSTANDING_WORK.md` "The vector river overlay", reason 3 of the
-    /// three the 2026-09-13 revert cited). `build_color_texture`'s own doc
-    /// comment says the baked-in blue channel tint "stands in for the
-    /// reference's vector river overlay ... not wired into this port" — once
-    /// the real vector overlay is wired and a caller turns it on, the
-    /// stand-in has to come off or the map reads as two slightly-offset
-    /// rivers, so this is the flag `set_suppress_river_tint` writes and
-    /// `build_color_texture` reads.
-    ///
-    /// `false` by default, so an untouched `WorldGen` renders exactly what it
-    /// rendered before this field existed — presentation only, on
-    /// `set_appearance`'s exact terms: nothing here touches the heightmap,
-    /// climate, hydrology, biomes, settlements, routes or the seed. Call
-    /// `build_color_texture()` again to see it, with no regeneration.
-    ///
-    /// **Scoped to `build_color_texture` alone, deliberately not folded into
-    /// `river_ink()`.** `river_ink()` is also `export_raster_png`'s,
-    /// `export_snapshot_png`'s and `export_layer_previews`'s one source of
-    /// truth for river ink (`export_raster.rs`'s own doc comment on why it is
-    /// the single choke point) — none of those write a Godot draw-time
-    /// overlay, so gating there would make a PNG export silently lose its
-    /// rivers whenever the interactive viewport's own vector toggle happened
-    /// to be on. This flag is read nowhere but the one texture the viewport
-    /// itself displays.
-    suppress_river_tint: bool,
     /// `UNIFIED_TOOL_PLAN.md` milestone F (`STRANDED_TOOLS.md` rows 4-8):
     /// the live, non-destructive Sculpt-editor draft. See
     /// `sculpt_bridge.rs`'s own module doc for why this lives here rather
@@ -3800,7 +3774,6 @@ impl IRefCounted for WorldGen {
             appearance_preset: None,
             color_space: render::ColorSpace::Srgb,
             biome_col_overrides: [None; 15],
-            suppress_river_tint: false,
             sculpt: None,
             icons: None,
             civ_tools: None,
@@ -6782,17 +6755,6 @@ impl WorldGen {
         n
     }
 
-    /// Turns the raster river tint `build_color_texture` bakes on and off —
-    /// see `suppress_river_tint`'s own doc comment for the reasoning and its
-    /// deliberately narrow scope. Presentation only, on `set_appearance`'s
-    /// exact terms: nothing here touches the heightmap, climate, hydrology,
-    /// biomes, settlements, routes or the seed. Call `build_color_texture()`
-    /// again to see it, with no regeneration.
-    #[func]
-    fn set_suppress_river_tint(&mut self, on: bool) {
-        self.suppress_river_tint = on;
-    }
-
     // -- The biome colour table (`OUTSTANDING_WORK.md`/`PARITY_AUDIT.md`
     //    CA-19, `LARGE_ITEM_RULINGS.md` Ruling P, 2026-09-21) ----------------
 
@@ -7385,32 +7347,18 @@ impl WorldGen {
     /// result. Ported from the reference HTML's own default-settings
     /// renderer (`render.rs`'s doc comment lists exactly what's ported vs.
     /// deliberately excluded) — no longer the MVP placeholder tint this
-    /// method used before. A blue tint on channelized cells stands in for
-    /// the reference's vector river overlay, keeping "rivers visible"
-    /// (`MVP_SCOPE.md`'s "done" checklist, point 2) satisfied. **The vector
-    /// overlay is wired now** (`map_overlay.gd::_draw_rivers`, off by
-    /// default) — see `suppress_river_tint`'s own doc comment for how the
-    /// two stay an either/or rather than drawing both at once. Returns
-    /// `None` before the first `generate()` call.
+    /// method used before. **A generated world's rivers are not in this
+    /// texture**: they are the vector strokes `map_overlay.gd::_draw_rivers`
+    /// draws over it (owner ruling 2026-09-22 — see
+    /// [`WorldGen::screen_river_ink`]). Returns `None` before the first
+    /// `generate()` call.
     #[func]
     fn build_color_texture(&self) -> Option<Gd<ImageTexture>> {
         let (field, temperature, rainfall, flow) = match self.source.as_ref()? {
             WorldSource::Generated(ws) => (ws.field.as_slice(), ws.temperature.as_slice(), ws.rainfall.as_slice(), Some(ws.flow_discharge.as_slice())),
             WorldSource::Loaded(save) => (save.fields.heightmap.as_slice(), save.fields.temperature.as_slice(), save.fields.rainfall.as_slice(), None),
         };
-        // The stamped width raster when the world carries one, falling back to
-        // the binary channel flag; a loaded save's `strahler_order` for the
-        // same reason it always had it. **Through `river_ink()`, which is now
-        // the only copy of that rule** -- this used to be an inline `match`
-        // here and three more in `export_raster.rs`, and on 2026-08-30 only
-        // this one learned about the stamp. See `WorldGen::river_ink`.
-        //
-        // `suppress_river_tint` short-circuits it to `None` here only --
-        // `river_ink()` itself is untouched, so `export_raster_png` and its
-        // siblings keep painting the tint regardless of this viewport-only
-        // flag. See `suppress_river_tint`'s own doc comment for why that
-        // scope is deliberate.
-        let chan_mask: Option<RiverInk<'_>> = if self.suppress_river_tint { None } else { self.river_ink() };
+        let chan_mask: Option<RiverInk<'_>> = self.screen_river_ink();
         let gw = self.gw as usize;
         let gh = self.gh as usize;
         let appearance = self.appearance();
@@ -8097,13 +8045,28 @@ impl WorldGen {
     /// * `head_x`/`head_y`, `mouth_x`/`mouth_y` (int) -- the two end cells.
     /// * `source_m`/`mouth_m`/`drop_m` (float) -- metres, through the same
     ///   `sample_bridge::FieldRefs::elevation_m` the Sample dock reads.
-    /// * `width_cells` (float) -- the drawn channel's full width at the mouth,
+    /// * `width_cells` (float) -- the drawn channel's full width at the run's
+    ///   last own cell (the mouth, or for a tributary the cell above the
+    ///   confluence, since its mouth is its trunk's cell),
     ///   `2 * half_w` from [`cartalith_hydrology::channel_disc`]: the width law
     ///   the intensity stamp already used, now readable per river. **In grid
     ///   cells, not metres** -- it is a cartographic symbol width that
     ///   `river_width_scale_k` grows as the map's extent shrinks, so
     ///   multiplying it out reads ~8 km on an 800 km / 192-cell world.
     ///   **Omitted** (not zeroed) when the mouth carries no positive flow.
+    ///   `map_overlay.gd::_draw_rivers` draws the river at exactly this width
+    ///   on the ground, so it scales with zoom like any other ground feature.
+    /// * `color` (Color) -- the lake surface colour at the run's middle point
+    ///   (`render::lake_color_at`), which `_draw_rivers` strokes the river in.
+    ///   Only here, not in `river_at()`, whose callers do not draw.
+    /// * `parallel_of` (int) -- present only on a run that
+    ///   [`cartalith_hydrology::river_draw_plan`] found running alongside the
+    ///   heavier run at that index; `_draw_rivers` does not draw it. The run is
+    ///   still returned, so indices stay `river_at()`'s.
+    ///
+    /// `render_points` of a run that ends on a dry-land pit one D8 step from
+    /// another drawn run continue to that run's cell (same plan), so the drawn
+    /// river does not break where the traced one does. `points` never do.
     ///
     /// Empty when river extraction did not run for this world -- before any
     /// `generate()`, or after `load_save()`, since `SAVEFILE_COMPAT.md` stores
@@ -8118,10 +8081,38 @@ impl WorldGen {
     #[func]
     fn get_rivers(&self, min_order: i64) -> Array<VarDictionary> {
         let Some(f) = self.sample_refs() else { return Array::new() };
-        self.rivers_now(min_order)
+        let a = self.appearance();
+        let rivers = self.rivers_now(min_order);
+        let plan = cartalith_hydrology::river_draw_plan(&rivers, f.flow_discharge, f.field, f.sea_level, f.gw, f.gh);
+        rivers
             .iter()
             .enumerate()
-            .map(|(i, r)| river_dict(&f, r, i))
+            .map(|(i, r)| {
+                let mut d = river_dict(&f, r, i);
+                // `river_draw_plan`: a run continued past a land pit onto the
+                // next run is re-smoothed WITH that cell, so the curve meets it;
+                // a run beside a heavier one carries `parallel_of` and
+                // `_draw_rivers` skips it. `points` stays the traced entity.
+                if let Some(b) = plan.bridge[i] {
+                    let mut pts = r.pts.clone();
+                    pts.push(b);
+                    d.set("render_points", &way_render_geometry(&pts, &[]).0);
+                }
+                if let Some(j) = plan.parallel_of[i] {
+                    d.set("parallel_of", j as i64);
+                }
+                // `color`: the lake surface colour (`render::lake_color_at`),
+                // sampled once at the run's middle point -- the owner's "the
+                // line should get the same look as a lake". One sample per run
+                // is enough because a run ends at every confluence and so
+                // rarely crosses a climate band. Absent for a run with no
+                // points, the same omit-don't-default rule as `width_cells`.
+                if let Some(&(x, y)) = r.pts.get(r.pts.len() / 2) {
+                    let (cr, cg, cb) = render::lake_color_at(&a, f.temperature, x, y, f.gw, f.gh);
+                    d.set("color", Color::from_rgb((cr / 255.0) as f32, (cg / 255.0) as f32, (cb / 255.0) as f32));
+                }
+                d
+            })
             .collect()
     }
 
@@ -12289,6 +12280,28 @@ impl WorldGen {
         lod_bridge::MAX_LEVEL
     }
 
+    /// Owner rulings 28/29's *"the size shown at save time"* — the raw bytes
+    /// a stored LOD tile pyramid would occupy for this project's own grid, at
+    /// [`lod_bridge::SAVE_PYRAMID_MAX_LEVEL`] (the depth
+    /// `Self::project_save_with_documents`'s `include_lod_tiles` flag
+    /// actually stores). Exact and instant — [`lod_bridge::pyramid_mask_bytes`]
+    /// synthesizes nothing — so a save dialog can show the cost before the
+    /// user commits to paying it.
+    ///
+    /// `0` before any world, matching [`Self::lod_level_for_zoom`]'s own
+    /// convention for a caller that asks too early: no world means no
+    /// pyramid, so `0` bytes is the honest answer rather than a sentinel.
+    #[func]
+    fn lod_save_pyramid_estimate_bytes(&self) -> i64 {
+        lod_bridge::pyramid_mask_bytes(
+            self.gw.max(0) as usize,
+            self.gh.max(0) as usize,
+            lod_bridge::SAVE_PYRAMID_MAX_LEVEL,
+        )
+        .map(|b| b as i64)
+        .unwrap_or(0)
+    }
+
     /// **How far level `z` has faded in** at `px_per_cell` screen pixels per
     /// coarse cell — `0.0` draw the tile's parent, `1.0` draw the tile,
     /// anything between is the CDLOD-style blend `lod_tile.gdshader` applies
@@ -12675,11 +12688,10 @@ impl WorldGen {
             return None;
         }
         // `RiverInk` is two borrowed slices by design; a worker cannot borrow
-        // from `WorldGen`, so the bytes are copied. The *rule* for which of
-        // the two it is stays `river_ink`'s own, read through it rather than
-        // re-decided here, so the tile path and the screen cannot disagree
-        // about whether a world has a stamp.
-        let ink = self.river_ink().map(|i| match i {
+        // from `WorldGen`, so the bytes are copied. The *rule* is the
+        // screen's own, `screen_river_ink`, so a zoomed tile and the base
+        // texture cannot disagree about whether rivers are baked.
+        let ink = self.screen_river_ink().map(|i| match i {
             render::RiverInk::Stamped(v) => lod_worker::OwnedInk::Stamped(v.to_vec()),
             render::RiverInk::Flag(v) => lod_worker::OwnedInk::Flag(v.to_vec()),
         });
