@@ -426,6 +426,41 @@ func open() -> void:
 		_phone_sheet_opened = true
 		app._set_sheet_open("left", true)
 
+## Seeds the planner with an already-committed route, then opens it exactly
+## like `open()` -- `right_dock.gd`'s "Plan a journey" button's entry point
+## when a measurement exists to hand off (owner report, 2026-09-22: clicking
+## it "opens only the journey planner. It doesn't mutate the measure to a
+## journey path"). `right_dock.gd`'s handler commits the measured chain as a
+## real route first (`bridge.route_begin`/`route_append_stop`/`route_commit`
+## -- the same three calls the INFRA Route tool's own ✓ Commit button makes,
+## `infrastructure_workspace.gd::_commit_route()`), then hands the resulting
+## index here rather than leaving the planner to default to whichever route
+## was last selected.
+##
+## Runs `open()` first for everything that entails (arming the tool, the
+## phone-sheet fix, `_reassert_shown()` on a second open), then re-asserts
+## the route selection over whatever `open()`'s own path left it at. This
+## repeats `_refresh_route_choice()`/`_compute()` when `_show()` already ran
+## them once for the *previous* selection -- deliberately: `_reassert_
+## shown()` (the already-open branch) calls neither, so skipping the repeat
+## would leave an already-open planner still showing its old route.
+func open_with_route(route_index: int) -> void:
+	open()
+	if not _bound or route_index < 0 or route_index >= bridge.route_count():
+		return
+	_route_index = route_index
+	## Mirrors `_refresh_route_choice()`'s own selection-changed callback
+	## exactly (the `DccWidgets.choice` handler a few hundred lines below) --
+	## a freshly seeded route is a new selection, not a continuation of
+	## whatever stage edits/layovers/trim applied to the old one.
+	_stage_overrides.clear()
+	_layovers.clear()
+	_selected_stage = 0
+	_isolated_stage = -1
+	_trim = Vector2(0.0, 1.0)
+	_refresh_route_choice()
+	_compute()
+
 func _recompute_visibility() -> void:
 	## **REARM row B, narrowed after a refuted fix** (filed 2026-09-07;
 	## `.claude/resume-2026-09-12/rearm_2026-09-12.patch` reverted). Requires

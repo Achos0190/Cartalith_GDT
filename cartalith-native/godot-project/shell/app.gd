@@ -4039,6 +4039,14 @@ func open_journey_planner() -> void:
 	select_domain_mode("civilization", "planner")
 	journey_planner_view.open()
 
+## As `open_journey_planner()`, but seeds the planner's own committed-route
+## selection first -- `right_dock.gd`'s "Plan a journey" button's entry point
+## once a measured path has been committed as a real route to hand off. See
+## `journey_planner_view.gd::open_with_route()`'s own doc comment.
+func open_journey_planner_with_route(route_index: int) -> void:
+	select_domain_mode("civilization", "planner")
+	journey_planner_view.open_with_route(route_index)
+
 ## `credits.gd` extends AcceptDialog and fills `%CreditsText` from `_ready`, so
 ## the scroll and the label have to exist *before* the script runs -- hence
 ## building the body first and attaching the script last. The attribution it

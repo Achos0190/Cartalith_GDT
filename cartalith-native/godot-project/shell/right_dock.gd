@@ -3251,7 +3251,7 @@ func _build_measure_actions(body: Control) -> void:
 	DccWidgets.action(actions, "Copy reading", _on_measure_copy)
 	var csv_btn := DccWidgets.action(actions, "Copy saved as CSV", _on_measure_csv)
 	csv_btn.disabled = _saved_measurements.is_empty()
-	DccWidgets.action(actions, "Plan a journey", func(): app.open_journey_planner())
+	DccWidgets.action(actions, "Plan a journey", _on_plan_journey)
 	DccWidgets.note(actions,
 		"Saved measurements travel in the project file and are dropped when the world is replaced: a measure " +
 		"point is a grid cell, so a reading recalled over another world would draw a plausible line across " +
@@ -3335,6 +3335,44 @@ func _measure_mode_label(id: String) -> String:
 		if String((m as Dictionary)["id"]) == id:
 			return String((m as Dictionary)["label"])
 	return id
+
+## Seeds the Journey Planner with the chain this Measure reading was taken
+## from, rather than opening it blank (owner report, 2026-09-22: "When using
+## the measure tool there is an option to plan a journey. But this opens only
+## the journey planner. It doesn't mutate the measure to a journey path.").
+##
+## Commits the measured points as a real committed route through the SAME
+## three calls the INFRA Route tool's own ✓ Commit button makes
+## (`infrastructure_workspace.gd::_commit_route()`) -- `route_begin("mixed")`
+## matches that tool's own hardcoded mode (the reference's `_civCommitRoute`
+## has no mode choice either; see that function's own note), so this reuses
+## the one real commit path rather than inventing a second one that bypasses
+## `civ_join_dijkstra_segs`'s least-cost solve. `GlobalTools.measure_points()`
+## already returns grid cells -- the same points `_measure_click()` sends to
+## `bridge.measure_add_point()` -- which is the exact coordinate space
+## `route_append_stop`/`route_commit` take, so no conversion is needed.
+##
+## Falls back to a blank `open_journey_planner()` -- this button's behaviour
+## before this fix -- for the two cases with nothing real to seed: fewer
+## than two measured points (a route needs two stops), and no generated
+## world (`bridge.route_begin` returns `false` before `generate()`).
+func _on_plan_journey() -> void:
+	var pts := GlobalTools.measure_points()
+	if pts.size() < 2 or not app.bridge.route_begin("mixed"):
+		app.open_journey_planner()
+		return
+	for p in pts:
+		app.bridge.route_append_stop(p.x, p.y)
+	var idx := app.bridge.route_commit()
+	if idx < 0:
+		app.open_journey_planner()
+		return
+	## The same one-liner `infrastructure_workspace.gd::_refresh_map_routes()`
+	## uses after a real commit -- otherwise the route exists in the engine's
+	## own list but does not appear on the map until something else happens
+	## to repaint it.
+	app.viewport.overlay.set_manual_routes(app.viewport.manual_routes())
+	app.open_journey_planner_with_route(idx)
 
 func _on_measure_save() -> void:
 	var p := _measure_primary()
