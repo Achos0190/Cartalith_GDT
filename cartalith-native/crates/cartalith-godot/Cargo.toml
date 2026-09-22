@@ -89,7 +89,24 @@ cartalith-vault = { path = "../cartalith-vault" }
 # `Cargo.lock` before this change, unmoved by it). This only makes it direct.
 log = "0.4"
 
+# `EXPORT_SCOPE.md` §7 milestone E2, `export_stream.rs`: a 16K/32K raster is
+# written band by band and never held whole, so the encoder must take rows
+# incrementally. `image`'s `PngEncoder` takes a whole buffer; `png`'s
+# `StreamWriter` does not. Not a new package: 0.18.1 was already resolved in
+# `Cargo.lock` through `cartalith-assets`' `image` png feature. This only
+# makes it direct.
+png = "0.18.1"
+# The same module's BigTIFF (§6.1: MIT, pure Rust, so the Android cross-build
+# is unaffected). **New to the tree.** `default-features = false` keeps only
+# `deflate`; the defaults would add `fax`, `zune-jpeg`, `zune-core` and
+# `weezl`, decode-side codecs an export never reads (§6.2). `flate2` and
+# `half` were already in the lockfile. Not `zstd`, which is a C library.
+tiff = { version = "0.11.3", default-features = false, features = ["deflate"] }
+
 [dev-dependencies]
+# `tests/export_stream.rs`' own PNG and BigTIFF decoders inflate with it;
+# already in the lockfile through `png`/`zip`.
+flate2 = "1"
 # `SCULPT_LIVE_SCOPE.md` milestone L0's timing harness
 # (`tests/sculpt_live_l0_bench.rs`) needs `compute_temperature`/
 # `simulate_weather`/`apply_climate_moisture_correctors` directly to measure

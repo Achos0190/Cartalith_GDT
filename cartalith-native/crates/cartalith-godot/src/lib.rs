@@ -25,6 +25,7 @@ mod civ_tools_bridge;
 mod civ_trade_bridge;
 mod erode_bridge;
 mod export_raster;
+mod export_stream;
 mod geojson_apply;
 mod geojson_bridge;
 mod icon_bridge;
