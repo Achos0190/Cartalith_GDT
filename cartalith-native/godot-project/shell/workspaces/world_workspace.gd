@@ -152,7 +152,7 @@ const STAGES: Array = [
 	{"name": "Hydrology", "needs": "06 Erosion",
 	 "produces": "rivers, lakes, drainage, flow accumulation → 08 Climate, 09 Ecology & biomes",
 	 "groups": [], "keys": ["carve_rivers", "river_density"],
-	 "gap": "Min stream order and lakes-as-water are reference render filters, not generation parameters -- and not Cartography's either, which this line said until 2026-09-07. Neither is settable anywhere: the drawn rivers are a flow-area tint inside the terrain raster (render.rs, WET_AREA_LO/HI over upstream drainage area) rather than the traced polylines get_rivers(min_order) returns, so there is no order in the image to filter on until drawRiverWays exists."},
+	 "gap": "Min stream order and lakes-as-water are reference render filters, not generation parameters -- and not Cartography's either, which this line said until 2026-09-07. Neither is settable anywhere: since 2026-09-22 the drawn rivers are the traced polylines get_rivers(min_order) returns, but the viewport always asks for min_order 1 and no control changes it."},
 	{"name": "Climate", "needs": "01 Planet, 02 Extent & scale, 06 Erosion",
 	 "produces": "temperature, rainfall, wind, currents → 09 Ecology & biomes, 10 Resources & soils",
 	 "groups": ["climate", "weather"], "keys": [],

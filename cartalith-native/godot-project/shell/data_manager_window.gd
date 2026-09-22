@@ -415,7 +415,9 @@ const CRS_NOTE := "The export is in the world's own cell grid. No CRS handling e
 ##   `_draw_labels` / `_draw_manual_icons`, Control-level draw calls
 ## - political tint -> `lib.rs::territory_texture()`, its own TextureRect
 ##   layer under `viewport_host.gd`
-## - rivers -> a channel-mask tint inside `lib.rs::build_color_texture()`
+## - rivers -> `map_overlay.gd::_draw_rivers` vector strokes since 2026-09-22
+##   (a loaded save still gets a channel-mask tint inside
+##   `lib.rs::build_color_texture()`)
 ##
 ## The *tile* export is a third thing again: `region_export::tile_png_bytes`
 ## calls `render_height_tile_rgba(tile, ...)`, a hillshade of the tile's own
@@ -423,7 +425,7 @@ const CRS_NOTE := "The export is in the world's own cell grid. No CRS handling e
 ## the one place a river tint does survive -- `render.rs::channel_tint`
 ## transcribes it -- which is why the sentence has to name the path, not just
 ## the feature.)
-const LAYER_NOTE := "region_export_tiles bakes elevation (RG16) and, with visual tiles on, a hillshade computed from the tile's own heights (render_height_tile_rgba) -- nothing else. The political tint is lib.rs's territory_texture() on its own layer, labels and icons are map_overlay.gd Control draws, and the river tint lives in build_color_texture; none of them is a raster stage the tile writer could switch on. Compositing them into a tile means rasterising overlay geometry, which is CA-04's separable-layer work and not a switch here."
+const LAYER_NOTE := "region_export_tiles bakes elevation (RG16) and, with visual tiles on, a hillshade computed from the tile's own heights (render_height_tile_rgba) -- nothing else. The political tint is lib.rs's territory_texture() on its own layer, labels, icons and rivers are map_overlay.gd Control draws; none of them is a raster stage the tile writer could switch on. Compositing them into a tile means rasterising overlay geometry, which is CA-04's separable-layer work and not a switch here."
 
 ## The enumeration this used to carry -- "DccSettings persists storage roots
 ## and window state only" -- was two of the ten sections `dcc_settings.gd`

@@ -16,9 +16,12 @@
 //! overlay**. It is `drawRiverWays`, a Catmull-Rom spline over `_riverNet`
 //! drawn *on the canvas after* the raster — not a per-pixel stage, and it does
 //! not belong in this file at all; in this port that layer is
-//! `godot-project/map_overlay.gd`. The existing simple river channel-mask tint
-//! in `lib.rs` stays as this port's stand-in for "rivers visible",
-//! `MVP_SCOPE.md`'s point 2.
+//! `godot-project/map_overlay.gd`, which since the owner's 2026-09-22 ruling
+//! draws a generated world's only rivers (in [`lake_color`], at the
+//! channel's own width). The channel-mask tint ([`channel_tint`]) is no
+//! longer baked into the viewport for a generated world — only a loaded
+//! save, which has no channel network to draw, and the raster exports,
+//! which no Godot draw pass reaches (`WorldGen::screen_river_ink`).
 //!
 //! **Struck from this list on 2026-09-03, second pass**: geology microtexture
 //! and dune ripples (`geo_micro`, [`litho_microtexture`]), the SVF and
@@ -4102,9 +4105,7 @@ impl<'a> RenderCtx<'a> {
 
     /// [`Self::vignette_at`] at a fractional position.
     fn vignette_at_f(&self, x: f64, y: f64) -> f64 {
-        let vx = x / (self.gw.max(2) - 1) as f64 - 0.5;
-        let vy = y / (self.gh.max(2) - 1) as f64 - 0.5;
-        1.0 - smoothstep(0.34, 0.74, vx.hypot(vy)) * 0.42
+        vignette_f(x, y, self.gw, self.gh)
     }
 
     /// `aspectFactorF` (reference line 7627). Clamps on Y exactly as
@@ -5492,6 +5493,34 @@ fn sea_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize) -> f64 {
     let wu = ru + (vnoise(ru * 2.0, rv * 2.0, 41) - 0.5) * k;
     let wv = rv + (vnoise(rv * 2.0, ru * 2.0, 43) - 0.5) * k;
     vnoise(wu, wv, 5)
+}
+
+/// [`RenderCtx::vignette_at_f`]'s formula without a `RenderCtx`, for
+/// [`lake_color_at`]'s caller, which has none.
+fn vignette_f(x: f64, y: f64, gw: usize, gh: usize) -> f64 {
+    let vx = x / (gw.max(2) - 1) as f64 - 0.5;
+    let vy = y / (gh.max(2) - 1) as f64 - 0.5;
+    1.0 - smoothstep(0.34, 0.74, vx.hypot(vy)) * 0.42
+}
+
+/// The v1.05 lake surface (reference 11741-11742): `seaColorCore(0.30, T,
+/// grain, 0.95, vig)` re-tinted toward fresh water with the reference's own
+/// six literals. Opaque and unshaded (`sh` fixed at `0.95`). One function so
+/// the tile's lake branch and the river strokes (`lake_color_at`) cannot
+/// drift apart — the owner's 2026-09-22 ruling is that a river "should get
+/// the same look as a lake".
+fn lake_color(a: &TerrainAppearance, t: f64, n_low: f64, vig: f64) -> Rgb {
+    let lc = sea_color_core(a, 0.30, t, n_low, 0.95, vig);
+    ((lc.0 * 0.9 + 12.0).min(255.0), (lc.1 * 0.96 + 16.0).min(255.0), (lc.2 * 0.94 + 6.0).min(255.0))
+}
+
+/// [`lake_color`] at grid point `(gx, gy)`, with the tile lake branch's own
+/// inputs: the bilinear temperature, [`sea_grain`] and the vignette. Bytes,
+/// `[0, 255]`. `get_rivers()` samples it at every render point of a river run
+/// for the stroke `map_overlay.gd::_draw_rivers` draws.
+pub(crate) fn lake_color_at(a: &TerrainAppearance, temperature: &[f32], gx: f64, gy: f64, gw: usize, gh: usize) -> Rgb {
+    let t = sample_arr(temperature, gx, gy, gw, gh);
+    lake_color(a, t, sea_grain(a, gx, gy, gw), vignette_f(gx, gy, gw, gh))
 }
 
 /// `seaColorCore` (8122-8130).
@@ -8335,11 +8364,8 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
                 let depth = if sl <= 0.0 { 0.0 } else { clamp01((sl - hs) / sl) };
                 Some(sea_color_core(a, depth, t, sea_grain(a, wx, wy, gw), shw, vig))
             } else if lakes && is_lake_pixel(tf, ctx, wx, wy, ht, lake_fill_ok) {
-                // v1.05 lake (11741-11742). `seaColorCore(0.30, T, grain,
-                // 0.95, vig)` re-tinted toward fresh water, the reference's
-                // own six literals.
-                let lc = sea_color_core(a, 0.30, t, sea_grain(a, wx, wy, gw), 0.95, vig);
-                Some(((lc.0 * 0.9 + 12.0).min(255.0), (lc.1 * 0.96 + 16.0).min(255.0), (lc.2 * 0.94 + 6.0).min(255.0)))
+                // v1.05 lake (11741-11742) -- see [`lake_color`].
+                Some(lake_color(a, t, sea_grain(a, wx, wy, gw), vig))
             } else {
                 None
             };

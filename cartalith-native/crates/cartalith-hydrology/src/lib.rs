@@ -756,8 +756,10 @@ pub struct River {
     /// [`River::discharge`] because the two genuinely differ (see above) and a
     /// caller asking "what leaves this river" means this one.
     pub mouth_discharge: f32,
-    /// Channel half-width in cells at the mouth ([`channel_disc`]), or `None`
-    /// when the mouth carries no positive flow.
+    /// Channel half-width in cells ([`channel_disc`]) at the run's last OWN
+    /// cell -- the mouth for an outlet, the cell above the confluence for a
+    /// tributary (whose mouth belongs to its trunk) -- or `None` when that
+    /// cell carries no positive flow.
     pub half_width_cells: Option<f64>,
     /// How many other runs end on a cell of this one.
     pub tributaries: u32,
@@ -824,9 +826,16 @@ pub fn river_entities(
 
     let mut out: Vec<River> = polys
         .iter()
-        .map(|pl| {
+        .enumerate()
+        .map(|(ri, pl)| {
             let head = cell_of(pl[0]);
             let mouth = cell_of(pl[pl.len() - 1]);
+            // A tributary's mouth is a cell of its TRUNK (see the doc comment),
+            // so `channel_disc` there is the width *below* the confluence, and
+            // every tributary drew as wide as the river it joins -- two equal
+            // bands side by side into every junction. Its own last cell is
+            // the width it actually has.
+            let width_cell = if owner[mouth] as usize != ri { cell_of(pl[pl.len() - 2]) } else { mouth };
             let mut max_o = 0i16;
             let mut max_q = 0.0f32;
             let mut length_cells = 0.0f64;
@@ -850,7 +859,7 @@ pub fn river_entities(
                 length_cells,
                 discharge: max_q,
                 mouth_discharge: flow[mouth],
-                half_width_cells: channel_disc(fld, flow, order, w, h, wrap, thresh, width_k, lmax, mouth)
+                half_width_cells: channel_disc(fld, flow, order, w, h, wrap, thresh, width_k, lmax, width_cell)
                     .map(|d| d.half_w),
                 tributaries: 0,
                 head: head as u32,
@@ -866,6 +875,195 @@ pub fn river_entities(
         }
     }
     out
+}
+
+/// How [`river_entities`]' runs are DRAWN, without changing what they are.
+///
+/// Owner, 2026-09-22, on the vector river strokes: *"make sure that rivers
+/// don't become interrupted lines visually and connect them. Neither the tons
+/// of parallel rivers."* Both are real properties of the traced runs, measured
+/// on the shell's own 2048x1312 world (`_riverconnect_probe.gd`) before this
+/// existed: 344 runs ended on dry land one D8 step from another run, and 56
+/// ran alongside a heavier one.
+///
+/// * **Interrupted.** A run does not only end at a confluence or the sea: the
+///   channel receiver tree has land pits (`recv == -1`), and the river resumes
+///   as a new "source" a cell away. Following `recv` past such a mouth never
+///   reached another run in 9 steps on either measured world, so the tree
+///   itself offers no link -- the bridge is drawn, to the nearest cell of
+///   another drawn run within ONE D8 step, the same reach the trace itself
+///   links cells across. Never from a coastal mouth (it or a neighbour at or
+///   below `sea_level`), where the adjacent run is a different river's mouth.
+///   Never to one of the run's own tributaries, which would draw a loop.
+/// * **Parallel.** The channel mask is often more than one cell wide, and
+///   each column traces as its own run beside the others. Runs are visited
+///   heaviest first -- weight is the largest `flow` over the run's OWN cells,
+///   excluding a mouth that belongs to its trunk (that cell is shared, so
+///   counting it gives a tributary its trunk's discharge; measured, pairs of
+///   runs tied at exactly that value) -- and a run is hidden when at least
+///   [`PARALLEL_MIN_CELLS`] of its own cells, and at least half of them, lie
+///   within the two strokes' half-widths plus [`PARALLEL_GAP_CELLS`] of a
+///   single already-kept run -- close enough to draw as one band. A real
+///   tributary meets its trunk at an angle and approaches it for only its
+///   last few cells. A run that ended on a now-hidden run reconnects to what
+///   is drawn by that same reach.
+///
+/// Nothing here moves a run's `pts`, so the entity list, its indices and
+/// `pick_river` are unchanged; the caller decides what to draw.
+pub struct RiverDrawPlan {
+    /// `Some(j)`: this run hugs the heavier run `j` and is not drawn.
+    pub parallel_of: Vec<Option<usize>>,
+    /// A cell centre this run's stroke continues to past its traced end.
+    pub bridge: Vec<Option<(f64, f64)>>,
+}
+
+/// Fewest own cells alongside another run before a run counts as a parallel
+/// duplicate rather than a tributary meeting it (see [`RiverDrawPlan`]).
+pub const PARALLEL_MIN_CELLS: usize = 3;
+
+/// Ground, in cells, between two strokes' edges below which they read as one
+/// band (see [`RiverDrawPlan`]). Sized on the owner's own example: the
+/// shell's 2048x1312 world draws an order-3 trunk and an order-1 stream side
+/// by side for ~20 cells at centre distances of mostly 2.83 cells (two
+/// diagonal steps) -- 1.83 cells of ground between 1-cell strokes. `1.0`
+/// leaves that pair drawn; `2.0` is the smallest whole value that hides it.
+/// Measured share of river cells hidden at `2.0`: 10% there, but 40% on an
+/// 800 km / 384x288 world, where the channel mask is dense per cell.
+pub const PARALLEL_GAP_CELLS: f64 = 2.0;
+
+/// See [`RiverDrawPlan`].
+pub fn river_draw_plan(rivers: &[River], flow: &[f32], fld: &[f32], sea_level: f64, w: usize, h: usize) -> RiverDrawPlan {
+    let n = w * h;
+    let mut plan = RiverDrawPlan { parallel_of: vec![None; rivers.len()], bridge: vec![None; rivers.len()] };
+    if n == 0 || flow.len() < n || fld.len() < n {
+        return plan;
+    }
+    let cell_of = |p: (f64, f64)| -> usize { (p.1 as usize).min(h - 1) * w + (p.0 as usize).min(w - 1) };
+    let neighbours = |c: usize| {
+        let (x, y) = ((c % w) as i64, (c / w) as i64);
+        // Orthogonal first, so a nearest-first scan prefers distance 1 over sqrt 2.
+        [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
+            .into_iter()
+            .map(move |(dx, dy)| (x + dx, y + dy))
+            .filter(|&(x, y)| x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h)
+            .map(|(x, y)| y as usize * w + x as usize)
+    };
+    // First writer owns a cell -- `river_entities`' own rule, so a tributary's
+    // mouth resolves to its trunk.
+    let mut owner = vec![usize::MAX; n];
+    for (i, r) in rivers.iter().enumerate() {
+        for &p in &r.pts {
+            let c = cell_of(p);
+            if owner[c] == usize::MAX {
+                owner[c] = i;
+            }
+        }
+    }
+    let own_cells = |i: usize| -> Vec<usize> {
+        let r = &rivers[i];
+        let joins = owner[r.mouth as usize] != i;
+        r.pts[..r.pts.len() - usize::from(joins)].iter().map(|&p| cell_of(p)).collect()
+    };
+    let weight: Vec<f32> =
+        (0..rivers.len()).map(|i| own_cells(i).iter().map(|&c| flow[c]).fold(0.0f32, f32::max)).collect();
+    // Drawn stroke width in cells -- what `get_rivers()` hands the renderer,
+    // with the `channel_disc` floor (half-width 0.5) where it has none.
+    let wid = |i: usize| rivers[i].half_width_cells.map_or(1.0, |hw| 2.0 * hw);
+    let max_w = (0..rivers.len()).map(wid).fold(1.0f64, f64::max);
+    // Two strokes read as one band when their centrelines are closer than
+    // their half-widths plus `PARALLEL_GAP_CELLS` of ground.
+    let reach = |i: usize, o: usize| (wid(i) + wid(o)) * 0.5 + PARALLEL_GAP_CELLS;
+    // Every cell within `r` of `c`, nearest first (row-major on ties).
+    let window = |c: usize, r: f64| -> Vec<(f64, usize)> {
+        let (x, y) = ((c % w) as i64, (c / w) as i64);
+        let k = r.floor() as i64;
+        let mut v: Vec<(f64, usize)> = (-k..=k)
+            .flat_map(|dy| (-k..=k).map(move |dx| (dx, dy)))
+            .map(|(dx, dy)| (((dx * dx + dy * dy) as f64).sqrt(), x + dx, y + dy))
+            .filter(|&(d, nx, ny)| d <= r && nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h)
+            .map(|(d, nx, ny)| (d, ny as usize * w + nx as usize))
+            .collect();
+        v.sort_by(|a, b| a.0.total_cmp(&b.0));
+        v
+    };
+
+    let mut order: Vec<usize> = (0..rivers.len()).collect();
+    order.sort_by(|&a, &b| weight[b].total_cmp(&weight[a]).then(a.cmp(&b)));
+    // Kept cells in WEIGHT order, for the hug test only.
+    let mut kept = vec![usize::MAX; n];
+    for &i in &order {
+        let own = own_cells(i);
+        let mut alongside: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+        let r_max = wid(i) * 0.5 + max_w * 0.5 + PARALLEL_GAP_CELLS;
+        for &c in &own {
+            let mut seen: Vec<usize> = Vec::new();
+            for (d, q) in window(c, r_max) {
+                let o = kept[q];
+                if o != usize::MAX && o != i && !seen.contains(&o) && d <= reach(i, o) {
+                    seen.push(o);
+                    *alongside.entry(o).or_insert(0) += 1;
+                }
+            }
+        }
+        let hug = alongside
+            .iter()
+            .filter(|&(_, &k)| k >= PARALLEL_MIN_CELLS && 2 * k >= own.len())
+            .max_by_key(|&(&j, &k)| (k, std::cmp::Reverse(j)));
+        if let Some((&j, _)) = hug {
+            plan.parallel_of[i] = Some(j);
+            continue;
+        }
+        for &p in &rivers[i].pts {
+            let c = cell_of(p);
+            if kept[c] == usize::MAX {
+                kept[c] = i;
+            }
+        }
+    }
+    // Drawn cells in TRACE order -- the `owner` rule restricted to drawn runs,
+    // so a tributary's mouth resolves to its trunk whichever was heavier.
+    let mut drawn = vec![usize::MAX; n];
+    for (i, r) in rivers.iter().enumerate() {
+        if plan.parallel_of[i].is_some() {
+            continue;
+        }
+        for &p in &r.pts {
+            let c = cell_of(p);
+            if drawn[c] == usize::MAX {
+                drawn[c] = i;
+            }
+        }
+    }
+
+    for i in 0..rivers.len() {
+        if plan.parallel_of[i].is_some() {
+            continue;
+        }
+        let m = rivers[i].mouth as usize;
+        if drawn[m] != i {
+            continue; // ends on another drawn run: already connected
+        }
+        let coastal = std::iter::once(m).chain(neighbours(m)).any(|c| fld[c] as f64 <= sea_level);
+        if coastal {
+            continue;
+        }
+        // A run whose mouth sat on a now-hidden run lost its trunk by the
+        // hug's reach, so it reconnects by that reach; a land pit by one D8
+        // step (the doc comment's two cases).
+        let orphan = owner[m] != i;
+        let r_max = if orphan { wid(i) * 0.5 + max_w * 0.5 + PARALLEL_GAP_CELLS } else { std::f64::consts::SQRT_2 };
+        let target = window(m, r_max).into_iter().find(|&(d, q)| {
+            let j = drawn[q];
+            j != usize::MAX
+                && j != i
+                && drawn[rivers[j].mouth as usize] != i
+                && (!orphan || d <= reach(i, j))
+        });
+        if let Some((_, q)) = target {
+            plan.bridge[i] = Some(((q % w) as f64 + 0.5, (q / w) as f64 + 0.5));
+        }
+    }
+    plan
 }
 
 /// Nearest river to a grid-space point, within `radius_cells` of one of its
@@ -1398,6 +1596,102 @@ pub fn stamp_river_intensity(
 mod tests {
     use super::{build_channels, enforce_river_channels, flow_cmp_desc, flow_sort_desc};
 
+    /// A run over cell centres `(x, y)` with every cell at `q` in `flow`.
+    fn run(cells: &[(usize, usize)], w: usize, flow: &mut [f32], q: f32) -> super::River {
+        for &(x, y) in cells {
+            flow[y * w + x] = flow[y * w + x].max(q);
+        }
+        let c = |i: usize| (cells[i].1 * w + cells[i].0) as u32;
+        super::River {
+            pts: cells.iter().map(|&(x, y)| (x as f64 + 0.5, y as f64 + 0.5)).collect(),
+            order: 1,
+            length_cells: 0.0,
+            discharge: q,
+            mouth_discharge: q,
+            half_width_cells: Some(0.5),
+            tributaries: 0,
+            head: c(0),
+            mouth: c(cells.len() - 1),
+        }
+    }
+
+    /// `river_draw_plan` on a hand-built network, each rule exercised once.
+    /// Strokes are 1 cell wide (so the hug reach is `1 + PARALLEL_GAP_CELLS`
+    /// = 3 cells) except `coast_b`, whose 4-cell width widens every search
+    /// window to 4.5 cells without changing any 1-cell pair's reach. Runs
+    /// meant not to interact sit further apart than their reach.
+    #[test]
+    fn river_draw_plan_hides_parallels_and_bridges_land_pits() {
+        let (w, h) = (30usize, 16usize);
+        let n = w * h;
+        let mut flow = vec![0f32; n];
+        let mut fld = vec![0.8f32; n];
+        // Sea along the bottom row.
+        for x in 0..w {
+            fld[(h - 1) * w + x] = 0.1;
+        }
+        let trunk: Vec<(usize, usize)> = (0..10).map(|x| (x, 5)).collect();
+        // Exactly 3 rows below the trunk (the reach, to the cell), then onto
+        // it: one band with it. Its head (0,9) is 4 cells off.
+        let beside: Vec<(usize, usize)> =
+            [(0, 9)].into_iter().chain((0..6).map(|x| (x, 8))).chain([(6, 7), (7, 6), (8, 5)]).collect();
+        // Onto the trunk's end with 2 of 4 own cells in reach -- half its
+        // length, but under `PARALLEL_MIN_CELLS`, so it stays drawn.
+        let trib: Vec<(usize, usize)> = vec![(11, 1), (11, 2), (10, 3), (10, 4), (9, 5)];
+        // 3 own cells, all in reach of the trunk: exactly the count floor.
+        let stub: Vec<(usize, usize)> = vec![(8, 7), (9, 7), (10, 7)];
+        // Onto the trunk with its last 3 of 8 own cells in reach: at the count
+        // floor but under half, so it is a tributary, not a duplicate.
+        let long_trib: Vec<(usize, usize)> =
+            vec![(1, 0), (2, 0), (3, 0), (4, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5)];
+        // Both end on `beside`, which is hidden, so both are outlets now.
+        // `orphan` ends 3 cells from the trunk and reconnects to it; `orphan2`
+        // ends 4 cells off -- inside the 4.5-cell window, outside the reach.
+        let orphan: Vec<(usize, usize)> = vec![(4, 12), (4, 11), (4, 10), (4, 9), (4, 8)];
+        let orphan2: Vec<(usize, usize)> = vec![(0, 13), (0, 12), (0, 11), (0, 10), (0, 9)];
+        // A land pit at (17,3); the river resumes diagonally at (18,4).
+        let upper: Vec<(usize, usize)> = (14..18).map(|x| (x, 3)).collect();
+        let lower: Vec<(usize, usize)> = (18..23).map(|x| (x, 4)).collect();
+        // Ends on `upper`'s cell (16,3), so it is `upper`'s tributary, and its
+        // (17,2) is an ORTHOGONAL step from `upper`'s pit -- scanned before
+        // `lower`'s diagonal (18,4). It must be skipped, or the bridge draws a
+        // loop. (The trunk's end (9,5) exercises the same guard: `trib` ends
+        // there, and its (10,4) is diagonal to it.)
+        let upper_trib: Vec<(usize, usize)> = vec![(17, 1), (17, 2), (16, 3)];
+        // Ends at (26,14), beside the sea row and one step from `coast_b`.
+        let coast_a: Vec<(usize, usize)> = (2..15).map(|y| (26, y)).collect();
+        let coast_b: Vec<(usize, usize)> = vec![(27, 14), (28, 14), (29, 14)];
+        let mut rivers = vec![
+            run(&trunk, w, &mut flow, 100.0),
+            run(&beside, w, &mut flow, 40.0),
+            run(&trib, w, &mut flow, 30.0),
+            run(&upper, w, &mut flow, 5.0),
+            run(&lower, w, &mut flow, 20.0),
+            run(&coast_a, w, &mut flow, 10.0),
+            run(&coast_b, w, &mut flow, 12.0),
+            run(&upper_trib, w, &mut flow, 1.0),
+            run(&long_trib, w, &mut flow, 25.0),
+            run(&orphan, w, &mut flow, 15.0),
+            run(&orphan2, w, &mut flow, 14.0),
+            run(&stub, w, &mut flow, 8.0),
+        ];
+        rivers[6].half_width_cells = Some(2.0);
+        // `beside`'s shared mouth (8,5) carries the trunk's 100: its weight
+        // comes from its own cells.
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h);
+        let hidden: Vec<usize> = (0..rivers.len()).filter(|&i| plan.parallel_of[i].is_some()).collect();
+        assert_eq!(hidden, vec![1, 11], "`beside` and `stub` hide, nothing else");
+        assert_eq!((plan.parallel_of[1], plan.parallel_of[11]), (Some(0), Some(0)), "both behind the trunk");
+        assert_eq!(plan.bridge[9], Some((4.5, 5.5)), "a hidden run's tributary reconnects to what is drawn");
+        assert_eq!(plan.bridge[10], None, "but not from beyond the reach, however wide the window");
+        assert_eq!(plan.bridge[3], Some((18.5, 4.5)), "the land pit continues onto the next run, not its own tributary");
+        assert_eq!(plan.bridge[5], None, "a coastal mouth is a river mouth, not a pit");
+        assert_eq!(plan.bridge[4], None, "`lower` has nothing within one D8 step of its end");
+        assert_eq!(plan.bridge[0], None, "the trunk's only neighbour is its own tributary");
+        assert_eq!(plan.bridge[2], None, "a tributary already ends on its trunk");
+        assert_eq!(plan.bridge[7], None, "`upper_trib` already ends on `upper`");
+    }
+
     /// The two *slope* `Math.hypot` call sites (`build_channels`' `slope_n`
     /// and `channel_disc`'s `slope_fac`) take arbitrary `f64` gradients, so V8's
     /// scaled Kahan sum and Rust's `f64::hypot` are free to disagree by an ulp
@@ -1593,6 +1887,18 @@ mod tests {
         // Every tributary charges exactly one trunk, and no run charges itself.
         let charged: u32 = rivers.iter().map(|r| r.tributaries).sum();
         assert_eq!(charged, 2, "exactly the two arms are tributaries, got {charged}");
+
+        // A tributary's width is its OWN last cell's, not the junction's (the
+        // junction is a trunk cell carrying the combined flow). The fixture
+        // must be able to tell them apart for this to mean anything.
+        let lmax = super::channel_lmax(n);
+        let disc = |c: usize| super::channel_disc(&fld, &flow, &order, w, h, false, 1.0, 1.0, lmax, c).map(|d| d.half_w);
+        for r in rivers.iter().filter(|r| r.head != 2) {
+            let last = r.pts[r.pts.len() - 2];
+            let own = (last.1 as usize) * w + last.0 as usize;
+            assert_ne!(disc(own), disc(r.mouth as usize), "fixture cannot distinguish the two widths");
+            assert_eq!(r.half_width_cells, disc(own), "tributary width is sampled at its own last cell");
+        }
 
         // The pick: a point on the main stem's own line selects it, and a
         // point far off the network selects nothing.

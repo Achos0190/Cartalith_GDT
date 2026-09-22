@@ -216,6 +216,62 @@ fn non_monotone_discharge_is_real_not_theoretical() {
     );
 }
 
+/// `river_draw_plan` on real terrain: it must actually fire (the trace really
+/// does break at land pits and really does run parallel columns -- see its doc
+/// comment), hide only a minority, and bridge every pit that has a drawn,
+/// non-tributary run one D8 step away.
+#[test]
+fn the_draw_plan_fires_on_a_real_world_and_leaves_no_bridgeable_pit() {
+    let ws = world(20260902);
+    let rivers = rivers_of(&ws, 1);
+    let plan = cartalith_hydrology::river_draw_plan(&rivers, &ws.flow_discharge, &ws.field, ws.sea_level, GW, GH);
+    let hidden = plan.parallel_of.iter().filter(|p| p.is_some()).count();
+    let bridged = plan.bridge.iter().filter(|b| b.is_some()).count();
+    println!("draw plan: {} runs, {hidden} hidden as parallel, {bridged} bridged", rivers.len());
+    assert!(hidden > 0 && bridged > 0, "a real world has both defects; the plan found none");
+    // A runaway guard, not a calibration: see `PARALLEL_GAP_CELLS` for the
+    // measured shares. The plan must never hide most of a network.
+    assert!(hidden * 2 < rivers.len(), "the plan hid most of the network ({hidden}/{})", rivers.len());
+    for (i, p) in plan.parallel_of.iter().enumerate() {
+        if let Some(j) = *p {
+            assert!(plan.parallel_of[j].is_none(), "run {i} is hidden behind {j}, which is itself hidden");
+        }
+    }
+
+    // Independent re-check of the bridge rule over the drawn set.
+    let cell = |p: (f64, f64)| p.1 as usize * GW + p.0 as usize;
+    let mut drawn = vec![usize::MAX; GW * GH];
+    for (i, r) in rivers.iter().enumerate() {
+        if plan.parallel_of[i].is_none() {
+            for &p in &r.pts {
+                let c = cell(p);
+                if drawn[c] == usize::MAX {
+                    drawn[c] = i;
+                }
+            }
+        }
+    }
+    let mut unbridged = 0;
+    for (i, r) in rivers.iter().enumerate() {
+        let m = r.mouth as usize;
+        if plan.parallel_of[i].is_some() || drawn[m] != i || plan.bridge[i].is_some() {
+            continue;
+        }
+        let (x, y) = ((m % GW) as i64, (m / GW) as i64);
+        let near = |f: &dyn Fn(usize) -> bool| {
+            (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (x + dx, y + dy))).any(|(nx, ny)| {
+                nx >= 0 && ny >= 0 && (nx as usize) < GW && (ny as usize) < GH && f(ny as usize * GW + nx as usize)
+            })
+        };
+        let coastal = near(&|c| ws.field[c] as f64 <= ws.sea_level);
+        let other = near(&|c| drawn[c] != usize::MAX && drawn[c] != i && drawn[rivers[drawn[c]].mouth as usize] != i);
+        if !coastal && other {
+            unbridged += 1;
+        }
+    }
+    assert_eq!(unbridged, 0, "a land pit next to another drawn run was left unbridged");
+}
+
 /// A world generated with river carving off has no channel topology, and both
 /// bindings must come back empty rather than inventing one — the same state a
 /// loaded save is in (`SAVEFILE_COMPAT.md` stores no channel topology).

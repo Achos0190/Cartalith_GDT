@@ -305,7 +305,9 @@ impl WorldGen {
     /// **The one place that decides how much river ink a cell carries**, for
     /// the viewport and for every raster this file writes.
     ///
-    /// `build_color_texture` calls it, `export_raster_png` calls it,
+    /// `build_color_texture` calls it (through [`Self::screen_river_ink`],
+    /// which since 2026-09-22 keeps it only for a loaded save),
+    /// `export_raster_png` calls it,
     /// `export_snapshot_png` and `export_layer_previews` call it. That is the
     /// point: it used to be an inline `match` next to `build_color_texture`
     /// and three *different* inline matches here, and when `58dd5b2` taught
@@ -330,6 +332,25 @@ impl WorldGen {
                 }
             }),
             WorldSource::Loaded(save) => Some(RiverInk::Flag(save.fields.strahler_order.as_slice())),
+        }
+    }
+
+    /// The river ink the **viewport** bakes — `build_color_texture` and the
+    /// LOD tile snapshot. `None` for a generated world: owner ruling
+    /// 2026-09-22 ("keep the smoothline and use that to render the river ...
+    /// ditch the texture bake"), so its rivers are `get_rivers()`' smoothed
+    /// polylines drawn by `map_overlay.gd::_draw_rivers`, never pixels in the
+    /// texture. A loaded save keeps [`Self::river_ink`]'s flag, because its
+    /// format stores no channel topology and `get_rivers()` is empty for it —
+    /// without the flag it would have no rivers at all.
+    ///
+    /// Exports still read [`Self::river_ink`], so a PNG keeps the stamped
+    /// rivers the screen no longer draws: the vector strokes are a Godot
+    /// draw-time pass that no raster exporter here reaches.
+    pub(crate) fn screen_river_ink(&self) -> Option<RiverInk<'_>> {
+        match self.source.as_ref()? {
+            WorldSource::Generated(_) => None,
+            WorldSource::Loaded(_) => self.river_ink(),
         }
     }
 

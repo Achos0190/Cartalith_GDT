@@ -2654,6 +2654,39 @@ fn way_render_polyline(pts: &[(f64, f64)], brks: &[usize]) -> (Vec<(f64, f64)>, 
     (points, out_brks)
 }
 
+/// How far, in grid cells, [`river_render_polyline`] lets a river's drawn
+/// curve leave its traced cell centres. A D8 trace is a staircase: splined
+/// through every cell it stays a 0/45/90-degree zigzag at deep zoom (the
+/// owner's 2026-09-22 "a bit more catmull rom smoothing"). Roads get the same
+/// cure from `civ_smooth_path`'s `civ_rdp_simplify(.., 1.5)`; a river keeps
+/// closer to its channel than a road to its route, so it takes less.
+const RIVER_RDP_EPS_CELLS: f64 = 0.75;
+
+/// A river run's drawn curve: [`way_render_polyline`] over the run after
+/// `civ_rdp_simplify` drops the staircase's corners.
+///
+/// **Junctions are never simplified away.** A tributary's stroke ends exactly
+/// on a cell of its trunk (or on a `river_draw_plan` bridge target), and the
+/// trunk's spline passes exactly through that cell only while the cell is one
+/// of the trunk's control points. So the run is cut at every point `pinned`
+/// accepts, each piece is simplified on its own (RDP always keeps a piece's
+/// two ends), and the pieces are joined -- the trunk keeps every cell another
+/// drawn stroke ends on, and the confluence gap stays zero.
+fn river_render_polyline(pts: &[(f64, f64)], pinned: impl Fn((f64, f64)) -> bool) -> Vec<(f64, f64)> {
+    if pts.len() < 3 {
+        return way_render_polyline(pts, &[]).0;
+    }
+    let mut ctrl = vec![pts[0]];
+    let mut start = 0;
+    for k in 1..pts.len() {
+        if k == pts.len() - 1 || pinned(pts[k]) {
+            ctrl.extend_from_slice(&cartalith_civ::civ_rdp_simplify(&pts[start..=k], RIVER_RDP_EPS_CELLS)[1..]);
+            start = k;
+        }
+    }
+    way_render_polyline(&ctrl, &[]).0
+}
+
 /// One [`cartalith_hydrology::River`] as the `Dictionary` both `get_rivers()`
 /// and `river_at()` return — one builder, so the two can never describe the
 /// same river differently.
@@ -2754,6 +2787,33 @@ mod way_render_tests {
         assert_eq!(out[0], pts[0]);
         let last = out[out.len() - 1];
         assert!((last.0 - 9.0).abs() < 1e-9 && (last.1 - 4.0).abs() < 1e-9, "{last:?}");
+    }
+
+    /// A river's D8 staircase leaves its corner cells, but a pinned cell -- one
+    /// a tributary's stroke ends on -- stays ON the curve, so the confluence
+    /// gap is zero.
+    #[test]
+    fn river_curve_leaves_the_staircase_but_keeps_its_pins() {
+        use super::river_render_polyline;
+        // A 1:2 staircase, 21 cells: E, NE, E, NE, ...
+        let mut pts = vec![(0.5, 0.5)];
+        for k in 0..20 {
+            let (x, y) = pts[k];
+            pts.push(if k % 2 == 0 { (x + 1.0, y) } else { (x + 1.0, y + 1.0) });
+        }
+        let near = |out: &[(f64, f64)], p: (f64, f64)| {
+            out.iter().map(|q| (q.0 - p.0).hypot(q.1 - p.1)).fold(f64::INFINITY, f64::min)
+        };
+        let free = river_render_polyline(&pts, |_| false);
+        // Unpinned, the corner cells are cut: some traced cell is well off the
+        // curve (splined through every cell, every one would be on it).
+        assert!(pts.iter().any(|&p| near(&free, p) > 0.2), "still a staircase");
+        let pin = pts[7]; // a corner cell the free curve cuts
+        assert!(near(&free, pin) > 0.2, "fixture: pts[7] must be a cut corner");
+        let pinned = river_render_polyline(&pts, |p| p == pin);
+        assert!(near(&pinned, pin) < 1e-9, "pinned cell left the curve by {}", near(&pinned, pin));
+        assert_eq!(pinned[0], pts[0]);
+        assert_eq!(pinned[pinned.len() - 1], pts[pts.len() - 1]);
     }
 
     /// A break must still separate the two runs it separated before, and the
@@ -8056,9 +8116,13 @@ impl WorldGen {
     ///   **Omitted** (not zeroed) when the mouth carries no positive flow.
     ///   `map_overlay.gd::_draw_rivers` draws the river at exactly this width
     ///   on the ground, so it scales with zoom like any other ground feature.
-    /// * `color` (Color) -- the lake surface colour at the run's middle point
-    ///   (`render::lake_color_at`), which `_draw_rivers` strokes the river in.
-    ///   Only here, not in `river_at()`, whose callers do not draw.
+    /// * `colors` (`PackedColorArray`) -- the lake surface colour
+    ///   (`render::lake_color_at`) at each of `render_points`, same length;
+    ///   `_draw_rivers` strokes the river in these, so its colour follows
+    ///   temperature and the sea grain along its length as a lake's does.
+    /// * `color` (Color) -- the same colour at the run's middle traced point,
+    ///   one swatch per run. Both only here, not in `river_at()`, whose callers
+    ///   do not draw.
     /// * `parallel_of` (int) -- present only on a run that
     ///   [`cartalith_hydrology::river_draw_plan`] found running alongside the
     ///   heavier run at that index; `_draw_rivers` does not draw it. The run is
@@ -8067,6 +8131,12 @@ impl WorldGen {
     /// `render_points` of a run that ends on a dry-land pit one D8 step from
     /// another drawn run continue to that run's cell (same plan), so the drawn
     /// river does not break where the traced one does. `points` never do.
+    ///
+    /// Here, unlike `river_at()`, `render_points` is also simplified first
+    /// (`river_render_polyline`: RDP at `RIVER_RDP_EPS_CELLS`, then the spline),
+    /// so it leaves the D8 staircase -- while keeping, as control points, every
+    /// cell another drawn run's stroke ends on, so confluences still meet
+    /// exactly. That needs the whole network, which `river_at()` does not trace.
     ///
     /// Empty when river extraction did not run for this world -- before any
     /// `generate()`, or after `load_save()`, since `SAVEFILE_COMPAT.md` stores
@@ -8084,32 +8154,49 @@ impl WorldGen {
         let a = self.appearance();
         let rivers = self.rivers_now(min_order);
         let plan = cartalith_hydrology::river_draw_plan(&rivers, f.flow_discharge, f.field, f.sea_level, f.gw, f.gh);
+        // Every cell a drawn stroke ends on: a trunk's curve must keep these as
+        // control points (`river_render_polyline`'s pins). By cell, not by
+        // float, so a traced point and a bridge target compare the same.
+        let cell = |p: (f64, f64)| (p.0.floor() as i64, p.1.floor() as i64);
+        let ends: std::collections::HashSet<(i64, i64)> = rivers
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| plan.parallel_of[i].is_none())
+            .filter_map(|(i, r)| plan.bridge[i].or_else(|| r.pts.last().copied()))
+            .map(cell)
+            .collect();
         rivers
             .iter()
             .enumerate()
             .map(|(i, r)| {
                 let mut d = river_dict(&f, r, i);
                 // `river_draw_plan`: a run continued past a land pit onto the
-                // next run is re-smoothed WITH that cell, so the curve meets it;
+                // next run is smoothed WITH that cell, so the curve meets it;
                 // a run beside a heavier one carries `parallel_of` and
                 // `_draw_rivers` skips it. `points` stays the traced entity.
-                if let Some(b) = plan.bridge[i] {
-                    let mut pts = r.pts.clone();
-                    pts.push(b);
-                    d.set("render_points", &way_render_geometry(&pts, &[]).0);
-                }
+                let mut pts = r.pts.clone();
+                pts.extend(plan.bridge[i]);
+                let rp = river_render_polyline(&pts, |p| ends.contains(&cell(p)));
+                d.set("render_points", &rp.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect::<PackedVector2Array>());
+                // `colors`: the lake surface colour at every render point, so a
+                // river's colour follows its ground the way a lake's does
+                // (owner, 2026-09-22: "the coloration should follow lakes").
+                // Per point rather than per N cells because `draw_polyline_colors`
+                // needs one colour per point anyway and interpolates between them.
+                let rgb = |(x, y): (f64, f64)| {
+                    let (cr, cg, cb) = render::lake_color_at(&a, f.temperature, x, y, f.gw, f.gh);
+                    Color::from_rgb((cr / 255.0) as f32, (cg / 255.0) as f32, (cb / 255.0) as f32)
+                };
+                d.set("colors", &rp.iter().map(|&p| rgb(p)).collect::<PackedColorArray>());
                 if let Some(j) = plan.parallel_of[i] {
                     d.set("parallel_of", j as i64);
                 }
-                // `color`: the lake surface colour (`render::lake_color_at`),
-                // sampled once at the run's middle point -- the owner's "the
-                // line should get the same look as a lake". One sample per run
-                // is enough because a run ends at every confluence and so
-                // rarely crosses a climate band. Absent for a run with no
-                // points, the same omit-don't-default rule as `width_cells`.
-                if let Some(&(x, y)) = r.pts.get(r.pts.len() / 2) {
-                    let (cr, cg, cb) = render::lake_color_at(&a, f.temperature, x, y, f.gw, f.gh);
-                    d.set("color", Color::from_rgb((cr / 255.0) as f32, (cg / 255.0) as f32, (cb / 255.0) as f32));
+                // `color`: one representative sample at the run's middle point,
+                // for a caller that wants a single swatch (`_riverstroke_probe`);
+                // the stroke itself is drawn in `colors`. Absent for a run with
+                // no points, the same omit-don't-default rule as `width_cells`.
+                if let Some(&p) = r.pts.get(r.pts.len() / 2) {
+                    d.set("color", rgb(p));
                 }
                 d
             })

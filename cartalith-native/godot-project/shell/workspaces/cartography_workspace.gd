@@ -119,20 +119,12 @@ const LIVE_LAYERS: Array = [
 	## The vector river overlay (`OUTSTANDING_WORK.md` "The vector river
 	## overlay", re-applied 2026-09-21 after its 2026-09-13 revert -- see
 	## `map_overlay.gd::_show_rivers`'s own doc comment for the full history).
-	## `WorldGen.get_rivers()` traced and Catmull-Rom-smoothed, over the
-	## reference's own `drawRiverWays`.
+	## `WorldGen.get_rivers()` traced and Catmull-Rom-smoothed.
 	##
-	## **Off by default**, matching the reference's own default:
-	## `state.viz.riverWays` starts `false` even for a fresh world
-	## (`RC_ENGINE_CHANGES.md`'s quoted v2.29 comment -- "OFF for fresh
-	## worlds too... It is an EITHER/OR with the terrain-blended raster
-	## river"). This port keeps that either/or on purpose:
-	## `viewport_host.gd::set_layer_visible()`'s `"rivers"` arm suppresses
-	## the baked-in raster river tint exactly while this is on, so the
-	## default (off) is also the state that matches every render before
-	## this row existed byte-for-byte -- no golden, no screenshot and no
-	## saved appearance moves until a user opts in.
-	{"id": "rivers", "label": "Rivers (vector, smoothed)", "on": false},
+	## **On by default**: owner ruling 2026-09-22 made these strokes the map's
+	## only rivers (the texture no longer bakes them), so this row is the
+	## plain "show rivers" switch, and off means no rivers are drawn.
+	{"id": "rivers", "label": "Rivers", "on": true},
 	{"id": "provinces", "label": "Political — provinces", "on": false},
 	{"id": "territory", "label": "Political — territory", "on": false},
 ]
@@ -744,17 +736,13 @@ func _build_layer_gaps(parent: Control) -> void:
 		+ "and no slot in it to order. Per-layer zoom range and the picking/clip "
 		+ "switches rest on that second separation, not on the one that landed.")
 	DccWidgets.note(sec,
-		"Show rivers in biome view (#showRivers) and Rivers as ways: both are "
-		+ "reference RENDER filters, and neither is wired here -- but not for the "
-		+ "reason this note gave until 2026-09-03. The network does cross the "
-		+ "boundary: WorldGen.get_rivers(min_order) returns every traced run as an "
-		+ "entity with its own polyline, and river_at() selects one (the right "
-		+ "dock's River context does exactly that). What is missing is on the "
-		+ "drawing side, and differs per filter: the biome raster's rivers are the "
-		+ "simple channel-mask tint baked into the terrain texture, with no "
-		+ "parameter to switch it off; and rivers-as-ways is drawRiverWays, the one "
-		+ "thing render.rs's module doc still lists as excluded -- a vector overlay "
-		+ "over get_rivers()' polylines that nothing draws yet.")
+		"Show rivers in biome view (#showRivers) and Rivers as ways are one switch "
+		+ "here: the Rivers row under Layers. Since the owner's 2026-09-22 ruling a "
+		+ "generated world's rivers are drawn only as smoothed vector strokes over "
+		+ "WorldGen.get_rivers(min_order) -- lake-coloured, with the channel's own "
+		+ "width on the ground -- and nothing river-shaped is baked into the "
+		+ "terrain texture. A loaded save still shows its one-cell raster rivers, "
+		+ "because its format carries no channel network to draw.")
 	DccWidgets.note(sec,
 		"Sharper ecotones (biome-detail sharpening) is not parameterised: biome "
 		+ "classification runs off the finished temperature/rainfall fields with no "

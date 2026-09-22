@@ -7609,7 +7609,11 @@ pub(crate) use cartalith_jsmath::{js_hypot, js_round};
 /// (not recursion) -- though for this algorithm the final `keep` set is
 /// independent of stack processing order, since each interval only ever
 /// examines points strictly between its own fixed boundaries.
-fn civ_rdp_simplify(pts: &[(f64, f64)], eps: f64) -> Vec<(f64, f64)> {
+///
+/// Public for the same reason [`civ_catmull_rom_sample`] is: `cartalith-godot`'s
+/// `get_rivers()` runs a river's traced cells through this definition before
+/// the spline, as `civ_smooth_path` does for a road.
+pub fn civ_rdp_simplify(pts: &[(f64, f64)], eps: f64) -> Vec<(f64, f64)> {
     if pts.len() < 3 {
         return pts.to_vec();
     }

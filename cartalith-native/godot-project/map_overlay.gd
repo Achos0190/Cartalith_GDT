@@ -449,7 +449,10 @@ const HOVER_RADIUS_PAD := 4.0 ## extra hit-test slack (px) beyond the drawn mark
 ## (`lib.rs`) now carries `render_points`, the same treatment
 ## `way_render_geometry` already gives roads/sea-lanes/committed routes:
 ## `cartalith_civ::civ_catmull_rom_sample` run over the river's own traced
-## cells at `WAY_RENDER_STEP_CELLS`. `_draw_rivers()` below draws that
+## cells at `WAY_RENDER_STEP_CELLS`. From `get_rivers()` the cells are first
+## thinned by `civ_rdp_simplify` (as a road's are), keeping every cell another
+## stroke ends on, so the curve leaves the D8 staircase and confluences still
+## meet exactly (`river_render_polyline`). `_draw_rivers()` below draws that
 ## resampled curve, falling back to the raw `points` for an older
 ## GDExtension binary that predates the key -- the identical idiom `_draw()`
 ## already uses for a committed route's `render_points`. The lake-surface cut
@@ -461,35 +464,21 @@ const HOVER_RADIUS_PAD := 4.0 ## extra hit-test slack (px) beyond the drawn mark
 ## A river here can draw a short stroke across a lake's own fill; it is not
 ## corrupted or misplaced, just not clipped there.
 ##
-## Colour ramp (reference line 9561): light shallow blue deepening to river
-## blue as Strahler order rises. A plain three-term lerp, ported as the exact
-## same numbers -- no `geom::js_*` precision hazard applies to a colour ramp.
-const RIVER_COLOR_LO := Color8(118, 150, 180)
-const RIVER_COLOR_HI := Color8(74, 120, 168)
-## `RIVER_ORDER_WIDTH_MIN + RIVER_ORDER_WIDTH_GAIN * tt` is the reference's
-## `(0.9+1.7*tt)` (line 9580), `tt = min(1,(order-1)/6)`. The base width itself
-## is a picked screen-px constant sitting alongside `WAY_STYLE`'s own range
-## (highway overlay 1.45, regional 1.15) rather than a ported number: the
-## reference's `baseW=max(0.6,GW/620)` is a *grid-resolution* term this port
-## already drops for the same reason `_draw_way_segment` drops `rsc`'s own
-## `max(1,GW/512)` half -- this control is fit to itself, not drawn at grid
-## resolution, so there is no `GW` here to divide by. No `sqrt(zk)` zoom
-## damping either, for the same reason `_draw_way_segment` carries none: that
-## damping exists only to tame a width that grows with zoom by default, and
-## this port's linear-feature widths are already screen-constant.
-const RIVER_BASE_WIDTH_PX := 1.1
-const RIVER_ORDER_WIDTH_MIN := 0.9
-const RIVER_ORDER_WIDTH_GAIN := 1.7
-## Order-1 de-emphasis (reference lines 9567-9579): thousands of headwater
-## trickles read as a solid "barcode" mat at full weight, so order-1 alone
-## draws thinner and part-transparent -- fading back to full weight as the
-## camera zooms in, because under this port's own LOD tiling a deeper level
-## still "carries a SHADE RATIO, not colour" (`OUTSTANDING_WORK.md`), so a
-## faded order-1 line at deep zoom can be the only visible sign of a stream.
-## `_camera_zoom` **is** this file's `zk` (`_civ_zoom_k()`'s own doc comment).
-const RIVER_O1_ALPHA_MIN := 0.4
-const RIVER_O1_WIDTH_MIN := 0.55
-const RIVER_DEEMPH_ZOOM_SPAN := 7.0   ## reference's `(zk-1)/7`
+## **Owner ruling, 2026-09-22: these strokes ARE the map's rivers.** "Keep the
+## smoothline and use that to render the river ... ditch the texture bake",
+## and "the line should get the same look as a lake. And its width scale with
+## the zoom". So the reference's `drawRiverWays` styling (its order colour
+## ramp, screen-constant width and order-1 de-emphasis) is gone, and each
+## run is drawn from two engine values instead:
+## - **width** = `width_cells`, the half-width `channel_disc` already gave the
+##   texture's old disc stamp (Strahler order, discharge and slope), doubled
+##   -- a width on the GROUND, so it grows with zoom as a lake's shore does.
+## - **colour** = `colors`, the lake surface colour (`render.rs::lake_color`,
+##   the tile renderer's v1.05 lake) at every render point, opaque as a lake
+##   is -- so it follows temperature and grain along the river (owner, same
+##   day: "the coloration should follow lakes").
+## Placement is the engine's own traced channel, simplified by at most
+## `RIVER_RDP_EPS_CELLS` (0.75 cells) for the curve.
 
 ## Sea-lane style: the `sea-lane` arm of the same §2a ladder `WAY_STYLE` above
 ## covers the land types of (reference HTML lines 15511-15514) -- a dark navy
@@ -949,8 +938,7 @@ var _roads: Array = []
 var _sea_routes: Array = []
 ## `WorldGen.get_rivers(min_order)` entities -- see `set_rivers()`. Each
 ## entry's `render_points` (`PackedVector2Array`, grid-cell space, Catmull-Rom
-## resampled -- `RIVER_COLOR_LO`'s own doc comment above) is drawn by
-## `_draw_rivers()`; `order` drives its colour/width/de-emphasis.
+## resampled) is drawn by `_draw_rivers()` at its `width_cells` in its `color`.
 var _rivers: Array = []
 var _gw := 0
 var _gh := 0
@@ -970,14 +958,11 @@ var _show_sea_routes := true
 ## (`cartography_workspace.gd::LIVE_LAYERS`, id `"rivers"`), the same switch
 ## every other optional overlay in that band uses.
 ##
-## **Off by default** -- the reference's own default: `state.viz.riverWays`
-## starts `false` even for a fresh world (`RC_ENGINE_CHANGES.md`'s quoted
-## v2.29 comment, "OFF for fresh worlds too... It is an EITHER/OR with the
-## terrain-blended raster river"). This port keeps that either/or:
-## `viewport_host.gd::set_layer_visible()`'s `"rivers"` arm suppresses the
-## raster river tint exactly while this is on, so turning the vector overlay
-## on always means turning the raster tint off, never both at once.
-var _show_rivers := false
+## **On by default** since the owner's 2026-09-22 ruling made these strokes
+## the only rivers a generated world draws (see the owner-ruling paragraph
+## in the "Rivers as ways" block near the top of this file); the reference's `riverWays` default of `false`
+## belonged to an either/or with a baked raster river this port no longer has.
+var _show_rivers := true
 ## Pushed by `viewport_host.gd` from `ViewportHost.debug_view()` on every
 ## `set_debug_layer()` call. The reference's `drawRiverWays` runs only when
 ## `dbg==="off"` -- this port has no separate "mode" to gate a second time:
@@ -3334,9 +3319,9 @@ func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect
 	return out
 
 
-## Rivers-as-ways' `_draw()` pass -- see `RIVER_COLOR_LO`'s own doc comment
-## above for what this does and does not reproduce from `drawRiverWays`, and
-## `_show_rivers`'/`_debug_active`'s own doc comments for the gate this is
+## The rivers' `_draw()` pass -- see the owner-ruling paragraph in the
+## "Rivers as ways" block near the top of this file for its width and colour,
+## and `_show_rivers`'/`_debug_active`'s own doc comments for the gate this is
 ## called under. Drawn FIRST among the linear layers (before sea routes,
 ## roads and routes in `_draw()`'s own call order) so those sit visually on
 ## top of a river, matching the reference's own layering: `drawRiverWays`
@@ -3353,33 +3338,40 @@ func _draw_rivers(rect: Rect2) -> void:
 	if _rivers.is_empty():
 		return
 	var k := _crisp_begin()
-	## Reference lines 9577-9579: `deEmph` is 1 at `zk=1` (world scale), 0 by
-	## `zk=8`; order-1 alpha/width interpolate from their floor up to full
-	## weight as it falls. `_camera_zoom` is this file's `zk`
-	## (`_civ_zoom_k()`'s own doc comment).
-	var deemph: float = clampf(1.0 - (_camera_zoom - 1.0) / RIVER_DEEMPH_ZOOM_SPAN, 0.0, 1.0)
-	var o1_alpha: float = RIVER_O1_ALPHA_MIN + (1.0 - RIVER_O1_ALPHA_MIN) * (1.0 - deemph)
-	var o1_width_k: float = RIVER_O1_WIDTH_MIN + (1.0 - RIVER_O1_WIDTH_MIN) * (1.0 - deemph)
+	## Screen px per grid cell at this zoom: `_point_to_screen`'s own
+	## `rect.size / _gw`, times the `k` `_stroke_points` multiplies by. A width
+	## in cells times this is a width on the ground.
+	var px_per_cell: float = rect.size.x / maxf(1.0, float(_gw)) * k
 	for river: Dictionary in _rivers:
-		## `render_points`, not `points`: the same `render_points`/fallback
-		## idiom `_draw()`'s own committed-route loop uses -- see
-		## `RIVER_COLOR_LO`'s own doc comment above.
+		## No `width_cells` means `channel_disc` found no flow at the run's
+		## last own cell (`get_rivers()`' doc) --
+		## the old disc stamp painted nothing there either. No `color` means an
+		## engine binary older than the 2026-09-22 ruling.
+		## `parallel_of`: this run hugs a heavier one that is drawn instead
+		## (`WorldGen.get_rivers()`' doc, `river_draw_plan`).
+		if not river.has("width_cells") or not river.has("color") or river.has("parallel_of"):
+			continue
 		var pts: PackedVector2Array = river.get("render_points", river.get("points", PackedVector2Array()))
 		if pts.size() < 2:
 			continue
-		var order: int = maxi(1, int(river.get("order", 1)))
-		var tt: float = clampf(float(order - 1) / 6.0, 0.0, 1.0)   ## reference's `(maxO-1)/6`
-		var width_k: float = o1_width_k if order <= 1 else (RIVER_ORDER_WIDTH_MIN + RIVER_ORDER_WIDTH_GAIN * tt)
-		var width_px: float = RIVER_BASE_WIDTH_PX * width_k
+		var width_px: float = float(river["width_cells"]) * px_per_cell
 		var screen_points := _stroke_points(pts, 0, pts.size(), rect, k)
 		var pad := width_px * 0.5
 		if _run_offscreen(screen_points, k, pad):
 			continue
-		var color := RIVER_COLOR_LO.lerp(RIVER_COLOR_HI, tt)
-		color.a = o1_alpha if order <= 1 else 1.0
+		## `colors`: the lake colour at every render point, so the stroke's
+		## colour follows the ground along its length (`get_rivers()`' doc). A
+		## binary without it, or a length mismatch, falls back to the one swatch.
+		var colors: PackedColorArray = river.get("colors", PackedColorArray())
+		var flat := colors.size() != pts.size()
+		var color: Color = river["color"]
 		var chains := _segment_chains(screen_points, k, pad)
 		for chain in chains:
-			draw_polyline(screen_points.slice(chain.x, chain.y + 1), color, width_px, true)
+			var seg := screen_points.slice(chain.x, chain.y + 1)
+			if flat:
+				draw_polyline(seg, color, width_px, true)
+			else:
+				draw_polyline_colors(seg, colors.slice(chain.x, chain.y + 1), width_px, true)
 	_crisp_end()
 
 

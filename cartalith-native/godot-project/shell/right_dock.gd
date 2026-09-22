@@ -2695,7 +2695,8 @@ func _build_river(body: Control) -> void:
 		var span := ("%.2f cells" % wc) if km <= 0.0 else \
 			("%.2f cells · %s" % [wc, DccUnits.format_adaptive(wc * km)])
 		_field(sec, "Channel (drawn)", span,
-			"How wide this river is DRAWN at its mouth, in grid cells: twice " +
+			"How wide this river is DRAWN at its lowest own cell (its mouth, or for a " +
+			"tributary the cell above the confluence), in grid cells: twice " +
 			"channel_disc's half-width, the same law stamp_river_intensity inks the " +
 			"map with. It is a cartographic symbol, not a hydraulic measurement -- " +
 			"river_width_scale_k widens it as the map's real extent shrinks, on " +
