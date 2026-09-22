@@ -43,8 +43,13 @@
 //! output: `warnings`.** Owner ruling 2026-09-03
 //! (`LARGE_ITEM_RULINGS.md`, "the pack-import warning"), the first authorised
 //! golden re-baseline in this project — the reference names
-//! `trait, biomes, terrains`; this port names `trait` alone, because it draws
-//! the other two. The reference's own value is preserved in the fixture as
+//! `trait, biomes, terrains`. Widened by Ruling W (owner, 2026-09-21) to also
+//! name `structures.settlement`/`structures.poi`/`custom` for this fixture's
+//! surviving art in them, then narrowed again 2026-09-22 (owner ruling):
+//! `trait` dropped out once `viewport_host.gd::refresh_settlement_traits()`
+//! started installing the trait-art resolver, so this fixture's own trait
+//! sprite now reaches the live map exactly as its biomes/terrains art
+//! already did. The reference's own value is preserved in the fixture as
 //! `warningsAsCapturedFromReference` and asserted below, so the divergence is
 //! measured rather than assumed. Every other field here is the capture,
 //! untouched.
@@ -151,8 +156,15 @@ fn parsing_a_real_reference_pack_matches_the_reference_parser() {
     // own list only ever had `trait`, `biomes` and `terrains` to start from.
     // This fixture pack also carries settlement/poi/custom art this port does
     // not draw either, so since Ruling W (`LARGE_ITEM_RULINGS.md`, owner,
-    // 2026-09-21) widened the clause list, this warning now names four
-    // sections rather than one.
+    // 2026-09-21) widened the clause list, this warning named four sections
+    // rather than one -- until 2026-09-22 (owner ruling), when `trait`
+    // dropped back out: the trait-art resolver is installed now, so this
+    // fixture's own trait sprite reaches the live map too. **Old -> new:
+    // `"4 pack section(s) not yet used by the live map (trait,
+    // structures.settlement, structures.poi, custom)"` -> `"3 pack
+    // section(s) not yet used by the live map (structures.settlement,
+    // structures.poi, custom)"`**, re-derived by running `read_pack` on the
+    // unchanged fixture archive.
     //
     // Both literals are spelled out rather than only compared against the
     // fixture: a fixture compared only against itself cannot fail, and a
@@ -161,8 +173,8 @@ fn parsing_a_real_reference_pack_matches_the_reference_parser() {
     assert_eq!(
         manifest.warnings,
         [
-            "4 pack section(s) not yet used by the live map \
-             (trait, structures.settlement, structures.poi, custom)"
+            "3 pack section(s) not yet used by the live map \
+             (structures.settlement, structures.poi, custom)"
         ]
     );
     assert_eq!(

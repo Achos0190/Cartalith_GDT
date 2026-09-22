@@ -654,47 +654,47 @@ pub fn parse_pack_manifest(m: &RawManifest, files: &BTreeSet<String>) -> PackMan
     // while `_paintedTex` sits 23 lines below at 12187 doing that work —
     // v1.28 landed the sampler and never revisited the list.
     //
-    // **Why `trait` stays — and it is not because the reference says so.**
-    // The reference *does* draw trait badges: `_traitSprite` and
-    // `_civDrawTraitBadges` (v2.11 lines 15571 and 15584, also v1.28, also
-    // never removed from this list). It stays because it is true of *this
-    // port* — but read the reason carefully, because it narrowed on
-    // 2026-09-04 and the clause survived the narrowing rather than being
-    // re-justified by it. It used to be that nothing composited a trait
-    // sprite anywhere here. `crate::pack`'s `composite_trait_badges`
-    // (`cartalith-godot`) now does. **Nothing calls it**: settlement pins are
-    // drawn by `map_overlay.gd`, procedurally, and it does not reach into
-    // Rust for badge art — so trait art still never reaches the live map and
-    // the warning is still accurate. `OUTSTANDING_WORK.md` §2.5 is the
-    // remaining gap. If a caller lands, this clause becomes false and
-    // dropping it is a behaviour change on a golden-pinned string: an owner
-    // ruling, the same as widening the list would be.
+    // **`trait` dropped out of this list on 2026-09-22 (owner ruling) — it is
+    // the one section this comment used to insist would stay, and read the
+    // whole history before trusting that instinct again elsewhere.** The
+    // reference draws trait badges (`_traitSprite`/`_civDrawTraitBadges`,
+    // v2.11 lines 15571/15584, v1.28), and until 2026-09-04 nothing in this
+    // port composited one at all. `crate::pack`'s `composite_trait_badges`
+    // (`cartalith-godot`) closed that half, but stayed uncalled: settlement
+    // pins are drawn by `map_overlay.gd`, procedurally, and had no route into
+    // Rust for badge art, so the warning stayed accurate through that whole
+    // pass (`OUTSTANDING_WORK.md` §2.5). The missing route was
+    // `pack::resolve_trait_badges` → `WorldGen::civ_trait_badge_row` →
+    // `map_overlay.gd::set_trait_art_resolver` — built the same batch and
+    // then deliberately left uninstalled, because installing it is exactly
+    // the behaviour change this clause is pinned against
+    // (`cartalith_godot::engine_bridge.gd::civ_trait_badge_row`,
+    // `viewport_host.gd::refresh_settlement_traits()`). The owner has now
+    // authorised installing it: `refresh_settlement_traits()` pushes the
+    // resolver on every `refresh()`, a pack's own trait art reaches a real
+    // settlement pin, and the fallback disc-and-glyph path only draws for a
+    // trait the pack has no art for. `trait` is therefore no longer named
+    // here — the same test this comment used to cite as pinning its
+    // permanence, `painted_ground_families_no_longer_warn_but_traits_still_do`,
+    // is renamed and re-asserted below to prove the opposite.
     //
-    // **`settlement`, `poi`, `custom` and `seamarks` are undrawn in this port
-    // too, and are named here as of Ruling W (`LARGE_ITEM_RULINGS.md`, owner,
-    // 2026-09-21).** Until that ruling this block named only `trait`, on the
-    // premise (recorded above, and still true of it) that `trait` was the
-    // only section this port could show was genuinely unreachable; widening
-    // the list to the rest was explicitly deferred as "a behaviour decision
-    // the owner has not made" (`settlement_and_poi_are_not_named_by_the_unused_warning`
-    // pinned that gap). The owner has now made it: none of the four has a
-    // compositor a live map path calls. `structures.settlement` and
-    // `structures.poi` have no compositor at all — not even the unwired kind
-    // `trait` has — and `map_overlay.gd`'s `_draw_manual_icons` draws a
-    // settlement icon as a filled rectangle and a POI as a diamond, never a
-    // pack sprite. `custom` has no consumer anywhere in this port. `seamarks`
-    // is decoded by nothing here either (see its own doc comment above:
-    // "empty for every pack the reference ever wrote" is true of every pack
-    // parsed so far, but the section is unused by the renderer regardless of
-    // whether a pack fills it).
+    // **`settlement`, `poi`, `custom` and `seamarks` are still undrawn in this
+    // port, and are named here as of Ruling W (`LARGE_ITEM_RULINGS.md`, owner,
+    // 2026-09-21).** None of the four has a compositor a live map path calls.
+    // `structures.settlement` and `structures.poi` have no compositor at
+    // all — not even the kind `trait` used to lack — and
+    // `map_overlay.gd`'s `_draw_manual_icons` draws a settlement icon as a
+    // filled rectangle and a POI as a diamond, never a pack sprite. `custom`
+    // has no consumer anywhere in this port. `seamarks` is decoded by nothing
+    // here either (see its own doc comment above: "empty for every pack the
+    // reference ever wrote" is true of every pack parsed so far, but the
+    // section is unused by the renderer regardless of whether a pack fills
+    // it).
     //
     // The `Vec` is kept (rather than a fixed-size array) so the emitted text
     // stays the reference's own `count + join` shape for any subset of the
-    // five that a given pack actually populates.
+    // four remaining sections a given pack actually populates.
     let mut unused: Vec<&str> = Vec::new();
-    if !m.structures.traits.is_empty() {
-        unused.push("trait");
-    }
     if !m.structures.settlement.is_empty() {
         unused.push("structures.settlement");
     }
@@ -807,13 +807,25 @@ mod tests {
 
     /// The owner-authorised re-baseline (2026-09-03), pinned to **literals**
     /// on both sides so a revert of the emit site cannot pass: a pack of
-    /// painted-ground art alone now warns about nothing, and the `trait`
-    /// clause is still emitted, word for word, when there is trait art.
+    /// painted-ground art alone warns about nothing.
+    ///
+    /// **Renamed 2026-09-22 (owner ruling).** This used to be
+    /// `painted_ground_families_no_longer_warn_but_traits_still_do` and its
+    /// second half pinned `["1 pack section(s) not yet used by the live map
+    /// (trait)"]` for a manifest carrying trait art — the state of the world
+    /// while `viewport_host.gd::refresh_settlement_traits()` installed no
+    /// resolver. It now does
+    /// (`cartalith-native/godot-project/shell/viewport_host.gd`), so trait
+    /// art reaches a real settlement pin and `trait` is no longer unused by
+    /// the live map either; re-derived by actually running
+    /// `parse_pack_manifest` on the same fixture rather than editing the old
+    /// literal in place. **Old → new: `["1 pack section(s) not yet used by
+    /// the live map (trait)"]` → `m.warnings.is_empty()`.**
     ///
     /// Deliberately not a `assert_eq!(w, SOME_CONST)` shape — that holds for
     /// whatever the constant says. The strings are spelled out.
     #[test]
-    fn painted_ground_families_no_longer_warn_but_traits_still_do() {
+    fn painted_ground_and_trait_families_no_longer_warn() {
         let ground: RawManifest = serde_json::from_str(
             r#"{"biomes":{"jungle":"b/j.png"},"terrains":{"paved":"r/p.png"}}"#,
         )
@@ -835,10 +847,15 @@ mod tests {
         )
         .unwrap();
         let m = parse_pack_manifest(&with_trait, &files(&["b/j.png", "s/p.png"]));
-        assert_eq!(
-            m.warnings,
-            ["1 pack section(s) not yet used by the live map (trait)"]
+        // `trait` art now reaches the live map (`WorldGen::civ_trait_badge_row`
+        // installed as `map_overlay.gd`'s trait-art resolver), so this is no
+        // longer reported as an unused section either.
+        assert!(
+            m.warnings.is_empty(),
+            "trait art must not be reported as unused now that the resolver is installed: {:?}",
+            m.warnings
         );
+        assert_eq!(m.structures.traits.len(), 1);
     }
 
     /// `settlement` and `poi` art is undrawn in this port too (`crate::pack`
@@ -886,12 +903,28 @@ mod tests {
         assert_eq!(m.slot_paths(Family::SeaMark, "lighthouse").unwrap(), ["s/l.png"]);
     }
 
-    /// A pack populating all five sections the warning can name: the readable,
-    /// stable order (`trait`, `structures.settlement`, `structures.poi`,
-    /// `custom`, `seamarks`) is the order the emit site checks them in, not
-    /// manifest document order or alphabetical order.
+    /// A pack populating all four sections the warning can still name, PLUS
+    /// `trait` (to prove `trait` art stays *silently* consumed rather than
+    /// silently dropped): the readable, stable order (`structures.settlement`,
+    /// `structures.poi`, `custom`, `seamarks`) is the order the emit site
+    /// checks them in, not manifest document order or alphabetical order.
+    ///
+    /// **Renamed and re-derived 2026-09-22 (owner ruling).** This used to be
+    /// `all_five_unused_sections_are_named_together_in_order` and pinned
+    /// `trait` as the first name in the joined list, because nothing installed
+    /// the trait-art resolver yet. `viewport_host.gd::refresh_settlement_traits()`
+    /// installs it now, so a pack's `trait` art reaches the live map and drops
+    /// out of this warning the same way `biomes`/`terrains` already had.
+    /// Re-derived by running `parse_pack_manifest` on the unchanged fixture
+    /// (still populating `structures.trait`, to keep proving it is consumed
+    /// rather than merely absent from the fixture) and reading back its real
+    /// output, not by hand-editing the old string.
+    /// **Old → new: `"5 pack section(s) not yet used by the live map (trait,
+    /// structures.settlement, structures.poi, custom, seamarks)"` → `"4 pack
+    /// section(s) not yet used by the live map (structures.settlement,
+    /// structures.poi, custom, seamarks)"`.**
     #[test]
-    fn all_five_unused_sections_are_named_together_in_order() {
+    fn four_unused_sections_are_named_together_in_order_and_trait_is_not_one() {
         let raw: RawManifest = serde_json::from_str(
             r#"{"structures":{"settlement":{"town":["s/t.png"]},
                               "trait":{"port":["s/p.png"]},
@@ -906,9 +939,12 @@ mod tests {
         );
         assert_eq!(
             m.warnings,
-            ["5 pack section(s) not yet used by the live map \
-              (trait, structures.settlement, structures.poi, custom, seamarks)"]
+            ["4 pack section(s) not yet used by the live map \
+              (structures.settlement, structures.poi, custom, seamarks)"]
         );
+        // The pack really does carry trait art; it is consumed, not silently
+        // dropped by the parser.
+        assert_eq!(m.structures.traits.len(), 1);
     }
 
     #[test]

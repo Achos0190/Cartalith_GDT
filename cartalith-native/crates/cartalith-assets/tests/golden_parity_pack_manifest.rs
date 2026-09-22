@@ -36,9 +36,18 @@
 //!
 //! **Widened a second time by Ruling W** (`LARGE_ITEM_RULINGS.md`, owner,
 //! 2026-09-21): the port's own list, which for a while named `trait` alone,
-//! now also names `structures.settlement`, `structures.poi`, `custom` and
-//! `seamarks` when a pack carries art in them — none of the four have a
-//! live-map consumer either, and the owner has now authorised saying so.
+//! also named `structures.settlement`, `structures.poi`, `custom` and
+//! `seamarks` when a pack carries art in them — none of the four had a
+//! live-map consumer either, and the owner had authorised saying so.
+//!
+//! **Narrowed again 2026-09-22 (owner ruling): `trait` dropped out.**
+//! `viewport_host.gd::refresh_settlement_traits()` now installs
+//! `map_overlay.gd`'s trait-art resolver
+//! (`WorldGen::civ_trait_badge_row`) on every world, so a pack's `trait` art
+//! genuinely reaches a settlement pin and is no longer unused by the live
+//! map — the same reason `biomes`/`terrains` dropped out on 2026-09-03.
+//! `structures.settlement`, `structures.poi`, `custom` and `seamarks` are
+//! unaffected by this change and still name themselves when populated.
 //!
 //! **Scope of the re-baseline, exactly:** that one string, in the two cases
 //! below and in `tests/fixtures/reference_pack_captured.json`. Nothing else in
@@ -47,9 +56,10 @@
 //! port-side value and do not "fix" it back.
 //!
 //! `cartalith-assets/src/manifest.rs`'s own comment at the emit site carries
-//! the reasoning, including why `trait` survives (the reference draws trait
-//! badges; this port does not) and why `settlement`/`poi`/`custom`/`seamarks`
-//! went **unnamed until Ruling W** even though they were undrawn here too.
+//! the reasoning, including why `trait` no longer survives (the reference
+//! draws trait badges; this port now does too) and why
+//! `settlement`/`poi`/`custom`/`seamarks` went **unnamed until Ruling W** even
+//! though they were undrawn here too.
 
 use cartalith_assets::{
     Family, PACK_BIOME_SLOTS, PACK_ICON_SLOTS, PACK_POI_SLOTS, PACK_SETTLEMENT_SLOTS,
@@ -152,12 +162,20 @@ fn case_a_warnings_match_the_reference_exactly_including_order() {
     // **The last line is the divergence.** The reference emitted
     // `"3 pack section(s) not yet used by the live map (trait, biomes,
     // terrains)"` for this manifest; the port dropped `biomes`/`terrains`
-    // from its own list (owner ruling 2026-09-03, because it draws both) and
-    // then widened the rest of the list to name `structures.settlement`,
+    // from its own list (owner ruling 2026-09-03, because it draws both),
+    // widened the rest of the list to name `structures.settlement`,
     // `structures.poi` and `custom` too (Ruling W, owner, 2026-09-21) --
-    // this manifest carries surviving art in all three, so all three are now
-    // named alongside `trait`. Everything above it is still the capture,
-    // untouched.
+    // this manifest carries surviving art in all three -- and then, on
+    // 2026-09-22 (owner ruling), dropped `trait` too: the trait-art resolver
+    // is installed now, so this manifest's `structures/trait/port_01.png`
+    // reaches the live map the same as its biomes/terrains art does.
+    // **Old -> new for the last line: `"4 pack section(s) not yet used by
+    // the live map (trait, structures.settlement, structures.poi, custom)"`
+    // -> `"3 pack section(s) not yet used by the live map
+    // (structures.settlement, structures.poi, custom)"`** -- re-derived by
+    // running `parse_pack_manifest` on this unchanged fixture, not by
+    // hand-editing the old string. Everything above the last line is still
+    // the original capture, untouched.
     let expected = [
         "texture snow: file missing (textures/missing_snow.png)",
         "unknown texture slot: gravel",
@@ -167,8 +185,8 @@ fn case_a_warnings_match_the_reference_exactly_including_order() {
         "unknown icon slot: obelisk",
         "unknown settlement slot: metropolis",
         "custom Naval/anchor: file missing (custom/naval/anchor_missing.png)",
-        "4 pack section(s) not yet used by the live map \
-         (trait, structures.settlement, structures.poi, custom)",
+        "3 pack section(s) not yet used by the live map \
+         (structures.settlement, structures.poi, custom)",
     ];
     assert_eq!(case_a().warnings, expected);
 }

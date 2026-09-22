@@ -2096,6 +2096,20 @@ func refresh_annotations() -> void:
 ## What IS true, and is the reference's own behaviour: a trait with no
 ## `CIV_TRAITS` entry draws nothing rather than a blank disc, because
 ## `_civDrawTraitBadges` guards on `const t = CIV_TRAITS.find(...); if (t)`.
+##
+## **The resolver install, released 2026-09-22 (owner ruling).** This was the
+## one line `cartalith-assets::PACK_TRAIT_SLOTS`'s own doc comment named as
+## withheld: `overlay.set_trait_art_resolver(Callable(_bridge,
+## "civ_trait_badge_row"))`, installed here because this is where the trait
+## keys and glyph vocabulary already come from. Before this line, no world
+## -- packed or not -- ever installed a resolver, so `map_overlay.gd` always
+## took the disc-and-glyph fallback; now a settlement whose pack has real art
+## for one of its traits draws that art, and one that doesn't (no pack, or a
+## pack missing that slot) still falls back exactly as before, per
+## `civ_trait_badge_row`'s own contract. Re-installed on every call rather
+## than once -- `set_trait_art_resolver` is an assignment plus a
+## `queue_redraw()`, and this already runs only on `refresh()` and a
+## place-editor trait toggle, never per frame.
 func refresh_settlement_traits() -> void:
 	if overlay == null or not overlay.has_method("set_settlement_traits"):
 		return
@@ -2112,6 +2126,8 @@ func refresh_settlement_traits() -> void:
 			if v.has("key") and v.has("glyph"):
 				glyphs[String(v["key"])] = String(v["glyph"])
 	overlay.set_settlement_traits(by_tid, glyphs)
+	if _bridge != null and overlay.has_method("set_trait_art_resolver"):
+		overlay.set_trait_art_resolver(Callable(_bridge, "civ_trait_badge_row"))
 
 
 func refresh_faction_colors() -> void:

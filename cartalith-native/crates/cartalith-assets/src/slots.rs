@@ -157,9 +157,10 @@ pub const PACK_POI_SLOTS: [&str; 8] = [
 /// beneath a settlement's pin. What the reference never revisited was its own
 /// "not yet used by the live map" list, which still names `trait`.
 ///
-/// The family is the one clause left in [`crate::PackManifest::warnings`]'
-/// entry, and that clause is still accurate — but its *reason* has now
-/// narrowed twice, and the second narrowing is the last one available.
+/// **This port's own list no longer does, as of 2026-09-22 (owner ruling).**
+/// The family was the one clause left in [`crate::PackManifest::warnings`]'
+/// entry for a long stretch, and its *reason* narrowed twice before the
+/// clause itself was finally dropped:
 ///
 /// It used to be that nothing composited a trait sprite anywhere in this port;
 /// `cartalith-godot`'s `pack::composite_trait_badges` did that first, over
@@ -172,13 +173,16 @@ pub const PACK_POI_SLOTS: [&str; 8] = [
 /// Measured windowed on three fixtures: an imported pack's `port` art reaches
 /// the pin and no other badge changes (`_traitart_probe.tscn`).
 ///
-/// What keeps the clause true is now exactly one missing line: **nothing calls
-/// `set_trait_art_resolver`**, so the handle is never installed and every
-/// world still draws the glyph fallback. The natural place is beside
-/// `viewport_host.gd::refresh_settlement_traits()`. When that line lands the
-/// clause becomes false, and dropping it moves a golden-pinned string —
-/// an owner ruling, exactly as widening the list would be. Do not pre-empt it
-/// here.
+/// What kept the clause true after that was exactly one missing line:
+/// nothing called `set_trait_art_resolver`, so the handle was never installed
+/// and every world still drew the glyph fallback. **That line landed
+/// 2026-09-22** (owner ruling, releasing the parked work): it lives beside
+/// `viewport_host.gd::refresh_settlement_traits()`, which pushes
+/// `Callable(_bridge, "civ_trait_badge_row")` via
+/// `EngineBridge::civ_trait_badge_row()` on every `refresh()`. `trait` no
+/// longer names itself in the warning — the golden-pinned string it moved is
+/// [`crate::manifest`]'s own emit-site comment and its golden tests, updated
+/// in the same change.
 pub const PACK_TRAIT_SLOTS: [&str; 7] = [
     "fortified",
     "mining",

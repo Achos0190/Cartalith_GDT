@@ -1882,6 +1882,19 @@ func load_asset_pack(path: String) -> bool:
 func has_asset_pack() -> bool:
 	return world_gen.has_asset_pack()
 
+## `WorldGen::civ_trait_badge_row` -- a whole settlement pin's trait-badge row,
+## laid out and resolved against the loaded pack's art, in one call. The
+## `_has()` guard (rather than `has_asset_pack`'s bare forward above) matters
+## here specifically: this is installed as a `Callable` in
+## `viewport_host.gd::refresh_settlement_traits()` and held for the session,
+## so an older GDExtension without this binding must degrade to the empty
+## `Array` `map_overlay.gd::_trait_badge_art` already treats as "no resolver
+## installed" -- not crash the first time a settlement redraws.
+func civ_trait_badge_row(px: float, py: float, traits: PackedStringArray, sz: float, sc: float) -> Array:
+	if not _has("civ_trait_badge_row"):
+		return []
+	return world_gen.civ_trait_badge_row(px, py, traits, sz, sc)
+
 # -- Post-generation field operations -----------------------------------------
 #
 # Two opt-in passes the reference runs from a button, never during generate:

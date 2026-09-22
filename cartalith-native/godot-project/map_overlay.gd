@@ -309,16 +309,20 @@ const COASTAL_BADGE_R_SC := 0.55
 ## most labels"*, so a settlement carrying every trait cannot grow a strip
 ## wider than its own name.
 ##
-## **Both of the reference's halves exist here now.** It draws pack art
-## whenever `assetPack.structures.trait[key]` has a bitmap (`_traitSprite`,
-## 15571) and this dark disc carrying the trait's `CIV_TRAITS` glyph when it
-## does not (15592-15598). The art half arrived on 2026-09-04 through
-## `set_trait_art_resolver()` -- see that method for the whole route and for
-## why the disc, not the sprite, is what every world draws until the resolver
-## is installed -- which is a missing Callable, not a missing pack. Until then this comment said the sprite half was unreachable,
-## which was true of `pack::composite_trait_badges` (a `&mut [u8]` canvas and
-## no `#[func]`) and stopped being true when `WorldGen::civ_trait_badge_row`
-## landed beside it.
+## **Both of the reference's halves exist here now, and both are reachable.**
+## It draws pack art whenever `assetPack.structures.trait[key]` has a bitmap
+## (`_traitSprite`, 15571) and this dark disc carrying the trait's
+## `CIV_TRAITS` glyph when it does not (15592-15598). The art half arrived on
+## 2026-09-04 through `set_trait_art_resolver()` -- see that method for the
+## whole route -- and was installed on 2026-09-22 (owner ruling) by
+## `viewport_host.gd::refresh_settlement_traits()`. A settlement whose pack
+## has real art for one of its traits now draws that art on the live map; the
+## disc-and-glyph path is still exactly what draws for every trait a pack has
+## no art for, or when no pack is loaded at all. Until 2026-09-04 the sprite
+## half was unreachable full stop -- that was true of
+## `pack::composite_trait_badges` (a `&mut [u8]` canvas and no `#[func]`) --
+## and stopped being true when `WorldGen::civ_trait_badge_row` landed beside
+## it.
 const TRAIT_BADGES_SHOWN_MAX := 4
 const TRAIT_BADGE_R_MIN := 2.2
 const TRAIT_BADGE_R_SZ := 0.42
@@ -1646,15 +1650,17 @@ func _trait_drop(s: Dictionary, radius: float, sc: float) -> float:
 ## else it draws is pushed to it; this is pushed to it too, as a handle it
 ## calls rather than a service it looks up.
 ##
-## **Nothing installs one yet.** The push belongs beside
-## `viewport_host.gd::refresh_settlement_traits()`, which is where the trait
-## keys and the glyph vocabulary already come from, and that file was another
-## lane's this batch. Until that line exists the resolver stays unset and
-## every badge takes the disc-and-glyph path -- which is also the state of
-## every world today, pack or no pack -- the precondition is that no resolver
-## is installed, NOT that no pack is imported. A world can hold a pack full of
-## trait art and still take this path, because nothing pushes the Callable
-## yet. Corrected 2026-09-04 after a verifier refuted the first wording.
+## **Installed since 2026-09-22 (owner ruling).**
+## `viewport_host.gd::refresh_settlement_traits()` pushes
+## `Callable(_bridge, "civ_trait_badge_row")` here on every `refresh()` and
+## place-editor trait toggle -- the same call that already assembles the
+## trait keys and the glyph vocabulary. Before that line landed the resolver
+## stayed unset for every world, packed or not, and every badge took the
+## disc-and-glyph path regardless of what art a pack carried; the precondition
+## was "no resolver is installed", never "no pack is imported". A session
+## whose `viewport_host.gd` predates that line, or whose overlay is driven
+## directly without going through it, still falls back the same way: an
+## invalid `Callable` is `_trait_art_resolver`'s own default below.
 func set_trait_art_resolver(cb: Callable) -> void:
 	_trait_art_resolver = cb
 	queue_redraw()
@@ -1696,10 +1702,11 @@ func _trait_badge_art(keys: PackedStringArray, pos: Vector2, radius: float, sc: 
 ## Both of the reference's branches: a badge the pack has art for is the
 ## sprite and nothing else (`_traitSprite` returning true short-circuits the
 ## fallback at 15591), and every other badge is the dark disc with the trait's
-## glyph. `art` is empty whenever no resolver is installed -- which is every
-## world at this commit, imported pack or not -- so that second branch is what
-## this draws today. It is emptied by the missing Callable, not by a missing
-## pack.
+## glyph. `art` is empty when no resolver is installed, no pack is loaded, or
+## the loaded pack has no art for that badge's trait -- `viewport_host.gd`
+## installs the resolver on every world since 2026-09-22, so which of those
+## three applies now genuinely depends on the pack, not on a permanently
+## missing Callable.
 ##
 ## Discs first, then every glyph inside ONE `_crisp_begin()` block: the two
 ## never overlap (`gap` is `2.35*r` against a diameter of `2*r`), so the split
