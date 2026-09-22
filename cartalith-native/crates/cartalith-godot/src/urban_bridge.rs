@@ -287,6 +287,32 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
         if let Some(c) = l.wall.centroid {
             d.set("wall_centroid", pt(c));
         }
+        // The bastioned trace italienne. `wall_ring` is the GORGE polygon
+        // through the bastion throats (containment/clearance only -- reference
+        // line 30667's own comment: "the closed bastioned trace is the drawn
+        // wall (all sides)"), never what a `bastioned` town is drawn as. Gated
+        // exactly as `_umDrawLayout` line 23348 gates it:
+        // `W.style==='bastioned'&&W.fort&&W.fort.trace&&W.fort.trace.length>2`.
+        // Absent (not empty) on any other style, or on a bastioned wall whose
+        // `fort` never got that far -- same "absent means the engine didn't
+        // produce it" rule the rest of this dictionary follows.
+        if l.wall.style == "bastioned" {
+            if let Some(fort) = &l.wall.fort {
+                if fort.trace.len() > 2 {
+                    d.set("fort_trace", &poly(&fort.trace));
+                    // Ravelins are optional even on a real trace -- a short
+                    // curtain run between two throats can fail the
+                    // `halfW=min(32,dist*0.3)` triangle. Absent, not an
+                    // empty array, on that case (line 23350's own
+                    // `W.fort.ravelins&&W.fort.ravelins.length` guard).
+                    if !fort.ravelins.is_empty() {
+                        let ravelins: Array<PackedVector2Array> =
+                            fort.ravelins.iter().map(|r| poly(r)).collect();
+                        d.set("fort_ravelins", &ravelins);
+                    }
+                }
+            }
+        }
     }
 
     // `buildMarkets`' specialised squares -- distinct from `plaza`, which is

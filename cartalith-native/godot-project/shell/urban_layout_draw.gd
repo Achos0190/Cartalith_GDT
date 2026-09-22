@@ -167,6 +167,15 @@ const WALL_TOWER_R_M := 3.6
 ## Base stroke widths in model metres, from the reference's own three branches:
 ## `4.5` stone, `2.2` palisade, `1.6` ditch.
 const WALL_W := {"curtain": 4.5, "palisade": 2.2, "ditch": 1.6}
+
+## The bastioned trace italienne, ported from `_umDrawLayout` lines 23348-23350:
+## `strokePolys([W.fort.trace],true,Math.max(1.6,5.5*mScale),'rgb(60,50,34)')`
+## then, if any, `strokePolys(W.fort.ravelins,true,Math.max(1.0,3*mScale),
+## 'rgb(74,62,44)')`. A heavier, darker ink than `WALL_STONE`'s ordinary
+## curtain -- a c.1500 gunpowder-artillery enceinte reads as more massive than
+## a medieval wall, not the same stroke around a different polygon.
+const WALL_FORT_TRACE := Color(0.2353, 0.1961, 0.1333) # rgb(60,50,34)
+const WALL_FORT_RAVELIN := Color(0.2902, 0.2431, 0.1725) # rgb(74,62,44)
 ## The reference's `bastioned` branch is not here -- **stale reasoning
 ## corrected 2026-09-13.** This used to say a star fort was unreachable
 ## because "this port's settlements carry no traits", written before trait
@@ -585,12 +594,24 @@ static func _draw_farmland(ci: CanvasItem, layout: Dictionary, project: Callable
 ## what all three reference renderers do (`if(gt&&gt.pt&&!gt.water)`): a water
 ## gate is the river passing under the circuit or the harbour mouth, and a
 ## marker there would read as a road entrance that is not one.
+##
+## **`bastioned` is a fourth branch, not a stone-family variant.** `wall_ring`
+## is `wall.fort`'s GORGE polygon (the containment ring through the bastion
+## throats -- reference line 30667's own comment: "the closed bastioned trace
+## is the drawn wall (all sides)"), never what a fortified town is drawn as.
+## `_draw_bastioned_wall`, below, strokes the real trace and returns before
+## any of the ring/gate code in this function runs -- matching the reference,
+## which draws no gate markers for a bastioned enceinte at all (line 23348's
+## `if` has no `else if` that reaches the plain-gate code lower down).
 static func _draw_wall(ci: CanvasItem, layout: Dictionary, project: Callable,
 		to_screen: Callable, m_scale: float, px_floor: float, alpha: float) -> void:
 	var ring: PackedVector2Array = layout.get("wall_ring", PackedVector2Array())
 	if ring.size() < 3:
 		return
 	var style := String(layout.get("wall_style", "curtain"))
+	if style == "bastioned":
+		_draw_bastioned_wall(ci, layout, project, m_scale, px_floor, alpha)
+		return
 	var lw: float = maxf(px_floor, float(WALL_W.get(style, 4.5)) * m_scale)
 	var col: Color = WALL_PALISADE if style == "palisade" \
 		else (WALL_DITCH if style == "ditch" else WALL_STONE)
@@ -626,13 +647,12 @@ static func _draw_wall(ci: CanvasItem, layout: Dictionary, project: Callable,
 		if spurs.size() >= 2:
 			ci.draw_multiline(project.call(spurs), Color(col.r, col.g, col.b, alpha), lw)
 
-		# Round towers at every vertex -- `curtain` only. This `else` branch is
-		# also reached by `style == "bastioned"` (the ladder's other stone-family
-		# verdict), and that ring is `wall.fort`'s GORGE polygon rather than a
-		# real circuit -- see the big comment above on why this file cannot draw
-		# the star-fort trace yet. Towers on that wrong shape would be a second,
-		# undocumented departure on top of the first, so this stays scoped to
-		# exactly what Ruling H (b) asked for.
+		# Round towers at every vertex -- `curtain` only. `bastioned` no longer
+		# reaches this `else` branch at all (`_draw_wall` returns to
+		# `_draw_bastioned_wall` before this code runs), so towers on the
+		# gorge polygon were never drawn and there is no undocumented
+		# departure to guard against here any more. This stays scoped to
+		# `curtain` because that is exactly what Ruling H (b) asked for.
 		if style == "curtain":
 			var tr: float = maxf(px_floor * 1.1, WALL_TOWER_R_M * m_scale)
 			var tower_col := Color(WALL_TOWER.r, WALL_TOWER.g, WALL_TOWER.b, alpha)
@@ -646,6 +666,48 @@ static func _draw_wall(ci: CanvasItem, layout: Dictionary, project: Callable,
 	var gr: float = maxf(px_floor * 0.8, (1.8 if style == "palisade" else 2.2) * m_scale)
 	for g in gates:
 		ci.draw_circle(to_screen.call(g), gr, Color(gc.r, gc.g, gc.b, alpha))
+
+
+## The bastioned branch of `_draw_wall`, ported from `_umDrawLayout` lines
+## 23348-23350:
+## ```
+## if(W.style==='bastioned'&&W.fort&&W.fort.trace&&W.fort.trace.length>2){
+##   strokePolys([W.fort.trace],true,Math.max(1.6,5.5*mScale),'rgb(60,50,34)');
+##   if(W.fort.ravelins&&W.fort.ravelins.length)
+##     strokePolys(W.fort.ravelins,true,Math.max(1.0,3*mScale),'rgb(74,62,44)');
+## }
+## ```
+## `"fort_trace"`/`"fort_ravelins"` are `urban_bridge.rs::layout_dict`'s bridge
+## keys for `wall.fort.trace`/`wall.fort.ravelins` -- present exactly when the
+## reference's own guard above passes, so an absent `"fort_trace"` here (a
+## bastioned town whose `fort` never got that far) draws nothing rather than
+## falling back to the gorge ring.
+##
+## No gate markers: the reference draws none for this style (see the header
+## comment on `_draw_wall`), so this function does not read `"wall_gates"`.
+static func _draw_bastioned_wall(ci: CanvasItem, layout: Dictionary, project: Callable,
+		m_scale: float, px_floor: float, alpha: float) -> void:
+	var trace: PackedVector2Array = layout.get("fort_trace", PackedVector2Array())
+	if trace.size() < 3:
+		return
+	var trace_lw: float = maxf(px_floor * 1.6, 5.5 * m_scale)
+	var pts: PackedVector2Array = project.call(trace)
+	pts.append(pts[0])
+	ci.draw_polyline(pts, Color(WALL_FORT_TRACE.r, WALL_FORT_TRACE.g,
+		WALL_FORT_TRACE.b, alpha), trace_lw, true)
+
+	var ravelins: Array = layout.get("fort_ravelins", [])
+	if ravelins.is_empty():
+		return
+	var rav_lw: float = maxf(px_floor, 3.0 * m_scale)
+	var rav_col := Color(WALL_FORT_RAVELIN.r, WALL_FORT_RAVELIN.g, WALL_FORT_RAVELIN.b, alpha)
+	for i in ravelins.size():
+		var rav: PackedVector2Array = ravelins[i]
+		if rav.size() < 3:
+			continue
+		var rp: PackedVector2Array = project.call(rav)
+		rp.append(rp[0])
+		ci.draw_polyline(rp, rav_col, rav_lw, true)
 
 
 ## A footprint has to cover at least this many pixels before it is worth
