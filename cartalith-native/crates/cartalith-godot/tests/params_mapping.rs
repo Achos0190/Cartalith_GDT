@@ -460,14 +460,47 @@ fn the_unshimmed_erosion_block_is_not_written_partially() {
     assert!(native.get("passes.diffuse_passes").is_some());
 }
 
+/// Integrated drainage is the one row whose ABSENCE from a save is information:
+/// every archive written before the row existed, and every reference-app
+/// export, was generated without it, and must reload as that world rather than
+/// as today's default (`RC_ENGINE_CHANGES.md` §6k: the source's state literal
+/// defaults it on while its loader defaults a key-less save to off). A save
+/// that carries it round-trips either way.
+#[test]
+fn a_save_without_integrated_drainage_reloads_without_it() {
+    assert!(params::defaults().integrate_drainage, "the shipped app generates with it on");
+
+    // Written by this port before the row existed: a native block without it.
+    let mut p = params::defaults();
+    let n = params::apply_saved_state(&mut p, &serde_json::json!({params::NATIVE_PARAMS_KEY: {"tect.plates": 20.0}}));
+    assert_eq!(n, 1);
+    assert!(!p.integrate_drainage, "a pre-existing save must not silently gain integrated drainage");
+
+    // Written with it, both ways round.
+    for on in [true, false] {
+        let mut src = params::defaults();
+        src.integrate_drainage = on;
+        let state = params::save_state(&src);
+        assert_eq!(state[params::NATIVE_PARAMS_KEY]["integrate_drainage"], serde_json::json!(on));
+        let mut back = params::defaults();
+        back.integrate_drainage = !on;
+        params::apply_saved_state(&mut back, &state);
+        assert_eq!(back.integrate_drainage, on);
+    }
+}
+
 /// A save from a future version, a hand-edited one, or a genuine HTML-app
 /// export must never panic or half-apply — the three shapes that can arrive.
 #[test]
 fn a_state_this_port_does_not_recognise_is_survivable() {
     let mut p = params::defaults();
-    // A real HTML export: no native block at all.
+    // A real HTML export: no native block at all. It leaves the table at its
+    // defaults -- except integrated drainage, which a world that never recorded
+    // it was generated without (`a_save_without_integrated_drainage_reloads_without_it`).
     assert_eq!(params::apply_saved_state(&mut p, &serde_json::json!({"tect": {"seed": 1, "plates": 30}})), 0);
-    assert_eq!(p, params::defaults(), "a reference export must leave the table at its defaults");
+    let mut expect = params::defaults();
+    expect.integrate_drainage = false;
+    assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
     let applied = params::apply_saved_state(
@@ -501,8 +534,9 @@ use cartalith_engine::{WorldParams, WorldState};
 /// quietly appeared in `WorldParams::defaults` instead would break sixteen
 /// `cartalith-civ` suites. Listing them here makes either failure loud.
 ///
-/// Three today, all from 2026-09-02: `crater.physical_model` (§7l) and the two
-/// volcano flags (§7l-ii, owner ruling 1).
+/// Four today: `crater.physical_model` (§7l) and the two volcano flags
+/// (§7l-ii, owner ruling 1), all 2026-09-02; and `integrate_drainage`
+/// (owner-authorised 2026-09-22, `RC_ENGINE_CHANGES.md` §6g/§6k).
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -511,18 +545,20 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.crater.physical_model && !parity.crater.physical_model, "DECISIONS.md §7l");
     assert!(app.volc.exclude_transform && !parity.volc.exclude_transform, "§7l-ii ruling 1");
     assert!(app.volc.edifice_model && !parity.volc.edifice_model, "§7l-ii ruling 1");
+    assert!(app.integrate_drainage && !parity.integrate_drainage, "integrated drainage, owner 2026-09-22");
 
-    // And nothing else. Neutralising the three must make the two identical --
-    // which catches a fourth divergence added without a ruling, in either
+    // And nothing else. Neutralising the four must make the two identical --
+    // which catches a fifth divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
     neutral.volc.exclude_transform = false;
     neutral.volc.edifice_model = false;
+    neutral.integrate_drainage = false;
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         three fields DECISIONS.md authorises"
+         four authorised fields"
     );
 }
 
@@ -625,7 +661,7 @@ fn refreshed(p: &WorldParams, ws: &WorldState) -> (Vec<f32>, Vec<f32>, Vec<f32>)
 /// For every row, move the value to the far end of its own range and re-run
 /// `refresh_climate`. If the output moves, the parameter has a live-apply
 /// path and must be marked; if it does not, marking it would promise a
-/// recompute that applies nothing. The two must agree for all 81 rows, so a
+/// recompute that applies nothing. The two must agree for all 93 rows, so a
 /// new parameter cannot be added without deciding this — and a wrong decision
 /// fails here rather than in the shell.
 ///
@@ -701,7 +737,7 @@ fn a_climate_dial_marks_the_node_that_actually_triggers_a_recompute() {
 
 /// A parameter with no live-apply path marks nothing — the half of the table
 /// that is about *not* promising anything. Stated as its own test because it
-/// is the answer for 56 of the 81 rows, including every terrain, tectonic
+/// is the answer for 60 of the 93 rows, including every terrain, tectonic
 /// and erosion knob.
 #[test]
 fn generation_time_only_parameters_mark_nothing() {

@@ -332,6 +332,7 @@ mod tests {
             temperature: std::sync::Arc::new(Vec::new()),
             rainfall: std::sync::Arc::new(Vec::new()),
             flow_discharge: std::sync::Arc::new(Vec::new()),
+            integrated_drainage: false,
             channels: None,
             stream_order: None,
             river_mask: None,

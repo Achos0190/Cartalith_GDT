@@ -2066,7 +2066,7 @@ fn compute_civilisation(
     // crossing costs and the settlement diagnostics below, `river_polys` for
     // Ruling N's suitability river term.
     let (river_order, river_polys) =
-        cartalith_civ::fresh_river_network(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km);
+        cartalith_civ::fresh_river_network(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage);
     let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
     drop(river_polys);
 

@@ -151,7 +151,7 @@ const STAGES: Array = [
 	 "gap": "Corrected 2026-08-30 while wiring the staged progress readout, against `generate_terrain_inner` (cartalith-engine/src/lib.rs) directly rather than trusting this note: it was stale on six of its seven claims. Stream-power carve, the Glacial group's fjord carve, Hillslope diffuse, Velocity (momentum), Glacial erosion, Coastal, Evolve climate <-> terrain (evoCyc) and Sediment fill are ALL ported and ALL run as generation-time `passes.*` toggles inside this stage's own block -- off by default, so a default world is unaffected by any of them existing (`_build_erosion_passes` below already said as much for the first four; this note had not caught up). Only Droplet hydraulic has no generate()-time equivalent: it is `erode_op`, a separate op the reference itself runs from its own `#erodeBtn`, never from `generate()` -- see the Droplet hydraulic group below."},
 	{"name": "Hydrology", "needs": "06 Erosion",
 	 "produces": "rivers, lakes, drainage, flow accumulation → 08 Climate, 09 Ecology & biomes",
-	 "groups": [], "keys": ["carve_rivers", "river_density"],
+	 "groups": [], "keys": ["carve_rivers", "river_density", "integrate_drainage"],
 	 "gap": "Min stream order and lakes-as-water are reference render filters, not generation parameters -- and not Cartography's either, which this line said until 2026-09-07. Neither is settable anywhere: since 2026-09-22 the drawn rivers are the traced polylines get_rivers(min_order) returns, but the viewport always asks for min_order 1 and no control changes it."},
 	{"name": "Climate", "needs": "01 Planet, 02 Extent & scale, 06 Erosion",
 	 "produces": "temperature, rainfall, wind, currents → 09 Ecology & biomes, 10 Resources & soils",
@@ -3348,7 +3348,7 @@ func _refresh_tool_bar() -> void:
 ## missing from, which is the drawing side.
 const PHONE_GEN_ABSENT: Array = [
 	{"stage": 1, "label": "Working resolution", "route": "new_world",
-	 "why": "Resolution is a creation-time call argument, not a stored parameter -- params.rs' \"world\" group holds world, sea_level, peak_m, carve_rivers, river_density and use_gpu, and no resolution key exists anywhere in the 92-row table. Set it in File > New world, which carries it on this phone's card as well as on the desktop form."},
+	 "why": "Resolution is a creation-time call argument, not a stored parameter -- params.rs' \"world\" group holds world, sea_level, peak_m, carve_rivers, river_density, integrate_drainage and use_gpu, and no resolution key exists anywhere in the 93-row table. Set it in File > New world, which carries it on this phone's card as well as on the desktop form."},
 	{"stage": 2, "label": "Archetype", "route": "new_world",
 	 "why": "apply_archetype() is live and seeds the six world_structure dials below, but request()[\"archetype\"] is what decides which generation call runs, and new_world_dialog.gd's own NOTE_CREATION_ONLY says extent, resolution and archetype reallocate every field in the pipeline. Pick it in File > New world -- on this phone it is on that dialog's card, under World structure."},
 	{"stage": 5, "label": "Erosion strength", "route": "",

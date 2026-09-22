@@ -222,6 +222,9 @@ pub fn recompute_stale(g: &mut StageGraph, p: &WorldParams, ws: &mut WorldState)
             Arc::make_mut(&mut ws.rainfall),
             Arc::make_mut(&mut ws.flow_discharge),
         );
+        // `refresh_climate` just routed `flow_discharge` with the live flag, so
+        // the world's own record of how its drainage was routed follows it.
+        ws.integrated_drainage = p.integrate_drainage;
         // Order is load-bearing: hydrology's own version bumps here, and
         // climate must observe *that* version, not the one before it.
         g.mark_recomputed(hydro, "flow_recomputed");

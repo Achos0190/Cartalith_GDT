@@ -146,8 +146,8 @@ use cartalith_erosion::{
     GlacialParams, StreamPowerParams, VelocityParams,
 };
 use cartalith_hydrology::{
-    build_channels, compute_flow, enforce_channel_descent, river_width_scale_k, strahler_from_receivers,
-    trace_river_polylines, ChannelResult,
+    build_channels_routed, compute_flow, compute_flow_routed, enforce_channel_descent, river_width_scale_k,
+    routing_view, strahler_from_receivers, trace_river_polylines, ChannelResult,
 };
 use cartalith_terrain::{
     apply_world_structure_sea_level, assign_plates, build_age_field, build_orogeny_field, build_plates,
@@ -581,6 +581,22 @@ pub struct WorldParams {
     pub map_width_km: f64,
     pub carve_rivers: bool,
     pub river_density: f64,
+    /// Integrated drainage (`RC_ENGINE_CHANGES.md` §6g/§6k; the source's
+    /// `state.hydro.integrate`): route every flow accumulation and the
+    /// channel network's receiver tree over
+    /// [`cartalith_hydrology::build_routing_surface`] — the depression-filled,
+    /// ε-tilted surface — instead of the raw field, so a local pit no longer
+    /// terminates the water that reaches it. The heightmap itself keeps its
+    /// pits; only routing sees them filled.
+    ///
+    /// **`false` here and `true` in the shipped app** (`cartalith-godot`'s
+    /// `params::defaults`), the same split as `crater.physical_model`: this
+    /// function is the goldens' parity baseline and the v2.10/v2.11 reference
+    /// they were captured from has no fill. The source itself shipped the fill
+    /// off (v2.41) and then on (v2.59) while its loader kept defaulting a save
+    /// without the key to off — a world generated without integration must
+    /// reload as the world it was.
+    pub integrate_drainage: bool,
     pub tect: TectonicParams,
     pub volc: VolcanismParams,
     pub crater: CraterParams,
@@ -627,6 +643,9 @@ impl WorldParams {
             map_width_km: 800.0,
             carve_rivers: true,
             river_density: 1.0,
+            // Off: the reference this baseline reproduces has no fill. On at
+            // the app boundary -- see the field's own doc comment.
+            integrate_drainage: false,
             tect: TectonicParams {
                 seed,
                 plates: 14,
@@ -862,6 +881,15 @@ pub struct WorldState {
     pub temperature: Arc<Vec<f32>>,
     pub rainfall: Arc<Vec<f32>>,
     pub flow_discharge: Arc<Vec<f32>>,
+    /// Whether `flow_discharge` and `channels` were routed over the
+    /// depression-filled surface ([`WorldParams::integrate_drainage`]) — a
+    /// property of *this world's* drainage, recorded so every consumer that
+    /// rebuilds a receiver tree from `field` + `flow_discharge`
+    /// (`cartalith_civ::fresh_river_network`) builds it over the same surface
+    /// the discharge was accumulated on (`RC_ENGINE_CHANGES.md` §6g: "both
+    /// trees need the same surface"). Read it from here, not from the live
+    /// parameters, which may have moved since the world was made.
+    pub integrated_drainage: bool,
     /// **`ChannelResult::slope` is released before this is stored** and is
     /// an empty `Vec` here — see `generate_terrain`'s own note at the point
     /// it drops it (`MEMORY_OPTIMIZATION_SCOPE.md` R2). `recv` and `chan`
@@ -1539,12 +1567,24 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // relative for discharge seeding, with no measured change to the river
     // network or to settlement placement (see the scope doc's milestone 9
     // entry). Falls back to the CPU function whenever GPU is unavailable.
-    let flow_area = match flow_on_gpu(&field, None, false) {
-        Some(v) => {
-            gpu_stages_used.push("flow".to_string());
-            v
+    //
+    // Integrated drainage (`p.integrate_drainage`, `RC_ENGINE_CHANGES.md`
+    // §6g): every flow accumulation below routes over the depression-filled
+    // surface of the field *as it is at that call* -- the carve moves the
+    // field between them, so each takes its own. `routing_view` borrows
+    // `field` unchanged when the flag is off, so the off path is the old call.
+    // The GPU kernel takes the surface the same way the CPU one does: it only
+    // orders and picks receivers by the heights it is handed.
+    let integrate = p.integrate_drainage;
+    let flow_area = {
+        let route = routing_view(&field, gw, gh, sea_level, world, integrate);
+        match flow_on_gpu(&route, None, false) {
+            Some(v) => {
+                gpu_stages_used.push("flow".to_string());
+                v
+            }
+            None => compute_flow(gw, gh, &route, None, false, world),
         }
-        None => compute_flow(gw, gh, &field, None, false, world),
     };
 
     let climate_params = climate_params_for(p, sea_level);
@@ -1664,14 +1704,15 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     let mut flow_discharge = if p.carve_rivers && !force_precarve_flow {
         Vec::new()
     } else {
-        match flow_on_gpu(&field, Some(&rainfall), true) {
+        let route = routing_view(&field, gw, gh, sea_level, world, integrate);
+        match flow_on_gpu(&route, Some(&rainfall), true) {
             Some(v) => {
                 if !gpu_stages_used.iter().any(|s| s == "flow") {
                     gpu_stages_used.push("flow".to_string());
                 }
                 v
             }
-            None => compute_flow(gw, gh, &field, Some(&rainfall), true, world),
+            None => compute_flow(gw, gh, &route, Some(&rainfall), true, world),
         }
     };
     if !p.carve_rivers {
@@ -1735,18 +1776,35 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // `channels`/`stream_order`/`river_mask`/`river_floor` fields
         // `WorldState` actually stores -- this stage's real product.
         crate::progress::advance(crate::progress::HYDROLOGY);
-        let flow_for_network = match flow_on_gpu(&field, Some(&rainfall), true) {
+        // One routing surface for BOTH trees -- the accumulation and the
+        // channel network's own receivers (`RC_ENGINE_CHANGES.md` §6g: filling
+        // one and not the other makes the flow and the traced network describe
+        // two different objects). Slope stays on the real field inside
+        // `build_channels_routed`.
+        let route = routing_view(&field, gw, gh, sea_level, world, integrate);
+        let flow_for_network = match flow_on_gpu(&route, Some(&rainfall), true) {
             Some(v) => {
                 if !gpu_stages_used.iter().any(|s| s == "flow") {
                     gpu_stages_used.push("flow".to_string());
                 }
                 v
             }
-            None => compute_flow(gw, gh, &field, Some(&rainfall), true, world),
+            None => compute_flow(gw, gh, &route, Some(&rainfall), true, world),
         };
 
         // (2) vector network -> distance-field channel carve + lock
-        let mut ch = build_channels(&field, &flow_for_network, gw, gh, sea_level, world, p.river_density, p.map_width_km);
+        let mut ch = build_channels_routed(
+            &field,
+            &route,
+            &flow_for_network,
+            gw,
+            gh,
+            sea_level,
+            world,
+            p.river_density,
+            p.map_width_km,
+        );
+        drop(route);
         // `MEMORY_OPTIMIZATION_SCOPE.md` R2: `ChannelResult::slope` has no
         // reader anywhere in this workspace -- `strahler_from_receivers` and
         // `trace_river_polylines` below take `recv`/`chan` only, and the
@@ -1820,14 +1878,17 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // backward from Climate to Erosion/Hydrology, which `advance`'s
         // monotonic contract forbids.
         crate::progress::advance(crate::progress::CLIMATE);
-        flow_discharge = match flow_on_gpu(&field, Some(&rainfall), true) {
-            Some(v) => {
-                if !gpu_stages_used.iter().any(|s| s == "flow") {
-                    gpu_stages_used.push("flow".to_string());
+        flow_discharge = {
+            let route = routing_view(&field, gw, gh, sea_level, world, integrate);
+            match flow_on_gpu(&route, Some(&rainfall), true) {
+                Some(v) => {
+                    if !gpu_stages_used.iter().any(|s| s == "flow") {
+                        gpu_stages_used.push("flow".to_string());
+                    }
+                    v
                 }
-                v
+                None => compute_flow(gw, gh, &route, Some(&rainfall), true, world),
             }
-            None => compute_flow(gw, gh, &field, Some(&rainfall), true, world),
         };
         temperature = compute_temperature(gw, gh, &field, None, &climate_params);
         rainfall = if p.use_gpu {
@@ -2051,7 +2112,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 }
             }
             // discharge on the carved surface, before routing
-            flow_discharge = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
+            flow_discharge = compute_flow_routed(gw, gh, &field, Some(&rainfall), true, world, sea_level, integrate);
             route_sediment(&mut field, &flow_discharge, &supply, gw, gh, sea_level, q.sediment_capacity, world);
         }
         // ---- applyTidalSedimentation() (reference HTML lines 4324-4334) ----
@@ -2151,6 +2212,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         temperature: Arc::new(temperature),
         rainfall: Arc::new(rainfall),
         flow_discharge: Arc::new(flow_discharge),
+        integrated_drainage: integrate,
         channels,
         stream_order,
         river_mask,
@@ -2246,7 +2308,8 @@ pub fn refresh_climate(
     flow_discharge: &mut Vec<f32>,
 ) {
     let (gw, gh, world) = (p.gw, p.gh, p.world);
-    *flow_discharge = compute_flow(gw, gh, field, Some(rainfall), true, world);
+    *flow_discharge =
+        compute_flow_routed(gw, gh, field, Some(rainfall), true, world, sea_level, p.integrate_drainage);
     *temperature = compute_temperature(gw, gh, field, None, climate_params);
     *rainfall = simulate_weather(gw, gh, field, p.climate.w_iters, 0.0, weather_params);
     apply_climate_moisture_correctors(

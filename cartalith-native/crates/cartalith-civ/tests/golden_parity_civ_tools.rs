@@ -119,7 +119,7 @@ fn build(gw: usize, gh: usize, seed: i32, world: bool, field0: f64) -> World {
     assert_eq!(p.map_width_km, 800.0, "map_width_km mismatch, harness assumption broken");
     let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, ws.sea_level, world, Some(&ws.rainfall));
     let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
-    let river_order = cartalith_civ::fresh_river_order(&ws.field, &ws.flow_discharge, gw, gh, ws.sea_level, world, p.river_density, p.map_width_km);
+    let river_order = cartalith_civ::fresh_river_order(&ws.field, &ws.flow_discharge, gw, gh, ws.sea_level, world, p.river_density, p.map_width_km, ws.integrated_drainage);
     World { gw, gh, world, map_width_km: p.map_width_km, sea: ws.sea_level, field: ws.field.as_ref().clone(), wb: wb.classification, biome, river_order }
 }
 

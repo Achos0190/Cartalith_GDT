@@ -683,7 +683,7 @@ fn compute_suitability_and_seeds(
     // file's own module doc comment for why `ws.stream_order` is not a
     // substitute.
     let (river_order, river_polys) =
-        cartalith_civ::fresh_river_network(&ws.field, &ws.flow_discharge, gw, gh, ws.sea_level, world, river_density, map_width_km);
+        cartalith_civ::fresh_river_network(&ws.field, &ws.flow_discharge, gw, gh, ws.sea_level, world, river_density, map_width_km, ws.integrated_drainage);
     // Ruling N: proximity to a real traced polyline, not `river_order[i]`.
     let river_reach = match river_term {
         RiverTerm::Real => cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh),

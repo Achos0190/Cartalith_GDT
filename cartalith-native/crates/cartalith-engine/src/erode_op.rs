@@ -314,6 +314,7 @@ mod tests {
             temperature: Arc::new(Vec::new()),
             rainfall: Arc::new(rainfall),
             flow_discharge: Arc::new(Vec::new()),
+            integrated_drainage: false,
             channels: None,
             stream_order: None,
             river_mask: None,

@@ -4347,6 +4347,12 @@ pub fn find_settlement_seeds(
 /// right INPUT for this specific caller. Reuses `build_channels`/
 /// `strahler_from_receivers` directly rather than porting a second
 /// receiver-tree implementation.
+///
+/// `integrate` is the world's own `WorldState::integrated_drainage`: when
+/// `flow` was accumulated over the depression-filled routing surface, the
+/// receiver tree must be built over that same surface or the network stops at
+/// every pit the discharge flowed straight through (`RC_ENGINE_CHANGES.md`
+/// §6g, "both trees need the same surface"). `false` is the old call exactly.
 #[allow(clippy::too_many_arguments)]
 pub fn fresh_river_order(
     field: &[f32],
@@ -4357,8 +4363,9 @@ pub fn fresh_river_order(
     world: bool,
     river_density: f64,
     map_width_km: f64,
+    integrate: bool,
 ) -> Vec<i16> {
-    fresh_river_network(field, flow, gw, gh, sea, world, river_density, map_width_km).0
+    fresh_river_network(field, flow, gw, gh, sea, world, river_density, map_width_km, integrate).0
 }
 
 /// [`fresh_river_order`]'s network, with the **traced polylines** of the same
@@ -4380,9 +4387,12 @@ pub fn fresh_river_network(
     world: bool,
     river_density: f64,
     map_width_km: f64,
+    integrate: bool,
 ) -> (Vec<i16>, Vec<Vec<(f64, f64)>>) {
-    let ch = cartalith_hydrology::build_channels(
+    let route = cartalith_hydrology::routing_view(field, gw, gh, sea, world, integrate);
+    let ch = cartalith_hydrology::build_channels_routed(
         field,
+        &route,
         flow,
         gw,
         gh,

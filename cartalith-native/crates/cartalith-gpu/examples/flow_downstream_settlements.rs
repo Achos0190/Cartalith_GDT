@@ -89,7 +89,7 @@ fn settlement_seeds(
     );
     let flood = civ::build_flood_field(&ws.field, flow, &raw_slope, gw, gh, sea);
     let (river_order, river_polys) =
-        civ::fresh_river_network(&ws.field, flow, gw, gh, sea, world, river_density, map_width_km);
+        civ::fresh_river_network(&ws.field, flow, gw, gh, sea, world, river_density, map_width_km, ws.integrated_drainage);
     let river_reach = civ::build_river_reach(&river_polys, &river_order, gw, gh);
 
     let ctx = civ::SuitabilityCtx {

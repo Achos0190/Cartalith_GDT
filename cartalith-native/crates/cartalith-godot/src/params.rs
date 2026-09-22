@@ -130,7 +130,7 @@ pub struct ParamSpec {
 /// This function is where the product's own rulings land instead: a divergence
 /// recorded in `DECISIONS.md` turns on here, not there, so it reaches every
 /// generated world without deleting the parity baseline underneath it. Today
-/// that is three flags, each independently revertible by deleting its own line.
+/// that is four flags, each independently revertible by deleting its own line.
 pub fn defaults() -> WorldParams {
     let mut p = WorldParams::defaults(0, 0, 0);
     // `DECISIONS.md` §7l (owner ruling, 2026-09-02): craters generate from an
@@ -148,6 +148,13 @@ pub fn defaults() -> WorldParams {
     // Same ruling: a 200 m scoria cone and a 7 000 m shield stop sharing one
     // power-law profile, and a summit collapses rather than being subtracted.
     p.volc.edifice_model = true;
+    // Owner-authorised 2026-09-22: integrated drainage (`RC_ENGINE_CHANGES.md`
+    // §6g/§6k, the source's own default since v2.59). Routes flow and the
+    // channel tree over the depression-filled surface, so water that reaches a
+    // local pit carries on to the sea instead of stopping there. Off in
+    // `WorldParams::defaults`, which the goldens compare against a reference
+    // that has no fill.
+    p.integrate_drainage = true;
     p
 }
 
@@ -171,6 +178,12 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "river_density", group: "world", kind: Kind::Float, min: 0.30, max: 3.0, step: 0.05,
         label: "River density", unit: "\u{d7}", reference_control: "riverDensR",
         get_fn: |p| Value::Num(p.river_density), set_fn: |p, v| p.river_density = v },
+    // No reference control in v2.10/v2.11: the source added it at v2.41
+    // (`state.hydro.integrate`, `RC_ENGINE_CHANGES.md` §6g) after both
+    // snapshots. ON at the app boundary, OFF in `WorldParams::defaults`.
+    ParamSpec { key: "integrate_drainage", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Integrated drainage (route over filled depressions)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.integrate_drainage), set_fn: |p, v| p.integrate_drainage = v != 0.0 },
     ParamSpec { key: "use_gpu", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "GPU acceleration", unit: "", reference_control: "gpuToggle",
         get_fn: |p| Value::Bool(p.use_gpu), set_fn: |p, v| p.use_gpu = v != 0.0 },
@@ -612,6 +625,12 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("peak_m", "peakM"),
     ("carve_rivers", "carveRivers"),
     ("river_density", "viz.riverDensity"),
+    // No path, deliberately. The source's key is `hydro.integrate`, but no
+    // snapshot here carries a `hydro` block, and `loadZip()`'s shallow
+    // `Object.assign` would let a one-key `hydro` object replace a newer
+    // source's whole block (the `state.erosion` hazard in the module note).
+    // Travels in `state.cartalith` only.
+    ("integrate_drainage", ""),
     // No reference equivalent: this port's own GPU switch.
     ("use_gpu", ""),
 
@@ -848,6 +867,16 @@ pub fn world_key_state(p: &WorldParams) -> serde_json::Value {
 /// in a hand-edited (or future-version) save is clamped or rejected on the
 /// same terms as a GUI write, and never panics.
 pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usize {
+    // The one parameter whose *absence* is information. A save that does not
+    // carry `integrate_drainage` -- every archive written before it existed,
+    // and every reference-app export -- was generated without integrated
+    // drainage, so it must reload as that world, not as whatever the session's
+    // default is now. The source's own loader does exactly this for
+    // `state.hydro.integrate` while its state literal defaults it on
+    // (`RC_ENGINE_CHANGES.md` §6k: "the state literal and the loader
+    // deliberately disagree"). A save that carries the key sets it in the loop
+    // below like any other row.
+    p.integrate_drainage = false;
     let Some(native) = state.get(NATIVE_PARAMS_KEY).and_then(|v| v.as_object()) else {
         return 0;
     };
@@ -886,7 +915,7 @@ pub fn spec(key: &str) -> Option<&'static ParamSpec> {
 /// `GUI_GAP_REGISTER.md` **SG-03**: which node of
 /// [`cartalith_engine::staleness::pipeline_stage_graph`] a moved dial has to
 /// mark changed — or `None` for a parameter with **no live-apply path at
-/// all**, which is most of them (56 of the 81 rows).
+/// all**, which is most of them (60 of the 93 rows).
 ///
 /// ## The rule the table is derived from, not a judgement call
 ///
@@ -959,6 +988,8 @@ pub fn invalidates(key: &str) -> Option<PipelineStage> {
         "peak_m" | "planet.g" | "planet.rotation_hours" | "planet.axial_tilt_deg" => {
             Some(PipelineStage::Hydrology)
         }
+        // `refresh_climate` routes `flow_discharge` with it, directly.
+        "integrate_drainage" => Some(PipelineStage::Hydrology),
         // Every `climate.*` row — the `climate` and `weather` groups both —
         // is read by `refresh_climate`, without exception. A future row that
         // is not fails the mechanical test rather than silently promising a

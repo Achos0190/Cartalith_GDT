@@ -1250,3 +1250,68 @@ cause inside one build — forcing the changed flag equal on both sides of a
 diff and getting byte-identical output — rather than trusting the version
 label. A port re-baselining a golden fixture should isolate the same way
 before recording the row, not after.
+
+## 7o. Depression-filled flow routing: on at the app boundary, off in the golden baseline, and not a literal port (owner decision, 2026-09-22)
+
+§7n already named v2.59 (depression-filled routing on by default) as a
+re-baseline this port should carry — this entry is that carrying, and the two
+things about it that don't fit §7's ordinary shape.
+
+**Why it was built.** The owner reported rivers still reading as fragmented
+after the vector-rendering rework (§7… the river-drawing work landed the same
+day) had already fixed what a drawing-layer fix could fix. Root-caused to
+`compute_flow` sorting by raw height with no depression fill — `RC_ENGINE_
+CHANGES.md` §6g, its own **"highest-priority row"**: without it, most of a
+generated world's land drains into an interior pit and stops there, which no
+amount of bridging disconnected river fragments back together at the drawing
+layer can repair, because the underlying network genuinely never reaches the
+sea from most of the map. The owner authorized the real fix rather than
+continuing to patch the symptom.
+
+**Not a literal JS port, and said so rather than claimed otherwise.** The
+reference's own fix (`buildRoutingSurface`, v2.41) postdates every HTML
+snapshot in this repository — `reference/` holds v2.10, the root holds v2.11,
+and the source's own newest line is a dozen-plus versions further on
+(`CLAUDE.md`'s own disclosure). There is no JavaScript here to diff against.
+What is built is the **standard published algorithm** `RC_ENGINE_CHANGES.md`
+names — Barnes, Lehman & Mulla 2014, Priority-Flood+ε — implemented from its
+own well-known correct shape (a dual pit/open-queue flood fill from the
+map's outlets, each raised cell tilted to `next_up()` of its source so no
+flat ever forms), and *validated* against `RC_ENGINE_CHANGES.md` §6k's own
+disclosed before/after numbers (interior-pit land 68.5%→0.0%, sea-draining
+land ×1.63, etc.) rather than built to reproduce them exactly. Measured on
+four real worlds, the port's own numbers land in the same shape as the
+spec's, not identical to them (§6k's own 512px figures are themselves one
+specific seed, not a universal constant). This is the same class of decision
+§7a already opened for GPU paths — "principled equivalence", not byte parity
+— extended here to a case where byte parity was never possible because the
+reference to diff against doesn't exist in this repository at all.
+
+**Gated the same way `crater.physical_model` (§7l) already is, not an
+opt-in toggle the user must find.** `WorldParams::integrate_drainage` is
+`false` in `cartalith_engine::WorldParams::defaults()` — the parity baseline
+roughly thirty golden suites are captured against, all from v2.10/v2.11,
+none of which have any fill — and `true` in `cartalith_godot::params`'s own
+default-building function, which is what every world the shipped app
+actually generates uses. A save file that doesn't carry the key (every
+archive written before this flag existed, and every reference-app export)
+reloads with it off, so an old world reloads as the world it was — mirroring
+the source's own loader, which keeps defaulting an absent key to off even
+after v2.59 turned the flag on for new generation.
+
+**Known, disclosed consequences, not silently absorbed.** Carving now
+follows the routed network, so the heightfield itself moves under the flag
+(47–75% of cells, by up to several hundred metres where a trench cuts a
+basin rim) — expected, matching the source's own v2.59 shape, and gated
+behind the same off-by-default flag as everything else here. Under
+`world=true` (a wrapped map), the y-edge seeding this algorithm requires
+sends a much larger share of land's drainage off the pole edges than before
+(0.7%→51.7% on one measured wrapped world) — a real, disclosed side effect
+of treating map edges as outlets on a topology that has no true edge in one
+axis; not resolved further here, left for the owner if it matters in
+practice. `_riverconnect_probe.gd`'s check A (every land-locked river end
+bridged to a neighbour) now fails on exactly one run out of 1840 on the
+shell's own test world — a single, isolated case where the new, much larger
+network's geometry meets the drawing-layer bridging rule from a different
+angle than before; not a systemic regression, disclosed rather than chased
+to zero in the same pass.

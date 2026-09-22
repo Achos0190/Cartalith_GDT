@@ -1243,7 +1243,7 @@ impl AtlasFields {
         );
         let flood = cartalith_civ::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, sea);
         let (river_order, river_polys) =
-            cartalith_civ::fresh_river_network(&ws.field, &ws.flow_discharge, gw, gh, sea, world, wg.params.river_density, map_width_km);
+            cartalith_civ::fresh_river_network(&ws.field, &ws.flow_discharge, gw, gh, sea, world, wg.params.river_density, map_width_km, ws.integrated_drainage);
         let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
         let ctx = cartalith_civ::SuitabilityCtx {
             water_bodies: Some(&wb.classification),

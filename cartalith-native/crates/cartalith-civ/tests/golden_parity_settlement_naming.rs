@@ -371,6 +371,7 @@ fn compute_named_settlements(
         world,
         river_density,
         map_width_km,
+        ws.integrated_drainage,
     );
     let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
 

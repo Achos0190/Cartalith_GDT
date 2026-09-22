@@ -53,7 +53,7 @@ use cartalith_climate::{
     apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
     WeatherParams,
 };
-use cartalith_hydrology::compute_flow;
+use cartalith_hydrology::compute_flow_routed;
 use cartalith_terrain::infer::{
     build_relief_field, classify_plate_crust, heightmap_grid_h, heightmap_to_field, infer_plate_velocities,
     pick_plate_seeds, reconstruct_boundary_stress, stamp_volcanic_arcs,
@@ -299,7 +299,10 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
     }
 
     // ---- computeFlow(true) (reference HTML line 6797) ----
-    let flow_discharge = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
+    // Routed over the depression-filled surface when `p.integrate_drainage`
+    // (`RC_ENGINE_CHANGES.md` §6g) -- an imported DEM is exactly where
+    // unfilled pits are densest.
+    let flow_discharge = compute_flow_routed(gw, gh, &field, Some(&rainfall), true, world, sea_level, p.integrate_drainage);
     // A second, rain-independent `computeFlow` used to run here to fill
     // `WorldState::flow_area`, on the reasoning that "every consumer of
     // `flow_area` (the drainage-area debug view, `build_water_access`)
@@ -327,6 +330,7 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
         temperature: std::sync::Arc::new(temperature),
         rainfall: std::sync::Arc::new(rainfall),
         flow_discharge: std::sync::Arc::new(flow_discharge),
+        integrated_drainage: p.integrate_drainage,
         // River carving is likewise a height stage. The reference's
         // inferTectonics does not carve either -- it stops at computeFlow.
         channels: None,

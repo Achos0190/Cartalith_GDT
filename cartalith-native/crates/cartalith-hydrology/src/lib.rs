@@ -169,6 +169,197 @@ pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, u
     acc
 }
 
+/// The depression-filled **routing surface** that integrated drainage routes
+/// over (`RC_ENGINE_CHANGES.md` §6g, the source's `buildRoutingSurface`,
+/// v2.41; default-on in the source from v2.59, §6k).
+///
+/// **Not a line-by-line port.** The source's JavaScript postdates every
+/// reference snapshot in this repository (v2.10/v2.11), so there is nothing to
+/// diff against. What §6g specifies — and what this implements — is the
+/// standard published algorithm it names: Barnes, Lehman & Mulla (2014),
+/// *Priority-Flood: An Optimal Depression-Filling and Watershed-Labeling
+/// Algorithm for Digital Elevation Models*, Algorithm 3, "Priority-Flood+ε",
+/// in the shape of Barnes' own RichDEM implementation (`PriorityFloodEpsilon`,
+/// including its equal-elevation check that pops the open queue before the pit
+/// queue). The spec's disclosed before/after numbers are the validation
+/// target, not the algorithm.
+///
+/// - **Seeds**: every sub-sea cell (`field < sea`) and every map edge — the
+///   `y` edges always, the `x` edges only when not wrapping, since a
+///   cylindrical world has no east/west boundary for water to leave by (the
+///   same `x`-wraps/`y`-does-not rule [`d8_receiver`] applies). Seeds keep
+///   their own height.
+/// - **The ε tilt is the whole fix** (§6g: "a fill without the tilt is not a
+///   fix"). A plain fill leaves a basin flat, and [`d8_receiver`] requires a
+///   *strictly* positive drop, so a flat terminates accumulation exactly as
+///   the pit did. Each raised cell takes `next_up` of the cell it was reached
+///   from — the smallest representable `f32` step, which is Barnes' own
+///   `nextafter` — so every non-seed cell ends with a neighbour strictly below
+///   it and every land cell drains, by a strictly descending chain, to a seed.
+///   At `f32` in `[0.25, 1)` one step is at most `5.96e-8` of the normalised
+///   range: a flat 1 000 cells across rises by `6e-5`, i.e. 0.24 m at the
+///   default 4 000 m peak.
+/// - **It never modifies the heightmap.** The return value is a separate grid;
+///   the terrain keeps its pits, so the water-body classifier still reads the
+///   real surface and a lake stays a lake, while routing sees it filled and a
+///   river flows *through* it to its outflow. Cells outside every depression
+///   come back bit-identical to `field`.
+///
+/// Deterministic: the open queue orders by `(height, index)`, height taken
+/// under the same total-order bit transform [`flow_sort_desc`] uses, so equal
+/// heights pop in ascending index whatever the heap's internal layout.
+///
+/// Seeds whose eight neighbours are all seeds are never pushed — popping one
+/// could only visit closed cells — so the heap holds the coastline and the map
+/// edge, not the ocean. `O(n log n)` worst case.
+pub fn build_routing_surface(field: &[f32], gw: usize, gh: usize, sea: f64, world: bool) -> Vec<f32> {
+    use std::cmp::Reverse;
+    use std::collections::{BinaryHeap, VecDeque};
+
+    let n = gw * gh;
+    let mut surf = field[..n].to_vec();
+    if n == 0 {
+        return surf;
+    }
+    let key = |v: f32| -> u32 {
+        let mut b = v.to_bits();
+        if b == 0x8000_0000 {
+            b = 0;
+        }
+        if b & 0x8000_0000 != 0 { !b } else { b | 0x8000_0000 }
+    };
+    // Up to eight neighbours of `i`, `x` wrapping under `world`; returns the count.
+    let neighbours = |i: usize, out: &mut [usize; 8]| -> usize {
+        let (x, y) = ((i % gw) as i64, (i / gw) as i64);
+        let mut k = 0;
+        for dy in -1i64..=1 {
+            let ny = y + dy;
+            if ny < 0 || ny >= gh as i64 {
+                continue;
+            }
+            for dx in -1i64..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let mut nx = x + dx;
+                if world {
+                    nx = nx.rem_euclid(gw as i64);
+                } else if nx < 0 || nx >= gw as i64 {
+                    continue;
+                }
+                let j = (ny * gw as i64 + nx) as usize;
+                // A 1- or 2-wide wrapped grid reaches a cell through both
+                // sides; visiting it twice is harmless, but never itself.
+                if j != i {
+                    out[k] = j;
+                    k += 1;
+                }
+            }
+        }
+        k
+    };
+
+    let mut closed = vec![false; n];
+    for (i, c) in closed.iter_mut().enumerate() {
+        let (x, y) = (i % gw, i / gw);
+        *c = (field[i] as f64) < sea || y == 0 || y + 1 == gh || (!world && (x == 0 || x + 1 == gw));
+    }
+    let mut nb = [0usize; 8];
+    let mut open: BinaryHeap<Reverse<(u32, u32)>> = BinaryHeap::new();
+    for i in 0..n {
+        if closed[i] {
+            let k = neighbours(i, &mut nb);
+            if nb[..k].iter().any(|&j| !closed[j]) {
+                open.push(Reverse((key(surf[i]), i as u32)));
+            }
+        }
+    }
+
+    let mut pit: VecDeque<u32> = VecDeque::new();
+    loop {
+        let c = match (pit.front().copied(), open.peek().copied()) {
+            // RichDEM's tie rule: an open cell at exactly the pit front's
+            // height goes first, so a flat that meets unraised ground of the
+            // same height drains into it rather than being raised over it.
+            (Some(p), Some(Reverse((k, o)))) if k == key(surf[p as usize]) => {
+                open.pop();
+                o
+            }
+            (Some(p), _) => {
+                pit.pop_front();
+                p
+            }
+            (None, Some(Reverse((_, o)))) => {
+                open.pop();
+                o
+            }
+            (None, None) => break,
+        } as usize;
+        let up = surf[c].next_up();
+        let k = neighbours(c, &mut nb);
+        for &j in &nb[..k] {
+            if closed[j] {
+                continue;
+            }
+            closed[j] = true;
+            if surf[j] <= up {
+                surf[j] = up;
+                pit.push_back(j as u32);
+            } else {
+                open.push(Reverse((key(surf[j]), j as u32)));
+            }
+        }
+    }
+    surf
+}
+
+/// The routing surface to use for a world: [`build_routing_surface`] when
+/// `integrate` is on, `field` itself when it is off — borrowed, so the
+/// off-path costs nothing and routes on the raw field exactly as before.
+pub fn routing_view<'a>(
+    field: &'a [f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    integrate: bool,
+) -> std::borrow::Cow<'a, [f32]> {
+    if integrate {
+        std::borrow::Cow::Owned(build_routing_surface(field, gw, gh, sea, world))
+    } else {
+        std::borrow::Cow::Borrowed(field)
+    }
+}
+
+/// [`compute_flow`] over [`routing_view`]: integrated drainage when
+/// `integrate`, the raw-field accumulation — the same call, bit for bit — when
+/// not. `compute_flow` reads its height argument only to order cells and pick
+/// each one's receiver, so routing is purely a matter of which surface it is
+/// handed; the discharge seeding (`rain`) is unaffected.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_flow_routed(
+    gw: usize,
+    gh: usize,
+    field: &[f32],
+    rain: Option<&[f32]>,
+    use_rain: bool,
+    world: bool,
+    sea: f64,
+    integrate: bool,
+) -> Vec<f32> {
+    compute_flow(gw, gh, &routing_view(field, gw, gh, sea, world, integrate), rain, use_rain, world)
+}
+
+/// Every cell's single D8 receiver over `field` — the tree [`compute_flow`]
+/// accumulates along, `-1` where the cell has no strictly lower neighbour.
+/// Exposed for measurement: walking it to each chain's terminus is how §6g
+/// says integrated drainage must be verified ("do not verify this with a flow
+/// ratio").
+pub fn flow_receivers(field: &[f32], gw: usize, gh: usize, world: bool) -> Vec<i32> {
+    let d8 = d8_table();
+    (0..gw * gh).map(|i| d8_receiver(field, gw, gh, i, world, &d8) as i32).collect()
+}
+
 /// `D8[(dy+1)*3+(dx+1)] = hypot(dx, dy)` for `dx,dy` in `{-1,0,1}`; center
 /// (index 4) is unused ([`d8_receiver`] always skips `dx=dy=0`) but kept for a
 /// direct match to the reference's own indexing scheme.
@@ -387,6 +578,71 @@ pub fn build_channels_with_threshold(
     slope_w: usize,
     thresh: f64,
 ) -> ChannelResult {
+    build_channels_core(fld, fld, flow, w, h, sea, world, river_density, slope_w, thresh)
+}
+
+/// [`build_channels`] with the receiver tree built over a separate routing
+/// surface — integrated drainage's half of the channel network
+/// (`RC_ENGINE_CHANGES.md` §6g: "both trees need the same surface").
+///
+/// `fld` is the **real** terrain and still decides everything that is a
+/// statement about the ground: the sub-sea skip, and the gradient — so the
+/// slope field and the channel-initiation threshold it feeds are unchanged,
+/// which is §6g's one named exception. `route` (normally
+/// [`build_routing_surface`] of `fld`) decides only which neighbours are
+/// downhill: every `drop` in the receiver search is measured on it. So the
+/// aspect that steers the pick is the real ground's, choosing among neighbours
+/// that are strictly lower *on the routing surface* — which can never make a
+/// cycle or a pit, because every candidate strictly descends there.
+///
+/// **Except inside a filled depression** (`route[i] > fld[i]`), where a cell
+/// takes the plain steepest-descent receiver on `route` — the very tree
+/// [`compute_flow`] accumulated along. There the real gradient points at the
+/// basin floor rather than the outlet, and every drop is the ε tilt (a few
+/// `f32` steps), so aspect steering picks a neighbour off the accumulation path
+/// whose discharge is below the channel threshold, and the channel breaks
+/// mid-lake. Following the accumulation tree cannot break: the receiver's
+/// discharge is at least the donor's. Measured on four generated worlds
+/// (`cartalith-civ/tests/integrated_drainage.rs`): steering by the real
+/// aspect everywhere left 579 / 1 398 / 4 175 / 2 875 channel mouths ending
+/// on dry, non-channel land against 254 / 221 / 361 / 2 197 without the fill,
+/// and the longest main stem only ×1.22 / ×1.10 / ×1.19 / ×1.20; steepest
+/// inside filled cells gives 285 / 382 / 856 / 2 097 and ×1.22 / ×1.86 /
+/// ×2.83 / ×2.00 (§6k's own figure is ×1.80). Steering by the ROUTED aspect
+/// instead was measured too (406 / 755 / 2 379 / 2 412 alone; within 1 % of
+/// this rule when combined with it) and is not used. The source's own choice
+/// here is not recoverable from §6g; this one is chosen by that measurement.
+///
+/// With `route == fld` no cell is filled and this is `build_channels`
+/// exactly.
+#[allow(clippy::too_many_arguments)]
+pub fn build_channels_routed(
+    fld: &[f32],
+    route: &[f32],
+    flow: &[f32],
+    w: usize,
+    h: usize,
+    sea: f64,
+    world: bool,
+    river_density: f64,
+    map_width_km: f64,
+) -> ChannelResult {
+    build_channels_core(fld, route, flow, w, h, sea, world, river_density, w, river_flow_thresh(w, h, w, map_width_km))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_channels_core(
+    fld: &[f32],
+    route: &[f32],
+    flow: &[f32],
+    w: usize,
+    h: usize,
+    sea: f64,
+    world: bool,
+    river_density: f64,
+    slope_w: usize,
+    thresh: f64,
+) -> ChannelResult {
     let wrap = world;
     let n = w * h;
     let density = if river_density > 0.0 { river_density } else { 1.0 };
@@ -463,7 +719,10 @@ pub fn build_channels_with_threshold(
                 }
                 chan_row[x] = 1;
 
-                let hh = fld[i] as f64;
+                // Drops are measured on the routing surface (`route == fld`
+                // unless integrated drainage is on) -- see
+                // `build_channels_routed`.
+                let hh = route[i] as f64;
                 let aspect = js_atan2(-gy, -gx);
                 let mut best: i64 = -1;
                 let mut best_score = 0.0f64;
@@ -485,7 +744,7 @@ pub fn build_channels_with_threshold(
                             continue;
                         }
                         let j = ny * w as i64 + nx;
-                        let drop = (hh - fld[j as usize] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
+                        let drop = (hh - route[j as usize] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
                         if drop <= 0.0 {
                             continue;
                         }
@@ -502,7 +761,14 @@ pub fn build_channels_with_threshold(
                         }
                     }
                 }
-                recv_row[x] = if best >= 0 { best as i32 } else { s_best as i32 };
+                // A cell the fill raised has no real gradient to steer by --
+                // its drops are the ε tilt, a few ULPs -- so it takes the
+                // plain steepest receiver: exactly `d8_receiver`'s pick (same
+                // drops, same scan order, same strict `>`), i.e. the tree
+                // `compute_flow` accumulated along. See
+                // `build_channels_routed` for why and what it measured.
+                let filled = route[i] > fld[i];
+                recv_row[x] = if best >= 0 && !filled { best as i32 } else { s_best as i32 };
             }
         });
 
@@ -2764,5 +3030,189 @@ mod tests {
             "64x64 gives lmax = ln(204.8), got {}",
             super::channel_lmax(4096)
         );
+    }
+
+    // ---- integrated drainage: `build_routing_surface` (§6g) ------------------
+
+    /// Deterministic noisy terrain, heights in `[0.3, 0.9)`.
+    fn lcg_field(w: usize, h: usize, seed: u64) -> Vec<f32> {
+        let mut s = seed;
+        (0..w * h)
+            .map(|_| {
+                s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                0.3 + 0.6 * ((s >> 40) as f32 / (1u64 << 24) as f32)
+            })
+            .collect()
+    }
+
+    fn is_seed(field: &[f32], w: usize, h: usize, i: usize, sea: f64, world: bool) -> bool {
+        let (x, y) = (i % w, i / w);
+        (field[i] as f64) < sea || y == 0 || y + 1 == h || (!world && (x == 0 || x + 1 == w))
+    }
+
+    /// A 5x5 bowl with one low outlet on the top edge: the raw field holds the
+    /// whole interior in a pit at the centre, the routed surface sends it out.
+    fn bowl() -> Vec<f32> {
+        let mut f = vec![0.9f32; 25];
+        f[2] = 0.3; // (2,0): the outlet, an edge seed
+        for y in 1..4 {
+            for x in 1..4 {
+                f[y * 5 + x] = 0.5;
+            }
+        }
+        f[12] = 0.2; // (2,2): the pit
+        f
+    }
+
+    #[test]
+    fn routing_surface_fills_a_pit_with_a_strict_tilt() {
+        let f = bowl();
+        let s = super::build_routing_surface(&f, 5, 5, 0.0, false);
+        // The pit is raised to exactly one f32 step above the 0.5 ring cell it
+        // is first reached from -- not to 0.5 (a flat, which would still stop
+        // the water), and not by a real-valued epsilon.
+        assert_eq!(s[12], 0.5f32.next_up(), "pit must sit one ULP above the ring");
+        assert!(s[12] > 0.5, "a fill without the tilt is not a fix");
+        // Every seed, and every cell not in the depression, is bit-identical.
+        for i in 0..25 {
+            if is_seed(&f, 5, 5, i, 0.0, false) {
+                assert_eq!(s[i].to_bits(), f[i].to_bits(), "seed {i} moved");
+            }
+            assert!(s[i] >= f[i], "cell {i} was lowered");
+        }
+        // Raw: the centre is a pit. Routed: nothing interior is.
+        assert_eq!(super::flow_receivers(&f, 5, 5, false)[12], -1);
+        let r = super::flow_receivers(&s, 5, 5, false);
+        for y in 1..4 {
+            for x in 1..4 {
+                assert!(r[y * 5 + x] >= 0, "interior ({x},{y}) is still a pit on the routed surface");
+            }
+        }
+    }
+
+    #[test]
+    fn routed_flow_carries_the_pits_catchment_to_the_outlet() {
+        let f = bowl();
+        let raw = super::compute_flow_routed(5, 5, &f, None, false, false, 0.0, false);
+        let routed = super::compute_flow_routed(5, 5, &f, None, false, false, 0.0, true);
+        // `integrate = false` is `compute_flow` itself, bit for bit.
+        assert_eq!(raw, super::compute_flow(5, 5, &f, None, false, false));
+        // Raw: the pit keeps its own cell, the eight ring cells and the
+        // thirteen rim cells that drain inward over them.
+        assert_eq!(raw[12], 22.0);
+        // Routed: all of it arrives at the edge outlet instead.
+        assert_eq!(routed[2] - raw[2], raw[12]);
+    }
+
+    #[test]
+    fn routing_surface_is_identity_where_nothing_is_enclosed() {
+        // A monotone ramp down to the y = 0 edge has no depression anywhere.
+        let (w, h) = (9, 7);
+        let f: Vec<f32> = (0..w * h).map(|i| 0.4 + 0.05 * (i / w) as f32 + 0.001 * (i % w) as f32).collect();
+        let s = super::build_routing_surface(&f, w, h, 0.0, false);
+        assert!(s.iter().zip(&f).all(|(a, b)| a.to_bits() == b.to_bits()));
+    }
+
+    #[test]
+    fn sub_sea_cells_are_outlets_and_keep_their_height() {
+        // The bowl again, but its pit is below sea level: it IS the sea, so
+        // nothing is filled and the surface is the field.
+        let f = bowl();
+        let s = super::build_routing_surface(&f, 5, 5, 0.25, false);
+        assert!(s.iter().zip(&f).all(|(a, b)| a.to_bits() == b.to_bits()));
+    }
+
+    #[test]
+    fn a_wrapped_world_has_no_east_west_outlet() {
+        // An 8x5 plateau with its only real outlet on the top edge, and a low
+        // cell on the x = 0 column. Unwrapped, that column is a map edge -- an
+        // outlet that keeps its height. Wrapped, it is interior ground and must
+        // be filled over the plateau.
+        let (w, h) = (8, 5);
+        let mut f = vec![0.8f32; w * h];
+        f[5] = 0.1; // (5,0)
+        f[2 * w] = 0.2; // (0,2)
+        let flat = super::build_routing_surface(&f, w, h, 0.0, false);
+        assert_eq!(flat[2 * w], 0.2, "unwrapped: x = 0 is an edge seed");
+        let wrapped = super::build_routing_surface(&f, w, h, 0.0, true);
+        assert!(wrapped[2 * w] > 0.8, "wrapped: x = 0 is interior and must be filled, got {}", wrapped[2 * w]);
+        assert_eq!(wrapped[5], 0.1, "the y edge is still an outlet under wrap");
+    }
+
+    #[test]
+    fn every_cell_drains_to_a_seed_on_the_routed_surface() {
+        for &(w, h, world, sea) in &[(40usize, 30usize, false, 0.0f64), (40, 30, true, 0.0), (33, 21, false, 0.45), (33, 21, true, 0.45)] {
+            let f = lcg_field(w, h, 0xC0FFEE ^ w as u64 ^ (world as u64) << 8);
+            let raw_pits = super::flow_receivers(&f, w, h, world)
+                .iter()
+                .enumerate()
+                .filter(|&(i, &r)| r < 0 && !is_seed(&f, w, h, i, sea, world))
+                .count();
+            assert!(raw_pits > 0, "fixture must contain interior pits to be a test ({w}x{h} world={world})");
+            let s = super::build_routing_surface(&f, w, h, sea, world);
+            let r = super::flow_receivers(&s, w, h, world);
+            for start in 0..w * h {
+                let mut i = start;
+                let mut steps = 0;
+                while r[i] >= 0 {
+                    assert!(s[r[i] as usize] < s[i], "receiver must be strictly lower");
+                    i = r[i] as usize;
+                    steps += 1;
+                    assert!(steps <= w * h, "cycle");
+                }
+                assert!(
+                    is_seed(&f, w, h, i, sea, world),
+                    "cell {start} ends in a non-seed pit at {i} ({w}x{h} world={world} sea={sea})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn inside_a_filled_basin_the_channel_follows_the_accumulation_tree() {
+        let (w, h) = (48, 36);
+        let f = lcg_field(w, h, 11);
+        let s = super::build_routing_surface(&f, w, h, 0.0, false);
+        let flow = super::compute_flow(w, h, &s, None, false, false);
+        let d8 = super::flow_receivers(&s, w, h, false);
+        let c = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0);
+        let filled: Vec<usize> = (0..w * h).filter(|&i| c.chan[i] != 0 && s[i] > f[i]).collect();
+        assert!(filled.len() > 20, "fixture must route channels through filled cells ({})", filled.len());
+        for &i in &filled {
+            assert_eq!(c.recv[i], d8[i], "filled channel cell {i} left the accumulation tree");
+            // ...and so never steps off the channel mask (density 1: the
+            // threshold is flat, and the receiver's discharge is >= its own).
+            assert_ne!(c.chan[c.recv[i] as usize], 0, "filled channel cell {i} steps onto a non-channel cell");
+        }
+    }
+
+    #[test]
+    fn build_channels_routed_over_the_field_is_build_channels() {
+        let (w, h) = (36, 28);
+        let f = lcg_field(w, h, 7);
+        let flow = super::compute_flow(w, h, &f, None, false, false);
+        let a = super::build_channels(&f, &flow, w, h, 0.35, false, 1.0, 800.0);
+        let b = super::build_channels_routed(&f, &f, &flow, w, h, 0.35, false, 1.0, 800.0);
+        assert_eq!(a.recv, b.recv);
+        assert_eq!(a.chan, b.chan);
+        assert!(a.slope.iter().zip(&b.slope).all(|(x, y)| x.to_bits() == y.to_bits()));
+    }
+
+    #[test]
+    fn routed_channels_never_end_in_an_interior_pit_and_keep_the_real_slope() {
+        let (w, h) = (48, 36);
+        let f = lcg_field(w, h, 11);
+        let s = super::build_routing_surface(&f, w, h, 0.0, false);
+        let flow = super::compute_flow(w, h, &s, None, false, false);
+        let raw = super::build_channels(&f, &flow, w, h, 0.0, false, 1.0, 800.0);
+        let routed = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0);
+        // Slope and channel initiation are statements about the ground.
+        assert_eq!(raw.chan, routed.chan);
+        assert!(raw.slope.iter().zip(&routed.slope).all(|(x, y)| x.to_bits() == y.to_bits()));
+        let dead = |c: &super::ChannelResult| {
+            (0..w * h).filter(|&i| c.chan[i] != 0 && c.recv[i] < 0 && !is_seed(&f, w, h, i, 0.0, false)).count()
+        };
+        assert!(dead(&raw) > 0, "fixture must have channel cells ending in a raw pit to be a test");
+        assert_eq!(dead(&routed), 0);
     }
 }

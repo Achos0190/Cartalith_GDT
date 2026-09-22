@@ -5235,6 +5235,7 @@ mod tests {
             world,
             p.river_density,
             width_km,
+            ws.integrated_drainage,
         );
         let river_reach = crate::build_river_reach(&river_polys, &order, gw, gh);
         let ctx = crate::SuitabilityCtx {
