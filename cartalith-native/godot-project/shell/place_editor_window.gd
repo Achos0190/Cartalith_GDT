@@ -1456,7 +1456,7 @@ func _build_backlinks(sec: Control, kind: String, entity_id: int, name: String) 
 		var note := DccWidgets.note(sec,
 			"Backlinks are not indexed for this vault yet. Building the index reads every "
 			+ "note once; after that a refresh only re-opens the files that changed.")
-		note.tooltip_text = "Data ▸ Vault index… builds it."
+		note.tooltip_text = "Data ▸ Markdown vault… ▸ Index builds it."
 		return
 
 	var back: Array = bridge.vault_entity_backlinks(kind, entity_id)

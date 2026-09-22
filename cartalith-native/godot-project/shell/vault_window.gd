@@ -156,6 +156,12 @@ var _snapshot_dir := ""
 ## the state.
 var _index_feedback := ""
 
+## The overview's settlement-name filter for `_build_pick_entity()` (menus.gd
+## 2026-09-21: the two menu rows that used to promise "Create a note from a
+## template" and the index landed on this same unscoped panel with no way to
+## actually reach either without an entity already linked. This is that way.)
+var _pick_query := ""
+
 var _body: VBoxContainer
 var _phone := false
 var _phone_title: Label
@@ -1832,6 +1838,7 @@ func _save_prefs() -> void:
 
 func _build_overview() -> void:
 	_build_index()
+	_build_pick_entity()
 	var sec := DccWidgets.section(_body, "All linked notes")
 	var links := bridge.vault_all_links()
 	if links.is_empty():
@@ -1847,6 +1854,90 @@ func _build_overview() -> void:
 			String(STATUS_TEXT.get(String(d.get("status", "")), ""))],
 			func(): open_for(kind, eid, label))
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+
+## Reaches `_build_create()` — the template-creation flow (`GUI_GAP_REGISTER.md`
+## VA-02) — and `_build_attach()` from the unscoped overview, for an entity that
+## does not have a note linked yet, which "All linked notes" above cannot show
+## (it lists links, not entities). Both blocks only build when `_rebuild()` sees
+## `scoped`, so picking any row here and re-entering through `open_for()` is
+## what makes them reachable, not a duplicate of them.
+##
+## Provinces and continents are listed in full — the same two dictionaries and
+## the same `id`/`name` keys `civilization_workspace.gd::_fill_knowledge()`
+## already reads for its own "Linked notes" panel, so this reuses a shape
+## proven correct there rather than guessing a settlement-sized one. Settlements
+## are not listed in full (there can be hundreds); a name-substring filter over
+## `bridge.settlements()`, on the same "type it, press Enter/Search" idiom
+## `_build_search()` above already uses, finds one without walking the whole
+## list on every keystroke.
+func _build_pick_entity() -> void:
+	var sec := DccWidgets.section(_body, "Attach or create a note")
+	DccWidgets.note(sec,
+		"Pick a settlement, province or continent to open its own Attach and "
+		+ "Create-a-note-from-a-template sections — whether or not it already "
+		+ "has a note linked. An entity's own panel (its Linked notes row) opens "
+		+ "the same place.")
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sec.add_child(row)
+	var field := LineEdit.new()
+	field.placeholder_text = "settlement name"
+	field.text = _pick_query
+	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DccWidgets.well(field)
+	field.text_changed.connect(func(t: String): _pick_query = t)
+	field.text_submitted.connect(func(t: String):
+		_pick_query = t
+		_rebuild())
+	row.add_child(field)
+	DccWidgets.action(row, "Find settlements", func():
+		_rebuild())
+
+	var q := _pick_query.strip_edges().to_lower()
+	if q != "":
+		var matches: Array = []
+		for s in bridge.settlements():
+			var d: Dictionary = s
+			var name := String(d.get("name", ""))
+			if name.to_lower().find(q) >= 0:
+				matches.append(d)
+		if matches.is_empty():
+			DccWidgets.note(sec, "No settlement matches \"%s\"." % _pick_query.strip_edges())
+		else:
+			var sg := DccWidgets.group(sec, "Settlements", true)
+			var shown := 0
+			for d in matches:
+				if shown >= 30:
+					DccWidgets.note(sg, "%d more match — narrow the search to see them." % (matches.size() - shown))
+					break
+				var tid := int(d.get("tid", 0))
+				var name := String(d.get("name", "?"))
+				var b := DccWidgets.action(sg, name, func(): open_for("settlement", tid, name))
+				b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+				shown += 1
+
+	var provinces := bridge.provinces()
+	if not provinces.is_empty():
+		var pg := DccWidgets.group(sec, "Provinces", false)
+		for p in provinces:
+			var d: Dictionary = p
+			var pid := int(d.get("id", 0))
+			var pname := String(d.get("name", "?"))
+			var b := DccWidgets.action(pg, pname, func(): open_for("province", pid, pname))
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+	var continents := bridge.continents()
+	if not continents.is_empty():
+		var cg := DccWidgets.group(sec, "Continents", false)
+		for c in continents:
+			var d: Dictionary = c
+			var cid := int(d.get("id", 0))
+			var cname := String(d.get("name", "?"))
+			var b := DccWidgets.action(cg, cname, func(): open_for("continent", cid, cname))
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 
 # -- The backlink index (`GUI_GAP_REGISTER.md` VA-01) ------------------------

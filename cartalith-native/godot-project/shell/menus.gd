@@ -121,7 +121,7 @@ const ID_VAULT := 45
 const ID_WORLD_DATA := 47
 ## The standalone browse-and-edit row (owner request, 2026-09-21): opens
 ## `vault_window.gd` with no entity/kind scope at all, via `open_vault_browse()`
-## -- a fourth destination alongside `ID_VAULT`'s three, so it needs its own id.
+## -- a second destination alongside `ID_VAULT`'s one, so it needs its own id.
 const ID_VAULT_BROWSE := 716
 ## One id per Data-manager route, allocated above every other id in this file.
 ## The Data dropdown draws all fourteen routes the canvas draws (see `_data()`),
@@ -2676,35 +2676,31 @@ func _data(p: PopupMenu) -> void:
 ## in this menu already is, and an eighth top-level menu for one window is
 ## the kind of bar growth `DCC_SHELL_SPEC.md` §2 exists to prevent.
 ##
-## **Three live rows now, and the paragraph here claimed one until 2026-09-07.**
-## It read: *"One live row, because there is exactly one window behind it ... and
-## a second row onto the same window is the duplicate-owner shape this shell
-## keeps having to undo. Three of v3's seven rows are that window's own content
-## ...; the other three have no implementation at all and are `_todo`, not
-## invented."* Written at `8e3b824`, when the block was one `_live` and two
-## `_todo` (already three, not the six that sentence totals). Both `_todo` rows
-## were promoted when VA-01 and VA-02 landed, and the prose never followed:
-## **no row in this menu is `_todo` today** -- walked off the live `PopupMenu`,
-## all three carry `ID_VAULT` and are enabled.
+## **Two live rows now, cut from three, 2026-09-21.** The three-row shape
+## (`8e3b824` onward) folded all seven of v3's `▾ VAULT` rows -- connect/relink,
+## note templates, path convention, frontmatter mapping, sync direction,
+## missing & orphan notes, create-notes -- into three *labels* over one route,
+## every one calling `open_vault_overview()` (`open_for("", 0, "")`). That route
+## is unscoped, and `vault_window.gd::_rebuild()` builds `_build_create()` only
+## when `scoped`, so the "Create a note from a template…" and "Vault index…"
+## rows landed on a panel with no template block and no way to reach one short
+## of already having a note linked to the entity you wanted -- known and
+## disclosed here for over three weeks rather than fixed.
 ##
-## So: **one window (`vault_window.gd`, `MARKDOWN_VAULT_SCOPE.md` milestone 1),
-## three rows onto it**, folding all seven of v3's `▾ VAULT` rows -- connect/
-## relink, note templates, path convention, frontmatter mapping, sync
-## direction, missing & orphan notes, create-notes -- into three destinations,
-## each of which says in its tooltip which of the seven it carries. They are
-## three *labels* over one route, not three implementations; every one calls
-## `open_vault_overview()`, which is `open_for("", 0, "")`.
-##
-## **Known and reported rather than silently fixed:** that route is unscoped,
-## so the two lower rows land on the panel's top rather than on the section
-## their tooltip names -- and `vault_window.gd::_rebuild()` builds
-## `_build_create()` only when `scoped`, so `Create a note from a template…`
-## reaches a window with no template block on it until the user picks an entity
-## out of *All linked notes*. Section-scoping `open_vault_overview()` is a
-## behaviour change and an owner call.
+## Owner decision: fold to two rows, not three. The Index (VA-01) is no longer
+## one of the two lower rows' problems -- `vault_window.gd::_build_overview()`
+## calls `_build_index()` first, so it is the first thing under Search on the
+## unscoped panel regardless of which row opened it. The template flow (VA-02)
+## needed an actual fix, not just a merge: `vault_window.gd::_build_pick_entity()`
+## (new, 2026-09-21) gives the unscoped panel a settlement/province/continent
+## picker, and picking any entity re-enters through `open_for()` scoped to it,
+## which is what makes `_build_create()` build. Nothing the two removed rows
+## promised is gone; both destinations are sections inside the one row below,
+## reached by picking an entity rather than by a second and third menu promise
+## of a place neither ever actually landed on.
 func _build_vault_rows(p: PopupMenu) -> void:
 	p.add_separator()
-	_live(p, "Markdown vault ▸ Connect · Browse · Links", ID_VAULT)
+	_live(p, "Markdown vault…", ID_VAULT)
 	p.set_item_tooltip(p.item_count - 1,
 		"Connect or re-link a vault folder (any folder of .md files -- Obsidian is one, "
 		+ "and nothing here requires it), browse it, attach a settlement, province or "
@@ -2712,37 +2708,19 @@ func _build_vault_rows(p: PopupMenu) -> void:
 		+ "v3's frontmatter mapping and sync direction, as a per-write choice rather "
 		+ "than a global setting: the field-fill picker chooses which derived keys go "
 		+ "in, fills only empty ones by default, previews every write, and refuses if "
-		+ "the note changed since the preview. Cartalith never rewrites a note's body.")
-	_live(p, "Create a note from a template…", ID_VAULT)
-	p.set_item_tooltip(p.item_count - 1,
-		"Opens the same vault panel: pick any entity's Linked notes and its "
-		+ "New note from a template block writes Settlements/{name}.md (or the "
-		+ "matching folder for a province, continent or faction) from one of your "
-		+ "own templates. A template is any .md in the vault with \"template\" in "
-		+ "its path -- Cartalith ships none of its own, and copies yours verbatim "
-		+ "with only the entity's name substituted. It refuses an existing path "
-		+ "rather than overwriting a note. GUI_GAP_REGISTER.md VA-02.")
-	## `GUI_GAP_REGISTER.md` **VA-01**, built 2026-08-25. The register's own
-	## framing -- an on-demand index that stalls versus a persistent one that
-	## goes stale -- was a false pair: a `stat` is not a read, so the index is
-	## persisted AND kept correct per file by `(modified, len)`.
-	_live(p, "Vault index ▸ Backlinks · missing & orphan notes…", ID_VAULT)
-	p.set_item_tooltip(p.item_count - 1,
-		"Opens the vault panel's Index section: build or refresh the reverse index, "
-		+ "then see which links point at a note that does not exist and which notes "
-		+ "nothing links to. Building reads every note once; a refresh re-opens only "
-		+ "the files whose size or modified time changed, so ten edits in Obsidian "
-		+ "cost ten reads and not the whole vault. Per note it keeps the links, the "
-		+ "Cartalith blocks and a 64-bit word fingerprint -- never the prose. Backlinks "
-		+ "and unlinked mentions for one entity are on that entity's own panel. "
-		+ "GUI_GAP_REGISTER.md VA-01.")
+		+ "the note changed since the preview. Cartalith never rewrites a note's body. "
+		+ "The panel itself opens on an index of missing & orphan notes "
+		+ "(GUI_GAP_REGISTER.md VA-01) and an Attach-or-create-a-note picker onto any "
+		+ "settlement, province or continent, whose New-note-from-a-template block "
+		+ "writes Settlements/{name}.md (or the matching folder) from one of your own "
+		+ "templates -- Cartalith ships none of its own (GUI_GAP_REGISTER.md VA-02).")
 	## Owner request, 2026-09-21: the file browser gained a raw-text preview
 	## and edit panel, and the owner wanted it reachable without attaching a
-	## note to an entity first. A fourth row rather than folding it into
-	## `ID_VAULT`'s first row, because those three all open the panel *for* an
-	## entity picked elsewhere (or the whole link store) and this one opens it
-	## for no entity at all -- a different id, per this function's own header
-	## on why three of v3's seven collapsed onto one id and not seven onto one.
+	## note to an entity first. A second row rather than folding it into
+	## `ID_VAULT`'s row, because that one opens the panel *for* an entity
+	## picked elsewhere (or the whole link store) and this one opens it for no
+	## entity at all -- a different id, per this function's own header on why
+	## seven of v3's rows collapsed onto two ids and not seven onto one.
 	_live(p, "Browse & edit a note…", ID_VAULT_BROWSE)
 	p.set_item_tooltip(p.item_count - 1,
 		"Opens the vault panel with no entity scope: pick any note, see its "

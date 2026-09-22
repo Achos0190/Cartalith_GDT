@@ -335,37 +335,83 @@ func _ready() -> void:
 				_app.vault_window.hide()
 			else:
 				_fail_msg("Data ▸ Markdown vault did not open the vault window")
-		## And the two rows beside it. Both were `_todo` when this probe was
-		## written and both have since been BUILT, so this assertion is now the
-		## inverse of what it used to be: `GUI_GAP_REGISTER.md` VA-02 (create a
-		## note from a template) closed in §39 and VA-01 (the reverse index --
-		## backlinks, missing and orphan notes) closed in §42. They must be LIVE,
-		## and they must reach the same single window the row above just opened
-		## rather than become a second owner of it -- checked by item id, not by
-		## pressing them again, since all three carry `ID_VAULT`.
-		##
-		## The old text match was `Create notes`, which had stopped matching
-		## anything at all: the row reads `Create a note from a template...`.
-		## `idx` is -1 only on the already-reported "no Markdown vault row"
-		## failure; -1 into `get_item_id` is an error, so it degrades here.
-		var want_id := data_popup.get_item_id(idx) if idx >= 0 else -1
-		var live := 0
+		## The 2026-09-21 fold: "Create a note from a template…" and "Vault
+		## index ▸ Backlinks · missing & orphan notes…" are RETIRED as menu rows
+		## -- their destinations moved in-panel (`vault_window.gd::_build_index()`
+		## and `_build_pick_entity()`), not deleted. Assert both old labels are
+		## gone from the Data menu, and that the two rows that remain --
+		## `ID_VAULT` ("Markdown vault…") and `ID_VAULT_BROWSE` ("Browse & edit a
+		## note…") -- are exactly the vault surface here now.
+		var vault_rows := 0
 		for i in data_popup.item_count:
 			var t := String(data_popup.get_item_text(i))
-			if (t.findn("from a template") >= 0 or t.findn("orphan notes") >= 0):
-				if (not data_popup.is_item_disabled(i)
-						and data_popup.get_item_tooltip(i).length() > 40
-						and data_popup.get_item_id(i) == want_id):
-					live += 1
-				else:
-					_fail_msg("Data ▸ \"%s\" is not a live vault row (disabled=%s, tip=%d, id=%d want %d)"
-						% [t, data_popup.is_item_disabled(i),
-						data_popup.get_item_tooltip(i).length(),
-						data_popup.get_item_id(i), want_id])
-		if live == 2:
-			_ok("Data ▸ the template and index rows are live onto the same vault window")
+			if t.findn("from a template") >= 0 or t.findn("Vault index") >= 0:
+				_fail_msg("Data menu still carries the retired row \"%s\"" % t)
+			var id := data_popup.get_item_id(i)
+			if id == DccMenus.ID_VAULT or id == DccMenus.ID_VAULT_BROWSE:
+				vault_rows += 1
+				if data_popup.is_item_disabled(i) or data_popup.get_item_tooltip(i).length() <= 40:
+					_fail_msg("Data ▸ \"%s\" is not a live vault row (disabled=%s, tip=%d)"
+						% [t, data_popup.is_item_disabled(i), data_popup.get_item_tooltip(i).length()])
+		if vault_rows == 2:
+			_ok("Data ▸ exactly two vault rows (Markdown vault…, Browse & edit a note…)")
 		else:
-			_fail_msg("Data: expected 2 live vault rows, found %d" % live)
+			_fail_msg("Data: expected 2 vault rows total, found %d" % vault_rows)
+
+	## In-panel navigation, driven rather than inferred from the scene tree
+	## (`MISTAKES.md` "Claim something covered is now visible"). Connects a
+	## throwaway vault with one template file so `_build_index()` and
+	## `_build_create()` (both gated on a bound vault / a non-empty template
+	## list) actually render, then presses the real controls: the unscoped
+	## panel must show the Index by itself, and picking a province from the
+	## new `_build_pick_entity()` picker must land on that province's own
+	## Create-from-template and Attach sections -- the fix for the "lands on
+	## the panel's top rather than the section its tooltip names" bug the old
+	## three-row menu carried.
+	var vw = _app.vault_window
+	if vw == null:
+		_fail_msg("app has no vault_window to drive")
+	else:
+		var vault_dir := ProjectSettings.globalize_path("user://_v3vault_probe")
+		DirAccess.make_dir_recursive_absolute(vault_dir.path_join("templates"))
+		var tf := FileAccess.open(vault_dir.path_join("templates/settlement_template.md"), FileAccess.WRITE)
+		if tf != null:
+			tf.store_string("# {{name}}\n")
+			tf.close()
+		var conn: Dictionary = _bridge.vault_connect(vault_dir, "v3 probe vault")
+		if not bool(conn.get("ok", false)):
+			_fail_msg("v3 probe vault did not connect: %s" % String(conn.get("error", "")))
+		vw.open_overview()
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var overview_txt := "\n".join(_texts(vw, []))
+		if overview_txt.findn("Index") >= 0 and overview_txt.findn("Attach or create a note") >= 0:
+			_ok("Markdown vault panel opens on Index and the entity picker, unscoped")
+		else:
+			_fail_msg("Markdown vault overview is missing Index and/or the entity picker:\n%s" % overview_txt)
+
+		var provinces: Array = _bridge.provinces()
+		if provinces.is_empty():
+			_fail_msg("no provinces to drive the entity picker with")
+		else:
+			var pname := String((provinces[0] as Dictionary).get("name", ""))
+			var pick := _button_exact(vw, pname)
+			if pick == null:
+				_fail_msg("entity picker has no row for province \"%s\":\n%s" % [pname, overview_txt])
+			else:
+				pick.pressed.emit()
+				await get_tree().process_frame
+				await get_tree().process_frame
+				var scoped_txt := "\n".join(_texts(vw, []))
+				var has_create := scoped_txt.findn("New note from a template") >= 0
+				var has_attach := scoped_txt.findn("Attach a note") >= 0
+				if has_create and has_attach:
+					_ok("Picking \"%s\" from the overview landed on its own Create-from-template and Attach sections" % pname)
+				else:
+					_fail_msg("Picking \"%s\" did not land on Create/Attach (create=%s attach=%s):\n%s"
+						% [pname, has_create, has_attach, scoped_txt])
+		_bridge.vault_disconnect()
+		vw.hide()
 
 	## 6b. One shot per re-parented category, alone, so the layout of the moved
 	## content can actually be looked at rather than inferred from a wall of
