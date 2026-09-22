@@ -630,3 +630,68 @@ fn every_recorded_bridge_has_a_live_road_on_it() {
     }
     assert!(checked > 0, "no scenario produced a bridge — this test proved nothing");
 }
+
+// ----------------------------------------------- lots against the wall (Ruling H) --
+
+/// The departure `crate::wallside` makes, pinned on real towns rather than on
+/// its own helpers: the golden above only sees counts and a hash, which would
+/// pass on lots placed anywhere.
+#[test]
+fn lots_back_onto_the_wall_and_the_faubourg_survives_the_rampart_sweep() {
+    use crate::geom::point_in_poly;
+    use crate::growth::dist_to_line;
+    use crate::wallside::WallBacking;
+    let case = |name: &str| golden::CASES.iter().find(|c| c.name == name).expect("case");
+
+    let c = case("riverDefault");
+    let t = generate(c.seed, &opts_for(c));
+    assert_eq!(t.wall.style, "curtain");
+    let ring = t.wall.ring.as_ref().expect("walled");
+    // `dist_to_line` walks an open polyline; an all-land curtain's arc is the
+    // whole ring, so close it or a lot on the seam measures to the far side.
+    let mut arc = t.wall.land_arc.clone().expect("walled");
+    if Some(&arc) == t.wall.ring.as_ref() {
+        arc.push(arc[0]);
+    }
+    let arc = &arc;
+    let lots = |wb| t.parcels.iter().filter(move |p| p.par.wall_backing == wb).collect::<Vec<_>>();
+    let (inside, outside) = (lots(WallBacking::Inside), lots(WallBacking::Outside));
+    // Literals from the re-derived golden (`district_counts` faubourg 43, 86
+    // wall lots in all), not from the code under test.
+    assert_eq!((inside.len(), outside.len()), (43, 43));
+
+    for p in &outside {
+        assert_eq!(p.district, "faubourg", "{}", p.par.id);
+        assert!(!p.cleared, "{}: the rampart sweep must spare a faubourg lot", p.par.id);
+        // The back line sits on the curtain's drawn face — half of its 4.5 m
+        // stroke out from the centreline — less at most `MAX_BOW` (1 m) where
+        // the straight back line spans a bend in the wall.
+        let back = p.par.poly[3].lerp(p.par.poly[2], 0.5);
+        let d = dist_to_line(back, arc);
+        assert!((1.25 - 1e-9..=2.25 + 1e-9).contains(&d), "{}: back line {d} m from the wall", p.par.id);
+        assert!(p.par.poly.iter().all(|q| !point_in_poly(*q, ring)), "{}", p.par.id);
+        // And it is built on, against that face. Removing the sweep exemption
+        // in `generate()` deletes these buildings, so this fails with it.
+        let b = t.buildings.iter().find(|b| b.parcel == p.par.id);
+        let b = b.unwrap_or_else(|| panic!("{}: faubourg lot unbuilt", p.par.id));
+        assert!(b.poly.iter().any(|q| dist_to_line(*q, arc) < 2.25 + 0.5), "{}", p.par.id);
+    }
+    for p in &inside {
+        assert!(p.par.poly.iter().all(|q| point_in_poly(*q, ring)), "{}", p.par.id);
+        let back = p.par.poly[3].lerp(p.par.poly[2], 0.5);
+        let d = dist_to_line(back, arc);
+        assert!((2.25 - 1e-9..=3.25 + 1e-9).contains(&d), "{}: back line {d} m from the wall", p.par.id);
+    }
+    // Churches stay off wall lots (one-lot precincts otherwise).
+    for ch in &t.churches {
+        assert!(ch.yard.iter().all(|id| !id.starts_with("wallin") && !id.starts_with("faub")));
+    }
+
+    // A glacis stays clear, and a designed city grows no faubourg.
+    for name in ["wallStyleBastioned", "venusRadial"] {
+        let c = case(name);
+        let t = generate(c.seed, &opts_for(c));
+        assert!(t.wall.ring.is_some(), "{name} is walled");
+        assert!(t.parcels.iter().all(|p| p.par.wall_backing == WallBacking::No), "{name}");
+    }
+}

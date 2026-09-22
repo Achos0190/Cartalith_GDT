@@ -400,6 +400,12 @@ pub struct FortZoneSweep {
 /// cleared rampart strip. Everything with a footprint inside that band goes:
 /// buildings, parcels, clutter, and every road except the gate causeways.
 ///
+/// **This function still reports all of it; `generate()` no longer applies all
+/// of it.** A faubourg lot ([`crate::wallside`], a Ruling H departure) is built
+/// against the curtain's outer face on purpose, so `generate()` skips the
+/// reported indices that belong to one. This function is unchanged and still
+/// matches the reference.
+///
 /// ## Deviations from the reference's signature, and why each one
 ///
 /// - **`site` is dropped.** The reference declares it and never reads it —

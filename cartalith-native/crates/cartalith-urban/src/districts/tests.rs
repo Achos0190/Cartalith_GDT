@@ -243,6 +243,7 @@ fn syn_parcels() -> Vec<Parcel> {
                 edge_cls: cls,
                 // This port's own field; milestone 13 never reads it.
                 tone: 0.0,
+                wall_backing: crate::wallside::WallBacking::No,
             }
         })
         .collect()
@@ -642,6 +643,7 @@ fn bmap_reads_the_back_edge_in_the_references_order() {
         age: 0.0,
         edge_cls: "street",
         tone: 0.0,
+        wall_backing: crate::wallside::WallBacking::No,
     };
     // u = 0 must sit on the *left* side of both edges: (0,0) and (2,20).
     let front_left = bmap(&par, 0.0, 0.0);

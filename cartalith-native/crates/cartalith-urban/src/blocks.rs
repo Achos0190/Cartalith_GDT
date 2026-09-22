@@ -55,6 +55,7 @@ use crate::graph::Graph;
 use crate::rng::{Substream, fnv1a, stream};
 use crate::rules::{DEFAULT_RULES, Rules};
 use crate::site::Site;
+use crate::wallside::WallBacking;
 
 /// A plaza, as [`build_blocks`] reads one — milestone 8's
 /// [`crate::plaza::build_plaza`] is what produces it. Re-exported from here
@@ -122,6 +123,12 @@ pub struct Parcel {
     /// `urban_layout_draw.gd` owns the palette, the same way it already owns
     /// the street and water colours.
     pub tone: f64,
+    /// **This port's own field, not the reference's** — a Ruling H departure
+    /// (`crate::wallside`). [`WallBacking::No`] for every lot this module
+    /// plats; `Inside`/`Outside` only for the lots
+    /// [`crate::wallside::build_wall_lots`] plats against the town wall, whose
+    /// back line (`poly[3]`→`poly[2]`) lies on the wall's face.
+    pub wall_backing: WallBacking,
 }
 
 /// `buildBlocks` (line 30193) — the faces of the street graph, inset by their
@@ -415,6 +422,7 @@ pub fn build_parcels(
                         age,
                         edge_cls: eref.map_or("street", |eid| g.edges[eid].cls),
                         tone: tone_rng.u(),
+                        wall_backing: WallBacking::No,
                     });
                     pid += 1;
                 }

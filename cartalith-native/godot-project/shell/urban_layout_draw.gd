@@ -128,6 +128,13 @@ const FARM_LINE := Color(0.169, 0.129, 0.094, 0.22)
 ## economy districts — those are reachable only from a settlement
 ## `specialisation`, which this port's settlements do not carry, so a key for
 ## one would be a colour nothing can select.
+##
+## `faubourg` is **not the reference's** — the poor quarter built against the
+## wall's outer face (`cartalith_urban::wallside`, a Ruling H departure, owner
+## 2026-09-22). Derived, not picked: the midpoint of `suburb` and `artisan` (the
+## districts on either side of the wall from it) darkened by 12%, at the floor
+## of `craftriver`/`harbour`'s 0.26-0.30 alpha band, so the dense row of hovels
+## reads as a quarter of its own rather than as more suburb.
 const DISTRICT_FILL := {
 	"market": Color(0.847, 0.788, 0.588, 0.32),
 	"burgher": Color(0.776, 0.706, 0.549, 0.26),
@@ -136,6 +143,7 @@ const DISTRICT_FILL := {
 	"harbour": Color(0.549, 0.635, 0.745, 0.30),
 	"suburb": Color(0.659, 0.690, 0.549, 0.20),
 	"agrarian": Color(0.667, 0.737, 0.510, 0.20),
+	"faubourg": Color(0.594, 0.587, 0.480, 0.26),
 }
 
 ## The wall circuit, one colour per style — the reference's own three

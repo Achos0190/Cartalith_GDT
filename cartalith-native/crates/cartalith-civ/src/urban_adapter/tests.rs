@@ -361,6 +361,9 @@ fn a_town_gets_a_wall_buildings_districts_markets_and_fields() {
                 *d,
                 "market" | "burgher" | "artisan" | "craftriver" | "harbour" | "suburb"
                     | "agrarian" | "church"
+                    // Not the reference's: the poor quarter against the wall's
+                    // outer face (`cartalith_urban::wallside`, Ruling H).
+                    | "faubourg"
             ),
             "unknown district {d:?}"
         );

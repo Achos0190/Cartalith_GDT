@@ -7,6 +7,14 @@
 //! branch conditions and the small amount of arithmetic `generate()` does
 //! between stages (the population clamp, the church count, the head count).
 //!
+//! **One stage is not the reference's, and neither is one exemption.**
+//! [`build_wall_lots`] (`crate::wallside`, Ruling H, owner 2026-09-22) plats
+//! lots against the wall — intramural lots backing onto its inner face, and a
+//! faubourg against its outer face — straight after `buildParcels` on the
+//! organic branch; and the faubourg is exempt from `clearFortZone`'s rampart
+//! sweep. Both are deliberate departures, and the whole-town golden that moved
+//! because of them is disclosed case by case in `tests/golden.rs`'s header.
+//!
 //! # Two orderings that are not interchangeable
 //!
 //! 1. **`detectRiverCrossings` runs after every pass that can kill an edge** —
@@ -76,6 +84,7 @@ use crate::rng::fnv1a;
 use crate::routes::{Anchors, build_primaries, build_primaries_from_paths, place_anchors};
 use crate::rules::{CultureProfile, RulesPatch, resolve_profile, resolve_rules};
 use crate::site::{Economy, SiteOpts, TerrainCtx, WaterCtx, build_site};
+use crate::wallside::{WallBacking, build_wall_lots};
 use crate::water::{
     Bridge, Crossings, Ford, HarbourOpts, HarbourOutcome, HarbourWorks, add_river_bridges,
     build_harbour, detect_river_crossings,
@@ -484,7 +493,18 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
     remove_water_crossings(&site, &mut g);
 
     let blocks = build_blocks(&g, plaza.as_ref(), &site);
-    let parcels = build_parcels(seed, &g, &blocks, anchors.market, epochs, &site, Some(&rules));
+    let mut parcels = build_parcels(seed, &g, &blocks, anchors.market, epochs, &site, Some(&rules));
+    // **Not the reference** — a Ruling H departure (owner, 2026-09-22): lots
+    // backing onto the wall from inside, and a faubourg against it outside.
+    // Appended after every street-platted lot and drawn from their own
+    // substreams, so no earlier lot moves; see `crate::wallside` for why this
+    // is a plat of the unplatted band rather than a bias on existing blocks.
+    // Organic planning only — the Venus plan is designed, not accreted.
+    if profile.planning != "radial" {
+        let wall_lots =
+            build_wall_lots(seed, &g, &wall_state, &site, &blocks, &parcels, pop_target, epochs);
+        parcels.extend(wall_lots);
+    }
 
     let quay = |h: &Option<HarbourWorks>| h.as_ref().map(|w| w.quay.clone());
     let quay_pts = quay(&harbour);
@@ -663,13 +683,31 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         let parcel_polys: Vec<Vec<Vec2>> = lots.iter().map(|l| l.par.poly.clone()).collect();
         let detail_pts: Vec<Option<Vec2>> = details.iter().map(Detail::anchor).collect();
         let sweep = clear_fort_zone(&wall_state, &mut g, &building_polys, &parcel_polys, &detail_pts);
+        // **Not the reference** (Ruling H, `crate::wallside`): a faubourg is
+        // built against the wall's outer face, i.e. inside the curtain's 15 m
+        // rampart strip, on purpose — so its lots and their buildings are
+        // exempt from the sweep. Keyed on the lot, not on the district string,
+        // because a faubourg lot can since have been retagged (a churchyard,
+        // an ore yard). A bastioned trace never gets a faubourg at all, so its
+        // glacis is swept exactly as before.
+        let faubourg: std::collections::HashSet<&str> = lots
+            .iter()
+            .filter(|l| l.par.wall_backing == WallBacking::Outside)
+            .map(|l| l.par.id.as_str())
+            .collect();
         // Both removal lists are already descending — the reference splices
         // while walking backwards — so they apply in the order they arrive.
         for &i in &sweep.buildings_removed {
+            if faubourg.contains(buildings[i].parcel.as_str()) {
+                continue;
+            }
             buildings.remove(i);
             building_ruined.remove(i);
         }
         for &i in &sweep.parcels_cleared {
+            if lots[i].par.wall_backing == WallBacking::Outside {
+                continue;
+            }
             parcel_cleared[i] = true;
         }
         for &i in &sweep.details_removed {

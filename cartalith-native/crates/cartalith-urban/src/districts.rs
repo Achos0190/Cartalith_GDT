@@ -89,6 +89,7 @@ use crate::rng::{Substream, fnv1a, stream};
 use crate::routes::Anchors;
 use crate::rules::{CultureProfile, MEDIEVAL};
 use crate::site::{Site, terrain_suitability};
+use crate::wallside::WallBacking;
 use std::f64::consts::PI;
 
 #[cfg(test)]
@@ -110,7 +111,7 @@ mod tests;
 pub struct Lot<'a> {
     pub par: &'a Parcel,
     /// One of `market`, `burgher`, `artisan`, `craftriver`, `suburb`,
-    /// `agrarian`, `harbour`, `oreyard`, `fishery`, `sawyard`, `granary`,
+    /// `agrarian`, `faubourg` (not the reference's — `crate::wallside`), `harbour`, `oreyard`, `fishery`, `sawyard`, `granary`,
     /// `warehouse`, `church` — or `""` before [`assign_districts`] has run.
     ///
     /// A string rather than an enum, for the same reason `Edge::cls`,
@@ -162,6 +163,10 @@ const PROV_SUBURB: &str =
     "Suburb: extramural ribbon along the approach roads (Strano exploration phase, M-GRW-1).";
 const PROV_AGRARIAN: &str =
     "Agrarian fringe: smallholdings, orchards and paddocks at the walking limit (M-REG-4).";
+/// Not the reference's — a Ruling H departure (`crate::wallside`).
+const PROV_FAUBOURG: &str = "Faubourg: a poor quarter of narrow, shallow lots built up against the wall's outer face, beside a gate and along the curtain rather than along the road (owner, 2026-09-22; Ruling H).";
+const PROV_WALL_LEAN: &str = "Lean-to against the town wall: the curtain is the building's back wall (owner, 2026-09-22; Ruling H).";
+const PROV_WALL_BACKED: &str = "Wall-backed range: street to curtain in one range, the town wall its rear wall (owner, 2026-09-22; Ruling H).";
 
 const PROV_OREYARD: &str = "Ore yard: dressing floors and spoil ground of a mining settlement — the workings lie out in the hinterland, the processing at the town edge facing them (S6 economy rule).";
 const PROV_FISHERY: &str = "Fishery yard: net lofts and drying racks of a fishing settlement strung along the waterfront (S6 economy rule).";
@@ -249,7 +254,13 @@ pub fn assign_districts<'a>(
         // The reference writes the first two as separate arms that both yield
         // `'market'` (the plaza frontage rule and the core radius); `||` is the
         // same test in the same order, and neither side has a side effect.
-        let mut d = if on_plaza_front || d_m < 140.0 {
+        // **Not the reference** (Ruling H, `crate::wallside`): a lot platted
+        // against the wall's outer face is the faubourg, whatever the radial
+        // zoning below would have called its ground. The harbour override
+        // after this still wins, as it does over every base district.
+        let mut d = if lot.par.wall_backing == WallBacking::Outside {
+            "faubourg"
+        } else if on_plaza_front || d_m < 140.0 {
             "market"
         } else if rd < 60.0 {
             "craftriver"
@@ -276,6 +287,7 @@ pub fn assign_districts<'a>(
             "craftriver" => PROV_CRAFTRIVER,
             "suburb" => PROV_SUBURB,
             "agrarian" => PROV_AGRARIAN,
+            "faubourg" => PROV_FAUBOURG,
             _ => "",
         };
     }
@@ -786,6 +798,58 @@ pub fn build_buildings(
             lot.built = true;
             continue;
         }
+        // **Not the reference** (Ruling H, `crate::wallside`): a lot whose back
+        // line is the town wall builds against it. `v = 1` is the wall face.
+        // Its own branch rather than a tweak to the burgage grammar below,
+        // because that grammar's rear wing and outbuilding would land in the
+        // same strip as the lean-to. Draws come from this lot's own `'bld'`
+        // stream, like every other branch, so no other lot is affected.
+        if par.wall_backing != WallBacking::No && d != "harbour" && d != "warehouse" {
+            let outside = par.wall_backing == WallBacking::Outside;
+            // Eaves gaps: routine between a faubourg's hovels, the ordinary
+            // M-BLD-5 rate inside.
+            let g_r = if r.chance(if outside { 0.3 } else { 0.12 }) {
+                js_min(0.2, 0.9 / par.frontage)
+            } else {
+                0.0
+            };
+            let mut ranges: Vec<(f64, f64, &'static str, &'static str)> = Vec::new();
+            if outside {
+                // One small range and nothing else — the bottom of this
+                // grammar's scale on every axis (see `crate::wallside`).
+                let dv = js_min(0.85, js_max(4.5, r.logn(5.5, 0.18)) / par.depth);
+                ranges.push((1.0 - dv, 1.0, "lean-to", PROV_WALL_LEAN));
+            } else if par.depth <= 16.0 {
+                ranges.push((0.0, 1.0, "main", PROV_WALL_BACKED));
+            } else {
+                let med = if d == "market" || d == "burgher" { 11.5 } else { 9.5 };
+                let main = js_min(par.depth * 0.6, js_max(7.0, r.logn(med, 0.2))) / par.depth;
+                let lean = js_min(0.4, 6.0 / par.depth);
+                ranges.push((0.0, main, "main", PROV_MAIN));
+                ranges.push((1.0 - lean, 1.0, "lean-to", PROV_WALL_LEAN));
+            }
+            for (v0, v1, kind, prov) in ranges {
+                let poly = rect_poly(par, 0.0, 1.0 - g_r, v0, v1);
+                if poly_area(&poly).abs() < 9.0 {
+                    continue;
+                }
+                let ridge = ridge_of(&poly, false);
+                out.push(Building {
+                    id: format!("bld{}", bid),
+                    poly,
+                    ridge,
+                    parcel: par.id.clone(),
+                    kind,
+                    district: d,
+                    age: par.age,
+                    courtyard: false,
+                    prov,
+                });
+                bid += 1;
+            }
+            lot.built = true;
+            continue;
+        }
         let mut rects: Vec<Rect> = Vec::new(); // in (u,v) space
         /* v1.17 (S6): trade-hub warehouse rows share the deep gable-fronted store grammar */
         let is_ware = d == "harbour" || d == "warehouse";
@@ -1037,6 +1101,13 @@ pub fn build_faith_sites(
         let mut bs = f64::INFINITY;
         for (i, lot) in lots.iter().enumerate() {
             if lot.churchyard {
+                continue;
+            }
+            // **Not the reference** (Ruling H, `crate::wallside`): a lot against
+            // the wall is its own one-lot block, so a church sited on one would
+            // get a one-lot precinct. They are skipped, which leaves every
+            // church exactly where the reference put it.
+            if lot.par.wall_backing != WallBacking::No {
                 continue;
             }
             // worship sits in the civic/residential core, NOT on the working

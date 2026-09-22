@@ -73,6 +73,7 @@ pub mod rng;
 pub mod routes;
 pub mod rules;
 pub mod site;
+pub mod wallside;
 pub mod water;
 
 // Every module's types and free functions are re-exported here, so a consumer
@@ -126,6 +127,7 @@ pub use growth::{
     supersede_wall, wall_occupancy,
 };
 pub use rng::{Substream, fnv1a, stream};
+pub use wallside::{WallBacking, build_wall_lots};
 pub use routes::{Anchors, Route, build_primaries, build_primaries_from_paths, place_anchors};
 pub use site::{
     Economy, Harbour, Hill, Site, SiteOpts, TerrainCtx, WaterCtx, build_site, shore_from_mask,

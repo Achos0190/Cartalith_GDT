@@ -438,7 +438,8 @@ func _rebuild_side() -> void:
 	_swatch(leg, DRAW.FILL_OTHER, "Streets and lanes", "Organic growth (grow).")
 	_swatch(leg, DRAW.DISTRICT_FILL["market"], "District tints",
 		"On the lots: market, burgher, artisan, riverside craft, harbour, suburb, "
-		+ "agrarian (assignDistricts). The swatch is the market tint; each district "
+		+ "agrarian (assignDistricts), and the faubourg: the poor quarter built "
+		+ "against the wall's outer face. The swatch is the market tint; each district "
 		+ "draws in its own.")
 	_swatch(leg, DRAW.FARM_FIELD, "Farmland",
 		"The strip or ring fields outside the town.")

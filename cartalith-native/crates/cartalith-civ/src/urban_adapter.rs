@@ -1799,7 +1799,8 @@ pub struct LayoutParcel {
     /// 0..1, stable per lot. See `cartalith_urban::Parcel::tone`.
     pub tone: f64,
     /// `assignDistricts`' tag: `market` | `burgher` | `artisan` | `craftriver`
-    /// | `harbour` | `suburb` | `agrarian` | `church`, plus the five economy
+    /// | `harbour` | `suburb` | `agrarian` | `church` | `faubourg` (this port's
+    /// own, `cartalith_urban::wallside`, not the reference's), plus the five economy
     /// overrides no settlement in this port can reach (see the module header on
     /// `economy`). `""` on a lot the pass never tagged.
     pub district: &'static str,
