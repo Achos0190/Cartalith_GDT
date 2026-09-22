@@ -5768,10 +5768,37 @@ fn apply_border(a: &TerrainAppearance, c: Rgb, tone: Rgb, x: f64, y: f64, gw: us
 // this file standalone and never calls it — same situation as `border_cover`.
 #[allow(dead_code)]
 pub fn apply_local_contrast(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh: usize, world: bool) {
-    if a.local_contrast <= 0.0 || gw == 0 || gh == 0 {
+    apply_local_contrast_rows(a, rgb, gw, gh, 0, gh, world);
+}
+
+/// The local-contrast radius, in rows/columns of the **whole** `gw × gh`
+/// raster. Hoisted out of [`apply_local_contrast_rows`] because the banded
+/// export needs it before any band exists: it is [`ExportBandPlan`]'s apron.
+/// See the comment at its use below for the floor and the short-axis cap.
+fn local_contrast_radius(a: &TerrainAppearance, gw: usize, gh: usize) -> i64 {
+    ((gw as f64 * a.local_contrast_radius_frac).round() as i64).max(3).min((gh as i64 / 4).max(3))
+}
+
+/// [`apply_local_contrast`] over a horizontal band: `rgb` holds rows
+/// `y0 .. y0 + rows` of a `gw × gh` raster (`EXPORT_SCOPE.md` §4, milestone
+/// E1). The whole-raster call is exactly `y0 = 0, rows = gh`.
+///
+/// Two things are keyed to the **full** raster and never to the band, and
+/// both are §4.2's named traps: the radius (a band deriving its own would
+/// boost differently band by band, and every seam would show as a step) and
+/// the plate-frame fade (`border_cover` gets the image-space row and the full
+/// height, or a neatline is drawn across every band boundary).
+///
+/// The blur itself runs over the band alone, clamping at the band's edges.
+/// That equals the whole-raster blur on every row at least `radius` rows from
+/// a band edge that is not an image edge — which is why a band carries that
+/// many apron rows each side ([`ExportBandPlan`]) and discards them after.
+#[allow(dead_code)]
+pub fn apply_local_contrast_rows(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh: usize, y0: usize, rows: usize, world: bool) {
+    if a.local_contrast <= 0.0 || gw == 0 || gh == 0 || rows == 0 {
         return;
     }
-    let n = gw * gh;
+    let n = gw * rows;
     if rgb.len() < n * 3 {
         return;
     }
@@ -5796,8 +5823,9 @@ pub fn apply_local_contrast(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh
     // to `gw` like every other radius in this file, and on a very wide
     // non-square plate a width-derived radius can exceed the whole height,
     // which turns the "local" mean into a full-column average and the
-    // detail band into global contrast.
-    let rad = ((gw as f64 * a.local_contrast_radius_frac).round() as i64).max(3).min((gh as i64 / 4).max(3));
+    // detail band into global contrast. Both bounds are the FULL raster's,
+    // so a band gets the whole image's radius, never its own.
+    let rad = local_contrast_radius(a, gw, gh);
 
     // **A band-pass, not a high-pass** — and this is the difference between
     // local contrast and a noise amplifier.
@@ -5823,7 +5851,7 @@ pub fn apply_local_contrast(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh
     // remaining cost in the appearance pipeline once `cell_color` went
     // parallel (milestone 6's own cost table).
     let r_inner = (rad / 8).max(2);
-    let (fine, blurred) = rayon::join(|| blur_once(&luma, gw, gh, r_inner, world), || blur_once(&luma, gw, gh, rad, world));
+    let (fine, blurred) = rayon::join(|| blur_once(&luma, gw, rows, r_inner, world), || blur_once(&luma, gw, rows, rad, world));
 
     let knee = a.local_contrast_knee.max(1e-3);
     let inv_knee2 = 1.0 / (knee * knee);
@@ -5833,7 +5861,7 @@ pub fn apply_local_contrast(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh
         if delta == 0.0 {
             return;
         }
-        let (x, y) = (i % gw, i / gw);
+        let (x, y) = (i % gw, y0 + i / gw);
         let cover = border_cover(a, x, y, gw, gh);
         if cover > 0.0 {
             delta *= 1.0 - cover;
@@ -5986,9 +6014,25 @@ pub const BIOME_VEGETATION_COVER: [f64; 14] = [
 /// `partial_cmp`s a float, so there is no panic path here).
 #[allow(dead_code)]
 pub fn build_grade_influence(ctx: &RenderCtx, w: usize, h: usize) -> Vec<f32> {
+    if w == 0 || h == 0 {
+        return Vec::new();
+    }
+    let cell = build_grade_influence_cells(ctx);
+    if cell.is_empty() || (w == ctx.gw && h == ctx.gh) {
+        return cell;
+    }
+    grade_influence_rows(&cell, ctx.gw, ctx.gh, w, h, 0, h)
+}
+
+/// [`build_grade_influence`]'s **cell half**: the multiplier per grid cell, or
+/// an empty `Vec` when the grade has no field weight (or grades nothing).
+/// Resolution-free, so a banded export builds it once for the whole image
+/// (`EXPORT_SCOPE.md` §4.1) and lifts it per band with [`grade_influence_rows`].
+#[allow(dead_code)]
+pub fn build_grade_influence_cells(ctx: &RenderCtx) -> Vec<f32> {
     let a = &ctx.appearance;
     let (gw, gh) = (ctx.gw, ctx.gh);
-    if a.grade_influence_is_flat() || a.grade_is_identity() || w == 0 || h == 0 || gw == 0 || gh == 0 {
+    if a.grade_influence_is_flat() || a.grade_is_identity() || gw == 0 || gh == 0 {
         return Vec::new();
     }
     let n = gw * gh;
@@ -6023,12 +6067,22 @@ pub fn build_grade_influence(ctx: &RenderCtx, w: usize, h: usize) -> Vec<f32> {
             *m = v.clamp(0.0, 2.0) as f32;
         }
     });
-    if w == gw && h == gh {
-        return cell;
+    cell
+}
+
+/// [`build_grade_influence`]'s **row half**: `cell` (a `gw × gh` field from
+/// [`build_grade_influence_cells`]) sampled nearest-cell into rows
+/// `y0 .. y0 + rows` of a `w × h` raster. The row mapping is `oy · gh / h`
+/// over the image-space row and the **full** `h` — a band passing its own
+/// height would stretch the whole field into every band. Empty in, empty out.
+#[allow(dead_code)]
+pub fn grade_influence_rows(cell: &[f32], gw: usize, gh: usize, w: usize, h: usize, y0: usize, rows: usize) -> Vec<f32> {
+    if cell.is_empty() || w == 0 || h == 0 || gw == 0 || gh == 0 {
+        return Vec::new();
     }
-    let mut out = vec![1f32; w * h];
-    out.par_chunks_mut(w).enumerate().for_each(|(oy, row)| {
-        let gy = (oy * gh / h).min(gh - 1);
+    let mut out = vec![1f32; w * rows];
+    out.par_chunks_mut(w).enumerate().for_each(|(r, row)| {
+        let gy = ((y0 + r) * gh / h).min(gh - 1);
         for (ox, m) in row.iter_mut().enumerate() {
             *m = cell[gy * gw + (ox * gw / w).min(gw - 1)];
         }
@@ -6903,6 +6957,107 @@ pub fn bake_rect(ctx: &RenderCtx, bf: &BakeFields, ink: Option<RiverInk<'_>>, ou
         }
     });
     bytes
+}
+
+// ===========================================================================
+// The banded export (`EXPORT_SCOPE.md` §4, milestone E1)
+// ===========================================================================
+//
+// A 16K/32K raster does not fit whole through the finishing passes, so it is
+// rendered in full-width horizontal bands. Of the four stages
+// (`bake_rect` → `apply_local_contrast` → `build_grade_influence` →
+// `apply_color_grade`) only local contrast reads a neighbourhood, and only
+// ±radius rows of it vertically, so a band that renders that many apron rows
+// above and below itself — clipped at the image edges, where the whole-raster
+// blur clamps too — and discards them afterwards is **byte-identical** to the
+// monolithic render (§4.2 has the exactness argument; `tests/export_bands.rs`
+// measures it). The shipped `export_raster_png` path does not go through here.
+
+/// How an `w × h` export is cut into bands. Every field is derived from the
+/// **full** `(w, h)`, so the plan is the same whatever the band size — which is
+/// what lets the identity measured at a small width stand for 32K.
+///
+/// A single band always has a **zero** apron: that is the monolithic render,
+/// not a banded approximation of it.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExportBandPlan {
+    pub w: usize,
+    pub h: usize,
+    /// Output rows per band; the last band may be shorter.
+    pub rows_per_band: usize,
+    /// Context rows rendered each side of a band before clipping at the image
+    /// edge: the local-contrast radius at the full `(w, h)`, or `0`.
+    pub apron: usize,
+}
+
+/// One band of an [`ExportBandPlan`]: output rows `y0 .. y0 + rows`, rendered
+/// with `top`/`bottom` apron rows (already clipped at the image edges).
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExportBand {
+    pub y0: usize,
+    pub rows: usize,
+    pub top: usize,
+    pub bottom: usize,
+}
+
+#[allow(dead_code)]
+impl ExportBandPlan {
+    /// Bands of `rows` output rows each (clamped to `1..=h`).
+    pub fn with_rows(a: &TerrainAppearance, w: usize, h: usize, rows: usize) -> Self {
+        let rows = rows.clamp(1, h.max(1));
+        let apron = if rows >= h || a.local_contrast <= 0.0 || w == 0 { 0 } else { local_contrast_radius(a, w, h) as usize };
+        ExportBandPlan { w, h, rows_per_band: rows, apron }
+    }
+
+    /// The tallest bands whose rendered height (rows plus both aprons) fits in
+    /// `budget_px` output pixels. A budget of the whole raster or more is one
+    /// band with no apron. Floored at one row per band, so a budget smaller
+    /// than `w · (2 · apron + 1)` is exceeded rather than refused — refusing is
+    /// the caller's gate (`export_raster.rs`'s affordability check).
+    pub fn for_budget(a: &TerrainAppearance, w: usize, h: usize, budget_px: u64) -> Self {
+        let fit = (budget_px / w.max(1) as u64).min(usize::MAX as u64) as usize;
+        if fit >= h {
+            return Self::with_rows(a, w, h, h);
+        }
+        let apron = Self::with_rows(a, w, h, 1).apron;
+        Self::with_rows(a, w, h, fit.saturating_sub(2 * apron))
+    }
+
+    pub fn band_count(&self) -> usize {
+        self.h.div_ceil(self.rows_per_band)
+    }
+
+    pub fn bands(&self) -> impl Iterator<Item = ExportBand> + '_ {
+        (0..self.band_count()).map(move |i| {
+            let y0 = i * self.rows_per_band;
+            let rows = self.rows_per_band.min(self.h - y0);
+            ExportBand { y0, rows, top: self.apron.min(y0), bottom: self.apron.min(self.h - y0 - rows) }
+        })
+    }
+}
+
+/// Render one band of a banded export: the same four stages
+/// `export_raster_png` runs over the whole raster, over `band`'s rows plus its
+/// apron, returning the band's own `band.rows × plan.w` RGB8 rows.
+///
+/// `grade_cells` is [`build_grade_influence_cells`], built **once** per export
+/// and shared by every band. `ink` is the same river ink the whole-raster path
+/// is handed; `ctx.appearance` and `ctx.world` are the appearance and wrap it
+/// is handed.
+#[allow(dead_code)]
+pub fn bake_export_band(ctx: &RenderCtx, bf: &BakeFields, ink: Option<RiverInk<'_>>, plan: &ExportBandPlan, band: ExportBand, grade_cells: &[f32]) -> Vec<u8> {
+    let (w, h) = (plan.w, plan.h);
+    let ay0 = band.y0 - band.top;
+    let ah = band.rows + band.top + band.bottom;
+    let mut px = bake_rect(ctx, bf, ink, w, h, 0, ay0, w, ah);
+    apply_local_contrast_rows(&ctx.appearance, &mut px, w, h, ay0, ah, ctx.world);
+    px.drain(..band.top * w * 3);
+    px.truncate(band.rows * w * 3);
+    let inf = grade_influence_rows(grade_cells, ctx.gw, ctx.gh, w, h, band.y0, band.rows);
+    apply_color_grade(&ctx.appearance, &mut px, &inf);
+    px
 }
 
 /// The river-channel tint `build_color_texture` composites over its own
