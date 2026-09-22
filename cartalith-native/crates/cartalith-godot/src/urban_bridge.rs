@@ -879,6 +879,25 @@ impl WorldGen {
     fn reset_active_urban_rules(&mut self) {
         self.urban_rules = None;
     }
+
+    /// Replaces the active rules with the named rule set
+    /// `cartalith_urban::rules_preset` resolves (`"market_town"`, shaped on
+    /// the owner's town plan), and returns it as [`rules_to_dict`] does. For an
+    /// unknown id, leaves the active rules untouched and returns an empty
+    /// `Dictionary`, so the caller can tell a refusal from a result.
+    #[func]
+    fn apply_urban_rules_preset(&mut self, id: GString) -> VarDictionary {
+        match urban_adapter::rules_preset(&id.to_string()) {
+            Some(r) => {
+                self.urban_rules = Some(r);
+                rules_to_dict(&r)
+            }
+            None => {
+                godot_print!("cartalith-godot: apply_urban_rules_preset unknown id '{id}'");
+                VarDictionary::new()
+            }
+        }
+    }
 }
 
 /// `Rules` as the flat dotted-key `Dictionary`

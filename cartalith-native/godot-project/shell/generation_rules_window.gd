@@ -41,13 +41,20 @@ class_name GenerationRulesWindow
 ## defined in `_PRESETS` below -- a convenience starting point on the same
 ## two-slider space, not a reverse-engineered Rust constant.
 ##
-## ## The wall-generation block is dashed with the canvas's own stated reason
+## **The exception is one chip that is a Rust rule set, not a slider pair**:
+## "Walled Market Town" (`"rust": "market_town"`) is
+## `cartalith_urban::MARKET_TOWN_RULES`, shaped on the owner's town plan under
+## Ruling H. It sets the fields directly through
+## `EngineBridge.apply_urban_rules_preset`, so the values live only in Rust. That
+## constant's doc explains each value.
 ##
-## `rules.settlement`'s five fields are real (`DEFAULT_RULES.settlement`) but
-## have no consumer: successive wall generations are milestone 13
-## (`URBAN_MORPHOLOGY_SCOPE.md`), unbuilt, so nothing reads them. Shown
-## disabled, matching the canvas's own dashed panel rather than presented as
-## editable.
+## ## The wall-generation block
+##
+## `grow` reads all five `rules.settlement` fields (`cartalith-urban/src/
+## growth.rs`, the wall-generation branch; `urban_adapter::run_layout` passes
+## `wall_generations: true`). This window has no editor for them and keeps the
+## canvas's dashed panel, but it shows the active values, which the market-town
+## preset changes.
 ##
 ## ## Parameter tables are read-only
 ##
@@ -85,6 +92,7 @@ const _PRESETS := [
 	{"label": "Organic Medieval", "w": 1.0, "c": 1.0},
 	{"label": "Medina", "w": 1.4, "c": 1.3},
 	{"label": "Wild Frontier", "w": 2.0, "c": 1.6},
+	{"label": "Walled Market Town", "rust": "market_town"},
 ]
 
 ## label, dotted key, unit -- the canvas's own `ruleStreet` rows, in its own
@@ -224,8 +232,11 @@ func _build() -> void:
 
 func _apply_preset(p: Dictionary) -> void:
 	_active_preset = String(p.label)
-	bridge.apply_urban_wildness(float(p.w))
-	bridge.apply_urban_plot_chaos(float(p.c))
+	if p.has("rust"):
+		bridge.apply_urban_rules_preset(String(p.rust))
+	else:
+		bridge.apply_urban_wildness(float(p.w))
+		bridge.apply_urban_plot_chaos(float(p.c))
 	_rebuild()
 
 
@@ -241,7 +252,11 @@ func _rebuild_presets() -> void:
 		var on := _active_preset == String(p.label)
 		var on_press := func(): _apply_preset(p)
 		var chip := DccWidgets.chip(_presets_row, String(p.label), on_press, on, 10, 4)
-		chip.tooltip_text = "wildness %.2f · plot chaos %.2f" % [float(p.w), float(p.c)]
+		if p.has("rust"):
+			chip.tooltip_text = ("Rule set shaped on the owner's walled market-town plan: wider "
+				+ "street spacing for legible blocks and one wall circuit (MARKET_TOWN_RULES).")
+		else:
+			chip.tooltip_text = "wildness %.2f · plot chaos %.2f" % [float(p.w), float(p.c)]
 	var reset := DccWidgets.chip(_presets_row, "Reset", _do_reset)
 	reset.tooltip_text = "Back to DEFAULT_RULES -- the same set every existing golden-parity test is pinned against."
 
@@ -336,7 +351,7 @@ func _build_tables_pane() -> Control:
 	settlement_head.add_theme_constant_override("separation", 10)
 	settlement_head.add_child(DccTheme.mono_label(
 		"SETTLEMENT · WALL GENERATIONS", "text_ghost", DccTheme.FS_TINY, 2))
-	settlement_head.add_child(DccTheme.mono_label("5 · NO CONSUMER", "text_ghost", DccTheme.FS_TINY))
+	settlement_head.add_child(DccTheme.mono_label("5 · READ BY GROW · NO EDITOR", "text_ghost", DccTheme.FS_TINY))
 	body.add_child(settlement_head)
 	var dashed := PanelContainer.new()
 	dashed.add_theme_stylebox_override("panel", DccWidgets.box("line_soft", "", 9, 7))
@@ -344,9 +359,9 @@ func _build_tables_pane() -> Control:
 	_settlement_body = VBoxContainer.new()
 	_settlement_body.add_theme_constant_override("separation", 2)
 	dashed.add_child(_settlement_body)
-	DccWidgets.note(body, "These five govern successive wall circuits. The wall circuit is "
-		+ "milestone 13 and unbuilt, so nothing reads them -- dashed in the canvas, and left "
-		+ "dashed here for the same reason.")
+	DccWidgets.note(body, "These five govern successive wall circuits, and the growth stage "
+		+ "reads them. The window has no editor for them; a preset can set them, and this "
+		+ "shows the active values.")
 	return col
 
 
@@ -389,7 +404,7 @@ func _rebuild_tables() -> void:
 	_clear(_settlement_body)
 	for r in _SETTLEMENT_ROWS:
 		var key := String(r[1])
-		var v := float(_defaults.get(key, 0.0))
+		var v := float(_rules.get(key, _defaults.get(key, 0.0)))
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 9)
 		var lbl := DccTheme.label(String(r[0]), "text_ghost", DccTheme.FS_SMALL)

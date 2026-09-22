@@ -550,6 +550,65 @@ pub fn apply_plot_chaos(rules: &mut Rules, c: f64) {
     rules.meta.plot_chaos = c;
 }
 
+// ------------------------------------------------------------- rule presets --
+
+/// `"market_town"` — **not a reference item.** A named rule set shaped on the
+/// owner's town plan (`design/owner-references-2026-09-12/
+/// urban-town-plan-walled-market-town.jpg`), under Ruling H's *"New culture
+/// profile"* option (`LARGE_ITEM_RULINGS.md`, 2026-09-12).
+///
+/// A rule set, not a [`CultureProfile`] row, because every knob the plan
+/// needs lives on [`Rules`]; the plan's planning mode, building grammar and
+/// faith are [`MEDIEVAL`]'s own. A new profile id would also fall through
+/// `games_spec`'s `_` arm and lose the tiltyard.
+///
+/// Why each value moved off [`DEFAULT_RULES`]. Everything else stays the same.
+/// - `parallel_street_spacing` 24 → 50 m: `grow` spends `pop * 2.1` m of
+///   street. At 24 m a mid-to-large town lays a lane mesh that breaks the plan's
+///   legible blocks into slivers. 50 m leaves room for two plot depths with a
+///   garden behind, which is the plan's lots-on-the-frontage pattern.
+/// - `segment_length_median` 56 → 80 m, `pierce_chance` 0.10 → 0.03,
+///   `branch_angle_jitter` 0.26 → 0.18: longer, straighter streets that mostly
+///   T-junction, like the plan's gently curving cross-streets.
+/// - `plot_depth_variance` 0.28 → 0.15, `subdivision_cap` 2 → 1: the plan's lots
+///   are even, not re-subdivided.
+/// - `max_wall_generations` 3 → 1: the plan has one circuit, with the suburbs
+///   outside it along the approach roads rather than enclosed by a second wall.
+///
+/// **`frontage_width_variance` stays at 0.22 on purpose.** `build_parcels`
+/// re-draws a frontage until one fits the remaining edge, with no bound, and
+/// the chance of escaping falls steeply as the variance drops
+/// (`RC_ENGINE_CHANGES.md` §6r.5). 0.15 made a pop-7000 town take ~35 s
+/// against ~90 ms, and 0.10 did not finish in 90 s.
+pub const MARKET_TOWN_RULES: Rules = Rules {
+    street: StreetRules {
+        branch_angle_jitter: 0.18,
+        segment_length_median: 80.0,
+        pierce_chance: 0.03,
+        parallel_street_spacing: 50.0,
+        ..DEFAULT_RULES.street
+    },
+    parcels: ParcelRules {
+        plot_depth_variance: 0.15,
+        subdivision_cap: 1.0,
+        ..DEFAULT_RULES.parcels
+    },
+    settlement: SettlementRules {
+        max_wall_generations: 1.0,
+        ..DEFAULT_RULES.settlement
+    },
+    meta: DEFAULT_RULES.meta,
+};
+
+/// A named rule set by id, or `None` for an unknown id. The caller decides the
+/// fallback; `None` from the host keeps [`DEFAULT_RULES`].
+pub fn rules_preset(id: &str) -> Option<Rules> {
+    match id {
+        "market_town" => Some(MARKET_TOWN_RULES),
+        _ => None,
+    }
+}
+
 impl Rules {
     /// `self` as a fully-populated [`RulesPatch`] — every field explicitly
     /// `Some`. Feeding this back through [`resolve_rules`] reproduces `self`

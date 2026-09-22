@@ -1061,6 +1061,14 @@ func reset_active_urban_rules() -> void:
 	if _has("reset_active_urban_rules"):
 		world_gen.reset_active_urban_rules()
 
+## Replaces the active rules with a named Rust rule set
+## (`cartalith_urban::rules_preset` -- `"market_town"`). Empty for an unknown
+## id or an older binary, and the active rules are then left untouched.
+func apply_urban_rules_preset(id: String) -> Dictionary:
+	if not _has("apply_urban_rules_preset"):
+		return {}
+	return world_gen.apply_urban_rules_preset(id)
+
 func border_inset_frac() -> float:
 	return world_gen.get_border_inset_frac()
 

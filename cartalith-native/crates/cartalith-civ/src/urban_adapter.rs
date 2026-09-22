@@ -181,7 +181,7 @@ use cartalith_urban::{
 /// [`Ford`], for [`UrbanLayout::bridges`] / [`UrbanLayout::ford`].
 pub use cartalith_urban::{
     Bridge, Building, DEFAULT_RULES, Detail, DetailGeom, Ford, Gate, Market, Plaza, Rules, Vec2,
-    WallState, apply_plot_chaos, apply_wildness,
+    WallState, apply_plot_chaos, apply_wildness, rules_preset,
 };
 
 /// `Math.atan2` and `x||0`; neither is re-exported by `cartalith-urban`, and

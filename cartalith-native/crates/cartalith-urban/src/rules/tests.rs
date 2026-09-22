@@ -568,3 +568,45 @@ fn to_patch_round_trips_through_resolve_rules() {
         }
     }
 }
+
+/// `MARKET_TOWN_RULES` checked against literals, not against itself, plus a
+/// check that nothing else moved off `DEFAULT_RULES`.
+#[test]
+fn market_town_rules_are_the_listed_values_and_nothing_else() {
+    let m = MARKET_TOWN_RULES;
+    let mut want = DEFAULT_RULES;
+    want.street.branch_angle_jitter = 0.18;
+    want.street.segment_length_median = 80.0;
+    want.street.pierce_chance = 0.03;
+    want.street.parallel_street_spacing = 50.0;
+    want.parcels.plot_depth_variance = 0.15;
+    want.parcels.subdivision_cap = 1.0;
+    want.settlement.max_wall_generations = 1.0;
+    assert_eq!(m, want);
+    // The hang guard (see `MARKET_TOWN_RULES`): this must stay at the default.
+    assert_eq!(m.parcels.frontage_width_variance, 0.22);
+    assert_eq!(rules_preset("market_town"), Some(m));
+    assert_eq!(rules_preset("medieval"), None);
+    assert_eq!(rules_preset(""), None);
+}
+
+/// The preset exists to thin a large town's lane mesh into legible blocks.
+/// Measured on the harness that tuned it: 177 blocks against 278 here.
+#[test]
+fn market_town_rules_thin_a_large_towns_block_mesh() {
+    use crate::generate::{GenOpts, generate};
+    let run = |r: &Rules| {
+        let opts = GenOpts {
+            rules: Some(r.to_patch()),
+            site: Some("landlocked".into()),
+            pop: Some(19000.0),
+            wall_generations: true,
+            settlement_age: Some(400.0),
+            ..GenOpts::default()
+        };
+        generate(1337, &opts).blocks.len()
+    };
+    let (base, town) = (run(&DEFAULT_RULES), run(&MARKET_TOWN_RULES));
+    assert!(town > 0, "an empty town proves nothing");
+    assert!(town * 4 < base * 3, "market_town {town} blocks vs default {base}");
+}
