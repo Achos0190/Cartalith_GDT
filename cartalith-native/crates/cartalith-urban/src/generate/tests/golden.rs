@@ -193,6 +193,88 @@
 //! bastioned, Venus and wall-less — on every field; and on the 14, every field
 //! not listed, including the graph, the blocks, churches, the wall and the
 //! intramural wall lots.
+//!
+//! ## 2026-09-23 re-baseline — the frontage-grant spin bound (a reference port, §6r.5)
+//!
+//! **Not a departure: this ports the reference's own v2.66 fix.**
+//! `crate::blocks::PARCEL_GRANT_MAX_SPIN` (4096) bounds `build_parcels`'
+//! retry-until-it-fits frontage loop, which re-drew a grant until one fitted
+//! the remaining edge, with no bound. At low `frontage_width_variance` that
+//! loop did not return (`RC_ENGINE_CHANGES.md` §6r.5, and the constant's own
+//! doc comment for this port's measurements). §6r.5 already says the bound is
+//! **not** a no-op on ordinary towns: at the default variance a block edge can
+//! spin past 4096 and then stop, so the edge keeps the grants it has and the
+//! stretch widens them to fill it. The reference sized the same bound at 46 of
+//! 8 939 parcels (0.51%, worst town 1.08%). Here it is **67 of 31 845 parcels
+//! (0.21%) by count, worst case `hamletBoundary` +2 of 143 (1.40%)**.
+//!
+//! **What moved, and only this.** Same method as the passes above: every field
+//! was re-derived from the crate's own new `generate()` output by a dump that
+//! compared each asserted field against this file and printed only the ones
+//! that differed. Each old value was checked against the text here (exact
+//! match, exactly once in its case) before it was replaced. No tolerance was
+//! introduced or widened. **20 of 29 cases moved**, and only parcel-derived
+//! fields moved:
+//!
+//! | scenario | `parcels` | `buildings` | `pop` | median frontage (m) | `hash` |
+//! |---|---|---|---|---|---|
+//! | `riverDefault` | — | 1350 → 1363 | 6006 → 5990 | 7.705 → 7.723 | 3650751029 → 395547515 |
+//!   districts: artisan 561→562, burgher 282→278, harbour 76→79, market 82→80, suburb 47→49; details 722→736 (tree 489→503); `first_parcel` ("par0", 164.8385, "market")→("par0", 164.8385, "church")
+//! | `riverThroughFort` | 1754 → 1748 | 1922 → 1906 | 8637 → 8575 | 8.117 → 8.126 | 3281560009 → 2943264854 |
+//!   districts: artisan 1010→1009, burgher 363→357, craftriver 33→34; `last_parcel` ("par1758", 108.3263, "burgher")→("par1752", 108.3263, "burgher")
+//! | `coastHarbourChain` | 1055 → 1050 | 997 → 995 | 4820 → 4800 | 7.506 → 7.533 | 790836110 → 3369436761 |
+//!   districts: agrarian 178→173; details 856→797 (fence 157→153, tree 627→572); `cleared_parcels` 48→47
+//! | `bayFortGenerations` | 860 → 858 | — | 4103 → 4092 | 7.703 → 7.720 | 2268997163 → 30941946 |
+//!   districts: artisan 558→556; `last_parcel` ("par859", 69.7347, "artisan")→("par857", 69.7347, "artisan")
+//! | `ruinedTerrainAware` | 1155 → 1153 | 1077 → 1092 | 3437 → 3411 | 8.178 → 8.235 | 3223921439 → 954842088 |
+//!   districts: agrarian 188→189, market 220→217; details 836→921 (fence 191→192, tree 575→659); `ruined_parcels` 367→366
+//! | `realWaterRiver` | 1254 → 1251 | 1318 → 1312 | 6011 → 6001 | 7.724 → 7.755 | 1302429272 → 3925202235 |
+//!   districts: burgher 407→404; details 395→376 (tree 216→197)
+//! | `realWaterThroughFort` | 2283 → 2278 | 2394 → 2400 | 10925 → 10899 | 7.640 → 7.635 | 3286991159 → 1892006619 |
+//!   districts: agrarian 170→171, artisan 1362→1359, burgher 488→487, craftriver 45→44, market 177→176; details 334→396 (fence 59→60, tree 216→277); `last_parcel` ("par2295", 30.1839, "artisan")→("par2290", 30.1839, "artisan")
+//! | `faithNoneBasilica` | — | 1302 → 1303 | 5611 → 5616 | — | 289481900 → 3078750806 |
+//!   no other field moved: same parcels by count, restretched along one edge
+//! | `miningOreYard` | 1143 → 1147 | 1030 → 1035 | 5075 → 5086 | 7.636 → 7.568 | 2924364840 → 3658563355 |
+//!   districts: agrarian 178→179, artisan 460→463; details 876→862 (fence 178→179, tree 614→599)
+//! | `rulesPatched` | 808 → 800 | 892 → 882 | 4051 → 4014 | 7.363 → 7.389 | 3088153580 → 3362628620 |
+//!   districts: artisan 307→299
+//! | `unnavigableStem` | 1009 → 1008 | — | 4758 → 4753 | 7.943 → 7.972 | 420875003 → 4205073179 |
+//!   districts: agrarian 40→41, artisan 281→279; details 357→370 (fence 41→42, tree 180→192)
+//! | `epochsOne` | 874 → 868 | 851 → 852 | 3838 → 3806 | 11.883 → 11.911 | 632848093 → 2043189382 |
+//!   districts: agrarian 185→184, artisan 245→247, burgher 206→207, market 85→81, suburb 147→143; details 871→929 (fence 196→194, tree 587→647); `last_parcel` ("par873", 53.7859, "artisan")→("par867", 53.7859, "artisan")
+//! | `wallStyleBastioned` | 2062 → 2055 | 2171 → 2167 | 10098 → 10057 | 7.641 → 7.671 | 4045069697 → 3051549533 |
+//!   districts: artisan 1919→1912; details 181→193 (tree 125→137); `last_parcel` ("par2070", 29.8386, "agrarian")→("par2063", 29.8386, "agrarian")
+//! | `popFloorClamp` | 249 → 247 | 275 → 273 | 1264 → 1253 | 6.931 → 6.944 | 1229346962 → 142157540 |
+//!   districts: suburb 31→29
+//! | `churchRoundBoundary` | 1365 → 1359 | 1346 → 1344 | 6318 → 6313 | 7.601 → 7.653 | 3102845833 → 2763945324 |
+//!   districts: agrarian 159→154, suburb 121→120; details 699→634 (fence 130→125, tree 454→394)
+//! | `hamletBoundary` | 143 → 145 | 163 → 164 | 723 → 728 | 7.052 → 7.058 | 2311379802 → 3081730319 |
+//!   districts: burgher 18→20
+//! | `ageFloorClamp` | 1595 → 1593 | 1495 → 1493 | 7249 → 7259 | 7.723 → 7.739 | 3773555527 → 506394862 |
+//!   districts: artisan 791→789; details 964→928 (tree 660→624)
+//! | `realWaterPrivatized` | 1719 → 1715 | 1789 → 1788 | 8310 → 8294 | 7.675 → 7.687 | 720273033 → 826410967 |
+//!   districts: artisan 996→993, burgher 392→391; details 132→144 (tree 107→119)
+//! | `landlockedFortDry` | 2561 → 2560 | 2592 → 2590 | 11981 → 11991 | 7.531 → 7.546 | 3057153117 → 2907134257 |
+//!   districts: agrarian 201→200, artisan 1020→1016, burgher 867→868, market 461→464; details 677→690 (tree 502→515); `cleared_parcels` 137→136; `last_parcel` ("par2570", 41.4858, "artisan")→("par2569", 41.4858, "artisan")
+//! | `hostRouteEndsOnly` | 973 → 972 | 962 → 960 | 4711 → 4706 | 7.778 → 7.780 | 1919649866 → 3982928493 |
+//!   districts: artisan 600→599
+//!
+//! **Why `details` moves.** Garden trees and fences are placed per parcel, so a
+//! restretched edge re-seats them. `riverDefault`'s first parcel changes
+//! district (`market` → `church`) because the churchyard is chosen from
+//! parcels whose geometry moved. Its area is bit-identical.
+//!
+//! **What did not move, and is the control.** On all 29 cases: the graph
+//! (nodes, live edges, first/last node and edge, and every `computeMetrics`
+//! field except `median_frontage`), the blocks, the plaza, civic hall, games,
+//! markets, church count, the wall, every fort field, the harbour, bridges,
+//! route ends and the detail bbox. The **9 unmoved cases** (`landlockedHamlet`,
+//! `hostRoads`, `fortMinBoundary`, and the six Venus plans `venusRadial`,
+//! `venusThroughBridges`, `venusSmall`, `venusTinyCanal`, `venusFortCanal`,
+//! `venusLandlockedCanal`) are byte-identical on every field because none of
+//! their block edges reaches the cap. A town
+//! that never reaches it takes exactly the old path: identity by control
+//! flow, and measured so on 21 of 21 such towns in a 60-town sweep.
 
 #![allow(clippy::approx_constant, clippy::unreadable_literal, clippy::excessive_precision)]
 
@@ -346,7 +428,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 3650751029,
+        hash: 395547515,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40b3880000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -357,21 +439,21 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x40b7760000000000),
+        pop: f64::from_bits(0x40b7660000000000),
         // --- counts ---
         nodes: 356,
         live_edges: 454,
         blocks: 101,
         parcels: 1305,
-        buildings: 1350,
+        buildings: 1363,
         churches: 2,
         markets: 3,
         games: 1,
-        details: 722,
+        details: 736,
         ruined_parcels: 0,
         cleared_parcels: 28,
-        district_counts: &[("agrarian", 142), ("artisan", 561), ("burgher", 282), ("church", 6), ("craftriver", 11), ("faubourg", 98), ("harbour", 76), ("market", 82), ("suburb", 47)],
-        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 139), ("field", 60), ("pasture", 17), ("tree", 489), ("well", 13)],
+        district_counts: &[("agrarian", 142), ("artisan", 562), ("burgher", 278), ("church", 6), ("craftriver", 11), ("faubourg", 98), ("harbour", 79), ("market", 80), ("suburb", 49)],
+        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 139), ("field", 60), ("pasture", 17), ("tree", 503), ("well", 13)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x4094c65e44c29054), f64::from_bits(0x408559c303b337d7))),
@@ -411,7 +493,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403b68b9755a5b36),
         m_meshedness: f64::from_bits(0x3fc2dc7997418e77),
         m_median_block_area: f64::from_bits(0x4082d89d1de71e00),
-        m_median_frontage: f64::from_bits(0x401ed22c8234140e),
+        m_median_frontage: f64::from_bits(0x401ee421e0c607fc),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x4094f02f6f8622fd), f64::from_bits(0x408596cf299c0cae)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -419,7 +501,7 @@ pub const CASES: &[Case] = &[
         last_edge: (354, 355, "lane", f64::from_bits(0x4004cccccccccccd)),
         first_node: (f64::from_bits(0x407dc00000000000), f64::from_bits(0x4028000000000000)),
         last_node: (f64::from_bits(0x4094a909fb57f661), f64::from_bits(0x408286766230ec09)),
-        first_parcel: ("par0", f64::from_bits(0x40649ad520cbc800), "market"),
+        first_parcel: ("par0", f64::from_bits(0x40649ad520cbc800), "church"),
         last_parcel: ("faub97", f64::from_bits(0x4043d87ba7194000), "faubourg"),
     },
     Case {
@@ -449,7 +531,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 3281560009,
+        hash: 2943264854,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40c1940000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -460,20 +542,20 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "riverthrough",
         through: true,
-        pop: f64::from_bits(0x40c0de8000000000),
+        pop: f64::from_bits(0x40c0bf8000000000),
         // --- counts ---
         nodes: 619,
         live_edges: 748,
         blocks: 140,
-        parcels: 1754,
-        buildings: 1922,
+        parcels: 1748,
+        buildings: 1906,
         churches: 3,
         markets: 4,
         games: 1,
         details: 227,
         ruined_parcels: 0,
         cleared_parcels: 14,
-        district_counts: &[("agrarian", 13), ("artisan", 1010), ("burgher", 363), ("church", 9), ("craftriver", 33), ("harbour", 97), ("market", 229)],
+        district_counts: &[("agrarian", 13), ("artisan", 1009), ("burgher", 357), ("church", 9), ("craftriver", 34), ("harbour", 97), ("market", 229)],
         detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("field", 35), ("pasture", 16), ("tree", 149), ("well", 23)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
@@ -514,7 +596,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403cbefc219c22d9),
         m_meshedness: f64::from_bits(0x3fbe546a0c4d33f7),
         m_median_block_area: f64::from_bits(0x408637e937dce800),
-        m_median_frontage: f64::from_bits(0x40203bb6020209d7),
+        m_median_frontage: f64::from_bits(0x40204047520970af),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x4092fbcc88734db5), f64::from_bits(0x408153a180651416)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -523,7 +605,7 @@ pub const CASES: &[Case] = &[
         first_node: (f64::from_bits(0x407a400000000000), f64::from_bits(0x4028000000000000)),
         last_node: (f64::from_bits(0x4093aa35cf1bea65), f64::from_bits(0x407a394ce01c1e73)),
         first_parcel: ("par0", f64::from_bits(0x404490ca3b9b6000), "harbour"),
-        last_parcel: ("par1758", f64::from_bits(0x405b14e188dea000), "burgher"),
+        last_parcel: ("par1752", f64::from_bits(0x405b14e188dea000), "burgher"),
     },
     Case {
         name: "coastHarbourChain",
@@ -552,7 +634,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 790836110,
+        hash: 3369436761,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40c7700000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -563,21 +645,21 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "coast",
         through: false,
-        pop: f64::from_bits(0x40b2d40000000000),
+        pop: f64::from_bits(0x40b2c00000000000),
         // --- counts ---
         nodes: 251,
         live_edges: 306,
         blocks: 67,
-        parcels: 1055,
-        buildings: 997,
+        parcels: 1050,
+        buildings: 995,
         churches: 2,
         markets: 2,
         games: 1,
-        details: 856,
+        details: 797,
         ruined_parcels: 0,
-        cleared_parcels: 48,
-        district_counts: &[("agrarian", 178), ("artisan", 533), ("church", 6), ("faubourg", 266), ("harbour", 72)],
-        detail_kinds: &[("bollard", 3), ("crane", 1), ("cross", 1), ("fence", 157), ("field", 33), ("pasture", 20), ("tree", 627), ("well", 14)],
+        cleared_parcels: 47,
+        district_counts: &[("agrarian", 173), ("artisan", 533), ("church", 6), ("faubourg", 266), ("harbour", 72)],
+        detail_kinds: &[("bollard", 3), ("crane", 1), ("cross", 1), ("fence", 153), ("field", 33), ("pasture", 20), ("tree", 572), ("well", 14)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x40884a9c7ff0e3dc), f64::from_bits(0x40876563800f1c81))),
@@ -617,7 +699,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403c49898b974812),
         m_meshedness: f64::from_bits(0x3fc1b5efe63d2eb1),
         m_median_block_area: f64::from_bits(0x4084e03cea195200),
-        m_median_frontage: f64::from_bits(0x401e068420e8fb56),
+        m_median_frontage: f64::from_bits(0x401e2148abb79dbd),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x408a0fb883e7d90a), f64::from_bits(0x4089bf4f01732d48)),
         market_prov: "Market sited on the shore flat just behind the quay: goods change mode at the break-of-bulk point (harbour-city family, lit. review §4-5).",
@@ -655,7 +737,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 2268997163,
+        hash: 30941946,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40d1940000000000),
         settlement_age: f64::from_bits(0x4089000000000000),
@@ -666,12 +748,12 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "bay",
         through: false,
-        pop: f64::from_bits(0x40b0070000000000),
+        pop: f64::from_bits(0x40aff80000000000),
         // --- counts ---
         nodes: 251,
         live_edges: 334,
         blocks: 77,
-        parcels: 860,
+        parcels: 858,
         buildings: 833,
         churches: 4,
         markets: 5,
@@ -679,7 +761,7 @@ pub const CASES: &[Case] = &[
         details: 97,
         ruined_parcels: 0,
         cleared_parcels: 26,
-        district_counts: &[("artisan", 558), ("burgher", 178), ("church", 12), ("craftriver", 33), ("harbour", 58), ("market", 21)],
+        district_counts: &[("artisan", 556), ("burgher", 178), ("church", 12), ("craftriver", 33), ("harbour", 58), ("market", 21)],
         detail_kinds: &[("bollard", 3), ("crane", 1), ("cross", 1), ("field", 29), ("pasture", 10), ("tree", 43), ("well", 10)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
@@ -720,7 +802,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403a8295230b3c61),
         m_meshedness: f64::from_bits(0x3fc6541f27fbd889),
         m_median_block_area: f64::from_bits(0x4083887f5d2bd380),
-        m_median_frontage: f64::from_bits(0x401ed023e8a8935a),
+        m_median_frontage: f64::from_bits(0x401ee116b17adc6a),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x4089c9c015d1bdd2), f64::from_bits(0x40825000f237130c)),
         market_prov: "Market sited on the shore flat just behind the quay: goods change mode at the break-of-bulk point (harbour-city family, lit. review §4-5).",
@@ -729,7 +811,7 @@ pub const CASES: &[Case] = &[
         first_node: (f64::from_bits(0x4084e00000000000), f64::from_bits(0x4028000000000000)),
         last_node: (f64::from_bits(0x4083c243cf68c007), f64::from_bits(0x407be3fdaab52b02)),
         first_parcel: ("par0", f64::from_bits(0x405641e2b5b6c800), "artisan"),
-        last_parcel: ("par859", f64::from_bits(0x40516f04839ef400), "artisan"),
+        last_parcel: ("par857", f64::from_bits(0x40516f04839ef400), "artisan"),
     },
     Case {
         name: "landlockedHamlet",
@@ -1170,7 +1252,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 3223921439,
+        hash: 954842088,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40b7700000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -1181,21 +1263,21 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x40aada0000000000),
+        pop: f64::from_bits(0x40aaa60000000000),
         // --- counts ---
         nodes: 403,
         live_edges: 449,
         blocks: 106,
-        parcels: 1155,
-        buildings: 1077,
+        parcels: 1153,
+        buildings: 1092,
         churches: 2,
         markets: 3,
         games: 1,
-        details: 836,
-        ruined_parcels: 367,
+        details: 921,
+        ruined_parcels: 366,
         cleared_parcels: 101,
-        district_counts: &[("agrarian", 188), ("artisan", 255), ("burgher", 327), ("church", 6), ("faubourg", 28), ("market", 220), ("suburb", 131)],
-        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 191), ("field", 47), ("pasture", 9), ("tree", 575), ("well", 10)],
+        district_counts: &[("agrarian", 189), ("artisan", 255), ("burgher", 327), ("church", 6), ("faubourg", 28), ("market", 217), ("suburb", 131)],
+        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 192), ("field", 47), ("pasture", 9), ("tree", 659), ("well", 10)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x408ab23df0821a0c), f64::from_bits(0x40853dc20f7de658))),
@@ -1235,7 +1317,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403add96863d075e),
         m_meshedness: f64::from_bits(0x3fc26ad1f4f31ba0),
         m_median_block_area: f64::from_bits(0x407c4f88f5ce6400),
-        m_median_frontage: f64::from_bits(0x40205af82dc68122),
+        m_median_frontage: f64::from_bits(0x4020785916977730),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x408a85ed83ee7410), f64::from_bits(0x4085c7495cb7cf57)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -1273,7 +1355,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 1302429272,
+        hash: 3925202235,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40bb580000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -1284,21 +1366,21 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x40b77b0000000000),
+        pop: f64::from_bits(0x40b7710000000000),
         // --- counts ---
         nodes: 369,
         live_edges: 430,
         blocks: 99,
-        parcels: 1254,
-        buildings: 1318,
+        parcels: 1251,
+        buildings: 1312,
         churches: 3,
         markets: 3,
         games: 1,
-        details: 395,
+        details: 376,
         ruined_parcels: 0,
         cleared_parcels: 39,
-        district_counts: &[("agrarian", 62), ("artisan", 592), ("burgher", 407), ("church", 9), ("craftriver", 14), ("faubourg", 62), ("market", 99), ("suburb", 9)],
-        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 47), ("field", 98), ("pasture", 17), ("tree", 216), ("well", 13)],
+        district_counts: &[("agrarian", 62), ("artisan", 592), ("burgher", 404), ("church", 9), ("craftriver", 14), ("faubourg", 62), ("market", 99), ("suburb", 9)],
+        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 47), ("field", 98), ("pasture", 17), ("tree", 197), ("well", 13)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x408c239e8af953f1), f64::from_bits(0x4085a39e8af953de))),
@@ -1338,7 +1420,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x40397c277761a7a7),
         m_meshedness: f64::from_bits(0x3fc4407dd65101f7),
         m_median_block_area: f64::from_bits(0x408483bd0d871600),
-        m_median_frontage: f64::from_bits(0x401ee570c74b1cba),
+        m_median_frontage: f64::from_bits(0x401f04f82767a4dc),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x408be36948017481), f64::from_bits(0x4084db6948017481)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -1376,7 +1458,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 3286991159,
+        hash: 1892006619,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40c57c0000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -1387,21 +1469,21 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "riverthrough",
         through: true,
-        pop: f64::from_bits(0x40c5568000000000),
+        pop: f64::from_bits(0x40c5498000000000),
         // --- counts ---
         nodes: 742,
         live_edges: 812,
         blocks: 175,
-        parcels: 2283,
-        buildings: 2394,
+        parcels: 2278,
+        buildings: 2400,
         churches: 4,
         markets: 4,
         games: 1,
-        details: 334,
+        details: 396,
         ruined_parcels: 0,
         cleared_parcels: 153,
-        district_counts: &[("agrarian", 170), ("artisan", 1362), ("burgher", 488), ("church", 12), ("craftriver", 45), ("harbour", 29), ("market", 177)],
-        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 59), ("field", 21), ("pasture", 8), ("tree", 216), ("well", 26)],
+        district_counts: &[("agrarian", 171), ("artisan", 1359), ("burgher", 487), ("church", 12), ("craftriver", 44), ("harbour", 29), ("market", 176)],
+        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 60), ("field", 21), ("pasture", 8), ("tree", 277), ("well", 26)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x408c811d6b89f795), f64::from_bits(0x40854c8eb5c4fbbe))),
@@ -1441,7 +1523,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403a79fd512b886a),
         m_meshedness: f64::from_bits(0x3fc202d54cb2e57d),
         m_median_block_area: f64::from_bits(0x408867accf9ea800),
-        m_median_frontage: f64::from_bits(0x401e8fbd4c4ae8ab),
+        m_median_frontage: f64::from_bits(0x401e8aa72a6b1131),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x408be36948017481), f64::from_bits(0x4084db6948017481)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -1450,7 +1532,7 @@ pub const CASES: &[Case] = &[
         first_node: (f64::from_bits(0x4078c00000000000), f64::from_bits(0x4028000000000000)),
         last_node: (f64::from_bits(0x4085ec9017c3d911), f64::from_bits(0x40764b2ea4b1fd1c)),
         first_parcel: ("par0", f64::from_bits(0x404cf16314e95000), "artisan"),
-        last_parcel: ("par2295", f64::from_bits(0x403e2f1371722000), "artisan"),
+        last_parcel: ("par2290", f64::from_bits(0x403e2f1371722000), "artisan"),
     },
     Case {
         name: "faithNoneBasilica",
@@ -1479,7 +1561,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 289481900,
+        hash: 3078750806,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40b3880000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -1490,13 +1572,13 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x40b5eb0000000000),
+        pop: f64::from_bits(0x40b5f00000000000),
         // --- counts ---
         nodes: 331,
         live_edges: 424,
         blocks: 95,
         parcels: 1178,
-        buildings: 1302,
+        buildings: 1303,
         churches: 0,
         markets: 3,
         games: 1,
@@ -1582,7 +1664,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 2924364840,
+        hash: 3658563355,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40c28e0000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -1593,21 +1675,21 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x40b3d30000000000),
+        pop: f64::from_bits(0x40b3de0000000000),
         // --- counts ---
         nodes: 335,
         live_edges: 418,
         blocks: 95,
-        parcels: 1143,
-        buildings: 1030,
+        parcels: 1147,
+        buildings: 1035,
         churches: 4,
         markets: 4,
         games: 1,
-        details: 876,
+        details: 862,
         ruined_parcels: 0,
         cleared_parcels: 18,
-        district_counts: &[("agrarian", 178), ("artisan", 460), ("burgher", 81), ("church", 12), ("craftriver", 30), ("faubourg", 250), ("harbour", 81), ("market", 47), ("oreyard", 4)],
-        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 178), ("field", 40), ("pasture", 12), ("spoilheap", 12), ("tree", 614), ("well", 16)],
+        district_counts: &[("agrarian", 179), ("artisan", 463), ("burgher", 81), ("church", 12), ("craftriver", 30), ("faubourg", 250), ("harbour", 81), ("market", 47), ("oreyard", 4)],
+        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 179), ("field", 40), ("pasture", 12), ("spoilheap", 12), ("tree", 599), ("well", 16)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x407afa04ac61e0a4), f64::from_bits(0x4087e5bd1442d39e))),
@@ -1647,7 +1729,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403baa20fa3918b3),
         m_meshedness: f64::from_bits(0x3fc32b882fecd478),
         m_median_block_area: f64::from_bits(0x4080bd5d8330f110),
-        m_median_frontage: f64::from_bits(0x401e8b3c6ea6ea8a),
+        m_median_frontage: f64::from_bits(0x401e45ee18f1723e),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x40797c7416e47104), f64::from_bits(0x408818c4c2209555)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -1788,7 +1870,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 1,
         // --- the reference's own whole-model hash ---
-        hash: 3088153580,
+        hash: 3362628620,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40b3880000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -1799,20 +1881,20 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x40afa60000000000),
+        pop: f64::from_bits(0x40af5c0000000000),
         // --- counts ---
         nodes: 264,
         live_edges: 274,
         blocks: 64,
-        parcels: 808,
-        buildings: 892,
+        parcels: 800,
+        buildings: 882,
         churches: 2,
         markets: 3,
         games: 1,
         details: 141,
         ruined_parcels: 0,
         cleared_parcels: 10,
-        district_counts: &[("artisan", 307), ("burgher", 183), ("church", 6), ("craftriver", 2), ("faubourg", 93), ("harbour", 71), ("market", 99), ("suburb", 47)],
+        district_counts: &[("artisan", 299), ("burgher", 183), ("church", 6), ("craftriver", 2), ("faubourg", 93), ("harbour", 71), ("market", 99), ("suburb", 47)],
         detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("field", 71), ("pasture", 19), ("tree", 36), ("well", 11)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
@@ -1853,7 +1935,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403dfffffffffff1),
         m_meshedness: f64::from_bits(0x3fa56030dbdd6443),
         m_median_block_area: f64::from_bits(0x4084be7885090c00),
-        m_median_frontage: f64::from_bits(0x401d73589cf5c7c7),
+        m_median_frontage: f64::from_bits(0x401d8e5ac29268c3),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x4094be0958f33c77), f64::from_bits(0x4084bfafb5607a43)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -1891,7 +1973,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 420875003,
+        hash: 4205073179,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40b3880000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -1902,21 +1984,21 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x40b2960000000000),
+        pop: f64::from_bits(0x40b2910000000000),
         // --- counts ---
         nodes: 330,
         live_edges: 394,
         blocks: 89,
-        parcels: 1009,
+        parcels: 1008,
         buildings: 996,
         churches: 2,
         markets: 3,
         games: 1,
-        details: 357,
+        details: 370,
         ruined_parcels: 0,
         cleared_parcels: 37,
-        district_counts: &[("agrarian", 40), ("artisan", 281), ("burgher", 423), ("church", 6), ("craftriver", 10), ("faubourg", 54), ("market", 147), ("suburb", 48)],
-        detail_kinds: &[("cross", 1), ("fence", 41), ("field", 106), ("pasture", 18), ("tree", 180), ("well", 11)],
+        district_counts: &[("agrarian", 41), ("artisan", 279), ("burgher", 423), ("church", 6), ("craftriver", 10), ("faubourg", 54), ("market", 147), ("suburb", 48)],
+        detail_kinds: &[("cross", 1), ("fence", 42), ("field", 106), ("pasture", 18), ("tree", 192), ("well", 11)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x408c3506774372ac), f64::from_bits(0x408585c4d9729605))),
@@ -1956,7 +2038,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x4039eaeb6b73fccc),
         m_meshedness: f64::from_bits(0x3fc3511680365775),
         m_median_block_area: f64::from_bits(0x40804c8ab9339a00),
-        m_median_frontage: f64::from_bits(0x401fc53360427765),
+        m_median_frontage: f64::from_bits(0x401fe3a2ddbc53ed),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x408be36948017481), f64::from_bits(0x4084db6948017481)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -2097,7 +2179,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 632848093,
+        hash: 2043189382,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40b3880000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -2108,21 +2190,21 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x40adfc0000000000),
+        pop: f64::from_bits(0x40adbc0000000000),
         // --- counts ---
         nodes: 344,
         live_edges: 407,
         blocks: 70,
-        parcels: 874,
-        buildings: 851,
+        parcels: 868,
+        buildings: 852,
         churches: 2,
         markets: 3,
         games: 1,
-        details: 871,
+        details: 929,
         ruined_parcels: 0,
         cleared_parcels: 12,
-        district_counts: &[("agrarian", 185), ("artisan", 245), ("burgher", 206), ("church", 6), ("market", 85), ("suburb", 147)],
-        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 196), ("field", 51), ("pasture", 21), ("tree", 587), ("well", 12)],
+        district_counts: &[("agrarian", 184), ("artisan", 247), ("burgher", 207), ("church", 6), ("market", 81), ("suburb", 143)],
+        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 194), ("field", 51), ("pasture", 21), ("tree", 647), ("well", 12)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x40923299daba5cf2), f64::from_bits(0x407de82b5f673d76))),
@@ -2162,7 +2244,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403c6f3e4e68e1ef),
         m_meshedness: f64::from_bits(0x3fbc92ba1c92ba1d),
         m_median_block_area: f64::from_bits(0x4092808553d3c500),
-        m_median_frontage: f64::from_bits(0x4027c41d10e8aa7e),
+        m_median_frontage: f64::from_bits(0x4027d25a33d00350),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x4094b0efc584a8fa), f64::from_bits(0x4084a28ee9ce6805)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -2171,7 +2253,7 @@ pub const CASES: &[Case] = &[
         first_node: (f64::from_bits(0x4075c00000000000), f64::from_bits(0x4028000000000000)),
         last_node: (f64::from_bits(0x409450fbb7e75f31), f64::from_bits(0x407495d0ae49ec82)),
         first_parcel: ("par0", f64::from_bits(0x4065e911ae7f7800), "artisan"),
-        last_parcel: ("par873", f64::from_bits(0x404ae4975ae60000), "artisan"),
+        last_parcel: ("par867", f64::from_bits(0x404ae4975ae60000), "artisan"),
     },
     Case {
         name: "wallStyleBastioned",
@@ -2200,7 +2282,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 4045069697,
+        hash: 3051549533,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40cb580000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -2211,21 +2293,21 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "coast",
         through: false,
-        pop: f64::from_bits(0x40c3b90000000000),
+        pop: f64::from_bits(0x40c3a48000000000),
         // --- counts ---
         nodes: 556,
         live_edges: 744,
         blocks: 172,
-        parcels: 2062,
-        buildings: 2171,
+        parcels: 2055,
+        buildings: 2167,
         churches: 3,
         markets: 5,
         games: 1,
-        details: 181,
+        details: 193,
         ruined_parcels: 0,
         cleared_parcels: 18,
-        district_counts: &[("agrarian", 1), ("artisan", 1919), ("burgher", 19), ("church", 9), ("craftriver", 46), ("harbour", 68)],
-        detail_kinds: &[("bollard", 3), ("crane", 1), ("cross", 1), ("fence", 1), ("field", 20), ("pasture", 9), ("tree", 125), ("well", 21)],
+        district_counts: &[("agrarian", 1), ("artisan", 1912), ("burgher", 19), ("church", 9), ("craftriver", 46), ("harbour", 68)],
+        detail_kinds: &[("bollard", 3), ("crane", 1), ("cross", 1), ("fence", 1), ("field", 20), ("pasture", 9), ("tree", 137), ("well", 21)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x40819d9b0080db81), f64::from_bits(0x40890d9b0080db6f))),
@@ -2265,7 +2347,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x4039e3a6c00fc802),
         m_meshedness: f64::from_bits(0x3fc6524f853b4aa3),
         m_median_block_area: f64::from_bits(0x4085d969f56d5000),
-        m_median_frontage: f64::from_bits(0x401e90caa24f2108),
+        m_median_frontage: f64::from_bits(0x401eaf6be4311228),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x40816d989b5f1c0b), f64::from_bits(0x40899ca459fc95c4)),
         market_prov: "Market sited on the shore flat just behind the quay: goods change mode at the break-of-bulk point (harbour-city family, lit. review §4-5).",
@@ -2274,7 +2356,7 @@ pub const CASES: &[Case] = &[
         first_node: (f64::from_bits(0x4084200000000000), f64::from_bits(0x4028000000000000)),
         last_node: (f64::from_bits(0x4076176de3240912), f64::from_bits(0x4088d46d1c11b87e)),
         first_parcel: ("par0", f64::from_bits(0x40518d277cbb8800), "artisan"),
-        last_parcel: ("par2070", f64::from_bits(0x403dd6ac5bc4c000), "agrarian"),
+        last_parcel: ("par2063", f64::from_bits(0x403dd6ac5bc4c000), "agrarian"),
     },
     Case {
         name: "popFloorClamp",
@@ -2303,7 +2385,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 1229346962,
+        hash: 142157540,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x4079000000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -2314,20 +2396,20 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x4093c00000000000),
+        pop: f64::from_bits(0x4093940000000000),
         // --- counts ---
         nodes: 103,
         live_edges: 112,
         blocks: 13,
-        parcels: 249,
-        buildings: 275,
+        parcels: 247,
+        buildings: 273,
         churches: 0,
         markets: 0,
         games: 0,
         details: 113,
         ruined_parcels: 0,
         cleared_parcels: 0,
-        district_counts: &[("artisan", 15), ("burgher", 77), ("faubourg", 53), ("harbour", 64), ("market", 9), ("suburb", 31)],
+        district_counts: &[("artisan", 15), ("burgher", 77), ("faubourg", 53), ("harbour", 64), ("market", 9), ("suburb", 29)],
         detail_kinds: &[("bollard", 2), ("crane", 1), ("fence", 1), ("field", 85), ("pasture", 17), ("tree", 3), ("well", 4)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
@@ -2368,7 +2450,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x4040f876ccdf6cda),
         m_meshedness: f64::from_bits(0x3fb1111111111111),
         m_median_block_area: f64::from_bits(0x408b82757417fb00),
-        m_median_frontage: f64::from_bits(0x401bb9d5449b20ea),
+        m_median_frontage: f64::from_bits(0x401bc7028083f9ee),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x40948f198b2939d5), f64::from_bits(0x4083d2a49d5846ce)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -2406,7 +2488,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 3102845833,
+        hash: 2763945324,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40b9640000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -2417,21 +2499,21 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x40b8ae0000000000),
+        pop: f64::from_bits(0x40b8a90000000000),
         // --- counts ---
         nodes: 389,
         live_edges: 470,
         blocks: 112,
-        parcels: 1365,
-        buildings: 1346,
+        parcels: 1359,
+        buildings: 1344,
         churches: 3,
         markets: 3,
         games: 1,
-        details: 699,
+        details: 634,
         ruined_parcels: 0,
         cleared_parcels: 79,
-        district_counts: &[("agrarian", 159), ("artisan", 805), ("burgher", 131), ("church", 9), ("craftriver", 15), ("faubourg", 33), ("harbour", 59), ("market", 33), ("suburb", 121)],
-        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 130), ("field", 73), ("pasture", 24), ("tree", 454), ("well", 14)],
+        district_counts: &[("agrarian", 154), ("artisan", 805), ("burgher", 131), ("church", 9), ("craftriver", 15), ("faubourg", 33), ("harbour", 59), ("market", 33), ("suburb", 120)],
+        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 125), ("field", 73), ("pasture", 24), ("tree", 394), ("well", 14)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x4076b02d659fce8f), f64::from_bits(0x408967e94d3018c3))),
@@ -2471,7 +2553,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403a45d0b3d5fcb0),
         m_meshedness: f64::from_bits(0x3fc457da8ddcb6e9),
         m_median_block_area: f64::from_bits(0x408484196a396780),
-        m_median_frontage: f64::from_bits(0x401e67669506e908),
+        m_median_frontage: f64::from_bits(0x401e9ca9dc104820),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x4078127307971d06), f64::from_bits(0x408ad9929d552eb2)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -2509,7 +2591,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 2311379802,
+        hash: 3081730319,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x4082c00000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -2520,20 +2602,20 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x4086980000000000),
+        pop: f64::from_bits(0x4086c00000000000),
         // --- counts ---
         nodes: 92,
         live_edges: 81,
         blocks: 10,
-        parcels: 143,
-        buildings: 163,
+        parcels: 145,
+        buildings: 164,
         churches: 1,
         markets: 0,
         games: 0,
         details: 119,
         ruined_parcels: 0,
         cleared_parcels: 0,
-        district_counts: &[("burgher", 18), ("church", 3), ("faubourg", 36), ("market", 86)],
+        district_counts: &[("burgher", 20), ("church", 3), ("faubourg", 36), ("market", 86)],
         detail_kinds: &[("bollard", 2), ("crane", 1), ("field", 80), ("pasture", 25), ("tree", 9), ("well", 2)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
@@ -2574,7 +2656,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403e000000000001),
         m_meshedness: f64::from_bits(0x3fb48e03bcbadc7f),
         m_median_block_area: f64::from_bits(0x4074dba43fe9c000),
-        m_median_frontage: f64::from_bits(0x401c351262dc1596),
+        m_median_frontage: f64::from_bits(0x401c3bdf470c54b5),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x408e5e12b6fb637c), f64::from_bits(0x4083fbee0a893113)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -2612,7 +2694,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 3773555527,
+        hash: 506394862,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40c1940000000000),
         settlement_age: f64::from_bits(0x403e000000000000),
@@ -2623,21 +2705,21 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x40bc510000000000),
+        pop: f64::from_bits(0x40bc5b0000000000),
         // --- counts ---
         nodes: 446,
         live_edges: 573,
         blocks: 130,
-        parcels: 1595,
-        buildings: 1495,
+        parcels: 1593,
+        buildings: 1493,
         churches: 3,
         markets: 4,
         games: 1,
-        details: 964,
+        details: 928,
         ruined_parcels: 0,
         cleared_parcels: 84,
-        district_counts: &[("agrarian", 209), ("artisan", 791), ("burgher", 291), ("church", 9), ("craftriver", 14), ("faubourg", 15), ("harbour", 82), ("market", 60), ("suburb", 124)],
-        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 186), ("field", 81), ("pasture", 19), ("tree", 660), ("well", 14)],
+        district_counts: &[("agrarian", 209), ("artisan", 789), ("burgher", 291), ("church", 9), ("craftriver", 14), ("faubourg", 15), ("harbour", 82), ("market", 60), ("suburb", 124)],
+        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 186), ("field", 81), ("pasture", 19), ("tree", 624), ("well", 14)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x4076bd2bf19b1045), f64::from_bits(0x408a716a073277f0))),
@@ -2677,7 +2759,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403aa2763467f54e),
         m_meshedness: f64::from_bits(0x3fc369609ecbbfc8),
         m_median_block_area: f64::from_bits(0x4086934ebf015a00),
-        m_median_frontage: f64::from_bits(0x401ee41082e54835),
+        m_median_frontage: f64::from_bits(0x401ef504c58a9cd1),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x4078c491e6bff61c), f64::from_bits(0x408c47d3429dbd1e)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -2715,7 +2797,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 2,
         // --- the reference's own whole-model hash ---
-        hash: 720273033,
+        hash: 826410967,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40c1940000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -2726,21 +2808,21 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x40c03b0000000000),
+        pop: f64::from_bits(0x40c0330000000000),
         // --- counts ---
         nodes: 476,
         live_edges: 413,
         blocks: 130,
-        parcels: 1719,
-        buildings: 1789,
+        parcels: 1715,
+        buildings: 1788,
         churches: 3,
         markets: 4,
         games: 1,
-        details: 132,
+        details: 144,
         ruined_parcels: 0,
         cleared_parcels: 23,
-        district_counts: &[("agrarian", 10), ("artisan", 996), ("burgher", 392), ("church", 9), ("craftriver", 18), ("faubourg", 139), ("market", 155)],
-        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 7), ("field", 2), ("tree", 107), ("well", 12)],
+        district_counts: &[("agrarian", 10), ("artisan", 993), ("burgher", 391), ("church", 9), ("craftriver", 18), ("faubourg", 139), ("market", 155)],
+        detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 7), ("field", 2), ("tree", 119), ("well", 12)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x408b8f0615617322), f64::from_bits(0x408576b7b9e95988))),
@@ -2780,7 +2862,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x40388a8affec8b33),
         m_meshedness: f64::from_bits(0x3f98c8e2f9cdc742),
         m_median_block_area: f64::from_bits(0x4085d83ca76ade00),
-        m_median_frontage: f64::from_bits(0x401eb355f7468368),
+        m_median_frontage: f64::from_bits(0x401ebf78128f2481),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x408be36948017481), f64::from_bits(0x4084db6948017481)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",
@@ -2818,7 +2900,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 3057153117,
+        hash: 2907134257,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40c7700000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -2829,21 +2911,21 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "landlocked",
         through: false,
-        pop: f64::from_bits(0x40c7668000000000),
+        pop: f64::from_bits(0x40c76b8000000000),
         // --- counts ---
         nodes: 738,
         live_edges: 887,
         blocks: 193,
-        parcels: 2561,
-        buildings: 2592,
+        parcels: 2560,
+        buildings: 2590,
         churches: 4,
         markets: 4,
         games: 1,
-        details: 677,
+        details: 690,
         ruined_parcels: 0,
-        cleared_parcels: 137,
-        district_counts: &[("agrarian", 201), ("artisan", 1020), ("burgher", 867), ("church", 12), ("market", 461)],
-        detail_kinds: &[("cross", 1), ("fence", 100), ("field", 35), ("pasture", 14), ("tree", 502), ("well", 25)],
+        cleared_parcels: 136,
+        district_counts: &[("agrarian", 200), ("artisan", 1016), ("burgher", 868), ("church", 12), ("market", 464)],
+        detail_kinds: &[("cross", 1), ("fence", 100), ("field", 35), ("pasture", 14), ("tree", 515), ("well", 25)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
         plaza_center: Some((f64::from_bits(0x4085bce43e6e2f18), f64::from_bits(0x4070c6378323a1f4))),
@@ -2883,7 +2965,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403ab16a7cc40b53),
         m_meshedness: f64::from_bits(0x3fc17bdbed9891c3),
         m_median_block_area: f64::from_bits(0x40875aab1320f100),
-        m_median_frontage: f64::from_bits(0x401e1f6c2b9efc83),
+        m_median_frontage: f64::from_bits(0x401e2f7129329cbd),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x408a257af8056121), f64::from_bits(0x407b4b104fdce21a)),
         market_prov: "Market sited on flat, dry ground where the land routes converge — an inland market town with no water frontage (M-REG-1, lit. review §4).",
@@ -2892,7 +2974,7 @@ pub const CASES: &[Case] = &[
         first_node: (f64::from_bits(0x4072400000000000), f64::from_bits(0x4028000000000000)),
         last_node: (f64::from_bits(0x409028a8c8eea625), f64::from_bits(0x406fbab9b88aced6)),
         first_parcel: ("par0", f64::from_bits(0x40407968de82d000), "burgher"),
-        last_parcel: ("par2570", f64::from_bits(0x4044be2e7d1be800), "artisan"),
+        last_parcel: ("par2569", f64::from_bits(0x4044be2e7d1be800), "artisan"),
     },
     Case {
         name: "venusLandlockedCanal",
@@ -3024,7 +3106,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 1919649866,
+        hash: 3982928493,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40b3880000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -3035,20 +3117,20 @@ pub const CASES: &[Case] = &[
         culture: "medieval",
         site_kind: "river",
         through: false,
-        pop: f64::from_bits(0x40b2670000000000),
+        pop: f64::from_bits(0x40b2620000000000),
         // --- counts ---
         nodes: 279,
         live_edges: 356,
         blocks: 86,
-        parcels: 973,
-        buildings: 962,
+        parcels: 972,
+        buildings: 960,
         churches: 2,
         markets: 3,
         games: 1,
         details: 177,
         ruined_parcels: 0,
         cleared_parcels: 24,
-        district_counts: &[("agrarian", 31), ("artisan", 600), ("burgher", 159), ("church", 6), ("craftriver", 8), ("faubourg", 75), ("harbour", 60), ("market", 8), ("suburb", 26)],
+        district_counts: &[("agrarian", 31), ("artisan", 599), ("burgher", 159), ("church", 6), ("craftriver", 8), ("faubourg", 75), ("harbour", 60), ("market", 8), ("suburb", 26)],
         detail_kinds: &[("bollard", 2), ("crane", 1), ("cross", 1), ("fence", 31), ("field", 59), ("pasture", 15), ("tree", 57), ("well", 11)],
         // --- the stages whose presence is a branch ---
         has_plaza: true,
@@ -3089,7 +3171,7 @@ pub const CASES: &[Case] = &[
         m_median_seg: f64::from_bits(0x403ae9ae138072c2),
         m_meshedness: f64::from_bits(0x3fc47fc2fac18ca2),
         m_median_block_area: f64::from_bits(0x40828ec53e405500),
-        m_median_frontage: f64::from_bits(0x401f1d28d93a1d3d),
+        m_median_frontage: f64::from_bits(0x401f1eed0d179ad1),
         // --- fully-written anchors, so a hash miss localises ---
         market: (f64::from_bits(0x4094f2785c833bd9), f64::from_bits(0x408484549f9bf4d7)),
         market_prov: "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.",

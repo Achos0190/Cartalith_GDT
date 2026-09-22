@@ -518,3 +518,27 @@ fn a_nan_rule_does_not_reach_lot_geometry() {
     let capped = build_parcels(sc.seed, &g, &blocks, anchors.market, 8, &site, Some(&cap_nan));
     assert!(!capped.is_empty(), "a NaN subdivision cap produced no lots at all");
 }
+
+/// `PARCEL_GRANT_MAX_SPIN` (§6r.5). Variance 0.10 is the "Planned Grid" chip's
+/// value, and this exact town (seed 2, river, pop 4000) did not return in 100 s
+/// before the bound. A regression hangs here rather than failing, which is
+/// still a failure: the suite does not finish.
+#[test]
+fn the_planned_grid_variance_terminates() {
+    use crate::generate::{GenOpts, generate};
+    use crate::rules::{ParcelPatch, RulesPatch};
+    let opts = GenOpts {
+        pop: Some(4000.0),
+        site: Some("river".to_string()),
+        rules: Some(RulesPatch {
+            parcels: Some(ParcelPatch {
+                frontage_width_variance: Some(0.10),
+                ..ParcelPatch::default()
+            }),
+            ..RulesPatch::default()
+        }),
+        ..GenOpts::default()
+    };
+    let t = generate(2, &opts);
+    assert_eq!(t.parcels.len(), 899, "the bounded town's parcel count");
+}

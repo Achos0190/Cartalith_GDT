@@ -57,6 +57,28 @@ use crate::rules::{DEFAULT_RULES, Rules};
 use crate::site::Site;
 use crate::wallside::WallBacking;
 
+/// `PARCEL_GRANT_MAX_SPIN` (v2.66, `RC_ENGINE_CHANGES.md` §6r.5): how many
+/// **consecutive** frontage draws that place nothing [`build_parcels`] allows on
+/// one block edge before it stops granting there. The existing stretch then
+/// widens the grants already placed to fill the edge.
+///
+/// Without it the loop re-draws until a grant fits, and when the remainder sits
+/// just above the 4.5 m floor the only escape is the lognormal's far lower
+/// tail, so at a low `frontage_width_variance` that effectively never comes.
+/// Measured on this port, unbounded, river site, release build, seeds 1-3:
+/// variance 0.15 at pop 7000 and variance 0.10 (the "Planned Grid" chip) at
+/// pop 4000 each had seeds that took tens of seconds or did not return within
+/// 100 s. Bounded, all 18 site × seed cases of both returned in under 0.25 s.
+///
+/// **Not a no-op on ordinary towns.** At the default variance 0.22 the longest
+/// run measured 159 367 spins, and 39 of 60 towns (pops 900-15 000, five
+/// seeds, three sites) reach 4096. Those towns re-baseline: 83 of 54 314
+/// parcels by count (0.15%, worst town 0.81%), 929 (1.71%) by exact geometry,
+/// because a block's later edges draw from the same `parcels/<id>` stream. The
+/// 21 towns that never reach the cap are byte-identical. The reference's own
+/// sizing was 46 of 8 939 parcels (0.51%). The value is the reference's.
+pub const PARCEL_GRANT_MAX_SPIN: u32 = 4096;
+
 /// A plaza, as [`build_blocks`] reads one — milestone 8's
 /// [`crate::plaza::build_plaza`] is what produces it. Re-exported from here
 /// because this is the module that *consumes* it; the definition lives beside
@@ -338,7 +360,9 @@ pub fn build_parcels(
             });
             let mut widths: Vec<f64> = Vec::new();
             let mut acc = 0.0f64;
+            let mut spin = 0u32;
             while acc < e_len - 3.0 {
+                let placed_before = widths.len();
                 let w = js_max(4.5, js_min(16.0, r_b.logn(11.0, p.frontage_width_variance)));
                 let mut parts = vec![w];
                 // `Math.min(P.subdivisionCap, Math.floor(age/3))` -- NaN when
@@ -371,6 +395,15 @@ pub fn build_parcels(
                 }
                 if empty || acc + 4.5 > e_len - 2.0 {
                     break;
+                }
+                // Nothing fitted: count the spin, and stop at the bound.
+                if widths.len() == placed_before {
+                    spin += 1;
+                    if spin >= PARCEL_GRANT_MAX_SPIN {
+                        break;
+                    }
+                } else {
+                    spin = 0;
                 }
             }
             if widths.is_empty() {
