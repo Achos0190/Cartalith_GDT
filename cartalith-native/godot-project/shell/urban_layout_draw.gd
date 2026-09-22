@@ -133,8 +133,8 @@ const FARM_LINE := Color(0.169, 0.129, 0.094, 0.22)
 ## wall's outer face (`cartalith_urban::wallside`, a Ruling H departure, owner
 ## 2026-09-22). Derived, not picked: the midpoint of `suburb` and `artisan` (the
 ## districts on either side of the wall from it) darkened by 12%, at the floor
-## of `craftriver`/`harbour`'s 0.26-0.30 alpha band, so the dense row of hovels
-## reads as a quarter of its own rather than as more suburb.
+## of `craftriver`/`harbour`'s 0.26-0.30 alpha band, so the dense cluster of
+## hovels reads as a quarter of its own rather than as more suburb.
 const DISTRICT_FILL := {
 	"market": Color(0.847, 0.788, 0.588, 0.32),
 	"burgher": Color(0.776, 0.706, 0.549, 0.26),

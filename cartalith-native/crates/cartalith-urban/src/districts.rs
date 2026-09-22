@@ -164,8 +164,9 @@ const PROV_SUBURB: &str =
 const PROV_AGRARIAN: &str =
     "Agrarian fringe: smallholdings, orchards and paddocks at the walking limit (M-REG-4).";
 /// Not the reference's — a Ruling H departure (`crate::wallside`).
-const PROV_FAUBOURG: &str = "Faubourg: a poor quarter of narrow, shallow lots built up against the wall's outer face, beside a gate and along the curtain rather than along the road (owner, 2026-09-22; Ruling H).";
+const PROV_FAUBOURG: &str = "Faubourg: a poor quarter of narrow, shallow lots clustered against the wall's outer face in rows threaded by lanes, deepest beside a gate and running along the curtain rather than along the road (owner, 2026-09-22; Ruling H).";
 const PROV_WALL_LEAN: &str = "Lean-to against the town wall: the curtain is the building's back wall (owner, 2026-09-22; Ruling H).";
+const PROV_FAUBOURG_HOVEL: &str = "Faubourg hovel: one small range in a row behind the first, on a lane of the cluster that grew against the wall's outer face (owner, 2026-09-22; Ruling H).";
 const PROV_WALL_BACKED: &str = "Wall-backed range: street to curtain in one range, the town wall its rear wall (owner, 2026-09-22; Ruling H).";
 
 const PROV_OREYARD: &str = "Ore yard: dressing floors and spoil ground of a mining settlement — the workings lie out in the hinterland, the processing at the town edge facing them (S6 economy rule).";
@@ -254,11 +255,12 @@ pub fn assign_districts<'a>(
         // The reference writes the first two as separate arms that both yield
         // `'market'` (the plaza frontage rule and the core radius); `||` is the
         // same test in the same order, and neither side has a side effect.
-        // **Not the reference** (Ruling H, `crate::wallside`): a lot platted
-        // against the wall's outer face is the faubourg, whatever the radial
+        // **Not the reference** (Ruling H, `crate::wallside`): a lot of the
+        // cluster platted against the wall's outer face is the faubourg,
+        // whatever the radial
         // zoning below would have called its ground. The harbour override
         // after this still wins, as it does over every base district.
-        let mut d = if lot.par.wall_backing == WallBacking::Outside {
+        let mut d = if lot.par.wall_backing.is_faubourg() {
             "faubourg"
         } else if on_plaza_front || d_m < 140.0 {
             "market"
@@ -805,7 +807,7 @@ pub fn build_buildings(
         // same strip as the lean-to. Draws come from this lot's own `'bld'`
         // stream, like every other branch, so no other lot is affected.
         if par.wall_backing != WallBacking::No && d != "harbour" && d != "warehouse" {
-            let outside = par.wall_backing == WallBacking::Outside;
+            let outside = par.wall_backing.is_faubourg();
             // Eaves gaps: routine between a faubourg's hovels, the ordinary
             // M-BLD-5 rate inside.
             let g_r = if r.chance(if outside { 0.3 } else { 0.12 }) {
@@ -816,9 +818,16 @@ pub fn build_buildings(
             let mut ranges: Vec<(f64, f64, &'static str, &'static str)> = Vec::new();
             if outside {
                 // One small range and nothing else — the bottom of this
-                // grammar's scale on every axis (see `crate::wallside`).
+                // grammar's scale on every axis (see `crate::wallside`). In
+                // the first row it leans on the curtain; behind it, the same
+                // hovel stands at the wallward end of its lot, on the lane or
+                // against the row in front, and claims no wall.
                 let dv = js_min(0.85, js_max(4.5, r.logn(5.5, 0.18)) / par.depth);
-                ranges.push((1.0 - dv, 1.0, "lean-to", PROV_WALL_LEAN));
+                if par.wall_backing == WallBacking::Outside {
+                    ranges.push((1.0 - dv, 1.0, "lean-to", PROV_WALL_LEAN));
+                } else {
+                    ranges.push((1.0 - dv, 1.0, "main", PROV_FAUBOURG_HOVEL));
+                }
             } else if par.depth <= 16.0 {
                 ranges.push((0.0, 1.0, "main", PROV_WALL_BACKED));
             } else {

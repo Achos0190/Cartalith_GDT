@@ -25,7 +25,9 @@
 //! gap from the wall to the nearest intramural building was 38-81 m. Outside,
 //! the curtain's 15 m rampart strip ([`crate::cleanup::clear_fort_zone`]) also
 //! swept whatever reached it. After it, on the same five: 12-33% inside and
-//! 6-30% outside, with every faubourg building touching the wall face.
+//! 6-30% outside, with every faubourg building touching the wall face — the
+//! single-row version of 2026-09-22's first pass; the cluster that replaced it
+//! keeps that first row and builds behind it.
 //!
 //! **Where the band stays open, that is measured too, not a gap in the pass.**
 //! Most refused intramural stretches have no street within [`INNER_REACH`] —
@@ -40,14 +42,32 @@
 //!    meets, fronting that street and using the curtain as its back line. No
 //!    street within [`INNER_REACH`] — or one closer than [`MIN_DEPTH`] — and
 //!    the band stays open there, as an intervallum did.
-//! 2. **Extramural** ([`WallBacking::Outside`]): a *faubourg* — narrow, shallow
-//!    lots against the wall's outer face, district `"faubourg"`. It starts
-//!    beside a land gate, as the historical ones did (the faubourg is named for
-//!    the gate road it grew off), but it runs **along the wall**, into the gap
-//!    between the roads — which is exactly what the road-anchored ribbon
-//!    suburb in `grow` never does, since there every extramural origin must lie
-//!    within 90 m of a primary. The two are additive: a faubourg lot that would
-//!    overlap a ribbon parcel, or cross any street, is simply not platted.
+//! 2. **Extramural** ([`WallBacking::Outside`], [`WallBacking::OutsideRow`]): a
+//!    *faubourg* — a cluster of narrow, shallow lots against the wall's outer
+//!    face, district `"faubourg"`. It starts beside a land gate, as the
+//!    historical ones did (the faubourg is named for the gate road it grew
+//!    off), but it runs **along the wall**, into the gap between the roads —
+//!    which is exactly what the road-anchored ribbon suburb in `grow` never
+//!    does, since there every extramural origin must lie within 90 m of a
+//!    primary. The two are additive: a faubourg lot that would overlap a ribbon
+//!    parcel, or cross any street, is simply not platted.
+//!
+//!    **A cluster, not a line** (owner, 2026-09-22 follow-up: *"the shanty
+//!    shouldn't just be a small line against the wall it should be a cluster
+//!    against the wall, much like the reference image"*). The first row backs
+//!    onto the wall face and the cluster is [`FAUBOURG_ROWS`] rows deep at its
+//!    gate, counting that one; each row behind it is offset
+//!    outward by the row in front plus a [`LANE`] (or none, [`BACK_TO_BACK`]),
+//!    staggered along the wall, broken by cross-[`ALLEY`]s, and each reaching
+//!    less far along the wall than the one in front — so the cluster is a wedge,
+//!    deepest at its gate and thinning to a single row. **Parallel rows rather
+//!    than a block subdivision**, because the reference's quarters read as rows
+//!    following the curtain, and because a subdivision would need streets this
+//!    ground does not have: blocks here are faces of the street graph
+//!    ([`crate::blocks::build_blocks`]) and the faubourg's lanes are not graph
+//!    edges — they are the gaps the rows leave, as the wall is the gap the
+//!    intramural lots leave. This stage adds no street. The measurements behind
+//!    each constant are on the constant.
 //!
 //! # What reads as "poor" here, and why no new visual language was invented
 //!
@@ -56,7 +76,8 @@
 //! plots, deeper main ranges there (`logn(11.5)` against `logn(9.5)`), and wings
 //! and outbuildings with age. A faubourg lot gets the bottom of that scale on
 //! every axis — frontage `logn(6.5)` against the town's `logn(11)`, depth
-//! 6-12 m, one small range against the wall and nothing else — plus its own
+//! 6-12 m, one small range at the lot's wallward end and nothing else (a
+//! lean-to on the curtain in the first row) — plus its own
 //! parcel fill in `urban_layout_draw.gd`'s `DISTRICT_FILL`, derived from the
 //! suburb fill rather than picked.
 //!
@@ -73,9 +94,12 @@
 //!
 //! # Draws
 //!
-//! Three substreams of this module's own — `"wallside/in"`, `"faubourg"` and
-//! `"wallside/tone"` (the roof tone, kept apart for the reason
-//! [`Parcel::tone`] gives) — so no draw any existing stage makes is shifted. Lots are appended after every
+//! Four substreams of this module's own — `"wallside/in"`, `"faubourg"` (each
+//! cluster's first row, against the wall), `"faubourg/rows"` (the rows behind
+//! it, added by the 2026-09-22 follow-up in a separate stream so the first row
+//! is exactly the single-row pass that preceded it) and `"wallside/tone"` (the
+//! roof tone, kept apart for the reason [`Parcel::tone`] gives) — so no draw
+//! any existing stage makes is shifted. Lots are appended after every
 //! street-platted parcel, and every later consumer of the parcel list either
 //! draws from a per-parcel stream (`build_buildings`) or walks the list in
 //! order — so what these lots can change downstream is bounded to what reaches
@@ -97,8 +121,22 @@ pub enum WallBacking {
     /// Inside the circuit, its back line on the wall's inner face.
     Inside,
     /// Outside the circuit, its back line on the wall's outer face: a
-    /// faubourg lot.
+    /// faubourg lot in the cluster's first row.
     Outside,
+    /// Outside the circuit, a faubourg lot in a row **behind** the first: its
+    /// back line faces the wall across a lane or the row in front, and touches
+    /// no wall. Kept apart from [`WallBacking::Outside`] so nothing it builds
+    /// claims the curtain as its back wall.
+    OutsideRow,
+}
+
+impl WallBacking {
+    /// Any faubourg lot, first row or behind it — the district, the rampart
+    /// sweep's exemption and the building grammar all key on this, not on
+    /// [`WallBacking::Outside`] alone.
+    pub fn is_faubourg(self) -> bool {
+        matches!(self, WallBacking::Outside | WallBacking::OutsideRow)
+    }
 }
 
 /// How far inward a lot may reach from the wall to find its street. Matches
@@ -114,6 +152,40 @@ pub const GATE_CLEAR: f64 = 14.0;
 /// and without this a back line was measured **10.5 m** off the wall inside and
 /// 1.5 m under the drawn stroke outside, against a median of exactly the face.
 pub const MAX_BOW: f64 = 1.0;
+
+/// Rows in a faubourg cluster, at its gate end: 3-5, inclusive. Read off the
+/// owner's reference plan (`design/owner-references-2026-09-12/
+/// urban-town-plan-walled-market-town.jpg`, 900 x 1350 px): measured in that
+/// plan's own lots (~20-25 px across, i.e. the ~11 m frontage of an ordinary
+/// lot), its extramural quarters stand **2 lots deep** off the west curtain
+/// (~55 px) and **5-7 deep** on the east (~100-180 px), against a wall ~470 px
+/// across. At this module's 6-12 m faubourg depth plus a lane, 3-5 rows is
+/// ~35-60 m — the reference's middle, not its extremes.
+pub const FAUBOURG_ROWS: (i64, i64) = (3, 5);
+/// A lane between two rows, in metres: the reference draws its lanes at about
+/// a fifth of a lot's width (3-4 px against ~20 px), ~2-3.5 m at this scale.
+pub const LANE: (f64, f64) = (2.0, 3.5);
+/// The share of row pairs with no lane between them — built back to back, as
+/// the reference's denser blocks are. Neither all lanes (a set of detached
+/// lines) nor none (one undifferentiated mass).
+pub const BACK_TO_BACK: f64 = 0.35;
+/// Per lot, in a row behind the first, the chance of an alley — a gap of
+/// [`LANE`] width — opening before it: the reference's lanes run across the
+/// rows as well as along them.
+pub const ALLEY: f64 = 0.12;
+/// The shallowest lot a row behind the first is drawn at. Not [`MIN_DEPTH`]
+/// itself: a lot is re-measured from its corners (`Parcel::depth`) and
+/// `build_buildings` leaves anything under 6 m empty, so a lot drawn at exactly
+/// 6.0 measured **5.99999999999992-5.99999999999999** and stood unbuilt — 26
+/// of them across the goldens in a first draft. Half a metre clears the
+/// round-trip by thirteen orders of magnitude and is below the lot-to-lot
+/// spread of `logn(9.0, 0.2)`.
+///
+/// The first row is untouched and still clamps at `MIN_DEPTH`, so the same
+/// defect stands there on the lots it reaches: three on the goldens
+/// (`coastHarbourChain` `faub29`/`faub62`, `faithNoneBasilica` `faub19`),
+/// pre-existing since the single-row pass; fixing it moves that row.
+pub const ROW_DEPTH_FLOOR: f64 = MIN_DEPTH + 0.5;
 
 /// Half the drawn stroke of each wall style that can be built against —
 /// `urban_layout_draw.gd`'s `WALL_W` (`curtain` 4.5, `palisade` 2.2), halved,
@@ -303,6 +375,55 @@ fn outward(ring: &[Vec2], a: Vec2, b: Vec2) -> Vec2 {
     if point_in_poly(a.lerp(b, 0.5) + n * 3.0, ring) { n * -1.0 } else { n }
 }
 
+/// The gap behind a faubourg row: none ([`BACK_TO_BACK`]) or a [`LANE`].
+fn lane(r: &mut Substream) -> f64 {
+    if r.chance(BACK_TO_BACK) { 0.0 } else { r.range(LANE.0, LANE.1) }
+}
+
+/// One faubourg lot between arc lengths `s0` and `s1` (either order), its back
+/// line `off` metres out from the wall's drawn face and `depth` deep — cut back
+/// to a street's building line in front — or `None` where it does not fit.
+/// Returns the quad and the class of the street it fronts (`""`: none).
+#[allow(clippy::too_many_arguments)]
+fn faubourg_lot(
+    ctx: &Ctx<'_>,
+    arc: &Arc,
+    ring: &[Vec2],
+    hw: f64,
+    s0: f64,
+    s1: f64,
+    off: f64,
+    depth: f64,
+) -> Option<(Vec<Vec2>, &'static str)> {
+    // Walk order can run either way, but the quad is always wound the same way
+    // round: `a` then `b` in increasing arc length.
+    let (a, b) = (arc.at(s0.min(s1)), arc.at(s0.max(s1)));
+    if a.dist(b) < 4.0 || arc.bow(s0.min(s1), s0.max(s1)) > MAX_BOW {
+        return None;
+    }
+    let n_out = outward(ring, a, b);
+    let (fa, fb) = (a + n_out * (hw + off), b + n_out * (hw + off));
+    // A street in front cuts the lot back to its building line. `""` is
+    // "fronts no street" -- open ground outside the wall. It is not a
+    // plausible class: nothing compares against it.
+    let (mut da, mut db, mut cls) = (depth, depth, "");
+    if let Some((d, c)) = ctx.street_face(fa, n_out, depth + 8.0)
+        && d < da
+    {
+        (da, cls) = (d, c);
+    }
+    if let Some((d, c)) = ctx.street_face(fb, n_out, depth + 8.0)
+        && d < db
+    {
+        (db, cls) = (d, c);
+    }
+    if da < MIN_DEPTH || db < MIN_DEPTH {
+        return None;
+    }
+    let quad = vec![fa + n_out * da, fb + n_out * db, fb, fa];
+    ctx.accepts(&quad, false).then_some((quad, cls))
+}
+
 /// Plat the lots against the wall. Returns them in walk order, ids
 /// `wallin{k}` / `faub{k}`, each its own one-lot "block" (see
 /// [`Parcel::block`]) so `build_faith_sites` can never spread a churchyard
@@ -394,11 +515,17 @@ pub fn build_wall_lots(
         }
     }
 
-    // ---- 2. extramural: faubourg runs, each starting beside a land gate ----
+    // ---- 2. extramural: faubourg clusters, each starting beside a land gate ----
+    // 2a. Each cluster's FIRST row, against the wall face: exactly the
+    // single-row pass this module shipped with (same stream, same draws), so
+    // the cluster adds rows behind that line and never moves the line itself.
     let mut r = stream(seed, "faubourg");
     let runs = if pop_target < 4000.0 { 1 } else if pop_target < 10000.0 { 2 } else { 3 };
     let gates: Vec<f64> = wall.gates.iter().filter(|gt| !gt.water).map(|gt| arc.project(gt.pt)).collect();
     let mut k = 0usize;
+    // Per run: its direction, start and length along the wall, and the
+    // deepest lot drawn for its first row (the next row stands behind that).
+    let mut clusters: Vec<(f64, f64, f64, f64)> = Vec::new();
     for _ in 0..runs {
         let dir = if r.chance(0.5) { 1.0 } else { -1.0 };
         let start = match r.pick(&gates) {
@@ -406,45 +533,57 @@ pub fn build_wall_lots(
             None => r.range(0.0, total),
         };
         let run_len = total * r.range(0.10, 0.20);
+        let mut deepest = MIN_DEPTH;
         let mut t = 0.0;
         while t < run_len {
             let w = r.logn(6.5, 0.18).clamp(4.5, 9.0);
             let depth = r.logn(9.0, 0.2).clamp(MIN_DEPTH, 12.0);
+            deepest = deepest.max(depth);
             let (s0, s1) = (start + dir * t, start + dir * (t + w));
             t += w;
             if !arc.closed && (s0.min(s1) < 0.0 || s0.max(s1) > total) {
                 break;
             }
-            // Walk order is `dir`, but the quad is always wound the same way
-            // round: `a` then `b` in increasing arc length.
-            let (a, b) = (arc.at(s0.min(s1)), arc.at(s0.max(s1)));
-            if a.dist(b) < 4.0 || arc.bow(s0.min(s1), s0.max(s1)) > MAX_BOW {
-                continue;
-            }
-            let n_out = outward(ring, a, b);
-            let (fa, fb) = (a + n_out * hw, b + n_out * hw);
-            // A street in front cuts the lot back to its building line.
-            // `""` is "fronts no street" -- open ground outside the wall. It is
-            // not a plausible class: nothing compares against it.
-            let (mut da, mut db, mut cls) = (depth, depth, "");
-            if let Some((d, c)) = ctx.street_face(fa, n_out, depth + 8.0)
-                && d < da
-            {
-                (da, cls) = (d, c);
-            }
-            if let Some((d, c)) = ctx.street_face(fb, n_out, depth + 8.0)
-                && d < db
-            {
-                (db, cls) = (d, c);
-            }
-            if da < MIN_DEPTH || db < MIN_DEPTH {
-                continue;
-            }
-            let quad = vec![fa + n_out * da, fb + n_out * db, fb, fa];
-            if ctx.accepts(&quad, false) {
+            if let Some((quad, cls)) = faubourg_lot(&ctx, &arc, ring, hw, s0, s1, 0.0, depth) {
                 push(&mut ctx, quad, format!("faub{k}"), WallBacking::Outside, cls, &mut tone);
                 k += 1;
             }
+        }
+        clusters.push((dir, start, run_len, deepest));
+    }
+
+    // 2b. The rows behind, from a stream of their own so none of 2a's draws
+    // shift. Each is offset outward by the row in front plus a lane (or none,
+    // back to back), staggered, broken by alleys, and reaches less far along
+    // the wall than the row in front: a wedge, deepest at its gate.
+    let mut r = stream(seed, "faubourg/rows");
+    for (dir, start, run_len, deepest) in clusters {
+        let rows = r.int(FAUBOURG_ROWS.0, FAUBOURG_ROWS.1);
+        let mut off = deepest + lane(&mut r);
+        for j in 1..rows {
+            let row_depth = r.logn(9.0, 0.2).clamp(MIN_DEPTH, 12.0);
+            let row_len = run_len * (1.0 - j as f64 / rows as f64);
+            // A stagger, so this row's plot lines do not continue the ones
+            // of the row in front.
+            let mut t = r.range(0.0, 6.0);
+            while t < row_len {
+                if r.chance(ALLEY) {
+                    t += r.range(LANE.0, LANE.1);
+                    continue;
+                }
+                let w = r.logn(6.5, 0.18).clamp(4.5, 9.0);
+                let depth = (row_depth * r.range(0.8, 1.0)).max(ROW_DEPTH_FLOOR);
+                let (s0, s1) = (start + dir * t, start + dir * (t + w));
+                t += w;
+                if !arc.closed && (s0.min(s1) < 0.0 || s0.max(s1) > total) {
+                    break;
+                }
+                if let Some((quad, cls)) = faubourg_lot(&ctx, &arc, ring, hw, s0, s1, off, depth) {
+                    push(&mut ctx, quad, format!("faub{k}"), WallBacking::OutsideRow, cls, &mut tone);
+                    k += 1;
+                }
+            }
+            off += row_depth + lane(&mut r);
         }
     }
     out

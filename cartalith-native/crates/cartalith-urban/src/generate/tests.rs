@@ -655,10 +655,29 @@ fn lots_back_onto_the_wall_and_the_faubourg_survives_the_rampart_sweep() {
     }
     let arc = &arc;
     let lots = |wb| t.parcels.iter().filter(move |p| p.par.wall_backing == wb).collect::<Vec<_>>();
-    let (inside, outside) = (lots(WallBacking::Inside), lots(WallBacking::Outside));
-    // Literals from the re-derived golden (`district_counts` faubourg 43, 86
-    // wall lots in all), not from the code under test.
-    assert_eq!((inside.len(), outside.len()), (43, 43));
+    let (inside, outside, behind) =
+        (lots(WallBacking::Inside), lots(WallBacking::Outside), lots(WallBacking::OutsideRow));
+    // Literals from the re-derived golden (`district_counts` faubourg 98 =
+    // a first row of 43, exactly the single-row pass's, plus 55 behind it), not
+    // from the code under test.
+    assert_eq!((inside.len(), outside.len(), behind.len()), (43, 43, 55));
+
+    // The rows behind: a CLUSTER, not a line (owner, 2026-09-22 follow-up).
+    // Each lot wholly outside, spared by the sweep and built, with its back
+    // line off the wall face — and in more than one band of distance from it.
+    let mut bands = std::collections::BTreeSet::new();
+    for p in &behind {
+        assert_eq!(p.district, "faubourg", "{}", p.par.id);
+        assert!(!p.cleared, "{}: the rampart sweep must spare every faubourg row", p.par.id);
+        assert!(p.par.poly.iter().all(|q| !point_in_poly(*q, ring)), "{}", p.par.id);
+        assert!(t.buildings.iter().any(|b| b.parcel == p.par.id), "{}: faubourg lot unbuilt", p.par.id);
+        let d = dist_to_line(p.par.poly[3].lerp(p.par.poly[2], 0.5), arc);
+        // Behind a first row at least 6 m deep; within 5 rows of <= 12 m and
+        // 3.5 m lanes.
+        assert!((2.25 + 6.0 - 1.0..=2.25 + 5.0 * 15.5).contains(&d), "{}: back line {d} m out", p.par.id);
+        bands.insert((d / 10.0) as u32);
+    }
+    assert!(bands.len() >= 3, "a cluster spans >= 3 ten-metre bands off the wall, got {bands:?}");
 
     for p in &outside {
         assert_eq!(p.district, "faubourg", "{}", p.par.id);

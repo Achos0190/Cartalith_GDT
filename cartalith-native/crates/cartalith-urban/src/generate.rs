@@ -10,7 +10,7 @@
 //! **One stage is not the reference's, and neither is one exemption.**
 //! [`build_wall_lots`] (`crate::wallside`, Ruling H, owner 2026-09-22) plats
 //! lots against the wall — intramural lots backing onto its inner face, and a
-//! faubourg against its outer face — straight after `buildParcels` on the
+//! faubourg cluster against its outer face — straight after `buildParcels` on the
 //! organic branch; and the faubourg is exempt from `clearFortZone`'s rampart
 //! sweep. Both are deliberate departures, and the whole-town golden that moved
 //! because of them is disclosed case by case in `tests/golden.rs`'s header.
@@ -84,7 +84,7 @@ use crate::rng::fnv1a;
 use crate::routes::{Anchors, build_primaries, build_primaries_from_paths, place_anchors};
 use crate::rules::{CultureProfile, RulesPatch, resolve_profile, resolve_rules};
 use crate::site::{Economy, SiteOpts, TerrainCtx, WaterCtx, build_site};
-use crate::wallside::{WallBacking, build_wall_lots};
+use crate::wallside::build_wall_lots;
 use crate::water::{
     Bridge, Crossings, Ford, HarbourOpts, HarbourOutcome, HarbourWorks, add_river_bridges,
     build_harbour, detect_river_crossings,
@@ -683,16 +683,17 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         let parcel_polys: Vec<Vec<Vec2>> = lots.iter().map(|l| l.par.poly.clone()).collect();
         let detail_pts: Vec<Option<Vec2>> = details.iter().map(Detail::anchor).collect();
         let sweep = clear_fort_zone(&wall_state, &mut g, &building_polys, &parcel_polys, &detail_pts);
-        // **Not the reference** (Ruling H, `crate::wallside`): a faubourg is
-        // built against the wall's outer face, i.e. inside the curtain's 15 m
-        // rampart strip, on purpose — so its lots and their buildings are
+        // **Not the reference** (Ruling H, `crate::wallside`): a faubourg is a
+        // cluster built against the wall's outer face, so its first rows lie
+        // inside the curtain's 15 m rampart strip on purpose — so every one of
+        // its lots, in any row, and their buildings are
         // exempt from the sweep. Keyed on the lot, not on the district string,
         // because a faubourg lot can since have been retagged (a churchyard,
         // an ore yard). A bastioned trace never gets a faubourg at all, so its
         // glacis is swept exactly as before.
         let faubourg: std::collections::HashSet<&str> = lots
             .iter()
-            .filter(|l| l.par.wall_backing == WallBacking::Outside)
+            .filter(|l| l.par.wall_backing.is_faubourg())
             .map(|l| l.par.id.as_str())
             .collect();
         // Both removal lists are already descending — the reference splices
@@ -705,7 +706,7 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
             building_ruined.remove(i);
         }
         for &i in &sweep.parcels_cleared {
-            if lots[i].par.wall_backing == WallBacking::Outside {
+            if lots[i].par.wall_backing.is_faubourg() {
                 continue;
             }
             parcel_cleared[i] = true;
