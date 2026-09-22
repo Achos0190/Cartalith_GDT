@@ -28,34 +28,24 @@ class_name UrbanLayoutDraw
 ## footprint, with its own generated ridge line, and a lot with no building on
 ## it stays empty ground because the engine left it empty.
 ##
-## Three of the model's layers are still not drawn, and each is absent from the
+## Two of the model's layers are still not drawn, and each is absent from the
 ## bridge rather than skipped here: the justified crossings (bridge decks and
-## the stippled ford band, `_umDrawLayout` line 22854), the civic hall and
-## places of worship, and the hinterland clutter (trees, fences, drying racks).
+## the stippled ford band, `_umDrawLayout` line 22854), and the civic hall and
+## places of worship.
 ##
-## **The clutter absence is re-verified 2026-09-13, at the symbols, not just
-## carried forward.** `urban_bridge.rs::layout_dict` never reads
-## `cartalith_civ::urban_adapter::UrbanLayout::farmland`'s siblings — there are
-## none: that struct's own `farmland` field comment says outright "The rest of
-## `build_details`' output — trees, fences, spoil heaps, drying racks, log
-## booms — stays engine-side", and `run_layout` builds it with
-## `t.details.into_iter().filter(|d| d.kind == "field" || d.kind == "pasture")`,
-## which drops every well/cross/crane/bollard/tree/fence/spoilheap/dryingrack/
-## logboom `Detail` `hinterland.rs::build_details` generates. `_urbandraw_keys_probe.gd`
-## dumps five live `urban_layouts()` towns (one forced unwalled) and confirms
-## by exhaustive key search: 54 keys total, none of them tree/garden/orchard/
-## well/tower/clutter/detail/fence/crane/bollard/cross/spoil/rack/boom-shaped.
-## Drawing that clutter needs a `cartalith-civ`/`cartalith-godot` change first —
-## out of this file's reach alone.
+## **The hinterland clutter is drawn as of 2026-09-23** (Ruling H (a)). Until
+## then `run_layout` kept only `field`/`pasture` out of `Town::details` and
+## dropped the rest; it now partitions them, and the bridge sends every
+## non-farm entry generically (`"detail_kind"`/`"detail_geom"`/...).
+## `_draw_fences` and `_draw_details` draw them, and `DETAIL_KINDS_DRAWN` is
+## the list `_detail_probe.gd` checks each real town's emitted kinds against.
 ##
-## **One feature new 2026-09-13 needs no such change, because its data was
-## already crossing the bridge.** Round towers at every vertex of a `curtain`
-## wall (`_draw_wall`, below) read nothing but the `wall_ring` already drawn as
-## the circuit's own stroke. It is not a reference port — see its own doc
-## comment for what it is instead. (An intramural/extramural roof tint built
-## the same day was reverted: `building_district` is not a wall-containment
-## test — `assign_districts` gives market/craftriver/harbour and the economy
-## retags regardless of the wall — so a tint needs a real in-wall test.)
+## Round towers at every vertex of a `curtain` wall (`_draw_wall`, below,
+## 2026-09-13) read nothing but `wall_ring`. The intramural/extramural roof
+## tint (Ruling H (c)) first shipped the same day keyed on `building_district`,
+## and was reverted because a district is not a wall-containment test. It is
+## back as of 2026-09-23, keyed on `"building_intramural"`: a point-in-ring
+## test of each footprint's centroid, done engine-side (`_draw_roofs`).
 ##
 ## ## The visual treatment
 ##
@@ -218,11 +208,59 @@ const WALL_FORT_RAVELIN := Color(0.2902, 0.2431, 0.1725) # rgb(74,62,44)
 ## lane's reach (no Rust edits, no `cargo build` of `cartalith_godot` while
 ## other probes hold the loaded `.dll`).
 
+## `build_details`' clutter (`"detail_kind"`/`"detail_geom"`/`"detail_r"`/
+## `"detail_flags"`), ported from `_cvDrawCity`'s "max" tier (v2.11 line
+## 23622), which has a branch for every kind `build_details` emits. Its colours
+## are carried across; its *glyphs* (a white `○`/`✝`/`⚓` character on a
+## coloured disc) are drawn here as geometry instead, since this is a static
+## draw with no font and a character at 2-3 m would be illegible anyway.
+##
+## Trees are the one deliberate departure, sourced from the owner's target
+## image (`urban-town-plan-walled-market-town.jpg`, Ruling H (a)): the reference
+## draws a tree as a bare disc of radius `rr*0.5`, the target as a canopy blob
+## with a dark rim, clearly wider than a lane. So radius `rr` (1.6-3.2 m, a
+## 3-6 m crown) with an ink rim under the fill.
+const TREE := Color(0.306, 0.455, 0.227)        # rgb(78,116,58), the reference's
+const TREE_ORCHARD := Color(0.376, 0.518, 0.251) # rgb(96,132,64), the reference's
+const TREE_RIM := Color(0.169, 0.200, 0.110)
+const WELL := Color(0.353, 0.431, 0.549)        # rgb(90,110,140)
+## NOT the reference's rgb(210,196,160): measured, that pale stone read as the
+## same colour as the carriageway fill it stands beside (the probe found the
+## "cross" colour already present at the cross's pixel with no cross drawn).
+## The target image marks its market with an ochre roundel; this is that.
+const CROSS := Color(0.769, 0.584, 0.286)       # rgb(196,149,73)
+const CRANE := Color(0.471, 0.392, 0.275)       # rgb(120,100,70)
+const BOLLARD := Color(0.353, 0.353, 0.353)     # rgb(90,90,90)
+const SPOILHEAP := Color(0.471, 0.424, 0.361)   # rgb(120,108,92)
+const DRYINGRACK := Color(0.588, 0.471, 0.314)  # rgb(150,120,80)
+const LOGBOOM := Color(0.431, 0.337, 0.227)     # rgb(110,86,58)
+const FENCE := Color(0.471, 0.392, 0.275)       # rgb(120,100,70)
+## Every `kind` this file has a draw branch for. **Not a filter** -- it is what
+## `_detail_probe.gd` checks the kinds a real town actually emits against, so a
+## kind the generator gains without a branch here fails that probe instead of
+## vanishing (`RC_ENGINE_CHANGES.md` §8.2's reachability rule). `waterway` is
+## `build_waterway`'s canal ring: gated on a culture profile's `waterway` flag,
+## which the host's only reachable culture (`medieval`: `run_layout` passes
+## `culture: None`) does not set, so it has a branch but no live town reaches it.
+const DETAIL_KINDS_DRAWN := ["well", "cross", "crane", "bollard", "spoilheap",
+	"tree", "dryingrack", "logboom", "fence", "waterway"]
+
 ## The rooftop base, in HSV. Every roof is this hue with its brightness and
 ## saturation moved together by its own `tone` -- see `_roof_color()`.
 const ROOF_H := 0.058
 const ROOF_S := 0.46
 const ROOF_V := 0.60
+## The intramural roof base (Ruling H (c)): the target image draws every roof
+## inside the curtain in an olive-ochre and every one outside in terracotta.
+## Keyed on `"building_intramural"`, a real point-in-ring test per footprint --
+## never on `building_district` (reverted 2026-09-13: 906 of 2 097 buildings
+## outside a wall carried an intramural district). Same tone swings as outside.
+## Sampled off the target's intramural roofs (~rgb(185,165,105)); a first pass
+## at v 0.64 sat on `BLOCK_GROUND`'s own hue and value and the roofs vanished
+## into the ground at whole-town scale, so the value is the target's, not lower.
+const ROOF_H_INTRA := 0.12
+const ROOF_S_INTRA := 0.45
+const ROOF_V_INTRA := 0.73
 ## How far `tone` swings each. Value up and saturation *down* together: a
 ## sun-bleached, weathered roof is lighter and less saturated at once, so one
 ## scalar driving both is truer than two independent jitters (and is why the
@@ -333,6 +371,8 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 			if par.size() < 3:
 				continue
 			_fill_ground_polygon(ci, project.call(par), tint.call(DISTRICT_FILL[districts[i]]))
+		# The fences round those holdings -- ground-level, under the streets.
+		_draw_fences(ci, layout, project, m_scale, px_floor, alpha)
 
 	# Streets: casing (ink, wider) then fill (light, narrower), so the network
 	# reads as continuous lines rather than loose segments. Both passes walk
@@ -362,6 +402,9 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 	# and the building fills).
 	_draw_wall(ci, layout, project, to_screen, m_scale, px_floor, alpha)
 
+	# Garden and orchard trees, under the roofs they stand between.
+	_draw_details(ci, layout, to_screen, m_scale, px_floor, alpha, detail, true)
+
 	_draw_roofs(ci, layout, to_screen, m_scale, px_floor, alpha, detail)
 
 	# v2.71's water clip (`RC_ENGINE_CHANGES.md` §8.2) -- the site's real
@@ -371,6 +414,11 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 	# top of it. See `_draw_water_mask` for why this is `water_mask_runs`,
 	# not `water_poly`, and why bridges and fords are released from it.
 	_draw_water_mask(ci, layout, project, tint)
+
+	# `build_details`' wells, market cross and working props -- after the
+	# water mask, which would otherwise paint over the quayside crane, the
+	# bollards and a log boom that belong on the water.
+	_draw_details(ci, layout, to_screen, m_scale, px_floor, alpha, detail, false)
 
 	# The plaza outline, over the roofs -- the square's edge is where the built
 	# frontages stop, so it has to sit above them to be the boundary rather than
@@ -762,6 +810,8 @@ static func _draw_roofs(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 	if buildings.is_empty():
 		return
 	var tones: PackedFloat32Array = layout.get("building_tone", PackedFloat32Array())
+	# Absent on an unwalled town -- every roof is then the extramural palette.
+	var intra: PackedByteArray = layout.get("building_intramural", PackedByteArray())
 
 	# Screen-space footprints, built once and reused by every pass. A town runs
 	# to a few thousand of these and `to_screen` is a `Callable`, so projecting
@@ -858,7 +908,7 @@ static func _draw_roofs(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 		if q.size() < 3:
 			continue
 		var tone: float = tones[i] if i < tones.size() else 0.5
-		var c := _roof_color(tone)
+		var c := _roof_color(tone, i < intra.size() and intra[i] != 0)
 		ci.draw_colored_polygon(q, Color(c.r, c.g, c.b, alpha))
 
 	if not want_ink:
@@ -904,9 +954,159 @@ static func _draw_roofs(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 ## Brightness up and saturation down together, plus a slight hue drift. The
 ## ranges are deliberately narrow: the point is a family of weathered shades of
 ## one material, not a set of different materials.
-static func _roof_color(tone: float) -> Color:
+static func _roof_color(tone: float, intramural: bool = false) -> Color:
 	var t := clampf(tone, 0.0, 1.0) * 2.0 - 1.0
-	var v := clampf(ROOF_V + t * ROOF_V_SWING, 0.30, 0.86)
-	var s := clampf(ROOF_S - t * ROOF_S_SWING, 0.18, 0.62)
-	var h := fposmod(ROOF_H + (clampf(tone, 0.0, 1.0) - 0.5) * ROOF_H_SWING, 1.0)
+	var v := clampf((ROOF_V_INTRA if intramural else ROOF_V) + t * ROOF_V_SWING, 0.30, 0.86)
+	var s := clampf((ROOF_S_INTRA if intramural else ROOF_S) - t * ROOF_S_SWING, 0.18, 0.62)
+	var h := fposmod((ROOF_H_INTRA if intramural else ROOF_H)
+		+ (clampf(tone, 0.0, 1.0) - 0.5) * ROOF_H_SWING, 1.0)
 	return Color.from_hsv(h, s, v)
+
+
+## `build_details`' fences: the enclosure round every agrarian holding and
+## empty suburb plot (M-BLD-5). Ground-level, so drawn under the streets, and
+## only at `detail >= 1` -- at map zoom a fence is the parcel's own outline.
+static func _draw_fences(ci: CanvasItem, layout: Dictionary, project: Callable,
+		m_scale: float, px_floor: float, alpha: float) -> void:
+	var kinds: PackedStringArray = layout.get("detail_kind", PackedStringArray())
+	var geoms: Array = layout.get("detail_geom", [])
+	var edges := PackedVector2Array()
+	for i in mini(kinds.size(), geoms.size()):
+		if kinds[i] != "fence":
+			continue
+		var g: PackedVector2Array = geoms[i]
+		if g.size() < 3:
+			continue
+		var pts: PackedVector2Array = project.call(g)
+		for k in pts.size():
+			edges.append(pts[k])
+			edges.append(pts[(k + 1) % pts.size()])
+	if edges.is_empty():
+		return
+	# `_cvDrawCity`: `lineWidth=max(0.4, 0.8*mScale)`.
+	ci.draw_multiline(edges, Color(FENCE.r, FENCE.g, FENCE.b, 0.8 * alpha),
+		maxf(px_floor * 0.5, 0.8 * m_scale))
+
+
+## Every other `build_details` kind -- the one branch per kind `_cvDrawCity`
+## has (v2.11 lines 23632-23639), plus the canal. Two passes:
+##
+## - `trees == true`, **under the roofs**: a crown of radius `rr` beside a
+##   footprint overhangs it, and the target draws roofs crisp with the trees in
+##   the yards between them. Measured: drawn over the roofs, a tree rim covered
+##   `_towertint_probe`'s sampled extramural roof. Trees always draw (fill only
+##   below `detail` 1, so a town at map zoom still shows its greenery).
+## - `trees == false` (`_draw_props`), **after the water mask**, because three
+##   props (the crane, the bollards, the log boom) belong ON the water. All
+##   `detail >= 1`.
+##
+## A kind with no branch here is skipped, not guessed at -- and
+## `DETAIL_KINDS_DRAWN` is what the probe checks real towns' kinds against.
+static func _draw_details(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
+		m_scale: float, px_floor: float, alpha: float, detail: float, trees: bool) -> void:
+	var kinds: PackedStringArray = layout.get("detail_kind", PackedStringArray())
+	var geoms: Array = layout.get("detail_geom", [])
+	var radii: PackedFloat32Array = layout.get("detail_r", PackedFloat32Array())
+	var flags: PackedByteArray = layout.get("detail_flags", PackedByteArray())
+	var n: int = mini(kinds.size(), geoms.size())
+	if n == 0:
+		return
+	var a := func(c: Color) -> Color: return Color(c.r, c.g, c.b, c.a * alpha)
+	var fine := detail >= 1.0
+	var ink: Color = a.call(CASING)
+
+	if not trees:
+		_draw_props(ci, kinds, geoms, radii, flags, n, to_screen, m_scale, px_floor, a, ink, fine)
+		return
+	# Rims then canopies, so overlapping crowns merge into one
+	# blob with one outline -- the target image's clumps -- rather than each
+	# crown's rim cutting across its neighbour.
+	var tree_c := PackedVector2Array()
+	var tree_r := PackedFloat32Array()
+	var tree_orch := PackedByteArray()
+	for i in n:
+		if kinds[i] != "tree":
+			continue
+		var g: PackedVector2Array = geoms[i]
+		if g.is_empty():
+			continue
+		var fl: int = flags[i] if i < flags.size() else 0
+		# `d.rr||2`: every tree carries one, but the flag is what says so.
+		var rr: float = radii[i] if (fl & 1) != 0 and i < radii.size() else 2.0
+		tree_c.append(to_screen.call(g[0]))
+		tree_r.append(maxf(px_floor * 0.8, rr * m_scale))
+		tree_orch.append(1 if (fl & 2) != 0 else 0)
+	if fine:
+		var rim: Color = a.call(TREE_RIM)
+		for k in tree_c.size():
+			ci.draw_circle(tree_c[k], tree_r[k] + maxf(px_floor * 0.6, 0.5 * m_scale), rim)
+	for k in tree_c.size():
+		ci.draw_circle(tree_c[k], tree_r[k], a.call(TREE_ORCHARD if tree_orch[k] else TREE))
+
+
+static func _draw_props(ci: CanvasItem, kinds: PackedStringArray, geoms: Array,
+		radii: PackedFloat32Array, flags: PackedByteArray, n: int, to_screen: Callable,
+		m_scale: float, px_floor: float, a: Callable, ink: Color, fine: bool) -> void:
+	if not fine:
+		return
+	var project := func(poly: PackedVector2Array) -> PackedVector2Array:
+		var out := PackedVector2Array()
+		for p in poly:
+			out.append(to_screen.call(p))
+		return out
+	var glyph_r: float = maxf(px_floor * 1.4, 2.6 * m_scale)
+	var ink_w: float = maxf(px_floor * 0.6, 0.5 * m_scale)
+	for i in n:
+		var kind := kinds[i]
+		var g: PackedVector2Array = geoms[i]
+		if g.is_empty():
+			continue
+		match kind:
+			"well":
+				# A stone ring round dark water.
+				var p: Vector2 = to_screen.call(g[0])
+				ci.draw_circle(p, glyph_r, a.call(WELL))
+				ci.draw_arc(p, glyph_r, 0.0, TAU, 16, ink, ink_w, true)
+				ci.draw_circle(p, glyph_r * 0.45, ink)
+			"cross":
+				# The market cross: a light plinth with the cross in ink.
+				var p: Vector2 = to_screen.call(g[0])
+				ci.draw_circle(p, glyph_r, a.call(CROSS))
+				ci.draw_arc(p, glyph_r, 0.0, TAU, 16, ink, ink_w, true)
+				var r := glyph_r * 0.7
+				ci.draw_line(p + Vector2(0, -r), p + Vector2(0, r), ink, ink_w * 1.4)
+				ci.draw_line(p + Vector2(-r * 0.6, -r * 0.3), p + Vector2(r * 0.6, -r * 0.3),
+					ink, ink_w * 1.4)
+			"crane":
+				var p: Vector2 = to_screen.call(g[0])
+				var h := Vector2(glyph_r, glyph_r)
+				ci.draw_rect(Rect2(p - h, h * 2.0), a.call(CRANE))
+				ci.draw_rect(Rect2(p - h, h * 2.0), ink, false, ink_w)
+			"bollard":
+				ci.draw_circle(to_screen.call(g[0]), maxf(px_floor * 1.2, 2.2 * m_scale) * 0.6,
+					a.call(BOLLARD))
+			"spoilheap":
+				var p: Vector2 = to_screen.call(g[0])
+				var fl: int = flags[i] if i < flags.size() else 0
+				var rr: float = radii[i] if (fl & 1) != 0 and i < radii.size() else 2.8
+				var r: float = maxf(px_floor * 1.6, rr * m_scale)
+				var tri := PackedVector2Array([p + Vector2(0, -r), p + Vector2(r, r * 0.7),
+					p + Vector2(-r, r * 0.7)])
+				ci.draw_colored_polygon(tri, a.call(SPOILHEAP))
+				tri.append(tri[0])
+				ci.draw_polyline(tri, ink, ink_w)
+			"dryingrack":
+				if g.size() >= 2:
+					ci.draw_line(to_screen.call(g[0]), to_screen.call(g[1]), a.call(DRYINGRACK),
+						maxf(px_floor * 0.6, 1.2 * m_scale))
+			"logboom":
+				if g.size() >= 2:
+					ci.draw_line(to_screen.call(g[0]), to_screen.call(g[1]), a.call(LOGBOOM),
+						maxf(px_floor * 0.8, 1.6 * m_scale))
+			"waterway":
+				if g.size() >= 3:
+					var pts: PackedVector2Array = project.call(g)
+					pts.append(pts[0])
+					ci.draw_polyline(pts, a.call(WATER), maxf(px_floor, 6.0 * m_scale), true)
+			# "tree" was drawn above, "fence" under the streets; anything else
+			# has no branch (see `DETAIL_KINDS_DRAWN`).

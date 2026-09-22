@@ -730,10 +730,10 @@ func _build_political(parent: Control, s: Dictionary) -> void:
 ## `layout_dict` genuinely never sets, per its own module doc comment on
 ## `urban_layouts()` ("Two things the reference's model carries are still not
 ## surfaced here"), is **the civic hall and places of worship**
-## (`cartalith_urban::Town::civic`, and the games buildings beside it) and
-## **the hinterland clutter beyond field/pasture** (trees, fences, drying
-## racks -- `Town::details` minus the two kinds this dictionary already
-## keeps). `LAYOUT_ABSENT` below is that verified pair, not the canvas's four.
+## (`cartalith_urban::Town::civic`, and the games buildings beside it).
+## `LAYOUT_ABSENT` below is that verified entry, not the canvas's four. (The
+## hinterland clutter was the second entry until 2026-09-23, when it started
+## crossing as `"detail_kind"`/`"detail_geom"`/... and being drawn.)
 ##
 ## **Population/Age are omitted here, not shown read-only.** The canvas frames
 ## them as "the same field as Overview" and "also Overview" -- i.e. not a
@@ -930,8 +930,6 @@ var _STREET_CLASS_COLOR := {
 const LAYOUT_ABSENT := [
 	["Civic hall & places of worship",
 		"Town::civic + the games buildings beside it -- read by the adapter, never set on this dictionary"],
-	["Hinterland clutter (trees, fences, drying racks)",
-		"Town::details minus the field/pasture kinds this dictionary already keeps as \"farmland\""],
 ]
 
 

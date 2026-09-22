@@ -386,6 +386,76 @@ fn a_town_gets_a_wall_buildings_districts_markets_and_fields() {
     assert_eq!(l.target_len, 4_000.0 * 2.1);
 }
 
+/// `build_details`' clutter crosses the adapter instead of being filtered away,
+/// and the intramural flag is a real containment test.
+///
+/// The containment oracle here is a **winding number**, deliberately not the
+/// crossing-number `point_in_poly` the adapter calls, so the assertion is not a
+/// function checked against itself. Both classes must be present, or a flag
+/// that is constant `true` (or `false`) would pass.
+#[test]
+fn clutter_crosses_and_intramural_is_a_real_containment_test() {
+    let f = Fixture::new();
+    let w = f.world();
+    let s = settlement(50, 8, 4_000);
+    let l = run_layout(&um_place_context(&w, &s, &[]), None).expect("a layout");
+
+    for d in &l.details {
+        assert!(!matches!(d.kind, "field" | "pasture"), "farmland leaked into details");
+    }
+    for want in ["well", "tree", "cross"] {
+        assert!(l.details.iter().any(|d| d.kind == want), "no {want} crossed the adapter");
+    }
+
+    let ring = l.wall.ring.as_ref().expect("walled");
+    let intra = l.building_intramural.as_ref().expect("a walled town has the flag");
+    assert_eq!(intra.len(), l.buildings.len());
+    let winding = |p: Vec2| -> bool {
+        let mut wn = 0i32;
+        for i in 0..ring.len() {
+            let (a, b) = (ring[i], ring[(i + 1) % ring.len()]);
+            let cross = (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y);
+            if a.y <= p.y {
+                if b.y > p.y && cross > 0.0 {
+                    wn += 1;
+                }
+            } else if b.y <= p.y && cross < 0.0 {
+                wn -= 1;
+            }
+        }
+        wn != 0
+    };
+    let (mut n_in, mut n_out) = (0, 0);
+    for (b, &f) in l.buildings.iter().zip(intra) {
+        let n = b.poly.len() as f64;
+        let c = b.poly.iter().fold(Vec2::new(0.0, 0.0), |s, q| Vec2::new(s.x + q.x / n, s.y + q.y / n));
+        // Vertex mean, not the area centroid: the two agree for every
+        // footprint that is not straddling the ring, and a straddler is
+        // exactly where a disagreement would be legitimate -- so skip those.
+        let straddles = b.poly.iter().any(|q| winding(*q)) && b.poly.iter().any(|q| !winding(*q));
+        if straddles {
+            continue;
+        }
+        assert_eq!(f, winding(c), "building on lot {} misclassified", b.parcel);
+        if f { n_in += 1 } else { n_out += 1 }
+    }
+    assert!(n_in > 0 && n_out > 0, "one class is empty: {n_in} in, {n_out} out");
+}
+
+/// An unwalled town carries no intramural flag at all -- "inside the wall"
+/// has no answer there, and an all-`false` vector would claim one.
+#[test]
+fn an_unwalled_town_has_no_intramural_flag() {
+    let f = Fixture::new();
+    let w = f.world();
+    let mut s = settlement(50, 8, 4_000);
+    s.placement.kind = SettlementKind::Hamlet;
+    s.pop = 120;
+    let l = run_layout(&um_place_context(&w, &s, &[]), None).expect("a layout");
+    assert!(l.wall.ring.is_none());
+    assert!(l.building_intramural.is_none());
+}
+
 /// A hamlet gets **no** wall, and that is the ladder's answer rather than a
 /// missing builder — the distinction this whole change exists to make.
 #[test]

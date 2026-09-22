@@ -1,8 +1,15 @@
 extends Control
-## Lane URBANDRAW: windowed proof for round `curtain`-wall towers, plus a guard
-## that NO district-based roof tint is drawn (the intramural/extramural tint built
-## 2026-09-13 was reverted after verification: `building_district` is not a
-## wall-containment test), plus the row's Gates (triangulation-error count).
+## Lane URBANDRAW: windowed proof for round `curtain`-wall towers, plus the
+## intramural/extramural roof tint, plus the row's Gates (triangulation-error
+## count).
+##
+## **The tint half changed 2026-09-23.** It used to guard that NO tint was
+## drawn, because the 2026-09-13 tint keyed on `building_district` was
+## reverted (a district is not a wall-containment test). The tint is back,
+## keyed on `building_intramural` (a real point-in-ring test engine-side), so
+## this now picks its two buildings by THAT flag and asserts the intramural
+## roof takes `LIT_ROOF_H_INTRAMURAL` and the extramural one keeps `ROOF_H`.
+## `_detail_probe.gd` is the fuller proof (every town, independent geometry).
 ##
 ## Run TWICE, byte-identical, against two DIFFERENT `res://` roots -- this
 ## file itself never changes between runs, only which `UrbanLayoutDraw`
@@ -45,6 +52,7 @@ const VERTEX_STRIDE_TARGET := 8 # ~this many vertices sampled per wall, evenly s
 ## checked by eye against that file, not by importing it.
 const LIT_WALL_TOWER := Color(0.212, 0.169, 0.114)
 const LIT_ROOF_H_EXTRAMURAL := 0.058
+const LIT_ROOF_H_INTRAMURAL := 0.12
 const LIT_WALL_TOWER_R_M := 3.6
 const LIT_WALL_W_CURTAIN_M := 4.5
 ## The offset along a vertex's outward normal this probe samples at, in model
@@ -149,13 +157,12 @@ func _screen_extent(poly: PackedVector2Array, to_screen: Callable) -> float:
 ## a per-district `min_px` floor did not (measured: the first artisan
 ## building in every one of 4 sampled towns read flat `CASING`, not a roof
 ## hue, at a 30px floor).
-func _pick_building(buildings: Array, districts: PackedStringArray, want_extra: bool,
+func _pick_building(buildings: Array, intra: PackedByteArray, want_extra: bool,
 		to_screen: Callable) -> int:
 	var best := -1
 	var best_extent := -1.0
 	for bi in buildings.size():
-		var d := String(districts[bi])
-		var is_extra: bool = d == "suburb" or d == "agrarian"
+		var is_extra: bool = intra[bi] == 0
 		if is_extra != want_extra:
 			continue
 		var ext := _screen_extent(buildings[bi], to_screen)
@@ -405,11 +412,13 @@ func _ready() -> void:
 		# -- intramural/extramural roof-tint proof --
 		var buildings: Array = layout.get("buildings", [])
 		var districts: PackedStringArray = layout.get("building_district", PackedStringArray())
+		var intra_flags: PackedByteArray = layout.get("building_intramural", PackedByteArray())
 		var have_wall: bool = ring.size() >= 3
-		var have_districts: bool = districts.size() == buildings.size()
+		var have_districts: bool = districts.size() == buildings.size() \
+			and intra_flags.size() == buildings.size()
 		if have_wall and have_districts:
-			var intra_i := _pick_building(buildings, districts, false, to_screen)
-			var extra_i := _pick_building(buildings, districts, true, to_screen)
+			var intra_i := _pick_building(buildings, intra_flags, false, to_screen)
+			var extra_i := _pick_building(buildings, intra_flags, true, to_screen)
 			if intra_i >= 0:
 				print("URBANTINT [%s] settlement #%d intramural pick: building #%d, screen extent=%.1fpx" % [
 					_tag, idx, intra_i, _screen_extent(buildings[intra_i], to_screen)])
@@ -423,8 +432,8 @@ func _ready() -> void:
 					var h := got.h
 					print("URBANTINT [%s] settlement #%d intramural building #%d (district=%s) close-up sample color=%s hue=%.4f" % [
 						_tag, idx, intra_i, districts[intra_i], got, h])
-					_ok(_hue_close(h, LIT_ROOF_H_EXTRAMURAL, 0.02),
-						"settlement #%d: 'intramural' building #%d roof hue ~= ROOF_H (%.3f) -- no district tint" % [idx, intra_i, LIT_ROOF_H_EXTRAMURAL])
+					_ok(_hue_close(h, LIT_ROOF_H_INTRAMURAL, 0.03),
+						"settlement #%d: intramural building #%d roof hue ~= ROOF_H_INTRA (%.3f)" % [idx, intra_i, LIT_ROOF_H_INTRAMURAL])
 				else:
 					print("URBANTINT [%s] settlement #%d intramural sample unusable (empty transform or off-canvas)" % [_tag, idx])
 			else:
@@ -441,7 +450,7 @@ func _ready() -> void:
 				else:
 					print("URBANTINT [%s] settlement #%d extramural sample unusable (empty transform or off-canvas)" % [_tag, idx])
 			else:
-				print("URBANTINT [%s] settlement #%d has no extramural (suburb/agrarian) building to sample" % [_tag, idx])
+				print("URBANTINT [%s] settlement #%d has no extramural building to sample" % [_tag, idx])
 		else:
 			print("URBANTINT [%s] settlement #%d: have_wall=%s have_districts=%s -- tint probe skipped" % [
 				_tag, idx, have_wall, have_districts])

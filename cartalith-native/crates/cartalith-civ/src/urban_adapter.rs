@@ -1904,6 +1904,23 @@ pub struct UrbanLayout {
     /// buildings and never pushes one. The fallback is there because a missing
     /// key must not panic across the gdext boundary, not because it is expected.
     pub building_tone: Vec<f64>,
+    /// Parallel to [`Self::buildings`]: whether each footprint's area centroid
+    /// lies inside the wall's containment ring (`wall.ring`), by the
+    /// reference's own crossing-number test (`pointInPoly`). `None` on an
+    /// unwalled town, where "inside the wall" has no answer.
+    ///
+    /// **This is geometry, not a district.** `Building::district` was tried as
+    /// the proxy on 2026-09-13 and reverted: `assign_districts` hands out
+    /// `market`/`craftriver` *before* its in-wall test and `harbour` after it,
+    /// and the economy retags ignore the wall entirely, so 906 of 2 097
+    /// buildings outside a measured wall carried an intramural district. This
+    /// field reads nothing but the footprint and the ring.
+    ///
+    /// Centroid, not all-vertices: a footprint the ring's polyline cuts through
+    /// is classified by where most of its area is. With the curtain's 15 m
+    /// field-of-fire sweep (`clear_fort_zone`) such straddlers are rare, and a
+    /// faubourg (exempt from that sweep) is built against the *outer* face.
+    pub building_intramural: Option<Vec<bool>>,
     /// The whole wall record: the closed containment ring, its gates (land and
     /// water), its spurs, its style tag and its centroid. Carried entire rather
     /// than picked apart because that is one field against six and `WallState`
@@ -1919,12 +1936,25 @@ pub struct UrbanLayout {
     /// [`Self::plaza`], which is the one chartered square carved out of the
     /// principal street.
     pub markets: Vec<Market>,
-    /// `buildFarmland`'s strip or ring fields, filtered out of the detail list
+    /// `buildFarmland`'s strip or ring fields, split out of the detail list
     /// by kind (`field` / `pasture`, which are the only two kinds
-    /// `strip_fields`/`ring_fields` emit). The rest of `build_details`' output —
-    /// trees, fences, spoil heaps, drying racks, log booms — stays engine-side;
-    /// neither of the reference's own map renderers draws them either.
+    /// `strip_fields`/`ring_fields` emit).
     pub farmland: Vec<Detail>,
+    /// **Every other entry of `Town::details`**, unfiltered: `build_details`'
+    /// wells, market cross, crane, bollards, garden and orchard trees, fences,
+    /// spoil heaps, drying racks and log booms, plus `build_waterway`'s canal
+    /// ring when a culture profile asks for one. `farmland` + `details` is the
+    /// whole of `Town::details` — a partition, not a filter.
+    ///
+    /// Until 2026-09-23 everything here was dropped on the floor with the
+    /// comment that "neither of the reference's own map renderers draws them".
+    /// That was true of `_umDrawLayout`, but the reference's third renderer,
+    /// `_cvDrawCity`'s "max" tier (v2.11 line 23622), has a branch for all nine
+    /// `build_details` kinds. It is kept a partition rather than a list of
+    /// wanted kinds so a kind added upstream arrives here without an edit
+    /// (`RC_ENGINE_CHANGES.md` §8.2's rule: reachability derived from what the
+    /// generator emits, not from a hand-list).
+    pub details: Vec<Detail>,
     /// `computeMetrics`' `totalLen`: metres of live street, measured after the
     /// lane passes, `removeWaterCrossings`, `privatizeAlleys` and
     /// `clearFortZone`. **Not** `grow`'s return, which `generate()` discards —
@@ -2069,11 +2099,21 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
             district: p.district,
         })
         .collect();
-    let farmland: Vec<Detail> = t
-        .details
-        .into_iter()
-        .filter(|d| d.kind == "field" || d.kind == "pasture")
-        .collect();
+    let (farmland, details): (Vec<Detail>, Vec<Detail>) =
+        t.details.into_iter().partition(|d| d.kind == "field" || d.kind == "pasture");
+    // A real containment test against the ring, never the district tag -- see
+    // [`UrbanLayout::building_intramural`].
+    let building_intramural = t.wall.ring.as_ref().map(|ring| {
+        t.buildings
+            .iter()
+            .map(|b| {
+                cartalith_urban::geom::point_in_poly(
+                    cartalith_urban::geom::poly_centroid(&b.poly),
+                    ring,
+                )
+            })
+            .collect()
+    });
 
     Some(UrbanLayout {
         wm: t.wm,
@@ -2097,10 +2137,12 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         parcels,
         buildings: t.buildings,
         building_tone,
+        building_intramural,
         wall: t.wall,
         wall_spec: ctx.wall_style,
         markets: t.markets,
         farmland,
+        details,
         street_len: t.metrics.total_len,
         pop: t.pop,
         // `generate()`'s own, not restated here. Both are one-line expressions

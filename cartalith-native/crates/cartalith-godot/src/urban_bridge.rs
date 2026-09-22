@@ -254,6 +254,16 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
     d.set("building_district", &bld_district);
     d.set("building_courtyard", &bld_courtyard);
     d.set("building_tone", &bld_tone);
+    // Parallel to `buildings`: 1 where the footprint's centroid is inside the
+    // wall's containment ring -- a real point-in-polygon test
+    // (`UrbanLayout::building_intramural`), NOT `building_district`, which the
+    // 2026-09-13 attempt used and which mis-tagged 906 of 2 097 buildings
+    // outside a wall. **Absent on an unwalled town**, where inside/outside has
+    // no answer; never an all-zero array standing in for one.
+    if let Some(intra) = &l.building_intramural {
+        let intra: PackedByteArray = intra.iter().map(|b| u8::from(*b)).collect();
+        d.set("building_intramural", &intra);
+    }
 
     // The wall circuit. **Absent, not empty, when the town has none** -- the
     // wall ladder (`_umWallSpec`) says a hamlet on flat ground was never
@@ -343,6 +353,48 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
     d.set("farmland", &farm_poly);
     d.set("farmland_pasture", &farm_pasture);
 
+    // Every other `Town::details` entry (`UrbanLayout::details`): wells, the
+    // market cross, crane, bollards, garden and orchard trees, fences, spoil
+    // heaps, drying racks, log booms, a canal. Sent **generically** -- one
+    // kind string per entry and its geometry as the reference's own record
+    // shape -- rather than as a key per kind, so a kind the generator gains
+    // later still crosses without an edit here, and the renderer can tell
+    // "a kind I do not draw" from "nothing was generated" (the
+    // `RC_ENGINE_CHANGES.md` §8.2 reachability rule). Parallel packed arrays,
+    // always present and possibly empty, like the parcels:
+    //
+    // - `detail_kind`: the engine's own `kind` string.
+    // - `detail_geom`: 1 point for `{x,y}`, 2 for `{a,b}`, >= 3 for `{poly}`.
+    //   `detail_flags` bit 2 disambiguates a 2-point poly from a segment, which
+    //   no generator produces but the shape alone could not rule out.
+    // - `detail_r`: `d.rr`, the drawn radius. Meaningful only where
+    //   `detail_flags` bit 0 is set -- `0.0` elsewhere is padding for the
+    //   packed array, and the flag, not the value, is what says so.
+    // - `detail_flags`: bit 0 = has `rr`, bit 1 = `orchard`, bit 2 = polygon.
+    let det = &l.details;
+    let det_kind: PackedStringArray = det.iter().map(|x| GString::from(x.kind)).collect();
+    let det_geom: Array<PackedVector2Array> = det
+        .iter()
+        .map(|x| match &x.geom {
+            DetailGeom::Point(p) => poly(&[*p]),
+            DetailGeom::Seg(a, b) => poly(&[*a, *b]),
+            DetailGeom::Poly(p) => poly(p),
+        })
+        .collect();
+    let det_r: PackedFloat32Array = det.iter().map(|x| x.rr.unwrap_or(0.0) as f32).collect();
+    let det_flags: PackedByteArray = det
+        .iter()
+        .map(|x| {
+            u8::from(x.rr.is_some())
+                | (u8::from(x.orchard) << 1)
+                | (u8::from(matches!(x.geom, DetailGeom::Poly(_))) << 2)
+        })
+        .collect();
+    d.set("detail_kind", &det_kind);
+    d.set("detail_geom", &det_geom);
+    d.set("detail_r", &det_r);
+    d.set("detail_flags", &det_flags);
+
     // `site.bridgePt` is `buildSite`'s flattest crossing *candidate*, chosen
     // before a single street exists -- absent rather than null so a renderer
     // cannot read it as "no bridge here". Where a road *really* crosses is
@@ -416,6 +468,7 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
         format!("assignDistricts/buildBuildings → {} footprints", l.buildings.len()),
         format!("buildMarkets → {} specialised squares", l.markets.len()),
         format!("buildFarmland → {} fields", l.farmland.len()),
+        format!("buildDetails → {} props (wells, trees, fences…)", l.details.len()),
         match l.harbour_pt {
             Some(_) => "buildHarbour → quay and piers".to_string(),
             None => "buildHarbour → none (landlocked, or refused)".to_string(),
@@ -467,13 +520,16 @@ impl WorldGen {
     /// `"bridge_pt"` remains what it always was, `buildSite`'s candidate point,
     /// chosen before a single street exists.
     ///
-    /// Two things the reference's model carries are still not surfaced here:
-    /// the civic hall and places of worship
-    /// (`cartalith_urban::Town::civic`, and the games buildings beside it), and
-    /// the hinterland clutter (trees, fences, drying racks — `Town::details`
-    /// minus the `field`/`pasture` kinds the adapter already keeps). Both are
-    /// on the `cartalith_urban::Town` the adapter projects from and are one
-    /// field each away.
+    /// **The hinterland clutter arrived 2026-09-23** as `"detail_kind"`/
+    /// `"detail_geom"`/`"detail_r"`/`"detail_flags"` (every `Town::details`
+    /// entry that is not farmland), along with `"building_intramural"`, a
+    /// real wall-containment flag per footprint.
+    ///
+    /// One thing the reference's model carries is still not surfaced here:
+    /// the civic hall and places of worship (`cartalith_urban::Town::civic`,
+    /// and the games buildings beside it). It is on the
+    /// `cartalith_urban::Town` the adapter projects from and is one field
+    /// away.
     ///
     /// **The place editor's overrides reach the layout** (2026-09-03). This
     /// call took `settlement_layout()` — the entry point that supplies

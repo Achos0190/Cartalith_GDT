@@ -14,7 +14,7 @@ class_name CityViewerWindow
 ## The disclosure discipline is unchanged and now says less: the info panel is
 ## still read off the engine's own `stages` array, so it cannot drift from what
 ## actually ran, and it still names what is generated but not drawn (the
-## crossings, the civic and religious buildings, the hinterland clutter). What
+## crossings, the civic and religious buildings). What
 ## it no longer has to say is that the *drawing* is ahead of the generator — the
 ## rooftop-is-a-whole-parcel stand-in is gone.
 ##
@@ -514,12 +514,13 @@ func _rebuild_side() -> void:
 		+ "subset on 2026-09-02, which is where the buildings, the wall, the "
 		+ "districts, the markets and the farmland came from all at once.")
 	DccWidgets.note(stages,
-		"Three of the model's own layers are generated and not drawn: the "
+		"Two of the model's own layers are generated and not drawn: the "
 		+ "justified crossings (a stone deck where a road really crosses the "
-		+ "river, a stippled ford band where a through-town has none), the "
-		+ "civic hall and places of worship, and the hinterland clutter — "
-		+ "trees, fences, drying racks, log booms. They are on the engine's "
-		+ "Town and are one bridge field each away.")
+		+ "river, a stippled ford band where a through-town has none), and the "
+		+ "civic hall and places of worship. They are on the engine's Town and "
+		+ "are one bridge field each away. The hinterland clutter — garden and "
+		+ "orchard trees, wells, the market cross, fences, the working yards' "
+		+ "props — is drawn.")
 	DccWidgets.note(stages,
 		"Nothing on screen is ahead of the generator any more. A rooftop was a "
 		+ "whole parcel until 2026-09-02; it is now buildBuildings' own "
