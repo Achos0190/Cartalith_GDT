@@ -575,11 +575,12 @@ pub fn apply_plot_chaos(rules: &mut Rules, c: f64) {
 /// - `max_wall_generations` 3 → 1: the plan has one circuit, with the suburbs
 ///   outside it along the approach roads rather than enclosed by a second wall.
 ///
-/// **`frontage_width_variance` stays at 0.22 on purpose.** `build_parcels`
-/// re-draws a frontage until one fits the remaining edge, with no bound, and
-/// the chance of escaping falls steeply as the variance drops
-/// (`RC_ENGINE_CHANGES.md` §6r.5). 0.15 made a pop-7000 town take ~35 s
-/// against ~90 ms, and 0.10 did not finish in 90 s.
+/// **`frontage_width_variance` stays at 0.22, no longer to dodge a hang.**
+/// `build_parcels`' frontage-grant loop is now bounded
+/// ([`crate::blocks::PARCEL_GRANT_MAX_SPIN`], `RC_ENGINE_CHANGES.md` §6r.5) —
+/// 0.15/0.10 both terminate in well under a second. 0.22 is kept simply
+/// because it is the value this preset's own measurements (block-mesh
+/// legibility, not termination) were taken against.
 pub const MARKET_TOWN_RULES: Rules = Rules {
     street: StreetRules {
         branch_angle_jitter: 0.18,
