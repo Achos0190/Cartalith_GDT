@@ -75,7 +75,9 @@ use godot::prelude::*;
 use cartalith_engine::channel_atlas::{self, Channel, ChannelGroup, ChannelSrc};
 use cartalith_io::{TileManifestOpts, build_tile_manifest, manifest_json};
 
-use crate::render::{self, BakeFields, RenderCtx, RiverInk, SplatTextures};
+use crate::export_options::{self, ExportContent, ExportOptions, ExportStyle, SettlementTier};
+use crate::export_stream::{self, StreamFormat};
+use crate::render::{self, BakeFields, ExportBandPlan, RenderCtx, RiverInk, SplatTextures, TerrainAppearance};
 use crate::{WorldGen, WorldSource, paint_bridge, sample_bridge};
 
 /// `bakeRes`' own three options in its own order, plus the two
@@ -102,9 +104,10 @@ use crate::{WorldGen, WorldSource, paint_bridge, sample_bridge};
 /// grid. That is why every export below goes through [`refuse_unaffordable`]
 /// first: `Vec` allocation failure **aborts** the process rather than
 /// returning an error, so a size the device cannot hold has to be refused
-/// before it is attempted. `EXPORT_SCOPE.md` §7's E1 — the banded renderer —
-/// is what would remove the ceiling rather than gate it, and it does not
-/// exist in this tree.
+/// before it is attempted. That is this function's monolithic path;
+/// [`WorldGen::export_image`] renders the same widths through E1's band plan
+/// and E2's streaming writer (`EXPORT_SCOPE.md` §7), whose peak is one band's
+/// and is capped at what an [`UNGATED_MAX_WIDTH`] export holds.
 ///
 /// Both new widths reach [`WorldGen::export_heightmap_png`] too, which is the
 /// other consumer of this array; it is gated on its own, much smaller,
@@ -382,6 +385,13 @@ impl WorldGen {
     /// identically here and the four builder calls are in the same order, so
     /// a change to one is visible as a diff against the other.
     fn export_render<T>(&self, run: impl FnOnce(&RenderCtx<'_>) -> T) -> Option<T> {
+        self.export_render_with(self.appearance(), run)
+    }
+
+    /// [`Self::export_render`] under a given appearance rather than the
+    /// session's — the export's style override (`export_options.rs`), which
+    /// arrives here already composed and never touches `appearance()`'s inputs.
+    fn export_render_with<T>(&self, appearance: render::TerrainAppearance, run: impl FnOnce(&RenderCtx<'_>) -> T) -> Option<T> {
         let (field, temperature, rainfall, flow) = match self.source.as_ref()? {
             WorldSource::Generated(ws) => (ws.field.as_slice(), ws.temperature.as_slice(), ws.rainfall.as_slice(), Some(ws.flow_discharge.as_slice())),
             WorldSource::Loaded(save) => (save.fields.heightmap.as_slice(), save.fields.temperature.as_slice(), save.fields.rainfall.as_slice(), None),
@@ -399,7 +409,6 @@ impl WorldGen {
             )),
             WorldSource::Loaded(_) => None,
         };
-        let appearance = self.appearance();
         let mut ctx = RenderCtx::with_appearance(field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance);
         if let Some(lith) = lithology.as_ref() {
             ctx = ctx.with_lithology(lith);
@@ -449,6 +458,63 @@ impl WorldGen {
         }
         Some(run(&ctx))
     }
+
+    /// The appearance an export with `style` renders under: a new base from
+    /// [`WorldGen::appearance_rebased`], then the style's own edits. Both
+    /// halves work on copies; nothing the session reads is written.
+    fn export_appearance(&self, style: &ExportStyle) -> TerrainAppearance {
+        style.apply_edits(self.appearance_rebased(style.look, style.preset.as_ref()))
+    }
+
+    /// The band plan a `w × h` export under `a` runs, and the ungated
+    /// ceiling in pixels it was budgeted against (see
+    /// [`export_options::band_budget_px`]). The apron comes from `a`, so a
+    /// style that moves the local-contrast radius moves the band count.
+    fn export_band_plan(&self, a: &TerrainAppearance, w: usize, h: usize, avail: Option<u64>) -> (ExportBandPlan, u64) {
+        let (uw, uh) = render::bake_dims(UNGATED_MAX_WIDTH as usize, self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let ungated_px = uw as u64 * uh as u64;
+        let budget = export_options::band_budget_px(ungated_px, avail, PEAK_BYTES_PER_PIXEL);
+        (ExportBandPlan::for_budget(a, w, h, budget), ungated_px)
+    }
+
+    /// `export_raster_estimate`'s dictionary for `width` under `a`. Empty
+    /// before any world exists.
+    fn export_estimate(&self, width: i64, a: &TerrainAppearance, format: StreamFormat) -> VarDictionary {
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 || self.source.is_none() {
+            return VarDictionary::new();
+        }
+        let (w, h) = render::bake_dims(width.max(0) as usize, gw, gh);
+        let px = (w as u64) * (h as u64);
+        let peak = px * PEAK_BYTES_PER_PIXEL;
+        let avail = memory_available();
+        let (plan, _) = self.export_band_plan(a, w, h, avail);
+        let band_peak = export_options::band_peak_px(&plan) * PEAK_BYTES_PER_PIXEL;
+        let mut out = dict! {
+            "width" => w as i64,
+            "height" => h as i64,
+            "pixels" => px as i64,
+            "peak_bytes" => peak as i64,
+            "heightmap_peak_bytes" => (px * HEIGHTMAP_PEAK_BYTES_PER_PIXEL) as i64,
+            "tiles" => (w.div_ceil(TILE_SIZE) * h.div_ceil(TILE_SIZE)) as i64,
+            "tile_size" => TILE_SIZE as i64,
+            "bands" => plan.band_count() as i64,
+            "band_rows" => plan.rows_per_band as i64,
+            "apron_rows" => plan.apron as i64,
+            "band_peak_bytes" => band_peak as i64,
+        };
+        // The fitted model is of PNG only; a BigTIFF size is omitted rather
+        // than guessed (no BigTIFF export has been measured).
+        if format == StreamFormat::Png {
+            out.set("file_bytes", estimate_file_bytes(w, h, gw) as i64);
+        }
+        if let Some(avail) = avail {
+            out.set("memory_available", avail as i64);
+            out.set("affordable", peak <= avail);
+            out.set("band_affordable", band_peak <= avail);
+        }
+        out
+    }
 }
 
 /// One failed step, as the message the caller shows.
@@ -471,6 +537,100 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
     }
     std::fs::write(path, bytes).map_err(|e| format!("could not write {}: {e}", path.display()))
+}
+
+// ---------------------------------------------------------------------------
+// The options dictionary (`EXPORT_SCOPE.md` §7 E3). The types and every rule
+// that needs no Godot are in `export_options.rs`; this is only the walk.
+// ---------------------------------------------------------------------------
+
+/// Refuse any key not in `allowed`. `to_string()` rather than `try_to::<GString>`
+/// so a `StringName` key (`{width = 8192}` in GDScript) reads the same.
+fn check_keys(d: &VarDictionary, allowed: &[&str], what: &str) -> Result<(), String> {
+    for k in d.keys_array().iter_shared() {
+        let k = k.to_string();
+        if !allowed.contains(&k.as_str()) {
+            return Err(format!("unknown {what} key {k:?} -- expected one of {allowed:?}"));
+        }
+    }
+    Ok(())
+}
+
+fn opt_of<T: FromGodot>(d: &VarDictionary, key: &str, ty: &str) -> Result<Option<T>, String> {
+    match d.get(key) {
+        None => Ok(None),
+        Some(v) => v.try_to::<T>().map(Some).map_err(|_| format!("{key} must be {ty}, got {v}")),
+    }
+}
+
+fn opt_string(d: &VarDictionary, key: &str) -> Result<Option<String>, String> {
+    Ok(opt_of::<GString>(d, key, "a string")?.map(|s| s.to_string()))
+}
+
+/// A number from either a GDScript `float` or `int`.
+fn number(v: &Variant) -> Option<f64> {
+    v.try_to::<f64>().ok().or_else(|| v.try_to::<i64>().ok().map(|i| i as f64))
+}
+
+/// Read [`ExportOptions`] from its dictionary. Every rule is an `Err` with a
+/// message the dialog can show; nothing here panics on bad input.
+fn export_options_from(opts: &VarDictionary) -> Result<ExportOptions, String> {
+    check_keys(opts, &ExportOptions::KEYS, "export option")?;
+    let width = opt_of::<i64>(opts, "width", "an integer")?.ok_or("width is required -- see export_raster_widths()")?;
+    let format = match opt_string(opts, "format")? {
+        None => StreamFormat::Png,
+        Some(f) => export_options::format_from_name(&f).ok_or_else(|| format!("unknown format {f:?} -- \"png\" or \"bigtiff\""))?,
+    };
+
+    let mut style = ExportStyle::default();
+    if let Some(s) = opt_of::<VarDictionary>(opts, "style", "a dictionary")? {
+        check_keys(&s, &ExportOptions::STYLE_KEYS, "style")?;
+        if let Some(l) = opt_string(&s, "look")? {
+            style.look = Some(export_options::look_from_name(&l).ok_or_else(|| format!("unknown look {l:?} -- see list_looks()"))?);
+        }
+        if let Some(p) = opt_string(&s, "preset")? {
+            style.preset = Some(export_options::read_appearance_preset(Path::new(&p)).map_err(|e| format!("style preset {p}: {e}"))?);
+        }
+        if style.look.is_some() && style.preset.is_some() {
+            return Err("style names both a look and a preset -- a preset replaces the look, so give one".into());
+        }
+        if let Some(r) = opt_string(&s, "ramp")? {
+            style.ramp = Some(export_options::ramp_from_name(&r).ok_or_else(|| format!("unknown ramp {r:?} -- see list_ramp_presets()"))?);
+        }
+        if let Some(t) = opt_of::<VarDictionary>(&s, "tunables", "a dictionary")? {
+            for (k, v) in t.iter_shared() {
+                let k = k.to_string();
+                let v = number(&v).ok_or_else(|| format!("style tunable {k} must be a number, got {v}"))?;
+                style.tunables.push(export_options::tunable_from(&k, v)?);
+            }
+        }
+    }
+
+    let mut content = ExportContent::default();
+    if let Some(c) = opt_of::<VarDictionary>(opts, "content", "a dictionary")? {
+        check_keys(&c, &ExportOptions::CONTENT_KEYS, "content")?;
+        if let Some(r) = opt_of::<bool>(&c, "rivers", "a bool")? {
+            content.rivers = r;
+        }
+        let tier = match opt_string(&c, "settlement_tier")? {
+            None => None,
+            Some(t) => Some(SettlementTier::from_name(&t).ok_or_else(|| format!("unknown settlement_tier {t:?}"))?),
+        };
+        match (opt_of::<bool>(&c, "settlements", "a bool")?, tier) {
+            // A tier with settlements off is a contradiction, not a default.
+            (Some(false), Some(_)) => return Err("settlement_tier given with settlements off".into()),
+            // §5: "down to this tier, or simply all of them" -- all, unless stated.
+            (Some(true), t) => content.settlements = Some(t.unwrap_or(SettlementTier::All)),
+            (None, t) => content.settlements = t,
+            (Some(false), None) => {}
+        }
+        for key in ExportContent::OVERLAY_KEYS {
+            if let Some(on) = opt_of::<bool>(&c, key, "a bool")? {
+                content.set_overlay(key, on);
+            }
+        }
+    }
+    Ok(ExportOptions { width, format, style, content })
 }
 
 #[godot_api(secondary)]
@@ -516,30 +676,135 @@ impl WorldGen {
     /// UI can price a size before offering it.
     ///
     /// Empty `Dictionary` before any `generate()`/`load_save()`.
+    ///
+    /// # The banded export's figures (`EXPORT_SCOPE.md` §7 E3)
+    ///
+    /// `bands`, `band_rows`, `apron_rows` and `band_peak_bytes` describe
+    /// [`Self::export_image`], which renders through E1's band plan: the
+    /// number of bands, output rows per band (the last may be shorter), the
+    /// context rows rendered each side, and the peak of the tallest band.
+    /// `peak_bytes`/`affordable` still describe `export_raster_png`, which is
+    /// monolithic and unchanged; `band_affordable` is the banded twin. Under
+    /// the session's appearance — [`Self::export_image_estimate`] prices a
+    /// style override, whose local-contrast radius can move the apron.
     #[func]
     fn export_raster_estimate(&self, width: i64) -> VarDictionary {
-        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        if gw == 0 || gh == 0 || self.source.is_none() {
-            return VarDictionary::new();
-        }
-        let (w, h) = render::bake_dims(width.max(0) as usize, gw, gh);
-        let px = (w as u64) * (h as u64);
-        let peak = px * PEAK_BYTES_PER_PIXEL;
-        let mut out = dict! {
-            "width" => w as i64,
-            "height" => h as i64,
-            "pixels" => px as i64,
-            "peak_bytes" => peak as i64,
-            "file_bytes" => estimate_file_bytes(w, h, gw) as i64,
-            "heightmap_peak_bytes" => (px * HEIGHTMAP_PEAK_BYTES_PER_PIXEL) as i64,
-            "tiles" => (w.div_ceil(TILE_SIZE) * h.div_ceil(TILE_SIZE)) as i64,
-            "tile_size" => TILE_SIZE as i64,
+        self.export_estimate(width, &self.appearance(), StreamFormat::Png)
+    }
+
+    /// [`Self::export_raster_estimate`] for a whole options dictionary (see
+    /// `export_options::ExportOptions`): the same keys, computed under the
+    /// options' style, plus `ok`, `format`, and `overlays_pending` — the
+    /// requested content only E4's overlay session could draw, present only
+    /// when non-empty, since [`Self::export_image`] refuses those. No
+    /// `file_bytes` for `bigtiff`: there is no measured model for it.
+    ///
+    /// `{ok: false, error}` for options `export_image` would refuse to parse.
+    /// Answers for any width, as the width-only estimate does.
+    #[func]
+    fn export_image_estimate(&self, opts: VarDictionary) -> VarDictionary {
+        let o = match export_options_from(&opts) {
+            Ok(o) => o,
+            Err(e) => return fail(e),
         };
-        if let Some(avail) = memory_available() {
-            out.set("memory_available", avail as i64);
-            out.set("affordable", peak <= avail);
+        let mut out = self.export_estimate(o.width, &self.export_appearance(&o.style), o.format);
+        if out.is_empty() {
+            return fail("no world to export -- generate or load one first");
+        }
+        out.set("ok", true);
+        out.set("format", export_options::format_name(o.format));
+        let pending = o.content.overlays();
+        if !pending.is_empty() {
+            let names: PackedStringArray = pending.iter().map(|s| GString::from(*s)).collect();
+            out.set("overlays_pending", &names);
         }
         out
+    }
+
+    /// Render the world to one image file through the banded renderer (E1)
+    /// and the streaming writer (E2), as `opts` describes
+    /// (`export_options::ExportOptions`). `path` is a real OS path, as for
+    /// `export_raster_png`.
+    ///
+    /// **Same pixels as `export_raster_png` under the same appearance**, at
+    /// every width: E1 proved banded equals monolithic byte for byte, and a
+    /// width at or below `UNGATED_MAX_WIDTH` is one band with no apron. The
+    /// style override renders under a composed copy of the appearance and
+    /// leaves the session's untouched (`&self`).
+    ///
+    /// Refuses — before rendering — an overlay in the content set (E4 is not
+    /// built), a width off the ladder, and a band peak the device cannot hold.
+    /// Synchronous and long, like `export_raster_png`: call it from a thread.
+    ///
+    /// Returns `{ok, path, width, height, format, bytes, bands, ms}`, or
+    /// `{ok: false, error}`.
+    #[func]
+    fn export_image(&self, path: GString, opts: VarDictionary) -> VarDictionary {
+        let started = std::time::Instant::now();
+        let o = match export_options_from(&opts) {
+            Ok(o) => o,
+            Err(e) => return fail(e),
+        };
+        if !BAKE_WIDTHS.contains(&o.width) {
+            return fail(format!("unsupported export width {} -- offered: {BAKE_WIDTHS:?}", o.width));
+        }
+        let pending = o.content.overlays();
+        if !pending.is_empty() {
+            return fail(format!(
+                "this export cannot draw {} yet -- overlays need the overlay session (EXPORT_SCOPE.md §7 E4), which is not built",
+                pending.join(", ")
+            ));
+        }
+        let path = PathBuf::from(path.to_string());
+        if path.as_os_str().is_empty() {
+            return fail("no destination path");
+        }
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 || self.source.is_none() {
+            return fail("no world to export -- generate or load one first");
+        }
+        let (w, h) = render::bake_dims(o.width as usize, gw, gh);
+        if w == 0 || h == 0 {
+            return fail(format!("degenerate export dimensions {w}x{h}"));
+        }
+        let a = self.export_appearance(&o.style);
+        let avail = memory_available();
+        let (plan, ungated_px) = self.export_band_plan(&a, w, h, avail);
+        // Ruling 26's refusal, on the band's peak rather than the whole
+        // raster's. With no reported budget the ceiling is what an ungated
+        // export has always been allowed to hold; the band budget is derived
+        // from that same figure, so this refuses only a plan whose one-row
+        // floor overran it.
+        let peak = export_options::band_peak_px(&plan) * PEAK_BYTES_PER_PIXEL;
+        let limit = match avail {
+            Some(av) => av,
+            None => ungated_px * PEAK_BYTES_PER_PIXEL,
+        };
+        if peak > limit {
+            return fail(format!(
+                "a {} px export needs about {} of memory per band and {} is available -- pick a smaller width",
+                o.width,
+                crate::bake_bridge::human_bytes(peak),
+                crate::bake_bridge::human_bytes(limit)
+            ));
+        }
+        let ink = if o.content.rivers { self.river_ink() } else { None };
+        let Some(result) = self.export_render_with(a, |ctx| export_stream::export_banded(ctx, ink, &plan, o.format, &path)) else {
+            return fail("could not assemble the render context");
+        };
+        match result {
+            Ok(bytes) => dict! {
+                "ok" => true,
+                "path" => path.display().to_string().as_str(),
+                "width" => w as i64,
+                "height" => h as i64,
+                "format" => export_options::format_name(o.format),
+                "bytes" => bytes as i64,
+                "bands" => plan.band_count() as i64,
+                "ms" => started.elapsed().as_secs_f64() * 1000.0,
+            },
+            Err(e) => fail(e),
+        }
     }
 
     /// `bakeSingle(W)` / `bakeTiled(W)` (reference lines 11975 / 11982) —

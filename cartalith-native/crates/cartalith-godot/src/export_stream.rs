@@ -12,10 +12,11 @@
 //!
 //! # Not yet the user-facing path
 //!
-//! No `#[func]` reaches this. [`export_banded`] takes a [`RenderCtx`], which a
-//! caller gets from `WorldGen::export_render`; wiring it behind the export
-//! dialog, with its options dictionary, is E3/E5. The shipped
-//! `export_raster_png` does not go through here and is unchanged.
+//! One `#[func]` reaches this: `WorldGen::export_image` (`export_raster.rs`),
+//! which reads E3's options dictionary (`export_options.rs`) and hands
+//! [`export_banded`] a [`RenderCtx`] from `WorldGen::export_render_with`. No
+//! menu or dialog calls that yet (E5). The shipped `export_raster_png` does
+//! not go through here and is unchanged.
 //!
 //! # The output does not depend on the band size
 //!

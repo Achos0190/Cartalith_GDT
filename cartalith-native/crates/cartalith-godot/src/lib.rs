@@ -24,6 +24,7 @@ mod civ_roster_bridge;
 mod civ_tools_bridge;
 mod civ_trade_bridge;
 mod erode_bridge;
+mod export_options;
 mod export_raster;
 mod export_stream;
 mod geojson_apply;
@@ -6651,6 +6652,25 @@ impl WorldGen {
     /// Layered in one direction, tier first and the user's own edits second,
     /// for the reason `appearance_over`'s own doc gives.
     fn appearance(&self) -> TerrainAppearance {
+        self.appearance_rebased(None, None)
+    }
+
+    /// [`Self::appearance`] with its **base** swapped, computed on a copy —
+    /// the export's style override (`EXPORT_SCOPE.md` §7 E3), which must layer
+    /// over the session's appearance without writing to it. `&self`, so it
+    /// cannot.
+    ///
+    /// - `preset`: what `load_appearance_preset` would produce — the file is
+    ///   the base, and the override map and ramp override are *not* applied
+    ///   (that call clears both); the layer stack and biome colours are,
+    ///   because it keeps both.
+    /// - `look`: what `set_look` would produce, **except that a loaded session
+    ///   preset is set aside** — under a preset `set_look` changes nothing
+    ///   visible, and an export look that was silently inert would be the
+    ///   worse surprise. Every session edit still applies, as it survives
+    ///   `set_look`.
+    /// - both `None`: the session's own appearance, unchanged.
+    pub(crate) fn appearance_rebased(&self, look: Option<&str>, preset: Option<&TerrainAppearance>) -> TerrainAppearance {
         let mut npr = self.npr.clone();
         npr.peak_m = self.params.peak_m;
         // Three layers, cheapest authority first: the quality tier, then a
@@ -6662,12 +6682,16 @@ impl WorldGen {
         // so it replaces both the tier and the named look rather than being
         // graded by whichever one happened to be selected — the same reason it
         // already replaced the tier alone.
-        let base = match self.appearance_preset.as_ref() {
-            Some(p) => p.clone(),
-            None => TerrainAppearance::for_tier(self.quality).with_look(&self.look),
+        let (base, edits) = match (preset, look) {
+            (Some(p), _) => (p.clone(), false),
+            (None, Some(l)) => (TerrainAppearance::for_tier(self.quality).with_look(l), true),
+            (None, None) => match self.appearance_preset.as_ref() {
+                Some(p) => (p.clone(), true),
+                None => (TerrainAppearance::for_tier(self.quality).with_look(&self.look), true),
+            },
         };
         let mut a = TerrainAppearance { npr, ..base };
-        if let Some(ramp) = self.appearance_ramp.as_ref() {
+        if edits && let Some(ramp) = self.appearance_ramp.as_ref() {
             a.ramp = ramp.clone();
         }
         // CA-03/CA-04's layer stack, on the ramp's exact terms and in the same
@@ -6678,7 +6702,7 @@ impl WorldGen {
         if let Some(layers) = self.appearance_layers.as_ref() {
             a.layers = layers.clone();
         }
-        for (key, value) in &self.appearance_over {
+        for (key, value) in self.appearance_over.iter().filter(|_| edits) {
             if key == render::TUNABLE_LIGHTS.0 {
                 a.relief_lights = value.round().max(1.0) as usize;
             } else {
@@ -7227,29 +7251,10 @@ impl WorldGen {
     /// render.
     #[func]
     fn load_appearance_preset(&mut self, path: GString) -> bool {
-        let text = match std::fs::read_to_string(path.to_string()) {
-            Ok(t) => t,
-            Err(e) => {
-                godot_print!("cartalith-godot: load_appearance_preset open failed: {e}");
-                return false;
-            }
-        };
-        let doc: serde_json::Value = match serde_json::from_str(&text) {
-            Ok(v) => v,
-            Err(e) => {
-                godot_print!("cartalith-godot: load_appearance_preset parse failed: {e}");
-                return false;
-            }
-        };
-        if doc.get("format").and_then(|v| v.as_str()) != Some("cartalith-appearance") {
-            godot_print!("cartalith-godot: load_appearance_preset: not a Cartalith appearance preset");
-            return false;
-        }
-        let Some(body) = doc.get("appearance") else {
-            godot_print!("cartalith-godot: load_appearance_preset: no appearance block");
-            return false;
-        };
-        match serde_json::from_value::<TerrainAppearance>(body.clone()) {
+        // The one parser for the format, shared with the export's style
+        // override (`export_options.rs`), so the two cannot read a file
+        // differently.
+        match export_options::read_appearance_preset(std::path::Path::new(&path.to_string())) {
             Ok(a) => {
                 self.appearance_over.clear();
                 self.appearance_ramp = None;
@@ -7257,7 +7262,7 @@ impl WorldGen {
                 true
             }
             Err(e) => {
-                godot_print!("cartalith-godot: load_appearance_preset decode failed: {e}");
+                godot_print!("cartalith-godot: load_appearance_preset {e}");
                 false
             }
         }
