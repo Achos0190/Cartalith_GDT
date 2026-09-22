@@ -44,6 +44,61 @@ func _size(path: String) -> int:
 	f.close()
 	return n
 
+## Rasterizes `get_rivers()`'s traced polylines (`points`, grid-cell space)
+## into a `w * h` byte mask, `1` within `width_cells / 2` plus a small
+## antialiasing margin of a river, `0` elsewhere. Only valid where the pixel
+## grid IS the cell grid -- true at every call site in this probe, which
+## exports at exactly the generated grid's own resolution for this reason.
+##
+## Deliberately reads the engine's own polylines rather than re-detecting
+## "blue-ish" pixels the way `_riverwidth_probe.gd` used to: that approach
+## mistook ocean for river once already (that probe's own header), and would
+## mistake it again here since the export still paints an ocean.
+##
+## `AA_MARGIN_CELLS` has to cover more than antialiasing. `apply_local_
+## contrast` (render.rs) runs on the FINISHED raster, after the river ink is
+## composited, as a box blur of radius `local_contrast_radius_frac * gw`
+## (default 0.010, so ~20 cells at this probe's 2048 px width -- render.rs's
+## own doc comment on `local_contrast_radius` says the same: "~20 cells at
+## the app's own 2048^2"). A box blur of radius R can move a pixel up to R
+## cells from the nearest actually-inked cell, because local contrast reacts
+## to the luma EDGE the river creates and that reaction is smeared by the
+## same blur. Measured directly: a first pass at `AA_MARGIN_CELLS = 2.0`
+## left 114 739 outside-mask bytes differing (worst delta 4) -- far past the
+## strict f32-prologue bound this section exists to enforce, and the tell is
+## exactly render.rs's own local-contrast radius, not a wider river or a new
+## defect. 24 = the ~20-cell blur radius plus a few cells' slack for the
+## inner "fine" sub-blur and rounding; not derived from a runtime read
+## because `local_contrast_radius_frac` isn't an exposed appearance
+## parameter (only `local_contrast`, the strength, is) -- if that default
+## ever moves, this margin and the ~20-cell figure above go stale together.
+const AA_MARGIN_CELLS := 24.0
+
+func _river_mask(wg: Object, w: int, h: int) -> PackedByteArray:
+	var mask := PackedByteArray()
+	mask.resize(w * h)
+	var rivers: Array = wg.get_rivers(1)
+	for river in rivers:
+		var pts: PackedVector2Array = river.get("points", PackedVector2Array())
+		var half: float = float(river.get("width_cells", 0.0)) * 0.5 + AA_MARGIN_CELLS
+		var r := maxi(1, int(ceil(half)))
+		var r2 := r * r
+		for p in pts:
+			var cx := int(round(p.x))
+			var cy := int(round(p.y))
+			for dy in range(-r, r + 1):
+				var yy := cy + dy
+				if yy < 0 or yy >= h:
+					continue
+				for dx in range(-r, r + 1):
+					if dx * dx + dy * dy > r2:
+						continue
+					var xx := cx + dx
+					if xx < 0 or xx >= w:
+						continue
+					mask[yy * w + xx] = 1
+	return mask
+
 func _ready() -> void:
 	get_tree().create_timer(600.0).timeout.connect(func() -> void:
 		push_error("export-raster probe watchdog: _ready never finished")
@@ -344,14 +399,59 @@ func _ready() -> void:
 		var b := exported.get_data()
 		_ok(a.size() == b.size(), "same byte count (%d vs %d)" % [a.size(), b.size()])
 		if a.size() == b.size():
+			## **Owner ruling, 2026-09-22: rivers are no longer baked into
+			## `build_color_texture()`.** They are drawn as a vector stroke by
+			## `map_overlay.gd::_draw_rivers()` in the lake's own colour, at
+			## the channel's real world-space width -- while
+			## `export_raster_png` deliberately still calls the OLD baked-ink
+			## path (`WorldGen::river_ink()`), unchanged. So screen and export
+			## now intentionally disagree exactly where a river runs, and only
+			## there. A byte-for-byte comparison that does not know this would
+			## either weaken its bound everywhere (masking a real regression
+			## elsewhere) or fail permanently on the river ink alone (masking
+			## nothing at all) -- both are exactly the "asserted non-emptiness
+			## and shape explicitly" failure this file's own header warns
+			## about. So the comparison is split: every byte gets classified
+			## as river-masked or not, from the engine's own `get_rivers()`
+			## polylines/widths (not from re-detecting blue pixels, which is
+			## the `_riverwidth_probe.gd` mistake this project already made
+			## once). The strict, historically-proven bound below is asserted
+			## ONLY outside the mask -- it is exactly the bound that caught
+			## the 132-level and 73-level missing-stage regressions described
+			## below, unweakened. The masked region gets its own assertion:
+			## it must show a real, non-trivial divergence, because if a
+			## future change silently re-added the screen-side bake the two
+			## images would go back to matching everywhere INCLUDING the
+			## river mask -- and that must fail this probe, not pass it.
+			var mask := _river_mask(bridge.world_gen, scr.get_width(), scr.get_height())
+			var mask_px := 0
+			for m in mask:
+				if m == 1:
+					mask_px += 1
+			print("  river mask: %d of %d pixels (%.2f%%)"
+				% [mask_px, mask.size(), 100.0 * float(mask_px) / float(maxi(1, mask.size()))])
+
 			var bad3 := 0
 			var worst := 0
+			var nonriver_bytes := 0
+			var river_bad := 0
+			var river_worst := 0
+			var river_bytes := 0
 			for i in range(a.size()):
 				var d: int = absi(a[i] - b[i])
-				if d > 0:
-					bad3 += 1
-					worst = maxi(worst, d)
-			print("  %d of %d bytes differ, worst delta %d" % [bad3, a.size(), worst])
+				var px := int(i / 3)
+				if mask[px] == 1:
+					river_bytes += 1
+					if d > 0:
+						river_bad += 1
+						river_worst = maxi(river_worst, d)
+				else:
+					nonriver_bytes += 1
+					if d > 0:
+						bad3 += 1
+						worst = maxi(worst, d)
+			print("  [outside river mask] %d of %d bytes differ, worst delta %d" % [bad3, nonriver_bytes, worst])
+			print("  [inside river mask]  %d of %d bytes differ, worst delta %d" % [river_bad, river_bytes, river_worst])
 			## Not "zero bytes differ", and the reason is worth stating where
 			## someone re-running this will read it. BakeFields stores slope,
 			## macro shade and meso shade as f32 -- because the reference's
@@ -384,9 +484,25 @@ func _ready() -> void:
 			## rounding, which cannot exceed 1, and far too small for a
 			## different picture. Nobody re-ran the probe in between, so it
 			## went unnoticed. Do not relax either assertion below to make it
-			## green.
-			_ok(worst <= 1, "no byte is off by more than one level (worst %d)" % worst)
-			_ok(bad3 * 10000 < a.size(), "the f32 prologue is the only difference (%d of %d bytes)" % [bad3, a.size()])
+			## green. (2026-09-22: this bound now applies outside the river
+			## mask -- inside it, the two are SUPPOSED to differ.)
+			_ok(worst <= 1, "outside the river mask, no byte is off by more than one level (worst %d)" % worst)
+			_ok(bad3 * 10000 < nonriver_bytes, "outside the river mask, the f32 prologue is the only difference (%d of %d bytes)" % [bad3, nonriver_bytes])
+			## Non-vacuity for the mask itself, and for the divergence it is
+			## supposed to expose -- the two things a masked comparison can
+			## get silently wrong. Owner ruling 2026-09-22 didn't remove
+			## rivers, only where they're drawn, so a world generated from a
+			## fixed seed that has always had rivers had better still have
+			## some: an empty mask here would mean `_river_mask()` itself is
+			## broken (wrong field name, wrong coordinate space), not that
+			## the world has none. `river_worst > 10` is far above both the
+			## f32 rounding ceiling (1) and any plausible antialiasing fringe
+			## noise, and is the number that would go back to ~1 if a future
+			## change silently re-added the screen-side river bake -- making
+			## this assertion the reversion detector.
+			_ok(mask_px > 0, "this world has river pixels to test the screen/export divergence against")
+			_ok(river_bad > 0 and river_worst > 10,
+				"the river-masked region really does differ between screen and export (export still inks rivers, screen does not) -- worst %d levels over %d differing bytes" % [river_worst, river_bad])
 
 	print("\n==== %s so far (%d failures) ====" % ["ALL PASS" if fails == 0 else "FAILURES", fails])
 

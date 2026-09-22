@@ -66,6 +66,101 @@ func _cmp(a: PackedByteArray, b: PackedByteArray) -> Array:
 			worst = maxi(worst, d)
 	return [worst, float(moved) / float(a.size()), float(sum) / float(a.size())]
 
+## Rasterizes `get_rivers()`'s traced polylines (`points`, grid-cell space)
+## into a `w * h` byte mask, `1` within `width_cells / 2` plus a small
+## antialiasing margin of a river, `0` elsewhere. Copied from
+## `_exportraster_probe.gd` (see that file's own comment for the full
+## reasoning) rather than shared, because these are two independent,
+## uncommitted probe scripts with no shared module today and duplicating
+## ~25 lines is cheaper than inventing one for two callers.
+##
+## Only valid where the pixel grid IS the cell grid -- true here because
+## section 1 regenerates at exactly the exported width (2048 x 1312).
+##
+## `AA_MARGIN_CELLS` = 24, matching `_exportraster_probe.gd`'s own value and
+## its own reasoning: `apply_local_contrast` (render.rs) is a box blur of
+## radius ~20 cells at this probe's 2048 px width (`local_contrast_radius_
+## frac` default 0.010 * gw, floored/capped -- render.rs's own doc comment
+## on `local_contrast_radius`), run on the FINISHED raster after the river
+## ink composites, so the river's luma edge (present in the export, absent
+## on screen) can shift a pixel's colour up to that radius away from any
+## cell an actual river polyline passes through. A narrower margin measured
+## real outside-mask divergence there, not a defect.
+const AA_MARGIN_CELLS := 24.0
+
+func _river_mask(wg: Object, w: int, h: int) -> PackedByteArray:
+	var mask := PackedByteArray()
+	mask.resize(w * h)
+	var rivers: Array = wg.get_rivers(1)
+	for river in rivers:
+		var pts: PackedVector2Array = river.get("points", PackedVector2Array())
+		var half: float = float(river.get("width_cells", 0.0)) * 0.5 + AA_MARGIN_CELLS
+		var r := maxi(1, int(ceil(half)))
+		var r2 := r * r
+		for p in pts:
+			var cx := int(round(p.x))
+			var cy := int(round(p.y))
+			for dy in range(-r, r + 1):
+				var yy := cy + dy
+				if yy < 0 or yy >= h:
+					continue
+				for dx in range(-r, r + 1):
+					if dx * dx + dy * dy > r2:
+						continue
+					var xx := cx + dx
+					if xx < 0 or xx >= w:
+						continue
+					mask[yy * w + xx] = 1
+	return mask
+
+## Same as `_cmp`, split into "outside the river mask" and "inside it".
+## **Owner ruling, 2026-09-22: rivers are no longer baked into
+## `build_color_texture()`** -- they're drawn as a vector stroke by
+## `map_overlay.gd::_draw_rivers()` instead, while `export_raster_png` still
+## calls the old baked-ink path unchanged. So every screen/export comparison
+## in this probe now has an expected divergence exactly where a river runs,
+## and the strict bound this probe exists to enforce (does the export carry
+## the same colour grade as the screen) must be asserted on the part of the
+## image where the two are still supposed to agree.
+func _cmp_masked(a: PackedByteArray, b: PackedByteArray, mask: PackedByteArray) -> Dictionary:
+	var out := {
+		"nonriver_worst": -1, "nonriver_frac": -1.0, "nonriver_mean": -1.0, "nonriver_bytes": 0,
+		"river_worst": -1, "river_frac": -1.0, "river_mean": -1.0, "river_bytes": 0,
+	}
+	if a.size() == 0 or a.size() != b.size() or mask.size() * 3 != a.size():
+		return out
+	var nr_worst := 0
+	var nr_moved := 0
+	var nr_sum := 0
+	var nr_n := 0
+	var r_worst := 0
+	var r_moved := 0
+	var r_sum := 0
+	var r_n := 0
+	for i in range(a.size()):
+		var d: int = absi(a[i] - b[i])
+		if mask[int(i / 3)] == 1:
+			r_n += 1
+			if d > 0:
+				r_moved += 1
+				r_sum += d
+				r_worst = maxi(r_worst, d)
+		else:
+			nr_n += 1
+			if d > 0:
+				nr_moved += 1
+				nr_sum += d
+				nr_worst = maxi(nr_worst, d)
+	out.nonriver_worst = nr_worst
+	out.nonriver_frac = float(nr_moved) / float(maxi(1, nr_n))
+	out.nonriver_mean = float(nr_sum) / float(maxi(1, nr_n))
+	out.nonriver_bytes = nr_n
+	out.river_worst = r_worst
+	out.river_frac = float(r_moved) / float(maxi(1, r_n))
+	out.river_mean = float(r_sum) / float(maxi(1, r_n))
+	out.river_bytes = r_n
+	return out
+
 func _ready() -> void:
 	get_tree().create_timer(900.0).timeout.connect(func() -> void:
 		push_error("grade-export probe watchdog: _ready never finished")
@@ -88,6 +183,19 @@ func _ready() -> void:
 	print("  generated 2048 x 1312 in %.1f s" % ((Time.get_ticks_msec() - t0) / 1000.0))
 	_ok(bridge.world_gen.get_width() == 2048, "world is 2048 wide")
 
+	## Rivers don't move when the look/grade changes -- only a regenerate
+	## does that -- so one mask, built here, covers every screen/export
+	## comparison below. See `_cmp_masked`'s own doc comment for why this is
+	## needed at all since 2026-09-22.
+	var river_mask := _river_mask(bridge.world_gen, 2048, 1312)
+	var mask_px := 0
+	for m in river_mask:
+		if m == 1:
+			mask_px += 1
+	print("  river mask: %d of %d pixels (%.2f%%)"
+		% [mask_px, river_mask.size(), 100.0 * float(mask_px) / float(maxi(1, river_mask.size()))])
+	_ok(mask_px > 0, "this world has river pixels to test the screen/export divergence against")
+
 	print("\n== 2. the looks, and which of them actually grade ==")
 	var looks: PackedStringArray = bridge.world_gen.list_looks()
 	print("  looks: %s, open on '%s'" % [str(looks), String(bridge.world_gen.get_look())])
@@ -104,9 +212,13 @@ func _ready() -> void:
 	_ok(bridge.world_gen.set_look("Natural Vibrant"), "set_look(Natural Vibrant)")
 	var vib_screen := _screen()
 	var vib_export := _export("vibrant")
-	var c := _cmp(vib_screen, vib_export)
-	print("  worst %d levels, %.4f %% of bytes moved, mean %.4f" % [c[0], c[1] * 100.0, c[2]])
-	_ok(c[0] >= 0 and c[0] <= 1, "Vibrant: no byte is off by more than the f32 prologue's one level")
+	var c := _cmp_masked(vib_screen, vib_export, river_mask)
+	print("  [outside river mask] worst %d levels, %.4f %% of bytes moved, mean %.4f"
+		% [c.nonriver_worst, c.nonriver_frac * 100.0, c.nonriver_mean])
+	print("  [inside river mask]  worst %d levels, %.4f %% of bytes moved, mean %.4f (%d bytes)"
+		% [c.river_worst, c.river_frac * 100.0, c.river_mean, c.river_bytes])
+	_ok(c.nonriver_worst >= 0 and c.nonriver_worst <= 1,
+		"Vibrant: outside the river mask, no byte is off by more than the f32 prologue's one level")
 
 	print("\n== 4. Antique Parchment: the graded export == the graded screen ==")
 	## THE assertion this probe exists for. Antique grades (temperature 0.26,
@@ -116,11 +228,23 @@ func _ready() -> void:
 	_ok(bridge.world_gen.set_look("Antique Parchment"), "set_look(Antique Parchment)")
 	var ant_screen := _screen()
 	var ant_export := _export("antique")
-	var c2 := _cmp(ant_screen, ant_export)
-	print("  worst %d levels, %.4f %% of bytes moved (%d bytes), mean %.4f"
-		% [c2[0], c2[1] * 100.0, int(c2[1] * float(ant_export.size())), c2[2]])
-	_ok(c2[0] >= 0 and c2[0] <= 2, "Antique: the graded export matches the graded viewport (worst %d levels)" % c2[0])
-	_ok(c2[1] < 0.001, "Antique: fewer than 0.1 %% of bytes differ at all")
+	var c2 := _cmp_masked(ant_screen, ant_export, river_mask)
+	print("  [outside river mask] worst %d levels, %.4f %% of bytes moved (%d bytes), mean %.4f"
+		% [c2.nonriver_worst, c2.nonriver_frac * 100.0, int(c2.nonriver_frac * float(c2.nonriver_bytes)), c2.nonriver_mean])
+	_ok(c2.nonriver_worst >= 0 and c2.nonriver_worst <= 2,
+		"Antique: outside the river mask, the graded export matches the graded viewport (worst %d levels)" % c2.nonriver_worst)
+	_ok(c2.nonriver_frac < 0.001, "Antique: fewer than 0.1 %% of non-river bytes differ at all")
+	print("  [inside river mask]  worst %d levels, %.4f %% of bytes moved (%d bytes), mean %.4f"
+		% [c2.river_worst, c2.river_frac * 100.0, int(c2.river_frac * float(c2.river_bytes)), c2.river_mean])
+	## Non-vacuity: the export still inks rivers (the old baked path,
+	## deliberately untouched), the screen no longer does at all -- if this
+	## region came back near-identical it would mean either the mask missed
+	## the rivers or a future change silently re-added the screen-side bake.
+	## `10` is far above the f32-prologue ceiling of `1` and far below a real
+	## colour swap; either regression would fail this line.
+	_ok(c2.river_worst > 10 and c2.river_frac > 0.0,
+		"the river-masked region really does differ between screen and export (worst %d levels, %.4f %% moved)"
+			% [c2.river_worst, c2.river_frac * 100.0])
 
 	print("\n== 5. and the two exports are not the same picture ==")
 	## Non-vacuity: if set_look never reached the export, sections 3 and 4
@@ -168,11 +292,13 @@ func _ready() -> void:
 	## gain above 1 and re-quantized lands two levels apart whenever both
 	## sides straddle a floor boundary -- which is a handful of bytes, not a
 	## population.
-	var c6 := _cmp(ungraded_screen, ungraded_export)
-	print("  Antique WITHOUT the grade, export vs screen: worst %d, %.4f %% moved (%d bytes)"
-		% [c6[0], c6[1] * 100.0, int(c6[1] * float(ungraded_export.size()))])
-	_ok(c6[0] >= 0 and c6[0] <= 1, "ungraded Antique is back to the f32 prologue's one level")
-	_ok(c2[0] <= c6[0] + 1, "the graded pair is the ungraded pair plus at most one level of grade gain")
+	var c6 := _cmp_masked(ungraded_screen, ungraded_export, river_mask)
+	print("  [outside river mask] Antique WITHOUT the grade, export vs screen: worst %d, %.4f %% moved (%d bytes)"
+		% [c6.nonriver_worst, c6.nonriver_frac * 100.0, int(c6.nonriver_frac * float(c6.nonriver_bytes))])
+	_ok(c6.nonriver_worst >= 0 and c6.nonriver_worst <= 1,
+		"ungraded Antique is back to the f32 prologue's one level outside the river mask")
+	_ok(c2.nonriver_worst <= c6.nonriver_worst + 1,
+		"the graded pair is the ungraded pair plus at most one level of grade gain (outside the river mask)")
 
 	print("\n== 7. an eyeball crop, graded vs ungraded vs screen ==")
 	## A 512x512 strip of each, side by side, so the numbers above can be
