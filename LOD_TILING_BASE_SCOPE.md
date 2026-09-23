@@ -17,14 +17,18 @@ touch **nothing** in the live generation/rendering pipeline.
 
 This is deliberately narrower than `TERRAIN_ARCHITECTURE_RESEARCH.md`'s full
 9-phase roadmap — no camera, no quadtree-driven rendering, no clipmaps, no GPU
-residency, no interactive painting. Those stay deferred to whenever Phase 3
-(3D, `ROADMAP.md`) or a genuine large-world need triggers real integration,
-per `ROADMAP.md`'s own "Not a phase: LOD and large worlds" section: "revisit
-when a concrete need appears rather than building it speculatively." What
-changed between that section being written and this doc is scope, not
-philosophy: the owner wants the *foundation* laid without waiting for that
-trigger, specifically so integration (whenever it comes) isn't starting from
-zero or fighting a codebase that was never built to accommodate it.
+residency, no interactive painting. Those were left to whatever triggered real
+integration, per `ROADMAP.md`'s "Not a phase: LOD and large worlds" section:
+"revisit when a concrete need appears rather than building it speculatively."
+What this pass changed is scope, not philosophy: the owner wanted the
+*foundation* laid without waiting for that trigger, so integration would not
+start from zero or fight a codebase never built to accommodate it.
+
+**Two later sections record what happened to that bet**: integration arrived
+through the tool system, not LOD (*What integration found*), and two of the four
+items were retired with no caller (*Items 1 and 2 were retired*). The integration
+that did follow is `LOD_TILING_INTEGRATION_SCOPE.md` (tiers Z1–Z5) and
+`LOD_DETAIL_SCOPE.md`.
 
 ## Why standalone, not wired in
 
@@ -44,7 +48,8 @@ green field.
 data-structure library, per `ARCHITECTURE.md`'s crate-boundary rule; doesn't
 touch Godot, doesn't touch generation).
 
-1. **`TiledField<T>`** — wraps a flat `Vec<T>` (the exact same
+1. **`TiledField<T>`** *(retired 2026-09-22 with no caller — see the last
+   section)* — wraps a flat `Vec<T>` (the exact same
    Structure-of-Arrays shape `WorldState`/`CivData` already use — nothing new
    invented here) with tile-addressable views:
    - `tile_size: usize` as a constructor parameter, not a hardcoded constant.
@@ -59,8 +64,9 @@ touch Godot, doesn't touch generation).
      world dimensions aren't an exact multiple of `tile_size`, and confirming
      a mutable view's writes land in the correct backing-array cells.
 
-2. **Packed quadtree / spatial index** (research §12/13, `geo-index`-inspired
-   — read as a design reference, not a dependency to add):
+2. **Packed quadtree / spatial index** *(retired 2026-09-22 with no caller —
+   see the last section)* (research §12/13, `geo-index`-inspired — read as a
+   design reference, not a dependency to add):
    - `Vec<Node>` with integer child indices, not `Box<Node>`/pointers.
    - Generic per-node aggregate metadata: bounds, min/max of whatever `T` is
      being indexed, and a caller-defined flag/bitmask field (research §14/15's
@@ -108,8 +114,8 @@ touch Godot, doesn't touch generation).
 - Camera, quadtree-driven LOD rendering, clipmaps, GPU-residency lifecycles —
   real Phase-3-or-later work, `TERRAIN_ARCHITECTURE_RESEARCH.md`'s own §37/49.
 - Interactive painting, brush tools, dependency-graph invalidation propagation
-  — no editor exists in this port (`MVP_SCOPE.md` excludes the sculpt editor
-  outright).
+  — no editor existed in this port when the pass ran (`MVP_SCOPE.md` excluded
+  the sculpt editor; the tool system later built one, `UNIFIED_TOOL_PLAN.md`).
 - Multi-resolution *generation* (different fields at different resolutions) —
   a pipeline-wide numerical-parity change, not a data-structure question;
   stays deferred regardless of this pass.
@@ -133,9 +139,9 @@ touch Godot, doesn't touch generation).
 
 `cartalith-spatial` exists, compiles, is fully unit-tested, and is added to
 the workspace `Cargo.toml` members list, but is not a dependency of any other
-crate. Ready to be picked up — with a known, tested foundation instead of a
-green field — whenever Phase 3 or a real large-world need starts actual
-integration.
+crate — a boundary of **this pass**, not a standing property of the crate (see
+below). Ready to be picked up — with a known, tested foundation instead of a
+green field — whenever real integration starts.
 
 ## What integration found (2026-08-18) — the trigger was the tool system, not LOD
 
@@ -150,9 +156,7 @@ caller-supplied reason string (defended here against baking in Cartalith
 field names) turned out to be right, because each pipeline stage owns its own
 tracker instance rather than sharing one field-name enum.
 
-That also retires the *Done means* clause above about not being a dependency
-of any other crate: it described this pass's own boundary, not a standing
-property of the crate. How many crates depend on it is a status question —
+How many crates depend on it now is a status question —
 `cartalith-native/docs/STATUS.md`.
 
 ## Items 1 and 2 were retired (2026-09-22)

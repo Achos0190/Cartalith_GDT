@@ -8,8 +8,15 @@ status lives only in `cartalith-native/docs/STATUS.md`. It was planned on
 Ruling K in `LARGE_ITEM_RULINGS.md`, and a symbol-level map of what this workspace
 already has.
 
-**Status of the plan itself:** it is a draft, pending the owner questions in the
-last section.
+The owner questions in the last section each carry the default the milestones
+were written against; a ruling on any of them is recorded in
+`LARGE_ITEM_RULINGS.md`, not here. **One ruling already moves this plan:**
+Ruling AP (2026-09-23) authorised the main-map snow re-baseline that LOD-D4 could
+not reach under the no-re-baseline rule — see *Rules* and LOD-D4.
+
+Where a milestone's premise was refuted when it was built, the milestone carries
+a short **Found when built** note naming the symbol. Those notes are design
+corrections, not progress; whether a milestone has landed is `STATUS.md`'s.
 
 ---
 
@@ -56,9 +63,11 @@ This document schedules only the gap.
 
 ## What already exists, and the gap
 
-The table is the planning map's summary; its full version is kept with the
-2026-09-13 planning evidence. Symbols are named rather than line-cited, because
-line numbers drift.
+The table is the planning map's summary as of **2026-09-13** — the baseline the
+milestones were written against, not a description of the tree today (several
+of its "gap" cells are exactly what the milestones change). Its full version is
+kept with the 2026-09-13 planning evidence. Symbols are named rather than
+line-cited, because line numbers drift.
 
 | Research asks | Already here | Gap |
 |---|---|---|
@@ -84,8 +93,8 @@ order — no flow and no lithology — so every milestone states what it does on
 loaded save.
 
 **The reference function to port.** `renderBiomeTileRGBA`, `reference/Cartalith
-Gen1 v2.11.html` **lines 11668–11779**, chosen by `_lodBuildTileRGBA` when
-`state.mode === 'biome'`.
+Gen1 v2.11.html` **lines 11668–11779** (the frozen snapshot, so these do not
+drift), chosen by `_lodBuildTileRGBA` when `state.mode === 'biome'`.
 
 - **Per tile** it builds:
   - the light vector and a meso step `ms = max(2, min(W,H)/64)`;
@@ -121,10 +130,11 @@ Gen1 v2.11.html` **lines 11668–11779**, chosen by `_lodBuildTileRGBA` when
 the interactive deep-zoom tiles, is what this document extends.
 
 **Nothing here re-scopes Z3** (streaming the base raster), **Z4** (export) **or the
-M3 atlas.**
+M3 atlas.** The tier definitions (Z1–Z5) live in that document and are not
+restated here.
 
-That document excludes four things. This one touches two of them, and both are
-owner questions:
+That document's *Out of scope* list excludes several things. This one touches
+two of them, and both are owner questions:
 
 - **"A GPU compute path for `build_color_texture`/`with_appearance`."** Not touched:
   every milestone stays on the CPU path. The only GPU element is a composite shader.
@@ -137,13 +147,21 @@ owner questions:
 ## Rules that apply to every milestone
 
 - **Nothing moves an existing golden.** New stages are gated the way
-  `TerrainAppearance` gated five milestones: inert under `js_reference()`, on in
+  `TerrainAppearance` gated its milestones (`TERRAIN_APPEARANCE_SCOPE.md`,
+  *Rules every milestone here holds*): inert under `js_reference()`, on in
   `default()`. `golden_parity_render.rs` stays unedited.
 - **Parity class is stated per milestone.**
   - A CPU port of a reference function is golden-verified (`PARITY_TESTING.md`).
   - Behaviour new to this port is verified by **principled equivalence plus visual
     quality**, with its sources cited (owner decision on GPU and optimised paths).
-- **A golden re-baseline needs an owner ruling.** None is planned.
+    Per `DECISIONS.md` §7p, such behaviour is the standard on its own terms, not a
+    divergence to be held against the reference's look.
+- **A golden re-baseline needs an owner ruling.** None was planned in these seven
+  milestones. **One has since been ruled:** Ruling AP (2026-09-23) authorises
+  giving the **main map's** `material_weights` snow term an aspect
+  (slope-direction) term — a deliberate re-baseline of `golden_parity_render.rs`,
+  and a visible change to every snowy mountain, not only to LOD tiles. It is
+  scheduled work outside D0–D7; see LOD-D4.
 - **No Rust panic crosses the gdext boundary.** Every new `#[func]` returns an
   `Option` or a result the shell can dash with a reason.
 - **Android stays viable.** The generation peak on the phone (878–908 MB at
@@ -209,6 +227,18 @@ assuming it does.
 - Headless capture is vacuous, so the probe runs windowed.
 - Thresholds are palette-bound, so the palette is forced.
 
+**Found when built** (`cartalith-godot/src/lod_sweep.rs`, `_lodsweep_probe.gd`;
+figures from `OUTSTANDING_WORK.md`'s LOD-D0 row, cited not re-measured):
+
+- **Pops alone do not discriminate.** The baseline had zero pops but a worst
+  level-boundary `T_i` of 1.61×, so D3 must be graded on both of its criteria.
+- **D2's detail bar needs a pinned view.** Detail per screen pixel at zoom 40
+  spans 7.2%–116% of the zoom-1 value across worlds; the "about 8% today" below
+  was one world's worst case, not a property of the renderer.
+- **The Aletsch view must straddle the snowline.** A coldest-highest-cell chooser
+  landed on ground uniformly above it in 4 of 6 worlds, where a snowline
+  transition cannot be measured at all.
+
 ### LOD-D1 · Port `renderBiomeTileRGBA` as a pure engine function (Ruling K, step 1a)
 
 **Goal:** a Rust function that colours a tile of amplified height with the full
@@ -271,6 +301,19 @@ crest). `TileFields` holds ≤ 32 MiB at 2048×1311.
 - Local contrast has no reference counterpart. It is a principled-equivalence
   sub-stage and is labelled as one.
 
+**Found when built** (`render::render_biome_tile_rgba`, `render::TileFields`;
+`OUTSTANDING_WORK.md`'s LOD-D1 row):
+
+- **Checks 1 and 2 pull apart by construction.** The reference's map colour
+  (`shadeFactor2`) divides the meso shade by its sample step and its tile meso
+  block does not, so a literal port of the tile cannot also be screen-identical.
+  It was ported literally (the reference's errors are part of the contract); the
+  gap is about 1.67 mean L\* levels at LOD entry. This is owner question 1.
+- **The 40 ms budget did not price the port-only tail** (paper, stipple, local
+  contrast), which the reference's tile does not have: single-thread synthesis
+  measures about 51 ms, all-cores about 6 ms. Three ways out are named at the
+  ignored timing test's doc comment; choosing one is an owner call.
+
 ### LOD-D2 · Colour tiles on screen, and the sharpness bar (Ruling K, step 1b)
 
 **Goal:** a deeper level visibly shows more detail.
@@ -300,8 +343,8 @@ probe-verified.
 
 **Acceptance, on the D0 harness:**
 
-- Detail per screen pixel at zoom 16 and 40 is ≥ 50% of the zoom-1 value (about 8%
-  today).
+- Detail per screen pixel at zoom 16 and 40 is ≥ 50% of the zoom-1 value, on a
+  pinned view (about 8% at planning — one world's worst case; see D0's finding).
 - Hiding the LOD layer at zoom 16 moves mean |dL| by ≥ 10× the 0.0083 baseline.
 - At the LOD entry frame, mean |ΔL\*| between the layer shown and hidden is ≤ 2.0.
 - Seam ratio ≤ 1.5 at every level.
@@ -325,6 +368,12 @@ tile cache is not invalidated by a sculpt" if still open.
   directly.
 - A stored v1 pyramid could be silently misread.
 - The phone stall could get worse.
+
+**Found when built** (`OUTSTANDING_WORK.md`'s LOD-D2 row): caching `TileFields`
+alone was not enough — a `RenderCtx` costs about 200 ms to build at 2048×1311,
+so both are cached on `WorldGen` (`Cow`-backed), keyed on the world, pack and
+paint epochs plus the appearance's serde fingerprint. The LOD-entry ΔL\* bar
+traces to D1's meso-step disagreement (owner question 1), not to the bridge.
 
 ### LOD-D3 · Continuous transitions: parent fallback and a colour-space morph
 
@@ -370,6 +419,15 @@ at rest.
 - Parent eviction interacting with the backlog (the M1 dropped-tile bug class).
 - Mid-band blending softening detail — judged by eye as well as by metric.
 
+**Found when built** (`lod_bridge::morph_for_zoom`; `OUTSTANDING_WORK.md`'s
+LOD-D3 row): the morph is computed engine-side from `level_for_zoom`'s own
+expression minus the rounding, so the fade and the level switch cannot disagree
+about a boundary. **The zero-holes bar is partly structural:** the pyramid
+samples `[0, gw − 1]` while the map raster covers `[0, gw]`, so the outermost half
+coarse cell lies outside every tile. A parent tile must also be laid out by the
+*child's* texel, or its inset overhangs the children by half a texel and reads
+as a seam.
+
 ### LOD-D4 · Ice and snow from fields that already exist (Ruling K, step 2)
 
 **Goal:** the Aletsch reading from above: ice filling troughs, snow on high ground
@@ -390,8 +448,11 @@ see question 3.
 2. **Tile-resolution snow.** Tile temperature is
    `T_sampled − lapse_rate·g·(h_tile − h_coarse)·height_scale`, using
    `cartalith-climate`'s own lapse relation, so the snow fraction follows sub-cell
-   relief. The existing aspect and curvature inputs of `material_weights` drive the
-   breakup.
+   relief. *As planned*, "the existing aspect and curvature inputs of
+   `material_weights` drive the breakup" — **that premise was false** (see
+   *Snow's aspect term* below): `material_weights`' snow term is
+   `smoothstep(3, -5, t)`, temperature alone, as this document's own gap table
+   (§16 row) already said.
 3. **Ice colour.** Where glacier potential is high, snow takes `snow_glac` plus a
    slope- and flow-aligned brightness term from the tile's own height. Rock exposure
    keeps `geo_exposure(slope, r, snow)`, so steep faces above the snowline stay rock.
@@ -413,7 +474,8 @@ lapse rate and the kernel's gate cited.
 across):
 
 - Snow is not an elevation cutoff: the 10–90% transition spans ≥ 15% of local
-  relief, and within that band snow correlates with aspect at |r| ≥ 0.2.
+  relief, and within that band snow correlates with aspect at |r| ≥ 0.2. (The
+  aspect half cannot be met inside D4's own rules — see below.)
 - Cells with glacier potential ≥ 0.5 render as ice or snow in ≥ 80% of their pixels.
 - Pixels above the snowline with slope > 0.08 are rock-dominant in ≥ 60%.
 - Pops stay at zero.
@@ -435,6 +497,27 @@ Aletsch zoom target."
   0.39 km per cell, so a trough is 3–4 cells wide and tongues will read soft at deep
   zoom. This is stated, and no geometry is invented.
 - If the glacial pass is off by default, most worlds will show snow and no ice.
+
+**Snow's aspect term — owner-ruled, and outside D4.** Built as scoped, D4 gates
+its stages on `TerrainAppearance::ice_strength` (`build_glacier_potential`,
+`apply_ice_cover`, which rebalances the material weights off `geo_exposure`'s own
+slope term). The aspect bar then measured no correlation (|r| under 0.1 on three
+seeds, `OUTSTANDING_WORK.md`'s LOD-D4 row), and the cause is at the symbol: snow
+reads temperature alone, so no stage that leaves `material_weights` untouched can
+make it follow aspect. Giving snow an aspect term is a **re-baseline of the main
+map's own `material_weights`**, which D4's no-re-baseline rule excluded.
+**Ruling AP (`LARGE_ITEM_RULINGS.md`, 2026-09-23) authorises exactly that
+re-baseline**: snow gets an aspect (slope-direction) term in `material_weights`
+itself — on the main map, not only in LOD tiles — and every existing snowy
+mountain's rendered look changes. It is scheduled as its own work, not as part of
+D4; its status is `STATUS.md`'s.
+
+Two further findings from building D4, both kept in `MISTAKES.md`: a fixture
+guarded by three separately-true conditions (flow, cold, height) never had all
+three on one cell, so the glacier potential it certified was empty; and a
+metrics probe placed inside `apply_border`'s margin compared content against the
+frame. The ice-off cache key folds `glacial_snowline` in only when
+`ice_strength > 0`, since nothing else reads it.
 
 ### LOD-D5 · Scale-aware shading weights, and hydrology that resolves
 
@@ -472,14 +555,30 @@ derivative normals. A test holds the zoom-1 weights byte-identical to today.
 
 **Size:** medium.
 
+**Found when built** (`TerrainAppearance::detail_scale_strength`, which gates all
+four stages and is the identity at `0.0`; `cartalith-terrain/src/amplify.rs`,
+`add_zoom_detail`'s doc comment):
+
+- **AO needed nothing.** `ao_radius_frac` was already a ground-scale fraction, so
+  only the crest radius had to move into ground units.
+- **The symbol check came back positive, three ways, all recorded at
+  `add_zoom_detail` for an owner ruling rather than changed:** its frequency is
+  per *coarse cell*, not per kilometre (an 800 km and a 40 000 km world on one
+  grid get the same detail wavelength in cells); its octave count is keyed on the
+  pyramid level, not ground scale; and its amplitude decays 0.6× per octave while
+  ground per pixel halves per level. The third is not a defect, but it is why the
+  "non-decreasing from zoom 4 to 40" bar is **unattainable without changing that
+  schedule** — a golden re-baseline of every pyramid tile.
+
 ### LOD-D6 · Tile synthesis off the main thread, profiled per device
 
 **Goal:** research §22–24 and Tests F–G — phone viability.
 
 **Scope.**
 
-- **Worker thread.** Synthesis moves to `WorkerThreadPool`. Rust computes RGBA from a
-  snapshot of the height slice and an `Arc` of `TileFields`; the main thread uploads
+- **Worker thread.** Synthesis moves off the main thread (planned as
+  `WorkerThreadPool`, which cannot carry it — see *Found when built*). Rust computes
+  RGBA from a snapshot of the height slice and an `Arc` of `TileFields`; the main thread uploads
   the texture; a world version checked on landing drops stale tiles. No `Gd` crosses
   a thread.
 - **Quality tier.** The tier sets tile budget, maximum level and cache size — for
@@ -502,6 +601,16 @@ one.
 
 **Size:** medium. **Absorbs:** the device half of the zoom-notch row, if the harness
 ties it to LOD.
+
+**Found when built** (`cartalith-godot/src/lod_worker.rs`, its module doc *"Why a
+Rust-side pool and not `WorkerThreadPool`"*): **`WorkerThreadPool` cannot do
+this.** It takes a `Callable`, and `WorldGen` holds a `RefCell` and `Gd` handles,
+neither `Sync`. Synthesis runs on a Rust-side `rayon` pool instead, over an owned
+`Send + Sync` `LodSnapshot` behind an `Arc`, whose `render_tile()` is the only
+colouring function both the main thread and every worker call — so the
+determinism bar holds structurally. A generation counter drops tiles that land
+stale. Keeping that snapshot cheap is why `WorldState`'s four large `Vec<f32>`
+fields became `Arc<Vec<f32>>`.
 
 ### LOD-D7 (optional) · Debug and info views in tiles
 
@@ -545,6 +654,9 @@ it must not overlap a GUI verifier's tree.
    never had?**
    *Default:* both. Golden against the reference under `js_reference()`, identity
    with the port's own screen under the shipped look (D1). No re-baseline.
+   *Since found:* the two disagree by construction (D1's *Found when built* — the
+   reference's tile skips the meso-step division its own map applies), so "both"
+   is not exactly available; screen-matching is a two-line change if chosen.
 2. **Do the Rulings 28/29 stored pyramids become colour tiles** (about 3× raw), or
    does the save slot stay off until D3?
    *Default:* producer id v2, slot off by default, the new size shown at save.
