@@ -113,14 +113,10 @@ func setup(a, b: EngineBridge) -> void:
 	title = "Faction roster"
 	size = Vector2i(880, 620)
 	min_size = Vector2i(620, 420)
-	## Both panes scroll, so the window must not grow to fit their content --
-	## without this the inspector's own prose pushes the dialog past the
-	## viewport and pushes the Add/Remove row off the bottom of the screen.
-	max_size = Vector2i(1000, 700)
-	## Also turns `wrap_controls` off -- which this window shipped with on,
-	## despite its own `max_size` comment describing exactly the symptom
-	## ("pushes the Add/Remove row off the bottom of the screen"). `max_size`
-	## treated it; this is the cause.
+	## No `max_size` (2026-09-24, the vault window's `3736fe7` fix repeated). The
+	## cap treated `wrap_controls` growing the window to its content, which
+	## `phone_window()` below turns off at the cause; all the cap still did was
+	## stop a user from making the window bigger.
 	_phone = DccWidgets.phone_window(self, a)
 
 	var outer := VBoxContainer.new()

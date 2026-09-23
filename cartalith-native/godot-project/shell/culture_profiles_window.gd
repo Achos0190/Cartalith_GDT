@@ -111,7 +111,10 @@ func setup(a, b: EngineBridge) -> void:
 	wrap_controls = false
 	size = Vector2i(1040, 720)
 	min_size = Vector2i(780, 560)
-	max_size = Vector2i(1200, 900)
+	## No `max_size` (2026-09-24, the vault window's `3736fe7` fix repeated). The
+	## cap treated `wrap_controls` growing the window to its content, which
+	## `phone_window()` below turns off at the cause; all the cap still did was
+	## stop a user from making the window bigger.
 	_phone = DccWidgets.phone_window(self, a)
 	_build()
 	if _phone:

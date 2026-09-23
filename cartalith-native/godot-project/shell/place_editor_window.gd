@@ -223,9 +223,10 @@ func setup(a, b: EngineBridge) -> void:
 	title = "Place"
 	size = Vector2i(400, 640)
 	min_size = Vector2i(340, 420)
-	## The body scrolls; the window must not grow to fit it (same reason
-	## `faction_roster_window.gd` caps its own).
-	max_size = Vector2i(560, 760)
+	## No `max_size` (2026-09-24, the vault window's `3736fe7` fix repeated). The
+	## cap treated `wrap_controls` growing the window to its content, which
+	## `phone_window()` below turns off at the cause; all the cap still did was
+	## stop a user from making the window bigger.
 	## Also turns `wrap_controls` off -- which this window shipped with on,
 	## the third instance of that bug class in this shell.
 	_phone = DccWidgets.phone_window(self, a)
