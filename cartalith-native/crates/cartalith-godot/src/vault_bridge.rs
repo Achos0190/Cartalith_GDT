@@ -469,6 +469,57 @@ impl WorldGen {
         d
     }
 
+    /// Writes one authored event into the note `rel` as a Chronos line
+    /// (SP-3, Ruling AM) via `cartalith_vault::VaultSession::add_chronos_event`
+    /// — appended to its ` ```chronos ` block, which is created if absent.
+    ///
+    /// `event` takes `vault_entity_chronos`'s own event keys, so a row read
+    /// out can be written back in: `start` (int) and `name` required;
+    /// `end` (int), `color`, `group`, `description` optional and **absent
+    /// when not given** — an empty string is refused by the serializer, not
+    /// read as "none". `kind` defaults to `"event"`, the only kind SP-3
+    /// authors. `expect_hash` is `vault_read_file_for_edit(rel).hash`.
+    ///
+    /// `{ok, error, hash, conflict}`: `conflict` is true exactly when the note
+    /// changed since that read (`Error::SourceChanged`) and nothing was
+    /// written, so the UI can say so instead of a generic failure.
+    #[func]
+    fn vault_add_chronos_event(&mut self, rel: GString, expect_hash: GString, event: VarDictionary) -> VarDictionary {
+        use cartalith_vault::chronos::{Event, Kind};
+        let text = |k: &str| event.get(k).map(|v| v.to_string());
+        let int = |k: &str| event.get(k).map(|v| v.try_to::<i64>().map_err(|_| format!("{k} must be a whole number")));
+        let Some(start) = int("start") else { return err("an event needs a start year") };
+        let start = match start { Ok(v) => v, Err(e) => return err(e) };
+        let end = match int("end").transpose() { Ok(v) => v, Err(e) => return err(e) };
+        let kind = match text("kind").as_deref() {
+            None | Some("event") => Kind::Event,
+            Some(other) => return err(format!("only plain events are authored here, not {other:?}")),
+        };
+        let e = Event {
+            kind,
+            start,
+            end,
+            color: text("color"),
+            group: text("group"),
+            name: text("name").unwrap_or_default(),
+            description: text("description"),
+        };
+        match self.vault.add_chronos_event(&rel.to_string(), &e, &expect_hash.to_string()) {
+            Ok(hash) => {
+                let mut d = ok();
+                d.set("hash", hash);
+                d.set("conflict", false);
+                d
+            }
+            Err(e) => {
+                let conflict = matches!(e, cartalith_vault::Error::SourceChanged { .. });
+                let mut d = err(e);
+                d.set("conflict", conflict);
+                d
+            }
+        }
+    }
+
     /// One link's copied information, as two maps: `{ok, error, frontmatter,
     /// fields}`. The per-link view of `vault_entity_data`, for the reader
     /// panel that is already showing one note.

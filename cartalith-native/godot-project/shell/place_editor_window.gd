@@ -199,6 +199,22 @@ var _sim_step_years := 10
 ## session. Holds either a `needs_confirm` gate (the canvas's own "nothing is
 ## written until you confirm" banner) or a completed run's report.
 var _sim_last_result := {}
+## The "Add authored event" form (`_build_authored_events`). Instance state for
+## the same reason as `_tl_target_year`: a refused add (a conflict, a missing
+## name) rebuilds the tab, and the author's typing must survive it. Text, not
+## ints, for the optional fields -- an empty string IS "absent", which a
+## SpinBox cannot say without inventing a plausible year. `_ae_hash` is the
+## note's hash from the same rebuild that drew the event list, so a write is
+## refused if the note changed after the author last saw it.
+var _ae_start := 0
+var _ae_end := ""
+var _ae_name := ""
+var _ae_desc := ""
+var _ae_color := ""
+var _ae_group := ""
+var _ae_hash := ""
+var _ae_msg := ""
+var _ae_conflict := false
 
 
 func setup(a, b: EngineBridge) -> void:
@@ -277,6 +293,15 @@ func open_for(index: int) -> void:
 	## text onto the new one.
 	_commit_focused_field()
 	_index = index
+	## A half-typed event, and the last add's outcome, belong to the place they
+	## were typed against -- not to the next one opened.
+	_ae_end = ""
+	_ae_name = ""
+	_ae_desc = ""
+	_ae_color = ""
+	_ae_group = ""
+	_ae_msg = ""
+	_ae_conflict = false
 	## Every place opens on Overview -- the tab the name field (and §4.5.3's
 	## own "focused on the name field" request, just below) lives on. Without
 	## this an editor left on, say, Vault notes from the previous place would
@@ -755,8 +780,10 @@ func _build_political(parent: Control, s: Dictionary) -> void:
 ## track": dated entries the author wrote in this settlement's own vault note,
 ## as a ```chronos block in the Chronos Timeline Obsidian plugin's exact
 ## syntax (Ruling AM), read through `bridge.vault_entity_chronos` and listed by
-## start year. Read-only: the note is authored in the vault (Obsidian, or the
-## Vault window's own editor), never here.
+## start year. The list is read-only; `_build_add_event_form` below it writes a
+## NEW event into the note as one Chronos line (`cartalith_vault::chronos::
+## to_line`), so the author never types the syntax. Existing lines are edited
+## in the vault (Obsidian, or the Vault window's own editor), not here.
 ##
 ## A separate function, not a section inside `_build_political`, so it merges
 ## cleanly beside the population/tier trajectory that SP-3's other piece adds
@@ -780,7 +807,7 @@ func _build_authored_events(parent: Control, s: Dictionary) -> void:
 	if events.is_empty():
 		DccWidgets.note(sec, "No events: the linked note%s ha%s no ```chronos block with a readable "
 			% ["" if notes.size() == 1 else "s", "s" if notes.size() == 1 else "ve"]
-			+ "line. Add one, e.g. \"- [-250] Siege | the walls held\".")
+			+ "line. Add one below.")
 	for e in events:
 		var ed: Dictionary = e
 		var row := HBoxContainer.new()
@@ -826,6 +853,99 @@ func _build_authored_events(parent: Control, s: Dictionary) -> void:
 			for l in (n as Dictionary).get("skipped", PackedStringArray()):
 				lines.append(String(l))
 		warn.tooltip_text = "\n".join(lines)
+	_build_add_event_form(sec, notes)
+
+
+## "Add event": input fields that compose one Chronos line and append it to the
+## settlement's note (`vault_add_chronos_event`). The note is the first LIVE
+## linked note -- a saved copy cannot be written, and writing to one of several
+## notes needs a choice, so the target is named on screen rather than implied.
+## The write is guarded by `_ae_hash`, read in this same rebuild: if the note
+## changed after the list above was drawn, nothing is written, the author is
+## told, and the rebuild shows the note as it now is.
+func _build_add_event_form(sec: Control, notes: Array) -> void:
+	var rel := ""
+	for n in notes:
+		if bool((n as Dictionary).get("live", false)):
+			rel = String((n as Dictionary).get("rel", ""))
+			break
+	var g := DccWidgets.group(sec, "Add event", true)
+	if rel == "":
+		DccWidgets.note(g, "Connect the vault to add events -- the linked note is only readable "
+			+ "from its saved copy.")
+		return
+	var read := bridge.vault_read_file_for_edit(rel)
+	if not bool(read.get("ok", false)):
+		DccWidgets.note(g, "Cannot add events: %s" % String(read.get("error", "")))
+		return
+	_ae_hash = String(read.get("hash", ""))
+	DccWidgets.number(g, "Year", -100000.0, 100000.0, 1.0, float(_ae_start),
+		func(v: float): _ae_start = int(v),
+		"Negative years are valid Chronos (e.g. -250).")
+	_ae_field(g, "End year", _ae_end, "blank = a single year", func(t: String): _ae_end = t)
+	_ae_field(g, "Name", _ae_name, "required", func(t: String): _ae_name = t)
+	_ae_field(g, "Description", _ae_desc, "optional", func(t: String): _ae_desc = t)
+	_ae_field(g, "Colour", _ae_color, "optional: red, blue, ff8800", func(t: String): _ae_color = t)
+	_ae_field(g, "Group", _ae_group, "optional", func(t: String): _ae_group = t)
+	if _ae_msg != "":
+		var m := DccWidgets.note(g, _ae_msg)
+		if _ae_conflict or _ae_msg.begins_with("Not added"):
+			m.add_theme_color_override("font_color", DccTheme.c("accent"))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	g.add_child(row)
+	DccWidgets.action(row, "Add event", func(): _submit_event(rel), true)
+	DccWidgets.note(g, "Appended to %s's ```chronos block (one is created if the note has none), "
+		% rel + "in the Chronos Timeline plugin's own syntax, so the note still draws in Obsidian.")
+
+
+func _ae_field(parent: Control, label_text: String, value: String, placeholder: String,
+		on_change: Callable) -> LineEdit:
+	var row := DccWidgets._row(parent, label_text, "")
+	var le := LineEdit.new()
+	le.text = value
+	le.placeholder_text = placeholder
+	le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DccWidgets.well(le)
+	le.text_changed.connect(on_change)
+	row.add_child(le)
+	return le
+
+
+func _submit_event(rel: String) -> void:
+	var ev := {"start": _ae_start, "name": _ae_name.strip_edges()}
+	var end_t := _ae_end.strip_edges()
+	if end_t != "":
+		if not end_t.is_valid_int():
+			_ae_conflict = false
+			_ae_msg = "Not added: the end year must be a whole number, or blank for a single year."
+			_rebuild()
+			return
+		ev["end"] = int(end_t)
+	var desc := _ae_desc.strip_edges()
+	if desc != "":
+		ev["description"] = desc
+	## Chronos writes the colour as `#red`; the `#` is the syntax, not the value.
+	var col := _ae_color.strip_edges().trim_prefix("#")
+	if col != "":
+		ev["color"] = col
+	var grp := _ae_group.strip_edges()
+	if grp != "":
+		ev["group"] = grp
+	var r := bridge.vault_add_chronos_event(rel, _ae_hash, ev)
+	_ae_conflict = bool(r.get("conflict", false))
+	if bool(r.get("ok", false)):
+		_ae_msg = "Added \"%s\" to %s." % [ev["name"], rel.get_file()]
+		_ae_name = ""
+		_ae_desc = ""
+		_ae_end = ""
+	elif _ae_conflict:
+		_ae_msg = ("Not added: %s changed outside Cartalith after this list was drawn, so nothing "
+			+ "was written. The list above now shows the note as it is -- check it, then press "
+			+ "Add event again.") % rel.get_file()
+	else:
+		_ae_msg = "Not added: %s" % String(r.get("error", ""))
+	_rebuild()
 
 
 # -- Layout (`lazy-riding-piglet.md` Batch E, 2026-09-21) --------------------

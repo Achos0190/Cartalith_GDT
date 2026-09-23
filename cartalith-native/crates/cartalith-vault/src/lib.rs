@@ -76,6 +76,9 @@ pub enum Error {
     /// exists (`GUI_GAP_REGISTER.md` VA-02). Creating a file is safe
     /// precisely because it cannot destroy one.
     AlreadyExists(String),
+    /// An authored event that cannot be written as a Chronos line that reads
+    /// back identically ([`chronos::to_line`]'s reason).
+    InvalidEvent(String),
 }
 
 impl std::fmt::Display for Error {
@@ -92,6 +95,7 @@ impl std::fmt::Display for Error {
             ),
             Error::NothingToWrite => write!(f, "nothing has been imported for this link yet"),
             Error::AlreadyExists(p) => write!(f, "\"{p}\" already exists -- attach to it instead of creating it"),
+            Error::InvalidEvent(why) => write!(f, "{why}"),
         }
     }
 }
@@ -647,6 +651,50 @@ impl VaultSession {
         out
     }
 
+    /// Writes one authored event into the note `rel` (SP-3, Ruling AM): the
+    /// line [`chronos::to_line`] composes, placed by [`chronos::append_line`]
+    /// — into the note's last ` ```chronos ` block, or a new one at the end.
+    ///
+    /// **The free-text body, never the machine block**: this is a whole-file
+    /// write with the same guard as [`Self::write_file`], not
+    /// [`Self::write_block`], whose block is replaced wholesale on the next
+    /// Cartalith write (`STORY_PLANNING_SCOPE.md` §3). `expect_hash` is the
+    /// hash [`Self::read_for_edit`] returned when the author was shown the
+    /// events; a note that changed since refuses with
+    /// [`Error::SourceChanged`] and writes nothing. Live disk only: with no
+    /// vault there is nothing to write to, and a saved copy is not the note.
+    ///
+    /// A link to `rel` that was in step with the note just before the write
+    /// (its hash was `expect_hash`, no local edit) is re-synced to the note
+    /// after it, as [`Self::write_section`] re-syncs its own link — otherwise
+    /// the author's own add would show as someone else's change (Stale). A
+    /// link that was already stale, or holds a local edit, is left alone so
+    /// its status stays true. Returns the new hash, for the next write.
+    pub fn add_chronos_event(&mut self, rel: &str, event: &chronos::Event, expect_hash: &str) -> Result<String, Error> {
+        let line = chronos::to_line(event).map_err(Error::InvalidEvent)?;
+        let v = self.bound()?;
+        let text = v.read(rel)?;
+        let actual = provider::content_hash(&text);
+        if actual != expect_hash {
+            return Err(Error::SourceChanged { expected: expect_hash.to_string(), actual });
+        }
+        let next = chronos::append_line(&text, &line)?;
+        v.write(rel, &next)?;
+        let in_step: Vec<String> = self
+            .store
+            .links
+            .iter()
+            .filter(|l| l.relative_path == rel && l.edited_text.is_none() && l.source_hash == actual)
+            .map(|l| l.link_id.clone())
+            .collect();
+        for id in in_step {
+            // The write has landed; a failed re-sync leaves the link Stale,
+            // which is true, rather than reporting the write as failed.
+            let _ = self.reload(&id);
+        }
+        Ok(provider::content_hash(&next))
+    }
+
     /// The templates in the bound vault (`GUI_GAP_REGISTER.md` **VA-02**),
     /// filtered out of the same bounded listing the file picker uses -- no
     /// second walk, and still no file opened.
@@ -995,6 +1043,57 @@ oops
         assert!(off.iter().all(|(_, live, _)| !live));
         assert_eq!(off[0].2.events[0].name, "Siege", "the copy is as attached");
         assert!(off[1].2.events.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// SP-3's write path, end to end against a real folder: a note with no
+    /// block gets one, a second add lands in that block, the unmodified
+    /// reader gives both back, the attached link stays Connected, and an
+    /// edit made in between refuses the add without writing a byte -- the
+    /// same shape as `a_browsed_files_edit_round_trips_and_refuses_a_concurrent_change`.
+    #[test]
+    fn an_authored_event_is_written_as_chronos_and_a_concurrent_edit_refuses_it() {
+        let root = scratch("chronos-write");
+        let path = root.join("Locations/Nareth.md");
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let link = s.attach(EntityKind::Settlement, 42, "Nareth", "Locations/Nareth.md",
+            Selection::Heading { value: "History".into() }).unwrap();
+        let e = |start, name: &str| chronos::Event {
+            kind: chronos::Kind::Event, start, end: None, color: None, group: None,
+            name: name.into(), description: None,
+        };
+
+        let (_, h0) = s.read_for_edit("Locations/Nareth.md").unwrap();
+        let siege = chronos::Event { end: Some(-200), description: Some("the walls held".into()), ..e(-250, "Siege") };
+        let h1 = s.add_chronos_event("Locations/Nareth.md", &siege, &h0).unwrap();
+        let after1 = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(after1, format!("{HAND}\n```chronos\n- [-250~-200] Siege | the walls held\n```\n"));
+        assert_eq!(s.status(&link), LinkStatus::Connected, "our own add is not someone else's change");
+
+        let h2 = s.add_chronos_event("Locations/Nareth.md", &e(1100, "Regency"), &h1).unwrap();
+        let after2 = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(after2.matches("```chronos").count(), 1, "appended into the block, not a second one");
+        let got = s.entity_chronos(EntityKind::Settlement, 42);
+        assert_eq!(got[0].2.events, vec![siege, e(1100, "Regency")]);
+        assert!(got[0].2.skipped.is_empty());
+
+        // The author edits the note elsewhere between the read and the add.
+        let theirs = after2.replace("salt up.", "salt up, and wool.");
+        std::fs::write(&path, &theirs).unwrap();
+        assert!(matches!(
+            s.add_chronos_event("Locations/Nareth.md", &e(1300, "Ghost"), &h2),
+            Err(Error::SourceChanged { .. })
+        ));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), theirs, "not one byte written");
+
+        // A value that cannot read back is refused before any read or write.
+        let (_, h3) = s.read_for_edit("Locations/Nareth.md").unwrap();
+        assert!(matches!(s.add_chronos_event("Locations/Nareth.md", &e(1, "a | b"), &h3), Err(Error::InvalidEvent(_))));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), theirs);
+
+        s.disconnect();
+        assert!(matches!(s.add_chronos_event("Locations/Nareth.md", &e(1, "x"), &h3), Err(Error::NotBound)));
         let _ = std::fs::remove_dir_all(&root);
     }
 

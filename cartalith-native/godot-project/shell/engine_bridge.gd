@@ -4666,6 +4666,18 @@ func vault_entity_chronos(kind: String, entity_id: int) -> Dictionary:
 		return {"ok": false, "error": "vault_entity_chronos not available on this binary"}
 	return world_gen.vault_entity_chronos(kind, entity_id)
 
+## Writes one authored event into the note `rel` as a Chronos line (Ruling AM),
+## appended to its ```chronos block (created if absent). `event` uses
+## `vault_entity_chronos`'s own event keys -- `start`, `name`, and optional
+## `end`/`color`/`group`/`description`, absent when not given. `expect_hash`
+## is `vault_read_file_for_edit(rel).hash`. `{ok, error, hash, conflict}`:
+## `conflict` is true when the note changed since that read, and nothing was
+## written.
+func vault_add_chronos_event(rel: String, expect_hash: String, event: Dictionary) -> Dictionary:
+	if not _has("vault_add_chronos_event"):
+		return {"ok": false, "error": "vault_add_chronos_event not available on this binary"}
+	return world_gen.vault_add_chronos_event(rel, expect_hash, event)
+
 ## One link's imported data.
 func vault_link_data(link_id: String) -> Dictionary:
 	if not _has("vault_link_data"):
