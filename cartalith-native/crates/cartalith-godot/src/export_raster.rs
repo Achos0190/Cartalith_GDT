@@ -78,7 +78,7 @@ use cartalith_io::{TileManifestOpts, build_tile_manifest, manifest_json};
 use crate::export_options::{self, ExportContent, ExportOptions, ExportStyle, SettlementTier};
 use crate::export_stream::{self, StreamFormat};
 use crate::render::{self, BakeFields, ExportBandPlan, RenderCtx, RiverInk, SplatTextures, TerrainAppearance};
-use crate::{WorldGen, WorldSource, paint_bridge, sample_bridge};
+use crate::{WorldGen, WorldSource, export_session, lod_worker, paint_bridge, sample_bridge};
 
 /// `bakeRes`' own three options in its own order, plus the two
 /// `LARGE_ITEM_RULINGS.md` ruling 15 un-shelved. Anything else is refused
@@ -633,6 +633,90 @@ fn export_options_from(opts: &VarDictionary) -> Result<ExportOptions, String> {
     Ok(ExportOptions { width, format, style, content })
 }
 
+/// An export that passed every check [`WorldGen::export_image`] makes before
+/// rendering: parsed options, destination, dimensions, composed appearance
+/// and an affordable band plan.
+struct PreparedExport {
+    o: ExportOptions,
+    path: PathBuf,
+    w: usize,
+    h: usize,
+    a: TerrainAppearance,
+    plan: ExportBandPlan,
+}
+
+impl WorldGen {
+    /// The checks `export_image` and `export_session_begin` share, in
+    /// `export_image`'s order and with its messages. `overlays_allowed` is the
+    /// one difference: the terrain-only export refuses an overlay in the
+    /// content set, while the overlay session exists to draw one.
+    fn prepare_export(&self, path: &GString, opts: &VarDictionary, overlays_allowed: bool) -> Result<PreparedExport, String> {
+        let o = export_options_from(opts)?;
+        if !BAKE_WIDTHS.contains(&o.width) {
+            return Err(format!("unsupported export width {} -- offered: {BAKE_WIDTHS:?}", o.width));
+        }
+        let pending = o.content.overlays();
+        if !overlays_allowed && !pending.is_empty() {
+            return Err(format!(
+                "export_image cannot draw {} -- overlays go through the overlay session (export_session_begin, EXPORT_SCOPE.md §7 E4), whose tile renderer is not built yet",
+                pending.join(", ")
+            ));
+        }
+        let path = PathBuf::from(path.to_string());
+        if path.as_os_str().is_empty() {
+            return Err("no destination path".into());
+        }
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 || self.source.is_none() {
+            return Err("no world to export -- generate or load one first".into());
+        }
+        let (w, h) = render::bake_dims(o.width as usize, gw, gh);
+        if w == 0 || h == 0 {
+            return Err(format!("degenerate export dimensions {w}x{h}"));
+        }
+        let a = self.export_appearance(&o.style);
+        let avail = memory_available();
+        let (plan, ungated_px) = self.export_band_plan(&a, w, h, avail);
+        // Ruling 26's refusal, on the band's peak rather than the whole
+        // raster's. With no reported budget the ceiling is what an ungated
+        // export has always been allowed to hold; the band budget is derived
+        // from that same figure, so this refuses only a plan whose one-row
+        // floor overran it.
+        let peak = export_options::band_peak_px(&plan) * PEAK_BYTES_PER_PIXEL;
+        let limit = match avail {
+            Some(av) => av,
+            None => ungated_px * PEAK_BYTES_PER_PIXEL,
+        };
+        if peak > limit {
+            return Err(format!(
+                "a {} px export needs about {} of memory per band and {} is available -- pick a smaller width",
+                o.width,
+                crate::bake_bridge::human_bytes(peak),
+                crate::bake_bridge::human_bytes(limit)
+            ));
+        }
+        Ok(PreparedExport { o, path, w, h, a, plan })
+    }
+
+    /// The overlay session's terrain snapshot: `lod_snapshot_inputs`' own
+    /// assembly of this world, with the export's appearance and the export's
+    /// river ink ([`Self::river_ink`], not the screen's) in place of the
+    /// tiles'. `None` before a world exists.
+    fn export_snapshot(&self, a: TerrainAppearance, rivers: bool) -> Option<export_session::ExportSnapshot> {
+        let mut i = self.lod_snapshot_inputs("")?;
+        i.appearance = a;
+        i.ink = if rivers {
+            self.river_ink().map(|ink| match ink {
+                RiverInk::Stamped(v) => lod_worker::OwnedInk::Stamped(v.to_vec()),
+                RiverInk::Flag(v) => lod_worker::OwnedInk::Flag(v.to_vec()),
+            })
+        } else {
+            None
+        };
+        export_session::ExportSnapshot::build(i)
+    }
+}
+
 #[godot_api(secondary)]
 impl WorldGen {
     /// The widths `bakeRes` offers, for a UI that would otherwise hardcode
@@ -732,8 +816,8 @@ impl WorldGen {
     /// style override renders under a composed copy of the appearance and
     /// leaves the session's untouched (`&self`).
     ///
-    /// Refuses — before rendering — an overlay in the content set (E4 is not
-    /// built), a width off the ladder, and a band peak the device cannot hold.
+    /// Refuses — before rendering — an overlay in the content set (those go
+    /// through [`Self::export_session_begin`]), a width off the ladder, and a band peak the device cannot hold.
     /// Synchronous and long, like `export_raster_png`: call it from a thread.
     ///
     /// Returns `{ok, path, width, height, format, bytes, bands, ms}`, or
@@ -741,53 +825,10 @@ impl WorldGen {
     #[func]
     fn export_image(&self, path: GString, opts: VarDictionary) -> VarDictionary {
         let started = std::time::Instant::now();
-        let o = match export_options_from(&opts) {
-            Ok(o) => o,
+        let PreparedExport { o, path, w, h, a, plan } = match self.prepare_export(&path, &opts, false) {
+            Ok(p) => p,
             Err(e) => return fail(e),
         };
-        if !BAKE_WIDTHS.contains(&o.width) {
-            return fail(format!("unsupported export width {} -- offered: {BAKE_WIDTHS:?}", o.width));
-        }
-        let pending = o.content.overlays();
-        if !pending.is_empty() {
-            return fail(format!(
-                "this export cannot draw {} yet -- overlays need the overlay session (EXPORT_SCOPE.md §7 E4), which is not built",
-                pending.join(", ")
-            ));
-        }
-        let path = PathBuf::from(path.to_string());
-        if path.as_os_str().is_empty() {
-            return fail("no destination path");
-        }
-        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        if gw == 0 || gh == 0 || self.source.is_none() {
-            return fail("no world to export -- generate or load one first");
-        }
-        let (w, h) = render::bake_dims(o.width as usize, gw, gh);
-        if w == 0 || h == 0 {
-            return fail(format!("degenerate export dimensions {w}x{h}"));
-        }
-        let a = self.export_appearance(&o.style);
-        let avail = memory_available();
-        let (plan, ungated_px) = self.export_band_plan(&a, w, h, avail);
-        // Ruling 26's refusal, on the band's peak rather than the whole
-        // raster's. With no reported budget the ceiling is what an ungated
-        // export has always been allowed to hold; the band budget is derived
-        // from that same figure, so this refuses only a plan whose one-row
-        // floor overran it.
-        let peak = export_options::band_peak_px(&plan) * PEAK_BYTES_PER_PIXEL;
-        let limit = match avail {
-            Some(av) => av,
-            None => ungated_px * PEAK_BYTES_PER_PIXEL,
-        };
-        if peak > limit {
-            return fail(format!(
-                "a {} px export needs about {} of memory per band and {} is available -- pick a smaller width",
-                o.width,
-                crate::bake_bridge::human_bytes(peak),
-                crate::bake_bridge::human_bytes(limit)
-            ));
-        }
         let ink = if o.content.rivers { self.river_ink() } else { None };
         let Some(result) = self.export_render_with(a, |ctx| export_stream::export_banded(ctx, ink, &plan, o.format, &path)) else {
             return fail("could not assemble the render context");
@@ -805,6 +846,100 @@ impl WorldGen {
             },
             Err(e) => fail(e),
         }
+    }
+
+    /// Open an **export overlay session** (`EXPORT_SCOPE.md` §7 E4): the
+    /// same options and the same refusals as [`Self::export_image`], except
+    /// that overlays in the content set are accepted — drawing them is what
+    /// the session is for.
+    ///
+    /// Takes a snapshot of the world (an `ExportSnapshot`) and opens the file.
+    /// The caller then renders the overlay tile by tile and hands each one to
+    /// [`Self::export_session_submit_tile`], band by band in order; every band
+    /// must be covered exactly once. Edits to the world after this call do not
+    /// reach the export.
+    ///
+    /// Returns `{ok, path, width, height, format, bands, band_rows,
+    /// apron_rows}` — band `i` is output rows `i·band_rows ..
+    /// min((i+1)·band_rows, height)` — or `{ok: false, error}`, including
+    /// when a session is already open.
+    #[func]
+    fn export_session_begin(&mut self, path: GString, opts: VarDictionary) -> VarDictionary {
+        if self.export_session.is_open() {
+            return fail("an export session is already open -- finish or abort it first");
+        }
+        let p = match self.prepare_export(&path, &opts, true) {
+            Ok(p) => p,
+            Err(e) => return fail(e),
+        };
+        let Some(snap) = self.export_snapshot(p.a, p.o.content.rivers) else {
+            return fail("could not snapshot the world for export");
+        };
+        if let Err(e) = self.export_session.begin(std::sync::Arc::new(snap), p.plan, p.o.format, &p.path) {
+            return fail(e);
+        }
+        dict! {
+            "ok" => true,
+            "path" => p.path.display().to_string().as_str(),
+            "width" => p.w as i64,
+            "height" => p.h as i64,
+            "format" => export_options::format_name(p.o.format),
+            "bands" => p.plan.band_count() as i64,
+            "band_rows" => p.plan.rows_per_band as i64,
+            "apron_rows" => p.plan.apron as i64,
+        }
+    }
+
+    /// One overlay tile for the open session: `rgba` is `w·h·4` bytes of
+    /// **premultiplied** RGBA8 (a `transparent_bg` `SubViewport`'s readback),
+    /// placed at image pixel `(x, y)` inside band `band`. Composited over the
+    /// terrain as `o + t·(255 − a)/255`.
+    ///
+    /// Refused — and the session aborted, its partial file removed — for a
+    /// band out of order, a tile outside its band, a wrong byte count or an
+    /// overlap. Returns `{ok, band_complete, next_band}`.
+    #[func]
+    fn export_session_submit_tile(&mut self, band: i64, x: i64, y: i64, w: i64, h: i64, rgba: PackedByteArray) -> VarDictionary {
+        match self.export_session.submit_tile(band, x, y, w, h, rgba.as_slice()) {
+            Ok(t) => dict! { "ok" => true, "band_complete" => t.band_complete, "next_band" => t.next_band as i64 },
+            Err(e) => fail(e),
+        }
+    }
+
+    /// Close the open session's file. Refused (session aborted, file
+    /// removed) if any band is not fully covered. Returns `{ok, path, width,
+    /// height, format, bytes, bands, ms}`, as `export_image` does.
+    #[func]
+    fn export_session_finish(&mut self) -> VarDictionary {
+        match self.export_session.finish() {
+            Ok(d) => dict! {
+                "ok" => true,
+                "path" => d.path.display().to_string().as_str(),
+                "width" => d.width as i64,
+                "height" => d.height as i64,
+                "format" => export_options::format_name(d.format),
+                "bytes" => d.bytes as i64,
+                "bands" => d.bands as i64,
+                "ms" => d.ms,
+            },
+            Err(e) => fail(e),
+        }
+    }
+
+    /// Abandon the open session and remove its partial file. `{ok: true}`, or
+    /// `{ok: false, error}` when no session is open.
+    #[func]
+    fn export_session_abort(&mut self) -> VarDictionary {
+        match self.export_session.abort() {
+            Ok(()) => dict! { "ok" => true },
+            Err(e) => fail(e),
+        }
+    }
+
+    /// `"idle"`, `"open"`, `"finished"` or `"aborted"`.
+    #[func]
+    fn export_session_state(&self) -> GString {
+        GString::from(self.export_session.state_name())
     }
 
     /// `bakeSingle(W)` / `bakeTiled(W)` (reference lines 11975 / 11982) —

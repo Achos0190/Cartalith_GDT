@@ -94,6 +94,117 @@ pub fn export_banded(ctx: &RenderCtx, ink: Option<RiverInk<'_>>, plan: &ExportBa
     result
 }
 
+/// [`write_bands`] on its own thread, fed one band at a time — the E4 overlay
+/// session's writer (`EXPORT_SCOPE.md` §7), where bands arrive from calls
+/// across the gdext boundary rather than from a lazy iterator.
+///
+/// The encoder is the unchanged [`write_bands`]: a `Receiver<Vec<u8>>` is an
+/// `IntoIterator<Item = Vec<u8>>` that ends when the sender is dropped, so the
+/// file it writes is byte-identical to [`export_banded`]'s for the same bands.
+/// The channel is `sync_channel(1)`: at most one band waits while one is being
+/// encoded, so a fast producer blocks instead of queueing the image in memory.
+///
+/// **A file is either finished or removed.** [`Self::finish`] returns the
+/// bytes written; a writer error, [`Self::abort`] and a drop without `finish`
+/// all join the writer and delete the partial file — the same rule
+/// [`export_banded`] applies inline, duplicated here because this writer
+/// outlives any one call.
+pub struct BandSink {
+    tx: Option<std::sync::mpsc::SyncSender<Vec<u8>>>,
+    writer: Option<std::thread::JoinHandle<Result<u64, String>>>,
+    path: std::path::PathBuf,
+}
+
+impl BandSink {
+    /// Create `path` (and its parent directory) and start the writer for a
+    /// `w × h` image in `format`.
+    pub fn open(path: &Path, format: StreamFormat, w: usize, h: usize) -> Result<BandSink, String> {
+        if let Some(dir) = path.parent()
+            && !dir.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+        }
+        let file = File::create(path).map_err(|e| format!("could not create {}: {e}", path.display()))?;
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(1);
+        let shown = path.display().to_string();
+        let spawned = std::thread::Builder::new().name("cartalith-export-writer".into()).spawn(move || {
+            let mut out = BufWriter::with_capacity(PNG_CHUNK_BYTES, file);
+            write_bands(&mut out, format, w, h, rx)
+                .and_then(|()| out.flush().map_err(|e| format!("could not write {shown}: {e}")))
+                .and_then(|()| out.get_ref().metadata().map(|m| m.len()).map_err(|e| format!("could not stat {shown}: {e}")))
+        });
+        match spawned {
+            Ok(writer) => Ok(BandSink { tx: Some(tx), writer: Some(writer), path: path.to_path_buf() }),
+            Err(e) => {
+                let _ = std::fs::remove_file(path);
+                Err(format!("could not start the export writer: {e}"))
+            }
+        }
+    }
+
+    /// Hand the writer the next band (whole rows, top to bottom). Blocks while
+    /// the previous band is still waiting. If the writer has already failed,
+    /// its error is returned and the file removed; the sink is then spent.
+    pub fn push(&mut self, band: Vec<u8>) -> Result<(), String> {
+        let Some(tx) = self.tx.as_ref() else {
+            return Err("the export writer is already closed".into());
+        };
+        if tx.send(band).is_ok() {
+            return Ok(());
+        }
+        // The receiver is gone, so the writer returned: collect why.
+        match self.close() {
+            Err(e) => Err(e),
+            Ok(_) => Err("the export writer finished before every band arrived".into()),
+        }
+    }
+
+    /// Close the band stream and wait for the file. `Err` (file removed) when
+    /// the bands did not cover the image exactly, or on any I/O error.
+    pub fn finish(mut self) -> Result<u64, String> {
+        self.close()
+    }
+
+    /// Stop now and remove the partial file.
+    pub fn abort(mut self) {
+        self.discard();
+    }
+
+    /// Drop the sender, join the writer, and remove the file unless it
+    /// finished cleanly.
+    fn close(&mut self) -> Result<u64, String> {
+        self.tx = None;
+        let result = match self.writer.take() {
+            None => Err("the export writer is already closed".into()),
+            Some(h) => h.join().unwrap_or_else(|_| Err("the export writer panicked".into())),
+        };
+        if result.is_err() {
+            let _ = std::fs::remove_file(&self.path);
+        }
+        result
+    }
+
+    /// Close and remove the file whatever the writer reports. The join comes
+    /// first: Windows will not delete a file another thread holds open.
+    fn discard(&mut self) {
+        if self.tx.is_none() && self.writer.is_none() {
+            return;
+        }
+        self.tx = None;
+        if let Some(h) = self.writer.take() {
+            let _ = h.join();
+        }
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+impl Drop for BandSink {
+    /// A sink dropped without [`BandSink::finish`] is an abandoned export.
+    fn drop(&mut self) {
+        self.discard();
+    }
+}
+
 /// Encode a `w × h` RGB8 image arriving as consecutive full-width row bands
 /// (each `rows · w · 3` bytes, top to bottom) into `out`.
 ///

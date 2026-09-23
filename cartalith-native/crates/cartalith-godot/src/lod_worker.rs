@@ -184,7 +184,7 @@ pub enum OwnedInk {
 }
 
 impl OwnedInk {
-    fn as_ink(&self) -> RiverInk<'_> {
+    pub(crate) fn as_ink(&self) -> RiverInk<'_> {
         match self {
             OwnedInk::Stamped(v) => RiverInk::Stamped(v),
             OwnedInk::Flag(v) => RiverInk::Flag(v),
@@ -205,7 +205,7 @@ pub struct OwnedSplat {
 }
 
 impl OwnedSplat {
-    fn as_textures(&self) -> SplatTextures<'_> {
+    pub(crate) fn as_textures(&self) -> SplatTextures<'_> {
         SplatTextures {
             grass: self.grass.as_ref(),
             rock: self.rock.as_ref(),

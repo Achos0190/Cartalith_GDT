@@ -457,9 +457,7 @@ const HOVER_RADIUS_PAD := 4.0 ## extra hit-test slack (px) beyond the drawn mark
 ## thinned by `civ_rdp_simplify` (as a road's are), keeping every cell another
 ## stroke ends on, so the curve leaves the D8 staircase and confluences still
 ## meet exactly (`river_render_polyline`). `_draw_rivers()` below draws that
-## resampled curve, falling back to the raw `points` for an older
-## GDExtension binary that predates the key -- the identical idiom `_draw()`
-## already uses for a committed route's `render_points`. The lake-surface cut
+## resampled curve. The lake-surface cut
 ## (the reference's `_inLake` skip, reference lines 9524-9532) is still not
 ## reproduced: `cartalith_hydrology::river_entities()` runs
 ## `split_river_polylines` with `skip: None` -- "a lake reach is real
@@ -470,19 +468,23 @@ const HOVER_RADIUS_PAD := 4.0 ## extra hit-test slack (px) beyond the drawn mark
 ##
 ## **Owner ruling, 2026-09-22: these strokes ARE the map's rivers.** "Keep the
 ## smoothline and use that to render the river ... ditch the texture bake",
-## and "the line should get the same look as a lake. And its width scale with
-## the zoom". So the reference's `drawRiverWays` styling (its order colour
-## ramp, screen-constant width and order-1 de-emphasis) is gone, and each
-## run is drawn from two engine values instead:
+## and "its width scale with the zoom". So the reference's `drawRiverWays`
+## screen-constant width and order-1 de-emphasis are gone, and each run is
+## drawn from two engine values instead:
 ## - **width** = `width_cells`, the half-width `channel_disc` already gave the
 ##   texture's old disc stamp (Strahler order, discharge and slope), doubled
 ##   -- a width on the GROUND, so it grows with zoom as a lake's shore does.
-## - **colour** = `colors`, the lake surface colour (`render.rs::lake_color`,
-##   the tile renderer's v1.05 lake) at every render point, opaque as a lake
-##   is -- so it follows temperature and grain along the river (owner, same
-##   day: "the coloration should follow lakes").
+## - **colour** = `colors`, opaque, one per render point from `lib.rs`'s
+##   `RIVER_ORDER_RGB`: light blue headwaters to dark blue trunks, keyed on the
+##   Strahler order of each point's own cell, so a main stem darkens where its
+##   order rises (owner, 2026-09-23 -- replacing the same-day-before lake-surface
+##   tint, "the line should get the same look as a lake"). An order ramp is
+##   also what `drawRiverWays` coloured by, though not with these values.
 ## Placement is the engine's own traced channel, simplified by at most
-## `RIVER_RDP_EPS_CELLS` (0.75 cells) for the curve.
+## `RIVER_RDP_EPS_CELLS` (0.5 cells since 2026-09-23, was 0.75 -- 0.3 was
+## tried first and rejected by measurement: on this port's D8 lattice it made
+## rivers MORE wiggly, not smoother; `lib.rs`'s doc on the constant has the
+## lattice arithmetic) for the curve.
 
 ## Sea-lane style: the `sea-lane` arm of the same §2a ladder `WAY_STYLE` above
 ## covers the land types of (reference HTML lines 15511-15514) -- a dark navy
@@ -942,7 +944,7 @@ var _roads: Array = []
 var _sea_routes: Array = []
 ## `WorldGen.get_rivers(min_order)` entities -- see `set_rivers()`. Each
 ## entry's `render_points` (`PackedVector2Array`, grid-cell space, Catmull-Rom
-## resampled) is drawn by `_draw_rivers()` at its `width_cells` in its `color`.
+## resampled) is drawn by `_draw_rivers()` at its `width_cells` in its `colors`.
 var _rivers: Array = []
 var _gw := 0
 var _gh := 0
@@ -3352,33 +3354,24 @@ func _draw_rivers(rect: Rect2) -> void:
 	for river: Dictionary in _rivers:
 		## No `width_cells` means `channel_disc` found no flow at the run's
 		## last own cell (`get_rivers()`' doc) --
-		## the old disc stamp painted nothing there either. No `color` means an
-		## engine binary older than the 2026-09-22 ruling.
+		## the old disc stamp painted nothing there either.
 		## `parallel_of`: this run hugs a heavier one that is drawn instead
 		## (`WorldGen.get_rivers()`' doc, `river_draw_plan`).
-		if not river.has("width_cells") or not river.has("color") or river.has("parallel_of"):
+		if not river.has("width_cells") or river.has("parallel_of"):
 			continue
-		var pts: PackedVector2Array = river.get("render_points", river.get("points", PackedVector2Array()))
-		if pts.size() < 2:
+		var pts: PackedVector2Array = river["render_points"]
+		## `colors`: one Strahler-order colour per render point (`get_rivers()`'
+		## doc), so the stroke steps from headwater to trunk along its length.
+		var colors: PackedColorArray = river["colors"]
+		if pts.size() < 2 or colors.size() != pts.size():
 			continue
 		var width_px: float = float(river["width_cells"]) * px_per_cell
 		var screen_points := _stroke_points(pts, 0, pts.size(), rect, k)
 		var pad := width_px * 0.5
 		if _run_offscreen(screen_points, k, pad):
 			continue
-		## `colors`: the lake colour at every render point, so the stroke's
-		## colour follows the ground along its length (`get_rivers()`' doc). A
-		## binary without it, or a length mismatch, falls back to the one swatch.
-		var colors: PackedColorArray = river.get("colors", PackedColorArray())
-		var flat := colors.size() != pts.size()
-		var color: Color = river["color"]
-		var chains := _segment_chains(screen_points, k, pad)
-		for chain in chains:
-			var seg := screen_points.slice(chain.x, chain.y + 1)
-			if flat:
-				draw_polyline(seg, color, width_px, true)
-			else:
-				draw_polyline_colors(seg, colors.slice(chain.x, chain.y + 1), width_px, true)
+		for chain in _segment_chains(screen_points, k, pad):
+			draw_polyline_colors(screen_points.slice(chain.x, chain.y + 1), colors.slice(chain.x, chain.y + 1), width_px, true)
 	_crisp_end()
 
 

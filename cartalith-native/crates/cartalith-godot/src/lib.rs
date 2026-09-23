@@ -26,6 +26,7 @@ mod civ_trade_bridge;
 mod erode_bridge;
 mod export_options;
 mod export_raster;
+mod export_session;
 mod export_stream;
 mod geojson_apply;
 mod geojson_bridge;
@@ -2661,8 +2662,35 @@ fn way_render_polyline(pts: &[(f64, f64)], brks: &[usize]) -> (Vec<(f64, f64)>, 
 /// through every cell it stays a 0/45/90-degree zigzag at deep zoom (the
 /// owner's 2026-09-22 "a bit more catmull rom smoothing"). Roads get the same
 /// cure from `civ_smooth_path`'s `civ_rdp_simplify(.., 1.5)`; a river keeps
-/// closer to its channel than a road to its route, so it takes less.
-const RIVER_RDP_EPS_CELLS: f64 = 0.75;
+/// closer to its channel than a road to its route, so it takes less. Was
+/// `0.75` until the owner's 2026-09-23 ruling that rivers should hew closer
+/// to the traced channel and cut fewer corners on tight bends.
+///
+/// **`0.3` was tried first and rejected, by measurement, not preference.**
+/// Cell centres are lattice points, so a cell's offset from a chord is an
+/// integer over the chord's length: over every non-straight E/NE staircase up
+/// to 16 steps the smallest possible worst offset is `1/sqrt(13)` = 0.277 (the
+/// NE,E,NE family), the next 0.312, and the next, the 1:2 staircase, is
+/// `1/sqrt(5)` = 0.447. At `0.3` almost nothing above the first family
+/// flattens — measured turning angle went UP, 7.00°/cell (at 0.75) to
+/// 14.63°/cell — a river reads as MORE wiggly, not smoother, on this port's
+/// lattice, which the owner's own demo's grid/scale never surfaced. `0.5`
+/// sits safely above every family up to and including the 1:2 staircase, so
+/// it keeps real simplification while landing closer to the channel than
+/// `0.75` — the middle ground the owner asked for once shown the tradeoff.
+const RIVER_RDP_EPS_CELLS: f64 = 0.5;
+
+/// A river stroke's colour by Strahler order, headwater (order 1) first:
+/// light to dark blue, one step per order, the last entry for every order
+/// above it (owner, 2026-09-23 — replacing the lake-matched tint). Order `N`
+/// is `RIVER_ORDER_RGB[N - 1]`.
+const RIVER_ORDER_RGB: [(u8, u8, u8); 8] =
+    [(156, 208, 228), (112, 182, 219), (74, 152, 204), (48, 121, 184), (36, 94, 160), (30, 70, 132), (26, 50, 104), (22, 36, 80)];
+
+fn river_order_color(order: i16) -> Color {
+    let (r, g, b) = RIVER_ORDER_RGB[(order.max(1) as usize - 1).min(RIVER_ORDER_RGB.len() - 1)];
+    Color::from_rgba8(r, g, b, 255)
+}
 
 /// A river run's drawn curve: [`way_render_polyline`] over the run after
 /// `civ_rdp_simplify` drops the staircase's corners.
@@ -2797,11 +2825,14 @@ mod way_render_tests {
     #[test]
     fn river_curve_leaves_the_staircase_but_keeps_its_pins() {
         use super::river_render_polyline;
-        // A 1:2 staircase, 21 cells: E, NE, E, NE, ...
+        // A 2:3 staircase, 22 cells: NE, E, NE, NE, E, NE, ... Every corner
+        // cell sits 1/sqrt(13) = 0.277 cells off the chord -- the closest a
+        // non-straight D8 staircase gets (`RIVER_RDP_EPS_CELLS`' doc), so the
+        // one shape `0.3` still flattens. A 1:2 staircase (0.447) no longer is.
         let mut pts = vec![(0.5, 0.5)];
-        for k in 0..20 {
+        for k in 0..21 {
             let (x, y) = pts[k];
-            pts.push(if k % 2 == 0 { (x + 1.0, y) } else { (x + 1.0, y + 1.0) });
+            pts.push(if k % 3 == 1 { (x + 1.0, y) } else { (x + 1.0, y + 1.0) });
         }
         let near = |out: &[(f64, f64)], p: (f64, f64)| {
             out.iter().map(|q| (q.0 - p.0).hypot(q.1 - p.1)).fold(f64::INFINITY, f64::min)
@@ -3759,6 +3790,11 @@ struct WorldGen {
     /// this batch named per-faction scope as a real architectural fork for
     /// the owner to rule on separately, once this ships and is judged.
     urban_rules: Option<cartalith_civ::urban_adapter::Rules>,
+    /// The E4 export overlay session (`EXPORT_SCOPE.md` §7), driven by the
+    /// four `export_session_*` `#[func]`s in `export_raster.rs`. It renders
+    /// from its own `ExportSnapshot`, so editing the world while it is open
+    /// cannot change the export.
+    export_session: export_session::ExportSessionCore,
 }
 
 /// The one piece of LOD-D2's tile-context cache that **cannot** move to a
@@ -3875,6 +3911,7 @@ impl IRefCounted for WorldGen {
             // is no seed to derive one from.
             world_name: None,
             urban_rules: None,
+            export_session: export_session::ExportSessionCore::default(),
         }
     }
 }
@@ -8122,12 +8159,12 @@ impl WorldGen {
     ///   **Omitted** (not zeroed) when the mouth carries no positive flow.
     ///   `map_overlay.gd::_draw_rivers` draws the river at exactly this width
     ///   on the ground, so it scales with zoom like any other ground feature.
-    /// * `colors` (`PackedColorArray`) -- the lake surface colour
-    ///   (`render::lake_color_at`) at each of `render_points`, same length;
-    ///   `_draw_rivers` strokes the river in these, so its colour follows
-    ///   temperature and the sea grain along its length as a lake's does.
-    /// * `color` (Color) -- the same colour at the run's middle traced point,
-    ///   one swatch per run. Both only here, not in `river_at()`, whose callers
+    /// * `colors` (`PackedColorArray`) -- one per `render_points`, the
+    ///   Strahler order of the nearest traced cell as `RIVER_ORDER_RGB`
+    ///   (light headwater to dark trunk); `_draw_rivers` strokes the river in
+    ///   these. It changes along a main stem as its order rises, and a
+    ///   tributary's junction point takes its own last cell's order, not the
+    ///   trunk's `order` above. Only here, not in `river_at()`, whose callers
     ///   do not draw.
     /// * `parallel_of` (int) -- present only on a run that
     ///   [`cartalith_hydrology::river_draw_plan`] found running alongside the
@@ -8157,7 +8194,9 @@ impl WorldGen {
     #[func]
     fn get_rivers(&self, min_order: i64) -> Array<VarDictionary> {
         let Some(f) = self.sample_refs() else { return Array::new() };
-        let a = self.appearance();
+        // `rivers_now` is empty unless this is set, so no run ever lacks it.
+        let Some(WorldSource::Generated(ws)) = self.source.as_ref() else { return Array::new() };
+        let Some(order) = ws.stream_order.as_deref() else { return Array::new() };
         let rivers = self.rivers_now(min_order);
         let plan = cartalith_hydrology::river_draw_plan(&rivers, f.flow_discharge, f.field, f.sea_level, f.gw, f.gh);
         // Every cell a drawn stroke ends on: a trunk's curve must keep these as
@@ -8184,25 +8223,35 @@ impl WorldGen {
                 pts.extend(plan.bridge[i]);
                 let rp = river_render_polyline(&pts, |p| ends.contains(&cell(p)));
                 d.set("render_points", &rp.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect::<PackedVector2Array>());
-                // `colors`: the lake surface colour at every render point, so a
-                // river's colour follows its ground the way a lake's does
-                // (owner, 2026-09-22: "the coloration should follow lakes").
-                // Per point rather than per N cells because `draw_polyline_colors`
-                // needs one colour per point anyway and interpolates between them.
-                let rgb = |(x, y): (f64, f64)| {
-                    let (cr, cg, cb) = render::lake_color_at(&a, f.temperature, x, y, f.gw, f.gh);
-                    Color::from_rgb((cr / 255.0) as f32, (cg / 255.0) as f32, (cb / 255.0) as f32)
-                };
-                d.set("colors", &rp.iter().map(|&p| rgb(p)).collect::<PackedColorArray>());
+                // `colors`: the Strahler order of the traced cell nearest each
+                // render point, as `river_order_color` (owner, 2026-09-23). Per
+                // point, not per run: order rises along a main stem (it is its
+                // first headwater arm continued), so one colour would paint
+                // that arm as trunk. The last point takes its predecessor's
+                // order -- it is the trunk's junction cell (or a bridge
+                // target), which is why `River::order`, counting it, would
+                // give a tributary its trunk's colour.
+                let mut po: Vec<i16> = pts.iter().map(|&(x, y)| order[y as usize * f.gw + x as usize]).collect();
+                let n = po.len();
+                if n >= 2 {
+                    po[n - 1] = po[n - 2];
+                }
+                // Render points run head to mouth, so the nearest traced
+                // point only ever moves forward.
+                let mut near = 0;
+                let colors: PackedColorArray = rp
+                    .iter()
+                    .map(|&(x, y)| {
+                        let d2 = |k: usize| (pts[k].0 - x).powi(2) + (pts[k].1 - y).powi(2);
+                        while near + 1 < n && d2(near + 1) <= d2(near) {
+                            near += 1;
+                        }
+                        river_order_color(po[near])
+                    })
+                    .collect();
+                d.set("colors", &colors);
                 if let Some(j) = plan.parallel_of[i] {
                     d.set("parallel_of", j as i64);
-                }
-                // `color`: one representative sample at the run's middle point,
-                // for a caller that wants a single swatch (`_riverstroke_probe`);
-                // the stroke itself is drawn in `colors`. Absent for a run with
-                // no points, the same omit-don't-default rule as `width_cells`.
-                if let Some(&p) = r.pts.get(r.pts.len() / 2) {
-                    d.set("color", rgb(p));
                 }
                 d
             })

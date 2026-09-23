@@ -15,11 +15,13 @@
 //! The content set carries every item the owner named (*"settlements, routes,
 //! what layers"*, `EXPORT_SCOPE.md` "What was asked for") and the explicit
 //! settlement tier of §5. **Only the terrain and the baked river ink are
-//! drawable today.** Everything else is `map_overlay.gd`'s to draw, through
-//! E4's overlay session, which does not exist. So an overlay in the content
-//! set is parsed and reported by name ([`ExportContent::overlays`]) and the
-//! export **refuses** it rather than writing a terrain-only file that looks
-//! like it honoured the request.
+//! drawable by `export_image`.** Everything else is `map_overlay.gd`'s to
+//! draw, through E4's overlay session (`export_session.rs`,
+//! `WorldGen::export_session_begin`), whose Rust core exists but whose tile
+//! renderer on the Godot side does not yet. So an overlay in the content set
+//! is parsed and reported by name ([`ExportContent::overlays`]) and
+//! `export_image` **refuses** it rather than writing a terrain-only file that
+//! looks like it honoured the request.
 #![allow(dead_code)]
 
 use std::path::Path;
