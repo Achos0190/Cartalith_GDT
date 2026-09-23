@@ -113,6 +113,10 @@ var _browse_edit: TextEdit
 ## keeping persistent panes to show/hide.
 var _browse_phone_pane := "tree"
 
+## The browse split's divider, as `HSplitContainer.split_offsets[0]` (see
+## `_build_browse()`): 300 opens the tree column at the mockup's 300 px.
+var _browse_split := 300
+
 ## True only for the standalone entry point (`open_browse()`): no entity, no
 ## Attach, just Search and the file browser/editor — as opposed to
 ## `open_overview()`'s `_kind == ""`, which lists every link in the store
@@ -163,6 +167,7 @@ var _index_feedback := ""
 var _pick_query := ""
 
 var _body: VBoxContainer
+var _scroll: ScrollContainer
 var _phone := false
 var _phone_title: Label
 
@@ -178,7 +183,15 @@ func setup(a, b: EngineBridge) -> void:
 	title = "Markdown vault"
 	size = Vector2i(560, 720)
 	min_size = Vector2i(380, 460)
-	max_size = Vector2i(760, 900)
+	## No `max_size` (UX review, 2026-09-23). It was 760x900 -- a cap written
+	## against `wrap_controls` running the window off the screen, which
+	## `phone_window()` below already turns off at the cause. What the cap did
+	## instead was stop a user drag at 760 px, while the owner-approved Vault
+	## Browser mockup (2026-09-21) is drawn at 1280x800.
+	## "Close", not "OK": nothing here is committed by pressing it -- every write
+	## has its own button and preview. The four other plain windows that only
+	## dismiss (`city_viewer_window.gd`, `world_data_window.gd`, ...) say Close.
+	ok_button_text = "Close"
 	_phone = DccWidgets.phone_window(self, a)
 
 	var root := VBoxContainer.new()
@@ -187,6 +200,7 @@ func setup(a, b: EngineBridge) -> void:
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_scroll = scroll
 	root.add_child(scroll)
 	if _phone:
 		_phone_title = DccWidgets.phone_head(root, "Markdown vault", "linked notes")
@@ -194,10 +208,14 @@ func setup(a, b: EngineBridge) -> void:
 	for side in ["left", "top", "right", "bottom"]:
 		pad.add_theme_constant_override("margin_" + side, 12)
 	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## Only matters while the scroll is not scrolling vertically (browse's
+	## split): EXPAND is what lets a ScrollContainer hand its child its height.
+	pad.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.add_child(pad)
 	_body = VBoxContainer.new()
 	_body.add_theme_constant_override("separation", 4)
 	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	pad.add_child(_body)
 
 
@@ -256,6 +274,11 @@ func open_browse() -> void:
 	_selected_fields = {}
 	_rebuild()
 	if not DccWidgets.phone_present(self, app):
+		## The approved mockup's frame (1280x800), never larger than 90% of the
+		## screen it opens on, and never smaller than a size the user already
+		## dragged it to this session.
+		var room: Vector2 = app.get_viewport_rect().size * 0.9
+		size = Vector2i(maxi(size.x, mini(1280, int(room.x))), maxi(size.y, mini(800, int(room.y))))
 		popup_centered()
 
 
@@ -280,6 +303,14 @@ func _rebuild() -> void:
 
 	var info := bridge.vault_info()
 	var bound := bool(info.get("bound", false))
+	## Browse on desktop/tablet is a two-pane browser, not a form: the window
+	## scroll stops scrolling so `_build_browse()`'s split can take the window's
+	## whole remaining height, and each pane scrolls on its own (the mockup's
+	## shape). Every other mode -- and the phone's one-pane fold -- is still a
+	## single scrolling column.
+	var split := _browse_only and bound and not _phone
+	_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED if split \
+		else ScrollContainer.SCROLL_MODE_AUTO
 	_build_connection(info)
 	## Search sits directly under the connection and above everything else in
 	## every mode: the owner's sentence starts with finding the note, and in the
@@ -305,8 +336,13 @@ func _rebuild() -> void:
 			_build_browse()
 	else:
 		_build_overview()
-	_build_write_prefs()
-	_build_footer()
+	## Browse mode's one write -- the raw editor's Save -- goes through
+	## `vault_write_file`, which none of the three confirmation preferences
+	## govern, so drawing them under the browser only pushed the panes up.
+	## The footer is the same: it describes the entity view.
+	if not _browse_only:
+		_build_write_prefs()
+		_build_footer()
 	if _phone:
 		app.phone_fit(self, 1.0)
 
@@ -775,17 +811,42 @@ func _build_browse() -> void:
 		else:
 			_build_browse_preview(sec)
 	else:
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 10)
+		## The section takes the window's remaining height (`_rebuild()` stopped
+		## the outer scroll for this), and the two panes split it with Godot's
+		## own draggable divider -- the mockup's 300 px tree column, resizable.
+		sec.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		sec.get_parent().size_flags_vertical = Control.SIZE_EXPAND_FILL
+		var row := HSplitContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		## Measured on 4.7.1 with this child layout (tree column not expanding,
+		## preview expanding): the offset lands as the tree column's WIDTH -- 80
+		## drew it at its 220 px floor, a 150 px drag from there read back 370 --
+		## so the mockup's 300 is 300, not +80. Applied on the first
+		## real-width layout, not here: a split sorted while the window is still
+		## hidden clamps a stored offset to its zero width and keeps the clamp.
+		## Held on the window, because `_rebuild()` makes a new split on every
+		## pick and a divider that jumped back each click would not be one.
+		row.resized.connect(func():
+			if row.size.x > 520.0 and not row.has_meta("placed"):
+				row.set_meta("placed", true)
+				row.set_deferred("split_offsets", PackedInt32Array([_browse_split])))
+		row.dragged.connect(func(offset: int): _browse_split = offset)
 		sec.add_child(row)
 		var tree_col := VBoxContainer.new()
 		tree_col.custom_minimum_size.x = 220
+		tree_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		row.add_child(tree_col)
 		_build_browse_tree(tree_col, files)
+		var preview_scroll := ScrollContainer.new()
+		preview_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		preview_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		preview_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		preview_scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+		row.add_child(preview_scroll)
 		var preview_col := VBoxContainer.new()
 		preview_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(preview_col)
+		preview_scroll.add_child(preview_col)
 		_build_browse_preview(preview_col)
 
 
@@ -835,6 +896,27 @@ func _build_browse_tree(parent: Control, files: PackedStringArray) -> void:
 	tree.hide_root = true
 	tree.custom_minimum_size = Vector2(200, 260)
 	tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	## The shell's only `Tree`, and the project theme has no `Tree` entries to
+	## remap -- so it drew Godot's stock grey slab, which on the light palette
+	## is a mid-grey block in a paper-coloured window. Tokens instead: an input
+	## well (`sunken` + `border`), body ink, and the accent wash every active
+	## row in this shell already uses for "selected".
+	var well := DccTheme.panel("sunken", {"left": 1, "right": 1, "top": 1, "bottom": 1})
+	well.border_color = DccTheme.c("border")
+	well.content_margin_left = 4
+	well.content_margin_top = 4
+	tree.add_theme_stylebox_override("panel", well)
+	tree.add_theme_stylebox_override("focus", DccTheme.empty())
+	var sel := DccTheme.flat(DccTheme.c("accent_wash"))
+	for box in ["selected", "selected_focus", "hovered", "hovered_selected", "hovered_selected_focus"]:
+		tree.add_theme_stylebox_override(box, sel)
+	for box in ["cursor", "cursor_unfocused"]:
+		tree.add_theme_stylebox_override(box, DccTheme.empty())
+	tree.add_theme_color_override("font_color", DccTheme.c("text"))
+	tree.add_theme_color_override("font_hovered_color", DccTheme.c("text_bright"))
+	tree.add_theme_color_override("font_selected_color", DccTheme.c("text_bright"))
+	tree.add_theme_color_override("guide_color", Color(0, 0, 0, 0))
+	tree.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
 	var root := tree.create_item()
 	var folders := {"": root}    # folder path ("" = root) -> TreeItem
 	for rel in shown:
@@ -961,7 +1043,10 @@ func _build_browse_preview(parent: Control) -> void:
 	else:
 		DccWidgets.note(g, "    Could not read: %s" % String(read.get("error", "")))
 
-	DccWidgets.note(g, "Backlinks: not available here — the vault bridge has no file-path-keyed lookup today, only per-entity (`vault_entity_backlinks`/`vault_entity_mentions`).")
+	## Reason kept, in the user's words rather than two binding names: the
+	## per-entity lookups exist (a place's own KNOWLEDGE block lists them), a
+	## per-file one is not exposed yet -- see this function's header.
+	DccWidgets.note(g, "Backlinks: not shown for a browsed note yet. A place's own Knowledge section lists the notes that link to it.")
 
 	_build_note_editor(g)
 
