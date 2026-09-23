@@ -1,6 +1,8 @@
 extends Node
-## Committed probe for the staged generation readout (`ANDROID_BUILD_SCOPE.md`
-## Generator: "one Generate button + staged progress readout (10 stages)").
+## Committed probe for the staged generation readout (`ANDROID_UI_SPEC.md` §1,
+## the phone's GENERATE tab; the quoted Generator line, "one Generate button +
+## staged progress readout (10 stages)", is from the owner's design-project
+## Android spec -- this cited `ANDROID_BUILD_SCOPE.md`, which never held it).
 ## Modelled on `_cmdindex_probe.gd`.
 ##
 ##   Godot_v4.7.1... --headless --path . _genstage_probe.tscn

@@ -84,7 +84,7 @@
 pub mod staleness;
 
 /// The process-global, ten-stage progress counter the Android spec's staged
-/// generation readout reads (`ANDROID_BUILD_SCOPE.md`). Wired: every
+/// generation readout reads (`ANDROID_UI_SPEC.md` §1.3). Wired: every
 /// `advance()` call in `generate_terrain_inner` below is real, not a stub.
 pub mod progress;
 

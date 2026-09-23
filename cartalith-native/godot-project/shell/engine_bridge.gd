@@ -17,7 +17,7 @@ signal generation_started()
 signal generation_finished(ok: bool)
 ## One emission per observed change of `GenerationProgress.snapshot()`'s
 ## `stage` while `generating` is true -- the Android spec's "per-stage
-## progress + log" (`ANDROID_BUILD_SCOPE.md`). `index` is `0..total-1`,
+## progress + log" (`ANDROID_UI_SPEC.md` §1.3). `index` is `0..total-1`,
 ## `name` is the engine's own name for that stage (`cartalith-engine/src/
 ## progress.rs`'s `STAGE_NAMES`, which stays in the same order as this
 ## file's own `WorldWorkspace.STAGES`), `total` is the stage count (`10` on
@@ -153,7 +153,7 @@ var last_open_warnings := PackedStringArray()
 ## grid mismatch from one the archive never held.
 var last_open_restored := PackedStringArray()
 
-## The staged generation readout (`ANDROID_BUILD_SCOPE.md`). `GenerationProgress`
+## The staged generation readout (`ANDROID_UI_SPEC.md` §1.3). `GenerationProgress`
 ## is a second, stateless `RefCounted` class next to `WorldGen` -- deliberately
 ## not a `WorldGen` method, because the worker `Thread` `generate()` starts
 ## below holds `&mut WorldGen` for the run's whole duration and any `#[func]`
