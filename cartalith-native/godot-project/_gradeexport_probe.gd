@@ -85,7 +85,10 @@ func _cmp(a: PackedByteArray, b: PackedByteArray) -> Array:
 ## ink composites, so the river's luma edge (present in the export, absent
 ## on screen) can shift a pixel's colour up to that radius away from any
 ## cell an actual river polyline passes through. A narrower margin measured
-## real outside-mask divergence there, not a defect.
+## real outside-mask divergence there, not a defect. The stamp is a SQUARE,
+## as in `_exportraster_probe.gd`, because the blur (`box_h` then `box_v`) is
+## one: a disc left the kernel's diagonal corners unmasked -- that probe's
+## `AA_MARGIN_CELLS` comment carries the 2026-09-23 measurement.
 const AA_MARGIN_CELLS := 24.0
 
 func _river_mask(wg: Object, w: int, h: int) -> PackedByteArray:
@@ -96,7 +99,6 @@ func _river_mask(wg: Object, w: int, h: int) -> PackedByteArray:
 		var pts: PackedVector2Array = river.get("points", PackedVector2Array())
 		var half: float = float(river.get("width_cells", 0.0)) * 0.5 + AA_MARGIN_CELLS
 		var r := maxi(1, int(ceil(half)))
-		var r2 := r * r
 		for p in pts:
 			var cx := int(round(p.x))
 			var cy := int(round(p.y))
@@ -105,8 +107,6 @@ func _river_mask(wg: Object, w: int, h: int) -> PackedByteArray:
 				if yy < 0 or yy >= h:
 					continue
 				for dx in range(-r, r + 1):
-					if dx * dx + dy * dy > r2:
-						continue
 					var xx := cx + dx
 					if xx < 0 or xx >= w:
 						continue

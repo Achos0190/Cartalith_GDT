@@ -72,6 +72,18 @@ func _size(path: String) -> int:
 ## because `local_contrast_radius_frac` isn't an exposed appearance
 ## parameter (only `local_contrast`, the strength, is) -- if that default
 ## ever moves, this margin and the ~20-cell figure above go stale together.
+##
+## **The stamp is a SQUARE, not a disc, because the blur is.** `blur_once` is
+## `box_h` then `box_v` -- a separable box, whose footprint is a square of
+## half-side R, reaching R*sqrt(2) ~= 28 cells along a diagonal. A disc of
+## radius 24 + half-width left those corners outside the mask. Measured
+## 2026-09-23 (seed 20260824, 2048 x 1312): with the disc, 489 of 4 169 796
+## outside bytes differed (worst 1), and 178 of the 183 pixels sat 25-30 cells
+## from the nearest river point Euclidean but within 22 cells Chebyshev (minus
+## half-width) -- the kernel's corners. With the square: 5 bytes, all at
+## 48-76 cells from any river, i.e. the f32-prologue knife-edge bytes section
+## 13 describes (12 and 17 on the two runs it quotes). Screen and export were
+## each byte-identical across 5 processes, so this was geometry, not variance.
 const AA_MARGIN_CELLS := 24.0
 
 func _river_mask(wg: Object, w: int, h: int) -> PackedByteArray:
@@ -82,7 +94,6 @@ func _river_mask(wg: Object, w: int, h: int) -> PackedByteArray:
 		var pts: PackedVector2Array = river.get("points", PackedVector2Array())
 		var half: float = float(river.get("width_cells", 0.0)) * 0.5 + AA_MARGIN_CELLS
 		var r := maxi(1, int(ceil(half)))
-		var r2 := r * r
 		for p in pts:
 			var cx := int(round(p.x))
 			var cy := int(round(p.y))
@@ -91,8 +102,6 @@ func _river_mask(wg: Object, w: int, h: int) -> PackedByteArray:
 				if yy < 0 or yy >= h:
 					continue
 				for dx in range(-r, r + 1):
-					if dx * dx + dy * dy > r2:
-						continue
 					var xx := cx + dx
 					if xx < 0 or xx >= w:
 						continue
