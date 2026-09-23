@@ -1200,6 +1200,8 @@ Siting itself changes, not just the downstream render binding: a settlement only
 
 **Owner ruling, 2026-09-23: add the byte-plane shuffle. Do not add u16 quantization** (not asked for, stays barred). `SAVEFILE_COMPAT.md` §8's bare-dump promise needs correcting to record the shuffle as a deliberate, disclosed departure, the same way every other save-format decision in that document is recorded.
 
+**Built same day, commit `027248c`.** `PROJECT_FORMAT_VERSION` 1→2; fail-loud by entry name (`rasters/heightmap.shuffled.f32`), not version number, so a pre-change reader refuses the archive under §6.4 rather than misreading shuffled bytes. Real backward-compat proof: a genuine v1 archive generated with the unmodified pre-ruling writer reads bit-identically and re-saves cleanly to v2. Measured 25.2–36.3% smaller across three grid sizes, writes faster too. `SAVEFILE_COMPAT.md` §8/§18 corrected in place.
+
 ## 2026-09-23 — Ruling AG: unify label glyph layout on `map_overlay.gd`'s own (more recent) font-size model
 
 **The finding is the `label_glyph_layout` row** (`UNWIRED_FUNCTIONS.md`): two competing label-layout implementations exist — the engine's `label_glyph_layout`/`arc_label_layout` (Rust, `cartalith-civ/src/labels.rs`, introduced `29d0f50`/`611c5fa`, 2026-08-18) and `map_overlay.gd`'s own GDScript re-implementation with a different font-size model (introduced `fd9de7c`, 2026-09-01, **two weeks later**). `label_box_at`/`label_handles` already size off the engine's (older) font model, while the drawn glyphs size off the GDScript file's own (newer) model — a real mismatch between hit-testing/box placement and what's actually drawn.
