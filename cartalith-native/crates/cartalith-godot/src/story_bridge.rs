@@ -21,19 +21,103 @@
 //! `entities/journeys.json`); widening it to a full departure date is a
 //! format change left for a follow-up, stated rather than assumed.
 //!
-//! `ponytail:` every `journey_positions()` call re-plans every journey (one
-//! `JourneyWorld::build` plus one `jp_plan_full` each). `_sp2journey_probe.gd`
-//! printed 54.1 ms median (53.1..57.2, three calls in one windowed run) for
-//! one journey on a 2048x1311 world -- felt on a continuous slider drag. The
-//! upgrade is a per-journey timeline cache whose key covers every input
-//! `jp_plan_full` reads here: world epoch, civ/way edits, the journey's
-//! route and preset, and the Travel Library's animal/vessel overrides.
+//! **A saved journey's timeline is cached** ([`JourneyPlanCache`]), because
+//! re-planning it through `JourneyWorld::build` + `jp_plan_full` on every
+//! `journey_positions()` call was felt on a slider drag. See the cache's own
+//! doc for its key.
 
-use crate::{infra_tools_bridge, journey_bridge, CivData, WorldGen, WorldSource};
+use crate::{infra_tools_bridge, journey_bridge, sample_bridge, CivData, WorldGen, WorldSource};
 use cartalith_civ::journey_progress::{JourneyTimeline, NoTimeline, ResnapOutcome};
 use cartalith_civ::tools::{RouteContext, RouteMode, WayRef};
 use cartalith_vault::chronos::{self, MonthDay};
 use godot::prelude::*;
+use std::collections::{BTreeMap, HashMap};
+use std::hash::{DefaultHasher, Hasher};
+
+type Planned = Option<Result<JourneyTimeline, NoTimeline>>;
+
+/// Per saved journey (by id): the key it was planned under and the result.
+///
+/// ## The key, and why it is content, not an epoch
+///
+/// The key is a hash of **every input `plan_saved_journeys` hands
+/// `jp_plan_full`**, walked from the code (`jp_world_parts`, `jp_world`, the
+/// forage closure, the resolvers), not from a list of the edits that might
+/// change them -- the reason `sample_bridge::wildlife_inputs_fingerprint`
+/// gives for itself applies unchanged: an epoch needs every writer to
+/// remember to bump it, and a missed bump shows a plausible stale journey.
+///
+/// - `field`/`temperature`/`rainfall`/`flow_discharge`/`water_bodies`, and
+///   `gw`/`gh`/`world`/`sea_level`/`map_width_km`: the wildlife fingerprint
+///   `refresh_wildlife_cache` already computes on this path, reused, so the
+///   grids are hashed once per call, as before. It is also the forage
+///   closure's whole input.
+/// - `territory` (`JpWorld::territory`, read by `jp_claimed_at`): its own
+///   hash. **The year cursor can write it** -- `civ_goto_year`'s own doc:
+///   "only `territory`" -- so a year move re-plans exactly when the live
+///   territory bytes differ afterwards, and not otherwise. The *day* cursor
+///   is not an input at all: it only reaches `JourneyTimeline::at` as
+///   elapsed days.
+/// - `places`: each settlement's `name`, kind, `x`, `y` -- the four fields
+///   `JourneyWorld::build` maps.
+/// - `road_cells`: `jp_road_cells`' three inputs, field by field as it reads
+///   them -- generated ways and hand-drawn ways (`hidden`, `sea`, type,
+///   `pts`, `brks`) and `road_edges`' `path`.
+/// - `self.params` whole (its `Debug`): `peak_m` and the nine climate/planet
+///   scalars `coarse_ocean_wind_fields` reads. Whole rather than those ten,
+///   so a new reader cannot be missed; a param only changes with a
+///   regenerate, which moves the fingerprint anyway.
+/// - The Travel Library: the animal overrides and vessel overrides exactly
+///   as passed to the resolvers (sorted, since they are `HashMap`s), and per
+///   journey the resolved `PartyPreset` (`None` for a missing one).
+/// - Per journey: `route.points`. `start_year` is not an input -- the
+///   timeline is in days from departure.
+///
+/// **Retains only the timelines** (a few legs each), never `JpWorldParts`,
+/// so the resident cost is negligible. `hits`/`misses` are instrumentation
+/// for `_sp2cache_probe.gd`, via `journey_timeline_cache_stats`.
+#[derive(Default)]
+pub(crate) struct JourneyPlanCache {
+    entries: HashMap<u64, (u64, Planned)>,
+    hits: u64,
+    misses: u64,
+}
+
+/// Feeds `Debug` output straight into a hasher -- a content hash for the
+/// small structs in the key without allocating their text.
+struct HashWriter<'a>(&'a mut DefaultHasher);
+impl std::fmt::Write for HashWriter<'_> {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.0.write(s.as_bytes());
+        Ok(())
+    }
+}
+fn hash_debug(h: &mut DefaultHasher, v: &dyn std::fmt::Debug) {
+    use std::fmt::Write;
+    let _ = write!(HashWriter(h), "{v:?}|");
+}
+fn hash_pts(h: &mut DefaultHasher, pts: &[(f64, f64)]) {
+    h.write_usize(pts.len());
+    for &(x, y) in pts {
+        h.write_u64(x.to_bits());
+        h.write_u64(y.to_bits());
+    }
+}
+fn hash_usizes(h: &mut DefaultHasher, v: &[usize]) {
+    h.write_usize(v.len());
+    for &x in v {
+        h.write_usize(x);
+    }
+}
+
+/// The per-journey half of the key, over the world half.
+fn journey_key(world_key: u64, preset: Option<&cartalith_civ::travel_library::PartyPreset>, pts: &[(f64, f64)]) -> u64 {
+    let mut h = DefaultHasher::new();
+    h.write_u64(world_key);
+    hash_debug(&mut h, &preset);
+    hash_pts(&mut h, pts);
+    h.finish()
+}
 
 /// See [`WorldGen::journey_carry`].
 pub(crate) struct JourneyCarry {
@@ -116,6 +200,50 @@ impl WorldGen {
         }
     }
 
+    /// The world half of [`JourneyPlanCache`]'s key -- see its doc for the
+    /// derivation. `fp` is `refresh_wildlife_cache`'s fingerprint.
+    fn journey_world_key(
+        &self,
+        fp: u64,
+        civ: &CivData,
+        animal_ov: &HashMap<String, cartalith_civ::travel_library::AnimalDef>,
+        vessel_ov: &HashMap<String, cartalith_civ::travel_library::VesselDef>,
+    ) -> u64 {
+        // SAFETY: `i32` has no padding and no invalid bit patterns -- the
+        // same reinterpret `wildlife_inputs_fingerprint` makes for `f32`.
+        let terr = unsafe {
+            std::slice::from_raw_parts(civ.territory.as_ptr().cast::<u8>(), std::mem::size_of_val(civ.territory.as_slice()))
+        };
+        let mut h = DefaultHasher::new();
+        h.write_u64(fp);
+        h.write_u64(sample_bridge::hash_bytes(0, terr));
+        h.write_usize(civ.settlements.len());
+        for s in &civ.settlements {
+            hash_debug(&mut h, &(&s.name, s.placement.kind, s.placement.x, s.placement.y));
+        }
+        h.write_usize(civ.ways.len());
+        for w in &civ.ways {
+            hash_debug(&mut h, &(w.hidden, &w.way_type));
+            hash_pts(&mut h, &w.pts);
+            hash_usizes(&mut h, &w.brks);
+        }
+        let manual: &[cartalith_civ::tools::ManualWay] = self.infra.as_ref().map_or(&[], |t| &t.ways);
+        h.write_usize(manual.len());
+        for w in manual {
+            hash_debug(&mut h, &(w.hidden, w.sea, &w.way_type));
+            hash_pts(&mut h, &w.pts);
+            hash_usizes(&mut h, &w.brks);
+        }
+        h.write_usize(civ.road_edges.len());
+        for e in &civ.road_edges {
+            hash_usizes(&mut h, &e.path);
+        }
+        hash_debug(&mut h, &self.params);
+        hash_debug(&mut h, &animal_ov.iter().collect::<BTreeMap<_, _>>());
+        hash_debug(&mut h, &vessel_ov.iter().collect::<BTreeMap<_, _>>());
+        h.finish()
+    }
+
     /// Plans every saved journey whose index `want` accepts, through
     /// `jp_plan_full` with its party preset and the planner's own world and
     /// resolvers -- the one planning path `journey_positions` and
@@ -123,51 +251,81 @@ impl WorldGen {
     /// journey differently. `(journey index, preset_missing, timeline)`;
     /// `None` for the timeline when the route yields no derivable stages.
     /// Empty without a generated world or journeys.
-    pub(crate) fn plan_saved_journeys(
-        &mut self,
-        want: &dyn Fn(usize) -> bool,
-    ) -> Vec<(usize, bool, Option<Result<JourneyTimeline, NoTimeline>>)> {
+    ///
+    /// A journey whose [`JourneyPlanCache`] key is unchanged is served from
+    /// the cache; the rest are planned, and the world tables are built only
+    /// when at least one is.
+    pub(crate) fn plan_saved_journeys(&mut self, want: &dyn Fn(usize) -> bool) -> Vec<(usize, bool, Planned)> {
         if self.infra.as_ref().is_none_or(|i| !(0..i.journeys.len()).any(want)) {
             return Vec::new();
         }
-        self.refresh_wildlife_cache();
+        let Some(fp) = self.refresh_wildlife_cache() else { return Vec::new() };
         let (Some(WorldSource::Generated(ws)), Some(civ), Some(infra)) =
             (self.source.as_ref(), self.civ.as_ref(), self.infra.as_ref())
         else {
             return Vec::new();
         };
-        let parts = self.jp_world_parts(ws, civ);
-        let world = self.jp_world(ws, civ, &parts);
-        let forage = |mx: f64, my: f64| self.wildlife.as_ref().map_or(1.0, |w| w.forage_mod(mx, my));
         // `jp_compute`'s resolvers with no `animal_entries` request key --
         // `animal_overrides()`'s own implicit pick, the planner's default.
-        let (overrides, _) = self.travel_library.animal_overrides_selected(&std::collections::HashMap::new());
-        let (stats_fn, terrain_fn) = cartalith_civ::travel_library::animal_resolver_fns(&overrides);
-        let resolver = cartalith_civ::JpAnimalResolver { stats: &*stats_fn, terrain_mod: &*terrain_fn };
+        let (overrides, _) = self.travel_library.animal_overrides_selected(&HashMap::new());
         let vessel_overrides = self.travel_library.vessel_overrides();
-        let vessel_fn = cartalith_civ::travel_library::vessel_resolver_fn(&vessel_overrides);
-        let vessel_resolver = cartalith_civ::JpVesselResolver { stats: &*vessel_fn };
-        infra
+        let world_key = self.journey_world_key(fp, civ, &overrides, &vessel_overrides);
+
+        // (journey index, id, preset, key, cached result)
+        let mut jobs: Vec<(usize, u64, Option<&cartalith_civ::travel_library::PartyPreset>, u64, Option<Planned>)> = infra
             .journeys
             .iter()
             .enumerate()
             .filter(|&(ji, _)| want(ji))
             .map(|(ji, j)| {
                 let preset = self.travel_library.presets.get(&j.party_preset);
+                let key = journey_key(world_key, preset, &j.route.points);
+                let hit = self.journey_plans.entries.get(&j.id).filter(|(k, _)| *k == key).map(|(_, t)| t.clone());
+                (ji, j.id, preset, key, hit)
+            })
+            .collect();
+
+        if jobs.iter().any(|j| j.4.is_none()) {
+            let parts = self.jp_world_parts(ws, civ);
+            let world = self.jp_world(ws, civ, &parts);
+            let forage = |mx: f64, my: f64| self.wildlife.as_ref().map_or(1.0, |w| w.forage_mod(mx, my));
+            let (stats_fn, terrain_fn) = cartalith_civ::travel_library::animal_resolver_fns(&overrides);
+            let resolver = cartalith_civ::JpAnimalResolver { stats: &*stats_fn, terrain_mod: &*terrain_fn };
+            let vessel_fn = cartalith_civ::travel_library::vessel_resolver_fn(&vessel_overrides);
+            let vessel_resolver = cartalith_civ::JpVesselResolver { stats: &*vessel_fn };
+            for (ji, _, preset, _, slot) in jobs.iter_mut().filter(|j| j.4.is_none()) {
                 let base = cartalith_civ::JpPlan::default();
                 let plan = preset.map_or_else(|| base.clone(), |p| p.apply_to(&base));
                 let planned = cartalith_civ::jp_plan_full(
                     &world,
-                    &j.route.points,
+                    &infra.journeys[*ji].route.points,
                     &plan,
                     &cartalith_civ::JpLayovers::new(),
                     &forage,
                     Some(&resolver),
                     Some(&vessel_resolver),
                 );
-                (ji, preset.is_none(), planned.as_ref().map(JourneyTimeline::from_plan))
-            })
-            .collect()
+                *slot = Some(planned.as_ref().map(JourneyTimeline::from_plan));
+            }
+        }
+        // `jobs` borrows `self.travel_library`; finish with it before the
+        // cache (a disjoint field) is written.
+        let live: std::collections::HashSet<u64> = infra.journeys.iter().map(|j| j.id).collect();
+        let mut out = Vec::with_capacity(jobs.len());
+        let cache = &mut self.journey_plans;
+        for (ji, id, preset, key, result) in jobs {
+            let t = result.expect("every miss planned above");
+            match cache.entries.get(&id) {
+                Some((k, _)) if *k == key => cache.hits += 1,
+                _ => {
+                    cache.misses += 1;
+                    cache.entries.insert(id, (key, t.clone()));
+                }
+            }
+            out.push((ji, preset.is_none(), t));
+        }
+        cache.entries.retain(|id, _| live.contains(id));
+        out
     }
 
     /// Takes the outgoing world's journeys (and what re-snapping them needs)
@@ -398,8 +556,9 @@ impl WorldGen {
     ///   and **no date keys** -- the journey still passes, it just has no
     ///   honest date.
     ///
-    /// Computed fresh on every call, never cached on `WorldGen` (the
-    /// `civ_food_shed` discipline); only journeys that pass are planned.
+    /// The pass test runs fresh on every call; the timelines come through
+    /// `plan_saved_journeys`, so from [`JourneyPlanCache`] when their inputs
+    /// are unchanged. Only journeys that pass are planned.
     /// Empty before any `generate()`, for `tid <= 0`, and for a `tid` no
     /// live settlement carries.
     #[func]
@@ -475,6 +634,23 @@ impl WorldGen {
         rows.into_iter().map(|(_, d)| d).collect()
     }
 
+    /// [`JourneyPlanCache`]'s counters: `{hits, misses, entries}`. `hits` and
+    /// `misses` count journeys served, cumulative since construction or the
+    /// last [`Self::journey_timeline_cache_clear`].
+    #[func]
+    fn journey_timeline_cache_stats(&self) -> VarDictionary {
+        let c = &self.journey_plans;
+        vdict! { "hits" => c.hits as i64, "misses" => c.misses as i64, "entries" => c.entries.len() as i64 }
+    }
+
+    /// Empties [`JourneyPlanCache`] and zeroes its counters, so the next
+    /// read plans every journey fresh -- what `_sp2cache_probe.gd` compares
+    /// the cached answer against.
+    #[func]
+    fn journey_timeline_cache_clear(&mut self) {
+        self.journey_plans = JourneyPlanCache::default();
+    }
+
     /// The last regenerate's re-snap report: one row per journey the
     /// previous world held, `{id, name, outcome, ...}` with `outcome_dict`'s
     /// keys -- **including journeys that were dropped** (`missing_stop`,
@@ -492,5 +668,48 @@ impl WorldGen {
                 d
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cartalith_civ::travel_library::PartyPreset;
+
+    fn debug_key(v: &dyn std::fmt::Debug) -> u64 {
+        let mut h = DefaultHasher::new();
+        hash_debug(&mut h, v);
+        h.finish()
+    }
+
+    /// Each of `journey_key`'s three inputs moves it, and equal inputs give
+    /// an equal key (the cache's hit condition).
+    #[test]
+    fn journey_key_reacts_to_every_input() {
+        let p = PartyPreset::blank("p1", "Party");
+        let mut p2 = p.clone();
+        p2.name = "Other".into();
+        let pts = [(1.0, 2.0), (3.0, 4.0)];
+        let k = journey_key(7, Some(&p), &pts);
+        assert_eq!(k, journey_key(7, Some(&p.clone()), &pts.clone()));
+        assert_ne!(k, journey_key(8, Some(&p), &pts), "world half");
+        assert_ne!(k, journey_key(7, Some(&p2), &pts), "preset content");
+        assert_ne!(k, journey_key(7, None, &pts), "missing preset");
+        assert_ne!(k, journey_key(7, Some(&p), &[(1.0, 2.0), (3.0, 4.5)]), "route point");
+        assert_ne!(k, journey_key(7, Some(&p), &pts[..1]), "route length");
+    }
+
+    /// The overrides are `HashMap`s, whose iteration order is per instance;
+    /// sorted through a `BTreeMap` first, equal content must hash equal, or
+    /// the cache would miss on every call.
+    #[test]
+    fn override_maps_hash_by_content_not_order() {
+        let a: HashMap<String, u32> = (0..64).map(|i| (format!("k{i}"), i)).collect();
+        let b: HashMap<String, u32> = (0..64).rev().map(|i| (format!("k{i}"), i)).collect();
+        let sorted = |m: &HashMap<String, u32>| debug_key(&m.iter().collect::<BTreeMap<_, _>>());
+        assert_eq!(sorted(&a), sorted(&b));
+        let mut c = a.clone();
+        c.insert("k0".into(), 99);
+        assert_ne!(sorted(&a), sorted(&c));
     }
 }

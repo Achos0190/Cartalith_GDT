@@ -4025,6 +4025,9 @@ struct WorldGen {
     /// `absorb` once the new world exists. `None` whenever no journey needs
     /// carrying.
     journey_carry: Option<story_bridge::JourneyCarry>,
+    /// SP-2's per-journey timeline cache -- see [`story_bridge::JourneyPlanCache`]
+    /// for the key and why it is a content key, not an epoch.
+    journey_plans: story_bridge::JourneyPlanCache,
     /// Bumped on every assignment to [`Self::asset_pack`] — the two sites
     /// `git grep -n 'self\.asset_pack = '` finds. A loaded pack changes
     /// `land_color`'s splat and ground-tile branches, so it is an input to
@@ -4132,6 +4135,7 @@ impl IRefCounted for WorldGen {
             world_epoch: 0,
             civ_day: 0,
             journey_carry: None,
+            journey_plans: Default::default(),
             pack_epoch: 0,
             lod: std::cell::RefCell::new(LodCtxCache::default()),
             lod_worker: std::sync::Arc::new(lod_worker::LodWorker::default()),
@@ -15524,18 +15528,25 @@ impl WorldGen {
     /// 2048², against the 69 / 236 ms a rebuild costs. Both numbers are
     /// measured, in `sample_bridge.rs`'s own `timing_probe_*` tests.
     ///
-    /// Called from `jp_compute` and from nowhere else, so a session that
-    /// never opens the Journey Planner pays nothing and retains nothing.
-    fn refresh_wildlife_cache(&mut self) {
+    /// Called from `jp_compute` and `story_bridge`'s `plan_saved_journeys`,
+    /// so a session that never plans a journey pays nothing and retains
+    /// nothing.
+    ///
+    /// Returns the fingerprint it checked against (`None` without a
+    /// generated world): `plan_saved_journeys` folds it into its own timeline
+    /// key rather than hashing the same grids a second time.
+    fn refresh_wildlife_cache(&mut self) -> Option<u64> {
         let Some(f) = self.sample_refs() else {
             self.wildlife = None;
-            return;
+            return None;
         };
-        if self.wildlife.as_ref().is_some_and(|c| c.key == sample_bridge::wildlife_inputs_fingerprint(&f)) {
-            return;
+        let fp = sample_bridge::wildlife_inputs_fingerprint(&f);
+        if self.wildlife.as_ref().is_some_and(|c| c.key == fp) {
+            return Some(fp);
         }
         let built = sample_bridge::WildlifeCache::build(&f);
         self.wildlife = built;
+        Some(fp)
     }
 
     fn sample_refs(&self) -> Option<sample_bridge::FieldRefs<'_>> {

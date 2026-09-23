@@ -2156,8 +2156,9 @@ func refresh_faction_colors() -> void:
 ## date (`journey_positions()`), pushed to `map_overlay.gd`. Connected to
 ## `DccShell.timeline_changed` by `app.gd`, so scrubbing the year -- or the
 ## day -- moves the markers; also run on `refresh()` and after a journey is
-## saved or deleted. Re-plans every journey per call (`story_bridge.rs`'s
-## `ponytail:` note has the ceiling).
+## saved or deleted. Each journey's plan is cached in the engine
+## (`story_bridge.rs` `JourneyPlanCache`), so a day or year scrub re-plans
+## nothing unless an input to the plan changed.
 func refresh_journey_markers() -> void:
 	if _bridge == null or overlay == null or not overlay.has_method("set_journey_markers"):
 		return

@@ -1485,6 +1485,41 @@ pub fn territory_influence(f: &FieldRefs) -> Option<cartalith_civ::TerritoryInfl
     Some(cartalith_civ::territory_influence(settlements, &cost, f.gw, f.gh, f.world))
 }
 
+/// FxHash's mixing step. Not a cryptographic hash and does not need to
+/// be: this answers "did any of these bytes change since the last call",
+/// against an adversary that is a paint brush.
+const K: u64 = 0x517c_c1b7_2722_0a95;
+#[inline]
+fn mix(h: u64, w: u64) -> u64 {
+    (h.rotate_left(5) ^ w).wrapping_mul(K)
+}
+
+/// [`wildlife_inputs_fingerprint`]'s parallel byte hash, folded from `seed`.
+/// Also `story_bridge`'s journey-timeline key, for the one grid
+/// (`territory`) that key reads which this fingerprint does not.
+pub(crate) fn hash_bytes(seed: u64, b: &[u8]) -> u64 {
+    use rayon::prelude::*;
+    // One MiB per chunk: big enough that the per-chunk overhead vanishes,
+    // small enough that a 2048² field still splits across every core.
+    const CHUNK: usize = 1 << 20;
+    let parts: Vec<u64> = b
+        .par_chunks(CHUNK)
+        .map(|c| {
+            let mut h = K;
+            let (words, tail) = c.split_at(c.len() - c.len() % 8);
+            for w in words.chunks_exact(8) {
+                h = mix(h, u64::from_le_bytes(w.try_into().expect("chunks_exact(8)")));
+            }
+            for &x in tail {
+                h = mix(h, u64::from(x));
+            }
+            h
+        })
+        .collect();
+    // Index order, never reduction order -- see `wildlife_inputs_fingerprint`.
+    parts.iter().fold(mix(seed, b.len() as u64), |h, &p| mix(h, p))
+}
+
 /// One 64-bit fingerprint over **every input [`wildlife_regions`] reads** —
 /// the invalidation key `WorldGen::wildlife_cache` is built against
 /// (`PARITY_AUDIT.md` §23 **F12**).
@@ -1517,37 +1552,6 @@ pub fn territory_influence(f: &FieldRefs) -> Option<cartalith_civ::TerritoryInfl
 /// an integer sibling here: a hash reduced in scheduling order is a hash
 /// that changes when the machine does.
 pub fn wildlife_inputs_fingerprint(f: &FieldRefs) -> u64 {
-    use rayon::prelude::*;
-
-    /// FxHash's mixing step. Not a cryptographic hash and does not need to
-    /// be: this answers "did any of these bytes change since the last call",
-    /// against an adversary that is a paint brush.
-    const K: u64 = 0x517c_c1b7_2722_0a95;
-    #[inline]
-    fn mix(h: u64, w: u64) -> u64 {
-        (h.rotate_left(5) ^ w).wrapping_mul(K)
-    }
-    fn hash_bytes(seed: u64, b: &[u8]) -> u64 {
-        // One MiB per chunk: big enough that the per-chunk overhead vanishes,
-        // small enough that a 2048² field still splits across every core.
-        const CHUNK: usize = 1 << 20;
-        let parts: Vec<u64> = b
-            .par_chunks(CHUNK)
-            .map(|c| {
-                let mut h = K;
-                let (words, tail) = c.split_at(c.len() - c.len() % 8);
-                for w in words.chunks_exact(8) {
-                    h = mix(h, u64::from_le_bytes(w.try_into().expect("chunks_exact(8)")));
-                }
-                for &x in tail {
-                    h = mix(h, u64::from(x));
-                }
-                h
-            })
-            .collect();
-        // Index order, never reduction order -- see the doc comment above.
-        parts.iter().fold(mix(seed, b.len() as u64), |h, &p| mix(h, p))
-    }
     fn hash_f32(seed: u64, v: &[f32]) -> u64 {
         // `bytemuck` is not a dependency and this is the whole of what it
         // would be used for. `f32` has no padding and no invalid bit
