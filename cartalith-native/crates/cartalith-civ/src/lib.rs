@@ -6379,6 +6379,10 @@ pub fn build_road_network(
 // splitting. Flagged explicitly here and in `PHASE2_SCOPE.md`/`CHANGELOG.md`
 // -- this is a real, honest gap, not a silent one.
 //
+// *Since closed:* that tail is ported as [`civ_consolidate_and_smooth_ways`]
+// (reference ~21670-21739), which consumes this function's raw edges. This
+// function itself still stops at the raw topology, as described above.
+//
 // `_civPreferSeaRoutes` and `opts.existingWays` are out of scope per the
 // milestone's own investigation: the real auto-populate call site
 // (`_civIterativeAutoWorld`, reference lines 25581-25680) calls
@@ -6681,7 +6685,8 @@ fn civ_trace_path(prev: &[i32], si: usize, ti: usize) -> Vec<usize> {
 }
 
 /// The raw topology `_civHierarchicalNetwork` produces before corridor
-/// consolidation/smoothing (deliberately not ported here, see the module
+/// consolidation/smoothing (not done here: ported separately as
+/// [`civ_consolidate_and_smooth_ways`], which consumes these edges; see the module
 /// doc comment above). `edges[i].a`/`.b` index into the `places` slice
 /// given to `civ_hierarchical_network_topology`.
 pub struct HierarchicalNetworkResult {
