@@ -700,6 +700,10 @@ var _current_family := ""
 var _search_text := ""
 var _sort_mode := 0          ## 0 = slot order, 1 = name
 var _cell_px := float(H_TILE_ART)
+## Desktop header parts `_fit_to_width()` adapts (null on a phone).
+var _hdr_row: HBoxContainer
+var _hdr_search: LineEdit
+var _hdr_sub: Label
 var _select_mode := false
 var _selected: Dictionary = {}     ## uid -> true
 var _last_index := -1
@@ -1007,6 +1011,7 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 	_bridge.world_loaded.connect(func(): _refresh_pack_status())
 	_build()
 	_build_slicer_modal()
+	size_changed.connect(_fit_to_width)
 	## `1.0`, not `phone_scale()`: `phone_present()` applies the scale once as
 	## the window's `content_scale_factor`, and applying it again here would
 	## square it. Idempotent by meta-flag, so `_refresh_grid()`'s own re-fit
@@ -1080,6 +1085,7 @@ func open(family_key: String = "", open_slicer: bool = false) -> void:
 		_select_family(String(FAMILIES[0]["key"]))
 	if open_slicer:
 		_open_slicer()
+	_fit_to_width()
 
 # ---------------------------------------------------------------------------
 # Layout -- window bar / rail · grid · inspector / status line
@@ -1213,6 +1219,7 @@ func _build_window_bar() -> Control:
 		title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		row.add_child(title_label)
 		var sub := DccTheme.label("map hidden while open", "text_ghost", DccTheme.FS_SMALL)
+		_hdr_sub = sub
 		sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		row.add_child(sub)
 
@@ -1224,7 +1231,11 @@ func _build_window_bar() -> Control:
 
 		var search := LineEdit.new()
 		search.placeholder_text = SEARCH_PLACEHOLDER
-		search.custom_minimum_size.x = 340   ## canvas: `flex:1;max-width:340px`
+		## canvas: `flex:1;max-width:340px` -- a MAXIMUM. `_fit_to_width()` sets
+		## the real width, 160..340, from the room the window has.
+		search.custom_minimum_size.x = 340
+		_hdr_search = search
+		_hdr_row = row as HBoxContainer
 		_well(search)
 		search.text_changed.connect(func(t: String): _search_text = t; _refresh_grid())
 		row.add_child(search)
@@ -1302,6 +1313,34 @@ func _build_window_bar() -> Control:
 
 	_update_select_count()
 	return wrap
+
+## Fits the desktop window to its own width (2026-09-24). At Godot's default
+## 1152 px the window needed 1 403: a fixed 340 px search well in a 1 371 px
+## header, and a 1 264 px body. The header half is here: the search well
+## takes 160..340 px of whatever room the header has (the canvas's own
+## MAX-width), and the "map hidden while open" note goes first when even 160
+## does not fit. The body half is the grid pane's two text rows shrinking with
+## an ellipsis (its tiles were only 354 px). `_alfit_probe.gd` proves both.
+func _fit_to_width() -> void:
+	if _phone or _hdr_row == null or _hdr_search == null:
+		return
+	var room := float(size.x) - 32.0
+	var sep := float(_hdr_row.get_theme_constant("separation"))
+	var others := func() -> float:
+		var w := 0.0
+		var n := 0
+		for c in _hdr_row.get_children():
+			if c is Control and (c as Control).visible:
+				n += 1
+				if c != _hdr_search:
+					w += (c as Control).get_combined_minimum_size().x
+		return w + sep * float(maxi(0, n - 1))
+	if _hdr_sub != null:
+		_hdr_sub.visible = true
+		if room - float(others.call()) < 160.0:
+			_hdr_sub.visible = false
+	_hdr_search.custom_minimum_size.x = clampf(room - float(others.call()), 160.0, 340.0)
+
 
 func _toggle_select_mode() -> void:
 	_select_mode = not _select_mode
@@ -1917,6 +1956,15 @@ func _build_slot_grid() -> Control:
 	_grid_header = DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO, 2, true)
 	_grid_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_grid_header.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	## Shrinks with an ellipsis rather than holding the pane open: its full
+	## width (265 px) was one of two rows that set the grid pane's 668 px
+	## minimum (2026-09-24, `_alfit_probe.gd`). The tooltip keeps the text.
+	if not _phone:
+		_grid_header.clip_text = true
+		_grid_header.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		## Five sites set this text; mirroring it on every redraw keeps the
+		## truncated title readable in full without touching each of them.
+		_grid_header.draw.connect(func() -> void: _grid_header.tooltip_text = _grid_header.text)
 	band.add_child(_grid_header)
 	## PH-12: `TX · SPLAT CHANNELS · 0 OF 7 FILLED` is a `Label`, and
 	## `phone_fit()`'s ellipsis pass only reaches `Button`s -- so on a phone this
@@ -2000,9 +2048,16 @@ func _build_slot_grid() -> Control:
 	## about gestures the device cannot make; the zoom slider beside them is
 	## the only thing in this row a finger can use.
 	if not _phone:
+		## Both hints shrink with an ellipsis (2026-09-24): at full width they
+		## were the other row holding the grid pane at 668 px.
+		var mods := DccTheme.mono_label("⇧-click ranges · Ctrl-click adds", "text_faint", DccTheme.FS_TINY)
+		for hint in [drop_hint, mods]:
+			(hint as Label).clip_text = true
+			(hint as Label).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			(hint as Label).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		mods.tooltip_text = mods.text
 		foot.add_child(drop_hint)
-		foot.add_child(DccTheme.mono_label("⇧-click ranges · Ctrl-click adds",
-			"text_faint", DccTheme.FS_TINY))
+		foot.add_child(mods)
 	foot.add_child(DccTheme.spacer())
 	var zoom_label := DccTheme.mono_label("zoom", "text_faint", DccTheme.FS_TINY)
 	zoom_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER

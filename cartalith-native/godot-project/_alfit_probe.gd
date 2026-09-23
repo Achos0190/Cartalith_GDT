@@ -5,10 +5,10 @@ extends Node
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1152x648 _alfit_probe.tscn
 ##
-## **Expected to FAIL until the row is fixed** -- committed 2026-09-24 as the
-## measurement of the open defect: window min 1403 px, header row 1371 (a fixed
-## 340 px search well), body 1264 (grid pane 668, inspector 330), 38 controls
-## past the right edge at 1152. The fix is done when this PASSES.
+## Before the 2026-09-24 fix: window min 1403 px, header row 1371 (a fixed
+## 340 px search well), body 1264 (a grid pane held at 668 by two text rows),
+## 38 controls past the right edge at 1152 -- FAIL. After: PASS, 0 outside,
+## min 1152; at 1920 the canvas layout is back (search 340, note shown).
 
 var _fails := 0
 var _outside := 0
@@ -50,6 +50,7 @@ func _ready() -> void:
 	await _frames(20)
 	var win: Window = app.asset_library_window
 	print("ALFIT main %s  asset window size %s  min %s" % [get_window().size, win.size, win.get_contents_minimum_size()])
+	print("ALFIT fit: search %.0f  sub %s  grid cols %d  grid children %d" % [win._hdr_search.custom_minimum_size.x if win._hdr_search else -1.0, str(win._hdr_sub.visible) if win._hdr_sub else "-", win._grid.columns, win._grid.get_child_count()])
 	var wr := Rect2(Vector2.ZERO, Vector2(win.size))
 	_walk(win, wr, 0)
 	_check("no visible control extends past the window's right edge", _outside == 0, "%d outside" % _outside)
