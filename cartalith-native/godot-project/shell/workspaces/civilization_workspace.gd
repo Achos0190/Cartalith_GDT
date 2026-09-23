@@ -5132,8 +5132,8 @@ func _lm_open_funnel(key: String) -> void:
 	var tok: Control = r["token"]
 	## Main-viewport space, which is what an embedded popup's rect is in.
 	## `get_screen_position()` adds the OS window's own offset on top.
-	var at := Vector2i(tok.get_global_rect().position) + Vector2i(0, int(tok.size.y) + 4)
-	_lm_funnel.popup(Rect2i(at, Vector2i(342, 0)))
+	## Anchored, flipped and clamped against the visible area (2026-09-24).
+	DccWidgets.popup_anchored(_lm_funnel, tok.get_global_rect(), 342)
 
 ## `key` is the engine's kind key, carried in so §5's two chips can filter
 ## `landmark_rejects()` down to this type. `r` does not hold it -- `_lm_rows` is

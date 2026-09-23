@@ -107,6 +107,8 @@ var bridge: EngineBridge
 var host: ViewportHost
 
 var _list: VBoxContainer
+## The list's scroll, so `open()` can cap its 420 px floor on a short window.
+var _scroll: ScrollContainer
 var _legend: VBoxContainer
 ## view id -> its Button, for the rows **currently drawn**. Since CA-09's
 ## filter that is a subset of the overlay list, not the whole of it, so it is
@@ -337,6 +339,7 @@ func setup(b: EngineBridge, h: ViewportHost) -> void:
 	search_col.add_child(_count)
 
 	var scroll := ScrollContainer.new()
+	_scroll = scroll
 	## PH-12: `--popW` x 420 is a popover's authored size. As a full-screen sheet
 	## the width comes from the screen and the height from what is left under the
 	## header, and a 420 dp FLOOR under a legend, a slider and a note would push
@@ -487,8 +490,20 @@ func open() -> void:
 	## re-armed on the next `open()` by this same line.
 	popup_hide.connect(func(): host.set_layers_open(false), CONNECT_ONE_SHOT)
 	host.set_layers_open(true)
-	popup(Rect2i(Vector2i(r.position.x, r.position.y + r.size.y + 4),
-		Vector2i(DccTheme.role_px("w_popover"), 0)))
+	## The 420 px scroll floor is the authored size, not a requirement: on a
+	## short window it made the popover 662 px tall in a 648 px window
+	## (`_popclamp_probe.gd`, 2026-09-24). Give the list what room there is
+	## above or below the button, down to 120 px -- it scrolls either way.
+	if _scroll != null:
+		_scroll.custom_minimum_size.y = 420
+		var vis := get_tree().root.get_visible_rect()
+		var room := maxf(vis.end.y - float(r.end.y) - 12.0, float(r.position.y) - vis.position.y - 12.0)
+		var excess := get_contents_minimum_size().y - room
+		if excess > 0.0:
+			_scroll.custom_minimum_size.y = maxf(120.0, 420.0 - excess)
+	## Anchored, flipped and clamped against the visible area -- see
+	## `DccWidgets.popup_anchored` (2026-09-24).
+	DccWidgets.popup_anchored(self, Rect2(r), DccTheme.role_px("w_popover"))
 
 ## `1.0`: `phone_present()` applies the scale once as `content_scale_factor`.
 ## Re-run after every `rebuild()`, because the rows are all fresh nodes; it is

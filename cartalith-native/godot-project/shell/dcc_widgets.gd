@@ -662,6 +662,29 @@ static func choice(parent: Control, label_text: String, options: Array, selected
 ## Lives here rather than on `DccShell` because it serves every `PopupMenu` in
 ## the shell, not only the seven program menus: `choice()` above opens one on
 ## every dropdown, and until 2026-08-25 those were stock Godot.
+## Opens `popup` anchored under `anchor` (main-viewport space, which is what
+## an embedded popup's rect is in) and KEEPS IT ON SCREEN (2026-09-24): below
+## the anchor if it fits, flipped above it if it does not, clamped
+## horizontally, and its height capped at the visible area -- a popover whose
+## content outgrows that scrolls or clips inside its own frame rather than
+## running off the window. Every hand-anchored popover routes through here;
+## before this, `layers_popover.gd` and the landmark funnel each computed a
+## bare "below the trigger" rect and grew off the bottom of a short window.
+static func popup_anchored(popup: Window, anchor: Rect2, width: int, gap: int = 4) -> void:
+	var tree := popup.get_tree()
+	var bounds: Rect2 = tree.root.get_visible_rect() if tree != null else Rect2(Vector2.ZERO, Vector2(1e6, 1e6))
+	var margin := 4.0
+	var want_h := popup.get_contents_minimum_size().y
+	var h := minf(want_h, bounds.size.y - 2.0 * margin)
+	var w := minf(float(width), bounds.size.x - 2.0 * margin)
+	var y := anchor.end.y + gap
+	if y + h > bounds.end.y - margin:
+		var above := anchor.position.y - gap - h
+		y = above if above >= bounds.position.y + margin else bounds.end.y - margin - h
+	var x := clampf(anchor.position.x, bounds.position.x + margin, bounds.end.x - margin - w)
+	popup.popup(Rect2i(Vector2i(int(x), int(y)), Vector2i(int(w), int(h))))
+
+
 static func style_popup(popup: PopupMenu) -> void:
 	var touch := DccTheme.is_touch()
 	var panel := DccTheme.panel("panel",
