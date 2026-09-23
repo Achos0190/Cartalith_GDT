@@ -1351,3 +1351,37 @@ The ruling left the attachment's deletion/regenerate behaviour to whoever built 
 - **Years are plain `i64`**, the Timeline cursor's unit: SP-4's only question of time is "active in the cursor's year", which needs no day grain.
 - **Persistence: `entities/conflicts.json`, engine-owned** (`SAVEFILE_COMPAT.md` §9.7), the landmarks slot's arrangement — the store is engine state GDScript has no view of.
 - **The manpower read is the world as it stands, not the conflict's year.** `conflict_sides_manpower` returns exactly CIVIL ▸ Military's figures (`manpower_by_faction`). A year-scoped read would need the manpower pass rebuilt over a `TimelineSnapshot` (settlement populations and ways per year); not done, and said so in the dock.
+
+## 2026-09-23 — Ruling AP: fourteen open items ruled in one sitting, from the owner-decision backlog compiled the same day
+
+The backlog compiled earlier the same day (`OUTSTANDING_WORK.md`'s cross-referenced decision clusters) was put to the owner as fourteen `AskUserQuestion` prompts, each with a recommended option. Recorded here rather than left scattered across rows, so a later reader finds the ruling in one place per this file's own convention.
+
+**Which source-engine line this port follows: the DCC line, not the v2.22 mainline.** The reference forked at v2.22; every engine change from v2.25 on exists only on that branch, and `RC_ENGINE_CHANGES.md` already catalogues v2.11→v2.73 against it. This authorizes re-freezing the reference snapshot against the DCC line and resuming porting from that document's own change list — `OUTSTANDING_WORK.md` §2.8's re-freeze row is no longer blocked on "which line," only on the mechanical work of choosing an exact target version and re-generating the frozen snapshot + function index.
+
+**Landmark state persists across save/reload.** Reverses the assumption every landmark row to date has shipped under ("regenerate on load, no save-tree slot"). Real work: a save-format addition (an `entities/landmarks.json`-shaped slot, following the conflicts/journeys precedent), plus deciding what "state" actually means per landmark (a name the player gave it, at minimum — `research §25`'s discovered/named/monumentalized states are the fuller shape, not yet scoped in detail).
+
+**Province-level territory assignment: not now.** The lasso stays faction-only; no work authorized here.
+
+**The 16K/32K single-image export: resume it.** Un-shelves `EXPORT_SCOPE.md`'s batches B–D. Still gated on the two sub-questions the backlog named (five scope questions — content types, label/road/river detail, settlement filters, UI-freeze tolerance; and the codec/size tradeoff, where nothing makes a 32K file small and the one compressed option is blocked by licensing) — **not answered by this ruling**, raise them as their own batch when this is picked up rather than guessing.
+
+**Multi-ridge mountain ranges ("the Himalaya problem"): scheduled.** The spec contradiction blocking it (`RC_ENGINE_CHANGES.md` §6b.2 vs §9) was resolved 2026-09-21; this ruling is the scheduling authorization that row's own text said it still needed. Large (multi-sheet orogenic belt geometry) — a multi-batch feature, not a single dispatch.
+
+**Snow gets an aspect (slope-direction) term.** Reverses LOD-D4's declined golden re-baseline. A real, visible change to the main map's `materialWeights` snow term, not just LOD tiles — every existing snowy mountain's rendered look changes. Scheduled, not yet built.
+
+**Asset library images: embedded in the save file.** Real save-format work — the library currently persists item definitions with no image payload at all.
+
+**Crater model constants: kept as they are.** No work authorized — this closes the question rather than opening a task. The port's independently-derived constants stay; re-deriving to match the reference exactly was declined.
+
+**IN-13 caravans: the derived view.** One row per way with active trade load, nothing persisted, rebuilt from the live trade match every time — not a saved entity with its own refresh rule. **Not yet resolved by this ruling**: whether a sea trade route counts as a "way" for this purpose or needs its own entity — Ruling AF's own text flagged this as "one more question, not yet asked"; it is asked now and **still open**, raise it before building the sea-lane case.
+
+**"Fixed size" map labels: fix them to actually stay fixed.** Confirms the already-flagged bug is a real defect, not intended behavior.
+
+**Landmarks become vault-linkable.** A new `cartalith_vault::EntityKind` variant, consistent with settlements and provinces. Identity is expected to be as weak as those two (derived, not stable across a regenerate) — that weakness is accepted, not a blocker.
+
+**The parity contract (`DECISIONS.md` §7a/§7d) does not apply to landmarks.** All landmark work is confirmed divergence-by-addition, tested for internal correctness and determinism rather than against a reference that never existed for this subsystem. Closes the question this file's landmark rulings (AL, and M9's own row) had been implicitly assuming but never formally settled.
+
+**The landmark viewshed budget: the conservative default already shipped stays.** No work authorized — M7's existing default is ratified as-is rather than replaced.
+
+**Landmark code stays in `cartalith-civ`.** No crate split authorized.
+
+**Not asked, disclosed here as builder's calls instead** (genuinely low-stakes, no other work depends on the answer): the ice/snow memory-budget doc ambiguity (`≤10 MiB` — read as the binary/1024²-based convention, the stricter reading) and map-thumbnail hillshade (left flat, as already decided — nobody has asked for it since). GPU memory pooling's VRAM-retention question stays open with its own filed reopen trigger (`OUTSTANDING_WORK.md` §2.6); not urgent enough to ask about today.
