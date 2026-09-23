@@ -24,6 +24,10 @@ mod multi;
 mod affordance;
 pub use affordance::*;
 
+/// `HARDWARE_ACCELERATION.md` §4's `ComputeTier` classifier.
+mod tier;
+pub use tier::*;
+
 /// Shared by this crate's unit tests and by `tests/multi_gpu.rs`, which pulls
 /// the same file in with `#[path]`. Test-only, so it never reaches the crate's
 /// public surface.

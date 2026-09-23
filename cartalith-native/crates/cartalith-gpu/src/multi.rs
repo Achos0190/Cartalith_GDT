@@ -51,6 +51,8 @@ pub struct AdapterRow {
     pub max_buffer_size: u64,
     pub max_storage_buffer_binding_size: u64,
     pub supports_compute: bool,
+    /// The adapter's full `limits()`, for [`crate::classify`].
+    pub limits: wgpu::Limits,
 }
 
 /// One physical GPU, with every backend that reaches it folded in.
@@ -99,6 +101,8 @@ pub struct GpuDeviceInfo {
     /// path opened the Basic Render Driver and ran the whole pipeline on it,
     /// silently, instead of taking the CPU path.
     pub is_software: bool,
+    /// The preferred backend's full adapter `limits()`, for [`crate::classify`].
+    pub limits: wgpu::Limits,
 }
 
 impl GpuDeviceInfo {
@@ -232,6 +236,7 @@ pub fn group_adapters(rows: Vec<AdapterRow>) -> Vec<GpuDeviceInfo> {
                 max_storage_buffer_binding_size: best.max_storage_buffer_binding_size,
                 supports_compute: best.supports_compute,
                 is_software: best.device_type == wgpu::DeviceType::Cpu,
+                limits: best.limits,
             }
         })
         .collect();
@@ -365,6 +370,7 @@ fn describe_adapter(a: &wgpu::Adapter) -> AdapterRow {
         max_buffer_size: limits.max_buffer_size,
         max_storage_buffer_binding_size: limits.max_storage_buffer_binding_size,
         supports_compute: a.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::COMPUTE_SHADERS),
+        limits,
     }
 }
 
@@ -1221,7 +1227,7 @@ impl RawGpuDevice {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// `READBACK_FAILURES` is one process-wide static, and `cargo test` runs
@@ -1233,7 +1239,7 @@ mod tests {
     /// secondary failure.
     static READBACK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    fn readback_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    pub(crate) fn readback_test_guard() -> std::sync::MutexGuard<'static, ()> {
         READBACK_TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
@@ -1270,6 +1276,7 @@ mod tests {
             max_buffer_size: 1 << 31,
             max_storage_buffer_binding_size: u64::from(u32::MAX) - 3,
             supports_compute: true,
+            limits: wgpu::Limits::default(),
         }
     }
 
