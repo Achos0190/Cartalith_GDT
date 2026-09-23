@@ -4,7 +4,7 @@
 > does not track them.** Where any milestone stands, and whether a blocker
 > named below still holds, is recorded only in
 > `cartalith-native/docs/STATUS.md`. Read this file for what a milestone *is*,
-> what it must not break, and why §2's seven disagreements were resolved the
+> what it must not break, and why §2's eight disagreements were resolved the
 > way they were.
 
 `ROADMAP.md` carried the Markdown Vault under "Options kept open, not
@@ -97,8 +97,10 @@ one makes the data carry one. §4 says what the design does about that.
 
 `civ_tools_bridge.rs`'s module doc, `GUI_GAP_REGISTER.md` CV-01 and
 `place_editor_window.gd`'s own footer all record POI as an unported concept.
-`cartalith_vault::links::EntityKind` therefore has three variants and no `Poi`,
-and the enum's doc comment says why. §3 of the design lists POIs and region
+`cartalith_vault::links::EntityKind` therefore has no `Poi` variant, and the
+enum's doc comment says why. (Its variants are the three this audit found
+plus faction, culture and landmark — §2's first row.) §3 of the design lists
+POIs and region
 labels; §35's criteria 6 and 7 ("attach a specific section to a POI", "attach a
 region document to a region") are **not satisfiable in this port** and are
 listed as such in §6 below.
@@ -113,8 +115,8 @@ resolved rather than left open.
 
 | Design | This port | Resolution |
 |---|---|---|
-| §3 entity scope includes **POIs** and **region labels** | Neither is a ported concept | Not built. `EntityKind` covers settlement/province/continent, and **faction** (CV-22) and **culture** (CV-02) were both added on 2026-08-25 — §3's own "add a kind later without redesigning the storage model" requirement is therefore not a claim but a measured one: each was a variant, an `as_str` arm, a `parse` arm and an `entity_values` arm. |
-| §26 puts `knowledgeLinks` **inside the Cartalith project save** | *When this audit was taken*, the only save path was the reference HTML app's own `.zip` (`SAVEFILE_COMPAT.md`), which carries **no civ layer at all** — `WorldGen::load_save`'s own doc says `get_settlements()` comes back empty | Links live in the project archive's `vault.json` slot, written by `project_bridge.rs`'s `SLOT_VAULT` from `LinkStore::to_json()` and read back by `project_open` through `LinkStore::from_json`. `user://markdown_vault.json` (`vault_store.gd`) keeps the device binding, and the links only for a session with no project open. **That sentence used to end at `vault_store.gd` and it was the whole story;** it stopped being so when milestone 3 landed. A link written into a save that carries no civ layer comes back pointing at a `tid` that no longer exists. **Milestone 3** below is the change that makes §26 possible — and its precondition is a save format that carries the layer, which is a property of whichever format is current, not of the one recorded here. |
+| §3 entity scope includes **POIs** and **region labels** | Neither is a ported concept | Not built. `EntityKind` covers settlement/province/continent, and **faction** (CV-22) and **culture** (CV-02) were both added on 2026-08-25 — §3's own "add a kind later without redesigning the storage model" requirement is therefore not a claim but a measured one: each was a variant, an `as_str` arm, a `parse` arm and an `entity_values` arm. **Landmark** is the sixth kind, by owner ruling 13 (2026-09-06), re-affirmed by **Ruling AP** (2026-09-23) with its weak identity accepted (§4); it needed one thing more than the other two, a derived integer id, because a landmark's identity is a string (`links::landmark_entity_id`). A POI and a generated landmark are different things: the landmark is `cartalith_civ::landmark`'s output, not the unported POI concept. |
+| §26 puts `knowledgeLinks` **inside the Cartalith project save** | *When this audit was taken*, the only save path was the reference HTML app's own `.zip` (`SAVEFILE_COMPAT.md`), which carries **no civ layer at all** — `WorldGen::load_save`'s own doc says `get_settlements()` comes back empty | Links live in the project archive's `vault.json` slot, written by `project_bridge.rs`'s `SLOT_VAULT` from `LinkStore::to_json()` and read back by `project_open` through `LinkStore::from_json`. `user://markdown_vault.json` (`vault_store.gd`) keeps the device binding, and the links only for a session with no project open. A link written into a save that carries no civ layer comes back pointing at a `tid` that no longer exists. **Milestone 3** below is the change that makes §26 possible — and its precondition is a save format that carries the layer, which is a property of whichever format is current, not of the one recorded here. |
 | §23 rule 2: *"user content outside the block is immutable"* | The owner's 2026-08-18 amendment adds field population into the author's own template | Both mechanisms exist and are separated by policy, not by hope: the delimited block is machine-owned and regenerated unattended; author-field population is `FieldFill::OnlyIfEmpty` by default, previewed, confirmed, and **reports "skipped, you had already filled it"** rather than overwriting. `markdown::fill_field` is the one place that can write outside the block, and it refuses an occupied field. This is the reconciliation the design's header asked whoever wrote this document to make. |
 | §11 offers `TextRange` and `MarkdownBlock` selections | — | Not built, and this is a correctness decision rather than a scope cut. A byte offset stops pointing at the right paragraph the moment the author edits the text above it, and a block reference (`^abc123`) is an Obsidian construct the owner's clarification put out of core. V1 ships the two selections §11 itself prioritises: whole document and heading section. |
 | §19's Geography group wants a **continent** field on a settlement | Answering "which landmass is this cell on" needs the per-cell component raster | Not offered. `civ_continents` deliberately keeps no raster — 268 MB at this port's 8192² ceiling for a lookup nothing else performs (`MEMORY_OPTIMIZATION_SCOPE.md`'s standing objection to exactly that shape). Filling it from bounding-box containment would be a guess, and a wrong one wherever two boxes overlap. |
@@ -135,6 +137,9 @@ resolved rather than left open.
 | `cartalith-vault::links` | `KnowledgeLink`, `LinkStore`, the six status states |
 | `cartalith-vault::provider` | `FsVault`: bounded listing, path containment, atomic writes |
 | `cartalith-vault::export` | The exportable-field registry and the block renderer |
+| `cartalith-vault::backlinks` | Backlinks and unlinked mentions (`GUI_GAP_REGISTER.md` VA-01) — the index milestone 6's content search reads |
+| `cartalith-vault::template` | Creating a note from one of the author's own templates (VA-02) |
+| `cartalith-vault::chronos` | A note's authored, dated events as ` ```chronos ` blocks in the Chronos Timeline plugin's exact syntax — owned by `STORY_PLANNING_SCOPE.md` SP-3 and `LARGE_ITEM_RULINGS.md` Ruling AM, not by a milestone here |
 | `cartalith-vault::links::ImportedData` | Milestone 6: the note's information copied into Cartalith's own JSON |
 | `cartalith-vault::WritePrefs` | Milestone 6: the *confirm always* choices, device-scoped |
 | `cartalith-godot/src/vault_bridge.rs` | The `#[func]` surface, and turning a Cartalith entity into values |
@@ -154,7 +159,8 @@ and it touches no Godot type.
 
 ## 4. The identity problem, and what the design does about it
 
-Three entity kinds, three different strengths of id:
+The audit's three entity kinds had three different strengths of id, and the
+three added since have their own:
 
 | Entity | Key | Survives a rename/move | Survives `civ_recompute()` | Survives a regenerate | Survives save/load |
 |---|---|---|---|---|---|
@@ -163,13 +169,26 @@ Three entity kinds, three different strengths of id:
 | Continent | rank by area | Yes | Yes (terrain unchanged) | No | No |
 | Faction | roster row index | Yes | Yes | No | No |
 | Culture | `CIV_CULTURES` index | **Yes** | **Yes** | **Yes** | **Yes** |
+| Landmark | `Landmark::key()` (`kind@x,y`) through `links::landmark_entity_id` | No name to change; a terrain edit that moves the feature is a new key | Not touched by it; the key survives a landmark re-run at the same seed, a cap change and a disarmed kind | No, not at a different seed | Reference `.zip`: no (`load_save` invalidates the run). Project archive: yes — `LandmarksDoc` restores the last run |
+
+**The landmark row** came with ruling 13 (2026-09-06), and **Ruling AP**
+(2026-09-23) accepted its weakness as not a blocker. It is the one kind whose
+id the engine did not issue — `Landmark::id` is a position in one run's list —
+so the id is derived from the key, and the resolver walks the run recomputing
+keys rather than indexing. It is also the one kind whose target may simply not
+be in the current run; that is an absent entity, never an error and never a
+deletion (`links.rs`, `EntityKind::Landmark`).
 
 **The last column was answered against the save path of the day** — the
 reference HTML app's `.zip`, which carries no civ layer, so nothing keyed on a
 generated entity could survive it. That column is a property of whatever save
 format is current rather than of the id designs beside it, and it is the one
-column here to re-read against the code instead of against this page. The other
-four are properties of the ids themselves and do not move.
+column here to re-read against the code instead of against this page — the
+project archive now carries `entities/settlements.json`, `provinces.json`,
+`continents.json` and `factions.json`, and the settlement, province,
+continent and faction rows have not been re-answered against it. The landmark row, added after the archive existed,
+answers for both formats. The other four columns are properties of the ids
+themselves and do not move.
 
 The last row is the exception that proves the rule: a culture's id is an index
 into a **compile-time** table of seven, identical in every world, so a culture
@@ -227,7 +246,13 @@ The `cartalith-vault` crate, its bridge, and the panels. Specifically:
   same call with a different path.
 - **Browse** (§9) — bounded, sorted, dot-directories skipped, no file opened by
   the listing. §31's "do not load the entire vault into memory" is a property
-  of the walk, not a promise.
+  of the walk, not a promise. **The standalone browser's layout** —
+  `vault_window.gd::open_browse()`, a folder tree beside a structured preview —
+  has one design authority: the owner-approved **Vault Browser** mockup,
+  `https://claude.ai/artifact/9pappbCh7Y5Txmq3QpYBfS` (a Design canvas, one
+  interactive 1280 × 800 artboard), approved 2026-09-21 (`ddaa0b1`). The
+  browser was rebuilt to its frame on 2026-09-23 (`3736fe7`, which measured
+  the tree column at 300 px).
 - **Attach** (§11-§13) — whole document or one heading section, validated at
   attach time: a section that does not exist, or whose title is duplicated in
   the file, is refused rather than becoming a link that can never be read.
@@ -274,19 +299,30 @@ of a session with no project open, which has no archive to write them to.
 While a project *is* open the archive owns them and the sidecar's `store`
 half is dropped, once the pre-project copy is safely aside.
 
-The one thing this milestone is **not** finished on is stated where it can
-be acted on rather than here: `project_bridge.rs` gates the whole
-`vault.json` write on `!store.links.is_empty()`, and §21's snapshots are
-keyed by entity rather than by link, so a project whose only vault state is
-a generated map writes no document and loses it. `LinkStore::is_empty()`
-(`links.rs`) is the predicate that question actually wants, and its own doc
-comment carries the reasoning.
+**Whether there is anything to write is a question for the whole store.**
+`project_bridge.rs` gates the `vault.json` write on `LinkStore::is_empty()`,
+which asks every member the store holds — links, vaults and snapshots. It
+first asked `store.links.is_empty()` alone, and because §21's snapshots are
+keyed by entity rather than by link, a project whose only vault state was a
+generated map wrote no document and lost it (`MISTAKES.md`: gate a write on
+the whole aggregate). `LinkStore::is_empty()`'s own doc comment carries the
+reasoning.
 
 ### Milestone 4 — the Android provider (§6)
 
 Storage Access Framework: a tree URI, a persisted permission grant, and a
 provider implementation beside `FsVault`. Cross-device vault identity (§35
 criterion 2) is designed for and unverified until this exists.
+
+### Milestone 5 — the conflict UI (§14's *Compare*)
+
+§14's three-way prompt is *Compare*, *Reload source* and *Keep current copy*.
+Milestone 1 built the latter two and deliberately left Compare here, because
+this shell had no diff widget to build it on. The two it built are the two
+that cannot lose work, which is the right subset to have first. The one
+constraint Compare itself must keep: opening it must not clear a *Stale*
+status, so it reads the file and previews the working copy rather than
+reloading the link (`vault_window.gd::_compare_link()`).
 
 ### Milestone 6 — search, the note as data, culture, and "confirm always"
 
@@ -302,23 +338,21 @@ The owner's direction, verbatim:
 Four requirements. This pass (2026-08-25) was the **Rust half**: the engine,
 the `cartalith-vault` crate and the `#[func]` surface. The panel work — a
 search field, a culture picker, a "note says" readout and the *don't ask
-again* checkbox — was scoped as a separate pass.
+again* checkbox — was scoped as a separate pass. Its four pieces are search
+(`vault_window.gd::_build_search()` over `engine_bridge.gd`'s
+`vault_search`), the "note says" readout (`_build_note_data()` /
+`_build_entity_data()`), the three don't-ask-again checkboxes
+(`_build_write_prefs()`), and the culture picker —
+`civilization_workspace.gd`'s `_knowledge_row(…, "culture", …)`, which opens
+the vault scoped to a culture.
 
-**Corrected 2026-09-06**: that separate pass mostly landed since. Three of
-the four panel pieces are real, in `vault_window.gd`: search
-(`_build_search()` over `engine_bridge.gd`'s `vault_search`), the "note says"
-readout (`_build_note_data()`/`_build_entity_data()`), and the three
-don't-ask-again checkboxes (`_build_write_prefs()`).
-
-**All four are real.** A correction written here on 2026-09-06 claimed the
-culture picker was still missing, on the grounds that *"no `_knowledge_row` call
-site in the shell passes `"culture"`"* — **that was false twice over**, and a
-verifier caught it the same day. `civilization_workspace.gd:2277` passes
-`"culture"` and has since `fd9de7c` (2026-09-01), opening the vault scoped to
-that entity; and no call site passes `"settlement"` at all, so the list of what
-it *does* pass was wrong too. The clause was copied from `STATUS.md`'s MV-6 row
-without grepping, and it re-opened a gap that had closed five days earlier.
-**`STATUS.md`'s MV-6 row is the stale party here and needs the same correction.**
+**A correction here once re-opened a closed gap.** On 2026-09-06 this section
+claimed the culture picker was still missing, because *"no `_knowledge_row`
+call site in the shell passes `"culture"`"*. That was false twice over: the
+culture call site had existed since `fd9de7c` (2026-09-01), and no call site
+passed `"settlement"`, so the list of what they *did* pass was wrong too. The
+clause had been copied from `STATUS.md`'s MV-6 row without grepping; a
+verifier caught it the same day.
 
 Still outside `DECISIONS.md` §7d's contract, for the reason §0 of this
 document already gives: nothing in `reference/Cartalith Gen1 v2.10.html` links
@@ -363,17 +397,12 @@ as well as textual. Nothing was removed and no existing behaviour moved.
 
 **1. Where does the copied JSON live?** In `LinkStore`'s existing JSON, on the
 link it belongs to. That is deliberately **not** a new persistence path: it
-~~rides whatever carries the link store, so when the save-format restructure
-lands (milestone 3, unblocked by the owner's 2026-08-25 ruling that saving is
-strictly the new format) the copy moves with the links and needs no separate
-home.~~ — **corrected 2026-09-06**: milestone 3's blocker lifted with
-2026-08-25's ruling and the milestone itself shipped 2026-09-02 in `4ec07f5`
-(`STATUS.md`'s MV-3 row; §2's table above already reflects it). The
-prediction held: the copy rides whatever carries
-the link store, so it moved with the links into `project_bridge.rs`'s
-`SLOT_VAULT` for a project's own save, with no separate home ever needed.
-Nothing was parked in a private file and nothing was invented for the
-device sidecar to hold.
+rides whatever carries the link store. The design predicted that when
+milestone 3 moved the links into the project archive (unblocked by the
+owner's 2026-08-25 ruling that saving is strictly the new format), the copy
+would move with them and need no separate home — and it did: it travels
+with the links in `project_bridge.rs`'s `SLOT_VAULT`. Nothing was parked in a
+private file and nothing was invented for the device sidecar to hold.
 
 **2. Every copied value is a string, and that is load-bearing.**
 `population: 8420` is stored as the five characters `"8420"`. Two reasons, one
@@ -497,13 +526,6 @@ Twelve new tests, each shaped to reach the code rather than to pass:
    by a user when it landed. The `#[func]` list it produced is in the retired
    `cartalith-native/docs/CHANGELOG.md`.
 
-### Milestone 5 — the conflict UI (§14's *Compare*)
-
-§14's three-way prompt is *Compare*, *Reload source* and *Keep current copy*.
-Milestone 1 built the latter two and deliberately left Compare here, because
-this shell has no diff widget to build it on. The two it built are the two
-that cannot lose work, which is the right subset to have first.
-
 ---
 
 ## 6. `MARKDOWN_VAULT_INTEGRATION.md` §35, criterion by criterion
@@ -520,7 +542,7 @@ scoreboard — whether a milestone has met its criteria is in
 | 3 | Browse Markdown files | Milestone 1 |
 | 4 | Open a Markdown file | Milestone 1 |
 | 5 | Attach a complete file to a settlement | Milestone 1 |
-| 6 | Attach a specific section to a **POI** | **Not satisfiable in this port** — POI is not a ported concept (§1). Sections attach to settlements, provinces, continents, factions and cultures instead |
+| 6 | Attach a specific section to a **POI** | **Not satisfiable in this port** — POI is not a ported concept (§1). Sections attach to settlements, provinces, continents, factions, cultures and landmarks instead |
 | 7 | Attach a region document to a **region** | **Not satisfiable as written** — there is no "region" entity. Provinces and continents are this port's nearest real equivalents and both are addressable |
 | 8 | Import text into Cartalith | Milestone 1 for the prose; **milestone 6** widens it so the note's frontmatter and template fields import as *data* too, not only as prose |
 | 9 | Edit the imported text locally | Milestone 1 |
@@ -543,7 +565,8 @@ scoreboard — whether a milestone has met its criteria is in
 Because there is no golden fixture to match, the evidence is round-trip and
 non-destruction, at three levels.
 
-**`cartalith-vault`, 41 unit and integration tests.** The load-bearing ones:
+**`cartalith-vault`, 41 unit and integration tests at milestone 1** (the crate
+has grown well past that since). The load-bearing ones:
 
 - `replacing_a_section_with_its_own_text_is_a_byte_identical_round_trip` —
   including the last section, which has no trailing sibling to bound it.
@@ -572,7 +595,7 @@ fixture whose every number the fixture states: rank order, exact bounding
 boxes, exact centroid, plurality-faction naming, determinism, the empty-ocean
 case, and `a_continent_is_not_named_after_the_first_settlement`.
 
-**`_vault_probe.gd`, 54 end-to-end checks** — the real app, the real shell, a
+**`_vault_probe.gd`, 54 end-to-end checks at milestone 1** — the real app, the real shell, a
 real generated world, and a **real folder of real Markdown files on disk**.
 Headless and windowed, both green. It generates a world, asserts continents are
 ranked and named and bounded, writes a hand-authored note with frontmatter and

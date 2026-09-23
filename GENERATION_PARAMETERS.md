@@ -29,67 +29,48 @@ tables — `PARAMS` (key, group, kind, range, step, label, unit,
 in the reference's own `state` object, `""` when it does not) — not retyped
 by hand or copied from an earlier revision of this file. To regenerate it:
 `grep -c "ParamSpec { key:" crates/cartalith-godot/src/params.rs` for the row
-count (**85** as of 2026-09-02 — see the note below on why this moved twice in
-one session), then walk `PARAMS` in file order for the per-row facts and
-`JS_PATHS` for which keys are genuinely this port's own. **The two "has no
-reference" signals are not the same question** and both are recorded below,
-per row, rather than collapsed into one: `reference_control: ""` means the
-reference never gave a user a *control* for the field (the field can still
-exist in `state`, e.g. `climate.current_k` does); `JS_PATHS` carrying `""`
-means the reference has **no such field at all**, not even internally — the
-stronger claim, and the one that answers "does this parameter have a
-reference counterpart". As of this regeneration, 15 keys are in the second,
-stronger category: `use_gpu`, `volc.exclude_transform`, `passes.velocity`,
-`passes.glacial`, `passes.coastal`, `passes.hillslope`, `passes.diffuse_d`,
-`passes.diffuse_passes`, `passes.sediment_fill`, `passes.sediment_capacity`,
-`passes.tidal_k`, `climate.terrain_wind_deflection`, `climate.wind_manual`,
-and the two newest members this lane's own reconciliation was scoped to,
-`crater.physical_model` and `crater.surface_age_myr` (`DECISIONS.md` §7l,
-2026-09-02 — the reference has no crater density model and no geological
-surface-age concept to hang a save path off).
+count (**99** on 2026-09-23), then walk `PARAMS` in file order for the
+per-row facts and `JS_PATHS` for which keys are genuinely this port's own.
 
-**The count moved twice while this document was being regenerated, which is
-itself worth recording.** This lane's task was scoped to two rows
-(`crater.physical_model`, `crater.surface_age_myr`, taking the table from 81
-to 83), but `params.rs` gained an 85th row, `volc.exclude_transform`, from a
-concurrent change in this same tree while this pass was underway (`DECISIONS.md`
-§7l's crater precedent, cited directly in that field's own doc comment as the
-reason it is *not yet* turned on — see the `volcanism` table below). Regenerated
-against the file as it stood when this pass finished, not as it stood when the
-task was assigned — a document that mechanically reflects `params.rs` has to
-track whichever version is actually on disk, and 85 is that version's true
-count. If another concurrent change lands after this, re-run the same grep
-rather than trust this number.
+**The two "has no reference" signals are not the same question**, and both
+are recorded per row rather than collapsed into one. `reference_control: ""`
+means the reference never gave a user a *control* for the field (the field
+can still exist in `state`, e.g. `climate.current_k` does). `JS_PATHS`
+carrying `""` means the reference's saved `state` has **no path** for the
+key — the stronger claim. **30** keys carry `""` (the `JS_PATHS` entries
+with an empty path, counted 2026-09-23): `integrate_drainage`, `use_gpu`,
+`volc.exclude_transform`, `volc.edifice_model`, `crater.physical_model`,
+`crater.surface_age_myr`, nine `passes.*` keys (`velocity`, `glacial`,
+`coastal`, `hillslope`, `diffuse_d`, `diffuse_passes`, `sediment_fill`,
+`sediment_capacity`, `tidal_k`), `climate.terrain_wind_deflection`,
+`climate.wind_manual`, and all 13 `civ.*` keys. The reasons differ by row and
+`params.rs`' comment on each `JS_PATHS` entry carries them. Two groups are
+worth naming: the `civ.*` keys exist in the reference only outside `state` —
+module-level `let`s it marks *not serialized*, JS constants, and DOM inputs —
+so the reference loses all of them on every reload; and `integrate_drainage`
+has no path **deliberately**, because the source's own key,
+`hydro.integrate`, post-dates both frozen snapshots and a one-key `hydro`
+object would replace a newer source's whole block through `loadZip()`'s
+shallow `Object.assign`. Both travel in `state.cartalith` only.
 
-**Cross-check against `world_workspace.gd`'s own header count, and it does
-not currently agree.** That file's header comment was corrected from a stale
-"58 parameters" to "81 parameters" in an earlier pass (its own text: `grep -c
-"ParamSpec { key:"`). Four rows landed after that correction — the two
-crater ones this lane was scoped to, plus `volc.exclude_transform` and `volc.edifice_model` from
-concurrent changes — so the real count moved to 85 while the comment stayed at
-81. That comment is now itself four rows behind, the same drift this document
-just went through. Not fixed here: `world_workspace.gd` is outside this
-lane's owned files; flagged so whoever owns it next can re-run the same grep.
+**Re-run the grep rather than trust a count written here — this one has
+drifted every time.** It moved twice *during* the 2026-09-02 regeneration
+(81 → 83 → 85, as concurrent changes landed mid-pass; a document that
+mechanically reflects `params.rs` tracks whatever is on disk when it
+finishes). By 2026-09-23 the tables had fallen 14 rows behind — 85
+(6+3+6+13+9+28+9+11 by group) against the code's 99, because the 13-row
+`civ` group (`LARGE_ITEM_RULINGS.md`, owner 2026-08-31) had never been
+written up and `integrate_drainage` (owner-authorised 2026-09-22) had landed
+in the `world` group with no row here. The stage-by-stage audit near the end
+added both. **`world_workspace.gd`'s header comment carries the same count
+and is behind too** — it reads "85 parameters" (line 10, checked
+2026-09-23); it is outside this document's regeneration surface, so it is
+flagged here rather than edited.
 
-**Regenerated again, 2026-09-23, as the stage-by-stage audit `OUTSTANDING_WORK.md`
-§2.5 asked for.** `grep -c "ParamSpec { key:" params.rs` now reads **99**, not
-85 — the civ group (13 rows, `LARGE_ITEM_RULINGS.md`, owner 2026-08-31) had
-never been written up in this document at all until this pass added the
-"Group `civ`" section below, and one further row, `integrate_drainage`
-(owner-authorised 2026-09-22), had landed in `PARAMS`' `world` group without a
-matching row here either — both are real, checkable gaps, not a rounding
-error: this document's own tables, summed by hand against `params.rs`,
-carried 86 rows the day before this pass (7+3+6+13+9+28+9+11, every non-civ
-group already exact) against the code's 99. `world_workspace.gd`'s header
-comment (line 10, "85 parameters") is now **14** rows stale on the same
-count and was left uncorrected for the same out-of-lane reason as the
-paragraph above — flagged here again rather than silently fixed.
-
-Every row below now also carries two new columns, **Stage(s) that read it**
-and **Live-apply**, which is the actual content `OUTSTANDING_WORK.md` §2.5
-asked this document to carry and which it did not have before this pass —
-see "Stage-by-stage pipeline audit (2026-09-23)" near the end of this
-document for the method and the findings.
+Every row also carries **Stage(s) that read it** and **Live-apply**, the
+columns `OUTSTANDING_WORK.md` §2.5 asked this document to carry — see
+"Stage-by-stage pipeline audit (2026-09-23)" near the end for the method and
+the findings.
 
 ## What changed
 
@@ -108,10 +89,10 @@ them) — those are now thin sugar over the same storage, so the two surfaces
 cannot disagree.
 
 **That 58 is this section's own historical snapshot, not the current total.**
-27 rows were added in later passes — most recently `volc.exclude_transform`,
-`volc.edifice_model`, `crater.physical_model` and `crater.surface_age_myr` (`DECISIONS.md` §7l,
-2026-09-02) — bringing the table to **85** as of this regeneration. The
-tables below are the current 85, not the 58 this paragraph describes.
+Later passes added the manual erosion passes, the crater and volcano
+divergences of `DECISIONS.md` §7l, `integrate_drainage` and the `civ` group;
+the current count is the one at the top of this document, and the tables
+below carry every current row.
 
 ## The API
 
@@ -125,7 +106,7 @@ reader of either side finds the other without a lookup table.
 | `get_params() -> Dictionary` | Every parameter's **current** value, keyed by dotted key. `bool` for checkbox parameters, `int` for whole-number ones, `float` otherwise. |
 | `get_param_defaults() -> Dictionary` | The same shape at `WorldParams::defaults` — what a "reset to default" control shows. Never affected by this instance's state. |
 | `get_param_info() -> Dictionary` | key -> `{group, type, default, min, max, step, label, unit, reference_control}`. Everything a dialog needs to build a control, so no range/step/label is hardcoded twice. |
-| `get_param_groups() -> PackedStringArray` | `["world", "planet", "world_structure", "tectonics", "volcanism", "erosion", "climate", "weather", "civ"]` — the section order, each of the first eight matching a real panel heading in the reference's sidebar; `civ` is this port's own auto-populate group and has no reference panel of its own. **Corrected 2026-09-23**: this row omitted `civ` since the group was added (`LARGE_ITEM_RULINGS.md`, 2026-08-31) — `params::groups()` derives the list mechanically from `PARAMS`' first-appearance order, so the real return value has carried `civ` as a ninth entry the whole time this text said otherwise. |
+| `get_param_groups() -> PackedStringArray` | `["world", "planet", "world_structure", "tectonics", "volcanism", "erosion", "climate", "weather", "civ"]` — the section order, derived by `params::groups()` from `PARAMS`' first-appearance order. The first eight match a real panel heading in the reference's sidebar; `civ` is this port's own auto-populate group, with no reference panel. (This row omitted `civ` until 2026-09-23; the function has returned it since the group was added — the list is derived, and it is the text that drifts.) |
 | `set_params(values: Dictionary) -> Dictionary` | Applies a **partial** dictionary. Returns `{"rejected": PackedStringArray, "clamped": PackedStringArray}`. Both empty = every key applied exactly as sent. |
 | `reset_params() -> void` | Restores every parameter to its engine default. |
 | `get_gpu_stages_used() -> PackedStringArray` | Read-only: which GPU-eligible stages actually ran on GPU last generation. |
@@ -280,34 +261,35 @@ overshooting slider do nothing at all, which reads as a broken control.
 re-read `get_params()` for those keys and update the widget. If `"rejected"`
 is non-empty, that is a bug in the caller, not user error.
 
-## Zero behaviour change at defaults — with one owner-ruled exception
+## Zero behaviour change at defaults — except where an owner has ruled
 
 `WorldGen::params` is initialised to `cartalith_godot::params::defaults()`
 (**not** raw `cartalith_engine::WorldParams::defaults(0, 0, 0)` — the two used
 to be the same call and no longer are, see below), and `generate()` overwrites
 only `gw`/`gh`/`tect.seed`/`map_width_km` before calling `generate_terrain`.
 An instance nobody calls a setter on therefore builds a `WorldParams`
-byte-identical to the one the old code built inline, **except for the three
+byte-identical to the one the old code built inline, **except for the four
 fields below**.
 
-**The three deliberate divergences**, all owner rulings of 2026-09-02, all
-turned on in `params::defaults()` and all left `false` in
-`WorldParams::defaults` — the goldens' own parity baseline:
+**The four deliberate divergences**, each an owner ruling, all turned on in
+`params::defaults()` and all left `false` in `WorldParams::defaults` — the
+goldens' own parity baseline:
 
 | field | ruling | what it changes |
 |---|---|---|
-| `crater.physical_model` | `DECISIONS.md` §7l | craters from a physically-scaled area-density model, not the reference's fixed count |
-| `volc.exclude_transform` | §7l-ii, ruling 1 | shear-dominant cells drop out of the arc/rift pools; the measured 34.3%/32.3% transform contamination becomes 0.0% |
-| `volc.edifice_model` | §7l-ii, ruling 1 | shield/strato/cone edifices instead of one power-law profile at every scale |
+| `crater.physical_model` | `DECISIONS.md` §7l (2026-09-02) | craters from a physically-scaled area-density model, not the reference's fixed count |
+| `volc.exclude_transform` | §7l-ii, ruling 1 (2026-09-02) | shear-dominant cells drop out of the arc/rift pools; the measured 34.3%/32.3% transform contamination becomes 0.0% |
+| `volc.edifice_model` | §7l-ii, ruling 1 (2026-09-02) | shield/strato/cone edifices instead of one power-law profile at every scale |
+| `integrate_drainage` | owner-authorised 2026-09-22 (`RC_ENGINE_CHANGES.md` §6g/§6k) | flow and the channel tree route over the depression-filled surface, so water reaching a local pit carries on to the sea — the source's own default since v2.59 |
 
 Those defaults live at this one boundary specifically so the parity baseline
 underneath them stays untouched. Every other parameter is unaffected, and
 `tests/params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`
-asserts that — it neutralises exactly these three and requires the result to
-equal `WorldParams::defaults`, so a fourth divergence added without a ruling
+asserts that — it neutralises exactly these four and requires the result to
+equal `WorldParams::defaults`, so a fifth divergence added without a ruling
 fails there rather than being discovered later.
 
-**A fourth change of 2026-09-02 is not a divergence but does change behaviour**:
+**One further change of 2026-09-02 is not a divergence but does change behaviour**:
 §7l-ii ruling 2 made `passes.diffuse_d` the world's one hillslope diffusivity,
 which `cartalith_terrain::crater_degradation_tau` now reads. Its *default* is
 unchanged in both functions, so nothing above moves — but under
@@ -359,7 +341,7 @@ are the truth and both sit inside the reachable range.
 | `peak_m` | `peak_m` | float | `4000` | 1 .. 30000, step 50 | `peak` (number input, min 1 step 50) | Metres at the highest point. Sets the vertical scale (`metresPerUnit = peakM/(1-seaLevel)`), which drives temperature lapse and every grade readout. | Volcanism & Impacts (edifice height scale), Climate (lapse/temperature scale) | Hydrology → `refresh_climate` |
 | `carve_rivers` | `carve_rivers` | bool | `true` | — | `carveRiversChk` | Runs the light stream-power pass plus parabolic valley stamping along the Strahler network inside `generate()`, so rivers sit in carved terrain instead of painted on a flat surface. Off → no channel topology at all. | Erosion, Hydrology (gates the whole carve block) | — full regenerate only |
 | `river_density` | `river_density` | float | `1.00` | 0.30 .. 3.00, step 0.05 | `riverDensR`, raw 30-300 step 5, `v/100` | Scales the channel-initiation drainage-area threshold. Higher = fewer, larger channels; lower = a denser network. (`state.viz.riverDensity` in the reference — a viz field that genuinely feeds generation.) | Hydrology (channel width/order), Civilisation (`fresh_river_network`) | Climate → `compute_civilisation` |
-| `integrate_drainage` | `integrate_drainage` | bool | `false`¹ | — | **—** | Routes flow accumulation and the channel tree over the **depression-filled** surface, so water that reaches a local pit carries on to the sea instead of stopping there. **This row was missing from this document entirely until this audit (2026-09-23)** despite existing in `PARAMS` since the row landed (owner-authorised 2026-09-22, `RC_ENGINE_CHANGES.md` §6g/§6k, the source's own default since v2.59). No reference control in v2.10/v2.11 — the source added `state.hydro.integrate` at v2.41, after both frozen snapshots. **`true` in the shipped app (`params::defaults()`), `false` in `WorldParams::defaults`**, the goldens' own parity baseline, which compares against a reference with no fill — same shape as the crater/volcanism divergences above. | Hydrology (depression-filled routing), Civilisation (`fresh_river_network`) | Hydrology → `refresh_climate` |
+| `integrate_drainage` | `integrate_drainage` | bool | `false`¹ | — | **—** | Routes flow accumulation and the channel tree over the **depression-filled** surface, so water that reaches a local pit carries on to the sea instead of stopping there. Owner-authorised 2026-09-22 (`RC_ENGINE_CHANGES.md` §6g/§6k; the source's own default since v2.59). No reference control in v2.10/v2.11 — the source added `state.hydro.integrate` at v2.41, after both frozen snapshots. **`true` in the shipped app (`params::defaults()`), `false` in `WorldParams::defaults`**, the goldens' own parity baseline, which compares against a reference with no fill — same shape as the crater/volcanism divergences above. | Hydrology (depression-filled routing), Civilisation (`fresh_river_network`) | Hydrology → `refresh_climate` |
 | `use_gpu` | `use_gpu` | bool | `false` | — | `gpuToggle` | Runs plate assignment, domain warp, heterogeneity, the flexure/base blur, weather and flow accumulation on GPU where available, falling back to CPU **per stage** on any failure. **Not a performance-only switch**: per `DECISIONS.md` §7c the GPU noise primitive is a different hash function, so the same seed produces a different (still valid, still deterministic) world. Read `get_gpu_stages_used()` for what actually ran. | Tectonics, Volcanism & Impacts (warp/plate GPU paths), Hydrology, Climate (GPU dispatch selector) | — full regenerate only |
 
 ## Group `planet`
@@ -446,12 +428,13 @@ Stamped after the base height is built and normalized, before erosion.
 | `crater.physical_model` | `crater.physical_model` | bool | `false`¹ | — | **—** | `DECISIONS.md` §7l (owner ruling, 2026-09-02). Switches crater generation from `crater.count`'s fixed count to an area-density model: `lambda = R20·T·A·(20/Dmin)^b·I` (Poisson-drawn count, truncated `D⁻²` sizes over a resolution-aware `[Dmin, 400 km]`), so density is correct at every map scale instead of a slider whose meaning changes by 64,000,000× between a 5 km region and a 40,000 km world. The reference has neither a density model nor this flag — no reference counterpart at all, not just no control. | Volcanism & Impacts (dispatch: density-law vs. fixed count) | — full regenerate only |
 | `crater.surface_age_myr` | `crater.surface_age_myr` | float | `100.0` | 0.0 .. 4000.0, step 10.0 | **—** | Geological surface exposure age in **millions of years** — feeds `crater.physical_model`'s `T` term. **Not** the civilisation Timeline and **not** `crater.age`'s 0-1 morphological wear: three distinct clocks (`DECISIONS.md` §7l), six-plus orders of magnitude apart and not convertible. No reference counterpart: the reference has no geological-age concept to store one under. | Volcanism & Impacts (crater count AND `crater_degradation_tau`; inert unless `physical_model` on) | — full regenerate only |
 
-¹ All three flags share one shape, and the `Default` column gives
+¹ All four ¹-marked flags (`integrate_drainage` in the `world` group and the
+three above) share one shape, and the `Default` column gives
 `WorldParams::defaults`' value throughout this document: `false` restores the
 reference's own path byte-for-byte and is the goldens' parity baseline, while
-the **shipped app** defaults all three `true` at the
+the **shipped app** defaults all four `true` at the
 `cartalith-godot::params::defaults()` boundary (see "Zero behaviour change at
-defaults" below for why the two differ, and
+defaults" above for why the two differ, and
 `exactly_the_ruled_divergences_ship_at_the_app_boundary` for the enforced list).
 
 ## Group `erosion` — the stream-power pass, and the manual passes
@@ -519,12 +502,10 @@ does have a real reference slider and carries its reachable range.
 | `passes.tidal_flats` | `passes.tidal_flats` | bool | `false` | — | — (`#tidalFlatsBtn` is a button) | Run `applyTidalSedimentation` — submerged cells inside the spring tidal range accrete toward sea level, hardest where shallowest. **The seventh pass, and its toggle is doing two jobs.** The reference gates its button on a separately-built `tideField`, which only exists while `state.planet.tides.enabled` (Tides & intertidal zones) is checked — its own alert says so: *"Enable Tides (Planet → Tides) first."* This port has no separate enable: turning this toggle on **both** computes the tide field (`cartalith_climate::tides::compute_tide_field`, a single Earth–Moon-equivalent companion at this world's own `planet.g` — `PlanetParams` carries no moon roster) **and** runs the kernel, in one step. (`planet.tides.enabled` is this row's `JS_PATHS` **save-format** path — the closest the reference has, not a UI control of its own.) | Erosion | — full regenerate only |
 | `passes.tidal_k` | `passes.tidal_k` | float | `0.45` | 0.0 .. 1.0, step 0.01 | **—** | `applyTidalSedimentation`'s accretion rate. `0.45` is the reference's own default and its only caller's. No reference control — the reference never exposed this as a slider. | Erosion | — full regenerate only |
 
-**Droplet hydraulic erosion is still not exposed**, and is the one manual-pass
-gap left. `droplet_kernel` has existed since Phase 1 and has no parameters
-here; its `erodeFinish` tail (thermal pass + clamp + isostatic rebound) is a
-second orchestration to transcribe, and it was outside the passes wired above
-(now six: velocity, glacial, coastal, hillslope, sediment fill and tidal
-flats).
+**Droplet hydraulic erosion is the one manual pass not exposed** — the other
+seven (velocity, glacial, coastal, hillslope, evolve, sediment fill and tidal
+flats) are the rows above; see "Parameters the reference exposed that this
+port does not" for why.
 
 **One deliberate deviation, disclosed** (`CLAUDE.md`'s no-silent-deviation
 rule): the pass block ends with `erodeFinish`'s own `if(f<0)f=0; else
@@ -575,15 +556,13 @@ deplete.
 **Added to this document 2026-09-23** (the stage-by-stage audit below). `LARGE_ITEM_RULINGS.md`
 (owner, 2026-08-31): "five re-entrant `#[func]`s over an existing world, plus a civ `PARAMS`
 group." These 13 rows have existed in `PARAMS` and been reachable through `get_params()` /
-`set_params()` / `get_param_info()` since that ruling landed — they were simply never written up
-here, which is exactly the kind of drift `CLAUDE.md`'s "a document's claim about itself is a
-claim, not evidence" rule warns about (this file's own header claimed **85** total rows with zero
-of them from this group).
+`set_params()` / `get_param_info()` since that ruling landed; they were simply never written up
+here until then (see the count note at the top).
 
 **These are the first rows in `PARAMS` that `generate_terrain` does not read at all.** Their
 consumer is `compute_civilisation` (`cartalith-godot/src/lib.rs`), a separate function outside the
 engine's own ten `progress.rs` stages (Planet … Resources & Soils) — called once after
-`generate_terrain` on first generation, and re-entrantly by the five `civ_*` `#[func]`s
+`generate_terrain` on first generation, and re-entrantly by the ruling's five re-entrant `#[func]`s
 (`civ_populate`, `recompute_civilisation`, etc.) without re-running terrain generation at all. Every
 default below is the reference's own, so a default world's civ layer is unchanged by this group's
 existence.
@@ -595,7 +574,7 @@ existence.
 | `civ.recovery_phase` | `civ.recovery_phase` | int | `0` | 0 .. 4, step 1 | `civRecoveryPhase` | Post-collapse recovery stage: `0` Stable / `1` Survival / `2` Subsistence / `3` Regional / `4` Mature. `0` is a strict no-op; the reference's own `Math.max(0,Math.min(4,rp.value\|0))`. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
 | `civ.biome_k` | `civ.biome_k` | bool | `false` | — | `civBiomeKChk` | Biome carrying-capacity residual. Off is byte-identical to the pre-existing path (the reference's own `currentCarryingCapacity` short-circuits its correction at `biomeK:false`); on, also builds a wetland mask that feeds the correction. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
 | `civ.factions` | `civ.factions` | int | `6` | 1 .. 24, step 1 | **—** | How many factions settlement placement assigns into. The reference's `CIV_FACTIONS` array length (6 by default), edited there through `_civAddFaction`/`_civRemoveFaction` rather than a count dial — this port's superset. Floor `1` (0 would leave every settlement unclaimed, `assign_territory`'s sentinel); ceiling `24` is this port's own legibility judgement over `roster::civ_faction_color`'s well-defined-for-any-index hue walk. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
-| `civ.seed_thresh` | `civ.seed_thresh` | float | `0.42` | 0.10 .. 0.80, step 0.01 | **—** | `SETTLE_SEED_THRESH`: the suitability score (`[0,1]`) a cell must reach to seed a settlement. A reference **constant** (14568/6415) with no control. **Read only when `civ.fixed_counts` is off** — the Auto-populate count fields, when on, substitute `thresh:0.35` unconditionally (`civ_want_counts_seed_params`), so this dial is silently inert whenever fixed counts are enabled. Not currently surfaced anywhere in this document's per-row text before this audit. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert under `civ.fixed_counts`**) | Climate → `compute_civilisation` |
+| `civ.seed_thresh` | `civ.seed_thresh` | float | `0.42` | 0.10 .. 0.80, step 0.01 | **—** | `SETTLE_SEED_THRESH`: the suitability score (`[0,1]`) a cell must reach to seed a settlement. A reference **constant** (14568/6415) with no control. **Read only when `civ.fixed_counts` is off** — the Auto-populate count fields, when on, substitute `thresh:0.35` unconditionally (`civ_want_counts_seed_params`), so this dial is silently inert whenever fixed counts are enabled. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert under `civ.fixed_counts`**) | Climate → `compute_civilisation` |
 | `civ.seed_suppress_div` | `civ.seed_suppress_div` | float | `22.0` | 8.0 .. 60.0, step 1.0 | **—** | Divisor in the settlement-suppression radius `max(6, floor(gw / this))` (reference `Math.max(6,(GW/22)\|0)`, a constant with no control). Larger = smaller radius = denser packing. **Same `civ.fixed_counts` override as the row above** — verified at the symbol: `compute_civilisation` reads it only in the `None => (opts.seed_thresh, (gw as f64 / opts.seed_suppress_div.max(1.0)).floor().max(6.0))` arm of the `want` match. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert under `civ.fixed_counts`**) | Climate → `compute_civilisation` |
 | `civ.fixed_counts` | `civ.fixed_counts` | bool | `false` | — | **—** | The reference's five Auto-populate count inputs, switched on as a set (`CivParams::want_counts`). On, **overrides** `civ.seed_thresh`/`civ.seed_suppress_div` outright and cuts the centrality re-tiering loop to one pass. Off, the five `civ.n_*` counts below are read by nothing. An all-zero request falls back to automatic placement (the reference alerts and places nothing instead — this port has nobody to alert). | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
 | `civ.n_capital` | `civ.counts[0]` | int | `0` | 0 .. 50, step 1 | `civNCap` | Fixed capital count. Read only while `civ.fixed_counts` is on and at least one of the five counts is non-zero. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert unless `civ.fixed_counts`**) | Climate → `compute_civilisation` |
@@ -603,14 +582,6 @@ existence.
 | `civ.n_town` | `civ.counts[2]` | int | `0` | 0 .. 500, step 1 | `civNTown` | Fixed town count. Same gate as above. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert unless `civ.fixed_counts`**) | Climate → `compute_civilisation` |
 | `civ.n_village` | `civ.counts[3]` | int | `0` | 0 .. 1000, step 1 | `civNVil` | Fixed village count. Same gate as above. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert unless `civ.fixed_counts`**) | Climate → `compute_civilisation` |
 | `civ.n_hamlet` | `civ.counts[4]` | int | `0` | 0 .. 2000, step 1 | `civNHam` | Fixed hamlet count. Same gate as above. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert unless `civ.fixed_counts`**) | Climate → `compute_civilisation` |
-
-**`get_param_groups()` is stale against this table too**: `GENERATION_PARAMETERS.md`'s own "The
-API" section (below the "What changed" heading, near the top of this document) has listed the
-nine-groups-minus-`civ` set (`["world", "planet", "world_structure", "tectonics", "volcanism",
-"erosion", "climate", "weather"]`) since the parameter API first shipped. `params::groups()` derives
-the list mechanically from `PARAMS`' own first-appearance order and has returned `civ` as a real
-ninth group since the ruling above landed — the doc text was never updated to match. Corrected in
-the API table itself, dated, in this same audit pass.
 
 ---
 
@@ -687,22 +658,19 @@ the field — the whole inversion — is golden-parity tested bit-exact
 
 ## Parameters the reference exposed that this port does not
 
-Recorded so the gap is a decision, not an omission. Every one of these belongs
-to a pipeline stage `cartalith-engine` has not ported, not to a parameter that
-was skipped:
+Recorded so the gap is a decision, not an omission. Each is either a stage
+`cartalith-engine` has not ported, or a ported stage whose knobs have not
+been threaded through — never a parameter that was simply skipped.
 
-> **Update, 2026-08-23 — most of this list moved out of it; 2026-09-02
-> regeneration — tidal flats moved out too.** Velocity, glacial, coastal,
-> hillslope diffusion, sediment fill and evolve cycles are **exposed
-> parameters**, default-off, in the `erosion` group above ("The manual passes,
-> as parameters"); `GUI_GAP_REGISTER.md` §19 records the decision and
-> `DECISIONS.md` §7d licenses it. **Tidal flats (`passes.tidal_flats`,
-> `passes.tidal_k`) is also now exposed there** — this document's own earlier
-> claim that it wasn't (citing `GUI_GAP_REGISTER.md` **WW-07**, "no tide field
-> generated at all") had gone stale: `cartalith_climate::tides::compute_tide_field`
-> exists and `passes.tidal_flats`'s own toggle both builds that field and runs
-> the kernel, in one step (see the row above). What is left below is genuinely
-> still absent.
+Most of the original list has moved out of it. Velocity, glacial, coastal,
+hillslope diffusion, sediment fill and evolve cycles became **exposed
+parameters** on 2026-08-23, default-off, in the `erosion` group above ("The
+manual passes, as parameters"; `GUI_GAP_REGISTER.md` §19 records the
+decision, `DECISIONS.md` §7d licenses it). Tidal flats followed by
+2026-09-02, once `cartalith_climate::tides::compute_tide_field` existed —
+this list had kept citing `GUI_GAP_REGISTER.md` **WW-07**'s "no tide field
+generated at all" after that stopped being true. What is left below is
+still absent.
 
 - **Droplet hydraulic erosion** (`drops`, `estr`, `edep`, `ethr`, `etal`) —
   the reference's manual "Erode (droplet)" button. `droplet_kernel` has been
@@ -735,13 +703,12 @@ was skipped:
 ## Verification
 
 **The counts below are this section's own historical snapshot** (the pass
-that first exposed the parameter API), unrevised except for the one line
-marked. The table above is kept current by regenerating this whole document
-against `params.rs`'s `PARAMS`/`JS_PATHS` (see the derivation note near the
-top) — that is a stronger guarantee than re-typing a stale test count here
-would be, and this pass did not re-run the full suite (`cargo check
---workspace` only; see `STATUS.md`/git history for the current
-`cargo test --workspace` figure).
+that first exposed the parameter API), unrevised. The tables above are kept
+current by regenerating this whole document against `params.rs`'s
+`PARAMS`/`JS_PATHS` (see the derivation note at the top) — a stronger
+guarantee than re-typing a test count here — and the 2026-09-02
+regeneration did not re-run the full suite (`cargo check --workspace` only;
+see git history for a current `cargo test --workspace` figure).
 
 - `cargo test --workspace`: 83 test binaries (at the time of the original
   pass), all pass, 0 regressions, every golden-parity fixture unmodified.
@@ -756,12 +723,8 @@ would be, and this pass did not re-run the full suite (`cargo check
   World-Structure knobs) reachable.
 - `Godot_v4.7.1 --headless --quit main.tscn`: loads clean, extension
   initialises, `get_param_info()` returned **58** entries at the time of that
-  pass. **Corrected here**: as of this regeneration (2026-09-02) `PARAMS`
-  carries **85** rows (`grep -c "ParamSpec { key:" params.rs` — this moved
-  from 83 to 85 mid-regeneration; see the note near the top on why), so a
-  current `get_param_info()` call returns 85, not 58 — the number in this
-  bullet was never updated as later passes added rows, which is the exact
-  drift this regeneration exists to close.
+  pass. A current call returns one entry per `PARAMS` row — the count at the
+  top of this document, not 58.
 
 ## Stage-by-stage pipeline audit (2026-09-23)
 
@@ -806,8 +769,9 @@ For all **99** rows in `PARAMS` (`grep -c "ParamSpec { key:" params.rs`):
    comments (below).
 
 This was a manual/grep-based read-through, not a mechanical, self-verifying
-test the way `params_mapping.rs`'s `every_key_that_moves_refresh_climate_is_
-marked` already is for the `invalidates()`/Hydrology half. That test's
+test the way `params_mapping.rs`'s
+`every_key_that_moves_refresh_climate_is_marked_and_no_other` already is for
+the `invalidates()`/Hydrology half. That test's
 existence is why the climate/weather-group cross-check below is stronger
 evidence than the rest of this table: it is asserted in CI, not merely read
 once. **No equivalent mechanical test exists for "every `PARAMS` row is read
@@ -849,8 +813,8 @@ documented rather than being real defects:
      than re-discovered as new.
 
 **2. `invalidates()` (`params.rs`) agrees with the pipeline it claims to
-describe, on every row.** All 24 `climate.*`/`weather`-group rows map to
-`PipelineStage::Hydrology` and are genuinely read by `refresh_climate` (via
+describe, on every row.** All 20 `climate.*` rows (the `climate` and
+`weather` groups) map to `PipelineStage::Hydrology` and are genuinely read by `refresh_climate` (via
 freshly-rebuilt `ClimateParams`/`WeatherParams`, confirmed live per the
 Method section above — not a stale generation-time cache). `river_density`
 and all 13 `civ.*` rows map to `PipelineStage::Climate` (whose only real
@@ -881,12 +845,10 @@ audit's whole job is documentation): the `civ` group (13 rows) was entirely
 absent from this file, and `integrate_drainage` (1 row, landed 2026-09-22 —
 one day before this audit) was missing from the `world` group table. Both
 are now present with full rows, `Stage(s)`/`Live-apply` columns included.
-`world_workspace.gd`'s header comment ("85 parameters", line 10) is now 14
-rows stale on the same count and was **not** corrected here — it is a
-GDScript shell file outside this document's own regeneration surface, and
-`GENERATION_PARAMETERS.md`'s own established convention (see the "Cross-check
-against `world_workspace.gd`" paragraph near the top) is to flag that file's
-drift rather than reach into it from this pass.
+`world_workspace.gd`'s header comment ("85 parameters") is 14 rows stale on
+the same count and was **not** corrected here — it is outside this
+document's regeneration surface, and it is flagged in the count note at the
+top rather than edited from this pass.
 
 **4. No `invalidates()` mismatch found** — no row marks a stage that does not
 genuinely read it, and no row reads a stage's real live-apply input while

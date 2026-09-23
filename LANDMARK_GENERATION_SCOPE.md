@@ -5,18 +5,20 @@ verbatim, unedited, 2026-08-30. This document is the other half: it goes and
 finds out, crate by crate, which of the research's assumed inputs were real in
 this engine, separates what would be genuinely new work from what is
 composition of things that already exist, and lays out an order to build in.
-It is an **inventory and a plan**: it defines M1-M9 and poses §4's open
-questions. Every claim in §1 was checked against the workspace with
-`file:line` on **2026-08-30**, the same discipline `URBAN_MORPHOLOGY_SCOPE.md`
-and `MARKDOWN_VAULT_SCOPE.md` were held to before any of their milestones
-started.
+It is an **inventory and a plan**: it defines M1-M9 and poses §4's six owner
+questions, all of which have since been ruled (§4 names each ruling). Every
+claim in §1 was checked against the workspace on **2026-08-30**, the same
+discipline `URBAN_MORPHOLOGY_SCOPE.md` and `MARKDOWN_VAULT_SCOPE.md` were held
+to before any of their milestones started; its `file:line` citations were
+replaced by symbol names on 2026-09-23, with each symbol re-located then.
 
 > **This document defines the milestones; it does not track them.** Where each
-> of M1-M9 stands — and which of §4's questions the owner has since answered —
-> is recorded only in `cartalith-native/docs/STATUS.md`. Building began the day
-> after this document was written, so read §1's inventory as the *starting*
-> state it was, and re-check anything load-bearing against the code rather than
-> against this page.
+> of M1-M9 stands is recorded only in `cartalith-native/docs/STATUS.md`; the
+> owner's answers to §4's questions are rulings, recorded in
+> `LARGE_ITEM_RULINGS.md` and summarised in §4. Building began the day after
+> this document was written, so read §1's inventory as the *starting* state it
+> was, and re-check anything load-bearing against the code rather than against
+> this page.
 
 The research's own framing is worth restating because it is the test every
 milestone below is held to: the goal is not "where should a landmark be
@@ -35,9 +37,9 @@ corridor detector** (`DECISIONS.md` §7i) that is very close to what the
 research's §8 asks for from scratch, a **settlement-gravity / population-
 weighted cost-distance influence field** (`DECISIONS.md` §7b) that is a real
 precedent for the research's §13 spatial-interaction model, and a **15-mineral
-resource-potential system** with real geological grounding. What is
-**completely absent**, confirmed by an empty grep across all sixteen crates,
-is viewshed/visibility and any general-purpose Poisson-disc sampler — exactly
+resource-potential system** with real geological grounding. What was
+**completely absent** on 2026-08-30, confirmed by an empty grep across all
+sixteen crates, was viewshed/visibility and any general-purpose Poisson-disc sampler — exactly
 the two the task brief predicted would be missing, and the two the research
 itself (§9, §16) leans on hardest for "why is this landmark *significant*"
 rather than merely "why is it *here*."
@@ -58,36 +60,36 @@ the build that followed. The mappings, the naming collisions and the
 
 | Research input | Verdict | Evidence |
 |---|---|---|
-| Flow direction (D8) | **Exists** | `cartalith_hydrology::compute_flow`, `cartalith-hydrology/src/lib.rs:136` — doc comment names it explicitly as `computeFlow()`, D8 steepest-descent, reference HTML 4862-4890 |
+| Flow direction (D8) | **Exists** | `cartalith_hydrology::compute_flow` (`cartalith-hydrology/src/lib.rs`) — doc comment names it explicitly as `computeFlow()`, D8 steepest-descent, reference HTML 4862-4890 |
 | Flow accumulation | **Exists** | Same function; seeded by cell count or by rainfall discharge. GPU-parallel redesign (pointer-doubling subtree sum) also shipped, `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 9 |
-| River networks / channels | **Exists** | `build_channels`, `cartalith-hydrology/src/lib.rs:295` — returns a `ChannelResult` with channel mask, per-cell receiver, per-cell slope |
-| Stream order (Strahler) | **Exists** | `strahler_from_receivers`, `cartalith-hydrology/src/lib.rs:425` |
-| River centrelines | **Exists** | `trace_river_polylines`/`split_river_polylines`, `cartalith-hydrology/src/lib.rs:490,547` |
-| Confluences | **Exists, implicitly** | Not extracted as a labelled list — but the receiver tree (`ChannelResult::recv`) encodes every confluence as any cell with more than one upstream channel neighbour, and polyline splitting is confluence-aware: `cartalith-hydrology/tests/golden_parity_polylines.rs:7`, `trace_river_polylines_case_0_confluence` |
-| Lakes | **Exists** | `build_water_bodies`, `cartalith-civ/src/lib.rs:512` (ocean/lake/land classification); `apply_force_lake` (`:729`), `civ_lake_flooded` (`:3896`) |
+| River networks / channels | **Exists** | `build_channels` (`cartalith-hydrology/src/lib.rs`) — returns a `ChannelResult` with channel mask, per-cell receiver, per-cell slope |
+| Stream order (Strahler) | **Exists** | `strahler_from_receivers` (`cartalith-hydrology/src/lib.rs`) |
+| River centrelines | **Exists** | `trace_river_polylines`/`split_river_polylines` (`cartalith-hydrology/src/lib.rs`) |
+| Confluences | **Exists, implicitly** | Not extracted as a labelled list — but the receiver tree (`ChannelResult::recv`) encodes every confluence as any cell with more than one upstream channel neighbour, and polyline splitting is confluence-aware: `cartalith-hydrology/tests/golden_parity_polylines.rs`, `trace_river_polylines_case_0_confluence` |
+| Lakes | **Exists** | `build_water_bodies` (`cartalith-civ/src/lib.rs`; ocean/lake/land classification); `apply_force_lake`, `civ_lake_flooded` (same file) |
 | Drainage basins (as a discrete, labelled entity) | **Absent** | Zero hits for `watershed`, `drainage_basin`, `BasinId` anywhere in the workspace. A basin is derivable by walking `recv[]` to its outlet, but nothing labels or aggregates one as an object today — the same shape of gap `civ_continents` closed for landmasses (`MARKDOWN_VAULT_SCOPE.md` milestone 0) |
-| Slope | **Exists, more than once** | `cartalith_civ::build_slope_field` (`cartalith-civ/src/lib.rs`, ~line 187, `slopeAt(x,y)*GW`); also recomputed inline as `sn` in `build_landform_field` (`cartalith-terrain/src/landform.rs:78`) and again per-pass inside `cartalith-erosion`. Three separate local recomputations, not one canonical reusable field |
+| Slope | **Exists, more than once** | `cartalith_civ::build_slope_field` (`cartalith-civ/src/lib.rs`, `slopeAt(x,y)*GW`); also recomputed inline as `sn` in `build_landform_field` (`cartalith-terrain/src/landform.rs`) and again per-pass inside `cartalith-erosion`. Three separate local recomputations, not one canonical reusable field |
 | Aspect (compass direction of steepest descent) | **Absent** | No such field anywhere. Every `aspect` hit in the workspace is the unrelated "aspect ratio of the grid" sense |
-| Curvature (2D terrain surface) | **Exists, inline only** | A real discrete Laplacian — `let curv = (l + rr + u + d - 4.0*hh) * w as f64; // Laplacian, resolution-scaled` — computed inside `build_landform_field` (`cartalith-terrain/src/landform.rs`, cirque branch) and used for exactly one threshold test. Not exposed as a standalone raster. (A *different*, unrelated `curvature` exists on `BoundaryPolyline` — 1D arc curvature for coastline/boundary polylines, `cartalith-terrain/src/lib.rs:1876` — do not confuse the two) |
-| Local relief / **TPI** | **Exists under a different name and for a different purpose** | `build_ao` (`cartalith-godot/src/render.rs:1741-1788`) computes `blur(field, r_broad) - field` and `blur(field, r_fine) - field` at two radii (`r_broad = gw·ao_radius_frac`, `r_fine = r_broad/3`) — this is **exactly** TPI(x) = z(x) − mean(neighbourhood), sign-flipped, at two of the research's §4 "multiple spatial scales." It is RMS-normalised and blended into a single-purpose 2D ambient-occlusion darkening multiplier, `pub(crate)` and private to the renderer — not returned as data, not reusable today. This is the single most useful "exists under another name" finding in this document. Separately, `build_relief_field` (`cartalith-terrain/src/infer.rs:133`) is a single-scale blurred-gradient-magnitude "boundary probability" proxy, closer to a ruggedness/edge-detector than to TPI |
+| Curvature (2D terrain surface) | **Exists, inline only** | A real discrete Laplacian — `let curv = (l + rr + u + d - 4.0*hh) * w as f64; // Laplacian, resolution-scaled` — computed inside `build_landform_field` (`cartalith-terrain/src/landform.rs`, cirque branch) and used for exactly one threshold test. Not exposed as a standalone raster. (A *different*, unrelated `curvature` exists on `BoundaryPolyline` — 1D arc curvature for coastline/boundary polylines, `cartalith-terrain/src/lib.rs` — do not confuse the two) |
+| Local relief / **TPI** | **Exists under a different name and for a different purpose** | `build_ao` (`cartalith-godot/src/render.rs`) computes `blur(field, r_broad) - field` and `blur(field, r_fine) - field` at two radii (`r_broad = gw·ao_radius_frac`, `r_fine = r_broad/3`) — this is **exactly** TPI(x) = z(x) − mean(neighbourhood), sign-flipped, at two of the research's §4 "multiple spatial scales." It is RMS-normalised and blended into a single-purpose 2D ambient-occlusion darkening multiplier, `pub(crate)` and private to the renderer — not returned as data, not reusable today. This is the single most useful "exists under another name" finding in this document. Separately, `build_relief_field` (`cartalith-terrain/src/infer.rs`) is a single-scale blurred-gradient-magnitude "boundary probability" proxy, closer to a ruggedness/edge-detector than to TPI |
 | Ruggedness | **Absent** | No distinct implementation; would need to be derived (e.g. slope variance) |
-| Prominence | **Exists, but only in 1D** | `RIDGE_PROMINENCE_M = 100.0` and a real prominence-filtered local-maxima algorithm, `cartalith-godot/src/measure_bridge.rs:79,358-383` — but it runs only along a single **user-drawn cross-section** (the Measure tool), not as a 2D field over the grid. Still a real, owner-tuned precedent for what threshold this project already considers "prominent" |
+| Prominence | **Exists, but only in 1D** | `RIDGE_PROMINENCE_M = 100.0` and a real prominence-filtered local-maxima algorithm (`cartalith-godot/src/measure_bridge.rs`) — but it runs only along a single **user-drawn cross-section** (the Measure tool), not as a 2D field over the grid. Still a real, owner-tuned precedent for what threshold this project already considers "prominent" |
 | Peaks / ridges / saddles as a 2D layer | **Absent** | Only the 1D Measure-tool version above; nothing scans the whole grid for them |
 | **Mountain-pass / corridor detection** | **Exists, and unusually well-verified** | `cartalith_civ::build_route_corridors` (reference line 5903) — takes the *minimum* of two flanking maxima along four axes at `gw/64` reach ("a corridor needs a barrier on BOTH sides of the axis"), golden-verified, and independently measured on a real 512×384 world (`DECISIONS.md` §7i): 30.8% of land carries any corridor value, only 1.02% is above half-strength — i.e. it is near-zero almost everywhere and spikes only at genuine pinch points, which is exactly the shape research §8's `S_pass` wants. It was explicitly chosen over a naive one-cell saddle test (`_civEnhancedTravelCost`) after that test was measured and found to fire on 0 of 4 real long crossings. Today it is consumed only as a route-cost relief multiplier (`civ_pass_relief`), never exposed as a landmark candidate field |
-| **Least-cost path / accessibility** | **Exists extensively** | `DijkstraPath`/`civ_dijkstra_path` (`cartalith-civ/src/tools.rs:623` struct, function below it) — the Route/Way tools' multi-modal (land/water/mixed) Dijkstra over a cost grid built from terrain slope, biome friction, river navigability and existing-infrastructure discount. Separately, `WayRouter` (`cartalith-civ/src/trade.rs:550`) is a graph-level Dijkstra over settlements/ways used for trade-flow load accumulation. Research §12's `C(A,B)` is close to already built twice over, at two different granularities |
-| **Spatial interaction / gravity** | **Partially exists, as a real precedent, not the formula itself** | `civ_apply_settlement_gravity` (`cartalith-civ/src/lib.rs:5647`) discounts path cost near settlements weighted by size; `territory_influence` (`:6293`) returns a per-cell population-weighted cost-distance owner/rival/influence/contested field — `DECISIONS.md` §7b's cost-distance-divided-by-a-monotonic-function-of-population design, which is conceptually the same family as research §13's `I(x) = ΣP_i / d_c(x,i)^β`, just not that exact formula and not exposed for landmark scoring |
-| Settlements: position/population/faction | **Exists** | `get_settlements()`, `cartalith-godot/src/lib.rs:4648` — `x, y, name, population, kind, faction, capital, coastal, tid` (a stable id that survives a regenerate for kept settlements) |
-| Roads | **Exists** | `get_roads()`, `cartalith-godot/src/lib.rs:4738` — generated network plus hand-drawn ways, `way_type`, `km`, `manual` flag |
-| Sea routes | **Exists** | `get_sea_routes()`, `cartalith-godot/src/lib.rs:4801` |
-| Resources / ore | **Exists, richly — 15 types** | `build_resource_potentials`, `cartalith-civ/src/lib.rs:1234` — copper, tin, iron, gold, salt, timber, lead, silver, clay, buildstone, flint, obsidian, gems, sulfur, alum, each geologically grounded (e.g. copper peaks at subduction-boundary cells) and passed through a scarcity cut |
-| Soils | **Exists** | `build_soil_fertility`, `cartalith-civ/src/lib.rs:204` — Jenny (1941) pedological model: climate bell × moisture × lithology-weatherability × slope-shedding × age |
-| Lithology | **Exists** | `build_lithology`, `cartalith-civ/src/lib.rs:119` — per-cell rock-type classification (basalt/sedimentary/etc.) |
-| Geological resistance | **Exists, but naming collides with a different "resistance"** | `compute_resistance` (`cartalith-terrain/src/lib.rs:1041`) is **tectonic/erosion** resistance (crustal type × age) — a different concept from `build_lithology`'s rock classification, despite the shared English word. Research §7's "R = geological resistance or lithological contrast" almost certainly means the lithology classification, not this function; flagged so a future implementer does not reach for the wrong one |
-| Ecology / biome | **Exists** | `classify_biome`/`build_biome_raster`, `cartalith-civ/src/lib.rs:786,838` |
-| Political regions / provinces / factions | **Exists** | `Province` (`cartalith-civ/src/lib.rs:6337`: id, faction, name, capital_settlement_index), `civ_generate_provinces`; `FactionEntry`/`FactionRoster` (`cartalith-godot/src/civ_roster_bridge.rs:57,113`); `assign_territory` (`cartalith-civ/src/lib.rs:6116`, the cost-distance weighted Voronoi of `DECISIONS.md` §7b) |
-| Historical state / timeline | **Exists, for the settlement half only** | `TimelineSnapshot`/`YearDiff` (`cartalith-civ/src/lib.rs:1499,1512`), `timeline_bridge.rs`'s collapse/recovery simulation (`run_collapse_simulation`) — directly usable for research §20's "Settlement → Expansion → Conflict/decline → Abandonment → Ruination" chain, **except the "Conflict" link**, which needs the conflict/battle entity `STORY_PLANNING_SCOPE.md` SP-4 defines |
-| Poisson-disc sampling | **Building blocks exist; the algorithm does not** | Two related but distinct mechanisms, neither of them Bridson (2007): (1) `icon_brush_stamp` (`cartalith-assets/src/manual.rs`, ~lines 196-260) is genuine dart-throwing with a blue-noise rejection radius, but scoped to one manual brush stamp — local, user-tool-driven, capped at 1 500 darts — not a global field; (2) `find_settlement_seeds` (`cartalith-civ/src/lib.rs:3685`) is greedy non-maximum suppression with an exclusion radius over ranked local-maxima candidates, which is the same *spirit* as research §15-16's "spatial competition / exclusion radius" but is rank-then-suppress, not dart-thrown, and is specific to settlement placement. No generic, reusable multi-class Poisson-disc sampler exists. `cartalith_spatial::QuadTree<T>` (`cartalith-spatial/src/lib.rs:368`) exists and would accelerate a real implementation's exclusion-radius queries |
-| **Viewshed / visibility** | **Confirmed absent** | Zero hits for `viewshed`, `line_of_sight`, `los(` in any of the sixteen crates. `cartalith-godot/src/render.rs`'s own module doc explicitly lists "SVF/cast-shadow fields" among features it **deliberately excludes**, "depend[ing] on subsystems this port hasn't built yet." The nearest architectural relative is `build_ao`'s dual-radius blur-cavity math (see the TPI row above) — a statistical local-concavity estimate, not a geometric line-of-sight test, and it cannot answer "is B visible from A" without new code |
+| **Least-cost path / accessibility** | **Exists extensively** | `DijkstraPath`/`civ_dijkstra_path` (`cartalith-civ/src/tools.rs`) — the Route/Way tools' multi-modal (land/water/mixed) Dijkstra over a cost grid built from terrain slope, biome friction, river navigability and existing-infrastructure discount. Separately, `WayRouter` (`cartalith-civ/src/trade.rs`) is a graph-level Dijkstra over settlements/ways used for trade-flow load accumulation. Research §12's `C(A,B)` is close to already built twice over, at two different granularities |
+| **Spatial interaction / gravity** | **Partially exists, as a real precedent, not the formula itself** | `civ_apply_settlement_gravity` (`cartalith-civ/src/lib.rs`) discounts path cost near settlements weighted by size; `territory_influence` (same file) returns a per-cell population-weighted cost-distance owner/rival/influence/contested field — `DECISIONS.md` §7b's cost-distance-divided-by-a-monotonic-function-of-population design, which is conceptually the same family as research §13's `I(x) = ΣP_i / d_c(x,i)^β`, just not that exact formula and not exposed for landmark scoring |
+| Settlements: position/population/faction | **Exists** | `get_settlements()` (`cartalith-godot/src/lib.rs`) — `x, y, name, population, kind, faction, capital, coastal, tid` (a stable id that survives a regenerate for kept settlements) |
+| Roads | **Exists** | `get_roads()` (`cartalith-godot/src/lib.rs`) — generated network plus hand-drawn ways, `way_type`, `km`, `manual` flag |
+| Sea routes | **Exists** | `get_sea_routes()` (`cartalith-godot/src/lib.rs`) |
+| Resources / ore | **Exists, richly — 15 types** | `build_resource_potentials` (`cartalith-civ/src/lib.rs`) — copper, tin, iron, gold, salt, timber, lead, silver, clay, buildstone, flint, obsidian, gems, sulfur, alum, each geologically grounded (e.g. copper peaks at subduction-boundary cells) and passed through a scarcity cut |
+| Soils | **Exists** | `build_soil_fertility` (`cartalith-civ/src/lib.rs`) — Jenny (1941) pedological model: climate bell × moisture × lithology-weatherability × slope-shedding × age |
+| Lithology | **Exists** | `build_lithology` (`cartalith-civ/src/lib.rs`) — per-cell rock-type classification (basalt/sedimentary/etc.) |
+| Geological resistance | **Exists, but naming collides with a different "resistance"** | `compute_resistance` (`cartalith-terrain/src/lib.rs`) is **tectonic/erosion** resistance (crustal type × age) — a different concept from `build_lithology`'s rock classification, despite the shared English word. Research §7's "R = geological resistance or lithological contrast" almost certainly means the lithology classification, not this function; flagged so a future implementer does not reach for the wrong one |
+| Ecology / biome | **Exists** | `classify_biome`/`build_biome_raster` (`cartalith-civ/src/lib.rs`) |
+| Political regions / provinces / factions | **Exists** | `Province` (`cartalith-civ/src/lib.rs`: id, faction, name, capital_settlement_index), `civ_generate_provinces`; `FactionEntry`/`FactionRoster` (`cartalith-godot/src/civ_roster_bridge.rs`); `assign_territory` (`cartalith-civ/src/lib.rs`, the cost-distance weighted Voronoi of `DECISIONS.md` §7b) |
+| Historical state / timeline | **Exists, for the settlement half only** | `TimelineSnapshot`/`YearDiff` (`cartalith-civ/src/timeline.rs`), `timeline_bridge.rs`'s collapse/recovery simulation (`run_collapse_simulation`) — directly usable for research §20's "Settlement → Expansion → Conflict/decline → Abandonment → Ruination" chain, **except the "Conflict" link**, which needs the conflict/battle entity `STORY_PLANNING_SCOPE.md` SP-4 defines |
+| Poisson-disc sampling | **Building blocks exist; the algorithm does not** | Two related but distinct mechanisms, neither of them Bridson (2007): (1) `icon_brush_stamp` (`cartalith-assets/src/manual.rs`) is genuine dart-throwing with a blue-noise rejection radius, but scoped to one manual brush stamp — local, user-tool-driven, capped at 1 500 darts — not a global field; (2) `find_settlement_seeds` (`cartalith-civ/src/lib.rs`) is greedy non-maximum suppression with an exclusion radius over ranked local-maxima candidates, which is the same *spirit* as research §15-16's "spatial competition / exclusion radius" but is rank-then-suppress, not dart-thrown, and is specific to settlement placement. No generic, reusable multi-class Poisson-disc sampler exists. `cartalith_spatial::QuadTree<T>` existed then and was named here as the acceleration structure; it was **retired 2026-09-22** (`5c99cc9`) without ever being used for this, and M6's exclusion queries use their own bucket grid (`landmark.rs::Buckets`) |
+| **Viewshed / visibility** | **Confirmed absent** | Zero hits for `viewshed`, `line_of_sight`, `los(` in any of the sixteen crates. `cartalith-godot/src/render.rs`'s own module doc then listed "SVF/cast-shadow fields" among features it **deliberately excluded**, "depend[ing] on subsystems this port hasn't built yet." The nearest architectural relative was `build_ao`'s dual-radius blur-cavity math (see the TPI row above) — a statistical local-concavity estimate, not a geometric line-of-sight test, and it cannot answer "is B visible from A" without new code. *(Both relatives have moved since: `render.rs` now builds sky-view factor and cast shadow (`build_svf`, `build_sun_shadow`), and M7's line-of-sight primitive is `cartalith_terrain::analysis::visibility`.)* |
 
 ### Two findings outside the requested checklist, worth carrying forward
 
@@ -100,13 +102,13 @@ the build that followed. The mappings, the naming collisions and the
   damage/restoration) — independently converging on almost the same shape as
   the research's own §22 object model (`physical_basis`,
   `cultural_associations`, `historical_state`). `cartalith_vault::EntityKind`
-  (`MARKDOWN_VAULT_SCOPE.md` §1) has no `Landmark` variant yet, so this
-  template is currently unconnected to any engine entity — see open question 2.
+  (`MARKDOWN_VAULT_SCOPE.md` §1) had no `Landmark` variant then, so the
+  template was unconnected to any engine entity — see §4 question 2.
 - **The owner's own UI vocabulary already names the concept.** `design/
   Cartalith Menu Structure v3.dc.html` (`GUI_GAP_REGISTER.md`'s v3 menu-audit
   table) lists **"Assets & landmarks"** as a CARTO submenu category and
-  **"Points of interest"** as a CIVIL category — both currently unbacked menu
-  labels, the same shape of gap `GUI_GAP_REGISTER.md` catalogues everywhere
+  **"Points of interest"** as a CIVIL category — both unbacked menu labels on
+  2026-08-30, the same shape of gap `GUI_GAP_REGISTER.md` catalogues everywhere
   else. Neither implies scope by itself; both are evidence the destination
   shell already has a place for this to land.
 
@@ -138,7 +140,11 @@ divergences rather than absorbing them silently:
 
 A struct- or module-level `// Category: A|B|C` marker (or an equivalent doc
 comment convention) should be picked before milestone 1 starts, so it is
-consistent from the first line of code rather than retrofitted.
+consistent from the first line of code rather than retrofitted. The
+convention picked was the doc-comment one: a module-doc section naming the
+category (`analysis.rs`'s "§31 Category A", `landmark.rs`'s A/B/C
+breakdown), and a **Category X** lead on the doc comment of each item that
+needs its own (`analysis::visibility`, `VIEW_OBSERVER_CAP`).
 
 ## 3. Milestones
 
@@ -168,8 +174,9 @@ follow-on cleanup, not required for this milestone's own "done."
 **Not blocked on anything** — every input already exists in some form.
 
 **Done when**: `topographic_position_index(field, radius)` and a standalone
-`terrain_curvature(field)` exist as unit-tested, resolution-independent
-functions returning a `Vec<f32>` the same shape as every other raster in this
+`terrain_curvature(field)` (placeholder names — the library this milestone
+defines is `cartalith_terrain::analysis`) exist as unit-tested,
+resolution-independent functions returning a `Vec<f32>` the same shape as every other raster in this
 project; `build_ao`'s own output is proven **bit-identical** before and after
 the extraction (the same "refactor must not move a golden number"
 discipline `DECISIONS.md` §7f used for the pre-carve flow skip), so the 2D
@@ -198,6 +205,10 @@ Promote `build_route_corridors` from a private route-cost relief term to an
 exposed, reusable landmark-candidate field, per research §8's `S_pass`. Add a
 real 2D saddle test (low point between two high regions) generalising what
 `measure_bridge.rs`'s 1D `section_crossings` already does along a drawn line.
+*(The saddle half was declined when M3 was built, and the reason is design,
+not a gap — `saddle`'s `not_built` string: a saddle with connectivity is a
+mountain pass, which is generated; a saddle without it is a shape, not a
+landmark.)*
 
 **Not blocked on anything.**
 
@@ -246,8 +257,10 @@ A real, reusable, multi-class exclusion-radius sampler — either a proper
 Bridson (2007) grid-accelerated Poisson-disc implementation, or a generalised
 version of `find_settlement_seeds`' rank-then-suppress pattern extended to
 variable radii per research §16 (`r = f(class, importance, terrain,
-region)`). `cartalith_spatial::QuadTree<T>` is the natural acceleration
-structure for the exclusion queries at scale, whichever approach wins.
+region)`). This section originally named `cartalith_spatial::QuadTree<T>` as
+the acceleration structure; that type was retired unused (§1), and the
+exclusion queries run over a bucket grid, `landmark.rs::Buckets`, whose doc
+comment also records why Bridson (2007) was declined.
 
 **Not blocked on anything**, but should land after M2-M5 so there is a real
 multi-class candidate cloud to filter rather than a synthetic one.
@@ -267,8 +280,10 @@ a **bounded set of observer points** (settlements, road/pass samples, pass
 candidates from M3) rather than a dense viewshed field — per the cost note in
 §5 below.
 
-**Blocked on an owner decision** on the accuracy/cost tradeoff (§5, and open
-question 5) before real work starts, and on M3 for a sensible observer set.
+**Depended on an owner decision** on the accuracy/cost tradeoff (§5, and §4
+question 5 — ruled: the conservative default is the budget, and it is carried
+by `landmark.rs`'s `VIEW_RADIUS_KM`, `VIEW_MAX_CELLS` and `VIEW_OBSERVER_CAP`,
+each with its reasoning), and on M3 for a sensible observer set.
 
 **Done when**: wall-clock time is measured and reported honestly at three
 real grid sizes (this project's own convention, not a single "it's fast
@@ -285,8 +300,8 @@ build the `Landmark` struct itself — research §22's object model, including
 
 **Blocked on** however many of M2-M7 are wanted for the landmark types in
 play (a "physical landmarks only" first cut could ship after M1-M4 alone),
-and on open questions 1 and 3 below (persistence, parity-contract status)
-before the struct's own shape is finalised.
+and on §4 questions 1 and 3 (persistence, parity-contract status — both since
+ruled) before the struct's own shape is finalised.
 
 **Done when**: a full pipeline run on a real generated world produces a
 bounded, causally-labelled landmark set, and — this project's own "watch for
@@ -302,17 +317,49 @@ research's own Phase 6, and it is the one milestone genuinely blocked on
 things outside this document's own dependency chain: the conflict/battle
 entity (`STORY_PLANNING_SCOPE.md` SP-4 — needed for the "Conflict/decline"
 link in a ruin's causal chain) and the Markdown Vault entity-kind decision
-(open question 2).
+(§4 question 2).
 
-**Blocked on**: M8, `STORY_PLANNING_SCOPE.md` SP-4, and open questions 1-2.
+**Depends on**: M8, `STORY_PLANNING_SCOPE.md` SP-4, and §4 questions 1-2
+(both since ruled — a ruling authorises the work, it does not say it is
+built).
 
-Not specified further here — there is nothing yet in this repository for it
-to compose against, and specifying it further would be guessing.
+**The conflict half, as designed once SP-4's conflict entity existed.**
+`battlefield` reads `LandmarkInputs::battles`: every drawn
+`ConflictKind::Battle`, anchor-resolved to where it is now. Two neighbouring
+kinds cannot be built from that input, each for its own reason, and both
+reasons are carried in `landmark.rs::kinds()`' `not_built` strings:
 
-## 4. Open questions for the owner
+- `battlefield_historic` would put a second record on a cell `battlefield`
+  already covers, unless a present-year read separates a past battle from one
+  being fought — a landmark whose kind changes with the Timeline cursor, which
+  is research §25's temporal state (§4 question 1's per-landmark *state*, not
+  its save slot).
+- `destroyed_fortress` has no destruction to read: `Conflict::outcome` is free
+  text by `STORY_PLANNING_SCOPE.md` §5's deliberate no-resolution-model rule.
 
-Posed, not answered — the same discipline `STORY_PLANNING_SCOPE.md` §6 and
-`MARKDOWN_VAULT_SCOPE.md` §2 both used.
+The Cultural-family kinds stay unbuildable — most on research §26's own rule
+that cultural meaning must not be hardcoded into geography (it needs the
+civilisation's traits as an input, which the pass does not take), `tomb` and
+`monument` for want of a historical figure or event to commemorate. Each
+kind's own reason is its `not_built` string.
+
+Not specified further here — beyond the conflict half, research §24-26's
+interpretation and state transitions have nothing in this repository to
+compose against yet, and specifying them further would be guessing.
+
+## 4. The owner questions — posed here, all since ruled
+
+Posed, not answered, when this document was written — the same discipline
+`STORY_PLANNING_SCOPE.md` §6 and `MARKDOWN_VAULT_SCOPE.md` §2 both used.
+**All six have since been ruled.** Questions 1-5 were answered on 2026-09-06
+(`LARGE_ITEM_RULINGS.md` rulings 10, 13, 12, 24 and 16) and answered again on
+2026-09-23 by **Ruling AP**, which confirmed three of them, left ruling 24's
+crate move superseded (question 4) and ratified what M7 had shipped for the
+fifth. Question 6 was answered by ruling 14 (2026-09-06) and refined by
+Ruling AL (2026-09-23).
+Each question keeps its original reasoning, because that reasoning is why it
+was a real question. **A ruling authorises work; it does not say the work is
+built** — where each piece stands is `cartalith-native/docs/STATUS.md`'s.
 
 1. **Does the landmark set live in the save tree, and if so, as what?**
    `DECISIONS.md` §7h fixed the save format as a tree; `SAVEFILE_COMPAT.md`
@@ -324,6 +371,18 @@ Posed, not answered — the same discipline `STORY_PLANNING_SCOPE.md` §6 and
    all), or persist like a settlement because research §25's state
    transitions (discovered, named, monumentalized…) are exactly the kind of
    authored/accumulated state that *cannot* be recomputed from a re-run.
+
+   **RULED — persist.** Ruling 10 (2026-09-06): persist, in
+   `entities/landmarks.json`, for exactly the §25 reason above; it asked for a
+   `SAVEFILE_COMPAT.md` entry and a format-version note. **Ruling AP
+   (2026-09-23)** re-ruled it — *landmark state persists across save/reload* —
+   and named the part still undesigned: what "state" means per landmark, at
+   minimum a name the player gave it, with §25's discovered/named/
+   monumentalized states as the fuller shape, **not yet scoped**. The slot
+   itself is `project_bridge.rs`'s `SLOT_LANDMARKS` (`LandmarksDoc`: the
+   dock's settings and the last run's placements); per-landmark authored
+   state is the unscoped remainder, and it is what `battlefield_historic`
+   waits on (M9).
 2. **Does a landmark become a `cartalith_vault::EntityKind`?**
    `MARKDOWN_VAULT_SCOPE.md`'s own §2 table already proved that adding a
    kind is cheap (one variant, one `as_str` arm, one `parse` arm, one
@@ -335,6 +394,17 @@ Posed, not answered — the same discipline `STORY_PLANNING_SCOPE.md` §6 and
    new row, and a landmark's id is likely to be as weak as a continent's or
    province's (derived, not persistent across a regenerate) — worth deciding
    before, not after, notes start linking to it.
+
+   **RULED — yes.** Ruling 13 (2026-09-06): finish the wiring — the
+   half-wired state (a template that exists, a kind nothing resolves) was the
+   worst of the three options. **Ruling AP (2026-09-23)** re-ruled it and
+   settled the identity question this paragraph raised: the id is expected
+   to be as weak as a settlement's or province's — derived, not stable across
+   a regenerate — and that weakness is **accepted, not a blocker**. The
+   variant is `cartalith_vault::EntityKind::Landmark`; its id is
+   `Landmark::key()` (`kind@x,y`) hashed to a 52-bit `entity_id` by
+   `cartalith_vault::links::landmark_entity_id`, and
+   `MARKDOWN_VAULT_SCOPE.md` §4's identity table carries its row.
 3. **Does `DECISIONS.md` §7a/§7d's parity contract apply here at all?**
    `reference/FUNCTION_INDEX.md` was grepped for "landmark" and returns
    nothing — there is no JS behaviour anywhere to be faithful to, the same
@@ -346,6 +416,16 @@ Posed, not answered — the same discipline `STORY_PLANNING_SCOPE.md` §6 and
    the Category A pieces specifically, since several of those (TPI,
    viewshed, Poisson-disc) do have a textbook-correct answer that JS-parity
    testing was never going to give anyway?
+
+   **RULED — the parity contract does not apply.** Ruling 12 (2026-09-06):
+   exempt, since there is no reference to diff against, to be written into
+   `DECISIONS.md` as a §7-series note where a lane looks. **Ruling AP
+   (2026-09-23)** confirmed it: all landmark work is divergence-by-addition,
+   tested for internal correctness and determinism rather than against a
+   reference that never existed for this subsystem. The Category A half of
+   the question was not separately ruled — per ruling 12, the project's
+   standing bar (property tests, mutation-tested constants, probes on drawn
+   output) applies to it anyway.
 4. **Where does this live in the crate graph?**
    §1 found the closest thing to a TPI implementation sitting inside
    `cartalith-godot`'s renderer (presentation layer), which is arguably
@@ -357,47 +437,72 @@ Posed, not answered — the same discipline `STORY_PLANNING_SCOPE.md` §6 and
    into `cartalith-terrain`/`cartalith-engine` and leaving only synthesis in
    a thin new crate — this is a real architectural fork, not just a filing
    question, because it decides which crate can depend on which for M1-M9.
+
+   **RULED — landmark code stays in `cartalith-civ`; no crate split.** Ruling
+   24 (2026-09-06, against the recommendation) first said to consolidate the
+   "terrain-derived half" into `cartalith-civ`. Measured before anything
+   moved, that half — `cartalith_terrain::analysis`, M1's library — is
+   general terrain analysis that landmarks *consume* (`sample_bridge.rs` also
+   reads it as user-facing fields), not landmark-only code, and moving it
+   would have put a terrain primitive in the civilisation crate and inverted
+   the dependency the split keeps. Put back to the owner, the existing
+   arrangement was ratified on 2026-09-23 (recorded on `OUTSTANDING_WORK.md`'s
+   closed ruling-24 row), and **Ruling AP** the same day: landmark code stays
+   in `cartalith-civ`, no crate split. So: synthesis in `cartalith-civ`
+   (`landmark.rs`), the analytical field library in `cartalith-terrain`
+   (`analysis.rs`). The TPI-inside-the-renderer finding above was answered by
+   M1's extraction, with `build_ao` itself left bit-identical per
+   `DECISIONS.md` §7a.
 5. **What is the viewshed cost budget?**
    §5 below states the complexity honestly; it does not choose a number.
    Observer count, radius cap and grid resolution are all owner-facing
    tradeoffs (accuracy vs. generation time vs. memory), not something to
    guess at from inside this document.
+
+   **RULED — the conservative default stays.** Ruling 16 (2026-09-06, amended
+   by the owner): cheap and coarse, plus a manual "recompute and refine"
+   action in the shell's existing `Refine detail for the current view`
+   vocabulary rather than a second one. M7 was then built on a disclosed
+   conservative default — a 40 km horizon clamped to [2, 104] cells, over a
+   sparse observer set of settlements plus route samples capped at 256
+   (`VIEW_RADIUS_KM`, `VIEW_MAX_CELLS`, `VIEW_OBSERVER_CAP`), which makes the
+   pass `O(observers · r²)` and independent of grid size, the shape §5
+   predicted. **Ruling AP (2026-09-23)** ratified that default as-is and
+   authorised no further work. **Open, and flagged rather than assumed:**
+   Ruling AP does not say whether ruling 16's manual refine action still
+   stands, and ruling 16 itself left open whether a refined result is
+   view-scoped or whole-world and whether it persists (which touches
+   question 1).
 6. **How does a generated landmark relate to the existing manual icon tool?**
    A user can already hand-place a `family: "feature"` icon (e.g. `slot:
    "mountain"`) via `annotations/icons.json` (`SAVEFILE_COMPAT.md` §11.2).
-   ~~Does a procedurally generated landmark become one of these icons…~~
-   **ANSWERED by owner ruling 14, 2026-09-06: ONE representation, two
-   origins.** The save format half **shipped** the same day —
-   `ManualIcon` carries `IconOrigin { Manual, Generated }`, `annotations/icons.json`
-   gained an optional `origin` (absent means manual; see `SAVEFILE_COMPAT.md`
-   §11.2), and a pre-`origin` document is proved to load with every icon
-   hand-placed.
+   Does a procedurally generated landmark become one of these icons for
+   rendering purposes (one representation, two origins), or a wholly
+   separate data/render path? This affects the save format, the renderer,
+   and whether M6's spatial-competition radius needs to consider
+   hand-placed icons as pre-existing "occupied" points.
 
-   **Two of the three consequences this question named are still open, and the
-   third is the reason the ruling was made:**
-   - ~~**The renderer still draws two passes**~~ — **CLOSED 2026-09-06.**
-     `map_overlay.gd` now draws one pass; measured windowed, the duplicate glyph
-     went to zero and the landmark ring gained the pixels the diamond had been
-     overdrawing.
-   - **M6's spatial competition still cannot see hand-placed icons — the claim
-     holds, but its mechanism has changed.** ~~Its only input is
-     `LandmarkInputs`, which does not carry them~~: as of 2026-09-06
-     `LandmarkInputs::manual_icons` exists, `generate` honours it with a 3 km
-     exclusion, and `landmark_bridge::icon_to_mark` filters to `Manual` origins.
-     ~~**What is missing is the wiring, not the capability:** `icon_to_mark` has
-     **zero shipping callers** and nothing assigns `inputs.manual_icons` in
-     `lib.rs`'s `landmark_run_inner`, which assigns only `settlements`. **So in
-     the running app, generation can still place a landmark on top of a
-     hand-placed icon**~~ — **CLOSED 2026-09-06.** `landmark_run_inner` now
-     assembles `manual_icons` from `WorldGen::icons` through `icon_to_mark`, the
-     same shape it uses for `settlements`. `_lmicon_probe.tscn` shows a landmark
-     leaving an icon's cell and returning when the icon is deleted, and a
-     verifier reproduced all three runs and killed a mutant of the assignment.
-     **That was the ruling's own justification for choosing one layer over two**, and it
-     stays unrealised until those two lines land. *(Narrowed rather than struck:
-     a lane reported this bullet "false as of this change" and a verifier
-     established that only the middle clause is.)*
-   Both are tracked in `OUTSTANDING_WORK.md`.
+   **RULED — one representation, two origins** (ruling 14, 2026-09-06). One
+   collection with an `origin` field: `ManualIcon` carries
+   `IconOrigin { Manual, Generated }`, and `annotations/icons.json` gained an
+   optional `origin` (absent means manual, `SAVEFILE_COMPAT.md` §11.2), so a
+   pre-`origin` document loads with every icon hand-placed. The ruling's three
+   consequences, as designed:
+   - **The renderer draws one layer.** Where a generated landmark and a
+     generated POI glyph share a cell, the ring wins. Ruling AL (2026-09-23)
+     then put the landmark's own per-kind glyph inside its class ring and made
+     it clickable, keeping the two things ruling 14 chose the ring for: radius
+     encodes class, size within the class encodes importance.
+   - **M6's spacing sees hand-placed icons**, so generation cannot place a
+     landmark on top of one: `LandmarkInputs::manual_icons`, assembled in
+     `landmark_run_inner` through `landmark_bridge::icon_to_mark` (manual
+     origins only) and honoured by `generate` with a
+     `MANUAL_ICON_EXCLUSION_KM` = 3 km exclusion. **This consequence is the
+     ruling's whole justification for one layer over two, and it was first
+     built inert** — the input existed while nothing assigned it, so the
+     running app could still place a landmark on an icon. Check the
+     assignment, not the field.
+   - **A regenerate replaces only the generated ones.**
 
 ## 5. Cost and feasibility: the expensive parts, stated honestly
 
@@ -426,8 +531,11 @@ here, and what does not transfer:**
   cell's visibility from each observer is independent of every other
   candidate cell, so it is `par_iter`-safe in principle, the same way
   `compute_resistance`'s own doc comment already states its independence
-  explicitly (`cartalith-terrain/src/lib.rs:1041`, "no cross-cell dependency,
-  exact under parallel execution").
+  explicitly (`cartalith-terrain/src/lib.rs`, "no cross-cell dependency,
+  exact under parallel execution"). *(In principle only: M7's
+  `analysis::visibility` stays serial on purpose, because its output is an
+  `f32` sum across observers into one shared grid, and summing in observer
+  order is what keeps it reproducible run to run.)*
 - **What does not transfer is the cost shape.** `GPU_LAYER_INTEGRATION_
   SCOPE.md` milestone 9's flow-accumulation redesign is the closest analogue
   this project has actually built and measured for "a genuinely sequential
@@ -448,7 +556,8 @@ here, and what does not transfer:**
   on this codebase's actual hardware rather than assumed.
 
 **Poisson-disc / spatial competition (M6)** is comparatively cheap: `O(n log
-n)` with a spatial index (the existing `QuadTree<T>` covers this), and the
+n)` with a spatial index (a bucket grid, `landmark.rs::Buckets` — the
+`QuadTree<T>` this sentence first named was retired unused, §1), and the
 existing `icon_brush_stamp` precedent already caps its own per-call work
 (`ICON_BRUSH_MAX_DARTS = 1500`) for exactly this reason — the pattern to
 follow, not a new problem to solve.
@@ -465,8 +574,9 @@ costed against that number before it is added, not after.
 ## 6. What this document is not
 
 It does not implement anything. It does not pick a crate boundary, a save
-format, or a verification standard — those are open questions 1-4, posed for
-the owner rather than decided here. It does not promise a "done when" for
-M9, because nothing in this repository is ready to compose against yet. Where
+format, or a verification standard — those were §4's questions 1-4, posed
+for the owner rather than decided here, and §4 records how the owner ruled.
+It does not promise a "done when" for M9, whose cultural half still has
+nothing in this repository to compose against. Where
 this document could not find something, it says so plainly rather than
 guessing — the standing rule this project has been bitten by breaking before.

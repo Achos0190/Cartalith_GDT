@@ -1,27 +1,44 @@
-# High-resolution image export — findings, **UN-SHELVED 2026-09-06**
+# High-resolution image export: findings, constraints and milestones E1-E5
 
-> **UN-SHELVED by the owner, 2026-09-06 (ruling 15)**, against the standing
-> recommendation to leave it shelved. **The codec is settled: PNG, RGB (ruling
-> 26)** — *"even if size balloons. We should just inform the user of the expected
-> file size."* §6's survey stands as the reason nothing else was eligible.
+> **Shelved at the owner's request 2026-08-25**, the day it was raised
+> (*"Let's shelve the 16k export and higher for the moment."*); **un-shelved
+> 2026-09-06 by ruling 15**, against the standing recommendation; and
+> **resumed again 2026-09-23 by Ruling AP**, which un-shelves E4's batches B–D
+> (§7). The findings below were written under the hold, so anything phrased
+> as "if this is ever un-shelved" describes a condition that has happened.
 >
-> **The owner scoped the deliverable the same day, and it is narrower than this
-> document assumes throughout:** *"a user generated monolithic image of the map.
-> No layers, no extensive information. Just to be used outside of Cartalith in an
-> image viewer."* One flat raster — no sidecar metadata, no layer preservation,
-> no tiling. **Read §6's codec comparison as history now**, not as an open
-> question; what remains live there is the size arithmetic.
+> **Two sub-questions are OPEN.** Ruling AP names both and says of them:
+> *"not answered by this ruling, raise them as their own batch when this is
+> picked up rather than guessing."*
 >
-> **Shelved at the owner's request 2026-08-25**, the same day it was raised:
-> *"Let's shelve the 16k export and higher for the moment."* That hold lasted
-> twelve days and the findings below were written under it, so **anything here
-> phrased as "if this is ever un-shelved" is describing a condition that has now
-> happened.**
+> 1. **E4's five scope questions** (§5), as they were scoped on 2026-09-23:
+>    the overlay content in scope for v1; the LOD rule for labels, ways and
+>    urban layouts; whether rivers draw the vector stroke or the baked ink
+>    when overlays are on; which settlements and filters apply; and whether a
+>    1-2 s per-band UI freeze is acceptable for v1.
+> 2. **The codec/size tradeoff at 32K** — in Ruling AP's words, *"where
+>    nothing makes a 32K file small and the one compressed option is blocked
+>    by licensing."*
 >
-> **The shipped 2K/4K/8K export was left untouched by the pass that wrote this
-> document.** Everything it described as "prototyped" was written, run, and then
-> reverted; that pass left the working tree exactly as it found it. Test suite
-> before and after: **139 binaries, 2 254 passed, 0 failed, 8 ignored.**
+> **Flagged for the owner, not resolved here:** the second question reads
+> against **ruling 26**, which already settled the codec as **PNG, RGB** —
+> *"even if size balloons. We should just inform the user of the expected
+> file size."* — and against §6.3's measurement, which puts a 32K PNG at
+> 213.9 MB rather than the 500 MB - 1 GB this document first guessed. Until
+> the owner answers it, ruling 26 is the standing codec choice, and §6's
+> survey is the reason nothing else was eligible.
+>
+> **The owner scoped the deliverable on 2026-09-06, and it is narrower than
+> this document assumes throughout:** *"a user generated monolithic image of
+> the map. No layers, no extensive information. Just to be used outside of
+> Cartalith in an image viewer."* One flat raster — no sidecar metadata, no
+> layer preservation, no tiling. Read §6's codec comparison as history; what
+> remains live there is the size arithmetic.
+>
+> **The pass that wrote this document left the tree as it found it.**
+> Everything it described as "prototyped" was written, run, and then
+> reverted, and the shipped 2K/4K/8K export was untouched. Test suite before
+> and after: **139 binaries, 2 254 passed, 0 failed, 8 ignored.**
 >
 > **2026-09-06 changed the tree.** `BAKE_WIDTHS` is now five rungs, the peak
 > estimate was corrected from 15 to 23 B/px, `export_raster_estimate` returns a
@@ -40,13 +57,11 @@
 > quarter"* was already banked — the 2.06 GB / 515 MB figures it quotes are the
 > raster the code has been allocating all along, not a saving still to be made.
 >
-> **This document defines what a 16K/32K export would be — the findings, the
-> constraints, the codec survey and the five milestones §7 sets out. It does not
-> track them.** Anything about where work stands belongs to
+> **This document defines what a 16K/32K export is — the findings, the
+> constraints, the codec survey and the five milestones §7 sets out. It does
+> not track them.** Anything about where work stands belongs to
 > **`cartalith-native/docs/STATUS.md`**, which is the only place progress is
-> recorded. (This paragraph used to add *"the shelving is an owner decision and
-> stays"* — true when written, and superseded by ruling 15 in the same file's
-> own header.)
+> recorded.
 
 ## What was asked for
 
@@ -188,19 +203,25 @@ GDExtension that costs the editor and any unsaved world. Where the platform
 reports no budget at all (Godot fills unavailable entries with `-1`), anything
 above the pre-ruling `UNGATED_MAX_WIDTH = 8192` is refused rather than risked.
 
-`EXPORT_SCOPE.md` §7's **E1 is what would remove the ceiling instead of gating
-it**, and it is unbuilt — see §4.
+§7's **E1 is what removes the ceiling instead of gating it** — the banded
+renderer of §4 — and E2's streaming writer is what turns that into a lower
+peak. The banded path's peak, as measured in E2's commit (`fc7db2b`): **~1.33
+GB for a 32K PNG** against the monolithic ~15.2–15.3 GB, tracking band height
+at ~21.9 bytes per rendered-band pixel. Where E1 and E2 stand is `STATUS.md`'s.
 
 ### 2.3 Content is terrain only
 
 `export_raster_png` goes through `render::bake_rect` — biome, terrain, splat
 paint, and the river-channel tint. Settlements, routes, ways, labels, territory
-and manual icons all live in `map_overlay.gd` and reach no export path.
+and manual icons all live in `map_overlay.gd` and reach no export path except
+E4's overlay session (§5). E3's `export_image` parses an overlay in its content
+set and **refuses** it until that session draws it, rather than writing a
+terrain-only file that looks as if it honoured the request.
 
 ### 2.4 No style or layer choice
 
 The export renders with whatever `TerrainAppearance` is current
-(`WorldGen::appearance()`, `lib.rs:3759`). The style surface that *would* have
+(`WorldGen::appearance()`). The style surface that *would* have
 to be selectable already exists and is well-shaped for it:
 
 | surface | where | count |
@@ -214,14 +235,16 @@ So "the standard style from the carto layer, but a user might want their own"
 already has a serialisation format and a loader. An export-time override should
 be a *layer over* `appearance()` that does not mutate the live one — not a
 `set_look` / export / `set_look` back dance, which would leave the user's own
-appearance changed if the export failed halfway.
+appearance changed if the export failed halfway. E3's override is structural
+rather than behavioural: `WorldGen::appearance_rebased` takes `&self`, so it
+cannot write the live appearance at all.
 
 ---
 
 ## 3. The documented decision that would have to be reversed
 
-`export_raster_png`'s own doc comment (`export_raster.rs`, around line 174)
-records a real decision with a real reason:
+`export_raster_png`'s own doc comment (`export_raster.rs`, "# Tiled and single
+are the same pixels") records a real decision with a real reason:
 
 > **Tiled and single are the same pixels.** The raster is rendered **once**
 > either way and only the file layout differs, so ticking `bakeTiles` cannot
@@ -269,28 +292,45 @@ guarantee:
    makes the peak a function of band height, so **E1 has to move those three
    together** or the app will refuse exports it could serve.
 
-Nothing else in the tree reads the whole-raster property. The reversal remains
-E1's work.
+Nothing else in the tree reads the whole-raster property.
+
+### How the milestones answered it
+
+**Not by reversing the decision in place.** The banded path is a second
+entry point, `export_image` (taking E3's options), and `export_raster_png`
+stays monolithic and render-once, with its note still true of it; the "same
+pixels, no seams" guarantee the note protects is carried for the banded path
+by E1's byte-identity tests (§4.3). Item 5's three figures moved
+the way it said they must: `export_raster_estimate` reports the banded plan
+beside the monolithic peak (`bands`, `band_rows`, `apron_rows`,
+`band_peak_bytes`, `band_affordable`).
+
+**The two paths therefore refuse differently, and the owner ruled that
+correct (2026-09-23, recorded on `OUTSTANDING_WORK.md`'s export row).** On a
+platform that reports no free memory, `export_image` allows 16K/32K — its band
+peak never exceeds the 8K monolithic figure — while `export_raster_png` still
+refuses anything above 8K, because it is not banded and its real cost at 32K
+is ~15 GB. The first framing of that question proposed relaxing the old path
+to match; that would have let a real ~15 GB allocation proceed blind.
 
 ---
 
-## 4. The banded renderer — prototyped, verified, reverted, and **not in git**
+## 4. The banded renderer — the reverted prototype, and E1's design
 
-Built and run during that pass, then reverted with everything else. Recorded
-here in full because the verification is the expensive part and the result was
-better than expected.
+Built and run during the pass that wrote this document, then reverted with
+everything else. Recorded here in full because the verification is the
+expensive part and the result was better than expected.
 
-> **Correction, 2026-09-06. There is nothing to recover from history.** Ruling
-> 26 says to *"recover that prototype from history rather than rewriting it"*.
-> It was reverted **before** the pass committed, so no commit ever contained it:
-> `git log --all --diff-filter=A -- '*export_bands*'` returns nothing, and
-> `git log --all -S ExportBandPlan` returns exactly two commits — `76f5e6b`
-> (*"Export at 16K/32K: shelved, but the findings are written down"*, whose
-> `--stat` is `CLAUDE.md | 1 +` and `EXPORT_SCOPE.md | 376 ++++`, i.e. prose
-> only) and `fd9de7c`, which is the backlog row. **§4.1–§4.3 below are the
-> whole surviving artefact**, and E1 is a rewrite against them, not a
-> `git checkout`. That is worth knowing before a lane is scheduled to "restore"
-> it and finds an empty search.
+> **The prototype was never in git, so this section is the whole artefact.**
+> Ruling 15 said the prototype *"should be recovered from history rather than
+> rewritten"*. It was reverted **before** its pass committed, so no commit
+> ever contained it: `git log --all --diff-filter=A -- '*export_bands*'`
+> returned nothing on 2026-09-06, and `git log --all -S ExportBandPlan` then
+> returned only two prose commits — `76f5e6b` (whose `--stat` is `CLAUDE.md |
+> 1 +` and `EXPORT_SCOPE.md | 376 ++++`) and `fd9de7c`, the backlog row.
+> **§4.1–§4.3 were the whole surviving artefact, and E1 is a rewrite against
+> them, not a `git checkout`** (`MISTAKES.md`: prove an artefact is in history
+> before saying "recover it from history").
 
 ### 4.1 Which stages are band-safe, and the one that is not
 
@@ -324,6 +364,12 @@ It does not break here, and the reason is worth keeping:
 > `f64`'s 53 bits of mantissa. Every partial sum, every difference and every
 > accumulator state is therefore **exact**, and the incremental walk equals the
 > direct window sum no matter which row it started from.
+
+**One limit on that argument, disclosed in E1's commit (`de3c95e`):** it
+covers `box_h`'s luma sums but not strictly `box_v`'s sums of averages at
+32K's 657-row window, which need ~55 bits against `f64`'s 53. The identity is
+measured exact at test size and not proven exact at that extreme; a byte would
+flip only if a 1-ulp difference also flipped a `u8` rounding.
 
 Two further details a re-implementation must not miss:
 
@@ -362,6 +408,11 @@ This is the answer to "how do you prove it at 32K, where there is nothing to
 compare against": the band plan derives every decision from the full `(w, h)`,
 so it is width-independent by construction, and the identity is then measured at
 a width that *can* be run both ways.
+
+*(Everything in this subsection describes the reverted prototype. E1's own
+test file has the same name,
+`cartalith-native/crates/cartalith-godot/tests/export_bands.rs`, and these
+properties are its bar in §7.)*
 
 ---
 
@@ -402,6 +453,47 @@ the export includes — an explicit "down to this tier", or simply all of them �
 rather than mirroring the viewport. That is squarely part of the owner's
 "options on what to include".
 
+### E4 as scoped, 2026-09-23
+
+The overlay session was scoped by measurement before any of it was built,
+because a naive port of option (a) hits five things (recorded on
+`OUTSTANDING_WORK.md`'s export row, `9aa879e`):
+
+1. **A 32 768-px-wide `SubViewport` returns a null image** on this Godot
+   version, so a full-width 32K band cannot be one viewport: the overlay
+   tiles on both axes. Android's limit is unmeasured and likely lower.
+2. **`SubViewport` readback is premultiplied alpha** (a 50%-white rect reads
+   back `[128, 128, 128, 128]`), so the straight-alpha formula would darken
+   every antialiased edge. `export_session.rs::premul_over` /
+   `composite_premul_over` carry the right one.
+3. **The export's pixel→grid mapping is corner-aligned** (`bake_rect`'s
+   `sx = (gw−1)/(W−1)`) while the live overlay's is texel-centred, so a naive
+   "control size W, zoom 1" camera compresses the overlay by ≈8 px at 32K's
+   edges. The fix is a derived per-axis affine on a parent-node camera — not
+   `SubViewport.canvas_transform`, which the urban-layout culler reads
+   around.
+4. **Symbol size means three different things inside `map_overlay.gd`**: pins
+   scale with the fitted map width, way and label widths are constant screen
+   pixels, and glyph rasterisation caps at 256 px. **Owner answer,
+   2026-09-23: uniform magnification** — symbols keep their proportions on a
+   giant export, like a real poster. That is the bigger lift: new
+   symbol-scale drawing code in `map_overlay.gd`, not the screen-pixel-constant
+   shortcut recommended for v1.
+5. **Copying overlay state is a silent-divergence risk**: one missed setter
+   makes the export differ from the screen with nothing failing. The setter
+   list is derived from every real caller, and parity is proved by diffing the
+   live and export overlays under an identical camera.
+
+**Sequenced as four batches, each verified on its own:** A, the Rust session
+core — `ExportSnapshot` (the world as it was when the user pressed the
+button, owned, so a sculpt or regenerate mid-session cannot change the
+export), `ExportSessionCore` (tiles must cover every band exactly once, in
+order), `export_stream.rs::BandSink`, and the `export_session_*` `#[func]`s;
+B, one-tile registration; C, many tiles and many bands end to end; D, wiring,
+real-size measurement and documentation. Point 4 was the question blocking B.
+**Ruling AP resumed B–D, and the five scope questions it leaves open are
+listed at the top of this document.**
+
 ---
 
 ## 6. Codecs
@@ -410,9 +502,9 @@ rather than mirroring the viewport. That is squarely part of the owner's
 verified by reading the crates' own source in the local registry. The
 suitability judgements about JPEG's linework damage and AVIF's encode cost are
 **analysis supplied by the coordinator**, recorded as such and not verified
-here. **No file-size or encode-time measurements were taken** — the export runs
-that would have produced them were never made, because the work was shelved
-first.
+here. **The pass that wrote this section took no file-size or encode-time
+measurements** — the work was shelved first. §6.3's measurements were taken
+later, on 2026-09-06, and §6.1's BigTIFF recipe was corrected by E2 (below).
 
 ### 6.1 The streaming constraint decides more than the compression ratio
 
@@ -422,7 +514,7 @@ the image incrementally**. That eliminates more candidates than quality does:
 | format | max side | streams from bands? | verdict |
 |---|---|---|---|
 | **PNG** | 2³¹−1 | **yes** — `png::Encoder::write_header()` → `Writer::stream_writer()` gives an `io::Write` that takes rows | **keep as the default.** Lossless, universal, and `png` 0.18.1 is *already resolved in `Cargo.lock`* through `image`'s png feature; naming it directly adds no new package. `image`'s own `PngEncoder` takes a whole buffer, which is why the `png` crate has to be named. |
-| **BigTIFF + Deflate** | 2³²−1 | **yes** — `TiffEncoder::new_big()`, then `ImageEncoder::rows_per_strip()` / `next_strip_sample_count()` / `write_strip()` | **the large-format option.** Verified present in `tiff` 0.11.3 (**MIT**, pure Rust, so the Android cross-build is unaffected). `Compression::Deflate(DeflateLevel)` behind the default `deflate` feature, plus `Predictor::Horizontal`, which is what makes Deflate competitive with PNG's own filtered Deflate on smooth gradients. |
+| **BigTIFF + Deflate** | 2³²−1 | **yes** — but **not** by the route first recorded here (`TiffEncoder::new_big()`, then `ImageEncoder::rows_per_strip()` / `next_strip_sample_count()` / `write_strip()`). **In `tiff` 0.11.3 that route writes a corrupt file under compression** (found by E2, `fc7db2b`): the compressor is installed only by the whole-image `ImageEncoder::write_data`, so `write_strip` alone emits raw strips under a `Compression = Deflate` tag, which `tiff`'s own decoder and libtiff/Pillow both reject. The working route predicts and compresses each strip with the crate's public `Deflate` compressor and writes it through `DirectoryEncoder` (`export_stream.rs::write_bigtiff`) | **the large-format option.** Verified present in `tiff` 0.11.3 (**MIT**, pure Rust, so the Android cross-build is unaffected). `Compression::Deflate(DeflateLevel)` behind the default `deflate` feature, plus `Predictor::Horizontal`, which is what makes Deflate competitive with PNG's own filtered Deflate on smooth gradients. |
 | WebP | **16 383** | — | **impossible, not merely unsuitable.** WebP is VP8-bitstream-compatible and encodes its dimensions in 14 bits, so 16 383 is a hard format maximum. That fails 32 768 outright and fails **16 384 by one pixel**. Confirmed against Google's WebP FAQ and RFC 9649. Written down because it is otherwise the obvious-looking choice and will be suggested again. |
 | **JPEG XL** | 2³⁰ | no streaming API | **eliminated on licensing, before the FFI question arises.** The one usable pure-Rust encoder, `jxl-encoder` 0.3.1 (2026-07-11), is **AGPL-3.0-only or commercial** — which this workspace's `MIT OR Apache-2.0` cannot take. `jxl-oxide` is decoder-only; `zune-jpegxl` describes itself as a small proof-of-concept encoder. The libjxl-FFI-on-Android question was never reached. |
 | AVIF | large | no | coordinator's analysis: encoding ~688 megapixels would be extraordinarily slow and large-image decoder support is uneven. Not investigated further. |
@@ -435,17 +527,19 @@ and added **six** packages: `tiff`, `fax`, `zune-jpeg`, `zune-core`, `weezl`,
 `quick-error`. Four of those (`fax`, `zune-jpeg`, `zune-core`, `weezl`) are
 decode-side codecs an export path never reads, and `tiff`'s default feature set
 is what drags them in. `default-features = false, features = ["deflate"]` is the
-right form and should reduce the addition to `tiff` + `quick-error` — `flate2`
-and `half` are already in the tree — **but that trimmed resolution was not
-re-run before the work was shelved, so treat the reduced figure as expected
-rather than confirmed.** `zstd` is available as a feature and should **not** be
+right form and reduces the addition to `tiff` + `quick-error` — `flate2` and
+`half` are already in the tree. That was a prediction when written; E2 took
+exactly that form and `Cargo.lock` gained exactly those two packages
+(`fc7db2b`), which confirms it. `zstd` is available as a feature and should **not** be
 taken: it pulls a C library into a build that cross-compiles to Android, to save
 perhaps 10 % over Deflate on a format fewer tools read.
 
 A `BandWriter` over both formats was written (thread-owned encoder plus a
 depth-1 `SyncSender`, which sidesteps `StreamWriter`'s self-referential borrow
 and gives back-pressure for free) — **but it was never compiled or run.** Treat
-it as a design sketch, not as verified code.
+it as a design sketch, not as verified code. Its counterpart in the tree is
+`export_stream.rs::BandSink`: `write_bands` on its own thread behind a
+`sync_channel(1)`, the same shape.
 
 ### 6.3 The thing the owner should hear plainly
 
@@ -488,20 +582,24 @@ turns out to have been much smaller than either party thought.**
 
 Whatever ships, `export_raster_estimate()` should report **the estimated output
 file size per format** alongside the peak memory, clearly labelled an estimate,
-so a forty-minute export is chosen against a number rather than discovered.
+so a long export is chosen against a number rather than discovered. With two
+formats in E3's options, that is one model: `file_bytes` is given for PNG and
+omitted for BigTIFF, for which nothing has been measured
+(`export_image_estimate`'s doc comment).
 
 ---
 
-## 7. Milestones, if this is un-shelved
+## 7. Milestones
 
 Written as a sequence so the overlay decision and the UI pass stay separately
-reviewable.
+reviewable. Where each stands is `cartalith-native/docs/STATUS.md`'s.
 
 - **E1 — the banded terrain renderer.** `ExportBandPlan` + a band entry point in
   `render.rs`, the `apply_local_contrast` / `build_grade_influence` splits of
-  §4.1, and `tests/export_bands.rs`. *Prototyped and green during this pass; see
-  §4.3 for exactly what was proven.* The shipped 2K/4K/8K path must come out as
-  one band with a zero apron, i.e. unchanged.
+  §4.1, and `tests/export_bands.rs`. *Prototyped and green during the pass that
+  wrote this document; §4.3 is exactly what was proven, and the bar.* The
+  shipped 2K/4K/8K path must come out as one band with a zero apron, i.e.
+  unchanged.
 - **E2 — the streaming writer.** PNG first, BigTIFF second, band-in / file-out,
   with round-trip tests that decode with a different decoder than the encoder and
   compare every byte at several band geometries including a short final band.
@@ -510,20 +608,21 @@ reviewable.
   / tunables, layered over `appearance()` without mutating it), and the content
   set including the explicit settlement tier of §5. `export_raster_estimate`
   extended to report dimensions, band count, peak bytes **and** estimated file
-  size — one format now, since ruling 26 settled on PNG, so "per format" is
-  moot. **The file-size and memory halves of that sentence are built** (§6.3's
-  fitted model, plus `memory_available`/`affordable`); band count is not, and
-  cannot be until E1 exists.
+  size. `format` carries `png` (the default, ruling 26) and `bigtiff`, E2's
+  second writer; the file-size estimate exists for PNG only (§6.3).
 - **E4 — the overlay session.** The cross-frame `begin` / band / composite /
   `write` / `finish` contract of §5, with `map_overlay.gd` drawing into a
   `SubViewport` at export scale under a synthetic per-band camera. This is the
-  one milestone with no reference behaviour to port against.
+  one milestone with no reference behaviour to port against. Sequenced as
+  batches A–D (§5, "E4 as scoped"); Ruling AP resumed B–D with five scope
+  questions still open (top of this document).
 - **E5 — the export dialog.** Owned by the UI pass, against E3's contract.
 
 ## 8. What must not be broken
 
-- The shipped `export_raster_png(path, width, tiled)` at 2K/4K/8K, including the
-  tiled layout and its `index.json`. It is in use.
+- The shipped `export_raster_png(path, width, tiled)` at every `BAKE_WIDTHS`
+  rung (2K/4K/8K, and 16K/32K since ruling 15), including the tiled layout and
+  its `index.json` and its memory refusal (§3). It is in use.
 - `export_layer_previews` and `export_channel_atlas`, which share the file and
   the `export_render` helper but none of this problem.
 - The reference HTML, which is read-only.
