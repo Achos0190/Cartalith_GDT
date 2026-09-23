@@ -186,6 +186,7 @@ impl WorldGen {
                             cartalith_civ::WayType::Regional => "regional",
                             cartalith_civ::WayType::Road => "road",
                             cartalith_civ::WayType::Track => "track",
+                            cartalith_civ::WayType::Ancient => "ancient",
                         },
                         name: w.name.as_str(),
                         km: w.km,

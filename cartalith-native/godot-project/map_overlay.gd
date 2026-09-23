@@ -370,10 +370,12 @@ const SETTLEMENT_LABEL_FILL := Color(0.965, 0.925, 0.831)
 ## | ancient  | 15527-15530    | `rgba(20,10,5,.35)` 1.1 | `rgba(120,110,100,.65)` 0.65 | `[2.5,1.3]` |
 ##
 ## `highway`/`regional`/`road`/`track` are `cartalith_civ::WayType`'s four
-## peak-corridor-usage tiers (Phase 2 milestone 14); `ancient` is not a
-## `WayType` at all but the fourth `ManualWayType`, reaching this control since
-## `get_roads()` began appending hand-drawn ways (IN-02). The reference gives
-## it its own grey dashed branch, and now so does this.
+## peak-corridor-usage tiers (Phase 2 milestone 14). `ancient` arrives two
+## ways: as the fourth `ManualWayType`, since `get_roads()` began appending
+## hand-drawn ways (IN-02), and as `WayType::Ancient`, the dirt track
+## `_civConnectVillageAddons` draws to every addon village (those carry
+## `village_addon: true` and take the village's own zoom gate -- see `_draw()`).
+## The reference gives it its own grey dashed branch, and now so does this.
 ##
 ## **This replaced a single flat `ROAD_COLOR` (2026-08-24.)** Every land way
 ## was stroked `Color(0.36, 0.29, 0.16, 0.55)` regardless of type, with only
@@ -2302,6 +2304,13 @@ func _draw() -> void:
 			## `_civWayLodMin` (reference 15012) + `if(zoom<lodMin) return`
 			## (15501) -- CA-18's ladder. See `WAY_LOD_MIN`.
 			if _way_lod and _camera_zoom < float(WAY_LOD_MIN.get(way["way_type"], WAY_LOD_DEFAULT)):
+				continue
+			## `_civWayLodMin`'s first line: `if(rt.villageAddon) return
+			## CIV_VILLAGE_ADDON_LOD` -- a village's connector shows exactly
+			## when the village does (`_settlement_hidden`'s own test), never
+			## before it. The reference's v1.72 BUG-A was the opposite: roads
+			## at `ancient`'s 0.7 leading to villages hidden until 2.4.
+			if bool(way.get("village_addon", false)) and (_camera_zoom / _lod_zoom_base()) < VILLAGE_ADDON_LOD:
 				continue
 			var style: Dictionary = WAY_STYLE.get(way["way_type"], WAY_STYLE[WAY_STYLE_DEFAULT])
 			var load_k := _trade_width_k(wi)

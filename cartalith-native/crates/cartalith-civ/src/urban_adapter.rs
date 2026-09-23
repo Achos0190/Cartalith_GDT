@@ -1116,6 +1116,7 @@ fn way_type_key(t: WayType) -> &'static str {
         WayType::Regional => "regional",
         WayType::Road => "road",
         WayType::Track => "track",
+        WayType::Ancient => "ancient",
     }
 }
 

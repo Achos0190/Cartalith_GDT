@@ -1169,6 +1169,7 @@ fn way_class_key(t: cartalith_civ::WayType) -> &'static str {
         cartalith_civ::WayType::Regional => "regional",
         cartalith_civ::WayType::Road => "road",
         cartalith_civ::WayType::Track => "track",
+        cartalith_civ::WayType::Ancient => "ancient",
     }
 }
 
@@ -1180,6 +1181,10 @@ fn way_class_from(key: &str) -> cartalith_civ::WayType {
         "highway" => cartalith_civ::WayType::Highway,
         "regional" => cartalith_civ::WayType::Regional,
         "road" => cartalith_civ::WayType::Road,
+        // A village connector. Without this arm a save would reload it as a
+        // `track` -- drawn from track's zoom threshold while its village stays
+        // hidden until `VILLAGE_ADDON_LOD`: the reference's own v1.72 BUG-A.
+        "ancient" => cartalith_civ::WayType::Ancient,
         _ => cartalith_civ::WayType::Track,
     }
 }

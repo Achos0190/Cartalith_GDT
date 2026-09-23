@@ -1791,7 +1791,9 @@ fn sep_min_max(field: &[f32], gw: usize, gh: usize, rad: i64, world: bool) -> (V
 /// measured it. This function only orders what that one decided.
 fn way_rank(t: crate::WayType) -> u8 {
     match t {
-        crate::WayType::Track => 0,
+        // A village's dirt track (`_civConnectVillageAddons`) carries no
+        // corridor-usage count at all, so it ranks with the least-used class.
+        crate::WayType::Track | crate::WayType::Ancient => 0,
         crate::WayType::Road => 1,
         crate::WayType::Regional => 2,
         crate::WayType::Highway => 3,

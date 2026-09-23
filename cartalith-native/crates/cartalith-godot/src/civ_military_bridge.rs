@@ -79,7 +79,9 @@ fn way_logistics_weight(t: WayType) -> f64 {
         WayType::Highway => 1.00,
         WayType::Regional => 0.80,
         WayType::Road => 0.55,
-        WayType::Track => 0.30,
+        // A village's connector (`_civConnectVillageAddons`) is a dirt track
+        // too, and weighs as one.
+        WayType::Track | WayType::Ancient => 0.30,
     }
 }
 

@@ -2413,6 +2413,65 @@ fn compute_civilisation(
         is_village.resize(settlements.len(), true);
     }
 
+    // Milestone 14 consolidation/smoothing needs NAMED settlements
+    // (`pa.name`/`pb.name`) -- must run after the naming/village block
+    // above, not alongside `topology`. `topology.edges`' `a`/`b` indices
+    // are into the pre-village `placements` order, which `settlements`
+    // preserves as its own prefix (villages are appended after, never
+    // interleaved), so indexing stays valid whether or not villages ran.
+    //
+    // Built HERE, before the recovery pass below, rather than after it: the
+    // reference names its ways inside `_civHierarchicalNetwork`, long before
+    // `_civApplyRecovery` (v2.11 26279) -- and recovery can DROP entries,
+    // after which `settlements[e.a]` would name a different place. With
+    // recovery at its default (`Stable`, a strict no-op) `settlements` is the
+    // same list at both points, so the default path is unchanged.
+    let mut ways = cartalith_civ::civ_consolidate_and_smooth_ways(&topology, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km);
+
+    // `_civConnectVillageAddons` (reference v2.11 25766): every addon village
+    // gets a dirt track (`WayType::Ancient`) into the network just built. The
+    // reference calls it unconditionally right after seeding (26213, "must run
+    // right here, AFTER places.push") and again from Generate Roads (21999),
+    // which is this function's SG-02 keep path -- there the villages are the
+    // kept `village_tids`, and the connectors are regenerated onto the
+    // rebuilt network rather than kept (the reference's v1.72 BUG-B note).
+    //
+    // Before recovery, as there (26279 comes after 26213). Its `a_idx`/`b_idx`
+    // are indices into this pre-recovery `settlements`, like every other
+    // way's.
+    //
+    // The cost grid is the reference's plain `_civLandCostGrid`: no
+    // `DECISIONS.md` §7i corridor/flow terms, which the reference applies to
+    // the Route/Way tools and never to this pass.
+    {
+        let conn_villages: Vec<bool> = if keeping {
+            settlements.iter().map(|s| kept_village_tids.contains(&s.tid)).collect()
+        } else {
+            is_village.clone()
+        };
+        if conn_villages.iter().any(|&v| v) {
+            let way_refs: Vec<cartalith_civ::tools::WayRef> = ways.iter().map(cartalith_civ::tools::WayRef::from).collect();
+            let ctx = cartalith_civ::tools::RouteContext {
+                field: &ws.field,
+                water_bodies: &wb.classification,
+                biome: None,
+                river_order: None,
+                places: &settlements,
+                ways: &way_refs,
+                gw,
+                gh,
+                sea: sea_level,
+                world,
+                map_width_km,
+                corridors: None,
+                flow: None,
+                flow_thresh: 0.0,
+            };
+            let conn = cartalith_civ::tools::civ_connect_village_addons(&ctx, &conn_villages);
+            ways.extend(conn);
+        }
+    }
+
     // v0.82 static post-collapse recovery (`_civApplyRecovery`, reference
     // lines 24619-24640), wired where the reference wires it: reference line
     // 25761, `if(_civRecoveryPhase>0) places=_civApplyRecovery(places,
@@ -2568,14 +2627,6 @@ fn compute_civilisation(
     // wants a note attached to, and an archipelago world legitimately has no
     // large landmass at all and correctly reports none.
     let continents = cartalith_civ::civ_continents(&landmass, gw, gh, CONTINENT_MIN_CELLS, Some(&territory));
-
-    // Milestone 14 consolidation/smoothing needs NAMED settlements
-    // (`pa.name`/`pb.name`) -- must run after the naming/village block
-    // above, not alongside `topology`. `topology.edges`' `a`/`b` indices
-    // are into the pre-village `placements` order, which `settlements`
-    // preserves as its own prefix (villages are appended after, never
-    // interleaved), so indexing stays valid whether or not villages ran.
-    let mut ways = cartalith_civ::civ_consolidate_and_smooth_ways(&topology, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km);
 
     // Sea routes (milestone 13): reference calls `_civMstRoutes(ports,true)`
     // unconditionally whenever >=2 port-tagged settlements exist, over the
@@ -8122,8 +8173,15 @@ impl WorldGen {
                     cartalith_civ::WayType::Regional => "regional",
                     cartalith_civ::WayType::Road => "road",
                     cartalith_civ::WayType::Track => "track",
+                    cartalith_civ::WayType::Ancient => "ancient",
                 };
-                dict! { "points" => &points, "brks" => &brks, "way_type" => way_type, "name" => w.name.as_str(), "km" => w.km, "manual" => false }
+                // `village_addon`: the reference's `w.villageAddon`, which
+                // `_civWayLodMin` (v2.11 15496) gates on `CIV_VILLAGE_ADDON_LOD`
+                // -- the village's own threshold -- instead of the type table,
+                // so a connector never draws before the village it leads to.
+                // On a generated `Way`, `Ancient` is that flag (see `WayType`).
+                let village_addon = w.way_type == cartalith_civ::WayType::Ancient;
+                dict! { "points" => &points, "brks" => &brks, "way_type" => way_type, "name" => w.name.as_str(), "km" => w.km, "manual" => false, "village_addon" => village_addon }
             })
             .collect();
         if let Some(infra) = self.infra.as_ref() {

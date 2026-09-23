@@ -6060,12 +6060,10 @@ pub fn build_travel_cost(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f
 /// Returns `(dist, prev)` -- `dist[i]=Infinity` unreachable, `prev[i]=-1`
 /// no predecessor.
 ///
-/// Only the scalar single-source case is ported. The reference's own
-/// v1.71 multi-source variant (`sx` as an array) has no caller in this
-/// port's current scope (`_civRoadProximityQuery`/`_civSeedVillages`,
-/// `PHASE2_SCOPE.md` milestone 12+); every in-scope call site
-/// (`build_road_network`, below) passes a scalar source, so porting the
-/// array branch now would be an abstraction with no caller (`ponytail`).
+/// The scalar single-source form. The reference's v1.71 multi-source form
+/// (`sx` as an array of cell indices) is [`road_dijkstra_multi`], which this
+/// function calls with a one-element source list -- see that function for
+/// why a single source takes exactly the path this one always took.
 ///
 /// The `edgeCost` (v1.98 optional directional-cost callback) parameter was
 /// omitted through milestone 13 -- no call site in this port's scope passed
@@ -6103,6 +6101,32 @@ fn road_dijkstra(
     edge_cost: Option<&(dyn Fn(usize, usize, isize, isize) -> f64 + Sync)>,
     want_prev: bool,
 ) -> (Vec<f32>, Vec<i32>) {
+    road_dijkstra_multi(cost, gw, gh, &[sy * gw + sx], world, edge_cost, want_prev)
+}
+
+/// `roadDijkstra`'s v1.71 multi-source form (reference v2.11 line 3301,
+/// `if(Array.isArray(sx)){ for(const si of sx){ if(dist[si]!==0){ dist[si]=0;
+/// push(0,si); } } }`): every cell index in `sources` is seeded at distance 0
+/// in the given order, so one shortest-path tree answers "nearest of several
+/// sources" for every other cell at once. `_civConnectVillageAddons`
+/// ([`tools::civ_connect_village_addons`]) is its caller.
+///
+/// **The scalar form is this function with one source, by construction.**
+/// `dist` starts at `Infinity`, so the `dist[si] != 0` duplicate guard is
+/// always true for the first (and only) seed: one `dist[si] = 0`, one
+/// `heap.push(0, si)` -- exactly the reference's scalar `else` branch -- and
+/// the relaxation loop below is shared, not copied.
+/// `road_dijkstra_single_source_list_is_the_scalar_form` pins it anyway.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn road_dijkstra_multi(
+    cost: &[f32],
+    gw: usize,
+    gh: usize,
+    sources: &[usize],
+    world: bool,
+    edge_cost: Option<&(dyn Fn(usize, usize, isize, isize) -> f64 + Sync)>,
+    want_prev: bool,
+) -> (Vec<f32>, Vec<i32>) {
     // Bit-identical to the reference's own literal `1.4142135623730951`
     // (both parse to the same nearest f64) -- named per clippy's
     // approx_constant lint rather than kept as a literal.
@@ -6111,9 +6135,12 @@ fn road_dijkstra(
     let mut dist = vec![f32::INFINITY; n];
     let mut prev = if want_prev { vec![-1i32; n] } else { Vec::new() };
     let mut heap = DijkstraHeap::with_capacity(n);
-    let si = sy * gw + sx;
-    dist[si] = 0.0;
-    heap.push(0.0, si);
+    for &si in sources {
+        if dist[si] != 0.0 {
+            dist[si] = 0.0;
+            heap.push(0.0, si);
+        }
+    }
     let mut visited = vec![false; n];
     while heap.size() > 0 {
         let i = heap.pop();
@@ -8197,13 +8224,23 @@ fn civ_smooth_path(
 }
 
 /// Road classification by peak corridor usage along the way's own path
-/// (reference: `e.maxU>=8?'highway':e.maxU>=5?'regional':e.maxU>=3?'road':'track'`).
+/// (reference: `e.maxU>=8?'highway':e.maxU>=5?'regional':e.maxU>=3?'road':'track'`),
+/// plus `Ancient`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WayType {
     Highway,
     Regional,
     Road,
     Track,
+    /// `type:'ancient', villageAddon:true` -- the dirt track
+    /// `_civConnectVillageAddons` ([`tools::civ_connect_village_addons`])
+    /// draws to each addon village. Never produced by the usage
+    /// classification above, and the connector is the only generator of a
+    /// generated (`Way`, not `ManualWay`) `Ancient` -- so on a `Way`,
+    /// `Ancient` **is** the reference's `villageAddon` flag, and it survives a
+    /// save because the class key does (the reference's v1.72 BUG-A lost the
+    /// flag on save and drew roads to hidden villages).
+    Ancient,
 }
 
 fn civ_classify_way(max_usage: u16) -> WayType {
@@ -12776,6 +12813,8 @@ pub fn jp_road_cells(
             WayType::Highway => ("Paved Road", "Maintained", 3),
             WayType::Regional => ("Paved Road", "Standard", 2),
             WayType::Road | WayType::Track => ("Dirt Track", "Standard", 1),
+            // `_jpRoadCells` (v2.11 18822): `w.type==='ancient'?["Dirt Track","Deteriorated"]`.
+            WayType::Ancient => ("Dirt Track", "Deteriorated", 1),
         };
         let mut emit = |x: f64, y: f64| put(&mut map, x, y, terrain, cond, pri);
         civ_walk_way_cells(&w.pts, &w.brks, gw, &mut emit);
@@ -17156,6 +17195,173 @@ mod tests {
             "cell past an infinite-cost barrier should stay unreachable"
         );
         assert_eq!(prev[2], -1);
+    }
+
+    /// `road_dijkstra` exactly as it stood before the v1.71 multi-source
+    /// form was ported (`git show 7521c64:cartalith-native/crates/cartalith-civ/src/lib.rs`),
+    /// copied verbatim so the scalar callers are compared against the code
+    /// they used to run, not against the refactor itself.
+    #[allow(clippy::too_many_arguments)]
+    fn road_dijkstra_at_head(
+        cost: &[f32],
+        gw: usize,
+        gh: usize,
+        sx: usize,
+        sy: usize,
+        world: bool,
+        edge_cost: Option<&(dyn Fn(usize, usize, isize, isize) -> f64 + Sync)>,
+        want_prev: bool,
+    ) -> (Vec<f32>, Vec<i32>) {
+        // Bit-identical to the reference's own literal `1.4142135623730951`
+        // (both parse to the same nearest f64) -- named per clippy's
+        // approx_constant lint rather than kept as a literal.
+        const SQ2: f64 = std::f64::consts::SQRT_2;
+        let n = gw * gh;
+        let mut dist = vec![f32::INFINITY; n];
+        let mut prev = if want_prev { vec![-1i32; n] } else { Vec::new() };
+        let mut heap = DijkstraHeap::with_capacity(n);
+        let si = sy * gw + sx;
+        dist[si] = 0.0;
+        heap.push(0.0, si);
+        let mut visited = vec![false; n];
+        while heap.size() > 0 {
+            let i = heap.pop();
+            if visited[i] {
+                continue;
+            }
+            visited[i] = true;
+            let d = dist[i] as f64;
+            if d.is_infinite() {
+                break;
+            }
+            let x = (i % gw) as isize;
+            let y = (i / gw) as isize;
+            for dy in -1isize..=1 {
+                for dx in -1isize..=1 {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    let nx = if world {
+                        (((x + dx) % gw as isize) + gw as isize) % gw as isize
+                    } else {
+                        let v = x + dx;
+                        if v < 0 || v >= gw as isize {
+                            continue;
+                        }
+                        v
+                    };
+                    let ny = y + dy;
+                    if ny < 0 || ny >= gh as isize {
+                        continue;
+                    }
+                    let j = ny as usize * gw + nx as usize;
+                    let step = match edge_cost {
+                        Some(f) => f(i, j, dx, dy),
+                        None => {
+                            (if dx != 0 && dy != 0 { SQ2 } else { 1.0 }) * 0.5 * (cost[i] as f64 + cost[j] as f64)
+                        }
+                    };
+                    let nd = d + step;
+                    if nd < dist[j] as f64 {
+                        dist[j] = nd as f32;
+                        if want_prev {
+                            prev[j] = i as i32;
+                        }
+                        heap.push(nd, j);
+                    }
+                }
+            }
+        }
+        (dist, prev)
+    }
+
+    /// A cost grid with plenty of exact ties (quantised to 1/8) and an
+    /// impassable band, so the heap's tie order is exercised.
+    fn tie_heavy_cost(gw: usize, gh: usize) -> Vec<f32> {
+        (0..gw * gh)
+            .map(|i| {
+                let (x, y) = (i % gw, i / gw);
+                if x == gw / 2 && y % 5 != 0 {
+                    f32::INFINITY
+                } else {
+                    1.0 + ((x * 7 + y * 13) % 5) as f32 / 8.0
+                }
+            })
+            .collect()
+    }
+
+    /// Every existing scalar caller of `road_dijkstra` is unaffected by the
+    /// multi-source port: across sources, wrap on/off, `want_prev` on/off
+    /// and a directional `edge_cost`, the new path returns `dist` and `prev`
+    /// bit-identical to the pre-change function.
+    #[test]
+    fn road_dijkstra_single_source_list_is_the_scalar_form() {
+        let (gw, gh) = (23, 17);
+        let cost = tie_heavy_cost(gw, gh);
+        let skew = |i: usize, j: usize, dx: isize, _dy: isize| -> f64 {
+            0.5 * (cost[i] as f64 + cost[j] as f64) * if dx > 0 { 1.25 } else { 0.875 }
+        };
+        let mut compared = 0;
+        for &(sx, sy) in &[(0, 0), (5, 3), (22, 16), (11, 8), (12, 0)] {
+            for world in [false, true] {
+                for want_prev in [false, true] {
+                    for ec in [None, Some(&skew as &(dyn Fn(usize, usize, isize, isize) -> f64 + Sync))] {
+                        let (d0, p0) = road_dijkstra_at_head(&cost, gw, gh, sx, sy, world, ec, want_prev);
+                        let (d1, p1) = road_dijkstra(&cost, gw, gh, sx, sy, world, ec, want_prev);
+                        let (d2, p2) = road_dijkstra_multi(&cost, gw, gh, &[sy * gw + sx], world, ec, want_prev);
+                        let bits = |d: &[f32]| d.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+                        assert_eq!(bits(&d0), bits(&d1));
+                        assert_eq!(bits(&d0), bits(&d2));
+                        assert_eq!(p0, p1);
+                        assert_eq!(p0, p2);
+                        compared += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(compared, 40);
+    }
+
+    /// Several sources: every cell's distance is the minimum over the
+    /// single-source runs (the nearest source wins), each source sits at 0
+    /// with no predecessor, and walking `prev` from any reachable cell ends
+    /// on the source nearest to it.
+    #[test]
+    fn road_dijkstra_multi_finds_the_nearest_of_several_sources() {
+        let (gw, gh) = (23, 17);
+        let cost = tie_heavy_cost(gw, gh);
+        let srcs = [2 * gw + 2, 14 * gw + 20, 8 * gw + 6];
+        let (dist, prev) = road_dijkstra_multi(&cost, gw, gh, &srcs, false, None, true);
+        let singles: Vec<Vec<f32>> =
+            srcs.iter().map(|&s| road_dijkstra(&cost, gw, gh, s % gw, s / gw, false, None, false).0).collect();
+        let mut owned = [0usize; 3];
+        for i in 0..gw * gh {
+            let best = singles.iter().map(|d| d[i]).fold(f32::INFINITY, f32::min);
+            if best.is_infinite() {
+                assert!(dist[i].is_infinite() && prev[i] == -1, "cell {i} should be unreachable");
+                continue;
+            }
+            // f32 storage of an f64 running sum: the multi tree can reach a
+            // cell along a different equal-cost route than the single run.
+            assert!((dist[i] - best).abs() <= 1e-4 * best.max(1.0), "cell {i}: {} vs nearest {best}", dist[i]);
+            let mut c = i;
+            while prev[c] >= 0 {
+                c = prev[c] as usize;
+            }
+            let k = srcs.iter().position(|&s| s == c).expect("every walk ends on a source");
+            assert!((singles[k][i] - dist[i]).abs() <= 1e-4 * dist[i].max(1.0), "cell {i} walked to a source that is not its nearest");
+            owned[k] += 1;
+        }
+        for &s in &srcs {
+            assert_eq!(dist[s], 0.0);
+            assert_eq!(prev[s], -1);
+        }
+        assert!(owned.iter().all(|&n| n > 10), "every source owns a region: {owned:?}");
+        // A repeated source is seeded once (the `dist[si]!==0` guard) and
+        // the result does not change.
+        let (d_dup, p_dup) = road_dijkstra_multi(&cost, gw, gh, &[srcs[0], srcs[1], srcs[0], srcs[2]], false, None, true);
+        assert_eq!(d_dup.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), dist.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+        assert_eq!(p_dup, prev);
     }
 
     /// R5's storage change (`i64`/`i64`/`f64` -> `i32`/`i32`/`u32`) pinned

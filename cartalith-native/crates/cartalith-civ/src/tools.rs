@@ -52,8 +52,8 @@
 use std::collections::HashSet;
 
 use super::{
-    NamedSettlement, SettlementKind, SettlementPlacement, TerrainValid, Way, build_travel_cost, civ_apply_settlement_gravity, civ_biome_friction, civ_is_coastal,
-    civ_navigable_river_discount, civ_river_crossing_cost, civ_routing_grid, civ_smooth_path, civ_swamp_penalty, js_hypot, js_round, road_dijkstra,
+    NamedSettlement, SettlementKind, SettlementPlacement, TerrainValid, Way, WayType, build_travel_cost, civ_apply_settlement_gravity, civ_biome_friction, civ_is_coastal,
+    civ_navigable_river_discount, civ_river_crossing_cost, civ_routing_grid, civ_smooth_path, civ_swamp_penalty, js_hypot, js_round, road_dijkstra, road_dijkstra_multi,
 };
 
 // ===================== Territory / faction =====================
@@ -302,9 +302,10 @@ impl<'a> From<&'a ManualWay> for WayRef<'a> {
 /// presentation/classification and all route land-only.
 ///
 /// Deliberately a separate enum from `WayType`
-/// (Highway/Regional/Road/Track): that one is the *generated* network's
-/// usage-derived classification (`civ_classify_way`), this one is a
-/// user's declared intent. They share the word "track" and mean different
+/// (Highway/Regional/Road/Track, plus `Ancient` for
+/// [`civ_connect_village_addons`]' village tracks): that one is the
+/// *generated* network's classification, this one is a user's declared
+/// intent. They share the words "track" and "ancient" and mean different
 /// things.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManualWayType {
@@ -904,6 +905,170 @@ pub fn civ_commit_way(ctx: &RouteContext, waypoints: &[(f64, f64)], way_type: Ma
         way: ManualWay { pts: j.pts, brks: j.brks, km: j.km, sea, way_type, name: String::new(), hidden: false },
         unreachable_legs: j.unreachable_legs,
     })
+}
+
+// ===================== Village connectors (v1.71/v1.79) =====================
+
+/// `_civConnectVillageAddons` (reference v2.11 line 25766): give every addon
+/// village a dirt track (`WayType::Ancient`) into the road network.
+///
+/// `ctx.places` is the reference's `places` (every settlement, villages
+/// included) and `is_village[i]` its `places[i].villageAddon`; the villages
+/// to connect are the flagged entries **in index order**, which is the
+/// reference's `villages` argument order because `_civIterativeAutoWorld`
+/// appends them (`places.push(...rv)`) right before calling this.
+/// `ctx.ways` is the existing network; sea lanes and hidden ways are ignored,
+/// as there.
+///
+/// **A growing forest, batched** (the reference's v1.79 comment has the
+/// measurements that chose it): the network starts as every non-village
+/// settlement; each round runs ONE multi-source Dijkstra
+/// ([`crate::road_dijkstra_multi`]) from the whole current network, ranks the
+/// unconnected villages by distance to it, connects the cheapest
+/// `max(4, ceil(villages/25))`, and adds each connected village to the source
+/// set -- so a later village can attach to an already-connected sibling, and
+/// every reachable village still traces back to a real settlement. A village
+/// unreachable in one round is unreachable in all later ones, so an empty
+/// ranking ends the loop and leaves the remainder isolated.
+///
+/// Each drawn track also joins the existing-way discount, so a sibling in a
+/// later round forks off it instead of cutting a parallel line.
+///
+/// Returned ways have `tid: 0` (assigned by the caller, like every generated
+/// way), `name: ""`, `a_idx` = the village, `b_idx` = whichever place it
+/// joined -- indices into `ctx.places`.
+///
+/// **The cost grid is the reference's plain `_civLandCostGrid`** only when
+/// `ctx.corridors` and `ctx.flow` are `None`; [`civ_land_cost_grid`] carries
+/// `DECISIONS.md` §7i's terrain terms otherwise. The golden
+/// (`golden_parity_village_connect.rs`) passes `None` for both.
+pub fn civ_connect_village_addons(ctx: &RouteContext, is_village: &[bool]) -> Vec<Way> {
+    let places = ctx.places;
+    let villages: Vec<usize> = (0..places.len()).filter(|&i| is_village.get(i).copied().unwrap_or(false)).collect();
+    if villages.is_empty() {
+        return Vec::new();
+    }
+    let CostGrid { mut cost, rw, rh, sc } = civ_land_cost_grid(ctx);
+    let base: Vec<usize> = (0..places.len()).filter(|&i| !is_village.get(i).copied().unwrap_or(false)).collect();
+    if base.is_empty() {
+        return Vec::new();
+    }
+
+    let mut discounted = HashSet::new();
+    let land_ways: Vec<WayRef> = ctx.ways.iter().copied().filter(|w| !w.sea).collect();
+    civ_mark_ways_on_grid(&land_ways, rw, rh, sc, ctx.gw, &mut discounted);
+    for &i in &discounted {
+        if cost[i].is_finite() {
+            cost[i] *= EXISTING_WAY_DISCOUNT;
+        }
+    }
+
+    let idx_of = |x: f64, y: f64| -> usize {
+        let cx = js_round(x * sc).clamp(0.0, rw as f64 - 1.0) as usize;
+        let cy = js_round(y * sc).clamp(0.0, rh as f64 - 1.0) as usize;
+        cx + cy * rw
+    };
+    let pin = |i: usize| (places[i].placement.x as f64, places[i].placement.y as f64);
+    let cell_pt = |c: usize| (((c % rw) as f64 + 0.5) / sc, ((c / rw) as f64 + 0.5) / sc);
+
+    // A JS `Set` iterates in insertion order and `add` of a member does not
+    // move it; `[...sourceIdxs]` is the Dijkstra's seed order, and the seed
+    // order is the heap's tie order -- so an ordered list plus a membership set.
+    let mut sources: Vec<usize> = Vec::new();
+    let mut is_source: HashSet<usize> = HashSet::new();
+    let mut target_at: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    for &p in &base {
+        let (x, y) = pin(p);
+        let ci = idx_of(x, y);
+        if is_source.insert(ci) {
+            sources.push(ci);
+        }
+        target_at.insert(ci, p);
+    }
+
+    let mut pending = villages.clone();
+    let mut added = Vec::new();
+    let batch = 4usize.max(villages.len().div_ceil(25));
+    let mut guard = villages.len() + 5;
+    let valid = TerrainValid::Land(None);
+
+    while !pending.is_empty() && guard > 0 {
+        guard -= 1;
+        let (dist, prev) = road_dijkstra_multi(&cost, rw, rh, &sources, ctx.world, None, true);
+        let mut ranked: Vec<(usize, usize, f32)> = pending
+            .iter()
+            .filter_map(|&vi| {
+                let (x, y) = pin(vi);
+                let ci = idx_of(x, y);
+                dist[ci].is_finite().then_some((vi, ci, dist[ci]))
+            })
+            .collect();
+        if ranked.is_empty() {
+            break;
+        }
+        // `ranked.sort((a,b)=>a.d-b.d)`: stable, finite keys only.
+        ranked.sort_by(|a, b| a.2.partial_cmp(&b.2).expect("ranked distances are finite"));
+
+        for &(vi, ci, _) in ranked.iter().take(batch) {
+            let mut raw: Vec<(f64, f64)> = Vec::new();
+            let mut cur = ci;
+            let mut g2 = rw * rh;
+            while !is_source.contains(&cur) && g2 > 0 {
+                g2 -= 1;
+                raw.push(cell_pt(cur));
+                let p = prev[cur];
+                if p < 0 || p as usize == cur {
+                    break;
+                }
+                cur = p as usize;
+            }
+            raw.push(cell_pt(cur));
+            pending.retain(|&v| v != vi);
+            // Joins the network whether or not a drawable path results, or
+            // a village already sitting on a source cell would never leave
+            // `pending`.
+            if is_source.insert(ci) {
+                sources.push(ci);
+            }
+            target_at.insert(ci, vi);
+            if raw.len() < 2 {
+                continue;
+            }
+            // VILLAGE -> ... -> SOURCE order, not reversed (the reference's
+            // v1.76 note: a reverse here is what drew every connector as a
+            // retraced spaghetti loop).
+            raw[0] = pin(vi);
+            // Every walk ends on a source cell (a finite, non-source cell
+            // always has a predecessor), and every source is in `target_at`,
+            // so this resolves; the reference would push a way with an
+            // undefined `bIdx` if it did not.
+            let Some(&b_idx) = target_at.get(&cur) else { continue };
+            let last = raw.len() - 1;
+            raw[last] = pin(b_idx);
+            let Some(sm) = civ_smooth_path(&raw, ctx.gw, ctx.gh, ctx.water_bodies, ctx.map_width_km, &valid) else {
+                continue;
+            };
+            let mut touch = HashSet::new();
+            civ_walk_way_cells(&sm.pts, &sm.brks, ctx.gw, |px, py| civ_mark_way_neighborhood(px, py, rw, rh, sc, &mut touch));
+            for i in touch {
+                if discounted.insert(i) && cost[i].is_finite() {
+                    cost[i] *= EXISTING_WAY_DISCOUNT;
+                }
+            }
+            added.push(Way {
+                tid: 0,
+                pts: sm.pts,
+                brks: sm.brks,
+                km: sm.km,
+                name: String::new(),
+                way_type: WayType::Ancient,
+                a_idx: vi,
+                b_idx,
+                hidden: false,
+            });
+        }
+    }
+    added
 }
 
 // ===================== Snap-to-place/way (v1.52) =====================
