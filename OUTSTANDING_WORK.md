@@ -39,6 +39,32 @@ won and §6 records the disagreement — those defects in the project record are
 worth more than any single milestone row below, and a reader with ten minutes
 should read §6 before §2.
 
+73 outstanding items — 2026-09-23, unchanged in count (filed and closed in the same pass — owner-requested
+mid-session, not a pre-existing backlog row): **faction religion and government, commit `d4b736c`, plus a
+published research doc.** Owner: "Faction ns should get a religion and form of governance, see the html and
+expand on the existing forms." Two findings changed the scope: the reference HTML is already byte-faithful
+to what's ported (8 religions, 9 governments) — this was never a catch-up port, only expansion — and neither
+field was actually "pure flavour" as `roster.rs`'s own doc comment claimed: religion feeds a faction's
+religious power/prestige term, government feeds the military-manpower model, both already wired and read.
+**Wired**: every freshly-created faction now gets a real, culture-matched-where-possible religion and a
+real government form, instead of uniform `"none"`/`"monarchy"` — owner-authorized directly after being told
+this changes generated output. The "never overwrites an existing faction" property verified against all
+three `civ_merge` modes. `cargo test --workspace --no-fail-fast` reproduced 3590→3593.
+**Researched and published, not built**: the owner explicitly rejected a small list extension ("our history
+has had over roughly 9000 gods... do the research and synthesise a proper model") — full research doc at
+<https://claude.ai/artifact/X8PudUqgDYC6nMBidaorA7>, recommending both an intra-religion pantheon mechanism
+(no new dynamics, a siting rule per deity domain) and an inter-religion coexistence mechanism (axis-derived
+retention/competition/trade-diaspora influx in `belief.rs`, which already has the per-settlement data
+structure this needs — `SettlementReligionState` — but not the dynamics to use it), grounded in real
+religious-studies typology (Assmann's exclusivity axis, J.Z. Smith's locus axis, Whitehouse's institutional-
+form axis) and documented trade-hub coexistence (Karakorum, Dura-Europos, Quanzhou). Proposes 7 new religion
+archetypes, 6+2 new government forms, and a new per-faction religious-policy axis, staged S1–S7/G1 with 8
+owner decisions gating the largest pieces (S3, civ→urban faith wiring, is itself a generated-output change
+needing its own ruling). **Stale `STATUS.md` rows found in passing, corrected in the same pass** (per
+`CLAUDE.md`'s own rule on correcting stale status claims rather than leaving them for later): RD-1 claimed
+the belief model "exists only as a name" — it is fully built and wired, confirmed at the symbol; RD-0 cited
+a file length 945 lines out of date (now 2 220); GGR-RELIG called the religion screens "blocked" when a
+2026-09-03 batch already shipped them.
 73 outstanding items — 2026-09-23, unchanged in count (filed and closed in the same pass — owner-reported
 mid-session, not a pre-existing backlog row): **faubourg grain, commit `7f7c009`.** Owner feedback ("the
 building outside the wall being arranged quite neatly... often the poor district away from a gate and more
