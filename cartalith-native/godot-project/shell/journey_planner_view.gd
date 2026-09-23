@@ -226,14 +226,13 @@ var _stage_auto := false
 var _trim := Vector2(0.0, 1.0)
 
 ## JP-06 / JP-08. The journeys list: a route index plus the whole party form,
-## named. **Persisted** into the project's `entities/journeys.json` slot by
-## `journeys_document()` and read back by `restore_journeys_document()` — both
-## at the foot of this file. Kept in GDScript rather than pushed into
-## `cartalith-civ` because a saved journey is exactly the request `jp_compute`
-## already takes, so the engine would own nothing the shell does not; the
-## archive channel is `project_save_with_documents`, which carries
-## caller-owned slots as text. `route` is an index into the routes saved
-## beside it, which is why `setup()` clears this list on a world change.
+## named. **Session-only** (corrected 2026-09-24): `journeys_document()` and
+## `restore_journeys_document()` at the foot of this file are SP-1 stubs, so
+## this list starts empty on project open. The named journey itself is SP-1's
+## engine `Journey`, persisted in `entities/journeys.json` and drawn on the map;
+## reading it back into this list is `OUTSTANDING_WORK.md` §2.3's open row.
+## `route` is an index into the routes saved beside it, which is why
+## `setup()` clears this list on a world change.
 ## Entries: `{name: String, route: int, plan: Dictionary, stage_overrides:
 ## Dictionary, layovers: Dictionary, animal_entries: Dictionary, trim: Vector2}`.
 var _journeys: Array = []
@@ -725,7 +724,7 @@ func _refresh_route_choice() -> void:
 		open_btn.text = "%s%s" % ["● " if i == _active_journey else "", String(j.get("name", "journey"))]
 		open_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		open_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		open_btn.tooltip_text = "Route #%d + this party form. Saved into the project's entities/journeys.json and restored on File ▸ Open project. The route is stored as an INDEX, so a journey only means what it meant against the routes saved beside it." % int(j.get("route", 0))
+		open_btn.tooltip_text = "Route #%d + this party form. This list lasts for the session: saving the project keeps the journey itself (it is drawn on the map again after reopening), but the list starts empty on File ▸ Open project. The route is stored as an INDEX, so a journey only means what it meant against the routes saved beside it." % int(j.get("route", 0))
 		open_btn.pressed.connect(func(): _load_journey(i))
 		jrow.add_child(open_btn)
 		var del_btn := Button.new()
