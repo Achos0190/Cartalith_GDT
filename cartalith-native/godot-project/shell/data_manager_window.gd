@@ -135,8 +135,9 @@ class_name DataManagerWindow
 ##   `tiles/index.json`). **Since 2026-09-23 the scheme row's XYZ / TMS / WMTS
 ##   segments are live too**: they export the whole world's LOD pyramid through
 ##   `slippy_export_tiles` (`cartalith_engine::slippy_export`), with the
-##   canvas's zoom range and retina toggle. What the canvas draws and neither
-##   export has -- a CRS, MBTiles/folder packaging, leaflet-preview.html,
+##   canvas's zoom range and retina toggle, and (2026-09-23) a
+##   `leaflet-preview.html` viewer page inside the same archive. What the
+##   canvas draws and neither export has -- a CRS, MBTiles/folder packaging,
 ##   style.json, ocean skipping, overlay layers -- is still drawn disabled with
 ##   its reason (`SCHEME_NOTE` and the notes beside it).
 ## - **Export ▸ GIS / GeoJSON** is real as of this pass (DM-03). Same shape of
@@ -405,9 +406,12 @@ const GROUP_ORDER: Array[String] = ["Import", "Export", "Sources", "Validation"]
 
 const SCHEME_NOTE := "grid + index.json exports the Region-select marquee as a flat row/column grid of height and colour tiles plus tiles/index.json (region_export_tiles). XYZ, TMS and WMTS export the WHOLE world's LOD pyramid, levels 0..N, as PNG tiles plus a tiles.json manifest (slippy_export_tiles): XYZ is z/x/y with row 0 at the top, TMS flips y, WMTS is TileMatrixSet/TileMatrix/TileRow/TileCol. There is no CRS -- tiles sit on the world's own planar cell grid, so a web client needs a flat CRS such as Leaflet's L.CRS.Simple."
 
-## The two OUTPUT checkboxes the pyramid export does not write. The tiles and
-## the manifest they would point at exist; the viewer page and style do not.
-const PREVIEW_NOTE := "Not built. The pyramid tiles and tiles.json are written; a leaflet-preview.html viewer page and a style.json are further writers on top of them that do not exist yet."
+## The OUTPUT checkboxes around the viewer page. The pyramid export writes
+## `leaflet-preview.html` beside tiles.json (`cartalith_io::slippy::
+## leaflet_preview_html`, 2026-09-23); the marquee grid does not, and nothing
+## writes a style.json.
+const PREVIEW_NOTE := "The pyramid export (XYZ / TMS / WMTS) always writes leaflet-preview.html beside tiles.json: a Leaflet page on L.CRS.Simple that addresses the archive's own tiles -- unzip and open it in a browser. The grid + index.json scheme is not a slippy pyramid, so it has no viewer page."
+const STYLE_NOTE := "Not built. No style model exists to write a style.json from; the viewer page carries its own attribution line."
 
 ## Why `0–8` is disabled: `slippy_export_tiles` clamps to the bake's own
 ## ceiling, `bake_bridge::MAX_BAKE_DEPTH` (6).
@@ -3076,19 +3080,20 @@ func _build_output_column(col: Control) -> void:
 	else:
 		_check(col, "Emit tiles/index.json", true, func(): pass, "always", false,
 			"export_region_tiles always writes tiles/index.json -- the per-tile file names, dimensions and world metadata. It is not optional.")
-	_check(col, "Emit leaflet-preview.html", false, func(): pass, "", false, PREVIEW_NOTE)
-	_check(col, "Emit style.json + attribution", false, func(): pass, "", false, PREVIEW_NOTE)
+	_check(col, "Emit leaflet-preview.html", _tx_pyramid(), func(): pass,
+		"always" if _tx_pyramid() else "", false, PREVIEW_NOTE)
+	_check(col, "Emit style.json + attribution", false, func(): pass, "", false, STYLE_NOTE)
 
 func _build_estimate_block(col: Control, region: Dictionary) -> void:
 	_col_header(col, "ESTIMATE")
 	var block := _block(col)
 	var tiles := _tx_tile_count()
 	if _tx_pyramid():
-		## One PNG per tile plus tiles.json. The long edge is `_tx_tile`; the
-		## short edge follows the world's aspect (`tile_dims`), so only the long
-		## edge is stated.
+		## One PNG per tile plus leaflet-preview.html and tiles.json. The long
+		## edge is `_tx_tile`; the short edge follows the world's aspect
+		## (`tile_dims`), so only the long edge is stated.
 		_kv(block, "tiles", "%d (z0–%d%s)" % [tiles, _tx_zmax, " · 1x + 2x" if _tx_retina else ""])
-		_kv(block, "files in archive", "%d" % (tiles + 1))
+		_kv(block, "files in archive", "%d" % (tiles + 2))
 		_kv(block, "tile size", "%d px long edge" % _tx_tile)
 	else:
 		_kv(block, "tiles", "%d (%d × %d)" % [tiles, _tx_cols, _tx_rows])

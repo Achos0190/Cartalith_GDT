@@ -127,8 +127,8 @@ func _binding() -> void:
 		var bytes: PackedByteArray = b.slippy_export_tiles(o)
 		_check("%s: archive is non-empty" % s, not bytes.is_empty(), "%d bytes" % bytes.size())
 		got[s] = _unzip(bytes, "%s.zip" % s)
-		## (1 + 4 + 16) tiles x 2 densities + tiles.json.
-		_check("%s: 43 entries" % s, (got[s] as Dictionary).size() == 43, "%d" % (got[s] as Dictionary).size())
+		## (1 + 4 + 16) tiles x 2 densities + leaflet-preview.html + tiles.json.
+		_check("%s: 44 entries" % s, (got[s] as Dictionary).size() == 44, "%d" % (got[s] as Dictionary).size())
 		var man = JSON.parse_string((got[s] as Dictionary).get("tiles.json", PackedByteArray()).get_string_from_utf8())
 		_check("%s: tiles.json names its scheme" % s, man is Dictionary and man.get("scheme", "") == s, str(man.get("scheme", "?")) if man is Dictionary else "unparsed")
 		if man is Dictionary:
@@ -202,6 +202,7 @@ func _shell() -> void:
 	_check("pane.zip exists and opens", z.open(dm._tx_dest) == OK)
 	var names := z.get_files()
 	z.close()
-	_check("pane.zip: 341 tiles + tiles.json", names.size() == 342, "%d" % names.size())
+	_check("pane.zip: 341 tiles + leaflet-preview.html + tiles.json", names.size() == 343, "%d" % names.size())
+	_check("pane.zip: leaflet-preview.html", names.has("leaflet-preview.html"))
 	_check("pane.zip: deepest corner 4/15/15.png", names.has("4/15/15.png"))
 	_check("pane.zip: root 0/0/0.png", names.has("0/0/0.png"))

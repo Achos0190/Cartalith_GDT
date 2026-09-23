@@ -182,6 +182,80 @@ pub fn slippy_manifest(
 /// The manifest's own file name.
 pub const SLIPPY_MANIFEST: &str = "tiles.json";
 
+/// The viewer page's own file name — §6.6 `data-tiles`' *"emits
+/// leaflet-preview.html"*.
+pub const LEAFLET_PREVIEW: &str = "leaflet-preview.html";
+
+/// The JS template-literal body the preview page addresses a tile with, over
+/// Leaflet's own tile coords `z`, `x`, `y` (row 0 at the top), `ty` (the row
+/// flipped about the level) and `r` (`""` or `"@2x"`). A function of its own
+/// so a test can hold it to [`tile_path`] address for address.
+///
+/// TMS is flipped here rather than with Leaflet's `tms: true`, which reads
+/// `_globalTileRange` — unset under an infinite CRS such as `L.CRS.Simple`.
+fn js_tile_url(scheme: TileScheme) -> &'static str {
+    match scheme {
+        TileScheme::Xyz => "${z}/${x}/${y}${r}.png",
+        TileScheme::Tms => "${z}/${x}/${ty}${r}.png",
+        TileScheme::Wmts => "cartalith${r}/${z}/${y}/${x}.png",
+    }
+}
+
+/// A self-contained Leaflet page that previews the archive it sits in: unzip,
+/// open it in a browser, and the tiles beside it load by relative path.
+///
+/// `L.CRS.Simple`, because the world has no CRS (module docs): at zoom 0 the
+/// whole world is one `tile_w × tile_h` tile at one unit per pixel, which is
+/// exactly the pyramid's level 0, so Leaflet's own tile maths walks the ladder
+/// with no conversion. `bounds` stops it asking for tiles past the world's
+/// edge. `@2x` is used on a high-density screen when the export has it.
+/// Leaflet itself loads from unpkg, so the page needs a connection.
+pub fn leaflet_preview_html(scheme: TileScheme, ladder: &[LadderLevel], scales: &[u32], name: &str) -> String {
+    let maxz = ladder.last().map_or(0, |l| l.z);
+    let (tw, th) = ladder.first().map_or((0, 0), |l| (l.tile_w, l.tile_h));
+    let retina = scales.contains(&2);
+    let name = name.replace('&', "&amp;").replace('<', "&lt;").replace('"', "&quot;");
+    let url = js_tile_url(scheme);
+    let scheme = scheme.as_str().to_ascii_uppercase();
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{name} · {scheme} tile preview</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>html, body, #map {{ height: 100%; margin: 0; background: #1b1d1f; }}</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+// Written by Cartalith beside tiles.json ({scheme}). No CRS: level 0 is the
+// whole world as one TW x TH tile, one unit per pixel (L.CRS.Simple).
+const TW = {tw}, TH = {th}, MAXZ = {maxz}, RETINA = {retina};
+const r = RETINA && window.devicePixelRatio > 1 ? "@2x" : "";
+const Pyramid = L.TileLayer.extend({{
+  getTileUrl(c) {{
+    const z = c.z, x = c.x, y = c.y, ty = (1 << z) - 1 - y;
+    return `{url}`;
+  }}
+}});
+const bounds = [[-TH, 0], [0, TW]];
+const map = L.map("map", {{ crs: L.CRS.Simple, minZoom: 0, maxZoom: MAXZ }});
+new Pyramid("", {{
+  tileSize: L.point(TW, TH), bounds, noWrap: true,
+  minZoom: 0, maxZoom: MAXZ, maxNativeZoom: MAXZ,
+  attribution: "{name} · Cartalith",
+}}).addTo(map);
+map.fitBounds(bounds);
+</script>
+</body>
+</html>
+"#
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,6 +343,50 @@ mod tests {
         assert!(j.get("bounds").is_none());
         assert!(j.get("center").is_none());
         assert!(j["cartalith"]["crs"].is_null());
+    }
+
+    /// The page's template, filled the way its `getTileUrl` fills it.
+    fn fill(tpl: &str, id: ChunkId, scale: u32) -> String {
+        let n = pyramid_dims(id.z as i32).rows;
+        let r = if scale <= 1 { String::new() } else { format!("@{scale}x") };
+        tpl.replace("${ty}", &(n - 1 - id.row).to_string())
+            .replace("${z}", &id.z.to_string())
+            .replace("${x}", &id.col.to_string())
+            .replace("${y}", &id.row.to_string())
+            .replace("${r}", &r)
+    }
+
+    #[test]
+    fn the_preview_page_asks_for_exactly_the_paths_the_archive_holds() {
+        for scheme in [TileScheme::Xyz, TileScheme::Tms, TileScheme::Wmts] {
+            for z in 0..3 {
+                let n = 1u32 << z;
+                for (col, row) in (0..n).flat_map(|c| (0..n).map(move |r| (c, r))) {
+                    let id = ChunkId::new(z, col, row);
+                    for scale in [1, 2] {
+                        assert_eq!(fill(js_tile_url(scheme), id, scale), tile_path(scheme, id, scale, "png"),
+                            "{scheme:?} {id:?} @{scale}");
+                    }
+                }
+            }
+        }
+        // Positive control: the XYZ template under TMS naming must miss.
+        let id = ChunkId::new(2, 1, 0);
+        assert_ne!(fill(js_tile_url(TileScheme::Xyz), id, 1), tile_path(TileScheme::Tms, id, 1, "png"));
+    }
+
+    #[test]
+    fn the_preview_page_carries_the_ladder_it_was_written_for() {
+        // 2:1 world, 256 px long edge: 256 x 128 tiles, levels 0..=3.
+        let l = zoom_ladder(257, 129, 514.0, 256, 3);
+        let html = leaflet_preview_html(TileScheme::Tms, &l, &[1, 2], "A <b> & \"c\"");
+        assert!(html.contains("const TW = 256, TH = 128, MAXZ = 3, RETINA = true;"), "{html}");
+        assert!(html.contains("return `${z}/${x}/${ty}${r}.png`;"));
+        assert!(html.contains("crs: L.CRS.Simple"));
+        assert!(html.contains("A &lt;b> &amp; &quot;c&quot; · Cartalith"));
+        assert!(!html.contains("<b>"), "the name must not inject markup");
+        let plain = leaflet_preview_html(TileScheme::Xyz, &l, &[1], "w");
+        assert!(plain.contains("RETINA = false;"));
     }
 
     #[test]

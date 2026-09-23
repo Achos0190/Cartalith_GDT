@@ -15,7 +15,9 @@
 //! stale while its key is current. Synthesis is deterministic, so re-running
 //! it costs time and cannot cost correctness.
 
-use cartalith_io::slippy::{slippy_manifest, tile_path, zoom_ladder, TileScheme, SLIPPY_MANIFEST};
+use cartalith_io::slippy::{
+    leaflet_preview_html, slippy_manifest, tile_path, zoom_ladder, TileScheme, LEAFLET_PREVIEW, SLIPPY_MANIFEST,
+};
 use cartalith_spatial::pyramid::{pyramid_dims, ChunkId};
 use cartalith_terrain::amplify::AmplifyOpts;
 use rayon::prelude::*;
@@ -46,7 +48,8 @@ pub struct SlippyExportOpts<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SlippyExport {
     /// Tiles level by level, row-major within a level, scale by scale; then
-    /// the manifest ([`SLIPPY_MANIFEST`]) last.
+    /// the viewer page ([`LEAFLET_PREVIEW`]); then the manifest
+    /// ([`SLIPPY_MANIFEST`]) last.
     pub entries: Vec<RegionTileEntry>,
     /// Tiles whose PNG encode failed and were therefore not written. Non-zero
     /// is a real hole in the pyramid the caller must surface.
@@ -89,6 +92,10 @@ pub fn export_slippy_tiles(coarse: &[f32], cw: usize, ch: usize, o: &SlippyExpor
         }
     }
     let ladder = zoom_ladder(cw, ch, o.map_width_km, o.tile_size, o.max_z);
+    entries.push(RegionTileEntry {
+        name: LEAFLET_PREVIEW.into(),
+        data: leaflet_preview_html(o.scheme, &ladder, o.scales, o.name).into_bytes(),
+    });
     entries.push(RegionTileEntry {
         name: SLIPPY_MANIFEST.into(),
         data: slippy_manifest(o.scheme, &ladder, o.scales, o.name, o.version).into_bytes(),
@@ -133,13 +140,18 @@ mod tests {
     fn every_tile_of_every_level_is_written_once_plus_the_manifest() {
         let e = run(TileScheme::Xyz, &[1]);
         assert_eq!(e.failed, 0);
-        // 1 + 4 + 16 = 21 tiles, a literal rather than the count function.
-        assert_eq!(e.entries.len(), 22);
+        // 1 + 4 + 16 = 21 tiles, a literal rather than the count function,
+        // then the viewer page and the manifest.
+        assert_eq!(e.entries.len(), 23);
         assert_eq!(e.entries.last().unwrap().name, "tiles.json");
+        assert_eq!(e.entries[21].name, "leaflet-preview.html");
+        // 33x17 world, 32 px long edge: the page sizes tiles as the PNGs are.
+        let html = String::from_utf8(e.entries[21].data.clone()).unwrap();
+        assert!(html.contains("const TW = 32, TH = 16, MAXZ = 2, RETINA = false;"), "{html}");
         let mut names: Vec<&str> = e.entries.iter().map(|t| t.name.as_str()).collect();
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), 22, "an address was written twice");
+        assert_eq!(names.len(), 23, "an address was written twice");
         assert!(names.contains(&"2/3/0.png") && names.contains(&"2/0/3.png"));
         assert_eq!(slippy_tile_count(2, 1), 21);
     }
@@ -175,7 +187,7 @@ mod tests {
     #[test]
     fn a_retina_variant_is_the_same_ground_at_twice_the_pixels() {
         let e = run(TileScheme::Xyz, &[1, 2]);
-        assert_eq!(e.entries.len(), 43);
+        assert_eq!(e.entries.len(), 44);
         let dec = |n: &str| {
             let t = e.entries.iter().find(|t| t.name == n).unwrap_or_else(|| panic!("{n}"));
             cartalith_assets::raster::decode_png(&t.data).expect("png")

@@ -47,12 +47,10 @@ class_name PhoneMenu
 ## table rather than off the row. Nine of the eleven are now built
 ## (`assets`, `assets-grid`, `asset-slot`, `travel`, `travel-item`,
 ## `landmarks`, `lm-fam`, `help`, `gestures`), each over state this build
-## actually holds. **`data-tiles` and `data-io` are not**, and the reason is
-## stated at the head of the sub-screen section below rather than left as a
-## title with an empty screen under it: the first needed XYZ/TMS/WMTS tile
-## addressing this engine did not have until 2026-09-23 (it is now reachable
-## through the Data popup; the phone screen itself is unbuilt), and the second is a mock in the
-## specification itself whose real equivalent the `data` screen already draws.
+## actually holds. **`data-tiles` followed on 2026-09-23** (`_fill_data_tiles()`),
+## once XYZ/TMS/WMTS addressing existed to drive it. **`data-io` is not built**:
+## it is a mock in the specification itself whose real equivalent the `data`
+## screen already draws -- see the head of the sub-screen section below.
 ##
 ## ## Reachability is the constraint, and it is checked, not assumed
 ##
@@ -172,9 +170,10 @@ const SCREEN_TITLES: Dictionary = {
 	## and this batch's brief both say** -- counted off §6.6's own
 	## `_moreTitle()` table, which is the list directly above: `data-tiles`,
 	## `data-io`, `assets`, `assets-grid`, `asset-slot`, `travel`,
-	## `travel-item`, `landmarks`, `lm-fam`, `help`, `gestures`. Nine are here;
-	## `data-tiles` and `data-io` are **not built**, and the reason is in
-	## `_fill_data()`'s own comment rather than in a title nobody would reach.
+	## `travel-item`, `landmarks`, `lm-fam`, `help`, `gestures`. Nine landed
+	## 2026-09-06 and `data-tiles` 2026-09-23; `data-io` is **not built**, and
+	## the reason is at the head of the sub-screen section rather than in a
+	## title nobody would reach.
 	##
 	## Two subtitles deviate from §6.6 and both are this port having more than
 	## the prototype did rather than less:
@@ -197,6 +196,11 @@ const SCREEN_TITLES: Dictionary = {
 	"lm-fam": ["", "zero = off · a cap is a ceiling, not a quota"],
 	"help": ["Help & about", "version · engine · gestures · credits"],
 	"gestures": ["Gesture reference", "the touch vocabulary this build has"],
+	## §6.6: `EXPORT ▸ MAPS ▸ TILE PYRAMID` / `leaflet · XYZ · baked atlas
+	## L0–L3`. The subtitle drops "baked atlas": `slippy_export_tiles`
+	## synthesises every tile rather than reading the atlas
+	## (`cartalith_engine::slippy_export`'s module doc says why).
+	"data-tiles": ["Tile pyramid", "leaflet · XYZ · TMS · WMTS · retina"],
 }
 
 ## §6.6's `root` table, in its order, with its glyphs and its sub text.
@@ -939,6 +943,7 @@ func _fill_screen(body: VBoxContainer, id: String, arg: String = "") -> void:
 		"lm-fam": _fill_lm_family(body, arg)
 		"help": _fill_help(body)
 		"gestures": _fill_gestures(body)
+		"data-tiles": _fill_data_tiles(body)
 		_:
 			body.add_child(_missing_row("Unknown screen '%s'." % id,
 				"No builder in _fill_screen()."))
@@ -1208,13 +1213,40 @@ func _landmark_sub(sub: PopupMenu) -> String:
 ## so this screen is the popup re-presented with §6.6's row types and nothing
 ## re-ordered. The fifth band §6.6 draws, `CONVERSION`, is not built: see
 ## `SCREEN_TITLES` for the owner decision that removed it.
+##
+## **One row is not the popup's**: §6.6's EXPORT band opens with `nav Maps ·
+## tile pyramid` → `data-tiles`, so that row is drawn first under the popup's
+## own `EXPORT` separator. The popup is split there with `_rest_of()`'s own
+## `drawn` set rather than re-walked, so every popup row still arrives in the
+## popup's order; the popup's `Maps` route row (the desktop pane, which also
+## has the marquee grid export) stays below it. No `EXPORT` separator -> the
+## row goes last under its own band rather than nowhere.
 func _fill_data(body: VBoxContainer) -> void:
 	var p := _menu_popup("Data")
 	if p == null:
 		_add(body, _missing_row("Data manager",
 			"The Data menu is not on this build's menu bar."))
 		return
-	_rest_of(body, p, {})
+	var cut := p.item_count - 1
+	for i in p.item_count:
+		if p.is_item_separator(i) and _clean(p.get_item_text(i)).to_upper() == "EXPORT":
+			cut = i
+			break
+	var head := {}
+	var tail := {}
+	for i in p.item_count:
+		if i > cut:
+			tail[i] = true
+		else:
+			head[i] = true
+	_rest_of(body, p, tail)
+	if cut == p.item_count - 1 and not p.is_item_separator(cut):
+		_head(body, "Export")
+	_add(body, _row("Maps · tile pyramid", "leaflet · XYZ · TMS · WMTS · retina",
+		## §6.6 writes `{zmax} levels`; `0..zmax` is zmax + 1 of them.
+		_badge("%d levels" % (_dt_zmax + 1)), _chevron(),
+		func(): _push_screen("data-tiles"), false, _glyph("▦")))
+	_rest_of(body, p, head)
 
 ## §6.6 `sim`. Every quantity on this screen is `DccShell`'s own timeline model
 ## -- `TL_YEAR_MIN..TL_YEAR_MAX`, `TL_SPEEDS` and `TL_LAYERS` -- and each of the
@@ -1302,21 +1334,10 @@ func _fill_prefs(body: VBoxContainer) -> void:
 # (`data-tiles`, `data-io`, `assets`, `assets-grid`, `asset-slot`, `travel`,
 # `travel-item`, `landmarks`, `lm-fam`, `help`, `gestures` -- counted off
 # §6.6's own `_moreTitle()` table, which is the enumeration, not off a backlog
-# row, which says twelve and lists eleven). Nine are below. The two that are
-# not built are not built for the reasons in the next two paragraphs, and are
-# not drawn as empty frames:
+# row, which says twelve and lists eleven). Nine are below, and `data-tiles`
+# (2026-09-23) after them. The one that is not built is not built for the
+# reason in the next paragraph, and is not drawn as an empty frame:
 #
-#   - **`data-tiles`** is §6.6's slippy-map pyramid export: a scheme chooser
-#     over `XYZ · TMS · WMTS`, a `Zoom levels 0 → N` range, an estimator, and
-#     an `EXPORT {tiles} TILES` act that emits `leaflet-preview.html`. **Was
-#     unbuildable when this was written; corrected 2026-09-23**: the addressing
-#     now exists (`slippy_export_tiles`, `cartalith_engine::slippy_export`) and
-#     `data_manager_window.gd`'s scheme row drives it, with zoom range and
-#     retina. `leaflet-preview.html` still does not exist (`PREVIEW_NOTE`
-#     there). So this screen is now simply unbuilt rather than blocked, and the
-#     pyramid export is reachable the same way the flat grid one always was: a
-#     `DataManagerWindow.ROUTES` row, drawn by the `data` screen through the
-#     real Data popup.
 #   - **`data-io`** is a mock in the specification itself. Its own first row is
 #     *"Route configuration is desktop-parity mock in this prototype. The route
 #     exists so nothing on the phone is unreachable"*, and §9 item 16 records
@@ -2389,6 +2410,141 @@ func _fill_gestures(body: VBoxContainer) -> void:
 	_info(body, "Each row above names the symbol it was checked at — re-check it "
 		+ "rather than trusting this list, which is prose about behaviour and "
 		+ "goes stale the way prose does.")
+
+# -- data-tiles ---------------------------------------------------------------
+
+## §6.6 `data-tiles` state. Defaults are §6.6's (`scheme:'XYZ'`, `size:'256'`,
+## `retina:true`, `zmax:5`). Its fifth, `skip:true`, has no engine behind it --
+## see `_fill_data_tiles()`.
+var _dt_scheme := "xyz"
+var _dt_tile := 256
+var _dt_zmax := 5
+var _dt_retina := true
+## The last export from this screen -- `{key, bytes, secs, path}` -- or empty.
+## `key` is the settings it ran with, so SIZE and RENDER TIME are only drawn
+## against the settings that produced them.
+var _dt_last: Dictionary = {}
+
+## `slippy_export_tiles` clamps `max_z` to `bake_bridge::MAX_BAKE_DEPTH` (6);
+## §6.6's range runs to 8. The set drawn is the set the engine honours --
+## `DataManagerWindow.ZOOM_NOTE` is the reason the rest are refused.
+const DT_ZMAX_CHOICES: Array[int] = [1, 2, 3, 4, 5, 6]
+const DT_TILE_SIZES: Array[int] = [256, 512]
+
+func _dt_key() -> String:
+	return "%s|%d|%d|%s" % [_dt_scheme, _dt_tile, _dt_zmax, _dt_retina]
+
+## Exact, not §6.6's `4^zmax × 1.37` model: `(4^(N+1) − 1) / 3` per density,
+## `cartalith_engine::slippy_export::slippy_tile_count`'s own sum.
+func _dt_tile_count() -> int:
+	var n := 0
+	for z in _dt_zmax + 1:
+		n += 1 << (2 * z)
+	return n * (2 if _dt_retina else 1)
+
+func _dt_set(field: String, value) -> void:
+	set(field, value)
+	_render()
+
+## §6.6 `data-tiles`: Scheme, Tile size, Zoom levels, Retina, Skip all-ocean,
+## ESTIMATE, the EXPORT act and the destination info -- in §6.6's order.
+##
+## Drives the same `slippy_export_tiles` binding the desktop Export ▸ Maps pane
+## does (`DataManagerWindow._run_export()`), so the archive is identical for the
+## same settings. What §6.6 draws and this build does not have is drawn as
+## absent with its reason: all-ocean skipping, and a SIZE / RENDER TIME model
+## (the desktop pane refuses one too -- both are measured by a real run).
+func _fill_data_tiles(body: VBoxContainer) -> void:
+	var chips: Array = []
+	for s in ["xyz", "tms", "wmts"]:
+		var sk: String = s
+		chips.append({"label": sk.to_upper(), "on": _dt_scheme == sk,
+			"press": func(): _dt_set("_dt_scheme", sk)})
+	_chips(body, "Scheme", chips)
+	chips = []
+	for n in DT_TILE_SIZES:
+		var nn: int = n
+		chips.append({"label": "%d" % nn, "on": _dt_tile == nn,
+			"press": func(): _dt_set("_dt_tile", nn)})
+	_chips(body, "Tile size", chips)
+	chips = []
+	for n in DT_ZMAX_CHOICES:
+		var nn: int = n
+		chips.append({"label": "0 – %d" % nn, "on": _dt_zmax == nn,
+			"press": func(): _dt_set("_dt_zmax", nn)})
+	_chips(body, "Zoom levels 0 → N", chips)
+	_add(body, _row("Retina @2x", "doubles render cost", null, _switch(_dt_retina),
+		func(): _dt_set("_dt_retina", not _dt_retina), false))
+	_add(body, _missing_row("Skip all-ocean tiles",
+		"Not built: slippy_export_tiles writes every tile of every level, and a "
+			+ "skipped tile would reach a web client as a 404 rather than sea."))
+
+	_head(body, "Estimate")
+	var tiles := _dt_tile_count()
+	_add(body, _value_row("Tiles", "%d" % tiles))
+	var measured: bool = not _dt_last.is_empty() and String(_dt_last.get("key", "")) == _dt_key()
+	if measured:
+		_add(body, _value_row("Size", "%.1f MB" % (float(_dt_last["bytes"]) / 1048576.0)))
+		## Short on purpose: `_trail_label()` neither wraps nor clips, so a long
+		## value here is this screen's minimum width (`_note_row()`'s header).
+		_add(body, _value_row("Render time", "%.1f s" % float(_dt_last["secs"])))
+	else:
+		_add(body, _missing_row("Size · render time",
+			"Measured by an export at these settings, not modelled — this build has "
+				+ "no size model and does not invent one."))
+
+	var br = _engine_idle()
+	var dest := DccSettings.storage_root("exports").path_join(_dt_file_name())
+	if br == null or not br.has_method("slippy_export_tiles"):
+		_add(body, _missing_row("Export %d tiles" % tiles, _busy_why()))
+	elif not bool(br.get("has_world")):
+		_add(body, _missing_row("Export %d tiles" % tiles,
+			"There is no world to export. Generate or open one first."))
+	else:
+		_add(body, _row("Export %d tiles" % tiles, "Writes %s" % dest.get_file(),
+			null, null, _dt_export, false))
+	_info(body, "Destination %s · one stored .zip holding the tiles, tiles.json and "
+		% DccSettings.storage_root("exports")
+		+ "leaflet-preview.html — unzip it and open the page in a browser (Leaflet "
+		+ "loads from unpkg.com, so the preview needs a connection). style.json "
+		+ "and attribution are not written: this build has no style model to emit.")
+
+func _dt_file_name() -> String:
+	return "tile-pyramid-%s-z0-%d%s.zip" % [_dt_scheme, _dt_zmax, "@2x" if _dt_retina else ""]
+
+## Synchronous, as the desktop pane's is: `slippy_export_tiles` returns the
+## whole archive. The screen stays open and redraws with the measured figures.
+## ponytail: blocks the main thread for the export; a worker thread when a
+## depth-6 retina export on a handset is measured to need one.
+func _dt_export() -> void:
+	var br = _engine_idle()
+	if br == null or not br.has_method("slippy_export_tiles"):
+		return
+	var dir := DccSettings.storage_root("exports")
+	DirAccess.make_dir_recursive_absolute(dir)
+	var path := dir.path_join(_dt_file_name())
+	var t0 := Time.get_ticks_msec()
+	var bytes: PackedByteArray = br.slippy_export_tiles({"scheme": _dt_scheme,
+		"max_z": _dt_zmax, "tile_size": _dt_tile, "retina": _dt_retina})
+	var secs := float(Time.get_ticks_msec() - t0) / 1000.0
+	var msg := ""
+	var ok := false
+	if bytes.is_empty():
+		msg = "Tile export failed — slippy_export_tiles returned no bytes (see the Godot log)."
+	else:
+		var f := FileAccess.open(path, FileAccess.WRITE)
+		if f == null:
+			msg = "Tile export failed — could not open %s for writing." % path
+		else:
+			f.store_buffer(bytes)
+			f.close()
+			ok = true
+			_dt_last = {"key": _dt_key(), "bytes": bytes.size(), "secs": secs, "path": path}
+			msg = "Export complete · %s · leaflet-preview.html inside" % path.get_file()
+	if _shell.has_method("set_status"):
+		_shell.call("set_status", "hint", msg, "accent" if ok else "warn")
+	if visible:
+		_render()
 
 ## The live status rows, as `[label, value, wraps]`.
 ##
