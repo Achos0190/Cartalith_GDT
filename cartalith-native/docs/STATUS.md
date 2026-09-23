@@ -1009,7 +1009,9 @@ Nineteen rows (milestones 1-17, plus 8a and 17a which shipped out of order).
 work in the project", which stopped being true when its milestones closed —
 the group's own rows are the answer.)*
 
-The single decisive check: `crates/cartalith-urban/src/lib.rs` declares exactly
+*Stale, kept as the 2026-08 baseline:* `crates/cartalith-urban/src/lib.rs` now
+declares 21 `pub mod` lines, `generate` among them (2026-09-24). The paragraph
+below describes the crate before milestones 8-16. The single decisive check was: `crates/cartalith-urban/src/lib.rs` declares exactly
 ten `pub mod` lines — `astar`, `blocks`, `geom`, `graph`, `growth`, `plaza`,
 `rng`, `routes`, `rules`, `site`. There is **no** fortification, districts,
 amenities, water-infrastructure, hinterland or `generate()`-orchestration
@@ -1034,12 +1036,12 @@ corroborating comment.
 | UM-13 | 13 — districts and buildings | done | `districts.rs` — 1 307 lines; committed in `4ec07f5` |
 | UM-14 | 14 — amenities (markets, civic hall, games) | done | `amenities.rs` — 758 lines; committed in `4ec07f5` |
 | UM-15 | 15 — hinterland, decay, details, metrics | done | `hinterland.rs` — ~1 054 lines with passing golden; committed in `4ec07f5` |
-| UM-16 | 16 — `generate()` orchestration + `hashModel` | ready | Milestones 8-15 exist; the blocker has lifted. Ready to be scheduled |
+| UM-16 | 16 — `generate()` orchestration + `hashModel` | done | `cartalith-urban/src/generate.rs`, added in `cff1edc` (2026-09-02), golden-verified by `generate/tests/golden.rs`; `run_layout` calls `generate()`. *Corrected 2026-09-24: this row read "ready" for three weeks after it shipped* |
 | UM-17A | 17a — the adapter and the first consumer | done | `urban_adapter.rs::{um_place_context, run_layout, settlement_layout}` → `cartalith-godot/src/urban_bridge.rs::urban_layouts` → `engine_bridge.gd` → `city_viewer_window.gd` and `viewport_host.gd` (map deep-zoom town layer) |
-| UM-17 | 17 — the civ adapter (20 pure `_um*` functions) | partial | **16 of 20 ported** (`grep -c "^pub fn um_" crates/cartalith-civ/src/urban_adapter.rs` = 16), verified against the port table at the head of `urban_adapter.rs`: `um_site_box_km`, `um_water_near_km`, `um_water_reach_km`, `um_site_kind_from_terrain`, `um_infer_age`, `um_ray_box_exit`, `um_way_bearing_from`, `um_route_ends`, `um_primary_paths`, `um_terrain_orient`, `um_water_ctx`, `um_terrain_ctx`, `um_place_context` (the last "minus four fields"). `um_wall_spec` / `um_infer_walls` live in `military.rs`. **The three formerly skipped landed in `cff1edc`** — `um_harbour_scale:372`, `um_site_profile:1240`, `um_ore_bearing:1504` — so this row's "three are deliberately skipped pending later milestones" is history as of 2026-09-02. Five cache/draw helpers are out of scope for every milestone by design |
+| UM-17 | 17 — the civ adapter (20 pure `_um*` functions) | done | *Corrected 2026-09-24:* all 20 are accounted for — 18 ported (the 16 distinct functions in `urban_adapter.rs`, where `um_place_context_with` is a variant, plus `um_wall_spec`/`um_infer_walls` in `military.rs`), and the port table at the head of `urban_adapter.rs` records `_umPt` as not applicable (a JS array/object normaliser) and `_umCacheKey` as out of scope by the scope document. The earlier text follows. **16 of 20 ported** (`grep -c "^pub fn um_" crates/cartalith-civ/src/urban_adapter.rs` = 16), verified against the port table at the head of `urban_adapter.rs`: `um_site_box_km`, `um_water_near_km`, `um_water_reach_km`, `um_site_kind_from_terrain`, `um_infer_age`, `um_ray_box_exit`, `um_way_bearing_from`, `um_route_ends`, `um_primary_paths`, `um_terrain_orient`, `um_water_ctx`, `um_terrain_ctx`, `um_place_context` (the last "minus four fields"). `um_wall_spec` / `um_infer_walls` live in `military.rs`. **The three formerly skipped landed in `cff1edc`** — `um_harbour_scale:372`, `um_site_profile:1240`, `um_ore_bearing:1504` — so this row's "three are deliberately skipped pending later milestones" is history as of 2026-09-02. Five cache/draw helpers are out of scope for every milestone by design |
 | UM-17A-G | 17a — golden-verify the block-2 `_um*` adapter | done | **2026-09-02.** The recorded blocker — *"needs a block-2 capture harness that can run `_um*` inside the host's full civ scope; the existing harness slices block 4 only"* — was **wrong, not merely stale**: `cartalith-native/tools/um_block2_capture.js` drives the unmodified reference under Node (v24.19.0) and `crates/cartalith-civ/tests/golden_parity_urban_adapter.rs` holds 9 tests over the extracted fixtures. Mutation matrix **22/22 killed**; an independent verifier confirmed the fixtures are genuinely reference-extracted, not replayed from the port. **Two real port bugs found that 11 synthetic-field unit tests had not**: `slope_at` used `f64::hypot` where the reference uses `Math.hypot` (the V8-libm divergence `geom::js_hypot` exists for), and `um_site_profile` clamped the resource-context centre. A third defect was in the fixture itself and was caught before being committed as truth |
 
-**Group total: 19 — 17 done, 1 partial, 1 ready.**
+**Group total: 19 — 19 done** (corrected 2026-09-24 from "17 done, 1 partial, 1 ready").
 
 Two known count defects in the defining document, recorded here rather than
 carried: it gives the `_um*` denominator as **20** in one place and **28** in
@@ -1441,13 +1443,13 @@ with `done*` counted inside `done`. Shares are rounded and do not sum to 100.
 
 | Status | Count | Share |
 |---|---:|---:|
-| **done** (215, of which 7 are `done*`) | 215 | 77 % |
+| **done** (217, of which 7 are `done*`) | 217 | 78 % |
 | **not started** | 20 | 7 % |
 | **declined** (deliberate, with the reason in code or a ruling) | 18 | 6 % |
-| **partial** | 13 | 5 % |
+| **partial** | 12 | 4 % |
 | **unverified** (not a code artefact) | 5 | 2 % |
 | **blocked** (a named blocker) | 3 | 1 % |
-| **other qualified statuses**, one each: MVP-OOS "4 of 5 shipped", UM-16 `ready`, CPU-6 "built, contrary to this document", GGR-RELIG "stale — corrected" | 4 | 1 % |
+| **other qualified statuses**, one each: MVP-OOS "4 of 5 shipped", CPU-6 "built, contrary to this document", GGR-RELIG "stale — corrected" | 3 | 1 % |
 | **shelved** | 0 | — |
 
 **What moved on 2026-09-23, beyond the day's builds.** A reconciliation pass
@@ -1462,6 +1464,8 @@ corrected rows that had stayed wrong after their code landed:
   started to done (`88bf297`), AND-10 from blocked to done (the adb rotation
   route was already in use), and AND-11 from not started to declined (Ruling 23).
   AND-12's note was corrected: the probe scenes stopped shipping in `686cd2a`.
+- 2026-09-24, from the urban scope cleanup: UM-16 from ready to done (`cff1edc`)
+  and UM-17 from partial to done (all 20 adapter functions accounted for).
 
 The same pass added three rows the ledger lacked: GLI-E (thermal erosion on
 the GPU), EC-10 (IN-13 trade) and the eight-row *LOD detail* group.

@@ -1,1985 +1,1228 @@
-# Urban morphology (Phase 5): investigation and milestone plan
+# URBAN_MORPHOLOGY_SCOPE.md — Phase 5: settlement layout (`cartalith-urban`)
 
-`ROADMAP.md`'s Phase 5 entry reads:
+**What this is:** the definition of Phase 5 — the reference's town-layout
+engine (script block 4, "UME") and its block-2 `_um*` adapter, as milestones
+1-17 plus 8a and 17a, with what reading and porting each one found: ranges,
+constants and why, fixture rules, and every mutation survivor with the
+invariant it rests on. **What it is not:** status. Where any milestone stands is
+`cartalith-native/docs/STATUS.md`'s "Phase 5 — Urban morphology" group; what
+remains is `OUTSTANDING_WORK.md` §2.1.
+
+Every "reference line N" resolves against `reference/Cartalith Gen1 v2.10.html`.
+A milestone's range includes the section-header comment that introduces it (the
+convention milestones 4-7 settled); where its first function starts later, that
+line is named too. Every range was re-checked against the file on 2026-09-24;
+the plan's original ranges, most of them wrong, are tabled under "Verification
+convention" for anyone reading an older citation.
+
+**Owner rulings that bind this subsystem** (`LARGE_ITEM_RULINGS.md`):
+
+- **Ruling H (2026-09-12):** urban generation moves toward the owner's town plan
+  (`design/owner-references-2026-09-12/urban-town-plan-walled-market-town.jpg`)
+  by all three routes offered — renderer first, a new culture profile, and
+  changing the ported algorithm — and a golden re-baseline is authorised, for
+  `cartalith-urban` only, each departure disclosed with the golden it moved. **Ruling AA** (2026-09-23) and **Ruling AD** (2026-09-23)
+  settle two of its candidates.
+- **Ruling I (2026-09-12):** a citadel, and star forts that actually generate.
+  **Ruling AC** (2026-09-23) sites the citadel by size tier.
+- **Ruling J (2026-09-12):** a per-settlement city type, and regenerating one
+  settlement at will.
+- **Ruling N (2026-09-20):** a settlement binds to a river only through real
+  geometry (milestone 5, finding 3).
+- **`DECISIONS.md` §7p (2026-09-23):** a deliberate change this port made over
+  the reference is the standard. Superseded behaviour below survives only as a
+  dated line saying not to restore it.
+
+What those rulings added is under "Beyond the reference", near the end.
+
+**The source engine's later urban changes** are specified in
+`RC_ENGINE_CHANGES.md`: §6p (site vectors and industry siting), §6q (the parcel
+status gradient), §6r (the rules table the reference's host never set, and
+§6r.5's unbounded frontage-retry loop in `buildParcels`), §6s (ward-set plot
+grain, and §6s.4's corner-only water test), and §8.2's v2.66-v2.68 rows (v2.68:
+`field`/`pasture` details the reference generated and never drew). That document
+claims nothing about port status, and neither does this one. Each milestone
+below names the section that changes its functions.
+
+---
+
+## What was verified, and what it turned out to be
+
+`ROADMAP.md`'s Phase 5 entry originally read:
 
 > Block 4, procedural city layouts. Already a self-contained DOM-free engine in
 > the JS codebase, which suggests it ports cleanly into `cartalith-urban`,
 > depending on `cartalith-civ` for settlement context.
 
-That sentence was written before anyone read the code. This document is the
-result of actually reading it. **Two of its three claims hold, one does not,
-and the word "cleanly" is doing work it cannot support.**
+Two of its claims held, one did not, and "cleanly" was true only of the
+boundary.
 
-**This document defines Phase 5's milestones and records what each pass
-read, ported and learned. It does not track them.** For where any milestone
-stands today — done, partial, not started, blocked — read
-`cartalith-native/docs/STATUS.md`, which is the only place progress is
-recorded.
+### "Self-contained DOM-free engine" — confirmed, unusually strongly
 
-## What was verified, and what it turned out to be
+Script block 4 (lines 28166-31104; 2,937 lines inside the `<script>` tags) is a
+single `const UME = (() => { … })()` IIFE. Grepping it for `document`,
+`window`, `canvas`, `ctx.`, `getElementById`, `localStorage` and
+`requestAnimationFrame` returns **zero hits** (the only match in the range is
+the word "context" in a comment). The reference brackets it with
+`<!-- UM-ENGINE-START (pure JS, no DOM — extracted by tests/run_um.sh) -->`
+(line 28164) and ends it with
+`if(typeof module!=='undefined'&&module.exports)module.exports=UME;` — its own
+authors already ran it headlessly under Node.
 
-### "Self-contained DOM-free engine" — CONFIRMED, unusually strongly
-
-Script block 4 (reference `Cartalith Gen1 v2.10.html` lines 28166-31104, 2,937
-lines inside the `<script>` tags) is a single `const UME = (() => { … })()`
-IIFE. Grepping its line range for `document`, `window`, `canvas`, `ctx.`,
-`getElementById`, `localStorage` and `requestAnimationFrame` returns **zero
-hits** — the only match in the whole range is the word "context" inside a
-comment. It is the cleanest subsystem boundary this port has met. The reference
-even wraps it in an HTML comment saying so (`<!-- UM-ENGINE-START (pure JS, no
-DOM — extracted by tests/run_um.sh) -->`) and ends it with
-`if(typeof module!=='undefined'&&module.exports)module.exports=UME;`, i.e. the
-reference's own authors already ran it headlessly under Node.
-
-Better still, it ships its own parity apparatus: `hashModel(m)` (line 31087), a
-stable FNV serialisation of the graph, blocks, parcels and buildings, written
-explicitly "for determinism goldens"; and a `_test` export exposing **fifteen**
-internal functions (this document said fourteen until milestone 2 counted them:
-`polyArea`, `polyCentroid`, `pointInPoly`, `segInt`, `insetPoly`, `clipConvex`,
+It ships its own parity apparatus: `hashModel(m)` (line 31087), a stable FNV
+serialisation of graph, blocks, parcels and buildings written "for determinism
+goldens", and a `_test` export of **fifteen** internal functions (`polyArea`,
+`polyCentroid`, `pointInPoly`, `segInt`, `insetPoly`, `clipConvex`,
 `extractFaces`, `makeGraph`, `addStreet`, `ensureCCW`, `convexHull`, `simplify`,
-`chaikin`, `astar`, `distPtSeg`). Golden verification here is not something this
-port has to invent — the reference built the door.
+`chaikin`, `astar`, `distPtSeg`). **`hashModel` takes a finished `generate()`
+model**, so it cannot be fed a partial subsystem: it is a milestone-16
+instrument. Earlier milestones dump state directly, which is also stricter —
+`hashModel` rounds coordinates to `Math.round(n.x*100)`.
 
-**One caveat on `hashModel`, found at milestone 2**: it takes a finished
-`generate()` model and reads `m.graph`/`m.blocks`/`m.parcels`/`m.buildings`, so
-it cannot be fed a partial subsystem. It is a **milestone 16** instrument, not a
-per-milestone one. Milestones before that get their goldens by dumping state
-directly, which is also stricter — `hashModel` rounds coordinates to
-`Math.round(n.x*100)`.
+### "Does not consume asset packs" — confirmed independently
 
-**Contrast with the two subsystems this project has already sized.** The Asset
-Library turned out to be a UI browser wrapped around a frozen vocabulary; the
-Journey Planner turned out to be ~70 functions with form-coupled orchestration.
-Urban morphology is the opposite shape: almost no UI coupling at all, and far
-more engine.
+`assetPack`, `AssetLibrary` and `AssetDB` return zero hits in block 4. It emits
+**geometry with kind tags** (`b.kind` on buildings, `par.district` on parcels),
+not image references; pack-driven town rendering would be a renderer decision,
+not an engine input. Phase 4's own finding stands.
 
-### "Does not consume asset packs" — CONFIRMED independently
+### "Depending on `cartalith-civ`" — wrong, and usefully so
 
-Phase 4's own milestone-1 investigation recorded that "Phase 5's urban
-morphology does **not** consume packs (block 4 has no `assetPack` reference)".
-Re-checked from scratch here: `assetPack`, `AssetLibrary` and `AssetDB` all
-return zero hits inside 28166-31104. Block 4 emits **geometry with kind tags**
-(`b.kind` on buildings, `par.district` on parcels), not image references. Any
-future pack-driven rendering of a town would be a *renderer* decision layered on
-top, not an engine input. Phase 4's finding stands, unamended.
+`generate(seed, opts)`'s entire input surface is scalars and plain rasters:
 
-### "Depending on `cartalith-civ` for settlement context" — WRONG, and usefully so
+| input | type |
+|---|---|
+| `seed` | `u32` |
+| `pop`, `epochs`, `settlementAge`, `harbourScale` | numbers |
+| `culture`, `site`, `faith`, `civicStyle`, `wallStyle`, `harbourDefence` | strings from fixed vocabularies |
+| `walls`, `fortified`, `ruined`, `terrainAware`, `wallGenerations` | booleans |
+| `rules` | a partial `DEFAULT_RULES` (milestone 4) |
+| `opts.water` | `{mask, dt, mw, mh, cellM, riverPath, riverWidthM, riverOrder, seaLakeCells}` — a raster and a polyline |
+| `opts.terrain` | `{grid, mw, mh, cellM, hMin, hMax}` — a heightfield raster |
+| `opts.routeEnds` | `[{x,y}]` in the site box |
+| `opts.primaryPaths` | `[[{x,y}…]]` in the site box |
+| `opts.economy` | `{specialisation, oreBearing}` — `oreBearing` a nullable angle in radians |
 
-The UME engine takes **no civ types whatsoever**. `generate(seed, opts)`'s
-entire input surface is:
+No `Settlement`, no faction, no territory. The civ coupling lives **one layer
+up**, in block 2's `_um*` adapter (lines 22036-22962), which turns a settlement
+`p` into that object. The adapter holds **27** `_um*` functions: milestone 17's
+20 (itemised there) plus 7 that "Out of scope for every milestone" excludes — 3
+canvas-draw and 4 single-thread scheduling functions.
 
-| input | type | this port's status |
-|---|---|---|
-| `seed` | `u32` | trivially available |
-| `pop`, `epochs`, `settlementAge` | numbers | `cartalith-civ` has population/tier |
-| `culture`, `site`, `faith`, `civicStyle`, `wallStyle` | strings from fixed vocabularies | partly available |
-| `walls`, `fortified`, `ruined`, `terrainAware`, `wallGenerations` | booleans | derived, see below |
-| `opts.water` | `{mask, dt, mw, mh, cellM, riverPath, riverWidthM, riverOrder, seaLakeCells}` — a plain raster + polyline | `cartalith-hydrology` has all of it |
-| `opts.terrain` | `{grid, mw, mh, cellM, hMin, hMax}` — a plain heightfield raster | `cartalith-terrain` has it |
-| `opts.routeEnds` | `[{x,y}]` in the site box | needs the road network |
-| `opts.primaryPaths` | `[[{x,y}…]]` in the site box | needs the road network |
-| `opts.economy` | `{specialisation, oreBearing}` | **not ported** (see below) |
+**The crate graph follows:** `cartalith-urban` never depends on `cartalith-civ`.
+Its only dependencies are `cartalith-rng` and `cartalith-jsmath`, the
+workspace's dependency-free leaf. The adapter lives in
+`cartalith-civ::urban_adapter` (milestones 17 and 17a), the only piece that
+needs civ types; `cartalith-civ` depends on `cartalith-urban`, not the other way.
 
-That is scalars and rasters. No `Settlement`, no faction, no territory. The
-dependency the roadmap describes is real but it lives **one layer up**, in
-script block 2's `_um*` adapter (lines ~22036-22960, 925 lines), which turns a
-settlement `p` into that opts object. That adapter is genuinely civ-coupled;
-the engine is not. **Corrected 2026-09-21: the range holds 27 `_um*`
-functions, verified by grepping the frozen reference (`OUTSTANDING_WORK.md`
-§6.8 flagged this figure against milestone 17's own count of "20"; the two
-are not actually in tension — the 27 split into milestone 17's own 20 pure
-functions (including `_umCacheKey`, itemised below) plus 7 more that "Out of
-scope for every milestone" (also below) excludes: 3 canvas-draw functions and
-4 single-thread scheduling functions.** The earlier "28" here was a rough
-headline tally that predated that itemised breakdown and is corrected to
-match it.
+### "Ports cleanly" — true of the boundary, false of the effort
 
-**Consequence for the crate graph:** `cartalith-urban` must **not** depend on
-`cartalith-civ`. It depends on `cartalith-rng` and nothing else. The adapter is
-a separate, later milestone and is the only piece that needs civ types. This is
-not a stylistic preference — it is what let milestone 1 be built and verified
-in a session where `cartalith-civ` was mid-edit by a sibling fork.
-
-### "Ports cleanly" — TRUE OF THE BOUNDARY, FALSE OF THE EFFORT
-
-The boundary is clean. The volume is not. Measured against the two efforts this
-project has already sized:
-
-| subsystem | functions | lines | milestones |
+| part | functions | lines | milestones |
 |---|---|---|---|
-| Journey Planner | ~70 | ~3,100 (17300-20400) | 6 |
-| Asset Library | 19 top-level | ~2,250 | 7 |
-| **Urban morphology, engine only** | **92** | **2,937** | **~13** |
-| **plus the civ adapter** | **+28** | **+925** | **+2** |
-| **Phase 5 total** | **120** | **~3,860** | **~15** |
+| engine (block 4) | ~92 (90 top-level `function` declarations, plus `clamp` and `V`) | 2,937 | 1-16 and 8a |
+| civ adapter (block 2) | 27 (20 in scope) | ~927 | 17 and 17a |
+| **Phase 5** | **~119** | **~3,860** | **19** |
 
-And the engine's 2,937 lines are *denser* than the Journey Planner's: block 4 is
-written in the reference's compressed multi-statement-per-line style, with
-several functions (`buildWall` ~190 lines, `grow` ~167, `buildBuildings` ~148,
-`applyStarFort` ~100) that are single algorithms, not dispatch tables.
-
-**When this investigation ran, Phase 5 was the largest single unported
-subsystem in the project.** "Ports cleanly" should be read as "has no
-boundary problems", not as "is small". Recording that correction is the most
-valuable output of this investigation.
+For scale, the Journey Planner was sized at ~70 functions / ~3,100 lines and the
+Asset Library at 19 top-level functions / ~2,250 lines. Block 4 is also denser:
+it is written several statements to a line, and several functions (`buildWall`
+~190 lines, `grow` ~167, `buildBuildings` ~148, `applyStarFort` ~100) are single
+algorithms, not dispatch tables. Read "ports cleanly" as "has no boundary
+problems", not as "is small".
 
 ## What it actually generates, and how
 
-Not a street-network-only tool. `generate()` returns a complete cadastral
-model, produced in this order:
+A complete cadastral model, in this order:
 
-1. **Site** (`buildSite`) — the physical setting in a fixed 1700 × 1250 m box
+1. **Site** (`buildSite`) — the setting in a fixed 1700 × 1250 m box
    (`SITE_WM`/`SITE_HM`). Either synthesises a river/coast/bay/landlocked site
-   from the seed, or — the path the host app actually uses — wraps the real map's
-   water mask, distance transform and river centreline (`opts.water`) and the
-   real heightfield (`opts.terrain`). Returns closures: `height`, `slope`,
-   `riverDist`, `isWater`, `bankSide`, plus `bridgePt`, `harbour`, `routeEnds`.
+   from the seed or — the host's path — wraps the real map's water mask,
+   distance transform and river centreline (`opts.water`) and heightfield
+   (`opts.terrain`). Returns closures: `height`, `slope`, `riverDist`,
+   `isWater`, `bankSide`, plus `bridgePt`, `harbour`, `routeEnds`.
 2. **Anchors** (`placeAnchors`) — the market square, scored over 400 seeded
-   candidate points against slope, flood band and distance from the
-   break-of-bulk point (bridge or quay).
+   candidates against slope, flood band and distance from the break-of-bulk
+   point (bridge or quay).
 3. **Primary routes** (`buildPrimaries`) — an 8 m cost raster with a
-   Tobler-flavoured slope penalty, then **A\*** from each external route
-   endpoint to the market, with reinforcement. Or `buildPrimariesFromPaths`
-   when the host supplies real inter-settlement roads. Or, for the radial
-   (Venus) culture, `buildRadialStreets` laying concentric rings and spokes.
-4. **Growth** (`grow`) — the heart. An epoch loop (default 8) that spends a
-   population-derived street-length budget on seeded candidate segments,
-   branching off existing streets at near-perpendicular angles with jitter,
-   with a decaying exploration share, a market-distance density gradient,
-   junction-angle and parallel-spacing rejection, bridgehead rules for the far
-   bank, and optionally successive wall generations gated on real elapsed years.
-5. **Fortification** (`buildWall`, `applyStarFort`) — a curtain traced around
-   the built-mass convex hull with gates at radial street crossings, or a
-   bastioned *trace italienne* with a wet or dry moat, gated behind a
-   population minimum and an explicit anachronism guard.
-6. **Cleanup passes** (`lanePass`, `removeWaterCrossings`, `pruneLargest`,
+   Tobler-flavoured slope penalty, then **A\*** from each route endpoint to the
+   market, with reinforcement; or `buildPrimariesFromPaths` when the host
+   supplies real roads; or, for the radial (Venus) culture, `buildRadialStreets`'
+   concentric rings and spokes.
+4. **Growth** (`grow`) — an epoch loop (default 8) spending a population-derived
+   street-length budget on seeded candidate segments: near-perpendicular
+   branching with jitter, a decaying exploration share, a market-distance
+   density gradient, junction-angle and parallel-spacing rejection, bridgehead
+   rules for the far bank, and optional successive wall generations gated on
+   real elapsed years.
+5. **Fortification** (`buildWall`, `applyStarFort`) — a curtain round the
+   built-mass convex hull with gates at route crossings, or a bastioned *trace
+   italienne* with a wet or dry moat, behind a population minimum and an
+   anachronism guard.
+6. **Cleanup** (`lanePass`, `removeWaterCrossings`, `pruneLargest`,
    `privatizeAlleys`, `clearFortZone`).
-7. **Blocks** (`buildBlocks`) — **planar face extraction** over the street
-   graph (angularly-sorted half-edge traversal with spur collapsing), each face
-   inset by half the width of each fronting street.
-8. **Parcels** (`buildParcels`) — series platting by **vertex bisectors**
-   capped by ray-casts to the opposite boundary, with log-normal frontage widths
-   and plot depths and a burgage re-subdivision cycle.
+7. **Blocks** (`buildBlocks`) — planar face extraction over the street graph
+   (angularly-sorted half-edge traversal with spur collapsing), each face inset
+   by half the width of each fronting street.
+8. **Parcels** (`buildParcels`) — series platting by vertex bisectors capped by
+   ray-casts to the opposite boundary, log-normal frontages and depths, and a
+   burgage re-subdivision cycle.
 9. **Districts** (`assignDistricts`) and **buildings** (`buildBuildings`) —
-   per-parcel footprint polygons by building grammar, with ridge lines.
+   per-parcel footprints by building grammar, with ridge lines.
 10. **Amenities** — `buildMarkets`, `buildCivic`, `buildFaithSites`,
     `buildGames`, `buildHarbour`, `addRiverBridges`.
 11. **Hinterland and state** — `buildFarmland` (strip and ring fields),
     `buildDetails`, `applyDecay` (the "ruined" toggle), `computeMetrics`.
 
-So: street networks **and** blocks **and** plot subdivision **and** building
-footprints **and** districts **and** walls **and** farmland. All four of the
-things the task's question listed, plus more.
+Streets **and** blocks **and** plots **and** footprints **and** districts **and**
+walls **and** farmland. This port adds three stages of its own — see "Beyond
+the reference".
 
 ## RNG: checked, not assumed
 
-Block 4's own header comment states that `mulberry32` is "intentionally NOT
-redefined here … it falls through to the byte-identical module-scope copy
-already in script block 1". Verified: there is no `mulberry32` in 28166-31104,
-and the block-1 copy at line 2291 is the one `cartalith-rng` already
-golden-verifies. So unlike Phase 2 milestone 9's `_civRng` — which turned out to
-be the same *algorithm* under a different wrapper — this is literally the same
-function.
+Block 4's header says `mulberry32` is "intentionally NOT redefined here … it
+falls through to the byte-identical module-scope copy already in script block
+1". There is no `mulberry32` in block 4, and the block-1 copy at line 2291 is
+the one `cartalith-rng` already golden-verifies — literally the same function,
+unlike Phase 2's `_civRng`, which was the same algorithm under a different
+wrapper.
 
-What is new is the **seed derivation**: `stream(seed, label)` =
-`mulberry32((seed>>>0) ^ fnv1a(label))`, giving labelled substreams
-(`'site'`, `'anchors'`, `'grow/e3'`, `'parcels/blk7'`, …) so each stage draws
-independently from one town seed. `fnv1a` has no Gen1 equivalent. Both are
-ported and golden-verified in milestone 1.
+New here is the **seed derivation**: `stream(seed, label)` =
+`mulberry32((seed>>>0) ^ fnv1a(label))`, giving labelled substreams (`'site'`,
+`'anchors'`, `'grow/e3'`, `'parcels/blk7'`, …) so each stage draws
+independently from one town seed. `stream` carries `range`/`int`/`pick`/`norm`/
+`logn`/`chance` over one generator, so **call order is load-bearing**: `norm()`
+is Box-Muller and consumes **two** draws, and `pick` consumes a draw even on an
+empty array. Milestone 1 pins all of it.
 
-`stream` also carries `range`/`int`/`pick`/`norm`/`logn`/`chance` over one
-shared generator, so **call order is load-bearing**: `norm()` is Box-Muller and
-consumes **two** draws, and `pick` consumes a draw even when the array is empty.
-Milestone 1 pins all of that.
+## The V8 libm bill
 
-## A parity trap found while building milestone 1
+Every transcendental `Math.*` block 4 calls must reproduce **V8's** result, not
+the correctly-rounded one. ECMA-262 leaves them implementation-approximated;
+V8 calls FDLIBM's `__ieee754_*`. The engine is full of threshold comparisons
+(`attachPoint`'s 11 m snap, `rawEdge`'s 3.5 m minimum, `nearestNode`'s radius,
+every A\* tie) where being *more* accurate than the reference is the wrong
+answer, and a one-ulp difference was proved to change graph **topology**
+(milestone 2). Measured against Rust's platform libm:
 
-`V.len`/`V.dist` are `Math.hypot`. **V8's `Math.hypot` is not correctly
-rounded, and differs from Rust's `f64::hypot`.** ECMA-262 leaves it
-implementation-approximated; V8 scales by the largest magnitude and Kahan-sums
-the squared ratios. On `(3, 3)`:
+| JS | disagreements with the platform function | first needed | port |
+|---|---|---|---|
+| `Math.hypot` | 1,398 of the 4,096 integer offsets a 64 × 64 raster produces, all 1 ulp. On `(3, 3)`: true 4.242640687119285146…; `f64::hypot` 4.2426406871192847703 (correctly rounded); V8 4.2426406871192856585 (1 ulp high) | 1 | `js_hypot` |
+| `Math.exp` | 20,721 of 240,000 | 5 | `js_exp` |
+| `Math.sin` / `Math.cos` | 1,942 / 2,160 of 80,214 spanning every reachable reduction branch | 6 | `js_sin` / `js_cos` |
+| `Math.log` | 1,647 of 60,009 | 6 | `js_log` |
+| `Math.atan2` | 10,615 of 60,000 (17.7%; 20.4% over `JS_SEMANTICS_AUDIT.md`'s wider range) — the worst measured | 2 (`extractFaces`' sort key, line 28469); also `grow` (four sites) and `buildWall` (two) — seven in all | `js_atan2` |
+| `Math.log10` | 960 of 60,000 | 14 (`buildCivic`'s rank scaling, line 29211 — the only call site) | `js_log10` |
+| `Math.acos` | 544 of 60,000 | 10 (`cornerCut`, the only call site, feeding a threshold) | `js_acos` |
+| `Math.min` / `Math.max` | on NaN: JS propagates it, `f64::min`/`max` absorb it | 4 | `js_min` / `js_max` |
+| `Math.round` | negative halves: JS rounds toward +∞, `f64::round` away from zero | 6 | `js_round` |
 
-| | value |
-|---|---|
-| true 3√2 | 4.242640687119285146… |
-| Rust `f64::hypot` | 4.2426406871192847703 (correctly rounded) |
-| V8 `Math.hypot` | 4.2426406871192856585 (1 ulp high) |
+`Math.pow(x, 2)` measured bit-identical to `x * x` on 60,000 arguments;
+`Math.sqrt`, `abs`, `floor`, `ceil` and `sign` are exact by specification.
 
-This is not hypothetical: the very first golden run of `dist_pt_seg` failed on
-it. Every distance in this engine flows through `Math.hypot`, and many are
-threshold comparisons (`attachPoint`'s 11 m snap, `rawEdge`'s 3.5 m minimum
-segment, `nearestNode`'s search radius) where being *more* accurate than the
-reference is the wrong answer. `cartalith-urban::geom::js_hypot` reproduces V8's
-algorithm and is golden-tested against twelve captured values, including an
-explicit `assert_ne!` against `f64::hypot` so nobody "simplifies" it away.
+All of these live in `cartalith-jsmath` and are re-exported through
+`cartalith-urban::geom`, which is the name every call site in this crate uses.
+Their V8 goldens moved with them. The `hypot`, `exp`, `sin`/`cos`, `log` and
+`round` ports carry rows the platform function is asserted to get wrong, so a
+test fails if anyone "simplifies" one away. This is
+`cartalith-rust-conventions`' float rule: match the reference, do not improve on
+it.
 
-Every later milestone must use it. This is exactly the class of thing
-`cartalith-rust-conventions` exists to catch, and it would have silently
-poisoned every downstream comparison.
+---
 
 ## Milestones
 
-Dependency-ordered. Each is a real, self-contained, independently verifiable
-piece; the reference's `_test` export and `hashModel` make most of them
-golden-verifiable rather than hand-checked.
+Dependency-ordered. Each is self-contained and independently verifiable; the
+reference's `_test` export and `hashModel` make most of them golden-verifiable
+rather than hand-checked. 8a and 12 were built out of dependency order, and 17a
+before 8-16 — each section says why.
 
-### Milestone 1 — RNG substreams + geometry kernel (2026-08-18)
+### Milestone 1 — RNG substreams + geometry kernel
 
-`fnv1a`, `stream` and its six derived draws; `V` (as `Vec2`), `js_hypot`,
-`polyArea`, `polyCentroid`, `pointInPoly`, `segInt`, `distPtSeg`,
-`polySelfIntersects`, `chaikin`, `simplify` (Douglas-Peucker), `ensureCCW`,
-`insetPoly`, `clipConvex`, `convexHull`. 19 tests, all but one golden.
-Crate: `cartalith-urban`, dependencies: `cartalith-rng` only.
+Reference lines 28177-28191 (`fnv1a`, `stream`) and 28282-28360 (`V` and the
+polygon helpers), plus `convexHull` (29639-29646), which sits inside milestone
+10's range but landed with this kernel. Modules `rng` and `geom`.
+
+`fnv1a`, `stream` and its six derived draws; `V` (as `Vec2`), `polyArea`,
+`polyCentroid`, `pointInPoly`, `segInt`, `distPtSeg`, `polySelfIntersects`,
+`chaikin`, `simplify` (Douglas-Peucker), `ensureCCW`, `insetPoly`,
+`clipConvex`, `convexHull`, and `js_hypot`.
 
 Two reference behaviours are pinned as behaviours, not fixed as bugs:
 `clipConvex` clips against the clip **segment** rather than the clip line (so a
 subject poking past the window's corners can collapse to empty), and
-`insetPoly` returns nothing at all — not a degenerate polygon — below area 15
-or on self-intersection at ≤60 vertices. Downstream code reads both.
+`insetPoly` returns nothing at all — not a degenerate polygon — below area 15 or
+on self-intersection at ≤60 vertices. Downstream code reads both.
 
-### Milestone 2 — planar street graph (2026-08-18)
+`polySelfIntersects` is on neither `UME` export, so its test is a unit test of
+the ported logic and is labelled as one; every other test here is golden
+against the reference's output.
 
-All 15 functions, reference lines **28363-28512** (the plan said 28363-28513;
-`edgeBetween` ends at 28512 and `astar` starts at 28514, so the range was one
-line long): `makeGraph`, `gKey`, `gridCellsForSeg`, `indexEdge`/`unindexEdge`/
-`edgesNear`, `addNode`, `nearestNode`, `rawEdge`, `splitEdge`, `attachPoint`,
-`addStreet`, `addPolylineStreet`, `extractFaces`, `edgeBetween`. Module
-`cartalith-urban::graph`; dependencies still `cartalith-rng` only. 7 new tests
-(26 in the crate), 19 golden scenarios inside the main one.
+**Milestone 1's goldens passed on the wrong libm twice.** `rng::logn`
+(`median * Math.exp(sig * norm())`) was on `f64::exp` until milestone 5, and
+`rng::norm` (`Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * PI * u2)`) on
+`f64::ln`/`f64::cos` until milestone 6. The goldens had landed on values the two
+libms agree about — luck, not safety. They still pass on `js_*`, which is the
+check.
 
-**The index design is settled as the plan predicted**: dense `Vec` with
-tombstones, ids never reused. Two things the plan did not say, both verified
-rather than assumed:
+### Milestone 2 — planar street graph
 
-- **`nextN`/`nextE` are not stored.** They are unconditionally `nodes.len()`
-  and `edges.len()` — every increment is paired with a `push`, nothing is ever
-  removed — and the capture asserts that against the reference's own counters
-  on all 19 scenarios rather than leaving it as a claim.
-- **`gKey` does not survive as a function.** Its only purpose is to make a
-  `Map` key out of two integers; an `(i64, i64)` tuple key is the same
-  partition, and the grid map is only ever *probed*, never iterated, so no
-  ordering is lost. 15 reference functions land as 14 Rust items.
+Reference lines 28362-28511 (`makeGraph` from 28363). All 15 functions:
+`makeGraph`, `gKey`, `gridCellsForSeg`, `indexEdge`/`unindexEdge`/`edgesNear`,
+`addNode`, `nearestNode`, `rawEdge`, `splitEdge`, `attachPoint`, `addStreet`,
+`addPolylineStreet`, `extractFaces`, `edgeBetween`. Module `graph`.
 
-**`cls` is kept as `&'static str`, not promoted to an enum.** The reference
-compares it by string in six places and `hashModel` serialises it verbatim, so
-the string is the value; and an enum would have to guess now at the classes
-later milestones introduce (`'ringroad'` arrives in milestone 10, `'lane'` in
-11, and `grow` passes a variable).
+- **Dense `Vec` with tombstones; ids never reused.**
+- **`nextN`/`nextE` are not stored.** They are always `nodes.len()` and
+  `edges.len()` — every increment is paired with a `push`, nothing is removed —
+  and the capture asserts that against the reference's own counters on every
+  scenario.
+- **`gKey` does not survive as a function.** It only makes a `Map` key from two
+  integers; an `(i64, i64)` tuple is the same partition, and the grid is only
+  ever probed, never iterated, so no ordering is lost. 15 functions land as 14
+  Rust items.
+- **`cls` is `&'static str`, not an enum.** The reference compares it by string
+  in six places and `hashModel` serialises it verbatim, so the string is the
+  value; an enum would have had to guess the classes later milestones add
+  (`'ringroad'`, `'lane'`, and `grow` passes a variable).
 
 #### Golden verification
 
-`UME._test` reaches `makeGraph`, `addStreet` and `extractFaces` — and that is
-enough for **all fifteen**, because the harness dumps the *entire* graph state
-after each scripted scenario, not just return values: every node with its
-adjacency, every edge including tombstoned ones, **the uniform grid cell by
-cell**, and the extracted faces. `attachPoint`, `rawEdge`, `splitEdge` and
-`nearestNode` live entirely inside `addStreet`; the index family's whole
-observable effect *is* the grid. 19 scenarios, all matching exactly.
+`UME._test` reaches `makeGraph`, `addStreet` and `extractFaces`, which is enough
+for all fifteen because the harness dumps the **entire** graph state after each
+scripted scenario: every node with its adjacency, every edge including
+tombstoned ones, the uniform grid cell by cell, and the extracted faces.
+`attachPoint`, `rawEdge`, `splitEdge` and `nearestNode` live inside
+`addStreet`; the index family's whole observable effect is the grid.
 
-**`hashModel()` was not usable here, and that corrects an assumption this
-document made.** It serialises `m.graph`, `m.blocks`, `m.parcels` and
-`m.buildings` off a finished `generate()` model — there is no way to feed it a
-bare graph. It becomes reachable at **milestone 16** and not before. The full
-state dump is strictly stronger anyway: `hashModel` rounds node coordinates to
-`Math.round(n.x*100)`, so it would not have caught the sub-centimetre
-divergences the exact dump does.
+**Mutation-checked**, because a full-state dump can look thorough and still be
+vacuous. Perturbing the 26 m index cell, the 0.7 cell step, the 3×3 cell
+dilation, the 11 m node snap, the 9 m edge snap, both 3.5 m guards, the 2.5 m
+node-promotion radius, the `[0.03, 0.97]` t clamp, the spur collapse's stack
+rule, the outer-face tie-break's strict `>`, and swapping `js_hypot` for
+`f64::hypot` each break at least one golden. Two scenarios (`clampT`,
+`hypotSnap*`) exist only because the first round found those constants
+unexercised.
 
-**The goldens were mutation-checked**, because a full-state dump can look
-thorough and still be vacuous. Perturbing the 26 m index cell, the 0.7 cell
-step, the 3×3 cell dilation, the 11 m node snap, the 9 m edge snap, both 3.5 m
-guards, the 2.5 m node-promotion radius, the `[0.03, 0.97]` t clamp, the spur
-collapse's stack rule, the outer-face tie-break's strict `>`, and swapping
-`js_hypot` for `f64::hypot` each break at least one golden. Two scenarios
-(`clampT`, `hypotSnap*`) exist only because the first mutation round found
-those constants unexercised.
+#### Findings
 
-#### The block-comment assertion: what it caught, and a real limit in it
-
-It caught nothing this time — the slice boundaries were already established by
-milestone 1 and are unchanged. But running it as a **negative control** (a
-thing worth doing to any assertion you rely on) found a genuine hole:
-
-| deliberately wrong slice | caught? |
-|---|---|
-| ends inside a block comment | yes, unterminated-open depth 1 |
-| starts 3 lines into the header comment | yes, once an **orphan-close** counter was added |
-| starts **1** line into the header comment | **no** |
-
-The one-line-late case slips through because the scanner treats an apostrophe
-at depth 0 as a string delimiter, and block 4's header comment contains the
-prose `"Gen1's globals"` — so the stray `*/` gets swallowed as string content.
-The orphan-close counter is a real improvement over milestone 1's version and
-is kept; the residual hole is covered by the **two structural assertions**
-(the slice must contain the `UME` IIFE header and must end at
-`module.exports = UME;`), which is what actually pins the boundary. Worth
-recording plainly: the balance assert is necessary, not sufficient.
-
-#### Findings that change how later milestones must be built
-
-1. **Encapsulation, verified by grep across all 2,937 lines**: `cell`, `grid`,
-   `nextE` and `nextN` are touched **only** by this milestone's functions. No
-   later milestone reaches into the spatial index. `nodes`/`edges`/`adj` are
-   read widely, always as `n.adj.filter(id => g.edges[id].alive)`.
+1. **Encapsulation, verified across all of block 4**: `cell`, `grid`, `nextE`
+   and `nextN` are touched only by this milestone's functions; no later
+   milestone reaches into the spatial index. `nodes`/`edges`/`adj` are read
+   widely, always as `n.adj.filter(id => g.edges[id].alive)`.
 2. **`g._fromPaths` is a dynamic property, and it needs a real field.**
-   `buildPrimariesFromPaths` sets `g._fromPaths = true` (line 28830,
-   **milestone 6**) and `builtMassHull` reads it (line 29709, **milestone 10**)
-   to discount the bare degree-2 vertices that a resampled real road drags in.
-   Milestone 2 deliberately does **not** add the field — nothing sets or reads
-   it yet — but milestone 6 must add `Graph::from_paths` and milestone 10 must
-   read it, or the enceinte over-encloses along arterials exactly as the
-   reference's own v1.01 note describes.
-3. **The reference is internally inconsistent about one splice, and the port
-   reproduces it.** `splitEdge` removes an edge from `a.adj` with an
-   **unguarded** `splice(indexOf(e.id), 1)`, where a miss would silently drop
-   the *last* element (JS `splice(-1,1)`); milestone 11's `_killEdge` guards
-   the identical splice with `if (k >= 0)`. Unreachable given `rawEdge`'s
-   invariant, reproduced rather than hardened, and flagged here so milestone 11
-   does not "unify" them.
+   `buildPrimariesFromPaths` sets it (line 28830, milestone 6) and
+   `builtMassHull` reads it (line 29709, milestone 10) to discount the bare
+   degree-2 vertices a resampled real road drags in; without it the enceinte
+   over-encloses along arterials, as the reference's own v1.01 note describes.
+   Here it is `Graph::from_paths`.
+3. **The reference is inconsistent about one splice, and the port reproduces
+   it.** `splitEdge` removes an edge from `a.adj` with an **unguarded**
+   `splice(indexOf(e.id), 1)`, where a miss would silently drop the *last*
+   element (JS `splice(-1,1)`); milestone 11's `_killEdge` guards the identical
+   splice with `if (k >= 0)`. Unreachable given `rawEdge`'s invariant. **Do not
+   unify them.**
 4. **`addStreet` leaves orphan nodes.** When both endpoints are fresh and every
-   resulting link is then rejected by `rawEdge`'s 3.5 m minimum, the nodes stay
-   in `g.nodes` with empty `adj`. Pinned by a golden (`tooShort`: 4 nodes,
-   1 edge). Every later pass must keep filtering on live adjacency.
-5. **The stable hit sort in `addStreet` is a safety property, not a
-   behavioural one — a tie is unreachable.** Two crossings at one `t` are the
-   same point, so those edges already crossed and share a node whose half-edges
-   the `1e-4` guard excludes. Two on-segment nodes at one `t` lie on one
-   perpendicular within 2.5 m of the segment, hence within 5 m of each other,
-   which `attachPoint`'s 11 m snap prevents. A crossing tied with a node is at
-   that node's own foot, ≤2.5 m away, which `splitEdge`'s 3.5 m guard folds
-   back. Confirmed by mutation (an unstable sort changes no golden) and by a
-   test that re-derives every hit parameter across all 19 scenarios.
-6. **Two constants in `addStreet` are redundant inside the engine's own site
-   box.** The `1e-4` interior-crossing guards and the `1e-3` node-parameter
-   guards survive being loosened to `1e-9`: a hit at `t = 1e-4` is `1e-4·L`
-   from an endpoint, so it only escapes `splitEdge`'s 3.5 m fold-back past
-   `L > 35 km`, and the node guard past `L > 3.5 km`, against a 1700 × 1250 m
-   site box. Kept as written — they are the reference's, and they are what
-   stops the degenerate case if the box ever grows.
-7. **`extractFaces`' guard arithmetic is subtler than it looks.** JS
+   resulting link is rejected by `rawEdge`'s 3.5 m minimum, the nodes stay in
+   `g.nodes` with empty `adj` (golden `tooShort`: 4 nodes, 1 edge). Every later
+   pass must keep filtering on live adjacency.
+5. **The stable hit sort in `addStreet` is a safety property; a tie is
+   unreachable.** Two crossings at one `t` are one point, so those edges already
+   crossed and share a node whose half-edges the `1e-4` guard excludes. Two
+   on-segment nodes at one `t` lie on one perpendicular within 2.5 m of the
+   segment, hence within 5 m of each other, which the 11 m snap prevents. A
+   crossing tied with a node is at that node's foot, ≤2.5 m away, which
+   `splitEdge`'s 3.5 m guard folds back. Confirmed by mutation (an unstable sort
+   changes no golden) and by a test re-deriving every hit parameter.
+6. **Two `addStreet` constants are redundant inside the site box.** The `1e-4`
+   interior-crossing guards and `1e-3` node-parameter guards survive being
+   loosened to `1e-9`: a hit at `t = 1e-4` is `1e-4·L` from an endpoint, so it
+   escapes `splitEdge`'s 3.5 m fold-back only past `L > 35 km` (the node guard
+   past `L > 3.5 km`) against a 1700 × 1250 m box. Kept — they stop the
+   degenerate case if the box ever grows.
+7. **`extractFaces`' guard drops, it does not truncate.** JS
    `while (guard++ < 20000)` leaves `guard` at 20001 when the bound stopped it,
    so the post-check `guard >= 20000` also discards a face that closed on step
-   20000 exactly. A traversal that hits the guard is **dropped**, not
-   truncated. Reproduced as written.
+   20000 exactly. Reproduced as written.
 8. **The outer-face tie-break is observable.** A closed loop with one dead-end
-   spur yields exactly two faces of equal absolute area (±14400 on the golden),
-   and the strict `>` makes the *lowest-indexed* one outer. `buildBlocks`
-   (milestone 12) skips the outer face, so this is not cosmetic.
+   spur yields two faces of equal absolute area (±14400 on the golden), and the
+   strict `>` makes the *lowest-indexed* one outer. `buildBlocks` skips the
+   outer face, so this is not cosmetic.
 
-### Milestone 3 — A\* over the cost raster (2026-08-18)
+### Milestone 3 — A\* over the cost raster
 
-`astar`, reference lines **28514-28547** (the plan said 28514-28556; `astar`'s
-last line is `path.reverse();return path;}` at 28547, and 28548-28556 is a blank
-line plus the *site model* header comments that belong to milestone 5's range —
-so the stated range over-claimed by nine lines, the same shape of off-by-a-few
-the milestone-2 range had). Module `cartalith-urban::astar`; dependencies still
-`cartalith-rng` only. 7 new tests (33 in the crate), 25 golden scenarios plus a
-30-goal sweep inside two of them.
+Reference lines 28513-28547 (`astar` from 28514). Module `astar`.
 
-The plan's own sentence — "the tie-breaking behaviour of that heap is what makes
-the path reproducible, so it is ported literally rather than swapped for
-`BinaryHeap`" — turned out to be exactly right, and this milestone is the first
-in the project that **proved** such a claim instead of asserting it. It is also
-the milestone where the verification method itself failed first and had to be
-fixed, which is the more useful finding.
+The plan said the heap's tie-breaking is what makes the path reproducible, so it
+is ported literally rather than swapped for `BinaryHeap`. This milestone proved
+that rather than asserting it — after the verification method itself failed
+first.
 
-#### The goldens were vacuous, and mutation testing is what said so
+#### The goldens were vacuous, and mutation testing said so
 
-Seventeen scenarios were written by hand first: degenerate 9 × 1 and 3 × 17
-strips, both rectangle orientations, a 500-cost wall with one gap, an infinite
-moat, a NaN band and a NaN seal, a zero-cost field, a start-equals-goal case,
-two RNG-driven rasters filled by the reference's own exported `stream`, and a
-sweep taking **every** cell of a 6 × 5 raster as the goal in turn. All of them
-reproduced the reference's paths exactly on the first run.
-
-Then fifteen mutations of the ported algorithm were run against them and **nine
-survived**: the `0.9` heuristic weight, the `0.5` trapezoid factor, the `DIRS`
-order, all three heap-comparator tie-breaks, `js_hypot` vs `f64::hypot`, the
-`if (i === gi) break` early exit, and the dead `INFINITY` guard. Nine of the
-twelve behaviours that make this function's output reproducible were not being
-tested at all, by a suite that looked thorough and passed.
-
-**The reason is one fact, and it generalises well past this milestone:**
+Seventeen hand-written scenarios — degenerate 9 × 1 and 3 × 17 strips, both
+rectangle orientations, a 500-cost wall with one gap, an infinite moat, a NaN
+band and a NaN seal, a zero-cost field, start-equals-goal, two rasters filled by
+the reference's own `stream`, and every cell of a 6 × 5 raster as the goal —
+all reproduced the reference on the first run. Then fifteen mutations ran
+against them and **nine survived**: the `0.9` heuristic weight, the `0.5`
+trapezoid factor, the `DIRS` order, all three heap-comparator tie-breaks,
+`js_hypot` vs `f64::hypot`, the `if (i === gi) break` early exit, and the dead
+`INFINITY` guard.
 
 > A **continuously-valued** cost raster essentially never produces two frontier
 > entries with exactly equal `f`, so it cannot observe a tie-break at all. Only
 > a **quantised** raster can.
 
-An exhaustive search over roughly 800,000 (raster family × size × endpoint pair)
-combinations found a discriminator for every surviving mutation, and every
-tie-break discriminator came from a quantised field — costs drawn from
-`{0.5, 1}`, `{1, 2}` or `{1, 2, 3, 4}`. Eight such scenarios were added
-(`tiesHalf`, `tiesLeft`, `tiesRight`, `tiesWide`, `tiesDiag`, `nearAdmissible`,
-`trapezoidal`, `greedyTrap`), captured from the reference like all the others.
-With them, **fourteen of fifteen mutations die**.
+An exhaustive search over ~800,000 (raster family × size × endpoint pair)
+combinations found a discriminator for every survivor, and every tie-break
+discriminator came from a quantised field — costs from `{0.5, 1}`, `{1, 2}` or
+`{1, 2, 3, 4}`. Eight such scenarios (`tiesHalf`, `tiesLeft`, `tiesRight`,
+`tiesWide`, `tiesDiag`, `nearAdmissible`, `trapezoidal`, `greedyTrap`) took it
+to **fourteen of fifteen dead**. Not an artificial regime: `buildPrimaries`'
+raster is `(1 + (slope·3.2)²)·8` and a site is mostly flat, so the real 8 m cost
+field is mostly constant — the tie-heavy case is the normal one. The one-ulp
+`hypot` difference bites only when it makes or breaks an exact `f` tie, which
+took a 64 × 48 quantised raster (`tiesWide`) to observe; the requirement is also
+asserted directly.
 
-This is not an artificial regime. `buildPrimaries` builds its raster as
-`(1 + (slope·3.2)²)·8` and slope over most of a site is flat, so the real 8 m
-cost field is *mostly constant* away from the river and the bridge band — the
-tie-heavy case is the normal one, not the exotic one.
-
-The single surviving mutation is deleting `if (g0[i] === Infinity) continue;`
-from the expansion loop. That is reported rather than papered over: it is
-**unreachable in the reference too** — `g0[ni]` is assigned on the line before
-every `push`, and `g0[si]` before the start's own push, so no popped index can
-still hold the fill value. The line is kept because it is what the reference
-writes, and a test asserts the invariant it depends on (no relaxation ever
-writes a non-finite `g`) across the infinity and NaN scenarios rather than
-asserting the dead branch.
-
-#### `js_hypot` is not a rounding detail here either
-
-Milestone 1 found the V8 discrepancy and milestone 2 proved it changes graph
-*topology*. Milestone 3 adds the frequency: over the 4,096 integer offsets a
-64 × 64 raster produces, `js_hypot` and `f64::hypot` disagree on **1,398** —
-better than a third, all by one ulp. It still took a 64 × 48 quantised raster
-(`tiesWide`) to build a golden that notices, because a one-ulp difference only
-bites when it makes or breaks an exact `f` tie. The requirement is therefore
-asserted directly as well as golden-enforced.
+The survivor is deleting `if (g0[i] === Infinity) continue;`, and it is
+**unreachable in the reference too**: `g0[ni]` is assigned on the line before
+every `push`, and `g0[si]` before the start's own push, so no popped index still
+holds the fill value. The line is kept because the reference writes it; a test
+asserts the invariant it depends on (no relaxation writes a non-finite `g`)
+across the infinity and NaN scenarios.
 
 #### What the reference's A\* actually is
 
-Worth writing down, because a later reader will otherwise "fix" it:
+Written down because a later reader will otherwise "fix" it:
 
 - The heuristic is `0.9 ×` Euclidean distance **in cells**, while a step costs
-  the trapezoidal mean of two raster values that are metres-scaled (`c·CS`, on
-  the order of 8-2000). It is therefore wildly *under*-weighted normally and
-  *over*-weighted wherever the raster is cheap.
-- There is **no closed set** and no stale-entry check, so cells are re-expanded.
+  the trapezoidal mean of two metre-scaled raster values (`c·CS`, ~8-2000) — so
+  it is wildly *under*-weighted normally and *over*-weighted where the raster is
+  cheap.
+- There is **no closed set** and no stale-entry check; cells are re-expanded.
 - `if (i === gi) break` stops on the first *pop* of the goal, which under an
   inadmissible heuristic need not be its cheapest path.
 
-So the search is **reproducible, not optimal**, and the golden path is the
-specification. A correctness-improving rewrite would silently move every primary
-route, and with it every block, parcel and building grown against it.
+The search is **reproducible, not optimal**, and the golden path is the
+specification. A correctness-improving rewrite would move every primary route,
+and every block, parcel and building grown against it.
 
 #### Non-finite cost is the only route to `null`
 
-An 8-connected full grid has no unreachable cell, so `astar` can only return
-`null` by arithmetic: an `Infinity` tentative cost fails `c < g0[ni]`, and a
-`NaN` one fails it too — every comparison against NaN is false in Rust exactly
-as in JS. Both are pinned by goldens (`moat`, `nanSeals`), and the NaN case is
-one of the few places in this port where JS and Rust NaN semantics agreeing is
-load-bearing rather than incidental.
+An 8-connected full grid has no unreachable cell, so `astar` returns `null` only
+by arithmetic: an `Infinity` or `NaN` tentative cost fails `c < g0[ni]` — every
+comparison against NaN is false in Rust exactly as in JS. Goldens `moat` and
+`nanSeals`; one of the few places where JS and Rust NaN semantics agreeing is
+load-bearing.
 
-#### One deliberate divergence, stated plainly
+#### One deliberate divergence
 
-An out-of-range `start`/`goal` **panics** in this port. The reference reads past
-its typed arrays, gets `undefined`, and — because `undefined === Infinity` is
-false — sails past its own guard and produces nonsense. Its only caller
-(`buildPrimaries`' `toCell`) clamps to `[1, W-2] × [1, H-2]` first, so the branch
-is unreachable in the engine; loud beats silent for a case that cannot happen.
+An out-of-range `start`/`goal` **panics** here. The reference reads past its
+typed arrays, gets `undefined`, sails past its own guard (`undefined ===
+Infinity` is false) and produces nonsense. Its only caller (`buildPrimaries`'
+`toCell`) clamps to `[1, W-2] × [1, H-2]` first; loud beats silent for a case
+that cannot happen.
 
-#### The slice assertions, and one improvement over milestone 2's
-
-Same contiguous 28167-31103 slice plus line 2291, same balance scan with
-milestone 2's orphan-close counter. Re-run as a negative control:
-
-| deliberately wrong slice | balance scan | structural asserts |
-|---|---|---|
-| ends inside a block comment | caught (depth 1) | caught |
-| starts 3 lines into the header | caught (1 orphan `*/`) | caught |
-| starts **1** line into the header | **not caught** | **caught** |
-| starts at the `<script>` tag | not caught | caught |
-| ends one line early | not caught | caught |
-
-Milestone 2's residual hole is confirmed to still exist and is confirmed to be
-covered. The improvement made here: the first structural assertion is tightened
-from "the slice *contains* the `UME` IIFE header" to "**the slice's first line
-is** block 4's header comment opening", which is what catches the one-line-late
-case directly rather than by luck. A fourth assertion was added as a live
-negative control in the other direction — block 4 must **not** define
-`mulberry32`, since the whole reason line 2291 is spliced in is that it falls
-through to block 1.
-
-The capture also refuses to write a file unless every path is non-empty, starts
-at its start cell, ends at its goal cell, the two deliberately-sealed scenarios
-really returned `null`, and the whole capture exceeds 300 path cells — the
-explicit emptiness gate that three earlier subsystems in this project needed and
-did not have.
-
-#### One tooling trap worth recording
-
-The first mutation run reported two false survivors. Cause: `cargo`'s freshness
-check is mtime-based, and a mutation written into the same second as the
-previous build was silently not rebuilt; and one mutation pattern
-(`dl * 0.5 *`) matched inside the function's **doc comment** before it matched
-the code, so `String.replace`'s first-occurrence rule mutated a comment and
-nothing else. Both were caught by hand-checking a "survivor" and finding it dies
-immediately. Any later milestone that mutation-tests should stamp the file's
-mtime forward and anchor its patterns on code that cannot appear in prose.
+The capture refuses to write unless every path is non-empty, starts at its start
+cell and ends at its goal, the two sealed scenarios really returned `null`, and
+the capture exceeds 300 path cells.
 
 #### Corrections to later milestones
 
-1. **Milestone 5's range is right; milestone 3's was not.** `astar` ends at
-   28547, not 28556. Nothing else moves — `shoreFromMask` really does start at
-   28557.
-2. **Milestone 6 must not "improve" the search.** `buildPrimaries` runs `astar`
-   once per external route endpoint over a **copy** of the cost raster with the
-   already-used cells multiplied by `0.45`, so the reinforcement is order-
-   dependent on `site.routeEnds` and each run inherits the previous run's exact
-   cell set. Any change to which cells a path occupies compounds across routes.
-3. **The port's `astar` takes `(usize, usize)` cell coordinates and panics out
-   of range.** Milestone 6 must reproduce `toCell`'s clamp
-   (`max(1, min(W-2, round(p.x/CS)))`) itself rather than relying on the search
-   to tolerate a stray endpoint.
-4. **Milestone 12 and 13 will hit the same coverage trap.** `buildBlocks` and
-   `buildParcels` compare areas and lengths against thresholds; goldens built
-   only on continuous random inputs will not exercise their tie-breaks either.
-   Build at least one quantised or symmetric fixture per milestone from here on,
-   and mutation-check rather than assuming a full state dump is enough.
+1. **Milestone 6 must not "improve" the search.** `buildPrimaries` runs `astar`
+   once per route endpoint over a **copy** of the cost raster with already-used
+   cells multiplied by `0.45`, so the reinforcement is order-dependent on
+   `site.routeEnds` and each run inherits the previous run's exact cell set.
+2. **This port's `astar` takes `(usize, usize)` cells and panics out of range**,
+   so milestone 6 reproduces `toCell`'s clamp
+   (`max(1, min(W-2, round(p.x/CS)))`) itself.
+3. **Milestones 12 and 13 compare areas and lengths against thresholds**;
+   goldens on continuous random inputs will not exercise their tie-breaks
+   either. Build at least one quantised or symmetric fixture per milestone.
 
-### Milestone 4 — generation rules + culture profiles (2026-08-18)
+### Milestone 4 — generation rules + culture profiles
 
-`CULTURE_PROFILES` (medieval/organic and Venus/radial), `resolveProfile`,
-`DEFAULT_RULES`, `cloneRules`, `resolveRules`, `clamp`, `applyWildness`,
-`applyPlotChaos` — reference lines **28193-28280**. Module
-`cartalith-urban::rules`; dependencies still `cartalith-rng` only. 10 new tests
-(43 in the crate), 53 golden rule cases, 2 golden profiles and 15 golden
-`resolveProfile` cases.
+Reference lines 28193-28280 (`CULTURE_PROFILES` from 28199). `CULTURE_PROFILES`
+(medieval/organic and Venus/radial), `resolveProfile`, `DEFAULT_RULES`,
+`cloneRules`, `resolveRules`, `clamp`, `applyWildness`, `applyPlotChaos`. Module
+`rules`.
 
-**The stated range was wrong at both ends, in opposite directions** — the third
-range in this plan to need correcting, and the first whose *start* was wrong:
-
-| | plan | real | |
-|---|---|---|---|
-| start | 28212 | **28193** (comment) / 28199 (code) | 13 lines late — 28212 is `resolveProfile`, so the stated range **excluded `CULTURE_PROFILES` entirely**, the first item the milestone's own list names |
-| end | 28289 | **28280** | 9 lines late — 28281 is blank and 28282-28289 is the `V` vector helper object, which milestone 1 already shipped |
-
-Nothing else moves; milestone 5's `shoreFromMask` still starts at 28557.
-
-Data, not algorithm — but the milestone turned out to contain **the single most
-dangerous line in the subsystem so far**, and two survivors' worth of honest
-reporting about what a mutation test can and cannot see.
+Data, not algorithm — and it holds the most dangerous line in the subsystem.
+Seven of the eight are on `UME`'s **public** export (lines 31096-31097) and
+`clamp` is observed through `applyWildness`/`applyPlotChaos`, so no indirection
+was needed.
+The source engine later gave this table a host UI and one new field
+(`RC_ENGINE_CHANGES.md` §6r.1; §6s.3's `parcels.wardGrain`); this port's host
+sets `opts.rules` itself (see "Beyond the reference").
 
 #### `clamp` is where a naive port silently builds a different town
 
-`const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));` The obvious Rust
-transliteration is `lo.max(hi.min(v))`, and it is **wrong**: JS `Math.min` /
-`Math.max` *propagate* NaN, Rust's `f64::min` / `f64::max` *absorb* it and
-return the other operand. So `applyWildness(rules, NaN)` leaves eight NaN
-street fields in the reference, while the naive port's inner `hi.min(NaN)`
-hands back `hi` and the outer `max` keeps it — landing **every clamped field on
-its own upper bound**. A NaN wildness slider becomes a maximally-wild rule set
-that looks entirely plausible, is fed straight into `grow` (milestone 7), and
-produces a town nobody can trace back to a rounding rule.
+`const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));` The obvious Rust,
+`lo.max(hi.min(v))`, is **wrong**: JS `Math.min`/`Math.max` *propagate* NaN,
+Rust's `f64::min`/`max` *absorb* it. So `applyWildness(rules, NaN)` leaves eight
+NaN street fields in the reference, while the naive port's inner `hi.min(NaN)`
+returns `hi` and lands **every clamped field on its own upper bound** — a
+maximally-wild rule set that looks entirely plausible, fed straight into `grow`.
+(`cartalith-assets` milestone 3 hit the same trap from the other direction.) The
+port routes `clamp` through `js_min`/`js_max`, goldens `wild_NaN` and
+`chaos_NaN` pin it, and a test carries the `assert_ne!`-style device with the
+reason written out.
 
-This is the same trap `cartalith-assets` milestone 3 hit from the opposite
-direction (`f64::min` absorbing a NaN density where `Math.min` propagated it),
-and it is exactly what `cartalith-rust-conventions` exists to catch. The port
-routes `clamp` through explicit `js_min` / `js_max` that mirror the source
-expression, `wild_NaN` and `chaos_NaN` goldens pin it, and a test carries the
-`assert_ne!`-style device `geom::js_hypot` uses so the simplification fails
-loudly and with the reason written out.
+`f64::clamp` would have agreed on every reachable input (it propagates NaN), but
+it panics when `min > max` where the reference returns `lo`. **One documented,
+unreachable divergence remains**: `Math.min(+0,-0)` is `-0` and
+`Math.max(+0,-0)` is `+0`, where the comparison form returns whichever operand
+`<` lands on. Only two of the eleven clamps have a zero bound, and neither can
+reach a `-0` argument (`0.10*(2-w)` is `-0` only if `2-w` is, which subtracting
+two finite doubles never produces; `deadEndBias+(w-1)*0.15` is `+0` at `w == 1`).
+It is why two mutations survive, below.
 
-Two smaller notes on the same function. `f64::clamp` would in fact have agreed
-on every reachable input (it is written as comparisons, so it propagates NaN
-too) — but it panics when `min > max` where the reference returns `lo`, and it
-would have hidden the question entirely. And there is **one documented,
-unreachable divergence left**: `Math.min(+0,-0)` is `-0` and `Math.max(+0,-0)`
-is `+0`, where the port's comparison form returns whichever operand `<` lands
-on. Only two of the eleven clamps have a zero bound, and neither can reach a
-`-0` argument (`0.10*(2-w)` is `-0` only if `2-w` is, which subtraction of two
-finite doubles never produces; `deadEndBias+(w-1)*0.15` is `+0` at `w == 1`).
-Recorded rather than coded around — and it is precisely why two mutations
-survive, below.
+#### Findings in the data
 
-#### Findings in the data itself
-
-1. **`applyWildness` is not idempotent, and only because of one field.** Ten of
-   its eleven assignments recompute from a *hardcoded literal* times `w`, so
-   re-applying the same `w` is a no-op for them. `deadEndBias` is
-   `clamp(s.deadEndBias + (w-1)*0.15, 0, 0.40)` — it reads its own current
-   value and **accumulates**. Applying `w = 2` five times walks it
-   0.15 → 0.30 → 0.40 (capped) while nothing else moves. Golden-pinned three
-   times over (`wildTwice1p5`, `wildThrice2`, `wildFive2`); `applyPlotChaos`
-   by contrast is idempotent.
-2. **The sliders overwrite custom values they never read.** A caller who sets
-   `branchAngleJitter` through `resolveRules` and then calls `applyWildness`
-   loses it, because the formula's base is the literal `0.26`, not the current
-   field. The reference's own comment says the sliders "compute new values for
-   the individual street/parcel fields"; this is what that means in practice.
-   Pinned by `wildOverCustom`.
-3. **Four `street` fields and two whole rule groups are untouched by either
-   slider**: `explorationDecay`, `segmentLengthMedian`, `marketGradientDecay`,
-   `bridgeheadDistance`, and all of `settlement` / the other slider's group.
-   Asserted, so a later milestone that finds one of them moved knows it did not
-   come from here.
-4. **`profile.deadEndBias` does not exist on either live profile.**
-   `privatizeAlleys` (line 30097, **milestone 11**) reads
+1. **`applyWildness` is not idempotent, because of one field.** Ten of eleven
+   assignments recompute from a hardcoded literal times `w`; `deadEndBias` is
+   `clamp(s.deadEndBias + (w-1)*0.15, 0, 0.40)` — it reads its own value and
+   **accumulates**. Five applications of `w = 2` walk it 0.15 → 0.30 → 0.40
+   (capped) while nothing else moves. Pinned by `wildTwice1p5`, `wildThrice2`,
+   `wildFive2`; `applyPlotChaos` by contrast is idempotent.
+2. **The sliders overwrite custom values they never read.** A custom
+   `branchAngleJitter` set through `resolveRules` is lost to `applyWildness`,
+   whose base is the literal `0.26`. Pinned by `wildOverCustom`.
+3. **Four `street` fields and two whole groups are untouched by either slider**
+   — `explorationDecay`, `segmentLengthMedian`, `marketGradientDecay`,
+   `bridgeheadDistance`, all of `settlement`, and the other slider's group.
+   Asserted, so a later milestone that finds one moved knows it did not come
+   from here.
+4. **`profile.deadEndBias` exists on neither live profile.** `privatizeAlleys`
+   (line 30097, milestone 11) reads
    `clamp((profile.deadEndBias||0) + (rules.street.deadEndBias||0), 0, 0.40)`,
-   and the profile side is therefore *always zero* — it was the hook for the
-   removed 17 profiles. The capture asserts the absence against the reference's
-   own key list and fails if a re-freeze ever adds it; the port carries the
-   field as `0.0` so milestone 11 can write the expression as the reference
-   writes it.
-5. **Four profile fields are read by nothing at all**, verified by grep across
-   block 4 *and* the whole host app: `parcelPattern` (the reference documents
-   its own death at lines 30225-30227 — the insula platting method it
-   dispatched went with the other 17 profiles), `orientation`,
-   `civicAnchorLabel`, and `defaultWalls`. **The reference's own provenance
-   prose is stale about the last one**: `venus`'s `prov` says "the UI unchecks
-   the wall box on selecting this profile", and `defaultWalls` has zero reads
-   in v2.10, inside block 4 or out. All four are carried anyway, each with the
-   note that killed it. `defaultWalls` is `Option<bool>` rather than `bool`, so
-   "profile has no opinion" (`medieval`, key absent) stays distinguishable from
-   "profile says no" (`venus`) for whatever eventually honours it; `waterway`,
-   which *is* read and only ever as a truthiness test, is a plain `bool`.
-6. **Nothing outside block 4 uses any of this milestone's exports.** The whole
-   host app touches exactly three names on `UME` — `SITE_WM`, `SITE_HM` and
-   `cityGen`. `CULTURE_PROFILES`, `resolveProfile`, `DEFAULT_RULES`,
-   `resolveRules`, `cloneRules`, `applyWildness` and `applyPlotChaos` are
-   exported for the reference's own headless tests, and consumed internally
-   only by `generate()` at lines 30933-30934.
+   so the profile side is *always zero* — the hook for the removed 17 profiles.
+   The capture asserts the absence against the reference's own key list; the
+   port carries the field as `0.0` so milestone 11 writes the expression as the
+   reference does.
+5. **Four profile fields are read by nothing at all**, verified across block 4
+   *and* the host app: `parcelPattern` (its death is documented at lines
+   30225-30227), `orientation`, `civicAnchorLabel` and `defaultWalls`. `venus`'s
+   own `prov` says "the UI unchecks the wall box on selecting this profile", and
+   `defaultWalls` has zero reads in v2.10. All four are carried with the note
+   that killed them. `defaultWalls` is `Option<bool>` so "no opinion" (key
+   absent, `medieval`) stays distinct from "says no" (`venus`); `waterway`,
+   read only as a truthiness test, is a plain `bool`.
+6. **Nothing outside block 4 uses this milestone's exports.** The host touches
+   exactly three names on `UME` — `SITE_WM`, `SITE_HM`, `cityGen`. These are
+   exported for the reference's headless tests and consumed internally only by
+   `generate()` at lines 30933-30934.
 7. **`resolveProfile` has a prototype-chain hole, and the port hardens it.**
-   `CULTURE_PROFILES[id]` indexes a plain object literal, so five
-   `Object.prototype` names come back **truthy** and sail past the `||`
-   fallback: `resolveProfile('toString')` returns a *function*,
-   `resolveProfile('__proto__')` returns `Object.prototype`. `generate()` would
-   then read `profile.planning` as `undefined`, take the organic branch, and
-   crash at `profile.wallGates.scheme`. All five are captured as the
-   reference's real behaviour and a golden asserts this port returns `medieval`
-   for every one of them instead. A `match` has no prototype chain; reproducing
-   the hazard would mean building one on purpose.
-8. **`cloneRules` does not survive as a function, and is not quite a deep
-   clone.** It is `JSON.parse(JSON.stringify(r))`, which `#[derive(Clone)]`
-   already is on a well-formed rule set — the same call milestone 2 made about
-   `gKey`. But a NaN round-trips to `null`, and the capture pins that the
-   reference really does this. A typed `Rules` has no `null` to land on, so the
-   port keeps the NaN. Unreachable inside the engine: `resolveRules` clones the
-   all-finite `DEFAULT_RULES` and `Object.assign`s the caller's partial on
-   *top* of the clone, so nothing a caller supplies is ever round-tripped.
+   `CULTURE_PROFILES[id]` indexes an object literal, so five `Object.prototype`
+   names come back truthy and pass the `||` fallback:
+   `resolveProfile('toString')` returns a function, `'__proto__'` returns
+   `Object.prototype`, and `generate()` would crash at
+   `profile.wallGates.scheme`. All five are captured as the reference's real
+   behaviour, and a golden asserts this port returns `medieval` for each. A
+   `match` has no prototype chain.
+8. **`cloneRules` is `JSON.parse(JSON.stringify(r))`** — `#[derive(Clone)]` on a
+   well-formed rule set, except that a NaN round-trips to `null`, which the
+   capture pins. A typed `Rules` has no `null`, so the port keeps the NaN.
+   Unreachable in the engine: `resolveRules` clones the all-finite
+   `DEFAULT_RULES` and assigns the caller's partial on top, so nothing a caller
+   supplies is round-tripped.
 9. **`subdivisionCap` stays an `f64`.** `applyPlotChaos` writes
-   `Math.round(clamp(2*c,1,4))` into it, which is `NaN` for a `NaN` slider, and
-   milestone 12 reads it only through `Math.min(P.subdivisionCap,
-   Math.floor(age/3))` — where a `NaN` makes the whole expression `NaN` and the
-   re-subdivision loop run zero times. Typing it `u32` would have to decide
-   what `NaN` becomes, and every choice is a divergence. `Math.round` itself is
-   safe as `f64::round` here (they differ only on negative halves, and the
-   argument's domain is `[1,4]` plus NaN), and the goldens include the three
-   `c` values that land it on `1.5`, `2.5` and `3.5` exactly.
-10. **`resolveRules`' merge is per *field*, not per group**, and skips a falsy
-    group wholesale (`if(partial[grp])`). Two structural divergences from
-    `Object.assign`, both unobservable: the loop iterates `Object.keys(out)`,
-    so an unknown *group* is ignored (a typed patch has none), and
-    `Object.assign` does copy an unknown *field* inside a known group onto the
-    result, where nothing reads it. Pinned by `resolveUnknownGroup` and
+   `Math.round(clamp(2*c,1,4))`, NaN for a NaN slider, and milestone 12 reads it
+   only through `Math.min(P.subdivisionCap, Math.floor(age/3))`, where NaN runs
+   the re-subdivision loop zero times. A `u32` would have to decide what NaN
+   becomes. `Math.round` is safe as `f64::round` on this domain (`[1,4]` plus
+   NaN); the goldens include the three `c` values landing exactly on 1.5, 2.5
+   and 3.5.
+10. **`resolveRules` merges per *field*, not per group**, and skips a falsy
+    group wholesale (`if(partial[grp])`). Two structural differences from
+    `Object.assign`, both unobservable: an unknown *group* is ignored (a typed
+    patch has none), and an unknown *field* inside a known group is copied
+    where nothing reads it. Pinned by `resolveUnknownGroup` and
     `resolveFalsyGroups`.
 
 #### Mutation testing: 120 mutations, 114 dead, 4 survivors, 2 killed by the compiler
 
-Every numeric literal on a non-comment line was perturbed one at a time (84
-mutations), plus 36 hand-written structural mutations covering both clamp
-semantics, both `js_min`/`js_max` comparators, every `js_round` alternative,
-the `deadEndBias` accumulation, the `2-w` inversions, both `meta` write-backs,
-`resolveRules`' per-group and per-field merge, `resolveProfile`'s fallback and
-arm order, and eleven profile-table values including the profile array's own
-order.
-
-**Two mutations are killed by the compiler rather than by a test**, which is
-the strongest outcome available: `[CultureProfile; 2] → 3` and the flattening's
-`[f64; 24] → 25`.
-
-**Four genuine survivors, all reported with the invariant they rest on:**
+Every numeric literal on a non-comment line (84), plus 36 structural mutations:
+both clamp semantics, both `js_min`/`js_max` comparators, every `js_round`
+alternative, the `deadEndBias` accumulation, the `2-w` inversions, both `meta`
+write-backs, `resolveRules`' merges, `resolveProfile`'s fallback and arm order,
+and eleven profile-table values including the profile array's order. Two are
+killed by the compiler: `[CultureProfile; 2] → 3` and `[f64; 24] → 25`.
 
 | survivor | why it survives |
 |---|---|
-| `js_min`'s `b < a` → `b <= a` | the two branches return numerically identical values whenever `a == b`; the only case where *which operand* matters is `+0` vs `-0`, the documented unreachable divergence above |
+| `js_min`'s `b < a` → `b <= a` | the branches return numerically identical values when `a == b`; which operand matters only for `+0` vs `-0`, the documented unreachable divergence |
 | `js_max`'s `b > a` → `b >= a` | same |
-| `clamp(2*c, **1.0**, 4.0)` → `1.01` | `subdivisionCap` is a **quantised output**: a rounded value cannot observe a change to its inputs smaller than half its own step. Shown by graded perturbation — `1.0 → 1.6` and `1.0 → 0.0` both **die**, `1.0 → 1.01` does not |
+| `clamp(2*c, **1.0**, 4.0)` → `1.01` | `subdivisionCap` is a **quantised output**: a rounded value cannot see an input change smaller than half its step. `1.0 → 1.6` and `1.0 → 0.0` both **die** |
 | `clamp(2*c, 1.0, **4.0**)` → `4.01` | same; `4.0 → 4.4` survives, `4.0 → 4.6` and `4.0 → 3.0` **die** |
 
-The first mutation round had a **fifth** survivor — the `2` multiplier in
-`clamp(2*c,1,4)` — for the same quantisation reason. That one *is* killable,
-and three scenarios were added to kill it: `chaos_0p7475`, `chaos_1p2475` and
-`chaos_1p7475`, sitting just *below* the rounding boundaries that
-`chaos_0p75`/`chaos_1p25`/`chaos_1p75` sit exactly on. This is milestone 3's
-lesson arriving from the other side — there, a **quantised input** was needed
-before a tie-break could be observed at all; here, a **quantised output** hides
-a constant unless some input sits within half a step of a boundary. Both are
-the same underlying fact: *a golden can only test what its inputs let the
-function express.*
-
-#### A tooling trap worth more than the milestone: false survivors from a shared build
-
-The first combined mutation run reported **34 survivors**. Re-running any one
-of them by hand killed it immediately; re-running the structural block alone
-killed 34 of 36; re-running the whole 120 killed 114. The switch flipped
-mid-run and every mutation after it "survived", so the sweep was reporting a
-stale binary's results, not the mutated code's.
-
-The cause was **not** either of milestone 3's two (the mtime stamp and the
-comment-anchored patterns were both already in place and both held). The most
-likely cause is a sibling fork's concurrent `cargo` activity in the shared
-`target/` directory during that window; it did not reproduce on replay. Two
-things came out of it that later milestones should carry:
-
-- **Re-run every survivor in isolation before reporting it.** That is what
-  caught this, and it is the only check that catches a stale-binary survivor —
-  a "did the tests actually run" gate does not, because a stale binary reports
-  a perfectly healthy `test result: ok. N passed`.
-- **Put an explicit output gate on the mutation runner anyway** (`maxBuffer`
-  large enough for a full failure diff, and a parsed `N passed` count with a
-  floor). It catches the adjacent failure mode — a filter that silently matches
-  zero tests — which is the mutation-harness form of the silently-empty-output
-  problem three subsystems in this project have already shipped.
+A fifth survivor — the `2` in `clamp(2*c,1,4)` — was killable, and three
+scenarios killed it: `chaos_0p7475`, `chaos_1p2475`, `chaos_1p7475`, just
+*below* the rounding boundaries `chaos_0p75`/`chaos_1p25`/`chaos_1p75` sit on.
+Milestone 3 needed a quantised *input* to see a tie-break; this needed an input
+just below a quantised *output's* boundary. Both are one fact: *a golden can
+only test what its inputs let the function express.*
 
 #### Golden verification
 
-All eight items are on `UME`'s **public** export rather than its `_test` one,
-so this is the first milestone in the subsystem that needed no indirection at
-all. 53 rule cases (defaults, the clone, ten `resolveRules` merge shapes,
-fifteen `applyWildness` arguments including all three non-finite ones, four
-repeat-application cases, seventeen `applyPlotChaos` arguments, and five
-combined sequences), both profiles field by field including the two keys the
-reference leaves off `medieval`, and fifteen `resolveProfile` ids. Rule sets
-are flattened into one canonical field order and compared **bit for bit** via
-`f64::to_bits`, so a NaN must be a NaN and a `-0` could not pass for a `+0`; no
-tolerances anywhere.
-
-The capture asserts the reference's own `DEFAULT_RULES` still carries exactly
-that key set in exactly that order, so a rule added upstream cannot silently
-drop out of the comparison; it asserts neither live profile defines
-`deadEndBias`; and the emptiness / shape gate refuses to write unless there are
-≥40 scenarios, every one is the right width and all-numeric, ≥30 of them differ
-from the defaults, there are exactly two profiles with non-empty provenance
-prose, and `applyWildness(NaN)` really did poison the rule set. **Every golden
-matched on the first run** — which, per milestone 3, is why the mutation
-testing above is the part that matters.
-
-#### The slice assertions, re-run as a negative control
-
-Same 28167-31103 contiguous slice plus line 2291, same balance scan with the
-orphan-close counter, same four structural assertions including milestone 3's
-tightened first-line form and the `mulberry32` negative control. Re-run
-verbatim, with one row added:
-
-| deliberately wrong slice | balance scan | structural asserts |
-|---|---|---|
-| ends inside a block comment | caught (depth 1) | caught |
-| starts 3 lines into the header | caught (1 orphan `*/`) | caught |
-| starts **1** line into the header | not caught | caught |
-| starts at the `<script>` tag | not caught | caught |
-| ends one line early | not caught | caught |
-| **starts 7 lines early, swallowing the end of block 3** | **not caught** | **caught** |
-
-Milestone 2's residual hole is confirmed for the third time, and confirmed
-covered. The new row is the mirror image of it — a slice that begins *before*
-block 4 rather than inside its header — and the balance scan misses that one
-too, for the same reason. The first-line assertion is what pins the boundary in
-every one of the four cases the balance scan cannot see.
+53 rule cases (defaults, the clone, ten `resolveRules` merge shapes, fifteen
+`applyWildness` arguments including all three non-finite ones, four
+repeat-application cases, seventeen `applyPlotChaos` arguments, five combined
+sequences), both profiles field by field including the two keys `medieval`
+leaves off, and fifteen `resolveProfile` ids. Rule sets are flattened into one
+canonical field order and compared **bit for bit** via `to_bits`, so a NaN must
+be a NaN and a `-0` cannot pass for a `+0`. The capture asserts the reference's
+`DEFAULT_RULES` still has exactly that key set in that order (so an upstream
+rule cannot silently drop out) and that neither profile defines `deadEndBias`;
+its gate requires ≥40 scenarios, all the right width and numeric, ≥30 differing
+from the defaults, exactly two profiles with non-empty provenance, and
+`applyWildness(NaN)` really poisoning the set.
 
 #### Corrections to later milestones
 
-1. **Verify each remaining stated range against the code before slicing.**
-   Three for three now (milestone 2 over-claimed by one line, milestone 3 by
-   nine, milestone 4 was wrong at *both* ends and by 13 lines at the start).
-   Milestone 5's `28557-28742` start is confirmed correct as a side effect of
-   this one; the rest are unverified.
-2. **Milestone 7 must read `rules.street` through `resolveRules`, not
-   `DEFAULT_RULES` directly** — except that `grow` itself writes
-   `const rules = opts.rules || DEFAULT_RULES` (line 29446), i.e. it falls back
-   to the **raw** defaults rather than a resolved partial. Reproduce that, do
-   not "fix" it to call `resolveRules`.
-3. **Milestone 11's `privatizeAlleys` gets a zero from the profile side** of
-   `clamp((profile.deadEndBias||0)+…, 0, 0.40)` — see finding 4. Write the
-   expression as the reference writes it; the port carries the field.
-4. **Milestone 12 reads `subdivisionCap` as a float** (finding 9), and
-   `buildParcels`' `Math.min(P.subdivisionCap, Math.floor(age/3))` must keep
-   NaN-propagating semantics if it is ever restructured.
-5. **Milestones 13-15 use `profile.id` as a lookup key** into `GAMES_SPEC`
-   (line 29278) and `FARM_SPEC` (lines 30775, 30887), and milestone 16 surfaces
-   `profile.name` as `cultureName`. Those two strings are load-bearing values,
-   not labels — which is why `CultureProfile`'s fields are `&'static str`, the
-   same call milestone 2 made about `Edge::cls`.
-6. **Every milestone from here that rounds, floors, buckets or otherwise
-   quantises an output** should expect the survivor pattern above: a constant
-   inside a quantiser is invisible to any perturbation smaller than half a
-   step, and the fixture that kills it is one whose input sits just below a
-   boundary. Build one deliberately rather than discovering it in the survivor
-   list.
+1. **`grow` falls back to the raw table**: `const rules = opts.rules ||
+   DEFAULT_RULES` (line 29446), not a `resolveRules` call. Reproduce it.
+2. **`privatizeAlleys` gets zero from the profile side** — finding 4.
+3. **`subdivisionCap` is read as a float** (finding 9), and
+   `Math.min(P.subdivisionCap, Math.floor(age/3))` must keep NaN-propagating
+   semantics if restructured.
+4. **`profile.id` and `profile.name` are values, not labels.** `id` keys
+   `GAMES_SPEC` (line 29278) and `FARM_SPEC` (lines 30775, 30887); `name` is
+   `cultureName`. That is why `CultureProfile`'s fields are `&'static str`, the
+   call milestone 2 made about `Edge::cls`.
 
-### Milestone 5 — the site model (2026-08-18)
+### Milestone 5 — the site model
 
-`shoreFromMask`, `buildSite`, `terrainSuitability` — reference lines
-**28549-28741**. Module `cartalith-urban::site`; dependencies still
-`cartalith-rng` only. 16 new tests (59 in the crate), 19 golden `shoreFromMask`
-scenarios and 36 golden `buildSite` scenarios, each carrying **106 probes** of
-the five field closures plus `terrainSuitability`.
+Reference lines 28549-28741 (`shoreFromMask` from 28557). `shoreFromMask`,
+`buildSite`, `terrainSuitability`. Module `site`.
 
-**The stated range was one line long at the end, and its start understated the
-milestone by eight.** `terrainSuitability` ends at **28741**; 28742 is blank.
-28557 is right as the first line of *code*, but 28549-28556 are the site-model
-archetype comment and `shoreFromMask`'s own v0.98 note — the block milestone 3
-already identified as belonging here when it corrected its own range. So the
-real range is **28549-28741**. Four ranges checked, four wrong; **check the
-rest.**
+#### `Math.exp`, the second libm divergence
 
-#### `Math.exp` is the second V8 libm divergence, and it is far bigger than the first
+The first golden run failed on one probe of one site, one ulp out — as milestone
+1's first `dist_pt_seg` failed on `hypot`. FDLIBM's `__ieee754_exp` promises
+under one ulp, not correct rounding. **One measured special case, reported
+rather than explained:** across 244,000 arguments (240,000 random, every half-
+and quarter-integer to ±20, and `1.0` at ±1 and ±2 ulp), V8 and FDLIBM agree
+everywhere **except exactly `x == 1.0`**, where V8 returns the correctly-rounded
+`e` and FDLIBM one ulp above it. Unreachable from the site model, whose `exp`
+arguments are `-(d²)/(2σ²)`, never positive.
 
-Milestone 1 found `Math.hypot`. This milestone found `Math.exp`, and the two are
-not comparable in scale:
-
-| | disagreements with V8 |
-|---|---|
-| `f64::exp` (the platform libm) | **20,721 of 240,000** random arguments |
-| `geom::js_exp` (this milestone) | **0 of 240,000** |
-
-The very first golden run failed on it — `terrainSuitability` at one probe of
-one site, one ulp out — exactly as milestone 1's first `dist_pt_seg` run failed
-on `hypot`. V8 calls `base::ieee754::exp`, which is FDLIBM's `__ieee754_exp`.
-It is *less* accurate than a modern libm (it promises under one ulp, not correct
-rounding), and matching it rather than improving on it is the whole of
-`cartalith-rust-conventions`' float rule. Ported as
-`cartalith-urban::geom::js_exp` beside `js_hypot`, with the same
-`assert_ne!`-style guard: eight golden arguments on which the platform `exp`
-gives a different answer, and a test that fails if it ever stops doing so.
-
-**One measured special case, reported rather than explained.** Across 244,000
-arguments — 240,000 random, every half- and quarter-integer to ±20, and `1.0`
-at ±1 and ±2 ulp — V8 and FDLIBM agree everywhere **except at exactly
-`x == 1.0`**, where V8 returns the correctly-rounded `e` and FDLIBM returns one
-ulp above it. Reproduced because it was measured, not because its cause is
-known. Unreachable from the site model, whose `exp` arguments are all
-`-(d²)/(2σ²)` and therefore never positive.
-
-**This retro-fixes milestone 1.** `rng::logn` is
-`median * Math.exp(sig * norm())` and had been on `f64::exp`. Its milestone-1
-goldens passed, which means they happened to land on values the two libms agree
-about — luck, not safety. It now goes through `js_exp`, and those goldens still
-pass, which is the check. `logn` has **five call sites** in block 4 (29524 in
-`grow`, 30242 and 30288 in `buildParcels`, 30523-30524 in `buildBuildings`), so
-every frontage width, plot depth and building dimension in the town is drawn
-through it. Milestone 12 would otherwise have found this the hard way, against a
-far larger golden surface.
-
-`Math.exp` appears once more after this milestone: `logisticRamp`'s
-`1/(1+Math.exp(...))` at line 29392, **milestone 7**.
+**`rng::logn` moved to `js_exp` here.** It has **five call sites** — 29524 in
+`grow`, 30242 and 30288 in `buildParcels`, 30523-30524 in `buildBuildings` — so
+every frontage width, plot depth and building dimension is drawn through it. The
+next direct `Math.exp` is `logisticRamp`'s `1/(1+Math.exp(...))` (line 29392,
+milestone 7).
 
 #### Findings
 
-1. **`buildSite` is two sites wearing one name, and which one is live is decided
-   per *field*, not per site.** A real water mask with no river centreline still
-   runs the synthetic hills; a real heightfield with no water context still
-   invents a synthetic channel. The port therefore carries `Option<WaterCtx>` /
-   `Option<TerrainCtx>` rather than the one source enum this plan suggested — an
-   enum would have to lie about the mixed cases the host actually produces. Four
-   goldens are mixed on purpose.
-2. **`kind` is not a closed vocabulary, and the difference is observable
-   downstream.** `kind = kind || 'river'` defaults only the falsy case; every
-   unrecognised string falls through to the **coastline** branch while still
-   being returned verbatim — and milestone 9 compares `site.kind === 'coast'`
-   directly (lines 29061, 29081). So an unknown kind and a real coast are
-   different sites. `kind` stays a `String`, the same call milestone 2 made
-   about `Edge::cls`. Pinned by `atoll`, which shares a seed with `coast` and
-   produces a byte-identical shoreline under a different name.
-3. **`!!W.riverPath` is truthy for a path too short to be a river.** A one-point
-   or empty `riverPath` makes the site river-like (`rk`) — four route endpoints,
-   no sea step in `height` — while the water geometry still comes from
-   `shoreFromMask`. Goldens `pathOfOne` and `pathEmpty`.
-   **No longer reproduced — fixed 2026-09-20 under Ruling N**
-   (`LARGE_ITEM_RULINGS.md`), which names this as the render half of the
-   settlement river-binding defect. `build_site` now requires two points
-   (`WaterCtx::has_real_river_path`), the predicate its own geometry branch and
-   `cartalith_civ::um_water_ctx` already applied; `rk` **and** `real_river`
-   both read it. `pathOfOne`/`pathEmpty` are the fixtures this deliberately
-   re-baselines — `golden_build_site` skips exactly those two and
-   `a_short_river_path_now_draws_as_no_river_at_all` asserts the new behaviour
-   instead. `golden.rs` is untouched. **No production world reaches this**, read
-   at the symbol rather than measured: `um_water_ctx` only assigns `river_path`
-   inside its own `hi - lo + 1 >= 2` guard, so the short-path case is reachable
-   only from a hand-built `WaterCtx`.
+1. **`buildSite` is two sites wearing one name, and which is live is decided per
+   *field*.** A real water mask with no river centreline still runs the
+   synthetic hills; a real heightfield with no water context still invents a
+   synthetic channel. The port carries `Option<WaterCtx>`/`Option<TerrainCtx>`
+   rather than one source enum, which would lie about the mixed cases the host
+   produces. Four goldens are mixed on purpose.
+2. **`kind` is not a closed vocabulary.** `kind = kind || 'river'` defaults only
+   the falsy case; an unrecognised string falls through to the **coastline**
+   branch while being returned verbatim — and milestone 9 compares
+   `site.kind === 'coast'` directly (lines 29061, 29081), so an unknown kind and
+   a real coast are different sites. `kind` stays a `String`. Pinned by `atoll`,
+   which shares a seed with `coast` and produces a byte-identical shoreline under
+   another name.
+3. **A river path needs two points to make a site river-bound** (Ruling N,
+   2026-09-20, which names this as the render half of the settlement
+   river-binding defect). `build_site` reads `WaterCtx::has_real_river_path` —
+   the predicate its own geometry branch and `cartalith_civ::um_water_ctx`
+   already applied — for both `rk` and `real_river`. `pathOfOne`/`pathEmpty` are
+   deliberately re-baselined: `golden_build_site` skips exactly those two
+   (failing if either name stops existing) and
+   `a_short_river_path_now_draws_as_no_river_at_all` asserts the new behaviour.
+   No production world reaches the case: `um_water_ctx` assigns `river_path`
+   only inside its own `hi - lo + 1 >= 2` guard. *(Superseded 2026-09-20: the
+   reference's `!!W.riverPath` truthiness, under which an empty or one-point
+   path made a site river-like. Do not restore it.)*
 4. **A bay draws one fewer number than a coast.** The coastline branch draws its
-   harbour abscissa only when the site is *not* a bay (a bay reuses its own
-   indent centre), so `bay` consumes 31 site-substream draws and `coast` 32, and
-   their `routeEnds` diverge. Invisible to any fixture that does not pair the two
-   on one seed; `bay` and `coast` share seed 5 on purpose, and a test asserts the
-   whole draw budget (12 hills, then the branch's own, then 3 or 4 endpoints) by
-   advancing a fresh stream by hand and rebuilding the endpoints.
-5. **One mask, two different truthiness tests.** `shoreFromMask` takes any
-   non-zero cell as water (JS truthiness); `isWater` tests `=== 1`. A cell
-   holding `2` is water to the shoreline tracer and land to the water query.
-   Reproduced rather than unified — golden `maskTwo`.
-6. **`shoreFromMask`'s principal axis can collapse to `(0, 0)`, and then the
-   sort is a no-op.** One water cell in a 5 × 5 land field leaves four shoreline
-   points whose scatter matrix is perfectly isotropic: `sxy == 0`,
-   `l1 - sxx == 0` **and** `l1 - syy == 0`, so the documented fallback
-   eigenvector is degenerate too, the `|| 1` on the axis length fires, every
-   projection is exactly zero and every comparison ties. The stable sort then
-   returns the raster's own row-major order.
-7. **The fallback eigenvector is not exotic — a plain horizontal shoreline takes
-   it.** With `sxy == 0` and `sxx > syy`, `l1` is exactly `sxx`, so `(sxy,
-   l1-sxx)` is `(0, 0)` and the fallback fires on every symmetric coast. It is
-   still unobservable unless the shore has points in **two** rows, because
-   sorting a row-major list by y is the identity; `twoRowShore` (water along the
-   top edge *and* the bottom two rows) is the fixture that finally sees it.
-8. **Out of bounds is `undefined`, not a panic, and it reaches three ways**: a
-   `NaN` probe coordinate (the clamp propagates it and `arr[NaN]` is
-   `undefined`), a `dt` array shorter than its mask, and a terrain raster with
-   `mw < 2`. All three become `f64::NAN` here, all three are goldens
-   (`shortDt`, `terrainShortGrid`, `terrainOneColumn`), and the port takes the
-   deliberate divergence **the other way** from milestone 3's `astar` — loud
-   there because the case cannot happen, quiet here because it can.
-9. **`bankSide` never returns 0.** `Math.sign(x) || 1` sends a point exactly on
-   the centreline, a `-0` cross product and a `NaN` one all to `+1`. `grow`'s
-   bridgehead rule and `buildWall`'s far-bank test both read it, so the
-   on-the-line case having a definite answer is load-bearing rather than
-   incidental. Swept over every vertex of every golden site.
-10. **The bridge index starts at `-1`, and `Math.max(0, bi)` is the only thing
-    placing the bridge when no slope ever compares.** An all-`NaN` heightfield
-    never satisfies `s < bs`, so `bi` survives the loop and the bridge lands on
-    `river[0]`. Nothing with a finite height field can exercise that line;
-    `terrainAllNaN` exists for it.
+   harbour abscissa only when the site is not a bay (a bay reuses its indent
+   centre), so `bay` consumes 31 site-substream draws and `coast` 32, and their
+   `routeEnds` diverge. `bay` and `coast` share seed 5 on purpose, and a test
+   advances a fresh stream by hand through the whole budget (12 hills, the
+   branch's own, then 3 or 4 endpoints) and rebuilds the endpoints.
+5. **One mask, two truthiness tests.** `shoreFromMask` takes any non-zero cell
+   as water; `isWater` tests `=== 1`. A cell holding `2` is water to the tracer
+   and land to the query. Reproduced — golden `maskTwo`.
+6. **`shoreFromMask`'s principal axis can collapse to `(0, 0)`.** One water cell
+   in a 5 × 5 land field leaves four shore points with an isotropic scatter:
+   `sxy == 0`, `l1 - sxx == 0` and `l1 - syy == 0`, so the fallback eigenvector
+   is degenerate too, the `|| 1` on the axis length fires, every projection is
+   zero, and the stable sort returns row-major order.
+7. **The fallback eigenvector is ordinary.** With `sxy == 0` and `sxx > syy`,
+   `(sxy, l1-sxx)` is `(0, 0)` on every symmetric coast. It is unobservable
+   unless the shore has points in **two** rows (sorting a row-major list by y is
+   the identity); `twoRowShore` is the fixture that sees it.
+8. **Out of bounds is `undefined`, not a panic**, reached three ways: a NaN
+   probe coordinate, a `dt` array shorter than its mask, and a terrain raster
+   with `mw < 2`. All become `f64::NAN` here (goldens `shortDt`,
+   `terrainShortGrid`, `terrainOneColumn`) — the deliberate divergence taken
+   **the other way** from milestone 3's panic: quiet here because the case can
+   happen.
+9. **`bankSide` never returns 0.** `Math.sign(x) || 1` sends a point on the
+   centreline, a `-0` and a NaN cross product to `+1`. `grow`'s bridgehead rule
+   and `buildWall`'s far-bank test read it, so that definite answer is
+   load-bearing. Swept over every vertex of every golden site.
+10. **The bridge index starts at `-1`, and `Math.max(0, bi)` alone places the
+    bridge when no slope ever compares.** An all-NaN heightfield never satisfies
+    `s < bs`, so the bridge lands on `river[0]`; `terrainAllNaN` exists for it.
 11. **The three analytic hills are drawn even when a real heightfield makes them
-    dead.** Twelve draws nothing reads — but twelve *positions* in the site
-    substream, so a port that skipped them on the real-terrain path would move
-    every route endpoint.
+    dead** — twelve draws nothing reads, but twelve *positions* in the site
+    substream. Skipping them on the real-terrain path would move every route
+    endpoint.
 12. **`waterPoly` is empty on two of the four paths** (landlocked, and coastal
-    with real water) and **nothing inside block 4 ever reads it** — verified by
-    grep across all 2,937 lines. Its only consumer is `generate()`'s return
-    object at line 31081, i.e. the renderer. Milestone 10 must not treat it as
-    the town's water.
-13. **Six `||` defaults, of which only the `NaN` arm ever bites**:
-    `riverWidthM || 20`, `riverOrder || 0`, `seaLakeCells || 0`, `hMax || 0`,
-    `hMin || 0`, and `terrainSuitability`'s `site.riverW || 0`. A `0` width
-    really does become 20 (`widthFallbackZero`) and a `NaN` Strahler order really
-    does become 0 (`orderNaN`).
+    with real water), and nothing in block 4 reads it — only `generate()`'s
+    return object (line 31081), i.e. the renderer. It is not the town's water.
+13. **Six `||` defaults; only the NaN arm ever bites:** `riverWidthM || 20`,
+    `riverOrder || 0`, `seaLakeCells || 0`, `hMax || 0`, `hMin || 0`, and
+    `terrainSuitability`'s `site.riverW || 0`. A `0` width becomes 20
+    (`widthFallbackZero`); a NaN Strahler order becomes 0 (`orderNaN`).
 
 #### Golden verification
 
-None of the three functions is on `UME`'s public export **or** its `_test` one —
-the first milestone in this subsystem to reach neither. The capture therefore
-adds them to the returned object with a **single anchored replacement** of the
-`return {` line, asserted to match exactly once; the frozen reference file itself
-is never touched, and the injected names are asserted to be functions before
-anything is captured.
+None of the three functions is on either `UME` export — the first milestone to
+need the anchored `return {` replacement and the `globalThis.__UME` handoff
+(both under "Verification convention"). Rasters are emitted into the golden
+file so both sides run on identical inputs; everything is compared bit for bit,
+including `height` and `slope`, which run through `exp` and `js_hypot`.
 
-The `vm` handoff needed one thing worth writing down: `const UME = (() => {…})()`
-is a **lexical binding, not a property of the vm context's global object**, so
-`ctx.UME` is `undefined` however well the slice ran. This project has shipped
-that exact bug before (it is one of the three silently-empty-output incidents the
-verification convention lists); the capture appends an explicit
-`globalThis.__UME = UME;` and asserts the result before proceeding.
-
-Rasters are **emitted into the golden file** rather than rebuilt on the Rust
-side, so both sides provably run on identical inputs. Everything is compared
-bit for bit through `to_bits`, with no tolerances anywhere — including `height`
-and `slope`, which run through `exp` and `js_hypot`.
-
-The capture's emptiness / shape gate refuses to write unless: there are ≥19
-shore and ≥30 site scenarios; at least three shorelines are `null` and at least
-six are non-trivial; `plusShape` really came back in row-major order (i.e. the
-tie fixture is actually tying); every site's river has ≥2 finite vertices, 3 or
-4 route endpoints and 106 probes; height is not constant across a site's probes;
-some probe is in water and some site is dry everywhere; `bankSide` took both
-signs; `terrainSuitability` reached both 0 and >0.5; the NaN probe really
-produced a NaN; `bay` and `coast` really drew different endpoints; `atoll` really
-took the coast branch under its own name; both `riverWidthM` fallbacks landed on
-20 while an explicit 26 survived; `orderNaN` really zeroed; the all-NaN slope
-field really fell back to `river[0]`; `pathOfOne` really is river-like without
-being the river; `landlocked` really has no harbour and no water polygon; the
-short `dt` really produced a NaN; and a mask of 2s really read as land. The Rust
-side mirrors the shape half of that gate as its own test, so a truncated
-`golden.rs` cannot make the suite vacuously pass.
-
-**Every golden matched on the first run except one probe of one site**, which is
-what surfaced `Math.exp`. After `js_exp` landed, all 36 sites × 106 probes × 6
-fields and all 19 shorelines matched exactly.
-
-The slice harness is milestone 3's, verbatim: contiguous 28167-31103 plus line
-2291, balance scan with milestone 2's orphan-close counter, and the four
-structural assertions including milestone 3's tightened first-line form and the
-`mulberry32` negative control. Re-run as a negative control, it reproduces
-milestone 4's table row for row.
+The capture refuses to write unless: ≥19 shore and ≥30 site scenarios; ≥3
+shorelines `null` and ≥6 non-trivial; `plusShape` really came back row-major
+(the tie fixture is tying); every site's river has ≥2 finite vertices, 3 or 4
+route endpoints and 106 probes; height varies across a site's probes; some probe
+is wet and some site is dry everywhere; `bankSide` took both signs;
+`terrainSuitability` reached 0 and >0.5; the NaN probe produced a NaN; `bay` and
+`coast` drew different endpoints; `atoll` took the coast branch under its own
+name; both `riverWidthM` fallbacks landed on 20 while an explicit 26 survived;
+`orderNaN` zeroed; the all-NaN slope field fell back to `river[0]`;
+`pathOfOne` is river-like in the reference without being the river (finding
+3); `landlocked` has no harbour and no water polygon; the short `dt` produced a NaN; and a mask
+of 2s read as land. The Rust side mirrors the shape half as its own test.
 
 #### Mutation testing
 
-Every numeric literal on a non-comment line of `site.rs` perturbed one at a time
-(207), plus 64 hand-written structural mutations covering every `js_min`/
-`js_max`/`js_hypot`/`js_exp` call site, every comparator and tie-break, both
-Chaikin passes, the draw order and count, all six `||` defaults, the two mask
-truthiness tests, the sort's stability, the fallback eigenvector, and the
-bilinear term order. Patterns are validated to match **exactly once** before the
-sweep starts, replacements are made by `(line, column)` rather than by first
-occurrence, comment and string text is stripped before scanning, and **every
-survivor is re-run in isolation**.
+Every numeric literal on a non-comment line of `site.rs` (207) plus 64
+structural mutations: every `js_min`/`js_max`/`js_hypot`/`js_exp` call site,
+every comparator and tie-break, both Chaikin passes, the draw order and count,
+all six `||` defaults, the two mask truthiness tests, the sort's stability, the
+fallback eigenvector and the bilinear term order.
 
-**Two rounds of fixture work came out of it, and the first round is the finding.**
-The first sweep left **46 survivors**, and almost none of them were equivalent
-mutants — they were fixture gaps of two specific shapes:
+**The first sweep left 46 survivors, and almost none were equivalent mutants —
+they were fixture gaps of two shapes:**
 
-- **Every water raster was uniform along one axis.** `j >= 9 ? water : land` is
-  the obvious hand-built mask, and it makes *every* mutation of `maskIdx`'s `i`
-  clamp invisible, because column 0 and column 16 hold identical data. Fixed by
-  giving each mask a per-column ripple so **no two adjacent columns agree**.
-- **A fixed fractional probe grid never lands near anything.** The site's own
-  interesting geometry is a 10-40 m wide band around a polyline; a
-  `[0.1, 0.5, 0.9] × [0.1, 0.5, 0.9]` grid essentially never enters it, so the
-  whole `riverW/2 + 2` water band, the shoreline half-plane test and both ends
-  of `yAtX` were unexercised. Fixed by deriving most probes **from the site's own
-  river**: offsets straddling the band boundary at three points along the
-  centreline, and a ladder of points a quarter-metre either side of the real
-  waterline at nine abscissae (`yAtX` is reimplemented in the *capture* for this
-  — fixture code, not ported code).
+- **Every water raster was uniform along one axis.** `j >= 9 ? water : land`
+  makes every mutation of `maskIdx`'s `i` clamp invisible. Fixed with a
+  per-column ripple so **no two adjacent columns agree**.
+- **A fixed fractional probe grid never lands near anything.** The interesting
+  geometry is a 10-40 m band round a polyline, which a `[0.1, 0.5, 0.9]²` grid
+  never enters. Fixed by deriving probes **from the site's own river**: offsets
+  straddling the band at three points along it, and a ±0.25 m ladder either side
+  of the real waterline at nine abscissae (`yAtX` reimplemented in the capture —
+  fixture code, not ported code).
 
-Probe count went 16 → 65 → 79 → 97 → 106 and scenario count 13/31 → 19/36 across
-those rounds. This generalises the lesson milestones 3 and 4 recorded: **a golden can
-only test what its inputs let the function express**, and for a geometric
-subsystem that means fixtures have to be built *from* the geometry, not sampled
-on a grid that ignores it.
-
-**271 mutations, 240 died (2 of them at the type level), 31 survived** — and all
-31 were re-run in isolation, which milestone 4's stale-binary incident made
-mandatory. This sweep reported no false survivors. The guard still earned its
-place: an *earlier* sweep of this milestone was killed and restarted after a
-hand-check showed a "survivor" dying immediately, which is exactly the failure
-mode the rule exists for.
-
-Two mutations are killed by the compiler rather than by a test — `[Hill; 3] → 4`
-and the transposed raster index — the strongest outcome available.
-
-**The 31 survivors, each with the invariant it rests on.** Nothing is hidden and
-nothing here is a coverage gap a fixture could close; the ones that *were*
-coverage gaps are in the round-by-round list below.
+Probe count went 16 → 106 and scenarios 13/31 → 19/36 across three rounds, and
+survivors **46 → 35 → 31**. **271 mutations, 240 died (2 at the type level:
+`[Hill; 3] → 4` and the transposed raster index), 31 survived**, all re-run in
+isolation.
 
 | class | n | why they survive |
 |---|---|---|
-| dead stores | 10 | `[Hill { x: 0.0, y: 0.0, amp: 0.0, rad: 0.0 }; 3]` — four initialiser fields, every one overwritten by the loop immediately below; `harbour_idx`'s declaration and its landlocked assignment (both overwritten, and a landlocked harbour is `{idx: -1}` regardless); the `Harbour { idx: 0, pt: None }` placeholder in the struct literal, replaced at the end of `build_site`; `bi = -1 → -2`, read only through `.max(0)`; and both `Vec::with_capacity(n + 1) → n + 2`, which is capacity, not length |
-| equivalent by the surrounding arithmetic | 6 | `i0 + 1.0 → i0 + 1.5` on both bilinear axes — `i1` is used only as `i1 as usize` and `i0` is integral, so truncation erases the change, and the integral `js_min` bound cannot be crossed by half a step; `if s > 0.0 → s > 1.0` in `bank_side` — the true arm and the final `else` **both return `1.0`**, so any `s ∈ (0, 1]` is unaffected; and all three forms of `vl`'s `|| 1` (the `== 0.0` test, the `1.0` substitute, and removing it outright) — it fires only when the axis length is exactly zero, where `vx` and `vy` are both zero, and `0 / anything` — including `0 / 0`, whose `NaN` comparator differences map to `Ordering::Equal` — leaves every projection tied |
-| boundary tests whose two branches compute the same value | 2 | `y_at_x`'s `x <= c[0].x → <` and `x <= c[i+1].x → <`. At a vertex abscissa exactly, the early return gives `c[i].y` and the interpolation gives `c[i].y + 0 · Δ`; at the far end it gives `c[i+1].y` and the next segment gives `c[i+1].y + 0 · Δ`. The branch taken changes; the number does not |
-| guards against data the reference cannot produce | 6 | the `(c[i+1].x - c[i].x) \|\| 1` denominator, both halves — reachable only with two shoreline vertices at one `x`, and the abscissae are `i/26 · Wm` through two Chaikin passes, strictly increasing; the degenerate-axis test's `1e-9` — observable only if `hypot(sxy, l1-sxx)` lands in `[1e-9, 1.5e-9)`, where every fixture gives exactly `0` or more than `1e-8`; removing `max(0, ·)` from the eigenvalue — `tr²/4 - det` is algebraically `((sxx-syy)/2)² + sxy²` and so never negative, making the `max` purely defensive (**its constant is not** — `0.0 → 1.0` dies on `twoRowMicro`); `river[idx] \|\| river[0]` losing its fallback — `harbour_idx` is a valid index on every path; and the drift clamp switching to `f64::min`/`f64::max`, which differs from `js_min`/`js_max` only on `NaN`, and the drift is a sum of finite draws |
-| need an exact tie a continuous field cannot produce | 4 | the coast harbour search's `<` → `<=` (two shoreline vertices exactly equidistant from a drawn abscissa); `isWater`'s channel band `<` → `<=` (a point-to-polyline distance exactly equal to `riverW/2 + 2`); and `js_hypot → f64::hypot` at two call sites, where a one-ulp difference can only flip a strict `<` if two candidates already agree to within one ulp. **Milestone 3's finding, recurring** — and unlike there it cannot be closed by a quantised raster, because these inputs are polyline distances, not cell costs |
-| unobservable through Rust's stable sort | 3 | `else if d > 0.0 → d > 1.0` in the comparator, the same rewritten to compare projections rather than their difference, and `sort_by → sort_unstable_by`. The first was **checked rather than assumed**: Rust's stable sort reaches every ordering decision through the `Less` arm, so downgrading `Greater` to `Equal` still returns a fully sorted result (verified independently on a 16-element `f64` vector whose gaps sit below the mutated threshold). The second differs from the original only on `NaN`/`±∞` projections. `sort_unstable_by` survives because the only fixture with ties between *distinguishable* points is the fully-degenerate `plusShape`, whose four projections are all zero |
+| dead stores | 10 | `[Hill { x: 0.0, y: 0.0, amp: 0.0, rad: 0.0 }; 3]` — four initialiser fields, all overwritten by the loop below; `harbour_idx`'s declaration and its landlocked assignment (both overwritten, and a landlocked harbour is `{idx: -1}` regardless); the `Harbour { idx: 0, pt: None }` placeholder, replaced at the end of `build_site`; `bi = -1 → -2`, read only through `.max(0)`; and both `Vec::with_capacity(n + 1) → n + 2`, which is capacity, not length |
+| equivalent by the surrounding arithmetic | 6 | `i0 + 1.0 → i0 + 1.5` on both bilinear axes — `i1` is used only as `i1 as usize` and `i0` is integral, so truncation erases it, and the integral `js_min` bound cannot be crossed by half a step; `if s > 0.0 → s > 1.0` in `bank_side` — the true arm and the final `else` **both return `1.0`**; and all three forms of `vl`'s `\|\| 1` (the `== 0.0` test, the `1.0` substitute, removing it) — it fires only when the axis length is zero, where `vx` and `vy` are both zero, and `0 / anything` (including `0 / 0`, whose NaN comparator results map to `Ordering::Equal`) leaves every projection tied |
+| boundary tests whose two branches compute the same value | 2 | `y_at_x`'s `x <= c[0].x → <` and `x <= c[i+1].x → <`. At a vertex abscissa the early return gives `c[i].y` and the interpolation `c[i].y + 0 · Δ`; at the far end, `c[i+1].y` and the next segment's `c[i+1].y + 0 · Δ` |
+| guards against data the reference cannot produce | 6 | the `(c[i+1].x - c[i].x) \|\| 1` denominator, both halves — needs two shoreline vertices at one `x`, and the abscissae are `i/26 · Wm` through two Chaikin passes, strictly increasing; the degenerate-axis test's `1e-9` — observable only if `hypot(sxy, l1-sxx)` lands in `[1e-9, 1.5e-9)`, and every fixture gives exactly `0` or more than `1e-8`; removing `max(0, ·)` from the eigenvalue — `tr²/4 - det` is algebraically `((sxx-syy)/2)² + sxy²`, never negative (**its constant is not dead** — `0.0 → 1.0` dies on `twoRowMicro`); `river[idx] \|\| river[0]` losing its fallback — `harbour_idx` is valid on every path; and the drift clamp on `f64::min`/`max`, which differ from `js_min`/`js_max` only on NaN, and the drift is a sum of finite draws |
+| need an exact tie a continuous field cannot produce | 4 | the coast harbour search's `<` → `<=` (two shore vertices exactly equidistant from a drawn abscissa); `isWater`'s channel band `<` → `<=` (a distance exactly `riverW/2 + 2`); and `js_hypot → f64::hypot` at two call sites, where one ulp flips a strict `<` only if two candidates already agree to within one ulp. Milestone 3's finding, but not closable by a quantised raster — these are polyline distances, not cell costs |
+| unobservable through Rust's stable sort | 3 | `else if d > 0.0 → d > 1.0` in the comparator, the same rewritten to compare projections rather than their difference, and `sort_by → sort_unstable_by`. The first was **checked**: Rust's stable sort reaches every ordering decision through the `Less` arm, so downgrading `Greater` to `Equal` still sorts fully (verified on a 16-element `f64` vector with gaps below the mutated threshold). The second differs only on NaN/±∞ projections. `sort_unstable_by` survives because the only fixture with ties between distinguishable points is the fully degenerate `plusShape`, whose four projections are all zero |
 
-**Fifteen mutations that survived the first sweep were killed by fixture work
-rather than argued away** — the survivor count went **46 → 35 → 31** across three
-rounds, and each round's list was read one entry at a time to decide whether it
-was equivalent or merely untested. The purpose-built fixtures, and the constant
-each exists for:
+Fifteen first-sweep survivors were killed by purpose-built fixtures rather than
+argued away:
 
 | fixture | the constant it makes observable |
 |---|---|
 | a per-column ripple in every water mask | both of `mask_idx`'s `i`-axis clamps |
-| probes derived from the site's own river | the whole `riverW/2 + 2` water band, and `bank_side` on both banks |
-| a ±0.25 m ladder around `yAtX(x)` at nine abscissae, plus one probe exactly on it | the sea half-plane's `-1.0` offset and its `>` |
+| probes derived from the site's own river | the whole `riverW/2 + 2` band, and `bank_side` on both banks |
+| a ±0.25 m ladder round `yAtX(x)` at nine abscissae, plus one probe exactly on it | the sea half-plane's `-1.0` offset and its `>` |
 | `riverCeiling` / `throughCeiling`, found by **scanning** seeds | the channel drift's upper clamp — no hand-picked seed saturates it |
-| `quayLadder`, 18.85 m per segment (five of them = 94.25 m) | the quay walk's 95 m stop and its accumulator's starting value |
-| `twoRowShore` (water along the top edge *and* the bottom rows) | the fallback eigenvector, which a one-row shoreline cannot show because sorting a row-major list by *y* is the identity |
+| `quayLadder`, 18.85 m per segment (five = 94.25 m) | the quay walk's 95 m stop and its accumulator's start |
+| `twoRowShore` (water along the top edge and the bottom rows) | the fallback eigenvector |
 | `twoRowMicro`, the same cloud at 4 mm cells | the eigenvalue guard's own `0.0`, by pushing the discriminant below 1 |
-| `vertShore`, a vertical real shoreline | the real-water harbour search's reference *y* |
+| `vertShore`, a vertical real shoreline | the real-water harbour search's reference y |
 | `exactlyTwo`, a mask producing exactly two shore points | `pts.len() < 2` |
 | `northWater` / `westWater` | the north and west adjacency tests, individually |
 | `twoPointPath` | `riverPath.length >= 2` |
 
 #### Corrections to later milestones
 
-1. **Milestone 5's own range was 28549-28741**, not 28557-28742. Four for four;
-   verify milestones 6-16's stated ranges before slicing.
-2. **Every milestone from here must use `geom::js_exp` for `Math.exp`**, exactly
-   as it must use `js_hypot` for `Math.hypot` and `js_min`/`js_max` for
-   `Math.min`/`Math.max`. The platform `exp` disagrees with V8 on 8.6% of
-   arguments. Milestone 7's `logisticRamp` is the next direct call site;
-   `rng::logn` (already fixed here) is the indirect one that milestones 12 and 13
-   lean on hardest.
-3. **Milestone 6's `placeAnchors` can reach its literal fallback.**
+1. **`placeAnchors`' literal fallback is live.**
    `site.bridgePt || (site.harbour && site.harbour.pt) || {x: Wm*0.52, y: Hm*0.42}`
-   — a landlocked site has `bridgePt = null` *and* `harbour.pt = null`, so the
-   third arm is live, not defensive.
-4. **Milestone 9 compares `site.kind === 'coast'` as a string** (lines 29061,
-   29081). That is why `kind` is a `String` here and not an enum; an enum
-   mapping unknown kinds to `Coast` would silently change those two branches.
-5. **Milestone 10 must not read `site.waterPoly` as "the water".** It is empty on
-   the landlocked and real-water-coastal paths, and nothing in block 4 reads it
-   at all — it exists for the renderer. Use `isWater`/`riverDist`.
-6. **Milestone 12 and 13 draw every parcel and building dimension through
-   `rng::logn`**, which is now on `js_exp`. If either milestone ever sees a
-   whole-town divergence that looks like noise, the libm is the first thing to
-   check, not the last.
-7. **Build fixtures out of the subsystem's own geometry.** Milestone 3 asked for
-   quantised inputs and milestone 4 for just-below-a-boundary inputs; milestone 5
-   adds that for anything with geometry, the probe set must be *derived from the
-   geometry under test*. A grid of round fractions tests almost nothing in a
-   subsystem whose thresholds are metres wide.
+   — a landlocked site has neither.
+2. **Milestone 9 compares `site.kind === 'coast'` as a string** (finding 2); an
+   enum mapping unknown kinds to `Coast` would change those two branches.
+3. **`site.waterPoly` is not the water** (finding 12). Use
+   `isWater`/`riverDist`.
+4. **Milestones 12 and 13 draw every dimension through `rng::logn`.** A
+   whole-town divergence that looks like noise: check the libm first.
 
-### Milestone 6 — anchors and primary routes (2026-08-18)
+### Milestone 6 — anchors and primary routes
 
-`placeAnchors`, `buildPrimaries`, `buildPrimariesFromPaths` — reference lines
-**28743-28833**. Module `cartalith-urban::routes`; dependencies still
-`cartalith-rng` only. 10 new tests (69 in the crate), 38 golden scenarios each
-carrying the market, its provenance string, every route polyline, the whole
-resulting street graph and a hash of the spatial index.
+Reference lines 28743-28833 (`placeAnchors` from 28744). `placeAnchors`,
+`buildPrimaries`, `buildPrimariesFromPaths`. Module `routes`. The first
+milestone to produce a real street graph end to end, so the first whose golden
+is a whole-subsystem artefact.
 
-The first milestone that produces a real street graph end to end, and therefore
-the first whose golden is a whole-subsystem artefact rather than a function's
-return value.
+#### `Math.sin`, `Math.cos`, `Math.log` — measured before trusting
 
-**The stated range over-claimed by ten lines at the end, and understated the
-milestone by one at the start.** `buildPrimariesFromPaths` ends at **28833**;
-28834 is blank and 28835-28843 is the *radial streets* header comment, which
-belongs to milestone 8. 28744 is right as the first line of code, but 28743 is
-the `/* ---------------- anchors ---------------- */` section header, which by
-the convention milestones 4 and 5 settled belongs to the milestone it
-introduces. **Five ranges checked, five wrong**; milestones 7-16 remain
-unverified.
+Milestones 1 and 5 found their libm divergences **after** a golden failed; this
+one measured first (numbers in "The V8 libm bill"), which is why every scenario
+matched on its first run. `Math.sin` and `Math.cos` are the third and fourth
+most-used functions in block 4 (27 and 26 call sites, after `Math.min`/`max`),
+and `placeAnchors` calls both on each of its 400 candidates.
 
-#### `Math.sin`, `Math.cos` and `Math.log` are the third, fourth and fifth V8 libm divergences
+`rng::norm` moved to `js_log`/`js_cos` here. It is the highest-leverage function
+in the subsystem — `logn` sits on it.
 
-Milestone 1 found `Math.hypot`, milestone 5 found `Math.exp` — both **after** a
-golden failed. This milestone measured first, which is why every one of its 35
-scenarios matched on the first run.
-
-| over 80,214 arguments spanning every reachable reduction branch | disagreements with V8 |
-|---|---|
-| `f64::sin` | **1,942** |
-| `f64::cos` | **2,160** |
-| `js_sin` / `js_cos` | **0** / **0** |
-
-| over 60,009 arguments across the whole normal range | |
-|---|---|
-| `f64::ln` | **1,647** |
-| `js_log` | **0** |
-
-`Math.sin` and `Math.cos` are the **third and fourth most-used** functions in
-block 4 (27 and 26 call sites, behind only `Math.min`/`Math.max`), and
-`placeAnchors` calls both on every one of its 400 candidate points. V8 calls
-`base::ieee754::sin`/`cos`/`log`, i.e. FDLIBM's `__ieee754_*`, ported into
-`geom` beside `js_hypot` and `js_exp` as `js_sin`, `js_cos` and `js_log`.
-
-**This retro-fixes milestone 1 a second time.** `rng::norm` is
-`Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * PI * u2)` and had been on
-`f64::ln` and `f64::cos`; milestone 1 asserted its goldens exactly and they
-passed, which was luck exactly as `logn`'s were. `norm` is the single
-highest-leverage function in the subsystem — `logn` sits on top of it and draws
-every frontage width, plot depth and building dimension in the town. The
-milestone-1 goldens still pass unchanged, which is the check. `Math.sqrt` needs
-no such treatment: IEEE-754 mandates a correctly-rounded square root.
-
-**One branch is deliberately not ported and says so.** For `|x| >= 2^19 * pi/2`
-(about 8.2e5) FDLIBM switches to Payne-Hanek reduction — `__kernel_rem_pio2`, a
-hundred-odd lines of multi-precision integer arithmetic over a 66-word table.
-Every trig argument in this subsystem is an angle built from `range(-PI, 0)`,
-`i/n * 2PI`, an `atan2` result or a bearing, none of which can leave
-`[-4PI, 4PI]`, so that branch would be dead code with a real chance of being
-silently wrong. `js_sin`/`js_cos` hand off to the platform libm above the
-threshold, a test asserts they do, and the doc comment names it as the one input
-class that is not reproduced.
-
-**The rest of the libm bill, measured now so later milestones do not each
-rediscover it.** `Math.atan2` disagrees with `f64::atan2` on **10,615 of
-60,000** arguments — 17.7%, the worst yet, and it has 7 call sites starting at
-milestone 8. `Math.log10` disagrees on 960/60,000 (milestone 15's
-`computeMetrics`), `Math.acos` on 544/60,000 (milestone 10). `Math.pow(x, 2)`
-was measured **bit-identical** to `x * x` on 60,000 arguments, so
-`buildPrimaries`' one `Math.pow` needs nothing. `Math.sqrt`, `Math.abs`,
-`Math.floor`, `Math.ceil` and `Math.sign` are exact by specification.
+**One branch is deliberately not ported, and says so.** For
+`|x| >= 2^19 · π/2` (~8.2e5) FDLIBM switches to Payne-Hanek reduction
+(`__kernel_rem_pio2`, a hundred-odd lines of multi-precision arithmetic over a
+66-word table). Every trig argument here is built from `range(-PI, 0)`,
+`i/n * 2PI`, an `atan2` result or a bearing, none of which leaves `[-4π, 4π]`,
+so the branch would be dead code with a real chance of being silently wrong.
+`js_sin`/`js_cos` hand off to the platform libm above the threshold, a test
+asserts they do, and the doc comment names it as the one unreproduced input
+class.
 
 #### Findings
 
-1. **Neither route builder draws a random number.** `buildPrimaries` and
-   `buildPrimariesFromPaths` both take a `seed` and neither reads it — verified
-   by grep over both bodies and asserted from the other side by a test that runs
-   each with a wildly different seed and requires a byte-identical graph.
-   `placeAnchors` is the only RNG consumer here and it draws exactly **800**
-   times: two per candidate, **before** any of the four rejection tests, so the
-   sequence is independent of the site's shape. Milestone 16 needs all of that
-   when it reasons about `generate()`'s draw order.
+1. **Neither route builder draws a random number.** Both take a `seed` and
+   neither reads it — asserted by running each with a wildly different seed and
+   requiring a byte-identical graph. `placeAnchors` draws exactly **800** times,
+   two per candidate **before** any rejection test, so the sequence is
+   independent of the site's shape.
 2. **Both return values are dead.** `generate()` calls whichever builder applies
-   for its effect on `g` and **discards** the routes (lines 31021-31022). They
-   are returned here anyway — they are what the reference returns, and they make
-   a far stricter golden than the graph alone.
-3. **The two builders disagree about their own return shape, and nothing
-   notices.** `buildPrimaries` pushes `{pts, i}`; `buildPrimariesFromPaths`
-   pushes `{pts}` with no `i` at all. Carried as `Route { pts, i: Option<usize> }`
-   rather than erased, because erasing it would be a silent decision about a
-   field a later milestone might want.
+   for its effect on `g` and discards the routes (lines 31022-31023). Returned
+   anyway: they make a stricter golden than the graph alone.
+3. **The two builders disagree about their return shape.** `buildPrimaries`
+   pushes `{pts, i}`; `buildPrimariesFromPaths` pushes `{pts}`. Carried as
+   `Route { pts, i: Option<usize> }` rather than erased.
 4. **`riverthrough` shares `river`'s candidate band but not its preferred
    distance.** `dBand` tests `kind === 'river' || kind === 'riverthrough'` and
    widens to `[60, 240]`; the score's `Math.abs(d - (kind === 'river' ? 120 : 100))`
-   tests `'river'` **alone**. So a bisecting river prefers a market at 100 m like
-   a coastal town while still being allowed out to 240 m. Two fixtures share seed
-   7 for this; a set with only one of the two kinds cannot see it.
-5. **The market reference's third `||` arm is live, as milestone 5 predicted.**
-   A landlocked site has no `bridgePt` *and* no `harbour.pt`, so the town centres
-   on the literal `{Wm*0.52, Hm*0.42}`. Two fixtures reach it.
-6. **`best === null` is reachable too, and only on a small box.** Every one of
-   the 400 candidates can be rejected — the market then falls back to
-   `{ref.x, ref.y - 120}`, which is the only place in the subsystem that can put
-   the market **outside the site box** (at 150 x 150 it lands at y = -57).
-7. **The 80 m margin is unobservable on the engine's own box, and that is not a
-   fixture gap but a fact about the geometry.** On 1700 x 1250 the reference
-   point sits at (884, 525) and candidates reach at most 240 m from it, so no
-   candidate is ever within 400 m of the margin. It takes a ~520 m box to make
-   the constant do anything at all. Recorded because milestone 7's `grow` reuses
-   the same rejection idiom.
-8. **`Math.max(0, rd - 260)` — the flood-band penalty — is dead on every site
-   this engine can build.** The candidate is drawn at most 240 m from a
-   reference point that lies *on* the water on every watered site, so `rd`
-   cannot exceed the draw and the term is identically zero; and a landlocked
-   site's river is a dummy segment at `(-1e4, -1e4)`, so the term is a ~81-unit
-   *constant* that shifts every score equally and cannot move the argmax. A test
-   asserts that invariant across all 35 fixtures rather than asserting the dead
-   branch — which is what converts two mutation survivors into a statement.
-9. **`buildPrimariesFromPaths`' final `sm.length < 2` guard cannot fire.** `pts`
-   has at least 2 entries by the guard above it, `simplify` is the identity
-   below three points and never drops an endpoint, and `chaikin` on an open
-   2-point line returns 4. Reproduced as written, the same call milestone 3 made
-   about `astar`'s dead `Infinity` check.
-10. **Its `path.length < 2` guard is redundant too, but its `pts.length < 2` one
-    is not.** A one-point path yields a one-point in-box run and is dropped by
-    the second guard anyway; but a path whose *second* point is outside the box
-    leaves exactly the market in `pts`, and without the second guard that
-    survives as a degenerate two-identical-point street — which adds a **node**
-    and no edge. `pathsOnlyMarket` is the fixture.
+   tests `'river'` alone. So a bisecting river prefers 100 m like a coastal town
+   while still reaching 240 m. Two fixtures share seed 7 for this.
+5. **The market reference's third `||` arm is live** (landlocked); two fixtures
+   reach it.
+6. **`best === null` is reachable, only on a small box.** If all 400 candidates
+   are rejected the market goes to `{ref.x, ref.y - 120}` — the only place the
+   market can land **outside the site box** (at 150 × 150, y = -57).
+7. **The 80 m margin is unobservable on the engine's own box** — a fact about
+   the geometry, not a fixture gap. On 1700 × 1250 the reference point is at
+   (884, 525) and candidates reach at most 240 m from it, so none is within
+   400 m of the margin; it takes a ~520 m box to make the constant do anything.
+8. **The flood-band penalty `Math.max(0, rd - 260)` is dead on every site this
+   engine builds.** A candidate is drawn ≤240 m from a reference point that lies
+   *on* the water on every watered site, so `rd` cannot exceed 260; a landlocked
+   site's river is a dummy segment at `(-1e4, -1e4)`, making the term a ~81-unit
+   constant that cannot move the argmax. A test asserts the invariant across all
+   fixtures rather than asserting the dead branch.
+9. **`buildPrimariesFromPaths`' final `sm.length < 2` guard cannot fire**: `pts`
+   has ≥2 entries, `simplify` is the identity below three points and never drops
+   an endpoint, and `chaikin` on an open 2-point line returns 4. Reproduced as
+   written.
+10. **Its `path.length < 2` guard is redundant, but its `pts.length < 2` one is
+    not.** A path whose *second* point leaves the box leaves only the market in
+    `pts`; without the second guard that survives as a two-identical-point street
+    that adds a **node** and no edge. Fixture `pathsOnlyMarket`.
 11. **A metre offset added to a metre coordinate cannot express a one-ulp
-    boundary.** Both of this milestone's boundary fixtures needed rebuilding for
-    the same reason: the host's paths are offsets from the market, and
-    `(386.6 + 1.0000000000000002) - 386.6` is exactly `1.0` — the two extra ulps
-    are absorbed at that magnitude. `> 1` is straddled with 1 m and 1.25 m; the
-    6 m box tolerance with -5, -6 and -7. **Any boundary fixture built by
-    offsetting a large coordinate has to clear that coordinate's own ulp, not the
-    constant's.** This generalises milestone 4's just-below-a-boundary rule and
-    every later milestone that takes host-supplied offsets will hit it.
-12. **`toCell`'s clamp absorbs the `Math.round` question.** JS rounds halves
-    toward `+Infinity` and `f64::round` rounds them away from zero, so they
-    differ on negative halves — and a negative cell index clamps to `1`
-    regardless, so the divergence cannot be observed. `geom::js_round` is written
-    correctly anyway (and `rules`' private copy now routes through it, provably
-    identical on its own `[1, 4]` domain), because the next caller may not clamp.
-13. **The reinforcement's `Set` iteration order cannot matter.** Each distinct
-    cell is multiplied by `0.45` exactly once per route and the indices are
-    disjoint, so a `HashSet` reproduces a JS `Set` here without a claim about
-    ordering. What *is* order-dependent is the route sequence itself: a test
-    reverses `site.routeEnds` and requires the town to change, so the `0.45` can
-    never be quietly neutralised.
+    boundary.** The host's paths are offsets from the market, and
+    `(386.6 + 1.0000000000000002) - 386.6` is exactly `1.0`. `> 1` is straddled
+    with 1 m and 1.25 m, the 6 m box tolerance with -5, -6 and -7. **A boundary
+    fixture built by offsetting a large coordinate must clear that coordinate's
+    ulp, not the constant's.**
+12. **`toCell`'s clamp absorbs the `Math.round` question.** JS and `f64::round`
+    differ only on negative halves, and a negative cell index clamps to `1`
+    regardless. `js_round` is written correctly anyway (`rules`' private copy
+    routes through it, provably identical on `[1, 4]`), because the next caller
+    may not clamp.
+13. **The reinforcement's `Set` iteration order cannot matter**: each cell is
+    multiplied by `0.45` once per route and the indices are disjoint. The route
+    *sequence* is what is order-dependent: a test reverses `site.routeEnds` and
+    requires the town to change, so the `0.45` cannot be quietly neutralised.
 
 #### Golden verification
 
-Same slice harness as milestones 3-5, verbatim: contiguous 28167-31103 plus line
-2291, the balance scan with milestone 2's orphan-close counter, and the four
-structural assertions including milestone 3's tightened first-line form and the
-`mulberry32` negative control. None of the three functions is on `UME`'s public
-export or its `_test` one, so the capture adds them — with `buildSite` and
-`makeGraph`, which the fixtures need — by milestone 5's single anchored
-replacement of the `return {` line, asserted to match exactly once, with the
-explicit `globalThis.__UME` handoff and its assertion. The frozen reference file
-is never touched.
+The functions are exposed with `buildSite` and `makeGraph` by the anchored
+`return {` replacement. Everything is compared bit for bit; the spatial index is
+pinned by the reference's own `fnv1a` over its canonical grid dump rather than
+cell by cell (milestone 2 golden-tested the index itself; restating ~400 cells
+per scenario would have added 40,000 lines for no strength).
 
-Everything is compared **bit for bit** through `to_bits`, with no tolerances
-anywhere. The spatial index is pinned by the reference's **own** `fnv1a` over
-its own canonical grid dump rather than cell by cell: milestone 2 golden-tested
-the index itself, and restating 400-odd cells per scenario would have added
-40,000 lines of golden for no extra strength.
-
-The capture's emptiness / shape gate refuses to write unless: there are ≥37
-scenarios, ≥18 driving `buildPrimaries` and ≥12 driving
-`buildPrimariesFromPaths`; every market is finite and every provenance string
-non-empty; `nextN`/`nextE` still equal the array lengths; every edge is a
-7 m-wide epoch-0 `'primary'`; the 80 m margin **rejects >20 and admits >20**
-candidates on the two mid-box fixtures and rejects **zero** on the full-size one;
-`lastCandidateWins` really wins on candidate 399; `shortDtWater` really admits
->100 candidates and then scores every one of them `NaN`; `tinyBox` really takes
-the `best === null` fallback and `landlocked3` really does not; `bay` and
-`coast` really diverge on one seed while `atoll` and `coast` really coincide;
-`nanCost` really produced no routes at all; `_fromPaths` agrees with the route
-count on every paths scenario and is false on at least one; the 1 m unshift
-boundary is straddled in both directions; the box-edge triple really keeps 3 of
-its 4 points; `bendPath`'s Chaikin corners really separate `simplify(1.2)` from
-`simplify(1.3)`; and the whole capture carries ≥400 edges and ≥550 route points.
-The Rust side mirrors the shape half of that gate as its own test, because `zip`
-stops at the shorter side and a truncated `golden.rs` would otherwise pass.
-
-**Every golden matched on the first run** — all 38 scenarios, every round of
-fixture work included. That is the payoff for measuring `sin`/`cos`/`log` before
-trusting them rather than after a failure, and it is why the mutation results
-below are the part that matters.
+The capture refuses to write unless: ≥37 scenarios, ≥18 driving `buildPrimaries`
+and ≥12 `buildPrimariesFromPaths`; every market finite and every provenance
+string non-empty; `nextN`/`nextE` still equal the array lengths; every edge a
+7 m-wide epoch-0 `'primary'`; the 80 m margin **rejects >20 and admits >20** on
+the two mid-box fixtures and rejects **zero** on the full-size one;
+`lastCandidateWins` really wins on candidate 399; `shortDtWater` admits >100
+candidates and scores every one NaN; `tinyBox` takes the `best === null`
+fallback and `landlocked3` does not; `bay`/`coast` diverge on one seed while
+`atoll`/`coast` coincide; `nanCost` produced no routes; `_fromPaths` agrees
+with the route count on every paths scenario and is false on at least one; the
+1 m unshift boundary is straddled both ways; the box-edge triple keeps 3 of its
+4 points; `bendPath`'s Chaikin corners separate `simplify(1.2)` from
+`simplify(1.3)`; and the capture carries ≥400 edges and ≥550 route points.
 
 #### Mutation testing
 
-Every numeric literal on a non-comment line of `routes.rs` and of `geom.rs`'s new
-FDLIBM block, perturbed one at a time (231), plus **69 hand-written structural
-mutations** covering every draw and its order, every comparator and tie-break,
-both `||` fallback chains, the cost field's three terms, `toCell`'s clamp order
-and rounding, the reinforcement's factor and its accumulation across routes, the
-`astar` endpoint order, both smoothing pipelines, the street class and width,
-`_fromPaths`, the in-box break, the market unshift, and every branch of
-`kernel_sin`/`kernel_cos`/`rem_pio2`/`js_log`/`js_round`. Patterns are validated
-to match **exactly once in real code** before the sweep starts, replacements are
-made by `(line, column)`, comment and string text is stripped before scanning,
-and **every survivor is re-run in isolation**.
+Every numeric literal on a non-comment line of `routes.rs` and of the FDLIBM
+block (231), plus 69 structural mutations: every draw and its order, every
+comparator and tie-break, both `||` fallback chains, the cost field's three
+terms, `toCell`'s clamp order and rounding, the reinforcement factor and its
+accumulation, the `astar` endpoint order, both smoothing pipelines, the street
+class and width, `_fromPaths`, the in-box break, the market unshift, and every
+branch of `kernel_sin`/`kernel_cos`/`rem_pio2`/`js_log`/`js_round`.
 
-**Five sweeps: 300 mutations / 98 survivors, then 300 / 79, then 306 / 73, then
-306 / 74, and finally 306 mutations, 233 died, 73 survived.** Every survivor was
-re-run in isolation and **not one false survivor appeared in any round** —
-milestone 4's stale-binary problem, solved by giving the sweep its own
-`CARGO_TARGET_DIR` instead of sharing one with the other forks.
-
-**Six of the 306 are deliberate graded perturbations** — milestone 4's device for
-a constant whose small change is absorbed — and **all six die**: the sea cost
-`240 → 5`, both second-simplify tolerances `1.2 → 4.0`, `toCell`'s lower clamp
-`1 → 3`, the margin `80 → 200` on all four sides at once, and the flood-band
-penalty `260 → 20000`. Each says *this constant is tested; a 37% nudge is simply
-below what the fixture can express*.
-
-**One thing the round-4 sweep taught that no earlier milestone had hit: fixture
-coverage is not monotonic when you *replace* a fixture rather than add one.**
-Round 4 swapped a trig band whose reduced remainder was ~1e-9 for one whose
-remainder is ~1e-13, gaining the third correction round and *losing* the kernels'
-own `|x| < 2^-27` shortcut — two mutants a previous round had killed came back.
-The survivor count went 73 → 74 on a round that was strictly meant to improve
-things. Both bands are now present, which is the final 73.
+**Five sweeps: 300 / 98 survivors, 300 / 79, 306 / 73, 306 / 74, and finally 306
+mutations, 233 died, 73 survived**, with zero false survivors in any round. Six
+are **graded perturbations** and all six die: the sea cost `240 → 5`, both
+second-simplify tolerances `1.2 → 4.0`, `toCell`'s lower clamp `1 → 3`, the
+margin `80 → 200` on all four sides, and the flood-band penalty `260 → 20000`.
+The round that went **73 → 74** is the "add, do not substitute" rule: swapping a
+trig band with a ~1e-9 remainder for one at ~1e-13 gained the third correction
+round and lost the kernels' `|x| < 2^-27` shortcut. Both bands are present now.
 
 ##### The 19 survivors in `routes.rs`
 
 | class | n | why it survives |
 |---|---|---|
-| the 80 m margin, three of its four sides | 3 | `marginWinner` is a scanned site whose *winning* candidate sits 80-110 m from **one** edge, so only that side's constant is observable; the other three would each need their own scanned site. The graded `80 → 200`, which moves all four at once, **dies** |
-| the flood-band penalty's `0` and `260` | 2 | proven dead rather than argued: a candidate is drawn at most 240 m from a reference point that lies *on* the water, so `rd − 260` is never positive on a watered site; and a landlocked site's dummy river at `(−1e4, −1e4)` makes the term a ~81-unit constant that shifts every score equally. A test asserts that invariant across all 38 fixtures, and the graded `260 → 20000` **dies** |
-| the `240` sea cost | 1 | a **barrier, not a cost**: any value large enough to make a water cell non-optimal produces the same path, so `240 → 328.93` cannot move one. The graded `240 → 5` **dies** |
-| `toCell`'s two `1.0` lower clamps | 2 | the clamp's result is immediately `as usize`, so a change smaller than one whole cell truncates away — milestone 4's quantised-output pattern, third appearance. The graded `1 → 3` **dies** |
-| five comparators that need an exact tie | 5 | the margin's `<` → `<=`, the flood band's `<` → `<=`, the score's `>` → `>=`, the bridge window's `<` → `<=`, the bank band's `<` → `<=`. Every one of those inputs is a continuous distance or score; **milestone 3's finding recurring**, and unlike there it cannot be closed by a quantised raster, because these are polyline distances and sums of RNG draws |
-| `bs = −∞ → −1e308` | 1 | no reachable score is below `−1e308`; the initial value's only job is to lose to the first accepted candidate |
-| `toCell`'s clamp **order** | 1 | `max(1, min(W−2, ·))` and `min(W−2, max(1, ·))` differ only when `W < 3`, i.e. a site box under 24 m |
-| `js_round → f64::round` | 1 | they differ only on negative halves, and a negative cell index clamps to `1` either way. `js_round` is written correctly anyway, because the next caller may not clamp |
-| `fromPaths`' `path.len() < 2` → `is_empty()` | 1 | a one-point path yields a one-point in-box run, which the *next* guard drops. That next guard is **not** redundant, and `pathsOnlyMarket` is the fixture that shows it |
-| `rem_pio2`'s two round triggers, `16 → 17` and `49 → 50` | 2 | see below — both rounds are load-bearing and tested; what no fixture produces is an argument whose exponent gap is *exactly* 17 or *exactly* 50 |
+| the 80 m margin, three of its four sides | 3 | `marginWinner` is a scanned site whose *winning* candidate sits 80-110 m from **one** edge, so only that side is observable; each other side needs its own scanned site. The graded `80 → 200` **dies** |
+| the flood-band penalty's `0` and `260` | 2 | proven dead (finding 8), asserted across every fixture; the graded `260 → 20000` **dies** |
+| the `240` sea cost | 1 | a **barrier, not a cost**: any value large enough to make water non-optimal gives the same path, so `240 → 328.93` cannot move one. The graded `240 → 5` **dies** |
+| `toCell`'s two `1.0` lower clamps | 2 | the result is immediately `as usize`, so a sub-cell change truncates away — the quantised-output pattern. The graded `1 → 3` **dies** |
+| five comparators that need an exact tie | 5 | the margin's `<` → `<=`, the flood band's `<` → `<=`, the score's `>` → `>=`, the bridge window's `<` → `<=`, the bank band's `<` → `<=` — continuous distances and sums of RNG draws, not closable by a quantised raster |
+| `bs = −∞ → −1e308` | 1 | no reachable score is below `−1e308`; the initial value only has to lose to the first accepted candidate |
+| `toCell`'s clamp **order** | 1 | `max(1, min(W−2, ·))` and `min(W−2, max(1, ·))` differ only when `W < 3`, a box under 24 m |
+| `js_round → f64::round` | 1 | differ only on negative halves, which clamp to `1` either way |
+| `fromPaths`' `path.len() < 2` → `is_empty()` | 1 | a one-point path yields a one-point in-box run, which the next guard drops (finding 10) |
+| `rem_pio2`'s round triggers, `16 → 17` and `49 → 50` | 2 | both rounds are load-bearing and tested; no fixture produces an exponent gap of *exactly* 17 or 50 |
 
 ##### The 54 survivors in the FDLIBM block
 
+That block was `geom.rs`'s when this sweep ran; it has since moved to
+`cartalith-jsmath` (`libm.rs`) with its goldens.
+
 | class | n | why they survive |
 |---|---|---|
-| dead in **this port's** call path | 11 | `js_sin`/`js_cos` filter `|x| ≤ π/4` and Inf/NaN *before* calling `rem_pio2`, so its own early return and its own Inf/NaN branch are unreachable through the public API (8 mutants); `HUGE_ARG_HI` only decides where the platform hand-off starts (1); and the `ix == 0x3ff921fb` sub-branch needs `|x|` inside a 2.3e-8-wide window at π/2 (2) |
-| `iy` is a flag, not a value | 5 | `kernel_sin`'s third argument is only ever tested `== 0`, so `1 → 2` is the same call at all four sites; and on the `|x| ≤ π/4` short path `y` is unused, so `0.0 → 1.0` is too |
-| ±1-ulp threshold constants | 18 | every `0x…` comparison bound — the four `0x7fff_ffff` absolute-value masks, `0x3e40_0000`, `0x3fd3_3333`, `0x3fe9_0000`, `0x3fe9_21fb`, `0x4002_d97c`, `0x4139_21fb`, `0x7ff0_0000`, `0x0010_0000`, `0x6147a`, `0x6b851`. One ulp of a **high word** only changes behaviour for an argument sitting in that one-ulp window; 54,000 uniform draws never land in one |
-| provably equivalent arithmetic | 13 | `0x95f64` is **even**, so the bit its mask can add to `i0` is one `hx` already carries and the `\|` is a no-op — checked by hand after the runner flagged it, because it looks like it should be catastrophic; `qx`'s `0x0020_0000` cancels in `a − (hz − …)`, which is exactly why FDLIBM may pick `0.28125` arbitrarily; `(x as i32) == 0 → == 1` never takes the tiny-x shortcut and the polynomial returns `x` (or `1.0`) anyway; `hx > 0 → > 1` and `hx < 0 → < 1` sit where `hx ∈ {0, 1}` is unreachable; and `js_log`'s five branch selectors pick between two algebraically identical final formulas |
-| the staged reduction refines the **tail**, not the returned double | 7 | the four `y[0] → y[1]` index mutations in the medium branch, both `0x7ff` exponent masks, and one more trigger form. **Evidence, not assertion**: never running the second round (`i > 100000`) **dies**, always running the third (`i > −1`) **dies**, and always running the second (`i > −1`) **survives**. So both rounds are load-bearing and both are tested; FDLIBM's first round is already "good to 85 bit" against a 53-bit result, so running one round more than needed is free and running one fewer is not |
-
-#### Two tooling incidents, both worth carrying forward
-
-**A dozen hand-picked rows cannot test a bit-twiddling port.** The first sweep
-left **63 survivors inside `js_sin`/`js_cos`/`js_log` alone** — every reduction
-threshold, every `y[0]`/`y[1]` slot, both correction-round triggers and the whole
-`kernel_cos` `qx` split were untested, by a golden table built exactly the way
-`js_exp`'s and `js_hypot`'s were. Twelve rows cover twelve paths through a
-branchy function, not its branches. The fix is four lines of golden: an FNV-1a
-**hash** of every result over 24,000 sin arguments, 24,000 cos and 30,000 log,
-with the arguments drawn by the reference's own `mulberry32` so both sides
-provably evaluate the same points, and the bands chosen to enter each reduction
-branch on purpose. It matched V8 on the first run and it kills essentially all
-63. **Any later milestone that ports a libm function should start there.**
-
-**Two mutation runners on one target directory left a live mutation in the
-source.** Round 2 was started twice by accident; the first run was killed
-mid-mutation, the second read the already-mutated file as its "original" and
-faithfully restored it to that, and `routes.rs` shipped `-(s * 5.61)` where the
-reference has `-(s * 4)`. Nothing but the suite failing afterwards said so — the
-per-edit `finally` restore is not enough, because it restores to whatever it
-read. The runner now takes a **pristine snapshot before it writes anything**,
-restores from that snapshot at the end, re-runs the suite as a post-sweep
-baseline and refuses to start while a lock file exists. Milestone 4's stale-
-binary incident produced the "re-run every survivor in isolation" rule; this is
-its sibling, and it is the more dangerous of the two because it corrupts the
-*source* rather than the *report*.
-
-(The private `CARGO_TARGET_DIR` this milestone's runner uses did work as
-intended for the original problem: **zero false survivors** across 600
-mutations, where milestone 4's shared-directory run reported 34.)
+| dead in **this port's** call path | 11 | `js_sin`/`js_cos` filter `\|x\| ≤ π/4` and Inf/NaN before calling `rem_pio2`, so its own early return and Inf/NaN branch are unreachable through the public API (8); `HUGE_ARG_HI` only decides where the platform hand-off starts (1); the `ix == 0x3ff921fb` sub-branch needs `\|x\|` inside a 2.3e-8-wide window at π/2 (2) |
+| `iy` is a flag, not a value | 5 | `kernel_sin`'s third argument is only tested `== 0`, so `1 → 2` is the same call at all four sites; on the `\|x\| ≤ π/4` path `y` is unused, so `0.0 → 1.0` is too |
+| ±1-ulp threshold constants | 18 | every `0x…` bound — the four `0x7fff_ffff` masks, `0x3e40_0000`, `0x3fd3_3333`, `0x3fe9_0000`, `0x3fe9_21fb`, `0x4002_d97c`, `0x4139_21fb`, `0x7ff0_0000`, `0x0010_0000`, `0x6147a`, `0x6b851`. One ulp of a **high word** changes behaviour only for an argument in that window; 54,000 uniform draws never land in one |
+| provably equivalent arithmetic | 13 | `0x95f64` is **even**, so the bit its mask can add to `i0` is one `hx` already carries (checked by hand — it looks catastrophic); `qx`'s `0x0020_0000` cancels in `a − (hz − …)`, which is why FDLIBM may pick `0.28125` arbitrarily; `(x as i32) == 0 → == 1` skips the tiny-x shortcut and the polynomial returns `x` (or `1.0`) anyway; `hx > 0 → > 1` and `hx < 0 → < 1` sit where `hx ∈ {0, 1}` is unreachable; and `js_log`'s five branch selectors pick between two algebraically identical final formulas |
+| the staged reduction refines the **tail**, not the returned double | 7 | the four `y[0] → y[1]` index mutations in the medium branch, both `0x7ff` exponent masks, and one more trigger form. **Evidence**: never running the second round (`i > 100000`) **dies**, always running the third (`i > −1`) **dies**, always running the second (`i > −1`) **survives** — FDLIBM's first round is already "good to 85 bit" against a 53-bit result, so one round more is free and one fewer is not |
 
 #### Corrections to later milestones
 
-1. **Milestone 6's own range was 28743-28833**, not 28744-28843. Five for five;
-   verify milestones 7-16's stated ranges before slicing. Milestone 8's range
-   should start at **28835** (the radial-streets header comment), not 28844.
-2. **Every milestone from here must use `geom::js_sin`/`js_cos` for
-   `Math.sin`/`Math.cos`**, exactly as it must use `js_exp`, `js_hypot` and
-   `js_min`/`js_max`. Milestone 8's `buildRadialStreets` is the next call site
-   and it is trig-saturated.
-3. **Milestone 8 needs a `js_atan2`, and cannot borrow the one that now
-   exists.** `Math.atan2` is the worst divergence measured — **17.7%** of
-   arguments here, 20.4% over the audit's wider range — and it has 7 call sites
-   in block 4. A sibling fork landed `cartalith-hydrology::jsmath::js_atan2` on
-   the same day (`JS_SEMANTICS_AUDIT.md` §2.3), but `cartalith-urban` depends on
-   `cartalith-rng` **only** and must keep doing so, so milestone 8 either copies
-   it into `geom` beside `js_sin`/`js_cos`/`js_log`/`js_exp`/`js_hypot` or the
-   `cartalith-jsmath` leaf crate the audit recommends finally gets built.
-   Milestone 10 needs `js_acos` (0.9%) and milestone 15 `js_log10` (1.6%) on the
-   same terms. All are FDLIBM functions; port them against a **bulk hash**
-   golden, not a dozen rows — and note the audit's own measurement of
-   `js_atan2`'s trap, the `m &= 1` correction V8 carries and the 1993 fdlibm
+1. **Port every libm function against a bulk hash golden, not a dozen rows** —
+   the first sweep here left 63 survivors inside `js_sin`/`js_cos`/`js_log`
+   (see "Verification convention"). Note `JS_SEMANTICS_AUDIT.md`'s measurement of
+   `js_atan2`'s trap: the `m &= 1` correction V8 carries and the 1993 fdlibm
    source does not.
-4. **`Graph::from_paths` exists now** and milestone 10's `builtMassHull` must
-   read it (`g._fromPaths && alive.length < 3 && every cls === 'primary'`), or
-   the enceinte over-encloses along arterials exactly as the reference's own
-   v1.01 note describes.
-5. **Milestone 16 gets its primaries for free but must not expect a draw.**
-   Neither builder touches the RNG and both return values are discarded by
-   `generate()`, so the only things milestone 16 inherits from this one are the
-   graph and `placeAnchors`' 800-draw `'anchors'` substream.
-6. **A host-supplied metre offset cannot express a one-ulp boundary.** Milestone
-   17's adapter produces exactly these offsets (`_umPrimaryPaths`,
-   `_umRouteEnds`), so any boundary fixture built on them has to clear the
-   *market coordinate's* ulp — roughly 1e-13 m at the engine's box size — not
-   the constant's.
-7. **The market can land outside the site box.** `best === null` sends it to
-   `{ref.x, ref.y - 120}` with no clamp at all. Milestones 7 and 10 measure
-   everything from `anchors.market`; on a small or fully-rejecting site that
-   origin is not guaranteed to be inside the town, or even inside the box.
-8. **`extractFaces` still sorts half-edges with `f64::atan2`, and should not.**
-   Milestone 2 wrote `(b.y - a.y).atan2(b.x - a.x)` before anyone had measured
-   `Math.atan2`, which is now the largest known divergence in the workspace.
-   Its goldens pass and the sort only cares about *order*, so a one-ulp angle
-   change bites only when two half-edges at one node point within an ulp of the
-   same direction — but that is the same argument that was made for `hypot`
-   before milestone 2 proved `hypot` changes graph topology. **Not changed
-   here**, because milestone 6's scope is the three route functions and the
-   `js_atan2` that landed the same day lives in `cartalith-hydrology`, which
-   this crate must not depend on; recorded so that whichever milestone brings
-   `js_atan2` into `geom` sweeps this call site too, re-runs milestone 2's 19
-   graph scenarios, and reports the result.
-9. **Fixture coverage is not monotonic when a fixture is *replaced* rather than
-   added.** Round 4's sweep count went *up* (73 → 74) on a round intended to
-   improve things, because swapping one trig band for a better one silently gave
-   up the branch the old band reached. Add; do not substitute — and re-run the
-   full sweep after every fixture change rather than assuming the direction.
+2. **`Graph::from_paths` exists for milestone 10**, whose `builtMassHull` skips
+   `g._fromPaths && alive.length < 3 && every cls === 'primary'`.
+3. **Milestone 16 inherits no draws from the route builders** — only the graph
+   and `placeAnchors`' 800-draw `'anchors'` substream.
+4. **The adapter's offsets are the ulp trap** (finding 11): `_umPrimaryPaths` and
+   `_umRouteEnds` produce host metre offsets, so a boundary fixture on them must
+   clear the market coordinate's ulp — ~1e-13 m at this box size.
+5. **The market can land outside the box** (finding 6). Milestones 7 and 10
+   measure from `anchors.market`, which is not guaranteed to be inside the town.
+6. **`extractFaces`' half-edge sort key is `js_atan2`** (`graph::extract_faces`),
+   not the `f64::atan2` milestone 2 first wrote before `Math.atan2` was
+   measured. A one-ulp angle change bites only when two half-edges at one node
+   point within an ulp of each other — the argument once made for `hypot` before
+   milestone 2 proved it changes topology.
 
-### Milestone 7 — organic growth (2026-08-18)
+### Milestone 7 — organic growth
 
+Reference lines 29384-29630 (`logisticRamp` from 29390; 29384-29389 is its doc
+comment, which flags `k = 6.5` as tuned rather than measured).
 `logisticRamp`, `estimateCarryingCapacity`, `wallOccupancy`, `grow`,
-`supersedeWall` — reference lines **29384-29630**. Module
-`cartalith-urban::growth`; dependencies unchanged (`cartalith-jsmath` +
-`cartalith-rng`). 15 new tests (84 in the crate), 60 golden scenarios each
-carrying the total street length placed, a per-epoch trace of the whole graph,
-every node and edge, a hash of every provenance string, the spatial index,
-every `buildWall` call and every supersession record.
+`supersedeWall`. Module `growth`. Its golden is a **per-epoch** graph hash, not
+a single end-state hash, as the plan asked; it carries the total street length
+placed, a per-epoch trace of the whole graph, every node and edge, a hash of
+every provenance string, the spatial index, every `buildWall` call and every
+supersession record.
 
-The scope note said to expect this to be the hardest milestone to land, and to
-expect its golden to be a per-epoch graph hash rather than a single end-state
-hash. Both held. **Every golden matched on the first run** — the first 48, and the 12
-the mutation sweep's second round added.
-
-**The stated range understated the milestone by six lines at the start; the end
-was right.** `logisticRamp`'s body starts at 29390, but 29384-29389 is its own
-six-line doc comment — the one that flags `k = 6.5` as tuned rather than
-measured — which by the convention milestones 4, 5 and 6 settled belongs to the
-milestone it introduces. 29630 is exactly `supersedeWall`'s closing brace and
-29631 is `ringCrossings`, milestone 10's first function. **Six ranges checked,
-six adjusted**, though this is the mildest of the six and the first whose *end*
-was correct.
-
-#### Three functions this milestone had to port that belong to later ones
+#### What this milestone ported that belongs to later ones
 
 `grow` calls `buildWall` (line 29748, milestone 10), `ringCrossings` (line
-29631, milestone 10's first function) and `distToLine` (line 28971, milestone
-9's first line). The last two are six and three lines and are ported here as
-`ring_crossings` and `dist_to_line`; **milestones 9 and 10 should read them from
-`growth` rather than porting them again.**
+29631, milestone 10) and `distToLine` (line 28971, milestone 9). The last two
+(six and three lines) are here as `ring_crossings` and `dist_to_line`, and
+milestones 9 and 10 read them from `growth`.
 
-`buildWall` is 190 lines and is not portable here. It arrives as a
-`WallBuilder` trait object — and that is not a design flourish, it is what
-made the rest testable. The golden capture **stubs the reference's own
-`buildWall`** by a single anchored insertion into the sliced text (the frozen
-file is never written to), so the reference side and the Rust side run the same
-no-op recorder and every branch that *leads* to a wall — the fire epoch, the
-M-GRW-2b age gate, the M-GRW-2a occupancy gate, the generation cap, the
-supersession itself — is golden-verified now instead of in three milestones'
-time.
+`buildWall` arrives as a **`WallBuilder` trait object**, which is what made the
+rest testable: the capture stubs the reference's own `buildWall` by one anchored
+insertion, so both sides run the same no-op recorder and every branch that
+*leads* to a wall — the fire epoch, the M-GRW-2b age gate, the M-GRW-2a
+occupancy gate, the generation cap, the supersession — is golden-verified.
+**What the stub changes:** it never writes `wallState.ring` or advances
+`wallState.epoch`, so (a) a run starting at `ring: null` cannot reach
+supersession, which is why the supersession fixtures **preset** a ring; and (b)
+the age gate is measured from the initial epoch for every generation instead of
+being re-armed by each circuit, which is why `genSupersede` supersedes twice in
+successive epochs. Identical on both sides, so parity-neutral.
 
-**What the stub changes, said plainly, because it is the one place this
-milestone's goldens are not the whole engine's behaviour.** A stubbed
-`buildWall` never writes `wallState.ring` and never advances `wallState.epoch`.
-So (a) a run that starts with `ring: null` can never reach the supersession
-branch, which is why the supersession fixtures **preset** a ring; and (b) the
-age gate is measured from the initial epoch for every generation instead of
-being re-armed by each new circuit, which is why `genSupersede` supersedes twice
-in successive epochs where the real builder would make the second wait out
-another `wallGenerationMinAgeGap`. Both are identical on both sides and
-therefore parity-neutral. **Milestone 10 should re-run this milestone's 60
-scenarios with the real builder** and expect the wall-bearing ones to move.
-
-#### `WallState` carries only what milestone 7 touches — milestone 10 must extend it
-
-`generate()` initialises `{ring: null, gates: [], epoch: 0}` (line 31003) and
-`buildWall` fills in `waterWalls`, `spurs`, `spansWater`, `style`, `prov`,
-`fort`, `centroid`, `terrainDeflected` and `_waterClosure`. `supersedeWall`
-copies the first six of those into its history record. **None of them is
-modelled here**, exactly as milestone 2 left `Graph::_fromPaths` out until
-milestone 6 became the milestone that set it: guessing the shape of `fort` from
-a function this milestone does not port is the running-ahead this port avoids,
-and leaving a documented hole is not. **Milestone 10 must add those fields to
-`WallState` and to `WallGeneration`'s copy list in the same pass.**
+`WallState` holds all nine fields `buildWall` writes (`waterWalls`, `spurs`,
+`spansWater`, `style`, `prov`, `fort`, `centroid`, `terrainDeflected`,
+`_waterClosure`) and `WallGeneration` the six `supersedeWall` copies into its
+history record (correction 5).
 
 #### Findings
 
-1. **`kept` is dead.** `grow` pushes `made[0].id` into a local array that is
-   never read, returned or exported. Omitted rather than reproduced — there is
-   nothing for it to be equal to. The per-epoch graph hash is the stronger
-   instrument the scope note asked for, and it does not need it.
-2. **The wet-crossing walk takes six samples, not five, and the last is the
-   segment's own endpoint.** `for (let t = 0.15; t <= 1; t += 0.17)` gives
-   `0.15`, `0.32`, `0.49`, `0.66`, `0.8300000000000001` and exactly `1.0`. Every
-   one of those was read out of `node`; the reasoned answer — that the
-   accumulation drifts and the sixth sample is `1.0000000000000002`, so the walk
-   stops at five — was **wrong twice over**, and a test now states the measured
-   version. Third confirmation of the standing rule that expectations come from
-   running `node`, not from reasoning about decimals.
-3. **And the accumulation is not load-bearing at these three constants.** `0.15
-   + k * 0.17` for `k` in `0..6` is bit-identical to the accumulated walk on all
-   six values, and the value past the end is `1.17` either way — measured, not
-   assumed, and recorded as a measurement so a later milestone that changes the
-   step knows to re-measure rather than inheriting either belief.
-4. **A `NaN` slope does not reject.** `NaN > 0.34` is false, so an all-`NaN`
-   heightfield stops nothing in `grow`'s legalisation. What it *does* poison is
-   `estimateCarryingCapacity`, whose ring average becomes `NaN`, `clamp` returns
-   `NaN`, and `maxR` is then `NaN` for the whole run — which makes every
-   `dM > maxR` test false, i.e. **removes the reach limit entirely** rather than
-   stopping growth. `nanSlopeTown` and `genCcNanTerrain` are the two fixtures.
-5. **`opts.rules || DEFAULT_RULES` is the raw table, confirmed by golden rather
-   than by reading.** Milestone 4 wrote this forward and it was not "fixed": the
-   capture asserts, before writing anything, that a run passing no `opts.rules`
-   produces a byte-identical town to one passing an explicit copy of
-   `DEFAULT_RULES`, and the Rust shape gate re-asserts it on the two `graph_hash`
-   values.
-6. **`primEdges` is captured once per epoch, before any street is placed.** So
-   streets laid this epoch cannot anchor this epoch's ribbon suburbs — a real
-   ordering decision, not an optimisation, and one a "hoist the filter" refactor
-   would silently invert.
-7. **`wallState.generation || 1` reads a stored `0` as `1`.** Reachable, and the
-   `genGenerationZero` fixture reaches it: a preset generation of `0` supersedes
-   like a first circuit, while a preset `3` hits `maxWallGenerations` and blocks.
-8. **`Math.max(3, Math.floor(epochs * 0.6))` needs three fixtures, not two.** At
-   2 epochs the wall never fires at all (the floor is 3 and the run ends at 2);
-   at 3 and at 5 it fires at epoch 3 — the `max` arm and the `floor` arm
-   respectively — and at 8 it fires at 4. A pair cannot separate the `max` from
-   the `floor`.
-9. **`buildPrimariesFromPaths` with an empty path list is the empty-graph
-   fixture.** `grow` on a graph with no nodes and no edges runs
-   `g.nodes[r.int(0, -1)]`, which is `undefined` in JS and `None` here; the loop
-   spends its 2,600 tries per epoch and places nothing, without touching the
-   RNG budget differently on the two sides.
+1. **`kept` is dead.** `grow` pushes `made[0].id` into a local array never read,
+   returned or exported. Omitted.
+2. **The wet-crossing walk takes six samples, and the last is the segment's own
+   endpoint.** `for (let t = 0.15; t <= 1; t += 0.17)` gives `0.15`, `0.32`,
+   `0.49`, `0.66`, `0.8300000000000001` and exactly `1.0` — read out of `node`.
+   The reasoned answer (drift to `1.0000000000000002`, so five samples) was
+   **wrong twice over**; expectations come from running `node`, not from
+   reasoning about decimals.
+3. **The accumulation is not load-bearing at these three constants**: `0.15 +
+   k * 0.17` for `k` in `0..6` is bit-identical to the accumulated walk, and
+   `1.17` either way past the end — measured, so a milestone that changes the
+   step knows to re-measure.
+4. **A NaN slope does not reject.** `NaN > 0.34` is false, so an all-NaN
+   heightfield stops nothing in legalisation. It poisons
+   `estimateCarryingCapacity` instead: the ring average is NaN, `clamp` returns
+   NaN, `maxR` is NaN for the whole run, and every `dM > maxR` is false — the
+   **reach limit disappears** rather than growth stopping. Fixtures
+   `nanSlopeTown`, `genCcNanTerrain`.
+5. **`opts.rules || DEFAULT_RULES` is the raw table, confirmed by golden**: the
+   capture asserts a run with no `opts.rules` equals one passing an explicit copy
+   of `DEFAULT_RULES`, and the Rust shape gate re-asserts it on the two graph
+   hashes.
+6. **`primEdges` is captured once per epoch, before any street is placed**, so
+   streets laid this epoch cannot anchor this epoch's ribbon suburbs. A real
+   ordering decision that a "hoist the filter" refactor would silently invert.
+7. **`wallState.generation || 1` reads a stored `0` as `1`** — `genGenerationZero`
+   supersedes like a first circuit, while a preset `3` hits
+   `maxWallGenerations` and blocks.
+8. **`Math.max(3, Math.floor(epochs * 0.6))` needs three fixtures**: at 2 epochs
+   the wall never fires (floor 3, run ends at 2); at 3 and at 5 it fires at
+   epoch 3 (the `max` arm and the `floor` arm); at 8 it fires at 4.
+9. **An empty path list is the empty-graph fixture.** `grow` on no nodes runs
+   `g.nodes[r.int(0, -1)]` — `undefined` in JS, `None` here — spends its 2,600
+   tries per epoch and places nothing, with the same RNG budget on both sides.
 10. **A harbour with a one-point quay is still a harbour.** The reference tests
-    the *object* for truthiness and then indexes `.quay`; `distToLine` over
-    fewer than two points is `Infinity`, so `Math.min(dM, Infinity + 35)` is
-    just `dM` and the town is the no-harbour town. `harbourEmptyQuay`'s graph
-    hash equals `coastTown`'s, asserted.
-11. **`estimateCarryingCapacity` is a declared placeholder and is ported as
-    one.** Its own header pins the integration contract — same signature, one
-    number in ~`[0.3, 1.0]`, never a hard zero, every consumer already treats it
-    as "whatever this returns", so replacing this one body is the entire port.
-    Replacing it is a Cartalith decision, not a porting one; and the goldens
-    have to compare against what the reference actually computes.
-12. **The carrying-capacity ring is not clipped to the site box**, and milestone
-    6 wrote forward that `anchors.market` is not guaranteed to be inside it
-    either. Probes outside the box are not an error — the site model answers for
-    any point — but on a raster-backed site they can return `NaN`, which is
-    finding 4's path.
+    the object for truthiness and indexes `.quay`; `distToLine` over fewer than
+    two points is `Infinity`, so `Math.min(dM, Infinity + 35)` is `dM`.
+    `harbourEmptyQuay`'s graph hash equals `coastTown`'s, asserted.
+11. **`estimateCarryingCapacity` is a declared placeholder, ported as one.** Its
+    header pins the contract — one number in ~`[0.3, 1.0]`, never a hard zero,
+    every consumer treating it as "whatever this returns". Replacing it is a
+    Cartalith decision, not a porting one.
+12. **The carrying-capacity ring is not clipped to the site box**, and
+    `anchors.market` need not be inside it either. On a raster-backed site a
+    probe outside the box can return NaN — finding 4's path.
 
 #### Golden verification
 
-Same slice harness as milestones 3-6, verbatim: contiguous 28167-31103 plus
-line 2291, the balance scan with milestone 2's orphan-close counter, and the
-four structural assertions including milestone 3's tightened first-line form
-and the `mulberry32` negative control. Three anchored text edits, each asserted
-to match **exactly once**: the `return {` replacement that exposes the five
-functions plus the builders the fixtures need; the `buildWall` stub; and the
-per-epoch observer inside `grow`'s loop. The frozen reference file is never
-touched.
+Three anchored text edits, each asserted to match **exactly once**: the
+`return {` replacement exposing the five functions and the builders the fixtures
+need; the `buildWall` stub; and a per-epoch observer inside `grow`'s loop.
+`graph_hash` is the reference's own `fnv1a` over a canonical dump of every node
+and edge with each double as its exact 64 bits — a bit-for-bit statement, not a
+tolerance. The explicit node/edge dump is kept only for scenarios under 170
+edges, so a failure is readable (785 KB → 244 KB). `prov_hash` pins the
+Exploration/Densification split, the epoch stamp and the ring-road string's
+interpolated `Math.round(fillFraction * 100)`.
 
-Everything is compared **bit for bit** through `to_bits`, with no tolerances
-anywhere. `graph_hash` is the reference's own `fnv1a` over its own canonical
-dump of every node and every edge with each double written as its exact 64
-bits, which is a bit-for-bit statement about the whole graph and not a tolerance
-in disguise; the explicit node/edge dump is redundant strictness kept only for
-the scenarios under 170 edges, so that a failure is readable — the same trade
-milestone 6 made for the spatial index, one scale up. It took the golden file
-from 785 KB to 244 KB. `prov_hash` is a second `fnv1a` over every edge's
-provenance string, which pins the Exploration/Densification split, the epoch
-stamp, and — on the supersession fixtures — the ring-road string's interpolated
-`Math.round(fillFraction * 100)`.
+The capture refuses to write unless: ≥40 scenarios, ≥30 grew a street, ≥3,000
+edges in total; ≥8 called `buildWall` and ≥3 superseded; at least one laid a
+ring road and `genSupersedeNoArc`/`genSupersedeShortArc` laid none;
+`genAgeGapBlocks`/`genCapBlocks`/`genOccupancyBlocks` blocked and
+`genAgeGapDelays` superseded exactly once; `genGenerationZero` read `0` as `1`;
+the four fire-epoch fixtures fired at exactly `[]`/`[3]`/`[3]`/`[4]` and the
+preset-ring one not at all; `emptyGraph` stayed empty; `seedShortOnly`'s first
+grown street was an exploration one; `nanSlopeTown` grew; `genCcNanTerrain`
+produced a NaN capacity; the two harbour fixtures and the two ring fixtures
+diverge; the four rules variants produce four distinct towns; the raw-table
+fallback equals the explicit one; and every trace has one record per epoch. The
+Rust side mirrors all of it.
 
-The capture's emptiness / shape gate refuses to write unless: there are ≥40
-scenarios, ≥30 of which actually grew a street and ≥3,000 edges in total; ≥8
-called `buildWall` and ≥3 superseded a circuit; at least one laid a ring road
-and `genSupersedeNoArc`/`genSupersedeShortArc` laid **none**;
-`genAgeGapBlocks`/`genCapBlocks`/`genOccupancyBlocks` really blocked and
-`genAgeGapDelays` really superseded exactly once; `genGenerationZero` really
-read its stored `0` as `1`; the four fire-epoch fixtures fired at exactly
-`[]`/`[3]`/`[3]`/`[4]` and the preset-ring one did not fire at all;
-`emptyGraph` really stayed empty; `seedShortOnly`'s **first** grown street was
-an exploration one; `nanSlopeTown` really grew; `genCcNanTerrain` really
-produced a `NaN` carrying capacity; the two harbour fixtures really diverge; the
-two ring fixtures really diverge; the four rules variants really produce four
-distinct towns; the raw-`DEFAULT_RULES` fallback really equals the explicit one;
-and every per-epoch trace has exactly one record per epoch. The Rust side
-mirrors the whole of it as its own test, because `zip` stops at the shorter side
-and a truncated `golden.rs` would otherwise pass.
+#### Two rounds of fixtures lost to one lesson
 
-#### Two rounds of fixtures lost to the same lesson, in two different disguises
+**The terrain rasters were in metres.** `site.height` reads `opts.terrain.grid`
+raw and `site.slope` multiplies a per-metre central difference by **900**, so
+40-95 m of elevation gives slopes of 2 to 204 and `slope > 0.34` rejected every
+candidate on every raster-backed site: fifteen fixtures grew nothing. A
+realistic normalised grid varies by ~0.1 across the box; `TERRAIN_RIDGE` exists
+so the 0.34 rejection does fire.
 
-Milestone 5's rule — *build the fixtures out of the geometry under test* — cost
-this milestone two restarts.
-
-**Round 1: the terrain rasters were in metres.** `site.height` reads
-`opts.terrain.grid` **raw** and `site.slope` multiplies a per-metre central
-difference by **900**, so a grid holding 40-95 m of elevation produces slopes of
-2 to 204 and `grow`'s `slope > 0.34` rejected **every candidate on every
-raster-backed site**. Fifteen fixtures grew nothing at all and the two that
-worked were the two with no terrain raster. A realistic normalised grid varies
-by ~0.1 across the whole box; `TERRAIN_RIDGE` then exists specifically so the
-0.34 rejection *does* fire, because a smooth bowl never reaches it.
-
-**Round 2: a hand-drawn ring can never be 80% full.** The M-GRW-2a gate needs
-`fillFraction >= 0.8` **and** `exteriorCount >= max(10, interior * 0.15)` — both
-halves, which is the whole point of the metric. Ellipses centred on the market
-topped out at 0.44; scaling them about the market swept 0.30-0.80 and never got
-past 0.58, because a convex hull of a real town's interior nodes does not fill
-an ellipse. The first hull-derived attempt then failed the *other* half: the
-hull of the **whole** built mass at epoch 3 reaches the box edges along the
-primaries, so inflating it 8% enclosed the finished town completely and left
-`exteriorCount` at **zero**. What works is the hull of the built mass at epoch 3
-**restricted to 260 m of the market** and inflated 6% — which is, not
-coincidentally, roughly what `buildWall` itself constructs. A sweep over that
-radius shows the gate opening between 180 m and 220 m and staying open.
+**A hand-drawn ring can never be 80% full.** The M-GRW-2a gate needs
+`fillFraction >= 0.8` **and** `exteriorCount >= max(10, interior * 0.15)`.
+Ellipses on the market topped out at 0.44 (0.58 when scaled); the hull of the
+**whole** built mass at epoch 3 reaches the box edges along the primaries, so
+inflating it enclosed everything and left `exteriorCount` at zero. What works is
+the epoch-3 hull **restricted to 260 m of the market**, inflated 6% — roughly
+what `buildWall` itself constructs. Sweeping the radius shows the gate opening
+between 180 m and 220 m and staying open.
 
 #### Round 2: twelve fixtures, and seven survivors turned into assertions
 
-Milestone 6's rule — *add, do not substitute* — applied to a survivor list. The
-first sweep left 51 survivors; the twelve scenarios below were built to close
-the ones that were closable, and every one of them **also matched the reference
-on the first run**:
+The first sweep left 51 survivors. Twelve new scenarios closed the closable
+ones, and every one matched the reference on its first run:
 
 | fixture | the constant it exists for |
 |---|---|
-| `seedExact38` | a closed square of four **exactly-38 m** edges with no degree-1 node, so neither the mid-edge tap (`dist < 38`) nor the dead-end continuation can fire. `<` and `<=` are different towns |
-| `smallBox`, `smallBoxRiver` | 520 × 420 and 560 × 460 boxes, where all four `40 m` box margins actually reject. On the engine's own 1700 × 1250 they never bind |
-| `harbourClose` | a quay **40 m** off the market, so `distToLine(quay) + 35` really is the smaller term and both the `35` and the `Math.min` become observable |
-| `genAgeGapExact` | 160 years over 8 epochs is 20 a year and `120 / 20` is **exactly 6.0**, so `>=` and `>` differ by one epoch. The only integer-vs-integer boundary in the whole function |
-| `genNoAgeRing` | `settlementAge` absent, with the rule gap set to `262.5` so that `262.5 / (300/8)` is **exactly 7.0** — which is what makes the `300` default observable at all |
-| `genZeroAgeRing` | `settlementAge: 0` is *falsy*, so it must produce the byte-identical town to an absent one. Without it, dropping `js_truthy_num` is invisible |
-| `genTinyAgeRing` | `settlementAge: 0.5` with a 1-year gap: the only setting where `Math.max(1, …)`'s floor decides the answer inside 8 epochs |
-| `genExtramuralHigh` | `share = 0.8`, so `interior · share` exceeds the exterior count and the test blocks — which is what says it multiplies the **interior** count |
-| `genExtramuralFloor` | **scanned**: `share = 0` pins `max(10, …)` to its floor, and the ring radius (592 m) was searched for the one whose first supersession happens with an exterior count of **exactly 10** |
-| `genRingReversed` | the same circuit wound the other way: same interior, opposite signed area, which is all `Math.abs(polyArea(ring))` is for |
-| `genSupersedeTwoArc` | a **two-point** `landArc`, between the one-point arc that lays no road and the long one that does |
+| `seedExact38` | a closed square of four **exactly-38 m** edges with no degree-1 node, so neither the mid-edge tap (`dist < 38`) nor the dead-end continuation can fire; `<` and `<=` are different towns |
+| `smallBox`, `smallBoxRiver` | 520 × 420 and 560 × 460 boxes, where the `40 m` box margins actually reject |
+| `harbourClose` | a quay 40 m off the market, so `distToLine(quay) + 35` is the smaller term |
+| `genAgeGapExact` | 160 years over 8 epochs is 20 a year and `120 / 20` is **exactly 6.0**, so `>=` and `>` differ by one epoch — the only integer-vs-integer boundary in the function |
+| `genNoAgeRing` | `settlementAge` absent, rule gap `262.5`, so `262.5 / (300/8)` is **exactly 7.0** — making the `300` default observable |
+| `genZeroAgeRing` | `settlementAge: 0` is falsy, so it must equal the absent town; without it dropping `js_truthy_num` is invisible |
+| `genTinyAgeRing` | `settlementAge: 0.5` with a 1-year gap: the only setting where `Math.max(1, …)`'s floor decides inside 8 epochs |
+| `genExtramuralHigh` | `share = 0.8`, so `interior · share` exceeds the exterior count — proving it multiplies the **interior** count |
+| `genExtramuralFloor` | **scanned**: `share = 0` pins `max(10, …)` to its floor, and the ring radius (592 m) was searched for the first supersession at an exterior count of **exactly 10** |
+| `genRingReversed` | the same circuit wound the other way — what `Math.abs(polyArea(ring))` is for |
+| `genSupersedeTwoArc` | a two-point `landArc`, between the one-point arc that lays no road and the long one that does |
 
-Seven more were dealt with the other way. A proof does not *kill* a mutant —
-a test asserting that a constant cannot matter still passes when the constant
-changes — so these are still counted as survivors below. What changed is that
-each one now rests on an **executable** statement instead of a paragraph:
+Seven were dealt with the other way. A proof does not *kill* a mutant, so these
+still count as survivors, but each now rests on an **executable** statement:
 
 - `estimateCarryingCapacity`'s clamp bounds are dead by construction —
-  `terrainSuitability` is a product of two `[0, 1]` factors, so `0.3 + 0.7·mean`
-  is already inside `[0.3, 1.0]`. Asserted over 720 probes across every site the
-  golden file builds. Same shape as milestone 6's flood-band penalty.
-- `wallOccupancy`'s `alive` filter cannot bite inside milestone 7: `rawEdge` is
-  the only writer of `adj` and `splitEdge` removes the id when it kills an edge,
-  so no node ever holds a dead edge. Asserted over all 60 scenarios. Milestone
-  11's `_killEdge` is what will make the filter load-bearing.
-- the junction-angle double wrap, `abs(((a−b) % π + π) % π)`, is undone by the
-  `min(dd, π − dd)` that follows it at both call sites. Measured over 200,000
-  arguments, because the mutation that drops it survived and the reason had to
-  be established rather than asserted.
-- `estimateCarryingCapacity`'s twelve ring angles are `2π·i/12`, and V8's FDLIBM
-  and the platform libm agree on **all twelve** — which is why swapping `js_cos`
-  for `f64::cos` survives *here*. The test asserts both halves: agreement on the
-  twelve, and >100 disagreements in 40,000 arbitrary angles, so the survivor
-  cannot be read as a licence anywhere else.
-- a zero-area ring cannot contain a node, so `wallArea > 0` sits beside an
+  `terrainSuitability` is a product of two `[0, 1]` factors, so
+  `0.3 + 0.7·mean` is already in `[0.3, 1.0]`. Asserted over 720 probes.
+- `wallOccupancy`'s `alive` filter cannot bite here: `rawEdge` is the only
+  writer of `adj` and `splitEdge` removes the id when it kills an edge. Asserted
+  over all 60 scenarios; milestone 11's `_killEdge` makes the filter live.
+- The junction-angle double wrap, `abs(((a−b) % π + π) % π)`, is undone by the
+  `min(dd, π − dd)` after it at both call sites — measured over 200,000
+  arguments.
+- The twelve ring angles are `2π·i/12`, and V8's FDLIBM and the platform agree
+  on **all twelve**, so `js_cos → f64::cos` survives *here*. The test asserts
+  both halves — agreement on the twelve and >100 disagreements in 40,000
+  arbitrary angles — so it cannot be read as a licence elsewhere.
+- A zero-area ring cannot contain a node, so `wallArea > 0` sits beside an
   `interior.length >= 8` that can never hold with it.
-- `convexHull`'s winding never varies, so `Math.abs(polyArea(hull))`'s `abs` is
-  a no-op — while the `abs` on the **ring** is not, which `genRingReversed`
-  shows.
-- `ccFactor`'s `: 1` and `yearsPerEpoch`'s `: 0` are only assigned when
-  `wallGenerations` is off and only read when it is on. Asserted from the other
-  side: with it off, neither the carrying-capacity weight nor the settlement age
-  can move the town.
+- `convexHull`'s winding never varies, so `abs` on the hull area is a no-op —
+  the `abs` on the **ring** is not (`genRingReversed`).
+- `ccFactor`'s `: 1` and `yearsPerEpoch`'s `: 0` are assigned only when
+  `wallGenerations` is off and read only when it is on — asserted from the other
+  side: with it off, neither the capacity weight nor the age can move the town.
 
 #### Mutation testing
 
-Every numeric literal on a non-comment, non-string line of `growth.rs` (96),
-plus **118 hand-written structural mutations** covering every draw and its
-order, every comparator and tie-break, both `||` fallbacks, the epoch loop's
-two origin branches, the reach and bank tests, the ribbon-suburb rule, the
-demand gradient, every legalisation guard, the wet walk, the wall-permeability
-loop, the parallel-spacing loop, the street class and width, the provenance
-strings, all four arms of the wall episode, every field of the supersession
-record, and both helpers borrowed forward. Patterns are validated to match
-**exactly once in real code** before the sweep starts, numeric replacements are
-made by `(line, column)`, comment and string text is stripped before scanning,
-the runner takes a **pristine snapshot before it writes anything** and restores
-from that, holds a lock file, runs on a **private `CARGO_TARGET_DIR`**, and
-re-runs the suite as a post-sweep baseline.
+Every numeric literal on a non-comment, non-string line of `growth.rs` (96) plus
+118 structural mutations: every draw and its order, every comparator and
+tie-break, both `||` fallbacks, the epoch loop's origin branches, the reach and
+bank tests, the ribbon-suburb rule, the demand gradient, every legalisation
+guard, the wet walk, the wall-permeability and parallel-spacing loops, the
+street class and width, the provenance strings, all four arms of the wall
+episode, every field of the supersession record, and both borrowed helpers.
 
-**Two sweeps: 214 mutations / 51 survivors, then — after twelve new fixtures
-and seven new assertions — 214 mutations, 176 died, 38 survived.** Every
-survivor was re-run in isolation and **not one false survivor appeared in either
-round**, the third milestone running for which the private target directory has
-held.
-
-**Eleven of the 214 are deliberate graded perturbations** — milestone 4's device
-for a constant whose small change is absorbed — and **all eleven die**: `k`
-`6.5 → 30`, the mid-edge minimum `38 → 300`, the junction minimum `18 → 400`,
-the slope limit `0.34 → 0.001`, the gate radius `20 → 4000`, the tapped-frontage
-skip `1.5 → 500`, the parallel-angle limit `0.5 → 3.2`, the exploration band
-`+140 → +5`, the ribbon-suburb radius `90 → 2`, the interior-node floor
-`8 → 400`, and the try budget `2600 → 12`. Each says *this constant is tested; a
-37% nudge is simply below what the fixture can express.*
+**Two sweeps: 214 / 51 survivors, then — after the twelve fixtures and seven
+assertions — 214 mutations, 176 died, 38 survived**, with no false survivors.
+**Eleven are graded perturbations and all die**: `k` `6.5 → 30`, the mid-edge
+minimum `38 → 300`, the junction minimum `18 → 400`, the slope limit
+`0.34 → 0.001`, the gate radius `20 → 4000`, the tapped-frontage skip
+`1.5 → 500`, the parallel-angle limit `0.5 → 3.2`, the exploration band
+`+140 → +5`, the ribbon radius `90 → 2`, the interior-node floor `8 → 400`, and
+the try budget `2600 → 12`.
 
 ##### The 38 survivors, by the invariant each rests on
 
 | class | n | why they survive |
 |---|---|---|
-| **an exact tie on a continuous value** | 13 | `len < budget`, the bridgehead distance and probability, the 90 m ribbon radius, `h.u > 1e-3`, `h.t > 0.03`, `h.t < hitT`, the 18 m junction minimum, the junction-angle limit, the 0.34 slope limit, the 20 m gate radius, the parallel spacing, and `fillFraction >= 0.8`. **Milestone 3's finding recurring**, and here it cannot be closed the way milestone 3 closed it: every one of these inputs is a polyline distance, an angle, a hull-area ratio or a raw `mulberry32` draw, none of which a quantised raster can pin. Where the boundary *was* integer arithmetic — the age gate, the extramural floor, the 38 m minimum — round 2 built the fixture and the mutant died |
-| **proved dead or a no-op, with an executable assertion** | 11 | both carrying-capacity clamp bounds; `wallArea > 0` twice (a zero-area ring contains no node, so the `interior >= 8` beside it can never hold); `ccFactor`'s `: 1` and `yearsPerEpoch`'s `: 0` (assigned only when `wallGenerations` is off, read only when it is on); the probe-ring rotation `i → i+1` (twelve evenly spaced angles are the same twelve points); `js_cos → f64::cos` (V8 and the platform agree on all twelve of *these* angles, asserted together with >100 disagreements over arbitrary ones so it cannot be read as a licence elsewhere); the `alive` filter on `adj` (no node ever holds a dead edge until milestone 11's `_killEdge`); `abs` on the hull area (`convexHull`'s winding never varies — the `abs` on the **ring** does matter, and `genRingReversed` shows it); and the junction-angle double wrap (undone by the `min(dd, π − dd)` that follows it, measured over 200,000 arguments) |
-| **an exact integer count no town produced** | 4 | `interior.len() >= 8` in both directions and `hull.len() >= 3` in both. Quantised and therefore closable in principle — it needs a circuit containing *exactly* eight built interior nodes, or one whose interior hull has *exactly* three vertices, while still passing the fill and extramural gates. None of the 60 towns lands there, and unlike the 38 m edge these cannot be constructed by hand: the counts are outputs of the growth loop, not inputs to it |
-| **a bound no reachable value approaches** | 5 | `tries < 2600` → 2601 (a 2,601st attempt after 2,600 failures still places nothing); `h.u < 1 − 1e-3` widened twice (`segInt` only ever returns `u ∈ [0, 1]`, so raising the ceiling admits nothing); the wet walk's start `0.15 → 0.3155` (no fixture has a segment wet *only* in that opening slice); and `fmt_js_int`'s `n > 0` sign test, which needs an infinite `fillFraction` |
-| **three of the four 40 m box margins** | 2 | the small-box fixtures made growth bind against one edge and killed that side; the other two need their own site whose *growth* is bounded by that specific edge. **Milestone 6's 80 m margin finding recurring exactly** — a margin is invisible until the candidates it removes were going to be kept |
-| **provably equivalent rewrites** | 3 | the tapped-frontage skip `1.5 → 2.165` (the frontage sits at ~0 and every other edge is far past either value); `edgesNear(midp, midp) → edgesNear(O, B)` (a superset of cells, but the `d < 24` test measured from `midp` rejects every extra one); and `arc.length > 1 → > 0` (a one-point polyline yields no consecutive pair, so `addPolylineStreet` lays nothing either way) |
+| **an exact tie on a continuous value** | 13 | `len < budget`, the bridgehead distance and probability, the 90 m ribbon radius, `h.u > 1e-3`, `h.t > 0.03`, `h.t < hitT`, the 18 m junction minimum, the junction-angle limit, the 0.34 slope limit, the 20 m gate radius, the parallel spacing, and `fillFraction >= 0.8`. Every input is a polyline distance, an angle, a hull-area ratio or a raw `mulberry32` draw, none of which a quantised raster can pin. Where the boundary *was* integer arithmetic — the age gate, the extramural floor, the 38 m minimum — round 2 built the fixture and the mutant died |
+| **proved dead or a no-op, with an executable assertion** | 11 | both carrying-capacity clamp bounds; `wallArea > 0` twice; `ccFactor`'s `: 1` and `yearsPerEpoch`'s `: 0`; the probe-ring rotation `i → i+1` (twelve evenly spaced angles are the same twelve points); `js_cos → f64::cos` on these twelve angles; the `alive` filter on `adj`; `abs` on the hull area; and the junction-angle double wrap |
+| **an exact integer count no town produced** | 4 | `interior.len() >= 8` both ways and `hull.len() >= 3` both ways. Closable in principle — it needs a circuit containing exactly eight built interior nodes, or an interior hull of exactly three vertices, while passing the fill and extramural gates — but these counts are outputs of the growth loop, not inputs, and cannot be constructed by hand |
+| **a bound no reachable value approaches** | 5 | `tries < 2600` → 2601; `h.u < 1 − 1e-3` widened twice (`segInt` returns `u ∈ [0, 1]`); the wet walk's start `0.15 → 0.3155` (no fixture is wet *only* in that opening slice); and `fmt_js_int`'s `n > 0` sign test, which needs an infinite `fillFraction` |
+| **three of the four 40 m box margins** | 2 | the small-box fixtures bound growth against one edge and killed that side; each other side needs a site whose growth is bounded by that edge. Milestone 6's margin finding exactly — a margin is invisible until the candidates it removes were going to be kept |
+| **provably equivalent rewrites** | 3 | the tapped-frontage skip `1.5 → 2.165` (the frontage sits at ~0 and every other edge is far past both); `edgesNear(midp, midp) → edgesNear(O, B)` (a superset of cells, but `d < 24` measured from `midp` rejects every extra one); and `arc.length > 1 → > 0` (a one-point polyline yields no consecutive pair) |
 
 #### Corrections to later milestones
 
-1. **Milestone 7's own range was 29384-29630**, not 29390-29630: the six-line
-   `logisticRamp` doc comment belongs to it. Six for six. Milestones 8-16 are
-   still unverified apart from milestone 8's start, which milestone 6 already
-   moved to 28835.
-2. **Milestone 14's stated end overlapped this milestone by seven lines.**
-   29160-29389 runs past `buildGames`' close at 29382 and into `logisticRamp`'s
-   doc comment; it should end at **29382**. Adjusted in place above.
-3. **Milestone 9 should not port `distToLine` again** — it is `growth::dist_to_line`,
-   and milestone 9's stated range should start at **28967** (the
-   `/* ---------------- harbour: quay, piers, mole ---------------- */` header),
-   not 28971, by the same convention that moved this milestone's start.
-4. **Milestone 10 should not port `ringCrossings` again** — it is
-   `growth::ring_crossings`. Its stated range 29631-30037 starts correctly at
-   `ringCrossings`, but note that 29638 is the `wall + gates` section header, so
-   the milestone contains two sections rather than one.
-5. **Milestone 10 must extend `WallState` and `WallGeneration` together.**
-   `buildWall` writes nine fields this milestone does not model and
-   `supersedeWall` copies six of them into the history record. Adding them to
-   `WallState` without adding them to `WallGeneration`'s copy list would produce
-   a silently lossy history that every structural test still passes.
-6. **Milestone 10 should re-run this milestone's 60 golden scenarios with the
-   real `buildWall`.** Twenty-six of them exercise a wall path against a stub; the
-   stub is faithful on both sides, but it is not the engine. Expect the
-   fire-epoch fixtures to start producing a ring, and expect `genSupersede`'s
-   two-in-two-epochs supersession to become one, because the real builder sets
-   `wallState.epoch = ep` and re-arms the age gate.
-7. **`grow` always enters with `ring: null` from `generate()`, and always with a
-   resolved rule set.** Checked rather than assumed, because the first draft of
-   this note said the opposite: `generate()`'s only pre-`grow` `buildWall` (line
-   31017) is inside the **radial** branch, and that branch does not call `grow`
-   at all (lines 31011-31028 are an `if/else`). So the `ep === fireEpoch` arm is
-   always live in production, the preset-ring fixtures here are a **superset** of
-   what `generate()` can reach, and `opts.rules || DEFAULT_RULES`' fallback arm
-   is likewise reachable only by a direct call — `generate()` always passes the
-   resolved `rules`. Milestone 16 inherits all three facts.
-8. **`grow`'s `opts` object is `generate()`'s literal at line 31027**, and three
-   of its ten fields (`wallStyle`, `fortified`, `pop`) are read only by
-   `buildWall`. They are on `GrowOpts` for milestone 10 to read; `pop` is read
-   by nothing at all in the whole subsystem and may be removable once milestone
-   16 confirms it.
-9. **A raster-backed fixture in *any* later milestone must use a normalised
-   heightfield.** `site.height` returns the grid value untransformed and
-   `site.slope` scales by 900; a grid in metres makes every slope test in the
-   engine reject. This will hit milestones 10 (`buildWall`'s terrain
-   deflection), 13 (`terrainAware` parcels) and 15 (`computeMetrics`).
+1. **This milestone's range is 29384-29630**: the six-line `logisticRamp` doc
+   comment belongs to it.
+2. **Milestone 14 ends at 29382**, not 29389, which ran seven lines into
+   `logisticRamp`'s doc comment.
+3. **`distToLine` is `growth::dist_to_line`**; milestone 9 does not port it
+   again, and its range opens on the harbour header at 28967.
+4. **`ringCrossings` is `growth::ring_crossings`**; milestone 10 does not port it
+   again. 29638 is the `wall + gates` header, so milestone 10's range holds two
+   sections.
+5. **`WallState` and `WallGeneration` extend together.** Adding a field to
+   `WallState` without adding it to `WallGeneration`'s copy produces a silently
+   lossy history that every structural test still passes. The six are copied by
+   the same statement that copies the other four.
+6. **These goldens run against a stubbed `buildWall`.** With the real builder
+   the fire-epoch fixtures produce a ring, and `genSupersede`'s two-in-two-epochs
+   supersession becomes one, because the real builder sets
+   `wallState.epoch = ep` and re-arms the age gate. The real builder is
+   golden-verified by milestone 10 and in the whole town by milestone 16.
+7. **From `generate()`, `grow` always enters with `ring: null` and a resolved
+   rule set.** `generate()`'s only pre-`grow` `buildWall` (line 31017) is in the
+   **radial** branch, which does not call `grow` (lines 31011-31028 are an
+   `if/else`). So the `ep === fireEpoch` arm is always live in production, the
+   preset-ring fixtures are a superset of what `generate()` reaches, and the
+   raw-table fallback is reachable only by a direct call.
+8. **`grow`'s `opts` is `generate()`'s literal at line 31027.** `wallStyle` and
+   `fortified` are read only by `buildWall`; `pop` is read by nothing in the
+   subsystem.
+9. **A raster-backed fixture must use a normalised heightfield** — this hits
+   `buildWall`'s terrain deflection (10), `terrainAware` parcels (13) and
+   `computeMetrics` (15).
 
-### Milestone 17a — the adapter and the first consumer (2026-08-23)
+### Milestone 8 — radial (Venus) streets and waterway
 
-Out of dependency order on purpose, and the reason is recorded rather than
-assumed away. `PARITY_AUDIT.md` §3.4 found what this document's own "Out of
-scope" section below had prescribed: 4,516 lines of golden-tested engine
-across milestones 1-7, with **zero consumers** — no `Cargo.toml` in the
-workspace naming `cartalith-urban` but its own, and one disclosure comment
-under `godot-project/`. The standing "don't wire in what nothing calls" rule
-had held for so long that the largest unported subsystem was also the least
-*visible* one; `GUI_GAP_REGISTER.md` had no row for it at all until the same
-audit added §6.16.
+Reference lines 28835-28939 (`buildRadialStreets` from 28844, `buildWaterway`
+from 28928). Module `radial`. `buildPlaza`, which sits between them in the
+reference, is milestone 8a.
 
-**What landed.**
+The second planning mode: `generate()` forks on `profile.planning` (line
+31011); `'radial'` calls `buildRadialStreets` once — concentric rings, twelve
+spokes off a central hub, twelve cross-spokes in the outer band — and **never
+calls `grow`**; the ordinary face detector then turns ring × spoke crossings
+into annular-wedge blocks. `buildWaterway` is a closed decorative canal outside
+the outermost built ring, where nothing is built. Every ring radius is modulated
+by two summed sines (amplitude 5.5%, too small for consecutive rings to cross)
+and every spoke angle jittered ±0.045 rad — the reference's own post-review
+softening. `stream(seed, 'radial-organic')` takes exactly **28** draws, none
+conditional: the per-spoke draw is taken **before** `landSeg` decides whether
+that spoke is laid. This port gives radial towns the wall lots and faubourg
+under Ruling AA (see "Beyond the reference").
 
-- **`cartalith-civ::urban_adapter`** (new module, this document's own named
-  home for milestone 17: *"it should live outside `cartalith-urban` (in
-  `cartalith-civ`, …) so the engine crate stays dependency-light"*). 13 of the
-  28 block-2 `_um*` functions: `_umSiteBoxKm`, `_umWaterNearKm`,
-  `_umWaterReachKm`, `_umSiteKindFromTerrain`, `_umInferAge`, `_umRayBoxExit`,
-  `_umWayBearingFrom`, `_umRouteEnds`, `_umPrimaryPaths`, `_umTerrainOrient`,
-  `_umWaterCtx`, `_umTerrainCtx`, `_umPlaceContext` — chosen by one rule: a
-  function is ported when milestones 1-7 can consume its output. Plus
-  `run_layout`, the prefix of `generate()` (line 30931) those seven supply:
-  the scalar derivations, `buildSite`, the `routeEnds` override, `placeAnchors`,
-  the real-water market pin, `buildPrimaries`/`buildPrimariesFromPaths` and
-  `grow`.
-- **`cartalith-godot::urban_bridge`** — one batched `#[func]`,
-  `urban_layouts(indices)`.
-- **The GUI**: `shell/urban_layout_draw.gd` (`_umDrawLayout`/
-  `_umDrawLayoutPreview`, which are one drawing twice), `shell/
-  city_viewer_window.gd` (`cityViewerModal` — canvas, wheel-zoom, drag-pan,
-  legend, info panel), `map_overlay.gd`'s "Urban layouts" block
-  (`civUrbanLayoutsChk`), and `right_dock.gd`'s Settlement ▸ Actions ▸ City
-  layout as the launcher.
+### Milestone 8a — the plaza
 
-**What is deliberately not ported, by category.**
-
-| Function | Why absent |
-|---|---|
-| `_umWallSpec`, `_umInferWalls` | the whole fortification pipeline is milestone 10; `walls` is passed `false`, because with no `WallBuilder` in existence a wall spec is a value nothing can build or draw |
-| `_umHarbourScale` | consumed only by `buildHarbour`, milestone 9 |
-| `_umSiteProfile` | its consumers are the wall spec (10), harbour/bridge validity (9), economic districts (13) and a Settlement Inspector — none exist |
-| `_umOreBearing` | feeds `economy.oreBearing`, read only by 13/15; and this port's settlements carry no `specialisation`, exactly the gap milestone 17's own note below predicted |
-| `_umPt` | a JS `[x,y]`-vs-`{x,y}` normaliser; `Way::pts` is typed |
-| `_umCacheKey`, `_umCacheEvict`, `_umScheduleGenStep`, `_umModelFor`, `_umModelForNow` | "Out of scope for every milestone" below, verbatim |
-| `_umDrawLayout`, `_umDrawLayoutPreview`, `_umLayoutAlpha` | likewise — Godot's job, and the GUI files above are that job |
-
-**Two honest deviations, both recorded rather than absorbed.**
-
-1. **`traceRiverPolylines` is hoisted out of `_umWaterCtx`.** The reference
-   calls it per settlement — a full-grid walk — and pays for that with the LRU
-   this document rules out. The bridge traces once per *batch* instead. The
-   call and its result are unchanged; only where it is made.
-2. **The map layer's reveal gate is not `_umLayoutAlpha`.** Its 24 km → 10 km
-   viewport-span crossfade cannot fire on this port: `ViewportHost.ZOOM_MAX`
-   is 8.0, so the default 800 km world's closest reachable span is ~100 km. A
-   ported constant that never once fires is a silently-empty surface, which is
-   this project's own most-repeated failure mode. The gate is the town's
-   1.7 km site box measured in screen pixels instead — a stated rendering
-   choice, not a ported one.
-
-**Not golden-verified, and this is the one caveat that matters.** The
-verification convention below slices block **4**; the `_um*` functions live in
-block 2 and run inside the host's full civ scope (`field`, `flowField`,
-`civWays`, `state`, `_riverNet`, `currentWaterBodies`). There is no block-2
-fixture and building one is a real harness effort. Every function is ported by
-reading the reference line by line with its constants carried verbatim and
-cited, and covered by 11 ordinary unit tests over synthetic fields — including
-the two that would catch the failure this project keeps rediscovering: that a
-real settlement produces a *non-empty* street graph, and that no street class
-milestones 8+ own has leaked in. Closing this properly is milestone 17's
-remaining half.
-
-### Milestone 12 — blocks and parcels (2026-08-24)
-
-Out of dependency order, like 17a before it, and for a comparable reason. The
-City Viewer (§17a's own first consumer) drew a wire diagram, because a street
-graph has nothing discrete in it to fill: no shape smaller than the whole
-town. Parcels are the **smallest stage that produces one**, and every
-primitive `buildBlocks`/`buildParcels` need had already been built and
-golden-tested at milestones 1-2 — `ensureCCW`, `insetPoly`, `polyCentroid`,
-`pointInPoly`, `polyArea`, `polySelfIntersects`, `segInt`, `edgeBetween`,
-`extractFaces`, and the `logn`/`chance`/`range` draws. Two functions, no new
-kernel. It was a smaller change than inventing a Voronoi or straight-skeleton
-subdivision to fake the same shapes, and unlike one it is the reference's
-own algorithm.
-
-**What landed.** `cartalith-urban::blocks` — `build_blocks` and
-`build_parcels`, ported from reference lines 30193-30344 (the range this
-document already gave, verified against the file before slicing and correct at
-both ends). `UrbanLayout` gained `blocks`/`parcels`, `urban_bridge` emits
-them, and `urban_layout_draw.gd` draws them.
-
-**One field is this port's own and is marked as such:** `Parcel::tone`, a
-stable 0..1 scalar a renderer varies a rooftop's brightness and saturation
-with. It is drawn from a **separate** RNG substream (`'roof-tone'`), never
-from the per-block `'parcels/…'` stream the geometry comes out of — one extra
-draw from that stream would shift every subsequent frontage width and the
-parcels would stop matching the reference's.
-
-**Verification.** Golden, on milestones 2 and 7's terms: the reference's own
-`buildBlocks`/`buildParcels` run under `vm.runInContext` over the frozen
-file's block 4, with both slice boundaries and the comment balance asserted
-and the two functions exposed by one anchored replacement asserted to match
-exactly once. Five scenarios, ~5,400 parcels, compared by a hash over the
-complete state (both polygons, face ids, edge distances, and every parcel
-field) plus written-out anchors. **All five passed unmodified on the first
-run.**
-
-**What the mutation sweep found, which is the part worth reading.** Every
-constant was mutated by one unit and the suite re-run. Ten were caught. Three
-survivors were real coverage holes and two new scenarios closed them:
-
-1. **The 2000 m probe ray survived** three scenarios, because their blocks are
-   far deeper than the 14-46 m plot depth, so `min(t_min*0.42,
-   depthTarget*1.35)` is always won by the depth term and the ray-cast caps
-   never bind at all. `narrow_rows` (~30 m rows) fixed it.
-2. **`depthTarget*1.35`, the 120 m² floor and the 0.97 area-conservation trim
-   survived** because rectangular faces produce no acute vertices, no tiny
-   slivers and no over-filled block. `wedges` (diagonal cuts) fixed the first.
-3. **The 120 m² floor cannot be reached at all**, and this is the finding to
-   carry forward: `attach_point`'s `SNAP` is 11 m, so any two nodes closer
-   than that merge, and an ~11 m cell — the only rectangular shape with an
-   area near 120 m² — collapses before `extract_faces` ever sees it. Measured,
-   not assumed. The floor guards the degenerate slivers `splitEdge` and
-   crossing-resolution can produce, not anything a clean street lay can make.
-   **Milestone 11's `lanePass` is the first stage that could produce one**,
-   and is where this is worth revisiting.
-
-The 140,000 m² ceiling is pinned by its own boundary test. The 7 m minimum
-frontage, 4 m minimum depth, `riverW/2 + 1` wet margin and the 0.97 trim are
-pinned by the hash for every value the fixtures produce, but not at their own
-boundaries — `blocks/tests.rs` says so in its header rather than leaving it
-implied.
-
-**Three upstream stages are missing, and milestone 12 runs without them.**
-This is the honest cost of taking it out of order, and it is a property of the
-*input*, not of this port:
-
-- ~~**`buildPlaza` (milestone 8) runs on the organic branch too**~~ —
-  **closed the same day**, see the milestone-8a record below. It was the most
-  visible gap and the smallest change that closed one.
-- **`removeWaterCrossings` (milestone 11)** does not run, so streets may still
-  cross the channel. Milestone 12's own guards absorb most of it: a block whose
-  inset centroid is wet is dropped, and a lot with *any* corner in the water is
-  rejected (the reference's footprint test, not a centroid test).
-- **`lanePass` (milestone 11)** does not run, so faces are coarser than the
-  reference's would be from the same seed.
-
-Milestones 8 and 11 will change what comes out of here without changing a line
-of `blocks.rs` — and are the moment to re-run this milestone's mutation sweep
-rather than trusting it. **Milestone 8a did both**, the same day: `blocks.rs`
-is unchanged apart from its doc comments, and the plaza golden re-runs
-`build_blocks` on every one of its own post-plaza graphs.
-
-### Milestone 8a — the plaza (2026-08-24)
-
-`buildPlaza` alone, reference lines **28941-28965**. Module
-`cartalith-urban::plaza`; dependencies still `cartalith-rng` only. 12 tests,
-17 golden scenarios, and the first mutation sweep in this subsystem to close
-with **zero survivors**.
-
-Taken out of milestone 8 rather than with it because the milestone's other two
-functions (`buildRadialStreets`, `buildWaterway`) serve the *radial* planning
-mode only, and `buildPlaza` runs on **both** branches of `generate()` (lines
-31018 and 31024). Milestone 12 named it the highest-value remaining change and
-it was: 60 lines of Rust, and it is the difference between a town with an open
-market square and a town with a block platted over its own anchor.
-
-**The stated range over-claimed by five lines at the end.** 28835-28970 runs
-past `buildPlaza`'s close at **28965** and into the four-line harbour section
-comment at 28967-28970, which milestone 7's correction had already assigned to
-milestone 9. Milestone 8's range is **28835-28965**. **Seven ranges checked,
-seven wrong** — and this one is the failure mode the rule was written for: an
-end that is too *late* silently pulls in the next milestone's header.
+Reference lines 28941-28965. `buildPlaza` alone. Module `plaza`. Split out of
+milestone 8 because `buildPlaza` runs on **both** branches of `generate()`
+(lines 31018 and 31024) while the rest of milestone 8 serves the radial branch.
+It is the difference between a town with an open market square and a town with
+a block platted over its own anchor.
 
 #### Where it runs is part of the port
 
-`generate()` calls it **between `buildPrimaries` and `grow`** on the organic
-branch, not after growth. The three streets it lays are in the graph before the
-epoch loop starts, so the town accretes *around* the square. Putting it after
-`grow` would still produce a plaza and would produce a different town;
-`cartalith_civ::urban_adapter::run_layout` calls it in the reference's place
-and its module header says why.
+On the organic branch `generate()` calls it **between the primaries and
+`grow`**, so the town accretes around the square; on the radial branch it is the
+branch's last call, **after** `buildWall` (line 31018). Putting it after `grow`
+still produces a plaza and produces a different town.
 
 #### Nothing new was built for it
 
-The reuse milestone 12 found repeats exactly. `distPtSeg`, `V.norm`/`lerp`/
-`rot90`, `polyCentroid` and `addStreet` were all built and golden-tested at
-milestones 1-2; `stream`/`range` at milestone 1; `site.riverDist` at milestone
-5. No new kernel, no new libm, and no new RNG semantics — `stream(seed,
-'plaza')` is its own labelled substream taking exactly two draws, so adding
-this stage **cannot** perturb any other milestone's sequence. Only the graph
-changes, which is the point of it.
+`distPtSeg`, `V.norm`/`lerp`/`rot90`, `polyCentroid` and `addStreet` are
+milestones 1-2; `stream`/`range` milestone 1; `site.riverDist` milestone 5.
+`stream(seed, 'plaza')` is its own substream taking exactly two draws, so this
+stage **cannot** perturb any other milestone's sequence.
 
-#### The mutation sweep, and why five survivors were closable here
+#### The mutation sweep, and why its survivors were closable
 
-20 mutations, 20 killed. Five survived the first pass, every one of them
-milestone 7's *"exact tie on a continuous value"* class:
+20 mutations, 20 killed — the first sweep in this subsystem to close with zero
+survivors. Five survived the first pass, all of milestone 7's *"exact tie on a
+continuous value"* class:
 
 | survivor | closed by |
 |---|---|
@@ -1989,328 +1232,555 @@ milestone 7's *"exact tie on a continuous value"* class:
 | `rot90()` → `-rot90()` | the same exact tie — see below |
 | `d < bd` → `d <= bd` | two primaries exactly equidistant from the market |
 
-Milestone 7 could not close its thirteen because every one rested on a
-polyline distance or a raw `mulberry32` draw. These rested on **distance to a
-centreline**, and `site.river` is a plain field this port may overwrite on a
-real `build_site` site — so the probe gap becomes an *input*. Parallel is what
-makes it a razor: along the edge normal the distance to a parallel line changes
-metre for metre, so `c = 0` gives an exact tie and `c = 0.25` gives a 0.5 m gap,
-which is inside the window a one-metre mutation of either probe moves the
-answer through. **The general lesson: a survivor that rests on a continuous
-comparison is closable exactly when one side of that comparison is a field the
-fixture can set, rather than an output of an earlier stage.**
+These rested on **distance to a centreline**, and `site.river` is a plain field a
+fixture may overwrite on a real `build_site` site — so the gap becomes an
+*input*. Parallel makes it a razor: along the edge normal the distance to a
+parallel line changes metre for metre, so `c = 0` is an exact tie and
+`c = 0.25` a 0.5 m gap, inside the window a one-metre mutation moves the answer
+through. **A survivor resting on a continuous comparison is closable exactly
+when one side of the comparison is a field the fixture can set, rather than an
+output of an earlier stage.**
 
-**Negating the edge normal is not the no-op it looks like.** `nl` is read twice
-— to build the two probe points and as `nl * (side * wd)` — and away from a tie
-the two negations cancel bit-exactly, which is why the mutation survived all 15
-real towns. At an exact tie they do not: both arms of the ternary yield the
-*same* `side`, so the product flips and the square opens the other way. Only
-the tie fixture sees it, and it would have been recorded as a proved-dead
-survivor without one.
+**Negating the edge normal is not the no-op it looks like.** `nl` is read twice —
+for the two probe points and in `nl * (side * wd)` — and away from a tie the
+two negations cancel bit-exactly, which is why it survived all 15 real towns. At
+an exact tie both ternary arms give the same `side`, so the product flips and
+the square opens the other way. Without the tie fixture it would have been
+recorded as proved dead.
 
 #### Findings
 
-1. **`buildPlaza` mutates `g` before its return value exists, and the two do
-   not agree.** The three streets go in through `addStreet`, whose 11 m
-   `attachPoint` snap binds a plaza corner to an existing node rather than
-   creating one — up to **6.1 m** of movement across the fixture set. The
-   reference builds `plaza.poly` and `plaza.center` from the **pre-snap**
-   points regardless. That is why `buildBlocks` tests a *point* against each
-   face rather than comparing polygons, and why a consumer must not assume the
-   returned quad is the face the graph holds.
-2. **The plaza's fourth side is not laid.** Three `addStreet` calls, not four:
-   `p1 → p2` is the primary being widened and is already there. A port that
-   lays four produces the same picture and a different graph.
+1. **`buildPlaza` mutates `g` before its return value exists, and the two
+   disagree.** The three streets go in through `addStreet`, whose 11 m snap binds
+   a plaza corner to an existing node — up to **6.1 m** of movement across the
+   fixtures — while `plaza.poly` and `plaza.center` are built from the
+   **pre-snap** points. That is why `buildBlocks` tests a *point* against each
+   face, and why a consumer must not assume the returned quad is the face the
+   graph holds.
+2. **The fourth side is not laid.** Three `addStreet` calls: `p1 → p2` is the
+   primary being widened. Laying four gives the same picture and a different
+   graph.
 3. **"Away from the river" is a statement about 20 m, not about the square.**
-   The probe is a fixed 20 m either side of the street's midpoint and the
-   square is up to 40 m wide, so on a curving channel the finished square's far
-   edge can end up *nearer* the water than the rejected side's would have been
-   — 0.05 m on the `river7` fixture. Reference behaviour, captured, and
-   asserted, so that the next person to measure the square instead of the probe
-   does not read it as a port bug.
-4. **A landlocked site still resolves the ternary.** `riverDist` answers from
-   the synthetic dummy centreline, so the branch is live rather than
-   degenerate; three landlocked scenarios are in the golden for that reason.
-5. **Every scenario produced exactly one flagged block.** Asserted as a
-   property, not just as a golden count — it is the whole point of the
-   milestone, and a change upstream that split the widened band into two faces
-   would show up here first.
+   The probe sits 20 m either side of the street's midpoint and the square is up
+   to 40 m wide, so on a curving channel the far edge can end *nearer* the water
+   than the rejected side's would have — 0.05 m on `river7`. Captured and
+   asserted, so it is not read as a port bug.
+4. **A landlocked site still resolves the ternary**: `riverDist` answers from
+   the dummy centreline. Three landlocked scenarios are in the golden for it.
+5. **Every scenario produced exactly one flagged block** — asserted as a
+   property: a change upstream that split the widened band into two faces shows
+   up here first.
 
 #### Corrections to later milestones
 
-1. **Milestone 8's remaining range is 28835-28939** (`buildRadialStreets` at
-   28844 and `buildWaterway` at 28928, plus the radial header comment at
-   28835). `buildPlaza`'s 28941-28965 belongs to milestone 8a.
-2. **Milestone 9's start of 28967 is right** — milestone 7 moved it there and
-   this milestone confirms it: 28967 is the first line of the harbour block
-   comment, 28966 is blank, and 28965 is `buildPlaza`'s close.
-3. **Milestone 12's mutation sweep should be re-run again after milestone 11**,
-   not treated as re-run by this one. This milestone changed `blocks.rs`'s
-   *input*, and its own golden re-runs `build_blocks` on 17 post-plaza graphs
-   — but `lanePass` and `removeWaterCrossings` will change it again.
-4. **Milestone 16 must call `buildPlaza` between the primaries and `grow`** on
-   the organic branch, and **after** `buildWall` on the radial one (line
-   31018). The two positions differ and both are in `generate()`.
-5. **`Plaza` is `blocks`' input and `plaza`'s output.** It is defined in
-   `plaza.rs` and re-exported from `blocks.rs`; `build_blocks` takes
-   `Option<&Plaza>` rather than `Option<Plaza>` now that it carries a polygon.
+1. **`Plaza` is `blocks`' input and `plaza`'s output**: defined in `plaza.rs`,
+   re-exported from `blocks.rs`; `build_blocks` takes `Option<&Plaza>`.
+2. **Milestone 12's goldens change with the input graph.** This milestone changed
+   `blocks.rs`'s input; `lanePass` and `removeWaterCrossings` (milestone 11)
+   change it again, so milestone 12's sweep is only as current as the graph it
+   last ran on.
 
-### Milestone 8 — radial (Venus) streets, waterway (lines 28835-28939, 2 functions)
+The source engine later split the plaza into a market square and a village green
+(`RC_ENGINE_CHANGES.md` §8.2, v2.73).
 
-`buildRadialStreets`, `buildWaterway`. The second planning mode, independent of
-`grow`. Separable from milestone 7 and cheaper. **`buildPlaza` was split out
-of this milestone as 8a above** and is not part of it.
+### Milestone 9 — water infrastructure
 
-### Milestone 9 — water infrastructure (lines 28967-29159, 4 functions)
+Reference lines 28967-29154 (`distToLine` from 28971). `distToLine` (already
+`growth::dist_to_line`, milestone 7), `buildHarbour`, `addRiverBridges`,
+`detectRiverCrossings`. Module `water`. Quays, back streets, herringbone stubs,
+the harbour road, piers, the breakwater mole and three harbour-defence
+repertoires; bridges, fords, and the navigability guards that invalidate a
+harbour on a stream too small to carry one.
 
-`distToLine`, `buildHarbour`, `addRiverBridges`, `detectRiverCrossings`.
-Quays, moles, breakwaters, bridges, fords, and the navigability guards that
-invalidate a harbour on a stream too small to carry one.
+- **`detectRiverCrossings` must run after every pass that can kill an edge** —
+  `removeWaterCrossings` (line 31030), `privatizeAlleys` (31069) and
+  `clearFortZone` (31072) — so a recorded bridge always has a live road on it
+  (the reference's own comment at 31073-31075). This constrains runtime order
+  (milestone 16's), not porting order.
+- **`addRiverBridges` returns immediately on `site.usesRealWater`**, so the two
+  crossing functions are never both active on one town.
+- **`site.kind === 'coast'` is compared as a string twice** (lines 29061,
+  29081) — whether a mole is built, and `'molefort'` as the `auto` defence.
+  `rk` (`'river'`/`'riverthrough'`) is a different string test, not
+  `Site::river_like`.
+- `buildHarbour` writes `site.harbourInvalid` and `detectRiverCrossings`
+  `site.bridges`/`site.ford`; nothing in block 4 reads them, so the port returns
+  them as values (`HarbourOutcome`, `Crossings`) and `Site` stays immutable.
 
-### Milestone 10 — fortification (lines 29631-30037, 9 functions, ~407 lines)
+`water.rs`'s header records the `'harbour'` substream's draw order, including its
+two conditional draws.
 
-`ringCrossings`, `densifyLoop`, `nearestIdx`, `cornerCut`, `townBank`,
-`builtMassHull`, `buildWall`, `applyStarFort` (`convexHull` already landed in
-milestone 1). **The largest single milestone in this plan.** Curtain-wall
-tracing around the built-mass hull, gate placement at radial crossings, wet/dry
-ditches, and the bastioned trace with its own geometry.
+### Milestone 10 — fortification
 
-`builtMassHull` reads `Graph::from_paths` (milestone 2's finding 2, milestone
-6's to add). Also introduces the `'ringroad'` street class.
+Reference lines 29631-30032 (the `wall + gates` header at 29638). Nine
+functions: `ringCrossings` (already `growth::ring_crossings`), `convexHull`
+(already `geom::convex_hull`, milestone 1), `densifyLoop`, `nearestIdx`,
+`cornerCut`, `townBank`, `builtMassHull`, `buildWall`, `applyStarFort`. Module
+`fortify`. The largest single milestone: curtain tracing round the built-mass
+hull, gates where primary routes cross it, wet/dry ditches, and the bastioned
+trace.
 
-### Milestone 11 — graph cleanup passes (lines 30038-30192, 6 functions)
+- `builtMassHull` reads `Graph::from_paths` (milestone 2, finding 2).
+- The `'ringroad'` street class arrived a milestone early, from
+  `supersedeWall` (milestone 7).
+- `cornerCut` is the subsystem's only `Math.acos` call site and feeds a
+  threshold, so it uses `js_acos`.
+- `WallState`/`WallGeneration`: milestone 7, correction 5.
 
-`_killEdge`, `pruneLargest`, `removeWaterCrossings`, `privatizeAlleys`,
-`clearFortZone`, `lanePass`. Ordering between these is load-bearing —
-`detectRiverCrossings` deliberately runs after all of them so a recorded bridge
-always has a live road on it.
+`fortify/tests.rs`'s header records the fixtures and what each exists for.
 
-`_killEdge` guards its `adj` splice with `if (k >= 0)` where milestone 2's
-`splitEdge` does not (finding 3). **Do not unify them** — the port reproduces
-both as written, and the difference is the reference's, not the port's.
+### Milestone 11 — graph cleanup passes
 
-### Milestone 12 — blocks and parcels: recorded above
+Reference lines 30034-30190 (the `clearFortZone` header comment; `_killEdge`
+from 30038). `_killEdge`, `pruneLargest`, `removeWaterCrossings`,
+`privatizeAlleys`, `clearFortZone`, `lanePass`. Module `cleanup`.
 
-Ported out of order on 2026-08-24 — the full record is in its own section
-above. The plan this stub carried was right on every count: the line range
-30193-30344 was correct at both ends, `buildBlocks` does skip `extractFaces`'
-outer face on milestone 2's first-index-wins tie-break, and `hashModel` was
-indeed unavailable, so the golden dumps state directly exactly as milestone 2
-did.
+- **The ordering is load-bearing and is the reference's.**
+  `removeWaterCrossings` and `clearFortZone` each end by calling `pruneLargest`
+  themselves; the second water sweep must see the first's kills; and
+  `detectRiverCrossings` runs after all of them (milestone 9). Written as the
+  reference writes it.
+- **`_killEdge` guards its `adj` splice; `splitEdge` does not** (milestone 2,
+  finding 3). **Do not unify them.**
+- **`_killEdge` does not unindex**, so a dead edge stays in the spatial grid and
+  is filtered by `e.alive` in `nearestNode`/`addStreet` — which matters to
+  `lanePass`, laying streets into a graph these passes have thinned.
+- **`_killEdge` is the first writer that removes an edge id from `adj` without
+  tombstoning through `splitEdge`**, so from here the `alive` filters milestone
+  7 proved dead are live.
 
-### Milestone 13 — districts and buildings (lines 30345-30710, 7 functions)
+### Milestone 12 — blocks and parcels
 
-`assignDistricts`, `bmap`, `rectPoly`, `buildBuildings`, `_rectPts`,
-`_peristyle`, `buildFaithSites`. Building grammars (burgage, venus-mixed),
-the terrain-suitability building gate, churches and temples.
+Reference lines 30192-30342 (`buildBlocks` from 30193). `buildBlocks`,
+`buildParcels`. Module `blocks`. The first stage whose output is building-sized.
 
-### Milestone 14 — amenities (lines 29160-29382, 5 functions)
+Built out of dependency order, for a reason worth keeping: a street graph has
+nothing discrete in it for a renderer to fill, and parcels are the smallest
+stage that produces such shapes; every primitive both functions need was
+already built and golden-tested at milestones 1-2 (`ensureCCW`, `insetPoly`,
+`polyCentroid`, `pointInPoly`, `polyArea`, `polySelfIntersects`, `segInt`,
+`edgeBetween`, `extractFaces`, and the `logn`/`chance`/`range` draws). That was
+smaller than inventing a Voronoi or straight-skeleton subdivision to fake the
+same shapes, and it is the reference's own algorithm. `buildBlocks` skips
+`extractFaces`' outer face on milestone 2's first-index-wins tie-break, and
+`hashModel` cannot take a partial model, so the golden dumps state directly.
 
-`buildMarkets`, `buildCivic`, `orientedRect`, `gamesShapeAt`, `buildGames`.
-Rank-scaled specialised markets, the civic hall, and the games/arena sites.
+**`Parcel::tone` is this port's own field**, a stable 0..1 scalar a renderer
+varies rooftop brightness and saturation with. It is drawn from a **separate**
+substream (`'roof-tone'`), never from the per-block `'parcels/…'` stream the
+geometry comes out of: one extra draw there would shift every later frontage
+and the parcels would stop matching the reference.
 
-### Milestone 15 — hinterland, decay, details, metrics (lines 30711-30930, 7 functions)
+**Verification.** Golden, on milestones 2 and 7's terms: five scenarios, ~5,400
+parcels, compared by a hash over the complete state (both polygons, face ids,
+edge distances, every parcel field) plus written-out anchors. Every constant
+was then mutated by one unit: ten were caught, and three survivors were real
+coverage holes:
 
-`crossesStreet`, `stripFields`, `ringFields`, `buildFarmland`, `applyDecay`,
-`buildDetails`, `computeMetrics`.
+1. **The 2000 m probe ray survived**, because the fixtures' blocks were far
+   deeper than the 14-46 m plot depth, so `min(t_min*0.42, depthTarget*1.35)`
+   was always won by the depth term and the ray-cast caps never bound.
+   `narrow_rows` (~30 m rows) closed it.
+2. **`depthTarget*1.35`, the 120 m² floor and the 0.97 area-conservation trim
+   survived**, because rectangular faces produce no acute vertices, no slivers
+   and no over-filled block. `wedges` (diagonal cuts) closed the first.
+3. **The 120 m² floor cannot be reached by a clean street lay** — measured, not
+   assumed. `attach_point`'s `SNAP` is 11 m, so any two nodes closer than that
+   merge, and an ~11 m cell (the only rectangle near 120 m²) collapses before
+   `extract_faces` sees it. The floor guards the slivers `splitEdge` and
+   crossing resolution can produce; `lanePass` (milestone 11) is the first stage
+   that could produce one, and the place to revisit it.
+
+The 140,000 m² ceiling is pinned by its own boundary test. The 7 m minimum
+frontage, 4 m minimum depth, `riverW/2 + 1` wet margin and 0.97 trim are pinned
+by the hash for every value the fixtures produce but not at their own boundaries
+— `blocks/tests.rs` says so in its header.
+
+**Later source-engine changes to `buildParcels`**: `RC_ENGINE_CHANGES.md` §6r.5
+(the frontage-grant retry loop has no upper bound and hangs at low
+`frontageWidthVariance`) and §6s.1-§6s.4 (the ward sets the plot grain; the
+water test samples only a lot's four corners).
+
+### Milestone 13 — districts and buildings
+
+Reference lines 30344-30682 (`assignDistricts` from 30345). `assignDistricts`,
+`bmap`, `rectPoly`, `buildBuildings`, `_rectPts`, `_peristyle`,
+`buildFaithSites`. Module `districts`. Building grammars (burgage,
+venus-mixed), the terrain-suitability building gate, churches and temples.
+
+- The reference mutates its parcels in place (`district`, `provDistrict`,
+  `suitability`, `empty`, `unsuitable`, `built`, `churchyard`); here those seven
+  fields live on `Lot`, which borrows the milestone-12 `Parcel`.
+  `assignDistricts` produces the `Lot` list.
+- **`oreBearing` is a nullable angle in radians** (`_umOreBearing`, line 22613,
+  returns `Math.atan2(by,bx) - orient` or `null`), and the ore-yard rule scores
+  parcels by projection onto it. `site::Economy::ore_bearing` is declared `bool`,
+  so the bearing travels as its own parameter (`GenOpts::ore_bearing`) until
+  that field is corrected.
+- `assignDistricts` and `buildFaithSites` read one field of `buildHarbour`'s
+  return, `quay`, and take it as `Option<&[Vec2]>`; an empty quay is still a
+  harbour (milestone 7, finding 10).
+
+**Later source-engine changes here**: `RC_ENGINE_CHANGES.md` §6p (two site
+vectors and the industry siting that consumes them), §6q (a `status` gradient on
+every parcel) and §6s.1 (one ward classifier shared with `buildParcels`).
+
+### Milestone 14 — amenities
+
+Reference lines 29156-29382 (`buildMarkets` from 29160; `GAMES_SPEC` at 29263 is
+inside the range). `buildMarkets`, `buildCivic`, `orientedRect`,
+`gamesShapeAt`, `buildGames`. Module `amenities`. Rank-scaled specialised markets
+(M-AMEN-1), the civic hall (M-ADMIN) and the population-gated games site
+(M-GAMES), honestly omitted where nothing fits.
+
+- Three arguments are narrowed to what the reference reads, and the two it
+  mutates come back as reports: `build_markets` takes centroid lists and returns
+  index lists (`Markets`) rather than setting `par.cleared` and splicing
+  buildings; `buildGames` reads only `p.poly` and `wallState.ring`.
+- `buildCivic`'s `anchors` argument is dead in the reference and absent here.
+- `buildCivic`'s rank scaling (line 29211) is block 4's only `Math.log10`
+  (`js_log10`).
+
+### Milestone 15 — hinterland, decay, details, metrics
+
+Reference lines 30684-30928 (the `details:` header and `FARM_SPEC` table at
+30684-30710; `crossesStreet` from 30711). `crossesStreet`, `stripFields`,
+`ringFields`, `buildFarmland`, `applyDecay`, `buildDetails`, `computeMetrics`,
+and `FARM_SPEC`. Module `hinterland`.
+
+- `buildFarmland` dispatches on the culture's `FARM_SPEC.pattern` (medieval
+  strips, Venus rings); `crossesStreet` is the guard both share.
+- `buildDetails`' `wallState` and `maxRF`, and `stripFields`' `rng`, are never
+  read by the reference; dropped. (`buildFarmland` still *creates* the stream
+  `stripFields` ignores — creating a substream is unobservable.)
+- `applyDecay` returns index lists instead of writing `ruined`, as milestone 14
+  does for markets.
+- **`p.churchyard` is unreachable at the reference's own call site**:
+  `generate()` calls `applyDecay` at line 31035, five lines before
+  `buildFaithSites` (31040), the only function that sets it. Ported anyway,
+  because `apply_decay` is a function, not a call site, and tested directly.
+
+**Later source-engine change here**: `RC_ENGINE_CHANGES.md` §8.2, v2.68 —
+`buildFarmland`'s `field`/`pasture` polygons were never drawn by the reference.
+Assert that every detail kind the generator can emit reaches the renderer,
+derived from a real town rather than a hand-written list; and do not build the
+furrow hatching the row says a port should not make.
 
 ### Milestone 16 — `generate()` orchestration + `hashModel`
 
-`generate` (lines 30931-31086) and `hashModel`. The payoff milestone: with
-every stage ported, the port's `hashModel` output can be compared against the
-reference's for a matrix of seeds, cultures, site kinds and population targets.
-That is a **whole-subsystem** golden, and the reference wrote it for exactly
-this purpose.
+Reference lines 30930-31094 (`generate` 30931-31084; `hashModel` 31086-31094).
+Module `generate`. The payoff: with every stage ported, this port's `hashModel`
+is compared against the reference's over a matrix of seeds, cultures, site
+kinds and population targets — the whole-subsystem golden the reference wrote
+for exactly this. `hashModel` is checked **last**, because it rounds coordinates
+to the centimetre and is the least informative failure; counts, histograms and
+branch choices fail first.
 
-### Milestone 17 — the civ adapter (block 2, lines ~22036-22960)
+- **Two orderings are not interchangeable**: `detectRiverCrossings` after every
+  edge-killing pass (milestone 9), and `buildPlaza` in two positions (milestone
+  8a).
+- **`profile.noWalls` does not exist.** Line 30955 is
+  `const walls = opts.walls !== false && !profile.noWalls`, and `noWalls`
+  appears in the whole reference exactly twice — that line and the comment above
+  it. No profile defines it, so the term is inert and `CultureProfile` has no
+  such field.
+- Four stages were ported as reporting functions (`build_markets`,
+  `apply_decay`, `clear_fort_zone`, `detect_river_crossings`), and `generate()`
+  applies their reports; `generate.rs`'s header tables how.
+- The capture harness is `cartalith-native/tools/um_capture.js` — see
+  "Verification convention" for why it had to be reconstructed.
 
-The 20 pure functions of the `_um*` adapter: `_umSiteBoxKm`, `_umWaterNearKm`,
-`_umWaterReachKm`, `_umSiteKindFromTerrain`, `_umInferAge`, `_umWallSpec`,
-`_umInferWalls`, `_umHarbourScale`, `_umPt`, `_umRayBoxExit`,
-`_umTerrainOrient`, `_umWayBearingFrom`, `_umRouteEnds`, `_umPrimaryPaths`,
-`_umWaterCtx`, `_umTerrainCtx`, `_umSiteProfile`, `_umOreBearing`,
-`_umPlaceContext`, `_umCacheKey`. This is the only piece that needs
-`cartalith-civ`, `cartalith-hydrology` and `cartalith-terrain`, and it should
-live **outside** `cartalith-urban` (in `cartalith-civ`, or in a thin
-`cartalith-urban-adapter`) so the engine crate stays dependency-light.
+This port's own stages (wall lots, courtyard rings, citadel) are in
+`generate()` too — see "Beyond the reference".
 
-**Two known gaps in this port's own data, to be honest about now rather than
-discover at milestone 17:** the reference's settlements carry
-`p.specialisation` (feeding `opts.economy` and thence districts/details) and
-`p.traits` (feeding `fortified`), and this port has neither. Both have the same
-honest fallback the reference itself uses when the data is absent —
-`economy: null`, `fortified: false` — so a port without them behaves exactly
-like the reference running on a world where nobody set them.
+### Milestone 17 — the civ adapter
+
+Block 2, reference lines 22036-22962. The 20 pure functions of the `_um*`
+adapter: `_umSiteBoxKm`, `_umWaterNearKm`, `_umWaterReachKm`,
+`_umSiteKindFromTerrain`, `_umInferAge`, `_umWallSpec`, `_umInferWalls`,
+`_umHarbourScale`, `_umPt`, `_umRayBoxExit`, `_umTerrainOrient`,
+`_umWayBearingFrom`, `_umRouteEnds`, `_umPrimaryPaths`, `_umWaterCtx`,
+`_umTerrainCtx`, `_umSiteProfile`, `_umOreBearing`, `_umPlaceContext`,
+`_umCacheKey`. The only piece that needs `cartalith-civ`, `cartalith-hydrology`
+and `cartalith-terrain`, so it lives **outside** `cartalith-urban`, in
+`cartalith-civ::urban_adapter`, and the engine crate stays dependency-light.
+
+- `_umWallSpec` and `_umInferWalls` live in `cartalith-civ::military`, because
+  their first real consumer was the faction aggregates' fortified fraction; the
+  adapter calls them from there.
+- `_umPt` is a JS `[x,y]`-vs-`{x,y}` normaliser with no port target: `Way::pts`
+  is typed.
+- `_umCacheKey` is pure but keys only the LRU "Out of scope for every milestone"
+  excludes.
+
+**Settlement data the reference reads**: `p.specialisation` (→ `opts.economy`,
+thence districts and details) and `p.traits` (→ `fortified`) reach the adapter
+through `PlaceOverrides` (`specialisation`, `fortified_trait`), written by the
+place editor into `cartalith-godot`'s `civ_roster_bridge::PlaceExtrasTable`.
+Absent, the fallback is the reference's own — `economy: null`,
+`fortified: false` — exactly the reference running on a world where nobody set
+them. `civFactionCulture[p.faction]` has no counterpart (this port has no
+faction-culture table), so a town is `medieval` unless its own town plan says
+otherwise (Ruling J).
+
+### Milestone 17a — the adapter and the first consumer
+
+Out of dependency order on purpose. `PARITY_AUDIT.md` §3.4 found 4,516 lines of
+golden-tested engine across milestones 1-7 with **zero consumers**, because this
+document's old "don't wire in what nothing calls" rule had held for so long that
+the largest subsystem was also the least visible. *(That rule was superseded on
+2026-08-23.)*
+
+**The shape:**
+
+- **`cartalith-civ::urban_adapter`** — `um_place_context(_with)` builds an
+  `UrbanContext` from a settlement; `run_layout(ctx, rules)` builds
+  `cartalith_urban::GenOpts` from it and calls `cartalith_urban::generate`. It
+  runs **no stage of its own, in no order of its own**: every stage and its order
+  is milestone 16's. `settlement_layout(_with)` is the one call a caller needs.
+  *(Until 2026-09-02 `run_layout` ran a hand-ordered subset of `generate()` that
+  skipped `buildHarbour`, `addRiverBridges`, `lanePass` and
+  `removeWaterCrossings`, and so platted blocks off a graph the reference never
+  hands `buildBlocks`. A second pipeline beside a verified one does not stay
+  equivalent to it; do not reintroduce one.)*
+- **`cartalith-godot::urban_bridge::urban_layouts(indices)`** — the batched
+  entry point.
+- **The consumers**: the City Viewer (`shell/city_viewer_window.gd`) and the
+  map's deep-zoom town layer (`map_overlay.gd`), both drawn by
+  `shell/urban_layout_draw.gd`.
+- **`compute_civilisation()` never calls this subsystem.** A town is generated
+  on demand, per settlement, never as a generation stage.
+
+**Two deliberate deviations:**
+
+1. **`traceRiverPolylines` is hoisted out of `_umWaterCtx`.** The reference calls
+   it per settlement — a full-grid walk — and pays for that with the LRU this
+   document rules out. The bridge traces once per batch
+   (`urban_bridge::traced_river_polys`, shared by `urban_layouts` and
+   `settlement_diagnostics`). The call and its result are unchanged.
+2. **The map's reveal gate is `_umLayoutAlpha`'s own crossfade band**, 24 km →
+   10 km of map-area span, ported verbatim as `map_overlay.gd`'s
+   `_urban_layout_alpha`, with `URBAN_MIN_BOX_PX` (16 px) kept underneath as a
+   floor so a narrow map area never draws a sub-pixel town. *(Superseded
+   2026-08-24: a site-box-in-screen-pixels gate, adopted while the camera
+   clamped at a zoom that could not reach a 24 km span. Measured, it first fired
+   at a 47 km span on a 16 px speck; do not restore it.)*
+
+**Block 2 is golden-verified too, and the recorded reason it could not be was
+wrong.** The blocker read that `_um*` runs inside the host's full civ scope
+(`field`, `flowField`, `civWays`, `state`, `_riverNet`, `currentWaterBodies`)
+while the harness slices block 4 only. `cartalith-native/tools/um_block2_capture.js`
+evaluates all four of the reference's `<script>` blocks in a bare `vm` context,
+in the browser's order, with one self-similar `Proxy` standing in for the DOM;
+its fixtures are `crates/cartalith-civ/tests/golden_parity_urban_adapter.rs`. It
+found two port defects the synthetic-field unit tests had not: `slope_at` on
+`f64::hypot` where the reference uses `Math.hypot`, and `um_site_profile`
+clamping the resource-context centre where the reference passes the raw point.
+`urban_adapter.rs`'s header states which `_um*` functions that golden covers.
+
+---
+
+## Beyond the reference: owner-ruled additions
+
+None of these has an ancestor in v2.10 or v2.11. Under `DECISIONS.md` §7p each
+is the standard, not a divergence to undo. Every golden one of them moved is
+disclosed case by case beside the test that moved — `generate/tests/golden.rs`'s
+header for the whole town, `site/tests.rs`'s for Ruling N.
+
+| Addition | Where | Ruling | What it is |
+|---|---|---|---|
+| Host-set generation rules | `urban_adapter::run_layout(ctx, rules)`; `shell/generation_rules_window.gd` | none — the Settlement Editor design canvas, artboard `1h` | The reference's host never set `opts.rules` (`RC_ENGINE_CHANGES.md` §6r.1). Here a world-level active rule set reaches `GenOpts::rules` as `Rules::to_patch()`, a fully populated patch; `None` is exactly `DEFAULT_RULES`, which every golden is pinned to. The window's two sliders call the real `apply_wildness`/`apply_plot_chaos` |
+| Walled market-town rule set | `rules::MARKET_TOWN_RULES` in `RULES_PRESETS` | H | Shaped on the owner's plan. A `Rules` preset, not a third `CultureProfile`: every knob the plan needs is on `Rules`, and `amenities::games_spec` keys on the profile id, so a new id would silently take Venus's games table |
+| Per-settlement town plan | `PlaceOverrides::{culture, variant}` and a per-settlement `rules_preset`, set from the City Viewer's *Town plan* | J | A settlement's culture profile, and its rule set: the world's active rules, `DEFAULT_RULES`, or a named preset. *Regenerate* sets a non-zero variant, which re-keys the position-derived seed |
+| Wall lots and faubourg | `wallside::build_wall_lots`, after `buildParcels` on both planning branches | H; AA extends it to radial towns | Intramural lots backing onto the curtain's inner face, and a faubourg cluster against its outer face that `clearFortZone`'s rampart sweep exempts |
+| Courtyard perimeter blocks | `courtyard::build_courtyard_rings`, after the wall lots, organic plan only | H; AD sites it | The outermost ring of dense blocks by market distance, re-platted as perimeter lots round an open court |
+| Citadel | `citadel::build_citadel`, after the rampart sweep | I; AC sites it | A walled enclosure astride the curtain on its highest ground — towers, keep, court, inner gate and approach street — on organic towns with `pop_target >= CITADEL_MIN_POP` (10 000) and a curtain that is not a bastioned trace |
+| Real river binding | `site::WaterCtx::has_real_river_path` | N | Milestone 5, finding 3 |
+
+**Star forts** are the reference's own behaviour (Ruling I found them reachable,
+not missing): the place editor's `fortified` trait reaches `GenOpts::fortified`,
+and `generate()` grants the bastioned trace to a walled town on the `organic`
+gate scheme with `pop_target >= FORT_MIN` (2 500).
 
 ## Out of scope for every milestone
 
-- **`_umDrawLayout`, `_umDrawLayoutPreview`, `_umLayoutAlpha`** (block 2) and
-  the block-1 LOD hook around line 15606 — canvas rendering and zoom-crossfade
-  logic. That is Godot's job, not a port target, and belongs to whatever
-  rendering milestone eventually draws a town.
-- **`_umModelCache`/`_umScheduleGenStep`/`_umCacheEvict`/`_umModelFor`/
-  `_umModelForNow`** — an LRU plus a one-per-frame `setTimeout(…,0)` generation
-  queue, a workaround for the browser's single thread. This port has real
-  threads; whatever scheduling it needs will be designed against those, not
-  transliterated.
-- **The removed 17 culture profiles.** The reference documents them as history
-  (the source repo's `urban-morphology/docs/07-culture-architecture.md` §3.10 —
-  one of nine UME design documents under `Cartalith_RC`'s `urban-morphology/docs/`
-  that are **not vendored in this repository**, unlike `docs/`) after a
-  post-launch pass found them visually indistinguishable. Only `medieval` and
-  `venus` are live; only those get ported.
-- **`buildGridStreets` and the palimpsest planning mode** — likewise removed
-  upstream, with no live caller.
-- ~~**Wiring into `compute_civilisation()`, `cartalith-godot`, or the GUI.**~~
-  **Superseded 2026-08-23** — see milestone 17a above. The rule was right for
-  as long as there was nothing to render; it became wrong once seven
-  milestones of engine had accumulated with no way for anyone to see, use or
-  regression-check any of it, which is exactly what `PARITY_AUDIT.md` §3.4
-  found. Note the boundary that *did* hold: the wiring is a bridge and a
-  renderer, and `compute_civilisation()` still does not call this subsystem —
-  a town is generated on demand, per settlement, never as a generation stage.
+- **`_umDrawLayout`, `_umDrawLayoutPreview`, `_umLayoutAlpha`** (block 2), the
+  City Viewer renderer that follows them (`_cv*`, from line 22964), and the
+  block-1 LOD hook at lines 15603-15610 — canvas rendering and zoom crossfade.
+  Not engine port targets: the shell draws towns (`shell/urban_layout_draw.gd`)
+  and gates the map layer with `_umLayoutAlpha`'s band (milestone 17a).
+- **`_umModelCache`, `_umCacheKey`, `_umScheduleGenStep`, `_umCacheEvict`,
+  `_umModelFor`, `_umModelForNow`** — an LRU plus a one-per-frame
+  `setTimeout(…,0)` queue, a workaround for the browser's single thread, not
+  transliterated. The shell's replacement: `map_overlay.gd` requests at most
+  `URBAN_BATCH_MAX` uncached towns per frame (24, the reference's
+  `_UM_MODEL_CACHE_MAX`) and keeps one layout per settlement index. A cache of
+  generated layouts must be invalidated by every input, the rules included
+  (`RC_ENGINE_CHANGES.md` §6r.2).
+- **The removed 17 culture profiles.** Documented upstream as history (the
+  source repo's `urban-morphology/docs/07-culture-architecture.md` §3.10 — one
+  of nine UME design documents under `Cartalith_RC`'s `urban-morphology/docs/`,
+  **not vendored here**, unlike `docs/`) after a post-launch pass found them
+  visually indistinguishable. Only `medieval` and `venus` are live and ported.
+- **`buildGridStreets` and the palimpsest planning mode** — removed upstream,
+  with no live caller.
 
 ## Verification convention for this subsystem
 
-The harness slices reference lines **28167-31103 as one contiguous block**,
-plus line 2291 (`mulberry32`, which block 4 deliberately does not define), and
-evaluates them in a bare Node `vm.runInContext` with no DOM. **A block-comment
-balance assertion runs on both slice boundaries** — Journey Planner milestone 4's
-design, adopted here for the same reason: an unterminated `/*` at a boundary
-silently swallows the rest of the slice, and one contiguous slice plus a
-balance assert removes the whole class. Two further assertions check the slice
-really starts at the IIFE and ends at the export.
+### The harness
 
-Milestone 2 ran that assertion as a **negative control** and found one case it
-does not cover (a slice starting exactly one line into the header comment, whose
-orphan `*/` gets eaten by an apostrophe in the comment prose). An orphan-close
-counter was added — it catches the three-lines-late variant — and the residual
-hole is covered by the two structural assertions, which are what actually pin
-the boundary. See milestone 2's section for the table. **The balance assert is
-necessary, not sufficient; keep the structural asserts.**
+Slice reference lines **28167-31103 as one contiguous block**, plus line 2291
+(`mulberry32`, which block 4 deliberately does not define), and evaluate them in
+a bare Node `vm.runInContext` with no DOM. Four assertions, all live:
 
-Milestone 3 re-ran the same negative control (confirming the hole is still
-there and still covered) and **tightened the first structural assertion**: from
-"the slice *contains* the `UME` IIFE header" to "**the slice's first line is**
-block 4's header comment opening", which catches the one-line-late case directly
-rather than incidentally. It also added a fourth assertion as a live negative
-control in the other direction — block 4 must **not** define `mulberry32`, since
-the entire reason line 2291 is spliced in is that it falls through to block 1.
-Use that version.
+1. **a block-comment balance scan on both boundaries**, with an orphan-close
+   counter — Journey Planner milestone 4's design, adopted because an
+   unterminated `/*` at a boundary silently swallows the rest of the slice;
+2. **the slice's first line is block 4's header comment opening** (tightened
+   from "the slice *contains* the `UME` IIFE header", which caught the
+   one-line-late case only by luck);
+3. **the slice ends at the `module.exports=UME;` export**;
+4. **a negative control: block 4 must not define `mulberry32`** — the reason
+   line 2291 is spliced in at all.
 
-**And a golden that passes is not a golden that tests anything.** Milestone 3
-wrote seventeen scenarios that reproduced the reference exactly, then found by
-mutation testing that **nine of fifteen** mutations survived them — because a
-continuously-valued input never produces an exact tie, so no tie-break was ever
-observed. Every milestone from here on should mutation-check its constants and
-comparators and should include at least one **quantised or symmetric** fixture
-alongside its random ones. Report survivors rather than hiding them; all three
-milestones that have done so found their survivors were genuinely dead branches
-or provably unreachable divergences, which is itself worth knowing. Add an
-explicit **emptiness / shape gate** to the capture script too (non-empty output,
-right endpoints, expected `null`s really `null`) — three subsystems in this
-project have shipped a harness that produced silently empty output and passed
-every structural check.
+**The balance scan is necessary, not sufficient; keep the structural asserts.**
+Run as a negative control:
 
-Milestone 4 added two things to this convention, both from its own mutation run:
+| deliberately wrong slice | balance scan | structural asserts |
+|---|---|---|
+| ends inside a block comment | caught (depth 1) | caught |
+| starts 3 lines into the header | caught (1 orphan `*/`) | caught |
+| starts **1** line into the header | **not caught** — the header's prose contains `"Gen1's globals"`, and an apostrophe at depth 0 is read as a string delimiter that swallows the stray `*/` | caught |
+| starts at the `<script>` tag | not caught | caught |
+| ends one line early | not caught | caught |
+| starts 7 lines early, swallowing the end of block 3 | not caught | caught |
 
-- **Quantisation hides constants in both directions.** Milestone 3 found that a
-  quantised *input* is needed before a tie-break can be observed. Milestone 4
-  found the mirror: a quantised *output* (anything rounded, floored or bucketed)
-  cannot observe a change to its inputs smaller than half its own step, so a
-  constant inside a quantiser survives every small perturbation. The fixture
-  that kills it is one whose input sits **just below** a boundary — build those
-  deliberately alongside the ones that sit exactly on it.
-- **Re-run every mutation survivor in isolation before reporting it.** One
-  milestone-4 sweep reported 34 survivors that all died individually; the
-  combined run had been reporting a stale binary, most likely because a sibling
-  fork was building in the same shared `target/` at the time. A "did the tests
-  actually run" gate does **not** catch this (a stale binary reports a healthy
-  `N passed`); only the isolated re-run does. Add the gate anyway — it catches
-  the adjacent case of a test filter that silently matches nothing.
+**`const UME = …` is a lexical binding, not a property of the `vm` context's
+global object**, so `ctx.UME` is `undefined` however well the slice ran — one of
+the silently-empty-output incidents this project has shipped. Append
+`globalThis.__UME = UME;` and assert a real object with a real `cityGen`.
 
-Milestone 5 added three more, all of which cost it a restart or a sweep:
+**Exposing a function.** Where `_test` or the public export reaches it, the
+expected values are the reference's own output. Where neither does (milestone 5
+first), add it with **one anchored replacement of the `return {` line, asserted
+to match exactly once**, and check the injected names are functions before
+capturing anything; further anchored insertions (milestone 7's `buildWall` stub
+and per-epoch observer) are likewise asserted exactly once. **The frozen file is
+never written.** Rasters travel in the golden file, or — when too large — are
+rebuilt from the same closed form and checked against the fnv1a of the
+reference's own cells, so both sides provably run on identical inputs. Compare
+bit for bit through `to_bits`, no tolerances; an fnv1a over an exact 64-bit dump
+is a bit-for-bit statement, not a tolerance.
 
-- **Build the fixtures out of the subsystem's own geometry.** Milestone 3 asked
-  for quantised inputs and milestone 4 for just-below-a-boundary inputs.
-  Milestone 5's first sweep left **46 survivors** and almost none were
-  equivalent mutants: every hand-built water raster was uniform along one axis
-  (so no `i`-clamp mutation was visible), and a `[0.1, 0.5, 0.9]²` probe grid
-  never once entered the 10-40 m band around the river where all the thresholds
-  live. Deriving the probes from the site's own polyline — and giving each mask
-  a per-column ripple — took the survivor count to 31 over three rounds.
-  A grid of round fractions tests almost nothing in a geometric subsystem.
-- **Validate every structural mutation pattern before the sweep runs.** A
-  pattern matching zero times is otherwise silently counted as a kill — the
-  mutation-harness form of the silently-empty-output problem. Milestone 5's
-  runner refuses to start unless every pattern matches **exactly once**.
-- **`const X = ...` in the reference is a lexical binding, not a property of the
-  `vm` context's global object.** `ctx.UME` is `undefined` however well the
-  slice ran, and the capture must append an explicit
-  `globalThis.__UME = UME;` and assert the result. This is one of the three
-  silently-empty-output incidents this project has already shipped, met again
-  head-on; the fourth structural assertion is that the handoff produced a real
-  object with a real `cityGen` on it.
+**Commit the capture script.** Milestones 1-15's scripts were thrown away and
+survive only as prose in their `golden.rs` headers; milestone 16's
+`cartalith-native/tools/um_capture.js` had to be reconstructed from those
+headers, and is kept. So is block 2's `um_block2_capture.js`.
 
-Milestone 7 added three, all of which cost it a restart, a sweep or a wrong
-sentence:
+**Gate the capture on shape.** It refuses to write unless the output is
+non-empty and the right shape — endpoints right, expected `null`s really `null`,
+each discriminating fixture really discriminating — and the Rust side mirrors
+the shape half as its own test, because `zip` stops at the shorter side and a
+truncated `golden.rs` would otherwise pass. Three subsystems in this project
+shipped a silently empty harness before this rule.
 
-- **A raster fixture must be in the units the code reads, and the code is the
-  only place that says what those are.** Milestone 7's first fifteen
-  raster-backed fixtures grew **nothing at all**, because `site.height` reads
-  `opts.terrain.grid` raw and `site.slope` scales a per-metre central
-  difference by 900, so a heightfield in metres of elevation makes every slope
-  test in the engine reject. Read the consumer before building the input.
-- **A threshold with two halves needs a fixture that satisfies both, and an
-  invented shape usually satisfies neither.** The M-GRW-2a gate wants an
-  interior hull filling 80% of the circuit *and* growth spilled outside it.
-  Hand-drawn ellipses could not pass the first half at any size, and the
-  obvious fix — the town's own convex hull — failed the second by enclosing
-  everything. What works is the town's own hull *at an earlier epoch and
-  restricted to a radius*, i.e. approximately what the function that would
-  normally build it constructs.
-- **A survivor is a claim you have not made yet.** Milestone 7's first sweep
-  left 51; a second round split them into fixtures that close them (12 new
-  scenarios, one of them **scanned** for an exterior count of exactly 10) and
-  seven *provable* equivalences written as assertions — the clamp that cannot
-  bind, the adjacency that cannot hold a dead edge, the angle wrap that its own
-  following fold undoes, the twelve trig angles V8 and the platform agree on,
-  the zero-area ring that cannot contain a node, the hull whose winding never
-  varies, and the two fallbacks that are only assigned when they are not read.
-  "Survived" and "cannot matter" are different reports; the second one is a
-  test.
+### A golden that passes is not a golden that tests anything
 
-Milestone 6 added two more, both from its own sweep:
+Every golden in milestones 3-8a and 12 matched the reference on its first run,
+bar milestone 5's one `Math.exp` probe, and mutation testing is what showed how
+little some of them tested. So: mutation-check every constant and comparator;
+include at least one quantised or symmetric fixture beside the random ones; and
+report every survivor with the invariant it rests on. **"Survived" and "cannot matter" are
+different reports, and the second is a test** — an executable assertion of the
+invariant. Use a **graded perturbation** (a large change to the same constant)
+to show a constant is tested where a 37% nudge is simply below what the fixture
+can express.
 
-- **A dozen hand-picked rows cannot test a bit-twiddling port.** Its first sweep
-  left **63 survivors inside `js_sin`/`js_cos`/`js_log` alone**, by a golden
-  table built exactly the way `js_exp`'s and `js_hypot`'s were — twelve rows
-  cover twelve paths through a branchy function, not its branches. The fix is
-  four lines of golden: an FNV-1a **hash** over every result across tens of
-  thousands of arguments, drawn by the reference's own `mulberry32` so both
-  sides provably evaluate the same points, with the bands chosen to enter each
-  branch on purpose (two of milestone 6's six trig bands exist only to reach
-  `rem_pio2`'s second and third correction rounds, which no uniform band
-  reaches). Milestones 8, 10 and 15 each need one of these; start there rather
-  than with a table.
-- **Take a pristine snapshot before the sweep writes anything.** Two of
-  milestone 6's runners overlapped on one target directory; the first was killed
-  mid-mutation, the second read the already-mutated file as its "original" and
-  faithfully restored it to that, and the source shipped a live mutation that
-  only the suite failing afterwards revealed. A per-edit `finally` restore is
-  not enough, because it restores to whatever it read. Snapshot first, restore
-  from the snapshot, re-run the suite as a **post-sweep baseline**, and refuse
-  to start while a lock file exists. Milestone 4's stale-binary incident
+**Fixture rules, each from a sweep that needed it:**
+
+- **Quantised inputs** (milestone 3). A continuous field never produces an exact
+  tie, so a tie-break is invisible until the input is quantised.
+- **Just-below-a-boundary inputs** (milestone 4). A quantised output — anything
+  rounded, floored or bucketed — cannot see an input change smaller than half
+  its step, so a constant inside a quantiser survives every small perturbation.
+  Build fixtures just below each boundary as well as on it.
+- **Build fixtures out of the geometry under test** (milestone 5). Masks uniform
+  along one axis and probe grids of round fractions test almost nothing where
+  the thresholds are metres wide; derive probes from the site's own polyline and
+  ripple every mask.
+- **Clear the coordinate's ulp** (milestone 6). A metre offset added to a large
+  coordinate cannot express a one-ulp boundary.
+- **Add fixtures; do not substitute them** (milestone 6). Replacing a fixture
+  can lose a branch the old one reached — a sweep went 73 → 74 on a round meant
+  to improve it. Re-run the full sweep after every fixture change.
+- **Use the units the code reads** (milestone 7). A heightfield in metres makes
+  every slope test reject; read the consumer before building the input.
+- **A two-halved threshold needs a fixture that satisfies both halves**
+  (milestone 7), and an invented shape usually satisfies neither; build it the
+  way the engine would.
+- **A continuous-comparison survivor is closable when one side of the comparison
+  is a field the fixture can set** (milestone 8a).
+- **A dozen hand-picked rows cannot test a bit-twiddling port** (milestone 6).
+  Its first sweep left **63 survivors inside `js_sin`/`js_cos`/`js_log`** from a
+  golden table built the way `js_exp`'s and `js_hypot`'s were — twelve rows
+  cover twelve paths, not the branches. Pin a libm port with an FNV-1a **hash**
+  over tens of thousands of results (24,000 sin, 24,000 cos, 30,000 log there),
+  arguments drawn by the reference's own `mulberry32` so both sides evaluate the
+  same points, with bands chosen to enter each branch on purpose — two of
+  milestone 6's six trig bands exist only to reach `rem_pio2`'s second and third
+  correction rounds, which no uniform band reaches.
+
+### Mutation-harness rules, each from an incident
+
+- **Stamp the file's mtime forward, and anchor patterns on code that cannot
+  appear in prose** (milestone 3). A mutation written in the same second as the
+  previous build was not rebuilt, and a pattern (`dl * 0.5 *`) matched inside a
+  doc comment first — two false survivors.
+- **Re-run every survivor in isolation** (milestone 4). A combined run reported
+  34 survivors that all died individually: it had been reading a stale binary,
+  most likely because a sibling fork was building in the same `target/`. A stale
+  binary reports a healthy `N passed`, so a "did the tests run" gate cannot
+  catch it — but add a parsed-count gate anyway, which catches a filter that
+  silently matches nothing.
+- **Give the sweep its own `CARGO_TARGET_DIR`** (milestone 6): zero false
+  survivors across 600 mutations, where the shared directory produced 34.
+- **Validate every structural pattern to match exactly once before the sweep**
+  (milestone 5). A pattern matching zero times is otherwise counted as a kill.
+- **Snapshot before writing anything; restore from the snapshot; re-run the
+  suite as a post-sweep baseline; refuse to start while a lock file exists**
+  (milestone 6). Two runners overlapped on one target directory: the first was
+  killed mid-mutation, the second read the mutated file as its "original" and
+  restored it to that, and `routes.rs` shipped `-(s * 5.61)` for `-(s * 4)`. A
+  per-edit `finally` restores to whatever it read. Milestone 4's incident
   corrupts the *report*; this one corrupts the *source*.
 
-**Where a milestone's functions are on neither `UME`'s public export nor its
-`_test` one** — milestone 5 is the first — the capture may add them to the
-returned object with a **single anchored replacement** of the `return {` line,
-asserted to match exactly once, with the injected names checked to be functions
-before anything is captured. The frozen reference file itself is never edited.
+### Range corrections
 
-Where `_test` or the public export reaches a function, expected values are the
-reference's own output. Where it does not (`polySelfIntersects` is the only
-milestone-1 case), the test is a real unit test of the ported logic and is
-labelled as such — the precedent territory, provinces and `cartalith-spatial`
-all set.
+For anyone reading an older citation of this document's ranges. Every range the
+plan first wrote needed correcting. **An end that runs too late
+silently pulls in the next milestone's header; a start that is too late silently
+omits a definition** — so check a range against the file before slicing, and
+assert its boundaries in the capture.
+
+| milestone | the plan said | the reference range | what was wrong |
+|---|---|---|---|
+| 2 | 28363-28513 | 28362-28511 | `edgeBetween` closes at 28511; 28513 is milestone 3's header |
+| 3 | 28514-28556 | 28513-28547 | ran nine lines into milestone 5's site-model header |
+| 4 | 28212-28289 | 28193-28280 | the start excluded `CULTURE_PROFILES`; the end ran into the `V` helpers |
+| 5 | 28557-28742 | 28549-28741 | omitted the site-model header and `shoreFromMask`'s v0.98 note |
+| 6 | 28744-28843 | 28743-28833 | ran ten lines into milestone 8's radial header |
+| 7 | 29390-29630 | 29384-29630 | omitted `logisticRamp`'s doc comment |
+| 8, with 8a | 28844-28970 | 28835-28939 and 28941-28965 | the start omitted the radial header; the end ran into the harbour header |
+| 9 | 28971-29159 | 28967-29154 | ran five lines into milestone 14's header |
+| 10 | 29631-30037 | 29631-30032 | ran into milestone 11's `clearFortZone` header |
+| 11 | 30038-30192 | 30034-30190 | ran into milestone 12's blocks header |
+| 12 | 30193-30344 | 30192-30342 | ran into milestone 13's districts header |
+| 13 | 30345-30710 | 30344-30682 | ran 28 lines into milestone 15's header and `FARM_SPEC` |
+| 14 | 29160-29389 | 29156-29382 | ran seven lines into `logisticRamp`'s doc comment |
+| 15 | 30711-30930 | 30684-30928 | `FARM_SPEC` sat in milestone 13's claimed range; the end ran into 16's header |
+| 16 | 30931-31086, plus `hashModel` | 30930-31094 | `generate` closes at 31084; 31086 is `hashModel`'s comment |
+| 17 | ~22036-22960 | 22036-22962 | `_umDrawLayoutPreview` closes at 22962 |
+
+Several module headers in `cartalith-urban` (`astar.rs`, `blocks.rs`,
+`districts.rs`, `amenities.rs`, `hinterland.rs`, `water.rs`) quote the plan's
+ranges from before this table.
