@@ -71,6 +71,26 @@ concurrent changes — so the real count moved to 85 while the comment stayed at
 just went through. Not fixed here: `world_workspace.gd` is outside this
 lane's owned files; flagged so whoever owns it next can re-run the same grep.
 
+**Regenerated again, 2026-09-23, as the stage-by-stage audit `OUTSTANDING_WORK.md`
+§2.5 asked for.** `grep -c "ParamSpec { key:" params.rs` now reads **99**, not
+85 — the civ group (13 rows, `LARGE_ITEM_RULINGS.md`, owner 2026-08-31) had
+never been written up in this document at all until this pass added the
+"Group `civ`" section below, and one further row, `integrate_drainage`
+(owner-authorised 2026-09-22), had landed in `PARAMS`' `world` group without a
+matching row here either — both are real, checkable gaps, not a rounding
+error: this document's own tables, summed by hand against `params.rs`,
+carried 86 rows the day before this pass (7+3+6+13+9+28+9+11, every non-civ
+group already exact) against the code's 99. `world_workspace.gd`'s header
+comment (line 10, "85 parameters") is now **14** rows stale on the same
+count and was left uncorrected for the same out-of-lane reason as the
+paragraph above — flagged here again rather than silently fixed.
+
+Every row below now also carries two new columns, **Stage(s) that read it**
+and **Live-apply**, which is the actual content `OUTSTANDING_WORK.md` §2.5
+asked this document to carry and which it did not have before this pass —
+see "Stage-by-stage pipeline audit (2026-09-23)" near the end of this
+document for the method and the findings.
+
 ## What changed
 
 Before this pass, `WorldGen` exposed **7** of the engine's generation
@@ -105,7 +125,7 @@ reader of either side finds the other without a lookup table.
 | `get_params() -> Dictionary` | Every parameter's **current** value, keyed by dotted key. `bool` for checkbox parameters, `int` for whole-number ones, `float` otherwise. |
 | `get_param_defaults() -> Dictionary` | The same shape at `WorldParams::defaults` — what a "reset to default" control shows. Never affected by this instance's state. |
 | `get_param_info() -> Dictionary` | key -> `{group, type, default, min, max, step, label, unit, reference_control}`. Everything a dialog needs to build a control, so no range/step/label is hardcoded twice. |
-| `get_param_groups() -> PackedStringArray` | `["world", "planet", "world_structure", "tectonics", "volcanism", "erosion", "climate", "weather"]` — the section order, each matching a real panel heading in the reference's sidebar. |
+| `get_param_groups() -> PackedStringArray` | `["world", "planet", "world_structure", "tectonics", "volcanism", "erosion", "climate", "weather", "civ"]` — the section order, each of the first eight matching a real panel heading in the reference's sidebar; `civ` is this port's own auto-populate group and has no reference panel of its own. **Corrected 2026-09-23**: this row omitted `civ` since the group was added (`LARGE_ITEM_RULINGS.md`, 2026-08-31) — `params::groups()` derives the list mechanically from `PARAMS`' first-appearance order, so the real return value has carried `civ` as a ninth entry the whole time this text said otherwise. |
 | `set_params(values: Dictionary) -> Dictionary` | Applies a **partial** dictionary. Returns `{"rejected": PackedStringArray, "clamped": PackedStringArray}`. Both empty = every key applied exactly as sent. |
 | `reset_params() -> void` | Restores every parameter to its engine default. |
 | `get_gpu_stages_used() -> PackedStringArray` | Read-only: which GPU-eligible stages actually ran on GPU last generation. |
@@ -332,14 +352,15 @@ are the truth and both sit inside the reachable range.
 
 ## Group `world` — Source & resolution + Scale & calibration
 
-| Key | Field | Type | Default | Range | Reference control | Meaning |
-|---|---|---|---|---|---|---|
-| `world` | `world` | bool | `false` | — | `extentSeg` (Region / Whole world) | Region = a framed area with user-set latitudes; Whole world = seamless equirectangular with toroidal X wrap. Changes plate/noise wrapping in every stage. |
-| `sea_level` | `sea_level` | float | `0.42` | 0.0 .. 1.0, step 0.01 | `sea`, raw 0-100, `v/100` | The normalized height counted as 0 m; below is ocean. A threshold on the already-`[0,1]`-stretched field, not a metre value. **Overridden when World Structure is on** — `apply_world_structure_sea_level` re-anchors it from the archetype's land-fraction target. |
-| `peak_m` | `peak_m` | float | `4000` | 1 .. 30000, step 50 | `peak` (number input, min 1 step 50) | Metres at the highest point. Sets the vertical scale (`metresPerUnit = peakM/(1-seaLevel)`), which drives temperature lapse and every grade readout. |
-| `carve_rivers` | `carve_rivers` | bool | `true` | — | `carveRiversChk` | Runs the light stream-power pass plus parabolic valley stamping along the Strahler network inside `generate()`, so rivers sit in carved terrain instead of painted on a flat surface. Off → no channel topology at all. |
-| `river_density` | `river_density` | float | `1.00` | 0.30 .. 3.00, step 0.05 | `riverDensR`, raw 30-300 step 5, `v/100` | Scales the channel-initiation drainage-area threshold. Higher = fewer, larger channels; lower = a denser network. (`state.viz.riverDensity` in the reference — a viz field that genuinely feeds generation.) |
-| `use_gpu` | `use_gpu` | bool | `false` | — | `gpuToggle` | Runs plate assignment, domain warp, heterogeneity, the flexure/base blur, weather and flow accumulation on GPU where available, falling back to CPU **per stage** on any failure. **Not a performance-only switch**: per `DECISIONS.md` §7c the GPU noise primitive is a different hash function, so the same seed produces a different (still valid, still deterministic) world. Read `get_gpu_stages_used()` for what actually ran. |
+| Key | Field | Type | Default | Range | Reference control | Meaning | Stage(s) that read it | Live-apply |
+|---|---|---|---|---|---|---|---|---|
+| `world` | `world` | bool | `false` | — | `extentSeg` (Region / Whole world) | Region = a framed area with user-set latitudes; Whole world = seamless equirectangular with toroidal X wrap. Changes plate/noise wrapping in every stage. | World Structure, Tectonics, Volcanism & Impacts, Erosion, Hydrology, Climate (global wrap/geometry flag) | — full regenerate only (pinned at recompute, never re-read live) |
+| `sea_level` | `sea_level` | float | `0.42` | 0.0 .. 1.0, step 0.01 | `sea`, raw 0-100, `v/100` | The normalized height counted as 0 m; below is ocean. A threshold on the already-`[0,1]`-stretched field, not a metre value. **Overridden when World Structure is on** — `apply_world_structure_sea_level` re-anchors it from the archetype's land-fraction target. | World Structure (re-anchor when WS on), Hydrology, Climate, Civilisation | — full regenerate only (`recompute_stale` reads the stored `WorldState.sea_level`, not this dial) |
+| `peak_m` | `peak_m` | float | `4000` | 1 .. 30000, step 50 | `peak` (number input, min 1 step 50) | Metres at the highest point. Sets the vertical scale (`metresPerUnit = peakM/(1-seaLevel)`), which drives temperature lapse and every grade readout. | Volcanism & Impacts (edifice height scale), Climate (lapse/temperature scale) | Hydrology → `refresh_climate` |
+| `carve_rivers` | `carve_rivers` | bool | `true` | — | `carveRiversChk` | Runs the light stream-power pass plus parabolic valley stamping along the Strahler network inside `generate()`, so rivers sit in carved terrain instead of painted on a flat surface. Off → no channel topology at all. | Erosion, Hydrology (gates the whole carve block) | — full regenerate only |
+| `river_density` | `river_density` | float | `1.00` | 0.30 .. 3.00, step 0.05 | `riverDensR`, raw 30-300 step 5, `v/100` | Scales the channel-initiation drainage-area threshold. Higher = fewer, larger channels; lower = a denser network. (`state.viz.riverDensity` in the reference — a viz field that genuinely feeds generation.) | Hydrology (channel width/order), Civilisation (`fresh_river_network`) | Climate → `compute_civilisation` |
+| `integrate_drainage` | `integrate_drainage` | bool | `false`¹ | — | **—** | Routes flow accumulation and the channel tree over the **depression-filled** surface, so water that reaches a local pit carries on to the sea instead of stopping there. **This row was missing from this document entirely until this audit (2026-09-23)** despite existing in `PARAMS` since the row landed (owner-authorised 2026-09-22, `RC_ENGINE_CHANGES.md` §6g/§6k, the source's own default since v2.59). No reference control in v2.10/v2.11 — the source added `state.hydro.integrate` at v2.41, after both frozen snapshots. **`true` in the shipped app (`params::defaults()`), `false` in `WorldParams::defaults`**, the goldens' own parity baseline, which compares against a reference with no fill — same shape as the crater/volcanism divergences above. | Hydrology (depression-filled routing), Civilisation (`fresh_river_network`) | Hydrology → `refresh_climate` |
+| `use_gpu` | `use_gpu` | bool | `false` | — | `gpuToggle` | Runs plate assignment, domain warp, heterogeneity, the flexure/base blur, weather and flow accumulation on GPU where available, falling back to CPU **per stage** on any failure. **Not a performance-only switch**: per `DECISIONS.md` §7c the GPU noise primitive is a different hash function, so the same seed produces a different (still valid, still deterministic) world. Read `get_gpu_stages_used()` for what actually ran. | Tectonics, Volcanism & Impacts (warp/plate GPU paths), Hydrology, Climate (GPU dispatch selector) | — full regenerate only |
 
 ## Group `planet`
 
@@ -347,11 +368,11 @@ Gravity is the one planetary parameter with terrain-wide reach: it scales
 fluvial and glacial erosion (×g), the temperature lapse (×g), crater size
 (×g⁻⁰·²²), wave energy (×1/g), and rescales peak altitude (~1/g).
 
-| Key | Field | Type | Default | Range | Reference control | Meaning |
-|---|---|---|---|---|---|---|
-| `planet.g` | `planet.g` | float | `1.00` | 0.30 .. 2.50, step 0.05 | `pg`, raw 30-250 step 5, `v/100` | Surface gravity in Earth g. Reaches `stamp_craters`, `stream_power_kernel` and `compute_temperature`'s lapse term. Low-g worlds get taller mountains (the Olympus Mons effect). |
-| `planet.rotation_hours` | `planet.rotation_hours` | float | `24.0` | 6 .. 96, step 1 | `prot`, raw 6-96 step 1 | Rotation period in hours. Sets the atmospheric circulation-cell count (`N_c ≈ 3·√((24/h)·radius/√g)`) and the Coriolis term in `build_wind`; also scales the equator-pole temperature contrast (`(24/h)^0.25`, v1.85). Fast spin → many wind belts; slow spin → one giant Hadley cell. |
-| `planet.axial_tilt_deg` | `planet.axial_tilt_deg` | float | `23.4` | 0 .. 45, step 0.5 | `ptilt`, raw 0-45 step 0.5 | Obliquity. v1.85: scales the equator-pole temperature **contrast** (not the pole temperature) via `s2(tilt)/s2(23.4°)`, `s2(ε)=3sin²ε−2` — the 2nd-order energy-balance obliquity term (North & Coakley 1979). Lower tilt sharpens the gradient (≈1.31 at 0°), higher flattens it (≈0.33 at 45°). Exactly 1.0 at the default. |
+| Key | Field | Type | Default | Range | Reference control | Meaning | Stage(s) that read it | Live-apply |
+|---|---|---|---|---|---|---|---|---|
+| `planet.g` | `planet.g` | float | `1.00` | 0.30 .. 2.50, step 0.05 | `pg`, raw 30-250 step 5, `v/100` | Surface gravity in Earth g. Reaches `stamp_craters`, `stream_power_kernel` and `compute_temperature`'s lapse term. Low-g worlds get taller mountains (the Olympus Mons effect). | Volcanism & Impacts (crater size), Erosion (stream-power/velocity/glacial/coastal/tidal passes), Climate (lapse rate) | Hydrology → `refresh_climate` |
+| `planet.rotation_hours` | `planet.rotation_hours` | float | `24.0` | 6 .. 96, step 1 | `prot`, raw 6-96 step 1 | Rotation period in hours. Sets the atmospheric circulation-cell count (`N_c ≈ 3·√((24/h)·radius/√g)`) and the Coriolis term in `build_wind`; also scales the equator-pole temperature contrast (`(24/h)^0.25`, v1.85). Fast spin → many wind belts; slow spin → one giant Hadley cell. | Climate (day-length circulation) | Hydrology → `refresh_climate` |
+| `planet.axial_tilt_deg` | `planet.axial_tilt_deg` | float | `23.4` | 0 .. 45, step 0.5 | `ptilt`, raw 0-45 step 0.5 | Obliquity. v1.85: scales the equator-pole temperature **contrast** (not the pole temperature) via `s2(tilt)/s2(23.4°)`, `s2(ε)=3sin²ε−2` — the 2nd-order energy-balance obliquity term (North & Coakley 1979). Lower tilt sharpens the gradient (≈1.31 at 0°), higher flattens it (≈0.33 at 45°). Exactly 1.0 at the default. | Climate (obliquity contrast) | Hydrology → `refresh_climate` |
 
 ## Group `world_structure`
 
@@ -367,14 +388,14 @@ below are **ignored** in that mode, exactly as in the reference. Graph-driven
 orogeny also switches on with it (the reference's `tectonicGraph`, whose only
 caller is this same derivation).
 
-| Key | Field | Type | Default | Range | Reference control | Meaning |
-|---|---|---|---|---|---|---|
-| `world_structure.enabled` | `world_structure.enabled` | bool | `false` | — | `wsEnabled` | Generates a continentality field first: continental plates settle in high-field zones, oceanic in low, and a large-scale elevation bias anchors the land/sea split. Off = the plain random plate generation. |
-| `world_structure.continentality` | `.continentality` | float | `0.30` | 0.01 .. 0.90, step 0.01 | `wsCont`, raw 1-90, `v/100` | How much land vs ocean. Also the land-fraction target `apply_world_structure_sea_level` re-anchors sea level against. |
-| `world_structure.fragmentation` | `.fragmentation` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `wsFrag`, raw 0-100, `v/100` | One landmass or many. Drives the derived plate count and pushes plate bases toward an archipelago distribution. |
-| `world_structure.tectonic_energy` | `.tectonic_energy` | float | `0.60` | 0.0 .. 1.0, step 0.01 | `wsTect`, raw 0-100, `v/100` | Overall relief intensity; becomes the derived drift velocity (`×2`). |
-| `world_structure.ocean_depth` | `.ocean_depth` | float | `0.60` | 0.0 .. 1.0, step 0.01 | `wsOcean`, raw 0-100, `v/100` | How deep ocean basins sit below sea level. |
-| `world_structure.hotspot_density` | `.hotspot_density` | float | `0.20` | 0.0 .. 1.0, step 0.01 | `wsHot`, raw 0-100, `v/100` | Volcanic-province likelihood; becomes the derived volcano count (`×60`). |
+| Key | Field | Type | Default | Range | Reference control | Meaning | Stage(s) that read it | Live-apply |
+|---|---|---|---|---|---|---|---|---|
+| `world_structure.enabled` | `world_structure.enabled` | bool | `false` | — | `wsEnabled` | Generates a continentality field first: continental plates settle in high-field zones, oceanic in low, and a large-scale elevation bias anchors the land/sea split. Off = the plain random plate generation. | World Structure, Tectonics, Volcanism & Impacts (gates the three overrides) | — full regenerate only |
+| `world_structure.continentality` | `.continentality` | float | `0.30` | 0.01 .. 0.90, step 0.01 | `wsCont`, raw 1-90, `v/100` | How much land vs ocean. Also the land-fraction target `apply_world_structure_sea_level` re-anchors sea level against. | World Structure (continentality field, sea-level re-anchor target) | — full regenerate only |
+| `world_structure.fragmentation` | `.fragmentation` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `wsFrag`, raw 0-100, `v/100` | One landmass or many. Drives the derived plate count and pushes plate bases toward an archipelago distribution. | World Structure (continentality field), Tectonics (derived plate count) | — full regenerate only |
+| `world_structure.tectonic_energy` | `.tectonic_energy` | float | `0.60` | 0.0 .. 1.0, step 0.01 | `wsTect`, raw 0-100, `v/100` | Overall relief intensity; becomes the derived drift velocity (`×2`). | Tectonics (derived drift velocity) | — full regenerate only |
+| `world_structure.ocean_depth` | `.ocean_depth` | float | `0.60` | 0.0 .. 1.0, step 0.01 | `wsOcean`, raw 0-100, `v/100` | How deep ocean basins sit below sea level. | World Structure/Tectonics (`continental_field.ocean_depth` term in `compute_height`) | — full regenerate only |
+| `world_structure.hotspot_density` | `.hotspot_density` | float | `0.20` | 0.0 .. 1.0, step 0.01 | `wsHot`, raw 0-100, `v/100` | Volcanic-province likelihood; becomes the derived volcano count (`×60`). | Volcanism & Impacts (derived volcano count) | — full regenerate only |
 
 **Archetype presets** (reference `ARCHETYPES`, lines 2521-2526), applied
 persistently by `apply_archetype()` or for one call by
@@ -393,37 +414,37 @@ persistently by `apply_archetype()` or for one call by
 The height formula these feed:
 `field = 0.5 + α·(0.40·base + 0.50·stress) + F·flexure + C·heterogeneity + β·noise·(0.25 + 0.75·rugosity)`.
 
-| Key | Field | Type | Default | Range | Reference control | Meaning |
-|---|---|---|---|---|---|---|
-| `tect.plates` | `tect.plates` | int | `14` | 4 .. 40, step 1 | `plates`, raw 4-40 step 1 | Number of tectonic plates (Voronoi cells over drifting centroids). Few = large continents and long boundaries; many = fragmented, busier coastlines. Ignored when World Structure is on. |
-| `tect.vel` | `tect.vel` | float | `1.00` | 0.0 .. 2.0, step 0.02 | `vel`, raw 0-100, `v/50` | Plate-velocity multiplier: how far centroids move, and so the stress magnitude at boundaries. Ignored when World Structure is on. |
-| `tect.warp` | `tect.warp` | float | `0.45` | 0.0 .. 1.0, step 0.01 | `warp`, raw 0-100, `v/100` | Domain-warp amount. Distorts the sampling grid for organic, non-circular coastlines and ridgelines. 0 = geometric and blobby. |
-| `tect.blur_r` | `tect.blur_r` | float | `18.0` | 2 .. 42, step 0.4 | `sigma`, raw 0-100, `2 + (v/100)·40` px | Blur radius for plate base and stress. Small = sharp, narrow mountain belts; large = broad smooth swells. Also sets the flexural and isostatic-rebound wavelength. |
-| `tect.alpha` | `tect.alpha` | float | `0.85` | 0.0 .. 1.2, step 0.012 | `alpha`, raw 0-100, `v/100·1.2` | Weight of the tectonic signal (plate base + stress) in the height formula — the master "how tectonic vs how noisy" dial. |
-| `tect.beta` | `tect.beta` | float | `0.22` | 0.0 .. 0.6, step 0.006 | `beta`, raw 0-100, `v/100·0.6` | Weight of the fBm/ridged fractal detail layered on top of tectonics, concentrated near boundaries by the rugosity term. |
-| `tect.age_inf` | `tect.age_inf` | float | `0.60` | 0.0 .. 1.0, step 0.01 | `age`, raw 0-100, `v/100` ("Erosion / age") | Boundary-age influence. `rugosity = exp(−age·(1 + ageInf·6))`: young crust near boundaries is rough, old interiors smooth. High = sharp arcs against flat cratons. |
-| `tect.ridged` | `tect.ridged` | bool | `true` | — | `ridged` | Switches the fractal between ridged (sharp crests, mountainous) and standard fBm (rolling). |
-| `tect.flexure` | `tect.flexure` | float | `0.20` | 0.0 .. 0.36, step 0.006 | `flexure`, raw 0-60, `v/100·0.6` | Lithospheric-flexure weight: broad isostatic arches around mountain loads and subsidence in rift basins — the main driver of continental shelves. |
-| `tect.hetero` | `tect.hetero` | float | `0.08` | 0.0 .. 0.16, step 0.004 | `hetero`, raw 0-40, `v/100·0.4` | Within-plate crustal-diversity weight: low-frequency fBm × age, giving craton interiors and sedimentary basins their own topography. |
-| `tect.resist` | `tect.resist` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `resist`, raw 0-100, `v/100` | Erodibility spread by rock type in the stream-power pass: old shields resist incision (5-30% rate), young volcanic arcs erode at full rate. |
-| `tect.dynamic_lithology` | `tect.dynamic_lithology` | bool | `false` | — | `dynLithChk` | Exhumation hardening: after erosion, re-derives the resistance field so stripped-down crust exposes more resistant rock. Reference default off. |
-| `tect.lloyd` | `tect.lloyd` | int | `2` | 0 .. 8, step 1 | **—** | Lloyd-relaxation passes over the plate centroids before Voronoi assignment. More = more evenly sized, less clustered plates. The reference stores it in `state.tect` but never gave it a control; range is this port's own judgement. |
+| Key | Field | Type | Default | Range | Reference control | Meaning | Stage(s) that read it | Live-apply |
+|---|---|---|---|---|---|---|---|---|
+| `tect.plates` | `tect.plates` | int | `14` | 4 .. 40, step 1 | `plates`, raw 4-40 step 1 | Number of tectonic plates (Voronoi cells over drifting centroids). Few = large continents and long boundaries; many = fragmented, busier coastlines. Ignored when World Structure is on. | Tectonics (`build_plates`; ignored when World Structure on) | — full regenerate only |
+| `tect.vel` | `tect.vel` | float | `1.00` | 0.0 .. 2.0, step 0.02 | `vel`, raw 0-100, `v/50` | Plate-velocity multiplier: how far centroids move, and so the stress magnitude at boundaries. Ignored when World Structure is on. | Tectonics (`compute_stress`; ignored when World Structure on) | — full regenerate only |
+| `tect.warp` | `tect.warp` | float | `0.45` | 0.0 .. 1.0, step 0.01 | `warp`, raw 0-100, `v/100` | Domain-warp amount. Distorts the sampling grid for organic, non-circular coastlines and ridgelines. 0 = geometric and blobby. | Tectonics (`compute_warp`, feeds height + heterogeneity) | — full regenerate only |
+| `tect.blur_r` | `tect.blur_r` | float | `18.0` | 2 .. 42, step 0.4 | `sigma`, raw 0-100, `2 + (v/100)·40` px | Blur radius for plate base and stress. Small = sharp, narrow mountain belts; large = broad smooth swells. Also sets the flexural and isostatic-rebound wavelength. | Tectonics (stress/flexure/base-field blur), Erosion (`isostatic_rebound` after every erosion pass) | — full regenerate only |
+| `tect.alpha` | `tect.alpha` | float | `0.85` | 0.0 .. 1.2, step 0.012 | `alpha`, raw 0-100, `v/100·1.2` | Weight of the tectonic signal (plate base + stress) in the height formula — the master "how tectonic vs how noisy" dial. | Tectonics (`compute_height` weight) | — full regenerate only |
+| `tect.beta` | `tect.beta` | float | `0.22` | 0.0 .. 0.6, step 0.006 | `beta`, raw 0-100, `v/100·0.6` | Weight of the fBm/ridged fractal detail layered on top of tectonics, concentrated near boundaries by the rugosity term. | Tectonics (`compute_height` fractal weight) | — full regenerate only |
+| `tect.age_inf` | `tect.age_inf` | float | `0.60` | 0.0 .. 1.0, step 0.01 | `age`, raw 0-100, `v/100` ("Erosion / age") | Boundary-age influence. `rugosity = exp(−age·(1 + ageInf·6))`: young crust near boundaries is rough, old interiors smooth. High = sharp arcs against flat cratons. | Tectonics (`compute_height` rugosity) | — full regenerate only |
+| `tect.ridged` | `tect.ridged` | bool | `true` | — | `ridged` | Switches the fractal between ridged (sharp crests, mountainous) and standard fBm (rolling). | Tectonics (`compute_height` fractal mode) | — full regenerate only |
+| `tect.flexure` | `tect.flexure` | float | `0.20` | 0.0 .. 0.36, step 0.006 | `flexure`, raw 0-60, `v/100·0.6` | Lithospheric-flexure weight: broad isostatic arches around mountain loads and subsidence in rift basins — the main driver of continental shelves. | Tectonics (`compute_height` flexure weight) | — full regenerate only |
+| `tect.hetero` | `tect.hetero` | float | `0.08` | 0.0 .. 0.16, step 0.004 | `hetero`, raw 0-40, `v/100·0.4` | Within-plate crustal-diversity weight: low-frequency fBm × age, giving craton interiors and sedimentary basins their own topography. | Tectonics (`compute_height` heterogeneity weight) | — full regenerate only |
+| `tect.resist` | `tect.resist` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `resist`, raw 0-100, `v/100` | Erodibility spread by rock type in the stream-power pass: old shields resist incision (5-30% rate), young volcanic arcs erode at full rate. | Tectonics (`compute_resistance`), Erosion (stream-power erodibility spread) | — full regenerate only |
+| `tect.dynamic_lithology` | `tect.dynamic_lithology` | bool | `false` | — | `dynLithChk` | Exhumation hardening: after erosion, re-derives the resistance field so stripped-down crust exposes more resistant rock. Reference default off. | Erosion (`recompute_resistance_after_erosion`, gated on every erosion pass) | — full regenerate only |
+| `tect.lloyd` | `tect.lloyd` | int | `2` | 0 .. 8, step 1 | **—** | Lloyd-relaxation passes over the plate centroids before Voronoi assignment. More = more evenly sized, less clustered plates. The reference stores it in `state.tect` but never gave it a control; range is this port's own judgement. | Tectonics (`build_plates` Lloyd relaxation) | — full regenerate only |
 
 ## Group `volcanism` — Volcanism & impacts
 
 Stamped after the base height is built and normalized, before erosion.
 
-| Key | Field | Type | Default | Range | Reference control | Meaning |
-|---|---|---|---|---|---|---|
-| `volc.count` | `volc.count` | int | `20` | 0 .. 100, step 1 | `volc`, raw 0-100 step 1 | Number of volcanic edifices stamped into `field` and recorded in `volcanic_field` for biome tinting. Ignored when World Structure is on (derived from hotspot density). |
-| `volc.age` | `volc.age` | float | `0.40` | 0.0 .. 1.0, step 0.01 | `volca`, raw 0-100, `v/100` | Weathering of volcanoes. Old (high) = lower, softer, wider; young (low) = tall and sharp with a caldera notch. |
-| `volc.provinces` | `volc.provinces` | bool | `true` | — | `volcProv` | Province mode: clusters volcanoes on convergent boundaries and hotspots with power-law sizes, instead of the simple boundary scatter. |
-| `volc.exclude_transform` | `volc.exclude_transform` | bool | `false`¹ | — | **—** | Drops shear-dominant (transform-margin) cells from the arc/rift candidate pools before placement. The reference selects arcs on the *sign* of blurred normal stress, which cannot see shear, so a measured **34.3%** of the arc pool and **32.3%** of the rift pool land on transform boundaries — not a major real volcanic environment. **`true` in the shipped app, `false` in `WorldParams::defaults`** (owner ruling 1, 2026-09-02, `DECISIONS.md` §7l-ii): turning it on moves the height field and therefore lithology, biomes, carrying capacity, settlements, roads and sea routes, so it ships at the app boundary while the parity baseline stays the reference's. Re-measured with it on (256×160, 12 seeds): both pools **0.0%** transform, with 65.7% of arc sites and 67.7% of rift sites surviving — it corrects placement rather than starving it. No reference counterpart: the reference has no transform-exclusion concept, because it never noticed it was placing arcs on transforms. |
-| `volc.edifice_model` | `volc.edifice_model` | bool | `false`¹ | — | **—** | Shaped edifices (shield/strato/cone): switches volcano rendering between featureless cones and morphologically-constrained edifice families. **`true` in the shipped app, `false` in `WorldParams::defaults`** (owner ruling 1, 2026-09-02, `DECISIONS.md` §7l-ii) — same split, and for the same reason, as the row above. No reference counterpart: the reference has one profile only. |
-| `crater.count` | `crater.count` | int | `100` | 0 .. 200, step 2 | `crat`, raw 0-100 step 1, `v·2` | Number of impact craters recorded in `impact_field`, when `crater.physical_model` is off (`WorldParams::defaults`, the reference's own path): sizes drawn from the reference's own three flat bands (90% at 0.5-5 km radius, 9% at 5-25, 1% at 25-200), sampled uniformly *within* each band — **not** actually a realistic D⁻² distribution, which is exactly what `DECISIONS.md` §7l found wrong with it (too many large craters relative to small ones) and built `crater.physical_model` to fix. When `crater.physical_model` is **on** (the shipped default), this key becomes the intensity multiplier `I = count/100` on the area-density law instead of a raw count — see that row. Crater radius scales with `g^−0.22` in both modes. |
-| `crater.age` | `crater.age` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `crata`, raw 0-100, `v/100` | Crater degradation. Old = shallow and infilled; young = crisp rim with a central peak. |
-| `crater.physical_model` | `crater.physical_model` | bool | `false`¹ | — | **—** | `DECISIONS.md` §7l (owner ruling, 2026-09-02). Switches crater generation from `crater.count`'s fixed count to an area-density model: `lambda = R20·T·A·(20/Dmin)^b·I` (Poisson-drawn count, truncated `D⁻²` sizes over a resolution-aware `[Dmin, 400 km]`), so density is correct at every map scale instead of a slider whose meaning changes by 64,000,000× between a 5 km region and a 40,000 km world. The reference has neither a density model nor this flag — no reference counterpart at all, not just no control. |
-| `crater.surface_age_myr` | `crater.surface_age_myr` | float | `100.0` | 0.0 .. 4000.0, step 10.0 | **—** | Geological surface exposure age in **millions of years** — feeds `crater.physical_model`'s `T` term. **Not** the civilisation Timeline and **not** `crater.age`'s 0-1 morphological wear: three distinct clocks (`DECISIONS.md` §7l), six-plus orders of magnitude apart and not convertible. No reference counterpart: the reference has no geological-age concept to store one under. |
+| Key | Field | Type | Default | Range | Reference control | Meaning | Stage(s) that read it | Live-apply |
+|---|---|---|---|---|---|---|---|---|
+| `volc.count` | `volc.count` | int | `20` | 0 .. 100, step 1 | `volc`, raw 0-100 step 1 | Number of volcanic edifices stamped into `field` and recorded in `volcanic_field` for biome tinting. Ignored when World Structure is on (derived from hotspot density). | Volcanism & Impacts | — full regenerate only |
+| `volc.age` | `volc.age` | float | `0.40` | 0.0 .. 1.0, step 0.01 | `volca`, raw 0-100, `v/100` | Weathering of volcanoes. Old (high) = lower, softer, wider; young (low) = tall and sharp with a caldera notch. | Volcanism & Impacts | — full regenerate only |
+| `volc.provinces` | `volc.provinces` | bool | `true` | — | `volcProv` | Province mode: clusters volcanoes on convergent boundaries and hotspots with power-law sizes, instead of the simple boundary scatter. | Volcanism & Impacts (dispatch: provinces vs. simple scatter) | — full regenerate only |
+| `volc.exclude_transform` | `volc.exclude_transform` | bool | `false`¹ | — | **—** | Drops shear-dominant (transform-margin) cells from the arc/rift candidate pools before placement. The reference selects arcs on the *sign* of blurred normal stress, which cannot see shear, so a measured **34.3%** of the arc pool and **32.3%** of the rift pool land on transform boundaries — not a major real volcanic environment. **`true` in the shipped app, `false` in `WorldParams::defaults`** (owner ruling 1, 2026-09-02, `DECISIONS.md` §7l-ii): turning it on moves the height field and therefore lithology, biomes, carrying capacity, settlements, roads and sea routes, so it ships at the app boundary while the parity baseline stays the reference's. Re-measured with it on (256×160, 12 seeds): both pools **0.0%** transform, with 65.7% of arc sites and 67.7% of rift sites surviving — it corrects placement rather than starving it. No reference counterpart: the reference has no transform-exclusion concept, because it never noticed it was placing arcs on transforms. | Volcanism & Impacts | — full regenerate only |
+| `volc.edifice_model` | `volc.edifice_model` | bool | `false`¹ | — | **—** | Shaped edifices (shield/strato/cone): switches volcano rendering between featureless cones and morphologically-constrained edifice families. **`true` in the shipped app, `false` in `WorldParams::defaults`** (owner ruling 1, 2026-09-02, `DECISIONS.md` §7l-ii) — same split, and for the same reason, as the row above. No reference counterpart: the reference has one profile only. | Volcanism & Impacts | — full regenerate only |
+| `crater.count` | `crater.count` | int | `100` | 0 .. 200, step 2 | `crat`, raw 0-100 step 1, `v·2` | Number of impact craters recorded in `impact_field`, when `crater.physical_model` is off (`WorldParams::defaults`, the reference's own path): sizes drawn from the reference's own three flat bands (90% at 0.5-5 km radius, 9% at 5-25, 1% at 25-200), sampled uniformly *within* each band — **not** actually a realistic D⁻² distribution, which is exactly what `DECISIONS.md` §7l found wrong with it (too many large craters relative to small ones) and built `crater.physical_model` to fix. When `crater.physical_model` is **on** (the shipped default), this key becomes the intensity multiplier `I = count/100` on the area-density law instead of a raw count — see that row. Crater radius scales with `g^−0.22` in both modes. | Volcanism & Impacts (raw count, or intensity multiplier under `physical_model`) | — full regenerate only |
+| `crater.age` | `crater.age` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `crata`, raw 0-100, `v/100` | Crater degradation. Old = shallow and infilled; young = crisp rim with a central peak. | Volcanism & Impacts (morphological wear) | — full regenerate only |
+| `crater.physical_model` | `crater.physical_model` | bool | `false`¹ | — | **—** | `DECISIONS.md` §7l (owner ruling, 2026-09-02). Switches crater generation from `crater.count`'s fixed count to an area-density model: `lambda = R20·T·A·(20/Dmin)^b·I` (Poisson-drawn count, truncated `D⁻²` sizes over a resolution-aware `[Dmin, 400 km]`), so density is correct at every map scale instead of a slider whose meaning changes by 64,000,000× between a 5 km region and a 40,000 km world. The reference has neither a density model nor this flag — no reference counterpart at all, not just no control. | Volcanism & Impacts (dispatch: density-law vs. fixed count) | — full regenerate only |
+| `crater.surface_age_myr` | `crater.surface_age_myr` | float | `100.0` | 0.0 .. 4000.0, step 10.0 | **—** | Geological surface exposure age in **millions of years** — feeds `crater.physical_model`'s `T` term. **Not** the civilisation Timeline and **not** `crater.age`'s 0-1 morphological wear: three distinct clocks (`DECISIONS.md` §7l), six-plus orders of magnitude apart and not convertible. No reference counterpart: the reference has no geological-age concept to store one under. | Volcanism & Impacts (crater count AND `crater_degradation_tau`; inert unless `physical_model` on) | — full regenerate only |
 
 ¹ All three flags share one shape, and the `Default` column gives
 `WorldParams::defaults`' value throughout this document: `false` restores the
@@ -442,13 +463,13 @@ button (which this port does not have). `state.stream.cycles` has no
 `stream.*` key of its own — it is `passes.evolve_cycles` in the sub-section
 below, since the only thing that reads it is the Evolve op.
 
-| Key | Field | Type | Default | Range | Reference control | Meaning |
-|---|---|---|---|---|---|---|
-| `stream.uplift` | `stream.uplift` | float | `0.00` | 0.0 .. 0.4, step 0.004 | `sUp`, raw 0-100, `v/100·0.4` | Tectonic uplift rate competing against incision. **Default 0 by design** — the pass purely carves rivers. Raise it only to grow active-orogen ranges that fight the incision. |
-| `stream.k` | `stream.k` | float | `0.012` | 0.0 .. 0.03, step 0.0003 | `sK`, raw 0-100, `v/100·0.03` | The erodibility constant K in `E = K·Q^m·S^n`, **×planet gravity**. High = deep, dense valley networks. |
-| `stream.iters` | `stream.iters` | int | `15` | 4 .. 40, step 1 | `sIt`, raw 4-40 step 1 | Implicit-solver steps (Braun & Willett 2013) toward equilibrium. More = closer to a mature, graded river profile. |
-| `stream.deposit` | `stream.deposit` | float | `0.30` | 0.0 .. 1.0, step 0.01 | `sDep`, raw 0-100, `v/100` | Sediment deposition in low-gradient reaches and below sea level — floodplains and fans. Never raises a channel above the surrounding land. |
-| `stream.climate_k` | `stream.climate_k` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `sClim`, raw 0-100, `v/100` | Couples local rainfall into K (`1 + climateK·2·rain`). High = wet regions erode much faster than dry, giving climate-driven landscape asymmetry. |
+| Key | Field | Type | Default | Range | Reference control | Meaning | Stage(s) that read it | Live-apply |
+|---|---|---|---|---|---|---|---|---|
+| `stream.uplift` | `stream.uplift` | float | `0.00` | 0.0 .. 0.4, step 0.004 | `sUp`, raw 0-100, `v/100·0.4` | Tectonic uplift rate competing against incision. **Default 0 by design** — the pass purely carves rivers. Raise it only to grow active-orogen ranges that fight the incision. | Erosion (light carve, evolve cycles, sediment fill) | — full regenerate only |
+| `stream.k` | `stream.k` | float | `0.012` | 0.0 .. 0.03, step 0.0003 | `sK`, raw 0-100, `v/100·0.03` | The erodibility constant K in `E = K·Q^m·S^n`, **×planet gravity**. High = deep, dense valley networks. | Erosion (light carve, evolve cycles, sediment fill) | — full regenerate only |
+| `stream.iters` | `stream.iters` | int | `15` | 4 .. 40, step 1 | `sIt`, raw 4-40 step 1 | Implicit-solver steps (Braun & Willett 2013) toward equilibrium. More = closer to a mature, graded river profile. | Erosion (light carve, evolve cycles, sediment fill) | — full regenerate only |
+| `stream.deposit` | `stream.deposit` | float | `0.30` | 0.0 .. 1.0, step 0.01 | `sDep`, raw 0-100, `v/100` | Sediment deposition in low-gradient reaches and below sea level — floodplains and fans. Never raises a channel above the surrounding land. | Erosion (light carve, evolve cycles, sediment fill) | — full regenerate only |
+| `stream.climate_k` | `stream.climate_k` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `sClim`, raw 0-100, `v/100` | Couples local rainfall into K (`1 + climateK·2·rain`). High = wet regions erode much faster than dry, giving climate-driven landscape asymmetry. | Erosion (light carve, evolve cycles, sediment fill) | — full regenerate only |
 
 ### The manual passes, as parameters (2026-08-23)
 
@@ -472,31 +493,31 @@ rather than repeated per row: the reference's control is a **button**, not a
 checkbox, so the toggle *is* the §7d addition. Each knob below, by contrast,
 does have a real reference slider and carries its reachable range.
 
-| Key | Field | Type | Default | Range | Reference control | Meaning |
-|---|---|---|---|---|---|---|
-| `passes.velocity` | `passes.velocity` | bool | `false` | — | — (`#veloBtn` is a button) | Run `velocityErodeKernel` — grid virtual-pipes shallow-water hydraulic erosion (Mei et al. 2007) with semi-Lagrangian momentum advection and centrifugal outer-bank shear. The meander/oxbow mechanism. No isostatic rebound follows: the reference's own `veloFinish` says "it's a full hydraulic sim". |
-| `passes.velo_iters` | `passes.velo_iters` | int | `60` | 10 .. 160, step 1 | `vIt`, raw 10-160 step 1 | Simulation iterations. `veloParams()` clamps to this range itself. |
-| `passes.velo_strength` | `passes.velo_strength` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `vStr`, raw 0-100, `v/100` | Drives both capacity (`0.5 + 1.5·s`) and erodibility (`0.05 + 0.5·s`). |
-| `passes.velo_meander` | `passes.velo_meander` | float | `0.60` | 0.0 .. 1.0, step 0.01 | `vMnd`, raw 0-100, `v/100` | Centrifugal bank shear (`1.4·m`). 0 disables outer-bank bias, so channels stay straight. |
-| `passes.glacial` | `passes.glacial` | bool | `false` | — | — (`#glacialBtn` is a button) | Run `glacialKernel` — ice abrasion carving U-shaped troughs, plus cirque overdeepening where discharge is under 100. **Gated on climate as well as altitude**: a cell erodes only above the snowline *and* below freezing, so a temperate world carves essentially nothing however high the intensity. |
-| `passes.glacial_snowline` | `passes.glacial_snowline` | float | `0.65` | 0.0 .. 1.0, step 0.01 | `gSnow`, raw 0-100, `v/100` | Snowline as a fraction of the above-sea range: ice forms above `sea + (1−sea)·snowline`. |
-| `passes.glacial_kg` | `passes.glacial_kg` | float | `0.15` | 0.01 .. 1.0, step 0.01 | `gKg`, raw 1-100, `v/100` | Glacial erodibility, ×planet gravity. |
-| `passes.glacial_mg` | `passes.glacial_mg` | float | `0.40` | 0.0 .. 2.0, step 0.05 | — | Discharge exponent in `E ∝ Q^mg`. The reference has no slider for it; range is this port's judgement. |
-| `passes.glacial_u_factor` | `passes.glacial_u_factor` | float | `0.60` | 0.0 .. 1.0, step 0.01 | `gUF`, raw 0-100, `v/100` | Share of the trunk's incision dealt to each flanking cell — the term that makes the valley U-shaped rather than V-shaped. |
-| `passes.glacial_passes` | `passes.glacial_passes` | int | `8` | 1 .. 30, step 1 | `gPas`, raw 1-30 step 1 | Accumulate/erode passes over the drainage tree. |
-| `passes.coastal` | `passes.coastal` | bool | `false` | — | — (`#coastalBtn` is a button) | Run `coastalProcess` — sea-cliff retreat with debris landing on the land neighbours, estuary widening scaled by `log(discharge)`, then a tidal-marsh accretion pass. Narrow by nature: it only touches the shoreline. |
-| `passes.wave_str` | `passes.wave_str` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `cWave`, raw 0-100, `v/100` | Wave energy, **divided by planet gravity** (∝ 1/g), so a low-gravity world has stronger surf. |
-| `passes.estuary_depth` | `passes.estuary_depth` | float | `0.08` | 0.0 .. 0.2, step 0.002 | `cEst`, raw 0-100, `v/100·0.2` | How far below the coast a river mouth still widens into an estuary. |
-| `passes.marsh_band` | `passes.marsh_band` | float | `0.03` | 0.0 .. 0.1, step 0.001 | `cMar`, raw 0-100, `v/100·0.1` | Height band above sea level where tidal marsh accretes, on slopes under 0.08. |
-| `passes.coastal_passes` | `passes.coastal_passes` | int | `4` | 1 .. 15, step 1 | `cPas`, raw 1-15 step 1 | Wave/estuary passes. The marsh pass runs once, after them. |
-| `passes.hillslope` | `passes.hillslope` | bool | `false` | — | — (`#diffuseBtn` is a button) | Run `hillslopeDiffuseCPU` — `∂z/∂t = D∇²z` by explicit forward Euler. Rounds ridge detail and softens relief everywhere at once. X wraps only in world mode; Y never (the poles are hard edges). |
-| `passes.diffuse_d` | `passes.diffuse_d` | float | `0.15` | 0.002 .. 0.2, step 0.002 | `edD`, raw 1-100, `v/100·0.2` | Diffusivity D — **and the one knob in this group that changes terrain with every pass off.** Since owner ruling 2 of 2026-09-02 (`DECISIONS.md` §7l-ii) it is the world's single hillslope diffusivity, read by `cartalith_terrain::crater_degradation_tau` as well as by `hillslope_diffuse`: under `crater.physical_model` (on in the shipped app) raising it relaxes craters further at the same surface age, whether or not `passes.hillslope` is enabled. Hence the label *"Diffusivity D (also weathers craters)"*. Craters read the **raw** value, not `hillslope_extent_scale`'s corrected one — that correction is a discretisation fix for the one-cell Laplacian (§7m), not a different `kappa`. The default is unchanged and `0.15` is the anchor `crater_degradation_tau` was calibrated at, so the shipped configuration is bit-identical to the private anchor it replaced. |
-| `passes.diffuse_passes` | `passes.diffuse_passes` | int | `6` | 1 .. 40, step 1 | `edPas`, raw 1-40 step 1 | Forward-Euler steps. |
-| `passes.sediment_fill` | `passes.sediment_fill` | bool | `false` | — | — (`#sedimentBtn` is a button) | Run `depositSediment` — a stream-power carve, then route the eroded mass downstream and redeposit it (mass-conserving) instead of the broad isostatic rebound. Builds deltas, shelves and floodplains. |
-| `passes.sediment_capacity` | `passes.sediment_capacity` | float | `6.0` | 0.0 .. 20.0, step 0.5 | — | `routeSediment`'s transport capacity (`capacity × discharge × slope`); load above it deposits. The reference has no slider — this is its own `opts.capacity` default. |
-| `passes.evolve_cycles` | `passes.evolve_cycles` | int | `0` | 0 .. 12, step 1 | `evoCyc`, raw 2-12 step 1 | Run `evolveCoupled` for N coupled climate ↔ terrain cycles: carve → isostatic rebound → **full climate refresh**, so the rain driving the next cycle's incision reflects the orography the last one built. **`0` is off** — the reference's slider starts at 2 because pressing the *button* is its "on", which a parameter has no equivalent of. |
-| `passes.tidal_flats` | `passes.tidal_flats` | bool | `false` | — | — (`#tidalFlatsBtn` is a button) | Run `applyTidalSedimentation` — submerged cells inside the spring tidal range accrete toward sea level, hardest where shallowest. **The seventh pass, and its toggle is doing two jobs.** The reference gates its button on a separately-built `tideField`, which only exists while `state.planet.tides.enabled` (Tides & intertidal zones) is checked — its own alert says so: *"Enable Tides (Planet → Tides) first."* This port has no separate enable: turning this toggle on **both** computes the tide field (`cartalith_climate::tides::compute_tide_field`, a single Earth–Moon-equivalent companion at this world's own `planet.g` — `PlanetParams` carries no moon roster) **and** runs the kernel, in one step. (`planet.tides.enabled` is this row's `JS_PATHS` **save-format** path — the closest the reference has, not a UI control of its own.) |
-| `passes.tidal_k` | `passes.tidal_k` | float | `0.45` | 0.0 .. 1.0, step 0.01 | **—** | `applyTidalSedimentation`'s accretion rate. `0.45` is the reference's own default and its only caller's. No reference control — the reference never exposed this as a slider. |
+| Key | Field | Type | Default | Range | Reference control | Meaning | Stage(s) that read it | Live-apply |
+|---|---|---|---|---|---|---|---|---|
+| `passes.velocity` | `passes.velocity` | bool | `false` | — | — (`#veloBtn` is a button) | Run `velocityErodeKernel` — grid virtual-pipes shallow-water hydraulic erosion (Mei et al. 2007) with semi-Lagrangian momentum advection and centrifugal outer-bank shear. The meander/oxbow mechanism. No isostatic rebound follows: the reference's own `veloFinish` says "it's a full hydraulic sim". | Erosion (manual-pass block, off by default) | — full regenerate only |
+| `passes.velo_iters` | `passes.velo_iters` | int | `60` | 10 .. 160, step 1 | `vIt`, raw 10-160 step 1 | Simulation iterations. `veloParams()` clamps to this range itself. | Erosion | — full regenerate only |
+| `passes.velo_strength` | `passes.velo_strength` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `vStr`, raw 0-100, `v/100` | Drives both capacity (`0.5 + 1.5·s`) and erodibility (`0.05 + 0.5·s`). | Erosion | — full regenerate only |
+| `passes.velo_meander` | `passes.velo_meander` | float | `0.60` | 0.0 .. 1.0, step 0.01 | `vMnd`, raw 0-100, `v/100` | Centrifugal bank shear (`1.4·m`). 0 disables outer-bank bias, so channels stay straight. | Erosion | — full regenerate only |
+| `passes.glacial` | `passes.glacial` | bool | `false` | — | — (`#glacialBtn` is a button) | Run `glacialKernel` — ice abrasion carving U-shaped troughs, plus cirque overdeepening where discharge is under 100. **Gated on climate as well as altitude**: a cell erodes only above the snowline *and* below freezing, so a temperate world carves essentially nothing however high the intensity. | Erosion | — full regenerate only |
+| `passes.glacial_snowline` | `passes.glacial_snowline` | float | `0.65` | 0.0 .. 1.0, step 0.01 | `gSnow`, raw 0-100, `v/100` | Snowline as a fraction of the above-sea range: ice forms above `sea + (1−sea)·snowline`. | Erosion | — full regenerate only |
+| `passes.glacial_kg` | `passes.glacial_kg` | float | `0.15` | 0.01 .. 1.0, step 0.01 | `gKg`, raw 1-100, `v/100` | Glacial erodibility, ×planet gravity. | Erosion | — full regenerate only |
+| `passes.glacial_mg` | `passes.glacial_mg` | float | `0.40` | 0.0 .. 2.0, step 0.05 | — | Discharge exponent in `E ∝ Q^mg`. The reference has no slider for it; range is this port's judgement. | Erosion | — full regenerate only |
+| `passes.glacial_u_factor` | `passes.glacial_u_factor` | float | `0.60` | 0.0 .. 1.0, step 0.01 | `gUF`, raw 0-100, `v/100` | Share of the trunk's incision dealt to each flanking cell — the term that makes the valley U-shaped rather than V-shaped. | Erosion | — full regenerate only |
+| `passes.glacial_passes` | `passes.glacial_passes` | int | `8` | 1 .. 30, step 1 | `gPas`, raw 1-30 step 1 | Accumulate/erode passes over the drainage tree. | Erosion | — full regenerate only |
+| `passes.coastal` | `passes.coastal` | bool | `false` | — | — (`#coastalBtn` is a button) | Run `coastalProcess` — sea-cliff retreat with debris landing on the land neighbours, estuary widening scaled by `log(discharge)`, then a tidal-marsh accretion pass. Narrow by nature: it only touches the shoreline. | Erosion | — full regenerate only |
+| `passes.wave_str` | `passes.wave_str` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `cWave`, raw 0-100, `v/100` | Wave energy, **divided by planet gravity** (∝ 1/g), so a low-gravity world has stronger surf. | Erosion | — full regenerate only |
+| `passes.estuary_depth` | `passes.estuary_depth` | float | `0.08` | 0.0 .. 0.2, step 0.002 | `cEst`, raw 0-100, `v/100·0.2` | How far below the coast a river mouth still widens into an estuary. | Erosion | — full regenerate only |
+| `passes.marsh_band` | `passes.marsh_band` | float | `0.03` | 0.0 .. 0.1, step 0.001 | `cMar`, raw 0-100, `v/100·0.1` | Height band above sea level where tidal marsh accretes, on slopes under 0.08. | Erosion | — full regenerate only |
+| `passes.coastal_passes` | `passes.coastal_passes` | int | `4` | 1 .. 15, step 1 | `cPas`, raw 1-15 step 1 | Wave/estuary passes. The marsh pass runs once, after them. | Erosion | — full regenerate only |
+| `passes.hillslope` | `passes.hillslope` | bool | `false` | — | — (`#diffuseBtn` is a button) | Run `hillslopeDiffuseCPU` — `∂z/∂t = D∇²z` by explicit forward Euler. Rounds ridge detail and softens relief everywhere at once. X wraps only in world mode; Y never (the poles are hard edges). | Erosion | — full regenerate only |
+| `passes.diffuse_d` | `passes.diffuse_d` | float | `0.15` | 0.002 .. 0.2, step 0.002 | `edD`, raw 1-100, `v/100·0.2` | Diffusivity D — **and the one knob in this group that changes terrain with every pass off.** Since owner ruling 2 of 2026-09-02 (`DECISIONS.md` §7l-ii) it is the world's single hillslope diffusivity, read by `cartalith_terrain::crater_degradation_tau` as well as by `hillslope_diffuse`: under `crater.physical_model` (on in the shipped app) raising it relaxes craters further at the same surface age, whether or not `passes.hillslope` is enabled. Hence the label *"Diffusivity D (also weathers craters)"*. Craters read the **raw** value, not `hillslope_extent_scale`'s corrected one — that correction is a discretisation fix for the one-cell Laplacian (§7m), not a different `kappa`. The default is unchanged and `0.15` is the anchor `crater_degradation_tau` was calibrated at, so the shipped configuration is bit-identical to the private anchor it replaced. | Erosion (hillslope pass) AND Volcanism & Impacts (`crater_degradation_tau`, unconditionally — see its own row) | — full regenerate only |
+| `passes.diffuse_passes` | `passes.diffuse_passes` | int | `6` | 1 .. 40, step 1 | `edPas`, raw 1-40 step 1 | Forward-Euler steps. | Erosion | — full regenerate only |
+| `passes.sediment_fill` | `passes.sediment_fill` | bool | `false` | — | — (`#sedimentBtn` is a button) | Run `depositSediment` — a stream-power carve, then route the eroded mass downstream and redeposit it (mass-conserving) instead of the broad isostatic rebound. Builds deltas, shelves and floodplains. | Erosion | — full regenerate only |
+| `passes.sediment_capacity` | `passes.sediment_capacity` | float | `6.0` | 0.0 .. 20.0, step 0.5 | — | `routeSediment`'s transport capacity (`capacity × discharge × slope`); load above it deposits. The reference has no slider — this is its own `opts.capacity` default. | Erosion | — full regenerate only |
+| `passes.evolve_cycles` | `passes.evolve_cycles` | int | `0` | 0 .. 12, step 1 | `evoCyc`, raw 2-12 step 1 | Run `evolveCoupled` for N coupled climate ↔ terrain cycles: carve → isostatic rebound → **full climate refresh**, so the rain driving the next cycle's incision reflects the orography the last one built. **`0` is off** — the reference's slider starts at 2 because pressing the *button* is its "on", which a parameter has no equivalent of. | Erosion (loop also re-runs Hydrology/Climate via `refresh_climate` each cycle) | — full regenerate only |
+| `passes.tidal_flats` | `passes.tidal_flats` | bool | `false` | — | — (`#tidalFlatsBtn` is a button) | Run `applyTidalSedimentation` — submerged cells inside the spring tidal range accrete toward sea level, hardest where shallowest. **The seventh pass, and its toggle is doing two jobs.** The reference gates its button on a separately-built `tideField`, which only exists while `state.planet.tides.enabled` (Tides & intertidal zones) is checked — its own alert says so: *"Enable Tides (Planet → Tides) first."* This port has no separate enable: turning this toggle on **both** computes the tide field (`cartalith_climate::tides::compute_tide_field`, a single Earth–Moon-equivalent companion at this world's own `planet.g` — `PlanetParams` carries no moon roster) **and** runs the kernel, in one step. (`planet.tides.enabled` is this row's `JS_PATHS` **save-format** path — the closest the reference has, not a UI control of its own.) | Erosion | — full regenerate only |
+| `passes.tidal_k` | `passes.tidal_k` | float | `0.45` | 0.0 .. 1.0, step 0.01 | **—** | `applyTidalSedimentation`'s accretion rate. `0.45` is the reference's own default and its only caller's. No reference control — the reference never exposed this as a slider. | Erosion | — full regenerate only |
 
 **Droplet hydraulic erosion is still not exposed**, and is the one manual-pass
 gap left. `droplet_kernel` has existed since Phase 1 and has no parameters
@@ -517,17 +538,17 @@ have left unclamped.
 
 ## Group `climate` — Climate & biomes
 
-| Key | Field | Type | Default | Range | Reference control | Meaning |
-|---|---|---|---|---|---|---|
-| `climate.lat_n` | `climate.lat_n` | float | `55` | −90 .. 90, step 1 | `latN`, raw −90..90 step 1 | Latitude of the map's top row (Region mode). Sets the direction of the cold/warm gradient. Ignored when `world` is on (the map then spans pole to pole). |
-| `climate.lat_s` | `climate.lat_s` | float | `5` | −90 .. 90, step 1 | `latS`, raw −90..90 step 1 | Latitude of the bottom row. The span between the two edges is the climate range across the map. |
-| `climate.equator_temp` | `climate.equator_temp` | float | `30` | 0 .. 45, step 1 | `teq`, raw 0-45 step 1 | Sea-level temperature at the warmest latitude, in °C. The *effective* value also passes through the axial-tilt and day-length contrast scaling above. |
-| `climate.pole_temp` | `climate.pole_temp` | float | `−25` | −50 .. 10, step 1 | `tpo`, raw −50..10 step 1 | Sea-level temperature at the coldest latitude, in °C — the fixed anchor the tilt/rotation contrast scaling is measured from. |
-| `climate.lapse_rate` | `climate.lapse_rate` | float | `6.5` | 0 .. 12, step 0.1 | `lapse`, raw 0-120 step 1, `v/10` | Temperature drop per km of elevation, in °C/km, **×planet gravity**. Higher = colder peaks, a lower snowline, more alpine zonation. |
-| `climate.albedo_k` | `climate.albedo_k` | float | `0.00` | 0.0 .. 1.0, step 0.01 | `albedo`, raw 0-100, `v/100` | Ice-albedo feedback strength: ice and snow reflect sunlight and cool further, so polar caps and high massifs grow colder and broaden. 0 = off (the reference default; it also forces the CPU temperature path there). |
-| `climate.currents` | `climate.currents` | bool | `true` | — | `currents` | Whether the ocean-current SST anomaly (Ekman rotation, coastal blocking, shelf friction, a western-intensification/gyre heuristic) feeds back into temperature and rainfall. |
-| `climate.current_k` | `climate.current_k` | float | `1.00` | 0.0 .. 3.0, step 0.05 | **—** | Multiplier on that current strength. Stored in the reference's `state.climate` and read by `computeOceanCurrent`, but never given a control; range is this port's own judgement. |
-| `climate.terrain_wind_deflection` | `climate.terrain_wind_deflection` | bool | `true` | — | **—** | Bends the prevailing wind around real mountains and coastlines. The reference had a `terrainWind` toggle in v1.77 and **deleted it in v1.78** — it is now unconditional there (owner: *"wind and current should always be coupled to terrain"*). Kept as a toggle here only so a run can be compared against the reference with it off; the default matches the reference's always-on behaviour. |
+| Key | Field | Type | Default | Range | Reference control | Meaning | Stage(s) that read it | Live-apply |
+|---|---|---|---|---|---|---|---|---|
+| `climate.lat_n` | `climate.lat_n` | float | `55` | −90 .. 90, step 1 | `latN`, raw −90..90 step 1 | Latitude of the map's top row (Region mode). Sets the direction of the cold/warm gradient. Ignored when `world` is on (the map then spans pole to pole). | Climate | Hydrology → `refresh_climate` |
+| `climate.lat_s` | `climate.lat_s` | float | `5` | −90 .. 90, step 1 | `latS`, raw −90..90 step 1 | Latitude of the bottom row. The span between the two edges is the climate range across the map. | Climate | Hydrology → `refresh_climate` |
+| `climate.equator_temp` | `climate.equator_temp` | float | `30` | 0 .. 45, step 1 | `teq`, raw 0-45 step 1 | Sea-level temperature at the warmest latitude, in °C. The *effective* value also passes through the axial-tilt and day-length contrast scaling above. | Climate | Hydrology → `refresh_climate` |
+| `climate.pole_temp` | `climate.pole_temp` | float | `−25` | −50 .. 10, step 1 | `tpo`, raw −50..10 step 1 | Sea-level temperature at the coldest latitude, in °C — the fixed anchor the tilt/rotation contrast scaling is measured from. | Climate | Hydrology → `refresh_climate` |
+| `climate.lapse_rate` | `climate.lapse_rate` | float | `6.5` | 0 .. 12, step 0.1 | `lapse`, raw 0-120 step 1, `v/10` | Temperature drop per km of elevation, in °C/km, **×planet gravity**. Higher = colder peaks, a lower snowline, more alpine zonation. | Climate | Hydrology → `refresh_climate` |
+| `climate.albedo_k` | `climate.albedo_k` | float | `0.00` | 0.0 .. 1.0, step 0.01 | `albedo`, raw 0-100, `v/100` | Ice-albedo feedback strength: ice and snow reflect sunlight and cool further, so polar caps and high massifs grow colder and broaden. 0 = off (the reference default; it also forces the CPU temperature path there). | Climate | Hydrology → `refresh_climate` |
+| `climate.currents` | `climate.currents` | bool | `true` | — | `currents` | Whether the ocean-current SST anomaly (Ekman rotation, coastal blocking, shelf friction, a western-intensification/gyre heuristic) feeds back into temperature and rainfall. | Climate | Hydrology → `refresh_climate` |
+| `climate.current_k` | `climate.current_k` | float | `1.00` | 0.0 .. 3.0, step 0.05 | **—** | Multiplier on that current strength. Stored in the reference's `state.climate` and read by `computeOceanCurrent`, but never given a control; range is this port's own judgement. | Climate | Hydrology → `refresh_climate` |
+| `climate.terrain_wind_deflection` | `climate.terrain_wind_deflection` | bool | `true` | — | **—** | Bends the prevailing wind around real mountains and coastlines. The reference had a `terrainWind` toggle in v1.77 and **deleted it in v1.78** — it is now unconditional there (owner: *"wind and current should always be coupled to terrain"*). Kept as a toggle here only so a run can be compared against the reference with it off; the default matches the reference's always-on behaviour. | Climate | Hydrology → `refresh_climate` |
 
 ## Group `weather` — Weather · rainfall sim
 
@@ -535,19 +556,61 @@ Iterative moisture advection on a coarse grid: evaporate over sea → advect
 along wind → precipitate (orographic + convective + supersaturation) →
 deplete.
 
-| Key | Field | Type | Default | Range | Reference control | Meaning |
-|---|---|---|---|---|---|---|
-| `climate.w_iters` | `climate.w_iters` | int | `70` | 20 .. 200, step 5 | `wIters`, raw 20-200 step 5 | Advection steps. More = moisture penetrates deeper inland; fewer = coastal-only wetness. |
-| `climate.rain_k` | `climate.rain_k` | float | `1.00` | 0.0 .. 2.0, step 0.01 | `rainK`, raw 0-200, `v/100` | Strength of rain-on-rising-terrain. High = drenched windward slopes and stark rain shadows. |
-| `climate.evap` | `climate.evap` | float | `0.12` | 0.0 .. 0.3, step 0.003 | `evap`, raw 0-100, `v/100·0.3` | Base moisture pickup over ocean. Under bulk-aerodynamic mode, wind speed and saturation deficit modulate it further. |
-| `climate.rain_dep` | `climate.rain_dep` | float | `0.35` | 0.0 .. 1.0, step 0.01 | `rainDep`, raw 0-100, `v/100` | Depletion rate as air rains out. High = air dries quickly after the first ridge, giving sharp wet/dry boundaries. |
-| `climate.ocean` | `climate.ocean` | float | `1.00` | 0.0 .. 2.0, step 0.01 | `ocean`, raw 0-200, `v/100` | Multiplier on the evaporation flux from sea cells — the global moisture-budget knob. |
-| `climate.wind_manual` | `climate.wind_manual` | bool | `false` | — | `windModeSeg` (Planetary / Manual) | Planetary = latitude circulation belts (trades / westerlies / polar easterlies, belt count from day length) bent by thermal pressure. Manual = one fixed direction, Region mode only. |
-| `climate.wind_dir_deg` | `climate.wind_dir_deg` | float | `0` | 0 .. 360, step 5 | `windDir`, raw 0-360 step 5 | Prevailing wind direction in Manual mode. Ignored in Planetary mode and in `world` mode (the reference disables the control there). |
-| `climate.press_k` | `climate.press_k` | float | `0.60` | 0.0 .. 1.5, step 0.05 | `pressK`, raw 0-150 step 5, `v/100` | How strongly thermal lows and highs bend the planetary wind (Coriolis-deflected). High = monsoon-like sea→land deflection where summer land runs hot; 0 = pure zonal belts. |
-| `climate.zonal_k` | `climate.zonal_k` | float | `0.50` | 0.0 .. 1.5, step 0.05 | `zonalK`, raw 0-150 step 5, `v/100` | Strength of the ITCZ-wet / subtropical-dry latitude correction applied on top of the emergent wind structure. |
-| `climate.ocean_hum` | `climate.ocean_hum` | float | `1.00` | 0.0 .. 2.0, step 0.01 | **—** | Sea-surface humidity floor: the moisture level cells over water are seeded and re-topped to. Stored in the reference's `state.climate` and read throughout `simulateWeather`, but never given a control; range is this port's own judgement. |
-| `climate.bulk_evap` | `climate.bulk_evap` | bool | `true` | — | **—** | Bulk-aerodynamic evaporation (`E = Ce·U·(qs−q)`) instead of a flat rate — makes evaporation respond to wind speed and saturation deficit. On in the reference, with no control. |
+| Key | Field | Type | Default | Range | Reference control | Meaning | Stage(s) that read it | Live-apply |
+|---|---|---|---|---|---|---|---|---|
+| `climate.w_iters` | `climate.w_iters` | int | `70` | 20 .. 200, step 5 | `wIters`, raw 20-200 step 5 | Advection steps. More = moisture penetrates deeper inland; fewer = coastal-only wetness. | Climate | Hydrology → `refresh_climate` |
+| `climate.rain_k` | `climate.rain_k` | float | `1.00` | 0.0 .. 2.0, step 0.01 | `rainK`, raw 0-200, `v/100` | Strength of rain-on-rising-terrain. High = drenched windward slopes and stark rain shadows. | Climate | Hydrology → `refresh_climate` |
+| `climate.evap` | `climate.evap` | float | `0.12` | 0.0 .. 0.3, step 0.003 | `evap`, raw 0-100, `v/100·0.3` | Base moisture pickup over ocean. Under bulk-aerodynamic mode, wind speed and saturation deficit modulate it further. | Climate | Hydrology → `refresh_climate` |
+| `climate.rain_dep` | `climate.rain_dep` | float | `0.35` | 0.0 .. 1.0, step 0.01 | `rainDep`, raw 0-100, `v/100` | Depletion rate as air rains out. High = air dries quickly after the first ridge, giving sharp wet/dry boundaries. | Climate | Hydrology → `refresh_climate` |
+| `climate.ocean` | `climate.ocean` | float | `1.00` | 0.0 .. 2.0, step 0.01 | `ocean`, raw 0-200, `v/100` | Multiplier on the evaporation flux from sea cells — the global moisture-budget knob. | Climate | Hydrology → `refresh_climate` |
+| `climate.wind_manual` | `climate.wind_manual` | bool | `false` | — | `windModeSeg` (Planetary / Manual) | Planetary = latitude circulation belts (trades / westerlies / polar easterlies, belt count from day length) bent by thermal pressure. Manual = one fixed direction, Region mode only. | Climate | Hydrology → `refresh_climate` |
+| `climate.wind_dir_deg` | `climate.wind_dir_deg` | float | `0` | 0 .. 360, step 5 | `windDir`, raw 0-360 step 5 | Prevailing wind direction in Manual mode. Ignored in Planetary mode and in `world` mode (the reference disables the control there). | Climate | Hydrology → `refresh_climate` |
+| `climate.press_k` | `climate.press_k` | float | `0.60` | 0.0 .. 1.5, step 0.05 | `pressK`, raw 0-150 step 5, `v/100` | How strongly thermal lows and highs bend the planetary wind (Coriolis-deflected). High = monsoon-like sea→land deflection where summer land runs hot; 0 = pure zonal belts. | Climate | Hydrology → `refresh_climate` |
+| `climate.zonal_k` | `climate.zonal_k` | float | `0.50` | 0.0 .. 1.5, step 0.05 | `zonalK`, raw 0-150 step 5, `v/100` | Strength of the ITCZ-wet / subtropical-dry latitude correction applied on top of the emergent wind structure. | Climate | Hydrology → `refresh_climate` |
+| `climate.ocean_hum` | `climate.ocean_hum` | float | `1.00` | 0.0 .. 2.0, step 0.01 | **—** | Sea-surface humidity floor: the moisture level cells over water are seeded and re-topped to. Stored in the reference's `state.climate` and read throughout `simulateWeather`, but never given a control; range is this port's own judgement. | Climate | Hydrology → `refresh_climate` |
+| `climate.bulk_evap` | `climate.bulk_evap` | bool | `true` | — | **—** | Bulk-aerodynamic evaporation (`E = Ce·U·(qs−q)`) instead of a flat rate — makes evaporation respond to wind speed and saturation deficit. On in the reference, with no control. | Climate | Hydrology → `refresh_climate` |
+
+## Group `civ` — Civilisation (auto-populate)
+
+**Added to this document 2026-09-23** (the stage-by-stage audit below). `LARGE_ITEM_RULINGS.md`
+(owner, 2026-08-31): "five re-entrant `#[func]`s over an existing world, plus a civ `PARAMS`
+group." These 13 rows have existed in `PARAMS` and been reachable through `get_params()` /
+`set_params()` / `get_param_info()` since that ruling landed — they were simply never written up
+here, which is exactly the kind of drift `CLAUDE.md`'s "a document's claim about itself is a
+claim, not evidence" rule warns about (this file's own header claimed **85** total rows with zero
+of them from this group).
+
+**These are the first rows in `PARAMS` that `generate_terrain` does not read at all.** Their
+consumer is `compute_civilisation` (`cartalith-godot/src/lib.rs`), a separate function outside the
+engine's own ten `progress.rs` stages (Planet … Resources & Soils) — called once after
+`generate_terrain` on first generation, and re-entrantly by the five `civ_*` `#[func]`s
+(`civ_populate`, `recompute_civilisation`, etc.) without re-running terrain generation at all. Every
+default below is the reference's own, so a default world's civ layer is unchanged by this group's
+existence.
+
+| Key | Field | Type | Default | Range | Reference control | Meaning | Stage(s) that read it | Live-apply |
+|---|---|---|---|---|---|---|---|---|
+| `civ.villages` | `civ.villages` | bool | `false` | — | `civVillagesChk` | The additive village-seeding pass (`civ_seed_villages`), drawing from the same continuous RNG stream as naming and the recovery phase. Reference default OFF. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
+| `civ.metropolis` | `civ.metropolis` | bool | `false` | — | `civMetropolisChk` | Imperial-seat promotion (`civ_select_metropolises`) by betweenness centrality, run after the road network exists and before naming. Reference: "OFF by default ⇒ auto-populate output bit-identical." Skipped on the SG-02 keep path and under fixed counts (would overwrite a user's own `kind` edit or undo an explicit count). | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
+| `civ.recovery_phase` | `civ.recovery_phase` | int | `0` | 0 .. 4, step 1 | `civRecoveryPhase` | Post-collapse recovery stage: `0` Stable / `1` Survival / `2` Subsistence / `3` Regional / `4` Mature. `0` is a strict no-op; the reference's own `Math.max(0,Math.min(4,rp.value\|0))`. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
+| `civ.biome_k` | `civ.biome_k` | bool | `false` | — | `civBiomeKChk` | Biome carrying-capacity residual. Off is byte-identical to the pre-existing path (the reference's own `currentCarryingCapacity` short-circuits its correction at `biomeK:false`); on, also builds a wetland mask that feeds the correction. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
+| `civ.factions` | `civ.factions` | int | `6` | 1 .. 24, step 1 | **—** | How many factions settlement placement assigns into. The reference's `CIV_FACTIONS` array length (6 by default), edited there through `_civAddFaction`/`_civRemoveFaction` rather than a count dial — this port's superset. Floor `1` (0 would leave every settlement unclaimed, `assign_territory`'s sentinel); ceiling `24` is this port's own legibility judgement over `roster::civ_faction_color`'s well-defined-for-any-index hue walk. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
+| `civ.seed_thresh` | `civ.seed_thresh` | float | `0.42` | 0.10 .. 0.80, step 0.01 | **—** | `SETTLE_SEED_THRESH`: the suitability score (`[0,1]`) a cell must reach to seed a settlement. A reference **constant** (14568/6415) with no control. **Read only when `civ.fixed_counts` is off** — the Auto-populate count fields, when on, substitute `thresh:0.35` unconditionally (`civ_want_counts_seed_params`), so this dial is silently inert whenever fixed counts are enabled. Not currently surfaced anywhere in this document's per-row text before this audit. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert under `civ.fixed_counts`**) | Climate → `compute_civilisation` |
+| `civ.seed_suppress_div` | `civ.seed_suppress_div` | float | `22.0` | 8.0 .. 60.0, step 1.0 | **—** | Divisor in the settlement-suppression radius `max(6, floor(gw / this))` (reference `Math.max(6,(GW/22)\|0)`, a constant with no control). Larger = smaller radius = denser packing. **Same `civ.fixed_counts` override as the row above** — verified at the symbol: `compute_civilisation` reads it only in the `None => (opts.seed_thresh, (gw as f64 / opts.seed_suppress_div.max(1.0)).floor().max(6.0))` arm of the `want` match. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert under `civ.fixed_counts`**) | Climate → `compute_civilisation` |
+| `civ.fixed_counts` | `civ.fixed_counts` | bool | `false` | — | **—** | The reference's five Auto-populate count inputs, switched on as a set (`CivParams::want_counts`). On, **overrides** `civ.seed_thresh`/`civ.seed_suppress_div` outright and cuts the centrality re-tiering loop to one pass. Off, the five `civ.n_*` counts below are read by nothing. An all-zero request falls back to automatic placement (the reference alerts and places nothing instead — this port has nobody to alert). | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
+| `civ.n_capital` | `civ.counts[0]` | int | `0` | 0 .. 50, step 1 | `civNCap` | Fixed capital count. Read only while `civ.fixed_counts` is on and at least one of the five counts is non-zero. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert unless `civ.fixed_counts`**) | Climate → `compute_civilisation` |
+| `civ.n_city` | `civ.counts[1]` | int | `0` | 0 .. 200, step 1 | `civNCity` | Fixed city count. Same gate as above. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert unless `civ.fixed_counts`**) | Climate → `compute_civilisation` |
+| `civ.n_town` | `civ.counts[2]` | int | `0` | 0 .. 500, step 1 | `civNTown` | Fixed town count. Same gate as above. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert unless `civ.fixed_counts`**) | Climate → `compute_civilisation` |
+| `civ.n_village` | `civ.counts[3]` | int | `0` | 0 .. 1000, step 1 | `civNVil` | Fixed village count. Same gate as above. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert unless `civ.fixed_counts`**) | Climate → `compute_civilisation` |
+| `civ.n_hamlet` | `civ.counts[4]` | int | `0` | 0 .. 2000, step 1 | `civNHam` | Fixed hamlet count. Same gate as above. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert unless `civ.fixed_counts`**) | Climate → `compute_civilisation` |
+
+**`get_param_groups()` is stale against this table too**: `GENERATION_PARAMETERS.md`'s own "The
+API" section (below the "What changed" heading, near the top of this document) has listed the
+nine-groups-minus-`civ` set (`["world", "planet", "world_structure", "tectonics", "volcanism",
+"erosion", "climate", "weather"]`) since the parameter API first shipped. `params::groups()` derives
+the list mechanically from `PARAMS`' own first-appearance order and has returned `civ` as a real
+ninth group since the ruling above landed — the doc text was never updated to match. Corrected in
+the API table itself, dated, in this same audit pass.
 
 ---
 
@@ -699,3 +762,173 @@ would be, and this pass did not re-run the full suite (`cargo check
   current `get_param_info()` call returns 85, not 58 — the number in this
   bullet was never updated as later passes added rows, which is the exact
   drift this regeneration exists to close.
+
+## Stage-by-stage pipeline audit (2026-09-23)
+
+`OUTSTANDING_WORK.md` §2.5 named "the stage-by-stage `WorldParams`-field audit
+against every stage-01…11 slider" as real, unblocked, un-scoped work — "no
+audit document exists at all". This section, plus the **Stage(s) that read
+it**/**Live-apply** columns added to every group table above and the new
+`civ` group section, is that document. `GENERATION_PARAMETERS.md` was judged
+the right home rather than a second, competing file: it already regenerates
+mechanically from `params.rs`'s `PARAMS` table, already carries per-row
+meaning/range/reference-mapping, and the missing piece was columns, not a new
+document — a second file would have immediately drifted against this one the
+way `world_workspace.gd`'s header count already has.
+
+### Method
+
+For all **99** rows in `PARAMS` (`grep -c "ParamSpec { key:" params.rs`):
+
+1. Read `cartalith_engine::generate_terrain_inner` (`cartalith-engine/src/lib.rs`)
+   end to end, matching every `p.<field>` / `q.<field>` read against
+   `progress.rs`'s own ten-stage banner mapping (Planet, Extent & Scale, World
+   Structure, Tectonics, Volcanism & Impacts, Erosion, Hydrology, Climate,
+   Ecology & Biomes, Resources & Soils — the module doc comment's own
+   derivation, not a re-count of `// ---- name ----` banners, several of
+   which span more than one stage).
+2. Read `compute_civilisation` (`cartalith-godot/src/lib.rs`) end to end for
+   the 13 `civ.*` rows, which `generate_terrain` does not read at all — its
+   own consumer is this separate, re-entrant function, outside the ten-stage
+   counter (`CivParams`'s own doc comment says so).
+3. For every row, cross-checked `params::invalidates()`'s claim (which
+   `PipelineStage` a moved dial marks stale, or `None` for "no live-apply
+   path") against what `refresh_climate` and `compute_civilisation` actually
+   read, and against `cartalith_engine::staleness::recompute_stale`'s own
+   body (`staleness.rs`) — specifically, that it rebuilds `climate_params_for`/
+   `weather_params_for` **fresh from the live `WorldParams`** on every call
+   rather than reusing a generation-time cached struct (verified at the
+   symbol: `recompute_stale`'s two `climate_params_for(p, ws.sea_level)` /
+   `weather_params_for(p, ws.sea_level)` calls take `p`, the just-rebuilt
+   current-dial `WorldParams`, not anything cached on `WorldState`).
+4. Spot-checked three rows' claimed effect against the code that implements
+   it, rather than trusting either this document's or `params.rs`'s own doc
+   comments (below).
+
+This was a manual/grep-based read-through, not a mechanical, self-verifying
+test the way `params_mapping.rs`'s `every_key_that_moves_refresh_climate_is_
+marked` already is for the `invalidates()`/Hydrology half. That test's
+existence is why the climate/weather-group cross-check below is stronger
+evidence than the rest of this table: it is asserted in CI, not merely read
+once. **No equivalent mechanical test exists for "every `PARAMS` row is read
+by some stage of `generate_terrain` or by `compute_civilisation`"** — this
+audit is that check's first pass, done by hand, not its replacement. A real
+next step (named, not built, per this audit's own scope) would be a test that
+walks `PARAMS` and asserts each key's field is read somewhere in the two
+functions' source text or a hand-maintained allowlist for the handful of
+call-argument fields (`gw`, `gh`, `tect.seed` are not `PARAMS` rows at all —
+they are `generate()` arguments, per this document's own "What is *not* a
+parameter" section above).
+
+### Findings
+
+**1. Zero unwired parameters found.** Every one of the 99 `PARAMS` rows is
+read by a real computation inside `generate_terrain_inner` or
+`compute_civilisation` — traced by symbol, not assumed from a doc comment.
+This is a genuine, checkable result, not a default assumption: this same
+session's other audits on this project have found exactly this shape of
+defect (a dial with no reader) more than once elsewhere in this codebase.
+Here, none turned up. The two closest candidates, both already correctly
+documented rather than being real defects:
+   - `civ.seed_thresh` / `civ.seed_suppress_div` are read only in the
+     `None` (auto-suitability) arm of `compute_civilisation`'s `match want {
+     ... }` — silently inert whenever `civ.fixed_counts` is on, because the
+     reference's own Auto-populate count fields substitute `thresh:0.35`
+     unconditionally. This was already disclosed in `params.rs`'s own doc
+     comment on `civ.fixed_counts`, but **had never been stated on the two
+     inert rows' own entries** in any document — corrected in this pass's new
+     `civ` group table, which is the "dash a field with its reason"
+     `MISTAKES.md` rule applied to a row that silently goes inert rather
+     than to a bare value.
+   - `passes.diffuse_d` is read by **two** stages unconditionally — the
+     hillslope-diffuse pass (Erosion, gated on `passes.hillslope`) and
+     `crater_degradation_tau` (Volcanism & Impacts, gated on
+     `crater.physical_model`, **independent of `passes.hillslope`**). Already
+     named in the parameter's own label ("Diffusivity D (also weathers
+     craters)") and doc comment; carried into the Stage column above rather
+     than re-discovered as new.
+
+**2. `invalidates()` (`params.rs`) agrees with the pipeline it claims to
+describe, on every row.** All 24 `climate.*`/`weather`-group rows map to
+`PipelineStage::Hydrology` and are genuinely read by `refresh_climate` (via
+freshly-rebuilt `ClimateParams`/`WeatherParams`, confirmed live per the
+Method section above — not a stale generation-time cache). `river_density`
+and all 13 `civ.*` rows map to `PipelineStage::Climate` (whose only real
+consumer is `compute_civilisation`, never `refresh_climate`) and are
+genuinely absent from `refresh_climate`'s own reads. `peak_m` and the three
+`planet.*` rows map to `Hydrology` and are genuinely the four non-`climate.`
+fields `climate_params_for`/`weather_params_for` read. `integrate_drainage`
+maps to `Hydrology` and is genuinely read by `refresh_climate`'s
+`compute_flow_routed` call. The remaining 60 rows (`world`, `sea_level`,
+`carve_rivers`, `use_gpu`, every `world_structure.*`/`tect.*`/`volc.*`/
+`crater.*`/`stream.*`/`passes.*` row) map to `None`, correctly: none of them
+is read by `refresh_climate` or `compute_civilisation`, only by
+`generate_terrain_inner` itself, so there genuinely is no live-apply path
+short of a full regenerate — **this is a design fact, not a defect**, and
+`params.rs`'s own doc comment already states it plainly ("or `None` for a
+parameter with no live-apply path at all, which is most of them (60 of the
+99 rows)"). `sea_level` and `world` are the two documented, deliberate
+exclusions from the "every field the climate structs take" rule (sea level
+because `recompute_stale` reads the stored `WorldState.sea_level`, not the
+dial; `world` because a moved geometry switch must not describe a different
+world mid-recompute) — both verified at the symbol in `staleness.rs` and
+`recompute_params`, not merely cited from the doc comment that already
+claimed them.
+
+**3. Two real documentation gaps, both closed in this pass** (not left as
+findings for a future batch, since they were pure documentation and this
+audit's whole job is documentation): the `civ` group (13 rows) was entirely
+absent from this file, and `integrate_drainage` (1 row, landed 2026-09-22 —
+one day before this audit) was missing from the `world` group table. Both
+are now present with full rows, `Stage(s)`/`Live-apply` columns included.
+`world_workspace.gd`'s header comment ("85 parameters", line 10) is now 14
+rows stale on the same count and was **not** corrected here — it is a
+GDScript shell file outside this document's own regeneration surface, and
+`GENERATION_PARAMETERS.md`'s own established convention (see the "Cross-check
+against `world_workspace.gd`" paragraph near the top) is to flag that file's
+drift rather than reach into it from this pass.
+
+**4. No `invalidates()` mismatch found** — no row marks a stage that does not
+genuinely read it, and no row reads a stage's real live-apply input while
+`invalidates()` reports `None` for it. Stated as a negative result because
+the task brief that commissioned this audit named a stage/staleness mismatch
+as exactly the shape of defect to look for; none turned up on this pass.
+
+### Spot-checks (3 of 99, traced to the implementing code)
+
+- **`passes.diffuse_d` reaching craters.** `cartalith_terrain::stamp_craters`'s
+  own doc comment states `diffuse_d` is read **raw**, not through
+  `hillslope_extent_scale`'s discretisation correction, and is inert when
+  `physical` is `false`. Confirmed at `crater_degradation_tau`
+  (`cartalith-terrain/src/lib.rs`): the function multiplies
+  `diffuse_d / CRATER_DEGRADATION_DIFFUSE_D_REF` directly against the LN(2)
+  half-life term, and `stamp_craters` only calls it when `physical` is true —
+  matching both this document's row text and `params.rs`'s comment exactly.
+- **`civ.seed_suppress_div`'s formula.** This document's row claims
+  `max(6, floor(gw / this))`. `compute_civilisation`'s actual line:
+  `(gw as f64 / opts.seed_suppress_div.max(1.0)).floor().max(6.0)` — the same
+  formula, plus a `max(1.0)` floor on the divisor itself (undocumented
+  anywhere before this pass, now folded into the row's own text) that
+  prevents a division blow-up if a future caller ever let the dial reach 0
+  (today's `PARAMS` row already floors it at 8.0, so this guard is currently
+  unreachable through the exposed API, but it is real code, not dead code).
+- **`tect.blur_r` as a two-stage parameter.** Claimed in the new Stage column
+  to reach both Tectonics (`compute_stress`, `compute_flexure`, the base-field
+  Gaussian blur) and Erosion (`isostatic_rebound`, called after the light
+  carve, after every `passes.glacial`/`passes.evolve_cycles` iteration).
+  Confirmed by direct read of `generate_terrain_inner`: the same `p.tect.blur_r`
+  value is passed to `compute_stress` near the top of the function and to
+  every `isostatic_rebound(&mut field, &pre, gw, gh, p.tect.blur_r, world)`
+  call inside the carve and erosion-pass blocks further down — one dial,
+  two genuinely different physical roles (boundary-stress spread vs.
+  isostatic-rebound wavelength), not a documentation duplicate.
+
+### Summary for `OUTSTANDING_WORK.md` §2.5
+
+99 parameters audited (86 non-civ + 13 civ), 3 spot-checked to the
+implementing symbol. Zero unwired parameters. Zero `invalidates()`
+mismatches. Two real documentation gaps found and closed in this same pass
+(missing `civ` group, missing `integrate_drainage` row) — both pre-existing,
+neither a defect introduced by this audit. One pre-existing cross-file drift
+flagged but left unfixed (`world_workspace.gd`'s stale "85 parameters"
+comment, out of this document's own file scope).
