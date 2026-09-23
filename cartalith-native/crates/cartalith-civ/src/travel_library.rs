@@ -44,33 +44,30 @@
 //!
 //! What is **not** wired, disclosed rather than approximated:
 //!
-//! - **Only the four built-in party-form species can override anything.**
-//!   [`AnimalDef::species_key`] is `Some("donkey"|"mule"|"camel"|"horse")` for
-//!   an entry that represents one of [`crate::JP_ANIMAL_KEYS`], or `None`.
+//! - **Only the four built-in party-form species can occupy a party slot.**
 //!   `JpParty` is a fixed four-species struct (`donkey`/`mule`/`camel`/
-//!   `horse` counts, no generic map) -- a wholly new species like the stock
-//!   Ox/Yak/Reindeer entries below has no party-form slot to occupy yet, so
-//!   its own capacity/speed/terrain fields are real, validated, and
-//!   inspectable, but inert for computation until `JpParty`/`JpPlan` grow a
-//!   generic animal-count shape. That is a real, larger change to
-//!   golden-tested types and is out of this milestone's scope.
-//! - **Vehicles and vessels are data-only.** `jp_capacity`'s cart/wagon/
-//!   sled/travois masses and `jp_ship_stats`' vessel table are still the
-//!   fixed built-in constants; no resolver equivalent to
-//!   [`animal_resolver_fns`] exists for either yet. The data model,
-//!   validation and stock content are complete and real; the computation
-//!   hook is the named follow-up alongside the four-species limit above.
-//! - **`cartalith-godot/src/lib.rs`'s `jp_compute` does not yet read a live
-//!   Travel Library.** No `#[func]` boundary exists this milestone by
-//!   design (`TRAVEL_LIBRARY_SPEC.md`'s own GUI is a separate, later
-//!   dispatch) -- see `travel_bridge`'s own module doc for the exact shape a
-//!   `#[func]` layer would need to add.
-//! - **"Saved journeys" do not exist as a referenceable, persistent thing in
-//!   this port.** `route_get`/`infra.routes` are drawn polylines with no
-//!   attached party plan; `jp_compute` computes and returns a plan without
-//!   storing it anywhere. §4's "how many saved journeys ... reference it"
-//!   usage count is therefore always `0`, honestly, rather than invented --
-//!   see `travel_bridge::TravelLibrary::animal_usage_in_journeys`.
+//!   `horse` counts, no generic map). An entry reaches a slot through its own
+//!   [`AnimalDef::species_key`] or, failing that, the species its
+//!   [`AnimalDef::substitutes_for`] chain reaches
+//!   (`travel_bridge::TravelLibrary::animal_species_slot`). A wholly new
+//!   species with neither -- the stock Ox/Yak/Reindeer, or a from-blank custom
+//!   entry -- is real, validated and inspectable, but has no slot to occupy
+//!   until `JpParty`/`JpPlan` grow a generic animal-count shape, a larger
+//!   change to golden-tested types.
+//! - **Vehicles are data-only.** `jp_capacity`'s cart/wagon/sled/travois
+//!   masses are still the fixed built-in constants; no resolver equivalent to
+//!   [`animal_resolver_fns`] exists for [`VehicleDef`] yet. Vessels are live:
+//!   [`vessel_resolver_fn`] feeds `jp_plan_full` from `cartalith-godot`'s
+//!   `jp_compute`, which reads the session's live Travel Library.
+//! - **An animal's usage in saved journeys is `0` by construction.** Saved
+//!   journeys exist since SP-1 ([`Journey`]), but a journey references a
+//!   `PartyPreset`, never an animal id, so a *preset's* journey usage is real
+//!   (`InfraTools::preset_usage_in_journeys`) while an *animal's* has nothing
+//!   to count -- see `travel_bridge::TravelLibrary::animal_usage_in_journeys`.
+//!
+//! *(This list was corrected 2026-09-24: it said vessels were data-only,
+//! `jp_compute` did not read a live library, and saved journeys did not exist
+//! -- all three had stopped being true.)*
 
 use std::collections::HashMap;
 
