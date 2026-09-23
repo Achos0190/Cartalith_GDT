@@ -70,7 +70,7 @@
 //! `project_bridge.rs`'s own tests keep it exercised. Nothing further is
 //! outstanding here.
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use cartalith_jsmath::{js_hypot, js_max, js_min, js_num_or_zero, js_round, js_truthy_num};
 
@@ -894,8 +894,8 @@ pub fn civ_betweenness_from_adjacency(adj: &[Vec<usize>]) -> Vec<f64> {
 // `NamedSettlement` (`lib.rs`) has no `traits`/`ruins` fields -- those are
 // new surface the stepper itself needs (a settlement demoted from an
 // exchange tier gains a persistent 'fortified' trait and a `ruins` flag
-// neither `NamedSettlement` nor any other milestone produces or consumes
-// today) -- and `CivData` (`cartalith-godot`) holds no mixed "places"
+// no other milestone produces; since SP-3 (2026-09-23) the run's result is
+// kept per year in `TimelineSnapshot::collapse_flags`, see `CollapseFlags`) -- and `CivData` (`cartalith-godot`) holds no mixed "places"
 // collection at all, only `settlements: Vec<NamedSettlement>`. Rather than
 // bolt stepper-only fields onto `NamedSettlement` (which every OTHER
 // subsystem in this crate also constructs and would have to carry two dead
@@ -1730,6 +1730,53 @@ pub struct TimelineSnapshot {
     pub territory: TerritoryFrame,
     pub settlements: Vec<NamedSettlement>,
     pub ways: Vec<Way>,
+    /// [`CollapsePlace::fortified`]/[`CollapsePlace::ruins`] for the settlements in THIS
+    /// entry's `settlements`, keyed by `tid` -- written only by the collapse/recovery run
+    /// (`cartalith-godot`'s `timeline_bridge::run_collapse_simulation`), one entry per
+    /// settlement that step left standing. See [`CollapseFlags`] for why this is a side
+    /// table here rather than two fields on [`NamedSettlement`].
+    ///
+    /// **A missing `tid` means "not recorded", never "not fortified, not ruined".** A year
+    /// written from live state (`civ_add_year`, the run's own anchor years, a project load)
+    /// holds an empty map: live settlements carry no such status, so there is nothing true
+    /// to write. [`civ_snapshot_save`] empties it on every overwrite, because the flags
+    /// describe the `settlements` list stored beside them and an overwrite replaces that
+    /// list.
+    ///
+    /// **In memory only.** `project_bridge`'s `TimelineYearDto` does not carry it, so a
+    /// project save/reload drops it and every reloaded year reads as not recorded -- the
+    /// honest degradation, not a false `false`. Persisting it is a `SAVEFILE_COMPAT.md`
+    /// §10.1 format change and was deliberately not made here.
+    pub collapse_flags: BTreeMap<u64, CollapseFlags>,
+}
+
+/// One settlement's collapse/recovery status in one recorded year -- the two
+/// [`CollapsePlace`] fields `NamedSettlement` has no room for.
+///
+/// **Why a per-`(year, tid)` side table on [`TimelineSnapshot`], not new fields on
+/// [`NamedSettlement`]** (SP-3's builder call, 2026-09-23; `OUTSTANDING_WORK.md` §2.3 names
+/// both options and leaves it to the builder). Measured, not guessed:
+/// `git grep -n "NamedSettlement {" -- crates` gave **59** hits across **22** files (the
+/// placement pipeline, roads, labels, landmarks, trade, urban, five golden-parity test files,
+/// seven `cartalith-godot` bridges); `git grep -n "TimelineSnapshot {" -- crates` gave **15**
+/// across **3** files (`timeline.rs`, `project_bridge.rs`, `timeline_bridge.rs`). Widening
+/// `NamedSettlement` would put two fields on every one of those 59 whose only honest value is
+/// "unknown" -- the placement pass, the Settlement tool and the golden fixtures never run a
+/// collapse; one of the 59 (`named_settlement_from_collapse_place`) is the only site that
+/// would know a real value -- so the rest would either write a plausible-looking `false` (the `MISTAKES.md`
+/// "never encode no value as a plausible value" row) or carry an `Option` nobody but this
+/// feature reads. Only one writer knows the status (the collapse/recovery run), so the status
+/// lives beside the one list that writer produces, and absence stays absence.
+///
+/// Consequence stated rather than hidden: a second collapse run still seeds every settlement
+/// `fortified: false, ruins: false` (`timeline_bridge::collapse_place_from_named_settlement`),
+/// exactly as before this table existed -- it reads live `NamedSettlement`s, which still carry
+/// neither. Seeding a run from the recorded flags would change the stepper's stress/migration
+/// output (`fortified` lowers `V` and raises the migration pull) and was not in scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CollapseFlags {
+    pub fortified: bool,
+    pub ruins: bool,
 }
 
 /// How many consecutive [`TerritoryFrame::Delta`] entries may follow one
@@ -2015,6 +2062,10 @@ pub struct PopulationPoint {
     pub year: i64,
     pub pop: u32,
     pub kind: SettlementKind,
+    /// That year's [`TimelineSnapshot::collapse_flags`] entry for this `tid` -- `None` when the
+    /// year was not written by a collapse/recovery run (the map's own absence rule), never a
+    /// defaulted `false`/`false`.
+    pub flags: Option<CollapseFlags>,
 }
 
 /// Derives a settlement's (`tid`) population/tier trajectory from every
@@ -2075,6 +2126,7 @@ pub fn civ_settlement_population_trajectory(
                     year: snap.year,
                     pop: s.pop,
                     kind: s.placement.kind,
+                    flags: snap.collapse_flags.get(&tid).copied(),
                 })
         })
         .collect()
@@ -2131,12 +2183,15 @@ pub fn civ_snapshot_save(
             existing.territory = frame;
             existing.settlements = settlements;
             existing.ways = ways;
+            // The flags described the list just replaced; see `TimelineSnapshot::collapse_flags`.
+            existing.collapse_flags.clear();
         }
         None => timeline.push(TimelineSnapshot {
             year,
             territory: frame,
             settlements,
             ways,
+            collapse_flags: BTreeMap::new(),
         }),
     }
     timeline.sort_by_key(|s| s.year);
@@ -3713,21 +3768,25 @@ mod tests {
                     year: 0,
                     pop: 800,
                     kind: SettlementKind::Village,
+                    flags: None,
                 },
                 PopulationPoint {
                     year: 50,
                     pop: 1400,
                     kind: SettlementKind::Village,
+                    flags: None,
                 },
                 PopulationPoint {
                     year: 100,
                     pop: 2600,
                     kind: SettlementKind::Town,
+                    flags: None,
                 },
                 PopulationPoint {
                     year: 150,
                     pop: 3100,
                     kind: SettlementKind::Town,
+                    flags: None,
                 },
             ]
         );
@@ -3806,19 +3865,82 @@ mod tests {
                     year: 0,
                     pop: 500,
                     kind: SettlementKind::Hamlet,
+                    flags: None,
                 },
                 PopulationPoint {
                     year: 50,
                     pop: 600,
                     kind: SettlementKind::Hamlet,
+                    flags: None,
                 },
                 PopulationPoint {
                     year: 150,
                     pop: 900,
                     kind: SettlementKind::Village,
+                    flags: None,
                 },
             ]
         );
+    }
+
+    #[test]
+    fn population_trajectory_carries_each_years_collapse_flags_and_none_where_unrecorded() {
+        // Year 0: written from "live" state -- no flags recorded. Years 10/20: a run's
+        // steps -- tid 1 goes from standing to ruined-and-fortified. Year 30: recorded,
+        // but its map holds only tid 2, so tid 1's point there is `None`, not false/false.
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        for (y, kind) in [
+            (0, SettlementKind::City),
+            (10, SettlementKind::City),
+            (20, SettlementKind::Town),
+            (30, SettlementKind::Town),
+        ] {
+            civ_snapshot_save(
+                &mut timeline,
+                y,
+                vec![],
+                vec![mk_settlement_kind(1, 5, 5, "Riverside", 900, kind)],
+                vec![],
+            );
+        }
+        let set = |t: &mut Vec<TimelineSnapshot>, y: i64, tid: u64, fortified: bool, ruins: bool| {
+            t.iter_mut()
+                .find(|s| s.year == y)
+                .unwrap()
+                .collapse_flags
+                .insert(tid, CollapseFlags { fortified, ruins });
+        };
+        set(&mut timeline, 10, 1, false, false);
+        set(&mut timeline, 20, 1, true, true);
+        set(&mut timeline, 30, 2, true, false);
+
+        let flags: Vec<(i64, Option<CollapseFlags>)> = civ_settlement_population_trajectory(&timeline, 1)
+            .iter()
+            .map(|p| (p.year, p.flags))
+            .collect();
+        assert_eq!(
+            flags,
+            vec![
+                (0, None),
+                (10, Some(CollapseFlags { fortified: false, ruins: false })),
+                (20, Some(CollapseFlags { fortified: true, ruins: true })),
+                (30, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn snapshot_save_overwrite_drops_the_collapse_flags_of_the_list_it_replaces() {
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(&mut timeline, 10, vec![], vec![mk_settlement(1, 5, 5, "Riverside", 900)], vec![]);
+        timeline[0].collapse_flags.insert(1, CollapseFlags { fortified: true, ruins: true });
+        // A second, unrelated year must not disturb year 10's flags.
+        civ_snapshot_save(&mut timeline, 20, vec![], vec![mk_settlement(1, 5, 5, "Riverside", 900)], vec![]);
+        assert_eq!(timeline[0].collapse_flags.get(&1), Some(&CollapseFlags { fortified: true, ruins: true }));
+        // Overwriting year 10 replaces its settlement list, so its flags no longer describe it.
+        civ_snapshot_save(&mut timeline, 10, vec![], vec![mk_settlement(1, 5, 5, "Riverside", 400)], vec![]);
+        assert!(timeline[0].collapse_flags.is_empty());
+        assert_eq!(civ_settlement_population_trajectory(&timeline, 1)[0].flags, None);
     }
 
     #[test]
@@ -4154,6 +4276,7 @@ mod tests {
             },
             settlements: Vec::new(),
             ways: Vec::new(),
+            collapse_flags: BTreeMap::new(),
         }];
         assert_eq!(
             civ_territory_at(&timeline, 10),
@@ -4173,6 +4296,7 @@ mod tests {
                 territory: TerritoryFrame::Key(vec![0i32; 4]),
                 settlements: Vec::new(),
                 ways: Vec::new(),
+                collapse_flags: BTreeMap::new(),
             },
             TimelineSnapshot {
                 year: 10,
@@ -4182,6 +4306,7 @@ mod tests {
                 },
                 settlements: Vec::new(),
                 ways: Vec::new(),
+                collapse_flags: BTreeMap::new(),
             },
         ];
         assert_eq!(civ_territory_at(&ragged, 10), None);
@@ -4202,6 +4327,7 @@ mod tests {
                 },
                 settlements: Vec::new(),
                 ways: Vec::new(),
+                collapse_flags: BTreeMap::new(),
             },
             TimelineSnapshot {
                 year: 10,
@@ -4211,6 +4337,7 @@ mod tests {
                 },
                 settlements: Vec::new(),
                 ways: Vec::new(),
+                collapse_flags: BTreeMap::new(),
             },
         ];
         assert_eq!(civ_territory_at(&timeline, 10), None);

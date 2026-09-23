@@ -15765,7 +15765,11 @@ impl WorldGen {
     /// Returns one entry per recorded year the settlement was actually
     /// present in (**not** one per recorded year overall -- a gap year
     /// contributes no entry, matching the ownership periods' own absence
-    /// rule), oldest first: `{"year": int, "pop": int, "kind": String}`.
+    /// rule), oldest first: `{"year": int, "pop": int, "kind": String}`, plus
+    /// `"fortified": bool` and `"ruins": bool` **only** for a year a
+    /// collapse/recovery run wrote (`TimelineSnapshot::collapse_flags`). The
+    /// keys are omitted otherwise -- "not recorded", which callers test with
+    /// `has()`, never a defaulted `false`.
     /// `kind` uses the same vocabulary as `get_settlements`'
     /// `"metropolis"/"capital"/"city"/"town"/"village"/"hamlet"`
     /// (`journey_bridge::settlement_kind_key`), not a new one.
@@ -15787,11 +15791,16 @@ impl WorldGen {
         civ.civ_settlement_population_trajectory(tid as u64)
             .iter()
             .map(|point| {
-                vdict! {
+                let mut d = vdict! {
                     "year" => point.year,
                     "pop" => point.pop as i64,
                     "kind" => journey_bridge::settlement_kind_key(point.kind),
+                };
+                if let Some(f) = point.flags {
+                    d.set("fortified", f.fortified);
+                    d.set("ruins", f.ruins);
                 }
+                d
             })
             .collect()
     }

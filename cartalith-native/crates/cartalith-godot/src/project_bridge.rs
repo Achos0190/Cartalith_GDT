@@ -3852,6 +3852,7 @@ mod tests {
                 territory: cartalith_civ::timeline::TerritoryFrame::Key(vec![3; 12]),
                 settlements: Vec::new(),
                 ways: Vec::new(),
+                collapse_flags: Default::default(),
             }],
             year: 120,
             dens: vec![0.5f32; 12],
@@ -4209,6 +4210,7 @@ mod tests {
             territory: cartalith_civ::timeline::TerritoryFrame::empty(),
             settlements: vec![ghost],
             ways: Vec::new(),
+            collapse_flags: Default::default(),
         });
         civ.next_tid = 501;
 
@@ -5389,18 +5391,21 @@ mod tests {
                 territory: cartalith_civ::timeline::TerritoryFrame::Key(vec![1; 12]),
                 settlements: vec![],
                 ways: vec![],
+                collapse_flags: Default::default(),
             },
             cartalith_civ::timeline::TimelineSnapshot {
                 year: 100,
                 territory: cartalith_civ::timeline::TerritoryFrame::Key(vec![2; 12]),
                 settlements: vec![],
                 ways: vec![],
+                collapse_flags: Default::default(),
             },
             cartalith_civ::timeline::TimelineSnapshot {
                 year: 200,
                 territory: cartalith_civ::timeline::TerritoryFrame::Key(vec![3; 12]),
                 settlements: vec![],
                 ways: vec![],
+                collapse_flags: Default::default(),
             },
         ];
         let back = round_trip(&civ, 4, 3);

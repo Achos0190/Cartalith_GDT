@@ -750,6 +750,8 @@ func _build_political(parent: Control, s: Dictionary) -> void:
 	else:
 		var traj_list := DccWidgets.group(traj_sec, "Recorded years", true)
 		var prev_kind := ""
+		var prev_status := ""
+		var any_unrecorded := false
 		for pt in traj_points:
 			var pd: Dictionary = pt
 			var kind := String(pd.get("kind", ""))
@@ -764,8 +766,33 @@ func _build_political(parent: Control, s: Dictionary) -> void:
 			# ownership bar collapses same-faction years into one span.
 			row.add_child(DccTheme.mono_label(kind.capitalize(),
 				"text" if kind != prev_kind else "text_dim", DccTheme.FS_SMALL))
+			# Ruins/fortified, fourth column. The keys exist only for a year a
+			# collapse/recovery run wrote (`TimelineSnapshot::collapse_flags`);
+			# otherwise the column is a dash with its reason, never "standing",
+			# because nothing recorded that. Dimmed when unchanged from the row
+			# above, the same rule as the tier column.
+			var status := "—"
+			if pd.has("ruins"):
+				var parts: Array[String] = []
+				if bool(pd.get("ruins", false)):
+					parts.append("ruins")
+				if bool(pd.get("fortified", false)):
+					parts.append("fortified")
+				status = " · ".join(parts) if not parts.is_empty() else "standing"
+			else:
+				any_unrecorded = true
+			var status_l := DccTheme.mono_label(status,
+				"text" if status != prev_status and status != "—" else "text_dim", DccTheme.FS_SMALL)
+			if status == "—":
+				status_l.mouse_filter = Control.MOUSE_FILTER_PASS
+				status_l.tooltip_text = "Not recorded: this year was not written by a collapse/recovery run."
+			row.add_child(status_l)
 			traj_list.add_child(row)
 			prev_kind = kind
+			prev_status = status
+		if any_unrecorded:
+			DccWidgets.note(traj_sec, "— in the last column: ruins/fortified not recorded. Only a "
+				+ "collapse/recovery run records them, and a project reload does not keep them.")
 
 	# -- Manual political entries (canvas's own dashed panel) -----------------
 	var man := DccWidgets.section(parent, "Manual political entries")

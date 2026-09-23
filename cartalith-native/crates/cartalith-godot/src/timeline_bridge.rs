@@ -19,36 +19,27 @@
 //! no Godot runtime involved, the same isolation every sibling bridge module already
 //! establishes.
 //!
-//! ## A disclosed gap: `fortified`/`ruins` do not survive into a stored snapshot
+//! ## `fortified`/`ruins`: stored beside the snapshot, not on `NamedSettlement`
 //!
 //! `TIMELINE_SCOPE.md` milestone 3's own `CollapsePlace`
 //! (`cartalith-civ/src/timeline.rs`) carries `fortified`/`ruins` -- new surface a
-//! settlement demoted from an exchange tier gains mid-simulation. Milestone 4's
-//! `TimelineSnapshot` stores `settlements: Vec<NamedSettlement>` (not
-//! `Vec<CollapsePlace>`), and `NamedSettlement` (`cartalith-civ/src/lib.rs`, predating
-//! Timeline entirely -- placement/naming, Phase 2 milestones 8-9) has no
-//! `fortified`/`ruins` field. The reference has no such gap (its `places` are
-//! loosely-typed JS objects, so `{...p}` into a snapshot always keeps whatever
-//! traits/ruins a place already carries).
+//! settlement demoted from an exchange tier gains mid-simulation. `TimelineSnapshot`
+//! stores `settlements: Vec<NamedSettlement>`, and `NamedSettlement` has no
+//! `fortified`/`ruins` field. Until 2026-09-23 that meant the status was dropped when
+//! each step was written out (this block used to disclose exactly that gap). SP-3
+//! closed it with a side table, `TimelineSnapshot::collapse_flags` keyed by `tid`, which
+//! [`run_collapse_simulation`] fills for every step it writes -- see
+//! `cartalith_civ::timeline::CollapseFlags` for the measured blast radius that decided
+//! against widening `NamedSettlement`.
 //!
-//! Extending `NamedSettlement` to carry them would ripple into every other
-//! subsystem that constructs one (`civ_tools_bridge.rs`, `render.rs`, Phase 2's whole
-//! placement pipeline) -- real work, out of this milestone's own scope ("do NOT touch
-//! milestones 1-4's already-committed functions"; `NamedSettlement` itself is older
-//! than Timeline but shared far beyond it). So [`named_settlement_from_collapse_place`]
-//! below writes pop/kind/tid/x/y into the stored snapshot correctly -- WITHIN one
-//! simulation run, `fortified`/`ruins` stay threaded through every step exactly as the
-//! reference does (`civ_simulate_timeline` chains `Vec<CollapsePlace>` step to step,
-//! never touching `NamedSettlement` until this module writes the FINAL per-step result
-//! out) -- but a settlement's `fortified`/`ruins` status is not itself persisted in
-//! what gets stored for later scrubbing/redisplay. Nothing downstream reads it yet
-//! (milestone 6, UI playback, is not built), so this is inert today, not silently
-//! wrong -- flagged here and in `CHANGELOG.md` as a real, disclosed limitation for
-//! whichever future milestone extends `NamedSettlement` (or `TimelineSnapshot`) to
-//! close it, not quietly dropped.
+//! What is still NOT carried: a run's STARTING status. [`collapse_place_from_named_settlement`]
+//! still seeds every settlement `false`/`false` from live `NamedSettlement`s, so a second
+//! run does not see the first run's fortifications -- unchanged behaviour, stated rather
+//! than fixed here (seeding would move the stepper's output). And the side table is in
+//! memory only: a project save/reload drops it (see the field's own doc comment).
 
 use cartalith_civ::timeline::{
-    CollapseCharacter, CollapsePlace, SimulateMode, SimulateTimelineOpts, SimulateWorldParams,
+    CollapseCharacter, CollapseFlags, CollapsePlace, SimulateMode, SimulateTimelineOpts, SimulateWorldParams,
     TimelineSnapshot, TimelineStepStats, civ_simulate_timeline, civ_snapshot_save,
     civ_territory_at,
 };
@@ -195,7 +186,8 @@ pub fn collapse_sim_request_from_pairs(pairs: &[(String, SimValue)]) -> (Collaps
 
 /// A live settlement as the collapse/recovery stepper sees it at the START of a run
 /// -- `fortified`/`ruins` both start `false` (a live `NamedSettlement` carries
-/// neither; see this module's own top-of-file doc comment on why). `port` is the
+/// neither; a previous run's recorded `TimelineSnapshot::collapse_flags` are not read
+/// back in -- see this module's own top-of-file doc comment). `port` is the
 /// placement pass's own ocean-port flag, which is exactly what the reference's
 /// `traits.includes('port')` records.
 fn collapse_place_from_named_settlement(s: &NamedSettlement) -> CollapsePlace {
@@ -393,6 +385,18 @@ pub fn run_collapse_simulation(
         // whole copy of `terr0` -- 10.24 MiB apiece at the shipped default world, measured. Each
         // now stores an empty delta against the step before it.
         civ_snapshot_save(timeline, year, terr0.clone(), named, ways0.clone());
+        // SP-3: the step's `fortified`/`ruins`, keyed by tid, beside the list just stored
+        // (`TimelineSnapshot::collapse_flags`; `CollapseFlags` records why a side table). After
+        // the save, because the save empties the map on overwrite. Only tids that survived
+        // into `named` -- the same `originals` lookup -- so no flag names an absent settlement.
+        if let Some(entry) = timeline.iter_mut().find(|s| s.year == year) {
+            entry.collapse_flags = snap
+                .places
+                .iter()
+                .filter(|p| live_settlements.iter().any(|s| s.tid == p.tid))
+                .map(|p| (p.tid, CollapseFlags { fortified: p.fortified, ruins: p.ruins }))
+                .collect();
+        }
     }
     timeline.sort_by_key(|s| s.year);
     report.end_year = req.start_year + i64::from(steps) * i64::from(step_years);
@@ -527,7 +531,7 @@ mod tests {
         let dens = vec![5.0f32; GW * GH];
         let field = vec![0.6f32; GW * GH];
         let world = world_params(&dens, &field);
-        let mut timeline = vec![TimelineSnapshot { year: 20, territory: TerritoryFrame::Key(vec![7; GW * GH]), settlements: settlements.clone(), ways: Vec::new() }];
+        let mut timeline = vec![TimelineSnapshot { year: 20, territory: TerritoryFrame::Key(vec![7; GW * GH]), settlements: settlements.clone(), ways: Vec::new(), collapse_flags: Default::default() }];
         let req = CollapseSimRequest { severity: 0.0, start_year: 0, duration: 30, step_years: 10, ..CollapseSimRequest::default() };
 
         let outcome = run_collapse_simulation(&mut timeline, 0, &settlements, &[], &[0; GW * GH], &world, &req);
@@ -560,7 +564,7 @@ mod tests {
         // painted territory at the simulation's own start year must survive a run
         // that starts from it, even if the live grid has since been edited further).
         let anchor_territory = vec![9i32; GW * GH];
-        let mut timeline = vec![TimelineSnapshot { year: 0, territory: TerritoryFrame::Key(anchor_territory.clone()), settlements: settlements.clone(), ways: Vec::new() }];
+        let mut timeline = vec![TimelineSnapshot { year: 0, territory: TerritoryFrame::Key(anchor_territory.clone()), settlements: settlements.clone(), ways: Vec::new(), collapse_flags: Default::default() }];
         let live_territory = vec![3i32; GW * GH]; // deliberately different from the anchor
         let req = CollapseSimRequest { severity: 0.0, start_year: 0, duration: 10, step_years: 10, ..CollapseSimRequest::default() };
 
@@ -586,7 +590,7 @@ mod tests {
         let dens = vec![5.0f32; GW * GH];
         let field = vec![0.6f32; GW * GH];
         let world = world_params(&dens, &field);
-        let mut timeline = vec![TimelineSnapshot { year: 0, territory: TerritoryFrame::Key(vec![0; GW * GH]), settlements: vec![settlement(1, 3, 3, SettlementKind::Village, 111, "Stale")], ways: Vec::new() }];
+        let mut timeline = vec![TimelineSnapshot { year: 0, territory: TerritoryFrame::Key(vec![0; GW * GH]), settlements: vec![settlement(1, 3, 3, SettlementKind::Village, 111, "Stale")], ways: Vec::new(), collapse_flags: Default::default() }];
         let req = CollapseSimRequest { severity: 0.0, start_year: 50, duration: 10, step_years: 10, ..CollapseSimRequest::default() };
 
         // active_year=0 must be re-snapshotted from the LIVE settlements (pop 500,
@@ -639,6 +643,44 @@ mod tests {
         assert_eq!(report.unplaced, 0);
         assert_eq!(report.failed, 0);
         assert!(report.grew > 0, "a settlement under its ceiling must grow");
+    }
+
+    // ---------- SP-3: collapse flags reach the stored snapshot ----------
+
+    #[test]
+    fn a_collapse_run_stores_each_steps_fortified_and_ruins_per_surviving_tid() {
+        // Same stressed fixture as the round-trip test below: a city under severe conflict
+        // demotes out of an exchange tier, which is what sets ruins+fortified.
+        let settlements = vec![
+            settlement(1, 2, 2, SettlementKind::City, 6000, "Hub"),
+            settlement(2, 8, 8, SettlementKind::Hamlet, 80, "Edge"),
+        ];
+        let dens = vec![8.0f32; GW * GH];
+        let field = vec![0.6f32; GW * GH];
+        let world = world_params(&dens, &field);
+        let mut timeline = Vec::new();
+        let req = CollapseSimRequest {
+            character: CollapseCharacter::Conflict,
+            severity: 0.9,
+            duration: 30,
+            step_years: 10,
+            ..CollapseSimRequest::default()
+        };
+        let CollapseSimOutcome::Ran(_) = run_collapse_simulation(&mut timeline, 0, &settlements, &[], &[0; GW * GH], &world, &req) else {
+            panic!("expected Ran")
+        };
+        // The anchor year was written from live state: nothing recorded.
+        assert!(timeline.iter().find(|s| s.year == 0).unwrap().collapse_flags.is_empty());
+        let mut any_ruined = false;
+        for y in [10, 20, 30] {
+            let snap = timeline.iter().find(|s| s.year == y).unwrap();
+            let mut tids: Vec<u64> = snap.settlements.iter().map(|s| s.tid).collect();
+            tids.sort_unstable();
+            let flagged: Vec<u64> = snap.collapse_flags.keys().copied().collect();
+            assert_eq!(flagged, tids, "year {y}: one flag entry per stored settlement, no more");
+            any_ruined |= snap.collapse_flags.values().any(|f| f.ruins && f.fortified);
+        }
+        assert!(any_ruined, "the fixture must actually demote something, or this test proves nothing");
     }
 
     // ---------- round trip: simulate then scrub, TIMELINE_SCOPE.md §7 criterion 4 ----------

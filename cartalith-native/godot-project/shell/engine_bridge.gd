@@ -4084,7 +4084,9 @@ func civ_settlement_ownership_periods(tid: int) -> Array:
 ## read-only population/tier readings for one settlement's `tid`, one entry
 ## per recorded year the settlement was actually present in (a gap year
 ## contributes no entry -- not carried forward, not zero), oldest first:
-## `{"year": int, "pop": int, "kind": String}`. `kind` is the same
+## `{"year": int, "pop": int, "kind": String}`, plus `"fortified": bool` and
+## `"ruins": bool` only for a year a collapse/recovery run wrote -- absent
+## means not recorded, so test with `has()`. `kind` is the same
 ## vocabulary `get_settlements()` uses
 ## ("metropolis"/"capital"/"city"/"town"/"village"/"hamlet"). Empty before
 ## any generate/`civ_add_year` call, for `tid <= 0`, or for a `tid` the
