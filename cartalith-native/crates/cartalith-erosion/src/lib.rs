@@ -253,6 +253,8 @@ pub fn erode_thermal(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f6
         // gather reformulation (each cell reads its neighbours' excess
         // instead of writing to them) would fix this, but that's a real
         // algorithmic redesign, not a `par_iter` swap -- left sequential.
+        // That gather exists on the GPU side: `cartalith-gpu`'s
+        // `gpu_thermal.wgsl`, which `erode_op` runs instead under `use_gpu`.
         for y in 0..h {
             for x in 0..w {
                 let i = y * w + x;

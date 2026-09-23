@@ -157,6 +157,11 @@ pub struct ErodeSummary {
     /// and the op fell back to uniform spawning — see [`erode_op`]'s own note
     /// on why that fallback exists and why it is reported rather than hidden.
     pub climate_coupled: bool,
+    /// Whether the thermal-relaxation passes ran on the GPU
+    /// (`cartalith_gpu::thermal_grid_gpu_with`). Recorded on success, not on
+    /// attempt: `p.use_gpu` asked for it and a device actually completed it.
+    /// `false` on the CPU path, including every GPU fallback.
+    pub thermal_on_gpu: bool,
 }
 
 /// `erode()` + `erodeFinish()` (reference HTML lines 3892-3902), minus the
@@ -166,7 +171,10 @@ pub struct ErodeSummary {
 /// reads from `state` rather than from the erosion panel: `p.planet.g`
 /// (`dropletParams`' `g`), `p.stream.climate_k` (`erode()`'s `ck`),
 /// `p.tect.seed` (`dropletParams`' `seed`) and `p.tect.blur_r` +`p.world`
-/// (`isostaticRebound`'s blur radius and X-wrap).
+/// (`isostaticRebound`'s blur radius and X-wrap). `p.use_gpu` additionally
+/// moves the thermal passes onto the GPU when a device takes them
+/// (reported on [`ErodeSummary::thermal_on_gpu`]); droplets and rebound stay
+/// on the CPU either way.
 ///
 /// Returns a zeroed [`ErodeSummary`] and touches nothing when the grid is
 /// empty or `ws.field` does not match `p.gw * p.gh` — a mismatched field is a
@@ -240,7 +248,27 @@ pub fn erode_op(ws: &mut WorldState, p: &WorldParams, opts: &ErodeOpts) -> Erode
             seed: p.tect.seed as u32,
         },
     );
-    erode_thermal(f, gw, gh, opts.thermal_passes, opts.talus);
+    // `p.use_gpu` -- the same gate and fallback shape `generate_terrain` uses
+    // for every GPU stage: budget gate, device-set gate, then the dispatch,
+    // and the untouched CPU kernel whenever any of them says no. The device
+    // set is the process-wide cached one (Ruling Y), so an op after a GPU
+    // generation pays no handshake. `use_gpu: false` -- the engine default --
+    // never reaches `cartalith_gpu` at all.
+    let thermal_gpu = if p.use_gpu && opts.thermal_passes > 0 && cartalith_gpu::gpu_allowed_for_grid(gw, gh) {
+        cartalith_gpu::init_gpu_device_set()
+            .ok()
+            .filter(|s| s.supports_grid(gw, gh))
+            .and_then(|s| {
+                cartalith_gpu::thermal_grid_gpu_with(s.primary(), f, gw as u32, gh as u32, opts.thermal_passes as u32, opts.talus as f32)
+            })
+    } else {
+        None
+    };
+    let thermal_on_gpu = thermal_gpu.is_some();
+    match thermal_gpu {
+        Some(out) => f.copy_from_slice(&out),
+        None => erode_thermal(f, gw, gh, opts.thermal_passes, opts.talus),
+    }
 
     // `erodeFinish`'s clamp, written as the reference's own two-branch
     // `if/else if` rather than `f32::clamp`. Deliberate: JS lets a NaN fall
@@ -257,7 +285,7 @@ pub fn erode_op(ws: &mut WorldState, p: &WorldParams, opts: &ErodeOpts) -> Erode
     }
     isostatic_rebound(f, &pre, gw, gh, p.tect.blur_r, p.world);
 
-    let mut s = ErodeSummary { climate_coupled: ck > 0.0, ..Default::default() };
+    let mut s = ErodeSummary { climate_coupled: ck > 0.0, thermal_on_gpu, ..Default::default() };
     for (a, b) in ws.field.iter().zip(pre.iter()) {
         if a != b {
             s.cells_changed += 1;
@@ -470,6 +498,164 @@ mod tests {
         let s = erode_op(&mut w, &params(gw, gh, 3), &opts);
         assert!(w.field.iter().all(|v| v.is_finite()), "no NaN/inf from a zero radius");
         assert!(s.cells_changed > 0);
+    }
+
+    /// CPU-vs-GPU tolerance for the thermal pass, **derived from measurement**,
+    /// not assumed. `measured_thermal_gpu_vs_cpu` below, 2026-09-23, AMD Radeon
+    /// RX 7800 XT (Vulkan), release, run alone: 15 configurations -- real
+    /// `generate_terrain` fields at 128², 256², 512², 1024² and 2048², each at
+    /// (8 passes, talus 0.012 -- the reference default), (30, 0.001 -- the
+    /// slider's maximum passes at its minimum talus, the case that moves the
+    /// most cells) and (8, 0.040). Worst element deviation **2.98e-7** (the
+    /// 30-pass runs at 1024² and 2048²; 1.19e-7 to 1.79e-7 at the default),
+    /// i.e. about 2.5 ulp of f32 at 1.0. GPU-vs-GPU on the same input was
+    /// **exactly 0** in all 15: the kernel is a gather with no atomics and no
+    /// reduction, so a dispatch is deterministic by construction.
+    ///
+    /// 1e-6 is ~3.4x the measured worst, and three orders below the smallest
+    /// talus the panel offers (0.001) -- so any real porting error (a dropped
+    /// inflow, a wrong split, a swapped axis), which moves cells by a fraction
+    /// of the talus, cannot hide under it.
+    const THERMAL_GPU_TOL: f32 = 1e-6;
+
+    /// The GPU thermal pass against the real CPU `erode_thermal`, on real
+    /// generated terrain, on **non-square** grids (a swapped width/height
+    /// cannot pass) and at an **odd** and an even pass count (the ping-pong
+    /// ends in a different buffer for each). Environment-tolerant like
+    /// `generate_terrain_gpu_path_is_deterministic_and_valid`: no device, or a
+    /// device that refuses the grid, is a skip, not a failure.
+    #[test]
+    fn gpu_thermal_matches_cpu_thermal_within_measured_tolerance() {
+        let Some(set) = cartalith_gpu::init_gpu_device_set().ok() else {
+            eprintln!("no GPU device -- CPU-only machine, nothing to compare");
+            return;
+        };
+        let gpu = set.primary();
+        for &(gw, gh, seed) in &[(96usize, 64usize, 24601), (150, 200, 777)] {
+            let base = crate::generate_terrain(&WorldParams::defaults(gw, gh, seed)).field.as_ref().clone();
+            for &(passes, talus) in &[(8i32, 0.012f64), (7, 0.001)] {
+                let mut cpu = base.clone();
+                erode_thermal(&mut cpu, gw, gh, passes, talus);
+                let Some(g) = cartalith_gpu::thermal_grid_gpu_with(gpu, &base, gw as u32, gh as u32, passes as u32, talus as f32)
+                else {
+                    eprintln!("device refused {gw}x{gh} -- skipped");
+                    return;
+                };
+                let moved = cpu.iter().zip(&base).filter(|(a, b)| a != b).count();
+                assert!(moved > 0, "{gw}x{gh}/{passes}/{talus}: the fixture must actually relax something");
+                let worst = cpu.iter().zip(&g).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+                assert!(
+                    worst <= THERMAL_GPU_TOL,
+                    "{gw}x{gh} passes {passes} talus {talus}: GPU thermal deviates from CPU by {worst:e} > {THERMAL_GPU_TOL:e} ({moved} cells moved)"
+                );
+                let again = cartalith_gpu::thermal_grid_gpu_with(gpu, &base, gw as u32, gh as u32, passes as u32, talus as f32)
+                    .expect("the same device just took this grid");
+                assert_eq!(g, again, "a gather with no atomics must be bit-deterministic across dispatches");
+            }
+        }
+
+        // The per-pass clamp. On an in-range field it never binds (a cell
+        // sheds at most its own height and receives less than the drop to its
+        // donors), so the fields above cannot see it. It binds on what
+        // `erode_op` actually feeds thermal: the droplet pass's output, which
+        // is only clamped AFTER thermal. So: a field peaking above 1.
+        let (gw, gh) = (40usize, 30usize);
+        let hot: Vec<f32> = synthetic(gw, gh).iter().map(|&v| v * 1.4).collect();
+        assert!(hot.iter().any(|&v| v > 1.0), "the fixture must reach above the clamp");
+        let mut cpu = hot.clone();
+        erode_thermal(&mut cpu, gw, gh, 3, 0.012);
+        if let Some(g) = cartalith_gpu::thermal_grid_gpu_with(gpu, &hot, gw as u32, gh as u32, 3, 0.012) {
+            let worst = cpu.iter().zip(&g).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+            assert!(worst <= THERMAL_GPU_TOL, "out-of-range input: GPU clamp deviates by {worst:e}");
+        }
+    }
+
+    /// The whole op through both paths. `use_gpu: false` -- the engine
+    /// default, asserted as a literal -- must never report the GPU; `true`
+    /// must report it whenever a device exists, and land within the thermal
+    /// tolerance of the CPU op (the droplets are CPU in both and identical;
+    /// only thermal differs). The rebound that follows adds `0.8 x` a
+    /// Gaussian-blurred (so weighted-average, never larger) copy of the
+    /// unloading, so the thermal deviation can at most grow by 1.8x through
+    /// it -- that bound, not a new guess, is what the whole op is held to.
+    #[test]
+    fn erode_op_use_gpu_moves_thermal_to_the_gpu_and_only_when_asked() {
+        let (gw, gh) = (120usize, 80usize);
+        assert!(!WorldParams::defaults(gw, gh, 1).use_gpu, "engine default must stay CPU");
+        let base = crate::generate_terrain(&WorldParams::defaults(gw, gh, 31337)).field.as_ref().clone();
+        let opts = ErodeOpts { droplets: 500, ..Default::default() };
+
+        let p_cpu = params(gw, gh, 31337);
+        let mut w_cpu = world(base.clone(), Vec::new());
+        let s_cpu = erode_op(&mut w_cpu, &p_cpu, &opts);
+        assert!(!s_cpu.thermal_on_gpu, "use_gpu=false must never reach the GPU");
+
+        let mut p_gpu = params(gw, gh, 31337);
+        p_gpu.use_gpu = true;
+        let mut w_gpu = world(base, Vec::new());
+        let s_gpu = erode_op(&mut w_gpu, &p_gpu, &opts);
+        let device = cartalith_gpu::init_gpu_device_set().ok().is_some_and(|s| s.supports_grid(gw, gh));
+        assert_eq!(s_gpu.thermal_on_gpu, device, "thermal must run on the GPU exactly when a device takes it");
+        let worst = w_cpu.field.iter().zip(w_gpu.field.iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        let tol = 1.8 * THERMAL_GPU_TOL;
+        assert!(worst <= tol, "erode_op GPU vs CPU worst {worst:e} > {tol:e}");        assert!(w_gpu.field.iter().all(|&v| (0.0..=1.0).contains(&v)));
+    }
+
+    /// Measurement harness for the GPU thermal pass: CPU `erode_thermal` vs
+    /// `cartalith_gpu::thermal_grid_gpu_with` on real `generate_terrain`
+    /// output, deviation and timing. `#[ignore]`d -- run alone:
+    /// `cargo test --release -p cartalith-engine measured_thermal_gpu -- --ignored --test-threads=1 --nocapture`
+    #[test]
+    #[ignore]
+    fn measured_thermal_gpu_vs_cpu() {
+        const ROUNDS: usize = 5;
+        fn timed<T>(mut f: impl FnMut() -> T) -> (std::time::Duration, std::time::Duration, std::time::Duration, T) {
+            let mut times = Vec::new();
+            let mut last = None;
+            for _ in 0..ROUNDS {
+                let t0 = std::time::Instant::now();
+                last = Some(f());
+                times.push(t0.elapsed());
+            }
+            times.sort_unstable();
+            (times[ROUNDS / 2], times[0], times[ROUNDS - 1], last.unwrap())
+        }
+        let Some(set) = cartalith_gpu::init_gpu_device_set().ok() else {
+            eprintln!("no GPU device -- nothing to measure");
+            return;
+        };
+        let gpu = set.primary();
+        eprintln!("device: {} ({:?})", gpu.adapter_name, gpu.adapter_backend);
+        for &(sz, seed) in &[(128usize, 24601), (256, 777), (512, 24601), (1024, 4242), (2048, 24601)] {
+            let base = crate::generate_terrain(&WorldParams::defaults(sz, sz, seed)).field.as_ref().clone();
+            for &(passes, talus) in &[(8i32, 0.012f64), (30, 0.001), (8, 0.040)] {
+                let (cpu_t, cpu_lo, cpu_hi, cpu) = timed(|| {
+                    let mut f = base.clone();
+                    erode_thermal(&mut f, sz, sz, passes, talus);
+                    f
+                });
+                let (gpu_t, gpu_lo, gpu_hi, g) =
+                    timed(|| thermal_grid_gpu(gpu, &base, sz, passes, talus).expect("GPU dispatch"));
+                let g2 = thermal_grid_gpu(gpu, &base, sz, passes, talus).expect("GPU dispatch");
+                let moved = cpu.iter().zip(&base).filter(|(a, b)| a != b).count();
+                let diffs: Vec<f32> = cpu.iter().zip(&g).map(|(a, b)| (a - b).abs()).collect();
+                let worst = diffs.iter().cloned().fold(0.0f32, f32::max);
+                let mean = diffs.iter().map(|&d| d as f64).sum::<f64>() / diffs.len() as f64;
+                let unequal = diffs.iter().filter(|&&d| d > 0.0).count();
+                let cross = g.iter().zip(&g2).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+                eprintln!(
+                    "{sz}x{sz} seed {seed} passes {passes} talus {talus}: cells moved by CPU {moved}/{}; CPU-vs-GPU worst {worst:e} mean {mean:e} unequal {unequal}; GPU-vs-GPU worst {cross:e}; \
+                     CPU {cpu_t:?} [{cpu_lo:?}..{cpu_hi:?}] GPU {gpu_t:?} [{gpu_lo:?}..{gpu_hi:?}] (n={ROUNDS})",
+                    sz * sz
+                );
+            }
+        }
+    }
+
+    /// `thermal_grid_gpu_with` on a square grid, in `erode_op`'s own argument
+    /// types.
+    fn thermal_grid_gpu(gpu: &cartalith_gpu::GpuDevice, f: &[f32], sz: usize, passes: i32, talus: f64) -> Option<Vec<f32>> {
+        cartalith_gpu::thermal_grid_gpu_with(gpu, f, sz as u32, sz as u32, passes as u32, talus as f32)
     }
 
     /// The defaults are checked against the JS literal at reference line 2268,

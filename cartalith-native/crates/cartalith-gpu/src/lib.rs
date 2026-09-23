@@ -99,6 +99,10 @@ const SHADER_SRC_GPU_WEATHER: &str = include_str!("../shaders/gpu_weather.wgsl")
 /// for the literature this follows and [`dispatch_gpu_flow`] for the
 /// fixed-point accumulation choice that keeps it deterministic.
 const SHADER_SRC_GPU_FLOW: &str = include_str!("../shaders/gpu_flow.wgsl");
+/// `cartalith_erosion::erode_thermal`'s pass, as a gather (`OUTSTANDING_WORK.md`
+/// §2.6). The shader header says why the CPU scatter becomes a gather and what
+/// that costs in precision; [`thermal_grid_gpu_with`] is the entry point.
+const SHADER_SRC_GPU_THERMAL: &str = include_str!("../shaders/gpu_thermal.wgsl");
 
 /// Tolerance for the GPU-safe noise kernel vs. its CPU counterpart
 /// (`cartalith_noise::gpu_vnoise`). Unlike [`F32_TOLERANCE`] above (which
@@ -321,6 +325,16 @@ struct BlurParams {
     height: u32,
     radius: i32,
     wrap: u32,
+}
+
+/// Matches `gpu_thermal.wgsl`'s `ThermalParams` field-for-field -- 16 bytes.
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct ThermalParams {
+    width: u32,
+    height: u32,
+    talus: f32,
+    _pad: u32,
 }
 
 /// Matches `gpu_flow.wgsl`'s `FlowParams` field-for-field -- 4 x u32 = 16
@@ -3241,6 +3255,93 @@ pub fn gauss_blur_grid_gpu_with(
     on_grid(gpu, width, height, || {
         let ctx = init_gpu_gauss_blur_with(gpu);
         dispatch_gpu_gauss_blur(&ctx, src, radius, width, height, wrap_x)
+    })
+}
+
+/// `passes` rounds of `gpu_thermal.wgsl`, ping-ponged between two storage
+/// buffers inside ONE encoder and ONE submit -- the blur's own multi-pass
+/// shape, so there is no CPU round-trip between passes and the only readback
+/// is the final field. Each pass reads the whole frozen field and writes a
+/// fresh one, which is exactly `erode_thermal`'s own pass boundary (its
+/// `delta` is built from the start-of-pass `fld` and applied after).
+fn dispatch_gpu_thermal(ctx: &GpuContext, src: &[f32], width: u32, height: u32, passes: u32, talus: f32) -> Option<Vec<f32>> {
+    let count = (width * height) as usize;
+    assert_eq!(src.len(), count);
+    if passes == 0 {
+        return Some(src.to_vec());
+    }
+    let byte_len = (count * std::mem::size_of::<f32>()) as u64;
+    let params = ThermalParams { width, height, talus, _pad: 0 };
+    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("thermal params"),
+        contents: bytemuck::bytes_of(&params),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let rw = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST;
+    let buf_a = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("thermal buf a"),
+        contents: bytemuck::cast_slice(src),
+        usage: rw,
+    });
+    let buf_b = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("thermal buf b"),
+        size: byte_len,
+        usage: rw,
+        mapped_at_creation: false,
+    });
+    let staging_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("thermal out (staging)"),
+        size: byte_len,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let bind = |label: &str, input: &wgpu::Buffer, output: &wgpu::Buffer| {
+        ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout: &ctx.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: input.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: output.as_entire_binding() },
+            ],
+        })
+    };
+    let bg_ab = bind("thermal bg a->b", &buf_a, &buf_b);
+    let bg_ba = bind("thermal bg b->a", &buf_b, &buf_a);
+
+    let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("thermal encoder") });
+    for k in 0..passes {
+        let mut pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("thermal pass"), timestamp_writes: None });
+        pass.set_pipeline(&ctx.pipeline);
+        pass.set_bind_group(0, if k % 2 == 0 { &bg_ab } else { &bg_ba }, &[]);
+        pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
+    }
+    // An odd pass count ends in `b`, an even one back in `a`.
+    let result = if passes % 2 == 1 { &buf_b } else { &buf_a };
+    encoder.copy_buffer_to_buffer(result, 0, &staging_buf, 0, byte_len);
+    ctx.queue.submit(Some(encoder.finish()));
+
+    read_back_vec::<f32>(ctx, &staging_buf, count as u64)
+}
+
+/// GPU sibling of `cartalith_erosion::erode_thermal` (`OUTSTANDING_WORK.md`
+/// §2.6): `passes` talus-relaxation passes over `src`, each clamped to `[0,1]`
+/// as the CPU pass clamps. Returns the relaxed field, or `None` whenever the
+/// device cannot take it (lost, below this grid, or a failed readback) -- the
+/// caller then runs the CPU pass, `HARDWARE_ACCELERATION.md` §27.
+///
+/// **Not bit-identical to the CPU pass** (`DECISIONS.md` §7a): the CPU
+/// scatter becomes a gather and f64 intermediates become f32 -- see
+/// `gpu_thermal.wgsl`'s header. The measured deviation and the tolerance it
+/// sets are in `cartalith-engine`'s `erode_op` tests. No `world` argument:
+/// `erode_thermal` has none, and never wraps.
+pub fn thermal_grid_gpu_with(gpu: &GpuDevice, src: &[f32], width: u32, height: u32, passes: u32, talus: f32) -> Option<Vec<f32>> {
+    on_grid(gpu, width, height, || {
+        // Same (uniform, read-only in, read-write out) signature as the blur,
+        // so the layout is shared rather than restated.
+        let ctx = build_pipeline_shared(gpu, SHADER_SRC_GPU_THERMAL, "gpu_thermal (f32, gather)", &BLUR_LAYOUT);
+        dispatch_gpu_thermal(&ctx, src, width, height, passes, talus)
     })
 }
 

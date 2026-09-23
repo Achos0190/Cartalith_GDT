@@ -87,7 +87,7 @@ fn refuse_erode(reason: &str) -> VarDictionary {
     vdict! {
         "ok" => false, "reason" => reason,
         "cells_changed" => 0i64, "cells_lowered" => 0i64, "cells_raised" => 0i64,
-        "climate_coupled" => false, "ms" => 0.0f64,
+        "climate_coupled" => false, "thermal_on_gpu" => false, "ms" => 0.0f64,
     }
 }
 
@@ -172,7 +172,9 @@ impl WorldGen {
     ///
     /// `ok` (bool), `cells_changed` / `cells_lowered` / `cells_raised` (int),
     /// `climate_coupled` (bool — false when this world carries no rainfall
-    /// and the droplets spawned uniformly), `recomputed` / `still_stale`
+    /// and the droplets spawned uniformly), `thermal_on_gpu` (bool — the
+    /// thermal passes ran on the GPU because `use_gpu` is on and a device took
+    /// them), `recomputed` / `still_stale`
     /// (`PackedStringArray`), `ms` (float), and `reason` (String, only when
     /// `ok` is false).
     ///
@@ -238,6 +240,7 @@ impl WorldGen {
             "cells_lowered" => s.cells_lowered as i64,
             "cells_raised" => s.cells_raised as i64,
             "climate_coupled" => s.climate_coupled,
+            "thermal_on_gpu" => s.thermal_on_gpu,
             "recomputed" => &recomputed,
             "still_stale" => &still_stale,
             "ms" => t0.elapsed().as_secs_f64() * 1000.0,
