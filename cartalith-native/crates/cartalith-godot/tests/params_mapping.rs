@@ -565,9 +565,11 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     );
 }
 
-/// The three shipped divergences are not cosmetic: they generate a genuinely
-/// different world. Guards against the exact failure a flag flip has — landing
-/// in `params::defaults` while the code path behind it is dead.
+/// Three of the four shipped divergences -- the volcanism/crater ones -- are
+/// not cosmetic: they generate a genuinely different world. Guards against the
+/// exact failure a flag flip has — landing in `params::defaults` while the code
+/// path behind it is dead. The fourth, `integrate_drainage`, is left on in both
+/// worlds here, so this measures only the three it names.
 #[test]
 fn the_shipped_defaults_generate_a_different_world_from_the_parity_baseline() {
     let mut app = params::defaults();
