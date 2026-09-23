@@ -541,6 +541,8 @@ fn the_planned_grid_variance_terminates() {
     };
     let t = generate(2, &opts);
     // 899 until 2026-09-23, when `crate::courtyard` (Ruling AD) re-platted
-    // this town's outermost dense blocks as perimeter blocks: +10 lots.
-    assert_eq!(t.parcels.len(), 909, "the bounded town's parcel count");
+    // this town's outermost dense blocks as perimeter blocks: +10 lots; 909
+    // until the same day's faubourg grain pass (`crate::wallside`: ragged row
+    // ends, per-lot back lines) re-drew its rows behind the first: +13.
+    assert_eq!(t.parcels.len(), 922, "the bounded town's parcel count");
 }

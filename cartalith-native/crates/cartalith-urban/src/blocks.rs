@@ -156,6 +156,14 @@ pub struct Parcel {
     /// [`crate::courtyard::build_courtyard_rings`] plats around a block's open
     /// court, whose back line (`poly[3]`→`poly[2]`) is the court's edge.
     pub courtyard_ring: bool,
+    /// **This port's own field, not the reference's** — a Ruling H departure
+    /// (`crate::wallside`, owner 2026-09-23). A faubourg lot's standing, 0
+    /// (poorest) to 1 (best-off), falling with its distance along the wall
+    /// to the nearest land gate, with noise
+    /// ([`crate::wallside::gate_quality`]). `None` for every lot that is not a
+    /// faubourg lot: no other lot has a gate distance, and a `0.5` there would
+    /// read as a measured middle.
+    pub gate_quality: Option<f64>,
 }
 
 /// `buildBlocks` (line 30193) — the faces of the street graph, inset by their
@@ -462,6 +470,7 @@ pub fn build_parcels(
                         tone: tone_rng.u(),
                         wall_backing: WallBacking::No,
                         courtyard_ring: false,
+                        gate_quality: None,
                     });
                     pid += 1;
                 }

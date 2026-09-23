@@ -657,10 +657,11 @@ fn lots_back_onto_the_wall_and_the_faubourg_survives_the_rampart_sweep() {
     let lots = |wb| t.parcels.iter().filter(move |p| p.par.wall_backing == wb).collect::<Vec<_>>();
     let (inside, outside, behind) =
         (lots(WallBacking::Inside), lots(WallBacking::Outside), lots(WallBacking::OutsideRow));
-    // Literals from the re-derived golden (`district_counts` faubourg 98 =
-    // a first row of 43, exactly the single-row pass's, plus 55 behind it), not
-    // from the code under test.
-    assert_eq!((inside.len(), outside.len(), behind.len()), (43, 43, 55));
+    // Literals from the re-derived golden (`district_counts` faubourg 86 =
+    // a first row of 43, exactly the single-row pass's, plus 43 behind it), not
+    // from the code under test. 55 behind until the 2026-09-23 grain pass
+    // (`wallside::taper_end_chance`, `BACK_JITTER`) re-drew the rows behind.
+    assert_eq!((inside.len(), outside.len(), behind.len()), (43, 43, 43));
 
     // The rows behind: a CLUSTER, not a line (owner, 2026-09-22 follow-up).
     // Each lot wholly outside, spared by the sweep and built, with its back
@@ -733,7 +734,8 @@ fn a_radial_town_builds_against_its_wall_without_moving_its_wedge_blocks() {
     // Literals from the re-derived golden, not from the code under test.
     assert_eq!(
         (n(WallBacking::Inside), n(WallBacking::Outside), n(WallBacking::OutsideRow)),
-        (64, 74, 133)
+        // 133 behind until the 2026-09-23 grain pass re-drew the rows behind.
+        (64, 74, 138)
     );
     // The street-platted lots are exactly the 738 the reference placed, in
     // order, and the wedge blocks are its 42 — the wall lots are appended.
@@ -755,7 +757,8 @@ fn a_radial_town_builds_against_its_wall_without_moving_its_wedge_blocks() {
     let on_wall: Vec<_> = t.buildings.iter().filter(|b| wall_ids.contains(b.parcel.as_str())).collect();
     assert!(!on_wall.is_empty());
     for b in &on_wall {
-        assert!(matches!(b.kind, "main" | "lean-to"), "{}: {} on a wall lot", b.id, b.kind);
+        // `outbuilding`: the faubourg's front range beside a gate (2026-09-23).
+        assert!(matches!(b.kind, "main" | "lean-to" | "outbuilding"), "{}: {} on a wall lot", b.id, b.kind);
     }
 }
 
@@ -807,4 +810,114 @@ fn the_outermost_dense_blocks_become_perimeter_blocks_on_the_organic_plan() {
         }
     }
     assert_eq!(rung.len(), 21);
+}
+
+/// The faubourg's grain (owner, 2026-09-23: *"arranged quite neatly … often
+/// the poor district away from a gate and more rich people and buildings
+/// closer to the gate. (this isn't 100% a rule...)"*), on every walled golden
+/// town that has a faubourg and a land gate.
+///
+/// - Every faubourg lot carries a `gate_quality` in 0..=1, and no other lot
+///   carries one.
+/// - The gradient: quality falls with distance to the nearest land gate
+///   (compared by thirds, and on the pooled lots), and the near third is more
+///   BUILT — building area over lot area — than the far third. Not per lot:
+///   the noise is meant to break it lot to lot.
+/// - The noise: somewhere a lot farther from its gate outranks a nearer one.
+/// - The wobble: neighbouring lots in a row behind the first no longer share
+///   one back line.
+#[test]
+fn the_faubourg_is_ragged_and_better_off_beside_its_gate() {
+    use crate::geom::poly_area;
+    use crate::growth::dist_to_line;
+    use crate::wallside::WallBacking;
+    let (mut towns, mut near_q, mut far_q, mut near_b, mut far_b) = (0, 0.0, 0.0, 0.0, 0.0);
+    let (mut pairs, mut wobbling, mut inversions) = (0usize, 0usize, 0usize);
+    for c in golden::CASES {
+        let t = generate(c.seed, &opts_for(c));
+        for p in &t.parcels {
+            assert_eq!(
+                p.par.gate_quality.is_some(),
+                p.par.wall_backing.is_faubourg(),
+                "{}: {} carries a gate quality iff it is a faubourg lot",
+                c.name,
+                p.par.id
+            );
+            if let Some(q) = p.par.gate_quality {
+                assert!((0.0..=1.0).contains(&q), "{}: {} quality {q}", c.name, p.par.id);
+            }
+        }
+        let gates: Vec<_> = t.wall.gates.iter().filter(|g| !g.water).map(|g| g.pt).collect();
+        let faub: Vec<_> = t.parcels.iter().filter(|p| p.par.wall_backing.is_faubourg()).collect();
+        if gates.is_empty() || faub.len() < 9 {
+            continue;
+        }
+        towns += 1;
+        // (gate distance, quality, built share)
+        let mut rows: Vec<(f64, f64, f64)> = faub
+            .iter()
+            .map(|p| {
+                let cen = crate::geom::poly_centroid(&p.par.poly);
+                let g = gates.iter().map(|q| q.dist(cen)).fold(f64::INFINITY, f64::min);
+                let built: f64 = t
+                    .buildings
+                    .iter()
+                    .filter(|b| b.parcel == p.par.id)
+                    .map(|b| poly_area(&b.poly).abs())
+                    .sum();
+                (g, p.par.gate_quality.unwrap_or(f64::NAN), built / p.par.area)
+            })
+            .collect();
+        rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let n = rows.len() / 3;
+        let mean = |it: &[(f64, f64, f64)], f: fn(&(f64, f64, f64)) -> f64| it.iter().map(f).sum::<f64>() / it.len() as f64;
+        let (near, far) = (&rows[..n], &rows[rows.len() - n..]);
+        near_q += mean(near, |r| r.1);
+        far_q += mean(far, |r| r.1);
+        near_b += mean(near, |r| r.2);
+        far_b += mean(far, |r| r.2);
+        // Two lots of one cluster (within 40 m of each other along the wall
+        // from the same gate side): the farther one sometimes ranks higher.
+        for w in rows.windows(2) {
+            if w[1].0 - w[0].0 < 5.0 && w[1].1 > w[0].1 + 0.05 {
+                inversions += 1;
+            }
+        }
+        // The wobble, on the rows behind: lots whose back-line midpoints are
+        // under 10 m apart and within 3 m of each other off the wall.
+        let mut arc = t.wall.land_arc.clone().expect("walled");
+        if Some(&arc) == t.wall.ring.as_ref() {
+            arc.push(arc[0]);
+        }
+        let backs: Vec<_> = faub
+            .iter()
+            .filter(|p| p.par.wall_backing == WallBacking::OutsideRow)
+            .map(|p| {
+                let m = p.par.poly[3].lerp(p.par.poly[2], 0.5);
+                (m, dist_to_line(m, &arc))
+            })
+            .collect();
+        for i in 0..backs.len() {
+            for j in i + 1..backs.len() {
+                let dd = (backs[i].1 - backs[j].1).abs();
+                if backs[i].0.dist(backs[j].0) < 10.0 && dd < 3.0 {
+                    pairs += 1;
+                    if dd > 0.4 {
+                        wobbling += 1;
+                    }
+                }
+            }
+        }
+    }
+    let k = towns as f64;
+    let (near_q, far_q, near_b, far_b) = (near_q / k, far_q / k, near_b / k, far_b / k);
+    println!(
+        "{towns} towns: quality near/far {near_q:.3}/{far_q:.3}; built near/far {near_b:.3}/{far_b:.3}; \
+         wobbling {wobbling}/{pairs}; inversions {inversions}"
+    );
+    assert!(towns >= 10, "the goldens hold {towns} gated faubourg towns");
+    assert!(near_q > far_q + 0.25, "quality falls off the gate: {near_q} vs {far_q}");
+    assert!(near_b > far_b * 1.15, "more built beside the gate: {near_b} vs {far_b}");
+    assert!(inversions > 0, "not 100% a rule: a farther lot sometimes outranks a nearer one");
+    assert!(wobbling * 3 > pairs, "back lines wobble: {wobbling} of {pairs} neighbouring pairs");
 }

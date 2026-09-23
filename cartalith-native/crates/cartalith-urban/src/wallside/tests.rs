@@ -43,3 +43,34 @@ fn nothing_is_platted_against_an_unwalled_or_unbuildable_circuit() {
         assert!(build_wall_lots(1, &g, &w, &site, &[], &[], 5000.0, 8).is_empty(), "{style}");
     }
 }
+
+#[test]
+fn a_row_ends_raggedly_about_its_nominal_length() {
+    // Literals, not the constants against themselves: onset 0.85, span 0.7.
+    assert_eq!(taper_end_chance(0.0), 0.0);
+    assert_eq!(taper_end_chance(0.85), 0.0, "never ends before 85% of nominal");
+    assert!((taper_end_chance(1.2) - 0.5).abs() < 1e-12, "even odds at 120% of nominal");
+    assert_eq!(taper_end_chance(1.55), 1.0, "always ended by 155%");
+    assert_eq!(taper_end_chance(9.0), 1.0);
+    // Monotone: a row that has survived further is never likelier to survive.
+    let xs: Vec<f64> = (0..=30).map(|i| i as f64 * 0.05).collect();
+    assert!(xs.windows(2).all(|w| taper_end_chance(w[0]) <= taper_end_chance(w[1])));
+    // And outward-only back-line jitter, half the widest 3.5 m lane.
+    assert_eq!(BACK_JITTER, 1.75);
+}
+
+#[test]
+fn gate_quality_falls_off_the_gate_with_bounded_noise() {
+    // Beside the gate, halfway, at the run's end and past it (a ragged row).
+    assert_eq!(gate_quality(0.0, 80.0, 0.0), 1.0);
+    assert_eq!(gate_quality(40.0, 80.0, 0.0), 0.5);
+    assert_eq!(gate_quality(80.0, 80.0, 0.0), 0.0);
+    assert_eq!(gate_quality(120.0, 80.0, 0.0), 0.0, "clamped, never negative");
+    assert_eq!(gate_quality(0.0, 80.0, 0.15), 1.0, "clamped, never above 1");
+    assert!((gate_quality(40.0, 80.0, -0.15) - 0.35).abs() < 1e-12);
+    // "Not 100% a rule": the noise can invert two lots 0.3 of a run apart and
+    // no further. Literal 0.15 = QUALITY_NOISE.
+    assert_eq!(QUALITY_NOISE, 0.15);
+    assert!(gate_quality(20.0, 80.0, -0.15) < gate_quality(40.0, 80.0, 0.15));
+    assert!(gate_quality(10.0, 80.0, -0.15) > gate_quality(40.0, 80.0, 0.15));
+}

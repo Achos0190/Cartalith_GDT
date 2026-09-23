@@ -167,6 +167,7 @@ const PROV_AGRARIAN: &str =
 const PROV_FAUBOURG: &str = "Faubourg: a poor quarter of narrow, shallow lots clustered against the wall's outer face in rows threaded by lanes, deepest beside a gate and running along the curtain rather than along the road (owner, 2026-09-22; Ruling H).";
 const PROV_WALL_LEAN: &str = "Lean-to against the town wall: the curtain is the building's back wall (owner, 2026-09-22; Ruling H).";
 const PROV_FAUBOURG_HOVEL: &str = "Faubourg hovel: one small range in a row behind the first, on a lane of the cluster that grew against the wall's outer face (owner, 2026-09-22; Ruling H).";
+const PROV_FAUBOURG_FRONT: &str = "Faubourg front range: a second small range on the lane end of a lot near the gate, where the faubourg's better-off stood (owner, 2026-09-23; Ruling H).";
 const PROV_WALL_BACKED: &str = "Wall-backed range: street to curtain in one range, the town wall its rear wall (owner, 2026-09-22; Ruling H).";
 
 const PROV_OREYARD: &str = "Ore yard: dressing floors and spoil ground of a mining settlement — the workings lie out in the hinterland, the processing at the town edge facing them (S6 economy rule).";
@@ -853,25 +854,53 @@ pub fn build_buildings(
         // stream, like every other branch, so no other lot is affected.
         if par.wall_backing != WallBacking::No && d != "harbour" && d != "warehouse" {
             let outside = par.wall_backing.is_faubourg();
-            // Eaves gaps: routine between a faubourg's hovels, the ordinary
-            // M-BLD-5 rate inside.
-            let g_r = if r.chance(if outside { 0.3 } else { 0.12 }) {
+            // A faubourg lot's standing off its gate (`crate::wallside::
+            // gate_quality`, owner 2026-09-23: poorer away from the gate,
+            // better-off beside it). A faubourg lot always carries one; a lot
+            // without one — only a hand-built fixture — keeps the flat grammar
+            // this branch had before the gradient, and draws nothing extra.
+            let q = par.gate_quality.filter(|_| outside);
+            // Eaves gaps: routine between a faubourg's hovels — from 0.45 far
+            // from the gate to the ordinary M-BLD-5 rate (0.12) beside it, and
+            // 0.3 with no gradient — and the M-BLD-5 rate inside.
+            let gap_chance = match q {
+                Some(q) => 0.45 - 0.33 * q,
+                None if outside => 0.3,
+                None => 0.12,
+            };
+            let g_r = if r.chance(gap_chance) {
                 js_min(0.2, 0.9 / par.frontage)
             } else {
                 0.0
             };
             let mut ranges: Vec<(f64, f64, &'static str, &'static str)> = Vec::new();
             if outside {
-                // One small range and nothing else — the bottom of this
-                // grammar's scale on every axis (see `crate::wallside`). In
-                // the first row it leans on the curtain; behind it, the same
-                // hovel stands at the wallward end of its lot, on the lane or
-                // against the row in front, and claims no wall.
-                let dv = js_min(0.85, js_max(4.5, r.logn(5.5, 0.18)) / par.depth);
+                // One small range — the bottom of this grammar's scale (see
+                // `crate::wallside`). In the first row it leans on the
+                // curtain; behind it, the same hovel stands at the wallward
+                // end of its lot, on the lane or against the row in front, and
+                // claims no wall. Its median depth runs from 5.5 m far from
+                // the gate to 9 m beside it.
+                let med = 5.5 + 3.5 * q.unwrap_or(0.0);
+                let mut dv = js_min(0.85, js_max(4.5, r.logn(med, 0.18)) / par.depth);
+                // Near the gate, often a second small range on the lot's
+                // outer end (a shop or store on the lane): never below q 0.5,
+                // up to a 60% chance at q 1. It takes the outer 30% of the lot
+                // (at most 4 m) and the hovel gives way to it across a 1 m
+                // gap, down to the hovel's own 4.5 m floor.
+                let front = js_min(0.3, 4.0 / par.depth);
+                let second = q.is_some_and(|q| q > 0.5 && r.chance((q - 0.5) * 1.2))
+                    && par.depth * (1.0 - front) - 1.0 >= 4.5;
+                if second {
+                    dv = js_min(dv, 1.0 - front - 1.0 / par.depth);
+                }
                 if par.wall_backing == WallBacking::Outside {
                     ranges.push((1.0 - dv, 1.0, "lean-to", PROV_WALL_LEAN));
                 } else {
                     ranges.push((1.0 - dv, 1.0, "main", PROV_FAUBOURG_HOVEL));
+                }
+                if second {
+                    ranges.push((0.0, front, "outbuilding", PROV_FAUBOURG_FRONT));
                 }
             } else if par.depth <= 16.0 {
                 ranges.push((0.0, 1.0, "main", PROV_WALL_BACKED));
@@ -882,8 +911,15 @@ pub fn build_buildings(
                 ranges.push((0.0, main, "main", PROV_MAIN));
                 ranges.push((1.0 - lean, 1.0, "lean-to", PROV_WALL_LEAN));
             }
+            // Across the frontage: a faubourg hovel far from the gate takes
+            // 65% of it, open ground beside it, widening to the full lot
+            // beside the gate — where the gradient reads first, in plan.
+            let u1 = match q {
+                Some(q) => js_min(1.0 - g_r, 0.65 + 0.35 * q),
+                None => 1.0 - g_r,
+            };
             for (v0, v1, kind, prov) in ranges {
-                let poly = rect_poly(par, 0.0, 1.0 - g_r, v0, v1);
+                let poly = rect_poly(par, 0.0, u1, v0, v1);
                 if poly_area(&poly).abs() < 9.0 {
                     continue;
                 }

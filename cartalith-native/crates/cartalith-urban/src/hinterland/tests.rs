@@ -1500,6 +1500,7 @@ fn the_log_boom_needs_the_yard_within_eighty_metres_of_the_bank() {
             tone: 0.5,
             wall_backing: crate::wallside::WallBacking::No,
             courtyard_ring: false,
+            gate_quality: None,
         }
     };
 

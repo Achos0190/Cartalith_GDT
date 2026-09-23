@@ -225,6 +225,7 @@ pub fn build_courtyard_rings(
                 tone: tone.u(),
                 wall_backing: WallBacking::No,
                 courtyard_ring: true,
+                gate_quality: None,
             });
         }
         converted.push(blk.id.clone());

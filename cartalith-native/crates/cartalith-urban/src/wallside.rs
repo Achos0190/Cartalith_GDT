@@ -78,8 +78,9 @@
 //! added later, are the outer ring's), deeper main ranges there (`logn(11.5)` against `logn(9.5)`), and wings
 //! and outbuildings with age. A faubourg lot gets the bottom of that scale on
 //! every axis — frontage `logn(6.5)` against the town's `logn(11)`, depth
-//! 6-12 m, one small range at the lot's wallward end and nothing else (a
-//! lean-to on the curtain in the first row) — plus its own
+//! 6-12 m, one small range at the lot's wallward end (a lean-to on the
+//! curtain in the first row) and, only beside a gate, sometimes a second small
+//! one on its outer end — see "Grain" below — plus its own
 //! parcel fill in `urban_layout_draw.gd`'s `DISTRICT_FILL`, derived from the
 //! suburb fill rather than picked.
 //!
@@ -113,12 +114,35 @@
 //!
 //! # Draws
 //!
-//! Four substreams of this module's own — `"wallside/in"`, `"faubourg"` (each
+//! Five substreams of this module's own — `"wallside/in"`, `"faubourg"` (each
 //! cluster's first row, against the wall), `"faubourg/rows"` (the rows behind
 //! it, added by the 2026-09-22 follow-up in a separate stream so the first row
-//! is exactly the single-row pass that preceded it) and `"wallside/tone"` (the
-//! roof tone, kept apart for the reason [`Parcel::tone`] gives) — so no draw
-//! any existing stage makes is shifted. Lots are appended after every
+//! is exactly the single-row pass that preceded it), `"wallside/tone"` (the
+//! roof tone, kept apart for the reason [`Parcel::tone`] gives) and
+//! `"wallside/quality"` (the noise on [`gate_quality`], 2026-09-23) — so no
+//! draw any existing stage makes is shifted.
+//!
+//! # Grain: a ragged wedge, and a gradient off the gate (2026-09-23)
+//!
+//! The owner, on the cluster: *"arranged quite neatly, often this would follow
+//! the same half organic half chaotic style as within the city, often the poor
+//! district away from a gate and more rich people and buildings closer to the
+//! gate. (this isn't 100% a rule...)"*. Lot sizes already varied per lot; what
+//! read as neat was structural, and both causes are in the rows behind the
+//! first. **One `off` per row** put every back line of a row on one offset
+//! curve of the wall — now each lot sets its back line out a further
+//! `0..`[`BACK_JITTER`]. **A strict linear `row_len`** ended every row on one
+//! straight diagonal — now each lot past [`TAPER_ONSET`] of the nominal length
+//! may end the row ([`taper_end_chance`]). The first row is untouched: it is
+//! built against the wall, and its front already varies with its lot depths.
+//!
+//! The gradient is [`Parcel::gate_quality`], set on every faubourg lot from
+//! [`gate_quality`] — the lot's distance along the wall to the nearest land
+//! gate (the `t` the row loops walk, until a run nears a second gate) — and
+//! read by
+//! `crate::districts::build_buildings`' wall-lot grammar (bigger ranges, a
+//! second range, fewer eaves gaps near the gate). **Settlement character is
+//! not consulted** — see [`gate_quality`]'s doc for why that is deferred. Lots are appended after every
 //! street-platted parcel, and every later consumer of the parcel list either
 //! draws from a per-parcel stream (`build_buildings`) or walks the list in
 //! order — so what these lots can change downstream is bounded to what reaches
@@ -205,6 +229,58 @@ pub const ALLEY: f64 = 0.12;
 /// (`coastHarbourChain` `faub29`/`faub62`, `faithNoneBasilica` `faub19`),
 /// pre-existing since the single-row pass; fixing it moves that row.
 pub const ROW_DEPTH_FLOOR: f64 = MIN_DEPTH + 0.5;
+
+/// The most a lot in a row behind the first sets its back line out past the
+/// row's own line — half the widest [`LANE`]. Owner, 2026-09-23: the faubourg
+/// was *"arranged quite neatly"* where it should *"follow the same half
+/// organic half chaotic style as within the city"*. With one `off` per row,
+/// every back line in a row lay on one offset curve of the wall. Drawn per
+/// lot, and **outward only**: a negative set-back would push the lot into the
+/// row in front, where `Ctx::accepts` refuses it on a back-to-back pair.
+pub const BACK_JITTER: f64 = LANE.1 / 2.0;
+/// The ragged end of a row behind the first, as a fraction of its nominal
+/// length (`run_len * (1 - j / rows)`, the wedge the cluster shipped with):
+/// from [`TAPER_ONSET`] on, each lot may end the row, with a chance rising
+/// linearly to certainty at `TAPER_ONSET + TAPER_SPAN` (even odds at 1.2). So
+/// rows no longer stop on a straight diagonal: some end short of their nominal
+/// length and some run up to 55% past it.
+///
+/// Sized so the ragged edge costs the cluster no ground on balance, measured
+/// 2026-09-23 over the 29 goldens' faubourg lots (1 536 before this change):
+/// onset/span 0.7/0.7 gave 1 398, 0.8/0.8 1 494, 0.9/0.6 1 554, and
+/// **0.85/0.7 1 532** — with [`BACK_JITTER`] on in every run. Of the 0.7/0.7
+/// run's 138 lost lots, 32 were the jitter's (1 430 with it off): a set-back
+/// lot now and then meets the row behind it, which `Ctx::accepts` refuses.
+/// Measured with the golden dump, one run each; these are counts, not timings.
+pub const TAPER_ONSET: f64 = 0.85;
+/// See [`TAPER_ONSET`].
+pub const TAPER_SPAN: f64 = 0.7;
+/// The "not 100% a rule" in the owner's gradient: additive noise on a
+/// faubourg lot's [`gate_quality`], drawn from its own `"wallside/quality"`
+/// substream (the shape of `Parcel::tone`'s own draw).
+pub const QUALITY_NOISE: f64 = 0.15;
+
+/// The chance a row behind the first ends at a lot whose start lies at
+/// fraction `x` of the row's nominal length (see [`TAPER_ONSET`]).
+pub fn taper_end_chance(x: f64) -> f64 {
+    ((x - TAPER_ONSET) / TAPER_SPAN).clamp(0.0, 1.0)
+}
+
+/// A faubourg lot's standing, 0 (poorest) to 1 (best-off), from how far along
+/// the wall its midpoint lies from the nearest land gate, less that gate's
+/// [`GATE_CLEAR`] passage: `t` metres, over its cluster's run of `run_len`,
+/// plus `noise` (see [`QUALITY_NOISE`]), clamped. Owner,
+/// 2026-09-23: *"often the poor district away from a gate and more rich people
+/// and buildings closer to the gate. (this isn't 100% a rule...)"*.
+///
+/// **Always this direction, deliberately.** Whether a settlement's character
+/// (garrison, monastic, mercantile) should flatten or invert the gradient is
+/// unruled: `cartalith-civ`'s specialisation is only ever set by a manual
+/// place edit today, so gating on it would almost never fire. That is an open
+/// owner question, not a coin-flip to ship here.
+pub fn gate_quality(t: f64, run_len: f64, noise: f64) -> f64 {
+    (1.0 - t / run_len + noise).clamp(0.0, 1.0)
+}
 
 /// Half the drawn stroke of each wall style that can be built against —
 /// `urban_layout_draw.gd`'s `WALL_W` (`curtain` 4.5, `palisade` 2.2), halved,
@@ -480,12 +556,14 @@ pub fn build_wall_lots(
         taken: parcels.iter().map(|p| (p.poly.clone(), bbox(&p.poly))).collect(),
     };
     let mut tone = stream(seed, "wallside/tone");
+    let mut quality = stream(seed, "wallside/quality");
     let mut push = |ctx: &mut Ctx<'_>,
                     quad: Vec<Vec2>,
                     id: String,
                     backing: WallBacking,
                     edge_cls: &'static str,
-                    tone: &mut Substream| {
+                    tone: &mut Substream,
+                    gate_quality: Option<f64>| {
         ctx.taken.push((quad.clone(), bbox(&quad)));
         out.push(Parcel {
             block: id.clone(),
@@ -499,6 +577,7 @@ pub fn build_wall_lots(
             tone: tone.u(),
             wall_backing: backing,
             courtyard_ring: false,
+            gate_quality,
         });
     };
 
@@ -530,7 +609,7 @@ pub fn build_wall_lots(
         }
         let quad = vec![fa + n_in * da, fb + n_in * db, fb, fa];
         if ctx.accepts(&quad, true) {
-            push(&mut ctx, quad, format!("wallin{k}"), WallBacking::Inside, cls, &mut tone);
+            push(&mut ctx, quad, format!("wallin{k}"), WallBacking::Inside, cls, &mut tone, None);
             k += 1;
         }
     }
@@ -542,6 +621,22 @@ pub fn build_wall_lots(
     let mut r = stream(seed, "faubourg");
     let runs = if pop_target < 4000.0 { 1 } else if pop_target < 10000.0 { 2 } else { 3 };
     let gates: Vec<f64> = wall.gates.iter().filter(|gt| !gt.water).map(|gt| arc.project(gt.pt)).collect();
+    // How far a lot stands from a gate, for `gate_quality`: along the wall
+    // from its midpoint (arc length `s`) to the NEAREST land gate, less the
+    // gate passage every run starts beyond — so a run that reaches toward a
+    // neighbouring gate gets richer again there, as the owner's rule reads.
+    // With no land gate, the distance from the run's own start (`t`).
+    let from_gate = |s: f64, t: f64| -> f64 {
+        let s = if arc.closed { s.rem_euclid(total) } else { s };
+        gates
+            .iter()
+            .map(|&g| {
+                let d = (s - g).abs();
+                if arc.closed { d.min(total - d) } else { d }
+            })
+            .reduce(f64::min)
+            .map_or(t, |d| (d - GATE_CLEAR).max(0.0))
+    };
     let mut k = 0usize;
     // Per run: its direction, start and length along the wall, and the
     // deepest lot drawn for its first row (the next row stands behind that).
@@ -565,7 +660,9 @@ pub fn build_wall_lots(
                 break;
             }
             if let Some((quad, cls)) = faubourg_lot(&ctx, &arc, ring, hw, s0, s1, 0.0, depth) {
-                push(&mut ctx, quad, format!("faub{k}"), WallBacking::Outside, cls, &mut tone);
+                let d = from_gate(start + dir * (t - w / 2.0), t - w / 2.0);
+                let q = gate_quality(d, run_len, quality.range(-QUALITY_NOISE, QUALITY_NOISE));
+                push(&mut ctx, quad, format!("faub{k}"), WallBacking::Outside, cls, &mut tone, Some(q));
                 k += 1;
             }
         }
@@ -575,31 +672,40 @@ pub fn build_wall_lots(
     // 2b. The rows behind, from a stream of their own so none of 2a's draws
     // shift. Each is offset outward by the row in front plus a lane (or none,
     // back to back), staggered, broken by alleys, and reaches less far along
-    // the wall than the row in front: a wedge, deepest at its gate.
+    // the wall than the row in front, on the whole: a wedge, deepest at its
+    // gate, with a ragged edge and a back line that wobbles lot by lot.
     let mut r = stream(seed, "faubourg/rows");
     for (dir, start, run_len, deepest) in clusters {
         let rows = r.int(FAUBOURG_ROWS.0, FAUBOURG_ROWS.1);
         let mut off = deepest + lane(&mut r);
         for j in 1..rows {
             let row_depth = r.logn(9.0, 0.2).clamp(MIN_DEPTH, 12.0);
+            // The row's nominal length: the straight-diagonal wedge. Rows end
+            // raggedly about it (`taper_end_chance`), not on it.
             let row_len = run_len * (1.0 - j as f64 / rows as f64);
             // A stagger, so this row's plot lines do not continue the ones
             // of the row in front.
             let mut t = r.range(0.0, 6.0);
-            while t < row_len {
+            while t < row_len * (TAPER_ONSET + TAPER_SPAN) {
+                if r.chance(taper_end_chance(t / row_len)) {
+                    break;
+                }
                 if r.chance(ALLEY) {
                     t += r.range(LANE.0, LANE.1);
                     continue;
                 }
                 let w = r.logn(6.5, 0.18).clamp(4.5, 9.0);
                 let depth = (row_depth * r.range(0.8, 1.0)).max(ROW_DEPTH_FLOOR);
+                let set_back = r.range(0.0, BACK_JITTER);
                 let (s0, s1) = (start + dir * t, start + dir * (t + w));
                 t += w;
                 if !arc.closed && (s0.min(s1) < 0.0 || s0.max(s1) > total) {
                     break;
                 }
-                if let Some((quad, cls)) = faubourg_lot(&ctx, &arc, ring, hw, s0, s1, off, depth) {
-                    push(&mut ctx, quad, format!("faub{k}"), WallBacking::OutsideRow, cls, &mut tone);
+                if let Some((quad, cls)) = faubourg_lot(&ctx, &arc, ring, hw, s0, s1, off + set_back, depth) {
+                    let d = from_gate(start + dir * (t - w / 2.0), t - w / 2.0);
+                let q = gate_quality(d, run_len, quality.range(-QUALITY_NOISE, QUALITY_NOISE));
+                    push(&mut ctx, quad, format!("faub{k}"), WallBacking::OutsideRow, cls, &mut tone, Some(q));
                     k += 1;
                 }
             }
