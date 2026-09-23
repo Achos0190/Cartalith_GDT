@@ -17117,6 +17117,10 @@ impl WorldGen {
             "traits" => &traits,
             "history" => e.history,
             "age" => e.age.map_or(-1i64, i64::from),
+            // What "Auto" resolves to: the same `um_infer_age` over the same
+            // floored population `settlement_layout_with` uses, so the place
+            // editor can show the inferred age instead of a bare `-1`.
+            "age_inferred" => cartalith_civ::urban_adapter::um_infer_age((s.pop as f64).max(20.0)) as i64,
             "walls" => e.walls.map_or(-1i64, i64::from),
             // Ruling J's town plan. Empty = unset (world medieval / world
             // rules), which the caller shows as that inherited choice.

@@ -1719,10 +1719,23 @@ func _build_traits(parent: Control, details: Dictionary) -> void:
 func _build_urban(parent: Control, details: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "Settlement fabric")
 	var age := int(details.get("age", -1))
-	## Step 1 for the same reason Population above uses it -- see there.
-	DccWidgets.number(sec, "Age (yr)", -1.0, 1000.0, 1.0, float(age),
-		func(v: float): _apply({"age": int(v)}),
-		"-1 = auto (the reference infers age from population via _umInferAge). Any other value is clamped to 30..1000, exactly as the reference's own field does.")
+	## `-1` is the stored "no override" -- never shown as though it were an age
+	## (`MISTAKES.md`: never encode "no value" as a plausible value). Auto names
+	## what it resolves to, `age_inferred` (`civ_settlement_details`: the same
+	## `um_infer_age` the layout uses), and Set starts from that same number, so
+	## switching over changes nothing until the user edits it.
+	var inferred := int(details.get("age_inferred", -1))
+	var auto_label := "Auto" if inferred < 0 else "Auto (~%d yr)" % inferred
+	DccWidgets.choice(sec, "Age", [auto_label, "Set"], 0 if age < 0 else 1,
+		func(i: int):
+			_apply({"age": -1 if i == 0 else clampi(inferred if inferred > 0 else 30, 30, 1000)})
+			_rebuild(),
+		"Auto infers age from population, as the reference's _umInferAge does. Set overrides it.")
+	if age >= 0:
+		## Step 1 for the same reason Population above uses it -- see there.
+		DccWidgets.number(sec, "Age (yr)", 30.0, 1000.0, 1.0, float(age),
+			func(v: float): _apply({"age": int(v)}),
+			"Clamped to 30..1000, exactly as the reference's own field does.")
 	var walls := int(details.get("walls", -1))
 	DccWidgets.choice(sec, "Walls", ["Auto", "No fortifications", "Fortified"],
 		0 if walls < 0 else (1 if walls == 0 else 2),
