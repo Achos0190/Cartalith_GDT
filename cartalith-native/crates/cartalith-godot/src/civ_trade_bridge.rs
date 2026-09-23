@@ -84,6 +84,10 @@ use crate::{CivData, WorldGen, WorldSource};
 /// the cap exists so a pathological world cannot hand GDScript a
 /// hundred-thousand-element array, not because anything here is expensive.
 const MAX_FLOW_ROWS: usize = 4000;
+/// The most caravan rows `civ_trade_flows` returns; `caravan_count` is the
+/// true total. One per loaded way, so bounded by the network, but capped the
+/// same way the flow list is.
+const CARAVAN_ROWS_MAX: usize = 2000;
 
 impl WorldGen {
     /// Run the match, or `None` when there is no generated world with a
@@ -600,6 +604,35 @@ impl WorldGen {
         d.set("unmet", &unmet);
         d.set("navigability", &navigability);
         d.set("ways", &ways);
+        // IN-13 caravans (Ruling AF: one aggregate shipment per way; Ruling AP:
+        // a derived view -- one row per way with active trade load, rebuilt
+        // from THIS match on every read, nothing persisted). Land and river
+        // ways only: a sea route is not a way, and whether it gets a caravan
+        // is still an open owner question. `index` is `civ.ways` order, as in
+        // `ways` above. Capped like `flows`; `caravan_count` is the true total.
+        let mut caravan_order: Vec<usize> = (0..net.way_load.len()).filter(|&i| net.way_load[i] > 0.0).collect();
+        caravan_order.sort_by(|&a, &b| {
+            net.way_load[b].partial_cmp(&net.way_load[a]).unwrap_or(std::cmp::Ordering::Equal).then(a.cmp(&b))
+        });
+        let caravans: Array<VarDictionary> = caravan_order
+            .iter()
+            .take(CARAVAN_ROWS_MAX)
+            .map(|&i| {
+                let mut goods = net.way_goods.get(i).cloned().unwrap_or_default();
+                goods.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(b.0)));
+                let names: PackedStringArray = goods.iter().map(|g| GString::from(g.0)).collect();
+                let volumes: PackedFloat64Array = goods.iter().map(|g| g.1).collect();
+                dict! {
+                    "index" => i as i64,
+                    "name" => civ.ways.get(i).map_or_else(String::new, |w| w.name.clone()),
+                    "load" => net.way_load[i],
+                    "goods" => &names,
+                    "volumes" => &volumes,
+                }
+            })
+            .collect();
+        d.set("caravans", &caravans);
+        d.set("caravan_count", caravan_order.len() as i64);
         // **`get_roads()` order, not `civ.ways` order.** The overlay indexes
         // this array by its own row, and `get_roads()` filters hidden ways out
         // and appends the manual ones -- so a straight copy of `net.way_load`

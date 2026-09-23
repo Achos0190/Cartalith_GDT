@@ -352,6 +352,12 @@ pub struct TradeNetwork {
     /// road-connected settlements are routed; a sea flow is carried by open
     /// water and lands on no way.
     pub way_load: Vec<f64>,
+    /// What each way's load is made of: per way (parallel to `way_load`), the
+    /// goods routed over it and their volume, in first-seen order. Ruling AF's
+    /// caravan -- "one aggregate shipment per way" -- read as a derived view
+    /// (Ruling AP): each way's goods sum to its `way_load`. Added 2026-09-24;
+    /// no other value moves.
+    pub way_goods: Vec<Vec<(&'static str, f64)>>,
     /// Peak transient bytes this match allocated, for the dock's own
     /// honesty about what it cost. Nothing is resident afterwards.
     pub transient_bytes: usize,
@@ -575,6 +581,7 @@ pub fn trade_flows(input: &TradeInput, w: &UrbanWorld) -> TradeNetwork {
     out.navigability =
         input.settlements.iter().map(|s| place_navigability(w, s)).collect::<Vec<_>>();
     out.way_load = vec![0.0; input.ways.len()];
+    out.way_goods = vec![Vec::new(); input.ways.len()];
     let mut rc = RoadComponents::build(n, input.ways);
     let router = WayRouter::build(n, input.ways);
 
@@ -662,7 +669,7 @@ pub fn trade_flows(input: &TradeInput, w: &UrbanWorld) -> TradeNetwork {
                     continue;
                 }
                 if mode != TradeMode::Sea {
-                    router.accumulate(s, d, volume, &mut out.way_load);
+                    router.accumulate(s, d, volume, good, &mut out.way_load, &mut out.way_goods);
                 }
                 out.flows.push(TradeFlow {
                     from: s,
@@ -689,6 +696,7 @@ pub fn trade_flows(input: &TradeInput, w: &UrbanWorld) -> TradeNetwork {
         + router.bytes()
         + out.navigability.len() * std::mem::size_of::<Navigability>()
         + out.way_load.len() * std::mem::size_of::<f64>()
+        + out.way_goods.iter().map(|g| g.capacity() * std::mem::size_of::<(&'static str, f64)>()).sum::<usize>()
         + out.flows.capacity() * std::mem::size_of::<TradeFlow>()
         + out.unmet.capacity() * std::mem::size_of::<UnmetNeed>();
     out
@@ -1043,7 +1051,7 @@ impl WayRouter {
     /// no-op when the two are in different road components, which is the
     /// honest outcome: the flow exists (short-range flows need no road at
     /// all, per `_civFoodConnected`) and no way carries it.
-    fn accumulate(&self, a: usize, b: usize, volume: f64, load: &mut [f64]) {
+    fn accumulate(&self, a: usize, b: usize, volume: f64, good: &'static str, load: &mut [f64], goods: &mut [Vec<(&'static str, f64)>]) {
         if a >= self.n || b >= self.n || a == b {
             return;
         }
@@ -1060,6 +1068,12 @@ impl WayRouter {
             }
             if wi < load.len() {
                 load[wi] += volume;
+            }
+            if let Some(g) = goods.get_mut(wi) {
+                match g.iter_mut().find(|(k, _)| *k == good) {
+                    Some(e) => e.1 += volume,
+                    None => g.push((good, volume)),
+                }
             }
             if p == a {
                 return;

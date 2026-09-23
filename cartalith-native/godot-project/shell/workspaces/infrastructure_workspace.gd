@@ -714,6 +714,7 @@ func _fill_flows() -> void:
 	_fill_flows_partners(d)
 	_fill_flows_unmet(d)
 	_fill_flows_ways(d)
+	_fill_flows_caravans(d)
 
 	DccWidgets.note(_flows_body,
 		("Built on demand and dropped: %.2f MB at its peak, held for the length of the call "
@@ -824,6 +825,37 @@ func _fill_flows_ways(d: Dictionary) -> void:
 	DccWidgets.note(g,
 		"Drawn on the map as way thickness -- Cartography ▸ Roads & routes ▸ Trade load. Width "
 		+ "and not colour, because a way's colour is already its type.")
+
+## § CARAVANS -- IN-13 piece 4 (2026-09-24). Ruling AF: a caravan is one
+## aggregate shipment per way; Ruling AP: a DERIVED view -- one row per way
+## with active trade load, rebuilt from the live match on every read, nothing
+## saved. The engine's `way_goods` tally says what each one carries.
+const CARAVAN_ROWS_SHOWN := 12
+
+func _fill_flows_caravans(d: Dictionary) -> void:
+	var rows: Array = d.get("caravans", [])
+	var total := int(d.get("caravan_count", rows.size()))
+	var g := DccWidgets.group(_flows_body, "Caravans")
+	if rows.is_empty():
+		DccWidgets.note(g, "No caravans: no way carries matched trade.")
+	for i in range(mini(CARAVAN_ROWS_SHOWN, rows.size())):
+		var row: Dictionary = rows[i]
+		var load := float(row.get("load", 0.0))
+		var goods: PackedStringArray = row.get("goods", PackedStringArray())
+		var vols: PackedFloat64Array = row.get("volumes", PackedFloat64Array())
+		var parts := PackedStringArray()
+		for k in range(mini(3, goods.size())):
+			parts.append("%s %d%%" % [goods[k], int(round(100.0 * vols[k] / maxf(load, 1e-9)))])
+		if goods.size() > 3:
+			parts.append("+%d more" % (goods.size() - 3))
+		DccWidgets.note(g, "%s -- %s: %s" % [String(row.get("name", "?")),
+			FactionRosterWindow._thousands(int(round(load))), ", ".join(parts)])
+	if total > CARAVAN_ROWS_SHOWN:
+		DccWidgets.note(g, "%d more caravans." % (total - CARAVAN_ROWS_SHOWN))
+	DccWidgets.note(g,
+		"One caravan per way that carries trade: the combined shipment of every matched flow "
+		+ "routed over it. Rebuilt from the live match each time and never saved. Sea routes "
+		+ "are not ways and have no caravan yet.")
 
 func _match_trade_flows() -> void:
 	if _flows_body == null or not is_instance_valid(_flows_body):

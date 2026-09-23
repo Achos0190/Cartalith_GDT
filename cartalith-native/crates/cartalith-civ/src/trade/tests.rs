@@ -374,6 +374,37 @@ fn a_flow_loads_every_way_on_its_shortest_path() {
     assert_eq!(net.way_load[2], 0.0, "an unrelated way carries nothing");
 }
 
+/// Ruling AF's caravan, read as a derived view (Ruling AP): each way's goods
+/// tally names what is routed over it and sums to its load (2026-09-24).
+#[test]
+fn way_goods_sum_to_way_load_and_name_what_moves() {
+    let s = vec![
+        place(0, 0, false, 1000),
+        place(2, 0, false, 1000),
+        place(4, 0, false, 1000),
+        place(0, 8, false, 1000),
+    ];
+    let b = vec![
+        balance(&["iron", "salt"], &[]),
+        balance(&[], &[]),
+        balance(&[], &["iron", "salt"]),
+        balance(&[], &[]),
+    ];
+    let ways = vec![way(0, 1, 20.0), way(1, 2, 20.0), way(0, 3, 80.0)];
+    let net = run(&s, &b, &ways, 160.0);
+    assert!(net.flows.len() >= 2, "two goods must move, or a per-good tally proves nothing");
+    assert_eq!(net.way_goods.len(), net.way_load.len());
+    for (i, g) in net.way_goods.iter().enumerate() {
+        let sum: f64 = g.iter().map(|x| x.1).sum();
+        assert!((sum - net.way_load[i]).abs() < 1e-9, "way {i}: goods sum {sum} vs load {}", net.way_load[i]);
+    }
+    for hop in [0, 1] {
+        let names: Vec<&str> = net.way_goods[hop].iter().map(|x| x.0).collect();
+        assert!(names.contains(&"iron") && names.contains(&"salt"), "hop {hop}: {names:?}");
+    }
+    assert!(net.way_goods[2].is_empty(), "an unrelated way carries no goods");
+}
+
 /// The seven keys `CIV_CONSUMED_RESOURCES` excludes can never be imports, so
 /// they can never be flows however much of them a settlement has. This
 /// asserts `TradeBalance`'s asymmetry survives into the match rather than
