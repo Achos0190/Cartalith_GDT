@@ -13,24 +13,31 @@ a 35-section research paper into a bounded first slice, and to record the one
 decision that has to be made before any of it, in the open, rather than
 inferred later from a diff.
 
-Four sections: §0 how this relates to what exists today and why it is new
-scope, not a port; §1 the paper as supplied; §2 what the paper's abstractions
-map onto in this port's actual data model, on inspection; §3 the milestones,
-starting from the smallest slice that is still the paper's real architecture
-rather than a toy.
+> **It defines milestones; it does not track them.** Where each stands is
+> recorded only in `cartalith-native/docs/STATUS.md`, which assigns them the IDs
+> RD-0…RD-7. Those IDs are unrelated to `GUI_GAP_REGISTER.md`'s right-dock rows
+> RD-01, RD-02, … that §2 below cites. §0 and §2 describe the port as it stood
+> when this was scoped (2026-08-29). `cartalith-civ/src/belief.rs`'s module doc
+> records how the build then mapped onto them.
+
+Five sections: §0 how this relates to what existed at scoping, and why it is
+new scope rather than a port; §1 the paper as supplied; §2 what the paper's
+abstractions map onto in this port's data model, on inspection; §3 the
+milestones, starting from the smallest slice that is still the paper's real
+architecture rather than a toy; §4 the one fork left open.
 
 ---
 
-## 0 · Relationship to what exists today, and why this is new scope
+## 0 · Relationship to what existed at scoping, and why this is new scope
 
-**Today, religion is one hand-picked categorical value per faction, and
+**At scoping, religion was one hand-picked categorical value per faction, and
 nothing else.** `cartalith_civ::roster::CIV_RELIGIONS` is an 8-entry fixed
 vocabulary (`sun_cult`, `earth_mother`, `sea_lords`, `sky_pantheon`,
 `ancestor_rites`, `flame_creed`, `old_gods`, plus `none`), reference line
-~14780. It is set by the player through the Faction Inspector's Religion
-dropdown (`_civFeRel`, reference line 16254/16302) and by nothing else — no
-generation pass, no simulation step, ever writes it. `roster.rs`'s own doc
-comment on `CIV_RELIGIONS` states the reference's own history plainly: *"the
+14778. In the reference it is set by the player through the Faction
+Inspector's Religion dropdown (`_civFeRel`, reference lines 16254/16302) and
+by nothing else — no generation pass, no simulation step, ever writes it.
+`roster.rs`'s own doc comment on `CIV_RELIGIONS` states the reference's own history plainly: *"the
 reference scoped FMG's full spatial religion-spread model down to exactly
 this list, on purpose."* That sentence is not this port's inference — it is
 the reference's own v1.10 changelog entry (line 14772): *"borrow-list #4,
@@ -40,20 +47,21 @@ substantially larger [feature]."* And the reference's own scope-declaration
 comment (line 23197) names *"per-settlement religious diffusion"* explicitly
 among the things *"the simulation genuinely doesn't model."*
 
-**The one place religion currently has any behavioural effect at all** is
+**At scoping, the one place religion had any behavioural effect at all** was
 `cartalith_civ::relations`: same-faith factions get a `+0.20` relations bonus,
 different faiths a `−0.20` penalty, and `none` on either side is silence, not
-division (`relations.rs:33`, `religion_term`). That is the entire footprint —
-one scalar, symmetric, static, computed from two categorical labels.
+division (`relations.rs`'s module-doc weight table and `religion_term`). That
+was the entire footprint — one scalar, symmetric, static, computed from two
+categorical labels. What has been built on it since is `STATUS.md`'s to say
+(rows RD-0 and RD-1).
 
 So: the paper describes exactly the spread-model layer the reference author
 looked at and explicitly declined. Building it is **new scope beyond the
-reference, not a gap in the port** — the same category as `ECONOMY_SCOPE.md`
-and `MILITARY_MANPOWER_SCOPE.md`, both of which found reference-absent
-territory and built new subsystems on top of it deliberately, recording why
-in the scope document itself rather than in `DECISIONS.md` (neither of those
-two has a `DECISIONS.md` entry; the scope document *is* the record, and this
-one follows that precedent).
+reference, not a gap in the port** — the same category as
+`MILITARY_MANPOWER_SCOPE.md`, which found reference-absent territory and built
+a new subsystem on it deliberately, recording why in the scope document itself
+rather than in `DECISIONS.md`. That document has no `DECISIONS.md` entry; the
+scope document *is* the record, and this one follows that precedent.
 
 ---
 
@@ -498,10 +506,12 @@ one follows that precedent).
 Read against this port's actual data model rather than assumed compatible.
 
 **§3's connectivity graph already exists, three times over — reuse it,
-don't rebuild it.** `WayRouter` already holds a per-source Dijkstra with a
-`prev_way` cache over the generated road/sea-lane network (cited unwired at
-`RD-02` in `PARITY_AUDIT.md` §20 — this would finally give it a second
-consumer); `TradeFlow.from`/`.to` already carries commercial connectivity;
+don't rebuild it.** `trade.rs`'s `WayRouter` already holds a per-source
+Dijkstra with a `prev_way` cache over the generated road network — its graph
+is the `Way` list, so sea lanes (`SeaRoute`) are not in it
+(`PARITY_AUDIT.md` §20 lists it as the already-built piece behind
+`GUI_GAP_REGISTER.md` row RD-02, Settlement ▸ Routes);
+`TradeFlow.from`/`.to` already carries commercial connectivity;
 `civ_hierarchical_network_topology` already carries the road hierarchy §3
 wants as `r_ij`. Building a second graph would duplicate exactly the
 structure `PARITY_AUDIT.md` has repeatedly flagged as "already built, just
@@ -509,6 +519,13 @@ unwired" for other subsystems. The paper's own §26 point — centrality makes
 ports and crossroads natural hubs "without imposing arbitrary map-based
 spread radii" — is already true of this network for the same reason it is
 true of trade.
+
+*How milestone 1 took this up:* not through `WayRouter`.
+`belief::belief_links_from_ways` reads each `Way`'s own endpoint indices and
+weights a link with the reference's carriage decay (`trade::deliverable`, the
+`_civFoodDeliverable` port), so no new decay constant was authored. Sea lanes
+are left out on purpose, because `SeaRoute` carries no endpoint indices;
+`belief.rs` states that limitation rather than faking the edges.
 
 **§20's population dynamics has a real tick to run on.** Cartalith is not a
 continuously-simulated world — `dR/dt` has no clock to integrate against by
@@ -531,32 +548,44 @@ tests for, not built from nothing.
 
 **§6's trait vector and §29's `Religion`/`Culture`/`ReligionCultureRelation`
 structs are the one place the paper needs data the reference has never had
-an opinion about at all.** `CIV_RELIGIONS` is eight *names*, nothing more —
-no comprehensibility, ritual intensity, institutional capacity or any other
-trait exists for any of them today. Every number in §6-§18 is new-authored
-content, not extracted from anywhere, and per §30 that is by design: the
-paper itself says these start as calibrated dimensionless parameters, not
-derived facts. This is the part that most needs an owner pass before it is
-built, because whoever picks the Sun Cult's `C_ritual` is making a creative
-decision about the setting, not a technical one.
+an opinion about at all.** At scoping, `CIV_RELIGIONS` was eight *names*,
+nothing more — no comprehensibility, ritual intensity, institutional capacity
+or any other trait existed for any of them. Every number in §6-§18 is
+new-authored content, not extracted from anywhere, and per §30 that is by
+design: the paper itself says these start as calibrated dimensionless
+parameters, not derived facts. This is the part that most needs an owner pass
+before it is built, because whoever picks the Sun Cult's `C_ritual` is making
+a creative decision about the setting, not a technical one. (`belief.rs` has
+since derived one axis from existing vocabulary — a terrain domain for the
+five themed religions, `CIV_RELIGION_DOMAIN`, feeding the one populated
+component of `COMPAT_WEIGHTS` — and left the §6 vector to milestone 3 on
+purpose. Its module doc gives the reasoning.)
 
-**§4/§20's `R_{i,r}` — a religious population *per settlement* — is the
-central gap.** Nothing in this port or the reference tracks population by
-religion at any granularity finer than "this faction's one state religion."
-Settlements have `pop` (total) and nothing that subdivides it. This is not
-a missing accessor the way `RD-01`/`RD-02` are; it is a genuinely new field
-that has to be initialized, persisted (a new save-format document slot, per
-`SAVEFILE_COMPAT.md` §6.5's "documents an implementation does not model"
-pattern — or, if it should be engine-owned and golden-tested like the rest
-of `cartalith-civ`, a new tree-format array), and reconciled with the
-existing hand-set `civFactionReligion` flag every faction already has. §5
-below is where that reconciliation gets decided rather than assumed.
+**§4/§20's `R_{i,r}` — a religious population *per settlement* — was the
+central gap.** At scoping, nothing in this port or the reference tracked
+population by religion at any granularity finer than "this faction's one
+state religion." Settlements had `pop` (total) and nothing that subdivided
+it. This was not a missing accessor the way `GUI_GAP_REGISTER.md`'s RD-01 and
+RD-02 were; it is a genuinely new field that has to be initialized, persisted
+or not, and reconciled with the hand-set `civFactionReligion` flag every
+faction already has. §4 below says where that reconciliation gets decided
+(milestone 5) rather than assumed. On persistence the options were a new
+save-format document slot, per `SAVEFILE_COMPAT.md` §6.5's "documents an
+implementation does not model" pattern, or, if it should be engine-owned and
+golden-tested like the rest of `cartalith-civ`, a new tree-format array.
+Milestone 1 as built chose neither. Its adherence is generated state and
+deliberately unsaved, because the model is deterministic and a re-run
+reproduces it bit for bit. `cartalith-godot`'s `CivData::belief` doc records
+that decision and its cost.
 
-**§11's institutional capacity has a real anchor already**: settlement
-`kind` already includes `monastery` (reference: `p.kind==='monastery'`,
-counted into "Religious sites" on the Faction overview today). A settlement-
-level `Inst_{i,R}` accumulator is a natural extension of a POI kind that
-already exists and is already religion-coded, not an invention.
+**§11's institutional capacity has an anchor in the reference, not in this
+port.** The reference's settlement `kind` includes `monastery`
+(`p.kind==='monastery'`, counted into "Religious sites" on its Faction
+overview), so a settlement-level `Inst_{i,R}` accumulator would extend a kind
+that is already religion-coded there, not invent one. This port's
+`SettlementKind` does not have it: monastery is one of the four special kinds
+the port does not model (`civ_tax_rate`'s doc and `tools.rs` both say so), so
+milestone 2 needs that kind, or another institutional anchor, first.
 
 **§25's political modifiers have real machinery to attach to.** Faction
 territory control, `civ_faction_aggregates`' power axes (including the
@@ -622,7 +651,7 @@ convenience in the very first milestone that claims to implement it.
 5. **Political modifiers (§25).** `PoliticalSupport_{i,R}` from territory
    control vs. `civFactionReligion` — also the milestone that decides
    whether a state religion becomes a *derived* plurality over its
-   settlements' populations rather than a hand-set flag (§5 below), since
+   settlements' populations rather than a hand-set flag (§4 below), since
    that is the natural point where the two models would otherwise
    contradict each other.
 6. **Competition (§18) and vertical/horizontal/oblique weighting (§23).**
@@ -632,11 +661,11 @@ convenience in the very first milestone that claims to implement it.
 
 ## 4 · The one fork this scope document does not resolve
 
-Once §1's per-settlement population model exists, is a faction's "state
-religion" still the player's hand-set `civFactionReligion` flag (cosmetic,
-authoritative for `relations.rs`), or does it become the *derived*
-plurality religion among the faction's settlements (simulated,
-authoritative once the simulation exists)? The MVP in milestone 1 ships
+Once milestone 1's per-settlement population model exists, is a faction's
+"state religion" still the player's hand-set `civFactionReligion` flag
+(cosmetic, authoritative for `relations.rs`), or does it become the *derived*
+plurality religion among the faction's settlements (simulated, authoritative
+once the simulation exists)? The MVP in milestone 1 ships
 with the flag unchanged specifically so this fork does not block a first
 working slice — but it is a real design decision, not a technical one, and
 milestone 5 is where it has to be made rather than assumed.

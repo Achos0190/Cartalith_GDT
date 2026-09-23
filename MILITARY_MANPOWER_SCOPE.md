@@ -11,17 +11,21 @@ input worth preserving verbatim**: the model has no reference implementation to
 fall back on, so the specification is the only ground truth there is, and a
 paraphrase of it would leave nothing to check the code against.
 
-Four sections, in this order:
+Sections, in this order:
 
-1. **The owner's specification**, reproduced as supplied.
-1a. **Owner rulings on it** — decisions made about the specification after the
-   fact, kept in their own section so the verbatim text above is never edited.
-   One: which population the era table's percentages are a share of.
-2. **The derivation** — how each part of it maps onto quantities this port
-   already computes, and every constant with its grounding.
-3. **Verification** — the two worked examples, the live figures, and the four
-   findings the build produced, including the two where the specification is
-   internally inconsistent.
+- **§0 · How this relates to CV-25** — what it supersedes and what it leaves alone.
+- **§1 · The owner's specification**, reproduced as supplied.
+- **§1a · The owner's ruling on it** — a decision made about the specification
+  after the fact, kept in its own section so the verbatim text above is never
+  edited: which population the era table's percentages are a share of. Later
+  rulings on the model (owner ruling 11, owner ruling AI) are recorded where
+  they act, in §2 and §3.3.
+- **§2 · The derivation** — how each part of it maps onto quantities this port
+  already computes, and every constant with its grounding.
+- **§3 · Verification** — the two worked examples, the live figures, and the
+  four findings the build produced, including the two where the specification
+  is internally inconsistent.
+- **§4 · What this deliberately does not build.**
 
 ---
 
@@ -188,14 +192,15 @@ the one place §1 names a denominator, it names that one. Under this reading:
 | | |
 |---|---|
 | **Changes** | the denominator of `era_standing_verdict` and `era_mobilization_verdict`, and nothing else |
-| **Does not change** | the four outputs — standing, field, emergency, war duration. They are calibrated on §1's own worked example and validated in §3.1, and were **not** recalibrated |
+| **Does not change** | the four outputs — standing, field, emergency, war duration. They are calibrated on §1's own worked example and validated in §3.1, and this ruling did **not** recalibrate them. (Owner ruling AI (c) later re-baselined the standing army by design — §2.4, §3.1) |
 | **Does not change** | the war-duration curve. Its two anchors ("10 % for 30 days, 2 % for a year") are stated as shares of a whole population and stay that way, as does the force ladder's `share` |
 | **Does not change** | the era *assignment*. `era_for` reads the five variables; which row a faction lands in is untouched |
 
-`the_citizen_ruling_moves_no_headcount` pins every Kingdom A and B figure in
-§3.1 to the value published before the citizen population existed, so a future
-edit to the denominator that leaked into an output fails loudly rather than
-silently recalibrating a validated model.
+`the_citizen_ruling_moves_no_headcount` pins every Kingdom A and B headcount in
+§3.1 as a literal — levy and field at the values published before the citizen
+population existed, standing at the values owner ruling AI (c) re-baselined
+them to — so a future edit to the denominator that leaked into an output fails
+loudly rather than silently recalibrating a validated model.
 
 ---
 
@@ -219,12 +224,12 @@ measurably.
 
 Six of the pieces this model needs were already built and, in two cases, had
 **never been read by anything**. Inventoried before writing a line, per this
-repo's standing rule that the register's stated reasons have been wrong six
-times this session:
+repo's standing rule — the register's stated reasons had by then been wrong
+six times in one session (2026-08-25):
 
 | Need | What it maps onto | What that piece was reaching before this pass |
 |---|---|---|
-| Agricultural labour ratio | `roster::AG_TECH_LEVELS`' `farmers_per_urbanite` (reference line 14816, ported verbatim) | **no consumer anywhere** — its own module doc says so |
+| Agricultural labour ratio | `roster::AG_TECH_LEVELS`' `farmers_per_urbanite` (reference line 14817, ported verbatim) | **no consumer anywhere** — its own module doc says so |
 | Fiscal capacity | `roster::CIV_GOVERNMENTS` (reference 14794) | **no consumer in either codebase** — its own doc says the reference reads it nowhere either |
 | Food capacity | `timeline::civ_current_agrarian_density` → `CivData::dens`, and `civ_agrarian_regional_total`'s "Land sustains ≈ N" | live, integrated over the whole map |
 | Population per faction | `civ_faction_aggregates`' `pop` / `territory_km2` / `capital` | live |
@@ -262,31 +267,35 @@ silent drift between the table and its reading would be invisible.
 feeds *beyond his own household*. Technology sets the ratio; the land decides
 whether it is met.
 
-**`ecological_factor`** = `clamp(land_capacity / total_population, 0.25, 4.0)`,
-where `land_capacity` is Σ `dens[i] × cellKm²` over the faction's own
-territory cells — exactly the integral `civ_agrarian_regional_total` takes over
-the whole map, restricted to one owner. **This is the geography term**, and it
-is why two factions on the same ag-tech row do not get the same answer.
+**`ecological_factor`** = `clamp(land_ratio / world_ratio, 0.25, 4.0)`, where
+`land_ratio = land_capacity / total_population`, `land_capacity` is Σ
+`dens[i] × cellKm²` over the faction's own territory cells — exactly the
+integral `civ_agrarian_regional_total` takes over the whole map, restricted to
+one owner — and `world_ratio` is Σ land / Σ population over every faction of
+the world (`world_land_reference`, applied by `civ_military_manpower_world`).
+So the factor is *relative*: 1.0 is the world's own land per person, and a
+faction whose land per head is twice the world's reads 2.0. **This is the
+geography term**, and it is why two factions on the same ag-tech row do not get
+the same answer. The bounds are the named constants `ECOLOGICAL_FLOOR` and
+`ECOLOGICAL_CEILING` in `cartalith-civ/src/manpower.rs`; the ceiling is
+`1 / floor`, and a unit test pins that identity.
 
-> **Since 2026-09-23 (owner ruling AI, option (b)) a live world's
-> `land_capacity` is divided by the world's own land per person first**
-> (`civ_military_manpower_world`, `world_land_reference`), so the factor is
-> *relative*: 1.0 is the world's own ratio. The raw ratio tracked the map's
-> area — `land_capacity` integrates physical km², while the population it is
-> divided by comes from settlements sized off fixed-km² catchments whose count
-> is `clamp(gw·gh/65536·20, 8, 40)`, grid cells capped at 40. Measured on the
-> six-seed sweep below: 40 settlements on both the 800 km and 2 000 km shapes,
-> world reference 0.72 against 5.43 (seed 483920) — the 6.25× area ratio,
-> give or take terrain. See §3.3 finding 3.
+Two dated changes gave it this shape; §3.3 finding 3 carries the before- and
+after-measurements for both.
 
-> **The ceiling was `2.0` until 2026-09-06** — owner ruling 11, because at
-> `2.0` it was saturating and therefore deciding the answer rather than
-> guarding it (§3.3 finding 3, which carries the before- and
-> after-measurements). The floor is unchanged. Both bounds are now named
-> constants, `ECOLOGICAL_FLOOR` and `ECOLOGICAL_CEILING` in
-> `cartalith-civ/src/manpower.rs`, whose doc carries the distribution the
-> ceiling was chosen from; the ceiling is `1 / floor`, and a unit test pins
-> that identity.
+- **The ceiling was `2.0` until 2026-09-06** (owner ruling 11): at `2.0` it was
+  saturating, and so deciding the answer rather than guarding it. The floor
+  did not move. The constants' doc carries the distribution the new ceiling was
+  chosen from.
+- **The world normalisation dates from 2026-09-23** (owner ruling AI, option
+  (b)). The raw ratio tracked the map's area. `land_capacity` integrates
+  physical km², while the population it is divided by comes from settlements
+  sized off fixed-km² catchments, whose count is `clamp(gw·gh/65536·20, 8, 40)`
+  — grid cells, capped at 40. Measured on the six-seed sweep in §3.3: 40
+  settlements on both the 800 km and 2 000 km shapes, world reference 0.72
+  against 5.43 (seed 483920). That is the 6.25× area ratio, give or take
+  terrain. The single-faction `civ_military_manpower` still takes land in
+  absolute terms. Only the whole-world entry point normalises.
 
 **2 · `agricultural_labour_ratio`** — §2.2 above.
 
@@ -572,10 +581,11 @@ cannot be fitted to:
 | ladder 30 / 90 / 180 / 365 d | 41 221 · 37 126 · 23 756 · 15 067 | 98 889 · 59 455 · 38 045 · 24 129 |
 
 **Re-validated 2026-08-25 after §1a's ruling**: every headcount in both tables
-is unchanged to the unit, which is what `the_citizen_ruling_moves_no_headcount`
-asserts. What moved is the two verdict rows — Kingdom A's mobilization read
-`below` its 5 % floor against total population and reads `within` against its
-citizen body, which is exactly the reconciliation the ruling makes.
+was unchanged to the unit, which is what
+`the_citizen_ruling_moves_no_headcount` was written to assert. What moved is
+the two verdict rows — Kingdom A's mobilization read `below` its 5 % floor
+against total population and reads `within` against its citizen body, which
+is exactly the reconciliation the ruling makes.
 
 Two of those are worth reading twice. **Kingdom A's full levy sustains 77
 days** — the feudal ~2-month obligation, out of a curve fitted on two unrelated
@@ -585,6 +595,15 @@ which brackets the owner's stated 40 000–60 000 field army almost exactly: a
 told.
 
 ### 3.2 Live figures — a real 233-settlement, six-faction world
+
+> **Measured 2026-08-25; read §3.2 and §3.2a as the record that produced
+> findings 1-3, not as today's output.** Every standing figure and verdict in
+> them predates three later changes, each of which moves the standing side:
+> owner ruling 11's ecological ceiling (2026-09-06), per-faction default
+> governments (`roster::civ_default_government`, 2026-09-23 — the "all
+> `monarchy`" roster below is no longer the default), and owner ruling AI
+> (2026-09-23). The current standing-verdict counts on both of these worlds are
+> the "(b) + (c)" column of the last two rows of finding 2's table.
 
 Shell-level, seed 483920, 2400 km, 384×288, villages on, run windowed and
 headless. **PASS**, every claim measured.
@@ -603,8 +622,8 @@ line reads *"no faction here can concentrate more than 43 % of what it can
 raise."*
 
 **Band verdicts after §1a's ruling (2026-08-25), same world, same seed.** Every
-headcount above is unchanged; only the denominator is. The default roster
-seeds every faction `monarchy`, so the citizen fraction is 62.8 % throughout
+headcount above is unchanged; only the denominator is. The default roster then
+seeded every faction `monarchy`, so the citizen fraction is 62.8 % throughout
 here — see §3.2a for the differentiated run.
 
 | faction | citizens / total | standing % of citizens | mobilization % of citizens | era |
@@ -639,10 +658,10 @@ within that era's 0.5–2.0% band; mobilization 9.4% — within its 5–15%.
 
 ### 3.2a The denominator differentiated — one government per faction
 
-A default roster is all-`monarchy`, so a live run on it proves the citizen
-population exists but not that it *discriminates*. The engine probe therefore
-assigns a different government to each of the six and re-reads the verdicts
-(33 settlements, 1200 km, seed 483920). **The citizen fraction spreads
+The default roster was then all-`monarchy`, so a live run on it proved the
+citizen population exists but not that it *discriminates*. The engine probe
+therefore assigns a different government to each of the six and re-reads the
+verdicts (33 settlements, 1200 km, seed 483920). **The citizen fraction spreads
 0.378 … 0.978** across them, and the headcounts are pinned unchanged when the
 roster is restored.
 
@@ -662,7 +681,9 @@ mobilization for five of six, and `within` on standing only for the oligarchy �
 the narrowest citizen body of the set. The residual is finding 2's, not
 finding 1's: this model's standing armies land at **Imperial Rome's own
 ratio**, and the era table's standing column is the part of it that the
-specification's own cited figures never agreed with. §1a's ruling closed the
+specification's own cited figures never agreed with. (Finding 2 later
+corrects that framing: the ratio was a measured result at one ag-tech level,
+not a constant.) §1a's ruling closed the
 gap by roughly a factor of 1.6 rather than closing it entirely, and the honest
 statement is that the standing column remains the looser fit of the two.
 
@@ -685,8 +706,9 @@ Engine-level (33 settlements, 1200 km) drove the assertions the shell cannot:
   institutions, standing still spreads **199 … 1 435**, logistics
   **0.415 … 0.841**, and ecological factor **0.428 … 2.000** (that upper
   figure is the *old* `2.0` ceiling truncating the spread, which is finding 3
-  and was ruled on 2026-09-06; the same probe now reads 0.438 … 2.912 on the
-  33-settlement world). If this had
+  and was ruled on 2026-09-06; after that ruling the same probe read
+  0.438 … 2.912 on the 33-settlement world, and ruling AI (b) has since
+  re-normalised the factor). If this had
   collapsed to one number the model would have been a technology lookup
   wearing five variables.
 - **The citizen population is a real subset, differentiated, and moves no
@@ -756,30 +778,23 @@ the model agrees with the specification's *example* and disagrees with its
 > 33-settlement world they read 0.19–1.20 % against a 1–2.5 % floor and only
 > the narrowest citizen body clears it.
 >
-> **Corrected 2026-09-23 — the framing above was wrong, not just the numbers.**
-> A fresh build read `manpower.rs` directly and found "the model's standing
-> armies sit at Imperial Rome's ratio" describes a *measured result at one
-> ag-tech level*, not a hardcoded constant the model is stuck at —
-> `standing = total × (1−α) × ecological_factor × fiscal_extraction_efficiency
-> / SOLDIER_UPKEEP`, with `α` already driven by `AG_TECH_LEVELS.farmers_per_
-> urbanite` per faction. The industrialisation dependence this row's own
-> "correcting that" implied needed building **already existed** — measured at
-> equal population/land/institutions, standing army runs 1 090 (subsistence)
-> to 24 617 (industrial), an **11.09× spread** — see `LARGE_ITEM_RULINGS.md`
-> Ruling AI's own correction for the full measurement. Re-measured with
-> today's date (post the 2026-09-06 ecological-ceiling raise and the
-> 2026-09-23 government-default wiring): the sparse world now reads **3 of 6
-> factions within band** (Aurelia 0.21%, Veldmark 0.43%, Draumr 0.34% — not
-> the 1-of-6 this row originally reported), and a 108-sample sweep across
-> seeds and world sizes traced most of the remaining below-band cases to
-> finding 3's own map-scale effect, not era or industrialisation. **Options
-> recorded, not yet ruled on**: accept the ag-tech rule as satisfied; take on
-> the map-scale normalisation separately; or rule on whether the era table's
-> own non-monotone band shape (Iron Age sits *above* High-medieval) should be
-> reproduced by re-fitting `SOLDIER_UPKEEP` to vary with `α`, which would
-> re-baseline the worked example below. No behaviour was changed in this
-> pass — one mutation-tested unit test was added confirming the 11.09× spread
-> and the strictly-increasing order across all six ag-tech levels.
+> **The framing was wrong, not just the numbers (2026-09-23).** Reading
+> `manpower.rs` directly showed that "the model's standing armies sit at
+> Imperial Rome's ratio" describes a *measured result at one ag-tech level*,
+> not a constant the model is stuck at: `standing = total × (1−α) ×
+> ecological_factor × fiscal_extraction_efficiency / SOLDIER_UPKEEP`, with `α`
+> already driven per faction by `AG_TECH_LEVELS.farmers_per_urbanite`. The
+> industrialisation dependence this finding implied was missing **already
+> existed**. At equal population, land and institutions the standing army ran
+> 1 090 (subsistence) → 2 219 (traditional agrarian, the default) → 24 617
+> (industrial): **11.09×** industrial over traditional, 22.6× over subsistence.
+> Re-measured after the 2026-09-06 ceiling raise and the 2026-09-23
+> default-government wiring, the sparse world read **3 of 6 factions within
+> band** (Aurelia 0.21 %, Veldmark 0.43 %, Draumr 0.34 %), not the 1 of 6
+> first reported. A 108-sample sweep across seeds and world sizes then traced
+> most of the remaining below-band cases to finding 3's map-scale effect, not
+> to era or industrialisation. `LARGE_ITEM_RULINGS.md` Ruling AI carries the
+> correction and the three options it put to the owner.
 >
 > **Ruled and built, 2026-09-23 — the owner chose all three options.** (a) The
 > ag-tech scaling closes this finding's original ask. (b) The map-scale
@@ -789,8 +804,10 @@ the model agrees with the specification's *example* and disagrees with its
 > sweep deliberately non-monotone: 2 919 / 8 340 / 7 598 / 17 132 / 31 426 /
 > 68 929 from subsistence to industrial (traditional above advanced is the
 > table's Iron-Age-above-High-medieval shape; industrial/traditional is now
-> **8.27×**, from 11.09×). Measured on the same 108 faction-samples
-> (`_mpscale_probe.tscn`), standing verdicts below / within / above:
+> **8.27×**, from 11.09×). `standing_army_rises_with_industrialisation_at_equal_population`
+> pins all six literals and the one deliberate inversion. Measured on the same
+> 108 faction-samples (`_mpscale_probe.tscn`), standing verdicts below /
+> within / above:
 >
 > | | before | (b) alone | (b) + (c) |
 > |---|---|---|---|
@@ -810,8 +827,9 @@ the model agrees with the specification's *example* and disagrees with its
 > verdicts are unchanged in every row (10 / 98 / 0 pooled), as they must be:
 > neither option touches the demographic chain.
 
-**3 · `ecological_factor` saturated on real generated worlds — ruled on and
-raised, 2026-09-06.** As first measured: five of six
+**3 · `ecological_factor` saturated on real generated worlds — the ceiling
+raised by owner ruling 11 (2026-09-06), then the factor normalised to the
+world by owner ruling AI (b) (2026-09-23).** As first measured: five of six
 factions on the 233-settlement world hit the then-`2.0` ceiling — their territory
 sustains at least twice the population the model puts on it. This is not a
 bug: it is the same divergence `civ_agrarian_regional_total`'s own "Land
@@ -858,29 +876,28 @@ separate question, and an old one.
 > `new_eco / 2.0`, i.e. **1.005× … 2.000×** (median 2.000×), and *only* the
 > standing side moves: `total_population`, `citizen_population`,
 > `emergency_mobilization`, `field_army`, the force ladder and both durations
-> are identical on all 108 rows. **The reason first given for that was wrong and
-> is corrected here:** it said *"nothing but `military_budget` reads this
-> factor"*, and there is a second reader — `surplus_per_farmer = ecological / f`
-> in `military_drivers`, published as `food_surplus_per_farmer`, which therefore
-> moves on every changed row. This document states that relationship itself nine
-> sections earlier. The enumerated list above is still right, established by
-> control flow rather than by the false reason: `campaign_capability` reads only
-> `state_capacity` / `logistics_capacity` / `professionalization`,
-> `professionalization` is `0.15 + 0.55*state_capacity + 0.30*urban_norm`, and
-> `levy_reach`, `emergency`, `field`, the ladder and both durations never touch
-> `ecological`. `standing < field < levy` holds on all 108. The committed
-> `_manpower_probe.tscn` reports **PASS**, and now prints `ecological 0.438 …
-> 2.912` on the 33-settlement world where the ceiling used to truncate it at
-> 2.000.
+> are identical on all 108 rows. That list is established by control flow:
+> `campaign_capability` reads only `state_capacity` / `logistics_capacity` /
+> `professionalization`, `professionalization` is `0.15 + 0.55*state_capacity
+> + 0.30*urban_norm`, and `levy_reach`, `emergency`, `field`, the ladder and
+> both durations never touch `ecological`. **The factor has two readers, not
+> one:** besides `military_budget`, `surplus_per_farmer = ecological / f` in
+> `military_drivers` is published as `food_surplus_per_farmer`, and so moves on
+> every changed row. (The first write-up of this ruling said *"nothing but
+> `military_budget` reads this factor"*, although §2.3 states the second
+> reader. The list was right; the reason given for it was not.)
+> `standing < field < levy` holds on all 108. The committed
+> `_manpower_probe.tscn` reported **PASS** after this ruling and printed
+> `ecological 0.438 … 2.912` on the 33-settlement world, where the ceiling used
+> to truncate it at 2.000 (before ruling AI (b) re-normalised the factor).
 >
 > **What the ruling did not fix, disclosed rather than tuned around.** The
 > raw ratio's *centre* tracks world size at a fixed faction count — median
 > 0.39 on a 512×384 800 km world against 5.04 on a 768×576 2 000 km one — so
 > part of the upper tail is map scale, not ecology, and the 2 000 km shape
-> still pins half its factions at 4.0. Normalising that means changing how
-> `land_capacity` or `nucleated_pop` are computed, which this ruling
-> explicitly does not authorise. It is the same "should generated worlds be
-> more densely populated" question this finding already ends on.
+> still pins half its factions at 4.0. Normalising that meant changing how
+> `land_capacity` or `nucleated_pop` are computed, which ruling 11 did not
+> authorise; owner ruling AI (b), below, took it up.
 
 > **Owner ruling AI (b), 2026-09-23: normalise it — built.** The root cause,
 > read at the code rather than inferred: `land_capacity` integrates physical
@@ -930,7 +947,11 @@ re-propose them without reopening the reasoning:
   here implies, and inventing one would be the fabricated number CV-25's first
   pass refused.
 - **Campaigns, unit movement, combat.** Each needs a clock, a map objective
-  and an opposed force. None exists.
+  and an opposed force as simulation inputs, and a rule that resolves them.
+  None exists. Story planning's conflicts (`cartalith_civ::conflict`,
+  `STORY_PLANNING_SCOPE.md` §5) do not change that. They are authored
+  annotations that read these headcounts per side (`side_manpower`) and decide
+  nothing.
 - **Change over time.** Every number here is a reading of the world as it
   stands, and stops there — the same boundary `relations` holds.
 

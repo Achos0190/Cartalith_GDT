@@ -9,17 +9,43 @@ scoped rather than written in one shot before any of it was known.
 
 **It defines milestones. It does not track them.** For where any milestone
 stands — done, partial, blocked, declined — read
-`cartalith-native/docs/STATUS.md`, which is the only place progress is
-recorded.
+`cartalith-native/docs/STATUS.md` (rows P2-01…P2-21), which is the only place
+progress is recorded.
+
+**How to read it.** Twenty-one milestones, numbered 1–21, plus the first
+milestone 9, kept as a superseded record. Each section is the milestone's
+definition, followed where one was written by a **What shipped** record. That
+record is history, in the past tense, kept for the reference quirks, harness
+bugs and porting subtleties it carries. Where later work overtook a record, a
+*Since then* line says so and names the `STATUS.md` row. Reference line
+numbers resolve against the frozen `reference/Cartalith Gen1 v2.10.html`
+(function-start citations re-checked 2026-09-23). A bare `CHANGELOG.md` means
+the retired `cartalith-native/docs/CHANGELOG.md`, whose "Phase 2 milestone N"
+entries (1–17 and 20) carry each pass's full narrative.
+
+## Done means (per milestone, not once for the whole phase)
+
+Each milestone: golden-verified against the real reference engine with a
+real, justified tolerance, and `cargo test -p cartalith-civ` proves it with no
+Godot involved. Two kinds of milestone verify differently, and each says so.
+Where the reference has no algorithm to check against (territory, milestone
+10, and provinces, milestone 16 — `DECISIONS.md` §7b), unit tests stand in.
+For small, pure, branch-complete functions with no RNG or iteration-order risk
+(17's trade-balance rule, 18, 19), each pass chose real unit tests over a
+golden harness and said why. That is a precedent this port set
+(`ECONOMY_SCOPE.md`, "What was actually built this pass"), not a rule stated
+in `PARITY_TESTING.md`. `STATUS.md`'s row is updated to reflect
+real state, verified against the code. Nothing outside a milestone's own
+explicit scope gets implemented in that milestone's pass — flag and stop if
+something turns out unavoidable, report it, don't silently expand.
 
 ## Milestone 1 — affordance fields foundation
 
 Lithology classification, soil fertility, water access
 (`buildLithology`/`buildSoilFertility`/`buildWaterAccess`, reference lines
 5835/5852/5866). New crate `cartalith-civ`, zero `gdext` dependency, golden-
-verified (lithology bit-exact, soil/water at `1e-4`). See
-`CHANGELOG.md`/`STATUS.md` for the full record — this document only tracks
-scope, not history.
+verified (lithology bit-exact, soil/water at `1e-4`). `CHANGELOG.md`'s "Phase 2
+milestone 1" entry carries the full record.
 
 **Investigated before milestone 1 was written**: traced
 `currentSettlementSuitability` (the "v1.30 one function" `ROADMAP.md`
@@ -107,7 +133,8 @@ disproportionate. It becomes its own milestone 5.
 - `buildCarryingCapacity` (line 6238) — soil × temperature-bell × water
   modifier × biome-density-residual. Needs `biomeDensityResidual` (line
   6193, one-line lookup) and `WETLAND_DENSITY_RESIDUAL` (small const) plus
-  `buildWetlandMask` (reference line ~6839, small, not yet ported). All
+  `buildWetlandMask` (reference line 6839, small; ported with this milestone
+  as `build_wetland_mask`). All
   already-real inputs otherwise (soil, water access, biome, temp, field —
   all from milestones 1–3).
 - `buildNPP` (line 6497) — Miami-model net primary productivity from
@@ -134,7 +161,7 @@ output at the default. **Confirmed for milestone 5**: `WorldState`
 `shear_field` fields — they exist only inside a local `stress` struct
 computed mid-`generate_terrain` and are discarded past it, the same
 situation `crust_field` was in before milestone 1's fix. Milestone 5
-needs the equivalent retention fix before it can start. See
+needed the equivalent retention fix first, and made it. See
 `CHANGELOG.md`'s "Phase 2 milestone 4" entry for the full record.
 
 ## Milestone 5 — resource potentials
@@ -270,58 +297,48 @@ record, including the harness technique (a small injected function
 mirroring `_civIterativeAutoWorld`'s own inline candidate-building loop,
 since that loop isn't a standalone callable in the reference).
 
-## Milestone 9 (superseded) — the investigation: territory/provinces is a dead end here
+*Since then (2026-09-23):* two pieces this milestone left out were ported.
+One is `_civIterativeAutoWorld`'s centrality → tier feedback loop — the one
+network build this port had matched the reference's *first* pass, not its
+last (`civ_iterative_network`). The other is the `wantCounts` fixed-tier-count
+branch, exposed in New World ▸ Generation (`place_settlements_with_counts`).
+`STATUS.md` row P2-08 has the evidence. The remaining out-of-scope items each
+became their own milestone: territory 10, roads 11–14, villages 15, provinces
+16, economy 17 and 20, culture 18.
 
-> **Correction notice (2026-08-19, cross-repo documentation audit).** "No
-> auto-generation function anywhere" below is **false** — it's a false
-> negative from the grep methodology, not the reference. `_civAutoPolity`
-> (reference HTML line 20665, wired to the "Recalculate Territories"
-> button at line 26662) writes the territory raster through the local
-> alias `terr` (`terr[i]=fac[i]`, line 20696), which a grep for
-> `civTerritory[` doesn't match. It runs `buildTravelCost` plus a
-> multi-source Dijkstra seeded from every settlement, diagonal-weighted,
-> capped at `MAX_REACH = GW*0.35`. RC's vendored
-> `docs/research/political-fragmentation.md:48` already documents this
-> function. See `DECISIONS.md` §7b's own correction notice for what this
-> changes (the port's existing capital-seeded, weighted design now has a
-> real comparison point) and what it doesn't (this notice does not itself
-> decide whether to adopt, offer as an alternate mode, or leave as-is).
+## Milestone 9 (superseded) — the investigation that called territory a dead end
 
-Investigated 2026-08-16, before assuming `_civGenerateProvinces`/
-`getCivTerritory` (the natural-looking next target) was reachable: **it
-isn't, and the reason is worth recording rather than discovering again
-later.** `getCivTerritory()` (reference line 14933) only lazily
-zero-allocates `civTerritory` — it never computes faction ownership per
-cell. Grepped every write site to `civTerritory[...]` in the reference:
-the only two are `_civPaintTerritoryAt` (reference line 15964, an
-interactive brush tool driven by pointer events) and a save/load
-deserializer (line ~26145, restoring a previously-painted delta). **There
-is no auto-generation function anywhere — no Voronoi-from-capitals, no
-algorithmic territory fill.** Territory shape in the reference is
-purely a hand-painted, interactive-editor feature with zero headless
-production path.
+Kept as a record, because both its method and its correction teach something.
 
-Consequence: `_civGenerateProvinces` itself IS pure and portable (a
-straightforward Voronoi partition of an *already-owned* territory raster
-into per-settlement provinces, reading `state.places`/`civTerritory`,
-writing nothing DOM-coupled) — but its real input has no programmatic
-source in this port, and won't until/unless a territory-painting UI is
-built in Godot (real future UI work, not a JS port) or some other
-territory-assignment approach is designed for this port specifically (a
-genuinely new design decision, not something to improvise here). Porting
-`_civGenerateProvinces` now would produce a correctly-tested function with
-no real caller — technically "done," practically inert.
+**What it concluded (2026-08-16).** Before assuming `_civGenerateProvinces`/
+`getCivTerritory` were reachable, this investigation grepped every write site
+of `civTerritory[...]` in the reference and found two: `_civPaintTerritoryAt`
+(reference line 15964, an interactive brush driven by pointer events) and a
+save/load deserializer (line 26145, restoring a previously painted delta).
+`getCivTerritory()` (line 14933) only lazily zero-allocates the raster. It
+concluded that the reference computed no territory at all — territory was a
+hand-painted, editor-only feature — so `_civGenerateProvinces`, although pure
+and portable (a Voronoi partition of an *already-owned* territory raster into
+per-settlement provinces), had no programmatic input in this port. Porting it
+then would have produced a correctly tested function with no real caller.
 
-**Resolved 2026-08-17**: the "some other territory-assignment approach"
-alternative this note itself named arrived — milestone 10 (below),
-`assign_territory` (`DECISIONS.md` §7b), built for a wholly different
-original reason (the port needed *some* territory system since the
-reference had none at all), turned out to produce the exact same per-cell
-shape `_civGenerateProvinces` needs (`Vec<i32>` faction id, `0` = unowned,
-matching `civTerritory`'s own `Uint8Array` convention exactly). Re-checked
-by reading the real reference source directly (not re-trusting this note's
-own summary) before porting — confirmed compatible, ported for real. See
-"Milestone 16" below.
+**That conclusion was false, and the grep method is why** (correction,
+2026-08-19, cross-repo documentation audit). `_civAutoPolity` (reference line
+20665, wired to the "Recalculate Territories" button at line 26662) writes the
+raster through a local alias — `terr[i]=fac[i]`, line 20696 — which a grep for
+`civTerritory[` cannot match. It runs `buildTravelCost` plus a multi-source
+Dijkstra seeded from every settlement, diagonal-weighted, capped at
+`MAX_REACH = GW*0.35`. The vendored `docs/research/political-fragmentation.md`
+already described it. **A write-site grep misses every write made through an
+alias; grep for the function that owns the data as well.**
+
+**What still stands.** Milestone 10's territory design (`DECISIONS.md` §7b) was
+built on this investigation's premise. On 2026-08-19 the owner ruled that it
+stays the only mode — no reconciliation against `_civAutoPolity`, no second
+mode (§7b's resolution). It also produces exactly the per-cell shape
+`_civGenerateProvinces` needs (`Vec<i32>` faction id, `0` = unowned, matching
+`civTerritory`'s own `Uint8Array` convention). That was re-checked against the
+reference source, not against this note, before porting it as milestone 16.
 
 ## Milestone 9 — settlement population + naming
 
@@ -388,10 +405,12 @@ account.
 
 Owner decision recorded 2026-08-16, `DECISIONS.md` §7b — read that first,
 it's the authoritative design record, this is only the implementation
-scope. **Genuinely new design, not a port**: the reference has no
-algorithmic territory generation at all (interactive paint + save/load
-only), so there's nothing to golden-verify against — judged by visual
-plausibility once real, per §7a/§7b's standard.
+scope. **This port's own design, not a port.** It was scoped on the premise
+that the reference computes no territory. That premise was false —
+`_civAutoPolity` exists (see the superseded milestone 9) — and the owner has
+since ruled that this design stays the only mode (§7b, 2026-08-19). So it is
+the standard on its own terms: judged by visual plausibility and unit tests
+per §7a/§7b, not golden-verified against `_civAutoPolity`.
 
 **Algorithm**: cost-distance Voronoi from capitals, weighted by capital
 population.
@@ -413,8 +432,8 @@ population.
    *capital* wins, then mapped to that capital's faction id — a faction
    with two capitals effectively gets the union of both their zones.
 
-**In scope**: the assignment algorithm above, golden-... no — *visually*
-verified (per §7b) on real generated worlds, at more than one seed/map
+**In scope**: the assignment algorithm above, *visually* verified (per §7b)
+on real generated worlds — not golden-verified — at more than one seed/map
 shape so a single lucky-looking result isn't mistaken for "it works."
 
 **Out of scope**: `_civGenerateProvinces` (sub-partitioning owned
@@ -425,28 +444,28 @@ culture, roads-as-borders refinement (real roads existing, milestone 11,
 could later inform border smoothing — not needed for a first working
 version).
 
-**Blocked on**: milestone 11 (road network algorithm) landing first —
-needs `buildTravelCost`/`roadDijkstra` real and tested. Check on
-completion whether milestone 11's Rust API is directly reusable here
-(single-source Dijkstra called once per capital) without modification.
+**Depends on** milestone 11 (road network algorithm) — it needs
+`buildTravelCost`/`roadDijkstra` real and tested, called as a single-source
+Dijkstra once per capital.
 
 **What shipped.** `assign_territory` reuses `road_dijkstra`/`build_travel_cost`
-(milestone 11) directly, no modification needed, confirming the note
-above. Verified by 8 unit tests standing in for a golden test (no JS
-reference exists) — programmatic checks only, real map-overlay
-rendering deliberately deferred as its own follow-up UI/UX-catch-up
-target, not attempted in this pass since it needs `cartalith-godot`
-binding work outside this crate. `pop_ref=15000.0` documented as
-`civ_base_pop_for_kind(Capital)`'s own value, not picked arbitrarily.
-See `CHANGELOG.md`'s "Phase 2 milestone 10" entry.
+(milestone 11) directly, with no modification. Verified by 8 unit tests
+standing in for a golden test — programmatic checks only. Map-overlay
+rendering was deferred to a UI/UX pass, since it needed `cartalith-godot`
+binding work outside this crate. `pop_ref=15000.0` is documented as
+`civ_base_pop_for_kind(Capital)`'s own value, not picked arbitrarily. See
+`CHANGELOG.md`'s "Phase 2 milestone 10" entry.
+
+*Since then:* territory is drawn — `STATUS.md` row P2-10.
 
 ## Milestone 11 — road network algorithm
 
 Investigated 2026-08-16, choosing between the remaining candidates:
-`_civSeedVillages` (reference line ~25164) reads `ways` (a road network)
+`_civSeedVillages` (reference line 25164) reads `ways` (a road network)
 via `_civRoadProximityQuery(ways, cell)`, load-bearing in its village
 acceptance probability — genuinely blocked on roads existing first, not a
-false blocker. Territory stays blocked on the owner decision (milestone
+false blocker (though on a different road network than this milestone's;
+see "What shipped"). Territory stays blocked on the owner decision (milestone
 10). Roads themselves turn out to be reachable now: `buildTravelCost`
 (reference line 3257), `roadDijkstra` (line 3275), and `buildRoadNetwork`
 (line 3316) are **block-1, pure, no DOM dependency at all** — the
@@ -497,27 +516,25 @@ distinct-precision-regime heap needed (not reusable from milestone 2's
 `MinHeap` — `roadDijkstra`'s own heap is `f64`-priority per the
 reference's own v1.89 comment, a genuinely different regime, not a style
 choice). Real terrain data exercised the "unreachable landmass" MST branch,
-not just a synthetic unit test. **A wrong assumption in this section's own
-original text, corrected by investigation, not left standing**: the note
-above claimed `_civSeedVillages` would be "unblocked by this landing" —
-false. Investigated for milestone 12 and found `buildRoadNetwork` only
-ever serves the *manual* "Generate Roads" tool (`buildRoadsOp`, reads
-user-clicked `state.places`); the civ auto-populate flow's own road system
-(`civWays`, genuinely auto-generated per the reference's own line-14758
-comment) is built by a separate, larger algorithm —
-`_civHierarchicalNetwork` (land routes) + `_civMstRoutes` (sea routes,
-port-to-port) + `_civPreferSeaRoutes` (cost-compares land vs. sea per
-edge, preserves connectivity) — none of which this milestone read in
-depth or ported. `_civSeedVillages`'s `ways` parameter is `civWays`, not
-`buildRoadNetwork`'s output. See `CHANGELOG.md`'s "Phase 2 milestone 11"
-entry for the full account.
+not just a synthetic unit test.
+
+**This milestone did not unblock village seeding, though its first draft
+expected it to.** Investigating for milestone 12 found that `buildRoadNetwork`
+only ever serves the *manual* "Generate Roads" tool (`buildRoadsOp`, which
+reads user-clicked `state.places`). The civ auto-populate flow's own road
+system — `civWays`, auto-generated per the reference's own line-14758 comment
+— is a separate, larger algorithm: `_civHierarchicalNetwork` (land routes,
+milestone 12) plus `_civMstRoutes` (sea routes, port to port, milestone 13).
+`_civSeedVillages`'s `ways` parameter is `civWays`, not `buildRoadNetwork`'s
+output. (`_civPreferSeaRoutes`, first assumed part of that system, belongs only
+to the manual "Auto routes" tool — milestone 12.) See `CHANGELOG.md`'s "Phase 2
+milestone 11" entry for the full account.
 
 ## Milestone 12 — civ auto-populate road network: `_civHierarchicalNetwork`
 
 Investigated further 2026-08-16: confirmed substantially larger than
 milestone 11's `buildRoadNetwork`, not a same-shape sibling. Real
-dependency graph, all reference-line-numbered (verify against the live
-file, this session's numbers drift):
+dependency graph (reference v2.10 line numbers, re-checked 2026-09-23):
 
 - `_civHierarchicalNetwork` (~21526) — the entry point. Two-pass: **Pass
   1** builds a Prim MST over a no-reuse cost grid (same MST shape
@@ -539,21 +556,21 @@ file, this session's numbers drift):
 - `_civApplySettlementGravity` (~21119) — soft-attracts routes through
   intermediate settlements near a corridor (so A→C routes via B when B is
   close to the line), applied on *both* passes.
-- `_civMstRoutes` (~21240), `_civPreferSeaRoutes` (~21389) — not yet read
-  in detail; `_civPreferSeaRoutes` implies actual sea-lane routing is part
-  of this system (`civWays`'s own comment: "auto-generated road/**sea**
-  network") — a real scope question: is sea-lane routing this milestone's
-  job or a natural sub-split, given it needs its own water-crossing cost
-  model distinct from the land-only `_isValidLand` gate
-  `_civHierarchicalNetwork` itself uses (`sea:false on every emitted way`
-  per its own v1.99 comment — meaning `_civHierarchicalNetwork` itself is
-  LAND-ONLY, and sea routing is a separate concern layered on by one of
-  the other two functions, not inside this one).
+- `_civMstRoutes` (~21240), `_civPreferSeaRoutes` (~21389) — the sea-lane
+  side (`civWays`'s own comment: "auto-generated road/**sea** network").
+  `_civHierarchicalNetwork` itself is LAND-ONLY (`sea:false on every emitted
+  way`, per its own v1.99 comment), so sea routing is layered on by one of
+  these two with its own water-crossing cost model — which made sea lanes a
+  natural sub-split. "What shipped" below records which one production
+  actually calls; the answer is milestone 13.
 - `opts.existingWays` (v1.64) — lets manually-drawn roads discount the
   auto-network's cost near them so it converges onto rather than
   duplicates manual work. Real but **optional/additive** (absent input ⇒
-  unchanged behaviour) — a plausible thing to defer to a later pass since
-  this port has no manual road-drawing tool yet for it to matter to.
+  unchanged behaviour), and the production call site
+  (`_civIterativeAutoWorld`) passes empty opts, so auto-populate never
+  reaches it. Not ported (`civ_hierarchical_network_topology`'s doc). The
+  port has since gained a manual way tool (`tools::civ_commit_way`), which
+  does not change that call site.
 
 **What shipped.** Read `_civMstRoutes`/`_civPreferSeaRoutes` fully as instructed —
 confirmed the real production call site (`_civIterativeAutoWorld`) never
@@ -567,9 +584,9 @@ accordingly: ported the raw three-pass topology
 (`civ_hierarchical_network_topology`, `cartalith-civ`) — golden-verified,
 both fixture cases exercising real edge conditions (an unreachable
 settlement; the min-degree-fill pass hitting its natural ceiling rather
-than its target). Corridor consolidation/smoothing (needs `_civSmoothPath`,
-not yet ported) deferred to milestone 14 below. See `CHANGELOG.md`'s
-"Phase 2 milestone 12" entry for the full record, including a real
+than its target). Corridor consolidation/smoothing (which needed
+`_civSmoothPath`, then unported) was deferred to milestone 14 below. See
+`CHANGELOG.md`'s "Phase 2 milestone 12" entry for the full record, including a real
 `river_flow_thresh` parameter bug (hardcoded map width) caught before it
 shipped.
 
@@ -618,6 +635,10 @@ wind/current-aware sea-lane costing, blocked on adding `WorldState`
 retention for the ocean-current/wind fields (out of this milestone's own
 scope, not silently dropped).
 
+*Since then (2026-09-01):* that follow-up is built — `_civSeaTimeEdgeCost` is
+ported as `civ_sea_time_edge_cost`, reached through the retained ocean-current
+and wind fields. `STATUS.md` rows P2-13 and JP-QC3.
+
 Shipped as `civ_sea_routes` (+ `SeaRoute` struct) in `cartalith-civ`,
 golden-verified against two real cases reusing milestone 14's own
 already-verified case0/case1 fixtures (genuine mixed land/ocean/lake
@@ -637,7 +658,8 @@ model to follow: `_civIterativeAutoWorld`'s real merge (`ways.push(...)`
 alongside land ways). Sea routes are `Way`-shaped enough
 (`pts`/`brks`/`km`/`name`) to reuse the rendering path milestone 14's UI/UX
 catch-up built for land roads, given a `sea: true` (or equivalent) flag to
-distinguish styling if desired.
+distinguish styling if desired. *Since then:* sea routes are drawn —
+`STATUS.md` row P2-13.
 
 ## Milestone 14 — corridor consolidation + path smoothing
 
@@ -647,11 +669,10 @@ family edges into deduplicated, Catmull-Rom-smoothed, classified
 Needed `_civSmoothPath` (also needed by milestone 13's sea routes — ported
 once, shared, see milestone 13's note above) and `_civTerrainValidTest`
 (ported narrowed to this network's one real call shape, `'land'` mode
-only — the `'ocean'` mode was generalized in by milestone 13, now done).
-Not
-required for `_civSeedVillages` to function (it needs road-proximity
-distance, which raw unsmoothed edges already provide), but required for
-anything that actually *draws* roads on the map.
+only; milestone 13 generalized in the `'ocean'` mode). Not required for
+`_civSeedVillages` to function (it needs road-proximity distance, which raw
+unsmoothed edges already provide), but required for anything that actually
+*draws* roads on the map.
 
 Shipped as `civ_consolidate_and_smooth_ways` in `cartalith-civ`, golden-
 verified against two real cases (reusing milestone 12's and milestone 9's
@@ -667,38 +688,42 @@ oversampling quirk traced and confirmed by hand — in `CHANGELOG.md`'s
 Confirmed reachable now, independent of milestones 13/14 (per milestone
 12's own note: `_civSeedVillages` needs road-proximity *distance*, which
 raw unsmoothed MST-family edges already provide — smoothing/classification
-is a rendering concern, not a functional one). Reference line ~25164
-(re-verify against the live file). Read the full function fresh — this
-session read it once already but before milestone 12's real topology
-existed to build against, re-check every input actually matches what's
-real now.
+is a rendering concern, not a functional one). Reference line 25164. Read
+fresh against milestone 12's real topology, not against an earlier reading
+made before that topology existed.
 
-**Algorithm** (already read this session, verify against live file): a
-Bishop-Fisher-style spatial hash grid rejects candidates too close to any
-existing settlement (`spacing` from `VILLAGE_SPACING_KM`), scans
-`findSettlementSeeds` at a *relaxed* threshold (`VILLAGE_SUIT_THRESH`,
+**Algorithm**: a Bishop-Fisher-style spatial hash grid rejects candidates
+too close to any existing settlement (`spacing` from `VILLAGE_SPACING_KM`),
+scans `findSettlementSeeds` at a *relaxed* threshold (`VILLAGE_SUIT_THRESH`,
 lower than the main settlement threshold — dense-mode-style full-map
 coverage), and for each candidate computes a soft accept probability
-blending suitability with road proximity (`_civRoadProximityQuery`,
-already built in milestone 12's own helpers — check exact function name)
-via `_civVillageAcceptProb` (not yet read in full — read it now). Nearest
-existing settlement's faction is inherited. Named via milestone 9's
+blending suitability with road proximity (`_civRoadProximityQuery`, line
+25127) via `_civVillageAcceptProb` (line 25159). Nearest existing
+settlement's faction is inherited. Named via milestone 9's
 `civ_settle_name`/RNG (same shared stream discipline milestone 9
-established). Capped at `_CIV_VILLAGE_CAP` (find its real value).
+established). Capped at `_CIV_VILLAGE_CAP` = 200 (line 6445).
 
 **In scope**: `_civSeedVillages` itself, `_civVillageAcceptProb`,
-`_civRoadProximityQuery` if milestone 12 didn't already build an
-equivalent (check first, don't duplicate), the spatial-hash rejection
-grid. Golden-verify against the real reference engine — this one DOES
-have a JS reference to check (unlike territory, milestone 10) since it's
-a real reference function, not new design.
+`_civRoadProximityQuery` unless milestone 12 already built an equivalent
+(check first, don't duplicate), the spatial-hash rejection grid.
+Golden-verify against the real reference engine — this one DOES have a JS
+reference to check (unlike territory, milestone 10) since it's a real
+reference function, not new design.
+
+**Missed at scoping, and part of this feature:** `_civConnectVillageAddons`
+(reference line 25248), the dirt track the reference draws from every addon
+village to the network, called unconditionally after each village-seeding
+pass. Nothing here named it, and it was found only from the owner's report
+that villages had no roads. `STATUS.md` row P2-15 records its port, and
+`MISTAKES.md`'s "Report that a feature does not exist" row records how
+checking one function stood in for checking the capability.
 
 **Out of scope**: milestones 13/14's own scope (sea routes, consolidation/
 smoothing/road classification/rendering), economy, culture beyond naming
-(already real, milestone 9), the UI toggle this port has for `_civVillages`
-gating in the reference (no such toggle exists in this port's UI yet —
-check whether that matters for a headless port, or whether "always on" is
-the right default here given no UI exposes it either way).
+(already real, milestone 9), and the reference's `_civVillages` UI toggle —
+this port had no such toggle when this was scoped. *Since then* New World ▸
+Generation carries one (`new_world_dialog.gd`'s `villages_check`; `STATUS.md`
+row P2-15).
 
 **Where the code goes**: `cartalith-civ`, same crate, same conventions.
 
@@ -717,14 +742,15 @@ orchestration, and the UI-toggle decision left to that same crate.
 
 ## Milestone 16 — provinces: `_civGenerateProvinces`
 
-Resolved the blocker the original milestone-9 investigation (above) found:
-`civTerritory` (the reference's real input to this function) has no
-programmatic producer anywhere in the JS, but milestone 10's own
-`assign_territory` — built for a different reason (the port needed *a*
-territory system since the reference had none) — turned out to produce the
-identical per-cell shape (`Vec<i32>` faction id, `0` = unowned). Confirmed
-by reading the real reference source directly before porting, not by
-re-trusting the earlier note's own summary.
+Resolves the blocker the superseded milestone-9 investigation (above)
+reported. `civTerritory`, this function's real input, has one producer in this
+port: milestone 10's `assign_territory`. The reference's own producer,
+`_civAutoPolity`, was missed by that investigation and stays unported by
+ruling (`DECISIONS.md` §7b). `assign_territory` was built for a different
+reason — the port needed *a* territory system — and turned out to produce the
+identical per-cell shape (`Vec<i32>` faction id, `0` = unowned). Confirmed by
+reading the real reference source directly before porting, not by re-trusting
+the earlier note's own summary.
 
 `civ_generate_provinces(settlements, territory, gw, gh) -> (Vec<i32>,
 Vec<Province>)` (`cartalith-civ`): a settlement-seeded Voronoi partition of
@@ -743,10 +769,13 @@ back to its single highest-population settlement. A faction that owns
 territory but placed zero settlements gets no province (cells stay `0`,
 matching the reference's own behaviour).
 
-No JS reference to golden-verify the province step itself against, same
-reason milestone 10 had none for territory (§7b) — verified by 5 real unit
-tests instead: multi-seed Voronoi split, single-fallback-seed case, a
-province never claims a cell outside its own faction's territory, a
+Not golden-verified. The pass reasoned there was no reference run to compare
+against, as for territory (§7b). That reason is weaker here than it looks:
+`_civGenerateProvinces` is itself a reference function, and milestone 20's
+golden harness already drives the reference with a synthetic territory raster
+injected into its context, so a golden for this step is possible. Verified by
+5 real unit tests instead: multi-seed Voronoi split, single-fallback-seed
+case, a province never claims a cell outside its own faction's territory, a
 faction with territory but no settlements stays unassigned, and every
 reachable owned cell partitions into some real province (no gaps).
 
@@ -766,7 +795,7 @@ verified with real generated data via a temporary headless GDScript
 (`generate()` → `get_provinces()`/`build_province_boundary_texture()`,
 not committed): 7 provinces at seed 12345/512²/Classic, a real non-empty
 512×512 boundary texture (2,262 boundary pixels), no crash — the same
-real-invocation discipline this session's sea-routes crash was caught by,
+real-invocation discipline that caught the earlier sea-routes crash,
 applied here even without a permanent UI to screenshot.
 
 **Verified**: `cargo test -p cartalith-civ` (5 new tests, 64 total, 0
@@ -778,16 +807,8 @@ above.
 **Out of scope for this milestone**: any actual rendering/UI wiring (the
 follow-up this section itself flags), economy, culture beyond naming.
 
-## Done means (per milestone, not once for the whole phase)
-
-Each milestone: golden-verified against the real reference engine with a
-real, justified tolerance; `cargo test -p cartalith-civ` proves it with no
-Godot involved; `cartalith-native/docs/STATUS.md`'s row updated to reflect
-real state, verified against the code, not "Phase 2 done" until it actually
-is. Nothing
-outside a milestone's own explicit scope gets implemented in that
-milestone's pass — flag and stop if something turns out unavoidable,
-report it, don't silently expand.
+*Since then:* provinces are drawn — `viewport_host.gd`'s `province_view` —
+and read by the world-data window and place search. `STATUS.md` row P2-16.
 
 ## Milestone 17 — economy investigated, first slice ported
 
@@ -802,22 +823,19 @@ sub-phase" warning as accurate, not overcautious — not attempted. The
 faction/settlement economy layer (`_civFactionAggregates`,
 `_civPlaceTrade` and its dependency cluster, ~20 functions) is large but
 bounded; `civ_resource_trade_balance` (the one fully self-contained piece,
-`_civResourceTradeBalance` reference line 24175) is ported, tested, and
-verified in `cartalith-civ`. It shipped ahead of any caller: none could exist
-until the broader trade orchestration was built. A real, disclosed tension
-found: the full trade layer needs all 15 `CIV_RESOURCE_KEYS` resident, but
-this session's own memory-optimization pass frees 6 of them after use.
+`_civResourceTradeBalance` reference line 24175) was ported, tested and
+verified in `cartalith-civ` ahead of any caller.
 
-**Resolved same day**: the tension was confirmed real (not assumed away —
-grepped the reference's actual `_civFactionAggregates`/
-`_civPlaceResourceContext`, both genuinely need all 15 keys) and fixed via
-`_civPlaceTrade`'s own settlement-catchment approach, which needs no
-territory (unlike `_civFactionAggregates`'s per-faction approach) — full
-reasoning and the real fields/functions shipped
-(`civ_world_mean_resources`/`civ_catchment_km2`/
-`civ_catchment_radius_cells`/`civ_place_resource_context`, 8 new tests,
-`get_trade_balances()` #[func]) now in `ECONOMY_SCOPE.md`'s own updated
-"Memory-optimization tension: resolved" section.
+It surfaced one real tension, resolved the same day (2026-08-17). The full
+trade layer needs all 15 `CIV_RESOURCE_KEYS` resident — both
+`_civFactionAggregates` and `_civPlaceResourceContext` genuinely read every
+key — but the memory-optimization pass (`MEMORY_OPTIMIZATION_SCOPE.md`) freed
+6 of them after use. The fix was `_civPlaceTrade`'s own settlement-catchment
+approach, which, unlike `_civFactionAggregates`' per-faction one, needs no
+territory. That gave `civ_world_mean_resources`/`civ_catchment_km2`/
+`civ_catchment_radius_cells`/`civ_place_resource_context` (8 new tests) and
+the `get_trade_balances()` `#[func]`. The full reasoning is
+`ECONOMY_SCOPE.md`'s "Memory-optimization tension: resolved" section.
 
 ## Milestone 18 — culture beyond naming
 
@@ -856,15 +874,21 @@ which makes both maps real and golden-verified, and its own golden test calls
 
 **Also found and correctly ruled out of Phase 2's scope**: a completely
 unrelated, much larger "culture" concept exists in the reference at lines
-28193+ (`docs/07-culture-architecture.md`, urban-morphology "culture
-profiles" — Organic Growth, Islamic/Byzantine/Chinese/Aztec/Viking/etc.
-city-layout patterns). This belongs to `ROADMAP.md` Phase 5 (Urban
-morphology, block 4) — a different system entirely, not a Phase 2 gap.
+28193+: urban-morphology "culture profiles" — Organic Growth,
+Islamic/Byzantine/Chinese/Aztec/Viking/etc. city-layout patterns. (The
+reference's comment there cites the source project's
+`docs/07-culture-architecture.md`, which is not vendored in this repository's
+`docs/`.) This belongs to `ROADMAP.md` Phase 5 (Urban morphology, block 4) — a
+different system entirely, not a Phase 2 gap.
 
 **Culture beyond naming is fully accounted for within Phase 2's scope**: this
 milestone is the one real computation, and the rest is confirmed either not to
 exist (Government/Religion/Ag-tech) or to belong to a different phase entirely
-(urban morphology). Nothing further is scoped here.
+(urban morphology). Nothing further is scoped here. "Not to exist" is a
+statement about the *reference*. This port has since given all three a
+consumer, as new scope beyond it and outside Phase 2: government and
+ag-technology drive `MILITARY_MANPOWER_SCOPE.md`'s model, and religion drives
+`RELIGION_DIFFUSION_SCOPE.md`'s.
 
 ## Milestone 19 — Journey Planner milestone 1: physical-modeling primitives + seasonal/closure logic
 
@@ -878,16 +902,17 @@ and `jp_season_at`/`jp_rest_days`/`jp_seasonal_closure`/`jp_sea_closure`
 scheduling, season drift over long journeys, mountain-pass and sea-lane
 winter closures). 22 real unit tests. It shipped ahead of its callers: the
 route/plan orchestration that consumes it is real, substantial, and scoped
-separately as `JOURNEY_PLANNER_SCOPE.md`'s milestones 2-6.
+separately as `JOURNEY_PLANNER_SCOPE.md`'s milestones 2-6. *Since then* it has
+callers — `STATUS.md` row P2-19.
 
 ## Milestone 20 — `_civFactionAggregates`
 
 Full reasoning stays in `ECONOMY_SCOPE.md` (repo root) — this entry is the
 pointer. Summary: ported `civ_faction_aggregates` (reference line 23575,
 v1.16 + v1.55) with `_civFactionCapital`, the `CIV_TAX_RATE`/
-`CIV_PRIMARY_SPECIALISATION` tables and `_civOceanDistField`, closing
-`ECONOMY_SCOPE.md`'s own "real next milestones" item 3 and with it the
-faction/settlement economy layer's remaining scope.
+`CIV_PRIMARY_SPECIALISATION` tables and `_civOceanDistField`, closing item 4
+of `ECONOMY_SCOPE.md`'s "next milestones" list and with it the faction-level
+half of the economy layer.
 
 **Why now**: it is a real blocker for something already built. Milestone 18
 shipped `civ_culture_terrain_fit` deliberately ahead of its caller; the GUI
@@ -902,27 +927,21 @@ aggregates. **Milestone 18's one open loop is closed.**
 **The tension milestone 17 recorded does not bind here.** The half of
 `_civFactionAggregates` that unblocks culture-terrain-fit needs no resource
 field, and `resources` is an `Option` porting the reference's own nullable
-`pots` — so `compute_civilisation()`'s six-field free stays exactly where the
-memory-optimization pass put it, and the decision moves to whoever adds a
-real caller (a one-line move of that free, if that caller wants the resource
-means).
+`pots`, so `compute_civilisation()`'s six-field free stays where the
+memory-optimization pass put it. `ECONOMY_SCOPE.md` records the one-line move
+a caller wanting the resource means would make.
 
-Golden-verified against the real reference over two fixtures whose shapes
-reach the edges deliberately (empty faction, territory-without-settlements
-faction, single-settlement faction, zero-population settlement, unmapped
-specialisation, out-of-range faction id, seam-spanning territory and
-settlements), plus 15 unit tests for what a golden cannot reach (`NaN`
-absorption at the place, the pre-world guard, a wrong-length territory
-raster, `Math.round`'s negative half, the absent-resource path, the religion
-flag and its weights) and a 58-mutation sweep — 56 killed, 2 equivalent
-mutants, and four real fixture gaps found and closed. Like milestones 18 and
-19, it shipped ahead of any `#[func]` or GDScript caller.
+Golden-verified over two fixtures shaped to reach the edges, plus 15 unit
+tests for what a golden cannot reach and a 58-mutation sweep (56 killed, 2
+proved equivalent, four real fixture gaps found and closed) —
+`ECONOMY_SCOPE.md`'s "Verification" under the 2026-08-18 pass has each. Like
+milestones 18 and 19, it shipped ahead of any `#[func]` or GDScript caller.
+*Since then* it has live callers — `STATUS.md` rows P2-20 and EC-4.
 
 **This is the last of the faction-level economy scoped here.** The remaining
-settlement-level functions — `_civPlaceSmelting` and the food-surplus cluster
-— are `ECONOMY_SCOPE.md`'s, not this document's, and nothing in this milestone
-blocks them.
-
+settlement-level functions — `_civPlaceSmelting`, `_civSaltAccess` and the
+food-surplus cluster — are `ECONOMY_SCOPE.md`'s, not this document's, and
+nothing in this milestone blocks them.
 
 ## Milestone 21 — the two deferred auto-populate passes: `_civSelectMetropolises` + `_civApplyRecovery`
 

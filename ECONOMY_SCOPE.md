@@ -4,22 +4,22 @@
 > not track progress.** What it names as future work — `_civPlaceSmelting`,
 > `_civSaltAccess`, the food-surplus cluster, the surfaced resource half of
 > `_civFactionAggregates` — is defined here and **tracked only in
-> `cartalith-native/docs/STATUS.md`**. The dated pass narratives below say what
-> each pass read, built and decided; they are history and are written in the
-> past tense on purpose.
+> `cartalith-native/docs/STATUS.md`** (rows EC-1…EC-9). The dated pass
+> narratives below say what each pass read, built and decided; they are history
+> and are written in the past tense on purpose. Reference line numbers resolve
+> against `reference/Cartalith Gen1 v2.10.html`.
 
 Prompted by the owner's own `/goal` directive to keep working through Phase 2's
-remaining scope. `PHASE2_SCOPE.md` has repeatedly named "economy" and the
-"Journey Planner" as out-of-scope-for-whatever-milestone-was-current without
-ever actually reading the reference for either — `ROADMAP.md`'s own Phase 2
-entry already warns *"The Journey Planner is large and largely self-contained.
-Consider it a sub-phase rather than bundling it,"* but that warning had never
-been checked against the real source, the same discipline this session
-already applied twice before (territory in milestone 9, provinces after it)
-where a scope-doc one-liner turned out to need correcting on contact with the
-actual reference code.
+remaining scope. `PHASE2_SCOPE.md` had repeatedly named "economy" and the
+"Journey Planner" as out of scope for whatever milestone was current, without
+ever reading the reference for either. `ROADMAP.md`'s own Phase 2 entry warns
+*"The Journey Planner is large and largely self-contained. Consider it a
+sub-phase rather than bundling it,"* but that warning had never been checked
+against the real source. Phase 2 had already twice found a scope-doc one-liner
+wrong on contact with the reference (territory in milestone 9, provinces after
+it), so this pass read the source first.
 
-## What "economy" and "Journey Planner" actually are, on inspection
+## What "economy" and "Journey Planner" actually are, on inspection (first pass, 2026-08-17)
 
 They are **two genuinely separate, both genuinely large, subsystems** —
 confirmed by reading the real reference source (`reference/Cartalith Gen1
@@ -72,29 +72,28 @@ explicitly-labeled heuristic composite."* Real pieces, by size:
   genuinely portable piece, but a real gap at the time, not assumed away. The
   same pass then ported it; see "Memory-optimization tension" below.
 - **`_civFoodShed`/`_civPlaceFoodSurplus`/`_civPlaceCatchmentCeiling`/
-  `_civCatchmentPop`/`_civSettlementPopulation`** (lines 23774/23765/23490/
-  23506) — a small interlocking cluster computing "people this settlement's
-  catchment can feed" vs. actual population. Read in outline only by this
-  pass.
+  `_civCatchmentPop`/`_civSettlementPopulation`** (lines 24050/23774/23765/
+  23490/23506) — a small interlocking cluster computing "people this
+  settlement's catchment can feed" vs. actual population. Read in outline only
+  by this pass.
 - **`_civSaltAccess`** (line 24430), **`_civPlaceResourceContext`** (line
   24567) — read by name/location only; this pass did not read either in full.
 - **`_civRenderEconomyPage`** (line 16511) — UI rendering only, same
   disposition as every other `_civRender*` function this port has correctly
   never ported (Godot owns presentation, `ARCHITECTURE.md`).
 
-**The real tension this investigation found** (resolved by a later pass —
-see "Memory-optimization tension" below): `_civResourceTradeBalance`
-operates over all 15 `CIV_RESOURCE_KEYS`, but this session's own
-memory-optimization pass (`MEMORY_OPTIMIZATION_SCOPE.md`, commit `62b9b51`)
-frees 6 of those 15 fields (clay/buildstone/flint/obsidian/sulfur/alum)
-immediately after `build_resource_potentials` returns in
-`compute_civilisation()`, because nothing consumed them at the time. A full
-port of `_civPlaceTrade`/`_civFactionAggregates` (which do read all 15 for
-their resource-mean aggregation) would need that memory fix revisited —
-either stop freeing those six fields, or restructure so the trade layer runs
-*before* they're freed. **Not resolved in this pass** — a real design
-decision for whoever picks up the next milestone here, not something to
-silently reverse a deliberate, measured memory fix to unblock.
+**The real tension this investigation found** (resolved the same day — see
+"Memory-optimization tension" below): `_civResourceTradeBalance` operates
+over all 15 `CIV_RESOURCE_KEYS`, but the memory-optimization pass
+(`MEMORY_OPTIMIZATION_SCOPE.md`, commit `62b9b51`) freed 6 of those 15 fields
+(clay/buildstone/flint/obsidian/sulfur/alum) immediately after
+`build_resource_potentials` returned in `compute_civilisation()`, because
+nothing consumed them at the time. A full port of
+`_civPlaceTrade`/`_civFactionAggregates`, which read all 15 for their
+resource-mean aggregation, needed that memory fix revisited — either stop
+freeing those six fields, or restructure so the trade layer runs *before*
+they are freed. That was a design decision to make deliberately, not a
+measured memory fix to reverse silently.
 
 ### 2. Journey Planner (`jp*`/`_jp*`, ~70 real functions)
 
@@ -140,14 +139,12 @@ its own multi-hour task):
   `_jpRenderResults`, `_civRenderJourneyList` — DOM-coupled, same
   disposition as every other `_civRender*`/UI function in this port.
 
-**Not investigated further, and not attempted this pass** — matching
-`ROADMAP.md`'s own explicit instruction. This is a real sub-phase requiring
-its own dedicated scope document with a proper milestone breakdown (likely
-10+ milestones given the size, following this project's own precedent of
-breaking the civ layer itself into 15+), not something to bundle into an
-economy investigation. Whoever picks this up should budget accordingly —
-this alone is comparable in size to the entire Phase 2 civ-layer effort to
-date.
+**Not investigated further, and not attempted by this pass** — matching
+`ROADMAP.md`'s own explicit instruction. It is comparable in size to the
+entire Phase 2 civ-layer effort before it, so it became its own sub-phase with
+its own scope document, `JOURNEY_PLANNER_SCOPE.md`. That document's function
+census (74 functions) supersedes the ~70 estimated here and defines its
+milestones; where they stand is `STATUS.md`'s.
 
 ## What was actually built this pass
 
@@ -164,15 +161,18 @@ function specifically: it's ~12 lines, pure, branch-complete (four real
 branches: world-absent-export-only, ratio-and-floor export, consumed-only
 import, and the implicit "neither" case), and every branch is directly
 traceable from the reference source with no RNG/state/iteration order to get
-subtly wrong — the category of function this project's own `PARITY_TESTING.md`
-discipline treats real unit tests as a legitimate stand-in for (same
-precedent as milestone 10's territory/the provinces work: real algorithmic
-verification, not a fabricated golden fixture). Seven tests cover: empty
-inputs, the world-essentially-absent branch's absolute floor, the
-ratio-clears-but-absolute-floor-fails case (a real branch-order subtlety),
-a genuine export, import gated correctly to `CONSUMED_RESOURCES` only (a
-resource that's locally scarce but never consumed, like `gems`, must never
-import), missing-key-as-zero fallback, and the full 15-key vocabulary order.
+subtly wrong. That is this pass's own judgement, not a category
+`PARITY_TESTING.md` names — that document prescribes golden tests and states
+no unit-test exception. The precedent it follows is milestone 10's territory
+and the provinces work: real algorithmic verification, not a fabricated golden
+fixture.
+
+Seven tests cover: empty inputs, the world-essentially-absent branch's
+absolute floor, the ratio-clears-but-absolute-floor-fails case (a real
+branch-order subtlety), a genuine export, import gated correctly to
+`CONSUMED_RESOURCES` only (a resource that's locally scarce but never
+consumed, like `gems`, must never import), missing-key-as-zero fallback, and
+the full 15-key vocabulary order.
 
 Kept a deliberate JS-parity subtlety rather than "fixing" it: the reference's
 `!(world>0.002)` (not `world<=0.002`) matters for `NaN` inputs — `!(NaN>x)`
@@ -247,33 +247,37 @@ giving it real inputs, `compute_civilisation()` calling it per settlement, and
 deliberately **outside** that bar: it belongs to the GUI-shell work when that
 reaches the economy panel.
 
-## Real next milestones for whoever continues this
+## The next milestones this document defined
 
-Defined here, tracked in `cartalith-native/docs/STATUS.md`.
+Defined here; where each stands is `cartalith-native/docs/STATUS.md`'s, under
+the row named.
 
-1. **`_civPlaceSmelting`** — `_civCatchmentRadiusCells`/`_CIV_CATCHMENT_KM2`
-   (its stated dependency) are now ported (`civ_catchment_radius_cells`/
-   `civ_catchment_km2` above) — this is now a clean, unblocked first slice,
-   fully read and ready to port faithfully (see the original finding above).
+1. **`_civPlaceSmelting`** (EC-2) — iron smelting gated by charcoal fuel, read
+   in full above. Its one stated dependency, `_civCatchmentRadiusCells`/
+   `_CIV_CATCHMENT_KM2`, was ported by the 2026-08-17 pass
+   (`civ_catchment_radius_cells`/`civ_catchment_km2`), so it is a faithful
+   port with no further prerequisite.
 2. **`_civFoodShed`/`_civPlaceFoodSurplus`/`_civPlaceCatchmentCeiling`/
-   `_civCatchmentPop`** — the food-surplus cluster, depends on (1) and on
-   `currentAgrarianDensity`/`currentCarryingCapacity` (check what this port
-   already has from milestone 4's `build_carrying_capacity`/`build_npp`
-   before assuming a gap).
-3. **`_civFactionAggregates`** itself — taken up on 2026-08-18; see the
+   `_civCatchmentPop`** (EC-3) — the food-surplus cluster. It reads the same
+   catchment tables and `currentAgrarianDensity`/`currentCarryingCapacity`,
+   whose inputs Phase 2 milestone 4 already ported
+   (`build_carrying_capacity`/`build_npp`).
+3. **`_civSaltAccess`** (EC-7) — salt self-sufficiency, another of
+   `_civPlaceTrade`'s terms; the first pass read it by name only.
+4. **`_civFactionAggregates`** itself (EC-4) — taken up on 2026-08-18; see the
    section below. The "what subset of the heuristic power composite is worth
    porting" question resolved as **all of it, verbatim**; the memory tension
    turned out **not to bind**, because the half that unblocks
-   `civ_culture_terrain_fit` needs no resource field at all.
-4. **The Journey Planner** — split out into its own scope document,
+   `civ_culture_terrain_fit` needs no resource field at all. Surfacing its
+   resource- and density-fed half as a readout is a separate row (EC-8).
+5. **The Journey Planner** — split out into its own scope document,
    `JOURNEY_PLANNER_SCOPE.md`, which is where its milestones are defined.
 
 ## `_civFactionAggregates` itself — the 2026-08-18 pass
 
-Milestone 3 of the "real next milestones" list above. Ported as
-`civ_faction_aggregates`
-(`cartalith-civ`), together with `_civFactionCapital` (reference line 23566),
-the `CIV_TAX_RATE`/`CIV_PRIMARY_SPECIALISATION` tables (23557/23553), and
+Item 4 of the list above. Ported as `civ_faction_aggregates` (`cartalith-civ`),
+together with `_civFactionCapital` (reference line 23560), the
+`CIV_TAX_RATE`/`CIV_PRIMARY_SPECIALISATION` tables (23553/23550), and
 `_civOceanDistField` (22450) as `civ_ocean_dist_field` — the coast axis needs
 an ocean-only chamfer distance transform and this port had `chamfer_dist`
 only as a private helper.
@@ -329,6 +333,13 @@ reference's own `_umInferWalls` verdict per place and feeds the same booleans
 in, so `fortifiedFraction` and the military axis are genuinely tested rather
 than trivially zero on both sides.
 
+*Since then (2026-08-25):* `_umInferWalls` is ported as `um_infer_walls`
+(CV-25; `MILITARY_MANPOWER_SCOPE.md` §0), and `civ_military_bridge.rs` feeds
+its verdict into the aggregate as `fortified`. Every other caller of
+`FactionPlace::from_settlement` still passes `false`, and `trade_volume`,
+`economic_importance` and `specialisation` still reach the aggregate at their
+absent-field defaults.
+
 ### One real JS-semantics trap, found by re-reading rather than by a test
 
 The reference guards every per-place number with `|| 0` (`pop=p.pop||0`,
@@ -337,14 +348,14 @@ The reference guards every per-place number with `|| 0` (`pop=p.pop||0`,
 with a truthiness check (`maxPop?b.pop/maxPop:0`). **`NaN` is falsy in JS**,
 so those are not decoration: a `NaN` population is absorbed *at the place*
 and contributes zero. A plain Rust read of the same `f64` field would carry
-it forward, and one bad settlement would turn its faction's entire row --
-population, tax, sector output, all five power axes -- into `NaN`s the
+it forward, and one bad settlement would turn its faction's entire row —
+population, tax, sector output, all five power axes — into `NaN`s the
 reference never produces. Both coercions are ported (`js_num_or_zero`,
 `js_truthy_num`) with a unit test showing the absorbed case.
 
 This is the same class of asymmetry `cartalith-rust-conventions` already
 flags for comparison operators, and the reason the power clamp uses
-`js_min`/`js_max` rather than `f64::min`/`f64::max` -- though note the
+`js_min`/`js_max` rather than `f64::min`/`f64::max` — though note the
 consequence, disclosed rather than hidden: *because* the `||0` coercions
 land first, no `NaN` can actually reach that clamp through any
 caller-supplied field, so the clamp's NaN behaviour is proved by direct unit
@@ -395,12 +406,15 @@ correctly return `None` on both sides. `terrain_mix` is a
 `HashMap<&'static str, f64>` precisely so it drops into the existing
 signature with no adapter.
 
-This pass deliberately stopped short of a `#[func]`, under the UI hold the
-owner called on 2026-08-18 — **a hold he lifted later the same day**
-(`DCC_SHELL_SCOPE.md`), so it is not a live constraint and nothing here should
-be read as one. What this pass changed is that the function has real inputs to
-be called with: `GUI_FEATURE_PARITY_SCOPE.md`'s item 5 became a wiring job
-rather than a blocked one.
+This pass stopped at the crate boundary: it left `compute_civilisation()`
+untouched and added no `#[func]` and no GDScript, per the standing "don't wire
+in what nothing calls" rule and the UI hold the owner called on 2026-08-18 —
+**a hold he lifted later the same day** (`DCC_SHELL_SCOPE.md`), so it is not a
+live constraint and nothing here should be read as one. What this pass changed
+is that the function has real inputs to be called with:
+`GUI_FEATURE_PARITY_SCOPE.md`'s item 5 became a wiring job rather than a
+blocked one. The callers that wiring produced are `STATUS.md`'s to record
+(EC-4, EC-6).
 
 ### Verification
 
@@ -458,7 +472,7 @@ ocean-only-vs-fallback distinction.
 
 **Mutation testing**: 58 mutations across the new
 constants and branches, each applied to a unique **code-only** anchor
-(checked to occur exactly once outside any comment line -- the
+(checked to occur exactly once outside any comment line — the
 "pattern matched inside a comment" trap), each run **alone with a full
 rebuild**, never as a combined sweep, because a stale binary reports a
 healthy `N passed`. **56 killed.**
@@ -470,7 +484,7 @@ real fixture gaps**, closed with new unit tests and then re-killed:
    fixture exercising them had both normalisers saturating to 1, where
    `0.7+0.3` and `0.6+0.4` are the same number. Fixed with unequal
    populations.
-2. The territory guard's **upper** bound (`f >= nF`) was never exercised --
+2. The territory guard's **upper** bound (`f >= nF`) was never exercised —
    the synthetic raster only ever assigns valid ids. Fixed with a raster
    containing `nF` itself and a far-out id.
 3. `Math.round` is round-half-**up** (toward +inf); Rust's `f64::round` is
@@ -487,14 +501,10 @@ a sum of 1s and sqrt(2)s and `(1.5, 1.6]` is empty (`1.4` and `2.5` both
 kill); `flow > thresh -> >=` cannot, because no accumulated discharge lands
 exactly on the threshold (`x2` and `/2` both kill).
 
-Two further mutations reported **stale anchors** rather than results --
+Two further mutations reported **stale anchors** rather than results —
 caused by this milestone's own mid-sweep addition of the `||0` coercions,
 which renamed the lines they targeted. Re-run against the corrected anchors;
 both killed.
-
-This pass stopped at the crate boundary — it left `compute_civilisation()`
-untouched and added no `#[func]` and no GDScript — per the standing "don't
-wire in what nothing calls" rule and the since-lifted UI hold.
 
 ## Military manpower: the economy layer's first real consumer (2026-08-25)
 
@@ -523,23 +533,47 @@ either codebase at the same time.
 **One real number this pass produced that the economy layer should note.** On
 a real 233-settlement world, five of six factions' territory sustains **at
 least twice** the population the settlement layer puts on it — the manpower
-model's `ecological_factor` hit its **then-`2.0`** ceiling for all five.
-**That ceiling moved to 4.0 on 2026-09-06** under owner ruling 11, precisely
-because pinning was deciding the answer instead of the ecology — measured over
-108 faction-samples, the old bound pinned 39 (36.1%) and 4.0 pins 21. The
-observation here stands as the evidence that prompted it; the `2.0` does not
-describe the code any more. That is the
-same divergence `civ_agrarian_regional_total`'s own readout has always shown
-between "Land sustains ≈ N" and the settled total, quantified per faction for
-the first time. Whether generated worlds should be more densely populated
-relative to their carrying capacity is a real question for whoever revisits
-`civ_settlement_population`'s surplus fractions, and it is older than this
-pass.
+model's `ecological_factor` hit its then-`2.0` ceiling for all five. That is
+the same divergence `civ_agrarian_regional_total`'s own readout has always
+shown between "Land sustains ≈ N" and the settled total, quantified per
+faction for the first time. The manpower model's handling of it has since
+moved twice — owner ruling 11 raised the ceiling to 4.0 (2026-09-06; over 108
+faction-samples, 45 had sat at or above 2.0 and 24 stay pinned at 4.0), and
+owner ruling AI (b) normalised the factor to the world's own land per person
+(2026-09-23). Both are recorded in `MILITARY_MANPOWER_SCOPE.md` §3.3 finding 3.
 
-**Three further items** — `_civPlaceSmelting`, `_civSaltAccess`, and
-`_civFactionAggregates`' resource- and density-fed half as a *surfaced*
-readout — are defined above and tracked in `cartalith-native/docs/STATUS.md`.
-(This paragraph used to assert that no pass had taken any of them up. That was
-a status claim in a document that does not track status, and it is the kind of
-leftover `CLAUDE.md` says to fix rather than believe; the claim is removed,
-not restated with a newer answer.)
+The second of those found something that bears on the economy question itself:
+part of the gap is **map scale, not ecology**. `land_capacity` integrates
+physical km², while automatic placement sets the settlement count from grid
+cells, capped at 40 (`place_settlements_with_water_edge_snap`'s `max_places`;
+villages are seeded on top), and each settlement
+is sized off a fixed-km² catchment (`civ_catchment_km2`). So the same forty
+settlements spread over a larger map, and land per person rises with map area.
+Whether generated worlds should be more densely populated relative to their
+carrying capacity is still a real question for whoever revisits
+`civ_settlement_population`'s surplus fractions and the settlement cap, and it
+is older than this pass.
+
+## Trade flows (IN-13) — what the owner has ruled
+
+Not a milestone this document numbered. IN-13 is a `GUI_GAP_REGISTER.md` row,
+and `OUTSTANDING_WORK.md` carries it as live backlog. It extends this
+document's trade layer — `trade::trade_flows`' match over `TradeBalance`,
+which says *what* moves — to who holds the value, at what price, and across
+whose border. The reference has no model of any of it, so every rule below is
+an owner decision (`LARGE_ITEM_RULINGS.md`), not a port:
+
+| Ruling | Date | What it settles |
+|---|---|---|
+| **R** | 2026-09-21 | Each faction has its own currency, with an exchange rate between any two. Cross-faction trade converts at the point of exchange; there is no universal unit of account |
+| **AB** | 2026-09-23 | Price is derived from `TradeBalance`'s existing surplus/deficit — scarcity-based, with no authored per-good price table, which the reference has none of to port. The curve from surplus to price was left to the build |
+| **AE** | 2026-09-23 | A cross-faction tariff reads its own new relationship field, not `civ_faction_relations`, whose module doc scopes it away from diplomacy and treaties |
+| **AF**, then **AP** | 2026-09-23 | The unit is one aggregate shipment per way (AF). AP then settled what a caravan *is*: a **derived view** — one row per way with active trade load, rebuilt from the live trade match every time, nothing persisted. AP supersedes AF's comparison to a persisted, `Journey`-shaped entity |
+
+Still open under AP: whether a sea trade route counts as a "way" for caravans
+or needs its own entity. Raise it before building the sea-lane case. One
+constraint travels with these rulings without being a decision: the
+faction-aware match must leave the existing single-faction, untariffed output
+unchanged.
+
+Where IN-13 stands is not this document's to say.

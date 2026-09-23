@@ -10,9 +10,11 @@ track them.** Whether a criterion is met today is recorded in
 
 ## In scope: the full terrain pipeline
 
-Script block 1 of `Cartalith Gen1 v*.html` (root `CLAUDE.md`, "Engine (block 1)
-essentials"). Read the live file for the implementation; this is the map, not the
-territory.
+Script block 1 of the reference, `reference/Cartalith Gen1 v2.10.html` — the
+frozen snapshot every line citation in this port's scope documents resolves
+against. `Cartalith_RC`'s own root `CLAUDE.md` summarises the block under
+"Engine (block 1) essentials". Read the reference for the implementation; this
+is the map, not the territory.
 
 ```
 continentality field
@@ -36,12 +38,14 @@ continentality field
 4. **Volcanism and craters** — the point-feature placement and carving passes.
 5. **World-structure archetypes** — the continentality/fragmentation/tectonic-energy
    presets, including the sea-level histogram re-anchoring that makes them behave
-   as named. Read the v1.25 CHANGELOG entry first: sea level does not follow from
-   continentality without that step.
+   as named. Read the source project's v1.25 CHANGELOG entry first (the live one
+   in `Cartalith_RC`, not this port's retired `cartalith-native/docs/CHANGELOG.md`):
+   sea level does not follow from continentality without that step.
 6. **Climate** — temperature (latitude, lapse rate, axial tilt, rotation), wind,
    rainfall. Ocean-current terrain coupling (`computeOceanCurrent`/`deflectFlow`,
    v1.77–v1.82 and v2.10) is a stretch goal. **If deferred, say so in the port's
-   own docs** rather than dropping it quietly.
+   own docs** rather than dropping it quietly. Its outcome is recorded in
+   `STATUS.md` as row MVP-S6.
 7. **Erosion** — droplet, stream-power, thermal. Choose the parallelism strategy
    deliberately and record why (`ARCHITECTURE.md`, threading).
 8. **Hydrology** — flow accumulation, Strahler ordering, river polyline tracing,
@@ -73,6 +77,9 @@ continentality field
 other persistence format. Point 12 grants reading one specific thing; it is not a
 general save/load licence.
 
+These were Phase 1's exclusions, not permanent ones. Later phases took most of
+them up; which ones is `STATUS.md`'s to say (row MVP-OOS).
+
 ## Done means all seven
 
 1. At a fixed seed, resolution, and map width, the height, temperature, rainfall,
@@ -93,7 +100,7 @@ Criteria 3 and 4 need the owner's hardware (`DECISIONS.md` §5). A cloud session
 can confirm the build succeeded and packaged correctly; it cannot certify that
 the thing runs.
 
-Criterion 6 named a mechanism that has since been retired: by owner decision
-of 2026-08-31, `cartalith-native/docs/CHANGELOG.md` is frozen as history and
+Criterion 6 names a mechanism that has since been retired. By owner decision of
+2026-08-31, `cartalith-native/docs/CHANGELOG.md` is frozen as history and
 `cartalith-native/docs/STATUS.md` carries a milestone's record instead. The
 criterion stands as written; only the file it points at changed.
