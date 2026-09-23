@@ -6844,6 +6844,151 @@ pub fn civ_hierarchical_network_topology(
     }
 }
 
+/// `_civIterativeAutoWorld`'s `passes`: `_civAutoWorld` (reference line
+/// 22009, the Auto-populate button) calls it with the literal `3`, and no
+/// other caller exists.
+pub const CIV_AUTO_WORLD_PASSES: usize = 3;
+
+/// The place-index pairs `_civNetworkMetrics` (reference line 22421) reads
+/// out of `_civHierarchicalNetwork`'s consolidated `ways`, in the order it
+/// reads them -- derived from the raw topology, without building the ways.
+///
+/// That is exact, not an approximation, because of how the consolidation
+/// tail (reference 22169-22205, [`civ_consolidate_and_smooth_ways`] here)
+/// emits: it walks the edges stably sorted by descending peak usage, and
+/// every edge emits at least one way carrying `aIdx:e.a,bIdx:e.b` with two
+/// or more points -- a smoothed run, or the hidden two-point link when every
+/// run was already claimed. Hidden ways are not skipped by the metrics
+/// (only `sea` and `pts.length<2` are), so the metrics see each edge's pair
+/// once or more, in `eOrdered` order, and a repeat changes nothing because
+/// the adjacency is a `Set`. Order matters only for float summation inside
+/// Brandes, which is why it is kept at all.
+pub fn civ_network_way_pairs(net: &HierarchicalNetworkResult) -> Vec<(usize, usize)> {
+    let mut ordered: Vec<(usize, usize, u16)> = net
+        .edges
+        .iter()
+        .map(|e| (e.a, e.b, e.path.iter().map(|&ci| net.usage_count[ci]).max().unwrap_or(0)))
+        .collect();
+    // Stable, like `Array.prototype.sort` and like the consolidation's own
+    // `sort_by_key` -- ties keep insertion order in all three.
+    ordered.sort_by_key(|e| std::cmp::Reverse(e.2));
+    ordered.into_iter().map(|(a, b, _)| (a, b)).collect()
+}
+
+/// `_civNetworkMetrics`' betweenness (reference lines 22421-22486), over
+/// `n` places joined by `pairs` (a place index pair per non-sea way):
+/// Brandes over an adjacency of insertion-ordered sets, then divided by
+/// `(n-1)(n-2)` when `n>2`. Returned normalised, as the reference returns
+/// it -- the promote/demote rule divides by the maximum afterwards, and
+/// `(b/k)/(m/k)` is not bit-identical to `b/m` in general.
+///
+/// Out-of-range and self pairs are skipped, as the reference's
+/// `places[w.aIdx]&&places[w.bIdx]` and `ai===bi` guards skip them.
+pub fn civ_network_betweenness(n: usize, pairs: &[(usize, usize)]) -> Vec<f64> {
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for &(a, b) in pairs {
+        if a >= n || b >= n || a == b {
+            continue;
+        }
+        if !adj[a].contains(&b) {
+            adj[a].push(b);
+        }
+        if !adj[b].contains(&a) {
+            adj[b].push(a);
+        }
+    }
+    // Same Brandes as `_civNetworkMetrics`: its `sigma[v]/sigma[w]` and the
+    // timeline copy's `sigma[v]/max(1e-9,sigma[w])` agree, since every `w`
+    // on the stack was reached and so has `sigma[w] >= 1`.
+    let mut btw = timeline::civ_betweenness_from_adjacency(&adj);
+    let norm = if n > 2 { ((n - 1) * (n - 2)) as f64 } else { 1.0 };
+    for b in btw.iter_mut() {
+        *b /= norm;
+    }
+    btw
+}
+
+/// One round of `_civIterativeAutoWorld`'s centrality -> tier feedback
+/// (reference lines 26109-26121): a place whose betweenness is above 65% of
+/// the network maximum moves up one tier, one below 8% moves down one.
+/// Capital is the top of the ladder and hamlet the bottom; a metropolis is
+/// not on it (`tierOrder.indexOf` is `-1`) and is left alone.
+///
+/// Only `kind` moves. The reference also adds or strips a `trade_hub` trait
+/// here; this port has no per-settlement trait vector (the same boundary
+/// `compute_civilisation`'s metropolis pass records), so there is nothing to
+/// carry it on. `capital` is not touched: see [`civ_iterative_network`].
+pub fn civ_centrality_tier_feedback(places: &mut [SettlementPlacement], betweenness: &[f64]) {
+    use SettlementKind::*;
+    const TIER_ORDER: [SettlementKind; 5] = [Capital, City, Town, Village, Hamlet];
+    // `Math.max(...btw, 1e-9)`. Betweenness is never NaN, so `f64::max` and
+    // JS `Math.max` agree here.
+    let max_btw = betweenness.iter().copied().fold(1e-9, f64::max);
+    for (p, &b) in places.iter_mut().zip(betweenness) {
+        let Some(tier) = TIER_ORDER.iter().position(|&k| k == p.kind) else {
+            continue;
+        };
+        let norm_b = b / max_btw;
+        if norm_b > 0.65 && tier > 0 {
+            p.kind = TIER_ORDER[tier - 1];
+        } else if norm_b < 0.08 && tier < TIER_ORDER.len() - 1 {
+            p.kind = TIER_ORDER[tier + 1];
+        }
+    }
+}
+
+/// `_civIterativeAutoWorld`'s network loop (reference lines 26099-26123):
+/// build the network, and on every pass but the last, re-tier each place
+/// from its betweenness in that network before building it again. The
+/// network's minimum-degree pass reads `kind`, so each rebuild routes a
+/// different graph. Returns the last pass's network; `places` comes back
+/// carrying the tiers that network was built from.
+///
+/// `passes == 1` is exactly one [`civ_hierarchical_network_topology`] call
+/// with no re-tiering -- what this port did before this loop existed, and
+/// the reference's own `wantCounts` path (`if(wantCounts) break`).
+/// `passes == 0` is clamped to 1: the reference's `passes||3` turns a `0`
+/// into `3`, but that is a JS falsiness quirk behind a hardcoded caller,
+/// not an input anyone passes, and a loop that builds no network would
+/// leave this function nothing to return.
+///
+/// `capital` is left as placement set it -- the faction seat
+/// `assign_territory` grows territory from -- even when `kind` is demoted
+/// off `Capital` or promoted onto it. The reference has no such flag (only
+/// `kind`), so there is no reference behaviour to follow; keeping the seat
+/// is what stops a faction whose capital lost centrality from losing its
+/// territory outright, which the reference cannot do (it has no automatic
+/// territory at all).
+#[allow(clippy::too_many_arguments)]
+pub fn civ_iterative_network(
+    places: &mut [SettlementPlacement],
+    passes: usize,
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    field: &[f32],
+    flow: &[f32],
+    river_order: &[i16],
+    biome: &[u8],
+    water_bodies: &[u8],
+    world: bool,
+    map_width_km: f64,
+) -> HierarchicalNetworkResult {
+    let passes = passes.max(1);
+    let mut pass = 0;
+    loop {
+        let net = civ_hierarchical_network_topology(
+            places, gw, gh, sea, field, flow, river_order, biome, water_bodies, world, map_width_km,
+        );
+        pass += 1;
+        if pass == passes {
+            return net;
+        }
+        let btw = civ_network_betweenness(places.len(), &civ_network_way_pairs(&net));
+        civ_centrality_tier_feedback(places, &btw);
+    }
+}
+
 // ===================== Milestone 10: territory assignment =====================
 //
 // `PHASE2_SCOPE.md` milestone 10 / `DECISIONS.md` §7b. The reference has NO

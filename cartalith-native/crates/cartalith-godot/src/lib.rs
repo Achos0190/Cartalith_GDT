@@ -2231,8 +2231,17 @@ fn compute_civilisation(
     // `civ_consolidate_and_smooth_ways` (milestone 14) for the
     // Catmull-Rom-smoothed, classified, named polylines this map actually
     // draws.
-    let mut topology = cartalith_civ::civ_hierarchical_network_topology(
-        &placements, gw, gh, sea_level, &ws.field, &ws.flow_discharge, &river_order, &biome, &wb.classification, world, map_width_km,
+    //
+    // Built through `_civIterativeAutoWorld`'s centrality -> tier loop
+    // (`civ_iterative_network`): three network builds, re-tiering every
+    // settlement from its betweenness between them, as the reference's
+    // Auto-populate does. Until 2026-09-23 this was one build and no
+    // re-tiering. The SG-02 keep path takes one pass: its `kind`s may be a
+    // user's own edits, which the loop would overwrite -- the same reason the
+    // metropolis pass below is skipped there.
+    let passes = if keeping { 1 } else { cartalith_civ::CIV_AUTO_WORLD_PASSES };
+    let mut topology = cartalith_civ::civ_iterative_network(
+        &mut placements, passes, gw, gh, sea_level, &ws.field, &ws.flow_discharge, &river_order, &biome, &wb.classification, world, map_width_km,
     );
     // `RoadEdge::a`/`.b` index into `placements`, and
     // `civ_consolidate_and_smooth_ways` below reads them as indices into
