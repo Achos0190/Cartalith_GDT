@@ -36,22 +36,29 @@
 > | Dropdown check marks: canvas's typographic `●`/`○` vs Godot's stock radio icons | **The canvas.** No newer authority disagrees. Godot draws that column from theme *icons*, so the marks have to be drawn as a filled disc and a hairline ring rather than set as type |
 > | Menus with no artboard at all (Edit, Window, Help, Preferences' bands, World Data's phone list) | Rule 2 — derive from the drawn menus, and disclose which |
 >
+> **Newer sources since this table was written.** Rule 1 applies to them too:
+> `design/dcc-environment-2026-08-31/` (the replacement plan and its
+> `spec/01…06` section specs — `06-phone.md` is a newer phone authority than
+> the 412 canvas) and `design/mcp-2026-09-07/` (which governs corner radius,
+> by owner ruling 2026-09-07 — `DCC_SHELL_SPEC.md` §11). Where the table above
+> names a winner, check it against these before building.
+>
 > ### The 412 phone migration, 2026-08-25
 >
 > `DCC_SHELL_SPEC.md` §13's phone column is **superseded, not merely disagreed
-> with**, and says so at the top of its own section. The geometry the migration
-> adopts: `DccTheme.PHONE_REF_SHORT` of `412.0`; a status row of 28 dp on a solid ground (no keep-clear
-> reserve, no gradient scrim, no 108 dp centre lane), the app bar 56 dp, the
-> bottom nav 64 dp with a `14px` glyph over a `9.5px` caption, the gesture inset
-> 20 dp with a `112×4` handle, and the ☰ side drawer deleted in favour of the
-> canvas's `02 Domain` full-screen drill. Verified at 1440×3168 and 1080×2400
-> and driven on the owner's OnePlus 6T. Full record, with before/after numbers
-> and the five surfaces that were *designed* rather than matched:
-> `GUI_GAP_REGISTER.md` §53.
+> with**, and §13 now opens with the item-by-item table of what the 412 canvas
+> changes: a 28 dp status row on a solid ground (no keep-clear reserve,
+> scrim or centre lane), 56 dp app bar, 64 dp bottom nav (`14px` glyph over a
+> `9.5px` caption), 20 dp gesture inset with a `112×4` handle, and the ☰ side
+> drawer replaced by the canvas's `02 Domain` full-screen drill. The shell's
+> constant is `DccTheme.PHONE_REF_SHORT`. The migration's record — before/after
+> numbers at 1440×3168 and 1080×2400, the pass on the owner's OnePlus 6T, and
+> the five surfaces *designed* rather than matched — is `GUI_GAP_REGISTER.md`
+> §53; its state is `STATUS.md`'s DCC-P412.
 >
 > Recorded here rather than only in `GUI_GAP_REGISTER.md` §51 because it
-> resolves conflicts that have not happened yet, and because every future
-> design pass needs it before it starts rather than after it has guessed.
+> resolves conflicts that have not happened yet, and every future design pass
+> needs it before it starts rather than after it has guessed.
 
 > ## ✅ THE HOLD IS LIFTED — BUILD IT (owner, 2026-08-18, later same day)
 >
@@ -69,40 +76,45 @@
 > the shell *and* its wiring and functionality. That puts tool-system milestone
 > F (shell wiring) inside this work rather than beside it.
 >
-> **Read `DCC_CONTROL_INDEX.md` before writing layout code.** It indexes all
-> 452 controls against real engine capability — **wired** / **backed, unwired**
-> / **engine gap** / **new** — so the difference between "wire an existing
-> `#[func]`" and "build a subsystem first" is already known per control. Its
-> largest finding stands until the owner rules otherwise: the spec's ten-stage
-> pipeline assumes **per-stage re-execution**, and `generate_terrain` runs the
-> whole pipeline or none. That is a re-architecture, not a layout, and it sits
-> among the 15 decisions the index refers to the owner.
+> `DCC_CONTROL_INDEX.md` — the per-control audit this instruction was issued
+> alongside — is described in the next section. Its largest finding, that the
+> spec's ten-stage pipeline assumed **per-stage re-execution** the one-shot
+> `generate_terrain` cannot offer, was settled the next day: verified against
+> the reference under the owner's instruction, no version of the product runs
+> a single stage, and the target is the reference's regenerate-on-release
+> behaviour (`DCC_SHELL_SPEC.md` header correction #2).
 >
 > **Still true**: the Android measurements in `ANDROID_BUILD_SCOPE.md` (real
 > per-region touch-target percentages, and the correction that the design's
 > "44-52 px" must be read as *density-independent* pixels — ~86-102 physical
-> on that device) are live input for the phone/tablet breakpoints in §13.
+> on that device) are live input for the phone/tablet breakpoints in
+> `DCC_SHELL_SPEC.md` §13.
 
 ## The control index comes first (2026-08-18)
 
 Owner's instruction before any implementation: *"Before implementing the GUI I
 want you to properly index all functions and buttons in the design and compare
 it to the current program and functionalities."* Carried out as
-**`DCC_CONTROL_INDEX.md`** (repo root) — 452 controls from `DCC_SHELL_SPEC.md`
-§1 through §12, one row each, every one carrying the exact `#[func]`, parameter
-key or crate function behind it and a status of **wired** (79) / **backed,
-unwired** (144) / **engine gap** (143) / **new** (86), plus the summary the
-owner asked for: counts per region, the engine gaps ordered by size, where the
-spec and the engine genuinely disagree, what the shell built so far this design
-deletes or relocates, and the decisions only the owner can make.
+**`DCC_CONTROL_INDEX.md`** (repo root): 452 controls from the spec as first
+imported, one row each, with the `#[func]`, parameter key or crate function
+behind each, a 2026-08-18 status (**wired** / **backed, unwired** / **engine
+gap** / **new**), and the summary the owner asked for — the engine gaps by
+size, where spec and engine disagree, which of the old shell's built work the
+design deletes or relocates, and the decisions only the owner can make. **Its
+status column is a snapshot of that day, not the state of the shell** — that
+is `STATUS.md`'s.
 
-Read it before touching any layout code. Two of its findings bear directly on
-this document's own milestone plan: the spec's ten-stage generation pipeline
-does not partition the way `GENERATION_PARAMETERS.md`'s eight engine groups do
-and assumes per-stage re-execution the one-shot `generate_terrain` cannot
-offer; and the design has no surface at all for the ~11 non-terrain tools whose
-engine halves milestones C-E own, so milestone F's target has changed shape, not
-just its skin.
+Two of its findings bore directly on this document's milestone plan: the
+spec's ten-stage pipeline does not partition the way
+`GENERATION_PARAMETERS.md`'s eight engine groups do and assumed per-stage
+re-execution (settled 2026-08-19, above); and the design had no surface for
+the ~11 non-terrain tools whose engine halves `UNIFIED_TOOL_PLAN.md`
+milestones C-E own, so milestone F's target changed shape, not just its skin.
+The second was closed by the spec's 2026-08-19T00:20Z revision, whose §4.5
+Tool palette gives every such tool a surface (the gap `STRANDED_TOOLS.md`
+counted).
+
+## The design import this plan answers (2026-08-17)
 
 Owner-supplied design import (2026-08-17, same Claude Design project as
 before — "UI mockups planning," via `claude_design` MCP). Owner's own words,
@@ -122,6 +134,13 @@ the Fable-5 ultracode declutter pass) is now superseded in full, not merely
 extended.
 
 ## What actually changes, structurally
+
+*This section and the milestone plan below were written against the
+**2026-08-17** import (eight menus, a left tool rail, five workspace tabs). The
+2026-08-18 revision restructured it — seven program-scope menus, a vertical
+domain rail, and (2026-08-19) the tools moved into each left dock's TOOLS
+block — and the domains later merged to three. The reasoning here still
+holds; the region list is `DCC_SHELL_SPEC.md`'s.*
 
 The prior shell was a **panel browser**: a left navigator whose subjects swap
 a parameter panel and an inspector around a static viewport, closely modeled
@@ -219,7 +238,10 @@ Menu bar replaces the old top-bar's 7-menu set with the new 8-menu set
 (File/Edit/Generate/Simulate/Render/Assets/View/Help) per `UI_SHELL_DESIGN.md`
 §"Top menu bar" — note this is a real content change, not just a rename
 (Edit and Help are new; Project/World/Map are restructured into File/Generate/
-Render).
+Render). *The 2026-08-18 revision then replaced that eight-menu set with seven
+program-scope menus (File · Edit · Assets · Data · Preferences · Window · Help,
+`DCC_SHELL_SPEC.md` §2); Generate, Simulate, Render and View became
+workspaces.*
 
 **Milestone 2 (parallel with milestone 1, no code)** — write `UNIFIED_TOOL_PLAN.md`
 for real: investigate the reference's Sculpt editor (`reference/Cartalith
@@ -240,21 +262,17 @@ finds. Expect this to be large — potentially comparable
 to Journey Planner or the Asset Library in scope, since it is genuinely new
 engine capability, not a port of already-computed data.
 
-**Corrected 2026-09-06**: read literally, the two paragraphs above still
-describe both as future work. ~~Milestone 2 (parallel with milestone 1, no
-code) — write `UNIFIED_TOOL_PLAN.md` for real~~ and ~~Milestone 3+ — the tool
-system itself~~ are both done — **but not on the same day, and this sentence
-said so for a few hours on 2026-09-06 before a verifier caught it.** Milestone 2
-was dispatched and completed the same day this section was written; **Milestone
-3+ closed on 2026-09-01**, two weeks later (`UNIFIED_TOOL_PLAN.md:2297`,
-"Milestone F as built (2026-09-01)"). Collapsing the two into one date made a
-fortnight of work look instantaneous, which is the kind of tidy-sounding claim
-this document exists to stop. (`STATUS.md`'s DCC-T2/DCC-T3 rows.) `UNIFIED_TOOL_PLAN.md`
-exists at the repository root, 2 500+ lines, with the tool-by-tool table and
-the A-F breakdown milestone 2 called for; milestones A-F it produced are all
-built (`STATUS.md`'s Tool system section, UTP-A…UTP-F, "Group total: 7 — 7
-done") and `UNIFIED_TOOL_PLAN.md`'s own "Milestone F as built (2026-09-01)"
-section is the tool-by-tool evidence.
+**Read the two paragraphs above as the plan, not as open work.** Where
+milestone 2 and milestone 3+ stand is `STATUS.md`'s DCC-T2 and DCC-T3 rows
+(milestone 3+ *is* `UNIFIED_TOOL_PLAN.md`'s A-F, rows UTP-A…UTP-F). The
+deliverable of milestone 2 is `UNIFIED_TOOL_PLAN.md` itself, at the repository
+root, with the tool-by-tool table and the A-F breakdown; its "Milestone F as
+built (2026-09-01)" section is the tool-by-tool evidence for milestone 3+.
+**The two did not happen on the same day** — milestone 2 ran on 2026-08-18,
+milestone F closed on 2026-09-01 — and a 2026-09-06 correction here briefly
+said otherwise before a verifier caught it. Collapsing two dates into one made
+a fortnight of work look instantaneous, which is the kind of tidy-sounding
+claim this document exists to stop.
 
 ## Hard constraint, unchanged from every GUI pass this session
 
@@ -269,7 +287,8 @@ Same bar as every prior shell milestone: `cargo build`/`cargo test
 --workspace` (0 regressions), `godot4 --headless --quit` clean load, and real
 windowed-app screenshot verification end-to-end through the new shell —
 compared against `design/Cartalith DCC Shell.dc.html`'s own 1920×1080
-reference for structural and visual fidelity.
+reference for structural and visual fidelity — or, where a newer canvas
+supersedes it, against that one (the rule at the top of this document).
 
 ## Done means (milestone 1)
 
@@ -281,6 +300,13 @@ is screenshot-verified unbroken. Milestone 2's `UNIFIED_TOOL_PLAN.md` gives
 whoever picks up milestone 3 a real, scoped target instead of a green field.
 
 ## Milestone 1 as built (2026-08-18)
+
+*The three "as built" sections below are dated records. The files they cite —
+`main.gd`, `main.tscn` and the Generate menu — no longer exist: the shell boots
+`shell/app.tscn`, and the capabilities were re-homed (the stage dialogs into
+the WORLD workspace's dock, `shell/workspaces/world_workspace.gd`; the World
+Setup dialog into `shell/new_world_dialog.gd`). `STATUS.md`'s DCC-1 / DCC-2 /
+DCC-3 rows carry the re-pointed evidence.*
 
 Dispatched, then interrupted mid-flight by an account-level API error with
 no recoverable transcript — real, uncommitted work was left sitting in the
@@ -419,7 +445,10 @@ status-bar note when a parameter has changed since the last generate, and a
 *Generate now* button whose own tooltip says it runs the same single full
 pass File > New World's Generate runs. When the tool system's real staleness
 model lands, this is the natural place to upgrade; until then it claims
-nothing the engine cannot do.
+nothing the engine cannot do. *(`STATUS.md`'s DCC-2 row records this decision
+as superseded by the staleness slot of `UNIFIED_TOOL_PLAN.md` milestone A —
+staleness left behind by committed **tool** passes. Dials still regenerate the
+whole world, per `DCC_SHELL_SPEC.md` header correction #2.)*
 
 **Real parity gaps found, recorded rather than papered over.** These are
 genuine parity information, not wiring gaps — each belongs to a pipeline
@@ -446,7 +475,7 @@ recorded: value-readout precision is derived from each parameter's step
 rather than copying each reference span's `toFixed` (agrees everywhere except
 `Uplift spread`, `18.0 px` here vs `18px` there); and `flexure`/`hetero` ship
 in the reference with a static HTML slider position that contradicts its own
-`state` default — the reference overwrites both in `syncUI` (line 12656), so
+`state` default — the reference overwrites both in `syncUI` (v2.10 line 12656), so
 the `state` default is the real one and is what these dialogs show.
 
 **Verification.** `cargo build -p cartalith-godot` clean; `cargo test
@@ -467,11 +496,9 @@ hover *and* click-to-pin with the pin surviving subsequent layer toggles,
 Credits, and File > Open project's dialog.
 
 **Deferred by this pass, unchanged**: light theme, responsive breakpoints, and all
-tool functionality. (All three shipped later — see the 2026-09-06 correction
-after the identical sentence at the end of this document.) The pre-existing
-`dark_theme.tres` unchecked-`CheckBox` glyph issue recorded under milestone 1
-is unchanged and visible in these
-dialogs too.
+tool functionality (not permanently — see the note at the end of this
+document). The pre-existing `dark_theme.tres` unchecked-`CheckBox` glyph issue
+recorded under milestone 1 is unchanged and visible in these dialogs too.
 
 ## Milestone 3 (GUI track): the World Setup dialog — as built (2026-08-18)
 
@@ -606,14 +633,12 @@ hand-made signal emit — all six Generate stage dialogs building, and Credits.
 tool functionality. Saving a *parameter set* as a named preset document is
 the natural follow-up this milestone deliberately does not attempt.
 
-**Corrected 2026-09-06**: this is the last of this document's milestone
-write-ups, so read on its own it leaves all three of these looking permanently
-deferred. They are not — each shipped in a later, independent pass, not this
-one: ~~light theme~~ is `dcc_theme.gd`'s `const LIGHT` (`var pal: Dictionary =
-DARK if _dark else LIGHT`, `STATUS.md`'s AND-4c/GGR-10); ~~responsive
-breakpoints~~ are `dcc_theme.gd`'s four density sets (`TABLET`, `PHONE_*`,
-`LAPTOP`, desktop default) behind `is_touch()`/`is_phone()`/`is_laptop()`,
-plus the dedicated 412 dp phone migration (`STATUS.md`'s DCC-P412); and ~~all
-tool functionality~~ is the tool-track's own milestones A-F, all built (see
-the correction after this document's tool-track "Milestone 3+" paragraph,
-above, and `STATUS.md`'s Tool system section).
+**These three deferrals were not permanent** — each was taken up by a later,
+independent pass, not by this one (note added 2026-09-06). Where each lives in
+code, and where its state is recorded:
+
+| Deferred here | Code | `STATUS.md` |
+|---|---|---|
+| Light theme | `dcc_theme.gd`'s `const LIGHT` | AND-4c, GGR-10 |
+| Responsive breakpoints | `dcc_theme.gd`'s density sets (`TABLET`, `TABLET_PORTRAIT`, `LAPTOP`, the phone constants beside `PHONE_REF_SHORT`, desktop default) behind `is_touch()` / `is_phone()` / `is_laptop()`; the 412 dp phone migration | RP-S1, DCC-P412 |
+| All tool functionality | the tool track, `UNIFIED_TOOL_PLAN.md` milestones A-F | UTP-A…UTP-F, DCC-T3 |

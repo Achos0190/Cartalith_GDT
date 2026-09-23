@@ -1,27 +1,36 @@
 # UI shell design — DCC-style editor
 
 > **Imported verbatim from the owner's Claude Design project "UI mockups
-> planning", sync 2026-08-18T21:40Z.** This **replaces** the 2026-08-17
-> version that was previously here: the design team rewrote it as a pure
-> rationale document, moving all control-by-control detail into the new
-> `DCC_SHELL_SPEC.md` (also imported, repo root).
+> planning", sync 2026-08-18T21:40Z.** It replaced the 2026-08-17 version: the
+> design team rewrote it as a pure rationale document and moved all
+> control-by-control detail into `DCC_SHELL_SPEC.md` (also imported, repo root).
+> The body below is untouched; this box is the port's only annotation.
 >
-> **The shell changed structurally in this revision** — see `DCC_SHELL_SCOPE.md`
-> for what that means for the code already built. In short: the menu bar is now
-> program-scope only with **seven** menus, and Generate / Simulate / Render /
-> View became **workspaces on a domain rail** rather than menus.
+> **What this revision changed**: the menu bar became program-scope only with
+> **seven** menus, and Generate / Simulate / Render / View became
+> **workspaces on a domain rail** rather than menus. `DCC_SHELL_SCOPE.md`
+> records what that meant for the code already built, and carries the owner's
+> standing rule for resolving design conflicts ("the newer canvas wins").
 >
-> Path note: the design team writes to a `docs/`-rooted convention
-> (`docs/UI_SHELL_DESIGN.md`). This repository keeps its scope and design
-> documents at the root — `docs/` here holds the *source project's* own
-> documentation (see `docs/README.md`). References below to
-> `UNIFIED_TOOL_PLAN.md`, `GENERATOR_PARAMETERS.md`, `MENU_STRUCTURE.md`,
+> **Superseded since import** — the body is kept verbatim, so read these
+> against it. Each is disclosed in full where named:
+>
+> | Body says | Now | Where |
+> |---|---|---|
+> | Five domains — World, Civilization, Infrastructure, Cartography, Render | **Three** — WORLD / CIVIL / CARTO (owner, 2026-08-20: INFRA absorbed by CIVIL, RENDER by CARTO) | `DCC_SHELL_SPEC.md` top notices and §3 |
+> | The dependency-ordered pipeline as the left dock's navigation | Menu structure v3 (2026-08-24): each rail is a flat accordion of subject categories; the numbered stages survive as L3 sections and as pipeline status, not as navigation | `DCC_SHELL_SPEC.md` top notices, §3, §5 |
+> | Android phone at 393×852, 44 px keep-clear with 108 px centre lane and scrim, 44 px rail column, 26 px gesture inset | Owner ruling 2026-08-25: the phone follows the **412 dp** canvas. A newer phone spec, `design/dcc-environment-2026-08-31/spec/06-phone.md`, has since arrived and outranks it under the same rule | `DCC_SHELL_SPEC.md` §13; `DCC_SHELL_SCOPE.md` "Which canvas wins" |
+> | The reference mockup has nine screens | It has **ten**; the tenth is the `Phone inset rules` card | `DCC_SHELL_SPEC.md`'s screen table |
+>
+> Path note: the design team writes to a `docs/`-rooted convention. In this
+> repository `docs/` holds the *source project's* documentation
+> (`docs/README.md` records which is which). `UNIFIED_TOOL_PLAN.md` below means
+> the port's own, at the root; `GENERATOR_PARAMETERS.md`,
 > `BIOME_AND_VISUALS_PLAN.md`, `ATLAS_ARCHITECTURE.md` and
-> `SCULPT_EDITOR_INTEGRATION_PLAN.md` follow that convention; in this repo the
-> port's own equivalents are `UNIFIED_TOOL_PLAN.md` and
-> `GENERATION_PARAMETERS.md` at the root, while the source project's versions
-> live under `docs/`. **They are different documents with the same names** —
-> `docs/README.md` records which is which.
+> `SCULPT_EDITOR_INTEGRATION_PLAN.md` are the source project's, under `docs/`
+> (this port's parameter reference is `GENERATION_PARAMETERS.md` at the root).
+> `MENU_STRUCTURE.md` exists in neither place; the disclosure tree it names is
+> `design/Cartalith Menu Structure v2.dc.html`, superseded by `v3.dc.html`.
 
 Why the editor is arranged the way it is. Supersedes the HTML app's single
 scrolling control column: Cartalith is a **map editor with a toolchain**, in the

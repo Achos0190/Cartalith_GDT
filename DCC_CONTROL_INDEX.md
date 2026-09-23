@@ -1,42 +1,72 @@
 # DCC control index: every control in the spec, against what this program can do
 
+> ## ⚠ A frozen audit of 2026-08-18 — not the state of the shell
+>
+> **Every Status cell below describes the port on 2026-08-18**, against a shell
+> (`main.gd` / `main.tscn`) that no longer exists — the shell today boots
+> `shell/app.tscn` (`STATUS.md` DCC-1). A large share of the rows marked
+> *backed, unwired* or *engine gap* have been built since; this file was not
+> re-audited to follow them, and rewriting 452 cells would make it a second
+> status source. **Where any control stands is `cartalith-native/docs/STATUS.md`
+> (and, for GUI gaps, `GUI_GAP_REGISTER.md` / `OUTSTANDING_WORK.md`)** — never
+> this file. Line-number citations (`main.gd:1733`, `lib.rs:1215`, …) are as of
+> that day and were not re-resolved.
+>
+> **What stays useful**: the *Engine capability* column (which crate function
+> or `#[func]` backs each control), §3's spec-versus-engine disagreements, and
+> §5's owner decisions — each now annotated where it has been settled.
+>
+> **The design moved too.** Rows index `DCC_SHELL_SPEC.md` **as first imported
+> (`116cbcb`)**, so the numbering differs: this file's §12 is the spec's **§13**
+> (Touch — its Spec ref cells now say §13), and there are no rows for the
+> spec's later §4.5 (Tool palette) or §12 (Iconography). Superseded since: the five domains merged to three
+> (2026-08-20), the Data manager's Conversion group was deleted (2026-08-20),
+> Menu Structure v3 replaced the left dock's navigation (2026-08-24), the
+> phone target moved to 412 dp and then to
+> `design/dcc-environment-2026-08-31/spec/06-phone.md`, and radius follows
+> `design/mcp-2026-09-07/`. All are disclosed at the top of `DCC_SHELL_SPEC.md`
+> and in `DCC_SHELL_SCOPE.md`'s "Which canvas wins".
+
 Owner's request, verbatim: *"Before implementing the GUI I want you to properly
 index all functions and buttons in the design and compare it to the current
 program and functionalities."* This is that index. It writes no application
-code and recommends no implementation order — that comes after the owner has
-read it.
+code and recommends no implementation order.
 
 **Design source**: `DCC_SHELL_SPEC.md` (imported `116cbcb`), `UI_SHELL_DESIGN.md`
 (the rule set), `design/Cartalith DCC Shell.dc.html` (the mockup — **ten**
-screens, not the nine the spec's own table lists; the tenth is
-`Phone inset rules`). Organised by the spec's own section numbering, one row
-per control.
+screens, not the nine the spec's own table listed; the tenth is
+`Phone inset rules`). Organised by the spec's section numbering at that
+import, one row per control. The UI hold was lifted the same day (owner's
+wording at the top of `DCC_SHELL_SCOPE.md`).
 
-**The hold is lifted** (owner, 2026-08-18): *"Replace the current GUI and
-replace it in full by the DCC version including all it's wiring and
-functionality."* The rows below are now a build list, not only a map.
+Two amendments, both from the design revision imported at `dd82c2e` (sync
+2026-08-18T23:05Z):
 
-Two amendments since this index was written, both from the design revision
-imported at `dd82c2e` (sync 2026-08-18T23:05Z):
-
-1. **§5.2's sculpt disagreement is resolved.** The design team rewrote §5.2
-   from v2.10's real `SCULPT_FEATURES` registry, so brush size is 6-200 px and
-   intensity 0-1.5 dimensionless — matching `cartalith-terrain/src/sculpt.rs`
-   exactly. The rows below that record an abstract 0.05-20.0 radius and a
-   ±500 m intensity are superseded.
+1. **§5.2's sculpt disagreements are resolved by that revision.** The design
+   team rewrote §5.2 from v2.10's real `SCULPT_FEATURES` registry: it now
+   lists exactly the engine's 13 features and its 8 presets, brush size
+   6-200 px, intensity 0-1.5 dimensionless, and the five noise globals —
+   matching `cartalith-terrain/src/sculpt.rs`. So the §5.2 rows below for
+   Rift / Crater / Island arc / Dune field, the "engine-only features the spec
+   drops", the four per-feature presets, the 0.05-20.0 radius and the ±500 m
+   strength are superseded, as are summary §3(d)'s unit rows and §3(e)
+   entirely. What survives: the Brush shape / Stroke & grid / Actions blocks
+   (new design, `DCC_SHELL_SPEC.md` header correction #3), the commit-re-runs
+   contradiction (§3(c)), and the defaults, which were settled 2026-08-19 in
+   the engine's favour (`DCC_SHELL_SPEC.md` header notice A, *Defaults*).
 2. **This index runs one direction only.** It reads the design's controls and
-   asks what the engine can do. Run the other way — engine capability against
-   the design's controls — and seven tools with working, golden-verified Rust
-   have no surface in the design at all, plus one half-surfaced. That count is
-   recorded separately in **`STRANDED_TOOLS.md`**, which is where the "no home
-   for it" cases live; they are absent here by construction, since a control
-   that does not exist in the spec has no row to appear in.
+   asks what the engine can do. Run the other way and seven tools with
+   working, golden-verified Rust had no surface in the design, plus one
+   half-surfaced — recorded in **`STRANDED_TOOLS.md`**, and closed on the
+   design side by the spec's §4.5 Tool palette (2026-08-19). They are absent
+   here by construction: a control not in the spec has no row.
 
 ---
 
 ## Method, and what each status means
 
-Read directly, not inferred from a summary:
+Everything in this section describes the tree on 2026-08-18. Read directly,
+not inferred from a summary:
 `cartalith-native/crates/cartalith-godot/src/lib.rs` in full (the **complete**
 `#[func]` surface — 38 methods on `WorldGen` plus `WalkingSkeleton::ping`, and
 **no other class in the workspace exposes anything to GDScript**: `render.rs`,
@@ -93,7 +123,7 @@ Notes rather than guessed.
 | Dock collapse via `‹` / `›`, keeping the primary readout | §1, §6 | — | none (chrome) | new | Pure GDScript. `GUI_SHELL_SCOPE.md` deferred panel collapse/rails once already. |
 | One modal at a time; modals are children of their window | §1 | — | none (chrome) | new | The current shell uses top-level `AcceptDialog`s parented to `Main`, not to a window. |
 | Menus open on click, close on outside-click or `Esc`; overlay, never push layout | §1 | — | none (chrome) | wired | Godot `MenuBar`/`PopupMenu` behaviour, already correct. |
-| Tablet 2560 / phone 393 geometry | §1, §12 | — | none (chrome) | new | Responsive breakpoints deferred by `GUI_SHELL_SCOPE.md` and unchanged since. `ANDROID_BUILD_SCOPE.md` holds real measurements. |
+| Tablet 2560 / phone 393 geometry | §1, §13 | — | none (chrome) | new | Responsive breakpoints deferred by `GUI_SHELL_SCOPE.md` and unchanged since. `ANDROID_BUILD_SCOPE.md` holds real measurements. |
 
 ---
 
@@ -198,9 +228,9 @@ carries the route panes' own controls.
 | Sources ▸ External Sources | §2.4 | — | none | new | No concept of an external data source exists. |
 | Sources ▸ Connected Sources | §2.4 | — | none | new | The mockup shows `1` = the Markdown vault. |
 | Sources ▸ Source Registry | §2.4 | — | none | new | |
-| Conversion ▸ Coordinate Systems (EPSG ▸) | §2.4 | — | none | engine gap | `GUI_FEATURE_PARITY_SCOPE.md` Category 3 recommends **defer**, with reasoning that still holds: Cartalith's world is a flat, non-georeferenced procedural grid with no real-world CRS to convert between. The spec re-introduces it as a first-class route. Owner decision. |
-| Conversion ▸ Format Conversion | §2.4 | — | none | new | Undefined in the spec — which formats, to which. |
-| Conversion ▸ Data Transformation | §2.4 | — | none | new | Undefined in the spec. |
+| Conversion ▸ Coordinate Systems (EPSG ▸) | §2.4 | — | none | engine gap | `GUI_FEATURE_PARITY_SCOPE.md` Category 3 recommends **defer**, with reasoning that still holds: Cartalith's world is a flat, non-georeferenced procedural grid with no real-world CRS to convert between. The spec re-introduces it as a first-class route. Owner decision. **Deleted from the design 2026-08-20 by owner decision, with the whole Conversion group** — `DCC_SHELL_SPEC.md` §2.4. |
+| Conversion ▸ Format Conversion | §2.4 | — | none | new | Undefined in the spec — which formats, to which. **Deleted 2026-08-20** (above). |
+| Conversion ▸ Data Transformation | §2.4 | — | none | new | Undefined in the spec. **Deleted 2026-08-20** (above). |
 | Validation ▸ Check Data (current warning count) | §2.4 | — | `cartalith_assets::library::run` validates a **pack**, not world data | engine gap | The mockup's `8` matches the asset-library warning count, suggesting the two are the same number. Nothing validates world data. |
 | Validation ▸ Repair / Normalize | §2.4 | — | `normalize_scatter_rule`, `normalize_meta` (asset-side only) | engine gap | No world-data repair exists. What is repaired, and against what invariant, is an owner/design question. |
 
@@ -223,7 +253,7 @@ carries the route panes' own controls.
 | Tiles & LOD ▸ Tile size · LOD levels (256/512/1024; levels 0–8) | §2.5 | `#lodMaxLevel` | `TiledField::tile_size` is a constructor parameter; `region_export` carries its own tile size | engine gap | Same integration. |
 | Tiles & LOD ▸ Atlas cache (size cap GB + Clear) | §2.5 | `#lodBakeBtn`, `#lodClearAtlasBtn` | **none** | engine gap | No atlas cache exists in any form. The status bar's `TileCacheLabel` shows placeholder text today. |
 | Tiles & LOD ▸ Chunk debug overlay (`off · grid · colours`) + tile borders | §2.5 | `#lodDbgSeg` | none | engine gap | Needs the tiling to be real first. |
-| Memory ▸ Undo history (1–50, default 5) | §2.5 | — | `PassBuffer` history cap is a constant | engine gap | Depends on the global undo that does not exist (§2.2). The reference's own cap is 30 and is draft-scoped. The default of 5 is a spec invention. |
+| Memory ▸ Undo history (1–50, default 5) | §2.5 | — | `PassBuffer` history cap is a constant | engine gap | Depends on the global undo that does not exist (§2.2). **Corrected**: the default of 5 is not a spec invention — it is the reference's global `MAX_UNDO=5`; the draft-scoped sculpt history is the separate `SCULPT_HIST_MAX=30` (both in `Cartalith Gen1 v2.11.html`). The spec has since replaced the step count with a byte budget (`DCC_SHELL_SPEC.md` §2.5). |
 | Memory ▸ Working set (read-only, `1.6 GB of 12 GB`) | §2.5 | — | Godot `Performance` singleton | wired | Already shown by `View ▸ Performance readout…` (`_perf_runtime_labels`), sourced from Godot's own singletons — `GUI_FEATURE_PARITY_SCOPE.md` predicted exactly this and it landed. |
 | Memory ▸ Clear caches… (atlas + field, never project data) | §2.5 | — | none | engine gap | Nothing to clear. |
 | Application ▸ Storage locations… | §2.5 | — | none | new | Same modal as File; see §2.1. |
@@ -258,6 +288,10 @@ carries the route panes' own controls.
 ---
 
 ## 3 · Domain rail
+
+*Indexes the five-domain rail. The domains merged to three on 2026-08-20
+(INFRA into CIVIL, RENDER into CARTO) and each became a v3 category accordion
+on 2026-08-24 — `DCC_SHELL_SPEC.md` top notices C and D, and §3.*
 
 | Control | Spec ref | v2.10 id | Engine capability | Status | Notes |
 |---|---|---|---|---|---|
@@ -394,6 +428,14 @@ the stamp bbox/coverage/domain-warp pipeline. `PassBuffer` and
 `commit_sculpt_pass` complete the draft model. **All of it is unwired.** The
 rows below are therefore mostly "backed, unwired" — except where the spec asks
 for something the reference never had.
+
+*These rows index §5.2 as first imported. The `dd82c2e` rewrite replaced its
+feature list, presets and brush units with the engine's own — see amendment 1
+at the top. The Grid Tools and Actions rows correspond to the spec's current
+Stroke & grid and Actions blocks, and the Brush Settings rows for shape gallery,
+import, operation, falloff and rotation to its Brush shape block. Since then
+`cartalith-terrain::sculpt::Falloff` added Linear / Sharp / Constant beside
+Smooth; a Custom curve is deliberately not built (its doc comment says why).*
 
 | Control | Spec ref | v2.10 id | Engine capability | Status | Notes |
 |---|---|---|---|---|---|
@@ -603,7 +645,8 @@ page UI explicitly outside milestone 7.
 of which two (Sources, Conversion) have no engine counterpart at all, one
 (Validation) has one only for asset packs, and two (Import, Export) are half
 real. The §2.4 table carries the per-route backing; the rows below are the
-window's own controls.
+window's own controls. *(Four groups since 2026-08-20: Conversion was deleted
+— `DCC_SHELL_SPEC.md` §2.4.)*
 
 | Control | Spec ref | v2.10 id | Engine capability | Status | Notes |
 |---|---|---|---|---|---|
@@ -684,29 +727,36 @@ window's own controls.
 | Type: Helvetica Neue / system sans 11–11.5 px desktop, 13–14 tablet, 13 phone | §11 | — | none (chrome) | new | |
 | Type: IBM Plex Mono for numerics/codes/shortcuts/labels, 9–11 px, letter-spacing .12–.22 em | §11 | — | none (chrome) | new | **A font dependency the project does not have.** Licensing and packaging are an owner decision (IBM Plex is OFL, so this is a packaging question, not a blocker). |
 | Filled accent surfaces carry reversed paper-coloured type in both themes | §11 | — | none (chrome) | new | |
-| No fills on panels; hairline separation only; radius 0 everywhere | §11 | — | none (chrome) | new | The current theme uses filled `StyleBoxFlat` panels. A real restyle, not a token swap. |
+| No fills on panels; hairline separation only; radius 0 everywhere | §11 | — | none (chrome) | new | The current theme uses filled `StyleBoxFlat` panels. A real restyle, not a token swap. **Corrected in the spec 2026-09-08**: the no-fill rule is panels only (interactive elements are filled), and "radius 0" is superseded by owner ruling 2026-09-07 — radius follows `design/mcp-2026-09-07/` (`DCC_SHELL_SPEC.md` §11). |
 | — known defect against these tokens | §11 | — | — | engine gap | `dark_theme.tres` has **no `PopupMenu`, `TooltipPanel`/`TooltipLabel` or `ScrollBar` entries**, so those controls fall back to Godot's default chrome regardless of which tokens are chosen (`GUI_FEATURE_PARITY_SCOPE.md` Category 4, still open). |
 
 ---
 
-## 12 · Touch behaviour
+## 12 · Touch behaviour (spec §13)
+
+*The phone rows below index the 393 dp column, superseded by the 412 dp ruling
+(2026-08-25) and since by `design/dcc-environment-2026-08-31/spec/06-phone.md`
+— `DCC_SHELL_SPEC.md` §13.*
 
 | Control | Spec ref | v2.10 id | Engine capability | Status | Notes |
 |---|---|---|---|---|---|
-| Tablet: full desktop parity, 44–52 px targets, 400 px docks | §12 | — | none (chrome) | new | Responsive breakpoints deferred since `GUI_SHELL_SCOPE.md` m1 and never revisited. |
-| Phone: map draws edge-to-edge behind every inset | §12 | — | none (chrome) | new | |
-| Phone: top 44 px keep-clear, 108 px centre lane reserved, gradient scrim | §12 | — | none (chrome) | new | `ANDROID_BUILD_SCOPE.md` holds real per-region touch-target measurements and a density-independent-pixel correction — still valid input. |
-| Phone: app bar (☰ domain drawer, title + seed, ▤ panels, ⋯ overflow) | §12 | — | `get_seed()` for the title | backed, unwired | |
-| Phone: domain rail as a 44 px column | §12 | — | none (chrome) | new | |
-| Phone: tool options as a bottom sheet; docks as full-height sheets, one at a time | §12 | — | none (chrome) | new | |
-| Phone: all five disclosure levels survive inside sheets | §12 | — | none (chrome) | new | |
-| Phone: bottom 26 px gesture inset, no tappable targets | §12 | — | none (chrome) | new | |
-| Landscape: cutout moves to a side edge, same reserve horizontally | §12 | — | none (chrome) | new | |
-| Minimum target 44 px inside the safe area, no exceptions | §12 | — | none (chrome) | new | |
+| Tablet: full desktop parity, 44–52 px targets, 400 px docks | §13 | — | none (chrome) | new | Responsive breakpoints deferred since `GUI_SHELL_SCOPE.md` m1 and never revisited. |
+| Phone: map draws edge-to-edge behind every inset | §13 | — | none (chrome) | new | |
+| Phone: top 44 px keep-clear, 108 px centre lane reserved, gradient scrim | §13 | — | none (chrome) | new | `ANDROID_BUILD_SCOPE.md` holds real per-region touch-target measurements and a density-independent-pixel correction — still valid input. |
+| Phone: app bar (☰ domain drawer, title + seed, ▤ panels, ⋯ overflow) | §13 | — | `get_seed()` for the title | backed, unwired | |
+| Phone: domain rail as a 44 px column | §13 | — | none (chrome) | new | |
+| Phone: tool options as a bottom sheet; docks as full-height sheets, one at a time | §13 | — | none (chrome) | new | |
+| Phone: all five disclosure levels survive inside sheets | §13 | — | none (chrome) | new | |
+| Phone: bottom 26 px gesture inset, no tappable targets | §13 | — | none (chrome) | new | |
+| Landscape: cutout moves to a side edge, same reserve horizontally | §13 | — | none (chrome) | new | |
+| Minimum target 44 px inside the safe area, no exceptions | §13 | — | none (chrome) | new | |
 
 ---
 
 # Summary
+
+*As of 2026-08-18, like the rows (see the banner at the top). Later
+annotations are marked and dated; nothing here is a current status.*
 
 ## 1 · Counts per status, per region
 
@@ -734,7 +784,7 @@ window's own controls.
 | §9 Data manager window | 0 | 10 | 16 | 7 | 33 |
 | §10 Viewport, timeline, status bar | 5 | 9 | 9 | 3 | 26 |
 | §11 Theme tokens | 0 | 0 | 1 | 5 | 6 |
-| §12 Touch behaviour | 0 | 1 | 0 | 9 | 10 |
+| §12 Touch behaviour (spec §13) | 0 | 1 | 0 | 9 | 10 |
 | **Total** | **79** | **144** | **143** | **86** | **452** |
 
 **The shape this makes.**
@@ -752,7 +802,7 @@ window's own controls.
   (20), §5.1's pipeline mechanics (24), §9 Data manager (16), §6's per-cell
   sampler and entity model (13), §5.2's new brush mechanics (12), §2.5
   Preferences' performance/LOD block (12).
-- **19 % is new** (85) — and 42 of those are pure chrome (frame geometry,
+- **19 % is new** (86) — and 42 of those are pure chrome (frame geometry,
   window/layout toggles, theme, touch), which costs GDScript time and no engine
   time at all.
 
@@ -775,13 +825,18 @@ of this design are a boundary-wrapper problem, not a capability problem.
    (height → hydrology → climate → civ) at tile granularity, triggered by a
    committed tool pass — a different mechanism for a different purpose. Treat
    this as the design's structural spine and the largest unscoped item in the
-   document.
+   document. **Settled 2026-08-19**: verified against the reference under the
+   owner's instruction, no version of the product re-runs a single stage; the
+   target is the reference's regenerate-on-release (`DCC_SHELL_SPEC.md` top
+   notice A.2), so this is not a gap to build.
 2. **The Data manager's import / conversion / validation routes.** No GeoJSON
    *reader* (only a writer), no heightmap reader, no TIFF, no raster map
    import, no CRS, no format conversion, no data transformation, no world-data
    validation or repair, no source registry. **No scope document exists for any
    of it.** 23 of §9's 33 rows and 12 of §2.4's 17. Note the reference had one
-   more import the spec drops — "infer tectonics from heightmap".
+   more import the spec drops — "infer tectonics from heightmap". *(The
+   conversion routes were deleted from the design on 2026-08-20 —
+   `DCC_SHELL_SPEC.md` §2.4.)*
 3. **Markdown vault integration.** `MARKDOWN_VAULT_INTEGRATION.md` is a
    36-section owner-supplied design, explicitly *"Not started; no code exists
    for this yet"*, whose own header asks for a real `MARKDOWN_VAULT_SCOPE.md`
@@ -817,7 +872,10 @@ of this design are a boundary-wrapper problem, not a capability problem.
    textures already carry alpha) but **blend mode and reorder need the three
    overlays to become independently compositable layers first** — a real
    architecture change `GUI_FEATURE_PARITY_SCOPE.md` Category 3 already flagged
-   and recommended deferring.
+   and recommended deferring. *(Corrected 2026-09-03 in §7's Terrain row: that
+   premise was wrong — both composites already lived inside `land_color`, and
+   `render::LayerStack` now carries Terrain / Colour relief / Hillshade with
+   visibility, opacity, blend and order.)*
 9. **The timeline and temporal simulation.** The engine is a one-shot static
    generator by explicit, repeated owner decision. Play/pause/step/speeds/year
    range/six simulation-layer toggles have no engine counterpart and none is
@@ -851,7 +909,9 @@ of this design are a boundary-wrapper problem, not a capability problem.
     *aggregates* are real and golden-verified (`civ_faction_aggregates`) but
     roster mechanics — add/remove, persistent identity — are new Rust state.
 15. **NPR / hand-drawn hillshade** — `FUNCTIONAL_CONTRACT.md` §6 lists the
-    reference's NPR/geology/SDF toggles as absent.
+    reference's NPR/geology/SDF toggles as absent. *(Corrected 2026-09-03 in
+    §7's Hand-drawn hillshade row: `apply_npr` shipped with Phase 3's NPR block,
+    switchable through `WorldGen::set_npr`.)*
 16. **The analysis-field switcher** (`#debugSeg`, §7's Visualization dropdown,
     §10's layer popover). `FUNCTIONAL_CONTRACT.md` §11 flags this as
     **ambiguous and unresolved** — `render.rs` computes several of these fields
@@ -890,9 +950,13 @@ recompute. `UNIFIED_TOOL_PLAN.md` measured the eager version (terrain ~5.1 s,
 terrain+civ ~7.07 s at 2048², excluding climate/erosion/hydrology) and rejected
 it explicitly; there is also no per-stage re-run entry point to call. The
 mockup's own status line ("downstream update: rivers · deferred") agrees with
-the engine; §5.2's prose does not.
+the engine; §5.2's prose does not. *(Recorded as the spec's own top notice
+A.1, 2026-08-19: the engine is right.)*
 
-**(d) The sculpt brush's units and ranges are different quantities.**
+**(d) The sculpt brush's units and ranges are different quantities.** *(Radius
+and strength rows resolved by the `dd82c2e` rewrite, defaults settled in the
+engine's favour 2026-08-19 — amendment 1 at the top. Operation, falloff and
+rotation now sit in the spec's Brush shape block; see §5.2's note.)*
 
 | Spec §5.2 | Engine (`SculptGlobals`, from `SCULPT_GLOBAL_DEF`) |
 |---|---|
@@ -905,7 +969,9 @@ the engine; §5.2's prose does not.
 | Rotation 0–360° | does not exist |
 | — | `noise_scale`, `octaves`, `persistence`, `lacunarity`, `edge_noise` all real, all absent from §5.2's table |
 
-**(e) The sculpt feature vocabulary overlaps by five of thirteen.** Engine
+**(e) The sculpt feature vocabulary overlaps by five of thirteen.** *(Resolved
+by the `dd82c2e` rewrite: the spec's §5.2 now lists the engine's 13 features
+and its 8 presets — amendment 1.)* Engine
 (reference-derived, bit-exact over 23 golden cases): Mountains, Hills, Ridge,
 Plateau, Cliff, Canyon, Valley, River, Lake, Basin, Coastline, Volcano,
 Freehand. Spec: mountain range, volcano, plateau, rift, canyon, crater, island
@@ -963,7 +1029,7 @@ own header already warns that POIs and regions as addressable entities *may not
 exist in this port* — they do not.
 
 **(l) Smaller factual mismatches.** The mockup has **ten** screens; the spec's
-table lists nine. The spec's Assets menu carries a note that "imports live
+table listed nine (it lists ten now). The spec's Assets menu carries a note that "imports live
 under Data ▸ Import", but `File ▸ Import asset pack…` is the one import that
 works today. The archetype list drops "Classic" (structure disabled), which is
 `main.gd`'s current default, and renames `archipelago` to "Islands".
@@ -979,21 +1045,26 @@ quality's four values — `performance · balanced · quality · ultra` — matc
 | **Generate menu — ten stage dialogs, 57 live controls**, built at runtime from `get_param_info()`/`get_param_defaults()` with `EXCLUDED_KEYS`/`PROXY_KEYS`/`ADVANCED_KEYS`, per-stage and global reset, five-level disclosure | **Relocated** into the left dock's ten stages — but the two decompositions differ (§3a), so the mapping is not 1:1 and the 15+ parameters in §3i lose their home. The load-bearing part to preserve is the *discipline*: no range, step, label or default is hardcoded in GDScript. That should survive verbatim. |
 | **Simulate ▸ Statistics… / Economy…** — a three-tab world-data browser (Settlements, Provinces, Economy), sortable, filterable, row-click pins the causal chain | **No home in the new design.** The CIVIL domain's right dock is a "Selection inspector", not a roster, and no window is specified for world data. This is the largest piece of finished, verified GUI work at risk of being discarded. Needs an owner ruling (§5). |
 | **View ▸ Performance readout…** — six GPU-eligible stages GPU-or-CPU each, plus Godot runtime numbers, plus a present-and-disabled `use_gpu` checkbox carrying its reason | **Relocated** to Preferences ▸ Performance (the GPU rows) and Preferences ▸ Memory ▸ Working set. Content survives; the per-stage GPU table has no explicit row in the spec and should not be lost. |
-| **Left tool rail — 16 tools across 5 groups**, honestly inert, each with a tooltip naming what does not work | **Deleted as a region.** Only the terrain brushes reappear, inside Sculpt. Select/inspect, Pan, Point sample, Biome paint, Place settlement, Draw route/way, Territory/faction, Label, Icon stamp, Measure and Region select/export have **no home in the new left dock at all** — and `UNIFIED_TOOL_PLAN.md` milestones C, D and E built golden-verified engine halves for almost every one of them. A design that has no surface for them strands finished engine work. |
-| **Workspace tabs** (WORLD/CIVILIZATION/INFRASTRUCTURE/CARTOGRAPHY/RENDER) + `TAB_TO_GROUP_INDEX` emphasis logic | **Relocated** to the vertical domain rail. Same five subjects, renamed (CIVIL/INFRA/CARTO). Geometry change; the selection logic is reusable. |
+| **Left tool rail — 16 tools across 5 groups**, honestly inert, each with a tooltip naming what does not work | **Deleted as a region.** Only the terrain brushes reappear, inside Sculpt. Select/inspect, Pan, Point sample, Biome paint, Place settlement, Draw route/way, Territory/faction, Label, Icon stamp, Measure and Region select/export have **no home in the new left dock at all** — and `UNIFIED_TOOL_PLAN.md` milestones C, D and E built golden-verified engine halves for almost every one of them. A design that has no surface for them strands finished engine work. *(Closed on the design side 2026-08-19: the spec's §4.5 Tool palette gives each a home in every left dock's TOOLS block.)* |
+| **Workspace tabs** (WORLD/CIVILIZATION/INFRASTRUCTURE/CARTOGRAPHY/RENDER) + `TAB_TO_GROUP_INDEX` emphasis logic | **Relocated** to the vertical domain rail. Same five subjects, renamed (CIVIL/INFRA/CARTO). Geometry change; the selection logic is reusable. *(Five became three on 2026-08-20 — INFRA into CIVIL, RENDER into CARTO.)* |
 | **Right dock — Layers (five independent toggles), Properties (click-to-pin causal chain), Sample (live hover)** | **Restructured** into eight selection-driven contexts. Layers survives as one context; Properties' causal chain becomes the Settlement context; Sample grows from 2 real fields to 16, ten of which need the per-cell sampler. |
 | **File ▸ New world** — the World Setup dialog (extent, six width presets, resolution, seven aspect presets, live derived readout, two conditional warnings) | **Survives, and is richer than the spec asks for.** The spec names four fields; this dialog has more, and its aspect/derived-readout work is the GUI half of the non-square-map effort. Do not narrow it to the spec's list. |
 | **File ▸ Import asset pack…**, **File ▸ Open project (.zip)…**, **Help ▸ Credits** | **Relocated** (Assets, File, Help). All three keep working. |
-| **`theme/dark_theme.tres`** | **Largely re-authored.** §11 mandates no panel fills, hairline separation and radius 0; the current theme uses filled `StyleBoxFlat` panels. Its known gaps (no `PopupMenu`, tooltip or scrollbar entries) carry forward regardless. |
+| **`theme/dark_theme.tres`** | **Largely re-authored.** §11 mandates no panel fills, hairline separation and radius 0; the current theme uses filled `StyleBoxFlat` panels. Its known gaps (no `PopupMenu`, tooltip or scrollbar entries) carry forward regardless. *(§11's "radius 0" was superseded 2026-09-07 — see the §11 row.)* |
 | **Render menu, Edit menu, Assets menu (all inert)** | **Deleted.** Nothing real is lost. |
 
 ## 5 · Decisions only the owner can make
+
+*Annotated since: items marked **Settled** name where. An unmarked item may
+still have been ruled elsewhere — check `LARGE_ITEM_RULINGS.md` and
+`STATUS.md` before treating it as open.*
 
 1. **Does the ten-stage pipeline mean real per-stage re-execution?** If yes,
    that is a large engine re-architecture with no scope document. If it is a
    presentational grouping over one-shot generation, most of §5.1's 24 engine
    gaps collapse into presentation. Everything downstream of this answer
-   changes shape.
+   changes shape. **Settled 2026-08-19: no** — the reference never re-runs a
+   single stage (`DCC_SHELL_SPEC.md` header correction #2).
 2. **Multi-GPU**: build device selection, dispatch modes, VRAM budgeting and
    fallback policy at all? Nothing exists, nothing is scheduled, and the one
    measured GPU finding this project has runs counter to the research
@@ -1015,22 +1086,32 @@ quality's four values — `performance · balanced · quality · ultra` — matc
 8. **Coordinate systems / EPSG.** `GUI_FEATURE_PARITY_SCOPE.md` recommends
    deferring it because a flat procedural grid has no CRS to convert between;
    the spec makes it a first-class Data-manager route with three CRS choices
-   and world-file output.
+   and world-file output. **Settled 2026-08-20: deleted**, with the whole
+   Conversion group; CRS not kept even as a project property
+   (`DCC_SHELL_SPEC.md` §2.4). §9's PROJECTION block still names CRS
+   choices — read it against that decision.
 9. **The asset family taxonomy** — 24 (spec) vs 8 (engine, frozen, ported from
    the reference) vs 11 (mockup). Which is authoritative, and if it is the
    spec's, is the engine's frozen vocabulary being replaced?
 10. **Sculpt brush units** — radius in cells or km; strength in metres or the
     engine's dimensionless intensity; and whether §4's `hardness` and §5.2's
-    `Smooth` are one control or two.
+    `Smooth` are one control or two. **Settled**: the `dd82c2e` rewrite
+    adopted the engine's units (brush 6-200 px, intensity 0-1.5) and dropped
+    the separate `Smooth` dial; the defaults went to the engine on 2026-08-19
+    (`DCC_SHELL_SPEC.md` header notice A, *Defaults*).
 11. **Do the world-data tables survive?** Statistics and Economy are finished,
-    verified GUI work with no home in this design.
+    verified GUI work with no home in this design. *(They have a window of
+    their own since — `shell/world_data_window.gd`, one of the nine windows
+    `STATUS.md`'s RP-S7 row lists.)*
 12. **Render-quality default per device.** `get_recommended_quality_tier()`
     exists and deliberately applies nothing — its own doc comment says *"what a
     phone should default to is an owner policy decision, not this crate's."*
 13. **CPU worker-thread default of cores − 4** — a policy number, not a port.
 14. **IBM Plex Mono packaging** (OFL, so a packaging question rather than a
     licensing blocker) and the light-theme token set, which has never been
-    built.
+    built. *(Both taken up since: the Regular and Medium faces are in
+    `godot-project/fonts/`, and `dcc_theme.gd` carries `const LIGHT` —
+    `STATUS.md` AND-4c.)*
 15. **`Units` ownership** — Preferences, stage 02, or one proxied control
     behind both (the pattern `main.gd` already uses for `world` and the four
     experimental flags).

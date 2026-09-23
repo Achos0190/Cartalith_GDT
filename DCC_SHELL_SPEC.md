@@ -1,133 +1,135 @@
 # DCC shell — implementation spec
 
 > **Imported from the owner's Claude Design project "UI mockups planning",
-> sync 2026-08-19T00:20Z** (supersedes the 23:05Z import). This revision adds
-> **§4.5 Tool palette** and the twelve tool glyphs in §12, and it closes the gap
+> sync 2026-08-19T00:20Z** (supersedes the 23:05Z import). This revision added
+> **§4.5 Tool palette** and the twelve tool glyphs in §12, closing the gap
 > `STRANDED_TOOLS.md` opened: every tool that had a built engine and no surface
-> now has one.
+> got one.
 >
-> **The UI hold is lifted** — owner, 2026-08-18: *"Replace the current GUI and
-> replace it in full by the DCC version including all it's wiring and
-> functionality."*
+> **The notices in this box are the port's annotations**, in date order. The
+> body below them is the design; where a notice supersedes part of it, the
+> affected section also carries a one-line marker pointing back here. **This
+> spec defines the shell; it does not track it** — where the build stands is
+> `cartalith-native/docs/STATUS.md`. The UI hold is lifted (owner,
+> 2026-08-18); the exact wording is at the top of `DCC_SHELL_SCOPE.md`.
 >
-> Three conflicts with the real product are recorded rather than silently
-> resolved:
+> **Newer design sources exist.** Under the owner's standing rule at the top of
+> `DCC_SHELL_SCOPE.md` — *the newer canvas wins* — later artboards outrank this
+> spec where they disagree: the Menu Structure v3 canvas (below), the 412 dp
+> phone canvas (§13), `design/dcc-environment-2026-08-31/` (the replacement
+> plan and its `spec/01…06` section specs, including `06-phone.md`) and
+> `design/mcp-2026-09-07/` (whose canvases govern radius, §11). Read those
+> before treating a line here as the target.
 >
-> 1. §5.2's commit prose says it "re-runs erosion, hydrology and climate once".
->    `commit_sculpt_pass` deliberately marks tiles stale instead. The engine is
->    right and this line is stale — see `SCULPT_FUNCTION_CHART.md` §7.
+> ### A · Header corrections #1–#3: three conflicts with the real product (2026-08-19)
+>
+> 1. **§5.2's commit prose** says it "re-runs erosion, hydrology and climate
+>    once". `commit_sculpt_pass` deliberately marks tiles stale instead. The
+>    engine is right and the line is stale — see `SCULPT_FUNCTION_CHART.md` §7.
 > 2. **§5.1's "Run stage *n*", "Run *n* → 10" and "stale from *n* — *k*
 >    downstream stages will re-run" describe a capability that exists nowhere
->    — not in this engine, not in the reference app being ported.** Superseded
->    2026-08-19 after the owner's direct instruction to verify the real app's
->    workflow with Playwright rather than trust the mockup's prose. Both static
->    reading and a live run of `Cartalith Gen1 v2.10.html` confirm: `generate()`
->    is monolithic (runs all ten stages, unconditionally, every call — no
->    branch skips any of them); a DOM sweep for `/run stage|run \d+.*→/i`
->    matches zero buttons; and every generation control is wired by one shared
->    helper, `tparam()`, whose `input` handler (continuous, while dragging)
->    only updates the value label, while its `change` handler (fires once, on
->    release) applies the value **and calls `generate()` immediately** —
+>    — not in this engine, not in the reference app being ported.** Established
+>    after the owner's direct instruction to verify the real app's workflow with
+>    Playwright rather than trust the mockup's prose. Static reading and a live
+>    run of `Cartalith Gen1 v2.10.html` agree: `generate()` is monolithic (all
+>    ten stages, unconditionally, every call); a DOM sweep for
+>    `/run stage|run \d+.*→/i` matches zero buttons; and every generation
+>    control is wired by one helper, `tparam()`, whose `input` handler (while
+>    dragging) only updates the value label and whose `change` handler (once,
+>    on release) applies the value **and calls `generate()` immediately** —
 >    `el.addEventListener('change',()=>{ apply(+el.value);
->    withBusy('generating…',generate); })`, verbatim. There is no staleness to
->    surface, because nothing is ever stale for longer than one regenerate: the
->    map is always current with the sliders, modulo the brief busy window. The
->    shell now matches this exactly — every generation-stage slider and toggle
->    regenerates the whole world on release, automatically, with no button; the
->    tool options bar keeps only the reference's own two global actions,
->    `#genBtn` ("Generate world") and `#reseedBtn` ("New seed"). §5.1's per-stage
->    run/stale prose should be corrected at the design end rather than the code
->    end — it does not describe this or any other real version of the product.
-> 3. §5.2's Brush shape / Stroke & grid / Actions blocks (falloff curves beyond
->    `smoothstep`, brush shapes, control-point editing, flip/rotate/flatten)
->    have no engine behind them and are not in the reference either — see
->    `SCULPT_FUNCTION_CHART.md` §10. New design work, not a port gap.
+>    withBusy('generating…',generate); })`, verbatim. Nothing is ever stale for
+>    longer than one regenerate. The port's target is therefore the reference's
+>    behaviour: every generation-stage slider and toggle regenerates the whole
+>    world on release, with no button, and the tool options bar keeps only the
+>    reference's two global actions, `#genBtn` ("Generate world") and
+>    `#reseedBtn` ("New seed"). §5.1's per-stage run/stale prose should be
+>    corrected at the design end — it describes no real version of the
+>    product. (Staleness left behind by *tools*, not dials, is a separate
+>    mechanism — `UNIFIED_TOOL_PLAN.md` milestone A.)
+> 3. **§5.2's Brush shape / Stroke & grid / Actions blocks** (brush shapes,
+>    control-point editing, flip/rotate/flatten, falloff curves beyond
+>    `smoothstep`) had no engine behind them and are not in the reference
+>    either — see `SCULPT_FUNCTION_CHART.md` §10. New design work, not a port
+>    gap. *Partly overtaken since:* `cartalith-terrain::sculpt::Falloff` now
+>    carries Smooth / Linear / Sharp / Constant; its doc comment records why
+>    §5.2's fifth option, a user-drawn Custom curve, is deliberately not built.
 >
-> §5.2's global **defaults** also differ from `SculptGlobals::default()` on five
-> of eight. Settled 2026-08-19 (owner: the values are placeholders, pick one):
-> the engine's values win, because `golden_parity_sculpt_water.rs` spreads
-> `..SculptGlobals::default()`, making them golden-parity inputs rather than
-> preferences. A test in `sculpt_bridge.rs` now pins the UI table to them.
+> **Defaults.** §5.2's global defaults differ from `SculptGlobals::default()`
+> on five of eight. Settled 2026-08-19 (owner: the values are placeholders,
+> pick one): **the engine's values win**, because
+> `golden_parity_sculpt_water.rs` spreads `..SculptGlobals::default()`, making
+> them golden-parity inputs rather than preferences. `sculpt_bridge.rs`'s test
+> `global_controls_defaults_match_sculpt_globals_default` pins the UI table to
+> them.
 >
-> **§12's text-symbol premise is partly false, found by building it.** §12 says
-> the text symbols "stay text… since they are typographic, inherit type metrics,
-> and need no drawing". IBM Plex Mono — the face §11 specifies for exactly these
-> contexts — is missing seven of them, checked against the font's own cmap
-> rather than assumed: **✕ ● ○ ▾ ▸ ▶ ＋**. Present: ✓ → § ‹ › ↶ ↷ · • ×. The
-> shell falls those seven back to a system face, so they render but lose Plex's
-> metrics; the state dots ● / ○ that §5.1 leans on are among them. Drawing them
-> as glyphs is the alternative and is a question for the design.
+> ### B · §12's text-symbol premise is partly false (found by building it)
 >
-> **Domain merge (2026-08-20), owner instruction verbatim**: *"Infra can be
-> dropped as a name and can be absorbed by civil"*, followed by *"And render
-> into carto."* §3's domain rail goes from five domains to three — **WORLD /
-> CIVIL / CARTO**. INFRA's entire content (Roads/Rivers/Ports/Trade/Logistics,
-> and the Way/Route tools §4.5.4 below describes) now lives under CIVIL;
-> RENDER's entire content (Terrain appearance groups) now lives under CARTO.
-> This is a rename+merge, not a deletion: every tool, dock section and piece
-> of functionality this document describes still exists and still works, just
-> reached through CIVIL or CARTO instead of a rail button of its own. §3's
-> table below is edited in place to show three domains with the merged
-> content folded into CIVIL's and CARTO's own rows. §4.5.4's own heading is
-> left in place rather than renumbered away, so existing cross-references
-> (`GUI_GAP_REGISTER.md`'s own IN-0x rows cite it by number) still resolve —
-> its content is now presented as CIVIL's second tool group rather than a
-> separate domain's, and a note at its top says so. This also directly
-> resolves the CA-01/RN-01 contradiction `GUI_GAP_REGISTER.md` §8.6 flagged:
-> CARTO and RENDER were both proposing to own the same future
-> `set_appearance()`-shaped `#[func]`; merging the domains removes the split.
+> §12 says the text symbols "stay text… since they are typographic, inherit
+> type metrics, and need no drawing". IBM Plex Mono — the face §11 specifies
+> for exactly these contexts — is missing seven of them, checked against the
+> font's own cmap: **✕ ● ○ ▾ ▸ ▶ ＋** (present: ✓ → § ‹ › ↶ ↷ · • ×). Those
+> seven fall back to a system face and lose Plex's metrics; §5.1's state dots
+> ● / ○ are among them. Drawing them as glyphs is the alternative, and a
+> question for the design.
 >
-> **Left-rail menu structure v3 (2026-08-24)** — `design/Cartalith Menu
-> Structure v3.dc.html`, vendored at `8cef062`, **supersedes this document's
-> §3 dock-content table, §5's two-button switch, §5.1's numbered ten-stage
-> list *as navigation*, and §7's three-pane Cartography layout.** Disclosed
-> here rather than silently rewritten, per this file's own convention.
+> ### C · Domain merge (2026-08-20)
 >
-> What v3 changes, and what it does not:
+> Owner, verbatim: *"Infra can be dropped as a name and can be absorbed by
+> civil"*, then *"And render into carto."* The rail goes from five domains to
+> three — **WORLD / CIVIL / CARTO**. INFRA's content (Roads / Rivers / Ports /
+> Trade / Logistics, and §4.5.4's Way / Route / Journey tools) moves under
+> CIVIL; RENDER's (Terrain appearance groups) under CARTO. A rename and merge,
+> not a deletion: every tool, dock section and function below still exists,
+> reached through CIVIL or CARTO. §3's table is edited in place. §4.5.4 keeps
+> its heading and number because `GUI_GAP_REGISTER.md`'s IN-0x rows cite it.
+> The merge also resolves the CA-01/RN-01 contradiction `GUI_GAP_REGISTER.md`
+> §8.6 flagged — CARTO and RENDER both proposed to own the same
+> `set_appearance()`-shaped `#[func]`.
 >
-> - **The three domains are unchanged** — WORLD / CIVIL / CARTO, as the
->   2026-08-20 merge below left them. v3 restates the same three with a
->   one-line charter each (*what exists* / *who occupies it* / *how it is
->   shown*) and a dependency direction: WORLD → CIVIL, and both → CARTO.
-> - **Each rail is now a flat accordion of named L2 categories** rather than
->   a mode switch or a numbered pipeline: WORLD 9, CIVIL 14, CARTO 10. v3's
->   own migration audit states the principle — *"split by subject rather than
->   by run order"* — and is explicit that *"the numbered 01-10 stage list
->   disappears as navigation and survives as pipeline status."*
-> - **§5's `GENERATION PIPELINE | SCULPT` switch is gone.** It was a mode
->   selector over one domain, and v3 has no such control anywhere. Sculpt is
->   a group inside WORLD ▸ Terrain; Biome paint is a group inside WORLD ▸
->   Biomes. Both still appear whenever their tool is armed, unchanged.
-> - **§5.1's ten stages all still exist**, as L3 sections carrying their own
->   `NN NAME` heading, their `needs`/`produces` prose and every parameter row
->   — re-parented into whichever of the nine categories owns their subject.
->   §5.1's table is still the authority on what each stage contains; it is no
->   longer the authority on where the reader finds it. (Its stale-propagation
->   prose was already superseded by correction 2 above, and stays so: one
->   `generate()` resolves all ten, every call.)
-> - **§7's three-pane Cartography layout is not what shipped and v3 does not
->   ask for it.** CARTO is the same accordion the other two rails are, with
->   ten categories. §7's *content* — layer list, layer properties, ramp
->   popover, stop editor — maps onto Layers, Terrain appearance and Map
->   presets; what is superseded is the three-column arrangement, not the
->   controls.
-> - **v3 draws a top-level `Vault` menu in the menu bar. It is not one here**
->   (owner, 2026-08-24: *"the vault menu can be shoved into data"*). §2.4's
->   Data menu carries the vault entry point instead. §2's menu bar is
->   otherwise untouched by this pass.
+> ### D · Left-rail menu structure v3 (2026-08-24)
 >
-> Every `#id` keeps its wiring — v3's own closing rule, and true of the
-> implementation: this was re-parenting, not rewriting. `GUI_GAP_REGISTER.md`
-> §6.10/§6.11/§6.13 carry the per-category state, and the fifteen new gap IDs
-> v3's unbacked rows produced.
+> `design/Cartalith Menu Structure v3.dc.html`, vendored at `8cef062`,
+> **supersedes §3's dock-content column, §5's two-button switch, §5.1's
+> numbered ten-stage list *as navigation*, and §7's three-pane Cartography
+> layout.**
 >
-> Path note: the design team writes to a `docs/`-rooted convention. In this
-> repository `docs/` holds the **source project's** own documentation, and two
-> filenames collide (`UNIFIED_TOOL_PLAN.md`, `ROADMAP.md`) — `docs/README.md`
-> records which is which. References below to `GENERATOR_PARAMETERS.md` are the
-> source project's; this port's equivalent is `GENERATION_PARAMETERS.md` at the
-> root. `terrain-appearance-rendering.md` is on file here as
-> `TERRAIN_APPEARANCE_RESEARCH.md`.
+> - **The three domains are unchanged.** v3 gives each a one-line charter
+>   (*what exists* / *who occupies it* / *how it is shown*) and a dependency
+>   direction: WORLD → CIVIL, both → CARTO.
+> - **Each rail is a flat accordion of named L2 categories** — WORLD 9,
+>   CIVIL 14, CARTO 10 (listed in §3). v3's principle: *"split by subject
+>   rather than by run order"*; *"the numbered 01-10 stage list disappears as
+>   navigation and survives as pipeline status."*
+> - **§5's `GENERATION PIPELINE | SCULPT` switch is gone.** Sculpt is a group
+>   inside WORLD ▸ Terrain; Biome paint a group inside WORLD ▸ Biomes. Both
+>   still appear whenever their tool is armed.
+> - **§5.1's ten stages all survive** as L3 sections with their `NN NAME`
+>   heading, `needs`/`produces` prose and every parameter row, re-parented
+>   into the category that owns their subject (mapping in §5). §5.1 is still
+>   the authority on what a stage contains, no longer on where it is found.
+> - **§7's three-pane layout is superseded; its controls are not.** CARTO is
+>   the same accordion as the other rails; §7's layer list, layer properties,
+>   ramp popover and stop editor map onto Layers, Terrain appearance and Map
+>   presets (mapping in §7).
+> - **v3's top-level `Vault` menu is not adopted** (owner, 2026-08-24: *"the
+>   vault menu can be shoved into data"*). The vault entry point is in §2.4's
+>   Data menu; §2 is otherwise unchanged.
+>
+> Every `#id` keeps its wiring — v3's own closing rule: re-parenting, not
+> rewriting. `GUI_GAP_REGISTER.md` §6.10 / §6.11 / §6.13 carry the
+> per-category gaps, including the fifteen new gap IDs v3's unbacked rows
+> produced.
+>
+> ### Path note
+>
+> The design team writes to a `docs/`-rooted convention; here `docs/` holds
+> the **source project's** documentation and two filenames collide
+> (`UNIFIED_TOOL_PLAN.md`, `ROADMAP.md`) — `docs/README.md` records which is
+> which. `GENERATOR_PARAMETERS.md` below is the source project's
+> (`docs/GENERATOR_PARAMETERS.md`); this port's equivalent is
+> `GENERATION_PARAMETERS.md` at the root. `terrain-appearance-rendering.md` is
+> on file here as `TERRAIN_APPEARANCE_RESEARCH.md`.
 
 Complete control-by-control specification of the Cartalith editor shell. Every
 region, every button, its behaviour, its state rules, and the v2.10 element it
@@ -161,7 +163,7 @@ Reference mockup: `Cartalith DCC Shell.dc.html` in the Omelette project
 Six regions, in DOM order. All heights are fixed; widths of docks are
 user-draggable within the stated min/max.
 
-| Region | Desktop | Tablet 2560 | Phone 393 |
+| Region | Desktop | Tablet 2560 | Phone 393 *(superseded — §13)* |
 |---|---|---|---|
 | Menu bar | 34 px | 52 px | — (app bar 52 px) |
 | Tool options bar | 34 px | 52 px | bottom sheet |
@@ -218,7 +220,7 @@ Data ▸ Import, asset packs under Assets*.
 |---|---|---|
 | Undo | ⌘Z | Global undo. Depth from Preferences ▸ Memory ▸ Undo history (default 5). Replaces `#undoBtn` / `#undoMem`. |
 | Redo | ⌘⇧Z | — |
-| Undo history… | — | Panel listing the stack; clicking an entry rolls back to it. **Built 2026-08-25 (`GUI_GAP_REGISTER.md` §42) and wider than this line**: it lists every *commit*, not only the reversible ones, because this application has seven edit domains and a panel showing one of them reads as a history of all seven. A row is `▲` (a height snapshot is held — clicking it rolls back to it, as this line says), `·` (recorded, with the specific reason nothing is retained for it) or `◼` (a generate or a load, where history starts). It is a right-dock context rather than a floating panel, per §7.1 proposal 3. |
+| Undo history… | — | Panel listing the stack; clicking an entry rolls back to it. **Widened by the port (2026-08-25, `GUI_GAP_REGISTER.md` §42)**: the panel lists every *commit*, not only the reversible ones, because this application has seven edit domains and a panel showing one of them reads as a history of all seven. A row is `▲` (a height snapshot is held — clicking rolls back to it, as this line says), `·` (recorded, with the specific reason nothing is retained) or `◼` (a generate or a load, where history starts). It is a right-dock context rather than a floating panel, per `GUI_GAP_REGISTER.md` §7.1 proposal 3. |
 | Cut / Copy / Paste | ⌘X ⌘C ⌘V | Operate on the current selection (labels, icons, places, stamps). |
 | Delete | ⌫ | Deletes the selection; never deletes a generation stage. |
 | Select all / Deselect | ⌘A ⌘D | Scoped to the active layer. |
@@ -266,16 +268,14 @@ Dropdown mirrors the window's four groups. Every item opens the Data manager
 window (§9) on the matching route; the dropdown is a shortcut, not a second
 implementation.
 
-> **Addition (2026-08-19), reconciled from `JOURNEY_PLANNER_SPEC.md`/
-> `TRAVEL_LIBRARY_SPEC.md`.** Two more items sit above the five groups, in the
-> Data dropdown alongside Data manager: **Journey planner** (⇧J, no "own
-> window" — arms the JOURNEY tool in INFRA, §4.5.4, and takes over the
-> viewport in place, the same way any other tool does) and **⧉ Travel
-> library…** (⇧L, own window, tabbed by definition type — an addition to
-> this shell, not part of Cartalith Gen1 v2.10, specified in full in
-> `TRAVEL_LIBRARY_SPEC.md`). This vendored spec predates that reconciliation
-> and didn't carry either item; recorded here rather than left silently
-> stale, per this port's own documentation discipline.
+> **Addition (2026-08-19), reconciled from `JOURNEY_PLANNER_SPEC.md` /
+> `TRAVEL_LIBRARY_SPEC.md`, which this vendored spec predates.** Two more
+> items sit above the groups, beside Data manager: **Journey planner** (⇧J, no
+> window of its own — arms the JOURNEY tool, §4.5.4, which takes over the
+> viewport in place like any other tool) and **⧉ Travel library…** (⇧L, own
+> window, tabbed by definition type — an addition to this shell, not part of
+> Cartalith Gen1 v2.10, specified in `TRAVEL_LIBRARY_SPEC.md`). Since
+> 2026-08-24 the vault entry point is here too (top notice D).
 
 | Group | Items |
 |---|---|
@@ -286,30 +286,28 @@ implementation.
 | Validation | Check Data (shows current warning count) · Repair / Normalize |
 
 > **Correction (2026-08-20, owner decision): the Conversion group is deleted.**
-> All three of its rows — Coordinate Systems (EPSG ▸), Format Conversion, Data
-> Transformation — are gone from `menus.gd::_data()` and from
-> `data_manager_window.gd`'s `ROUTES`/`GROUP_ORDER`. The Data manager has
-> **four** groups, and this section's opening line ("the window's five
-> groups") now reads four.
+> All three rows — Coordinate Systems (EPSG ▸), Format Conversion, Data
+> Transformation — are removed from the design, so the Data manager has
+> **four** groups (this section's opening line was edited from "five"). The
+> shell's copy of the decision lives beside `data_manager_window.gd`'s
+> `GROUP_ORDER`.
 >
-> The reasoning is `GUI_GAP_REGISTER.md` §7.4's research, accepted in full.
-> Its finding was a naming finding rather than a scheduling one: **no GIS
+> The reasoning is `GUI_GAP_REGISTER.md` §7.4's research, accepted in full,
+> and it is a naming finding rather than a scheduling one: **no GIS
 > application of consequence has a top-level Conversion route**, because
 > conversion is not a destination — it is a *parameter of an export* (which
 > format?) and a *property of a project* (which CRS?). QGIS, the closest
-> comparable, has no Conversion menu at all: format conversion is
+> comparable, has no Conversion menu: format conversion is
 > `Export ▸ Save Features As…`, reprojection is on-the-fly or a Processing
-> Toolbox algorithm, and datum transformations are a global setting. Two of
-> this group's three rows were undefined *in this spec itself* ("which
-> formats, to which"), which is the symptom of promoting a parameter to a
-> route.
+> Toolbox algorithm, datum transformations are a global setting. Two of the
+> three rows were undefined in this spec itself ("which formats, to which") —
+> the symptom of promoting a parameter to a route.
 >
-> The registered gaps DM-07/DM-08/DM-09 are therefore **resolved by
-> deletion**, not by implementation and not by deferral: there is no longer a
-> control promising something the engine does not do. CRS was not kept even as
-> a project property (§7.4's recommendation 3, an explicitly owner-decided
-> branch) — this port works in one flat km projection throughout, so there is
-> nothing to transform *between*.
+> Gaps DM-07/DM-08/DM-09 are **resolved by deletion**, not by implementation
+> or deferral. CRS was not kept even as a project property (§7.4's
+> recommendation 3, an explicitly owner-decided branch): this port works in
+> one flat km projection throughout, so there is nothing to transform
+> *between*.
 
 ### 2.5 Preferences
 
@@ -330,7 +328,7 @@ implementation.
 | | Tile size · LOD levels | 256/512/1024; levels 0–8 (`#lodMaxLevel`). |
 | | Atlas cache | Size cap in GB + Clear (`#lodBakeBtn`, `#lodClearAtlasBtn`). |
 | | Chunk debug overlay | `off · grid · colours` (`#lodDbgSeg`) + tile borders. |
-| Memory | Undo history | Steps, 1–50, default 5. **Superseded**: the shipped control is a byte *budget*, not a step count, for the reason register `PR-11` gives — one `f32` height field is 256 MB at this port's 8192² ceiling, so a flat depth would commit to 1.25 GB of undo buffer on the largest world the UI offers. The reference's own `MAX_UNDO` is **5**, not 50, and binds as the second bound. |
+| Memory | Undo history | Steps, 1–50, default 5. **Superseded**: the control is a byte *budget*, not a step count, for the reason `GUI_GAP_REGISTER.md`'s `PR-11` gives — one `f32` height field is 256 MB at this port's 8192² ceiling, so a flat depth would commit to 1.25 GB of undo buffer on the largest world the UI offers. The reference's own `MAX_UNDO` is **5**, not 50, and binds as the second bound. |
 | | Working set | Read-only, `1.6 GB of 12 GB`. |
 | | Clear caches… | Confirmation; clears atlas + field caches, never project data. |
 | Application | Storage locations… | Same modal as File. |
@@ -354,8 +352,7 @@ Documentation, Keyboard shortcuts, Credits & academic principles
 ## 3 · Domain rail
 
 40 px collapsed column between the frame edge and the left dock. **Three**
-domains (was five before the 2026-08-20 merge disclosed at this document's own
-top — INFRA folded into CIVIL, RENDER folded into CARTO), vertical labels,
+domains (five before the 2026-08-20 merge, top notice C), vertical labels,
 active in accent:
 
 | Domain | Left dock shows | Right dock shows |
@@ -364,11 +361,10 @@ active in accent:
 | CIVIL | Settlements, population, economy, politics, culture — *and, since the merge,* roads, rivers, ports, trade, logistics | Selection inspector, route/journey inspector |
 | CARTO | Layer list + layer properties (§7) — *and, since the merge,* terrain appearance groups | Ramp / stop editor, preview & quality |
 
-> **Superseded by menu structure v3 (2026-08-24)** — see this document's own
-> top-of-file notice. The three domains and the right-dock column above are
-> unchanged; the **Left dock shows** column is not. Each rail is now a flat
-> accordion of named L2 categories, and the shipped list is exactly v3's, in
-> v3's order:
+> **Superseded by menu structure v3 (2026-08-24)** — top notice D. The three
+> domains and the right-dock column above are unchanged; the **Left dock
+> shows** column is not. Each rail is a flat accordion of named L2 categories,
+> exactly v3's, in v3's order:
 >
 > | Domain | L2 categories, in rail order |
 > |---|---|
@@ -376,9 +372,9 @@ active in accent:
 > | CIVIL (14) | Civilizations · Factions · Territories · Settlements · Points of interest · Routes & ways · Travel · Trade · Economy · Culture · Politics · Military · Relationships · Simulation |
 > | CARTO (10) | Map style · Terrain appearance · Colours · Layers · Roads & routes · Labels · Assets & landmarks · Political display · Visibility / zoom · Map presets |
 >
-> The rail foot is unchanged and still reports `TERRAIN` / `CIVIL` / `STYLE`
-> plus WORLD's stage counter — the ten stages still run, and still all
-> resolve together.
+> The rail foot still reports `TERRAIN` / `CIVIL` / `STYLE` plus WORLD's
+> stage counter — the ten stages still run, and all resolve together in one
+> `generate()` (header correction #2).
 
 Every left dock opens with the TOOLS block described in §4.5; below it comes the
 domain's own structure.
@@ -404,7 +400,9 @@ Raise/Lower brush (default): `SCULPT · RAISE` · hardness 0.35 · intensity
 +120 m · raise / lower / smooth · **commit pass** · discard.
 
 Generation Pipeline: `GENERATE · WORLD` · Run stage 04 · Run 04 → 10 · New seed
-· stale-from readout · 🔒 Bake ALL & finalize.
+· stale-from readout · 🔒 Bake ALL & finalize. *(The per-stage run and
+stale-from items describe no real product — header correction #2; the reference
+keeps only Generate world and New seed.)*
 
 Sculpt: `SCULPT · RAISE` · feature · preset · radius · falloff · mode · ↶ Undo ·
 ↷ Redo · ✓ Commit to map · Discard draft.
@@ -487,17 +485,15 @@ Settlement and POI are **two tools, not one** — v2.10 keeps `place` and
 `place_poi` separate because they write different records. Territory paint takes
 pointer capture and is LOD-aware, so it lands on the right cells under deep zoom.
 
-**Since the 2026-08-20 merge, CIVIL's TOOLS block also carries §4.5.4's Way,
-Route and Journey below** — one combined row, not two stacked ones. §4.5.4
-keeps its own heading and number (cross-referenced by `GUI_GAP_REGISTER.md`'s
-own IN-0x rows) rather than being folded bodily into this table.
+**Since the 2026-08-20 merge (top notice C), CIVIL's TOOLS block also carries
+§4.5.4's Way, Route and Journey** — one combined row, not two stacked ones.
 
 ### 4.5.4 INFRA tools
 
-> **Domain merge (2026-08-20)**: INFRA is no longer a rail domain of its own
-> — see this document's own top-of-file correction notice and §3. The three
-> tools below are unchanged in every particular; they now arm from CIVIL's
-> TOOLS block (§4.5.3) instead of a domain of their own.
+> **Domain merge (2026-08-20)**: INFRA is no longer a rail domain (top notice
+> C). The tools below are unchanged in every particular and arm from CIVIL's
+> TOOLS block (§4.5.3). The heading keeps its number for the IN-0x
+> cross-references.
 
 | Tool | Key | Drag / click | Tool options row | Right dock |
 |---|---|---|---|---|
@@ -508,17 +504,14 @@ Way and Route are also **two tools**: a way is durable geometry others route
 over, a route is a journey along existing geometry. v2.10 separates them
 (`draw_way` vs `route`) and so does this.
 
-> **Addition (2026-08-19)**: a third tool from this group, **Journey**
-> (rail-foot slot, below the domain buttons, no dedicated hotkey of its own
-> beyond `Data ▸ Journey planner… ⇧J`) — arming it swaps the whole viewport
-> region it lives under (map, both docks, tool options bar) for the
-> distance-spine planner laid out in `JOURNEY_PLANNER_SPEC.md`, rather than
-> drawing an overlay on the map like Way/Route/Settlement do. **Since the
-> 2026-08-20 merge, that region is CIVIL's** (was INFRA's, before INFRA had
-> its own rail domain to swap). It is not a drag/click tool in the §4.5.1 sense —
-> no map gesture is bound to it — so it has no drag/click column here; its
-> own controls live entirely inside the swapped-in view. Reconciled from
-> `JOURNEY_PLANNER_SPEC.md` §2, which this vendored spec predates.
+> **Addition (2026-08-19, reconciled from `JOURNEY_PLANNER_SPEC.md` §2, which
+> this vendored spec predates)**: a third tool, **Journey** (rail-foot slot
+> below the domain buttons; no hotkey beyond `Data ▸ Journey planner… ⇧J`).
+> Arming it swaps the whole region it lives under — map, both docks, tool
+> options bar, CIVIL's since the merge — for the distance-spine planner in
+> `JOURNEY_PLANNER_SPEC.md`, rather than drawing an overlay like Way / Route /
+> Settlement. No map gesture is bound to it, so it has no drag/click column;
+> its controls live inside the swapped-in view.
 
 While either is armed, hovering shows the live snap preview — the place or way a
 click would land on is highlighted. Snap to places is a shared modifier, on by
@@ -526,12 +519,9 @@ default.
 
 ### 4.5.5 CARTO tools
 
-> **Domain merge (2026-08-20)**: RENDER's one subject, Terrain appearance
-> groups, now lives in CARTO's left dock (§3) alongside Layers/Layer
-> properties/Annotation below. RENDER never had a tools section of its own to
-> merge here — its dock held no §4.5.x-designed tool, only the three global
-> ones every domain gets (§4.5.1) — so this table is unchanged; only §3's
-> domain table moved.
+> **Domain merge (2026-08-20, top notice C)**: RENDER's one subject, Terrain
+> appearance groups, lives in CARTO's left dock (§3). RENDER had no tools of
+> its own beyond the global ones (§4.5.1), so this table is unchanged.
 
 | Tool | Key | Drag / click | Tool options row | Right dock |
 |---|---|---|---|---|
@@ -569,13 +559,11 @@ the two are one gesture.
 Header is a two-button switch: **GENERATION PIPELINE | SCULPT**. One is always
 active; the switch persists per project.
 
-> **Superseded by menu structure v3 (2026-08-24): the switch is gone, and the
-> numbered list below is no longer navigation.** See this document's top-of-
-> file notice for the full disclosure. In short: WORLD is nine subject
-> categories (§3's table), Sculpt is a group inside **Terrain** and Biome
+> **Superseded by menu structure v3 (2026-08-24, top notice D): the switch is
+> gone, and the numbered list below is no longer navigation.** WORLD is nine
+> subject categories (§3), Sculpt is a group inside **Terrain** and Biome
 > paint a group inside **Biomes**, and each of §5.1's ten stages survives
-> whole — heading, `needs`/`produces` prose and every parameter row — as an
-> L3 section inside whichever category owns its subject:
+> whole as an L3 section inside the category that owns its subject:
 >
 > | Stage | Now inside |
 > |---|---|
@@ -616,7 +604,8 @@ line. States: `resolved` (✓, dim), `editing` (● accent), `stale` (○ accent
 Stale propagation: editing stage *n* marks every downstream stage stale. The
 tool options bar, status bar and right dock all report it; fields owned by stale
 stages read `—` until re-run. Run stage *n* re-runs only that stage; Run *n* → 10
-walks the chain.
+walks the chain. *(Superseded — header correction #2: no version of the product runs
+a single stage; every edit regenerates the whole world on release.)*
 
 The dock foot carries **Finalize · LOD 0–3 · 85 tiles / bake & freeze**
 (`#bakeAllBtn`, `#unfinalizeBtn`). Finalizing locks stages 01–10 and Sculpt; the
@@ -688,6 +677,9 @@ stamp once at a tap (a one-point stroke degenerates to radial distance).
 | Edge noise | 0–1 | 0.45 | Multiplied by each feature's `edgeChar` / `edgeFreqMul` |
 | Seed | integer | project seed | Dice button randomises |
 
+*The next three blocks — Brush shape, Stroke & grid, Actions — are new design
+with no reference precedent (header correction #3).*
+
 **Brush shape** — falloff-profile preview, eight built-in shapes (circle,
 directional, spatter, spiral, dots, cloud, checker, hatch), Import brush…
 (greyscale height stamp, alpha respected), Operation (defaults to the feature's
@@ -703,7 +695,9 @@ Immediate, applied to the selection, undoable.
 
 Every stroke becomes a live procedural stamp (`sculptStamps`). Nothing touches
 the real heightfield until Commit (`#sculptCommitBtn`), which bakes the whole
-stack in one pass and re-runs erosion, hydrology and climate once. Discard
+stack in one pass and re-runs erosion, hydrology and climate once *(superseded —
+header correction #1: commit marks downstream tiles stale rather than re-running
+them)*. Discard
 (`#sculptDiscardBtn`) drops the draft. Sculpting is locked while the world is
 finalized (`#sculptFinalizedNote`).
 
@@ -735,14 +729,16 @@ layer dots for Layers, stamp count for the stack.
 Three panes, left to right, mirroring how a map style is actually edited.
 
 > **The three-pane arrangement is superseded by menu structure v3
-> (2026-08-24)**; the controls below are not. CARTO is the same single-column
-> accordion the other two rails are, with ten categories (§3's table). The
-> mapping: **Layer list** → Layers, plus Roads & routes and Political display,
-> which v3 splits out of it (*"geometry, class and cost belong to CIVIL ▸
-> Routes & Ways; nothing here changes where a road runs"*); **Layer
-> properties** → the per-layer rows inside Layers, still an honest gap for
-> opacity/blend/order (CA-04) because the renderer composites terrain,
-> hillshade and colour relief into one raster before it crosses the boundary;
+> (2026-08-24, top notice D)**; the controls below are not. CARTO is the same
+> single-column accordion the other two rails are, with ten categories (§3's
+> table). The mapping: **Layer list** → Layers, plus Roads & routes and
+> Political display, which v3 splits out of it (*"geometry, class and cost
+> belong to CIVIL ▸ Routes & Ways; nothing here changes where a road runs"*);
+> **Layer properties** → the per-layer rows inside Layers (opacity / blend /
+> order for Terrain's children is gap CA-04; the old reason for it — that the
+> renderer bakes them into one raster — was wrong, and the engine side is now
+> `render::LayerStack` behind `get_layer_stack` / `set_layer_stack` /
+> `list_blend_modes`; the row UI is tracked in `OUTSTANDING_WORK.md`);
 > **Colour ramp popover** and **Stop editor** → Terrain appearance ▸ Colour
 > relief, live in the dock rather than in a popover and the right dock.
 > v3 adds four categories §7 has no equivalent for at all — Labels, Assets &
@@ -832,7 +828,8 @@ then two columns:
 - TILES — scheme (XYZ / TMS / WMTS), zoom range, tile size 256 px, format
   (PNG-8 · WebP fallback), Retina @2x, Skip all-ocean tiles (−1 842 tiles).
 - PROJECTION — CRS (EPSG:3857 / EPSG:4326 / custom), world bounds, write world
-  file (.wld + .prj).
+  file (.wld + .prj). *(Read against §2.4's 2026-08-20 correction: this port
+  works in one flat km projection, so there is no CRS to reproject between.)*
 - LAYERS INCLUDED — relief + hillshade, political tint, labels & icons (raster),
   rivers & coastlines.
 - OUTPUT — destination, packaging (folder / .zip / MBTiles), emit
@@ -880,7 +877,8 @@ is not time-based.
 **Status bar** — left: the one thing that needs attention, in accent
 (`editing terrain — 3 uncommitted strokes`, `stage 04 edited — 6 downstream
 stages stale`, `style edited — 2 layers differ from preset Atlas`,
-`draft — 5 stamps uncommitted`). Middle: last heavy pass / repaint / autosave.
+`draft — 5 stamps uncommitted`; the stage-staleness example is superseded by top
+notice A.2). Middle: last heavy pass / repaint / autosave.
 Right: the two or three shortcuts that apply right now.
 
 ---
@@ -915,26 +913,24 @@ amber.
 
 No fills **on panels**: regions are separated by hairlines only.
 
-> **Corrected 2026-09-08. This sentence caused two defects and both are
-> recorded here so the next port does not re-infect itself from it.**
+> **Corrected 2026-09-08. This sentence caused two defects; both are recorded
+> so the next reader does not re-infect the shell from it.**
 >
 > **1. "No fills on panels" was read as "no fills anywhere."** The restriction
 > is to panels. **This same document requires fills on interactive elements** —
 > §10: the layers popover’s active row is *"filled accent with reversed type"*;
-> §7: the active ramp’s *"row filled"*; and the type rule four lines above,
-> *"Filled accent surfaces carry reversed paper-coloured type"*, which
-> presupposes filled surfaces exist. The shell dropped fills from interactive
-> elements too, which is a plain bug rather than a reading.
+> §7: the active ramp’s *"row filled"*; and the type rule above, *"Filled
+> accent surfaces carry reversed paper-coloured type"*, presupposes filled
+> surfaces. Dropping fills from interactive elements was a plain bug, not a
+> reading.
 >
-> **2. "Radius 0 everywhere" is superseded by owner ruling, 2026-09-07:**
-> *"The radius should follow the newest designs."* The current canvases draw
-> **81 `border-radius:999px` pills and 76 `8px` corners in the PC file alone**,
-> and their buttons are `border-radius:8px`. **The canvases are newer and an
-> owner decision outranks a spec**, so the sentence is corrected rather than
-> left contradicting them — the owner named the mechanism directly: outdated
-> documents prevented the new style taking hold.
->
-> **Radius follows `design/mcp-2026-09-07/`**, not this document.
+> **2. "Radius 0 everywhere" (the sentence's original ending) is superseded by
+> owner ruling, 2026-09-07:** *"The radius should follow the newest designs."*
+> The current canvases draw **81 `border-radius:999px` pills and 76 `8px`
+> corners in the PC file alone**, and their buttons are `border-radius:8px`.
+> The canvases are newer and an owner decision outranks a spec — the owner
+> named the mechanism directly: outdated documents prevented the new style
+> taking hold. **Radius follows `design/mcp-2026-09-07/`**, not this document.
 
 ---
 
@@ -996,32 +992,36 @@ both themes at 12 px before it ships.
 
 ## 13 · Touch behaviour
 
-> ### ⚠️ THE PHONE COLUMN BELOW IS SUPERSEDED — AND THE MIGRATION HAS LANDED
+> ### ⚠️ THE PHONE COLUMN BELOW IS SUPERSEDED
 >
 > **Owner ruling, 2026-08-25:** the phone follows
 > `design/Cartalith Android Phone.dc.html` at **412 dp**. This section's phone
 > figures were authored against the 393 dp `DCC shell android phone` artboard
-> and are no longer the target. `DCC_SHELL_SCOPE.md`'s "WHICH CANVAS WINS"
-> header carries the ruling and the five conflicts it settles.
+> and are no longer the target. `DCC_SHELL_SCOPE.md`'s "Which canvas wins"
+> header carries the ruling and the conflicts it settles.
 >
-> **The shell was migrated on 2026-08-25** and now measures 28/56/64/20 dp
-> against the 412 canvas at both 1440×3168 and 1080×2400, verified on the
-> owner's OnePlus 6T. `GUI_GAP_REGISTER.md` §53 is the record, with the
-> before/after numbers and the five things that were *designed* rather than
-> matched. What changed, item by item:
+> **A newer phone authority has arrived since:**
+> `design/dcc-environment-2026-08-31/spec/06-phone.md`. Under the same rule it
+> outranks the 412 canvas where they disagree; read it before this table.
 >
-> | This section says | The 412 canvas says, and the shell now does |
+> The 412 migration's record — before/after numbers at 1440×3168 and
+> 1080×2400, the device pass, and the five surfaces *designed* rather than
+> matched — is `GUI_GAP_REGISTER.md` §53; where it stands is `STATUS.md`
+> (DCC-P412, and RP-S6 for `06-phone.md`). What the 412 canvas changes, item
+> by item:
+>
+> | This section says | The 412 canvas says |
 > |---|---|
 > | top 44 px keep-clear, 108 px centre lane, gradient scrim | **28 dp status row**, edge to edge, **solid ground** — no lane, no scrim. The lane survives in landscape only, which no canvas draws |
-> | app bar 52 px, `☰ / title+seed / ▤ / ⋯` | **56 dp**, `☰ / title+seed / ⌕ / ⋮` in 40 dp cells. `▤`/`⋯` are bottom-nav tabs; `⌕` and `⋮` have no destination in this build and are registered, not drawn |
+> | app bar 52 px, `☰ / title+seed / ▤ / ⋯` | **56 dp**, `☰ / title+seed / ⌕ / ⋮` in 40 dp cells. `▤`/`⋯` are bottom-nav tabs; `⌕` and `⋮` had no destination at the migration and were registered rather than drawn (§53) |
 > | ☰ opens a domain **drawer** | there is no drawer — `☰` opens the left dock as the canvas's `02 Domain` full-screen drill |
 > | domain rail is a 44 px column | there is no rail — **a 64 dp five-tab bottom nav**, `14px` glyph over `9.5px` caption |
 > | bottom 26 px gesture inset | **20 dp**, handle `112×4` |
 >
-> **Everything below this box that is not about the phone still stands**: the
-> tablet paragraph, the 44 px floor, and the "reorganises rather than
-> truncates" principle are unchanged, and the 412 canvas's own TARGETS card
-> restates the floor in its own words.
+> **Everything below this box that is not about phone geometry still
+> stands**: the tablet paragraph, the 44 px floor, and the "reorganises rather
+> than truncates" principle; the 412 canvas's own TARGETS card restates the
+> floor.
 
 Tablet keeps full desktop parity — same regions, same menus, same disclosure
 depth, targets 44–52 px, docks 400 px.
