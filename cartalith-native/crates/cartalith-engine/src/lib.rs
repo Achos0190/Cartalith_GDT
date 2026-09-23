@@ -926,9 +926,9 @@ pub struct WorldState {
     pub stream_order: Option<Vec<i16>>,
     pub river_mask: Option<Vec<u8>>,
     pub river_floor: Option<Vec<f32>>,
-    /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: which of the four
+    /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: which of the
     /// GPU-eligible substrate stages (`"warp"`, `"heterogeneity"`,
-    /// `"plate_assignment"`, `"base_field_blur"`) actually ran on GPU this
+    /// `"plate_assignment"`, `"stress"`, `"base_field_blur"`) actually ran on GPU this
     /// generation. Empty when `p.use_gpu` was `false`, or when every stage
     /// fell back to CPU (`HARDWARE_ACCELERATION.md` §27 -- GPU failure
     /// falls back silently in terms of *correctness*, but the caller can
@@ -1095,6 +1095,42 @@ pub fn set_configured_thread_count(threads: usize) -> bool {
 #[must_use]
 pub fn thread_pool_active_count() -> usize {
     ACTIVE_THREADS.load(Ordering::Relaxed)
+}
+
+/// `compute_stress` with every per-cell part on `gpu` (`OUTSTANDING_WORK.md`
+/// §2.6): the boundary loop as `gpu_stress.wgsl`'s gather over a per-plate-pair
+/// table of the CPU's own `stress_edge`, then both blurs on the existing
+/// `gauss_blur_grid_gpu_with`, then the CPU's own `normalize_by_abs_max`.
+/// Same arguments as `compute_stress`; `None` at any GPU step, and the caller
+/// runs the CPU function instead.
+///
+/// Mask and type are bit-identical to the CPU's; the two fields are
+/// principled-equivalent, held to `STRESS_GPU_TOL` in this file's tests.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn compute_stress_gpu(
+    gpu: &cartalith_gpu::GpuDevice,
+    gw: usize,
+    gh: usize,
+    world: bool,
+    plate_id: &[u16],
+    plates: &[cartalith_terrain::Plate],
+    vel: f64,
+    blur_r: f64,
+) -> Option<cartalith_terrain::StressResult> {
+    use cartalith_terrain::{normalize_by_abs_max, stress_edge};
+    let pairs: Vec<_> = plates.iter().flat_map(|a| plates.iter().map(move |b| stress_edge(a, b, vel))).collect();
+    let g = cartalith_gpu::stress_gather_grid_gpu_with(gpu, gw as u32, gh as u32, world, plate_id, &pairs)?;
+    let blur = |f: &[f32]| cartalith_gpu::gauss_blur_grid_gpu_with(gpu, f, blur_r, gw as u32, gh as u32, world);
+    let mut stress_field = blur(&g.raw)?;
+    let mut shear_field = blur(&g.raw_s)?;
+    normalize_by_abs_max(&mut stress_field);
+    normalize_by_abs_max(&mut shear_field);
+    Some(cartalith_terrain::StressResult {
+        boundary_mask: g.boundary_mask,
+        boundary_type: g.boundary_type,
+        stress_field,
+        shear_field,
+    })
 }
 
 /// Runs the full ported pipeline once, from a seed to (when
@@ -1311,7 +1347,18 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         assign_plates(gw, gh, world, &plates, warp_x, warp_y)
     };
 
-    let stress = compute_stress(gw, gh, world, &plate_id, &plates, tect_vel, p.tect.blur_r);
+    // `gpu_device` is already `None` unless `use_gpu` is on, the VRAM budget
+    // allows this grid and the device supports it -- the gates every stage
+    // here shares. `None` from the dispatch runs the untouched CPU function.
+    let stress = match gpu_device
+        .and_then(|gpu| compute_stress_gpu(gpu, gw, gh, world, &plate_id, &plates, tect_vel, p.tect.blur_r))
+    {
+        Some(s) => {
+            gpu_stages_used.push("stress".to_string());
+            s
+        }
+        None => compute_stress(gw, gh, world, &plate_id, &plates, tect_vel, p.tect.blur_r),
+    };
 
     // compute_flexure's own body, inlined: mask by boundary, blur (GPU or
     // CPU), max-normalize (CPU either way -- a cheap reduction, not worth
@@ -2748,7 +2795,7 @@ mod tests {
         // "weather", milestone 9 adds "flow") -- an allow-list that must
         // track reality, not a weakened assertion.
         let known =
-            ["warp", "warp_split", "heterogeneity", "plate_assignment", "base_field_blur", "weather", "flow"];
+            ["warp", "warp_split", "heterogeneity", "plate_assignment", "stress", "base_field_blur", "weather", "flow"];
         for s in &a.gpu_stages_used {
             assert!(known.contains(&s.as_str()), "unexpected gpu_stages_used entry: {s}");
         }
@@ -3010,5 +3057,233 @@ mod tests {
             archipelago_land < supercontinent_land,
             "archipelago land {archipelago_land} should be less than supercontinent land {supercontinent_land}"
         );
+    }
+
+    /// CPU-vs-GPU tolerance for `compute_stress_gpu`'s `stress_field` and
+    /// `shear_field` (both normalised to a max `|v|` of 1), **derived from
+    /// measurement**, not assumed. `measured_stress_gpu_vs_cpu` below,
+    /// 2026-09-23, AMD Radeon RX 7800 XT (Vulkan), release, run alone: the
+    /// generator's own plate maps at 128², 256², 512², 1024² and 2048², each
+    /// with and without world-wrap -- worst element deviation **5.36e-7**
+    /// (1024² world shear; 2.98e-7 to 4.77e-7 elsewhere), i.e. a few ulp of
+    /// f32 at 1.0. `boundary_mask`/`boundary_type` mismatched on **0** cells in
+    /// all ten, and GPU-vs-GPU was **exactly 0** in all ten.
+    ///
+    /// 2e-6 is ~3.7x the measured worst. A real porting error -- a dropped or
+    /// doubled edge, a flipped pair orientation -- moves `raw` by a whole
+    /// edge's `c`, which survives the blur at the 1e-2 scale, so it cannot
+    /// hide under this (the mutation run confirms it per defect).
+    const STRESS_GPU_TOL: f32 = 2e-6;
+
+    /// The generator's own plate map for `p`: `generate_terrain`'s `plate_id`
+    /// and the `build_plates` call it makes (world-structure off, the default,
+    /// so `plates`/`vel` are `p.tect`'s). Asserts the pair reproduces the
+    /// generation's own boundary mask, so the fixture cannot drift from what
+    /// `generate_terrain` actually feeds `compute_stress`.
+    fn stress_fixture(p: &WorldParams) -> (Vec<u16>, Vec<cartalith_terrain::Plate>) {
+        assert!(!p.world_structure.enabled && !p.use_gpu);
+        let ws = generate_terrain(p);
+        let plates =
+            cartalith_terrain::build_plates(p.gw, p.gh, p.tect.seed as u32, p.tect.plates, p.tect.lloyd, p.world, None);
+        let cpu = compute_stress(p.gw, p.gh, p.world, &ws.plate_id, &plates, p.tect.vel, p.tect.blur_r);
+        assert_eq!(cpu.boundary_mask, ws.boundary_mask, "fixture must be generate_terrain's own plate map");
+        (ws.plate_id.clone(), plates)
+    }
+
+    fn worst_abs(a: &[f32], b: &[f32]) -> f32 {
+        assert_eq!(a.len(), b.len());
+        a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max)
+    }
+
+    /// The whole contract, one fixture: mask and type bit-identical, both
+    /// fields within `STRESS_GPU_TOL`, and a second dispatch bit-identical.
+    fn assert_stress_gpu_matches(
+        gpu: &cartalith_gpu::GpuDevice,
+        what: &str,
+        (gw, gh, world): (usize, usize, bool),
+        plate_id: &[u16],
+        plates: &[cartalith_terrain::Plate],
+        vel: f64,
+        blur_r: f64,
+    ) -> bool {
+        let cpu = compute_stress(gw, gh, world, plate_id, plates, vel, blur_r);
+        let Some(g) = compute_stress_gpu(gpu, gw, gh, world, plate_id, plates, vel, blur_r) else {
+            eprintln!("{what}: device refused {gw}x{gh} -- skipped");
+            return false;
+        };
+        assert!(cpu.boundary_mask.iter().any(|&m| m != 0), "{what}: the fixture must have boundaries");
+        assert_eq!(g.boundary_mask, cpu.boundary_mask, "{what}: boundary_mask must be bit-identical");
+        assert_eq!(g.boundary_type, cpu.boundary_type, "{what}: boundary_type must be bit-identical");
+        let (ws, wh) = (worst_abs(&g.stress_field, &cpu.stress_field), worst_abs(&g.shear_field, &cpu.shear_field));
+        assert!(ws <= STRESS_GPU_TOL, "{what}: stress_field deviates by {ws:e} > {STRESS_GPU_TOL:e}");
+        assert!(wh <= STRESS_GPU_TOL, "{what}: shear_field deviates by {wh:e} > {STRESS_GPU_TOL:e}");
+        let again = compute_stress_gpu(gpu, gw, gh, world, plate_id, plates, vel, blur_r).expect("same device, same grid");
+        assert_eq!(again.stress_field, g.stress_field, "{what}: a gather with no atomics must be bit-deterministic");
+        assert_eq!(again.shear_field, g.shear_field, "{what}: a gather with no atomics must be bit-deterministic");
+        true
+    }
+
+    /// The GPU stress path against the real CPU `compute_stress`, on the
+    /// generator's own plate maps -- **non-square** (a swapped axis cannot
+    /// pass), with and without world-wrap -- plus hand-built fixtures for what
+    /// a real map rarely reaches: one- and two-column world grids (where the
+    /// row-wrap edge and the right edge coincide), and a many-plate map built
+    /// from EXACT and NEAR magnitude ties with different boundary types, which
+    /// is what decides the dominant-type pick's order and its f64-vs-f32 `>=`.
+    /// Environment-tolerant: no device is a skip.
+    #[test]
+    fn gpu_stress_matches_cpu_stress_within_measured_tolerance() {
+        let Some(set) = cartalith_gpu::init_gpu_device_set().ok() else {
+            eprintln!("no GPU device -- CPU-only machine, nothing to compare");
+            return;
+        };
+        let gpu = set.primary();
+        for &(gw, gh, seed, world) in &[(96usize, 64usize, 24601, false), (150, 200, 777, true), (64, 48, 31337, true)] {
+            let mut p = WorldParams::defaults(gw, gh, seed);
+            p.world = world;
+            let (plate_id, plates) = stress_fixture(&p);
+            // The pair table is orientation-symmetric: swapping scanner and
+            // neighbour negates both the normal and the velocity difference,
+            // so `c`, `s`, `mag` and the type are unchanged (equal as f64s;
+            // only a zero's sign can differ, and `+0 + -0` is `+0`). That is
+            // why reading the table transposed is an EQUIVALENT mutant of the
+            // shader, not a missed one -- asserted here rather than claimed.
+            for a in &plates {
+                for b in &plates {
+                    let (ab, ba) = (cartalith_terrain::stress_edge(a, b, p.tect.vel), cartalith_terrain::stress_edge(b, a, p.tect.vel));
+                    assert!(ab.0 == ba.0 && ab.1 == ba.1 && ab.2 == ba.2 && ab.3 == ba.3, "stress_edge must be symmetric in its plates");
+                }
+            }
+            if !assert_stress_gpu_matches(gpu, "generated", (gw, gh, world), &plate_id, &plates, p.tect.vel, p.tect.blur_r) {
+                return;
+            }
+        }
+
+        // Exact ties with different types. A (continental, at rest) meets B
+        // (oceanic, at (1,0), moving -x) and C (continental, at (0,1), moving
+        // -y): both edges are pure convergence of exactly `vel` in f64, one a
+        // subduction and one a collision, so the dominant-type pick is decided
+        // by the tie rule alone -- by the ORDER edges reach a cell, and by the
+        // CPU's f64 `mag >= f32 dom`. At vel 1.1 `f32(mag)` rounds UP, so the
+        // CPU keeps the FIRST edge; at 1.3 it rounds down and the LATER edge
+        // wins. A real plate map almost never ties two types exactly (the
+        // generated fixtures above cannot see an order or `>=` defect).
+        let plate = |x: f64, y: f64, vx: f64, vy: f64, base: f64| cartalith_terrain::Plate { x, y, vx, vy, base };
+        let plates = [plate(0.0, 0.0, 0.0, 0.0, 0.4), plate(1.0, 0.0, -1.0, 0.0, -0.4), plate(0.0, 1.0, 0.0, -1.0, 0.4)];
+        assert_eq!(cartalith_terrain::stress_edge(&plates[0], &plates[1], 1.1).2, 1.1);
+        assert_eq!(cartalith_terrain::stress_edge(&plates[0], &plates[2], 1.1).2, 1.1);
+        assert!(1.1f64 < f64::from(1.1f32) && 1.3f64 > f64::from(1.3f32), "one vel must round up, one down");
+        let mut rng = 0x9e37_79b9u32;
+        let mut ids = |n: usize| {
+            (0..n)
+                .map(|_| {
+                    rng = rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    ((rng >> 8) % 3) as u16
+                })
+                .collect::<Vec<u16>>()
+        };
+        for &(gw, gh, world) in &[(1usize, 7usize, true), (2, 5, true), (2, 5, false), (37, 23, true), (37, 23, false)] {
+            let id = ids(gw * gh);
+            for vel in [1.1, 1.3] {
+                for blur in [0.0, 2.5] {
+                    let what = format!("exact ties {gw}x{gh} world {world} vel {vel} blur {blur}");
+                    if !assert_stress_gpu_matches(gpu, &what, (gw, gh, world), &id, &plates, vel, blur) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// `use_gpu: false` -- the engine default, asserted as a literal -- never
+    /// reports `"stress"`; `true` reports it exactly when a device takes the
+    /// grid, and the stress stage's own outputs land within tolerance of the
+    /// CPU's on the same plate map.
+    #[test]
+    fn generate_terrain_use_gpu_moves_stress_to_the_gpu_and_only_when_asked() {
+        let (gw, gh) = (72usize, 48usize);
+        let p = WorldParams::defaults(gw, gh, 4242);
+        assert!(!p.use_gpu, "engine default must stay CPU");
+        let cpu = generate_terrain(&p);
+        assert!(!cpu.gpu_stages_used.iter().any(|s| s == "stress"), "use_gpu=false must never reach the GPU");
+
+        let mut pg = p.clone();
+        pg.use_gpu = true;
+        let g = generate_terrain(&pg);
+        let device = cartalith_gpu::init_gpu_device_set().ok().is_some_and(|s| s.supports_grid(gw, gh));
+        assert_eq!(g.gpu_stages_used.iter().any(|s| s == "stress"), device, "stress must run on the GPU exactly when a device takes it");
+        if device {
+            // Other GPU stages (warp, plate assignment) move the plate map, so
+            // hold the GPU generation's stress against the CPU function on the
+            // GPU generation's OWN plate map.
+            let plates = cartalith_terrain::build_plates(gw, gh, p.tect.seed as u32, p.tect.plates, p.tect.lloyd, false, None);
+            let want = compute_stress(gw, gh, false, &g.plate_id, &plates, p.tect.vel, p.tect.blur_r);
+            assert_eq!(g.boundary_mask, want.boundary_mask);
+            assert_eq!(g.boundary_type, want.boundary_type);
+            assert!(worst_abs(&g.stress_field, &want.stress_field) <= STRESS_GPU_TOL);
+            assert!(worst_abs(&g.shear_field, &want.shear_field) <= STRESS_GPU_TOL);
+            // Positive evidence the GPU produced these fields: its f32
+            // accumulation is not bit-identical to the CPU's f64-then-round
+            // on any real map (measured: 12 050 to 909 687 unequal cells on
+            // every fixture), so a wiring that reported "stress" and kept the
+            // CPU result would pass every check above and fail this one.
+            assert_ne!(g.stress_field, want.stress_field, "the reported GPU stress stage must actually be the GPU's output");
+        }
+    }
+
+    /// Measurement harness: CPU `compute_stress` vs `compute_stress_gpu` on
+    /// the generator's own plate maps, deviation and timing. `#[ignore]`d --
+    /// run alone:
+    /// `cargo test --release -p cartalith-engine measured_stress_gpu -- --ignored --test-threads=1 --nocapture`
+    #[test]
+    #[ignore]
+    fn measured_stress_gpu_vs_cpu() {
+        const ROUNDS: usize = 5;
+        fn timed<T>(mut f: impl FnMut() -> T) -> (std::time::Duration, std::time::Duration, std::time::Duration, T) {
+            let mut times = Vec::new();
+            let mut last = None;
+            for _ in 0..ROUNDS {
+                let t0 = std::time::Instant::now();
+                last = Some(f());
+                times.push(t0.elapsed());
+            }
+            times.sort_unstable();
+            (times[ROUNDS / 2], times[0], times[ROUNDS - 1], last.unwrap())
+        }
+        let Some(set) = cartalith_gpu::init_gpu_device_set().ok() else {
+            eprintln!("no GPU device -- nothing to measure");
+            return;
+        };
+        let gpu = set.primary();
+        eprintln!("device: {} ({:?})", gpu.adapter_name, gpu.adapter_backend);
+        for &(sz, seed) in &[(128usize, 24601), (256, 777), (512, 24601), (1024, 4242), (2048, 24601)] {
+            for world in [false, true] {
+                let mut p = WorldParams::defaults(sz, sz, seed);
+                p.world = world;
+                let (plate_id, plates) = stress_fixture(&p);
+                let (vel, br) = (p.tect.vel, p.tect.blur_r);
+                let (cpu_t, cpu_lo, cpu_hi, cpu) = timed(|| compute_stress(sz, sz, world, &plate_id, &plates, vel, br));
+                let (gpu_t, gpu_lo, gpu_hi, g) = timed(|| {
+                    compute_stress_gpu(gpu, sz, sz, world, &plate_id, &plates, vel, br).expect("GPU dispatch")
+                });
+                let g2 = compute_stress_gpu(gpu, sz, sz, world, &plate_id, &plates, vel, br).expect("GPU dispatch");
+                let boundary = cpu.boundary_mask.iter().filter(|&&m| m != 0).count();
+                let mask_ne = cpu.boundary_mask.iter().zip(&g.boundary_mask).filter(|(a, b)| a != b).count();
+                let type_ne = cpu.boundary_type.iter().zip(&g.boundary_type).filter(|(a, b)| a != b).count();
+                let unequal = |a: &[f32], b: &[f32]| a.iter().zip(b).filter(|(x, y)| x != y).count();
+                eprintln!(
+                    "{sz}x{sz} seed {seed} world {world} plates {}: boundary cells {boundary}; mask/type mismatches {mask_ne}/{type_ne}; \
+                     stress worst {:e} (unequal {}), shear worst {:e} (unequal {}); GPU-vs-GPU stress {:e} shear {:e}; \
+                     CPU {cpu_t:?} [{cpu_lo:?}..{cpu_hi:?}] GPU {gpu_t:?} [{gpu_lo:?}..{gpu_hi:?}] (n={ROUNDS})",
+                    plates.len(),
+                    worst_abs(&cpu.stress_field, &g.stress_field),
+                    unequal(&cpu.stress_field, &g.stress_field),
+                    worst_abs(&cpu.shear_field, &g.shear_field),
+                    unequal(&cpu.shear_field, &g.shear_field),
+                    worst_abs(&g.stress_field, &g2.stress_field),
+                    worst_abs(&g.shear_field, &g2.shear_field),
+                );
+            }
+        }
     }
 }

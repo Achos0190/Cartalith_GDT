@@ -112,6 +112,10 @@ const SHADER_SRC_GPU_FLOW: &str = include_str!("../shaders/gpu_flow.wgsl");
 /// §2.6). The shader header says why the CPU scatter becomes a gather and what
 /// that costs in precision; [`thermal_grid_gpu_with`] is the entry point.
 const SHADER_SRC_GPU_THERMAL: &str = include_str!("../shaders/gpu_thermal.wgsl");
+/// `cartalith_terrain::compute_stress`'s boundary loop, as a gather over a
+/// per-plate-pair table (`OUTSTANDING_WORK.md` §2.6). The shader header says
+/// why; [`stress_gather_grid_gpu_with`] is the entry point.
+const SHADER_SRC_GPU_STRESS: &str = include_str!("../shaders/gpu_stress.wgsl");
 
 /// Tolerance for the GPU-safe noise kernel vs. its CPU counterpart
 /// (`cartalith_noise::gpu_vnoise`). Unlike [`F32_TOLERANCE`] above (which
@@ -344,6 +348,27 @@ struct ThermalParams {
     height: u32,
     talus: f32,
     _pad: u32,
+}
+
+/// Matches `gpu_stress.wgsl`'s `StressParams` field-for-field -- 16 bytes.
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct StressParams {
+    width: u32,
+    height: u32,
+    world: u32,
+    n_plates: u32,
+}
+
+/// Matches `gpu_stress.wgsl`'s `Pair` -- five 4-byte members, stride 20.
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct StressPair {
+    c: f32,
+    s: f32,
+    mag: f32,
+    mag_below: u32,
+    bt: u32,
 }
 
 /// Matches `gpu_flow.wgsl`'s `FlowParams` field-for-field -- 4 x u32 = 16
@@ -3351,6 +3376,103 @@ pub fn thermal_grid_gpu_with(gpu: &GpuDevice, src: &[f32], width: u32, height: u
         // so the layout is shared rather than restated.
         let ctx = build_pipeline_shared(gpu, SHADER_SRC_GPU_THERMAL, "gpu_thermal (f32, gather)", &BLUR_LAYOUT);
         dispatch_gpu_thermal(&ctx, src, width, height, passes, talus)
+    })
+}
+
+/// What `compute_stress`'s boundary loop leaves behind, before its blurs:
+/// the accumulated convergence and shear, the boundary mask and the
+/// dominant boundary type per cell.
+pub struct StressGather {
+    pub raw: Vec<f32>,
+    pub raw_s: Vec<f32>,
+    pub boundary_mask: Vec<u8>,
+    pub boundary_type: Vec<u8>,
+}
+
+/// `cartalith_terrain::compute_stress`'s boundary loop on the GPU, as a
+/// gather (`gpu_stress.wgsl`'s header has the derivation). `pairs` is the
+/// `n x n` table of `cartalith_terrain::stress_edge(plates[a], plates[b],
+/// vel)` indexed `a * n + b`, `a` being the SCANNING cell's plate -- exactly
+/// what the CPU loop computes per edge, tabulated once per pair.
+///
+/// `boundary_mask` and `boundary_type` are bit-identical to the CPU's: the
+/// type pick ships `f32(mag)` plus the one bit that says whether rounding
+/// went up, which decides the CPU's f64-vs-stored-f32 `>=` exactly. `raw` and
+/// `raw_s` add `f32(c)` in f32 where the CPU adds the f64 `c` and rounds once
+/// -- principled equivalence (`DECISIONS.md` §7a), measured in
+/// `cartalith-engine`. `None` whenever the device cannot take the grid; the
+/// caller runs the CPU loop, `HARDWARE_ACCELERATION.md` §27.
+pub fn stress_gather_grid_gpu_with(
+    gpu: &GpuDevice,
+    width: u32,
+    height: u32,
+    world: bool,
+    plate_id: &[u16],
+    pairs: &[(f64, f64, f64, u8)],
+) -> Option<StressGather> {
+    let count = (width * height) as usize;
+    assert_eq!(plate_id.len(), count);
+    let n_plates = pairs.len().isqrt();
+    assert_eq!(n_plates * n_plates, pairs.len(), "pairs must be a square plate x plate table");
+    on_grid(gpu, width, height, || {
+        let ctx = build_pipeline_shared(gpu, SHADER_SRC_GPU_STRESS, "gpu_stress (f32, gather)", &affordance::PLANAR_LAYOUT);
+        let table: Vec<StressPair> = pairs
+            .iter()
+            .map(|&(c, s, mag, bt)| {
+                let hi = mag as f32;
+                StressPair { c: c as f32, s: s as f32, mag: hi, mag_below: u32::from(mag < f64::from(hi)), bt: u32::from(bt) }
+            })
+            .collect();
+        let ids: Vec<u32> = plate_id.iter().map(|&p| u32::from(p)).collect();
+        let params = StressParams { width, height, world: u32::from(world), n_plates: n_plates as u32 };
+        let init = |label: &str, contents: &[u8], usage| {
+            ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents, usage })
+        };
+        let params_buf = init("stress params", bytemuck::bytes_of(&params), wgpu::BufferUsages::UNIFORM);
+        let ids_buf = init("stress plate ids", bytemuck::cast_slice(&ids), wgpu::BufferUsages::STORAGE);
+        let pairs_buf = init("stress pair table", bytemuck::cast_slice(&table), wgpu::BufferUsages::STORAGE);
+        let out_len = (3 * count * std::mem::size_of::<u32>()) as u64;
+        let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("stress out"),
+            size: out_len,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let staging_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("stress out (staging)"),
+            size: out_len,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("stress bg"),
+            layout: &ctx.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: ids_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: pairs_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: out_buf.as_entire_binding() },
+            ],
+        });
+        let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("stress encoder") });
+        {
+            let mut pass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("stress pass"), timestamp_writes: None });
+            pass.set_pipeline(&ctx.pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
+        }
+        encoder.copy_buffer_to_buffer(&out_buf, 0, &staging_buf, 0, out_len);
+        ctx.queue.submit(Some(encoder.finish()));
+        let out = read_back_vec::<u32>(&ctx, &staging_buf, count as u64)?;
+        let (raw, rest) = out.split_at(count);
+        let (raw_s, meta) = rest.split_at(count);
+        Some(StressGather {
+            raw: raw.iter().map(|&b| f32::from_bits(b)).collect(),
+            raw_s: raw_s.iter().map(|&b| f32::from_bits(b)).collect(),
+            boundary_mask: meta.iter().map(|&m| (m & 0xff) as u8).collect(),
+            boundary_type: meta.iter().map(|&m| (m >> 8) as u8).collect(),
+        })
     })
 }
 

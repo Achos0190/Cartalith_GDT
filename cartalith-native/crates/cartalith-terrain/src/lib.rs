@@ -715,6 +715,48 @@ pub(crate) fn classify_boundary(ocean_a: bool, ocean_b: bool, c: f64, s: f64) ->
     }
 }
 
+/// One boundary edge in `compute_stress`'s loop: the scanning cell on plate
+/// `pa` meets a neighbour on plate `pb`. Returns `(c, s, mag, bt)` —
+/// convergence and shear projected onto the boundary normal/tangent, their
+/// `|c|+|s|` magnitude, and the edge's `classify_boundary` type.
+///
+/// A function of the plate PAIR alone, which is what lets the GPU path
+/// (`cartalith-engine`'s `compute_stress_gpu`) tabulate it once per pair
+/// instead of per edge. Split out of `compute_stress` rather than copied, so
+/// both paths run exactly this arithmetic.
+#[inline]
+pub fn stress_edge(pa: &Plate, pb: &Plate, vel: f64) -> (f64, f64, f64, u8) {
+    let mut nx = pb.x - pa.x;
+    let mut ny = pb.y - pa.y;
+    let nl = nx.hypot(ny);
+    let nl = if nl == 0.0 || nl.is_nan() { 1.0 } else { nl };
+    nx /= nl;
+    ny /= nl;
+    let tx = -ny;
+    let ty = nx;
+    let c = ((pa.vx - pb.vx) * nx + (pa.vy - pb.vy) * ny) * vel;
+    let s = ((pa.vx - pb.vx) * tx + (pa.vy - pb.vy) * ty) * vel;
+    let mag = c.abs() + s.abs();
+    (c, s, mag, classify_boundary(pa.base < 0.0, pb.base < 0.0, c, s))
+}
+
+/// `compute_stress`'s closing step for each blurred field: divide by the
+/// largest `|v|`, floored at `1e-6`. `mx` is a plain (f64) JS variable, not a
+/// typed-array element — so the division happens in f64 before rounding
+/// back to f32 on store.
+pub fn normalize_by_abs_max(field: &mut [f32]) {
+    let mut mx = 1e-6f64;
+    for &v in field.iter() {
+        let v = (v as f64).abs();
+        if v > mx {
+            mx = v;
+        }
+    }
+    for v in field.iter_mut() {
+        *v = (*v as f64 / mx) as f32;
+    }
+}
+
 /// Output of `compute_stress` — `boundaryMask`/`boundaryType`/
 /// `stressField`/`shearField` bundled together since JS computes all four
 /// in the same pass.
@@ -776,18 +818,7 @@ pub fn compute_stress(
                 }
                 boundary_mask[i] = 1;
                 boundary_mask[j] = 1;
-                let pa = plates[a];
-                let pb = plates[b];
-                let mut nx = pb.x - pa.x;
-                let mut ny = pb.y - pa.y;
-                let nl = nx.hypot(ny);
-                let nl = if nl == 0.0 || nl.is_nan() { 1.0 } else { nl };
-                nx /= nl;
-                ny /= nl;
-                let tx = -ny;
-                let ty = nx;
-                let c = ((pa.vx - pb.vx) * nx + (pa.vy - pb.vy) * ny) * vel;
-                let s = ((pa.vx - pb.vx) * tx + (pa.vy - pb.vy) * ty) * vel;
+                let (c, s, mag, bt) = stress_edge(&plates[a], &plates[b], vel);
                 // `raw[i] as f64 + c` (not `raw[i] + c as f32`): JS adds
                 // the full f64 C to the f64-promoted array read and
                 // rounds once — truncating c to f32 first would
@@ -796,8 +827,6 @@ pub fn compute_stress(
                 raw[j] = (raw[j] as f64 + c) as f32;
                 raw_s[i] = (raw_s[i] as f64 + s) as f32;
                 raw_s[j] = (raw_s[j] as f64 + s) as f32;
-                let mag = c.abs() + s.abs();
-                let bt = classify_boundary(pa.base < 0.0, pb.base < 0.0, c, s);
                 if mag >= dom_mag[i] as f64 {
                     dom_mag[i] = mag as f32;
                     boundary_type[i] = bt;
@@ -810,33 +839,10 @@ pub fn compute_stress(
         }
     }
 
-    // mx/ms are plain (f64) JS variables, not typed-array elements —
-    // even though every value feeding them comes from an f32 read, the
-    // division below happens in f64 before rounding back to f32 on
-    // store, so mx/ms themselves must stay f64 throughout.
     let mut stress_field = gauss_blur(&raw, blur_r, gw, gh, world);
-    let mut mx = 1e-6f64;
-    for &v in &stress_field {
-        let v = (v as f64).abs();
-        if v > mx {
-            mx = v;
-        }
-    }
-    for v in &mut stress_field {
-        *v = (*v as f64 / mx) as f32;
-    }
-
+    normalize_by_abs_max(&mut stress_field);
     let mut shear_field = gauss_blur(&raw_s, blur_r, gw, gh, world);
-    let mut ms = 1e-6f64;
-    for &v in &shear_field {
-        let v = (v as f64).abs();
-        if v > ms {
-            ms = v;
-        }
-    }
-    for v in &mut shear_field {
-        *v = (*v as f64 / ms) as f32;
-    }
+    normalize_by_abs_max(&mut shear_field);
 
     StressResult {
         boundary_mask,

@@ -4881,8 +4881,8 @@ impl WorldGen {
 
     /// Which GPU-eligible stages actually ran on GPU during the last
     /// `generate()`/`generate_world_structure()` — a subset of
-    /// `["warp", "heterogeneity", "plate_assignment", "base_field_blur",
-    /// "weather", "flow"]` from `generate_terrain`, then
+    /// `["warp", "heterogeneity", "plate_assignment", "stress",
+    /// "base_field_blur", "weather", "flow"]` from `generate_terrain`, then
     /// `["resource_potentials", "settlement_suitability"]` from
     /// `compute_civilisation`. A later civilisation rebuild does not change it.
     ///

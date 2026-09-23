@@ -75,7 +75,7 @@ const CARRYING_LAYOUT: [wgpu::BindGroupLayoutEntry; 8] = [
 /// Planar: one f32 input buffer, one packed-u8 input buffer, one output.
 /// Resources has 10 inputs and 15 outputs and suitability 23 inputs, far past
 /// 8 bindings, so both concatenate their planes into one binding each.
-const PLANAR_LAYOUT: [wgpu::BindGroupLayoutEntry; 4] =
+pub(crate) const PLANAR_LAYOUT: [wgpu::BindGroupLayoutEntry; 4] =
     [uniform_entry(0), storage_entry(1, true), storage_entry(2, true), storage_entry(3, false)];
 
 // -- exact branch cuts ----------------------------------------------------------
