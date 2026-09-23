@@ -39,6 +39,20 @@ won and §6 records the disagreement — those defects in the project record are
 worth more than any single milestone row below, and a reader with ten minutes
 should read §6 before §2.
 
+73 outstanding items — 2026-09-23, unchanged in count (filed and closed in the same pass — owner-reported
+mid-session, not a pre-existing backlog row): **faubourg grain, commit `7f7c009`.** Owner feedback ("the
+building outside the wall being arranged quite neatly... often the poor district away from a gate and more
+rich people and buildings closer to the gate") traced to two structural causes in `wallside.rs::build_wall_lots`
+(one shared back-line offset per row; a strict linear wedge taper), both fixed with per-lot jitter and a
+noisy taper. New `Parcel::gate_quality` gives every faubourg lot a wealth gradient from its distance to the
+nearest land gate (a real, disclosed deviation from a literal reading — nearest gate, not the run's own
+local distance, confirmed by measurement to match the owner's actual rule), with noise for the owner's own
+"not 100% a rule," consumed by `districts.rs::build_buildings` to scale building size/density near the gate.
+No settlement-character axis (deferred, disclosed — the existing `specialisation` field is only ever
+manually set today, so gating on it would rarely fire). Golden re-baseline: 17 of 29 cases move, every case
+with a faubourg, disclosed old→new. `cargo test --workspace --no-fail-fast` reproduced 3581→3590. Windowed
+probe on 4 real towns: back-line wobble 0-4%→56-73% of neighbour pairs, built share near/far a gate moved
+from roughly flat to a real, measured gap on every town; real before/after screenshots viewed directly.
 73 outstanding items — 2026-09-23, net −2: three more agents (dispatched on the rulings the previous
 log entry recorded) reported back, verified independently, and committed. **The urban-algorithm row —
 CLOSED, commit `ae6a8c8`**: candidate 4 (perimeter courtyard blocks) built, 21 of 29 golden cases move,
