@@ -8567,6 +8567,18 @@ impl WorldGen {
         // Every cell a drawn stroke ends on: a trunk's curve must keep these as
         // control points (`river_render_polyline`'s pins). By cell, not by
         // float, so a traced point and a bridge target compare the same.
+        // v0.103's above-sea lakes, the classification the screen draws them
+        // from (`build_color_texture`). A traced chain runs straight across a
+        // lake's surface to its outflow; the reference cuts the stroke there
+        // (v2.11 `splitRiverPolylines`, called from `drawRiverWays`: a point
+        // in a lake, class 2, ends the run). `lake_mask` below marks those
+        // render points so `map_overlay.gd` can break the stroke (2026-09-24).
+        let lakes = cartalith_civ::build_water_bodies(f.field, f.gw, f.gh, f.sea_level, f.world, Some(f.rainfall)).classification;
+        let in_lake = |x: f64, y: f64| -> u8 {
+            let cx = (x.floor().max(0.0) as usize).min(f.gw - 1);
+            let cy = (y.floor().max(0.0) as usize).min(f.gh - 1);
+            u8::from(lakes.get(cy * f.gw + cx) == Some(&2))
+        };
         let cell = |p: (f64, f64)| (p.0.floor() as i64, p.1.floor() as i64);
         let ends: std::collections::HashSet<(i64, i64)> = rivers
             .iter()
@@ -8622,6 +8634,8 @@ impl WorldGen {
                     })
                     .collect();
                 d.set("colors", &colors);
+                let lake_mask: PackedByteArray = rp.iter().map(|&(x, y)| in_lake(x, y)).collect();
+                d.set("lake_mask", &lake_mask);
                 if let Some(j) = plan.parallel_of[i] {
                     d.set("parallel_of", j as i64);
                 }

@@ -3636,8 +3636,26 @@ func _draw_rivers(rect: Rect2) -> void:
 		var pad := width_px * 0.5
 		if _run_offscreen(screen_points, k, pad):
 			continue
+		## `lake_mask` (`get_rivers`, 2026-09-24): 1 where a render point lies on
+		## an above-sea lake. The stroke breaks there -- the reference's
+		## `splitRiverPolylines` -- so a river enters and leaves a lake without
+		## being drawn across its open water. Absent or mis-sized -> unbroken.
+		var mask: PackedByteArray = river.get("lake_mask", PackedByteArray())
+		var masked := mask.size() == pts.size()
 		for chain in _segment_chains(screen_points, k, pad):
-			draw_polyline_colors(screen_points.slice(chain.x, chain.y + 1), colors.slice(chain.x, chain.y + 1), width_px, true)
+			if not masked:
+				draw_polyline_colors(screen_points.slice(chain.x, chain.y + 1), colors.slice(chain.x, chain.y + 1), width_px, true)
+				continue
+			var a := -1
+			for idx in range(chain.x, chain.y + 2):
+				var dry := idx <= chain.y and mask[idx] == 0
+				if dry:
+					if a < 0:
+						a = idx
+				elif a >= 0:
+					if idx - a >= 2:
+						draw_polyline_colors(screen_points.slice(a, idx), colors.slice(a, idx), width_px, true)
+					a = -1
 	_crisp_end()
 
 
