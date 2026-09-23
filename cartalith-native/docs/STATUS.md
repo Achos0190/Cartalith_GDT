@@ -1764,10 +1764,10 @@ auto/manual, both landed 2026-08-30 (`5f11b27`, `3338a79`).
 | SF-2 | Writing a save (`ROADMAP.md`'s first "option kept open", closed 2026-08-23) | done | `cartalith_io::write_save` in `crates/cartalith-io/src/save.rs`, `WorldGen::save_project`, and the golden test `tests/golden_parity_save_writer.rs`. File ▸ Save / Save as… / Autosave / Revert / Close project are real controls |
 | SF-3 | The project archive as a tree, carrying the whole project | done | `cartalith-godot/src/project_bridge.rs` defines fifteen slots — `entities/{settlements,factions,ways,provinces,continents}.json`, `history/timeline.json`, `annotations/{labels,icons,regions}.json`, `appearance.json`, `vault.json`, `drafts/{paint,sculpt}.json`, `library/{assets,travel}.json` — plus `project_save` and `project_save_with_documents` for caller-owned documents (which is how journeys persist, JP-06/08) |
 | SF-4 | `state.erosion` written to saves | declined | Only 2 of 16 keys are modelled by the reference's `loadZip()`, so it is deliberately not written rather than written partially. The limitation is disclosed in `SAVEFILE_COMPAT.md`'s own "Writing a save" section |
-| SF-5 | Save compression — the byte-plane shuffle (27-36 % smaller, writes faster) | blocked | Owner decision. Needs a `format_version` bump and a fail-loud marker, **and it ends `SAVEFILE_COMPAT.md` §8's bare-dump promise** |
-| SF-6 | Save compression — quantising saved rasters to `u16` | blocked | Owner decision. Lossy; `PARITY_TESTING.md` and `DECISIONS.md` §7a bar it without a ruling |
+| SF-5 | Save compression — the byte-plane shuffle (27-36 % smaller, writes faster) | done | **Built 2026-09-23 under owner Ruling AJ** (`LARGE_ITEM_RULINGS.md`). `format_version` 1 → 2 (`cartalith_io::PROJECT_FORMAT_VERSION`); every 4-byte `rasters/` entry is written byte-plane shuffled under `<name>.shuffled.f32/.i32` (`project.rs`'s `write_planes`, `Raster::from_planes`, `raster_entry_name`, `SHUFFLED_INFIX`). **The fail-loud marker is the entry name**: a pre-shuffle reader finds no `rasters/heightmap.f32` and refuses rather than reading noise, and this reader un-shuffles only what it finds under the shuffled name, so every v1 save reads unchanged (`a_version_1_archive_reads_exactly_as_it_always_did`, over a fixture the unmodified v1 writer produced). `SAVEFILE_COMPAT.md` §8/§8.2 record the departure from the bare-dump promise; §18.6 measures it on a real save: 2.30 → 1.72 MiB at 512² (25.2%), 24.74 → 16.53 MiB at 2048×1311 (33.2%), 151.41 → 96.42 MiB at 4096² (36.3%), and the write 25-37% faster. `history/territory/<year>.i32` is not shuffled |
+| SF-6 | Save compression — quantising saved rasters to `u16` | declined | **Owner Ruling AJ, 2026-09-23: not added.** Lossy; `PARITY_TESTING.md` and `DECISIONS.md` §7a bar it, and the ruling left that bar where it was. `SAVEFILE_COMPAT.md` §8.1 and §18.4 record the decision |
 
-**Group total: 6 — 3 done, 2 blocked, 1 declined.**
+**Group total: 6 — 4 done, 2 declined.**
 Four save slots are written but not yet read back by a caller; a fifth (saved
 measurements) was scheduled by the 2026-08-31 rulings. That was owner question
 7 and is now answered by implication.
@@ -1975,7 +1975,7 @@ Planner ledger above.
 
 **Where the 13 blocked rows are.** Seven of them trace to just three open owner
 decisions: conflict attachment (SP-2, SP-4, SP-5, LM-9), the viewshed budget
-(LM-7), and save compression (SF-5, SF-6). **Answering decision 1 alone unblocks
+(LM-7), and save compression (SF-5, SF-6 — **both answered 2026-09-23 by Ruling AJ**, SF-5 built and SF-6 declined, so the 13 above is two high until this paragraph is recounted). **Answering decision 1 alone unblocks
 three rows across two documents** — SP-4 directly, LM-9 which names SP-4 as its
 blocker, and SP-5 which needs two of SP-1…SP-4. The other six are blocked on
 a memory decision (EC-8), the era-table recalibration (MM-F2), urban

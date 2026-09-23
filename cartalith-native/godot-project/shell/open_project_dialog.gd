@@ -1525,7 +1525,16 @@ static func _render_thumbnail(path: String) -> Image:
 				gw = int((world as Dictionary).get("grid_width", 0))
 				gh = int((world as Dictionary).get("grid_height", 0))
 				sea = float((world as Dictionary).get("sea_level", NAN))
-				entry = "rasters/heightmap.f32"
+				## `SAVEFILE_COMPAT.md` §8.2 (format_version 2, 2026-09-23): this
+				## build writes the heightmap byte-plane shuffled under
+				## `.shuffled.f32`; a version-1 save has the plain name. The
+				## NAME decides which decode applies, never the version --
+				## the same rule `cartalith-io`'s reader follows -- and the
+				## name is spelled again here only because no binding
+				## exposes `cartalith_io::SHUFFLED_INFIX`.
+				entry = "rasters/heightmap.shuffled.f32"
+				if not zip.file_exists(entry):
+					entry = "rasters/heightmap.f32"
 	elif zip.file_exists("params.json"):
 		var flat = JSON.parse_string(zip.read_file("params.json").get_string_from_utf8())
 		if flat is Dictionary:
@@ -1564,12 +1573,26 @@ static func _render_thumbnail(path: String) -> Image:
 	## paint a wrong pixel rather than fail, and the cost of the guard is two
 	## tokens on a loop that runs 6 912 times per world, once.
 	var img := Image.create(THUMB_W, THUMB_H, false, Image.FORMAT_RGB8)
+	## A shuffled entry keeps cell `i`'s four bytes at `i`, `n+i`, `2n+i`,
+	## `3n+i` (§8.2); they are gathered into `word` and decoded there. Only the
+	## sampled cells are gathered, so the thumbnail never un-shuffles the grid.
+	var planar := entry.ends_with(".shuffled.f32")
+	var n := gw * gh
+	var word := PackedByteArray([0, 0, 0, 0])
 	for ty in THUMB_H:
 		var sy: int = mini(int(float(ty) * gh / THUMB_H), gh - 1)
 		var row: int = sy * gw
 		for tx in THUMB_W:
 			var sx: int = mini(int(float(tx) * gw / THUMB_W), gw - 1)
-			img.set_pixel(tx, ty, _hypso(bytes.decode_float((row + sx) * 4), sea))
+			var i: int = row + sx
+			var h: float
+			if planar:
+				for k in 4:
+					word[k] = bytes[k * n + i]
+				h = word.decode_float(0)
+			else:
+				h = bytes.decode_float(i * 4)
+			img.set_pixel(tx, ty, _hypso(h, sea))
 	return img
 
 ## `cartalith_terrain::tile_render::hypso` (reference 8332): a normalised

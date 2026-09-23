@@ -99,7 +99,7 @@ fn a_real_world_survives_the_tree_and_regenerates_bit_for_bit() {
 
     let back = cartalith_io::read_project(std::io::Cursor::new(&buf)).expect("a saved project should reopen");
     assert_eq!(back.layout, cartalith_io::Layout::Tree);
-    assert_eq!(back.format_version, cartalith_io::PROJECT_FORMAT_VERSION);
+    assert_eq!(back.format_version, 2, "SAVEFILE_COMPAT.md §7: this build writes version 2");
     assert!(back.warnings.is_empty(), "{:?}", back.warnings);
     assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
 
@@ -187,17 +187,19 @@ fn the_tree_is_the_tree_the_specification_publishes() {
         vec![
             "README.md",
             "project.json",
-            "rasters/heightmap.f32",
-            "rasters/impact_field.f32",
-            "rasters/rainfall.f32",
+            // `SAVEFILE_COMPAT.md` §8.2 (format_version 2): every 4-byte
+            // raster under its `.shuffled.` name; the `u8` keeps its own.
+            "rasters/heightmap.shuffled.f32",
+            "rasters/impact_field.shuffled.f32",
+            "rasters/rainfall.shuffled.f32",
             "rasters/strahler_order.u8",
-            "rasters/temperature.f32",
-            "rasters/volcanic_field.f32",
+            "rasters/temperature.shuffled.f32",
+            "rasters/volcanic_field.shuffled.f32",
         ]
     );
     // Every raster entry is exactly gw*gh*element bytes -- no header, no
-    // length prefix (§8).
-    assert_eq!(archive.by_name("rasters/heightmap.f32").unwrap().size(), (n * 4) as u64);
+    // length prefix (§8); the §8.2 shuffle reorders bytes, never adds any.
+    assert_eq!(archive.by_name("rasters/heightmap.shuffled.f32").unwrap().size(), (n * 4) as u64);
     assert_eq!(archive.by_name("rasters/strahler_order.u8").unwrap().size(), n as u64);
     // `project.json` is first, so a truncated transfer is diagnosable (§3.1).
     assert_eq!(archive.by_index(0).unwrap().name(), "project.json");
@@ -259,4 +261,68 @@ fn the_real_html_app_export_opens_as_a_flat_project() {
     assert!(back.save.params.gw > 0 && back.save.params.gh > 0);
     assert_eq!(back.save.fields.heightmap.len(), back.save.params.gw * back.save.params.gh);
     assert!(back.save.fields.heightmap.iter().any(|&v| v > 0.0), "a real export has real relief");
+}
+
+/// What a real save weighs, and how long `write_project` takes to produce it
+/// -- the harness behind `SAVEFILE_COMPAT.md` §18.6 (the byte-plane shuffle,
+/// owner Ruling AJ). Not a test: it asserts only that the archive reopens to
+/// the same heightmap, then prints.
+///
+/// The worlds are the shell's own defaults (`params::defaults()`, the
+/// generator a user's Generate press runs) at seed 24601 with no civilisation
+/// layer -- the shape §18.1 measured. `CARTALITH_SAVE_SIZES` overrides the
+/// grid list as `WxH,WxH`; the default leaves out 4096² because generating it
+/// dominates the run.
+///
+/// `cargo test -p cartalith-godot --release --test project_round_trip -- --ignored --nocapture measure_a_real_save`
+/// Run it alone: a timing taken under a parallel suite is not a measurement.
+#[test]
+#[ignore]
+fn measure_a_real_save() {
+    let sizes = std::env::var("CARTALITH_SAVE_SIZES").unwrap_or_else(|_| "512x512,2048x1311".into());
+    for size in sizes.split(',') {
+        let (w, h) = size.split_once('x').expect("WxH");
+        let mut p = params::defaults();
+        p.gw = w.trim().parse().unwrap();
+        p.gh = h.trim().parse().unwrap();
+        p.tect.seed = 24601;
+        let ws = generate_terrain(&p);
+        let n = p.gw * p.gh;
+        let fields = fields_of(&ws, n);
+        let sp = cartalith_io::SaveParams {
+            gw: p.gw,
+            gh: p.gh,
+            seed: p.tect.seed,
+            map_width_km: p.map_width_km,
+            sea_level: ws.sea_level,
+            world: p.world,
+            origin: Some("gen".into()),
+            name: None,
+        };
+        let write = ProjectWrite::new(&sp, &fields);
+        let mut times = Vec::new();
+        let mut buf = Vec::new();
+        for _ in 0..5 {
+            buf.clear();
+            let t = std::time::Instant::now();
+            cartalith_io::write_project(std::io::Cursor::new(&mut buf), &write).unwrap();
+            times.push(t.elapsed().as_secs_f64());
+        }
+        times.sort_by(|a, b| a.total_cmp(b));
+        let back = cartalith_io::read_project(std::io::Cursor::new(&buf)).unwrap();
+        assert!(
+            back.save.fields.heightmap.iter().zip(ws.field.iter()).all(|(a, b)| a.to_bits() == b.to_bits()),
+            "the measured archive must reopen to the same heightmap"
+        );
+        let mib = |b: u64| b as f64 / (1024.0 * 1024.0);
+        println!(
+            "{}x{}: archive {:.2} MiB, write median {:.3} s ({:.3}..{:.3}, 5 runs), format_version {}",
+            p.gw, p.gh, mib(buf.len() as u64), times[2], times[0], times[4], back.format_version
+        );
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&buf)).unwrap();
+        for i in 0..archive.len() {
+            let e = archive.by_index_raw(i).unwrap();
+            println!("    {:<36} {:>10.3} MiB  (raw {:.2} MiB)", e.name(), mib(e.compressed_size()), mib(e.size()));
+        }
+    }
 }

@@ -22,8 +22,9 @@ note about what the HTML app's `exportZip()` happened to produce.
 - **§16** — what is deliberately not stored, and why.
 - **§17** — notes specific to this port's own implementation (non-normative).
 - **§18** — why the container is deflate, measured. Non-normative, but it is
-  the reason §3.3 says what it says, and it carries two levers that are open
-  owner decisions rather than settled ones.
+  the reason §3.3 says what it says. Its two levers were open owner decisions
+  until 2026-09-23 (Ruling AJ): the shuffle was taken (§8.2, measured on
+  shipping in §18.6) and quantisation was declined.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used in the
 RFC 2119 sense.
@@ -227,7 +228,7 @@ guess from the presence or absence of any other entry.
 `project.json` carries the version:
 
 ```json
-{ "format": "cartalith-project", "format_version": 1 }
+{ "format": "cartalith-project", "format_version": 2 }
 ```
 
 - A reader MUST check `format`. If it is present and is not the string
@@ -240,12 +241,24 @@ guess from the presence or absence of any other entry.
     archive was written by a newer program and that parts of it were not
     understood. It MUST NOT silently discard the file.
   - Less than the reader's own version: read according to that older version's
-    rules. Version 1 is the only version defined; there is nothing older.
+    rules. Versions 1 and 2 are defined; nothing is older than 1.
 - A writer MUST write both members.
 
-**Version 1 is the version this document defines.** A future version number
-will be accompanied by a revision of this document describing what changed;
-until then, every conforming archive says `1`.
+**Version 2 is the version this document defines, and §8.2 is the whole of
+what separates it from version 1.** Version 1 said `1` from 2026-08-25 to
+2026-09-23; version 2 (owner Ruling AJ, 2026-09-23) adds the byte-plane
+shuffle, which stores a 4-byte raster's bytes reordered under a **different
+entry name**. Every other rule in this document is the same for both, and a
+version-2 reader reads a version-1 archive exactly as it always did — §8.2 says
+why that is guaranteed by the entry names rather than hoped for from this
+member.
+
+**A version-1 reader does not reach the "greater" rule above with a shuffled
+archive, and that is deliberate.** It looks for `rasters/heightmap.f32`, does
+not find it, and refuses the archive under §6.4. That refusal is the fail-loud
+marker: the alternative — a reader that warned "newer version" and then put a
+typed-array view over shuffled bytes — would draw plausible-looking noise,
+which is the one failure this format is built to avoid (§18.4).
 
 ---
 
@@ -264,6 +277,9 @@ appearance.json               MAY     presentation settings
 vault.json                    MAY     links out to an external Markdown vault
 
 rasters/                              one value per grid cell — see §8
+                                      (a 4-byte raster may instead be stored
+                                      as <name>.shuffled.f32 / .shuffled.i32
+                                      — §8.2; the slot is the same slot)
   heightmap.f32               MUST
   temperature.f32             SHOULD
   rainfall.f32                SHOULD
@@ -417,7 +433,9 @@ Write a zip containing exactly two entries:
 2. `rasters/heightmap.f32` — `grid_width × grid_height` little-endian 32-bit
    floats, row-major (§8).
 
-That archive is valid. Every other entry is optional enrichment. A writer that
+That archive is valid, at `format_version` `1` or `2` — the shuffle of §8.2 is
+what a writer SHOULD do, not what it must, so a minimal writer can still skip
+it. Every other entry is optional enrichment. A writer that
 also emits `rasters/temperature.f32` and `rasters/rainfall.f32` produces
 something a renderer can colour without inventing a climate, which is why those
 two are SHOULD rather than MAY.
@@ -460,8 +478,9 @@ Distinct from an unrecognised entry, and handled differently:
 - If `project.json` is missing, the archive is the flat layout (§4).
 - If `project.json` is present but unparseable, or `format` is wrong, the
   reader MUST refuse the archive.
-- If `rasters/heightmap.f32` is missing or its length is not
-  `grid_width × grid_height × 4`, the reader MUST refuse the archive.
+- If `rasters/heightmap.f32` is missing — **under both of its names**, §8.2 —
+  or its length is not `grid_width × grid_height × 4`, the reader MUST refuse
+  the archive.
 - For **every other** entry: a reader MUST NOT fail the archive. It MUST skip
   the damaged entry, continue, and report what it skipped. A corrupt
   `annotations/labels.json` must not cost the user their world.
@@ -580,7 +599,7 @@ the grid every raster is measured against.
 ```json
 {
   "format": "cartalith-project",
-  "format_version": 1,
+  "format_version": 2,
   "generator": "cartalith-native 0.1.0",
   "created": "2026-08-25T14:03:11Z",
   "world": {
@@ -598,7 +617,7 @@ the grid every raster is measured against.
 | Member | Type | Required | Meaning |
 |---|---|---|---|
 | `format` | string | MUST | Always `"cartalith-project"`. §4. |
-| `format_version` | integer | MUST | `1`. §4. |
+| `format_version` | integer | MUST | `2` (`1` before 2026-09-23). §4. |
 | `generator` | string | SHOULD | Free-form name and version of the writing program. Provenance only; no reader may branch on it. |
 | `created` | string | MAY | RFC 3339 UTC timestamp. Provenance only. |
 | `world.grid_width` | integer ≥ 1 | MUST | `GW`. Cells across. |
@@ -670,9 +689,23 @@ changed how an existing one is *read* would be the other case.
 
 ## 8. `rasters/` — the grid payloads
 
-Every entry under `rasters/` is a **bare little-endian binary dump**. No
-header, no length prefix, no padding, no alignment guarantee. The entry's
+Every entry under `rasters/` **decodes to** a bare little-endian binary dump.
+No header, no length prefix, no padding, no alignment guarantee. The entry's
 uncompressed length is exactly `GW × GH × element_size` bytes.
+
+**This paragraph said every entry *is* a bare little-endian binary dump, and
+since `format_version` 2 (owner Ruling AJ, 2026-09-23) that is no longer the
+whole truth — a deliberate departure, disclosed here rather than left for a
+typed-array view to discover.** A 4-byte raster may now be stored with its
+bytes *reordered* by the byte-plane shuffle of §8.2, under a different entry
+name. The reorder is lossless and exactly reversible: every byte of the dump
+below is still in the entry, and a reader that undoes it gets the identical
+dump, bit for bit. What the departure costs is the one convenience the old
+promise was for — a JavaScript reader can no longer put a `Float32Array`
+straight onto a *shuffled* entry's bytes; it undoes the shuffle first, which is
+a loop of four lines. Everything below this paragraph — byte order, index
+formula, length validation — describes the decoded dump, and applies unchanged
+to both encodings.
 
 | Extension | Element | Size | JavaScript view |
 |---|---|---|---|
@@ -748,7 +781,93 @@ raster in a different precision. The flat layout has one (§15) and it does not
 survive the mapping into the tree: it is a 16-bit *quantisation* of the same
 heightmap, so an archive holding both would hold two disagreeing elevations
 with no rule about which is authoritative, and §18.4 records quantisation as a
-lossy lever this format has deliberately not pulled.
+lossy lever this format has deliberately not pulled. **The owner declined it
+again on 2026-09-23 (Ruling AJ)** in the same ruling that adopted §8.2: the
+shuffle is lossless and quantisation is not, and that difference is the whole
+reason one was taken and the other was not.
+
+### 8.2 The byte-plane shuffle — `format_version` 2, owner Ruling AJ, 2026-09-23
+
+**What it is.** For a raster of `N = GW × GH` elements of 4 bytes each, take
+the §8 dump — element `i` occupying bytes `4i … 4i+3`, little-endian — and
+write instead every element's byte 0, then every element's byte 1, then byte
+2, then byte 3:
+
+```
+shuffled[k × N + i] = dump[4i + k]        for k in 0..4, i in 0..N
+dump[4i + k]        = shuffled[k × N + i] (the inverse, which a reader applies)
+```
+
+The entry is still exactly `N × 4` bytes, still compressed with method 8
+(§3.3), and still validated against `GW × GH × 4` (§8) — the length check
+happens before the inverse and is identical for both encodings. This is the
+HDF5/Blosc "shuffle" filter, and it is the transform §18.1 measured.
+
+**Why it is worth a version.** The low mantissa bytes of an IEEE-754 grid are
+close to random, and interleaving them with the smooth high bytes hides the
+high bytes' redundancy from deflate. Grouped by plane, the exponent and high
+mantissa bytes form long runs deflate can use. §18.1 measured the whole
+archive 27-36% smaller with deflate unchanged, and faster to write; §18.6 is
+the measurement taken when it shipped.
+
+**Which entries.** Every `rasters/*.f32` and `rasters/*.i32` — every
+registered raster whose element is 4 bytes. `.u8` rasters have one plane and
+nothing to reorder, so they have no shuffled form. `history/territory/<year>.i32`
+is **not** shuffled and keeps §10.2's single spelling; neither is anything
+under `cartography/`.
+
+**The marker is the entry name, and that is what makes it fail loudly.** A
+shuffled raster is stored under its slot's name with `.shuffled` inserted
+before the extension:
+
+| Slot | Shuffled entry |
+|---|---|
+| `rasters/heightmap.f32` | `rasters/heightmap.shuffled.f32` |
+| `rasters/territory.i32` | `rasters/territory.shuffled.i32` |
+| … every other 4-byte slot of §8.1 | the same rule |
+
+The extension still names the element type (§5.1): the element is still `f32`
+or `i32`, and the reorder is a property of how its bytes are laid out, which is
+the thing the new name component carries. §18.4 recorded exactly this
+difficulty — *"making it fail loudly instead would mean distinct entry names"*
+— as the reason the shuffle was not adopted without a ruling; an infix in the
+stem is the distinct name, and it leaves the extension's meaning alone.
+
+A name rather than a member of `project.json` because the two hazards are not
+symmetric:
+
+- **An old reader meets a shuffled archive.** It looks up
+  `rasters/heightmap.f32`, finds nothing, and refuses the archive (§6.4). It
+  cannot read shuffled bytes as a dump, because it never finds them under a
+  name it reads as a dump. A marker inside `project.json` would have protected
+  only readers that checked it — and §4's own rule tells an older reader to
+  *read* a newer version, not refuse it.
+- **A new reader meets an old archive.** It un-shuffles an entry **if and only
+  if its name says it is shuffled**. `rasters/heightmap.f32` is read as a plain
+  dump in every version, so no archive written before this change — and no
+  version-2 archive whose writer skipped the shuffle — can be un-shuffled by
+  mistake. The decision is carried by the bytes' own name, not by a version
+  number that could disagree with them.
+
+**Obligations.**
+
+- A version-2 writer SHOULD write every 4-byte raster shuffled. It MAY write
+  one plain under its §8.1 name instead; a reader must accept either.
+- A writer MUST NOT write both names for one slot.
+- A reader MUST accept both names for every 4-byte slot, MUST apply the inverse
+  to the shuffled one and MUST NOT apply it to the plain one.
+- A reader that finds **both** names for one slot MUST read the shuffled one
+  and MUST report that it ignored the other — two copies of one grid is the
+  duplication §8.1 already refuses for the height fallback, and choosing
+  silently would hide which one the author's file actually meant.
+- An archive written at `format_version` 1 that somehow carries a
+  `.shuffled.` name is outside anything any writer has produced; a reader MAY
+  treat it by the rules above.
+
+**What it deliberately does not do.** It is not a new compression method
+(§3.3 is unchanged: store and deflate only, and the container still opens in
+any zip tool). It is not quantisation (§8.1's last paragraph). It does not
+touch any JSON document, `preview.png`, a history raster or a tile.
 
 ---
 
@@ -1049,7 +1168,9 @@ number.
 One entry per recorded year that has a territory snapshot, where `<year>` is
 the corresponding `year` value from `history/timeline.json`. Content and
 validation are exactly §8's: `GW × GH` little-endian signed 32-bit integers,
-row-major, faction id per cell, `0` = unowned.
+row-major, faction id per cell, `0` = unowned. **Always the plain dump** —
+§8.2's shuffle does not reach this directory, so a history entry has no
+second spelling to go with the one grammar below.
 
 **`<year>` has exactly one spelling.** It is the year's *canonical decimal*
 form, and nothing else:
@@ -2149,6 +2270,22 @@ weaker answer to a question two existing mechanisms already answer.
   method 0 for `preview.png`, which is already-compressed PNG). The methods
   it genuinely cannot decode are the legacy PKZIP ones (1-6), which is why
   §3.3's own round-trip test uses method 1.
+- **§8.2's shuffle** is `project.rs`'s `write_planes` / `Raster::from_planes`,
+  with `raster_entry_name` deciding the stored name and `SHUFFLED_INFIX` the
+  infix. The reader tries the shuffled name first and the plain one second,
+  and applies the inverse **only** to what it found under the shuffled name.
+  The writer streams one plane at a time, so a shuffled raster never exists
+  as a second whole copy in memory; the reader decodes the planes straight
+  into the element vector. `history/territory/<year>.i32` goes through
+  `write_dump`, the plain §8 encoding. The shell's gallery thumbnail
+  (`open_project_dialog.gd`'s `_render_thumbnail`) reads the heightmap entry
+  directly with `ZIPReader` rather than through the engine, so it carries the
+  same two-name rule and gathers only the cells it samples. Backward
+  compatibility is pinned by `a_version_1_archive_reads_exactly_as_it_always_did`
+  over `crates/cartalith-io/tests/fixtures/project_v1_7x5.ctl`, an archive the
+  unmodified version-1 writer produced before the shuffle existed; the stored
+  layout — not just the round trip — by
+  `a_shuffled_raster_round_trips_bit_for_bit_and_is_stored_as_planes`.
 - Round-trip coverage lives in `crates/cartalith-io/src/project.rs`'s own test
   module, `crates/cartalith-godot/src/project_bridge.rs`'s,
   `crates/cartalith-godot/tests/project_round_trip.rs`, and — for §6.5 —
@@ -2251,7 +2388,7 @@ Whole-archive size:
 | Variant | 512² | 2048×1311 | 4096² | write @4096² | read @4096² |
 |---|---|---|---|---|---|
 | stored (raw payload) | 5.3 MiB | 53.8 MiB | 336.0 MiB | 0.09 s | 0.03 s |
-| **deflate — what is written today** | **2.3 MiB** | **24.9 MiB** | **152.7 MiB** | **3.04 s** | **0.43 s** |
+| **deflate — what was written until 2026-09-23 (`format_version` 1)** | **2.3 MiB** | **24.9 MiB** | **152.7 MiB** | **3.04 s** | **0.43 s** |
 | deflate, level 9 | 2.3 MiB | 24.5 MiB | 148.7 MiB | 4.17 s | 0.54 s |
 | zstd, level 3 | 2.3 MiB | 24.8 MiB | 151.8 MiB | 0.44 s | 0.18 s |
 | zstd, level 9 | 2.3 MiB | 24.6 MiB | 148.4 MiB | 1.59 s | 0.21 s |
@@ -2304,21 +2441,33 @@ graceful-degradation story the mixing idea depends on never happens. Combined
 with finding 1 — under 3% for the whole exercise — method 93 is refused
 outright by §3.3 rather than made conditional.
 
-### 18.4 Two levers that are owner decisions, not this document's
+### 18.4 Two levers that were owner decisions — both decided 2026-09-23 (Ruling AJ)
 
-**The byte-plane shuffle.** It is the only measured change worth having, it
-keeps method 8 so every zip reader still opens the container, and it is about
-ten lines in either language. What it costs is §8's promise that a raster
-entry is a bare little-endian dump a JavaScript reader can put a typed-array
-view straight onto. That promise would have to be replaced by a
-`format_version` bump and an explicit marker — and the hazard is that a reader
-which ignored the marker would not fail, it would read *plausible-looking
-noise*, which is the one failure mode this format is built to avoid. Making it
-fail loudly instead would mean distinct entry names, and §8's rule that the
-extension names the element type has no room for a second axis. Not adopted
-here; it needs an owner decision, and it is worth putting to one.
+**The byte-plane shuffle — ADOPTED, owner Ruling AJ, 2026-09-23; now §8.2.**
+The paragraph below is the case as it was put to the owner, kept because the
+hazard it names is the one §8.2's design answers:
 
-**Quantisation.** Storing the heightmap as `u16` with a scale and an offset,
+> It is the only measured change worth having, it keeps method 8 so every zip
+> reader still opens the container, and it is about ten lines in either
+> language. What it costs is §8's promise that a raster entry is a bare
+> little-endian dump a JavaScript reader can put a typed-array view straight
+> onto. That promise would have to be replaced by a `format_version` bump and
+> an explicit marker — and the hazard is that a reader which ignored the
+> marker would not fail, it would read *plausible-looking noise*, which is the
+> one failure mode this format is built to avoid. Making it fail loudly instead
+> would mean distinct entry names, and §8's rule that the extension names the
+> element type has no room for a second axis. Not adopted here; it needs an
+> owner decision, and it is worth putting to one.
+
+What shipped takes that paragraph's own way out: distinct entry names, with the
+second axis carried by an infix in the **stem** (`heightmap.shuffled.f32`)
+rather than by the extension, which still names the element. The `format_version`
+bump is there too, but it is the declaration of a revision, not the guard; the
+guard is that no reader of any version finds shuffled bytes under a name it
+reads as a dump (§8.2).
+
+**Quantisation — DECLINED, owner Ruling AJ, 2026-09-23.** Put in the same
+ruling as the shuffle and not taken; the case as it stood: Storing the heightmap as `u16` with a scale and an offset,
 GeoTIFF-style, halves the payload before compression and compresses far better
 than f32 afterwards — the largest available win by some distance. It is
 **lossy**. `PARITY_TESTING.md` and `DECISIONS.md` §7a make bit-exact raster
@@ -2381,3 +2530,38 @@ rounding.
    writer showing an estimate should quote the raw figure (exact, and free —
    it is `sum(4^z) × tile_w × tile_h`) with the measured band, not a fixed
    ratio.
+
+### 18.6 The shuffle as shipped — measured, 2026-09-23
+
+**Non-normative.** §18.1 was measured on 2026-08-25 by a harness that is not
+in this repository, so its figures are *cited* here, not re-asserted. These are
+new: the same shape of world (the shell's own generator defaults, seed 24601,
+no civilisation layer), written by this port's real `write_project` before the
+change (at `064b724`, `format_version` 1) and after it (`format_version` 2),
+each archive reopened and its heightmap compared bit for bit before its size
+was recorded. Reproduce with
+`CARTALITH_SAVE_SIZES=512x512,2048x1311,4096x4096 cargo test -p cartalith-godot --release --test project_round_trip -- --ignored --nocapture measure_a_real_save`.
+
+| Grid | v1 archive | **v2 archive** | smaller by | v1 write, median (min..max, 5 runs) | **v2 write** |
+|---|---|---|---|---|---|
+| 512² | 2.30 MiB | **1.72 MiB** | 25.2% | 0.040 s (0.039..0.040) | **0.030 s** (0.030..0.031) |
+| 2048×1311 | 24.74 MiB | **16.53 MiB** | 33.2% | 0.416 s (0.415..0.422) | **0.307 s** (0.304..0.327) |
+| 4096² | 151.41 MiB | **96.42 MiB** | 36.3% | 2.790 s (2.553..2.825) | **1.770 s** (1.751..1.782) |
+
+Per entry at 4096², v1 → v2: `heightmap` 53.73 → 34.05 MiB, `temperature`
+54.40 → 34.58 MiB, `rainfall` 42.45 → 27.05 MiB, `volcanic_field` 0.55 →
+0.46 MiB, `impact_field` 0.10 → 0.11 MiB; `strahler_order.u8` is untouched
+at 0.16 MiB.
+
+**What this confirms and where it differs.** §18.1's 33% at 2048×1311 and 36%
+at 4096² reproduce to within a point. At 512² it measured 27% and this
+measures 25.2%; §18.1's own rows for that size are rounded to 0.1 MiB (2.3 and
+1.7), which by themselves allow anything from 22% to 30%, so the difference is inside that
+rounding and no cause is claimed for it. The write is faster at every size, as
+§18.1 found, by 25-37%. Read time was not measured this time. `impact_field`
+grows by 0.01 MiB: a near-empty field has no run for the shuffle to lengthen,
+and that is the one entry it costs anything on.
+
+The before and after runs were separate invocations minutes apart on the same
+machine, each run alone; they are not interleaved, so the timing columns are a
+direction and a magnitude, not a controlled comparison.

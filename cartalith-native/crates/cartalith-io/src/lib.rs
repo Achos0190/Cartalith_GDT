@@ -32,7 +32,7 @@ pub use gzip::{gunzip_bytes, gzip_bytes};
 pub use project::{
     coerce_integral_floats, read_project, write_project, Element, Layout, ProjectData, ProjectWrite, Raster,
     RasterSlot, CORE_RASTERS, DEFAULT_README, DOCUMENT_SLOTS, HISTORY_TERRITORY_PREFIX, PROJECT_FORMAT,
-    PROJECT_FORMAT_VERSION, PROJECT_MANIFEST, RASTER_SLOTS,
+    PROJECT_FORMAT_VERSION, PROJECT_MANIFEST, RASTER_SLOTS, SHUFFLED_INFIX,
 };
 pub use save::{params_json, write_save, SaveError, SaveWrite, SAVE_VERSION};
 pub use tiles::{

@@ -32,7 +32,8 @@
 //! ## Two guards, both about silent wrongness
 //!
 //! 1. **Every raster's length is checked against `GW*GH` on the way in and
-//!    on the way out.** A raster entry carries no length of its own, so a
+//!    on the way out** -- before any §8.2 un-shuffle, which reorders bytes
+//!    and never changes their count. A raster entry carries no length of its own, so a
 //!    short one is not a parse error; it is a truncated world. The same
 //!    check covers the optional stored LOD tiles against their own
 //!    `tile_w * tile_h * 3` (RGB, [`LodTiles`]), for the same reason.
@@ -56,8 +57,29 @@ pub const PROJECT_MANIFEST: &str = "project.json";
 /// different is not a Cartalith project and is refused rather than guessed.
 pub const PROJECT_FORMAT: &str = "cartalith-project";
 
-/// `project.json`'s `format_version`. `1` is the only version defined.
-pub const PROJECT_FORMAT_VERSION: i64 = 1;
+/// `project.json`'s `format_version`. `2` since 2026-09-23 (owner Ruling AJ):
+/// version 2 is version 1 plus `SAVEFILE_COMPAT.md` §8.2's byte-plane
+/// shuffle. Both are read; only 2 is written.
+///
+/// The version is the *declaration*; it is not what decides whether a raster
+/// is un-shuffled. That is [`SHUFFLED_INFIX`] in the entry name, so a
+/// version-1 archive's bytes cannot be un-shuffled by mistake whatever its
+/// manifest says.
+pub const PROJECT_FORMAT_VERSION: i64 = 2;
+
+/// Inserted before a 4-byte raster's extension when its bytes are stored
+/// byte-plane shuffled (`SAVEFILE_COMPAT.md` §8.2):
+/// `rasters/heightmap.f32` -> `rasters/heightmap.shuffled.f32`.
+///
+/// **The name is the fail-loud marker.** A reader that predates the shuffle
+/// looks up `rasters/heightmap.f32`, does not find it, and refuses the archive
+/// (§6.4) -- it never gets to put a plain-dump view over reordered bytes and
+/// draw plausible noise, which a flag inside `project.json` could not have
+/// prevented for a reader that did not check the flag. The same property runs
+/// the other way: this reader un-shuffles an entry if and only if its name
+/// carries this infix, so every archive written before 2026-09-23 reads
+/// exactly as it always did.
+pub const SHUFFLED_INFIX: &str = ".shuffled";
 
 /// Which layout an archive turned out to be. Reported rather than inferred
 /// by the caller, because "this came from an HTML export" is a real thing
@@ -131,35 +153,33 @@ impl Raster {
         self.len() == 0
     }
 
-    /// Little-endian, no header, no length prefix (`SAVEFILE_COMPAT.md`
-    /// §8). Buffered rather than one `write_all` per value: at this port's
-    /// 8192x8192 ceiling a raster is 67 million values and a per-value call
-    /// into the DEFLATE encoder is the whole cost of the save.
+    /// The entry's bytes as this writer stores them: byte-plane shuffled for a
+    /// 4-byte element (`SAVEFILE_COMPAT.md` §8.2), verbatim for `u8`, which
+    /// has one plane and nothing to reorder. Goes under
+    /// [`raster_entry_name`], which agrees with this on which is which.
     fn write_to<W: Write>(&self, sink: &mut W) -> std::io::Result<()> {
-        const CHUNK: usize = 16 * 1024;
-        let mut buf: Vec<u8> = Vec::with_capacity(CHUNK * 4);
         match self {
-            Raster::U8(v) => return sink.write_all(v),
-            Raster::F32(v) => {
-                for chunk in v.chunks(CHUNK) {
-                    buf.clear();
-                    for &x in chunk {
-                        buf.extend_from_slice(&x.to_le_bytes());
-                    }
-                    sink.write_all(&buf)?;
-                }
-            }
-            Raster::I32(v) => {
-                for chunk in v.chunks(CHUNK) {
-                    buf.clear();
-                    for &x in chunk {
-                        buf.extend_from_slice(&x.to_le_bytes());
-                    }
-                    sink.write_all(&buf)?;
-                }
-            }
+            Raster::U8(v) => sink.write_all(v),
+            Raster::F32(v) => write_planes(sink, v, f32::to_le_bytes),
+            Raster::I32(v) => write_planes(sink, v, i32::to_le_bytes),
         }
-        Ok(())
+    }
+
+    /// The inverse of [`write_planes`]: element `i`'s little-endian bytes are
+    /// `bytes[i]`, `bytes[n+i]`, `bytes[2n+i]`, `bytes[3n+i]`. Decoded
+    /// straight into the element vector, so un-shuffling costs no second
+    /// `4n`-byte buffer on top of the one the entry inflated into. The caller
+    /// has already checked `bytes.len() == n * 4`.
+    fn from_planes(element: Element, bytes: &[u8]) -> Raster {
+        let n = bytes.len() / 4;
+        let word = |i: usize| [bytes[i], bytes[n + i], bytes[2 * n + i], bytes[3 * n + i]];
+        match element {
+            Element::F32 => Raster::F32((0..n).map(|i| f32::from_le_bytes(word(i))).collect()),
+            Element::I32 => Raster::I32((0..n).map(|i| i32::from_le_bytes(word(i))).collect()),
+            // One plane: the shuffle is the identity, and no `u8` entry is
+            // ever stored under a shuffled name.
+            Element::U8 => Raster::U8(bytes.to_vec()),
+        }
     }
 
     /// Decodes explicitly rather than casting: the `Vec<u8>` a zip entry
@@ -587,7 +607,8 @@ fn raster_slot(path: &str) -> Option<RasterSlot> {
 
 /// Whether `name` is an entry **this build produces and consumes itself** —
 /// the manifest, `params.json`, the two human-facing extras, any registered
-/// document slot, any registered raster, a `history/territory/<year>.i32`,
+/// document slot, any registered raster under **either** of its names (§8.2's
+/// shuffled one included), a `history/territory/<year>.i32`,
 /// or the stored LOD pyramid's index and tiles.
 ///
 /// One function because both directions must agree exactly: [`read_project`]
@@ -609,6 +630,7 @@ fn is_own_entry(name: &str) -> bool {
         || name == LOD_TILE_INDEX
         || DOCUMENT_SLOTS.contains(&name)
         || raster_slot(name).is_some()
+        || RASTER_SLOTS.iter().any(|&s| raster_entry_name(s) == name)
         || (name.starts_with(HISTORY_TERRITORY_PREFIX) && name.ends_with(".i32"))
         || lod_tile_id(name).is_some()
 }
@@ -737,9 +759,12 @@ This archive is a Cartalith project, not a plain image export.
     vault.json        links out to an external Markdown vault
     preview.png       a thumbnail; not map data
 
-Every `rasters/*.f32`, `*.i32` and `*.u8` entry is a bare little-endian binary
-dump with no header: exactly grid_width * grid_height elements, row-major,
-index = y * grid_width + x.
+Every raster decodes to a bare little-endian binary dump with no header:
+exactly grid_width * grid_height elements, row-major,
+index = y * grid_width + x. A `*.u8` entry is that dump as stored. A
+`*.shuffled.f32` / `*.shuffled.i32` entry is byte-plane shuffled: all of the
+elements' first bytes, then all their second bytes, then third, then fourth.
+Byte k of element i is at offset k * (grid_width * grid_height) + i.
 ";
 
 /// `SAVEFILE_COMPAT.md` §14.2, implemented once for the whole format.
@@ -795,7 +820,9 @@ pub struct ProjectData {
     /// caller keeps working against either layout.
     pub save: SaveData,
     pub layout: Layout,
-    /// `project.json`'s `format_version`, or `0` for a flat archive.
+    /// `project.json`'s `format_version`, or `0` for a flat archive. `1` and
+    /// `2` read identically -- see [`SHUFFLED_INFIX`] for why the raster
+    /// decode does not branch on this.
     pub format_version: i64,
     /// Registered rasters beyond the six core ones, keyed by full path.
     pub rasters: BTreeMap<String, Raster>,
@@ -1049,6 +1076,9 @@ pub fn write_project<W: Write + Seek>(
     // `Arc<Vec<f32>>` and `volcanic_field`/`impact_field` are plain
     // `Vec<f32>` (`SaveFields`'s own doc), so a literal array of `&f.<name>`
     // would mix two reference types and fail to compile.
+    //
+    // Every 4-byte raster goes out byte-plane shuffled under its
+    // `.shuffled.` name (`SAVEFILE_COMPAT.md` §8.2, owner Ruling AJ).
     for (path, values) in [
         (CORE_RASTERS[0], f.heightmap.as_slice()),
         (CORE_RASTERS[1], f.temperature.as_slice()),
@@ -1056,14 +1086,16 @@ pub fn write_project<W: Write + Seek>(
         (CORE_RASTERS[3], f.volcanic_field.as_slice()),
         (CORE_RASTERS[4], f.impact_field.as_slice()),
     ] {
-        writer.start_file(path, opts)?;
-        write_f32_slice(&mut writer, values)?;
+        let slot = raster_slot(path).expect("every core raster is a registered slot");
+        writer.start_file(raster_entry_name(slot), opts)?;
+        write_planes(&mut writer, values, f32::to_le_bytes)?;
     }
     writer.start_file(CORE_RASTERS[5], opts)?;
     writer.write_all(&f.strahler_order)?;
 
     for (path, raster) in &project.rasters {
-        writer.start_file(path.as_str(), opts)?;
+        let slot = raster_slot(path).expect("validated above");
+        writer.start_file(raster_entry_name(slot), opts)?;
         raster.write_to(&mut writer)?;
     }
 
@@ -1074,7 +1106,7 @@ pub fn write_project<W: Write + Seek>(
 
     for (year, values) in &project.history_territory {
         writer.start_file(format!("{HISTORY_TERRITORY_PREFIX}{year}.i32"), opts)?;
-        Raster::I32(values.clone()).write_to(&mut writer)?;
+        write_dump(&mut writer, values, i32::to_le_bytes)?;
     }
 
     // The optional pyramid. Its index is written from here and not from the
@@ -1167,17 +1199,51 @@ pub fn write_project<W: Write + Seek>(
     Ok(warnings)
 }
 
-fn write_f32_slice<W: Write>(sink: &mut W, values: &[f32]) -> std::io::Result<()> {
-    const CHUNK: usize = 16 * 1024;
-    let mut buf: Vec<u8> = Vec::with_capacity(CHUNK * 4);
-    for chunk in values.chunks(CHUNK) {
+/// Buffered, like every raster write here: at this port's 8192x8192 ceiling
+/// a raster is 67 million values and a per-value call into the DEFLATE
+/// encoder is the whole cost of the save.
+const WRITE_CHUNK: usize = 64 * 1024;
+
+/// §8's plain dump: each element's four little-endian bytes in turn. Only
+/// `history/territory/<year>.i32` is still written this way (§10.2 -- the
+/// shuffle does not reach that directory).
+fn write_dump<W: Write, T: Copy>(sink: &mut W, values: &[T], le: fn(T) -> [u8; 4]) -> std::io::Result<()> {
+    let mut buf: Vec<u8> = Vec::with_capacity(WRITE_CHUNK * 4);
+    for chunk in values.chunks(WRITE_CHUNK) {
         buf.clear();
-        for &v in chunk {
-            buf.extend_from_slice(&v.to_le_bytes());
-        }
+        buf.extend(chunk.iter().flat_map(|&v| le(v)));
         sink.write_all(&buf)?;
     }
     Ok(())
+}
+
+/// `SAVEFILE_COMPAT.md` §8.2's byte-plane shuffle: every element's byte 0,
+/// then every byte 1, then 2, then 3 -- `out[k*n + i] = le(v[i])[k]`.
+/// Streamed a plane at a time, so the shuffled entry never exists as a whole
+/// second copy of the raster in memory; the price is four passes over
+/// `values`, which is cheap beside deflating them.
+fn write_planes<W: Write, T: Copy>(sink: &mut W, values: &[T], le: fn(T) -> [u8; 4]) -> std::io::Result<()> {
+    let mut buf: Vec<u8> = Vec::with_capacity(WRITE_CHUNK);
+    for plane in 0..4 {
+        for chunk in values.chunks(WRITE_CHUNK) {
+            buf.clear();
+            buf.extend(chunk.iter().map(|&v| le(v)[plane]));
+            sink.write_all(&buf)?;
+        }
+    }
+    Ok(())
+}
+
+/// The archive entry this writer stores a registered raster under:
+/// [`SHUFFLED_INFIX`] before the extension for a 4-byte element, the slot's
+/// own path for `u8`. [`Raster::write_to`] makes the same split, so the name
+/// and the bytes cannot disagree.
+fn raster_entry_name(slot: RasterSlot) -> String {
+    if slot.element.size() == 1 {
+        return slot.path.to_string();
+    }
+    let stem = &slot.path[..slot.path.len() - slot.element.ext().len() - 1];
+    format!("{stem}{SHUFFLED_INFIX}.{}", slot.element.ext())
 }
 
 /// `project.json` for one project (`SAVEFILE_COMPAT.md` §7). Public so a
@@ -1451,11 +1517,30 @@ fn read_tree(
 
     // --- rasters ---------------------------------------------------------
     let mut rasters: BTreeMap<String, Raster> = BTreeMap::new();
-    for slot in RASTER_SLOTS {
-        let Some(bytes) = read_entry_bytes(archive, slot.path) else {
-            continue;
+    for &slot in RASTER_SLOTS {
+        // §8.2: the shuffled name first, then the plain one. Which decode
+        // applies is decided by **which name was found** and by nothing else
+        // -- not by `format_version` -- so a plain entry is never
+        // un-shuffled, in an archive of any version.
+        let shuffled_name = raster_entry_name(slot);
+        let shuffled = shuffled_name != slot.path;
+        let (name, found, planar) = match shuffled.then(|| read_entry_bytes(archive, &shuffled_name)).flatten() {
+            Some(found) => {
+                if archive.index_for_name(slot.path).is_some() {
+                    warnings.push(format!(
+                        "{} and {shuffled_name} are both present; read {shuffled_name} and ignored the other \
+                         (SAVEFILE_COMPAT.md §8.2), which a re-save will not keep",
+                        slot.path
+                    ));
+                }
+                (shuffled_name.as_str(), found, true)
+            }
+            None => match read_entry_bytes(archive, slot.path) {
+                Some(found) => (slot.path, found, false),
+                None => continue,
+            },
         };
-        let bytes = match bytes {
+        let bytes = match found {
             Ok(b) => b,
             // Present but unreadable. Fatal only for the terrain, exactly as
             // a wrong *length* is (§6.4) -- a heightmap this build cannot
@@ -1463,15 +1548,14 @@ fn read_tree(
             // blame the wrong thing.
             Err(e) if slot.path == CORE_RASTERS[0] => return Err(LoadError::Io(e)),
             Err(e) => {
-                warnings.push(format!("{}: skipped ({e})", slot.path));
+                warnings.push(format!("{name}: skipped ({e})"));
                 continue;
             }
         };
         let expected = n * slot.element.size();
         if bytes.len() != expected {
             let message = format!(
-                "{}: expected {expected} bytes for this grid, got {}",
-                slot.path,
+                "{name}: expected {expected} bytes for this grid, got {}",
                 bytes.len()
             );
             if slot.path == CORE_RASTERS[0] {
@@ -1480,10 +1564,12 @@ fn read_tree(
             warnings.push(format!("{message} -- skipped"));
             continue;
         }
-        rasters.insert(
-            slot.path.to_string(),
-            Raster::from_bytes(slot.element, &bytes),
-        );
+        let raster = if planar {
+            Raster::from_planes(slot.element, &bytes)
+        } else {
+            Raster::from_bytes(slot.element, &bytes)
+        };
+        rasters.insert(slot.path.to_string(), raster);
     }
 
     let heightmap = match rasters.remove(CORE_RASTERS[0]) {
@@ -2125,6 +2211,8 @@ mod tests {
             "entities/settlements.json", // DOCUMENT_SLOTS
             "drafts/paint.json",         // DOCUMENT_SLOTS, the slot this pass made restore
             "rasters/heightmap.f32",     // raster_slot
+            "rasters/heightmap.shuffled.f32", // raster_entry_name, §8.2
+            "rasters/territory.shuffled.i32", // the same, for an i32 slot
             "history/territory/1200.i32", // the prefix + extension pair
             "cartography/tiles/index.json", // LOD_TILE_INDEX, ruling 28
             "cartography/tiles/7/106/93.u8", // lod_tile_id
@@ -2141,6 +2229,9 @@ mod tests {
             "drafts/paint.jsonx",
             "rasters/heightmap.f64",     // registered name, wrong extension
             "rasters/unknown.f32",       // right shape, unregistered slot
+            "rasters/unknown.shuffled.f32", // shuffled shape, unregistered slot
+            "rasters/water_bodies.shuffled.u8", // a u8 slot has no shuffled name
+            "rasters/heightmap.shuffled.i32", // registered stem, wrong element
             "history/territory/1200.json", // right prefix, wrong extension
             "history/territory.i32",     // right extension, not under the prefix
             "vendor/notes.txt",          // plainly someone else's
@@ -2763,9 +2854,14 @@ mod tests {
         // Every category `is_own_entry` covers, not just the document slot:
         // a single-case fixture would pass with three of the four branches
         // deleted.
+        //
+        // Both of the heightmap's names (§8.2): the shuffled one is what this
+        // writer produces, and a carried *plain* copy -- from a version-1
+        // archive -- would be a second heightmap beside it.
         for name in [
             "entities/settlements.json",
             "rasters/heightmap.f32",
+            "rasters/heightmap.shuffled.f32",
             "project.json",
             "history/territory/1200.i32",
         ] {
@@ -2779,7 +2875,7 @@ mod tests {
             .collect();
         for name in [
             "entities/settlements.json",
-            "rasters/heightmap.f32",
+            "rasters/heightmap.shuffled.f32",
             "project.json",
         ] {
             assert_eq!(
@@ -2791,6 +2887,10 @@ mod tests {
         assert!(
             !names.iter().any(|n| n == "history/territory/1200.i32"),
             "a carried history raster this project has no year for must not be resurrected"
+        );
+        assert!(
+            !names.iter().any(|n| n == "rasters/heightmap.f32"),
+            "a carried plain heightmap must not ride along beside the shuffled one"
         );
 
         let back = read_project(Cursor::new(&buf)).expect("the archive reads");
@@ -2883,20 +2983,24 @@ mod tests {
         p.raster("rasters/territory.i32", Raster::I32(vec![3; 16]));
         let buf = write_to_vec(&p);
 
-        let odd = set_compression_method(&buf, "rasters/territory.i32", 1);
+        // The entry names are the §8.2 shuffled ones this writer produces;
+        // the warning names the entry as stored, which is what a person
+        // opening the archive in a zip tool will find.
+        let odd = set_compression_method(&buf, "rasters/territory.shuffled.i32", 1);
         let back = read_project(Cursor::new(&odd)).expect("one odd entry must not cost the world");
         assert!(back.raster("rasters/territory.i32").is_none());
         assert_eq!(back.warnings.len(), 1, "{:?}", back.warnings);
         assert!(
-            back.warnings[0].contains("rasters/territory.i32") && back.warnings[0].contains('1'),
+            back.warnings[0].contains("rasters/territory.shuffled.i32") && back.warnings[0].contains('1'),
             "the warning must name the entry and the method: {:?}",
             back.warnings
         );
 
         // The terrain is the one entry whose undecodability is fatal -- and
         // it is reported as unreadable, not as missing, so the user is told
-        // what is actually wrong.
-        let odd = set_compression_method(&buf, "rasters/heightmap.f32", 1);
+        // what is actually wrong. Undecodable under its shuffled name must
+        // NOT fall back to looking for the plain one and report "missing".
+        let odd = set_compression_method(&buf, "rasters/heightmap.shuffled.f32", 1);
         let err =
             read_project(Cursor::new(&odd)).expect_err("an undecodable heightmap is not a world");
         assert!(
@@ -2928,11 +3032,11 @@ mod tests {
         };
 
         assert!(matches!(
-            read_project(Cursor::new(rebuild("rasters/heightmap.f32"))),
+            read_project(Cursor::new(rebuild("rasters/heightmap.shuffled.f32"))),
             Err(LoadError::MissingEntry("rasters/heightmap.f32"))
         ));
 
-        let back = read_project(Cursor::new(rebuild("rasters/temperature.f32")))
+        let back = read_project(Cursor::new(rebuild("rasters/temperature.shuffled.f32")))
             .expect("climate is not fatal");
         assert_eq!(*back.save.fields.temperature, vec![0.0f32; 16]);
         assert_eq!(
@@ -2943,7 +3047,7 @@ mod tests {
         );
 
         // Volcanic/impact zero really is the true value, so no warning.
-        let back = read_project(Cursor::new(rebuild("rasters/volcanic_field.f32"))).unwrap();
+        let back = read_project(Cursor::new(rebuild("rasters/volcanic_field.shuffled.f32"))).unwrap();
         assert_eq!(back.save.fields.volcanic_field, vec![0.0f32; 16]);
         assert!(back.warnings.is_empty(), "{:?}", back.warnings);
     }
@@ -3216,7 +3320,10 @@ mod tests {
         p.created = Some("2026-08-25T00:00:00Z".into());
         let m = manifest_json(&p);
         assert_eq!(m["format"], PROJECT_FORMAT);
-        assert_eq!(m["format_version"], PROJECT_FORMAT_VERSION);
+        // A literal, not `PROJECT_FORMAT_VERSION`: this test's name is a claim
+        // about the specification, and §7 says `2`. Asserting the constant
+        // against itself would hold for every value of it.
+        assert_eq!(m["format_version"], 2);
         assert_eq!(m["world"]["grid_width"], 11);
         assert_eq!(m["world"]["grid_height"], 7);
         assert_eq!(m["world"]["wrap_x"], true);
@@ -3358,6 +3465,234 @@ mod tests {
         assert_eq!(
             content_fingerprint(&write_to_vec(&p)),
             content_fingerprint(&write_to_vec(&p))
+        );
+    }
+
+    // ---- SAVEFILE_COMPAT.md §8.2: the byte-plane shuffle (owner Ruling AJ) ----
+
+    /// The value generator behind `tests/fixtures/project_v1_7x5.ctl`,
+    /// spelled exactly as the one-off program that wrote that file spelled it.
+    /// A multiplicative hash of the cell index, so every byte of every element
+    /// varies -- including exponent bytes that make NaNs, infinities and
+    /// subnormals -- and a stride or plane error cannot hide in a smooth ramp.
+    fn fixture_bits(i: usize, k: u32) -> u32 {
+        (i as u32).wrapping_add(k).wrapping_mul(0x9E37_79B9)
+    }
+
+    fn bits_of(v: &[f32]) -> Vec<u32> {
+        v.iter().map(|x| x.to_bits()).collect()
+    }
+
+    fn entry_names(buf: &[u8]) -> Vec<String> {
+        let mut r = zip::ZipArchive::new(Cursor::new(buf)).unwrap();
+        (0..r.len()).map(|i| r.by_index_raw(i).unwrap().name().to_string()).collect()
+    }
+
+    fn raw_entry(buf: &[u8], name: &str) -> Vec<u8> {
+        let mut r = zip::ZipArchive::new(Cursor::new(buf)).unwrap();
+        let mut out = Vec::new();
+        r.by_name(name).unwrap().read_to_end(&mut out).unwrap();
+        out
+    }
+
+    /// **The load-bearing property of the whole change: an archive on a
+    /// user's disk today still opens, to the same bits.**
+    ///
+    /// The fixture is not built here. It was written on 2026-09-23 by the
+    /// **unmodified version-1 writer** at `064b724` (a one-off program calling
+    /// `write_project` with the values [`fixture_bits`] gives), before a line
+    /// of the shuffle existed, and committed as bytes -- so it is the format
+    /// an existing save actually has, not this build's idea of it. SHA-256
+    /// `9a7998bf3d017541173d66d0ebdd61fed9d2a8b033a16f1b76f50725b2c9a2b8`.
+    #[test]
+    fn a_version_1_archive_reads_exactly_as_it_always_did() {
+        let buf: &[u8] = include_bytes!("../tests/fixtures/project_v1_7x5.ctl");
+        let n = 7 * 5;
+        let f32s = |k: u32| (0..n).map(|i| fixture_bits(i, k)).collect::<Vec<u32>>();
+        let i32s = |k: u32| (0..n).map(|i| fixture_bits(i, k) as i32).collect::<Vec<i32>>();
+        let u8s = |k: u32| (0..n).map(|i| fixture_bits(i, k) as u8).collect::<Vec<u8>>();
+
+        // The fixture is what it claims to be: plain names only, and the
+        // heightmap entry is the plain dump, checked from the bytes rather
+        // than through the reader under test.
+        let names = entry_names(buf);
+        assert!(names.iter().any(|n| n == "rasters/heightmap.f32"), "{names:?}");
+        assert!(!names.iter().any(|n| n.contains(SHUFFLED_INFIX)), "{names:?}");
+        let dump: Vec<u8> = f32s(1).iter().flat_map(|b| b.to_le_bytes()).collect();
+        assert_eq!(raw_entry(buf, "rasters/heightmap.f32"), dump);
+
+        let back = read_project(Cursor::new(buf)).expect("a version-1 archive opens");
+        assert_eq!(back.format_version, 1);
+        assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+        assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
+        let f = &back.save.fields;
+        assert_eq!(bits_of(&f.heightmap), f32s(1));
+        assert_eq!(bits_of(&f.temperature), f32s(2));
+        assert_eq!(bits_of(&f.rainfall), f32s(3));
+        assert_eq!(bits_of(&f.volcanic_field), f32s(4));
+        assert_eq!(bits_of(&f.impact_field), f32s(5));
+        assert_eq!(f.strahler_order, u8s(6));
+        assert_eq!(back.raster("rasters/territory.i32"), Some(&Raster::I32(i32s(7))));
+        match back.raster("rasters/agrarian_density.f32") {
+            Some(Raster::F32(v)) => assert_eq!(bits_of(v), f32s(8)),
+            other => panic!("agrarian_density: {other:?}"),
+        }
+        assert_eq!(back.raster("rasters/water_bodies.u8"), Some(&Raster::U8(u8s(9))));
+        assert_eq!(back.history_territory.get(&7), Some(&i32s(10)));
+        assert_eq!(back.text_of("vault.json"), Some(r#"{"version":1,"links":[]}"#));
+
+        // Opening an old save and saving it writes version 2 -- and loses
+        // nothing on the way: the re-saved archive reopens to the same bits.
+        let mut again = ProjectWrite::new(&back.save.params, &back.save.fields);
+        again.rasters = back.rasters.clone();
+        again.history_territory = back.history_territory.clone();
+        let buf2 = write_to_vec(&again);
+        let back2 = read_project(Cursor::new(&buf2)).unwrap();
+        assert_eq!(back2.format_version, 2);
+        assert_eq!(bits_of(&back2.save.fields.heightmap), f32s(1));
+        assert_eq!(bits_of(&back2.save.fields.rainfall), f32s(3));
+        assert_eq!(back2.raster("rasters/territory.i32"), Some(&Raster::I32(i32s(7))));
+        assert_eq!(back2.history_territory.get(&7), Some(&i32s(10)));
+    }
+
+    /// Round trip **and** layout. A round trip alone cannot tell a correct
+    /// shuffle from a writer and reader that are wrong in the same way, and a
+    /// second implementation reads the bytes, not this crate -- so the stored
+    /// entry is checked against §8.2's own formula, `stored[k*n + i] ==
+    /// le(v[i])[k]`, written out here independently of `write_planes`.
+    #[test]
+    fn a_shuffled_raster_round_trips_bit_for_bit_and_is_stored_as_planes() {
+        let (params, mut fields) = sample(7, 5);
+        let n = 35;
+        let specials = [
+            0.0f32,
+            -0.0,
+            f32::NAN,
+            f32::from_bits(0x7fc0_1234), // a NaN with a payload
+            f32::from_bits(0xffa0_0001), // a negative signalling-shaped NaN
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::from_bits(1), // the smallest subnormal
+            f32::MIN_POSITIVE,
+            f32::MAX,
+            -f32::MAX,
+            0.42,
+            1.0,
+        ];
+        let hm: Vec<f32> = (0..n)
+            .map(|i| specials.get(i).copied().unwrap_or_else(|| f32::from_bits(fixture_bits(i, 11))))
+            .collect();
+        fields.heightmap = Arc::new(hm.clone());
+        let terr: Vec<i32> = (0..n)
+            .map(|i| match i {
+                0 => i32::MIN,
+                1 => i32::MAX,
+                2 => -1,
+                3 => 0,
+                _ => fixture_bits(i, 12) as i32,
+            })
+            .collect();
+        let mut p = ProjectWrite::new(&params, &fields);
+        p.raster("rasters/territory.i32", Raster::I32(terr.clone()));
+        p.raster("rasters/water_bodies.u8", Raster::U8((0..n).map(|i| i as u8).collect()));
+        p.history_territory.insert(9, terr.clone());
+        let buf = write_to_vec(&p);
+
+        // Every 4-byte raster under its shuffled name and NOT its plain one --
+        // the absence of `rasters/heightmap.f32` is what makes a version-1
+        // reader refuse this archive instead of drawing noise. `u8` and
+        // history keep their plain names (§8.2, §10.2).
+        let names = entry_names(&buf);
+        for slot in RASTER_SLOTS.iter().filter(|s| {
+            CORE_RASTERS.contains(&s.path) || s.path == "rasters/territory.i32" || s.path == "rasters/water_bodies.u8"
+        }) {
+            let shuffled = slot.element.size() == 4;
+            let stored = if shuffled { raster_entry_name(*slot) } else { slot.path.to_string() };
+            assert!(names.contains(&stored), "{stored} missing from {names:?}");
+            if shuffled {
+                assert!(!names.iter().any(|x| x == slot.path), "{} written plain as well", slot.path);
+            }
+        }
+        assert!(names.iter().any(|x| x == "history/territory/9.i32"), "{names:?}");
+        assert_eq!(
+            raster_entry_name(raster_slot("rasters/heightmap.f32").unwrap()),
+            "rasters/heightmap.shuffled.f32"
+        );
+
+        let raw = raw_entry(&buf, "rasters/heightmap.shuffled.f32");
+        assert_eq!(raw.len(), n * 4);
+        for (i, v) in hm.iter().enumerate() {
+            for k in 0..4 {
+                assert_eq!(raw[k * n + i], v.to_le_bytes()[k], "heightmap byte {k} of cell {i}");
+            }
+        }
+        let raw = raw_entry(&buf, "rasters/territory.shuffled.i32");
+        for (i, v) in terr.iter().enumerate() {
+            for k in 0..4 {
+                assert_eq!(raw[k * n + i], v.to_le_bytes()[k], "territory byte {k} of cell {i}");
+            }
+        }
+        // History stays the plain dump.
+        let dump: Vec<u8> = terr.iter().flat_map(|v| v.to_le_bytes()).collect();
+        assert_eq!(raw_entry(&buf, "history/territory/9.i32"), dump);
+
+        let back = read_project(Cursor::new(&buf)).unwrap();
+        assert_eq!(back.format_version, 2);
+        assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+        assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
+        assert_eq!(bits_of(&back.save.fields.heightmap), bits_of(&hm));
+        assert_eq!(bits_of(&back.save.fields.temperature), bits_of(&fields.temperature));
+        assert_eq!(bits_of(&back.save.fields.volcanic_field), bits_of(&fields.volcanic_field));
+        assert_eq!(back.raster("rasters/territory.i32"), Some(&Raster::I32(terr.clone())));
+        assert_eq!(back.history_territory.get(&9), Some(&terr));
+    }
+
+    /// The other half of §8.2's marker: the reader decides by NAME. A plain
+    /// entry in a version-2 archive (a writer that skipped the shuffle, which
+    /// §8.2 permits) is read as a dump, never un-shuffled; and an archive
+    /// carrying both names for one slot reads the shuffled one and says so.
+    #[test]
+    fn a_plain_entry_is_never_unshuffled_and_two_copies_are_reported() {
+        let (params, fields) = sample(7, 5);
+        let buf = write_to_vec(&ProjectWrite::new(&params, &fields));
+        let rebuild = |drop_shuffled: bool, plain: &[f32]| -> Vec<u8> {
+            let mut out = Vec::new();
+            {
+                let mut r = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+                let mut w = zip::ZipWriter::new(Cursor::new(&mut out));
+                for i in 0..r.len() {
+                    let e = r.by_index_raw(i).unwrap();
+                    if drop_shuffled && e.name() == "rasters/heightmap.shuffled.f32" {
+                        continue;
+                    }
+                    w.raw_copy_file(e).unwrap();
+                }
+                w.start_file("rasters/heightmap.f32", zip_opts()).unwrap();
+                w.write_all(&plain.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>())
+                    .unwrap();
+                w.finish().unwrap();
+            }
+            out
+        };
+
+        let only_plain = read_project(Cursor::new(rebuild(true, &fields.heightmap))).unwrap();
+        assert_eq!(only_plain.format_version, 2);
+        assert!(only_plain.warnings.is_empty(), "{:?}", only_plain.warnings);
+        assert_eq!(bits_of(&only_plain.save.fields.heightmap), bits_of(&fields.heightmap));
+
+        let decoy = vec![9.5f32; 35];
+        let both = read_project(Cursor::new(rebuild(false, &decoy))).unwrap();
+        assert_eq!(
+            bits_of(&both.save.fields.heightmap),
+            bits_of(&fields.heightmap),
+            "the shuffled copy wins"
+        );
+        assert_eq!(both.warnings.len(), 1, "{:?}", both.warnings);
+        assert!(
+            both.warnings[0].contains("rasters/heightmap.f32")
+                && both.warnings[0].contains("rasters/heightmap.shuffled.f32"),
+            "{:?}",
+            both.warnings
         );
     }
 }
