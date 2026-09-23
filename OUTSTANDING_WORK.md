@@ -2382,7 +2382,8 @@ section carried is history: `cff1edc` landed the downstream wiring.*
 > ("the first consumer `cartalith-urban` has ever had") reaches the crate
 > through `cartalith_civ::urban_adapter`, which is the layering
 > `cartalith-civ/Cargo.toml:18-22` explicitly defends. The "zero consumers"
-> sentence in `URBAN_MORPHOLOGY_SCOPE.md:1761-1766` is a **quotation of what
+> sentence `URBAN_MORPHOLOGY_SCOPE.md` used to carry (removed in its 2026-09-24
+> cleanup, `c4c930c`) was a **quotation of what
 > `PARITY_AUDIT.md` §3.4 found before milestone 17a**, and the same paragraph
 > describes closing it. What is missing is the generator stages above, not the
 > Cargo edge; adding a direct edge would buy nothing and violate the layering.
@@ -3200,7 +3201,9 @@ Small, but this is the document set that exists because countable claims drift.
   a concrete need appears rather than building it speculatively"*, while
   `STATUS.md` lists shipped "LOD levels 0-8, Tiled LOD auto/manual" and
   `LOD_TILING_BASE_SCOPE.md` exists.
-- `URBAN_MORPHOLOGY_SCOPE.md` gives the `_um*` adapter's denominator as **20**
+- *(Resolved 2026-09-24 by the urban scope cleanup, `c4c930c`: the document now
+  says 27 `_um*` functions in total and 20 in the adapter's scope, everywhere; all
+  20 are accounted for — `STATUS.md` UM-17.)* `URBAN_MORPHOLOGY_SCOPE.md` gave the `_um*` adapter's denominator as **20**
   at `:2098` and **28** at `:1770`. The 20-item list is the one that enumerates
   names, so it is the checkable one: 13 ported, 5 blocked on milestones
   9/10/13/15, `_umPt` typed away, `_umCacheKey` out of scope.
@@ -3220,9 +3223,12 @@ Small, but this is the document set that exists because countable claims drift.
   name (7 only partly executed: the fifth save slot the ruling called for is
   still unbuilt) and leaves 1, 2, 3, 6, 8, 9 and 10 genuinely open.
 
-### 6.9 One claim that would misdirect a ruling
+### 6.9 ~~One claim that would misdirect a ruling~~ — closed 2026-09-24
 
-`URBAN_MORPHOLOGY_SCOPE.md:1761-1766` contains the sentence *"the crate is not a
+*Closed: the urban scope's 2026-09-24 cleanup (`c4c930c`) removed the sentence,
+so the document no longer carries the hazard. Kept as the record of it.*
+
+`URBAN_MORPHOLOGY_SCOPE.md:1761-1766` contained the sentence *"the crate is not a
 dependency of `cartalith-godot`"*. It is a **quotation of what `PARITY_AUDIT.md`
 §3.4 found before milestone 17a**, and the same paragraph goes on to describe
 closing it. Read out of context it will produce a ruling to add a Cargo edge
