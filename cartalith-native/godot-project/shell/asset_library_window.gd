@@ -31,13 +31,14 @@ class_name AssetLibraryWindow
 ## Four engine realities the mockup does not know about, kept rather than
 ## re-drawn (each is a recorded, disclosed decision -- see `GUI_GAP_REGISTER.md`):
 ##
-## - **AS-16 · eight families, not 24.** §8 says "24 families… Settlements,
+## - **AS-16 · nine families, not 24.** §8 says "24 families… Settlements,
 ##   Terrain, Cartography, plus Collections." `cartalith-assets/src/slots.rs` +
-##   `library.rs` define **eight** -- `textures`, `biomes`, `terrains`, `icons`,
-##   `settlement`, `trait`, `poi`, `custom` -- and `ASSET_LIBRARY_SCOPE.md` §1
-##   recorded exactly this when Phase 4's engine side was built. The rail keeps
+##   `library.rs` define **nine** -- the reference's eight (`textures`, `biomes`,
+##   `terrains`, `icons`, `settlement`, `trait`, `poi`, `custom`, recorded in
+##   `ASSET_LIBRARY_SCOPE.md` §1 when Phase 4's engine side was built) plus the
+##   port's own `seamarks` (`Family::ALL`). The rail keeps
 ##   the mockup's *visual grammar* (group headers, `code · name · filled/
-##   capacity`, accent when incomplete) and lists the real eight; the FAMILIES
+##   capacity`, accent when incomplete) and lists the real nine; the FAMILIES
 ##   band's own tooltip carries the disclosure the old prose paragraph carried.
 ## - **AS-15 · anchor is family-level.** The mockup draws a per-slot
 ##   top/centre/base segmented control. `Family` fixes the anchor for every slot
@@ -164,6 +165,14 @@ const FAMILIES: Array[Dictionary] = [
 		"anchor": "center", "texture": false, "size": 256,
 		"slots": ["ruin", "landmark", "mountain_peak", "lake", "named_forest",
 			"battlefield", "shrine", "cave", "bridge", "other"]},
+	## The port's ninth family, added by owner ruling so the placement
+	## vocabulary's SEA MARKS has real slots (`slots.rs::PACK_SEAMARK_SLOTS`,
+	## `Family::SeaMark`, centre-anchored). Missing from this list until
+	## 2026-09-24, so a pack could fill these slots but the window could not show them.
+	{"key": "seamarks", "code": "SM", "title": "Sea marks", "group": "Structures",
+		"anchor": "center", "texture": false, "size": 256,
+		"slots": ["lighthouse", "beacon", "buoy", "anchorage", "shipwreck", "reef",
+			"shoal", "whirlpool"]},
 	{"key": "custom", "code": "CU", "title": "Custom icons", "group": "Custom",
 		"anchor": "center", "texture": false, "size": 256, "custom": true, "slots": []},
 ]
@@ -220,7 +229,7 @@ const SZ_SWATCH := 20
 
 ## The disclosure the family rail used to spend 90 px of prose on. Same words,
 ## now on the FAMILIES band's tooltip so the rail can look like the canvas.
-const FAMILIES_NOTE := "Eight families, frozen against the reference engine (cartalith-assets::slots / library) -- not the design canvas's own 24. The canvas subdivides more finely (splitting e.g. \"Feature icons\" into \"Trees & cover\" / \"Rock & scree\"); no Rust type draws that line, and ASSET_LIBRARY_SCOPE.md §1 recorded the real eight when Phase 4's engine side was built. Capacity and fill counts are both real (AssetDB::slots_in_family + per-slot filled state)."
+const FAMILIES_NOTE := "Nine families: the reference engine's eight, frozen, plus this port's Sea marks (cartalith-assets::slots / library) -- not the design canvas's own 24. The canvas subdivides more finely (splitting e.g. \"Feature icons\" into \"Trees & cover\" / \"Rock & scree\"); no Rust type draws that line, and ASSET_LIBRARY_SCOPE.md §1 recorded the real eight when Phase 4's engine side was built. Capacity and fill counts are both real (AssetDB::slots_in_family + per-slot filled state)."
 
 ## **One string for both compositions, and it lists exactly what
 ## `_slot_matches()` looks at.** The two wells carried different placeholders
@@ -1350,8 +1359,8 @@ func _build_family_rail() -> Control:
 		for f in by_group.get(g, []):
 			_rail_row(body, f)
 
-	## AS-12's Collections rail: `Family` above is the mockup's own fixed
-	## eight; collections are a live, unbounded, user-created set
+	## AS-12's Collections rail: `Family` above is the engine's own fixed
+	## nine; collections are a live, unbounded, user-created set
 	## (`as_batch_collect`/`as_collections`), so this section is rebuilt
 	## in place (`_refresh_collections_rail`) rather than built once here.
 	body.add_child(DccTheme.rule())
