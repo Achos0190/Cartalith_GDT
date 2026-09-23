@@ -39,6 +39,18 @@ won and §6 records the disagreement — those defects in the project record are
 worth more than any single milestone row below, and a reader with ten minutes
 should read §6 before §2.
 
+70 outstanding items — 2026-09-23, unchanged in count (filed and closed in the same pass — owner-directed
+mid-session, not a pre-existing backlog row): **the general TOOLS block moved from the per-panel left dock
+into a new always-visible top bar, commit `830c35b`, Ruling AK.** Owner, viewing the running app directly
+across WORLD/CIVIL/CARTO: "the tools should be in a horizontal toolbar that sits on top." Checked the actual
+current design canvas before building — disclosed honestly, it does not agree (the canvas keeps these tools
+as text pills in the left dock) — built as instructed anyway, since a direct owner decision outranks a
+canvas, and recorded as a deliberate departure rather than a silent one. Three follow-up questions (icon vs.
+text-pill style; always-visible vs. conditional on an armed tool; keep or revert) all confirmed the build
+as-shipped. Real windowed screenshots of all three panels the owner screenshotted, before and after; every
+tool's actual function re-verified with a real click/key-press/lit-state check, 21 of 21 in both desktop and
+tablet, identical before and after (the move changed nothing about what any tool does). A real, previously-
+hidden bug found and fixed in passing: pressing Esc with a tool already armed left nothing visually lit.
 70 outstanding items — 2026-09-23, net −1: military manpower finding 2 closed, commit `dda315e` (Ruling
 AI, options b+c on top of the already-satisfied option a). Map-scale normalization fixed a real root cause
 (settlement count capped by grid cells, never km², while land capacity scaled with map area); era-bracket
@@ -278,6 +290,40 @@ never exceeds the existing 8K monolithic figure), while `export_raster_png` stil
 paths' refusal policy has diverged and needs a ruling. Commit `ce2c71d`.
 ## The count, honestly
 
+**80 outstanding items** — 2026-09-23, unchanged in count: documentation-reconciliation pass on §2.2,
+not a build pass. §2.2's own prose claimed *"Eighteen rows, all ruled build... Sixteen remain not
+started,"* naming only Paint brush falloff and CARTO ▸ Labels as closed — but the `| Item | Size | Note |`
+table directly under that prose held **zero rows**, confirmed by two independent reads before this pass and
+a third during it. The sixteen missing rows were not orphaned elsewhere and were not silently dropped by an
+editing accident either: every one of the seventeen rulings actually marked `build` in
+`LARGE_ITEM_RULINGS.md` (fifteen under `## Build`, two — the manual-icon tool and `Region ▸ New world from
+selection` — under `## Schedule separately`) **had already closed**, in this very log, between 2026-09-01
+and 2026-09-21 — CARTO ▸ Labels and Paint brush falloff first (the two the stale paragraph named), then
+Label collision culling and CARTO ▸ Icons (128→126), Settlement diagnostics and the Landmark funnel and CPU
+worker threads (126→124), `Report an issue` (124→123), Colour management and Rebindable shortcuts
+(123→121), Civilisation authoring and the river entity (121→119), Units and `Region ▸ New world from
+selection` (119→120), Saved measurements + CSV (116→115), and the manual-icon tool (115→112); Cut · Copy ·
+Paste · Select all closed separately on 2026-09-21. The table was therefore correctly empty and had been for
+weeks — the defect was entirely in a paragraph that kept asserting "sixteen remain" long after its own
+document's own log, two sections up, had closed every one of them. **The eighteenth row `LARGE_ITEM_RULINGS.md`
+carries is the 3D viewport, ruled deferred-with-research-first, never `build`**; the old prose's "eighteen...
+ruled build" folded it in wrongly, and it is correctly tracked elsewhere in this file as parked rather than
+counted against this section. **Re-verified against the live tree rather than re-trusted from the log**: all
+seventeen symbols opened today and confirmed present and wired — `total_cmp` labelling comparator, the
+sea-marks asset family (`Family::SeaMark`, 8 slots), `get_rivers` plus `_river_pick_radius_cells` hit-testing,
+`civ_rebuild`'s three `CivRebuild` modes, the settlement-diagnostics `order 0` dash fix, `LandmarkSettings::
+crowding_in_force` and the live funnel chips, the shipped clipboard (`menus.gd`'s `_live(p, "Cut"/"Copy"/
+"Paste"/"Select all", ...)`), nautical-mile units, `shortcuts_dialog.gd`'s per-context `_conflicts_within_menu`,
+`DOCUMENT_SLOTS`'s measurements slot, `_sync_color_space()`'s `close_world()` fix, `PaintStamp::with_falloff`,
+`icon_arm`/`icon_handles`, and `region_as_new_world`. **One row got a real, not re-derived, check**: CPU worker
+threads was narrowed-not-closed on 2026-09-03 by its own verifier ("a setter that returns `true` while
+changing nothing"); `cartalith_engine::set_configured_thread_count`/`ensure_thread_pool` is confirmed fixed
+and still fixed three weeks later, and `menus.gd`'s `_todo` fallback at line 3054 is confirmed to be the
+disclosed predates-the-API branch, not a stale claim, by reading the guard at line 3051 that selects it.
+**No count change**, because the empty table was already contributing zero to every mechanical recount since
+the last of the seventeen closed — this pass fixes a false paragraph, not a miscounted total.
+`LARGE_ITEM_RULINGS.md` itself was not touched, per `CLAUDE.md`'s rule that it is a decision record, not a
+status tracker.
 **80 outstanding items** — 2026-09-23, unchanged in count (partial progress on an already-open row, E3/E4
 remain): E2 of the 16K/32K export's banded writer landed — bands now stream to disk instead of the whole
 raster living in memory, 32K PNG peaking at ~1.33 GB against ~15.2–15.3 GB monolithic, verified with an
@@ -1918,28 +1964,125 @@ section carried is history: `cff1edc` landed the downstream wiring.*
 
 ### 2.2 The owner's 2026-08-31 Large rulings
 
-Eighteen rows, all ruled **build** on 2026-08-31 in `LARGE_ITEM_RULINGS.md`.
-**Sixteen remain not started; two have closed and are deleted from the table
-below.** Paint brush falloff closed 2026-09-01, second pass, verified against
-the code (`paint.rs`, `paint_bridge.rs`, the two touched `.gd` files,
-`DECISIONS.md` §7k; full evidence in `UNWIRED_FUNCTIONS.md`'s Large section
-and `STATUS.md`). CARTO ▸ Labels closed 2026-09-02, all three steps verified
-against the code: `LabelClass` (5 variants) and `label_class` on `LabelDto`
-(`crates/cartalith-godot/src/project_bridge.rs`, `#[serde(default)]` so an
-older archive still opens), `labels::label_candidates`/`generate_labels`
-(`crates/cartalith-civ/src/labels.rs`) over five sources kept beside the
-hand-placed list, and `LABEL_TYPOGRAPHY_DEFAULTS` transcribed from
-`parts.js:363` (26/2.5/.28, 18/2/.20, 13/1.5/.06, 15/1.5/.14 italic,
-11/1.2/.06), drawn by `map_overlay.gd::_draw_labels`. The Water class had no
-entity at all; `labels::lake_features()` fills it. **One correction on the
-way out**: the ruling's own "halo and tracking do not exist in the engine
-today" was half true — tracking, yes; halo was not, since
-`labels::arc_label_line_width` already existed, golden-pinned; what was
-missing was a halo any label class could actually *set*, which
-`LabelTypography::halo_px` now is. Two of the sixteen still carry costs the
-build must honour, and one more is excluded pending an owner answer (§3.1).
-*`LARGE_ITEM_RULINGS.md` was untracked when this section was written; it is
-tracked in `HEAD` as of `fd9de7c` — see §6.1.*
+**Corrected 2026-09-23 — this section had gone stale in the specific way this
+document's own culture exists to catch.** Its prose asserted *"Eighteen rows,
+all ruled build... Sixteen remain not started"*, naming only Paint brush
+falloff and CARTO ▸ Labels as closed, while the table beneath it — the thing
+that prose describes — held **zero rows**, confirmed by two independent
+reads. Two possibilities were named in the brief that found this: either the
+sixteen live elsewhere under a different heading, or they were never
+re-added after some edit emptied the table. Neither is quite it. **All
+seventeen of the rulings actually marked `build`** (fifteen under
+`LARGE_ITEM_RULINGS.md`'s `## Build`, plus `## Schedule separately`'s two —
+the manual-icon tool and `Region ▸ New world from selection`) **shipped and
+closed between 2026-09-01 and 2026-09-21, recorded in this file's own "The
+count, honestly" log**, which is why the table under this heading has stood
+empty and correct since the last of them closed: there was never a live
+gap here, only a paragraph that kept saying "sixteen" long after the log two
+sections up had closed every one of them. The eighteenth row this ruling
+document carries, the 3D viewport, was ruled **deferred, with research
+first** — never `build` — and the old prose's "all eighteen... ruled build"
+folded it in wrongly; it is tracked correctly elsewhere in this file as
+parked, not counted here. Re-verified against the live tree, this pass
+(each cite is a symbol actually opened today, not a re-read of the log):
+
+- **CARTO ▸ Labels: the whole panel** — closed 2026-09-02. `LabelClass` (5
+  variants) and `LABEL_TYPOGRAPHY_DEFAULTS` (`crates/cartalith-civ/src/labels.rs`),
+  `label_candidates`/`generate_labels` over five sources, drawn by
+  `map_overlay.gd`'s `_draw_labels` (confirmed present today).
+- **Label collision culling** — closed 2026-09-03 (128→126 wave), verified
+  10/10 by an independent adversarial pass. Rides the same labelling pass;
+  the comparator is `total_cmp` (`crates/cartalith-civ/src/labels.rs:1094-1114`),
+  not `partial_cmp(..).unwrap_or(Equal)` — the NaN-panic-across-the-gdext-boundary
+  fix landed in the same wave.
+- **CARTO ▸ Icons: generated placement** — closed 2026-09-03 (same wave). The
+  sea-marks family is real: `Family::SeaMark`/`ManualIconFamily::SeaMark`
+  (`crates/cartalith-assets/src/manifest.rs`, `manual.rs`), eight slots
+  (`lighthouse`, `beacon`, `buoy`, `anchorage`, `shipwreck`, `reef`, `shoal`,
+  `whirlpool`, `crates/cartalith-assets/src/library.rs:163-170`), reusing the
+  label culler for the coastline-snap test rather than growing a second one.
+- **The river entity** — closed (fifth pass, 2026-09-03, re-verified already
+  built rather than built new). `get_rivers` (`crates/cartalith-godot/src/lib.rs:8277`)
+  plus hit-testing confirmed live today: `_river_pick_radius_cells()` and
+  `RIVER_PICK_MIN_ORDER` (`godot-project/shell/right_dock.gd:727,760`).
+- **Civilisation authoring operations** — closed (fifth pass, 2026-09-03).
+  `civ_rebuild` (`crates/cartalith-godot/src/lib.rs:5918`) is re-entrant over
+  three `CivRebuild` modes (`Downstream`/`Replace`/`Routes`, `lib.rs:542-633`,
+  `civ_settle_staleness` gating verified), plus the civ `PARAMS` group
+  (`lib.rs:1885,2206,4640,5682`).
+- **Settlement diagnostics overlay** — closed (126→124 wave, 2026-09-03; the
+  original ruling needed no Cargo edit, `cartalith-godot` already reached
+  `cartalith_civ::urban_adapter`). The `order 0` bug the wave's own verifier
+  caught is fixed and documented at the symbol: `civilization_workspace.gd`
+  around line 1897-1925 ("dashed rather than printed as 0").
+- **Landmark funnel** — closed (126→124 wave, 2026-09-03). Both halves:
+  crowding lives at `LandmarkSettings::crowding_in_force`
+  (`crates/cartalith-civ/src/landmark.rs:874`), `rejects.rs`'s
+  `Option<f64>::None` marshalling bug (three instances of "no value" printed
+  as a plausible `0.0`) fixed the same wave; the chips are still wired today
+  (`civilization_workspace.gd:5009` "Raise crowding to × %.2f").
+- **Cut · Copy · Paste · Select all** — the clipboard shipped `686cd2a`
+  (2026-09-03); **CLOSED 2026-09-21 (verified)**, re-confirmed by an
+  independent agent that found it live rather than building it again
+  (`_clipboard_probe.gd`, 25 assertions, PASS). Verified again today at the
+  symbol: `menus.gd`'s `_live(p, "Cut"/"Copy"/"Paste"/"Select all", ...)`
+  (lines 1090-1126), a real `_clipboard` dict (line 1427) and
+  `crates/cartalith-godot/src/selection.rs`'s `SelectionSet`. Icons and
+  labels only, by the shipped code's own disclosed scope — sculpt stamps
+  (no read-back) and settlements (no selection set) are named out, not
+  silently missing.
+- **`Units` (km/mi)** — closed (sixth batch, 2026-09-03), extended to
+  nautical miles as ruled: `UNIT_MODES: Array[String] = ["km", "mi", "nmi"]`
+  (`dcc_settings.gd:450`), `dcc_units.gd`'s `KM_PER_NMI` conversion and
+  `"nm"` display suffix, `DccUnits.format_area`.
+- **Rebindable keyboard shortcuts** — closed (fourth batch, 2026-09-03).
+  Per-context, with same-context conflicts surfaced and cross-context ones
+  correctly not flagged: `_conflicts_within_menu`
+  (`shortcuts_dialog.gd:457-465`), scoped to `_capture_popups`' own ids by
+  construction, not by a second check.
+- **Saved measurements + CSV** — closed (eighth batch, 2026-09-03), as the
+  fifth caller of the caller-owned save-slot path rather than a second
+  mechanism: `annotations/measurements.json` in `DOCUMENT_SLOTS`
+  (`crates/cartalith-io/src/project.rs:381`).
+- **Colour management** — closed (fourth batch, 2026-09-03), sRGB-identity
+  default (`ColorSpace::Srgb => return` before a byte is read). The
+  `close_world()` reset-vs-stale-picker bug the wave's own verifier caught is
+  fixed at the symbol: `render_workspace.gd`'s `_sync_color_space()`
+  (line 2058), whose own doc comment names the bug and the fix.
+- **Paint brush falloff** — closed 2026-09-01. `PaintStamp::with_falloff`
+  (`crates/cartalith-spatial/src/paint.rs`), the deliberate reference
+  divergence recorded in `DECISIONS.md` §7k as the ruling required.
+- **CPU worker threads** — **re-verified today, 2026-09-23, per this file's
+  own explicit flag that it was narrowed-not-closed on 2026-09-03** ("a
+  setter that returns `true` while changing nothing"). That defect is fixed
+  and still fixed three weeks later: `set_configured_thread_count`/
+  `ensure_thread_pool`/`ACTIVE_THREADS`/`POOL_BUILT_FROM`
+  (`crates/cartalith-engine/src/lib.rs:914-1072`) now records a preference
+  and reports honestly whether it actually built the pool, replacing the
+  refuted `ACTIVE_THREADS == 0` inference. `menus.gd::_build_cpu_threads_menu`
+  (line 3596) is the live menu, wired behind
+  `_engine_has("set_cpu_thread_count")`; the `_todo` at line 3054 is not a
+  stale claim, it is the disclosed fallback for a GDExtension build that
+  predates the API (the `else` of that same guard, line 3051-3055) —
+  confirmed by reading both branches, not assumed from one.
+- **`Report an issue`** — closed (124→123 wave, 2026-09-03). Renamed to a
+  local diagnostic dump with no endpoint, as ruled: `diagnostic_report.gd`,
+  `diagnostic_review_dialog.gd`.
+- **The manual-icon tool** — closed (ninth batch, 2026-09-03; found already
+  built, not built new). Arming, rendering and persistence all resolve:
+  `icon_arm`/`icon_handles` (`crates/cartalith-godot/src/lib.rs:9515,9694`),
+  `IconEditor` (`icon_bridge.rs:362`).
+- **`Region ▸ New world from selection`** — closed (sixth batch, 2026-09-03).
+  `region_as_new_world` (`crates/cartalith-engine/src/region_export.rs:360`),
+  with eight dedicated tests at the symbol.
+
+**Net effect on the count: none.** The table below already carried zero rows
+before this pass, so it was already contributing zero to the headline in
+every mechanical recount since the last of these seventeen closed — the
+defect was the paragraph asserting sixteen open items that were not there,
+not a miscounted total. See the new entry in "The count, honestly" for the
+disclosure. `LARGE_ITEM_RULINGS.md` itself was not edited — it is a decision
+record, not a status tracker, per this repository's `CLAUDE.md`.
 
 | Item | Size | Note |
 |---|---|---|
@@ -1948,7 +2091,7 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
-| **The raw ecological ratio tracks world SIZE, not only ecology** | `MILITARY_MANPOWER_SCOPE.md` §3.3 | medium | **Disclosed by the ruling-11 lane rather than tuned around, and it is the honest limit of that ruling.** Measured at a fixed faction count: median raw `land_capacity / total_pop` is **0.39 on a 512×384 / 800 km world against 5.04 on a 768×576 / 2 000 km one**. So part of the upper tail the new 4.0 ceiling now admits is **map scale, not fertility**. Normalising it means changing how `land_capacity` or `nucleated_pop` are computed, which is a different question and a larger one — raising the ceiling was the right fix for the symptom ruled on, and this is what it does not reach |
+| ~~**The raw ecological ratio tracks world SIZE, not only ecology**~~ — **CLOSED 2026-09-23 (verified, superseded by Ruling AI(b))** | `MILITARY_MANPOWER_SCOPE.md` §3.3 | medium | **This is the exact defect `world_land_reference`/`civ_military_manpower_world` (`cartalith-civ/src/manpower.rs`) fixed, under a different name, earlier the same day.** That function divides every faction's `land_capacity` by the world's own population-weighted land-per-person average, removing the map-area term this row complains about — its own doc comment measures the identical phenomenon this row did (0.32 on an 800 km world vs. the 4.0 ceiling on a 2 000 km one, here 0.39 vs. 5.04 — same effect, different map sizes). Confirmed wired into the live bridge, not just a library function: `civ_military_bridge.rs:409` calls `civ_military_manpower_world`. This row's own text names its blocker as "changing how `land_capacity` or `nucleated_pop` are computed" — that is exactly what shipped. Found and closed by a documentation-reconciliation pass, not a new build. |
 | ~~**Consolidate landmarks into `cartalith-civ`** (ruling 24)~~ — **CLOSED 2026-09-23 (owner ruling: ratify the existing split)** | `ARCHITECTURE.md` | medium | **Owner ruled 2026-09-06 to consolidate, against the original recommendation to ratify the existing split — that ruling was made on a summary that was wrong.** Measured 2026-09-06: the "landmark logic split across two crates" claim was false. The terrain half, `cartalith-terrain/src/analysis.rs`, is general terrain analysis (`local_relief`, `tpi_multiscale`, `slope`, `normalise`) that landmarks *consume*, not landmark-only — `cartalith-godot/src/sample_bridge.rs:154` imports it as user-facing analysis fields in their own right. Usage outside its own crate: 18 in `landmark.rs`, 7 in `landmark_timing.rs`, 4 in `sample_bridge.rs`, 1 in `cartalith-civ/src/lib.rs`. Consolidating would have moved a terrain primitive into the civilisation crate and inverted the dependency the split exists to keep. **Owner ruling 2026-09-23: ratify the existing split as correct** — no refactor. Documentation-only closure, no code change. |
 | **Un-shelve the 16K/32K export** (ruling 15) — **THE LADDER SHIPS; E1, E2 AND E3 OF THE BANDED WRITER NOW TOO** | `EXPORT_SCOPE.md` | medium | **Reduced from large 2026-09-06: the path already survived both new sizes, so most of what this row assumed was work turned out to be measurement.** `BAKE_WIDTHS` is now `[2048, 4096, 8192, 16384, 32768]`, and **both new rungs were run end to end** — 16K at 80.4 MB / 15.7 s / 4 169 MB peak, 32K at 213.9 MB / 69.2 s / 15 349 MB peak, reproduced independently by the verifier. `refuse_unaffordable` gates every width against `OS.get_memory_info()` before allocating. **E1 (the banded terrain renderer) CLOSED 2026-09-22 (verified)**: `ExportBandPlan`/`ExportBand`/`bake_export_band` rebuild §4's exact proven-and-reverted design — width-independent band planning (a budget covering the whole raster yields exactly one band with a zero apron, so the shipped 2K/4K/8K path is untouched, still monolithic), the `apply_local_contrast`/`build_grade_influence` band splits with both of §4.2's named traps (band-local `border_cover`, band-local radius) avoided. All five of §4.3's required tests pass with real measured numbers — zero differing bytes at every band size tested including a wider-radius case, no boundary step, non-vacuous negative controls (forcing the apron to 0 diverges by 42 120 bytes, proving the apron is what makes the identity hold), exact plan arithmetic 2K-32K. Four mutation tests each caught a real defect. One honest caveat disclosed: §4.2's f64-exactness proof is measured exact at test size but not strictly proven at 32K's extreme window (~55 bits needed against f64's 53) — a byte would only flip on a coincident u8-rounding edge. Verified independently: `ExportBandPlan`/`bake_export_band` confirmed present at the symbol, `cargo test --workspace --no-fail-fast` re-run (164/3485/0/34, matching the agent's own math exactly against the concurrently-landed QuadTree retirement). Commit `de3c95e`. **E2 (the streaming writer) CLOSED 2026-09-23 (verified)**: new `export_stream.rs` pulls each band from `bake_export_band` lazily, in order, and writes it through a `BufWriter` before dropping it — the finished raster is never held whole. PNG and BigTIFF both land. **Measured**: 32K PNG peaks at ~1.33 GB against the monolithic path's ~15.2–15.3 GB, tracking band height at ~21.9 bytes/rendered-band-pixel. **Round-trip verified exactly to the milestone's own stated bar** — decoded with a reader sharing no code with either encoder, every byte, several band geometries including a short final band; cross-checked externally against Pillow/libtiff at the full 32768×20976 scale, 0 differing pixels. **Two real findings, not guessed**: (1) `EXPORT_SCOPE.md` §6.1's own documented BigTIFF recipe (`new_big()`→`rows_per_strip()`→`write_strip()`) writes a **corrupt file** in `tiff` 0.11.3 — only the whole-image path actually enables compression; worked around by applying the predictor and the crate's public `Deflate` compressor directly through `DirectoryEncoder`. §6.1 needs correcting separately, not done here. (2) the shipped PNG export has always used `Fast` compression, not `Balanced` as an earlier doc comment assumed — caught because a first attempt at `Balanced` came out 17% smaller than the shipped path; the streaming writer now matches `Fast` so `export_raster.rs`'s fitted size/timing model still describes it. **Not wired into the shipped export menu yet** (that's E3) — a new `#[func]` would be one line. `tiff` 0.11.3 added as a new dependency, confirmed MIT-licensed at the registry cache, `default-features=false` keeping only `deflate`; `Cargo.lock` gained exactly two packages (`tiff`, `quick-error`), confirming §6.2's predicted trimmed resolution. **Verified independently**: full diff read including the BigTIFF workaround itself; `tiff`'s MIT license confirmed directly; `cargo test --workspace --no-fail-fast` reproduced 3516/0/37 exactly, purely additive. Commit `fc7db2b`. **E3 (the options struct) CLOSED 2026-09-23 (verified)**: one `ExportOptions {width, format, style, content}` dictionary (`export_options.rs`) replaces the "fifteen `#[func]` parameters" §7 named — unknown keys/looks/ramps/tunables/formats, a look+preset together, a missing preset file, or a tier with settlements off are all refused, not ignored. **`style` layers over `appearance()` without mutating session state structurally, not just behaviorally**: `appearance_rebased(&self, …)` takes `&self`, so it cannot write to `WorldGen` at all — verified independently at the symbol. `content` is §5's explicit settlement tier; overlays beyond terrain+rivers need E4 (doesn't exist) and are refused outright, never faked. Two new `#[func]`s (`export_image`, `export_image_estimate`), not wired into any menu — that's E5. `export_raster_estimate` gains real `bands`/`band_rows`/`apron_rows`/`band_peak_bytes`/`band_affordable` figures, checked against hand-worked-out numbers in advance: 16K is 5 bands/2294 rows/apron 164, 32K is 33 bands/655 rows/apron 328, both peaking at exactly the existing 8K monolithic figure. **Divergent refusal policy flagged and RULED ON 2026-09-23**: on a platform reporting no free memory, the new `export_image` path allows 16K/32K (its real banded cost never exceeds the 8K monolithic figure) while `export_raster_png` still refuses anything above 8K there. **Owner: keep `export_raster_png` as-is** — its caution is correct, not a bug, because it is NOT banded and its real cost at 32K genuinely is ~15 GB; the coordinating session's own first framing of this question was imprecise (it proposed "relaxing" the old path to match, which would have let a real ~15 GB allocation proceed on a platform that couldn't report free memory — caught and corrected before any code changed). No code change needed; the two paths' different thresholds correctly reflect their different real costs. **Verified independently**: full diff read including confirming the `&self` non-mutation guarantee at the symbol; `cargo test --workspace --no-fail-fast` reproduced 3525/0/37 exactly, purely additive (9 new tests); no bug found in or contract changed for E1/E2. Commit `ce2c71d`. **E4 (the overlay session) SCOPED 2026-09-23, not built** — real measurement, not a guess, found genuine risks a naive port would have hit: (1) a 32768px-wide `SubViewport` returns a null image on this Godot version — a full-width 32K band cannot be one viewport, the overlay must tile on both axes (Android's limit is unmeasured and likely lower). (2) `SubViewport` readback is **premultiplied** alpha, not straight — compositing with the straight-alpha formula would darken every antialiased edge; measured exactly (`[128,128,128,128]` for a 50%-white rect). (3) the export's pixel→grid mapping is corner-aligned (`bake_rect`'s own `sx=(gw-1)/(W-1)`) while the live overlay's is texel-centred — a naive "control size W, zoom 1" camera would compress the overlay by ≈8px at 32K's edges; the real fix is a derived per-axis affine on a parent-node camera (not `SubViewport.canvas_transform`, which the urban-layout culler reads around). (4) symbol-size semantics are split three ways inside `map_overlay.gd` (pins scale with fitted map width, way/label widths are constant screen-px, glyph rasterisation caps at 256px) — genuinely gates the whole approach, filed as an owner question and answered 2026-09-23: **uniform magnification** (symbols stay proportionally sized on a giant export, like a real poster) — the bigger-lift option, needs new symbol-scale drawing code in `map_overlay.gd`, not the recommended v1 screen-pixel-constant shortcut. (5) state-copy is a silent-divergence risk — missing one setter makes the export differ from the screen with nothing failing; the plan requires deriving the full setter list from every real caller and proving parity by diffing the live and export overlays under an identical camera, not just eyeballing it. **Sequenced into 4 independently-verified batches** (Rust session core → one-tile registration → many-tiles/many-bands end to end → wiring+real-size measurement+docs), matching this session's own batch discipline for large, architecturally novel work. **Five more owner questions remain, gating batches B-D** (v1 overlay content scope, LOD rule for labels/ways/urban layouts, whether rivers draw the vector stroke or the baked ink when overlays are on, which settlements/filters apply, whether a 1-2s per-band UI freeze is acceptable for v1) — not yet asked. **Stale items found in passing, not fixed**: `STATUS.md`'s `EXP-E4` row still says "shelved/not started" (un-shelved 2026-09-06); `map_overlay.gd`'s header comment describes an obsolete scene relationship. **E4 Batch A landed 2026-09-23, commit `34db87f`** (Rust core, no GDScript wiring yet): `BandSink` (`export_stream.rs`, a writer thread over a `sync_channel(1)` feeding the existing `write_bands`); `ExportSnapshot`/`ExportSessionCore` (new `export_session.rs`, `Send+Sync` and Godot-free, matching `LodSnapshot`'s own shape, state machine `Idle → Open → Finished|Aborted`); `composite_premul_over` (the premultiplied-alpha formula a `SubViewport`'s `transparent_bg` readback needs, confirmed against a real `[128,128,128,128]` readback of a 50%-white rect); five new `#[func]`s (`export_session_begin/_submit_tile/_finish/_abort/_state`); `export_image`'s pre-render checks factored into a shared `prepare_export`, used by both it and `export_session_begin` (behaviour-preserving, not a new check). Session output proven immune to world regeneration mid-session (renders from its own snapshot) via `_exportsession_probe.gd/.tscn`. A concurrent-agent `git stash` swept this batch's uncommitted `lib.rs` hunks together with the river-colour batch's; the pop restored both, independently confirmed by symbol-level diff review, not just the agents' own reports. `cargo test --workspace --no-fail-fast`: 3542/0/37. **Still remaining: E4 batches B (one-tile registration), C (many-tiles/bands end-to-end) and D (wiring, measurement, docs) — no GDScript caller of the new session `#[func]`s exists yet — and E5 (the dialog)**. **The render-once decision was NOT reversed**; what depends on it is enumerated in §3 |
 | ~~**Nothing tells the user a landmark result predates their icons**~~ — **CLOSED 2026-09-21 (verified)** | `LANDMARK_GENERATION_SCOPE.md` | small | `LandmarkStore` gains `icon_placed_since_run` + `mark_icon_committed()`, cleared by both `run()` and `invalidate()`, wired from the two real commit paths (`icon_place`, and `icon_brush_stamp` gated on `placed > 0`, never a drag sample that adds nothing). `stale_stages()` gains a `"landmarks"` key, same shape as the existing `civ_dirty` special case. The UI badge reuses the shell's own existing staleness vocabulary exactly (`civilization_workspace.gd`'s § Recompute block) rather than inventing new chrome — a plain-prose note above "Run landmark pass", polled by a `Timer` since the commit happens in a different workspace than the badge lives in. New windowed probe `_lmstale_probe.gd`/`.tscn` drives the real pipeline end to end; independently re-run by the coordinating session, `PASS`, matching the agent's report exactly. The engine-side flag (`landmark.rs`) was committed together with the concurrently-running M7 viewshed work, which shared that file — see `MISTAKES.md`'s new preflight row for the brief broken-HEAD window that caused. Commits `9eaba18` (UI/lib.rs/probe) + `222189f` (the `landmark.rs` field). |
@@ -2042,7 +2185,7 @@ No Android pass has run since 2026-08-25. All six items below are live.
 |---|---|---|---|
 | ~~**PLAN’s header TITLE half (“PLAN · STAGE n”) goes stale on stage isolate**~~ — **CLOSED 2026-09-20 (verified)** | `ANDROID_UI_SPEC.md` | small | `_on_stage_clicked()` (`journey_planner_view.gd`) now calls `app._refresh_phone_sheet_header()`, same guard and shape as the sibling subtitle fix (`554d953`), which had named this exact gap as its own residual. Verified with a positive control: a windowed probe (`_stagetitle_probe.gd/.tscn`) reproduced the bug on HEAD (title stuck at "PLAN" after isolating a stage, exit 1) before the fix, and passed after (title reads "PLAN · STAGE 1", reverts to "PLAN" on un-isolate, exit 0). The sibling subtitle probe re-run unmodified, no regression. Commit `f493b61`. |
 | ~~**The Android adaptive icon had no background layer**~~ — **CLOSED 2026-09-21 (verified on the 6T)** | `ANDROID_BUILD_SCOPE.md` | small | **Owner-reported 2026-09-03 ("on the 6t the icon is a dull weird grey scale"); root-caused and fixed the same day, unverified on device until now.** `icons/android_adaptive_background_432.png` was an 804-byte fully-transparent blank; now opaque `rgb(0,24,48)`. Second change: `cartalith icon2.png` dilated (MaxFilter 19) into the monochrome layer for **17.05%** ink, inside Android's themed-icon band and fully inside both safe circles. **Verified directly**: `adb shell screencap` on the 6T's home screen (device `9608b26b`, still connected from earlier this session) shows the Cartalith icon as a clear compass-rose emblem with real detail and contrast on the launcher's themed-icon grey plate — not the blank/washed-out grey the owner reported. Viewed through the system's Material You themed-icon rendering (monochrome layer only, launcher-tinted circle), which is the same rendering path that originally exposed the bug, so this is the correct state to check. |
-| Phone MORE — §6.6's sub-screens: **nine built, two declined with reasons, one blocked** | `DESIGN_HANDOFF.md` | small | **2026-09-06. Rows are real, checked against live data rather than against the screens' own prose**, and reproduced by the verifier digit for digit: travel draws four chips over four different row sets (animal 37, vehicle 29, vessel 53, preset 17), `landmark_kinds()` is 49, `lm-fam` gives 37 rows for `physical`, and after a real pass `caps total 384 · last run placed 254`. **Absence is drawn as absence** — with no world the same screen says the estimate needs one, and an empty slot says *"No art in this slot yet"* rather than inventing a size. The probe carries a control (an unknown screen id draws only its placeholder) so a lost match arm cannot pass vacuously. **The resolve-by-menu-name+id property was proved by scratch edit**, not by reading: a row injected into `menus.gd::_help()` was enumerated and required to be drawn with `phone_menu.gd` untouched. **`data-tiles` is genuinely blocked** — `wmts|tms|slippy|z/x/y|zoom_level` returns nothing across the workspace, so there is no engine behind it. **`data-io` was declined as a duplicate**: `_fill_data()` already covers all 14 `DataManagerWindow.ROUTES` one level up |
+| Phone MORE — §6.6's sub-screens: **nine built, two declined with reasons, one blocked** | `DESIGN_HANDOFF.md` | small | **2026-09-06. Rows are real, checked against live data rather than against the screens' own prose**, and reproduced by the verifier digit for digit: travel draws four chips over four different row sets (animal 37, vehicle 29, vessel 53, preset 17), `landmark_kinds()` is 49, `lm-fam` gives 37 rows for `physical`, and after a real pass `caps total 384 · last run placed 254`. **Absence is drawn as absence** — with no world the same screen says the estimate needs one, and an empty slot says *"No art in this slot yet"* rather than inventing a size. The probe carries a control (an unknown screen id draws only its placeholder) so a lost match arm cannot pass vacuously. **The resolve-by-menu-name+id property was proved by scratch edit**, not by reading: a row injected into `menus.gd::_help()` was enumerated and required to be drawn with `phone_menu.gd` untouched. **`data-tiles` was blocked, corrected 2026-09-23**: the slippy-map addressing it needed did not exist when this row was written; it does now (`slippy_export_tiles`, `cartalith_engine::slippy_export`, closed the same day — see §2.1/§7's slippy-map row, commit `a3bca18`), and `data_manager_window.gd`'s scheme row already drives it via the Data popup. `phone_menu.gd`'s own header comment was corrected in place the same day this was found stale. What remains is narrower than "blocked": the dedicated phone **screen** for it is still unbuilt (reachable today only through the desktop-style Data popup, not a §6.6-shaped phone sub-screen), and `leaflet-preview.html` packaging still does not exist. **`data-io` was declined as a duplicate**: `_fill_data()` already covers all 14 `DataManagerWindow.ROUTES` one level up |
 | ~~**Three round-3 GUI surfaces built: rail subtitles, Find-on-map scopes, seeded layouts, the Checks route**~~ — **CLOSED 2026-09-21 (verified) — all four surfaces confirmed, post-Ruling-L** | `DESIGN_HANDOFF.md` | medium | **Built 2026-09-06 from `design/round3-corrected/`, all four verified.** **Rail:** three subtitles added verbatim from `DOMAINS[i].subtitle`, wrapping not clipping (CIVIL is **71** characters, not the artboard's 70) — and the blocking check passes on the strongest evidence available: `const RAIL_NODES` and `const DOMAINS` are **byte-identical** to `da57ca4`, so no node was replaced by a label. **Find on map:** five scope prefixes matched as a whole token (`lb` cannot be reached by `l`), the `.` scope reaching `CommandIndex` — whose **first shipping consumer in the whole shell this is** — client-side band headers proved not to re-rank (drawn order byte-identical to `search()`'s), and a count. `l landmarks` ships **disabled with `place_search.gd`'s own reason as its tooltip and its empty-state text**, so a scope that would always return nothing explains itself. **Layouts:** four task layouts seeded once, proved across two processes with a genuinely deleted config — a forgotten seed stays forgotten. **Checks:** the route over the five real validators, `LOCATE` present and disabled, no `FIX SELECTED` **RE-VERIFIED 2026-09-13 except the rail subtitles:** `_railfind_probe` PASS (pointer and touch; renaming a scope makes it FAIL), `_seedlayout_probe` phases 1 and 2 PASS, `_dm10_probe` OK, `_placesearch_probe` PASS. **Rail subtitles re-verified 2026-09-21, now that Ruling L (all three tabs) is complete**: genuinely unaffected — Ruling L restructured `RAIL_NODES` categories/modes, not `DOMAINS` subtitles, confirmed by `git log` showing no diff hunk ever touches the subtitle values. CIVIL's subtitle is still the longest at 71 chars against the design's stated 70, still wraps to 3 lines rather than clipping, still the tallest of the three, at both the pointer (200 px) and tablet (264 px) rail-column widths. One unrelated stale probe literal found and fixed along the way: `_railfind_probe.gd`'s exact-ten-keys check still expected the retired `cartography/terrain`, updated to `cartography/layers` per Ruling L's CARTO re-sort. Independently re-verified by the coordinating session: both probe legs (pointer, tablet) `PROBE PASS: 0 failure(s)`, reproducing every figure exactly. Commit `837cbfb`. |
 | ~~**Implement `Cartalith Settlement Editor.dc.html` + Touch variant** — new GUI: redesign the existing place editor as a tab-strip window~~ — **CLOSED 2026-09-21 (verified) — all six batches landed** | owner-supplied design canvas, project `067f80e7-dbb7-4492-8e69-96aaa8050a4d`; plan `lazy-riding-piglet.md` | large | **Merged into one row 2026-09-21**: touch resolved with the owner as one `.gd` file with responsive branches (matching every other window in this shell — `faction_roster_window.gd`/`culture_profiles_window.gd`'s established convention), not a separate build, so the two design docs are one implementation target. **Scope corrected once the code was read**: `place_editor_window.gd` (909 lines, pre-existing) already implemented almost everything artboards 1a/1b/1e redesign — this is a restructure + four genuinely new pieces (Timeline sim UI, Political history, a Settlement-types library, Layout/Generation-rules with one real engine signature change), not a build from scratch. Full plan at `C:\Users\Vincent\.claude\plans\lazy-riding-piglet.md`, six batches (A–F), each independently verified and committed before the next starts, per this session's standing discipline. **Batch A CLOSED 2026-09-21 (verified)**: tab-strip restructure (Overview/Economy & notables/Timeline-placeholder/Political-placeholder/Vault notes), every existing `_build_*` function's logic reused verbatim, tab switching reuses the PE-01 focus-commit fix rather than a new mechanism, one segmented-button row for both desktop and phone (not `TabContainer`). No engine call changed. Verified independently: full diff read line-for-line, `DccTheme.empty()`/`panel()` signatures confirmed to match, `godot --headless --check-only` parses clean, `git status` confirms only this one file changed, `project.godot` unchanged. Commit `76117f4`. **Batch B CLOSED 2026-09-21 (verified)**: real Timeline tab — recorded-years chip scrubber, Add/Go to/Remove year, `civ_year_diff` readout (reports the bridge's real `present`/`added`/`removed` counts, not the canvas's invented "N changed" figure — the bridge has no such key), the real collapse/recovery simulator wired to `civ_run_collapse_simulation` with a genuine overwrite-confirmation gate (`needs_confirm`/`clobber_years`) before a confirmed re-send, and a run report reading real returned numbers. Authored events stay dashed with the canvas's own stated reason (no per-event store exists). GDScript-only — every bridge call already existed with a thin `engine_bridge.gd` wrapper, confirmed by reading the actual signatures rather than assumed. Verified independently: full diff read line-for-line, six `DccWidgets` API signatures confirmed to match their actual declarations, `get_civ_timeline_years`/`get_civ_year` confirmed to exist, `godot --headless --check-only` parses clean, `cargo test --workspace --no-fail-fast` reproduced the exact pre-existing baseline (163/3490/0/34, zero movement), `git status` confirms only this one file changed. Commit `29de0a5`. **Batch C CLOSED 2026-09-21 (verified)**: real Political history tab. New additive Rust —
 `cartalith_civ::timeline::civ_settlement_ownership_periods` derives contiguous per-settlement ownership
