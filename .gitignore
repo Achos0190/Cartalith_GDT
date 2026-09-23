@@ -3,3 +3,7 @@
 
 # Export artifacts — built locally per platform, not source.
 cartalith-native/builds/
+
+# Local test vault (owner's EBSS campaign notes) — real personal content used
+# to exercise the Markdown Vault feature, never meant to be committed/pushed.
+/vault/
