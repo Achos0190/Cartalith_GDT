@@ -1141,3 +1141,21 @@ Siting itself changes, not just the downstream render binding: a settlement only
 **The finding is `OUTSTANDING_WORK.md`'s own row, reported and deliberately left unchanged 2026-09-06.** The half-open detent height (`PHONE_DETENT_HALF_FRAC = 0.46`) was transcribed faithfully from the prototype's own `Math.round(fh*0.46)`. The sheet it opens is ~92% blank regardless of world state (933 of 1 003 rows blank with no world, 912 WITH one) — not an empty-state bug, genuinely more vertical space than the real content needs.
 
 **Owner ruling, 2026-09-21: shrink the detent to fit the real content.** A deliberate deviation from the transcribed prototype value, authorised because the prototype's own proportion does not describe this content's actual size. Needs a build: re-derive the half-open fraction (or switch to a content-sized detent if this shell has that mechanism elsewhere) rather than the flat transcribed 0.46.
+
+## 2026-09-23 — Ruling AA: the urban-algorithm town-plan row's radial arterials extend the radial branch, not organic `grow`
+
+**The finding is `OUTSTANDING_WORK.md`'s "change the ported urban algorithm toward the owner's town plan" row (Ruling H), candidate 1.** A scoping pass found the wedge-block geometry the owner's reference image shows (radial arterials cut by a few curving cross-streets) already exists on `cartalith-urban`'s Venus/`"radial"` branch (`radial.rs::build_radial_streets`, sharing `blocks.rs`'s bisector platting with the medieval branch) — but radial towns never call `grow` and are excluded from the wall-lots/faubourg suburb machinery (`generate.rs`: gated on `profile.planning != "radial"`), so the owner's combined image (wedges + suburbs + wall gaps together) needed a choice: extend the radial branch to carry that machinery, or reshape organic `grow`'s own macro-structure instead.
+
+**Owner ruling, 2026-09-23: extend the radial branch.** Port/open the suburb-thinning and wall-gap machinery (already built and verified for the organic branch — commits `5d780dc`/`21c6949`) onto `"radial"` towns, rather than reshaping `grow`'s macro-structure. Lower blast radius: touches the 4 of 29 orchestration golden cases that are Venus/radial, not the 25 organic-branch cases a `grow` reshape would put at risk.
+
+## 2026-09-23 — Ruling AB: IN-13 trade prices are scarcity-derived from `TradeBalance`
+
+**The finding is `OUTSTANDING_WORK.md`'s IN-13 row's remaining "prices, tariffs" piece.** No price exists anywhere in the engine today (`TradeFlow::volume` is a physical demand quantity, not monetary); the obvious candidate input is `TradeBalance`'s already-computed per-good surplus/deficit, but using it as the price basis is a design call, not a code-derivable default — the alternative was a new fixed per-good table, which the reference has none of to port (values would be invented).
+
+**Owner ruling, 2026-09-23: derive price from `TradeBalance`'s existing surplus/deficit (scarcity-based).** No new authored data. This still leaves open how the derivation itself is shaped (the specific curve from surplus/deficit to a price number) and the three other IN-13 blockers unresolved (tariff-rate source — reuse `civ_faction_relations` or a new field; confirming a faction-aware match doesn't move the existing single-faction/no-tariff probe output; caravan entity semantics) — this ruling settles only the price-basis question.
+
+## 2026-09-23 — Ruling AC: a citadel enclosure is sited on a settlement's size tier, not faction-seat status
+
+**The finding is `OUTSTANDING_WORK.md`'s "a citadel enclosure straddling the town wall" row (Ruling I), whose own text named "settle the design first: which settlements get one" as a separate blocker independent of the GUI-sequencing gate (which was lifted 2026-09-22).**
+
+**Owner ruling, 2026-09-23: largest settlements only, by size tier — not gated on faction-seat status.** Matches how the existing rare bastioned-wall star fort is already gated by size/class. Still open: whether the citadel's area counts inside the wall circuit for growth purposes (the row's own second named question), and the citadel's own build (nothing like it exists yet — `fortify.rs` has no castle-enclosure construction, only the curtain/gates/spurs/star fort).
