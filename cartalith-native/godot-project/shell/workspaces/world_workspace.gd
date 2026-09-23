@@ -3351,19 +3351,23 @@ func _refresh_tool_bar() -> void:
 ## view both named Cartography as their home, and Cartography does not have
 ## them either, on any density. Their reasons now say where each is actually
 ## missing from, which is the drawing side.
+## *Re-worded 2026-09-24:* both reasons described rivers as a flow-area tint
+## baked into the terrain raster. Since the owner's 2026-09-22 ruling rivers
+## are vector strokes only (`viewport_host.gd`'s `set_rivers(_bridge.rivers(1))`,
+## gated by CARTO > Layers' Rivers row), and the reasons now say that.
 const PHONE_GEN_ABSENT: Array = [
 	{"stage": 1, "label": "Working resolution", "route": "new_world",
-	 "why": "Resolution is a creation-time call argument, not a stored parameter -- params.rs' \"world\" group holds world, sea_level, peak_m, carve_rivers, river_density, integrate_drainage and use_gpu, and no resolution key exists anywhere in the 93-row table. Set it in File > New world, which carries it on this phone's card as well as on the desktop form."},
+	 "why": "Resolution is a creation-time call argument, not a stored parameter -- params.rs' \"world\" group holds world, sea_level, peak_m, carve_rivers, river_density, integrate_drainage and use_gpu, and no resolution key exists anywhere in the 99-row table. Set it in File > New world, which carries it on this phone's card as well as on the desktop form."},
 	{"stage": 2, "label": "Archetype", "route": "new_world",
 	 "why": "apply_archetype() is live and seeds the six world_structure dials below, but request()[\"archetype\"] is what decides which generation call runs, and new_world_dialog.gd's own NOTE_CREATION_ONLY says extent, resolution and archetype reallocate every field in the pipeline. Pick it in File > New world -- on this phone it is on that dialog's card, under World structure."},
 	{"stage": 5, "label": "Erosion strength", "route": "",
 	 "why": "No engine parameter means this. Stage 06 exposes 28 rows (stream.* and passes.*) and none of them is a single 0-1 strength; synthesising one over several would be a second parameter table that can drift from the desktop's. The real dials are below."},
 	{"stage": 6, "label": "Min stream order", "route": "",
-	 "why": "A filter over a vector river layer this port does not draw yet, so there is nowhere to set it -- not here, and not in Cartography either, which this row claimed until 2026-09-07. Strahler order is real (get_rivers(min_order) returns every traced run, and the right dock's River context picks one by it), but the rivers you can SEE are a flow-area tint inside the terrain raster (render.rs, WET_AREA_LO/HI over upstream drainage area), which carries no order to filter on. drawRiverWays -- the overlay that would -- is the one thing render.rs's module doc still lists as excluded."},
+	 "why": "Not settable anywhere yet. Since the owner's 2026-09-22 ruling a generated world's rivers are drawn as smoothed vector strokes over get_rivers(min_order), but the map always asks for order 1 -- every traced run (viewport_host.gd) -- and no control exposes a minimum. Strahler order itself is real: the right dock's River context picks a river by it."},
 	{"stage": 8, "label": "Ecotone sharpness", "route": "",
 	 "why": "Ecology is not parameterised in cartalith-engine: biome classification runs off the finished elevation/temperature/rainfall fields with no dials of its own."},
 	{"stage": 8, "label": "Rivers in biome view", "route": "",
-	 "why": "A render toggle with nothing behind it to toggle, here or anywhere: the biome view's rivers are the same flow-area tint baked into the terrain raster (render.rs, WET_AREA_LO/HI), and no parameter switches it off. This row said it was a Cartography layer option until 2026-09-07; cartography_workspace.gd's own note says the opposite, and is the one that is right."},
+	 "why": "Not a separate switch: it is the Rivers row under CARTO > Layers, which shows or hides the map's river strokes in every view, the biome view included. Nothing river-shaped is baked into the terrain texture any more (owner ruling 2026-09-22), so there is no second, biome-only copy to toggle."},
 ]
 
 ## Which stage index each group header opens at. The canvas ships `g1:true` and
