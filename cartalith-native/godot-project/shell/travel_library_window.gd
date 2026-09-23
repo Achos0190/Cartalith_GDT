@@ -448,6 +448,13 @@ func _build_rail() -> Control:
 	dup_btn.focus_mode = Control.FOCUS_NONE
 	dup_btn.pressed.connect(_on_duplicate)
 	head_row.add_child(dup_btn)
+	var csv_btn := Button.new()
+	csv_btn.text = "⇪"
+	csv_btn.tooltip_text = "Import definitions .csv… -- into the tab on screen. Row 1 names the columns with this tab's own field names; each other row becomes a new custom entry."
+	csv_btn.flat = true
+	csv_btn.focus_mode = Control.FOCUS_NONE
+	csv_btn.pressed.connect(_on_import_csv)
+	head_row.add_child(csv_btn)
 	var del_btn := Button.new()
 	del_btn.text = "✕"
 	del_btn.tooltip_text = "Delete the selected custom entry"
@@ -601,6 +608,93 @@ func _on_add_blank() -> void:
 	var result: Dictionary = _bridge.tl_add_blank(_current_kind, "New %s" % kind_label.trim_suffix("s"))
 	if bool(result.get("ok", false)):
 		_select_entry(String(result.get("id", "")))
+
+func _on_import_csv() -> void:
+	var fd := FileDialog.new()
+	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	fd.access = FileDialog.ACCESS_FILESYSTEM
+	fd.filters = PackedStringArray(["*.csv ; Comma-separated values"])
+	fd.title = "Import definitions .csv"
+	add_child(fd)
+	fd.file_selected.connect(func(path: String) -> void:
+		var r := import_csv(path)
+		var refused: PackedStringArray = r["refused"]
+		_status_label.text = "Imported %d definition%s%s" % [int(r["added"]),
+			"" if int(r["added"]) == 1 else "s",
+			("; " + "; ".join(refused)) if refused.size() > 0 else "."]
+		_refresh_rail()
+		fd.queue_free())
+	fd.canceled.connect(fd.queue_free)
+	fd.popup_centered_ratio(0.6)
+
+## `TRAVEL_LIBRARY_SPEC.md` §2's "Import definitions .csv…" (2026-09-24). One
+## file imports into the tab on screen. Row 1 names the columns with `tl_get`'s
+## own field keys for that kind (unknown columns are refused by the engine and
+## reported); every other non-blank row becomes a new custom entry --
+## `tl_add_blank`, then `tl_edit` with the row. A value takes the type the
+## stock entries carry for its key: a number, `true`/`false`, or a
+## `;`-separated list. Whatever the engine refuses is reported by line and key,
+## never dropped silently, and a row it refuses outright is removed again
+## rather than left as an empty entry. Returns `{added, refused}`.
+func import_csv(path: String) -> Dictionary:
+	var out := {"added": 0, "refused": PackedStringArray()}
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		(out["refused"] as PackedStringArray).append("cannot open %s" % path)
+		return out
+	var header := f.get_csv_line()
+	var sample := {}
+	for e in _bridge.tl_list(_current_kind):
+		if String((e as Dictionary).get("origin", "")) == "stock":
+			sample = _bridge.tl_get(_current_kind, String((e as Dictionary).get("id", "")))
+			break
+	var line := 1
+	while not f.eof_reached():
+		var row := f.get_csv_line()
+		line += 1
+		if row.size() <= 1 and (row.is_empty() or row[0].strip_edges() == ""):
+			continue
+		var fields := {}
+		for c in mini(header.size(), row.size()):
+			var key := header[c].strip_edges()
+			var raw := row[c].strip_edges()
+			if key != "" and raw != "":
+				fields[key] = _csv_value(raw, sample.get(key))
+		var added: Dictionary = _bridge.tl_add_blank(_current_kind, String(fields.get("name", "Imported %d" % line)))
+		if not bool(added.get("ok", false)):
+			out["refused"].append("line %d: %s" % [line, String(added.get("error", "not added"))])
+			continue
+		var id := String(added.get("id", ""))
+		var res: Dictionary = _bridge.tl_edit(_current_kind, id, fields)
+		var rejected: PackedStringArray = res.get("rejected", PackedStringArray())
+		if not bool(res.get("ok", false)):
+			_bridge.tl_delete(_current_kind, id)
+			out["refused"].append("line %d: %s" % [line, String(res.get("error", "refused"))])
+			continue
+		out["added"] = int(out["added"]) + 1
+		if rejected.size() > 0:
+			out["refused"].append("line %d: refused %s" % [line, ", ".join(rejected)])
+	return out
+
+func _csv_value(raw: String, like: Variant) -> Variant:
+	match typeof(like):
+		TYPE_BOOL:
+			return raw.to_lower() in ["true", "1", "yes"]
+		TYPE_INT:
+			return int(raw) if raw.is_valid_int() else raw
+		TYPE_FLOAT:
+			return float(raw) if raw.is_valid_float() else raw
+		TYPE_PACKED_STRING_ARRAY, TYPE_ARRAY:
+			var parts := PackedStringArray()
+			for s in raw.split(";"):
+				if s.strip_edges() != "":
+					parts.append(s.strip_edges())
+			return parts
+	if raw.is_valid_int():
+		return int(raw)
+	if raw.is_valid_float():
+		return float(raw)
+	return raw
 
 func _on_duplicate() -> void:
 	if _current_id == "":
