@@ -183,7 +183,7 @@ pub struct LoadedPack {
 /// **No `finalize_pack_texture_inv_mean` here, unlike the splat loop below**,
 /// and that is the reference's asymmetry rather than an omission: a splat
 /// channel modulates a procedural ramp by `texel/mean`, while a painted tile
-/// is blended as true colour (`ASSET_LIBRARY_SCOPE.md` §1 — "dividing out a
+/// is blended as true colour (`ASSET_LIBRARY_SCOPE.md` §3 — "dividing out a
 /// tile's absolute hue is right for splat and wrong for paint"; the reference
 /// says so at its own line 12246). [`GroundTile`] has no `inv` field to fill,
 /// so the mistake cannot be made silently.

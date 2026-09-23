@@ -37,12 +37,12 @@
 //!   That failure is real, reported by the reference's own error message
 //!   ("try re-zipping the folder…"), and is preserved rather than papered over.
 //!
-//! One deliberate non-port: `zipStore` also falls back to STORE when the
-//! deflated bytes did not come out *smaller* (or when the browser has no
-//! `CompressionStream` at all — the `file://`-degrades-gracefully rule). Both
-//! are browser-side size/availability concerns; neither changes what any
-//! reader sees, and Rust has no "compression might be missing" case. A
-//! non-`.png` entry is simply deflated here.
+//! `zipStore`'s fallback to STORE when the deflated bytes did not come out
+//! *smaller* **is** ported (milestone E2 — see [`zip_store`] and
+//! `deflate_helps`; this paragraph called it a non-port until 2026-09-24). Its
+//! other fallback, for a browser with no `CompressionStream` at all (the
+//! `file://`-degrades-gracefully rule), is not: Rust has no "compression might
+//! be missing" case.
 //!
 //! Nor is `unzipStore` ported: it is `unzipAny`'s fallback for an archive with
 //! no readable central directory, and it answers `null` for every deflated

@@ -109,13 +109,13 @@
 //! `DCC_SHELL_SPEC.md` §8 asks for that the reference does not have (a
 //! disclosed port-side addition; see that module's docs).
 //!
-//! Every part of the library UI, the sprite-sheet slicer's canvas
-//! interaction (pan/zoom, draggable grid lines, click-to-select), and sprite
-//! compositing into the actual map render/ground-texture sampling (milestone 7, genuinely Phase-3-adjacent rendering work
-//! in `cartalith-godot`) are later milestones or explicitly out of scope; see
-//! `ASSET_LIBRARY_SCOPE.md`. **Nothing in the workspace depends on this crate
-//! yet** — by design, per this project's "don't wire in what nothing calls"
-//! discipline.
+//! What this crate does not hold: the library UI and the sprite-sheet slicer's
+//! canvas interaction (pan/zoom, draggable grid lines, click-to-select) live in
+//! the Godot shell (`asset_library_window.gd`), and sprite compositing into the
+//! map render and ground-texture sampling is `cartalith-godot::pack`
+//! (milestone 7). `cartalith-godot` and `cartalith-engine` both depend on this
+//! crate; see `ASSET_LIBRARY_SCOPE.md`. *(Corrected 2026-09-24: this said
+//! nothing in the workspace depended on it, true only before milestone 7.)*
 
 #[cfg(feature = "zip")]
 pub mod archive;
