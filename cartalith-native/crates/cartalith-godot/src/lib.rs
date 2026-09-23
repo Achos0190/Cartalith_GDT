@@ -18446,6 +18446,21 @@ impl WorldGen {
             .as_ref()
             .map(|ed| ed.icons.iter().filter_map(landmark_bridge::icon_to_mark).collect())
             .unwrap_or_default();
+        // Battlefield's input (LANDMARK_GENERATION_SCOPE.md M9): every drawn
+        // battle, resolved against its anchor's position now, the same
+        // resolution `conflict_dict` draws with — so the landmark lands where
+        // the marker is on screen.
+        let battles: Vec<cartalith_civ::landmark::BattleMark> = self
+            .conflicts
+            .conflicts
+            .iter()
+            .filter_map(|c| {
+                let now = c.anchor.and_then(|a| {
+                    self.civ.as_ref().and_then(|civ| conflict_bridge::anchor_pos(civ, a))
+                });
+                cartalith_civ::landmark::BattleMark::from_conflict(c, now)
+            })
+            .collect();
 
         let mut inputs = cartalith_civ::landmark::LandmarkInputs::new(
             &ws.field, gwu, ghu, self.sea_level, self.world, self.map_width_km,
@@ -18504,6 +18519,7 @@ impl WorldGen {
         // for. Empty until `compute_civilisation` has run, which is the same
         // condition every other `self.civ` input above degrades on.
         inputs.ways = self.civ.as_ref().map(|c| c.ways.as_slice()).unwrap_or(&[]);
+        inputs.battles = &battles;
 
         let seed = self.seed as u64;
         self.landmark_store.run(&inputs, seed);

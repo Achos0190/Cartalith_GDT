@@ -25,6 +25,9 @@
 //! Fortified pass, Fortified crossing, Volcanic feature) and Border marker,
 //! the sixth and last of §9.3's viewshed kinds, closed the same day by
 //! threading [`LandmarkInputs::territory`] in alongside the viewshed.
+//! **Twenty-seven since M9's conflict wiring (2026-09-23):** Battlefield reads
+//! the drawn battles of `STORY_PLANNING_SCOPE.md` SP-4 through
+//! [`LandmarkInputs::battles`].
 //! `sacred_mountain` is the one §9.3 kind still blocked — not on the
 //! viewshed, but on §26's cultural-meaning input, which nothing here
 //! provides. See [`EXTRACTION_RESOURCES`] for why Resource extraction site
@@ -316,8 +319,7 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "watchtower", label: "Watchtower", family: F::Military, class: C::Local, default_cap: 20, needs_viewshed: true, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "fortified_pass", label: "Fortified pass", family: F::Military, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "fortified_crossing", label: "Fortified crossing", family: F::Military, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
-        LandmarkKindSpec { key: "battlefield", label: "Battlefield", family: F::Military, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: false,
-            not_built: "The conflict entity exists since SP-4 (cartalith_civ::conflict, a drawn battle marker with a year range and sides), but LandmarkInputs does not take it, so this pass has no recorded battle to place one at; that wiring is LANDMARK_GENERATION_SCOPE.md M9. Without it a battlefield could only be a place where nothing recorded happened." },
+        LandmarkKindSpec { key: "battlefield", label: "Battlefield", family: F::Military, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "border_marker", label: "Border marker", family: F::Military, class: C::Cultural, default_cap: 16, needs_viewshed: true, buildable: true, not_built: "" },
         // ---------------- Religious / cultural (8) ----------------
         LandmarkKindSpec { key: "shrine", label: "Shrine", family: F::Cultural, class: C::Local, default_cap: 30, needs_viewshed: false, buildable: false,
@@ -344,9 +346,9 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "ancient_road", label: "Ancient road", family: F::Historical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: false,
             not_built: "Needs a superseded route to be the ghost of. Way history is not retained." },
         LandmarkKindSpec { key: "battlefield_historic", label: "Historic battlefield", family: F::Historical, class: C::Cultural, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "§29 lists Battlefield in both Military and Historical; this is the second listing, keyed apart so the table has 49 unique rows. Blocked on the same missing input: conflicts exist (SP-4) but are not passed to this pass (M9)." },
+            not_built: "§29 lists Battlefield in both Military and Historical; this is the second listing, keyed apart so the table has 49 unique rows. Battlefield (Military) is generated from the drawn battles now, so generating this too would put two records on one cell. What would separate them — a battle in the past rather than one being fought — needs a present year, and a landmark whose kind changes as the Timeline cursor moves is §25's temporal state: LANDMARK_GENERATION_SCOPE.md M9's open question 1 (does a landmark's accumulated state persist)." },
         LandmarkKindSpec { key: "destroyed_fortress", label: "Destroyed fortress", family: F::Historical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "Downstream of a conflict that destroyed the fortress. Conflicts exist since STORY_PLANNING_SCOPE.md SP-4 (a siege can be attached to a settlement), but they carry an authored outcome in free text, not a destruction this pass could read, and LandmarkInputs does not take them (M9). This reason named Fort as a second blocker until Fort was built." },
+            not_built: "Downstream of a conflict that destroyed the fortress. Conflicts exist since STORY_PLANNING_SCOPE.md SP-4 (a siege can be attached to a settlement), and their battles reach this pass as LandmarkInputs::battles (sieges do not), but a conflict carries an authored outcome in free text, not a destruction this pass could read — and SP-4 §5 keeps it free text deliberately, since a closed vocabulary of outcomes is the start of a resolution model. This reason named Fort as a second blocker until Fort was built, and the conflict wiring as a third until M9 wired it." },
         LandmarkKindSpec { key: "historic_crossing", label: "Historic crossing", family: F::Historical, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: false,
             not_built: "A crossing that mattered. The crossing is generated as Ford; what made it matter is route history, which is not retained." },
     ]
@@ -1052,6 +1054,51 @@ pub struct ManualIconMark {
     pub y: f64,
 }
 
+/// One drawn battle, as much of it as this pass reads — Battlefield's whole
+/// domain (`LANDMARK_GENERATION_SCOPE.md` M9's conflict wiring).
+///
+/// Whole-grid cell coordinates **already resolved against the conflict's
+/// anchor** (`Conflict::resolved_points` under the anchor's position now), so
+/// a battle attached to a settlement that has since moved is placed where it
+/// is drawn, not where it was first attached. Resolving is the caller's job,
+/// because only the caller has the settlement list that `tid` indexes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BattleMark {
+    pub x: f64,
+    pub y: f64,
+    /// The conflict's own name, for the causal chain. Empty = unnamed.
+    pub name: String,
+    pub start_year: i64,
+    /// `None` = still going, as [`crate::conflict::Conflict::end_year`].
+    pub end_year: Option<i64>,
+}
+
+impl BattleMark {
+    /// `Some` only for a [`ConflictKind::Battle`](crate::conflict::ConflictKind::Battle):
+    /// a front or an arrow is a line through country, not a place a battle was
+    /// fought, and a siege is the settlement's own story (Ruin, Destroyed
+    /// fortress), not a field. `anchor_now` is the anchor's position now, or
+    /// `None` when there is no anchor or it no longer resolves — exactly
+    /// [`resolved_points`](crate::conflict::Conflict::resolved_points)' own
+    /// argument.
+    pub fn from_conflict(
+        c: &crate::conflict::Conflict,
+        anchor_now: Option<(f64, f64)>,
+    ) -> Option<BattleMark> {
+        if c.kind != crate::conflict::ConflictKind::Battle {
+            return None;
+        }
+        let &(x, y) = c.resolved_points(anchor_now).first()?;
+        Some(BattleMark {
+            x,
+            y,
+            name: c.name.clone(),
+            start_year: c.start_year,
+            end_year: c.end_year,
+        })
+    }
+}
+
 /// **Category C**, and the reason it is a separate number rather than a class
 /// radius is the whole of [`LandmarkInputs::manual_icons`]' design.
 ///
@@ -1202,6 +1249,17 @@ pub struct LandmarkInputs<'a> {
     /// `civ_consolidate_and_smooth_ways`, which anchors a run's ends on
     /// `placement.x`/`.y` directly.
     pub ways: &'a [crate::Way],
+    /// **The drawn battles** — every `ConflictKind::Battle` in the world's
+    /// `ConflictStore`, anchor-resolved ([`BattleMark::from_conflict`]).
+    /// Battlefield's whole domain and nothing else reads it. Empty is legal and
+    /// is every test predating this input: Battlefield then reports
+    /// `NoTerrain` and nothing else moves.
+    ///
+    /// **Not filtered by year.** A battle drawn in any year is a recorded
+    /// battle; which ones are *past* at the Timeline cursor is what would
+    /// separate Historic battlefield from this, and that kind's own
+    /// `not_built` reason says why it is not drawn.
+    pub battles: &'a [BattleMark],
 }
 
 /// `RESOURCE_KEYS` entries a Mine is generated from — the metallic and
@@ -1268,6 +1326,7 @@ impl<'a> LandmarkInputs<'a> {
             settlements: &[],
             manual_icons: &[],
             ways: &[],
+            battles: &[],
         }
     }
 
@@ -1404,6 +1463,9 @@ impl Needs {
             // should not have to trust a catch-all to mean "and this kind
             // too".
             "border_marker" => (false, false, false, false, false),
+            // Battlefield reads `LandmarkInputs::battles` and the settlement
+            // list — no raster at all.
+            "battlefield" => (false, false, false, false, false),
             "ford" => (true, false, false, false, false),
             "harbour" => (true, false, false, false, false),
             "mine" | "quarry" | "resource_extraction_site" => (true, false, false, false, false),
@@ -4292,6 +4354,74 @@ fn pool_border_marker(c: &Ctx<'_>) -> Option<Pool> {
     Some(p)
 }
 
+/// **Category C.** A drawn battle is the whole reason a Battlefield exists,
+/// so the only thing left to rank on — when there are more battles than the
+/// cap — is how much settled weight is near enough to remember it (§13's
+/// gravity term, as every other civilisation-side kind here uses it). Without
+/// settlements the sum is empty, every candidate scores `0.0`, and the cap
+/// takes them in cell order: the deterministic tie-break, not a judgement.
+const BATTLEFIELD_TERMS: [(&str, f64); 1] = [("settlement demand", 1.0)];
+
+/// §29's Battlefield (Military family, Cultural class) — research §24's
+/// chain *regional conflict → battle occurs → site becomes historically
+/// important*, with the first two links authored (SP-4's drawn battles) and
+/// only the third generated.
+///
+/// **Domain: the cell each drawn battle sits on**, and nothing else — a
+/// battlefield where nothing recorded happened is the placement this kind's
+/// old `not_built` reason refused. A battle drawn off the grid, on a
+/// non-finite point, or on water (a naval engagement is not a field) is a
+/// constraint reject. Two battles on one cell are one candidate carrying both
+/// names, not two records on one cell.
+fn pool_battlefield(c: &Ctx<'_>) -> Option<Pool> {
+    if c.inp.battles.is_empty() {
+        return None;
+    }
+    let (gw, gh) = (c.inp.gw as f64, c.inp.gh as f64);
+    let has_settle = !c.inp.settlements.is_empty();
+    let mut p = Pool::new();
+    let mut t_s: Vec<f32> = Vec::new();
+    for b in c.inp.battles {
+        let mut fx = b.x.round();
+        let fy = b.y.round();
+        if c.inp.world && fx.is_finite() {
+            fx = fx.rem_euclid(gw);
+        }
+        // `!(a >= 0)` also rejects NaN; see the file-level allow.
+        if !(fx >= 0.0 && fx < gw && fy >= 0.0 && fy < gh) {
+            p.rejected_constraint += 1;
+            continue;
+        }
+        let (x, y) = (fx as usize, fy as usize);
+        let i = y * c.inp.gw + x;
+        if !c.is_land(i) {
+            p.rejected_constraint += 1;
+            continue;
+        }
+        let name = if b.name.trim().is_empty() { "an unnamed battle" } else { b.name.as_str() };
+        let years = match b.end_year {
+            Some(e) if e != b.start_year => format!("{}–{}", b.start_year, e),
+            Some(_) => b.start_year.to_string(),
+            None => format!("{}–", b.start_year),
+        };
+        let fact = format!("site of {} ({})", name, years);
+        if let Some(q) = p.cands.iter_mut().find(|q| q.i == i) {
+            q.facts.insert(0, fact);
+            continue;
+        }
+        let mut facts = vec![fact];
+        if has_settle {
+            facts.push(format!("nearest settlement {}", fmt_km(c.nearest_settlement_km(x, y))));
+            t_s.push(c.influence(x, y) as f32);
+        }
+        p.cands.push(Cand { i, x, y, facts });
+    }
+    if has_settle {
+        p.terms.push((BATTLEFIELD_TERMS[0].0, BATTLEFIELD_TERMS[0].1, t_s));
+    }
+    Some(p)
+}
+
 /// The one place a key becomes a detector. A key with no arm here is not
 /// buildable, and [`kinds`] must say so.
 fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
@@ -4330,6 +4460,7 @@ fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
         "fortified_crossing" => pool_military(c, Garrison::Crossing),
         "volcanic_feature" => pool_volcanic(c),
         "border_marker" => pool_border_marker(c),
+        "battlefield" => pool_battlefield(c),
         _ => None,
     }
 }
@@ -5438,6 +5569,7 @@ mod tests {
         assert_eq!(
             built,
             vec![
+                "battlefield",
                 "border_marker",
                 "bridge_site",
                 "caravan_station",
@@ -5465,7 +5597,7 @@ mod tests {
                 "watchtower",
                 "waterfall",
             ],
-            "the twenty-six kinds this engine actually generates"
+            "the twenty-seven kinds this engine actually generates"
         );
         // Every buildable key must have a detector, and no non-buildable key
         // may have one — otherwise the table and the pass disagree about what
@@ -5501,6 +5633,7 @@ mod tests {
                         | "fortified_crossing"
                         | "volcanic_feature"
                         | "border_marker"
+                        | "battlefield"
                 ),
                 "{} disagrees with `detect`",
                 k.key
@@ -5699,7 +5832,11 @@ mod tests {
             ("buildstone", w.stone.as_slice()),
             ("timber", w.timber.as_slice()),
         ];
-        let inp = inputs(&w, &res);
+        // Battlefield's only input, which nothing in the fixture can derive:
+        // a battle has to be drawn. On the first town, which is land.
+        let battles = [battle_at(w.gw / 4, w.gh / 3, "Fixture Field")];
+        let mut inp = inputs(&w, &res);
+        inp.battles = &battles;
         let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
         let r = generate(&inp, &s, 7);
         for k in kinds().iter().filter(|k| k.buildable) {
@@ -6911,15 +7048,12 @@ mod tests {
         assert_eq!(r.funnel("peak").unwrap().limit, LandmarkLimit::Disarmed);
         assert_eq!(r.placed("peak"), 0);
         assert_eq!(r.funnel("shrine").unwrap().limit, LandmarkLimit::NotBuildable);
-        // Battlefield, not Border marker: Border marker is generated now
-        // (`LandmarkInputs::territory` closed it, and `inputs()`'s own
-        // fixture carries a real one — `every_buildable_kind_can_actually_
-        // place_one` is where its honest-degradation-without-territory case
-        // is checked instead, in `a_kind_whose_input_is_absent_reports_
-        // no_terrain_and_places_none`), and Battlefield is the Military
-        // family's remaining unbuildable row — there is still no conflict
-        // entity in this port for it to read.
-        assert_eq!(r.funnel("battlefield").unwrap().limit, LandmarkLimit::NotBuildable);
+        // Historic battlefield, not Battlefield or Border marker: both of
+        // those are generated now (`LandmarkInputs::battles` and
+        // `::territory` closed them). With no battles drawn Battlefield is
+        // `NoTerrain`, an absent input, which is a different answer.
+        assert_eq!(r.funnel("battlefield_historic").unwrap().limit, LandmarkLimit::NotBuildable);
+        assert_eq!(r.funnel("battlefield").unwrap().limit, LandmarkLimit::NoTerrain);
         // A cap of zero is the slider's own `off` stop.
         let mut s2 = LandmarkSettings::default();
         s2.set_cap("peak", 0);
@@ -6932,10 +7066,156 @@ mod tests {
         let w = world(128, 96, 1000.0);
         let inp = inputs(&w, &[]);
         let mut s = LandmarkSettings::default();
-        s.set_armed("battlefield", true);
+        s.set_armed("battlefield_historic", true);
         let r = generate(&inp, &s, 1);
-        assert_eq!(r.funnel("battlefield").unwrap().limit, LandmarkLimit::NotBuildable);
-        assert_eq!(r.placed("battlefield"), 0);
+        assert_eq!(r.funnel("battlefield_historic").unwrap().limit, LandmarkLimit::NotBuildable);
+        assert_eq!(r.placed("battlefield_historic"), 0);
+    }
+
+    // -- Battlefield: M9's conflict wiring ----------------------------------
+
+    fn battle_at(x: usize, y: usize, name: &str) -> BattleMark {
+        BattleMark { x: x as f64, y: y as f64, name: name.into(), start_year: 100, end_year: Some(104) }
+    }
+
+    /// Every placement other than Battlefield's, in emission order.
+    fn others(r: &LandmarkResult) -> Vec<(String, usize, usize, u64)> {
+        r.landmarks
+            .iter()
+            .filter(|l| l.kind != "battlefield")
+            .map(|l| (l.kind.clone(), l.x, l.y, l.score.to_bits()))
+            .collect()
+    }
+
+    /// **The whole claim of the wiring**: the same world, the same settings,
+    /// and a battlefield appears exactly where a battle was drawn — and only
+    /// because one was.
+    #[test]
+    fn a_drawn_battle_places_a_battlefield_where_none_could_be_before() {
+        let w = world(192, 144, 1000.0);
+        let (bx, by) = (w.gw / 4, w.gh / 3);
+        // Competition off: with it on, the drawn battle at the fixture's
+        // first town lost on spacing to a landmark an earlier class already
+        // placed inside the Cultural ring (measured: `rejected_spacing: 1`) —
+        // correct §16 behaviour, and not this test's question.
+        let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
+        let before = generate(&inputs(&w, &[]), &s, 5);
+        assert_eq!(before.funnel("battlefield").unwrap().limit, LandmarkLimit::NoTerrain);
+        assert_eq!(before.placed("battlefield"), 0);
+
+        let battles = [battle_at(bx, by, "Fixture Field")];
+        let mut inp = inputs(&w, &[]);
+        inp.battles = &battles;
+        let after = generate(&inp, &s, 5);
+        let f = after.funnel("battlefield").unwrap();
+        assert_eq!((f.candidates, f.placed), (1, 1), "{:?}", f);
+        let l = after.landmarks.iter().find(|l| l.kind == "battlefield").unwrap();
+        assert_eq!((l.x, l.y), (bx, by));
+        assert_eq!(l.causal[0], "site of Fixture Field (100–104)");
+        assert_eq!(l.causal.last().unwrap(), "Battlefield");
+        // With settlements present the sum has a term, so a lone candidate
+        // scores the neutral 0.5, not the empty-sum 0.0.
+        assert_eq!(l.score, 0.5);
+    }
+
+    /// Edge-case guard, in `a_zero_or_nan_crowding_…`'s spirit: battles that
+    /// cannot be placed — non-finite, off the grid, at sea — must not panic,
+    /// must place nothing, and must not move a single other placement.
+    #[test]
+    fn unplaceable_battles_reject_as_constraints_and_move_nothing_else() {
+        let w = world(192, 144, 1000.0);
+        let sea = (w.gw * 9 / 10, w.gh / 2);
+        assert_eq!(w.water[sea.1 * w.gw + sea.0], 1, "the probe cell must be ocean");
+        let battles = [
+            BattleMark { x: f64::NAN, ..battle_at(0, 0, "") },
+            BattleMark { x: f64::INFINITY, ..battle_at(0, 0, "") },
+            BattleMark { x: -1.0, ..battle_at(0, 0, "") },
+            BattleMark { y: w.gh as f64, ..battle_at(0, 0, "") },
+            // One past the east edge: must not alias onto the next row's
+            // first cell, which is land here.
+            BattleMark { x: w.gw as f64, ..battle_at(0, w.gh / 3, "") },
+            battle_at(sea.0, sea.1, "Naval"),
+        ];
+        let s = LandmarkSettings::default();
+        let base = generate(&inputs(&w, &[]), &s, 5);
+        let mut inp = inputs(&w, &[]);
+        inp.battles = &battles;
+        let r = generate(&inp, &s, 5);
+        let f = r.funnel("battlefield").unwrap();
+        assert_eq!((f.candidates, f.rejected_constraint, f.placed), (6, 6, 0), "{:?}", f);
+        assert_eq!(others(&r), others(&base));
+
+        // And on a grid with nothing in it at all.
+        let empty: Vec<f32> = Vec::new();
+        let mut e = LandmarkInputs::new(&empty, 0, 0, SEA, false, 200.0);
+        e.battles = &battles;
+        assert!(generate(&e, &s, 5).landmarks.is_empty());
+    }
+
+    /// Two battles on one cell are one field with two names, never two
+    /// records on one cell — even with spacing dialled off, where the ring
+    /// would not have caught the second.
+    #[test]
+    fn two_battles_on_one_cell_are_one_battlefield_naming_both() {
+        let w = world(192, 144, 1000.0);
+        let (bx, by) = (w.gw / 4, w.gh / 3);
+        let battles = [battle_at(bx, by, "First"), BattleMark { x: bx as f64 + 0.3, ..battle_at(bx, by, "Second") }];
+        let mut inp = inputs(&w, &[]);
+        inp.battles = &battles;
+        let s = LandmarkSettings { class_radius_km: [0.0; 4], ..Default::default() };
+        let r = generate(&inp, &s, 5);
+        assert_eq!(r.placed("battlefield"), 1);
+        let l = r.landmarks.iter().find(|l| l.kind == "battlefield").unwrap();
+        assert!(l.causal.iter().any(|c| c.contains("First")), "{:?}", l.causal);
+        assert!(l.causal.iter().any(|c| c.contains("Second")), "{:?}", l.causal);
+    }
+
+    /// On a wrapping world a battle drawn one map-width east of a land cell
+    /// is on that land cell; on a bounded map it is off the grid.
+    #[test]
+    fn a_battle_across_the_seam_wraps_only_on_a_world_map() {
+        let w = world(192, 144, 1000.0);
+        let (bx, by) = (w.gw / 4, w.gh / 3);
+        let battles = [BattleMark { x: (bx + w.gw) as f64, ..battle_at(bx, by, "Seam") }];
+        let mut inp = inputs(&w, &[]);
+        inp.battles = &battles;
+        let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
+        let bounded = generate(&inp, &s, 5);
+        let f = bounded.funnel("battlefield").unwrap();
+        assert_eq!((f.rejected_constraint, f.placed), (1, 0), "{:?}", f);
+        inp.world = true;
+        let wrapped = generate(&inp, &s, 5);
+        let l = wrapped.landmarks.iter().find(|l| l.kind == "battlefield").unwrap();
+        assert_eq!((l.x, l.y), (bx, by));
+    }
+
+    #[test]
+    fn only_a_battle_becomes_a_battle_mark_and_it_follows_its_anchor() {
+        use crate::conflict::{Conflict, ConflictAnchor, ConflictKind};
+        let mut c = Conflict {
+            id: 1,
+            name: "Moved".into(),
+            kind: ConflictKind::Battle,
+            start_year: 7,
+            end_year: None,
+            sides: vec![1, 2],
+            outcome: String::new(),
+            points: vec![(10.0, 10.0)],
+            anchor: None,
+            anchor_at: (0.0, 0.0),
+        };
+        let m = BattleMark::from_conflict(&c, None).unwrap();
+        assert_eq!((m.x, m.y, m.start_year, m.end_year), (10.0, 10.0, 7, None));
+        // Attached at (11, 11); the settlement has since moved to (21, 8).
+        c.set_anchor(Some(ConflictAnchor::Settlement(3)), (11.0, 11.0), c.points.clone());
+        let m = BattleMark::from_conflict(&c, Some((21.0, 8.0))).unwrap();
+        assert_eq!((m.x, m.y), (20.0, 7.0));
+        for k in [ConflictKind::Siege, ConflictKind::Front, ConflictKind::Arrow] {
+            assert!(BattleMark::from_conflict(&Conflict { kind: k, ..c.clone() }, None).is_none(), "{:?}", k);
+        }
+        // An empty point list (only reachable by bypassing the store's
+        // validation) is absent, not a panic.
+        assert!(BattleMark::from_conflict(&Conflict { points: vec![], ..c }, None).is_none());
     }
 
     #[test]
