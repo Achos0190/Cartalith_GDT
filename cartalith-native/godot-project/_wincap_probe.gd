@@ -58,6 +58,12 @@ func _ready() -> void:
 	var main_rect := Rect2i(Vector2i.ZERO, get_window().size)
 	print("WINCAP main window %s" % [get_window().size])
 
+	## Windows remember their size on close since 2026-09-24; keep the user's
+	## own stored sizes and put them back at the end.
+	var prior := {}
+	for key in OLD_CAP.keys():
+		var pw: Window = app.get(key)
+		prior[DccWidgets.window_key(pw)] = DccSettings.window_size(DccWidgets.window_key(pw))
 	for key in OLD_CAP.keys():
 		var w: Window = app.get(key)
 		var default_size := w.size
@@ -79,5 +85,7 @@ func _ready() -> void:
 		w.hide()
 		await _frames(2)
 
+	for k in prior.keys():
+		DccSettings.set_window_size(k, prior[k])
 	print("WINCAP %s  (%d failures)" % ["PASS" if _fails == 0 else "FAIL", _fails])
 	get_tree().quit(0 if _fails == 0 else 1)

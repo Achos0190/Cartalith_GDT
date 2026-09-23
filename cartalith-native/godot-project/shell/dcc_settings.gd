@@ -55,6 +55,7 @@ const _SEC_GRAPHICS := "graphics"
 const _SEC_LAYOUT := "layout"
 ## §2.5 Tiles & LOD > Atlas cache > Size cap.
 const _SEC_ATLAS := "atlas"
+const _SEC_WINDOWS := "window_sizes"
 const MAX_RECENT := 10
 
 ## Order matches §2.1's own listing.
@@ -241,6 +242,20 @@ static func set_cpu_thread_count(threads: int) -> void:
 ## writers of this section (grepped across `godot-project/`), and nothing calls
 ## either on boot -- so no start-up path can freeze the old default into a file
 ## and disguise it as a choice.
+## A tool window's last size, keyed by `DccWidgets.window_key()` (its script
+## and the density it was used at). `Vector2i.ZERO` means none stored -- no
+## window has a zero size, so it cannot be mistaken for one. Written only by
+## `set_window_size()`, from `DccWidgets.phone_window()`'s close hook.
+static func window_size(key: String) -> Vector2i:
+	_ensure_loaded()
+	var v = _cfg.get_value(_SEC_WINDOWS, key, Vector2i.ZERO)
+	return v if v is Vector2i else Vector2i.ZERO
+
+static func set_window_size(key: String, size: Vector2i) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_WINDOWS, key, size)
+	_save()
+
 static func autosave_enabled() -> bool:
 	_ensure_loaded()
 	return bool(_cfg.get_value(_SEC_AUTOSAVE, "enabled", true))

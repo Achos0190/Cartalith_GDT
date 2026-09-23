@@ -685,6 +685,55 @@ static func popup_anchored(popup: Window, anchor: Rect2, width: int, gap: int = 
 	popup.popup(Rect2i(Vector2i(int(x), int(y)), Vector2i(int(w), int(h))))
 
 
+## Where a tool window's size is remembered: its script, and the density it
+## is used at, so a tablet size never lands on a desktop window.
+static func window_key(dlg: Window) -> String:
+	var s: Script = dlg.get_script()
+	var name := s.resource_path.get_file().get_basename() if s != null else dlg.title
+	return "%s@%s" % [name, "tablet" if DccTheme.is_tablet() else "desktop"]
+
+## Desktop and tablet tool windows (2026-09-24, UX review): a VISIBLE resize
+## grip in the bottom-right corner -- the only resize affordance was Godot's
+## invisible 4 px border band -- and the window's size remembered across
+## sessions. Restored here (clamped to the screen, never below `min_size`),
+## saved when the window closes rather than on every drag step. The grip is
+## the last item of the dialog's button row; on a tablet it is floored at the
+## touch target.
+static func _desktop_window_size(dlg: AcceptDialog) -> void:
+	if dlg.has_meta("_dcc_sized"):
+		return
+	dlg.set_meta("_dcc_sized", true)
+	var key := window_key(dlg)
+	var saved := DccSettings.window_size(key)
+	if saved != Vector2i.ZERO:
+		var room := Vector2i(dlg.get_tree().root.get_visible_rect().size) if dlg.is_inside_tree() else saved
+		dlg.size = Vector2i(clampi(saved.x, dlg.min_size.x, maxi(dlg.min_size.x, room.x)),
+			clampi(saved.y, dlg.min_size.y, maxi(dlg.min_size.y, room.y)))
+	dlg.visibility_changed.connect(func() -> void:
+		if not dlg.visible:
+			DccSettings.set_window_size(key, dlg.size))
+	var px := DccTheme.role_px("btn_min_h") if DccTheme.is_tablet() else 14
+	var grip := Control.new()
+	grip.custom_minimum_size = Vector2(px, px)
+	grip.size_flags_vertical = Control.SIZE_SHRINK_END
+	grip.mouse_default_cursor_shape = Control.CURSOR_FDIAGSIZE
+	grip.tooltip_text = "Drag to resize"
+	## At the right end of the dialog's own button row -- the window's real
+	## bottom-right corner. A child of the dialog itself, even an internal one,
+	## is stretched over the whole content area by `AcceptDialog`.
+	dlg.get_ok_button().get_parent().add_child(grip)
+	grip.draw.connect(func() -> void:
+		var c := DccTheme.c("text_faint")
+		var s := grip.size
+		for k in [0.3, 0.6, 0.9]:
+			grip.draw_line(Vector2(s.x * (1.0 - k), s.y - 2.0), Vector2(s.x - 2.0, s.y * (1.0 - k)), c, 1.0))
+	grip.gui_input.connect(func(ev: InputEvent) -> void:
+		if ev is InputEventMouseMotion and ((ev as InputEventMouseMotion).button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+			var want := Vector2(dlg.size) + (ev as InputEventMouseMotion).relative
+			dlg.size = Vector2i(maxi(dlg.min_size.x, int(want.x)), maxi(dlg.min_size.y, int(want.y)))
+			grip.accept_event())
+
+
 static func style_popup(popup: PopupMenu) -> void:
 	var touch := DccTheme.is_touch()
 	var panel := DccTheme.panel("panel",
@@ -2583,6 +2632,7 @@ static func band(parent: Control, pad_x: int, gap: int = 14, height: int = 28) -
 static func phone_window(dlg: AcceptDialog, host) -> bool:
 	dlg.wrap_controls = false
 	if host == null or not host.has_method("is_phone") or not host.is_phone():
+		_desktop_window_size(dlg)
 		return false
 	## The embedded window's own title bar is drawn by the PARENT viewport, at
 	## the parent's scale -- so it does not grow with `content_scale_factor` and
