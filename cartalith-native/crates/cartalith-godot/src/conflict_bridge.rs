@@ -57,6 +57,33 @@ fn anchor_name(civ: &CivData, a: ConflictAnchor) -> Option<String> {
     }
 }
 
+/// SP-5's "the conflicts that touched" settlement `tid`: every anchor that
+/// names this place -- the settlement itself, and the province it lies in
+/// (by the live per-cell province raster, referenced as its seed's `tid`,
+/// the way [`ConflictAnchor::Province`] stores it). When `tid` is itself a
+/// province seed, that province is included even if the raster no longer
+/// puts the seed's own cell in it. Empty for a `tid` no settlement carries.
+fn anchors_touching(
+    settlements: &[cartalith_civ::NamedSettlement],
+    provinces: &[i32],
+    province_list: &[cartalith_civ::Province],
+    gw: usize,
+    tid: u64,
+) -> Vec<ConflictAnchor> {
+    let Some(s) = settlements.iter().find(|s| s.tid == tid) else { return Vec::new() };
+    let seed_tid = |p: &cartalith_civ::Province| settlements.get(p.capital_settlement_index).map(|s| s.tid);
+    let mut out = vec![ConflictAnchor::Settlement(tid)];
+    // Province ids are 1-based; the raster's 0 ("no province") matches none.
+    let here = provinces.get(s.placement.y * gw + s.placement.x).copied().unwrap_or(0);
+    if let Some(t) = province_list.iter().find(|p| p.id == here).and_then(seed_tid) {
+        out.push(ConflictAnchor::Province(t));
+    }
+    if province_list.iter().any(|p| seed_tid(p) == Some(tid)) && !out.contains(&ConflictAnchor::Province(tid)) {
+        out.push(ConflictAnchor::Province(tid));
+    }
+    out
+}
+
 pub(crate) fn anchor_key(a: ConflictAnchor) -> (&'static str, u64) {
     match a {
         ConflictAnchor::Settlement(t) => ("settlement", t),
@@ -303,6 +330,29 @@ impl WorldGen {
             .collect()
     }
 
+    /// SP-5: every conflict that touched settlement `tid` -- attached to it,
+    /// or to the province it lies in (`anchors_touching`) -- as
+    /// [`Self::conflict_list`] describes each, plus `via` (`"settlement"` /
+    /// `"province"`: which anchor matched). Ordered by `start_year`, then
+    /// creation order. Empty before any `generate()`, for `tid <= 0`, and for
+    /// a `tid` no live settlement carries.
+    #[func]
+    fn conflicts_touching_settlement(&self, tid: i64) -> Array<VarDictionary> {
+        let Some(civ) = self.civ.as_ref().filter(|_| tid > 0) else { return Array::new() };
+        let anchors =
+            anchors_touching(&civ.settlements, &civ.provinces, &civ.province_list, self.gw.max(0) as usize, tid as u64);
+        let mut hits: Vec<&Conflict> =
+            self.conflicts.conflicts.iter().filter(|c| c.anchor.is_some_and(|a| anchors.contains(&a))).collect();
+        hits.sort_by_key(|c| c.start_year);
+        hits.iter()
+            .map(|c| {
+                let mut d = self.conflict_dict(c);
+                d.set("via", c.anchor.map_or("", |a| anchor_key(a).0));
+                d
+            })
+            .collect()
+    }
+
     /// SP-4's "reads the numbers": one row per side, in side order --
     /// `faction`, `name`, and when the world has a manpower row for it,
     /// `standing_army`, `professional_core`, `field_army`,
@@ -347,4 +397,50 @@ impl WorldGen {
 /// Used by the passes that reissue every `tid` (see this module's doc).
 pub(crate) fn detach_all(store: &mut ConflictStore, civ: Option<&CivData>) {
     store.detach_all(|a| civ.and_then(|c| anchor_pos(c, a)));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::anchors_touching;
+    use cartalith_civ::conflict::ConflictAnchor::{Province as P, Settlement as S};
+    use cartalith_civ::{NamedSettlement, Province, SettlementKind, SettlementPlacement};
+
+    fn town(tid: u64, x: usize) -> NamedSettlement {
+        NamedSettlement {
+            tid,
+            placement: SettlementPlacement {
+                x,
+                y: 0,
+                suit: 0.5,
+                faction: 1,
+                capital: false,
+                kind: SettlementKind::Village,
+                coastal: false,
+            },
+            name: format!("T{tid}"),
+            pop: 100,
+        }
+    }
+
+    #[test]
+    fn a_settlement_is_touched_by_itself_and_the_province_it_lies_in() {
+        // Four cells in a row; tids 7 and 9 seed provinces 1 and 2, and
+        // tid 8 lies in province 2 (cell 2). Province ids are deliberately
+        // not the list positions' seed tids, so a mix-up cannot pass.
+        let towns = [town(7, 0), town(8, 2), town(9, 3)];
+        let raster = [1, 1, 2, 2];
+        let list = [
+            Province { id: 1, faction: 1, name: String::new(), capital_settlement_index: 0 },
+            Province { id: 2, faction: 1, name: String::new(), capital_settlement_index: 2 },
+        ];
+        assert_eq!(anchors_touching(&towns, &raster, &list, 4, 8), vec![S(8), P(9)]);
+        assert_eq!(anchors_touching(&towns, &raster, &list, 4, 7), vec![S(7), P(7)]);
+        // A seed whose own cell the raster now puts elsewhere still owns its
+        // province, alongside the one it lies in.
+        let moved = [2, 1, 2, 2];
+        assert_eq!(anchors_touching(&towns, &moved, &list, 4, 7), vec![S(7), P(9), P(7)]);
+        // Unowned cell: the settlement alone. Unknown tid: nothing.
+        assert_eq!(anchors_touching(&towns, &[1, 1, 0, 2], &list, 4, 8), vec![S(8)]);
+        assert!(anchors_touching(&towns, &raster, &list, 4, 99).is_empty());
+    }
 }

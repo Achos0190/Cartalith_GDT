@@ -419,6 +419,7 @@ func _rebuild() -> void:
 			_build_political(tab_content, s)
 			_build_authored_events(tab_content, s)
 			_build_journey_passes(tab_content, s)
+			_build_conflicts_here(tab_content, s)
 		"vault":
 			_build_knowledge(tab_content, s)
 		"layout":
@@ -818,6 +819,7 @@ func _build_journey_passes(parent: Control, s: Dictionary) -> void:
 		DccWidgets.note(sec, "This settlement has no stable id yet, so no journey can be matched to it.")
 		return
 	var passes: Array = bridge.civ_settlement_journey_passes(tid)
+	var conflicts: Array = bridge.conflicts_touching_settlement(tid)
 	if passes.is_empty():
 		DccWidgets.note(sec, "No saved journey passes here. Save one from the Journey Planner; it "
 			+ "lists here when its route comes within the planner's stop radius of this settlement.")
@@ -841,6 +843,70 @@ func _build_journey_passes(parent: Control, s: Dictionary) -> void:
 		sec.add_child(row)
 		if pd.has("error"):
 			DccWidgets.note(sec, "Undated: %s." % String(pd.get("error", "")))
+		## SP-5 (a): the pass's year against the conflicts that touched this
+		## place (`_build_conflicts_here`'s own set). Undated passes have no
+		## year to compare, so say nothing rather than guess.
+		elif pd.has("year"):
+			var during: Array = []
+			for c in conflicts:
+				var cd: Dictionary = c
+				var y := int(pd.get("year", 0))
+				if y >= int(cd.get("start_year", 0)) and (not cd.has("end_year") or y <= int(cd.get("end_year", 0))):
+					during.append("%s (%s)" % [_conflict_title(cd), _conflict_years(cd)])
+			if not during.is_empty():
+				DccWidgets.note(sec, "Passing during: %s." % "; ".join(during))
+
+
+# -- Conflicts here (SP-5) ------------------------------------------------------
+
+## `STORY_PLANNING_SCOPE.md` SP-5 (b): "a settlement's strip shows the
+## conflicts that touched it" -- every conflict attached to this settlement or
+## to the province it lies in (`bridge.conflicts_touching_settlement`, keyed on
+## `tid`), in the journey-pass row shape: swatch (the map's conflict ink), year
+## range, name. Read-only; conflicts are drawn and edited in CIVIL.
+const _CONFLICT_INK: Color = preload("res://map_overlay.gd").CONFLICT_COLOR
+
+func _build_conflicts_here(parent: Control, s: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Conflicts here")
+	var tid := int(s.get("tid", 0))
+	if tid == 0:
+		DccWidgets.note(sec, "This settlement has no stable id yet, so no conflict can be matched to it.")
+		return
+	var conflicts: Array = bridge.conflicts_touching_settlement(tid)
+	if conflicts.is_empty():
+		DccWidgets.note(sec, "No conflict is attached here. A conflict drawn in CIVIL lists here when "
+			+ "it is attached to this settlement or to its province.")
+		return
+	for c in conflicts:
+		var cd: Dictionary = c
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		var sw := ColorRect.new()
+		sw.custom_minimum_size = Vector2(12, 12)
+		sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		sw.color = _CONFLICT_INK
+		row.add_child(sw)
+		row.add_child(DccTheme.mono_label(_conflict_years(cd), "text", DccTheme.FS_SMALL))
+		var title := _conflict_title(cd)
+		if String(cd.get("via", "")) == "province":
+			title += "  (%s)" % String(cd.get("anchor_name", "province"))
+		var name_l := DccTheme.mono_label(title, "text_dim", DccTheme.FS_SMALL)
+		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row.add_child(name_l)
+		if not String(cd.get("outcome", "")).is_empty():
+			row.tooltip_text = "Outcome: %s" % String(cd.get("outcome", ""))
+		sec.add_child(row)
+
+
+func _conflict_years(cd: Dictionary) -> String:
+	var yr := str(int(cd.get("start_year", 0)))
+	return yr + (" – %d" % int(cd.get("end_year", 0)) if cd.has("end_year") else " – ongoing")
+
+
+func _conflict_title(cd: Dictionary) -> String:
+	var n := String(cd.get("name", ""))
+	return n if not n.is_empty() else "Unnamed %s" % String(cd.get("kind", "conflict"))
 
 
 # -- Authored events (SP-3, Ruling AM) ----------------------------------------

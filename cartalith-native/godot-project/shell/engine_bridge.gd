@@ -3083,6 +3083,13 @@ func conflicts_attached_to(kind: String, tid: int) -> PackedInt64Array:
 		return PackedInt64Array()
 	return world_gen.conflicts_attached_to(kind, tid)
 
+## SP-5: conflicts attached to settlement `tid` or to its province, each a
+## `conflict_list()` row plus `via`.
+func conflicts_touching_settlement(tid: int) -> Array:
+	if not _has("conflicts_touching_settlement"):
+		return []
+	return world_gen.conflicts_touching_settlement(tid)
+
 func conflict_sides_manpower(id: int) -> Array:
 	if not _has("conflict_sides_manpower"):
 		return []
