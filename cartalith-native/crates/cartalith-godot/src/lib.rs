@@ -847,6 +847,22 @@ mod civ_merge_tests {
         assert_eq!(merged.settlements.len(), OLD);
     }
 
+    /// `civ_merge`'s `Routes` arm never even names `faction_roster` -- this
+    /// pins that down rather than trusting the reading. A hand edit made
+    /// before "Generate Roads" must come out bit-identical, not just
+    /// unchanged in length.
+    #[test]
+    fn routes_never_touches_the_faction_roster() {
+        let fresh = tagged(FRESH);
+        let mut old = tagged(OLD);
+        old.faction_roster.0[1].religion = "old_gods".to_string();
+        old.faction_roster.0[1].government = "theocracy".to_string();
+        let before = old.faction_roster.clone();
+
+        let (merged, _) = civ_merge(CivRebuild::Routes, fresh, old);
+        assert_eq!(merged.faction_roster, before, "never overwrites an existing faction");
+    }
+
     /// SG-02's recompute rebuilds everything below the settlement list, so
     /// it may.
     #[test]
@@ -856,6 +872,14 @@ mod civ_merge_tests {
         old.civ_add_year(-1200); // sets `year` and seeds the timeline in one call
         old.place_extras.0.insert(7, Default::default());
         old.faction_roster.0[1].name = "Kept".to_string();
+        // A prior generation's or a hand edit's religion/government must
+        // survive a Downstream recompute untouched -- the property that
+        // makes `civ_default_religion`/`civ_default_government` (wired
+        // 2026-09-23) safe to call inside `FactionEntry::default_for` at
+        // all: `fresh`'s own freshly-seeded roster (built with the new
+        // defaults) is discarded wholesale in favour of `old`'s below.
+        old.faction_roster.0[1].religion = "old_gods".to_string();
+        old.faction_roster.0[1].government = "theocracy".to_string();
 
         let (merged, rederived) = civ_merge(CivRebuild::Downstream, fresh, old);
         assert!(rederived);
@@ -865,6 +889,8 @@ mod civ_merge_tests {
         assert_eq!(merged.timeline.len(), 1);
         assert!(merged.place_extras.0.contains_key(&7));
         assert_eq!(merged.faction_roster.0[1].name, "Kept");
+        assert_eq!(merged.faction_roster.0[1].religion, "old_gods", "never overwrites an existing faction");
+        assert_eq!(merged.faction_roster.0[1].government, "theocracy", "never overwrites an existing faction");
 
         assert_claim_matches_reality(CivRebuild::Downstream);
     }
@@ -880,6 +906,12 @@ mod civ_merge_tests {
         old.place_extras.0.insert(7, Default::default());
         old.faction_roster = civ_roster_bridge::FactionRoster::seeded(3);
         old.faction_roster.0[1].name = "Kept".to_string();
+        // Same "never overwrites" property as Downstream, exercised on the
+        // branch that also GROWS the roster: an existing index's
+        // religion/government must survive even though `civ_merge` is about
+        // to append six brand-new indices right past it.
+        old.faction_roster.0[1].religion = "old_gods".to_string();
+        old.faction_roster.0[1].government = "theocracy".to_string();
 
         let (merged, rederived) = civ_merge(CivRebuild::Replace, fresh, old);
         assert!(rederived);
@@ -887,6 +919,17 @@ mod civ_merge_tests {
         // Keyed by faction index, so it survives -- grown, never shrunk.
         assert_eq!(merged.faction_roster.0.len(), 10);
         assert_eq!(merged.faction_roster.0[1].name, "Kept");
+        assert_eq!(merged.faction_roster.0[1].religion, "old_gods", "never overwrites an existing faction");
+        assert_eq!(merged.faction_roster.0[1].government, "theocracy", "never overwrites an existing faction");
+        // The three newly-appended indices (7..=9) get real, non-"none"
+        // defaults from `civ_default_religion`/`civ_default_government`
+        // (wired 2026-09-23) via `FactionRoster::add`, never the reference's
+        // uniform "none"/"monarchy" and never a silent overwrite of what was
+        // already there at 0..=6.
+        for i in 7..=9 {
+            assert_ne!(merged.faction_roster.0[i].religion, "none", "index {i} is a genuinely new faction");
+            assert_ne!(merged.faction_roster.0[i].government, "none", "index {i} is a genuinely new faction");
+        }
         // Keyed by `tid`, and every `tid` here is new, so both are dropped.
         assert!(merged.timeline.is_empty());
         assert!(merged.place_extras.0.is_empty());
@@ -1465,11 +1508,44 @@ mod civ_timeline_tests {
         );
     }
 
+    /// **Re-baselined 2026-09-23**: this used to be named
+    /// `the_shipped_roster_makes_a_run_report_no_faith_rather_than_an_empty_result`
+    /// and read "untouched roster: `FactionEntry::default_for` gives every
+    /// faction religion `\"none\"`" -- true before this date, and false
+    /// after: `FactionEntry::default_for` now calls
+    /// `cartalith_civ::roster::civ_default_religion` for every faction but
+    /// `0`, and `linked_pair`'s faction 1 (culture `"imperial"`, unthemed)
+    /// lands on `"earth_mother"` -- the second of the seven-way tie,
+    /// `faction_index % 7 == 1`. A freshly-seeded roster now reports real
+    /// faith on its very first run. The "no layer" vs "the layer ran and
+    /// found nothing" distinction this test exists for is now covered
+    /// explicitly by
+    /// `an_all_none_roster_still_reports_no_faith_rather_than_an_empty_result`
+    /// below, which sets `"none"` by hand rather than relying on the shipped
+    /// default.
     #[test]
-    fn the_shipped_roster_makes_a_run_report_no_faith_rather_than_an_empty_result() {
+    fn the_shipped_roster_now_seeds_real_faith_from_its_wired_default() {
         let mut civ = linked_pair();
-        // Untouched roster: `FactionEntry::default_for` gives every faction
-        // religion "none".
+        assert_eq!(civ.faction_roster.0[1].religion, "earth_mother");
+        let (n, seeded, any_faith) = civ.civ_belief_run(50);
+        assert_eq!(n, 2);
+        assert!(seeded, "the first run seeds");
+        assert!(any_faith, "the wired default religion gives faction 1 real faith to spread");
+        assert!(civ.belief_current().is_some());
+        for s in civ.belief.iter() {
+            assert_eq!(cartalith_civ::belief::religion_key(s.plurality()), Some("earth_mother"));
+        }
+    }
+
+    /// The "no layer" vs "the layer ran and found nothing" distinction the
+    /// milestone this module's own comment names exists to preserve --
+    /// exercised on an explicit all-`"none"` roster now that a freshly
+    /// seeded one is no longer that case by default (wired 2026-09-23, see
+    /// [`the_shipped_roster_now_seeds_real_faith_from_its_wired_default`]).
+    #[test]
+    fn an_all_none_roster_still_reports_no_faith_rather_than_an_empty_result() {
+        let mut civ = linked_pair();
+        assert!(civ.faction_roster.set_field(1, "religion", "none"));
         let (n, seeded, any_faith) = civ.civ_belief_run(50);
         assert_eq!(n, 2);
         assert!(seeded, "the first run seeds");
@@ -1532,8 +1608,14 @@ mod civ_timeline_tests {
     #[test]
     fn changing_a_factions_religion_after_a_run_re_seeds_the_layer() {
         let mut civ = linked_pair();
+        // Explicit all-None start: the shipped roster is no longer this by
+        // default (wired 2026-09-23 -- see
+        // `the_shipped_roster_now_seeds_real_faith_from_its_wired_default`),
+        // and this test's own claim is about re-seeding on a religion
+        // CHANGE, not about what a fresh roster happens to start at.
+        assert!(civ.faction_roster.set_field(1, "religion", "none"));
         let (_, _, any_faith) = civ.civ_belief_run(50);
-        assert!(!any_faith, "the shipped roster is all-None");
+        assert!(!any_faith, "faction 1 was explicitly set to no religion");
 
         // The user opens the Faction Inspector and picks a religion.
         assert!(civ.faction_roster.set_field(1, "religion", "sun_cult"));

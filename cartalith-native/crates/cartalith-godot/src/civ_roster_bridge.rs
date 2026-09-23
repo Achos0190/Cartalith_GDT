@@ -56,7 +56,7 @@ use std::collections::HashMap;
 use cartalith_civ::NamedSettlement;
 use cartalith_civ::roster::{
     AG_TECH_LEVELS, CIV_FACTION_BASE, CIV_GOVERNMENTS, CIV_RELIGIONS, CIV_SPECIALISATIONS,
-    CIV_TRAITS, civ_faction_color, has_key,
+    CIV_TRAITS, civ_default_government, civ_default_religion, civ_faction_color, has_key,
 };
 
 /// One roster row. Index 0 is the reference's fixed "Unclaimed" entry and
@@ -67,10 +67,17 @@ pub struct FactionEntry {
     pub name: String,
     /// `civFactionCulture[i]` — a `cartalith_civ::CIV_CULTURES` key.
     pub culture: String,
-    /// `civFactionReligion[i]`, default `"none"`.
+    /// `civFactionReligion[i]`. The reference always seeds `"none"`; this
+    /// port instead assigns a real default via
+    /// [`cartalith_civ::roster::civ_default_religion`] for every index but
+    /// `0` ("Unclaimed" stays `"none"`), authorised 2026-09-23 — see
+    /// [`FactionEntry::default_for`].
     pub religion: String,
-    /// `civFactionGovernment[i]`; the reference seeds index 0 `"none"` and
-    /// every other index `"monarchy"` (line 14805).
+    /// `civFactionGovernment[i]`. The reference seeds index 0 `"none"` and
+    /// every other index `"monarchy"` (line 14805); this port instead
+    /// spreads a real default across [`CIV_GOVERNMENTS`] via
+    /// [`cartalith_civ::roster::civ_default_government`] for every index but
+    /// `0`, authorised 2026-09-23 — see [`FactionEntry::default_for`].
     pub government: String,
     /// `civFactionAgTech[i]`, default `"traditionalAgrarian"`.
     pub ag_tech: String,
@@ -107,18 +114,40 @@ pub struct FactionEntry {
 }
 
 impl FactionEntry {
-    /// The reference's own defaults for index `i`, whether it is one of the
-    /// seven base rows or an appended one.
+    /// Index `i`'s defaults, whether it is one of the seven base rows or an
+    /// appended one.
+    ///
+    /// **Wired 2026-09-23** (owner: "Should this go live? — Yes, wire it in
+    /// now"), replacing the reference's own uniform `religion: "none"` /
+    /// `government: "monarchy"` seed for index >= 1 with
+    /// [`cartalith_civ::roster::civ_default_religion`] and
+    /// [`cartalith_civ::roster::civ_default_government`] — both pure,
+    /// RNG-free functions of `culture`/`i` that were built and golden-tested
+    /// against `belief::compat` before this call was added (see their own
+    /// doc comments in `cartalith_civ::roster` for the culture-fit and
+    /// index-cycling rules). Index `0` ("Unclaimed") is unaffected: it stays
+    /// `"none"`/`"none"`, the one case neither function is asked about.
+    ///
+    /// This is a real generated-output change, not a flavour one —
+    /// `CIV_GOVERNMENTS`'s own doc comment on this crate's `cartalith-civ`
+    /// side explains why (`manpower::GOVERNMENT_EXTRACTION`/`CITIZEN_SHARE`
+    /// and `belief::faction_has_religion` both key off these fields).
     pub fn default_for(i: usize) -> Self {
         let (name, color) = match CIV_FACTION_BASE.get(i) {
             Some(&(n, c)) => (n.to_string(), c),
             None => (format!("Faction {i}"), civ_faction_color(i)),
         };
+        let culture = cartalith_civ::civ_default_culture(i as i32).key.to_string();
+        let (religion, government) = if i == 0 {
+            ("none".to_string(), "none".to_string())
+        } else {
+            (civ_default_religion(&culture, i).to_string(), civ_default_government(i).to_string())
+        };
         FactionEntry {
             name,
-            culture: cartalith_civ::civ_default_culture(i as i32).key.to_string(),
-            religion: "none".to_string(),
-            government: if i == 0 { "none" } else { "monarchy" }.to_string(),
+            culture,
+            religion,
+            government,
             ag_tech: "traditionalAgrarian".to_string(),
             color,
             color_override: None,
@@ -481,12 +510,59 @@ mod tests {
         assert_eq!(r.count(), 6);
         assert_eq!(r.0[0].name, "Unclaimed");
         assert_eq!(r.0[0].government, "none");
+        assert_eq!(r.0[0].religion, "none", "Unclaimed is untouched by the 2026-09-23 wiring");
         assert_eq!(r.0[1].name, "Aurelia");
-        assert_eq!(r.0[1].government, "monarchy");
+        // The reference's own uniform "monarchy" is gone (wired 2026-09-23,
+        // `MISTAKES.md` "Change generated output"): `civ_default_government`
+        // walks `faction_index - 1` mod the eight non-"none" forms, so index
+        // 1 lands on the first of them, "chiefdom".
+        assert_eq!(r.0[1].government, "chiefdom");
+        // `civ_default_culture(1)` is "imperial", one of the two unthemed
+        // cultures, so `civ_default_religion` cycles the seven-way tie by
+        // `faction_index`: index 1 -> the second candidate, "earth_mother".
+        assert_eq!(r.0[1].religion, "earth_mother");
         assert_eq!(r.0[6].name, "Draumr League");
         // Culture follows `_civDefaultCulture(i)` == CIV_CULTURES[i % 7].
         assert_eq!(r.0[0].culture, "common");
         assert_eq!(r.0[1].culture, "imperial");
+    }
+
+    /// The wiring boundary itself, built and authorised 2026-09-23: every
+    /// entry point onto [`FactionEntry::default_for`] -- `seeded`, `add`,
+    /// and (via [`FactionRoster::find_or_create_by_name`], its own test
+    /// above) GeoJSON import -- must hand a genuinely new faction a real
+    /// religion and government, never the reference's uniform
+    /// `"none"`/`"monarchy"`, and never touch index `0`.
+    #[test]
+    fn a_freshly_added_faction_gets_a_real_non_uniform_religion_and_government() {
+        let mut r = FactionRoster::seeded(0); // just Unclaimed
+        assert_eq!(r.0[0].religion, "none");
+        assert_eq!(r.0[0].government, "none");
+
+        let id1 = r.add(); // index 1, culture "imperial" -- unthemed
+        let id2 = r.add(); // index 2, culture "highland" -- themed
+        assert_eq!((id1, id2), (1, 2));
+
+        for &i in &[id1, id2] {
+            assert_ne!(r.0[i].religion, "none", "index {i} must get a real religion");
+            assert_ne!(r.0[i].government, "none", "index {i} must get a real government");
+            assert!(has_key(&CIV_RELIGIONS, &r.0[i].religion));
+            assert!(has_key(&CIV_GOVERNMENTS, &r.0[i].government));
+        }
+        // Not a collapse onto one value regardless of culture: the themed
+        // index 2 ("highland") is forced onto "sky_pantheon" by
+        // `belief::compat`'s bijection, which the unthemed index 1
+        // ("imperial") cannot land on by construction (`civ_default_religion`
+        // only returns a themed culture's forced pick for that culture).
+        assert_eq!(r.0[2].religion, "sky_pantheon");
+        assert_ne!(r.0[1].religion, r.0[2].religion);
+        // Government has no culture correlation, but must still vary with
+        // faction index rather than repeating the old uniform "monarchy".
+        assert_ne!(r.0[1].government, r.0[2].government);
+
+        // Unclaimed stays exactly as it was.
+        assert_eq!(r.0[0].religion, "none");
+        assert_eq!(r.0[0].government, "none");
     }
 
     /// `GUI_GAP_REGISTER.md` **CV-21**. The two things worth pinning are
@@ -623,9 +699,16 @@ mod tests {
         assert_eq!(r.0[8].name, "Whitestone Confederacy");
         assert_eq!(r.count(), 8);
         // Its colour is the ordinary appended-index rule, distinct by
-        // construction, and it starts with the ordinary defaults.
+        // construction, and it starts with the ordinary defaults --
+        // `civ_default_government`/`civ_default_religion`, wired
+        // 2026-09-23, not the reference's uniform "monarchy"/"none". Index
+        // 8's culture is `civ_default_culture(8)` == CIV_CULTURES[8 % 7] ==
+        // "imperial" (unthemed), the same tie as index 1, and
+        // `civ_default_government(8)` walks to the eighth (last) non-"none"
+        // form.
         assert_eq!(r.0[8].color, civ_faction_color(8));
-        assert_eq!(r.0[8].government, "monarchy");
+        assert_eq!(r.0[8].government, "city_state");
+        assert_eq!(r.0[8].religion, "earth_mother");
 
         // A second feature naming the SAME faction matches, not duplicates.
         let (fid2, created2) = r.find_or_create_by_name("Whitestone Confederacy");
@@ -667,9 +750,18 @@ mod tests {
     #[test]
     fn has_religion_flags_track_the_one_field_aggregates_read() {
         let mut r = FactionRoster::seeded(2);
-        assert_eq!(r.has_religion_flags(), vec![false, false, false]);
+        // Wired 2026-09-23: every real faction (index >= 1) now defaults to
+        // a non-"none" religion (`civ_default_religion`) -- only Unclaimed
+        // stays "none". An explicit hand edit to "none" must still clear the
+        // flag, and a later edit away from it must still set it -- the flag
+        // tracks the field's current value, not whether it was ever touched.
+        assert_eq!(r.has_religion_flags(), vec![false, true, true]);
+        r.set_field(1, "religion", "none");
+        assert_eq!(r.has_religion_flags(), vec![false, false, true]);
         r.set_field(2, "religion", "old_gods");
         assert_eq!(r.has_religion_flags(), vec![false, false, true]);
+        r.set_field(1, "religion", "sea_lords");
+        assert_eq!(r.has_religion_flags(), vec![false, true, true]);
     }
 
     #[test]

@@ -174,9 +174,26 @@ pub const CIV_RELIGIONS: [(&str, &str); 8] = [
     ("old_gods", "Old Gods"),
 ];
 
-/// `CIV_GOVERNMENTS` (reference line 14794) -- `(key, label)`. Pure
-/// flavour: the reference's own comment says no simulation reads or writes
-/// this, and nothing in this port does either.
+/// `CIV_GOVERNMENTS` (reference line 14794) -- `(key, label)`.
+///
+/// **Stale claim, corrected 2026-09-23.** This used to say *"pure flavour:
+/// the reference's own comment says no simulation reads or writes this, and
+/// nothing in this port does either."* The reference half is still true --
+/// but this port's own `manpower::GOVERNMENT_EXTRACTION` and
+/// `manpower::CITIZEN_SHARE` are keyed by exactly these strings and are read
+/// per faction through `civ_military_bridge.rs` (`entry.government`), so a
+/// faction's government genuinely moves its military-manpower ladder and its
+/// citizen-population band. **A faction's default government is therefore
+/// not inert flavour** -- changing what a fresh faction defaults to changes
+/// generated output, the same way changing its default religion would (see
+/// [`crate::belief`]'s `faction_has_religion` -> `civ_faction_aggregates`
+/// `religious` term).
+///
+/// **Wired live 2026-09-23** (owner: "Should this go live? — Yes, wire it in
+/// now"): a fresh faction's default is no longer uniform `"monarchy"` --
+/// `cartalith-godot`'s `FactionEntry::default_for` now calls
+/// [`civ_default_government`] for every index but `0`, which stays
+/// `"none"`/Unclaimed as before.
 pub const CIV_GOVERNMENTS: [(&str, &str); 9] = [
     ("none", "None / Unclaimed"),
     ("chiefdom", "Chiefdom"),
@@ -260,6 +277,73 @@ pub fn has_key(table: &[(&str, &str)], key: &str) -> bool {
     table.iter().any(|&(k, _)| k == key)
 }
 
+/// A deterministic, culture-aware religion pick for a **fresh** faction --
+/// built 2026-09-23 and **wired live the same day** into
+/// `cartalith-godot`'s `FactionEntry::default_for` (owner: "Should this go
+/// live? — Yes, wire it in now"), replacing the reference's uniform
+/// `"none"` seed for every index but `0` ("Unclaimed", left alone). This is
+/// a real behaviour change, not a flavour one: `civ_faction_aggregates`'s
+/// `religious` term is `0.0` exactly when `faction_has_religion` is `false`,
+/// and every fresh faction used to be `"none"` -- per this repository's own
+/// discipline (`MISTAKES.md`, "Change generated output") that change is
+/// disclosed here and at the wiring call site, not silently absorbed.
+///
+/// **Never returns `"none"`** -- the whole point is that a faction gets a
+/// religion. `"none"` stays reachable through a hand edit (the
+/// `cartalith-godot` boundary's `set_field`), exactly as today.
+///
+/// Uses [`crate::belief::compat`], not a second opinion about culture-religion
+/// fit: for the five terrain-themed cultures (`highland`/`desert`/
+/// `riverlands`/`sylvan`/`maritime`) `compat` names exactly one best-fit
+/// religion at `value == 1.0` (`CIV_RELIGION_DOMAIN`'s bijection onto the
+/// five terrain keys), so the pick is a pure function of culture and carries
+/// no randomness. For the two unthemed cultures (`common`/`imperial`) every
+/// non-`"none"` religion ties at `belief::NEUTRAL_COMPAT` -- `compat` has no
+/// basis to discriminate among them (`belief`'s own module doc, disclosure
+/// 1) -- so `faction_index` breaks the tie by cycling through the tied set,
+/// which spreads successive same-culture factions across different
+/// religions instead of collapsing them onto one.
+///
+/// Float discipline: every `Compat::value` this module produces is one of
+/// the exact literals `0.0`/`0.5`/`1.0` (`belief::compat`'s own doc states
+/// this), so comparing them with `==` after a `fold` is exact, not an
+/// epsilon question.
+pub fn civ_default_religion(culture_key: &str, faction_index: usize) -> &'static str {
+    let candidates: Vec<&'static str> =
+        CIV_RELIGIONS.iter().filter(|&&(k, _)| k != "none").map(|&(k, _)| k).collect();
+    let best = candidates
+        .iter()
+        .map(|&k| crate::belief::compat(k, culture_key).value)
+        .fold(f64::MIN, f64::max);
+    let tied: Vec<&'static str> =
+        candidates.into_iter().filter(|&k| crate::belief::compat(k, culture_key).value == best).collect();
+    tied[faction_index % tied.len()]
+}
+
+/// A deterministic government pick for a **fresh** faction -- built and
+/// wired live 2026-09-23, the same day and for the same reason as
+/// [`civ_default_religion`]: `manpower::GOVERNMENT_EXTRACTION` and
+/// `manpower::CITIZEN_SHARE` are keyed by exactly this vocabulary and read
+/// per faction (`civ_military_bridge.rs`), so varying the default changes a
+/// fresh world's military-manpower numbers. See [`CIV_GOVERNMENTS`]'s own doc
+/// for the correction -- this is no longer "pure flavour".
+///
+/// **No culture-side correlation** -- unlike religion, nothing in this port
+/// gives a culture a civic-structure lean ([`crate::Culture`] is `key`/`syl`/
+/// `sfx`, a naming pool only), so inventing one would be exactly the
+/// fabrication `belief.rs`'s module doc warns against. This is therefore a
+/// plain deterministic spread over [`CIV_GOVERNMENTS`]'s eight real forms
+/// (excluding `"none"`, which stays Unclaimed-only): `faction_index - 1`
+/// walked mod 8, so eight consecutive factions see each form exactly once
+/// before the cycle repeats. A future pass correlating this with something
+/// real (settlement count, `Rules`) is a refinement on top, not a
+/// replacement.
+pub fn civ_default_government(faction_index: usize) -> &'static str {
+    let candidates: Vec<&'static str> =
+        CIV_GOVERNMENTS.iter().filter(|&&(k, _)| k != "none").map(|&(k, _)| k).collect();
+    candidates[faction_index.saturating_sub(1) % candidates.len()]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,6 +407,77 @@ mod tests {
                 CIV_SPECIALISATIONS.iter().any(|&(s, _)| s == k),
                 "{k} missing from CIV_SPECIALISATIONS"
             );
+        }
+    }
+
+    /// The five terrain-themed cultures each have exactly one best-fit
+    /// religion (`CIV_RELIGION_DOMAIN`'s bijection), so the pick must not
+    /// depend on `faction_index` at all -- two different factions of the same
+    /// themed culture get the same religion, which is the correlation this
+    /// function exists to provide.
+    #[test]
+    fn default_religion_is_forced_for_themed_cultures_regardless_of_index() {
+        assert_eq!(civ_default_religion("highland", 2), "sky_pantheon");
+        assert_eq!(civ_default_religion("highland", 9), "sky_pantheon");
+        assert_eq!(civ_default_religion("desert", 3), "sun_cult");
+        assert_eq!(civ_default_religion("riverlands", 4), "earth_mother");
+        assert_eq!(civ_default_religion("sylvan", 5), "old_gods");
+        assert_eq!(civ_default_religion("maritime", 6), "sea_lords");
+    }
+
+    /// Never `"none"`, whatever the culture -- the one hard rule.
+    #[test]
+    fn default_religion_never_returns_none() {
+        for culture in ["common", "imperial", "highland", "desert", "riverlands", "sylvan", "maritime", "nonsense"] {
+            for i in 0..20 {
+                assert_ne!(civ_default_religion(culture, i), "none", "culture={culture} i={i}");
+            }
+        }
+    }
+
+    /// The two unthemed cultures have no basis to discriminate among the
+    /// seven non-`"none"` religions (`belief::compat` ties them all at
+    /// `NEUTRAL_COMPAT`), so the tie-break must actually vary with
+    /// `faction_index` -- otherwise every "common"-culture faction on the map
+    /// would silently converge on the same religion.
+    #[test]
+    fn default_religion_cycles_the_tie_for_unthemed_cultures() {
+        let picks: Vec<&str> = (0..7).map(|i| civ_default_religion("common", i)).collect();
+        let distinct: std::collections::BTreeSet<&str> = picks.iter().copied().collect();
+        assert_eq!(distinct.len(), 7, "seven candidates, seven indices, all distinct: {picks:?}");
+        // Deterministic: same index, same culture, same answer.
+        assert_eq!(civ_default_religion("common", 3), civ_default_religion("common", 3));
+        // And it cycles rather than growing unboundedly.
+        assert_eq!(civ_default_religion("common", 0), civ_default_religion("common", 7));
+    }
+
+    /// An unrecognised culture key is `belief::compat`'s `CultureUnthemed`
+    /// case for every candidate -- same tie as `common`/`imperial`, not a
+    /// panic and not a fabricated verdict.
+    #[test]
+    fn default_religion_treats_an_unknown_culture_as_unthemed() {
+        assert_eq!(civ_default_religion("nonsense", 1), civ_default_religion("common", 1));
+    }
+
+    /// `CIV_GOVERNMENTS` minus `"none"` is eight forms; the cycle must walk
+    /// all eight before repeating, and index 1 (the first real faction) must
+    /// not land on `"none"`.
+    #[test]
+    fn default_government_cycles_every_real_form() {
+        let picks: Vec<&str> = (1..=8).map(civ_default_government).collect();
+        let distinct: std::collections::BTreeSet<&str> = picks.iter().copied().collect();
+        assert_eq!(distinct.len(), 8, "eight non-none forms, eight indices, all distinct: {picks:?}");
+        assert!(!picks.contains(&"none"));
+        // Wraps at the ninth.
+        assert_eq!(civ_default_government(1), civ_default_government(9));
+        // Deterministic.
+        assert_eq!(civ_default_government(4), civ_default_government(4));
+    }
+
+    #[test]
+    fn default_government_never_returns_none() {
+        for i in 0..20 {
+            assert_ne!(civ_default_government(i), "none", "i={i}");
         }
     }
 }
