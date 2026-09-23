@@ -1178,6 +1178,24 @@ Siting itself changes, not just the downstream render binding: a settlement only
 
 **Owner ruling, 2026-09-23: one aggregate shipment per way** — a periodic bundle of all matched trade volume currently routed over one way, not one entity per individual flow and not a manual player action. Closest in shape to `cartalith_civ::travel_library::Journey` (route + start_year + a persisted DTO), fewer entities than a per-flow model, easier to keep in sync with `trade_flows()`'s own deliberately stateless match. Not yet built — the exact tick/refresh cadence against the trade match and the Timeline's year cursor is still an implementation detail for whoever builds it.
 
+## 2026-09-23 — Ruling AH: keep 2048×1311 as the Android resolution ceiling
+
+**The finding is `MEMORY_OPTIMIZATION_SCOPE.md` §8's own row**: 4096px needs 2.41 GiB and 8192px needs 9.65 GiB, so 2048×1311 is the last preset that fits Android's real memory budget; the doc twice declined to change `RESOLUTION_PRESETS` unilaterally.
+
+**Owner ruling, 2026-09-23: keep 2048×1311 as the Android ceiling.** Higher presets stay desktop-only where memory allows. Documentation-only — no code change needed.
+
+## 2026-09-23 — Ruling AI: fix military manpower's era-fixed standing-army ratio, and make it vary by agricultural/industrial development too
+
+**The finding is `MILITARY_MANPOWER_SCOPE.md`'s finding 2**: on sparse worlds (33 settlements), standing armies read 0.19–1.20% of population against a 1–2.5% target band, traced to the model sitting at Imperial Rome's fixed ratio regardless of era — the era table's own "standing" column was meant to vary, and never has. Fixing it moves outputs already validated against the owner's worked example.
+
+**Owner ruling, 2026-09-23: fix it, and go further — the ratio should also vary by how agricultural vs. industrialised a nation is**, in the owner's own words: *"a heavily industrialised nation needs less manpower to foot a larger army than an agricultural nation that is dependant on individual farmers without machines."* **This maps directly onto an axis the engine already has**: `roster::AG_TECH_LEVELS` (6 tiers, `farmers_per_urbanite` derived from a real historical series — England's agricultural-labour-share data, CAMPOP/Broadberry & Gardner 2013 — already a per-faction field, `FactionEntry::ag_tech`, defaulting to `"traditionalAgrarian"`) — no new classifier needed, reuse it. Re-validate the fix against the owner's original worked example within a stated tolerance, not just against the sparse-world band.
+
+## 2026-09-23 — Ruling AJ: add the save-format byte-plane shuffle; leave lossy u16 quantization alone
+
+**The finding is `STATUS.md`'s save-compression row**: a byte-plane shuffle would make saves 27–36% smaller and write faster (lossless), but needs a `format_version` bump and ends the save format's current "bare dump, no transformation" promise (`SAVEFILE_COMPAT.md` §8). A separate, lossy option — quantizing saved rasters to `u16` — was also on the table, currently barred by this project's own parity-testing rules.
+
+**Owner ruling, 2026-09-23: add the byte-plane shuffle. Do not add u16 quantization** (not asked for, stays barred). `SAVEFILE_COMPAT.md` §8's bare-dump promise needs correcting to record the shuffle as a deliberate, disclosed departure, the same way every other save-format decision in that document is recorded.
+
 ## 2026-09-23 — Ruling AG: unify label glyph layout on `map_overlay.gd`'s own (more recent) font-size model
 
 **The finding is the `label_glyph_layout` row** (`UNWIRED_FUNCTIONS.md`): two competing label-layout implementations exist — the engine's `label_glyph_layout`/`arc_label_layout` (Rust, `cartalith-civ/src/labels.rs`, introduced `29d0f50`/`611c5fa`, 2026-08-18) and `map_overlay.gd`'s own GDScript re-implementation with a different font-size model (introduced `fd9de7c`, 2026-09-01, **two weeks later**). `label_box_at`/`label_handles` already size off the engine's (older) font model, while the drawn glyphs size off the GDScript file's own (newer) model — a real mismatch between hit-testing/box placement and what's actually drawn.
