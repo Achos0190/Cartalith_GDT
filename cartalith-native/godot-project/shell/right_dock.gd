@@ -36,6 +36,8 @@ const CTX_SAMPLE := "sample"
 const CTX_SETTLEMENT := "settlement"
 const CTX_ROUTE := "route"
 const CTX_RIVER := "river"
+## Ruling AL: a generated landmark clicked on the map (`on_landmark_selected`).
+const CTX_LANDMARK := "landmark"
 const CTX_FACTION := "faction"
 const CTX_MEASURE := "measure"
 const CTX_REGION := "region"
@@ -390,6 +392,10 @@ var _saved_measurements: Array = []
 ## has nothing to draw, which after this file's own click wiring can only
 ## happen if the world is regenerated under a selection.
 var _river: Dictionary = {}
+## The picked landmark -- one `bridge.landmarks()` row, whole (Ruling AL). A
+## snapshot, so it is dropped whenever the landmark list can have been
+## replaced: a regenerate, a world load, and a landmark pass (see `setup()`).
+var _landmark: Dictionary = {}
 var _region_result: Dictionary = {}
 var _wildlife_region: Dictionary = {}
 ## ECOREGION's `12 more` collapse row (`design/proposed-2026-09-05/Wildlife.dc
@@ -580,7 +586,7 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 		## right -- an imported heightmap is a new world.
 		if ok:
 			clear_measurements()
-		if _context == CTX_RIVER:
+		if _context == CTX_RIVER or _context == CTX_LANDMARK:
 			_context = CTX_SAMPLE
 		## And the pinned settlement, which had no clause here at all until
 		## 2026-09-05 and kept drawing a town out of the world that was just
@@ -618,7 +624,7 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 		## `journey_planner_view.gd` already draws for its own list.
 		if not bridge.has_world:
 			clear_measurements()
-		if _context == CTX_RIVER:
+		if _context == CTX_RIVER or _context == CTX_LANDMARK:
 			_context = CTX_SAMPLE
 		## Unconditional, unlike the measurements two lines up, and that is a
 		## decision rather than an oversight: this signal's emitters split in
@@ -656,6 +662,12 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	## missed everything. Only the second case is a river click, which is what
 	## makes "settlement wins over river" fall out rather than need arbitrating.
 	app.viewport.map_clicked.connect(_on_map_clicked_river)
+	## Ruling AL: a landmark pass replaces every row, so a pinned landmark is a
+	## snapshot of a list that no longer exists -- drop it rather than draw it.
+	bridge.landmark_finished.connect(func(_r):
+		if _context == CTX_LANDMARK:
+			_context = CTX_SAMPLE
+			_rebuild())
 	## RD-10. Two sources, and neither alone covers the section: the domain
 	## decides whether it is drawn at all, and the stack decides what it says.
 	## `workspace_changed` is `DccShell`'s own signal -- `app.gd`'s
@@ -887,6 +899,17 @@ func show_route(entry: Dictionary, kind: String) -> void:
 ## entity. Public so a future river list (an Infrastructure-style rows panel
 ## over `get_rivers()`) can drive the same context the way
 ## `infrastructure_workspace.gd` drives Route.
+## Ruling AL: `app.gd::_wire_selection()` forwards `map_overlay`'s
+## `landmark_selected` here. A `null` (a click that hit no landmark) changes
+## nothing: `settlement_selected` for the same click has already set the
+## context, and a second rebuild here would only repeat it.
+func on_landmark_selected(data: Variant, _index: int) -> void:
+	if not (data is Dictionary):
+		return
+	_context = CTX_LANDMARK
+	_landmark = data
+	_rebuild()
+
 func show_river(entity: Dictionary) -> void:
 	_context = CTX_RIVER
 	_river = entity
@@ -1182,7 +1205,7 @@ func _forget_way_draft() -> void:
 const CTX_TITLES := {
 	CTX_SETTLEMENT: "Settlement", CTX_ROUTE: "Route", CTX_RIVER: "River",
 	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
-	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History",
+	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History", CTX_LANDMARK: "Landmark",
 }
 
 func _rebuild() -> void:
@@ -1342,6 +1365,8 @@ func _dock_readout_text() -> String:
 			return ("%d · %s" % [_faction_id, culture.capitalize()]) if culture != "" else "faction %d" % _faction_id
 		CTX_MEASURE:
 			return _measure_readout()
+		CTX_LANDMARK:
+			return _landmark_label(String(_landmark.get("kind", ""))) if not _landmark.is_empty() else "no landmark"
 		CTX_REGION:
 			return ("%d cells" % int(_region_result.get("cell_count", 0))) if not _region_result.is_empty() else "no region"
 		CTX_WILDLIFE:
@@ -1364,6 +1389,8 @@ func _dispatch(body: Control) -> void:
 			_build_route(body)
 		CTX_RIVER:
 			_build_river(body)
+		CTX_LANDMARK:
+			_build_landmark(body)
 		CTX_FACTION:
 			_build_faction(body)
 		CTX_MEASURE:
@@ -2760,6 +2787,50 @@ func _build_river(body: Control) -> void:
 ## `peak_m`, and no reading in this port resolves finer than a cell.
 func _m_text(m: float) -> String:
 	return "%s m" % _thousands(m)
+
+# -- Landmark (Ruling AL) -----------------------------------------------
+
+## The engine's display label for a kind key (`landmark_kinds()`), else the
+## key made readable. The registry is static for the session and cached by the
+## bridge, so this is a dictionary scan, never a `Gd<T>` crossing.
+func _landmark_label(key: String) -> String:
+	for k in bridge.landmark_kinds():
+		if String((k as Dictionary).get("key", "")) == key:
+			return String(k["label"])
+	return key.capitalize()
+
+## Every field `bridge.landmarks()` returns for one landmark, and nothing
+## invented: `seed` is deliberately not exposed by `lib.rs::landmark_dict`.
+func _build_landmark(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Landmark")
+	var lm := _landmark
+	var key := String(lm.get("kind", ""))
+	_accent_readout(sec, "Kind", _landmark_label(key),
+		"The landmark type this placement is -- the engine's own label for kind " +
+		"key '%s' (cartalith_civ::landmark::kinds())." % key)
+	_field(sec, "Class", String(lm.get("class", "")).capitalize(),
+		"LANDMARK_GENERATION_RESEARCH.md §23's hierarchy. On the map the ring's " +
+		"radius is the class: continental largest, local smallest.")
+	_field(sec, "Elevation", _m_text(float(lm.get("elevation", 0.0))),
+		"Metres above sea level at the landmark's cell, with the same metersPerUnit " +
+		"anchoring the Sample panel uses.", true, true)
+	_field(sec, "Importance", "%d%%" % roundi(100.0 * float(lm.get("importance", 0.0))),
+		"§24's emergent importance, 0..1 -- computed from the world, never a rarity " +
+		"roll. On the map it sizes the ring within its class (±25%).", true, true)
+	_field(sec, "Suitability", "%d%%" % roundi(100.0 * float(lm.get("score", 0.0))),
+		"§17's suitability score, 0..1: the weighted sum of the normalised terms " +
+		"that could be measured here, divided by their total weight.", true, true)
+	_field(sec, "Cell", "%d, %d" % [int(lm.get("x", 0)), int(lm.get("y", 0))],
+		"Grid cell indices (x, y) the landmark was placed on.", true, true)
+	var why := DccWidgets.group(sec, "Why it is here")
+	var chain: Array = Array(lm.get("causal", []))
+	if chain.is_empty():
+		DccWidgets.note(why, "The engine recorded no causal chain for this landmark.")
+		return
+	## §22's causal chain, cause -> consequence -> landmark, with the measured
+	## values the engine wrote into it -- this is what 'inspect' is for.
+	for i in chain.size():
+		DccWidgets.note(why, "%d. %s" % [i + 1, String(chain[i])])
 
 # -- Faction ------------------------------------------------------------
 

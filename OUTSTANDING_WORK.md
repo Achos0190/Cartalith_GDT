@@ -290,6 +290,32 @@ never exceeds the existing 8K monolithic figure), while `export_raster_png` stil
 paths' refusal policy has diverged and needs a ruling. Commit `ce2c71d`.
 ## The count, honestly
 
+**80 outstanding items** — 2026-09-23, unchanged in count (filed and closed in the same pass —
+owner-reported mid-session, not a pre-existing backlog row): **a generated landmark now draws its own
+per-kind glyph inside its class ring, and can be clicked to inspect, Ruling AL.** Owner, verbatim:
+*"currently all landmarks are rendered with the same circle and not the associated icon from the
+generative settings. Nor can I click to inspect them on the map."* Both halves checked out true at the
+symbol — `map_overlay.gd::_draw_landmark_ring` drew an open ring only, though `dcc_icons.gd::landmark_glyph`
+already resolved a real glyph for all 49 engine kinds and nothing called it; `_gui_input` hit-tested
+settlements only. **Kept, not discarded: ruling 14's reasoning** — the ring still encodes class (radius)
+and importance (size within class, ±25%), which is what it was built for. **Added**: the landmark's own
+glyph draws inside the ring over a translucent plate, scaled 2× so a 16-unit glyph is legible, rasterised
+at the right on-screen bucket so it stays crisp under zoom; a kind with no glyph (none exist today) falls
+back to ring-only rather than a wrong icon. Click-to-inspect mirrors the settlement pattern exactly
+(`landmark_hovered`/`landmark_selected` through `viewport_host.gd` → `app.gd::_wire_selection()`), landing
+in a new right-dock `CTX_LANDMARK` context showing kind, class, elevation, importance, suitability, cell
+and the causal chain as a numbered "why it is here" list. Where a settlement and a landmark both sit under
+the pointer, nearer centre wins (tie → settlement), disclosed reasoning in `_pick_mark()`. **Independently
+re-verified, not just re-read**: full diff read at the symbol across `map_overlay.gd`/`app.gd`/
+`right_dock.gd`/`viewport_host.gd`; the new windowed probe (`_lmglyph_probe.gd`, 18 checks — synthetic
+same/different-kind pixel diffing plus a live run on a real generated+landmark-run world) re-run
+independently by the coordinating session, reproducing every number exactly including the clicked
+landmark's real data (Peak, 4 000 m, importance 68%, a 5-line causal chain) byte-for-byte against
+`bridge.landmarks()`. Three pre-existing landmark/icon probes (`_iconmerge_probe`, `_ringdedup_probe`,
+`_vfy_iconmerge_probe`) re-run unmodified, still pass — one required a draw-order change (landmarks now
+draw before hand-placed icons) after `_vfy_iconmerge_probe` measured a real regression the first pass
+introduced (an authored icon's pixels dropped from 32 to 0 under the new plate) before the fix. GDScript
+only, no Rust touched. Ruling recorded in `LARGE_ITEM_RULINGS.md`.
 **80 outstanding items** — 2026-09-23, unchanged in count: documentation-reconciliation pass on §2.2,
 not a build pass. §2.2's own prose claimed *"Eighteen rows, all ruled build... Sixteen remain not
 started,"* naming only Paint brush falloff and CARTO ▸ Labels as closed — but the `| Item | Size | Note |`

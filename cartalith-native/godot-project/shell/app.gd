@@ -1403,6 +1403,12 @@ func _wire_selection() -> void:
 		for ws in _workspaces:
 			if ws.has_method("on_settlement_selected"):
 				ws.on_settlement_selected(data, index))
+	## Ruling AL: a landmark click, fanned out the same way. Emitted after
+	## `settlement_selected` for the same click (`map_overlay.gd`'s order).
+	viewport.landmark_selected.connect(func(data, index):
+		for ws in _workspaces:
+			if ws.has_method("on_landmark_selected"):
+				ws.on_landmark_selected(data, index))
 	viewport.cursor_sampled.connect(func(gx, gy, valid):
 		for ws in _workspaces:
 			if ws.has_method("on_cursor_sampled"):

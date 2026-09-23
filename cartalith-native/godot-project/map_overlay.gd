@@ -625,7 +625,9 @@ const ICON_OUTLINE := Color(0.051, 0.043, 0.031, 0.9)
 ## stating: a filled mark competes with the settlement pins and the manual
 ## icons for the same visual weight, and a landmark is a place on the map
 ## rather than a thing on top of it. An open ring reads as an annotation of the
-## terrain under it.
+## terrain under it. (Since Ruling AL the ring holds a per-kind glyph over a
+## TRANSLUCENT plate -- see `LANDMARK_MARK_SCALE` -- which keeps this reasoning:
+## the terrain still shows through.)
 const LANDMARK_CLASS_RADIUS := {
 	"continental": 9.0,
 	"regional": 6.5,
@@ -639,6 +641,32 @@ const LANDMARK_CLASS_RADIUS := {
 const LANDMARK_COL_PHYSICAL := Color(0.612, 0.769, 0.816, 0.95)
 const LANDMARK_COL_CULTURAL := Color(0.878, 0.639, 0.290, 0.95)
 const LANDMARK_OUTLINE := Color(0.051, 0.043, 0.031, 0.85)
+
+## **Ruling AL (2026-09-23, `LARGE_ITEM_RULINGS.md`): the ring carries the
+## landmark's own per-kind glyph.** The owner's report was that every landmark
+## drew "the same circle and not the associated icon". The ring above stays --
+## its radius is still CLASS and its size within the class still `importance`,
+## which is what ruling 14 kept it for -- and `DccIcons.landmark_glyph(kind)` is
+## drawn inside it, tinted the ring's own class colour, over a translucent dark
+## plate so a 1.2-stroke glyph survives any terrain under it.
+##
+## A glyph needs room a 4.5 px ring does not have (16-unit line art is
+## illegible under ~9 px), so every class radius is multiplied by this, which
+## keeps their RATIOS -- continental is still exactly 2x local -- and therefore
+## keeps the class reading. The plate is translucent rather than opaque for
+## ruling 14's other reason: a landmark annotates the terrain under it, it is
+## not a thing sitting on top of it.
+const LANDMARK_MARK_SCALE := 2.0
+## Glyph side as a multiple of the ring RADIUS: 1.4 r inside a 2 r ring leaves
+## the glyph's corners clear of the ring stroke.
+const LANDMARK_GLYPH_FRAC := 1.4
+const LANDMARK_PLATE := Color(0.051, 0.043, 0.031, 0.62)
+## Raster sizes a landmark glyph is rasterised at. The drawn size is continuous
+## (importance x camera zoom), so rasterising at the exact size would cache one
+## texture per (kind, size) forever; instead the smallest bucket at or above the
+## ON-SCREEN size is used and drawn down to fit. Adjacent buckets are <= 1.5x
+## apart, so a hairline is never minified by more than that (no mipmaps here).
+const LANDMARK_GLYPH_RASTERS := [12, 16, 24, 32, 48, 64, 96, 128, 192, 256]
 
 ## **Rejected candidates** -- `LARGE_ITEM_RULINGS.md`'s Landmark-funnel ruling,
 ## second half: "a rejected-candidate coordinate list plus a new overlay layer
@@ -860,6 +888,15 @@ signal settlement_hovered(data: Variant, index: int)
 ## this until the next click, unlike Sample's transient hover state.
 signal settlement_selected(data: Variant, index: int)
 
+## Ruling AL's click half: the landmark twins of the two signals above, over
+## `_landmarks` (one `bridge.landmarks()` row, `index` into that array).
+## `landmark_selected` fires on every left press, `null`/`-1` when no landmark
+## was hit -- emitted AFTER `settlement_selected` and BEFORE `map_clicked`, so a
+## listener sees the same order a settlement click has always produced. At most
+## one of the two ever carries a hit: see `_pick_mark()` for who wins.
+signal landmark_hovered(data: Variant, index: int)
+signal landmark_selected(data: Variant, index: int)
+
 ## DCC shell milestone 1: emitted on every mouse motion with the grid-cell
 ## position under the cursor (`valid` false when the cursor is off the
 ## plate interior or nothing has been generated yet). Feeds the viewport's
@@ -970,6 +1007,9 @@ var _rivers: Array = []
 var _gw := 0
 var _gh := 0
 var _hover_index := -1
+## Ruling AL: the hovered landmark, an index into `_landmarks`. Never set at
+## the same time as `_hover_index` -- `_pick_mark()` answers one or the other.
+var _lm_hover_index := -1
 ## Layer-granularity split (GUI_FEATURE_PARITY_SCOPE.md Category-1 item
 ## #9): the old shell had one checkbox hiding this whole control (and with
 ## it, hover input) -- these three flags let Settlements/Roads/Sea routes
@@ -1317,6 +1357,7 @@ var _landmarks_visible := true
 
 func set_landmarks(items: Array) -> void:
 	_landmarks = items
+	_lm_hover_index = -1   ## an index into the array just replaced
 	queue_redraw()
 
 ## The Layers popover's own on/off for this overlay. Separate from
@@ -2570,6 +2611,13 @@ func _draw() -> void:
 	## legibility the moment anything crosses them; an annotation mark does not.
 	_draw_annotation_marks(rect, interior)
 	_draw_labels(rect, interior)
+	## Ruling AL's hover card, after the labels so no name can cover it.
+	if _landmarks_visible and _lm_hover_index >= 0 and _lm_hover_index < _landmarks.size():
+		var lm: Dictionary = _landmarks[_lm_hover_index]
+		_draw_card(_cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect),
+			["%s (%s)" % [String(lm.get("kind", "")).capitalize(), String(lm.get("class", "")).capitalize()],
+			"Importance %d%%" % roundi(100.0 * float(lm.get("importance", 0.0))),
+			"Click to inspect"], interior)
 
 
 ## Owner ruling 14's `origin`, read back on the draw side.
@@ -2705,7 +2753,9 @@ func _icon_shadowed_by_ring(ic: Dictionary, ringed: Dictionary) -> bool:
 ##      the landmark's CLASS and its size within that class is `importance`
 ##      (`LANDMARK_CLASS_RADIUS`, §23/§24 above). The POI glyph is one flat
 ##      yellow diamond for every landmark kind, so letting it win would trade
-##      two readable fields for nothing.
+##      two readable fields for nothing. Since Ruling AL (2026-09-23) the ring
+##      also carries the landmark's own per-kind glyph inside it, so the ring
+##      now says the KIND as well -- a third field the POI diamond never had.
 ##   2. **The design asks for the two to read differently.** See
 ##      `LANDMARK_CLASS_RADIUS`'s own block. Ruling 14 put generated landmarks
 ##      into the icon *collection*; it did not ask for one symbology.
@@ -2723,6 +2773,21 @@ func _icon_shadowed_by_ring(ic: Dictionary, ringed: Dictionary) -> bool:
 func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
 	var ringed := _ringed_cells()
 
+	## Landmarks FIRST since Ruling AL. The ring now carries a plate and a glyph,
+	## so drawn last it would cover a hand-placed icon standing on the same cell
+	## -- measured: `_vfy_iconmerge_probe.gd`'s authored icon at (21,0) went from
+	## poi=32 to poi=0. Authored content wins the pixel; the ring (radius >= 6.75
+	## px) still shows around a manual glyph (5.5 px at scale 1).
+	if _landmarks_visible:
+		## The glyph inside each ring is rasterised for the size it reaches the
+		## screen at, and the camera is an ancestor scale -- read once.
+		var glyph_scale := maxf(1.0, get_screen_transform().get_scale().x)
+		for lm: Dictionary in _landmarks:
+			var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
+			if not interior.has_point(lpos):
+				continue
+			_draw_landmark_ring(lpos, lm, glyph_scale)
+
 	for ic: Dictionary in _manual_icons:
 		if _icon_layer_hidden(ic):
 			continue
@@ -2732,14 +2797,6 @@ func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
 		if not interior.has_point(pos):
 			continue
 		_draw_icon_glyph(pos, ic)
-
-	if not _landmarks_visible:
-		return
-	for lm: Dictionary in _landmarks:
-		var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
-		if not interior.has_point(lpos):
-			continue
-		_draw_landmark_ring(lpos, lm)
 
 
 ## One placed icon's mark, by `family` (`icon_dict`'s `{x, y, family, slot, set,
@@ -2773,7 +2830,8 @@ func _draw_icon_glyph(pos: Vector2, ic: Dictionary) -> void:
 
 
 ## Generated landmarks — `LANDMARK_GENERATION_RESEARCH.md` §23's four classes,
-## drawn as open rings sized by class and modulated by importance.
+## drawn as open rings sized by class and modulated by importance, each holding
+## its per-kind glyph (Ruling AL).
 ##
 ## Positions are grid CELLS (`Landmark.x`/`.y` are `usize` cell indices, unlike
 ## the manual Icon tool's continuous click coordinates), so this is
@@ -2792,7 +2850,45 @@ func _draw_icon_glyph(pos: Vector2, ic: Dictionary) -> void:
 ## a ring at `pos` and asks no questions. It is also the mark a *generated* POI
 ## icon gets, which is the whole of ruling 14's "one layer": see that function
 ## for why the ring wins over the glyph.
-func _draw_landmark_ring(pos: Vector2, lm: Dictionary) -> void:
+##
+## **Ruling AL** added the glyph: see `LANDMARK_MARK_SCALE`. A kind this build
+## has no glyph for (`DccIcons.landmark_glyph()` returns `""`) draws the ring
+## alone, with the pre-AL centre-dot rule, rather than a wrong or blank icon.
+## `glyph_scale` is the canvas's screen scale, read once per pass by the caller.
+func _draw_landmark_ring(pos: Vector2, lm: Dictionary, glyph_scale: float = 1.0) -> void:
+	var cls := String(lm.get("class", "local")).to_lower()
+	var r := _landmark_radius(lm)
+	var col: Color = LANDMARK_COL_CULTURAL if cls == "cultural" else LANDMARK_COL_PHYSICAL
+	var glyph := DccIcons.landmark_glyph(String(lm.get("kind", "")))
+	if glyph != "":
+		draw_circle(pos, r, LANDMARK_PLATE, true, -1.0, true)
+	## Dark halo first so the ring survives on pale terrain, the same
+	## two-pass trick the settlement labels use for their outline.
+	draw_arc(pos, r, 0, TAU, 28, LANDMARK_OUTLINE, 2.4, true)
+	draw_arc(pos, r, 0, TAU, 28, col, 1.3, true)
+	if glyph != "":
+		var side := r * LANDMARK_GLYPH_FRAC
+		var on_screen := side * glyph_scale
+		var raster: int = LANDMARK_GLYPH_RASTERS[-1]
+		for b: int in LANDMARK_GLYPH_RASTERS:
+			if float(b) >= on_screen:
+				raster = b
+				break
+		var tex := DccIcons.get_icon(glyph, raster)
+		if tex != null:
+			draw_texture_rect(tex, Rect2(pos - Vector2(side, side) * 0.5, Vector2(side, side)), false, col)
+		return
+	## No glyph: the ring alone. A centre dot only on the two rare classes. On
+	## Local, where a dense world can carry hundreds, it fills the ring in and
+	## the mark stops reading as open.
+	if cls == "continental" or cls == "regional":
+		draw_circle(pos, maxf(1.0, r * 0.22), col, true, -1.0, true)
+
+
+## The drawn ring radius in this control's local pixels -- the ONE definition
+## both `_draw_landmark_ring` and `_hit_test_landmark` use, so the click target
+## is always exactly the mark on screen.
+func _landmark_radius(lm: Dictionary) -> float:
 	var cls := String(lm.get("class", "local")).to_lower()
 	var base: float = float(LANDMARK_CLASS_RADIUS.get(cls, LANDMARK_CLASS_RADIUS["local"]))
 	## §24: importance is emergent, so it is worth showing. Bounded to
@@ -2800,17 +2896,7 @@ func _draw_landmark_ring(pos: Vector2, lm: Dictionary) -> void:
 	## landmark must never out-draw a continental one, or the size stops
 	## meaning class at all.
 	var imp := clampf(float(lm.get("importance", 0.5)), 0.0, 1.0)
-	var r: float = base * (0.75 + 0.5 * imp)
-	var col: Color = LANDMARK_COL_CULTURAL if cls == "cultural" else LANDMARK_COL_PHYSICAL
-	## Dark halo first so the ring survives on pale terrain, the same
-	## two-pass trick the settlement labels use for their outline.
-	draw_arc(pos, r, 0, TAU, 22, LANDMARK_OUTLINE, 2.4, true)
-	draw_arc(pos, r, 0, TAU, 22, col, 1.3, true)
-	## A centre dot only on the two rare classes. On Local, where a dense
-	## world can carry hundreds, it fills the ring in and the mark stops
-	## reading as open.
-	if cls == "continental" or cls == "regional":
-		draw_circle(pos, maxf(1.0, r * 0.22), col, true, -1.0, true)
+	return base * (0.75 + 0.5 * imp) * LANDMARK_MARK_SCALE
 
 
 ## The candidates the landmark pass offered and did not place -- the second
@@ -3623,6 +3709,11 @@ func _draw_hover_card(s: Dictionary, rect: Rect2, interior: Rect2) -> void:
 	var kind_label: String = String(s["kind"]).capitalize()
 	var lines := ["%s (%s)" % [s["name"], kind_label], "Population %s" % _format_pop(s["population"])]
 	lines.append_array(_faith_lines(s))
+	_draw_card(pos, lines, interior)
+
+
+## The on-canvas hover card body, shared by settlements and (Ruling AL) landmarks.
+func _draw_card(pos: Vector2, lines: Array, interior: Rect2) -> void:
 	var font := get_theme_default_font()
 	var font_size := 13
 	var line_h := font.get_height(font_size)
@@ -3827,6 +3918,50 @@ func _hit_test_settlement(mouse: Vector2, interior: Rect2, rect: Rect2) -> int:
 	return closest
 
 
+## Ruling AL: nearest landmark whose drawn ring (`_landmark_radius`, the exact
+## radius `_draw_landmark_ring` draws) plus `HOVER_RADIUS_PAD` contains `mouse`,
+## or `-1`. Same shape as `_hit_test_settlement`, and it refuses the same
+## "nothing is drawn there" cases: the layer switched off, a mark off the plate.
+## Returns `[index, distance]` so `_pick_mark()` can compare it with a
+## settlement hit.
+func _hit_test_landmark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
+	var closest := -1
+	var closest_dist := INF
+	if not _landmarks_visible:
+		return [closest, closest_dist]
+	for i in _landmarks.size():
+		var lm: Dictionary = _landmarks[i]
+		var pos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
+		if not interior.has_point(pos):
+			continue
+		var d := mouse.distance_to(pos)
+		if d <= _landmark_radius(lm) + HOVER_RADIUS_PAD and d < closest_dist:
+			closest = i
+			closest_dist = d
+	return [closest, closest_dist]
+
+
+## The one pick both hover and click use: `{s, l}`, at most one of them `>= 0`.
+##
+## **Where a settlement pin and a landmark ring both contain the pointer, the
+## NEARER CENTRE wins, and an exact tie goes to the settlement.** Not "settlement
+## always wins": a landmark ring is up to ~22 px across, and a town sitting
+## inside one would make the landmark unclickable from most of its own mark.
+## Not "landmark always wins" either, though it draws on top: a small town pin
+## inside a big ring would then be unclickable, which is the regression this
+## file must not ship. Nearest-centre lets the user reach either by pointing at
+## it, and the tie rule keeps an exactly coincident pair behaving as before.
+func _pick_mark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Dictionary:
+	var s := _hit_test_settlement(mouse, interior, rect)
+	var lh := _hit_test_landmark(mouse, interior, rect)
+	var l: int = lh[0]
+	if s == -1 or l == -1:
+		return {"s": s, "l": l}
+	var st: Dictionary = _settlements[s]
+	var sd := mouse.distance_to(_cell_to_screen(Vector2(st["x"], st["y"]), rect))
+	return {"s": s, "l": -1} if sd <= float(lh[1]) else {"s": -1, "l": l}
+
+
 ## Returns `{valid, gx, gy}` -- the inverse of `_cell_to_screen`, shared by
 ## `cursor_sampled`, `map_clicked` and `map_dragged` so the coordinate math
 ## exists in exactly one place. `valid` is false outside the plate interior
@@ -3851,11 +3986,17 @@ func _gui_input(event: InputEvent) -> void:
 		var mm := event as InputEventMouseMotion
 		var mouse: Vector2 = mm.position
 
-		var closest := _hit_test_settlement(mouse, interior, rect)
+		var pick := _pick_mark(mouse, interior, rect)
+		var closest: int = pick["s"]
 		if closest != _hover_index:
 			_hover_index = closest
 			queue_redraw()
 			settlement_hovered.emit(_settlements[closest] if closest != -1 else null, closest)
+		var lclosest: int = pick["l"]
+		if lclosest != _lm_hover_index:
+			_lm_hover_index = lclosest
+			queue_redraw()
+			landmark_hovered.emit(_landmarks[lclosest] if lclosest != -1 else null, lclosest)
 
 		var p := _grid_point(mouse, rect, interior)
 		cursor_sampled.emit(p["gx"], p["gy"], p["valid"])
@@ -3897,7 +4038,9 @@ func _gui_input(event: InputEvent) -> void:
 			return
 		var interior := _interior_rect(rect)
 		if mb.pressed:
-			var hit := _hit_test_settlement(mb.position, interior, rect)
+			var pick := _pick_mark(mb.position, interior, rect)
+			var hit: int = pick["s"]
+			var lhit: int = pick["l"]
 			var p := _grid_point(mb.position, rect, interior)
 			## Touch: hold the press back until the gesture identifies itself.
 			## See the `_TOUCH_HOLD_MS` block above for the four outcomes.
@@ -3906,10 +4049,11 @@ func _gui_input(event: InputEvent) -> void:
 				_touch_swallow_up = false
 				_touch_ms = Time.get_ticks_msec()
 				_touch_pos = mb.position
-				_touch_press = {"hit": hit, "point": p, "pos": mb.position}
+				_touch_press = {"hit": hit, "lm": lhit, "point": p, "pos": mb.position}
 				set_process(true)
 				return
 			settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
+			landmark_selected.emit(_landmarks[lhit] if lhit != -1 else null, lhit)
 			if p["valid"]:
 				map_clicked.emit(p["gx"], p["gy"])
 		else:
@@ -3947,8 +4091,12 @@ func _release_touch_press() -> void:
 	_touch_armed = false
 	set_process(false)
 	var hit: int = int(_touch_press.get("hit", -1))
+	var lhit: int = int(_touch_press.get("lm", -1))
 	var p: Dictionary = _touch_press.get("point", {})
 	settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
+	## Guarded: the landmark array can be replaced during a held press.
+	lhit = lhit if lhit < _landmarks.size() else -1
+	landmark_selected.emit(_landmarks[lhit] if lhit != -1 else null, lhit)
 	if bool(p.get("valid", false)):
 		map_clicked.emit(p["gx"], p["gy"])
 
@@ -3979,6 +4127,10 @@ func _notification(what: int) -> void:
 			_hover_index = -1
 			queue_redraw()
 			settlement_hovered.emit(null, -1)
+		if _lm_hover_index != -1:
+			_lm_hover_index = -1
+			queue_redraw()
+			landmark_hovered.emit(null, -1)
 
 
 # ── Urban layouts ────────────────────────────────────────────────────────────

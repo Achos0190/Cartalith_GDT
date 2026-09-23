@@ -24,6 +24,9 @@ class_name ViewportHost
 
 signal settlement_selected(data: Variant, index: int)
 signal settlement_hovered(data: Variant, index: int)
+## Ruling AL: `map_overlay.gd`'s landmark twins of the two above, re-emitted.
+signal landmark_selected(data: Variant, index: int)
+signal landmark_hovered(data: Variant, index: int)
 signal cursor_sampled(gx: float, gy: float, valid: bool)
 signal layers_button_pressed()
 signal map_clicked(gx: float, gy: float)   ## §4.5 tool click-placement primitive.
@@ -559,6 +562,8 @@ func _ready() -> void:
 	_camera.add_child(overlay)
 	overlay.settlement_selected.connect(func(d, i): settlement_selected.emit(d, i))
 	overlay.settlement_hovered.connect(_on_hovered)
+	overlay.landmark_selected.connect(func(d, i): landmark_selected.emit(d, i))
+	overlay.landmark_hovered.connect(func(d, i): landmark_hovered.emit(d, i))
 	overlay.cursor_sampled.connect(_on_sampled)
 	overlay.map_clicked.connect(func(gx, gy): map_clicked.emit(gx, gy))
 	overlay.map_dragged.connect(func(gx, gy): map_dragged.emit(gx, gy))
