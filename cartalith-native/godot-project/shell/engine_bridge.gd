@@ -441,14 +441,12 @@ func missing_bindings() -> PackedStringArray:
 #     caller, deliberately" section naming both candidate consumers and why
 #     each was declined. It is the one capability `project_open` structurally
 #     cannot offer (read one document, keep the current world).
-#   * `geojson_inspect` (`geojson_bridge.rs`) -- the reason is already on a
-#     **user-visible** surface: `data_manager_window.gd`'s GeoJSON import route
-#     carries a `reason` string saying the parser and this binding both exist,
-#     that its own doc scopes it to "validates and summarises rather than
-#     importing", and that nothing anywhere turns a parsed feature into a
-#     settlement, a way or a territory cell. A forwarder would let the shell
-#     summarise a file it still cannot ingest. The import path is the work; this
-#     is not the thing blocking it.
+#   * `geojson_inspect` (`geojson_bridge.rs`) -- its doc scopes it to
+#     "validates and summarises rather than importing". The import itself
+#     landed without it (`d79d776`): the Data manager's GeoJSON route calls
+#     `apply_geojson_document` directly, with no preview step, so nothing
+#     needs this summary yet. *(Corrected 2026-09-24: this said nothing could
+#     ingest GeoJSON.)*
 #
 # UNREACHED, no caller today, and the missing piece is NOT the forwarder:
 #

@@ -170,9 +170,10 @@ class_name DataManagerWindow
 ##   What was missing was a caller, not an engine. When the clause stopped being
 ##   true was not established and is not asserted here.*
 ##   GeoJSON is the
-##   half-shaped one and its row says so -- `cartalith_io::parse_geojson` and
-##   the bound `WorldGen::geojson_inspect` both exist; nothing turns a parsed
-##   feature into world state, and no GDScript calls the inspector.
+##   one that landed later: since `d79d776` its row imports for real
+##   (`_run_geojson_import` -> `apply_geojson_document`, over
+##   `cartalith_io::parse_geojson`). The bound `WorldGen::geojson_inspect`
+##   still has no GDScript caller -- the import applies with no preview step.
 ## - **Conversion is gone, not disclosed.** See above.
 
 # ---------------------------------------------------------------------------

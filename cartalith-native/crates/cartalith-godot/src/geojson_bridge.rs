@@ -268,10 +268,10 @@ impl WorldGen {
     /// where the answer is known and hands the caller everything it needs to
     /// show a preview and ask.
     ///
-    /// **No `godot-project/` file named this function when it was written**,
-    /// and that is stated rather than left for a wiring audit to flag as an
-    /// oversight: the Data manager's Import ▸ GIS / GeoJSON row is GDScript
-    /// work, and this is the surface it will call.
+    /// **No `godot-project/` file calls this function.** The Data manager's
+    /// Import ▸ GIS / GeoJSON row landed on `apply_geojson_document`
+    /// instead (`d79d776`), which applies with no preview step; this
+    /// inspector is kept for a preview that does not exist yet.
     ///
     /// # What comes back
     ///
