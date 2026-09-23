@@ -6915,6 +6915,13 @@ impl BakeFields {
             let depth = if ctx.sea_level <= 0.0 { 0.0 } else { clamp01((ctx.sea_level - hs) / ctx.sea_level) };
             let n_low = sea_grain(&ctx.appearance, gx, gy, gw);
             sea_color_core(&ctx.appearance, depth, t, n_low, shw, vig)
+        } else if ctx.lake_class.is_some_and(|l| bake_lake_at(l, gx, gy, gw, gh)) {
+            // v0.103's above-sea lake, as `cell_color` draws it: flat
+            // freshwater, `lake_color`. This branch was missing from the
+            // export bake until 2026-09-24, so an exported PNG showed dry
+            // ground where the screen showed a lake. Inert without
+            // `with_lakes`, which no golden fixture attaches.
+            lake_color(&ctx.appearance, t, sea_grain(&ctx.appearance, gx, gy, gw), vig)
         } else {
             let m = sample_arr(ctx.rainfall, gx, gy, gw, gh);
             let r_frac = if (1.0 - ctx.sea_level) <= 0.0 { 0.0 } else { (h - ctx.sea_level) / (1.0 - ctx.sea_level) };
@@ -8762,6 +8769,31 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
 /// so it is reachable only through a length mismatch, and it is kept rather
 /// than dropped because the alternative to a stated fallback is silently
 /// drawing squares.
+/// Whether an export-bake pixel at grid position (`gx`, `gy`) lies in an
+/// above-sea lake (class `2`): all four surrounding cells lake -> yes, none ->
+/// no, mixed -> the nearest cell decides. [`is_lake_pixel`]'s rule for a tile
+/// with no lake-fill surface, so the export's shoreline is the one a tile
+/// drawn without that surface has.
+fn bake_lake_at(lake: &[u8], gx: f64, gy: f64, gw: usize, gh: usize) -> bool {
+    let fx = gx.clamp(0.0, gw as f64 - 1.001);
+    let fy = gy.clamp(0.0, gh as f64 - 1.001);
+    let (x0, y0) = (fx as usize, fy as usize);
+    let (x1, y1) = ((x0 + 1).min(gw - 1), (y0 + 1).min(gh - 1));
+    let n = [lake[y0 * gw + x0], lake[y0 * gw + x1], lake[y1 * gw + x0], lake[y1 * gw + x1]]
+        .iter()
+        .filter(|&&c| c == 2)
+        .count();
+    match n {
+        4 => true,
+        0 => false,
+        _ => {
+            let ix = gx.round().clamp(0.0, (gw - 1) as f64) as usize;
+            let iy = gy.round().clamp(0.0, (gh - 1) as f64) as usize;
+            lake[iy * gw + ix] == 2
+        }
+    }
+}
+
 fn is_lake_pixel(tf: &TileFields, ctx: &RenderCtx, wx: f64, wy: f64, ht: f64, fill_ok: bool) -> bool {
     let (gw, gh) = (ctx.gw, ctx.gh);
     let lake = &tf.lake_class;

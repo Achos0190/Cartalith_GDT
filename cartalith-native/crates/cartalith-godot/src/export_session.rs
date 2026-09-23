@@ -103,6 +103,10 @@ struct Parts {
     /// once (`GridPrecompute::build`'s own doc: `Some(km)` is `with_map_scale`).
     pre: GridPrecompute,
     lithology: Option<Vec<u8>>,
+    /// v0.103's above-sea lakes, the same `build_water_bodies` classification
+    /// `build_color_texture` attaches, so an export shows the lakes the screen
+    /// shows (2026-09-24; this path had none, `OUTSTANDING_WORK.md` §2.5).
+    lakes: Vec<u8>,
     ink: Option<OwnedInk>,
     splat: Option<OwnedSplat>,
     ground_biomes: Vec<Option<GroundTile>>,
@@ -143,6 +147,7 @@ impl Parts {
         if let Some(l) = self.lithology.as_ref() {
             ctx = ctx.with_lithology(l);
         }
+        ctx = ctx.with_lakes(&self.lakes);
         if let Some(s) = self.splat.as_ref() {
             ctx = ctx.with_splat(s.as_textures());
             ctx = ctx.with_ground_tiles(GroundTiles { biomes: &self.ground_biomes, terrains: &self.ground_terrains });
@@ -169,6 +174,7 @@ impl ExportSnapshot {
         let flow = i.flow.as_ref().map(|v| v.as_slice());
         let pre = GridPrecompute::build(&i.field, &i.temperature, &i.rainfall, flow, gw, gh, i.sea_level, i.world, &i.appearance, Some(i.map_width_km));
         let lithology = i.litho.as_ref().map(|l| cartalith_civ::build_lithology(&i.field, &l.age, &l.volcanic, &l.crust, &l.resistance, &i.rainfall, i.sea_level));
+        let lakes = cartalith_civ::build_water_bodies(&i.field, gw, gh, i.sea_level, i.world, Some(&i.rainfall)).classification;
         let parts = Parts {
             gw,
             gh,
@@ -184,6 +190,7 @@ impl ExportSnapshot {
             appearance: i.appearance,
             pre,
             lithology,
+            lakes,
             ink: i.ink,
             splat: i.splat,
             ground_biomes: i.ground_biomes,
@@ -559,6 +566,9 @@ mod tests {
         let lith = cartalith_civ::build_lithology(&w.field, &w.age, &w.volc, &w.crust, &w.resist, &w.rain, SEA);
         let mut ctx = RenderCtx::with_appearance(&w.field, &w.temp, &w.rain, Some(&w.flow), GW, GH, SEA, false, 55.0, 5.0, appearance());
         ctx = ctx.with_lithology(&lith);
+        // `export_render_with`'s lakes, attached the same way (2026-09-24).
+        let lakes = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain)).classification;
+        ctx = ctx.with_lakes(&lakes);
         ctx = ctx.with_map_scale(KM);
         ctx = ctx.with_paint(Some(&w.paint), None, None);
         run(&ctx, Some(RiverInk::Flag(&w.ink)))
@@ -703,6 +713,44 @@ mod tests {
         for (name, d) in [("lithology dropped", d_lith), ("lithology never built", d_lith_input), ("map width x4", d_km), ("ink dropped", d_ink), ("paint dropped", d_paint)] {
             assert!(d > 0, "{name}: the snapshot equality did not notice");
         }
+    }
+
+    /// An above-sea lake reaches the export (2026-09-24). Both export paths
+    /// built their `RenderCtx` without `with_lakes`, so an exported PNG showed
+    /// dry ground where the screen showed a lake. The default fixture has no
+    /// above-sea lake -- which is why the equality above never noticed -- so
+    /// this one is built around a wet, closed bowl well above sea level, and
+    /// asserts the lake is really there before trusting anything else.
+    #[test]
+    fn an_above_sea_lake_reaches_the_export() {
+        let mut w = world();
+        let n = GW * GH;
+        let (cx, cy, r) = (GW as f64 * 0.5, GH as f64 * 0.5, GW.min(GH) as f64 * 0.3);
+        let mut field = vec![0f32; n];
+        for y in 0..GH {
+            for x in 0..GW {
+                let d = ((x as f64 - cx).powi(2) + (y as f64 - cy).powi(2)).sqrt() / r;
+                let dip = if d < 1.0 { 0.2 * (1.0 - d * d) } else { 0.0 };
+                field[y * GW + x] = (SEA + 0.3 - dip) as f32;
+            }
+        }
+        w.field = Arc::new(field);
+        w.rain = Arc::new(vec![1.0f32; n]);
+        let lakes = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain)).classification;
+        let above = (0..n).filter(|&i| lakes[i] == 2 && f64::from(w.field[i]) > SEA).count();
+        assert!(above > 0, "the fixture must hold an above-sea lake, or this test proves nothing");
+
+        let p = plan(150, 7);
+        let want = direct_bands(&w, &p);
+        let bands = |s: &ExportSnapshot| -> Vec<Vec<u8>> { p.bands().map(|b| s.render_band(&p, b).expect("band")).collect() };
+        let snap = ExportSnapshot::build(inputs(&w, KM, true)).expect("snapshot");
+        assert_eq!(bands(&snap), want, "the snapshot's export must match the direct render, lakes included");
+
+        let mut dry = ExportSnapshot::build(inputs(&w, KM, true)).expect("snapshot");
+        dry.parts.lakes = vec![0; n];
+        let moved: usize = bands(&dry).iter().zip(&want).map(|(a, b)| a.iter().zip(b).filter(|(x, y)| x != y).count()).sum();
+        eprintln!("above-sea lake cells {above}; bytes that move when the export drops them {moved}");
+        assert!(moved > 0, "dropping the lakes must change the exported pixels");
     }
 
     /// The reason the snapshot exists: an edit to the live world after
