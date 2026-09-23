@@ -491,8 +491,34 @@ func _enable_idle_mode() -> void:
 	if get_parent() == get_tree().root:
 		OS.low_processor_usage_mode = true
 
+## **Every dialog fits the app window it opens in.** Each window asks for a
+## fixed size (World data 760x620, New world 620x780, Travel library 1180x780
+## ...) and two dozen call sites `popup_centered()` it, so at Godot's default
+## 1152x648 window nine of 17 dialogs swept ran past the edge -- their OK/Close row
+## off screen, the owner's "buttons to exit menus fall outside" (2026-09-23).
+## One hook here rather than a clamp at every call site: when any
+## `AcceptDialog` becomes visible, shrink it (and its `min_size`) to the space
+## under its title bar and re-centre it. A dialog that already fits is not
+## touched. The phone presents windows its own way (`phone_present()`).
+func _watch_dialog(n: Node) -> void:
+	if n is AcceptDialog:
+		(n as Window).visibility_changed.connect(_fit_dialog.bind(n))
+
+func _fit_dialog(w: Window) -> void:
+	if not w.visible or is_phone() or w.get_parent() == null:
+		return
+	var vp := Vector2i(w.get_parent().get_viewport().get_visible_rect().size)
+	var title := 0 if w.borderless else w.get_theme_constant("title_height")
+	var avail := vp - Vector2i(0, title)
+	if w.size.x <= avail.x and w.size.y <= avail.y:
+		return
+	w.min_size = w.min_size.min(avail)
+	w.size = w.size.min(avail)
+	w.position = Vector2i((vp.x - w.size.x) / 2, title + (avail.y - w.size.y) / 2)
+
 func _ready() -> void:
 	super._ready()
+	get_tree().node_added.connect(_watch_dialog)
 	_enable_idle_mode()
 	tool_armed.connect(_sync_tool_strip)
 	_install_tool_palette_bar()

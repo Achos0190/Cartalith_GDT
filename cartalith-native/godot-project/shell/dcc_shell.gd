@@ -1751,9 +1751,31 @@ func _style_window_chrome() -> void:
 	th.set_block_signals(true)
 	th.set_color("title_color", "Window", DccTheme.c("text_bright"))
 	th.set_color("title_outline_modulate", "Window", DccTheme.c("raised"))
+	## **The border must reach up over the title bar.** Godot draws an embedded
+	## window's title and its close button in the `title_height` strip ABOVE
+	## the content rect, and paints that strip only with this box's
+	## `expand_margin_top` -- the stock theme expands it by ~32 px for exactly
+	## this. With no expansion the strip was bare, so every dialog's title and
+	## its ✕ floated over whatever lay behind (map, menu bar), outside the
+	## panel they close (owner, 2026-09-23: "buttons to exit menus ... fall
+	## outside of the menus themselves").
+	var title_h := th.get_constant("title_height", "Window") \
+		if th.has_constant("title_height", "Window") \
+		else ThemeDB.get_default_theme().get_constant("title_height", "Window")
 	for box in ["embedded_border", "embedded_unfocused_border"]:
-		th.set_stylebox(box, "Window", DccTheme.panel("raised",
-			{"left": 1, "right": 1, "top": 1, "bottom": 1}))
+		var frame := DccTheme.panel("raised",
+			{"left": 1, "right": 1, "top": 1, "bottom": 1})
+		frame.expand_margin_top = title_h
+		th.set_stylebox(box, "Window", frame)
+	## The stock ✕ is a near-white bitmap with no modulate constant, so on the
+	## light palette it vanished into the strip above. Rasterised in the
+	## palette's own ink instead -- re-run by `rebuild_theme()` on a switch.
+	for pair in [["close", "text_dim"], ["close_pressed", "accent"]]:
+		var img := Image.new()
+		img.load_svg_from_string(('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" ' +
+			'width="16" height="16"><path d="M4 4 L12 12 M12 4 L4 12" fill="none" stroke="#%s" ' +
+			'stroke-width="1.4" stroke-linecap="round"/></svg>') % DccTheme.c(pair[1]).to_html(false))
+		th.set_icon(pair[0], "Window", ImageTexture.create_from_image(img))
 	## `AcceptDialog` draws its *own* `panel` on top of the Window border, and
 	## nothing here had ever set it -- so Performance, Gen info, World data and
 	## the footer band of every modal came up on Godot's stock `#404040` grey,

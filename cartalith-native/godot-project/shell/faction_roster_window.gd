@@ -417,6 +417,14 @@ func open() -> void:
 	_set_phone_list_open(true)
 	if not DccWidgets.phone_present(self, app):
 		popup_centered()
+		## `AcceptDialog` sizes its content child once, at popup, from the
+		## child's minimum -- and at that moment `_overview` (autowrap) has no
+		## width yet, so it reports one glyph per line and the column came out
+		## 2 602 px tall in a 620 px window: "+ Add faction" / "− Remove last"
+		## sat 2 000 px below the frame and OK floated over the inspector.
+		## Nothing re-runs that sizing when the label shrinks, so ask once
+		## more after the first layout pass (measured: 2 602 -> 581).
+		child_controls_changed.call_deferred()
 
 
 ## Set for the duration of a pane teardown. The inspector's name field commits

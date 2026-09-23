@@ -663,9 +663,12 @@ func on_map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2) -
 	if app.phone_present_popup(_ctx_menu, ctx_title,
 			"Map · cell %d, %d" % [int(gx), int(gy)]):
 		return
-	## `screen_pos` is `map_overlay`'s own local space; a `PopupMenu` pops in
-	## screen space, which is what this conversion is for.
-	_ctx_menu.position = Vector2i(app.viewport.overlay.get_screen_position() + screen_pos)
+	## `screen_pos` is `map_overlay`'s own local space, and the overlay sits
+	## under the map camera's zoom; an embedded `PopupMenu` pops in the main
+	## viewport's space. `get_screen_position() + screen_pos` skipped the zoom
+	## and added the OS window offset, so the menu opened ~100 px off the
+	## cursor (measured 2026-09-23: click (583, 425), menu at (506, 323)).
+	_ctx_menu.position = Vector2i(app.viewport.overlay.get_global_transform_with_canvas() * screen_pos)
 	_ctx_menu.reset_size()
 	_ctx_menu.popup()
 
@@ -5122,7 +5125,9 @@ func _lm_open_funnel(key: String) -> void:
 		c.queue_free()
 	_lm_funnel.add_child(_lm_funnel_body(key, r, f))
 	var tok: Control = r["token"]
-	var at := Vector2i(tok.get_screen_position()) + Vector2i(0, int(tok.size.y) + 4)
+	## Main-viewport space, which is what an embedded popup's rect is in.
+	## `get_screen_position()` adds the OS window's own offset on top.
+	var at := Vector2i(tok.get_global_rect().position) + Vector2i(0, int(tok.size.y) + 4)
 	_lm_funnel.popup(Rect2i(at, Vector2i(342, 0)))
 
 ## `key` is the engine's kind key, carried in so §5's two chips can filter
