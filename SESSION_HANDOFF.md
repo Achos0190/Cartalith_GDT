@@ -192,30 +192,34 @@ script and run it; every figure you publish comes from one run of it:
 
 ```python
 # count_outstanding.py — run from the repo root
-import collections, io, re, sys
+# Open = a table row in §1–§4 whose first cell is NOT struck through.
+# Closed rows stay in the file as evidence (`~~row~~ — **CLOSED …**`), so a
+# count of every row is not the backlog. (The earlier version here counted
+# every row, closed included — 179 against 69 open on 2026-09-23 — and its
+# size check could never pass, since §3/§4 tables carry no size column.)
+import collections, io, re
 HEADERS = {"Item","Question","#","Milestone","Claim",""}
-rows, sizes, sec = collections.OrderedDict(), collections.Counter(), None
+STRUCK = re.compile(r"^(\*\*)?~~")
+openr, closed, sizes, sec = collections.Counter(), collections.Counter(), collections.Counter(), None
 for line in io.open("OUTSTANDING_WORK.md", encoding="utf-8"):
     h = re.match(r"^(#{2,4})\s+(.*)", line)
     if h:
         t = h.group(2).strip()
-        sec = t if re.match(r"^\d", t) else None
-        if sec and sec not in rows: rows[sec] = 0
+        sec = t.split(" ")[0] if re.match(r"^\d", t) else None
         continue
     if not (sec and line.startswith("|")): continue
     cells = [c.strip() for c in line.split("|")[1:-1]]
-    if not cells or all(re.fullmatch(r"[:\-]{2,}", c) for c in cells): continue
-    if cells[0] in HEADERS and rows[sec] == 0: continue
-    rows[sec] += 1
-    if sec.startswith(("1.","2.","3.")):
-        for c in cells:
-            if c in ("large","medium","small"): sizes[c] += 1; break
-g = collections.Counter()
-for k, v in rows.items(): g[k.split(".")[0].split(" ")[0]] += v
-head = g["1"] + g["2"] + g["3"] + g["4"]
-print(f"S1={g['1']} S2={g['2']} S3={g['3']} S4={g['4']}  HEADLINE={head}")
-print(f"sizes {dict(sizes)} = {sum(sizes.values())}; headline-S4 = {head - g['4']}")
-print("CONSISTENT" if sum(sizes.values()) == head - g["4"] else "*** MISMATCH ***")
+    if not cells or all(re.fullmatch(r"[:\-]{2,}", c) for c in cells) or cells[0] in HEADERS: continue
+    top = sec.split(".")[0]
+    if STRUCK.match(cells[0]):
+        closed[top] += 1
+        continue
+    openr[top] += 1
+    for c in cells:
+        if c in ("large","medium","small"): sizes[c] += 1; break
+print(f"OPEN   S1={openr['1']} S2={openr['2']} S3={openr['3']} S4={openr['4']}  HEADLINE={sum(openr[k] for k in '1234')}")
+print(f"CLOSED S1={closed['1']} S2={closed['2']} S3={closed['3']} S4={closed['4']}  (kept as evidence)")
+print(f"open rows by size (rows with a size cell only): {dict(sizes)}")
 ```
 
 Finally, check for work still running (`/workflows`, or the task list). A verifier
