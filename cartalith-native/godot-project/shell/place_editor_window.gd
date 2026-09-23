@@ -451,8 +451,13 @@ func _rebuild() -> void:
 func _build_tab_strip(parent: Control) -> void:
 	var wrap := PanelContainer.new()
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"bottom": 1}))
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 0)
+	## A WRAPPING row with gaps and padding (2026-09-24). It was an
+	## `HBoxContainer` at separation 0 with padless buttons, so at the window's
+	## 400 px default the six labels ran together with no space between them.
+	## Now a narrow window breaks the strip onto a second line instead.
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 2)
+	row.add_theme_constant_override("v_separation", 2)
 	wrap.add_child(row)
 	for key in TAB_ORDER:
 		var on: bool = key == _active_tab
@@ -463,6 +468,10 @@ func _build_tab_strip(parent: Control) -> void:
 		b.clip_text = false
 		b.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 		var fill: StyleBox = DccTheme.flat(DccTheme.c("accent_wash")) if on else DccTheme.empty()
+		fill.content_margin_left = 8
+		fill.content_margin_right = 8
+		fill.content_margin_top = 4
+		fill.content_margin_bottom = 4
 		for sb_name in ["normal", "hover", "pressed"]:
 			b.add_theme_stylebox_override(sb_name, fill)
 		b.add_theme_stylebox_override("focus", DccTheme.empty())
