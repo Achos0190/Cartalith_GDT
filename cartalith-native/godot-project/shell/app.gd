@@ -1595,7 +1595,8 @@ func _on_workspace_changed(id: String) -> void:
 			## idle default a domain switch lands on; each workspace reclaims the bar
 			## with its own richer row the moment one of its tools arms.
 			"civilization": _tool_options_simple("CIVIL · INSPECT",
-				"Settlement, Territory, Way and Route tools are armed from the tool bar above. POI has no engine call (civ_tools_bridge.rs) and is not offered.")
+				## POI is not offered: it has no engine call (`civ_tools_bridge.rs`).
+				"Settlement, Territory, Way and Route tools are armed from the tool bar above. Points of interest cannot be placed yet.")
 		_refresh_rail_foot()
 	## The collapsed left dock's line, from whichever dock is now in the frame.
 	## `WorldWorkspace` was the shell's only writer of it until 2026-09-05, so
@@ -2683,7 +2684,8 @@ func _tool_options_simple(context: String, note: String) -> void:
 ## second copy of this string.
 func _tool_options_cartography_default() -> void:
 	_tool_options_simple("CARTOGRAPHY · " + active_mode("cartography").to_upper(),
-		"presentation only — no control here marks a generation stage stale. Map view, Map style and Rendering-advanced drive render.rs's TerrainAppearance live; the quality tier those values start from lives in Preferences.")
+		## These panels drive `render.rs`'s `TerrainAppearance` live.
+		"Presentation only — nothing here marks a generation stage stale. Map view, Map style and Rendering-advanced apply live; the quality tier they start from is set in Preferences.")
 
 ## The whole chain, which is the only granularity the engine offers.
 func _run_pipeline() -> void:

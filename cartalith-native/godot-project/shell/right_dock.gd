@@ -5442,10 +5442,11 @@ func _build_stops(body: Control) -> void:
 	var compare_btn := DccWidgets.action(actions, "Compare", func(): pass)
 	compare_btn.disabled = true
 	compare_btn.tooltip_text = "Would hold the previous ramp for an A/B toggle -- §1.9's own \"(mock)\" caption in the design file. No such store exists here."
+	## `render_workspace.gd`'s ramp editor, this dock and the map all read the one
+	## engine ramp; §1.9's Apply is a mock in the delivered prototype.
 	DccWidgets.note(actions,
-		"Every edit above is already live -- render_workspace.gd's own ramp editor, this dock and the map all " +
-		"read the one engine ramp, so there is no separate Apply step to press (§1.9's own Apply is a mock in " +
-		"the delivered prototype).")
+		"Every edit above is already live -- the ramp editor, this panel and the map all " +
+		"use the same ramp, so there is no separate Apply step.")
 
 ## A small live gradient preview, mirroring `render_workspace.gd`'s own
 ## `_update_ramp_bar` -- duplicated rather than shared because that one is

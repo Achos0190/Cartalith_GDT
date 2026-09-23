@@ -841,15 +841,15 @@ func _build_generate_head(parent: Control) -> void:
 		_stage_start_msec.append(-1)
 		_stage_elapsed_ms.append(-1)
 	_stage_log_label = DccWidgets.note(status, "")
+	## User words (2026-09-24, UX review): the progress rows read the real
+	## `GenerationProgress` through `engine_bridge.gd`, and each run is ONE
+	## `generate()` call resolving all ten stages -- no partial recompute.
 	DccWidgets.note(status,
-		"Real per-stage progress (`GenerationProgress`, `engine_bridge.gd`), not "
-		+ "a simulated animation -- but still ONE generate() that resolves all "
-		+ "ten stages every call: this engine has no partial recompute, so every "
-		+ "row above runs in full on every Generate, whichever stage an edit came "
-		+ "from (`Stale from NN` above names where the edit landed, not where the "
-		+ "run starts). What CAN go stale independently is the civilisation layer "
-		+ "over an edited world, and that has its own badge and its own button: "
-		+ "Civilization ▸ Settlements ▸ Recompute.")
+		"Live progress for each stage, not an animation. Every Generate runs all "
+		+ "ten stages in full -- there is no partial recompute -- so \"Stale from NN\" "
+		+ "marks where an edit landed, not where the run starts. The civilisation "
+		+ "layer can go stale on its own over an edited world; it has its own badge "
+		+ "and button: Civilization ▸ Settlements ▸ Recompute.")
 	DccWidgets.note(status,
 		"Resolution, working and render, is a creation-time call argument rather "
 		+ "than a stored parameter -- File ▸ New world sets it. Map extent (world "
