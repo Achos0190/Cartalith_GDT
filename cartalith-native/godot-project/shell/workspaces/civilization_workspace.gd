@@ -711,7 +711,9 @@ func on_delete_key() -> bool:
 # -- Tools (§4.5.3: Settlement, Territory -- and, since the 2026-08-20 merge,
 # §4.5.4: Way, Route) -----------------------------------------------------
 
-## §4.5's TOOLS block: the three global tools (`GlobalTools.install`) plus
+## §4.5's TOOLS block -- drawn in the top palette bar off the phone since
+## 2026-09-23 (`DccWidgets.tools_block()`), in this dock on a phone: the
+## three global tools (`GlobalTools.install`) plus
 ## this domain's own four, built first (§4.5: "every left dock opens with a
 ## TOOLS block"). One combined row rather than two stacked ones -- Settlement
 ## and Territory are this file's own; Way and Route belong to `_infra`
@@ -816,7 +818,7 @@ func _tool_options_label(row: HBoxContainer, text: String) -> void:
 func _tool_options_civ_idle() -> void:
 	app.set_tool_options(func(row: HBoxContainer):
 		_tool_options_label(row, "CIVIL · INSPECT")
-		row.add_child(DccTheme.label("Settlement and Territory tools are armed from the TOOLS block above.", "text_ghost", DccTheme.FS_MICRO))
+		row.add_child(DccTheme.label("Settlement and Territory tools are armed from %s." % DccWidgets.tools_home(), "text_ghost", DccTheme.FS_MICRO))
 		row.add_child(DccTheme.spacer())
 	)
 
@@ -1258,15 +1260,15 @@ func _fill_territories(parent: Control) -> void:
 		+ "list — territory included — against the current terrain and the current settlements, "
 		+ "hand-dropped and hand-edited ones kept. It does NOT re-place settlements; only "
 		+ "Generate does that. Painting a claim by hand stays available too — the Territory "
-		+ "tool in the TOOLS block above.")
+		+ "tool in %s." % DccWidgets.tools_home())
 	var gen_prov := DccWidgets.action(pol, "Generate provinces", _recompute_civ)
 	gen_prov.disabled = not bridge.has_world
 	gen_prov.tooltip_text = ("The reference's province generator. Same one call: Recompute "
 		+ "civilisation rebuilds the province partition and reports how many it produced. "
 		+ "Their map tint is a separate switch — Cartography ▸ Political display.")
 	DccWidgets.note(pol,
-		"The Territory brush and its radius are in the TOOLS block at the top of "
-		+ "this dock; arming it puts the radius in the tool options bar.")
+		"The Territory brush is in %s; arming it" % DccWidgets.tools_home()
+		+ " puts the radius in the tool options bar.")
 
 	_build_influence(parent)
 

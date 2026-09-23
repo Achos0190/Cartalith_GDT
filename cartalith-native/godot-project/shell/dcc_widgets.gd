@@ -1119,11 +1119,24 @@ static func tool_button(parent: Control, glyph: String, label_text: String,
 	return b
 
 ## The TOOLS block itself (§4.5: "every left dock opens with a TOOLS block:
-## first the four global tools, then that domain's own"). `global_only` skips
-## the domain-specific row for a caller with none yet. `entries` is
-## `[{glyph, label, id}, ...]`; arming calls `app.arm_tool(id)`.
+## first the four global tools, then that domain's own"). `entries` is
+## `[{glyph, label, id}, ...]`; arming calls `app.arm_tool(id)`. An entry may
+## carry `modes` -- the domain modes it is shown in (WORLD's Biome paint is
+## `["b"]`, Ruling L); only the top-bar strip reads it, the phone's dock copy
+## is gated by `world_workspace.gd::_refresh_paint_tool_row()` instead.
+##
+## **Off the phone this draws nothing in the dock.** Owner, 2026-09-23: *"the
+## tools should be in a horizontal toolbar that sits on top"* -- an owner
+## decision, which outranks `04-left-dock.md` §2.4's dock placement
+## (`ENV:316-327`). The entries are handed to `DccApp.set_domain_tools()` and
+## drawn by `tool_strip()` at the left of the top tool bar, for whichever domain
+## is active. The phone keeps the dock block: its own spec (`06-phone.md` §6.3)
+## has no top bar, and that request was about the desktop shell.
 static func tools_block(parent: Control, app, group: ButtonGroup,
 		domain_entries: Array = []) -> void:
+	if not DccTheme.is_phone() and app != null and app.has_method("set_domain_tools"):
+		app.set_domain_tools(String(parent.get("domain_id")), domain_entries)
+		return
 	var sec := section(parent, "Tools")
 	sec.add_child(_tools_row(GLOBAL_TOOL_ENTRIES, app, group))
 	if not domain_entries.is_empty():
@@ -1143,41 +1156,90 @@ static func _tools_row(entries: Array, app, group: ButtonGroup) -> Control:
 	row.add_theme_constant_override("h_separation", 2)
 	row.add_theme_constant_override("v_separation", 2)
 	for e in entries:
-		if e.has("legend"):
-			_tool_legend(row, String(e["glyph"]), String(e["label"]), String(e["legend"]))
-			continue
-		var b := tool_button(row, e["glyph"], e["label"], group, func(): app.arm_tool(e["id"]))
-		## The TOOLS block is the one caller whose labels are short enough to
-		## draw under a glyph. `world_workspace.gd`'s feature picker uses the
-		## same widget with a whole hint sentence appended, in a 5-column
-		## grid, so it gets the touch size and the border and no caption.
-		b.set_meta(TOOL_CAPTION_META, tool_caption(String(e["label"])))
-		## `GUI_GAP_REGISTER.md` IN-11. Every one of these labels has advertised
-		## a letter since the TOOLS block was first built -- "Way (W)",
-		## "Route (⇧R)", "Label (L)", "Biome paint (B)" -- and until now not one
-		## of them was bound to anything: no `_unhandled_key_input` branch, no
-		## `Shortcut`, nothing anywhere in `shell/` matched a bare letter. The
-		## tooltip was the whole feature. That is exactly the fake control this
-		## port's discipline exists to avoid, and it is a plausible half of the
-		## owner's own "there is no way to draw a route" (2026-08-24).
-		##
-		## A `Shortcut` on the button rather than a key table on `app.gd`, for
-		## one reason that is not style: `BaseButton::shortcut_input` fires only
-		## when the button `is_visible_in_tree()` and is not disabled. Only the
-		## active domain's panel is visible (`DccShell._select_domain`), so `W`
-		## arms Way exactly when CIVIL is showing and is inert in WORLD --
-		## which is the rule we want and would otherwise have to re-derive by
-		## hand. It also lands *after* GUI input, so a focused `LineEdit` eats
-		## its own letters first and typing a settlement name never arms a tool.
-		##
-		## `shortcut_in_tooltip` off: the tooltip already spells the key in the
-		## mockup's own notation (`⇧R`), and Godot would append a second,
-		## differently-spelled copy ("Shift+R") under it.
-		var sc := _tool_shortcut(String(e["label"]))
-		if sc != null:
-			b.shortcut = sc
-			b.shortcut_in_tooltip = false
+		_tool_entry(row, e, app, group)
 	return row
+
+## Where the tool palette is, for prose that sends a reader to it: the top
+## palette bar off the phone, the dock's own TOOLS block on it (`tools_block()`).
+static func tools_home() -> String:
+	if DccTheme.is_phone():
+		return "the TOOLS block at the top of this dock"
+	return "the tool bar at the top of the window"
+
+## The top palette bar's copy of the TOOLS block (`DccApp._install_tool_
+## palette_bar()`): the four global cells, the canvas's divider (`ENV:323`,
+## `width:1px;height:var(--tool);background:var(--div);margin:0 3px`), then the
+## active domain's own tools, laid out as one `HBoxContainer` rather than
+## `_tools_row()`'s `HFlowContainer` -- a flow container inside a bar's
+## `HBoxContainer` reports its widest child as its minimum and wraps to a
+## second line. `ENV:319`'s `gap:5px` between cells. Each button is lit from
+## `app.armed_tool` as it is built, because the palette is rebuilt on every
+## domain/mode change and a new button knows nothing of the last one's pressed
+## state; `DccApp._sync_tool_strip()` keeps it lit between rebuilds.
+static func tool_strip(parent: Control, app, group: ButtonGroup, domain_entries: Array) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 5)
+	for e in GLOBAL_TOOL_ENTRIES:
+		_tool_entry(row, e, app, group)
+	if not domain_entries.is_empty():
+		var div := ColorRect.new()
+		div.color = DccTheme.c("line_soft")
+		div.custom_minimum_size = Vector2(1, 30)
+		div.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var m := MarginContainer.new()
+		m.add_theme_constant_override("margin_left", 3)
+		m.add_theme_constant_override("margin_right", 3)
+		m.add_child(div)
+		row.add_child(m)
+		for e in domain_entries:
+			_tool_entry(row, e, app, group)
+	for b in row.find_children("*", "Button", true, false):
+		if (b as Button).toggle_mode:
+			(b as Button).set_pressed_no_signal(String(b.get_meta(TOOL_ID_META, "")) == String(app.armed_tool))
+	parent.add_child(row)
+	return row
+
+## The tool id a palette button arms -- read back by `tool_strip()` and
+## `DccApp._sync_tool_strip()` to light the armed one.
+const TOOL_ID_META := "dcc_tool_id"
+
+static func _tool_entry(row: Control, e: Dictionary, app, group: ButtonGroup) -> void:
+	if e.has("legend"):
+		_tool_legend(row, String(e["glyph"]), String(e["label"]), String(e["legend"]))
+		return
+	var b := tool_button(row, e["glyph"], e["label"], group, func(): app.arm_tool(e["id"]))
+	b.set_meta(TOOL_ID_META, String(e["id"]))
+	## The TOOLS block is the one caller whose labels are short enough to
+	## draw under a glyph. `world_workspace.gd`'s feature picker uses the
+	## same widget with a whole hint sentence appended, in a 5-column
+	## grid, so it gets the touch size and the border and no caption.
+	b.set_meta(TOOL_CAPTION_META, tool_caption(String(e["label"])))
+	## `GUI_GAP_REGISTER.md` IN-11. Every one of these labels has advertised
+	## a letter since the TOOLS block was first built -- "Way (W)",
+	## "Route (⇧R)", "Label (L)", "Biome paint (B)" -- and until now not one
+	## of them was bound to anything: no `_unhandled_key_input` branch, no
+	## `Shortcut`, nothing anywhere in `shell/` matched a bare letter. The
+	## tooltip was the whole feature. That is exactly the fake control this
+	## port's discipline exists to avoid, and it is a plausible half of the
+	## owner's own "there is no way to draw a route" (2026-08-24).
+	##
+	## A `Shortcut` on the button rather than a key table on `app.gd`, for
+	## one reason that is not style: `BaseButton::shortcut_input` fires only
+	## when the button `is_visible_in_tree()` and is not disabled. Only the
+	## active domain's tools are in the top bar (`DccApp._tool_strip()`; on a
+	## phone, only the active domain's dock is visible), so `W`
+	## arms Way exactly when CIVIL is showing and is inert in WORLD --
+	## which is the rule we want and would otherwise have to re-derive by
+	## hand. It also lands *after* GUI input, so a focused `LineEdit` eats
+	## its own letters first and typing a settlement name never arms a tool.
+	##
+	## `shortcut_in_tooltip` off: the tooltip already spells the key in the
+	## mockup's own notation (`⇧R`), and Godot would append a second,
+	## differently-spelled copy ("Shift+R") under it.
+	var sc := _tool_shortcut(String(e["label"]))
+	if sc != null:
+		b.shortcut = sc
+		b.shortcut_in_tooltip = false
 
 ## The fourth global cell. `02-rail-and-domains.md` §4d and
 ## `01-frame-and-tokens.md` §3.6c both draw `pan` in the same four-square row

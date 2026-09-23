@@ -565,7 +565,7 @@ func _tool_options_route() -> void:
 func _tool_options_infra_idle() -> void:
 	app.set_tool_options(func(row: HBoxContainer):
 		_tool_options_label(row, "INFRA · INSPECT")
-		row.add_child(DccTheme.label("Way and Route tools are armed from the TOOLS block above.", "text_ghost", DccTheme.FS_MICRO))
+		row.add_child(DccTheme.label("Way and Route tools are armed from %s." % DccWidgets.tools_home(), "text_ghost", DccTheme.FS_MICRO))
 		row.add_child(DccTheme.spacer())
 	)
 
@@ -979,7 +979,7 @@ func _refresh_routes_teaser() -> void:
 		c.queue_free()
 	var n := bridge.route_count()
 	if n <= 0:
-		_teaser_note("None yet -- arm Route in the TOOLS block above, click two or more " +
+		_teaser_note("None yet -- arm Route in %s, click two or more " % DccWidgets.tools_home() +
 			"stops, then ✓ Commit.")
 	else:
 		var settlements := bridge.settlements()
@@ -1099,7 +1099,7 @@ func _refresh_manual_ways() -> void:
 			rows += 1
 	if rows == 0:
 		DccWidgets.note(_manual_list,
-			"None yet -- arm Way in the TOOLS block above, click two or more " +
+			"None yet -- arm Way in %s, click two or more " % DccWidgets.tools_home() +
 			"waypoints, then ✓ Commit. Committed ways draw on the map with the " +
 			"generated network and are routed over by the next way you draw.")
 
@@ -1137,7 +1137,7 @@ func _refresh_manual_routes() -> void:
 		_selected_route = -1
 	if n <= 0:
 		DccWidgets.note(_manual_routes_list,
-			"None yet -- arm Route in the TOOLS block above, click two or more " +
+			"None yet -- arm Route in %s, click two or more " % DccWidgets.tools_home() +
 			"stops, then ✓ Commit. A route is solved over the existing network " +
 			"(mixed land and sea) and drawn on the map in amber, over the ways " +
 			"it follows.")
@@ -1250,7 +1250,7 @@ func _build_road_gaps(sec: Control) -> void:
 		+ "Manual ways drawn with the Way tool are not touched, and the network prefers no "
 		+ "particular route through them -- draw one and it stays.")
 	_roads_note = DccWidgets.note(sec,
-		"Drawing a way or a journey by hand stays available in the TOOLS block above; this is "
+		"Drawing a way or a journey by hand stays available in %s; this is " % DccWidgets.tools_home()
 		+ "the whole-network pass.")
 	_clear_ways_btn = DccWidgets.action(sec, "Clear ways & journeys", _clear_ways)
 	_clear_ways_btn.disabled = not bridge.has_world

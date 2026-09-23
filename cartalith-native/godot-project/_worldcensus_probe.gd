@@ -418,11 +418,15 @@ func _check_inset(idx: String, title: String, body: Control) -> void:
 
 ## Ruling L's tree puts `Biome paint (B)` in WORLD's Tools row "(SCULPT mode
 ## only)". The pill is found by its tooltip, which is its label
-## (`DccWidgets.tool_button()`), anywhere in the dock outside the categories.
+## (`DccWidgets.tool_button()`). Since 2026-09-23 the Tools row is drawn in the
+## top palette bar off the phone (`DccApp._install_tool_palette_bar()`) and is
+## rebuilt per mode, so the walk covers the whole tree and PIPELINE may not
+## build the pill at all -- what is asserted is that it is on screen exactly in
+## SCULPT, and never more than once.
 func _check_paint_pill(panel: Control) -> void:
 	var seen := 0
 	var vis := 0
-	var stack: Array = [panel]
+	var stack: Array = [panel.get_tree().root]
 	while not stack.is_empty():
 		var n: Node = stack.pop_back()
 		if n.is_queued_for_deletion():
@@ -434,7 +438,7 @@ func _check_paint_pill(panel: Control) -> void:
 	var want := 1 if _mode == "b" else 0
 	_ok("[%s] the Tools row's Biome paint (B) pill is %s" % [_mode,
 		"on screen" if want == 1 else "hidden (SCULPT mode only)"],
-		seen == 1 and vis == want, "built=%d visible=%d want_visible=%d" % [seen, vis, want])
+		seen <= 1 and vis == want, "built=%d visible=%d want_visible=%d" % [seen, vis, want])
 
 func _finish() -> void:
 	await _frames(5)

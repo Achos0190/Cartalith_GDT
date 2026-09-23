@@ -175,6 +175,88 @@ func arm_tool(id: String) -> void:
 		_fill_timeline_strip()
 	set_status("hint", "" if id == "inspect" else "%s armed — Esc to release" % id.capitalize(), "text_ghost")
 
+## **The tool palette is its own horizontal bar at the top of the window**
+## (owner, 2026-09-23: *"the tools should be in a horizontal toolbar that sits
+## on top, following the dcc design"*). Each domain's `DccWidgets.tools_block()`
+## call registers its entries here instead of drawing them in its dock, and
+## `_tool_palette_row` draws the four global cells plus the ACTIVE domain's own,
+## re-drawn on every domain or mode change (`workspace_changed`, which
+## `_select_domain()` emits for both).
+##
+## **A bar of its own, not a prefix on the tool-options bar.** That was built
+## first and measured: the palette is 135-287 px wide and the options bar's
+## contents are already up to 1 440 px (CIVIL ▸ Territory), so prefixing it
+## raised the window's minimum width past 1 600 px (Territory 1 756) and past
+## 1 280 px in two more contexts (Settlement 1 519, CARTO ▸ Region 1 342), each
+## of which pushes the right dock off screen. `ENV:108-148` is the canvas's own
+## precedent for a second `--tbH` row in this position -- its "horizontal tool
+## rail", `height:var(--tbH);gap:10px;padding:0 var(--pad);border-bottom:1px
+## solid var(--hair)`, directly above the tool-options bar -- so the geometry
+## here is that row's. Off the phone only; `tools_block()` says why the phone
+## keeps its dock copy.
+var _domain_tools: Dictionary = {}
+var tool_palette_bar: PanelContainer
+var _tool_palette_row: HBoxContainer
+var _tool_strip_row: HBoxContainer
+
+## Inserted into the shell's own top-level stack directly above
+## `tool_options_bar`, from here rather than from `dcc_shell.gd`'s desktop
+## composition because the palette's buttons join `tool_group` and arm through
+## `arm_tool()`, both of which live on this class.
+func _install_tool_palette_bar() -> void:
+	if is_phone() or tool_options_bar == null:
+		return
+	var bar := PanelContainer.new()
+	bar.name = "ToolPaletteBar"
+	bar.custom_minimum_size.y = DccTheme.role_px("h_tool_options")
+	bar.add_theme_stylebox_override("panel", DccTheme.panel("panel_alt", {"bottom": 1}))
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 14)
+	pad.add_theme_constant_override("margin_right", 14)
+	_tool_palette_row = HBoxContainer.new()
+	pad.add_child(_tool_palette_row)
+	bar.add_child(pad)
+	var host := tool_options_bar.get_parent()
+	host.add_child(bar)
+	host.move_child(bar, tool_options_bar.get_index())
+	tool_palette_bar = bar
+	workspace_changed.connect(func(_id: String): _rebuild_tool_strip())
+	_rebuild_tool_strip()
+
+func set_domain_tools(domain: String, entries: Array) -> void:
+	_domain_tools[domain] = entries
+	if domain == active_domain():
+		_rebuild_tool_strip()
+
+## The active domain's entries, less any whose `modes` exclude the active mode
+## (WORLD's Biome paint is SCULPT-only, Ruling L).
+func _strip_entries() -> Array:
+	var dom := active_domain()
+	var mode := active_mode(dom)
+	var entries: Array = []
+	for e in _domain_tools.get(dom, []):
+		if not (e as Dictionary).has("modes") or (e["modes"] as Array).has(mode):
+			entries.append(e)
+	return entries
+
+func _rebuild_tool_strip() -> void:
+	if _tool_palette_row == null:
+		return
+	for c in _tool_palette_row.get_children():
+		_tool_palette_row.remove_child(c)
+		c.queue_free()
+	_tool_strip_row = DccWidgets.tool_strip(_tool_palette_row, self, tool_group, _strip_entries())
+
+## Keeps the palette's lit cell on `armed_tool` -- arming from a key, a menu,
+## the WORLD feature grid or Escape does not rebuild the palette, and its
+## buttons are not the group's only members.
+func _sync_tool_strip(id: String) -> void:
+	if not is_instance_valid(_tool_strip_row):
+		return
+	for b in _tool_strip_row.find_children("*", "Button", true, false):
+		if (b as Button).toggle_mode:
+			(b as Button).set_pressed_no_signal(String(b.get_meta(DccWidgets.TOOL_ID_META, "")) == id)
+
 func register_tool_click_handler(id: String, handler: Callable) -> void:
 	_click_handlers[id] = handler
 
@@ -378,6 +460,9 @@ func _escape_action(force_disarm := false) -> void:
 	if btn != null:
 		btn.button_pressed = false
 	arm_tool("inspect")
+	## `arm_tool` is a no-op (no `tool_armed`) when Inspect was already armed,
+	## and the line above has just unlit its palette cell -- so relight it here.
+	_sync_tool_strip(armed_tool)
 
 ## **The app idles.** `ANDROID_BUILD_SCOPE.md`'s power-draw row: on a OnePlus 12
 ## the app redrew at an unbroken 60 fps with nothing on screen changing. Nothing
@@ -408,6 +493,8 @@ func _enable_idle_mode() -> void:
 func _ready() -> void:
 	super._ready()
 	_enable_idle_mode()
+	tool_armed.connect(_sync_tool_strip)
+	_install_tool_palette_bar()
 
 	bridge = EngineBridge.new()
 	bridge.name = "EngineBridge"
@@ -1460,7 +1547,9 @@ func _on_workspace_changed(id: String) -> void:
 			"cartography": _tool_options_cartography_default()
 			## Settlement/POI/Territory (civ_tools_bridge.rs) and Way/Route/Measure/
 			## Region (infra_tools_bridge.rs) are bound and tested as of 2026-08-19,
-			## and §4.5's TOOLS block that arms them now exists in this dock
+			## and §4.5's TOOLS block that arms them now exists (since 2026-09-23 in
+			## the top palette bar off the phone -- `_install_tool_palette_bar()`;
+			## on a phone still in this dock)
 			## (`civilization_workspace.gd`'s own `_build_tools()`, which composes
 			## `infrastructure_workspace.gd`'s Way/Route buttons into the same row
 			## since the 2026-08-20 domain merge). The earlier wording here claimed
@@ -1469,7 +1558,7 @@ func _on_workspace_changed(id: String) -> void:
 			## idle default a domain switch lands on; each workspace reclaims the bar
 			## with its own richer row the moment one of its tools arms.
 			"civilization": _tool_options_simple("CIVIL · INSPECT",
-				"Settlement, Territory, Way and Route tools are armed from the TOOLS block in the dock. POI has no engine call (civ_tools_bridge.rs) and is not offered.")
+				"Settlement, Territory, Way and Route tools are armed from the tool bar above. POI has no engine call (civ_tools_bridge.rs) and is not offered.")
 		_refresh_rail_foot()
 	## The collapsed left dock's line, from whichever dock is now in the frame.
 	## `WorldWorkspace` was the shell's only writer of it until 2026-09-05, so

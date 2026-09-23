@@ -18,6 +18,14 @@ class_name DccToolBar
 ## `_phone_fit_tool_options()` already recurses through arbitrary containers —
 ## nothing in `dcc_shell.gd` changed.
 ##
+## **Since 2026-09-23 there is a second bar directly above this one** -- the
+## tool palette (`DccApp._install_tool_palette_bar()`, owner's request to move
+## each dock's TOOLS block to the top). It is inserted by `app.gd`, not by
+## `dcc_shell.gd`'s compositions, and is off on a phone. Its Measure cell and
+## this bar's MEASURE mode arm the same `"measure"` id, as do its WORLD Biome
+## paint cell and PAINT here -- the same pairing the dock's TOOLS block had with
+## this bar before, moved, not added.
+##
 ## ## The three modes map onto three tool ids that already exist
 ##
 ## SCULPT arms `"sculpt"`, PAINT arms `"paint"`, MEASURE arms `"measure"`.

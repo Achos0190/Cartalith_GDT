@@ -225,7 +225,7 @@ const CATEGORIES: Array = [
 	{"name": "Terrain", "stages": [],
 	 "lead": "Height molding by hand, over the current surface. Elevation, slope, curvature and relief are readable as analysis fields -- Cartography ▸ Layers ▸ Data overlays."},
 	{"name": "Biomes", "stages": [],
-	 "lead": "Painting biome and terrain classes by hand, over the classified fields. Ruling L decision 2: this is the brush's one home, and Biome paint (B) in the Tools row above is the way to arm it."},
+	 "lead": "Painting biome and terrain classes by hand, over the classified fields. Ruling L decision 2: this is the brush's one home, and Biome paint (B) in the tool palette is the way to arm it."},
 ]
 
 var _sculpt_body: VBoxContainer
@@ -389,6 +389,11 @@ func _build() -> void:
 	if DccTheme.is_tablet():
 		DccTheme.watch_portrait(_on_portrait_changed)
 
+	## **Off the phone this row is drawn in the top palette bar, not this dock**
+	## (owner, 2026-09-23; `DccWidgets.tools_block()`), and `_paint_tool_row`
+	## below is then null -- the bar applies the same SCULPT-only gate from the
+	## entry's `modes`. The rest of this comment is the row's design history.
+	##
 	## Every left dock opens with the TOOLS block, the four global tools then
 	## the domain's own (`04-left-dock.md` §2.4). Its own WORLD row is three
 	## pills -- `Sculpt` (no key), `Freehand` **F**, `Biome paint` **B** -- and
@@ -427,7 +432,7 @@ func _build() -> void:
 	## positional read of a shared factory's output is a silent breakage the day
 	## that factory adds a node.
 	DccWidgets.tools_block(self, app, app.tool_group, [
-		{"id": "paint", "glyph": "tool_paint", "label": "Biome paint (B)"},
+		{"id": "paint", "glyph": "tool_paint", "label": "Biome paint (B)", "modes": ["b"]},
 	])
 	_paint_tool_row = _find_tool_row("Biome paint (B)")
 	_refresh_paint_tool_row(app.active_mode(domain_id) if app.has_method("active_mode") else "")
