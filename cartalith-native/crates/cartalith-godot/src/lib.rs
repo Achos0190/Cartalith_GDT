@@ -1221,6 +1221,18 @@ impl CivData {
     ) -> Vec<cartalith_civ::timeline::OwnershipSpan> {
         cartalith_civ::timeline::civ_settlement_ownership_periods(&self.timeline, tid)
     }
+
+    /// The Settlement Editor's "Political history" tab, population/tier
+    /// trajectory sub-section (`OUTSTANDING_WORK.md` §2.3 SP-3, the
+    /// small/additive/shovel-ready piece) -- thin passthrough to
+    /// `cartalith_civ::timeline::civ_settlement_population_trajectory`, kept
+    /// as a method for the same reason [`CivData::civ_year_diff`] above is.
+    fn civ_settlement_population_trajectory(
+        &self,
+        tid: u64,
+    ) -> Vec<cartalith_civ::timeline::PopulationPoint> {
+        cartalith_civ::timeline::civ_settlement_population_trajectory(&self.timeline, tid)
+    }
 }
 
 /// The religions a settlement actually holds, as `(roster key, share)` in
@@ -15588,6 +15600,50 @@ impl WorldGen {
                     d.set("end_year", end_year);
                 }
                 d
+            })
+            .collect()
+    }
+
+    /// The Settlement Editor's "Political history" tab, population/tier
+    /// trajectory sub-section (`OUTSTANDING_WORK.md` §2.3 SP-3): derived,
+    /// read-only population/tier readings for one settlement's `tid`,
+    /// walking every recorded
+    /// [`cartalith_civ::timeline::TimelineSnapshot`] in year order -- thin
+    /// passthrough to
+    /// `cartalith_civ::timeline::civ_settlement_population_trajectory`, the
+    /// same wiring shape as [`WorldGen::civ_settlement_ownership_periods`]
+    /// just above.
+    ///
+    /// Returns one entry per recorded year the settlement was actually
+    /// present in (**not** one per recorded year overall -- a gap year
+    /// contributes no entry, matching the ownership periods' own absence
+    /// rule), oldest first: `{"year": int, "pop": int, "kind": String}`.
+    /// `kind` uses the same vocabulary as `get_settlements`'
+    /// `"metropolis"/"capital"/"city"/"town"/"village"/"hamlet"`
+    /// (`journey_bridge::settlement_kind_key`), not a new one.
+    ///
+    /// **Flat per year, not collapsed into tier-change spans** -- see
+    /// `civ_settlement_population_trajectory`'s own doc comment for why:
+    /// population moves almost every recorded year, so a line/step chart
+    /// needs every point, unlike ownership's categorical faction.
+    ///
+    /// Empty before any `generate()`/`civ_add_year` call, for `tid == 0`
+    /// (the unassigned sentinel), and for a `tid` the timeline never
+    /// recorded -- all legitimate outcomes, not errors.
+    #[func]
+    fn civ_settlement_population_trajectory(&self, tid: i64) -> Array<VarDictionary> {
+        let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        if tid <= 0 {
+            return Array::new();
+        }
+        civ.civ_settlement_population_trajectory(tid as u64)
+            .iter()
+            .map(|point| {
+                vdict! {
+                    "year" => point.year,
+                    "pop" => point.pop as i64,
+                    "kind" => journey_bridge::settlement_kind_key(point.kind),
+                }
             })
             .collect()
     }

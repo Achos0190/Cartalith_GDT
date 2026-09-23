@@ -16,6 +16,7 @@
 //! |---|---|
 //! | [`markdown`] | Section spans, section replacement, author-template field lines |
 //! | [`block`] | The machine-owned `CARTALITH:BEGIN/END` block (§23, §24) |
+//! | [`chronos`] | Authored dated events from a note's ` ```chronos ` blocks (SP-3, Ruling AM) |
 //! | [`links`] | [`links::KnowledgeLink`], [`links::LinkStore`], the five status states (§11, §26, §27) |
 //! | [`provider`] | The desktop filesystem vault (§6), path containment, atomic writes |
 //! | [`export`] | The exportable-field registry and the block renderer (§19, §20) |
@@ -42,6 +43,7 @@
 
 pub mod backlinks;
 pub mod block;
+pub mod chronos;
 pub mod export;
 pub mod links;
 pub mod markdown;
@@ -615,6 +617,36 @@ impl VaultSession {
         out
     }
 
+    /// Authored events (`STORY_PLANNING_SCOPE.md` SP-3, Ruling AM): every
+    /// ` ```chronos ` block in the notes attached to this entity, one
+    /// `(relative_path, live, parsed)` per note.
+    ///
+    /// **Live first, the copy second.** The author edits these blocks in
+    /// Obsidian, so the note is read from disk when the vault is bound —
+    /// the whole note, since the block may sit outside the section the link
+    /// selected. With no vault, or an unreadable file, it falls back to the
+    /// link's saved working copy (`edited_text`, else `imported_text`) the
+    /// way [`Self::entity_data`] answers disconnected, and `live` says which.
+    /// Two links to one file are read once when live; saved copies are
+    /// per-link, since they may hold different sections.
+    pub fn entity_chronos(&self, kind: EntityKind, id: i64) -> Vec<(String, bool, chronos::Chronos)> {
+        let mut out: Vec<(String, bool, chronos::Chronos)> = Vec::new();
+        for l in self.store.links_for(kind, id) {
+            let rel = &l.relative_path;
+            if out.iter().any(|(r, live, _)| *live && r == rel) {
+                continue;
+            }
+            match self.read(rel) {
+                Ok(text) => out.push((rel.clone(), true, chronos::parse(&text))),
+                Err(_) => {
+                    let copy = l.edited_text.as_deref().or(l.imported_text.as_deref()).unwrap_or("");
+                    out.push((rel.clone(), false, chronos::parse(copy)));
+                }
+            }
+        }
+        out
+    }
+
     /// The templates in the bound vault (`GUI_GAP_REGISTER.md` **VA-02**),
     /// filtered out of the same bounded listing the file picker uses -- no
     /// second walk, and still no file opened.
@@ -916,6 +948,54 @@ mod tests {
         std::fs::create_dir_all(p.join("Locations")).unwrap();
         std::fs::write(p.join("Locations/Nareth.md"), HAND).unwrap();
         p
+    }
+
+    /// SP-3 / Ruling AM, end to end: a `chronos` block written anywhere in a
+    /// settlement's attached note -- outside the heading the link selected --
+    /// is read live from disk; edited on disk, it is re-read with no reload;
+    /// with the vault gone, it falls back to the saved copy and says so.
+    #[test]
+    fn an_entity_reads_its_authored_chronos_events_live_then_from_the_copy() {
+        let root = scratch("chronos");
+        let note = format!("{HAND}
+```chronos
+- [-250] Siege | the walls held
+- [1100~1180] {{Rule}} Regency
+oops
+```
+");
+        std::fs::write(root.join("Locations/Nareth.md"), &note).unwrap();
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        s.attach(EntityKind::Settlement, 42, "Nareth", "Locations/Nareth.md",
+            Selection::WholeDocument).unwrap();
+        // A second link to the same file must not double the events.
+        s.attach(EntityKind::Settlement, 42, "Nareth", "Locations/Nareth.md",
+            Selection::Heading { value: "History".into() }).unwrap();
+
+        let got = s.entity_chronos(EntityKind::Settlement, 42);
+        assert_eq!(got.len(), 1, "one file, read once");
+        let (rel, live, c) = &got[0];
+        assert_eq!((rel.as_str(), *live), ("Locations/Nareth.md", true));
+        let names: Vec<&str> = c.events.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["Siege", "Regency"]);
+        assert_eq!(c.events[0].start, -250);
+        assert_eq!(c.skipped, vec!["oops"]);
+        assert!(s.entity_chronos(EntityKind::Settlement, 7).is_empty(), "another entity has none");
+
+        // Edited on disk: read again, no reload needed.
+        std::fs::write(root.join("Locations/Nareth.md"), note.replace("Siege", "Sack")).unwrap();
+        assert_eq!(s.entity_chronos(EntityKind::Settlement, 42)[0].2.events[0].name, "Sack");
+
+        // Disconnected: the saved copies answer, flagged not live. The
+        // whole-document copy holds the block; the History-section copy does not.
+        s.disconnect();
+        let off = s.entity_chronos(EntityKind::Settlement, 42);
+        assert_eq!(off.len(), 2);
+        assert!(off.iter().all(|(_, live, _)| !live));
+        assert_eq!(off[0].2.events[0].name, "Siege", "the copy is as attached");
+        assert!(off[1].2.events.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// `GUI_GAP_REGISTER.md` **VA-01**, end to end against a real folder:

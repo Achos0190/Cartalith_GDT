@@ -1233,3 +1233,16 @@ Siting itself changes, not just the downstream render binding: a settlement only
 **Disclosed cost:** the marks are twice their pre-AL size, so a dense world reads busier at fit zoom (321 landmarks on the probe's pinned 800 km world). `LANDMARK_MARK_SCALE` is the single knob if the owner wants them smaller; below ~1.5 the local-class glyphs stop being legible. The selected landmark is not highlighted on the map (a settlement pin is not either).
 
 **Verified** by `cartalith-native/godot-project/_lmglyph_probe.gd` (windowed): synthetic pixel checks (different kinds differ, a no-glyph kind puts no ink inside its ring) and a live shell on a pinned world with a real `landmark_run()` — a click on a landmark puts every field of `bridge.landmarks()[i]` in the dock, and settlement / empty-map clicks behave as before. GDScript only; no Rust touched.
+
+## 2026-09-23 — Ruling AM: a settlement's authored history events are a `chronos` block in its own vault note, in the Chronos Timeline plugin's exact syntax
+
+**The question.** `STORY_PLANNING_SCOPE.md` SP-3 wants authored events interleaved by date with a settlement's simulated history, and §3 already ruled they live in the Vault rather than in a new store. But `cartalith-vault::block` holds one opaque free-text body per entity with no dated-entry schema, so *some* markup for "a dated entry" had to be chosen before a typed accessor could exist (the SP-3 scoping pass, `OUTSTANDING_WORK.md` §2.3).
+
+**Owner ruling, 2026-09-23:** authored events go in the settlement's existing vault note as a fenced ` ```chronos ` code block, following the **Chronos Timeline** Obsidian plugin's syntax **exactly** — `- [Date~Date] #Color {Group Name} Event Name | Description`, with `@` periods, `*` points and `=` markers, dates `YYYY[-MM-DD[Thh:mm:ss]]`, negative years valid. **The reason is interoperability, and it is deliberate:** the same note opened in real Obsidian with that plugin installed draws a working interactive timeline with no Cartalith involvement. A private variant of the syntax would forfeit that for nothing, so none is accepted or invented.
+
+**Two consequences, both built into the reader (`cartalith_vault::chronos`):**
+
+- **Where in the note: anywhere, not inside the machine block.** §3's original wording ("inside the machine block") is superseded: the `CARTALITH:BEGIN/END` block is Cartalith-owned and replaced wholesale on every block write (`block::upsert`), so an author's event list inside it would be overwritten by the next export. The block is user content and lives outside it, like any other prose. `STORY_PLANNING_SCOPE.md` §3 corrected to match.
+- **Year precision only.** This port's clock is the Timeline's signed `i64` year and `STORY_PLANNING_SCOPE.md` §5 forbids a finer parallel clock, so `[1879-03-14]` is read as 1879; month/day/time are validated loosely and dropped. The note keeps them, so Obsidian still sees them.
+
+**Read-only, and nothing fails.** Cartalith reads the block and never writes one; the author edits the note in Obsidian or in the Vault window's existing editor. A line that is not valid Chronos is reported (count plus the line text) and skipped, never fatal — one typo must not blank a settlement's history. `> ORDERBY`/`> DEFAULTVIEW` flags and `#` comments are view directives, not events, and are passed over silently.

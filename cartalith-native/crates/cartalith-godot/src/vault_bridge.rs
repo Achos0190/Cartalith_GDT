@@ -409,6 +409,66 @@ impl WorldGen {
             .collect()
     }
 
+    /// Authored events for this entity (`STORY_PLANNING_SCOPE.md` SP-3,
+    /// Ruling AM): every ` ```chronos ` block in its attached notes, via
+    /// `cartalith_vault::VaultSession::entity_chronos`.
+    ///
+    /// `{ok, error, notes: [{rel, live, blocks, skipped}], events: [{rel,
+    /// kind, start, end?, color?, group?, name, description?}]}`. `events`
+    /// is merged across notes and sorted by `start` then `end` (stable, so
+    /// same-year entries keep their written order) — SP-3's "interleaved by
+    /// date". **Optional keys are absent, never defaulted**: a single-year
+    /// event has no `end`, not `end == start`. `live` is false when a note
+    /// was read from its saved copy because the vault is not reachable.
+    /// Read-only; an unknown `kind` is an `error`.
+    #[func]
+    fn vault_entity_chronos(&self, kind: GString, entity_id: i64) -> VarDictionary {
+        let Some(k) = kind_of(&kind) else { return err(format!("unknown entity kind {kind}")) };
+        let per_note = self.vault.entity_chronos(k, entity_id);
+        let mut notes: Array<VarDictionary> = Array::new();
+        let mut all: Vec<(&str, &cartalith_vault::chronos::Event)> = Vec::new();
+        for (rel, live, c) in &per_note {
+            let skipped: PackedStringArray = c.skipped.iter().map(|s| GString::from(s.as_str())).collect();
+            let mut nd = vdict! {
+                "rel" => rel.as_str(),
+                "live" => *live,
+                "blocks" => c.blocks as i64,
+            };
+            nd.set("skipped", &skipped);
+            notes.push(&nd);
+            all.extend(c.events.iter().map(|e| (rel.as_str(), e)));
+        }
+        all.sort_by_key(|(_, e)| (e.start, e.end.unwrap_or(e.start)));
+        let events: Array<VarDictionary> = all
+            .into_iter()
+            .map(|(rel, e)| {
+                let mut d = vdict! {
+                    "rel" => rel,
+                    "kind" => e.kind.as_str(),
+                    "start" => e.start,
+                    "name" => e.name.as_str(),
+                };
+                if let Some(v) = e.end {
+                    d.set("end", v);
+                }
+                if let Some(v) = &e.color {
+                    d.set("color", v.as_str());
+                }
+                if let Some(v) = &e.group {
+                    d.set("group", v.as_str());
+                }
+                if let Some(v) = &e.description {
+                    d.set("description", v.as_str());
+                }
+                d
+            })
+            .collect();
+        let mut d = ok();
+        d.set("notes", &notes);
+        d.set("events", &events);
+        d
+    }
+
     /// One link's copied information, as two maps: `{ok, error, frontmatter,
     /// fields}`. The per-link view of `vault_entity_data`, for the reader
     /// panel that is already showing one note.

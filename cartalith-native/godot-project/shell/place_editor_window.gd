@@ -392,6 +392,7 @@ func _rebuild() -> void:
 			_build_timeline(tab_content)
 		"political":
 			_build_political(tab_content, s)
+			_build_authored_events(tab_content, s)
 		"vault":
 			_build_knowledge(tab_content, s)
 		"layout":
@@ -578,12 +579,13 @@ func _build_timeline(parent: Control) -> void:
 		DccWidgets.note(sim, "Run refused: %s" % String(_sim_last_result.get("error", "")))
 
 	# -- Authored events (canvas's own dashed panel) -------------------------
+	## This tab is world-level; an authored event belongs to one settlement, so
+	## the events themselves are read on the Political history tab
+	## (`_build_authored_events`). The note that stood here argued for a new
+	## event store; Ruling AM put them in the settlement's own vault note instead.
 	var ev := DccWidgets.section(parent, "Authored events")
-	DccWidgets.note(ev, "Dashed in the canvas, and left dashed here for the same reason it "
-		+ "states: a hand-written \"Siege, -250\" has nowhere to live. A TimelineSnapshot stores "
-		+ "settlements, territory and ways -- no event list, no per-event population delta. The "
-		+ "right shape is an annotation keyed to a recorded year, with its delta read FROM two "
-		+ "snapshots rather than typed by hand. Not built: that store does not exist.")
+	DccWidgets.note(ev, "Per settlement: written as a ```chronos block in the settlement's own "
+		+ "vault note and shown on its Political history tab.")
 
 
 ## One `civ_run_collapse_simulation` call, then a rebuild so the confirmation
@@ -631,6 +633,12 @@ func _report_stat(parent: Control, key: String, value: String) -> void:
 ## this settlement's own timeline has no other reference point), so an open
 ## final span reaches the right edge of the bar exactly as far as its own
 ## recorded years justify.
+##
+## Also builds the population/tier trajectory sub-section
+## (`OUTSTANDING_WORK.md` §2.3 SP-3, the small/additive/shovel-ready piece):
+## a plain per-recorded-year list, not another stacked bar -- see the
+## section's own comment below for why it stays flat rather than collapsing
+## into tier-change spans the way ownership does.
 func _build_political(parent: Control, s: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "Political history")
 	var tid := int(s.get("tid", 0))
@@ -698,12 +706,126 @@ func _build_political(parent: Control, s: Dictionary) -> void:
 				DccTheme.FS_SMALL))
 			list.add_child(row)
 
+	# -- Population/tier trajectory (SP-3, the additive piece) ----------------
+	# `civ_settlement_population_trajectory`'s own doc comment: flat per
+	# recorded year the settlement was present in, NOT collapsed into
+	# tier-change spans like the ownership bar above -- population moves
+	# almost every recorded year, so a reader needs every point, not just
+	# the years a tier boundary was crossed. Kept as a plain list (this
+	# shell has no chart widget to reuse yet, `MISTAKES.md`'s "don't add a
+	# helper because the other one is unreachable" rule applies the same way
+	# to charting infrastructure as to formatters).
+	var traj_sec := DccWidgets.section(parent, "Population & tier trajectory")
+	var traj_points: Array = bridge.civ_settlement_population_trajectory(tid)
+	if traj_points.is_empty():
+		DccWidgets.note(traj_sec, "No recorded population history yet -- derived from the Timeline "
+			+ "tab's own recorded years. Add a year (or run a collapse/recovery simulation) to "
+			+ "build one.")
+	else:
+		var traj_list := DccWidgets.group(traj_sec, "Recorded years", true)
+		var prev_kind := ""
+		for pt in traj_points:
+			var pd: Dictionary = pt
+			var kind := String(pd.get("kind", ""))
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 8)
+			row.add_child(DccTheme.mono_label(str(int(pd.get("year", 0))), "text", DccTheme.FS_SMALL))
+			row.add_child(DccTheme.mono_label(FactionRosterWindow._thousands(int(pd.get("pop", 0))),
+				"text", DccTheme.FS_SMALL))
+			# Dimmed when the tier is unchanged from the row above, so a tier
+			# CHANGE (the moment a reader actually cares about) stands out
+			# without collapsing the underlying per-year data the way the
+			# ownership bar collapses same-faction years into one span.
+			row.add_child(DccTheme.mono_label(kind.capitalize(),
+				"text" if kind != prev_kind else "text_dim", DccTheme.FS_SMALL))
+			traj_list.add_child(row)
+			prev_kind = kind
+
 	# -- Manual political entries (canvas's own dashed panel) -----------------
 	var man := DccWidgets.section(parent, "Manual political entries")
 	DccWidgets.note(man, "Dashed in the canvas, and left dashed here for the canvas's own stated "
 		+ "reason: a hand-authored political period has no precedence rule against the derived "
 		+ "ones above -- if the two disagreed over the same years, nothing says which wins. Not "
 		+ "built: that rule does not exist yet.")
+
+
+# -- Authored events (SP-3, Ruling AM) ----------------------------------------
+
+## `STORY_PLANNING_SCOPE.md` SP-3's "authored events from §3 on the same
+## track": dated entries the author wrote in this settlement's own vault note,
+## as a ```chronos block in the Chronos Timeline Obsidian plugin's exact
+## syntax (Ruling AM), read through `bridge.vault_entity_chronos` and listed by
+## start year. Read-only: the note is authored in the vault (Obsidian, or the
+## Vault window's own editor), never here.
+##
+## A separate function, not a section inside `_build_political`, so it merges
+## cleanly beside the population/tier trajectory that SP-3's other piece adds
+## to that tab concurrently.
+func _build_authored_events(parent: Control, s: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Authored events")
+	var tid := int(s.get("tid", 0))
+	if tid == 0:
+		DccWidgets.note(sec, "This settlement has no stable id yet, so no vault note can be linked to it.")
+		return
+	var got := bridge.vault_entity_chronos("settlement", tid)
+	if not bool(got.get("ok", false)):
+		DccWidgets.note(sec, "Could not read authored events: %s" % String(got.get("error", "")))
+		return
+	var notes: Array = got.get("notes", [])
+	var events: Array = got.get("events", [])
+	if notes.is_empty():
+		DccWidgets.note(sec, "No vault note linked (Vault notes tab). Authored events are written "
+			+ "in the settlement's note as a ```chronos block, one \"- [year] Name | Description\" per line.")
+		return
+	if events.is_empty():
+		DccWidgets.note(sec, "No events: the linked note%s ha%s no ```chronos block with a readable "
+			% ["" if notes.size() == 1 else "s", "s" if notes.size() == 1 else "ve"]
+			+ "line. Add one, e.g. \"- [-250] Siege | the walls held\".")
+	for e in events:
+		var ed: Dictionary = e
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		var sw := ColorRect.new()
+		sw.custom_minimum_size = Vector2(12, 12)
+		sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		## Chronos' named colours (`red`) and hex (`ff8800`, its `#` already
+		## stripped) are both a Godot colour string; no colour, or one Godot
+		## does not know, keeps the neutral swatch.
+		sw.color = Color.from_string(String(ed.get("color", "")), DccTheme.c("sunken"))
+		row.add_child(sw)
+		var yr := str(int(ed.get("start", 0)))
+		if ed.has("end"):
+			yr += " – %d" % int(ed.get("end", 0))
+		row.add_child(DccTheme.mono_label(yr, "text", DccTheme.FS_SMALL))
+		var title := String(ed.get("name", ""))
+		if ed.has("group"):
+			title = "%s · %s" % [String(ed.get("group", "")), title]
+		var kind := String(ed.get("kind", "event"))
+		if kind != "event":
+			title += "  (%s)" % kind
+		var name_l := DccTheme.mono_label(title, "text_dim", DccTheme.FS_SMALL)
+		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row.add_child(name_l)
+		sec.add_child(row)
+		if ed.has("description"):
+			DccWidgets.note(sec, String(ed.get("description", "")))
+	var skipped := 0
+	for n in notes:
+		var nd: Dictionary = n
+		skipped += (nd.get("skipped", PackedStringArray()) as PackedStringArray).size()
+		if not bool(nd.get("live", true)):
+			DccWidgets.note(sec, "%s: read from the saved copy -- the vault is not connected."
+				% String(nd.get("rel", "")))
+	if skipped > 0:
+		var warn := DccWidgets.note(sec, "%d line%s in the chronos block%s could not be read and %s skipped."
+			% [skipped, "" if skipped == 1 else "s", "" if notes.size() == 1 else "s",
+			"was" if skipped == 1 else "were"])
+		var lines: Array = []
+		for n in notes:
+			for l in (n as Dictionary).get("skipped", PackedStringArray()):
+				lines.append(String(l))
+		warn.tooltip_text = "\n".join(lines)
 
 
 # -- Layout (`lazy-riding-piglet.md` Batch E, 2026-09-21) --------------------

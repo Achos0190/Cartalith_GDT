@@ -3977,6 +3977,21 @@ func civ_settlement_ownership_periods(tid: int) -> Array:
 		return []
 	return world_gen.civ_settlement_ownership_periods(tid)
 
+## The Settlement Editor's "Political history" tab, population/tier
+## trajectory sub-section (`OUTSTANDING_WORK.md` §2.3 SP-3): derived,
+## read-only population/tier readings for one settlement's `tid`, one entry
+## per recorded year the settlement was actually present in (a gap year
+## contributes no entry -- not carried forward, not zero), oldest first:
+## `{"year": int, "pop": int, "kind": String}`. `kind` is the same
+## vocabulary `get_settlements()` uses
+## ("metropolis"/"capital"/"city"/"town"/"village"/"hamlet"). Empty before
+## any generate/`civ_add_year` call, for `tid <= 0`, or for a `tid` the
+## timeline never recorded.
+func civ_settlement_population_trajectory(tid: int) -> Array:
+	if not _has("civ_settlement_population_trajectory"):
+		return []
+	return world_gen.civ_settlement_population_trajectory(tid)
+
 ## `_civRunCollapseSimulation`: runs the mechanistic collapse/recovery
 ## timeline simulator over the live settlements and writes one timeline entry
 ## per step. `request` keys (all optional): `mode` ("collapse"/"recovery"),
@@ -4639,6 +4654,17 @@ func vault_entity_data(kind: String, entity_id: int) -> Array:
 	if not _has("vault_entity_data"):
 		return []
 	return world_gen.vault_entity_data(kind, entity_id)
+
+## SP-3 authored events (Ruling AM): every ` ```chronos ` block in the notes
+## attached to this entity, parsed. `{ok, error, notes: [{rel, live, blocks,
+## skipped}], events: [{rel, kind, start, end?, color?, group?, name,
+## description?}]}` -- `events` sorted by start year; absent keys are absent,
+## never zero. `live` is false when the note was read from the saved copy
+## because the vault is not connected.
+func vault_entity_chronos(kind: String, entity_id: int) -> Dictionary:
+	if not _has("vault_entity_chronos"):
+		return {"ok": false, "error": "vault_entity_chronos not available on this binary"}
+	return world_gen.vault_entity_chronos(kind, entity_id)
 
 ## One link's imported data.
 func vault_link_data(link_id: String) -> Dictionary:

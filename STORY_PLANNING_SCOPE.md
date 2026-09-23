@@ -94,8 +94,13 @@ section-span Markdown with a machine block and backlinks, and the owner has
 already ruled once this session that vault UI belongs in Data rather than in a
 new menu.
 
-So: an authored event is a dated entry in the subject's vault note, inside the
-machine block, and the timeline strip *reads* it. New Rust surface is a typed
+So: an authored event is a dated entry in the subject's vault note, and the
+timeline strip *reads* it. **The entry format is Ruling AM's** (2026-09-23,
+`LARGE_ITEM_RULINGS.md`): a ` ```chronos ` block in the Chronos Timeline
+Obsidian plugin's exact syntax, anywhere in the note **but not inside the
+machine block** — that block is replaced wholesale on every Cartalith write,
+so an author's events inside it would be lost (this paragraph said "inside the
+machine block" until then). New Rust surface is a typed
 accessor over what the vault already stores, not a new persistence layer.
 
 Consequence worth stating up front: an authored event survives a regenerate

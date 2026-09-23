@@ -2005,6 +2005,81 @@ pub fn civ_settlement_ownership_periods(
     spans
 }
 
+/// One recorded year's population and tier for one settlement (`tid`) --
+/// [`civ_settlement_population_trajectory`]'s own element type.
+///
+/// New surface, not a port -- same carve-out as [`OwnershipSpan`]
+/// (`DECISIONS.md` §7d, "genuinely new capability").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PopulationPoint {
+    pub year: i64,
+    pub pop: u32,
+    pub kind: SettlementKind,
+}
+
+/// Derives a settlement's (`tid`) population/tier trajectory from every
+/// recorded [`TimelineSnapshot`], in year order -- the population/tier
+/// sibling of [`civ_settlement_ownership_periods`] (same file, same
+/// "derived on demand, holds no new state" shape `civ_food_shed`
+/// establishes for this crate's timeline-derived accessors).
+///
+/// **Flat per-year, not collapsed into spans -- the opposite shape from
+/// ownership, and deliberately so.** Ownership is categorical and a reader
+/// only cares about *when it changed*, so collapsing consecutive
+/// same-faction years into one span loses nothing anyone wants to see.
+/// Population is continuous and moves almost every recorded year --
+/// generation draws it with per-settlement variance
+/// (`name_and_populate_settlements_with_rng`'s own `0.8 + rng()*0.4` term),
+/// and every later step (growth, famine, war attrition,
+/// [`civ_apply_recovery`]) can move it again -- so a chart of *this*
+/// trajectory is drawn from the numbers themselves, not from when a
+/// threshold was crossed. Collapsing to tier-change spans (as ownership
+/// does for faction) would keep the tier but throw away the population
+/// value entirely, which is the one thing a line/step chart needs every
+/// point for. A caller that wants tier-change spans can still derive them
+/// from this flat list (group consecutive equal `kind`s) with no
+/// information lost; the reverse -- recovering the population curve from
+/// spans -- would not be possible, so the flat list is the strictly more
+/// useful shape to return.
+///
+/// Same absence rule as [`civ_settlement_ownership_periods`]: a year in
+/// which `tid` is absent from that year's `settlements` (not yet founded,
+/// destroyed, or simply an unrecorded year) contributes no point -- never
+/// carried forward, never a synthesized zero. A UI drawing this as a
+/// line/step chart should break the line across such a gap, not connect
+/// through one, the same way the Political History tab already breaks an
+/// ownership span there. `tid == 0` (the unassigned sentinel) returns
+/// empty, matching every other `tid`-keyed lookup in this module.
+///
+/// **Cost**: the same shape as `civ_settlement_ownership_periods` -- an
+/// `O(years)` outer walk, and per year an `O(settlements)` linear scan for
+/// one `tid`. See that function's own doc comment for the bound
+/// (`TimelineDoc`'s 2 000-year cap, `SAVEFILE_COMPAT.md` §10.2) this relies
+/// on to stay cheap enough to run fresh on every call, uncached.
+pub fn civ_settlement_population_trajectory(
+    timeline: &[TimelineSnapshot],
+    tid: u64,
+) -> Vec<PopulationPoint> {
+    if tid == 0 || timeline.is_empty() {
+        return Vec::new();
+    }
+    let mut sorted: Vec<&TimelineSnapshot> = timeline.iter().collect();
+    sorted.sort_by_key(|s| s.year);
+    sorted
+        .iter()
+        .filter_map(|snap| {
+            snap.settlements
+                .iter()
+                .find(|s| s.tid == tid)
+                .map(|s| PopulationPoint {
+                    year: snap.year,
+                    pop: s.pop,
+                    kind: s.placement.kind,
+                })
+        })
+        .collect()
+}
+
 /// `civSnapshotSave` (reference lines 20596-20606): captures `territory`/`settlements`/`ways` --
 /// the live, always-current civ state -- into (or over) `timeline`'s entry for `year`, then
 /// re-sorts by year (reference: `civTimeline.sort((a,b)=>a.year-b.year)`).
@@ -3527,6 +3602,220 @@ mod tests {
                     start_year: 150,
                     end_year: None,
                     faction_id: 1,
+                },
+            ]
+        );
+    }
+
+    // ---------- Settlement Editor "Political history" tab: civ_settlement_population_trajectory ----------
+
+    fn mk_settlement_kind(
+        tid: u64,
+        x: usize,
+        y: usize,
+        name: &str,
+        pop: u32,
+        kind: SettlementKind,
+    ) -> NamedSettlement {
+        let mut s = mk_settlement(tid, x, y, name, pop);
+        s.placement.kind = kind;
+        s
+    }
+
+    #[test]
+    fn population_trajectory_is_empty_for_an_empty_timeline_or_the_unassigned_sentinel() {
+        assert_eq!(civ_settlement_population_trajectory(&[], 1), Vec::new());
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(
+            &mut timeline,
+            0,
+            vec![],
+            vec![mk_settlement(1, 5, 5, "Riverside", 10)],
+            vec![],
+        );
+        // tid==0 is the unassigned sentinel and names no real settlement,
+        // even if (as here) nothing in the fixture actually carries it.
+        assert_eq!(
+            civ_settlement_population_trajectory(&timeline, 0),
+            Vec::new()
+        );
+    }
+
+    #[test]
+    fn population_trajectory_returns_every_recorded_year_flat_not_collapsed_into_spans() {
+        // tid=1: population changes every year AND crosses a tier boundary
+        // (village -> town) at year 100, while staying "town" at year 150 --
+        // proving both that every point is retained (population keeps
+        // moving after the tier settles) and that a tier change is visible
+        // in the flat list without any span-collapsing.
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(
+            &mut timeline,
+            0,
+            vec![],
+            vec![mk_settlement_kind(
+                1,
+                5,
+                5,
+                "Riverside",
+                800,
+                SettlementKind::Village,
+            )],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            50,
+            vec![],
+            vec![mk_settlement_kind(
+                1,
+                5,
+                5,
+                "Riverside",
+                1400,
+                SettlementKind::Village,
+            )],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            100,
+            vec![],
+            vec![mk_settlement_kind(
+                1,
+                5,
+                5,
+                "Riverside",
+                2600,
+                SettlementKind::Town,
+            )],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            150,
+            vec![],
+            vec![mk_settlement_kind(
+                1,
+                5,
+                5,
+                "Riverside",
+                3100,
+                SettlementKind::Town,
+            )],
+            vec![],
+        );
+        let points = civ_settlement_population_trajectory(&timeline, 1);
+        assert_eq!(
+            points,
+            vec![
+                PopulationPoint {
+                    year: 0,
+                    pop: 800,
+                    kind: SettlementKind::Village,
+                },
+                PopulationPoint {
+                    year: 50,
+                    pop: 1400,
+                    kind: SettlementKind::Village,
+                },
+                PopulationPoint {
+                    year: 100,
+                    pop: 2600,
+                    kind: SettlementKind::Town,
+                },
+                PopulationPoint {
+                    year: 150,
+                    pop: 3100,
+                    kind: SettlementKind::Town,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn population_trajectory_skips_a_year_the_settlement_is_absent_from_rather_than_carrying_forward()
+     {
+        // tid=1 present at years 0 and 50, absent at year 100 (a different
+        // settlement, tid=2, stands in that year -- same disambiguation
+        // fixture shape as the ownership-periods gap test above), present
+        // again at year 150. The gap year must contribute NO point -- not a
+        // repeated/carried-forward value, not a synthesized zero.
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(
+            &mut timeline,
+            0,
+            vec![],
+            vec![mk_settlement_kind(
+                1,
+                5,
+                5,
+                "Riverside",
+                500,
+                SettlementKind::Hamlet,
+            )],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            50,
+            vec![],
+            vec![mk_settlement_kind(
+                1,
+                5,
+                5,
+                "Riverside",
+                600,
+                SettlementKind::Hamlet,
+            )],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            100,
+            vec![],
+            vec![mk_settlement_kind(
+                2,
+                5,
+                5,
+                "Riverside",
+                50,
+                SettlementKind::Hamlet,
+            )],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            150,
+            vec![],
+            vec![mk_settlement_kind(
+                1,
+                5,
+                5,
+                "Riverside",
+                900,
+                SettlementKind::Village,
+            )],
+            vec![],
+        );
+        let points = civ_settlement_population_trajectory(&timeline, 1);
+        assert_eq!(
+            points,
+            vec![
+                PopulationPoint {
+                    year: 0,
+                    pop: 500,
+                    kind: SettlementKind::Hamlet,
+                },
+                PopulationPoint {
+                    year: 50,
+                    pop: 600,
+                    kind: SettlementKind::Hamlet,
+                },
+                PopulationPoint {
+                    year: 150,
+                    pop: 900,
+                    kind: SettlementKind::Village,
                 },
             ]
         );
