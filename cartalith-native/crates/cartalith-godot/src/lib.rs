@@ -16804,7 +16804,46 @@ impl WorldGen {
             "history" => e.history,
             "age" => e.age.map_or(-1i64, i64::from),
             "walls" => e.walls.map_or(-1i64, i64::from),
+            // Ruling J's town plan. Empty = unset (world medieval / world
+            // rules), which the caller shows as that inherited choice.
+            "culture" => e.culture,
+            "rules_preset" => e.rules_preset,
+            "variant" => e.variant as i64,
         }
+    }
+
+    /// Ruling J's per-settlement town plan: pass only the keys that changed
+    /// -- `culture` (String, a `CULTURE_PROFILES` id, or empty for unset),
+    /// `rules_preset` (String: empty = the world's active rules, `"default"`,
+    /// or a `RULES_PRESETS` id), `variant` (int `>= 0`; 0 = the
+    /// position-derived seed). All-or-nothing: `false` and nothing applied for
+    /// an out-of-range index or any invalid value.
+    ///
+    /// **Does not set `civ_dirty`.** Unlike `civ_edit_settlement`, nothing
+    /// here moves territory, roads or trade: these fields are read by
+    /// `urban_layouts` alone, and it keeps no cache, so the caller's next
+    /// `urban_layouts([index])` IS the regenerate.
+    #[func]
+    fn civ_set_town_plan(&mut self, index: i64, fields: VarDictionary) -> bool {
+        let Some(civ) = self.civ.as_mut() else { return false };
+        let Some(tid) = usize::try_from(index).ok().and_then(|i| civ.settlements.get(i)).map(|s| s.tid) else {
+            return false;
+        };
+        let get_s = |k: &str| fields.get(k).and_then(|v| v.try_to::<GString>().ok()).map(|g| g.to_string());
+        let variant = match fields.get("variant").map(|v| v.try_to::<i64>().ok()) {
+            None => None,
+            Some(Some(v)) => match u32::try_from(v) {
+                Ok(v) => Some(v),
+                Err(_) => return false,
+            },
+            Some(None) => return false,
+        };
+        civ.place_extras.set_town_plan(
+            tid,
+            get_s("culture").as_deref(),
+            get_s("rules_preset").as_deref(),
+            variant,
+        )
     }
 
     /// `_civPopulatePlaceEditor`'s field handlers, batched: pass only the

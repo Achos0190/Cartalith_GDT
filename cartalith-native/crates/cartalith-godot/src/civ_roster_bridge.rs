@@ -402,6 +402,14 @@ pub struct PlaceExtras {
     /// which its own checkbox visualises and cannot be returned to by
     /// clicking.
     pub walls: Option<bool>,
+    /// Ruling J: a `cartalith_urban::CULTURE_PROFILES` id. Empty = the
+    /// world-level `medieval` every town took before this field.
+    pub culture: String,
+    /// Ruling J: empty = the world's active rules (the Generation rules
+    /// window); `"default"` = `DEFAULT_RULES`; else a `RULES_PRESETS` id.
+    pub rules_preset: String,
+    /// Ruling J's "regenerate": 0 = the position-derived seed.
+    pub variant: u32,
 }
 
 /// Every place edit, keyed by the settlement's stable `tid`.
@@ -461,6 +469,35 @@ impl PlaceExtrasTable {
             0 => Some(false),
             _ => Some(true),
         };
+    }
+
+    /// Ruling J's town-plan fields. Validates first and returns `false`,
+    /// changing nothing, for an unknown culture or rules-preset id.
+    pub fn set_town_plan(
+        &mut self,
+        tid: u64,
+        culture: Option<&str>,
+        rules_preset: Option<&str>,
+        variant: Option<u32>,
+    ) -> bool {
+        use cartalith_civ::urban_adapter::{CULTURE_PROFILES, rules_preset as preset};
+        if culture.is_some_and(|c| !c.is_empty() && !CULTURE_PROFILES.iter().any(|p| p.id == c)) {
+            return false;
+        }
+        if rules_preset.is_some_and(|r| !r.is_empty() && r != "default" && preset(r).is_none()) {
+            return false;
+        }
+        let e = self.0.entry(tid).or_default();
+        if let Some(c) = culture {
+            e.culture = c.to_string();
+        }
+        if let Some(r) = rules_preset {
+            e.rules_preset = r.to_string();
+        }
+        if let Some(v) = variant {
+            e.variant = v;
+        }
+        true
     }
 
     /// Drops the row for a deleted settlement so the table cannot grow
@@ -797,6 +834,25 @@ mod tests {
         assert_eq!(t.get(1).walls, None);
         t.set_history(1, "Founded in fire.");
         assert_eq!(t.get(1).history, "Founded in fire.");
+    }
+
+    #[test]
+    fn set_town_plan_validates_before_writing() {
+        let mut t = PlaceExtrasTable::default();
+        assert!(t.set_town_plan(4, Some("venus"), Some("market_town"), Some(2)));
+        assert_eq!(
+            (t.get(4).culture.as_str(), t.get(4).rules_preset.as_str(), t.get(4).variant),
+            ("venus", "market_town", 2)
+        );
+        // An unknown id in either field applies nothing, not even the valid rest.
+        assert!(!t.set_town_plan(4, Some("atlantis"), None, Some(9)));
+        assert!(!t.set_town_plan(4, None, Some("no_such_preset"), Some(9)));
+        assert_eq!(t.get(4).variant, 2);
+        // "" and "default" are the two non-preset rule choices; "" unsets culture.
+        assert!(t.set_town_plan(4, Some(""), Some("default"), None));
+        assert_eq!((t.get(4).culture.as_str(), t.get(4).rules_preset.as_str()), ("", "default"));
+        // A never-edited settlement stays absent from the table.
+        assert!(!t.0.contains_key(&5));
     }
 
     #[test]

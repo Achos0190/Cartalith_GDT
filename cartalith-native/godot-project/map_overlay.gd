@@ -4261,6 +4261,13 @@ func clear_urban_layouts() -> void:
 	_urban_pending = false
 
 
+## Drops ONE cached town, so the next draw re-requests exactly that index and
+## no other -- the City Viewer's single-settlement regenerate (Ruling J).
+func forget_urban_layout(index: int) -> void:
+	_urban_layouts.erase(index)
+	queue_redraw()
+
+
 ## Screen pixels per model metre, at the current fit and camera zoom. Widths
 ## drawn through this scale with the camera exactly as positions do, which is
 ## right for a town's streets (a real world-space width) and is the opposite

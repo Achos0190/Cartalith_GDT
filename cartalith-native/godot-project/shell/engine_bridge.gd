@@ -1069,6 +1069,24 @@ func apply_urban_rules_preset(id: String) -> Dictionary:
 		return {}
 	return world_gen.apply_urban_rules_preset(id)
 
+## The vocabularies a per-settlement town plan can pick from (Ruling J):
+## `cultures`/`rules_presets` as `[{id, name}]`, plus `default_culture`.
+## Empty on an older binary.
+func urban_town_plan_options() -> Dictionary:
+	if not _has("urban_town_plan_options"):
+		return {}
+	return world_gen.urban_town_plan_options()
+
+## One settlement's town-plan overrides -- `culture`, `rules_preset`,
+## `variant`; see the Rust doc comment. All-or-nothing like
+## `civ_edit_settlement`, and unlike it does not mark the civ layer stale: a
+## town plan moves no territory, road or trade figure.
+func civ_set_town_plan(index: int, fields: Dictionary) -> bool:
+	if not _has("civ_set_town_plan"):
+		return false
+	mark_world_dirty()
+	return world_gen.civ_set_town_plan(index, fields)
+
 func border_inset_frac() -> float:
 	return world_gen.get_border_inset_frac()
 

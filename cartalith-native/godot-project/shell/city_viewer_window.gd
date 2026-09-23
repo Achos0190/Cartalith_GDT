@@ -449,6 +449,8 @@ func _rebuild_side() -> void:
 	_swatch(leg, DRAW.ROUTE_END, "Approach roads",
 		"Where the roads running to the town meet the frame.")
 
+	_build_town_plan()
+
 	var sec := DccWidgets.section(_info, "Settlement")
 	_field(sec, "Name", String(_settlement.get("name", "—")))
 	_field(sec, "Class", String(_settlement.get("kind", "—")).capitalize())
@@ -540,6 +542,137 @@ func _rebuild_side() -> void:
 		var host := get_parent()
 		if host != null and host.has_method("phone_fit"):
 			host.phone_fit(self, 1.0)
+
+
+## `§ TOWN PLAN` -- Ruling J (owner, 2026-09-12): *"a menu to modify city types
+## and be able to regenerate a specific settlement at will."*
+##
+## **What "city type" means here, read at the symbols, not invented.** Two
+## real generator inputs pick a town's plan: the culture profile
+## (`cartalith_urban::CULTURE_PROFILES` -- medieval, venus) and the rule set
+## (`DEFAULT_RULES` or a named preset, `market_town`). Both were world-level or
+## hard-coded until this section; each is now also a per-settlement override
+## stored beside walls and age in `place_extras`. The size tier (hamlet ..
+## metropolis) is the place editor's Classification and is NOT repeated here --
+## it moves territory and roads, which a town plan must not. Nor is the
+## GDScript-only `SettlementTypeStore` (a drop-time field bundle).
+##
+## **Regenerate is a new variant.** `urban_layouts()` keeps no cache and is
+## deterministic, so re-running it with unchanged inputs redraws the same town
+## (`place_editor_window.gd::_build_layout`'s own finding). The button
+## therefore bumps a stored `variant` that re-keys this settlement's seed and
+## nothing else; "Original" returns to the position-derived seed. Every change
+## here re-runs exactly this one settlement and drops exactly its entry in the
+## map's town cache (`map_overlay.gd::forget_urban_layout`).
+##
+## No canvas draws this control: it is built from this window's own
+## vocabulary -- a `§` section of `DccWidgets.choice` rows, the same helper
+## `place_editor_window.gd`'s Settlement fabric uses for Walls.
+func _build_town_plan() -> void:
+	var d := bridge.civ_settlement_details(_index)
+	var opts := bridge.urban_town_plan_options()
+	if d.is_empty() or opts.is_empty():
+		return
+	var sec := DccWidgets.section(_info, "Town plan")
+
+	var cultures: Array = opts.get("cultures", [])
+	var cur_culture := String(d.get("culture", ""))
+	if cur_culture == "":
+		cur_culture = String(opts.get("default_culture", ""))
+	## Items read the profile id ("Medieval", "Venus"); its full name -- up to
+	## 48 characters -- is the item's tooltip, since the closed dropdown gets
+	## about 100 px of this 264 px column.
+	var c_names := []
+	var c_sel := 0
+	for i in cultures.size():
+		c_names.append(String(cultures[i]["id"]).capitalize())
+		if String(cultures[i]["id"]) == cur_culture:
+			c_sel = i
+	var c_ob := DccWidgets.choice(sec, "Culture", c_names, c_sel,
+		func(i: int): _set_plan({"culture": String(cultures[i]["id"])}),
+		"The culture profile generate() plans with. Unset, a town takes medieval -- this port has no faction-culture table, so every town was medieval until this override.")
+	for i in cultures.size():
+		c_ob.set_item_tooltip(i, String(cultures[i]["name"]))
+	_fit_column(c_ob)
+
+	var r_ids := ["", "default"]
+	var r_names := ["World rules", "Default rules"]
+	for p in opts.get("rules_presets", []) as Array:
+		r_ids.append(String(p["id"]))
+		r_names.append(String(p["name"]))
+	var r_sel := maxi(0, r_ids.find(String(d.get("rules_preset", ""))))
+	var r_ob := DccWidgets.choice(sec, "Rule set", r_names, r_sel,
+		func(i: int): _set_plan({"rules_preset": String(r_ids[i])}),
+		"World rules follows the Generation rules window. Any other choice pins this settlement to that rule set, whatever the window says.")
+	_fit_column(r_ob)
+
+	## The same stored field the place editor's Settlement fabric edits, so the
+	## two surfaces cannot disagree -- one field, two views.
+	var walls := int(d.get("walls", -1))
+	var w_ob := DccWidgets.choice(sec, "Walls", ["Auto", "No fortifications", "Fortified"],
+		0 if walls < 0 else (1 if walls == 0 else 2),
+		func(i: int): _set_walls(-1 if i == 0 else (0 if i == 1 else 1)),
+		"Auto is _umWallSpec's verdict. The venus profile is meant to be unwalled; set No fortifications for it.")
+	_fit_column(w_ob)
+
+	var variant := int(d.get("variant", 0))
+	var vrow := HBoxContainer.new()
+	vrow.add_theme_constant_override("separation", 8)
+	vrow.custom_minimum_size.y = DccTheme.role_px("row_min_h") if DccTheme.is_tablet() else 24
+	var vkey := DccTheme.label("Variant", "text_secondary", DccTheme.FS_SMALL)
+	vkey.custom_minimum_size.x = PLAN_KEY_W
+	vrow.add_child(vkey)
+	vrow.add_child(DccTheme.mono_label("original" if variant == 0 else "#%d" % variant, "text", DccTheme.FS_SMALL))
+	sec.add_child(vrow)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	sec.add_child(row)
+	var regen := DccWidgets.action(row, "Regenerate", func(): _set_plan({"variant": variant + 1}), true)
+	regen.tooltip_text = "Re-plan this settlement alone with a new seed. No other settlement, road or border is touched."
+	if variant != 0:
+		DccWidgets.action(row, "Original", func(): _set_plan({"variant": 0}))
+
+
+## The Town plan's key column. Its four keys are single short words, and the
+## section body is ~197 px wide (measured), so `FIELD_KEY_W`'s 116 would leave a
+## dropdown 73 px -- "Medie" -- where this leaves ~125.
+const PLAN_KEY_W := 64
+
+## A `DccWidgets.choice` row sized for this 264 px column. This column sits
+## under a horizontally-disabled ScrollContainer, which folds a child's minimum
+## width into its own (MISTAKES.md): at the helper's defaults -- a 132 px label
+## and a dropdown as wide as its longest item -- the Town plan widened the
+## whole column and squeezed the plan from 676 to 436 px of 940. So: a short
+## key, and the dropdown takes what is left, ellipsising rather than growing.
+func _fit_column(ob: OptionButton) -> void:
+	ob.clip_text = true
+	ob.fit_to_longest_item = false
+	ob.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	var key := ob.get_parent().get_child(0) as Control
+	key.custom_minimum_size.x = PLAN_KEY_W
+	key.size_flags_horizontal = Control.SIZE_FILL
+
+
+func _set_plan(fields: Dictionary) -> void:
+	if bridge.civ_set_town_plan(_index, fields):
+		_regenerate.call_deferred()
+
+
+func _set_walls(w: int) -> void:
+	if bridge.civ_edit_settlement(_index, {"walls": w}):
+		_regenerate.call_deferred()
+
+
+## Re-runs this one settlement's layout, keeping the camera, and drops only its
+## entry from the map's town cache.
+func _regenerate() -> void:
+	var got := bridge.urban_layouts(PackedInt32Array([_index]))
+	_layout = got[0] if got.size() > 0 else {}
+	var host := get_parent()
+	if host != null and "viewport" in host and host.viewport != null:
+		host.viewport.forget_urban_layout(_index)
+	_canvas.queue_redraw()
+	_rebuild_side()
 
 
 func _no_layout_reason() -> String:

@@ -51,7 +51,8 @@ var culture_profiles_window: CultureProfilesWindow
 ## file's own top-of-file doc), not a data path of its own.
 var settlement_types_window: SettlementTypesWindow
 ## `lazy-riding-piglet.md` Batch F -- artboard 1h. World-level (one active
-## rule set feeds every `urban_layouts()` call), opened from the Place
+## rule set feeds every `urban_layouts()` call, except a settlement the City
+## Viewer's Town plan pins to its own rule set -- Ruling J), opened from the Place
 ## editor's Layout tab ("Generation rules… ↗", previously a disabled
 ## placeholder). Not a data path of its own beyond `EngineBridge`'s
 ## `*_urban_rules` calls, which read/write `WorldGen.urban_rules` directly.

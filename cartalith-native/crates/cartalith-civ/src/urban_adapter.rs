@@ -74,8 +74,9 @@
 //!   faction-culture table at all (verified by grep). `None`, which is
 //!   `resolve_profile`'s own `medieval` fallback and the `|| 'medieval'` arm of
 //!   the reference's own expression. A `venus` settlement would lay out today —
-//!   `generate()` dispatches the radial branch itself — what is missing is the
-//!   host data that would ask for one.
+//!   `generate()` dispatches the radial branch itself. Since Ruling J
+//!   (2026-09-23) the host can ask for one per settlement:
+//!   `PlaceOverrides::culture`, set from the City Viewer's Town plan.
 //!
 //! **`harbourScale` is no longer on that list.** [`um_harbour_scale`] is
 //! ported, [`UrbanContext`] carries it, and `generate()` calls `buildHarbour`.
@@ -180,8 +181,9 @@ use cartalith_urban::{
 /// able to spell their types. It grew again on 2026-09-05 with [`Bridge`] and
 /// [`Ford`], for [`UrbanLayout::bridges`] / [`UrbanLayout::ford`].
 pub use cartalith_urban::{
-    Bridge, Building, DEFAULT_RULES, Detail, DetailGeom, Ford, Gate, Market, Plaza, Rules, Vec2,
-    WallState, apply_plot_chaos, apply_wildness, rules_preset,
+    Bridge, Building, CULTURE_PROFILES, DEFAULT_RULES, Detail, DetailGeom, Ford, Gate, Market,
+    Plaza, RULES_PRESETS, Rules, Vec2, WallState, apply_plot_chaos, apply_wildness,
+    resolve_profile, rules_preset,
 };
 
 /// `Math.atan2` and `x||0`; neither is re-exported by `cartalith-urban`, and
@@ -1600,6 +1602,8 @@ pub struct UrbanContext {
     /// Per-settlement deterministic seed — `hash(p.x|0, p.y|0, state.tect.seed)`
     /// mapped onto `u32`, the reference's own `pickIconVariant` precedent.
     pub seed: u32,
+    /// [`PlaceOverrides::culture`], carried to `GenOpts::culture`.
+    pub culture: Option<String>,
     /// `min(20000, max(400, max(20, pop)))`.
     pub pop: f64,
     pub site_kind: &'static str,
@@ -1688,6 +1692,13 @@ pub struct PlaceOverrides<'a> {
     /// which is `um_ore_bearing`'s own no-potentials answer rather than a
     /// fabricated bearing.
     pub resources: Option<&'a ResourcePotentials>,
+    /// Ruling J's per-settlement culture profile id
+    /// ([`cartalith_urban::CULTURE_PROFILES`]). `None` is the world-level
+    /// `|| 'medieval'` this function has always passed.
+    pub culture: Option<&'a str>,
+    /// Ruling J's "regenerate this settlement": a non-zero variant re-keys
+    /// the position-derived seed. `None` keeps that seed exactly.
+    pub variant: Option<u32>,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -1709,6 +1720,9 @@ pub fn um_place_context_with(
     let age = o.age_override.unwrap_or_else(|| um_infer_age(pop));
     let seed_f = cartalith_noise::hash(px as i32, py as i32, w.world_seed);
     let seed = (seed_f * 4294967295.0).floor() as u32;
+    // Not a reference field: a variant mixes into the seed and nothing else,
+    // so every other input (site, water, terrain, roads) is the same town's.
+    let seed = o.variant.map_or(seed, |v| seed ^ v.wrapping_mul(0x9E37_79B9));
     let site_kind = um_site_kind_from_terrain(w, px, py);
     let water = um_water_ctx(w, px, py);
     let terrain = um_terrain_ctx(w, px, py);
@@ -1749,6 +1763,7 @@ pub fn um_place_context_with(
     });
     UrbanContext {
         seed,
+        culture: o.culture.map(str::to_string),
         pop: js_min(20000.0, js_max(400.0, pop)),
         site_kind,
         orient,
@@ -2021,8 +2036,9 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
     let opts = GenOpts {
         // `civFactionCulture[p.faction] || 'medieval'` — this port has no
         // faction-culture table, so the `|| 'medieval'` arm, which is also
-        // `resolve_profile`'s own fallback for a `None`.
-        culture: None,
+        // `resolve_profile`'s own fallback for a `None` — unless Ruling J's
+        // per-settlement override (`PlaceOverrides::culture`) names one.
+        culture: ctx.culture.clone(),
         // `_umPlaceContext` itself passes no `rules` — `generate()` takes
         // `DEFAULT_RULES` unless this function's own caller supplies one (the
         // Generation rules window's world-level "active rules", 2026-09-21).

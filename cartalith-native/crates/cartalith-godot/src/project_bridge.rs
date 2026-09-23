@@ -297,6 +297,18 @@ struct ExtrasDto {
     age: Option<u32>,
     #[serde(default)]
     walls: Option<bool>,
+    // Ruling J's town plan. Skipped when unset so a project with no town-plan
+    // edit writes exactly the bytes it wrote before these fields existed.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    culture: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    rules_preset: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    variant: u32,
+}
+
+fn is_zero(v: &u32) -> bool {
+    *v == 0
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1285,6 +1297,9 @@ fn settlement_to_dto(
                 history: e.history.clone(),
                 age: e.age,
                 walls: e.walls,
+                culture: e.culture.clone(),
+                rules_preset: e.rules_preset.clone(),
+                variant: e.variant,
             }),
     }
 }
@@ -1551,6 +1566,9 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize) -> Option<CivDat
                     history: e.history.clone(),
                     age: e.age,
                     walls: e.walls,
+                    culture: e.culture.clone(),
+                    rules_preset: e.rules_preset.clone(),
+                    variant: e.variant,
                 },
             );
         }
@@ -3619,6 +3637,9 @@ mod tests {
                 history: "Founded after the second flood.".into(),
                 age: Some(320),
                 walls: Some(true),
+                culture: "venus".into(),
+                rules_preset: "market_town".into(),
+                variant: 3,
             },
         );
         let mut village_tids = std::collections::HashSet::new();
@@ -4491,6 +4512,20 @@ mod tests {
         // The one field that deliberately does not survive
         // (`SAVEFILE_COMPAT.md` §16.2).
         assert!(back.explanations.is_empty());
+    }
+
+    /// Ruling J's town-plan fields write no key while unset, so a project
+    /// edited only in the pre-existing five fields saves the same bytes.
+    #[test]
+    fn an_unset_town_plan_writes_no_key() {
+        let e = ExtrasDto { walls: Some(true), ..Default::default() };
+        let text = serde_json::to_string(&e).unwrap();
+        for k in ["culture", "rules_preset", "variant"] {
+            assert!(!text.contains(k), "{k} leaked into {text}");
+        }
+        let set = ExtrasDto { culture: "venus".into(), variant: 1, ..Default::default() };
+        let text = serde_json::to_string(&set).unwrap();
+        assert!(text.contains("\"culture\":\"venus\"") && text.contains("\"variant\":1"));
     }
 
     /// IN-13 tariffs (Ruling AE) ride `factions.json`: set rows survive a

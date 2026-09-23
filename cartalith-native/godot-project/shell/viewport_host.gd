@@ -2236,6 +2236,11 @@ func _on_urban_layouts_needed(indices: PackedInt32Array) -> void:
 		return
 	overlay.set_urban_layouts(indices, _bridge.urban_layouts(indices))
 
+## One settlement's town plan changed (the City Viewer's Town plan section):
+## drop that one cached layout so the map redraws it, and nothing else.
+func forget_urban_layout(index: int) -> void:
+	overlay.forget_urban_layout(index)
+
 ## The per-class / per-way-type half of the reference's own layer filters
 ## (`#explSettlementFilterList`, and `#explShowRoads`'s by-way-type list --
 ## `design/Cartalith Menu Structure v2.dc.html`, MAP ▸ LAYERS). Passed

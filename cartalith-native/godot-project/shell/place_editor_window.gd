@@ -745,7 +745,10 @@ func _build_political(parent: Control, s: Dictionary) -> void:
 ## measured for this window against the dock. A one-line pointer costs nothing
 ## and cannot drift.
 ##
-## **No "Regenerate layout" button.** The canvas draws one; `urban_layouts()`
+## **No "Regenerate layout" button here -- it lives in the City Viewer's Town
+## plan (Ruling J, 2026-09-23), where the plan it changes is on screen, as a
+## per-settlement `variant` re-seed.** The reasoning below is why a plain
+## re-run could not be the button: `urban_layouts()`
 ## has no cache to invalidate -- it re-runs `cartalith_urban::generate()` from
 ## the world's current substrate on every call (no `_umModelCache` equivalent
 ## anywhere in this call path, per its own doc comment), so this tab already
@@ -902,7 +905,7 @@ func _build_layout(parent: Control, s: Dictionary) -> void:
 		+ "(pop_target, and the growth-epoch spread) -- both are the same fields Overview "
 		+ "already edits, not a second control for one piece of state. Edit them there.")
 	var rules := DccWidgets.action(in_grp, "Generation rules… ↗", func(): app.generation_rules_window.open())
-	rules.tooltip_text = "World-level, not per-settlement (canvas 1h). Opens the Generation rules window -- the active rule set it edits feeds every urban_layouts() call, this settlement's included."
+	rules.tooltip_text = "World-level (canvas 1h). Opens the Generation rules window -- the active rule set it edits feeds every settlement on World rules. A per-settlement rule set, culture and Regenerate are in the City Viewer's Town plan."
 
 
 ## `layout_dict`'s own class list (`urban_bridge.rs`, the `for cls in ["lane",

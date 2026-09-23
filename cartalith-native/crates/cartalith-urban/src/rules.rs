@@ -601,13 +601,16 @@ pub const MARKET_TOWN_RULES: Rules = Rules {
     meta: DEFAULT_RULES.meta,
 };
 
+/// Every named rule set, `(id, display name, rules)` — the one list
+/// [`rules_preset`] resolves against and a UI enumerates, so the two cannot
+/// disagree about which presets exist.
+pub const RULES_PRESETS: [(&str, &str, Rules); 1] =
+    [("market_town", "Walled market town", MARKET_TOWN_RULES)];
+
 /// A named rule set by id, or `None` for an unknown id. The caller decides the
 /// fallback; `None` from the host keeps [`DEFAULT_RULES`].
 pub fn rules_preset(id: &str) -> Option<Rules> {
-    match id {
-        "market_town" => Some(MARKET_TOWN_RULES),
-        _ => None,
-    }
+    RULES_PRESETS.iter().find(|p| p.0 == id).map(|p| p.2)
 }
 
 impl Rules {

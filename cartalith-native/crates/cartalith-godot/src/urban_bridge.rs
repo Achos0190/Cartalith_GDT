@@ -672,9 +672,21 @@ impl WorldGen {
                 walls_override: e.walls,
                 age_override: e.age.map(f64::from),
                 resources: resources.as_ref(),
+                // Ruling J's town plan -- `None` for an unedited settlement,
+                // which is the exact call this site made before.
+                culture: (!e.culture.is_empty()).then_some(e.culture.as_str()),
+                variant: (e.variant != 0).then_some(e.variant),
+            };
+            // Per-settlement rule set: empty follows the world's active rules,
+            // "default" pins `DEFAULT_RULES` (the `None` case), anything else a
+            // named preset. `set_town_plan` refused unknown ids on the way in.
+            let own_rules = match e.rules_preset.as_str() {
+                "" => self.urban_rules,
+                "default" => None,
+                id => urban_adapter::rules_preset(id),
             };
             if let Some(layout) =
-                urban_adapter::settlement_layout_with(&world, s, &civ.ways, &o, self.urban_rules.as_ref())
+                urban_adapter::settlement_layout_with(&world, s, &civ.ways, &o, own_rules.as_ref())
             {
                 out.push(&layout_dict(idx as i64, &layout));
             }
@@ -953,6 +965,29 @@ impl WorldGen {
     /// the owner's town plan), and returns it as [`rules_to_dict`] does. For an
     /// unknown id, leaves the active rules untouched and returns an empty
     /// `Dictionary`, so the caller can tell a refusal from a result.
+    /// Ruling J's two per-settlement vocabularies, read off their definitions
+    /// (`CULTURE_PROFILES`, `RULES_PRESETS`) so the City Viewer's Town plan
+    /// cannot offer an id the engine does not have: `cultures` and
+    /// `rules_presets` as `[{id, name}]`, and `default_culture` -- what an
+    /// unset culture resolves to (`resolve_profile("")`).
+    #[func]
+    fn urban_town_plan_options(&self) -> VarDictionary {
+        let list = |it: &mut dyn Iterator<Item = (&str, &str)>| {
+            let mut a: Array<VarDictionary> = Array::new();
+            for (id, name) in it {
+                a.push(&vdict! { "id" => id, "name" => name });
+            }
+            a
+        };
+        let cultures = list(&mut urban_adapter::CULTURE_PROFILES.iter().map(|p| (p.id, p.name)));
+        let presets = list(&mut urban_adapter::RULES_PRESETS.iter().map(|p| (p.0, p.1)));
+        vdict! {
+            "cultures" => &cultures,
+            "rules_presets" => &presets,
+            "default_culture" => urban_adapter::resolve_profile("").id,
+        }
+    }
+
     #[func]
     fn apply_urban_rules_preset(&mut self, id: GString) -> VarDictionary {
         match urban_adapter::rules_preset(&id.to_string()) {

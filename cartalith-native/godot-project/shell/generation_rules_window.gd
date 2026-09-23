@@ -197,7 +197,8 @@ func _build() -> void:
 	outer.add_child(DccTheme.rule())
 
 	DccWidgets.note(outer, "World-level: one active rule set feeds every settlement's layout, "
-		+ "same as the reference tool. Move a slider and the parameters it drives recompute "
+		+ "same as the reference tool -- except a settlement pinned to its own rule set in "
+		+ "the City Viewer's Town plan. Move a slider and the parameters it drives recompute "
 		+ "through the real clamp formulas, so you can see which parameters a slider actually "
 		+ "owns and where each one pins.")
 
@@ -433,6 +434,6 @@ func _rebuild_sliders() -> void:
 func _rebuild_status() -> void:
 	var edited := not _rules.is_empty() and _rules != _defaults
 	_status_label.text = (
-		"Active rules %s DEFAULT_RULES -- urban_layouts() reads this set on every call."
+		"Active rules %s DEFAULT_RULES -- urban_layouts() reads this set for every settlement on World rules."
 		% ("differ from" if edited else "match")
 	)

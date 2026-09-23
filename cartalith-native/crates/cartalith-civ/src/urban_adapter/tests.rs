@@ -829,6 +829,37 @@ fn a_mining_specialisation_reaches_assign_districts_and_tags_an_ore_yard() {
     assert_eq!(mined.market, plain.market);
 }
 
+/// Ruling J's two new overrides: unset is the exact pre-existing context
+/// (seed and culture), a variant re-keys the seed alone, and both a culture
+/// and a variant reach the town `generate()` lays out.
+#[test]
+fn ruling_j_culture_and_variant_overrides_reach_the_layout() {
+    let f = Fixture::new();
+    let w = f.world();
+    let s = settlement(50, 8, 4_000);
+    let base = um_place_context(&w, &s, &[]);
+    assert!(base.culture.is_none(), "unset must stay the world-level None");
+
+    let v1 = um_place_context_with(&w, &s, &[], &PlaceOverrides { variant: Some(1), ..Default::default() });
+    let v2 = um_place_context_with(&w, &s, &[], &PlaceOverrides { variant: Some(2), ..Default::default() });
+    assert_ne!(v1.seed, base.seed);
+    assert_ne!(v2.seed, v1.seed);
+    // Only the seed: the site the town is built on is the same site.
+    assert_eq!((v1.site_kind, v1.wall_style, v1.pop), (base.site_kind, base.wall_style, base.pop));
+
+    let sig = |l: &UrbanLayout| (l.edges.len(), l.street_len.to_bits(), l.parcels.len());
+    let plain = settlement_layout(&w, &s, &[]).expect("a layout");
+    let venus = PlaceOverrides { culture: Some("venus"), ..Default::default() };
+    let radial = settlement_layout_with(&w, &s, &[], &venus, None).expect("a layout");
+    assert_ne!(sig(&radial), sig(&plain), "the venus profile never reached generate()");
+    let reroll = PlaceOverrides { variant: Some(1), ..Default::default() };
+    let other = settlement_layout_with(&w, &s, &[], &reroll, None).expect("a layout");
+    assert_ne!(sig(&other), sig(&plain), "a variant must be a different town");
+    // And the same variant is the same town -- regenerate is repeatable.
+    let again = settlement_layout_with(&w, &s, &[], &reroll, None).expect("a layout");
+    assert_eq!(sig(&again), sig(&other));
+}
+
 // ----------------------------------------------------------- _umSiteProfile --
 
 /// Every optional source absent: the reference's own missing-source answers.
