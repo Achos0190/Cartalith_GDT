@@ -103,12 +103,27 @@
 //!
 //! Two things about that, both deliberate:
 //!
-//! **The four outputs do not move.** Standing, field, emergency and the
-//! duration curve are calibrated on the specification's own worked examples
-//! and validated against them; the citizen fraction is a *denominator for the
-//! verdict* and enters nothing else. `MILITARY_MANPOWER_SCOPE.md`'s Kingdom A
-//! and B tables are unchanged by this pass, and a unit test pins that they
-//! are.
+//! **The four outputs do not move.** The citizen fraction is a *denominator
+//! for the verdict* and enters nothing else; a unit test pins every headcount
+//! as a literal so that stays true.
+//!
+//! ## Two later corrections, owner ruling AI (b) and (c), 2026-09-23
+//!
+//! **(b) — geography is relative to the world, not to the map's scale.**
+//! Live worlds go through [`civ_military_manpower_world`], which divides each
+//! faction's `land_capacity` by the world's own land per person. The raw
+//! ratio was mostly the settlement network's sparsity — forty fixed-size
+//! settlements on any large map — and so tracked the map's area. See that
+//! function for the measurement.
+//!
+//! **(c) — the soldier upkeep is the era table's, per agricultural-labour
+//! bracket** ([`SOLDIER_UPKEEP_BY_BRACKET`]), replacing a flat `3.0` that
+//! could not reproduce the table's Iron-Age-above-High-medieval shape. That
+//! **re-baselined the standing army** of both worked examples, deliberately
+//! and with the owner's acceptance: Kingdom A 5 846 → 9 661 (stated ~5 000),
+//! Kingdom B 19 067 → 25 750 (stated ~20 000). Levy, field army and the
+//! duration curve did not move; they are still the ones calibrated on the
+//! worked examples.
 //!
 //! **It is derived from the government, which was already the fiscal driver,
 //! plus how agrarian the society is.** Nothing in this crate distinguished a
@@ -141,20 +156,72 @@ use cartalith_jsmath::{js_max, js_min};
 /// eligible man, which is what [`LEVY_BASE`] and its two companions are for.
 pub const MILITARY_AGE_FRACTION: f64 = 0.25;
 
-/// What one continuously-maintained soldier costs, in subsistence-
-/// equivalents: pay, rations, equipment replacement, and the animals and
-/// servants a soldier of any era drags behind him. Roughly three times a
-/// peasant household's own consumption — the ratio implied by Roman
-/// legionary pay against a subsistence wage, and by later mercenary
-/// contracts.
+/// What one continuously-maintained soldier costs **the treasury**, in
+/// subsistence-equivalents of captured surplus, per agricultural-labour
+/// bracket — indexed by [`alpha_bracket`], the same six α thresholds
+/// [`era_for`] splits the era table on, plus the `α < 0.10` remainder.
 ///
-/// Flat rather than scaled by [`MilitaryDrivers::professionalization`], and
-/// that is deliberate: a levy-heavy standing force is cheaper per head but
-/// less of it is genuinely standing, and letting one constant carry both
-/// effects made the two worked examples in `MILITARY_MANPOWER_SCOPE.md` move
-/// in opposite directions. Professionalization is reported and used where it
-/// belongs instead — the professional core and the campaign duration.
-pub const SOLDIER_UPKEEP: f64 = 3.0;
+/// **Owner ruling AI, option (c), 2026-09-23.** Until then this was one
+/// constant, `SOLDIER_UPKEEP = 3.0` (Roman legionary pay against a
+/// subsistence wage). [`Manpower::standing_army`] is `budget / upkeep`, so a
+/// single constant makes the standing share proportional to `(1 − α)` at
+/// equal institutions — and the era table is **not** monotone in `α`: its
+/// Iron Age row (1-2.5 %, α 0.85-0.93) sits *above* its High-medieval row
+/// (0.5-2 %, α 0.70-0.85). No constant can reproduce that; one value per
+/// bracket can.
+///
+/// **Derived, not chosen** — `soldier_upkeep_is_derived_from_the_era_table`
+/// re-derives every entry from [`ERA_BANDS`], [`era_for`],
+/// [`GOVERNMENT_EXTRACTION`] and [`CITIZEN_SHARE`] and fails if any of them
+/// moves without this table moving too. The rule, applied identically to
+/// each of the six [`crate::roster::AG_TECH_LEVELS`] rows (each lands in
+/// exactly one bracket, so each bracket has exactly one roster α):
+///
+/// > over every roster government but `none` × capital reach 0, 0.1 … 1.0,
+/// > at `ecological_factor = 1` and median logistics 0.5, the bracket's
+/// > upkeep is the **geometric mean** of `share_at_upkeep_1 / band_centre`,
+/// > where `share_at_upkeep_1` is the model's own standing share of the
+/// > citizen body with upkeep 1 and `band_centre` is the arithmetic centre
+/// > of the standing band of the era [`era_for`] assigns that polity.
+///
+/// So an average polity of each bracket lands at the centre of its own era's
+/// band, and which era it lands in is still decided by state capacity, as
+/// before. The `α < 0.10` entry has no roster row to derive from and repeats
+/// the industrial one — extended, not derived.
+///
+/// **What the values say, read after the fact rather than fitted to:** the
+/// cost of a soldier to the state peaks in the paid-army, fiscal-military
+/// brackets (1.8-2.2 at α 0.45-0.85) and falls below one subsistence where
+/// soldiers largely supported themselves (0.80 at α 0.85-0.93 — land-grant
+/// and self-equipped levies, which the specification names: *"whether
+/// soldiers are self-supporting"*) and again where they are conscripted
+/// (1.07 industrial). A value under 1 is not a soldier eating less than a
+/// peasant; it is a treasury paying for less than all of him.
+///
+/// Still flat in [`MilitaryDrivers::professionalization`], for the reason it
+/// always was: folding professionalization in moved the two worked examples
+/// in opposite directions.
+pub const SOLDIER_UPKEEP_BY_BRACKET: [f64; 7] =
+    [1.1200, 0.7983, 1.8153, 2.2214, 1.7696, 1.0714, 1.0714];
+
+/// The agricultural-labour-ratio thresholds [`era_for`] splits the era table
+/// on, highest first. Index `i` of [`alpha_bracket`] is `α ≥ ALPHA_BRACKETS[i]`
+/// and below every earlier entry; `α` under the last one (or `NaN`) is
+/// bracket `6`.
+pub const ALPHA_BRACKETS: [f64; 6] = [0.93, 0.85, 0.70, 0.45, 0.25, 0.10];
+
+/// Which [`ALPHA_BRACKETS`] bracket `alpha` falls in, `0..=6`. The one place
+/// both [`era_for`] and [`soldier_upkeep`] read the thresholds from, so the
+/// era a polity lands in and the upkeep calibrated for that era's bracket
+/// cannot drift apart.
+pub fn alpha_bracket(alpha: f64) -> usize {
+    ALPHA_BRACKETS.iter().position(|&t| alpha >= t).unwrap_or(ALPHA_BRACKETS.len())
+}
+
+/// [`SOLDIER_UPKEEP_BY_BRACKET`] for this agricultural labour ratio.
+pub fn soldier_upkeep(alpha: f64) -> f64 {
+    SOLDIER_UPKEEP_BY_BRACKET[alpha_bracket(alpha)]
+}
 
 /// The floor and ceiling of [`MilitaryDrivers::fiscal_extraction_efficiency`]
 /// — the share of the **non-agricultural surplus** a state captures.
@@ -205,13 +272,16 @@ pub const EXTRACTION_CEILING: f64 = 0.16;
 /// an army out of unfarmed potential is not a fiscal quantity. At 4.0, 24 of
 /// 108 stay pinned and none moves above its band.
 ///
-/// **What moving the ceiling does not fix, disclosed rather than tuned
-/// around:** the raw ratio's centre tracks world size at a fixed faction
-/// count -- median 0.39 on a 512x384 800 km world against 5.04 on a 768x576
-/// 2 000 km one -- so part of the upper tail is map scale, not ecology.
-/// Normalising that would mean changing how `land_capacity` or
-/// `nucleated_pop` are computed, which is a different question from this
-/// one; `MILITARY_MANPOWER_SCOPE.md` Section 3.3 finding 3 carries it.
+/// **What moving the ceiling did not fix -- and what fixed it later.** The
+/// raw ratio's centre tracked world size at a fixed faction count -- median
+/// 0.39 on a 512x384 800 km world against 5.04 on a 768x576 2 000 km one --
+/// so part of the upper tail was map scale, not ecology. Owner ruling AI (b),
+/// 2026-09-23, removed that: live worlds go through
+/// [`civ_military_manpower_world`], which divides every faction's land by
+/// the world's own land per person. **The distribution above was measured
+/// before that normalisation** and describes raw, scale-bound ratios; the
+/// bounds are kept because their rule (a factor of four either way about
+/// 1.0, the reciprocal pair) never depended on it.
 pub const ECOLOGICAL_FLOOR: f64 = 0.25;
 /// See [`ECOLOGICAL_FLOOR`], which carries the measurement and the rule.
 /// `1 / ECOLOGICAL_FLOOR`, written as a literal rather than a division so
@@ -284,7 +354,9 @@ const MAX_NON_AGRICULTURAL_SHARE: f64 = 1.0 / 1.15;
 /// redistributes what it can see, a city-state and a republic tax a small
 /// area intensively, an empire runs a professional revenue service. The
 /// *absolute* values are calibrated against the two worked examples in
-/// `MILITARY_MANPOWER_SCOPE.md` and nothing else.
+/// `MILITARY_MANPOWER_SCOPE.md` and nothing else. Since owner ruling AI (c)
+/// they are also an input to [`SOLDIER_UPKEEP_BY_BRACKET`]'s derivation, so
+/// editing one means re-deriving that table (its test fails until you do).
 ///
 /// Unknown keys read as `chiefdom`, which is the conservative end: a
 /// government this port cannot classify should not be credited with an
@@ -313,9 +385,12 @@ pub fn government_extraction(key: &str) -> f64 {
 /// citizen or free body — before [`CITIZEN_MODERNISATION`] is added, keyed by
 /// [`crate::roster::CIV_GOVERNMENTS`].
 ///
-/// **This is [`ERA_BANDS`]' denominator and nothing else.** It does not enter
-/// any of the four headcounts, which are calibrated on
-/// `MILITARY_MANPOWER_SCOPE.md`'s worked examples and are untouched by it.
+/// **This is [`ERA_BANDS`]' denominator and nothing else at run time.** It
+/// does not enter any of the four headcounts. It does enter the *derivation*
+/// of [`SOLDIER_UPKEEP_BY_BRACKET`] (owner ruling AI (c)), which targets the
+/// era bands as shares of this body — so editing a row here means
+/// re-deriving that table, and `soldier_upkeep_is_derived_from_the_era_table`
+/// fails until you do.
 /// See [`Manpower::citizen_population`] for the owner's ruling that put it
 /// here, and this module's *"whose population is the band a share of"*
 /// section for the grounding of each row.
@@ -579,6 +654,12 @@ pub struct MilitaryDrivers {
     /// measured distribution that set them; the ceiling last moved
     /// 2026-09-06.
     pub ecological_factor: f64,
+    /// What one standing soldier costs the treasury, in subsistence-
+    /// equivalents — [`soldier_upkeep`] of this polity's
+    /// `agricultural_labour_ratio`. Reported because it is the divisor of
+    /// [`Manpower::standing_army`] and, since owner ruling AI (c), no longer
+    /// one number for every polity.
+    pub soldier_upkeep: f64,
     /// `0..1` — the share of the population holding full civic status, from
     /// [`CITIZEN_SHARE`] and [`CITIZEN_MODERNISATION`].
     ///
@@ -627,10 +708,9 @@ pub struct Manpower {
     /// population"* citation says outright. See this module's own
     /// *"Whose population is the era band a share of?"* section.
     ///
-    /// **Nothing else reads it.** The four outputs are calibrated on the
-    /// specification's worked examples against total population and are
-    /// unchanged by this; so is the war-duration curve, whose two anchors
-    /// are stated as shares of a whole population.
+    /// **Nothing else reads it.** The four outputs are computed against
+    /// total population and are unchanged by this; so is the war-duration
+    /// curve, whose two anchors are stated as shares of a whole population.
     pub citizen_population: f64,
     /// `total_population × MILITARY_AGE_FRACTION`.
     pub mobilization_pool: f64,
@@ -705,6 +785,14 @@ pub struct ManpowerInput<'a> {
     /// [`crate::timeline::civ_current_agrarian_density`] — the same field
     /// [`crate::timeline::civ_agrarian_regional_total`]'s *"Land sustains
     /// ≈ N"* readout integrates over the whole map.
+    ///
+    /// **In whatever units the caller means "enough land for one person"**:
+    /// [`civ_military_manpower`] reads `land_capacity / total_population` as
+    /// is, so a hand-built input (the worked examples) states it absolutely,
+    /// and [`civ_military_manpower_world`] rescales a live world's raw
+    /// integral by the world's own land per person first (owner ruling AI
+    /// (b)) — the raw integral grows with the map's area and the population
+    /// does not.
     pub land_capacity: f64,
     /// A [`crate::roster::CIV_GOVERNMENTS`] key.
     pub government: &'a str,
@@ -801,47 +889,53 @@ pub fn share_for_days(days: f64, capability: f64) -> f64 {
 /// governments and different road networks land in different eras, and they
 /// should.
 pub fn era_for(d: &MilitaryDrivers) -> EraBand {
-    let (a, s, l) = (d.agricultural_labour_ratio, d.state_capacity, d.logistics_capacity);
-    let idx = if a >= 0.93 {
-        if s < 0.10 && l < 0.20 {
-            0 // Hunter-gatherer — see ERA_BANDS' note on reachability.
-        } else if s < 0.18 {
-            1 // Early horticulture
-        } else {
-            2 // Neolithic agriculture
+    let (s, l) = (d.state_capacity, d.logistics_capacity);
+    // The alpha thresholds live in ALPHA_BRACKETS, shared with
+    // `soldier_upkeep`, which is calibrated per bracket.
+    let idx = match alpha_bracket(d.agricultural_labour_ratio) {
+        0 => {
+            if s < 0.10 && l < 0.20 {
+                0 // Hunter-gatherer — see ERA_BANDS' note on reachability.
+            } else if s < 0.18 {
+                1 // Early horticulture
+            } else {
+                2 // Neolithic agriculture
+            }
         }
-    } else if a >= 0.85 {
-        if s < 0.30 {
-            3 // Bronze Age state
-        } else if s < 0.50 {
-            4 // Iron Age agrarian state
-        } else {
-            5 // Classical agrarian state
+        1 => {
+            if s < 0.30 {
+                3 // Bronze Age state
+            } else if s < 0.50 {
+                4 // Iron Age agrarian state
+            } else {
+                5 // Classical agrarian state
+            }
         }
-    } else if a >= 0.70 {
-        if s < 0.22 {
-            6 // Late antique / early medieval
-        } else if s < 0.45 {
-            7 // High medieval
-        } else {
-            8 // Late medieval
+        2 => {
+            if s < 0.22 {
+                6 // Late antique / early medieval
+            } else if s < 0.45 {
+                7 // High medieval
+            } else {
+                8 // Late medieval
+            }
         }
-    } else if a >= 0.45 {
-        if s < 0.50 {
-            9 // Early gunpowder
-        } else {
-            10 // Military-fiscal state
+        3 => {
+            if s < 0.50 {
+                9 // Early gunpowder
+            } else {
+                10 // Military-fiscal state
+            }
         }
-    } else if a >= 0.25 {
-        11 // Early industrial
-    } else if a >= 0.10 {
-        if s >= 0.80 && l >= 0.80 {
-            14 // Modern mechanized
-        } else {
-            13 // Total industrial mobilization
+        4 => 11, // Early industrial
+        5 => {
+            if s >= 0.80 && l >= 0.80 {
+                14 // Modern mechanized
+            } else {
+                13 // Total industrial mobilization
+            }
         }
-    } else {
-        14 // Modern mechanized
+        _ => 14, // Modern mechanized
     };
     ERA_BANDS[idx]
 }
@@ -917,6 +1011,7 @@ pub fn military_drivers(input: &ManpowerInput) -> MilitaryDrivers {
         sea_share: sea,
         state_capacity,
         ecological_factor: ecological,
+        soldier_upkeep: soldier_upkeep(alpha),
         // The era-band denominator, and nothing else. A government's floor,
         // widened by how far the society has left agriculture behind — see
         // CITIZEN_MODERNISATION for why those are the two terms.
@@ -962,10 +1057,11 @@ pub fn civ_military_manpower(input: &ManpowerInput) -> Manpower {
     // The non-agricultural population IS the embodied surplus: those are the
     // people the farmers' surplus already feeds. The state captures
     // `fiscal_extraction_efficiency` of it, scaled by whether the land is
-    // actually delivering, and a soldier costs SOLDIER_UPKEEP of it.
+    // actually delivering, and a soldier costs `soldier_upkeep` of it --
+    // one value per agricultural-labour bracket (SOLDIER_UPKEEP_BY_BRACKET).
     let non_agricultural = total_pop * (1.0 - d.agricultural_labour_ratio);
     let military_budget = non_agricultural * d.ecological_factor * d.fiscal_extraction_efficiency;
-    let standing = military_budget / SOLDIER_UPKEEP;
+    let standing = military_budget / d.soldier_upkeep;
     let professional_core = standing * d.professionalization;
 
     // ---- Chain 2: population -> military age -> levy -> logistics -> field.
@@ -1029,6 +1125,80 @@ pub fn civ_military_manpower(input: &ManpowerInput) -> Manpower {
         era_standing_verdict: band_verdict(standing_citizen_share, era.standing),
         era_mobilization_verdict: band_verdict(emergency_citizen_share, era.mobilization),
     }
+}
+
+/// People-per-unit-of-land-capacity across every faction passed in:
+/// `Σ land_capacity / Σ total_population`, with the same non-finite and
+/// negative coercions [`civ_military_manpower`] applies. `None` when either
+/// sum is zero (no land figures, or nobody at all) — then there is nothing to
+/// normalise against, and [`civ_military_manpower_world`] passes every input
+/// through untouched rather than inventing a reference.
+///
+/// See [`civ_military_manpower_world`] for why this is the divisor.
+pub fn world_land_reference(inputs: &[ManpowerInput]) -> Option<f64> {
+    let (mut land, mut pop) = (0.0f64, 0.0f64);
+    for i in inputs {
+        let nucleated = if i.nucleated_pop.is_finite() { js_max(0.0, i.nucleated_pop) } else { 0.0 };
+        if i.land_capacity.is_finite() {
+            land += js_max(0.0, i.land_capacity);
+        }
+        pop += nucleated * (1.0 + js_max(0.0, i.farmers_per_urbanite));
+    }
+    let r = land / pop;
+    (r.is_finite() && r > 0.0).then_some(r)
+}
+
+/// [`civ_military_manpower`] for every faction of one world, with
+/// `land_capacity` expressed **relative to the world's own land per person**
+/// ([`world_land_reference`]) — owner ruling AI, option (b), 2026-09-23.
+///
+/// ## Why the raw ratio was map scale, not ecology
+///
+/// `ecological_factor` is `land_capacity / total_population`, and the two
+/// sides are sized by different things:
+///
+/// - `land_capacity` is Σ `dens × cellKm²` over the faction's territory — it
+///   grows with the **physical area** of the map;
+/// - `total_population` is Σ settlement populations × `(1 + f)`, and each
+///   settlement is sized off a **fixed-km²** catchment per tier
+///   (`civ_catchment_km2`: 6 km² hamlet … 2 500 km² metropolis), while the
+///   number of settlements is `clamp(gw·gh/65536·20, 8, 40)` —
+///   **grid cells, capped at 40**, never km²
+///   (`place_settlements_with_water_edge_snap`).
+///
+/// So on a larger map the same forty settlements claim more land and the
+/// ratio rises with the map's area: measured, 40 settlements on both an
+/// 800 km (480 000 km²) and a 2 000 km (3 000 000 km²) world, and a median
+/// raw factor of 0.32 on the first against the 4.0 ceiling on the second.
+/// The ratio's absolute level is the settlement network's sparsity, which is
+/// a property of the map's scale and not of anyone's farmland.
+///
+/// ## The anchor, and why it is not a fitted constant
+///
+/// Dividing by the world's own ratio removes the area term exactly (it is
+/// common to every faction and to the world), and it anchors the
+/// population-weighted average faction at `1.0`: *the world as a whole
+/// lives at its carrying capacity*, the standard pre-modern assumption. That
+/// is also the point the whole model is calibrated at — both worked examples
+/// in `MILITARY_MANPOWER_SCOPE.md` are stated with land feeding exactly (A)
+/// or 1.05× (B) their people. What survives is the **relative** geography:
+/// a faction whose land per head is twice the world's reads 2.0.
+///
+/// **One coupling this introduces, stated rather than hidden:** the
+/// reference is a sum over every faction, so a change that moves one
+/// faction's total population (its ag-tech row, or its settlements) moves
+/// every other faction's `ecological_factor` slightly. That is what a
+/// relative measure means; the single-faction [`civ_military_manpower`]
+/// is unchanged and still takes land in absolute terms.
+pub fn civ_military_manpower_world(inputs: &[ManpowerInput]) -> Vec<Manpower> {
+    let reference = world_land_reference(inputs);
+    inputs
+        .iter()
+        .map(|i| {
+            let land_capacity = reference.map_or(i.land_capacity, |r| i.land_capacity / r);
+            civ_military_manpower(&ManpowerInput { land_capacity, ..*i })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1109,12 +1279,17 @@ mod tests {
         assert!((m.total_population - 1_000_000.0).abs() < 1.0);
         assert!((m.drivers.agricultural_labour_ratio - 0.75).abs() < 1e-12);
 
-        // Stated: standing ~5 000.
-        assert!(
-            (4_000.0..7_000.0).contains(&m.standing_army),
-            "standing {} outside 4k-7k for a stated ~5 000",
-            m.standing_army
-        );
+        // Stated: standing ~5 000. **Re-baselined by owner ruling AI (c),
+        // 2026-09-23, and no longer reproduced**: the upkeep is now derived
+        // from the era table rather than fitted to this example, and puts
+        // Kingdom A at 9 661 (+93 % on the stated figure; 5 846 before). The
+        // owner accepted exactly this re-baseline. What the new figure is
+        // held to instead is the era table the upkeep was derived from:
+        // High medieval, 0.5-2 % of citizens, and it lands at 1.30 % -- the
+        // band's centre is 1.25 %.
+        assert!((m.standing_army - 9_661.0).abs() < 1.0, "standing {}", m.standing_army);
+        assert_eq!(m.era_band.name, "High medieval");
+        assert_eq!(m.era_standing_verdict, "within");
         // Stated: emergency levy ~40 000.
         assert!(
             (32_000.0..50_000.0).contains(&m.emergency_mobilization),
@@ -1135,12 +1310,13 @@ mod tests {
         assert!((m.total_population - 1_000_000.0).abs() < 1.0);
         assert!((m.drivers.agricultural_labour_ratio - 0.55).abs() < 1e-9);
 
-        // Stated: standing ~20 000.
-        assert!(
-            (16_000.0..24_000.0).contains(&m.standing_army),
-            "standing {} outside 16k-24k for a stated ~20 000",
-            m.standing_army
-        );
+        // Stated: standing ~20 000. Re-baselined by owner ruling AI (c):
+        // 25 750 (+29 % on the stated figure; 19 067 before), 3.95 % of its
+        // citizens against Military-fiscal's 1-4 % band -- inside, near the
+        // top, as the strongest state the specification describes should be.
+        assert!((m.standing_army - 25_750.0).abs() < 1.0, "standing {}", m.standing_army);
+        assert_eq!(m.era_band.name, "Military-fiscal state");
+        assert_eq!(m.era_standing_verdict, "within");
         // Stated: mobilization pool 100 000+.
         assert!(
             m.emergency_mobilization >= 90_000.0,
@@ -1360,9 +1536,20 @@ mod tests {
             // The pool caps the short end and the fiscal curve the long end.
             assert!(m.force_ladder[0].capped_by_pool);
             assert!(!m.force_ladder[3].capped_by_pool);
-            // A standing army is by definition indefinitely sustainable.
-            assert!(m.force_ladder[3].force > m.standing_army);
         }
+        // A standing army is by definition indefinitely sustainable -- and
+        // since owner ruling AI (c) that holds for Kingdom A only. Kingdom
+        // B's derived standing army (25 750) is 6.7 % ABOVE its own 365-day
+        // rung (24 129): the era table's Military-fiscal band (up to 4 % of
+        // citizens) and the duration curve's "2 % for a year" anchor
+        // disagree at the top of that band. Pinned as a disclosed tension
+        // between two parts of the specification, not silently clamped --
+        // capping one output by another is a ruling, not a fix.
+        let a = civ_military_manpower(&kingdom_a());
+        assert!(a.force_ladder[3].force > a.standing_army);
+        let b = civ_military_manpower(&kingdom_b());
+        let over = b.standing_army / b.force_ladder[3].force;
+        assert!((over - 1.067).abs() < 0.001, "B standing / 365-day rung = {over}");
     }
 
     /// The plausibility check the owner asked for. Xerxes' invasion at a
@@ -1407,16 +1594,21 @@ mod tests {
     //      citizen / free population, not of the total.
 
     /// The ruling changed a **denominator**, and this is the test that says
-    /// so. Every headcount is pinned to the figure
-    /// `MILITARY_MANPOWER_SCOPE.md` §3.1 published *before* the citizen
-    /// population existed, so a future edit to [`CITIZEN_SHARE`] or
-    /// [`CITIZEN_MODERNISATION`] that leaked into an output fails here rather
-    /// than silently recalibrating a validated model.
+    /// so. Every headcount is pinned as a literal, so a future edit to
+    /// [`CITIZEN_SHARE`] or [`CITIZEN_MODERNISATION`] that leaked into an
+    /// output fails here rather than silently recalibrating the model.
+    ///
+    /// The levy and field figures are still the ones
+    /// `MILITARY_MANPOWER_SCOPE.md` §3.1 published before the citizen
+    /// population existed. The two standing figures are **re-baselined by
+    /// owner ruling AI (c)** (5 846 -> 9 661 and 19 067 -> 25 750), which
+    /// moved the soldier upkeep and nothing else -- levy and field did not
+    /// move, which this test also pins.
     #[test]
     fn the_citizen_ruling_moves_no_headcount() {
         for (input, standing, levy, field) in [
-            (kingdom_a(), 5_846.0, 41_221.0, 15_870.0),
-            (kingdom_b(), 19_067.0, 98_889.0, 47_368.0),
+            (kingdom_a(), 9_661.0, 41_221.0, 15_870.0),
+            (kingdom_b(), 25_750.0, 98_889.0, 47_368.0),
         ] {
             let m = civ_military_manpower(&input);
             assert!((m.standing_army - standing).abs() < 1.0, "standing {}", m.standing_army);
@@ -1614,21 +1806,30 @@ mod tests {
 
     /// Ruling AI (2026-09-23): *"a heavily industrialised nation needs less
     /// manpower to foot a larger army than an agricultural nation that is
-    /// dependant on individual farmers without machines."* Checked against
-    /// this model before building anything, and **it is already what the
-    /// model does**: [`Manpower::standing_army`] is paid out of the
-    /// non-agricultural population, `total × (1 − α)` with
-    /// `α = f/(1+f)` from [`crate::roster::AG_TECH_LEVELS`], and the same
-    /// `(1 − α)` raises `state_capacity` through `urban_norm`. There is no
-    /// era-fixed standing ratio anywhere in the chain to replace --
-    /// [`ERA_BANDS`] is read only by the verdict.
+    /// dependant on individual farmers without machines."* Option (a) of the
+    /// owner's follow-up ruling accepted that the model already does this:
+    /// [`Manpower::standing_army`] is paid out of the non-agricultural
+    /// population, `total × (1 − α)` with `α = f/(1+f)` from
+    /// [`crate::roster::AG_TECH_LEVELS`], and the same `(1 − α)` raises
+    /// `state_capacity` through `urban_norm`.
     ///
     /// Pinned at **equal total population** (1 000 000), equal land (so
     /// `ecological_factor` is exactly `1.0` on every row) and Kingdom A's
     /// institutions, so the ag-tech row is the only thing that differs. The
     /// literals are the model's output, not a fit: mutating
-    /// [`SOLDIER_UPKEEP`], [`EXTRACTION_CEILING`], [`MAX_NON_AGRICULTURAL_SHARE`]
-    /// or the `(1 − α)` term moves them.
+    /// [`SOLDIER_UPKEEP_BY_BRACKET`], [`EXTRACTION_CEILING`],
+    /// [`MAX_NON_AGRICULTURAL_SHARE`] or the `(1 − α)` term moves them.
+    ///
+    /// **Re-baselined by option (c), and no longer strictly increasing --
+    /// on purpose.** Before (c) the six read 1 090 / 2 219 / 4 597 / 12 686 /
+    /// 18 537 / 24 617, an 11.09x industrial/traditional spread. With the
+    /// upkeep derived per era bracket, `traditionalAgrarian` (Bronze/Iron
+    /// Age, self-supporting levies, upkeep 0.80) now fields MORE than
+    /// `advancedAgrarian` (High medieval, paid soldiers, upkeep 1.82): the
+    /// era table's own Iron-Age-above-High-medieval shape, which is exactly
+    /// what (c) asked the model to reproduce. The owner's comparison still
+    /// holds, and more strongly at the ends: industrial is the largest of
+    /// the six by a wide margin.
     #[test]
     fn standing_army_rises_with_industrialisation_at_equal_population() {
         let at = |key: &str| {
@@ -1640,33 +1841,250 @@ mod tests {
                 ..kingdom_a()
             })
         };
-        let mut prev = 0.0;
         for (key, standing) in [
-            ("subsistence", 1_090.0),
-            ("traditionalAgrarian", 2_219.0),
-            ("advancedAgrarian", 4_597.0),
-            ("improvedAgrarian", 12_686.0),
-            ("earlyIndustrial", 18_537.0),
-            ("industrial", 24_617.0),
+            ("subsistence", 2_919.0),
+            ("traditionalAgrarian", 8_340.0),
+            ("advancedAgrarian", 7_598.0),
+            ("improvedAgrarian", 17_132.0),
+            ("earlyIndustrial", 31_426.0),
+            ("industrial", 68_929.0),
         ] {
             let m = at(key);
             assert!((m.total_population - 1_000_000.0).abs() < 1e-6, "{key}");
             assert_eq!(m.drivers.ecological_factor, 1.0, "{key}");
             assert!((m.standing_army - standing).abs() < 1.0, "{key}: {}", m.standing_army);
-            assert!(m.standing_army > prev, "{key}: {} not above {prev}", m.standing_army);
-            prev = m.standing_army;
+        }
+        // The one deliberate inversion, stated as its own assertion so that
+        // a future upkeep table which flattens it fails by name.
+        assert!(at("traditionalAgrarian").standing_army > at("advancedAgrarian").standing_army);
+        // Everything else still climbs, and industrial tops the six.
+        for (lo, hi) in [
+            ("subsistence", "traditionalAgrarian"),
+            ("advancedAgrarian", "improvedAgrarian"),
+            ("improvedAgrarian", "earlyIndustrial"),
+            ("earlyIndustrial", "industrial"),
+        ] {
+            assert!(at(hi).standing_army > at(lo).standing_army, "{lo} -> {hi}");
         }
         // The owner's comparison as one number: the same million people
-        // field about eleven times the standing army once they no longer
-        // farm by hand.
+        // field about eight times the standing army once they no longer
+        // farm by hand (11.09x before option (c)).
         let ratio = at("industrial").standing_army / at("traditionalAgrarian").standing_army;
-        assert!((ratio - 11.09).abs() < 0.01, "{ratio}");
+        assert!((ratio - 8.265).abs() < 0.001, "{ratio}");
         // And the levy, which is demographic, does NOT scale that way -- the
         // industrial advantage is fiscal, which is the owner's point.
         assert!(
             at("industrial").emergency_mobilization
                 < at("traditionalAgrarian").emergency_mobilization * 3.0
         );
+    }
+
+    // ---- Owner ruling AI, option (c): the upkeep is the era table's.
+
+    /// Re-derives [`SOLDIER_UPKEEP_BY_BRACKET`] from [`ERA_BANDS`],
+    /// [`era_for`], [`GOVERNMENT_EXTRACTION`] and [`CITIZEN_SHARE`] by the
+    /// rule stated on the constant, independently of the constant -- so
+    /// editing any of those tables without re-deriving this one fails here.
+    #[test]
+    fn soldier_upkeep_is_derived_from_the_era_table() {
+        let govs: Vec<&str> = crate::roster::CIV_GOVERNMENTS
+            .iter()
+            .map(|&(k, _)| k)
+            .filter(|&k| k != "none")
+            .collect();
+        assert_eq!(govs.len(), 8);
+        let mut seen = [false; 7];
+        for row in crate::roster::AG_TECH_LEVELS {
+            let f = row.farmers_per_urbanite;
+            let (mut log_sum, mut n) = (0.0f64, 0u32);
+            let mut bracket = None;
+            for &gov in &govs {
+                for step in 0..=10 {
+                    let d = military_drivers(&ManpowerInput {
+                        nucleated_pop: 1_000.0,
+                        farmers_per_urbanite: f,
+                        land_capacity: 1_000.0 * (1.0 + f), // ecological 1.0
+                        government: gov,
+                        capital_road_reach: f64::from(step) / 10.0,
+                        road_density: 0.0,
+                        navigable_share: 0.0,
+                        sea_share: 0.0,
+                    });
+                    assert_eq!(d.ecological_factor, 1.0);
+                    let era = era_for(&MilitaryDrivers { logistics_capacity: 0.5, ..d });
+                    let centre = (era.standing.0 + era.standing.1) / 2.0;
+                    let share_at_upkeep_1 = (1.0 - d.agricultural_labour_ratio)
+                        * d.fiscal_extraction_efficiency
+                        / d.citizen_fraction;
+                    log_sum += (share_at_upkeep_1 / centre).ln();
+                    n += 1;
+                    bracket = Some(alpha_bracket(d.agricultural_labour_ratio));
+                }
+            }
+            let b = bracket.unwrap();
+            assert!(!seen[b], "{}: two roster rows share bracket {b}", row.key);
+            seen[b] = true;
+            let derived = (log_sum / f64::from(n)).exp();
+            assert!(
+                (SOLDIER_UPKEEP_BY_BRACKET[b] - derived).abs() < 5e-5,
+                "{}: bracket {b} holds {} but derives {derived}",
+                row.key,
+                SOLDIER_UPKEEP_BY_BRACKET[b]
+            );
+        }
+        // Six roster rows, six distinct brackets; the seventh (alpha < 0.10)
+        // has no row and repeats the industrial value, as documented.
+        assert_eq!(seen, [true, true, true, true, true, true, false]);
+        assert_eq!(SOLDIER_UPKEEP_BY_BRACKET[6], SOLDIER_UPKEEP_BY_BRACKET[5]);
+    }
+
+    /// The values themselves, as literals -- the derivation test above
+    /// checks the rule, this one says which numbers are live.
+    #[test]
+    fn soldier_upkeep_by_alpha_literals() {
+        assert_eq!(soldier_upkeep(0.95), 1.1200);
+        assert_eq!(soldier_upkeep(0.90), 0.7983);
+        assert_eq!(soldier_upkeep(0.80), 1.8153);
+        assert_eq!(soldier_upkeep(0.50), 2.2214);
+        assert_eq!(soldier_upkeep(0.31), 1.7696);
+        assert_eq!(soldier_upkeep(0.13), 1.0714);
+        assert_eq!(soldier_upkeep(0.05), 1.0714);
+        // Bracket edges are era_for's: 0.85 is the Iron Age bracket, a hair
+        // under it is High medieval's.
+        assert_eq!(soldier_upkeep(0.85), 0.7983);
+        assert_eq!(soldier_upkeep(0.8499), 1.8153);
+        assert_eq!(soldier_upkeep(f64::NAN), 1.0714);
+    }
+
+    /// What option (c) was FOR: at each ag-tech row, a representative polity
+    /// (eco 1, capital reach 0.5, median logistics) lands inside its own
+    /// era's standing band -- including the non-monotone pair, where the
+    /// Iron Age polity must out-arm the High-medieval one as a share of its
+    /// citizens. Every share is a literal from the model; under the old flat
+    /// `SOLDIER_UPKEEP = 3.0` three of the seven read `below` (Bronze 0.38 %,
+    /// Iron 0.46 %, Total industrial 2.79 %) and the pair was inverted (Iron
+    /// 0.46 % under High medieval 0.71 %).
+    #[test]
+    fn a_median_polity_of_each_bracket_lands_in_its_own_band() {
+        let at = |f: f64, gov: &'static str| {
+            let m = civ_military_manpower(&ManpowerInput {
+                nucleated_pop: 100_000.0,
+                farmers_per_urbanite: f,
+                land_capacity: 100_000.0 * (1.0 + f),
+                government: gov,
+                capital_road_reach: 0.5,
+                // logistics exactly 0.5: 0.15 + 0.45 x 7/9
+                road_density: 7.0 / 9.0,
+                navigable_share: 0.0,
+                sea_share: 0.0,
+            });
+            assert!((m.drivers.logistics_capacity - 0.5).abs() < 1e-12);
+            m
+        };
+        for (f, gov, era, share) in [
+            (19.0, "monarchy", "Neolithic agriculture", 0.536),
+            (9.0, "monarchy", "Bronze Age state", 1.439),
+            (9.0, "republic", "Iron Age agrarian state", 1.719),
+            (4.0, "monarchy", "High medieval", 1.171),
+            (1.0, "monarchy", "Early gunpowder", 2.003),
+            (0.45, "monarchy", "Early industrial", 3.548),
+            (0.15, "monarchy", "Total industrial mobilization", 7.818),
+        ] {
+            let m = at(f, gov);
+            let pct = 100.0 * m.standing_citizen_share;
+            assert_eq!(m.era_band.name, era, "f={f} {gov}");
+            assert!((pct - share).abs() < 0.001, "f={f} {gov}: {pct}");
+            assert_eq!(m.era_standing_verdict, "within", "f={f} {gov}: {pct} in {era}");
+        }
+        // The non-monotone pair, as its own claim.
+        let iron = at(9.0, "republic").standing_citizen_share;
+        let high_medieval = at(4.0, "monarchy").standing_citizen_share;
+        assert!(iron > high_medieval, "{iron} vs {high_medieval}");
+    }
+
+    // ---- Owner ruling AI, option (b): land per person, relative to the world.
+
+    fn world_of(lands: [f64; 3]) -> Vec<ManpowerInput<'static>> {
+        [(40_000.0, 9.0, "monarchy"), (25_000.0, 9.0, "empire"), (10_000.0, 4.0, "chiefdom")]
+            .iter()
+            .zip(lands)
+            .map(|(&(pop, f, gov), land)| ManpowerInput {
+                nucleated_pop: pop,
+                farmers_per_urbanite: f,
+                land_capacity: land,
+                government: gov,
+                capital_road_reach: 0.5,
+                road_density: 0.4,
+                navigable_share: 0.3,
+                sea_share: 0.1,
+            })
+            .collect()
+    }
+
+    /// The property option (b) exists for. The same world measured at a
+    /// larger map scale has every faction's `land_capacity` multiplied by the
+    /// area ratio while its settlement populations do not move -- 6.25x is
+    /// exactly an 800 km -> 2 000 km map at a fixed settlement count. Every
+    /// output must be identical. Under the raw ratio the factor moved by
+    /// 6.25x (clamp permitting) and the standing army with it.
+    #[test]
+    fn map_scale_does_not_move_the_ecological_factor() {
+        let base = world_of([300_000.0, 180_000.0, 90_000.0]);
+        let scaled = world_of([300_000.0 * 6.25, 180_000.0 * 6.25, 90_000.0 * 6.25]);
+        let (a, b) = (civ_military_manpower_world(&base), civ_military_manpower_world(&scaled));
+        for (x, y) in a.iter().zip(&b) {
+            assert!((x.drivers.ecological_factor - y.drivers.ecological_factor).abs() < 1e-12);
+            assert!((x.standing_army - y.standing_army).abs() < 1e-6);
+            assert_eq!(x.emergency_mobilization, y.emergency_mobilization);
+        }
+        // And the control: the per-faction call, which takes land in
+        // absolute terms, DOES move -- so the invariance is the
+        // normalisation's doing, not an accident of the fixture.
+        let raw = |w: &[ManpowerInput]| civ_military_manpower(&w[0]).drivers.ecological_factor;
+        assert!(raw(&scaled) > raw(&base) * 3.0);
+    }
+
+    /// What survives the normalisation is the RELATIVE geography, exactly:
+    /// the three factions' land-per-person ratios are 300k/400k, 180k/250k
+    /// and 90k/50k; the world's is 570k/700k. Each factor is its own ratio
+    /// over the world's, and the population-weighted mean is 1.
+    #[test]
+    fn the_world_anchor_keeps_relative_geography_and_averages_one() {
+        let w = world_of([300_000.0, 180_000.0, 90_000.0]);
+        assert!((world_land_reference(&w).unwrap() - 570_000.0 / 700_000.0).abs() < 1e-15);
+        let m = civ_military_manpower_world(&w);
+        let r = 57.0 / 70.0;
+        for (row, e) in m.iter().zip([0.75 / r, 0.72 / r, 1.8 / r]) {
+            assert!(
+                (row.drivers.ecological_factor - e).abs() < 1e-12,
+                "{} vs {e}",
+                row.drivers.ecological_factor
+            );
+        }
+        let weighted: f64 =
+            m.iter().map(|r| r.drivers.ecological_factor * r.total_population).sum();
+        let pop: f64 = m.iter().map(|r| r.total_population).sum();
+        assert!((weighted / pop - 1.0).abs() < 1e-12);
+        // A one-faction world is its own reference: exactly 1.0.
+        let solo = civ_military_manpower_world(&w[..1]);
+        assert!((solo[0].drivers.ecological_factor - 1.0).abs() < 1e-12);
+    }
+
+    /// No land figures or nobody at all: no reference, and the inputs pass
+    /// through untouched rather than against an invented one.
+    #[test]
+    fn a_world_with_nothing_to_normalise_against_passes_through() {
+        let w = world_of([0.0, 0.0, 0.0]);
+        assert_eq!(world_land_reference(&w), None);
+        for (a, b) in civ_military_manpower_world(&w).iter().zip(&w) {
+            assert_eq!(*a, civ_military_manpower(b));
+        }
+        let empty: Vec<ManpowerInput> = world_of([1.0, 1.0, f64::NAN])
+            .into_iter()
+            .map(|i| ManpowerInput { nucleated_pop: 0.0, ..i })
+            .collect();
+        assert_eq!(world_land_reference(&empty), None);
+        assert!(civ_military_manpower_world(&[]).is_empty());
     }
 
     /// Every driver stays in its stated range across the whole input space,

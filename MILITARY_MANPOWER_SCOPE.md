@@ -268,6 +268,17 @@ territory cells — exactly the integral `civ_agrarian_regional_total` takes ove
 the whole map, restricted to one owner. **This is the geography term**, and it
 is why two factions on the same ag-tech row do not get the same answer.
 
+> **Since 2026-09-23 (owner ruling AI, option (b)) a live world's
+> `land_capacity` is divided by the world's own land per person first**
+> (`civ_military_manpower_world`, `world_land_reference`), so the factor is
+> *relative*: 1.0 is the world's own ratio. The raw ratio tracked the map's
+> area — `land_capacity` integrates physical km², while the population it is
+> divided by comes from settlements sized off fixed-km² catchments whose count
+> is `clamp(gw·gh/65536·20, 8, 40)`, grid cells capped at 40. Measured on the
+> six-seed sweep below: 40 settlements on both the 800 km and 2 000 km shapes,
+> world reference 0.72 against 5.43 (seed 483920) — the 6.25× area ratio,
+> give or take terrain. See §3.3 finding 3.
+
 > **The ceiling was `2.0` until 2026-09-06** — owner ruling 11, because at
 > `2.0` it was saturating and therefore deciding the answer rather than
 > guarding it (§3.3 finding 3, which carries the before- and
@@ -332,15 +343,32 @@ genuinely standing, and one constant cannot carry both effects.
 
 ```
 military_budget = non_agricultural × ecological_factor × fiscal_extraction_efficiency
-standing_army   = military_budget / SOLDIER_UPKEEP           (= 3.0)
+standing_army   = military_budget / soldier_upkeep(α)
 professional_core = standing_army × professionalization
 ```
 
 The non-agricultural population *is* the embodied surplus: those are the
-people the farmers' surplus already feeds. `SOLDIER_UPKEEP = 3.0` is a
-soldier's annual cost in subsistence-equivalents — pay, rations, equipment
-replacement, and the animals and servants a soldier of any era drags behind
-him — roughly three times a peasant household's own consumption.
+people the farmers' surplus already feeds. `soldier_upkeep` is what one
+standing soldier costs the treasury, in subsistence-equivalents.
+
+> **Until 2026-09-23 this was one constant, `SOLDIER_UPKEEP = 3.0`** (Roman
+> legionary pay against a subsistence wage). Owner ruling AI, option (c),
+> replaced it with one value per `era_for` α-bracket,
+> `SOLDIER_UPKEEP_BY_BRACKET`, because the era table is not monotone in α — its
+> Iron Age row sits above its High-medieval one — and a single divisor makes
+> the standing share proportional to `(1 − α)`. **Derived, not fitted to a
+> world**: for each ag-tech row (each lands in exactly one bracket), over the
+> eight roster governments × capital reach 0…1 at `ecological_factor = 1` and
+> logistics 0.5, the bracket's upkeep is the geometric mean of the model's
+> standing citizen share at upkeep 1 over the band centre of the era that
+> polity lands in. Result, α ≥ 0.93 → 0.85 → 0.70 → 0.45 → 0.25 → below:
+> **1.120 · 0.798 · 1.815 · 2.221 · 1.770 · 1.071** (the `α < 0.10` bracket has
+> no roster row and repeats the last). Read after the fact: a soldier costs the
+> state most in the paid-army brackets and least where soldiers were largely
+> self-supporting (land-grant levies) or conscripted — a value under 1 is the
+> treasury paying for less than all of him, not a soldier eating less than a
+> peasant. A unit test re-derives the table from `ERA_BANDS`, `era_for`,
+> `GOVERNMENT_EXTRACTION` and `CITIZEN_SHARE`.
 
 **This is where the owner's warrior-society caution is honoured
 structurally.** At α = 0.95 the non-agricultural population is 5 % of the
@@ -509,12 +537,25 @@ road 0.70, navigable 0.60, sea 0.50) and both at a population of exactly
 
 | | Kingdom A stated | A produced | Kingdom B stated | B produced |
 |---|---|---|---|---|
-| standing army | ~5 000 | **5 846** | ~20 000 | **19 067** |
+| standing army | ~5 000 | **9 661** (5 846 before 2026-09-23) | ~20 000 | **25 750** (19 067 before) |
 | emergency levy | ~40 000 | **41 221** | 100 000+ | **98 889** |
 | field army | 15 000–20 000 | **15 870** | 40 000–60 000 | **47 368** |
 
-Every figure is in range. The one that is furthest out is Kingdom A's standing
-army at **+17 %** on a stated "~5 000", and it is left there rather than tuned.
+**Re-baselined 2026-09-23 by owner ruling AI (c), deliberately and with the
+owner's acceptance.** The standing figures no longer reproduce the stated
+ones — A is **+93 %** on "~5 000", B **+29 %** on "~20 000" — because the
+soldier upkeep is now derived from the era table (§2.4) rather than fitted to
+this example; the specification's table and its worked example disagree
+(finding 1), and the ruling chose the table. Against that table both land
+inside: A 1.30 % of citizens in High medieval's 0.5–2 % (centre 1.25 %), B
+3.95 % in Military-fiscal's 1–4 %. Levy and field army did not move. **One
+tension this surfaced, not resolved:** B's standing army is now 6.7 % above its
+own 365-day ladder rung (24 129) — the Military-fiscal band's top and the
+duration curve's "2 % for a year" anchor disagree there. Nothing clamps one by
+the other; that would be a ruling.
+
+Before the re-baseline, every figure was in range, the furthest out being
+Kingdom A's standing army at +17 %.
 
 The derived eras and durations, which the specification does not state and so
 cannot be fitted to:
@@ -523,9 +564,9 @@ cannot be fitted to:
 |---|---|---|
 | era (derived) | High medieval | Military-fiscal state |
 | citizen / free population (§2.6) | 745 500 (74.6 %, monarchy) | 651 900 (65.2 %, empire) |
-| standing share of citizens | 0.784 % (band 0.5–2 %, **within**) | 2.925 % (band 1–4 %, **within**) |
+| standing share of citizens | 1.296 % since 2026-09-23 (0.784 % before; band 0.5–2 %, **within**) | 3.950 % since 2026-09-23 (2.925 % before; band 1–4 %, **within**) |
 | mobilization share of citizens | 5.53 % (band 5–15 %, **within**) | 15.17 % (band 10–25 %, **within**) |
-| standing share of total, for comparison | 0.585 % | 1.907 % |
+| standing share of total, for comparison | 0.966 % (0.585 % before) | 2.575 % (1.907 % before) |
 | field army sustainable | 337 days | 128 days |
 | full levy sustainable | 77 days | 41 days |
 | ladder 30 / 90 / 180 / 365 d | 41 221 · 37 126 · 23 756 · 15 067 | 98 889 · 59 455 · 38 045 · 24 129 |
@@ -739,6 +780,35 @@ the model agrees with the specification's *example* and disagrees with its
 > re-baseline the worked example below. No behaviour was changed in this
 > pass — one mutation-tested unit test was added confirming the 11.09× spread
 > and the strictly-increasing order across all six ag-tech levels.
+>
+> **Ruled and built, 2026-09-23 — the owner chose all three options.** (a) The
+> ag-tech scaling closes this finding's original ask. (b) The map-scale
+> normalisation is built — see finding 3. (c) The soldier upkeep is now one
+> value per `era_for` α-bracket, derived from the era table (§2.4), which
+> re-baselined the worked example (§3.1) and makes the equal-population ag-tech
+> sweep deliberately non-monotone: 2 919 / 8 340 / 7 598 / 17 132 / 31 426 /
+> 68 929 from subsistence to industrial (traditional above advanced is the
+> table's Iron-Age-above-High-medieval shape; industrial/traditional is now
+> **8.27×**, from 11.09×). Measured on the same 108 faction-samples
+> (`_mpscale_probe.tscn`), standing verdicts below / within / above:
+>
+> | | before | (b) alone | (b) + (c) |
+> |---|---|---|---|
+> | 1 200 km, 33 settlements (36) | 21 / 15 / 0 | 34 / 2 / 0 | 17 / 15 / 4 |
+> | 800 km, 40 settlements (36) | 33 / 3 / 0 | 34 / 2 / 0 | 20 / 11 / 5 |
+> | 2 000 km, 40 settlements (36) | 11 / 25 / 0 | 35 / 1 / 0 | 17 / 17 / 2 |
+> | pooled (108) | 65 / 43 / 0 | 103 / 5 / 0 | **54 / 43 / 11** |
+> | §3.2a sparse world, seed 483920 (6) | 3 / 3 / 0 | 6 / 0 / 0 | 2 / 3 / 1 |
+> | §3.2 dense 233-settlement world (6) | 2 / 4 / 0 | 4 / 2 / 0 | 2 / 2 / 2 |
+>
+> The shape column is the point of (b): the below count stops tracking map
+> size (33 vs 11 → 20 vs 17). (b) alone reads worse because it removed the
+> 2 000 km shape's inflated factor and nothing yet corrected the flat upkeep;
+> (c) is what brings the level back. **All 54 remaining below-band samples have
+> `ecological_factor < 1`** — land-poor relative to their own world, which is
+> the geography term reporting, not an era or scale artefact. Mobilization
+> verdicts are unchanged in every row (10 / 98 / 0 pooled), as they must be:
+> neither option touches the demographic chain.
 
 **3 · `ecological_factor` saturated on real generated worlds — ruled on and
 raised, 2026-09-06.** As first measured: five of six
@@ -811,6 +881,31 @@ separate question, and an old one.
 > `land_capacity` or `nucleated_pop` are computed, which this ruling
 > explicitly does not authorise. It is the same "should generated worlds be
 > more densely populated" question this finding already ends on.
+
+> **Owner ruling AI (b), 2026-09-23: normalise it — built.** The root cause,
+> read at the code rather than inferred: `land_capacity` integrates physical
+> km², while `total_population` comes from settlements sized off *fixed-km²*
+> catchments (`civ_catchment_km2`) whose *count* is set by grid cells and
+> capped at 40 (`place_settlements_with_water_edge_snap`'s `max_places`). The
+> 800 km and 2 000 km shapes both carry exactly 40 settlements, so the ratio's
+> level is settlement sparsity, i.e. map area. `civ_military_manpower_world`
+> divides every faction's land by the world's own `Σ land / Σ total_population`,
+> which cancels the area term exactly and anchors the population-weighted
+> average faction at 1.0 — the carrying-capacity point the worked examples are
+> stated at. Pinned by `map_scale_does_not_move_the_ecological_factor` (every
+> land ×6.25: identical outputs) and
+> `the_world_anchor_keeps_relative_geography_and_averages_one`. Median factor
+> per shape, before → after: 1 200 km 1.43 → 0.64, 800 km 0.32 → 0.44,
+> 2 000 km 4.00 (clamped) → 0.79; pinned at the 4.0 ceiling 26 → 0.
+>
+> **Two consequences, disclosed.** The reference is a sum over factions, so a
+> change to one faction's total population (its ag-tech row, its settlements)
+> now moves every other faction's factor slightly. And the **0.25 floor now
+> binds on 36 of 108** (24 before): with the scale term gone, what remains is
+> real between-faction spread — on seed 483920's 2 000 km world one faction's
+> land is 31 370 against another's 2 926 123 at similar populations. Whether
+> that floor is still a guard or is now deciding is owner ruling 11's
+> question reopened from the other end; not changed here.
 
 **4 · The road-density reference was wrong on the first try, and measuring it
 is what found that.** Anchoring on the Roman empire's ~16 km of built road per

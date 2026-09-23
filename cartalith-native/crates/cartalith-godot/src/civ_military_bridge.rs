@@ -55,7 +55,7 @@ use godot::prelude::*;
 use cartalith_civ::military::{
     WallPlace, civ_place_defensibility, civ_relative_elevation, um_infer_walls, um_wall_spec,
 };
-use cartalith_civ::manpower::{ManpowerInput, civ_military_manpower};
+use cartalith_civ::manpower::{ManpowerInput, civ_military_manpower_world, world_land_reference};
 use cartalith_civ::relations::{FactionRelationsInput, civ_faction_relations};
 use cartalith_civ::roster::civ_ag_tech_by_key;
 use cartalith_civ::trade::{NavKind, RoadComponents, place_navigability};
@@ -290,10 +290,7 @@ impl WorldGen {
     ///   settlement.
     /// - **Professionalization** — derived inside the model from the two
     ///   above; nothing is read for it here.
-    fn manpower_rows(
-        &self,
-        agg: &FactionAggregates,
-    ) -> Vec<cartalith_civ::manpower::Manpower> {
+    fn manpower_rows(&self, agg: &FactionAggregates) -> Vec<ManpowerRow> {
         let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref())
         else {
             return Vec::new();
@@ -354,7 +351,7 @@ impl WorldGen {
 
         let mut rc = RoadComponents::build(civ.settlements.len(), &civ.ways);
 
-        (1..n_f)
+        let inputs: Vec<ManpowerInput> = (1..n_f)
             .map(|f| {
                 let entry = &civ.faction_roster.0[f];
                 let mine: Vec<usize> = civ
@@ -393,7 +390,7 @@ impl WorldGen {
                     0.0
                 };
 
-                civ_military_manpower(&ManpowerInput {
+                ManpowerInput {
                     nucleated_pop: agg.by_faction.get(f).map_or(0.0, |a| a.pop),
                     farmers_per_urbanite: civ_ag_tech_by_key(&entry.ag_tech).farmers_per_urbanite,
                     land_capacity: land_capacity[f],
@@ -402,10 +399,33 @@ impl WorldGen {
                     road_density,
                     navigable_share: share(NavKind::navigable),
                     sea_share: share(|k| k == NavKind::Sea),
-                })
+                }
             })
+            .collect();
+        // One world, one land reference: `land_capacity` above integrates
+        // physical km² while the settlement populations it is divided by do
+        // not, so the raw ratio is map scale. `civ_military_manpower_world`
+        // divides it out (owner ruling AI, option (b)).
+        let rows = civ_military_manpower_world(&inputs);
+        let reference = world_land_reference(&inputs);
+        inputs
+            .iter()
+            .zip(rows)
+            .map(|(i, m)| ManpowerRow { manpower: m, land_capacity: i.land_capacity, land_reference: reference })
             .collect()
     }
+}
+
+/// One faction's [`cartalith_civ::manpower::Manpower`], plus the two land
+/// figures its `ecological_factor` was read from, so the shell can show the
+/// working behind the normalisation rather than only its result.
+struct ManpowerRow {
+    manpower: cartalith_civ::manpower::Manpower,
+    /// Σ `dens × cellKm²` over the faction's territory, before normalisation.
+    land_capacity: f64,
+    /// [`world_land_reference`]; `None` when the world has no land figures or
+    /// no population, and then the dictionary omits the key.
+    land_reference: Option<f64>,
 }
 
 /// One faction's manpower row as the shell reads it, or an empty dictionary
@@ -415,14 +435,11 @@ impl WorldGen {
 /// no reference to check against, so the only defensible presentation is one
 /// that shows its working. A reader who disagrees with a number can see
 /// which of the five variables produced it.
-fn manpower_dict(
-    m: Option<&cartalith_civ::manpower::Manpower>,
-    ag_tech: &str,
-    government: &str,
-) -> VarDictionary {
-    let Some(m) = m else {
+fn manpower_dict(row: Option<&ManpowerRow>, ag_tech: &str, government: &str) -> VarDictionary {
+    let Some(row) = row else {
         return VarDictionary::new();
     };
+    let m = &row.manpower;
     let d = &m.drivers;
     let ladder: Array<VarDictionary> = m
         .force_ladder
@@ -436,7 +453,7 @@ fn manpower_dict(
             }
         })
         .collect();
-    vdict! {
+    let mut out = vdict! {
         // -- the four outputs
         "standing_army" => m.standing_army,
         "professional_core" => m.professional_core,
@@ -472,6 +489,11 @@ fn manpower_dict(
         "sea_share" => d.sea_share,
         "state_capacity" => d.state_capacity,
         "ecological_factor" => d.ecological_factor,
+        "soldier_upkeep" => d.soldier_upkeep,
+        // The raw land figure the factor was normalised from (owner ruling
+        // AI, option (b)); `land_reference` is added below only when the
+        // world has one -- omitted, never a stand-in value.
+        "land_capacity" => row.land_capacity,
         // -- the era, derived, with its band reported and never enforced
         "era" => m.era_band.name,
         "era_constraint" => m.era_band.constraint,
@@ -484,7 +506,11 @@ fn manpower_dict(
         // -- the two roster fields this is the first consumer of
         "ag_tech" => ag_tech,
         "government" => government,
+    };
+    if let Some(r) = row.land_reference {
+        out.set("land_reference", r);
     }
+    out
 }
 
 /// The tier key the shell labels with — the reference's own

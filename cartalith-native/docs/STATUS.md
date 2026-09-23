@@ -1377,9 +1377,10 @@ and the era table is.
 | MM-6 | Per-settlement garrisons | declined | `manpower.rs` produces per-faction headcounts only — no settlement-keyed output type exists. Disclosed on screen in CIVIL ▸ Military ▸ Not built |
 | MM-7 | Campaigns, unit movement, combat resolution | declined | No combat or campaign type anywhere in `cartalith-civ`; independently confirmed by `landmark.rs`'s `battlefield` `not_built` string, "There is no conflict entity in this port" |
 | MM-8 | Change over time (manpower across the year cursor) | declined | `manpower.rs` takes no year argument and `TimelineSnapshot` carries no manpower field; the model reads the world as it stands, as §4 states |
-| MM-F2 | Finding 2 — standing armies land at Imperial Rome's ratio, not the era table's | blocked | Owner decision. Correcting it means recalibrating outputs already validated against the specification's own worked example. The era rows' `standing: (0.00, 0.01)` / `(0.001, 0.01)` bands are in source unchanged; the model's shares are computed from the worked example, not from these. **Reported, not tuned** |
+| MM-F2 | Finding 2 — the standing column; owner ruling AI (c), 2026-09-23: soldier upkeep per agricultural-labour bracket, derived from the era table | done (not yet committed) | `manpower.rs::SOLDIER_UPKEEP_BY_BRACKET` / `soldier_upkeep` / `alpha_bracket` (shared with `era_for`), replacing the flat `SOLDIER_UPKEEP = 3.0`. Re-derived from `ERA_BANDS` + `era_for` + `GOVERNMENT_EXTRACTION` + `CITIZEN_SHARE` by `soldier_upkeep_is_derived_from_the_era_table`; the Iron-Age-above-High-medieval pair pinned by `a_median_polity_of_each_bracket_lands_in_its_own_band`. **Re-baselines the worked example's standing army** (A 5 846 → 9 661, B 19 067 → 25 750; levy and field unchanged), accepted by the owner. Open: Kingdom B's standing now exceeds its own 365-day rung by 6.7 % (`the_force_ladder_decreases_with_duration`) |
+| MM-F3 | Finding 3's residue — `ecological_factor` tracked map area; owner ruling AI (b), 2026-09-23: normalise land per person to the world's own | done (not yet committed) | `manpower.rs::civ_military_manpower_world` / `world_land_reference`, called by `civ_military_bridge.rs::manpower_rows`. Pinned by `map_scale_does_not_move_the_ecological_factor` (land ×6.25 → identical outputs). Measured on `_mpscale_probe.tscn`: standing below-band 21/33/11 of 36 on the 1 200/800/2 000 km shapes before, 17/20/17 after (b)+(c). Open: the 0.25 floor now binds on 36 of 108 faction-samples |
 
-**Group total: 9 — 4 done, 4 declined, 1 blocked.**
+**Group total: 10 — 6 done, 4 declined.**
 
 ### Story planning · `STORY_PLANNING_SCOPE.md`
 
@@ -1978,7 +1979,7 @@ decisions: conflict attachment (SP-2, SP-4, SP-5, LM-9), the viewshed budget
 (LM-7), and save compression (SF-5, SF-6 — **both answered 2026-09-23 by Ruling AJ**, SF-5 built and SF-6 declined, so the 13 above is two high until this paragraph is recounted). **Answering decision 1 alone unblocks
 three rows across two documents** — SP-4 directly, LM-9 which names SP-4 as its
 blocker, and SP-5 which needs two of SP-1…SP-4. The other six are blocked on
-a memory decision (EC-8), the era-table recalibration (MM-F2), urban
+a memory decision (EC-8), the era-table recalibration (MM-F2 — **answered 2026-09-23 by Ruling AI (c) and built**, uncommitted at this writing; one more off the 13), urban
 milestones 8-15 (UM-16), hardware (AND-10), an owner content decision
 (GGR-DS03) and a missing data path (GGR-RELIG). **JP-QC2 dropped off this list
 2026-09-01** — no longer blocked on `cartalith-engine` retention work it never

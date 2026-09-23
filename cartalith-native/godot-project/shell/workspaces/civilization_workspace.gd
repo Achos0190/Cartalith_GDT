@@ -5923,9 +5923,13 @@ func _fill_manpower(parent: Control, factions: Array) -> void:
 		n.tooltip_text = ("Ag-tech %s · government %s. State capacity %.2f, the "
 			+ "term both extraction and professionalisation scale from. Ecological "
 			+ "factor %.2f -- how well this faction's own territory feeds the "
-			+ "people on it, and the reason geography moves the answer at all.") % [
+			+ "people on it RELATIVE TO THE WORLD'S (1.0 = the world's own land "
+			+ "per person, so the map's scale drops out), and the reason "
+			+ "geography moves the answer at all. A soldier costs the treasury "
+			+ "%.2f subsistence-equivalents at this agricultural labour ratio.") % [
 			String(m.get("ag_tech", "?")), String(m.get("government", "?")),
-			float(m.get("state_capacity", 0.0)), float(m.get("ecological_factor", 0.0))]
+			float(m.get("state_capacity", 0.0)), float(m.get("ecological_factor", 0.0)),
+			float(m.get("soldier_upkeep", 0.0))]
 		n.mouse_filter = Control.MOUSE_FILTER_PASS
 
 	## The era band's denominator, on screen rather than buried in a tooltip
