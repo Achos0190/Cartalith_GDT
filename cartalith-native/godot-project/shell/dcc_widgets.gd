@@ -744,6 +744,17 @@ static func style_popup(popup: PopupMenu) -> void:
 	sep.thickness = 1
 	popup.add_theme_stylebox_override("separator", sep)
 	_style_popup_marks(popup, fs)
+	## Re-applied on every open (2026-09-24). Every value above is a colour
+	## BAKED from the palette active when this ran, and the top menus are built
+	## before the saved theme is applied -- so on the light palette all seven
+	## menu popups drew dark (`_menupop_probe.gd` measured 0.07 against the
+	## light `panel` 0.98), and the theme walker does not reach a popup's
+	## internal window. Restyling on `about_to_popup` makes a popup match the
+	## palette at the moment it is seen, whatever happened in between. Every
+	## call above is an override, so running this twice is harmless.
+	if not popup.has_meta("_dcc_restyle_on_open"):
+		popup.set_meta("_dcc_restyle_on_open", true)
+		popup.about_to_popup.connect(func() -> void: style_popup(popup))
 
 ## **The check column.** `GUI_GAP_REGISTER.md` §51 row 70: the canvas marks a
 ## chosen row with a typographic `●` and an unchosen one with `○`
