@@ -69,8 +69,7 @@ fn render_all(s: &Synth, a: &TerrainAppearance) -> Vec<u8> {
             out[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
         }
     }
-    render::apply_local_contrast(a, &mut out, GW, GH, false);
-    render::apply_color_grade(a, &mut out, &render::build_grade_influence(&c, GW, GH));
+    render::finish_raster(a, &mut out, GW, GH, false, &render::build_grade_influence(&c, GW, GH), render::ColorSpace::Srgb);
     out
 }
 
@@ -248,7 +247,11 @@ fn the_default_stack_renders_the_pre_change_image() {
     for (name, a, screen, bake) in [
         ("default", TerrainAppearance::default(), 0x2e7b_4258_49e7_10d6u64, 0x9408_99ac_3349_694du64),
         ("vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0xeb64_802f_ae20_df7b, 0x66cf_b547_b3b7_9dcc),
-        ("antique", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0xae24_83aa_9cb4_63bf, 0x5cc8_aa1d_c354_b557),
+        // Screen re-derived 2026-09-23 for Ruling AN (was `0xae24_83aa_9cb4_63bf`):
+        // Antique is the one look here whose grade is not at rest, so it is
+        // the one whose local-contrast -> grade hand-off lost its intermediate
+        // byte truncation. The three others and every bake digest did not move.
+        ("antique", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0x4427_8798_5bad_05ae, 0x5cc8_aa1d_c354_b557),
         ("js_reference", TerrainAppearance::js_reference(), 0x4cba_6557_c30e_4029, 0x4cba_6557_c30e_4029),
     ] {
         assert!(a.layers.is_default(), "{name} did not start on the default stack");

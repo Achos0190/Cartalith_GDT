@@ -94,14 +94,12 @@ fn render_serial(s: &Synth, a: &TerrainAppearance) -> Vec<u8> {
             out[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
         }
     }
-    render::apply_local_contrast(a, &mut out, GW, GH, false);
-    // The colour grade runs in the same slot `lib.rs`'s own texture loop puts
-    // it in -- after local contrast, over the finished terrain image, with the
-    // four field-influence weights resolved against the same ctx. Without it
-    // here, every `grade_*` tunable would look inert to
-    // `every_tunable_is_load_bearing`, which is exactly the class of bug that
-    // test exists to catch.
-    render::apply_color_grade(a, &mut out, &render::build_grade_influence(&c, GW, GH));
+    // Local contrast and the colour grade, in the one pass `lib.rs`'s own
+    // texture loop runs (Ruling AN), with the four field-influence weights
+    // resolved against the same ctx. Without the grade here, every `grade_*`
+    // tunable would look inert to `every_tunable_is_load_bearing`, which is
+    // exactly the class of bug that test exists to catch.
+    render::finish_raster(a, &mut out, GW, GH, false, &render::build_grade_influence(&c, GW, GH), render::ColorSpace::Srgb);
     out
 }
 
@@ -118,14 +116,12 @@ fn render_parallel(s: &Synth, a: &TerrainAppearance) -> Vec<u8> {
             row[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
         }
     });
-    render::apply_local_contrast(a, &mut out, GW, GH, false);
-    // The colour grade runs in the same slot `lib.rs`'s own texture loop puts
-    // it in -- after local contrast, over the finished terrain image, with the
-    // four field-influence weights resolved against the same ctx. Without it
-    // here, every `grade_*` tunable would look inert to
-    // `every_tunable_is_load_bearing`, which is exactly the class of bug that
-    // test exists to catch.
-    render::apply_color_grade(a, &mut out, &render::build_grade_influence(&c, GW, GH));
+    // Local contrast and the colour grade, in the one pass `lib.rs`'s own
+    // texture loop runs (Ruling AN), with the four field-influence weights
+    // resolved against the same ctx. Without the grade here, every `grade_*`
+    // tunable would look inert to `every_tunable_is_load_bearing`, which is
+    // exactly the class of bug that test exists to catch.
+    render::finish_raster(a, &mut out, GW, GH, false, &render::build_grade_influence(&c, GW, GH), render::ColorSpace::Srgb);
     out
 }
 

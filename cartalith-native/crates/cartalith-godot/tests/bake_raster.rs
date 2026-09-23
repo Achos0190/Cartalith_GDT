@@ -471,9 +471,10 @@ fn a_grid_resolution_export_carries_the_colour_grade() {
     let inf = render::build_grade_influence(&ctx, GW, GH);
     let mut got = render::bake_rect(&ctx, &bf, None, GW, GH, 0, 0, GW, GH);
     let ungraded = got.clone();
-    render::apply_local_contrast(&a, &mut got, GW, GH, false);
-    let pre_grade = got.clone();
-    render::apply_color_grade(&a, &mut got, &inf);
+    let mut pre_grade = got.clone();
+    render::apply_local_contrast(&a, &mut pre_grade, GW, GH, false);
+    // Since Ruling AN the two stages are one pass with one quantisation.
+    render::finish_raster(&a, &mut got, GW, GH, false, &inf, render::ColorSpace::Srgb);
 
     // 1. The grade is real here, so a missing call cannot hide.
     let moved = (0..GW * GH).filter(|&i| pre_grade[i * 3..i * 3 + 3] != got[i * 3..i * 3 + 3]).count();
@@ -493,8 +494,7 @@ fn a_grid_resolution_export_carries_the_colour_grade() {
             want[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
         }
     }
-    render::apply_local_contrast(&a, &mut want, GW, GH, false);
-    render::apply_color_grade(&a, &mut want, &inf);
+    render::finish_raster(&a, &mut want, GW, GH, false, &inf, render::ColorSpace::Srgb);
     assert_eq!(got, want, "the graded export is not the graded screen raster");
 
     // 3. The order is load-bearing: contrast-then-grade is not

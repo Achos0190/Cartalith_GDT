@@ -216,10 +216,8 @@ fn screen_rgb(ctx: &RenderCtx) -> Vec<u8> {
 
 fn screen_finished(ctx: &RenderCtx, a: &TerrainAppearance) -> Vec<u8> {
     let mut bytes = screen_rgb(ctx);
-    render::apply_local_contrast(a, &mut bytes, fx::GW, fx::GH, false);
     let influence = render::build_grade_influence(ctx, fx::GW, fx::GH);
-    render::apply_color_grade(a, &mut bytes, &influence);
-    render::apply_color_space(render::ColorSpace::Srgb, &mut bytes);
+    render::finish_raster(a, &mut bytes, fx::GW, fx::GH, false, &influence, render::ColorSpace::Srgb);
     bytes
 }
 
@@ -329,9 +327,8 @@ fn screen_residual_at_lod_entry_is_the_meso_asymmetry_and_is_measured() {
         }
         let base = screen.clone();
         let mut finished = screen;
-        render::apply_local_contrast(&a, &mut finished, N, N, false);
         let influence = render::build_grade_influence(&ctx, N, N);
-        render::apply_color_grade(&a, &mut finished, &influence);
+        render::finish_raster(&a, &mut finished, N, N, false, &influence, render::ColorSpace::Srgb);
         let tf = TileFields::new(&ctx, Some(&base)).without_lakes();
         let tile = render::render_biome_tile_rgba(&ctx, &field, N, N, whole, &tf);
         assert_eq!(tile.len(), N * N * 4, "the tile came back empty or mis-sized");

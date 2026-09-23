@@ -7819,8 +7819,7 @@ impl WorldGen {
         // other material gets) and before the icon pass (drawn artwork is
         // not terrain and has no business being contrast-boosted). A no-op
         // whenever `local_contrast == 0.0`.
-        render::apply_local_contrast(&appearance, &mut bytes, gw, gh, self.world);
-
+        //
         // The colour grade (2026-08-24) -- the last stage that is about the
         // *terrain image*. Placed after local contrast, and before the icon
         // pass below for the same reason local contrast is: drawn artwork is
@@ -7834,8 +7833,16 @@ impl WorldGen {
         // sees a byte buffer -- `render::build_grade_influence` returns an
         // empty `Vec` (and the pass then grades flat) whenever all four are at
         // rest, which is the default.
+        //
+        // The output colour space (`LARGE_ITEM_RULINGS.md`, Colour management)
+        // is the third stage, and all three run as ONE pass with one
+        // quantisation (Ruling AN, `render::finish_rgb`) -- unless an asset
+        // pack is loaded, because its icons must be encoded with the ground
+        // (see below) and so the space has to wait for them.
         let grade_influence = render::build_grade_influence(&ctx, gw, gh);
-        render::apply_color_grade(&appearance, &mut bytes, &grade_influence);
+        let icons = self.asset_pack.is_some();
+        let space = if icons { render::ColorSpace::Srgb } else { self.color_space };
+        render::finish_raster(&appearance, &mut bytes, gw, gh, self.world, &grade_influence, space);
 
         // Milestone 7: `drawMapIcons`' own painter's pass, composited over
         // the finished raster exactly as it is in the reference (a separate
@@ -7859,8 +7866,13 @@ impl WorldGen {
         // transformed together.
         //
         // A no-op at the default, by early return rather than by arithmetic --
-        // see `render::apply_color_space`.
-        render::apply_color_space(self.color_space, &mut bytes);
+        // see `render::apply_color_space`. Only reached with a pack loaded;
+        // otherwise `finish_raster` above already encoded the buffer. That
+        // path keeps one extra byte quantisation between the grade and the
+        // encode, which is the icon composite's own (it draws into bytes).
+        if icons {
+            render::apply_color_space(self.color_space, &mut bytes);
+        }
 
         let packed = PackedByteArray::from(bytes);
         let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGB8, &packed)?;

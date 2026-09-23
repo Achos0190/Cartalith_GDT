@@ -591,7 +591,8 @@ delivered by milestone 4's paper grain and stipple, which are exactly
 vibrancy) is a chroma-space knob and milestone 4 just deliberately *removed*
 13-26% of the chroma to make the sheet read as pigment, so adding a vibrancy
 control now would be pulling against a decision two days old rather than
-building on it; §20 (high-precision/tone-mapping pipeline) is real
+building on it; §20 (high-precision/tone-mapping pipeline; staged half built
+2026-09-23 under Ruling AN, see milestone 6) is real
 architectural work whose payoff is HDR/wide-gamut output that nothing in
 this port consumes yet; §21 (GPU) is explicitly a later milestone; §29
 (quality tiers) needs more stages to tier than exist.
@@ -844,6 +845,20 @@ building. **§20 (high-precision/tone-mapping pipeline)** — real architectural
 work whose payoff is HDR/wide-gamut output nothing in this port consumes; and
 this milestone's own measurements show clipping *falling* (0.78% → 0.68% on
 Classic), so the problem tone mapping solves is not currently present.
+
+> **Superseded 2026-09-23 by an owner ruling (`LARGE_ITEM_RULINGS.md` Ruling
+> AN), not by a new defect.** Both measurements above still stand; the owner
+> ruled that §20 is worth building *toward*, and not only as a fix for a
+> measured defect, which is the premise both rejections (here and milestone
+> 5's) rested on. What was built is the staged first step. Local contrast,
+> the grade and the colour space now run as one per-pixel pass with a single
+> quantisation (`render::finish_rgb`), with no `u8` round trip between them.
+> The shipped default is byte-identical. Graded and Display P3 renders move
+> up by 1-3 levels, never down, and land 42-70% closer to the continuous
+> value. Tone mapping, a linear working space and an HDR output path are
+> **still not built**: the texture is `RGB8` and both export encoders are
+> 8-bit, so milestone 5's "nothing in this port consumes it yet" remains
+> true of the output half.
 
 ### Built — the parallel appearance pass
 
@@ -1150,7 +1165,9 @@ preset ramp, and `TerrainAppearance`'s own palettes exposed through "Colour
 grade" give the alternative. Genuinely still open: the hand-lettered glyphs,
 §20's high-precision pipeline, §21's GPU path, and the ocean value-noise
 lattice (all three still real per `render.rs`'s own doc comments at the time
-of this correction).
+of this correction). *(2026-09-23: §20's staged half, the single-quantisation
+finishing pass, is built under Ruling AN. Its output half, HDR/tone
+mapping/a non-8-bit encoder, is still open. See the note under milestone 6.)*
 
 <!-- A duplicate, shorter "Milestone 3" section briefly existed here,
 committed by a concurrent fork that picked up this milestone's

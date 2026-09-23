@@ -1246,3 +1246,64 @@ Siting itself changes, not just the downstream render binding: a settlement only
 - **Year precision only.** This port's clock is the Timeline's signed `i64` year and `STORY_PLANNING_SCOPE.md` §5 forbids a finer parallel clock, so `[1879-03-14]` is read as 1879; month/day/time are validated loosely and dropped. The note keeps them, so Obsidian still sees them.
 
 **Read-only, and nothing fails.** Cartalith reads the block and never writes one; the author edits the note in Obsidian or in the Vault window's existing editor. A line that is not valid Chronos is reported (count plus the line text) and skipped, never fatal — one typo must not blank a settlement's history. `> ORDERBY`/`> DEFAULTVIEW` flags and `#` comments are view directives, not events, and are passed over silently.
+
+## 2026-09-23 — Ruling AN: build toward HDR/wide-gamut output — the three finishing stages become one pass with one quantisation
+
+**The question** (`OUTSTANDING_WORK.md` §20, carried in §3.1 as blocked): is §20's high-precision display pipeline about fixing a measured precision defect, or about building toward HDR/wide-gamut output? `TERRAIN_APPEARANCE_SCOPE.md` milestones 5 and 6 had rejected it on the first reading, because no defect was measured: clipping *fell* from 0.78% to 0.68%.
+
+**Owner ruling, 2026-09-23: build toward the HDR/wide-gamut future, as the staged version the row itself scoped.** That means removing the `u8` round trips *between* the three whole-raster correction stages (`apply_local_contrast`, `apply_color_grade`, `apply_color_space`) and quantising once at the end. HDR output itself is **not** part of this ruling: Godot's texture stays `RGB8`, PNG/BigTIFF stay 8-bit, and no export default moves. A 16-bit or float encoder is separate future work.
+
+**What was built, and one deviation from the row's wording.** The row said to widen "the intermediate buffer" to `f32`. What shipped is `render::finish_rgb`/`finish_raster`: all three stages **fused per pixel in `f64`**, with one quantiser. Once local contrast's two blurs exist, each stage is a function of its own pixel, so a buffer buys nothing a register doesn't. It would also cost 12 B/px on top of `export_raster.rs`'s *measured* 23 B/px `PEAK_BYTES_PER_PIXEL` gate, and that measurement is what keeps a 32K export from aborting the process. Local contrast is now split into a measurement (`local_contrast_rows` → `LocalContrast::delta`) and an application (inside the fused pass). The single quantiser is the seam a future higher-precision encoder replaces; `render::finish_pixel_continuous` exposes the unquantised value.
+
+**Kept deliberately:**
+- Each stage still clamps to `0..=255`. That is range, not precision, and dropping it is the HDR step itself.
+- The quantiser is the one the old last stage used: truncation, except where the colour space re-encoded the pixel, which rounds (`apply_color_space`'s own documented reason).
+- The three `apply_*` functions remain as the fused pass with two stages switched off. They are byte-identical to the passes they replaced; the old-chain hashes were reproduced exactly on `43a2f76`.
+- Exports stay in the working space (sRGB). `export_raster.rs`'s 2026-09-06 decision is untouched: `finish_raster` is called with `ColorSpace::Srgb` there, and `_exportraster_probe.gd` §15 still passes byte-identical.
+
+**The four call sites:**
+- Screen: `lib.rs::build_color_texture`.
+- Layer and whole-raster PNG export: `export_raster.rs`, `export_raster_png` and `export_layers`.
+- Banded E1/E2 export: `render::bake_export_band`. It now corrects only the band's own rows and no longer spends work on apron rows it discards.
+- LOD tiles: `render::render_biome_tile_rgba`. Its inline per-pixel local contrast became the `delta` closure of the same fused pass.
+
+Two stay partially chained:
+- `export_snapshot_png` runs only the grade, so there was nothing to fuse; that is unchanged.
+- With an asset pack loaded, the screen quantises once before the icon composite (which draws in bytes) and applies the colour space after it.
+
+**The re-baseline, measured:**
+- **At the shipped default there is none.** The grade is at rest and the space is sRGB, so only one stage runs and there is no intermediate quantisation to remove. `tests/color_space.rs`'s `FINISHED_RENDER_FNV1A` = `0x6154_1058_49e7_10d6` did **not** move. That is the control.
+- **Where two or three stages run, pixels move up by one to three levels and never down.** Each difference is a fraction the old intermediate truncation threw away.
+- **Synthetic fixture** (128×79), fused vs the old chain:
+
+  | Case | Pixels differing | Worst move |
+  |---|---|---|
+  | Default + Display P3 | 5 012 / 10 112 | 1 |
+  | Antique sRGB | 5 139 | 2 |
+  | Antique P3 | 9 318 | 2 |
+  | Strong grade | 5 276 | 2 |
+
+- **Mean |error| against the continuous value**, fused vs old: 0.275 vs 0.478, 0.478 vs 0.828, 0.254 vs 0.838 and 0.454 vs 0.832. So the new output is **42–70% closer to the true colour**, not merely different.
+- **New pin:** `ANTIQUE_P3_FNV1A` = `0xf96d_1e67_6c25_daae`, previously `0x6c83_b198_b39e_4d68`.
+- **One more digest re-derived:** `tests/layer_stack.rs`'s Antique screen digest, `0xae24_83aa_9cb4_63bf` → `0x4427_8798_5bad_05ae`. It moved for the same reason: it is the only look there with a grade that is not at rest. The default, Vibrant and `js_reference` screen digests and all four bake digests are unchanged.
+- **Real 512² world, seed 12345:**
+
+  | Case | Pixels moved | Deltas |
+  |---|---|---|
+  | Default sRGB | 0% | — |
+  | Default P3 | 68.8% | 0..1 |
+  | Antique sRGB | 70.9% | 0..2 |
+  | Antique P3 | 97.3% | 0..3 (3 channels at 3) |
+
+- **Live shell (`_finishpass_probe.gd`, windowed, HEAD build vs this build):**
+
+  | Output | Pixels moved | Deltas |
+  |---|---|---|
+  | Default screen | 0 | — |
+  | Default 2K export | 0 | — |
+  | Antique+P3 screen | 95.8% | 0..3 |
+  | Antique 2K export | 69.3% | 0..2 |
+
+  Side by side and at 60× difference gain, the pictures are indistinguishable and the difference image has no structure.
+
+**No JS reference exists for this**: the reference renders through 8-bit canvas `getImageData`. The bar was therefore "equivalent or better, measured", not byte identity.

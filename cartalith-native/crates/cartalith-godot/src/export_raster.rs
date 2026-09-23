@@ -1135,15 +1135,18 @@ impl WorldGen {
             // point of that stage being keyed to a fraction and not to a
             // pixel count. It is on at `default()` (0.55), so skipping it
             // would ship a visibly flatter export than the map it came from.
-            render::apply_local_contrast(&appearance, &mut px, w, h, world);
+            //
             // And the grade, in the same slot it occupies on screen: after
             // local contrast, over the finished terrain image. Without it an
             // export of a graded look would ship the ungraded picture.
             // The grade's four field-influence weights, sampled from the grid
             // into the export's own raster -- without this the on-screen and
             // exported pictures would disagree wherever a weight is set.
+            //
+            // Both as the screen's own single pass (Ruling AN), in the
+            // working space -- sRGB, never the display's (module doc).
             let inf = render::build_grade_influence(ctx, w, h);
-            render::apply_color_grade(&appearance, &mut px, &inf);
+            render::finish_raster(&appearance, &mut px, w, h, world, &inf, render::ColorSpace::Srgb);
             px
         }) else {
             return fail("could not assemble the render context");
@@ -1401,9 +1404,8 @@ impl WorldGen {
         let Some((biome, hillshade)) = self.export_render(|ctx| {
             let bf = BakeFields::new(ctx);
             let mut px = render::bake_rect(ctx, &bf, chan, gw, gh, 0, 0, gw, gh);
-            render::apply_local_contrast(&appearance, &mut px, gw, gh, world);
             let inf = render::build_grade_influence(ctx, gw, gh);
-            render::apply_color_grade(&appearance, &mut px, &inf);
+            render::finish_raster(&appearance, &mut px, gw, gh, world, &inf, render::ColorSpace::Srgb);
             (px, render::hillshade_raster(ctx))
         }) else {
             return fail("could not assemble the render context");

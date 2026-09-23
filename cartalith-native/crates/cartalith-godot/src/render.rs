@@ -2044,7 +2044,9 @@ pub enum QualityTier {
     /// pipeline, wide gamut/HDR where supported". The first two are real here
     /// (ten light directions instead of six, stronger AO, higher local
     /// contrast); **the precision/HDR half is not** -- that is research §20's
-    /// high-precision display pipeline, which this port has not built, and
+    /// high-precision display pipeline. Only its first, tier-independent step
+    /// is built (Ruling AN: one quantisation after the finishing stages, see
+    /// `finish_rgb`); there is still no HDR or wide-gamut *output*, so
     /// claiming it here would be dishonest.
     Ultra,
 }
@@ -5810,12 +5812,55 @@ fn local_contrast_radius(a: &TerrainAppearance, gw: usize, gh: usize) -> i64 {
 /// many apron rows each side ([`ExportBandPlan`]) and discards them after.
 #[allow(dead_code)]
 pub fn apply_local_contrast_rows(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh: usize, y0: usize, rows: usize, world: bool) {
+    if let Some(lc) = local_contrast_rows(a, rgb, gw, gh, y0, rows, world) {
+        let n = gw * rows;
+        finish_rgb(&mut rgb[..n * 3], Some(|i| lc.delta(i)), None, ColorSpace::Srgb);
+    }
+}
+
+/// Local contrast's **measurement** half: the two blurred luma bands of a
+/// finished raster, from which [`LocalContrast::delta`] gives each pixel's
+/// correction. Split from the **application** half (2026-09-23, owner ruling on
+/// `OUTSTANDING_WORK.md` §20 — see [`finish_rgb`]) so the correction can be
+/// added to a pixel that is still continuous instead of being truncated to a
+/// byte before the grade reads it. `None` exactly where the pass is a no-op.
+pub struct LocalContrast<'a> {
+    a: &'a TerrainAppearance,
+    fine: Vec<f32>,
+    blurred: Vec<f32>,
+    inv_knee2: f64,
+    gw: usize,
+    gh: usize,
+    y0: usize,
+}
+
+impl LocalContrast<'_> {
+    /// The additive correction for pixel `i` of the measured rows, faded out
+    /// under the plate frame. `0.0` for an untouched pixel.
+    pub fn delta(&self, i: usize) -> f64 {
+        let a = self.a;
+        let d = self.fine[i] as f64 - self.blurred[i] as f64;
+        let mut delta = a.local_contrast * d * (-(d * d) * self.inv_knee2).exp();
+        if delta == 0.0 {
+            return 0.0;
+        }
+        let cover = border_cover(a, i % self.gw, self.y0 + i / self.gw, self.gw, self.gh);
+        if cover > 0.0 {
+            delta *= 1.0 - cover;
+        }
+        delta
+    }
+}
+
+/// [`apply_local_contrast_rows`]'s measurement, without applying it.
+#[allow(dead_code)]
+pub fn local_contrast_rows<'a>(a: &'a TerrainAppearance, rgb: &[u8], gw: usize, gh: usize, y0: usize, rows: usize, world: bool) -> Option<LocalContrast<'a>> {
     if a.local_contrast <= 0.0 || gw == 0 || gh == 0 || rows == 0 {
-        return;
+        return None;
     }
     let n = gw * rows;
     if rgb.len() < n * 3 {
-        return;
+        return None;
     }
 
     // Rec.709 luma of the finished image, in 0-255 levels. Milestone 6: this
@@ -5869,22 +5914,118 @@ pub fn apply_local_contrast_rows(a: &TerrainAppearance, rgb: &mut [u8], gw: usiz
     let (fine, blurred) = rayon::join(|| blur_once(&luma, gw, rows, r_inner, world), || blur_once(&luma, gw, rows, rad, world));
 
     let knee = a.local_contrast_knee.max(1e-3);
-    let inv_knee2 = 1.0 / (knee * knee);
-    rgb[..n * 3].par_chunks_mut(3).enumerate().for_each(|(i, px)| {
-        let d = fine[i] as f64 - blurred[i] as f64;
-        let mut delta = a.local_contrast * d * (-(d * d) * inv_knee2).exp();
-        if delta == 0.0 {
+    Some(LocalContrast { a, fine, blurred, inv_knee2: 1.0 / (knee * knee), gw, gh, y0 })
+}
+
+/// The whole finishing chain — local contrast, the colour grade, the output
+/// colour space — over a finished `gw × gh` raster, quantised **once**.
+/// What `build_color_texture` and every whole-raster export run.
+#[allow(dead_code)]
+pub fn finish_raster(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh: usize, world: bool, influence: &[f32], space: ColorSpace) {
+    let lc = local_contrast_rows(a, rgb, gw, gh, 0, gh, world);
+    finish_rgb(rgb, lc.as_ref().map(|l| |i| l.delta(i)), Some((a, influence)), space);
+}
+
+/// The three whole-raster correction stages fused into **one** pass with one
+/// quantisation (owner ruling, 2026-09-23, `LARGE_ITEM_RULINGS.md` Ruling AN —
+/// build toward HDR/wide-gamut output, staged).
+///
+/// Until that ruling each stage was its own `u8 → u8` pass, so a pixel was
+/// truncated to a byte after local contrast, read back and truncated again
+/// after the grade, then decoded from that byte and rounded again by the
+/// colour space. Here the pixel stays `f64` from the byte `cell_color`'s
+/// caller wrote to the byte that leaves this function: `c + delta` (local
+/// contrast), then the grade, then the display re-encode, then one quantiser.
+/// That single quantiser is the seam a higher-precision output (a 16-bit or
+/// float encoder) plugs into later; nothing downstream of it exists yet —
+/// Godot's texture is `RGB8` and both export encoders are 8-bit.
+///
+/// **Why fused per pixel, not an `f32` buffer between passes.** The staged
+/// design named a widened intermediate buffer. Every one of these stages is a
+/// function of its own pixel once local contrast's blurs exist, so a buffer
+/// buys nothing a register does not — and it would cost 12 B/px on top of
+/// `export_raster.rs`'s *measured* 23 B/px peak gate, invalidating the
+/// measurement that keeps a 32K export from aborting the process.
+///
+/// **What is kept, deliberately.** Each stage still clamps to `0..=255`
+/// (range, not precision: the grade's pivots and tints are written against
+/// that range, and dropping the clamp is the HDR step, not this one). The
+/// quantiser is the one the last stage already used: truncation, the
+/// convention of every computing stage in this file, unless the colour space
+/// re-encoded the pixel, which rounds for [`apply_color_space`]'s documented
+/// reason. So a chain that runs only one stage — the default render, where
+/// the grade is at rest and the space is sRGB — is **byte-identical** to the
+/// old pass by construction, and the three `apply_*` functions are this
+/// function with two stages switched off.
+///
+/// `delta` is the per-pixel local-contrast correction (`None` = off); `grade`
+/// is the appearance and [`build_grade_influence`]'s buffer (`None` = off).
+/// `rayon`-parallel per pixel: each output byte is a pure function of its own
+/// three input bytes and its own index.
+#[allow(dead_code)]
+pub fn finish_rgb<F: Fn(usize) -> f64 + Sync>(rgb: &mut [u8], delta: Option<F>, grade: Option<(&TerrainAppearance, &[f32])>, space: ColorSpace) {
+    let grade = grade.filter(|(a, _)| !a.grade_is_identity());
+    let matrix = match space {
+        ColorSpace::Srgb => None,
+        ColorSpace::DisplayP3 => Some(&SRGB_TO_P3),
+    };
+    if delta.is_none() && grade.is_none() && matrix.is_none() {
+        return;
+    }
+    let weighted = grade.is_some_and(|(_, inf)| !inf.is_empty() && inf.len() == rgb.len() / 3);
+    // Hoisted for the flat grade: the per-pixel path costs a division for
+    // `contrast` that there is no reason to pay a million times for a constant.
+    let flat = grade.map(|(a, _)| GradeAxes::at(a, 1.0));
+    rgb.par_chunks_mut(3).enumerate().for_each(|(i, px)| {
+        if px.len() < 3 {
             return;
         }
-        let (x, y) = (i % gw, y0 + i / gw);
-        let cover = border_cover(a, x, y, gw, gh);
-        if cover > 0.0 {
-            delta *= 1.0 - cover;
-        }
-        for c in px.iter_mut() {
-            *c = (*c as f64 + delta).clamp(0.0, 255.0) as u8;
-        }
+        let d = delta.as_ref().map_or(0.0, |f| f(i));
+        let g = match (grade, flat) {
+            (Some((a, inf)), Some(flat)) => Some(if weighted { GradeAxes::at(a, inf[i] as f64) } else { flat }),
+            _ => None,
+        };
+        let c = finish_px((px[0] as f64, px[1] as f64, px[2] as f64), d, g.as_ref(), matrix);
+        // The one quantiser (see the doc above for why it truncates unless the
+        // space re-encoded).
+        let q = |v: f64| if matrix.is_some() { v.round().clamp(0.0, 255.0) as u8 } else { v as u8 };
+        px[0] = q(c.0);
+        px[1] = q(c.1);
+        px[2] = q(c.2);
     });
+}
+
+/// One pixel through [`finish_rgb`]'s three stages, **before** its quantiser:
+/// `0..=255`-scale and continuous.
+fn finish_px(mut c: Rgb, d: f64, g: Option<&GradeAxes>, m: Option<&[[f64; 3]; 3]>) -> Rgb {
+    if d != 0.0 {
+        c = ((c.0 + d).clamp(0.0, 255.0), (c.1 + d).clamp(0.0, 255.0), (c.2 + d).clamp(0.0, 255.0));
+    }
+    if let Some(g) = g {
+        let o = grade_pixel(g, c);
+        c = (o.0.clamp(0.0, 255.0), o.1.clamp(0.0, 255.0), o.2.clamp(0.0, 255.0));
+    }
+    if let Some(m) = m {
+        let (r, g, b) = (srgb_eotf(c.0 / 255.0), srgb_eotf(c.1 / 255.0), srgb_eotf(c.2 / 255.0));
+        let enc = |row: &[f64; 3]| srgb_oetf(row[0] * r + row[1] * g + row[2] * b) * 255.0;
+        c = (enc(&m[0]), enc(&m[1]), enc(&m[2]));
+    }
+    c
+}
+
+/// [`finish_px`] for a caller outside this file: the unquantised finished
+/// value of one pixel, given its local-contrast `delta` and its grade
+/// influence multiplier `m` (`1.0` = the flat grade). `pub` for
+/// `tests/color_space.rs`, which measures both quantised pipelines against it
+/// — the continuous value is the only honest answer to "which is closer".
+#[allow(dead_code)]
+pub fn finish_pixel_continuous(c: Rgb, delta: f64, grade: Option<(&TerrainAppearance, f64)>, space: ColorSpace) -> Rgb {
+    let g = grade.filter(|(a, _)| !a.grade_is_identity()).map(|(a, m)| GradeAxes::at(a, m));
+    let m = match space {
+        ColorSpace::Srgb => None,
+        ColorSpace::DisplayP3 => Some(&SRGB_TO_P3),
+    };
+    finish_px(c, delta, g.as_ref(), m)
 }
 
 // ===========================================================================
@@ -6210,24 +6351,7 @@ fn grade_pixel(g: &GradeAxes, mut c: Rgb) -> Rgb {
 /// argument: each output byte is a pure function of its own three input bytes.
 #[allow(dead_code)]
 pub fn apply_color_grade(a: &TerrainAppearance, rgb: &mut [u8], influence: &[f32]) {
-    if a.grade_is_identity() {
-        return;
-    }
-    let weighted = !influence.is_empty() && influence.len() == rgb.len() / 3;
-    // Hoisted for the flat grade, which is every render that leaves the four
-    // weights alone: the per-pixel path costs a division for `contrast` that
-    // there is no reason to pay a million times over for a constant.
-    let flat = GradeAxes::at(a, 1.0);
-    rgb.par_chunks_mut(3).enumerate().for_each(|(i, px)| {
-        if px.len() < 3 {
-            return;
-        }
-        let g = if weighted { GradeAxes::at(a, influence[i] as f64) } else { flat };
-        let c = grade_pixel(&g, (px[0] as f64, px[1] as f64, px[2] as f64));
-        px[0] = c.0.clamp(0.0, 255.0) as u8;
-        px[1] = c.1.clamp(0.0, 255.0) as u8;
-        px[2] = c.2.clamp(0.0, 255.0) as u8;
-    });
+    finish_rgb(rgb, None::<fn(usize) -> f64>, Some((a, influence)), ColorSpace::Srgb);
 }
 
 // ---- The output colour space (`LARGE_ITEM_RULINGS.md`, Colour management) ----
@@ -6389,13 +6513,16 @@ fn srgb_oetf(v: f64) -> f64 {
 ///
 /// # Precision
 ///
-/// 8 bits in, 8 bits out, so this costs one quantisation. It is bounded and
+/// Called on its own, 8 bits in, 8 bits out, so this costs one quantisation. It is bounded and
 /// small — the transform cannot clip (see [`SRGB_TO_P3`]) and it preserves
 /// neutrals exactly, so the error is confined to chroma; `tests/color_space.rs`
-/// measures the worst round-trip channel error over the whole 24-bit cube. The
-/// *precision* half of `OUTSTANDING_WORK.md` §2.5 is a separate row and this
-/// does not pretend to be it: what ships here is the plumbing and a gamut
-/// transform that is correct at this depth, not a high-precision pipeline.
+/// measures the worst round-trip channel error over the whole 24-bit cube.
+/// The shipped paths no longer call it on its own: since Ruling AN it is the
+/// last stage of [`finish_rgb`], whose input is the *continuous* output of
+/// local contrast and the grade rather than a byte, so it adds no
+/// quantisation of its own there. (Standalone, it is still reached by the
+/// screen path when an asset pack is loaded.) What is still not built is an
+/// output deeper than 8 bits.
 ///
 /// Rounds where the rest of this file truncates, and the difference is
 /// deliberate: truncation is the reference canvas's own behaviour on a value
@@ -6409,24 +6536,10 @@ fn srgb_oetf(v: f64) -> f64 {
 // see it as unreachable.
 #[allow(dead_code)]
 pub fn apply_color_space(space: ColorSpace, rgb: &mut [u8]) {
-    let m = match space {
-        ColorSpace::Srgb => return,
-        ColorSpace::DisplayP3 => &SRGB_TO_P3,
-    };
-    // The decode is a function of one byte, so all 256 answers are computed
-    // once instead of 3 per pixel. The encode cannot be: its input is a mixed
-    // continuous value, not a level.
-    let lut: [f64; 256] = std::array::from_fn(|i| srgb_eotf(i as f64 / 255.0));
-    rgb.par_chunks_mut(3).for_each(|px| {
-        if px.len() < 3 {
-            return;
-        }
-        let (r, g, b) = (lut[px[0] as usize], lut[px[1] as usize], lut[px[2] as usize]);
-        for (c, row) in m.iter().enumerate() {
-            let v = row[0] * r + row[1] * g + row[2] * b;
-            px[c] = (srgb_oetf(v) * 255.0).round().clamp(0.0, 255.0) as u8;
-        }
-    });
+    // `finish_rgb` returns before touching a byte when `space` is sRGB. The
+    // decode is no longer a 256-entry table: since Ruling AN its input is a
+    // continuous value whenever an earlier stage ran in the same pass.
+    finish_rgb(rgb, None::<fn(usize) -> f64>, None, space);
 }
 
 /// `state.mode === 'shade'` (reference `renderNow` line 8535, repeated
@@ -7067,11 +7180,16 @@ pub fn bake_export_band(ctx: &RenderCtx, bf: &BakeFields, ink: Option<RiverInk<'
     let ay0 = band.y0 - band.top;
     let ah = band.rows + band.top + band.bottom;
     let mut px = bake_rect(ctx, bf, ink, w, h, 0, ay0, w, ah);
-    apply_local_contrast_rows(&ctx.appearance, &mut px, w, h, ay0, ah, ctx.world);
+    // Measured over band + apron, applied to the band alone: the apron rows
+    // are discarded, so correcting them (as the pre-Ruling-AN pass did) was
+    // work that never reached a file. `delta`'s index is apron-relative.
+    let lc = local_contrast_rows(&ctx.appearance, &px, w, h, ay0, ah, ctx.world);
     px.drain(..band.top * w * 3);
     px.truncate(band.rows * w * 3);
     let inf = grade_influence_rows(grade_cells, ctx.gw, ctx.gh, w, h, band.y0, band.rows);
-    apply_color_grade(&ctx.appearance, &mut px, &inf);
+    let skip = band.top * w;
+    // The working space, never the display's: `export_raster.rs`'s module doc.
+    finish_rgb(&mut px, lc.as_ref().map(|l| move |i| l.delta(i + skip)), Some((&ctx.appearance, &inf)), ColorSpace::Srgb);
     px
 }
 
@@ -8541,24 +8659,6 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
             out[o] = cartalith_jsmath::u8_clamped(cr);
             out[o + 1] = cartalith_jsmath::u8_clamped(cg);
             out[o + 2] = cartalith_jsmath::u8_clamped(cb);
-
-            // Local contrast, from the grid's detail band sampled at this
-            // pixel's world coordinate — `apply_local_contrast`'s own
-            // correction, applied to the byte exactly as it applies it, and
-            // faded out under the plate frame exactly as it fades it.
-            if contrast_on {
-                let dd = sample_arr(&tf.contrast_d, wx, wy, gw, gh);
-                let mut delta = a.local_contrast * dd * (-(dd * dd) * inv_knee2).exp();
-                if delta != 0.0 {
-                    let cover = border_cover_f(a, wx, wy, gw, gh);
-                    if cover > 0.0 {
-                        delta *= 1.0 - cover;
-                    }
-                    for k in 0..3 {
-                        out[o + k] = (out[o + k] as f64 + delta).clamp(0.0, 255.0) as u8;
-                    }
-                }
-            }
         }
     });
 
@@ -8570,14 +8670,27 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
             }
         });
     }
-    // The two shipped whole-raster passes, unmodified and on the tile's own
-    // buffer, so a tile cannot be graded or encoded differently from the map
-    // it sits over.
-    apply_color_grade(a, &mut rgb, &influence);
-    apply_color_space(tf.color_space, &mut rgb);
+    // Local contrast, from the grid's detail band sampled at this pixel's world
+    // coordinate — `LocalContrast::delta`'s own correction, faded out under the
+    // plate frame exactly as it fades it — then the grade and the encode, all
+    // through the shipped `finish_rgb` on the tile's own buffer, so a tile
+    // cannot be finished or quantised differently from the map it sits over.
+    let lc_delta = |i: usize| {
+        let (wx, wy) = (bounds.x + (i % w) as f64 * cx, bounds.y + (i / w) as f64 * cy);
+        let dd = sample_arr(&tf.contrast_d, wx, wy, gw, gh);
+        let mut delta = a.local_contrast * dd * (-(dd * dd) * inv_knee2).exp();
+        if delta != 0.0 {
+            let cover = border_cover_f(a, wx, wy, gw, gh);
+            if cover > 0.0 {
+                delta *= 1.0 - cover;
+            }
+        }
+        delta
+    };
+    finish_rgb(&mut rgb, contrast_on.then_some(lc_delta), Some((a, &influence)), tf.color_space);
 
-    // RGB8 -> RGBA8. The buffer is RGB up to here so both passes above could
-    // be the shipped functions rather than tile-local copies of them.
+    // RGB8 -> RGBA8. The buffer is RGB up to here so the finishing pass above
+    // could be the shipped function rather than a tile-local copy of it.
     let mut out = vec![255u8; w * h * 4];
     out.par_chunks_mut(4).zip(rgb.par_chunks(3)).for_each(|(o, s)| {
         o[0] = s[0];

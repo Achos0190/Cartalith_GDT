@@ -77,9 +77,8 @@ fn appearance() -> TerrainAppearance {
 fn monolithic(ctx: &RenderCtx, a: &TerrainAppearance, ink: Option<RiverInk<'_>>, w: usize, h: usize) -> Vec<u8> {
     let bf = BakeFields::new(ctx);
     let mut px = render::bake_rect(ctx, &bf, ink, w, h, 0, 0, w, h);
-    render::apply_local_contrast(a, &mut px, w, h, ctx.world);
     let inf = render::build_grade_influence(ctx, w, h);
-    render::apply_color_grade(a, &mut px, &inf);
+    render::finish_raster(a, &mut px, w, h, ctx.world, &inf, render::ColorSpace::Srgb);
     px
 }
 

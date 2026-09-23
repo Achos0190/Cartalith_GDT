@@ -918,7 +918,7 @@ CV-24 (the year scrubber as program scope) and ED-02 (the undo-history panel) �
 
 ### Phase 3 — 2D terrain appearance · `TERRAIN_APPEARANCE_SCOPE.md`
 
-Six milestones plus one follow-up. All built. The 3D half of Phase 3 is not in
+Six milestones plus one follow-up, and §20's staged half (Ruling AN). All built. The 3D half of Phase 3 is not in
 this document and does not exist — see *Orientation*.
 
 | ID | Milestone | Status | Evidence |
@@ -930,8 +930,9 @@ this document and does not exist — see *Orientation*.
 | TA-4F | 4 follow-up — the overlays learn about the frame | done | `WorldGen::border_inset_frac` is consumed by every overlay draw call — `viewport_host.gd` and `civilization_workspace.gd` both pass `_bridge.border_inset_frac()` alongside the road/sea-route geometry |
 | TA-5 | 5 — geological material exposure + local contrast | done | `TerrainAppearance::{litho_exposure, local_contrast, local_contrast_radius_frac, local_contrast_knee}`; `render.rs::apply_local_contrast`, a rayon-parallel neighbourhood pass over final colour |
 | TA-6 | 6 — the GPU question answered by measurement; §29 quality tiers | done | Parallel pass: `use rayon::prelude::*` in `render.rs` with `par_chunks_mut` at three sites and a `rayon::join`. Tiers: `enum QualityTier`, `TerrainAppearance::for_tier`, `recommended_quality_tier` (with an explicit Android downgrade); `WorldGen::{get_quality_tier, set_quality_tier, list_quality_tiers, get_recommended_quality_tier}`; `engine_bridge.gd` and the tier picker in `menus.gd`; `tests/appearance_tiers.rs` |
+| TA-20s | §20's staged half: the finishing stages as one pass with one quantisation (owner ruling, `LARGE_ITEM_RULINGS.md` Ruling AN, 2026-09-23) | done, pending independent verification | `render.rs::finish_rgb`/`finish_raster`/`local_contrast_rows`; called from `lib.rs::build_color_texture`, `export_raster.rs` (`export_raster_png`, layers), `render::bake_export_band`, `render::render_biome_tile_rgba`. `tests/color_space.rs::fusing_the_finishing_passes_is_a_bounded_rounding_change` and `ANTIQUE_P3_FNV1A`; the default `FINISHED_RENDER_FNV1A` is unchanged. Probe: `godot-project/_finishpass_probe.gd` (windowed). §20's output half (HDR/tone mapping, a non-8-bit encoder) is **not built** |
 
-**Group total: 7 — 7 done.**
+**Group total: 8 — 8 done.**
 The GUI for all of this is `shell/workspaces/render_workspace.gd` (1 055 lines),
 composed into CARTO — see GFP-5.
 

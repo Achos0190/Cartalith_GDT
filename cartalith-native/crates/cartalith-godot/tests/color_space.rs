@@ -10,9 +10,13 @@
 //!
 //! [`FINISHED_RENDER_FNV1A`] is a hash of the **whole finished raster** for a
 //! deterministic synthetic world, taken through exactly the pipeline
-//! `lib.rs::build_color_texture` runs — the `cell_color` loop, then
-//! `apply_local_contrast`, then `apply_color_grade`. It was **measured before
-//! `render::ColorSpace` existed** and pinned unchanged afterwards. A golden
+//! `lib.rs::build_color_texture` runs — the `cell_color` loop, then local
+//! contrast and the colour grade (one fused pass since Ruling AN,
+//! `render::finish_raster`). It was **measured before `render::ColorSpace`
+//! existed** and pinned unchanged afterwards — and it survived Ruling AN
+//! unchanged too, because at the default only one stage runs, so there was no
+//! intermediate quantisation to remove. The re-baseline Ruling AN *did* make is
+//! [`ANTIQUE_P3_FNV1A`] and `fusing_the_finishing_passes_is_a_bounded_rounding_change`. A golden
 //! that merely still passes is weaker evidence: those compare against a JS
 //! reference at a tolerance, so a sub-tolerance drift would survive one. This
 //! is a byte hash of the shipped default image and nothing survives it.
@@ -69,11 +73,9 @@ fn ctx<'a>(s: &'a Synth, a: TerrainAppearance) -> RenderCtx<'a> {
     RenderCtx::with_appearance(&s.field, &s.temperature, &s.rainfall, Some(&s.flow), GW, GH, 0.42, false, 55.0, 5.0, a).with_lithology(&s.lith)
 }
 
-/// `lib.rs::build_color_texture`'s own pass order, minus the two stages that
-/// need state this fixture has no business inventing (the river channel tint
-/// and the asset-pack icon composite). Everything the appearance system itself
-/// contributes is here and in the order the shipped texture sees it.
-fn finished_render(a: &TerrainAppearance) -> Vec<u8> {
+/// The `cell_color` loop `lib.rs::build_color_texture` runs, before any
+/// whole-raster stage.
+fn base_render(a: &TerrainAppearance) -> (Vec<u8>, Vec<f32>) {
     let s = synth();
     let c = ctx(&s, a.clone());
     let mut out = vec![0u8; GW * GH * 3];
@@ -86,8 +88,33 @@ fn finished_render(a: &TerrainAppearance) -> Vec<u8> {
             row[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
         }
     });
+    (out, render::build_grade_influence(&c, GW, GH))
+}
+
+/// `lib.rs::build_color_texture`'s own pass order, minus the two stages that
+/// need state this fixture has no business inventing (the river channel tint
+/// and the asset-pack icon composite). Everything the appearance system itself
+/// contributes is here and in the order the shipped texture sees it — since
+/// Ruling AN, one fused pass (`render::finish_raster`) with one quantisation.
+fn finished_render_in(a: &TerrainAppearance, space: ColorSpace) -> Vec<u8> {
+    let (mut out, inf) = base_render(a);
+    render::finish_raster(a, &mut out, GW, GH, false, &inf, space);
+    out
+}
+
+fn finished_render(a: &TerrainAppearance) -> Vec<u8> {
+    finished_render_in(a, ColorSpace::Srgb)
+}
+
+/// The pre-Ruling-AN chain: three separate `u8 → u8` passes, each quantising.
+/// The three single-stage `apply_*` functions are `finish_rgb` with the other
+/// two stages off, so each is byte-identical to the pass it replaced — which
+/// is what lets this reproduce the old picture exactly.
+fn chained_render_in(a: &TerrainAppearance, space: ColorSpace) -> Vec<u8> {
+    let (mut out, inf) = base_render(a);
     render::apply_local_contrast(a, &mut out, GW, GH, false);
-    render::apply_color_grade(a, &mut out, &render::build_grade_influence(&c, GW, GH));
+    render::apply_color_grade(a, &mut out, &inf);
+    render::apply_color_space(space, &mut out);
     out
 }
 
@@ -121,6 +148,103 @@ fn srgb_leaves_the_finished_render_untouched() {
     let mut got = finished_render(&TerrainAppearance::default());
     render::apply_color_space(ColorSpace::Srgb, &mut got);
     assert_eq!(fnv1a(&got), FINISHED_RENDER_FNV1A);
+}
+
+/// `(differing pixels, worst channel delta, signed mean channel delta)` of
+/// `fused` against `chained`.
+fn diff(fused: &[u8], chained: &[u8]) -> (usize, i32, i32, f64) {
+    let px = fused.chunks_exact(3).zip(chained.chunks_exact(3)).filter(|(f, c)| f != c).count();
+    let d = || fused.iter().zip(chained).map(|(f, c)| *f as i32 - *c as i32);
+    let mean = d().map(|v| v as f64).sum::<f64>() / fused.len() as f64;
+    (px, d().min().unwrap_or(0), d().max().unwrap_or(0), mean)
+}
+
+fn strong_grade() -> TerrainAppearance {
+    TerrainAppearance {
+        grade_exposure: 0.2,
+        grade_gamma: 0.3,
+        grade_contrast: 0.25,
+        grade_saturation: 0.3,
+        grade_temperature: -0.2,
+        grade_highlight_tint: 0.3,
+        grade_field_elevation: 0.5,
+        ..TerrainAppearance::default()
+    }
+}
+
+/// **Ruling AN's re-baseline, measured.** Fusing local contrast, the grade and
+/// the colour space into one pass with one quantisation removes the byte
+/// truncation *between* stages. Where only one stage runs — the shipped
+/// default, whose grade is at rest and whose space is sRGB — there is no
+/// "between", and the image is byte-identical (`FINISHED_RENDER_FNV1A` did not
+/// move; this is the control). Where two or three run, pixels move by
+/// isolated single levels, and **upward** on balance: the old chain truncated
+/// twice or three times and each truncation discarded up to a level.
+///
+/// All three numbers per case are literals measured 2026-09-23.
+#[test]
+fn fusing_the_finishing_passes_is_a_bounded_rounding_change() {
+    let antique = TerrainAppearance::default().with_look(render::LOOK_ANTIQUE);
+    let cases = [
+        ("default sRGB", TerrainAppearance::default(), ColorSpace::Srgb),
+        ("default P3", TerrainAppearance::default(), ColorSpace::DisplayP3),
+        ("Antique sRGB", antique.clone(), ColorSpace::Srgb),
+        ("Antique P3", antique, ColorSpace::DisplayP3),
+        ("strong grade sRGB", strong_grade(), ColorSpace::Srgb),
+    ];
+    // (label, pixels that differ, worst upward move) -- measured 2026-09-23.
+    let want = [("default sRGB", 0, 0), ("default P3", 5012, 1), ("Antique sRGB", 5139, 2), ("Antique P3", 9318, 2), ("strong grade sRGB", 5276, 2)];
+    for ((label, a, space), (wl, wpx, wworst)) in cases.into_iter().zip(want) {
+        assert_eq!(label, wl);
+        let (fused, chained) = (finished_render_in(&a, space), chained_render_in(&a, space));
+        let (px, lo, hi, mean) = diff(&fused, &chained);
+        let (ef, ec) = (error_against_continuous(&a, space, &fused), error_against_continuous(&a, space, &chained));
+        println!(
+            "{label}: {px} of {} pixels differ, deltas {lo}..={hi}, signed mean {mean:+.4}; mean |error| vs continuous: fused {ef:.4}, chained {ec:.4}",
+            GW * GH
+        );
+        assert_eq!((px, hi), (wpx, wworst), "{label}: the fused pass moved a different set of pixels than was measured");
+        // Nothing moves DOWN: every difference is a level the old chain's
+        // intermediate truncation threw away and the single quantiser keeps.
+        assert!(lo >= 0, "{label}: a pixel came out darker than the old chain ({lo})");
+        // And the fused output is never further from the true continuous value.
+        if px == 0 {
+            assert_eq!(ef, ec, "{label}");
+        } else {
+            assert!(ef < ec * 0.75, "{label}: fused error {ef:.4} is not clearly below the chained {ec:.4}");
+        }
+    }
+}
+
+/// The re-baselined image, pinned: the graded, wide-gamut case, where all three
+/// stages run and the change is largest. **Before Ruling AN** the same fixture
+/// hashed `0x6c83_b198_b39e_4d68` (measured on `43a2f76`, and reproduced here
+/// by `chained_render_in` — it is the value the old chain still produces).
+const ANTIQUE_P3_FNV1A: u64 = 0xf96d_1e67_6c25_daae;
+
+#[test]
+fn the_graded_wide_gamut_render_is_the_re_baselined_image() {
+    let antique = TerrainAppearance::default().with_look(render::LOOK_ANTIQUE);
+    assert_eq!(fnv1a(&finished_render_in(&antique, ColorSpace::DisplayP3)), ANTIQUE_P3_FNV1A);
+    assert_eq!(fnv1a(&chained_render_in(&antique, ColorSpace::DisplayP3)), 0x6c83_b198_b39e_4d68);
+}
+
+/// Mean absolute distance, in levels, between `got` and the **continuous**
+/// finished value of every channel (`render::finish_pixel_continuous`, fed the
+/// same local-contrast delta and grade influence the pipeline uses).
+fn error_against_continuous(a: &TerrainAppearance, space: ColorSpace, got: &[u8]) -> f64 {
+    let (base, inf) = base_render(a);
+    let lc = render::local_contrast_rows(a, &base, GW, GH, 0, GH, false);
+    let n = GW * GH;
+    let mut sum = 0.0;
+    for i in 0..n {
+        let c = (base[i * 3] as f64, base[i * 3 + 1] as f64, base[i * 3 + 2] as f64);
+        let d = lc.as_ref().map_or(0.0, |l| l.delta(i));
+        let m = if inf.len() == n { inf[i] as f64 } else { 1.0 };
+        let t = render::finish_pixel_continuous(c, d, Some((a, m)), space);
+        sum += (got[i * 3] as f64 - t.0).abs() + (got[i * 3 + 1] as f64 - t.1).abs() + (got[i * 3 + 2] as f64 - t.2).abs();
+    }
+    sum / (n * 3) as f64
 }
 
 /// Every colour an RGB8 raster can hold, in index order: pixel `i` is
