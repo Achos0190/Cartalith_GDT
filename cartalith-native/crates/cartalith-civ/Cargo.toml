@@ -17,7 +17,8 @@ cartalith-rng = { path = "../cartalith-rng" }
 cartalith-terrain = { path = "../cartalith-terrain" }
 # `urban_adapter.rs` (`URBAN_MORPHOLOGY_SCOPE.md` milestone 17): the town
 # generator itself. The scope document names this crate as the adapter's home
-# precisely so `cartalith-urban` -- whose only dependency is `cartalith-rng` --
+# precisely so `cartalith-urban` -- whose only dependencies are `cartalith-rng`
+# and `cartalith-jsmath` --
 # never has to depend on civ, hydrology or terrain to be given a real site.
 cartalith-urban = { path = "../cartalith-urban" }
 # The same `hash(x,y,s)` (reference line 2292) `_umPlaceContext` derives its

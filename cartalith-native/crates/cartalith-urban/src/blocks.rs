@@ -24,8 +24,10 @@
 //!
 //! The reference reaches `buildBlocks` with a graph that has been through
 //! `buildPlaza` (milestone 8), `lanePass` and `removeWaterCrossings`
-//! (milestone 11). Two of the three still do not exist, and each leaves a mark
-//! here:
+//! (milestone 11). All three are ported now — `lanePass` and
+//! `removeWaterCrossings` as `cleanup.rs`'s `lane_pass`/`remove_water_crossings`
+//! — so the marks below are history (this said two did not exist until
+//! 2026-09-24):
 //!
 //! - ~~**No plaza.**~~ **Closed 2026-08-24.** [`crate::plaza::build_plaza`] is
 //!   ported, and `cartalith_civ::urban_adapter` runs it where `generate()`

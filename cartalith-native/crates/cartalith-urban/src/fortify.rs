@@ -1,4 +1,4 @@
-//! Fortification — reference lines **29631-30032**, eight functions.
+//! Fortification — reference lines **29631-30032**, nine functions.
 //!
 //! `ringCrossings`, `convexHull`, `densifyLoop`, `nearestIdx`, `cornerCut`,
 //! `townBank`, `builtMassHull`, `buildWall`, `applyStarFort`. Two of those nine

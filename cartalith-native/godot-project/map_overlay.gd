@@ -4357,8 +4357,9 @@ func _notification(what: int) -> void:
 # §2.5. This port draws the same layer from the same kind of data, restricted
 # to what `URBAN_MORPHOLOGY_SCOPE.md` actually generates — a street skeleton
 # on a real site, plus milestone 12's blocks and the lots platted in them.
-# Buildings and the wall circuit are milestones 13 and 10 and are not
-# generated; `urban_layout_draw.gd` records what it draws in their place.
+# Buildings and the wall circuit (milestones 13 and 10) are generated too now,
+# and `urban_layout_draw.gd` draws them (this said they were not, until
+# 2026-09-24).
 #
 # **The reveal gate IS the reference's `_umLayoutAlpha` again, since
 # 2026-08-24.** It was not, for one stated reason: that function crossfades
