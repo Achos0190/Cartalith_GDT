@@ -151,6 +151,11 @@ pub struct Parcel {
     /// [`crate::wallside::build_wall_lots`] plats against the town wall, whose
     /// back line (`poly[3]`→`poly[2]`) lies on the wall's face.
     pub wall_backing: WallBacking,
+    /// **This port's own field, not the reference's** — a Ruling H / Ruling AD
+    /// departure (`crate::courtyard`). `true` only for the lots
+    /// [`crate::courtyard::build_courtyard_rings`] plats around a block's open
+    /// court, whose back line (`poly[3]`→`poly[2]`) is the court's edge.
+    pub courtyard_ring: bool,
 }
 
 /// `buildBlocks` (line 30193) — the faces of the street graph, inset by their
@@ -456,6 +461,7 @@ pub fn build_parcels(
                         edge_cls: eref.map_or("street", |eid| g.edges[eid].cls),
                         tone: tone_rng.u(),
                         wall_backing: WallBacking::No,
+                        courtyard_ring: false,
                     });
                     pid += 1;
                 }

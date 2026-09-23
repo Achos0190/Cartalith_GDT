@@ -564,6 +564,7 @@ const PROV_QUAY_WAREHOUSE: &str = "Warehouse: deep gable-fronted store on the qu
 const PROV_MAIN: &str = "Main range on the build-to line (zero setback, M-BLD-1; depth M-BLD-2).";
 const PROV_WING: &str =
     "Rear wing: burgage-cycle infill along the plot side (age-driven, M-BLD-6).";
+const PROV_COURTYARD_RING: &str = "Perimeter-block range: one of a continuous ring of houses fronting every street of an outer block, backing onto the block's shared open court (owner's town plan; Ruling H, sited by Ruling AD).";
 const PROV_REAR_RANGE: &str = "Rear range closing a courtyard plan (M-BLD-3).";
 const PROV_OUTBUILDING: &str = "Rear outbuilding (barn/workshop) at the plot tail (M-BLD-6).";
 
@@ -574,7 +575,9 @@ const PROV_OUTBUILDING: &str = "Rear outbuilding (barn/workshop) at the plot tai
 /// modular/courtyard/machiya mix between), the S6 working-yard shed, and the
 /// medieval burgage cycle — main range on the build-to line, an age-driven rear
 /// wing, a rear outbuilding, and a courtyard plan on grand market and burgher
-/// plots.
+/// plots. **Not the reference:** a lot [`crate::courtyard`] platted round a
+/// perimeter block's open court takes one range filling the lot, flagged
+/// `courtyard`, and is never left as a paddock (Ruling H, sited by Ruling AD).
 ///
 /// `terrain_aware` is the opt-in terrain gate (docs/08, M-TER-2): a parcel
 /// whose ground scores below 0.5 is left as a vacant lot rather than having its
@@ -624,7 +627,9 @@ pub fn build_buildings(
         let par = lot.par;
         let mut r: Substream = stream(fnv1a(&par.id), "bld");
         let d = lot.district;
-        if d == "agrarian" && r.chance(0.45) {
+        // A courtyard-ring lot is never a paddock: the ring is continuous
+        // (`crate::courtyard`). Short-circuits before the draw.
+        if d == "agrarian" && !par.courtyard_ring && r.chance(0.45) {
             lot.empty = true; // paddocks
             continue;
         }
@@ -646,6 +651,35 @@ pub fn build_buildings(
         if terrain_aware && lot.suitability < 0.5 {
             lot.empty = true;
             lot.unsuitable = true;
+            continue;
+        }
+        // **Not the reference** (Ruling H / Ruling AD, `crate::courtyard`): a
+        // perimeter-block lot is one range from the street line to the court,
+        // the full lot, with no eaves gap — the ring is continuous. The
+        // working-yard and warehouse districts keep their own grammars.
+        if par.courtyard_ring
+            && !matches!(d, "harbour" | "warehouse" | "oreyard" | "fishery" | "sawyard")
+        {
+            let poly = rect_poly(par, 0.0, 1.0, 0.0, 1.0);
+            if poly_area(&poly).abs() >= 9.0 {
+                // Ridge along the street, whatever the lot's proportions: the
+                // ranges of a perimeter block run round it, not into the court.
+                let (m0, m1) = (poly[0].lerp(poly[3], 0.5), poly[1].lerp(poly[2], 0.5));
+                let ridge = [m0.lerp(m1, 0.16), m0.lerp(m1, 0.84)];
+                out.push(Building {
+                    id: format!("bld{}", bid),
+                    poly,
+                    ridge,
+                    parcel: par.id.clone(),
+                    kind: "main",
+                    district: d,
+                    age: par.age,
+                    courtyard: true,
+                    prov: PROV_COURTYARD_RING,
+                });
+                bid += 1;
+            }
+            lot.built = true;
             continue;
         }
         // Venus Project blended grammar (M-VEN-5): a deliberate fusion, not a

@@ -73,8 +73,9 @@
 //! # What reads as "poor" here, and why no new visual language was invented
 //!
 //! This codebase has no wealth or status field. What it does have is a grammar
-//! whose richness is keyed on district: courtyards only on market and burgher
-//! plots, deeper main ranges there (`logn(11.5)` against `logn(9.5)`), and wings
+//! whose richness is keyed on district: per-lot courtyard plans only on market
+//! and burgher plots (the block-scale perimeter rings of `crate::courtyard`,
+//! added later, are the outer ring's), deeper main ranges there (`logn(11.5)` against `logn(9.5)`), and wings
 //! and outbuildings with age. A faubourg lot gets the bottom of that scale on
 //! every axis — frontage `logn(6.5)` against the town's `logn(11)`, depth
 //! 6-12 m, one small range at the lot's wallward end and nothing else (a
@@ -497,6 +498,7 @@ pub fn build_wall_lots(
             edge_cls,
             tone: tone.u(),
             wall_backing: backing,
+            courtyard_ring: false,
         });
     };
 

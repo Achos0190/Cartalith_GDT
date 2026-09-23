@@ -19,6 +19,10 @@
 //! sited by Ruling AC 2026-09-23) sets a citadel astride the curtain of the
 //! largest organic towns, after the rampart sweep; its one moved golden case is
 //! disclosed in the same header.
+//! A third: [`build_courtyard_rings`] (`crate::courtyard`, Ruling H, sited by
+//! Ruling AD 2026-09-23) re-plats the organic plan's outermost ring of dense
+//! blocks as perimeter blocks round an open court, straight after the wall
+//! lots; disclosed in the same header.
 //!
 //! # Two orderings that are not interchangeable
 //!
@@ -73,6 +77,7 @@
 use crate::amenities::{Civic, GamesBuilding, Market, build_civic, build_games, build_markets};
 use crate::blocks::{Block, Parcel, build_blocks, build_parcels};
 use crate::citadel::{CITADEL_MIN_POP, Citadel, build_citadel, citadel_sweep};
+use crate::courtyard::build_courtyard_rings;
 use crate::cleanup::{clear_fort_zone, lane_pass, privatize_alleys, remove_water_crossings};
 use crate::districts::{
     Building, FaithSite, Lot, assign_districts, build_buildings, build_faith_sites,
@@ -519,6 +524,15 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
     let wall_lots =
         build_wall_lots(seed, &g, &wall_state, &site, &blocks, &parcels, pop_target, epochs);
     parcels.extend(wall_lots);
+    // **Not the reference** (Ruling H, sited by Ruling AD, `crate::courtyard`):
+    // the outermost ring's dense blocks are re-platted as perimeter blocks
+    // round an open court. After the wall lots, so they plat against exactly
+    // the street lots they always did; organic plan only, so the Venus
+    // warehouse belt is untouched. A block that is not converted keeps its
+    // strip lots, ids and draws.
+    if profile.planning != "radial" {
+        build_courtyard_rings(seed, &g, &blocks, &mut parcels, anchors.market, epochs, &site);
+    }
 
     let quay = |h: &Option<HarbourWorks>| h.as_ref().map(|w| w.quay.clone());
     let quay_pts = quay(&harbour);

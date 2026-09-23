@@ -775,3 +775,36 @@ fn only_the_largest_curtain_walled_golden_case_gets_a_citadel() {
         .collect();
     assert_eq!(got, vec!["coastHarbourChain"]);
 }
+
+/// Ruling AD's perimeter blocks (`crate::courtyard`), pinned against the golden
+/// set: every organic case that plats an outermost dense block takes it, and
+/// the six Venus plans never do. The two organic cases without one are named,
+/// so a change that silently stops reaching them fails here.
+#[test]
+fn the_outermost_dense_blocks_become_perimeter_blocks_on_the_organic_plan() {
+    let none = [
+        "landlockedHamlet",
+        "unnavigableStem",
+        "venusRadial",
+        "venusFortCanal",
+        "venusThroughBridges",
+        "venusLandlockedCanal",
+        "venusSmall",
+        "venusTinyCanal",
+    ];
+    let mut rung = Vec::new();
+    for c in golden::CASES {
+        let t = generate(c.seed, &opts_for(c));
+        let blocks: std::collections::BTreeSet<&str> = t
+            .parcels
+            .iter()
+            .filter(|p| p.par.courtyard_ring)
+            .map(|p| p.par.block.as_str())
+            .collect();
+        assert_eq!(blocks.is_empty(), none.contains(&c.name), "{}: {} ring blocks", c.name, blocks.len());
+        if !blocks.is_empty() {
+            rung.push(c.name);
+        }
+    }
+    assert_eq!(rung.len(), 21);
+}
