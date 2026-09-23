@@ -342,7 +342,7 @@ coastline actually reach here." Downstream, at *rendering* time,
 `cartalith-urban`'s `build_site` does pick one real traced river polyline —
 but its binding test is `riverPath` truthiness, which passes for an empty or
 one-point path. This is a **known, deliberately-reproduced** bug
-(`URBAN_MORPHOLOGY_SCOPE.md:867-870`, golden-pinned as `pathOfOne`/
+(`URBAN_MORPHOLOGY_SCOPE.md` milestone 5, finding 3, golden-pinned as `pathOfOne`/
 `pathEmpty`) — carried over for parity, never recognized as something to fix.
 
 **Owner ruling, 2026-09-20 (Ruling N — recorded in `LARGE_ITEM_RULINGS.md`):
