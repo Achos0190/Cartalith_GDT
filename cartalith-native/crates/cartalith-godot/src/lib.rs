@@ -7172,6 +7172,21 @@ impl WorldGen {
         applied
     }
 
+    /// Drop the overrides for just these keys, so each goes back to whatever
+    /// the tier/look/preset below it says -- `reset_appearance` for a subset.
+    /// Returns how many overrides were actually present and dropped; an
+    /// unknown key or one never overridden is a no-op, not an error.
+    ///
+    /// Exists for the CARTO style gallery (`render_workspace.gd`'s
+    /// `_apply_preset`): a preset that writes appearance keys ("Village"'s
+    /// hillshade-off recipe) must be undone by the next preset, and the only
+    /// honest "undo" is to stop overriding -- writing back a remembered number
+    /// would pin it against a later tier or look change.
+    #[func]
+    fn drop_appearance_overrides(&mut self, keys: PackedStringArray) -> i32 {
+        keys.as_slice().iter().filter(|k| self.appearance_over.remove(&k.to_string()).is_some()).count() as i32
+    }
+
     /// Drop the caller's overrides, ramp, layer stack and loaded preset, and
     /// hand every appearance value back to the active quality tier. Returns how
     /// many things were dropped, so a "Reset" button can stay quiet when there
@@ -7809,9 +7824,14 @@ impl WorldGen {
             )),
             WorldSource::Loaded(_) => None,
         };
+        // v0.103's above-sea lakes (`RenderCtx::with_lakes`): the same
+        // classification the LOD tiles draw from (`TileFields::new`), so the
+        // screen and a tile agree on where a lake is.
+        let lakes = cartalith_civ::build_water_bodies(field, gw, gh, self.sea_level, self.world, Some(rainfall)).classification;
         let mut ctx = RenderCtx::with_appearance(
             field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance.clone(),
-        );
+        )
+        .with_lakes(&lakes);
         if let Some(lith) = lithology.as_ref() {
             ctx = ctx.with_lithology(lith);
         }
@@ -8581,6 +8601,13 @@ impl WorldGen {
                 if n >= 2 {
                     po[n - 1] = po[n - 2];
                 }
+                // `own_order`: the run's highest order EXCLUDING the junction
+                // cell it ends on -- `order` above counts that cell, so every
+                // headwater trickle that reaches a trunk reads as the trunk.
+                // `_draw_rivers` keys `drawRiverWays`' order-1 de-emphasis
+                // (reference 9512, v0.96/v1.41) on this, for the same reason
+                // `colors` below takes the predecessor's order at the end.
+                d.set("own_order", po.iter().copied().max().unwrap_or(1) as i64);
                 // Render points run head to mouth, so the nearest traced
                 // point only ever moves forward.
                 let mut near = 0;
@@ -9608,6 +9635,7 @@ impl WorldGen {
         s.draft.preview_into(&ws.field, &mut scratch);
 
         let appearance = self.appearance();
+        let lakes = cartalith_civ::build_water_bodies(&scratch, gw, gh, self.sea_level, self.world, Some(&ws.rainfall)).classification;
         let ctx = RenderCtx::with_appearance(
             &scratch,
             &ws.temperature,
@@ -9624,7 +9652,8 @@ impl WorldGen {
         // Same attachment as `build_color_texture` above: the sculpt preview
         // is the same picture with a drafted heightfield, so it has to take
         // the same stages or the preview stops predicting the commit.
-        .with_map_scale(self.map_width_km);
+        .with_map_scale(self.map_width_km)
+        .with_lakes(&lakes);
         let mut bytes = vec![0u8; gw * gh * 3];
         bytes.par_chunks_mut(gw * 3).enumerate().for_each(|(y, row)| {
             for x in 0..gw {

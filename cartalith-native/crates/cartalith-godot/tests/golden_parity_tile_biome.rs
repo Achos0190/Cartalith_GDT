@@ -234,12 +234,14 @@ fn screen_finished(ctx: &RenderCtx, a: &TerrainAppearance) -> Vec<u8> {
 /// path, the crest, both SDF bands, the waves, the parchment, the plate frame,
 /// local contrast, the grade and the colour space.
 ///
-/// Lakes are switched off for the same reason they exist: the reference's
-/// tile draws above-sea lakes and its own main-map loop does not (*"The BASE
-/// per-cell map loop is untouched"*, 11740), so leaving them on would measure
-/// a difference this port did not introduce and cannot remove without
-/// diverging from the reference. `the_tile_draws_lakes_the_screen_does_not`
-/// below asserts that difference separately rather than hiding it.
+/// Lakes are switched off on the tile because the screen side here is built
+/// without `RenderCtx::with_lakes`: the two draw a lake differently (the tile
+/// with the v1.05 terrain-following shoreline, the screen with the v0.103
+/// per-cell stamp, reference 8580), so leaving them on would measure that
+/// shape difference rather than the terrain path this test is about. (This
+/// note used to say the reference's main-map loop draws no lakes at all, and
+/// cited a test `the_tile_draws_lakes_the_screen_does_not` that never existed;
+/// both were wrong -- corrected 2026-09-23.)
 ///
 /// What remains is the **quantization**: the tile stores through
 /// `u8_clamped` (the reference's `ToUint8Clamp`, round-half-to-even) and

@@ -3525,6 +3525,10 @@ pub struct RenderCtx<'a> {
     /// [`Self::with_ground_tiles`]. Empty is the pack-less state and is
     /// byte-identical to what this renderer did before the field existed.
     ground: GroundTiles<'a>,
+    /// `_lakeWB` (reference 8460) -- the water-body classification (`2` =
+    /// lake) the base map loop stamps above-sea lakes from (v0.103, 8580).
+    /// `None` by construction; attach with [`Self::with_lakes`].
+    lake_class: Option<&'a [u8]>,
 }
 
 /// Everything [`RenderCtx::with_appearance`] and [`RenderCtx::with_map_scale`]
@@ -3711,6 +3715,7 @@ impl<'a> RenderCtx<'a> {
             paint_terrain: None,
             paint_splat: None,
             ground: GroundTiles::default(),
+            lake_class: None,
         }
     }
 
@@ -3775,6 +3780,7 @@ impl<'a> RenderCtx<'a> {
             paint_terrain: None,
             paint_splat: None,
             ground: GroundTiles::default(),
+            lake_class: None,
         })
     }
 
@@ -3835,6 +3841,28 @@ impl<'a> RenderCtx<'a> {
     /// would otherwise index out of bounds inside the render loop, and a
     /// panic there crosses the gdext boundary (`cartalith-rust-conventions`).
     #[allow(dead_code)]
+    /// Attach the water-body classification (`cartalith_civ::build_water_bodies`'
+    /// `classification`), so [`cell_color`] draws above-sea lakes as water --
+    /// the reference's v0.103 base-map stamp (8460/8580): *"above-sea lakes
+    /// render as flat freshwater (below-sea lakes/inland seas already pass the
+    /// isWater test -> rendered as sea)"*.
+    ///
+    /// **This was unported until 2026-09-23**, on a misreading of v1.05's
+    /// *"The BASE per-cell map loop is untouched"* (11740) as "the base loop
+    /// draws no lakes" -- it means v1.05's shoreline did not change the base
+    /// loop, whose v0.103 stamp already drew them. The LOD tile path did draw
+    /// them, so every place the tile blends against the base raster (the LOD
+    /// entry band, a level whose parents are still building) faded a lake in
+    /// and out: the owner's "lakes flickering on zoom". A builder, like
+    /// [`Self::with_lithology`], so positional test callers stay unchanged.
+    #[allow(dead_code)]
+    pub fn with_lakes(mut self, lake_class: &'a [u8]) -> Self {
+        if lake_class.len() == self.gw * self.gh {
+            self.lake_class = Some(lake_class);
+        }
+        self
+    }
+
     pub fn with_lithology(mut self, lithology: &'a [u8]) -> Self {
         if lithology.len() == self.gw * self.gh {
             self.lithology = Some(lithology);
@@ -6614,6 +6642,10 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         let depth = if ctx.sea_level <= 0.0 { 0.0 } else { clamp01((ctx.sea_level - hs) / ctx.sea_level) };
         let n_low = sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw);
         sea_color_core(&ctx.appearance, depth, t, n_low, shw, ctx.vignette_at(x, y))
+    } else if ctx.lake_class.is_some_and(|l| l[i] == 2) {
+        // v0.103 (8580): an above-sea lake is flat freshwater -- `lakeColor`
+        // (8324), which is [`lake_color`], the same surface the tile draws.
+        lake_color(&ctx.appearance, t, sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw), ctx.vignette_at(x, y))
     } else {
         // `surfaceColor` (8145-8196), unconditional parts only.
         let m = ctx.rainfall[i] as f64;
@@ -7338,11 +7370,14 @@ fn channel_tint(a: &TerrainAppearance, c: (f64, f64, f64), t: f64, gx: f64, gy: 
 //    the contract"*, so it is transcribed as written and measured rather than
 //    quietly corrected; `tests/golden_parity_tile_biome.rs` attributes the screen-identity
 //    residual to it by holding the term equal on both sides.
-// 3. **Lakes.** The tile draws above-sea lakes (the reference's v1.05
-//    `_lakeFill` shoreline, 11717-11740) and this port's `cell_color` does not
-//    — which is the reference's own asymmetry, stated in that block's last
-//    line: *"The BASE per-cell map loop is untouched (default render
-//    identical)."*
+// 3. **Lakes.** The tile draws above-sea lakes with the v1.05 `_lakeFill`
+//    shoreline (11717-11740); `cell_color` draws them per cell, the v0.103
+//    stamp (8580), once a caller attaches the classification with
+//    [`RenderCtx::with_lakes`]. That block's closing *"The BASE per-cell map
+//    loop is untouched (default render identical)"* means v1.05 left the base
+//    loop's own v0.103 stamp alone -- NOT that the base draws no lakes, which
+//    is how this note read until 2026-09-23 and why the screen lacked them.
+//    A context without `with_lakes` (every golden fixture) still draws none.
 //
 // # The port-only stages, in `cell_color`'s order
 //

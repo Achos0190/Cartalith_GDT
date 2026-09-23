@@ -3597,6 +3597,21 @@ func _draw_rivers(rect: Rect2) -> void:
 	## `rect.size / _gw`, times the `k` `_stroke_points` multiplies by. A width
 	## in cells times this is a width on the ground.
 	var px_per_cell: float = rect.size.x / maxf(1.0, float(_gw)) * k
+	## `drawRiverWays`' anti-barcode rule (reference 9512, v0.96 + v1.41),
+	## which this overlay shipped without: the network carries hundreds of
+	## order-1 trickles, and on a smooth slope they run downhill side by side
+	## -- the "green barcode" / "hatching" the reference's owner reported, and
+	## this port's owner's "a lot of parallel lines ... chaotic" (2026-09-23).
+	## Order-1 runs draw at 0.4 alpha and 0.55x width at the opening view, and
+	## the de-emphasis fades out by 8x zoom, where a headwater stream IS the
+	## subject. `zk` is the zoom relative to the opening view -- the port's
+	## counterpart of the reference's LOD zoom factor, 1 at the default view.
+	## Keyed on `own_order` (the run excluding the trunk cell it joins), not
+	## `order`, which counts that cell and would read every trickle as trunk.
+	var zk := maxf(1.0, _camera_zoom / _lod_zoom_base())
+	var de_emph := clampf(1.0 - (zk - 1.0) / 7.0, 0.0, 1.0)
+	var o1_alpha := 0.4 + 0.6 * (1.0 - de_emph)
+	var o1_width := 0.55 + 0.45 * (1.0 - de_emph)
 	for river: Dictionary in _rivers:
 		## No `width_cells` means `channel_disc` found no flow at the run's
 		## last own cell (`get_rivers()`' doc) --
@@ -3612,6 +3627,11 @@ func _draw_rivers(rect: Rect2) -> void:
 		if pts.size() < 2 or colors.size() != pts.size():
 			continue
 		var width_px: float = float(river["width_cells"]) * px_per_cell
+		if int(river.get("own_order", river.get("order", 2))) <= 1 and o1_alpha < 1.0:
+			width_px *= o1_width
+			colors = colors.duplicate()
+			for ci in colors.size():
+				colors[ci].a *= o1_alpha
 		var screen_points := _stroke_points(pts, 0, pts.size(), rect, k)
 		var pad := width_px * 0.5
 		if _run_offscreen(screen_points, k, pad):

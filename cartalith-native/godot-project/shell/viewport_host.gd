@@ -2694,6 +2694,21 @@ func _fmt_thousands(v: float, decimals: int) -> String:
 ## `_displayed_rect()`/`_cell_to_screen`) that the same arithmetic needs, so
 ## nothing new is invented here, only reused.
 func _update_lod() -> void:
+	## **The overlay culls against the view, so a camera move must redraw it.**
+	## `map_overlay.gd` computes `_visible_local` once per `_draw()` and drops
+	## every river, way and route run outside it (`_run_offscreen`,
+	## `_segment_chains`), and urban layouts are requested from the same rect.
+	## Godot does not re-run `_draw()` when an ANCESTOR (`_camera`) moves, and
+	## only a zoom change queued a redraw (`set_camera_zoom`) -- so a pan, a
+	## `move_view_to` or a reset at unchanged zoom kept the old frame's cull:
+	## rivers and roads missing across the newly revealed ground, and a town
+	## panned onto never requesting its layout. Measured 2026-09-23
+	## (`_owner5_probe.gd --rivdbg`, z=32): 0 river/road pixels after a
+	## zoom-then-move, all of them back after an explicit redraw. Every camera
+	## move reaches this function, which is why the redraw lives here; Godot
+	## coalesces it to one `_draw()` per frame however many motions arrive.
+	if overlay != null:
+		overlay.queue_redraw()
 	if not _engine_readable():
 		_set_lod_active(false)
 		return

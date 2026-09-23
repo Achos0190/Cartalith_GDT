@@ -1194,6 +1194,14 @@ func set_appearance(values: Dictionary) -> int:
 	mark_world_dirty()
 	return world_gen.set_appearance(values)
 
+## Stop overriding just these keys, so each returns to the tier/look value.
+## Returns how many overrides were dropped; 0 on an older cdylib without it.
+func drop_appearance_overrides(keys: PackedStringArray) -> int:
+	if not appearance_api or not world_gen.has_method("drop_appearance_overrides"):
+		return 0
+	mark_world_dirty()
+	return world_gen.drop_appearance_overrides(keys)
+
 ## Hand every appearance value back to the active quality tier. Returns how
 ## many overrides were dropped.
 func reset_appearance() -> int:

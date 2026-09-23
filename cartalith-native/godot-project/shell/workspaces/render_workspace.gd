@@ -125,9 +125,34 @@ const STYLE_PRESETS := [
 	## here ("turn the hillshade off in the recipe") so the quantiser is not
 	## fed a smooth per-pixel gradient it would just re-sample into more,
 	## still-graded bands instead of a few flat ones.
+	##
+	## **Zero band weights alone are not "hillshade off" in this renderer.**
+	## `land_color`'s light is `relief_ambient + relief_gain * sh^0.85`, so
+	## with every band weighted 0 the light collapses to the ambient FLOOR
+	## (0.34 at the tier default): the whole land mass drawn at a third of its
+	## brightness, which the quantiser then snapped to near-black and garish
+	## primaries -- the owner's "photo negative" (2026-09-23). `relief_ambient`
+	## 1.0 makes that constant light exactly 1.0, i.e. the material colour
+	## unmodulated, which is what switching a hillshade off means.
 	["Village", "Quality tier", {"village": true},
-		{"detail_macro_weight": 0.0, "detail_meso_weight": 0.0, "detail_micro_weight": 0.0}],
+		{"detail_macro_weight": 0.0, "detail_meso_weight": 0.0, "detail_micro_weight": 0.0,
+			"relief_ambient": 1.0}],
 ]
+
+## Every appearance key any preset's 4th element writes -- derived from the
+## table, not listed by hand, so a new recipe key is covered the day it is
+## added. `_apply_preset` stops overriding all of them before applying the
+## chosen preset: without that, "Village"'s recipe outlived it and every
+## later preset drew with the hillshade off and the ambient at 1.0 (the
+## owner's "selecting another style doesn't change anything", 2026-09-23).
+static func _preset_appearance_keys() -> PackedStringArray:
+	var keys := PackedStringArray()
+	for entry in STYLE_PRESETS:
+		if entry.size() > 3:
+			for key in Dictionary(entry[3]):
+				if not keys.has(String(key)):
+					keys.append(String(key))
+	return keys
 
 ## The gallery tile's own minimum width. **Not a `DccTheme.ROLE` row**: `ROLE`
 ## is a shared table whose every relationship is re-checked when it is re-based
@@ -828,10 +853,12 @@ func _apply_preset(index: int) -> void:
 	bridge.set_npr(values)
 	## The optional 4th element: raw `set_appearance()` overrides, so far only
 	## "Village"'s hillshade-off recipe (see `STYLE_PRESETS`'s own comment).
-	## Every other preset's entry has three elements and this is a no-op for
-	## them. Before `_sync_appearance()` below, which is what pulls the new
+	## Absolute, like the Painter half: every recipe key is dropped back to the
+	## tier/look value first, then this preset's own (if any) are written.
+	## Before `_sync_appearance()` below, which is what pulls the new
 	## values back into the Rendering-advanced rows -- the same order
 	## `set_look`/`set_npr` already use, so one re-render carries all three.
+	bridge.drop_appearance_overrides(_preset_appearance_keys())
 	if STYLE_PRESETS[index].size() > 3:
 		bridge.set_appearance(Dictionary(STYLE_PRESETS[index][3]))
 	_sync_appearance()
