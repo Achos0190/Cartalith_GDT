@@ -39,6 +39,20 @@ won and §6 records the disagreement — those defects in the project record are
 worth more than any single milestone row below, and a reader with ten minutes
 should read §6 before §2.
 
+73 outstanding items — 2026-09-23, net −2: three more agents (dispatched on the rulings the previous
+log entry recorded) reported back, verified independently, and committed. **The urban-algorithm row —
+CLOSED, commit `ae6a8c8`**: candidate 4 (perimeter courtyard blocks) built, 21 of 29 golden cases move,
+disclosed old→new; a real bug in `geom::inset_poly` caught and fixed along the way (an offset past a
+polygon's half-width silently returned its mirror rather than failing). All 4 of the row's candidates now
+resolved. **IN-13 trade flows — pieces 1-3 built, commit `bbc255f`**: `trade_flows()` is now faction-aware,
+every flow carries a scarcity price and a tariff; the load-bearing untariffed-parity property verified
+three ways including bit-identical digests on a real 233-settlement world. Caravans (piece 4) deliberately
+deferred with two concrete design options recorded rather than guessed — row stays open, shrunk to just
+that piece. **`label_glyph_layout` — CLOSED, commit `a52ddcf`**: unified one layer above the golden-pinned
+label functions (left untouched to protect their reference parity) rather than through them; a new
+windowed probe measures the fix by real pixel-scanned glyph ink, confirming the handle now lands inside
+the glyph's own footprint where the old formula landed outside it. `cargo test --workspace --no-fail-fast`
+reproduced 3581/0/37 across all three merged batches together, matching each agent's own independent count.
 75 outstanding items — 2026-09-23, net −1: asked the owner four more consolidated design questions
 (covering the urban-algorithm row's candidate 4, IN-13's tariff/caravan sub-questions, and the
 label_glyph_layout design question), got real answers, recorded as Rulings AD-AG, and built the two rows
