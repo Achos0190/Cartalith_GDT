@@ -1315,3 +1315,64 @@ shell's own test world — a single, isolated case where the new, much larger
 network's geometry meets the drawing-layer bridging rule from a different
 angle than before; not a systemic regression, disclosed rather than chased
 to zero in the same pass.
+
+## 7p. A deliberate engine/graphics improvement over the legacy HTML takes priority over it, and the superseded approach is scrubbed, not kept alongside it (owner decision, 2026-09-23)
+
+Owner's words, verbatim: *"any change we made in this project that improved
+or changed this engine and graphics away from the html was meant as an
+improvement over the legacy html and therefore should take priority. Any
+suggestions that it should be in that case still be held to the old
+superseded version is wrong."* Followed immediately by: *"the old information
+in that case should be scrubbed and only the new system implemented."*
+
+**What this sharpens, not replaces.** §7d already established that the
+reference defines the *feature contract*, not the *implementation*, and that
+a better-practice replacement is "free to differ" once it clears the "equal
+or better" bar. This entry makes two things explicit that §7d left as
+permission rather than instruction:
+
+1. **Priority, not just permission.** Where this port's engine or graphics
+   behavior was deliberately changed from what the legacy HTML did — GPU
+   paths under §7a's principled-equivalence bar, the rendering architecture
+   §7d itself named, HDR/wide-gamut output (Ruling AN), depression-filled
+   flow routing (§7o), or any future case of the same shape — that new
+   behavior **is the correct behavior**, full stop. A diagnosis or a fix that
+   treats the legacy HTML's older, simpler behavior as the thing to restore
+   is **wrong on its face** for anything already ruled a deliberate
+   improvement; matching the superseded version is not a fallback position
+   to fall back to.
+2. **Scrub, don't dual-path.** Once a new system supersedes an old approach
+   under this rule, the old approach is removed — code, comments, and doc
+   text that frame the new behavior as "diverging from the reference" (as if
+   the reference were still the standard being measured against) get
+   corrected to describe the new system as the standard on its own terms.
+   No two parallel implementations kept "for comparison," no CPU/legacy path
+   retained as an alternate mode once its GPU/new-architecture replacement is
+   the shipped default, no stale doc paragraph left implying the old
+   behavior is still an option.
+
+**What this does not change**, for the same reason §7a and §7d both already
+say so: the **CPU simulation pipeline's own golden verification stands**.
+This rule is about *engine and graphics* — presentation, rendering,
+GPU/optimized compute paths, and generation-*architecture* choices — not
+about re-litigating a simulation subsystem's ported, JS-golden-verified
+numerical output. A change to how terrain height, hydrology, or economy
+values are *computed* is still governed by §7's ordinary parity discipline
+unless a specific decision (§7a, §7o, or a future entry of this shape) says
+otherwise for that subsystem. The test for which side of the line a change
+falls on is the same one §7d already gives: does it change what a described
+*feature produces*, or how the *engine renders/computes it more effectively*
+while the feature's result stays equivalent-or-better? The first still needs
+its own ruling; the second is already covered by this entry.
+
+**Practical instruction for any future pass, including the visual-bug
+investigation this ruling was raised alongside**: when a reported visual
+defect (river rendering, lake draw, a style preset, anything presentation-
+layer) turns out to trace back to a *deliberate* engine/graphics change this
+port already made on purpose, the fix is to correct the **defect in the new
+approach**, not to revert toward what the legacy HTML rendered. If the
+"chaotic" or "flickering" symptom is actually a bug *in* the new pipeline
+(wrong blend mode, a stale shader uniform, an unhandled zoom-dependent case),
+fix that bug while keeping the new pipeline's improvement intact — do not
+treat "it didn't look like this in the old HTML" as evidence the new
+approach itself is the problem.
