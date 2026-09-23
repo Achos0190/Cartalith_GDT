@@ -64,225 +64,22 @@ v*.html` (newest **v2.22**) plus a second line of **49** DCC files (newest
 **v2.71**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
-be read as "matches the source today"**, and seven of the changes in the interval
-are deliberate upstream re-baselines that a golden fixture taken against v2.10
-will fail *correctly*: **v2.48, v2.49, v2.50, v2.51, v2.57, v2.59, v2.60 and v2.61** move
-`field` itself, and **v2.55** moves every LOD tile and baked atlas chunk (never
-`field`).
-v2.57 is the widest of them — it renames and retunes the plate-base blur radius
-(`PLATE_BASE_BLUR_K` 0.35 → 0.18), which the source measured as the single
-highest-leverage constant in the height formula: the coastline is the level set of
-a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
-the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
+be read as "matches the source today"**.
 
-**v2.71 is the newest and is not simulation** — `hash_gen1.js` vs v2.70 ALL IDENTICAL — but its first
-half is a rule a port inherits whether or not it copies the feature. The owner asked whether a new
-guidance layer was needed to keep a settlement's drawing off the water; it was not. The adapter has
-always built a 22 m mask of the real sea, lakes and river band, and the engine's own `isWater`
-predicate reads it — it simply never reached the RENDERER, because the model record handed to the
-drawing code is deliberately function-free and the mask was not among the fields copied. **The trap
-is where a port will hit it too**: on the real-map-water path the site builder sets its water
-polygon EMPTY on purpose (the map already paints the sea beneath the town), so a clip keyed on that
-polygon passes every synthetic fixture and does nothing live — measured, 7 of 39 real towns carry an
-empty one. Carry the mask instead, and where a town carries both, the mask must win. The measurement
-method is the other reusable part: two cheaper metrics both lied (overdraw as a share of a 211 000-px
-sea reads 0.14% and looks like antialiasing; a palette match misses an antialiased street edge
-entirely), and the honest test renders the town, renders it again with the settlement layer stripped,
-and diffs inside the water. See `RC_ENGINE_CHANGES.md` §8.2.
+**`RC_ENGINE_CHANGES.md` is the full porting spec for v2.11 → v2.73** (function
+and constant named per change, why each number is that number, which harness
+verified it) — read the change there, not here; this file only tracks whether
+each has been ported. Seven of the interval's changes are deliberate upstream
+re-baselines a golden fixture taken against v2.10 will fail *correctly*:
+**v2.48, v2.49, v2.50, v2.51, v2.57, v2.59, v2.60 and v2.61** move `field`
+itself, and **v2.55** moves every LOD tile and baked atlas chunk (never
+`field`). The single highest-leverage one is **v2.57** (`RC_ENGINE_CHANGES.md`
+§6i): it retunes the plate-base blur radius (`PLATE_BASE_BLUR_K` 0.35 → 0.18),
+measured as the single highest-leverage constant in the height formula — the
+coastline is the level set of a blur of a piecewise-constant plate Voronoi map,
+and the un-retuned partition reproduced the land mask at only IoU 0.813.
 
-**v2.70 is the version before it, and is also not simulation** — a flat limited-palette map style, opt-in, `hash_gen1.js`
-vs v2.69 ALL IDENTICAL. It is worth a line for its SHAPE: the HTML has exactly one land-colour
-function and one water-colour function, each called by the main per-pixel loop, the LOD tile
-renderer and the flat bake, so a whole new map style costs one flag and one step in each chain and
-every surface picks it up — including the export, which is how an exported image matches the screen
-with no second code path. A port whose colour logic is duplicated per renderer pays for each style
-N times. See `RC_ENGINE_CHANGES.md` §8.2.
-
-**v2.69 is the version before, and it is the one to read before writing any LOD of your own.** The HTML's
-owner reported that a deep-zoom coastline walks away from the settlement drawn on it. The
-decomposition is the useful part, because **both obvious suspects were innocent** — the channel-burn
-and feature-morphology passes are null at the app defaults, and the sub-cell crater registry runs
-and makes *exactly zero* difference. What it was: **(1) two reconstructions of one surface** — the
-settlement adapter sampled the coarse field bilinearly while the tile had moved to Catmull-Rom in
-v2.47, 17x the land-vs-sea disagreement; and **(2) a one-sided taper** — the detail band fades out
-going DOWN from the shelf and not going UP, so a land pixel a hair above sea took the full band and
-could be pushed under, 7.6:1 asymmetry, growing from 0.40% of pixels at z=2 to 8.56% at z=8.
-**Refinement adds resolution; it does not invent**, and the land/sea boundary is a decision
-placement, the water mask, the flooded-cell test and the road network are all built against. Clamp
-the DELTA, not the result (clamping the height to sea level makes a flat shelf), and note the band
-is added in **two** places — guarding one left a third of the drift. After: **8.56% -> 0.35%**, zero
-drowned pixels, seam delta still exactly 0. Measured but NOT fixed there, and since CLOSED by an owner decision: the town
-derives river WIDTH from its own `10+order*7` formula capped at 46 m while the renderer uses a real
-hydraulic half-width **plus a 0.8-cell connectivity floor** — and that floor is what dominates, so
-at the app default **every Strahler order draws at 2500 m against a 1700 m settlement box** (a
-~104x ratio, not the 24.7x a raw-half-width comparison gives). **Leave it**: the floor is a
-RESOLUTION statement, the centreline is known to +/-half a cell, and at 800 km one cell IS 1.5 km,
-so the map cannot locate a 30 m river. Both numbers are honest and a port should reproduce the same
-split rather than force agreement.
-See `RC_ENGINE_CHANGES.md` §8.1.
-
-**v2.68 is the version before, and it names a defect a faithful port INHERITS.** Render-only — `hash_gen1.js`
-vs v2.67 ALL IDENTICAL, no generated value moves. The HTML's farmland generator has pushed
-`field`/`pasture` polygons into `model.details` since v0.95 and **nothing has ever drawn one**:
-neither map renderer reads `model.details` at all, and the City Viewer's detail pass branches on
-well/cross/crane/bollard/spoilheap/tree/dryingrack/logboom/fence with **no branch for either kind**,
-so 62-86 field polygons per pop-440 village fell through every `else if` in silence for the life of
-the file. A port that reads the reference faithfully ports the generator and never learns it was
-invisible, so **assert that every detail kind the generator can emit is reachable by the renderer,
-derived from what a real town produces rather than from a hand-written list** (v2.65's rule, third
-instance). Its other finding is a build a port should NOT make: furrow hatching with a per-parcel
-plough direction needs neither a hatch pass nor a stored bearing, because each grant is already a
-**selion** — 5.8 x 91.5 m, every poly a quad, aspect 15.8:1 — and a furlong is a bundle of parallel
-selions (measured: 10 distinct bearings over 98 parcels, largest bundle 52 sharing one). The
-texture IS the geometry. See `RC_ENGINE_CHANGES.md` §8.2.
-
-**v2.67 is the version before.** Urban layout again, no height/climate/flow/pixel, `hash_gen1.js` vs
-v2.66 ALL IDENTICAL. **Two of its findings belong to a port whatever it decides about the
-feature.** (1) `buildParcels` decided plot grain with a hardcoded `dM<160` — one two-bucket radial
-proxy for "which quarter is this?" — while `assignDistricts` answered the same question 130 lines
-later with the plaza, the wall ring, the river, the quay and the market radius, and produced SEVEN
-wards; so a harbour, a suburb, an agrarian fringe and a riverside craft quarter all platted
-identically, with the harbour's own source comment citing §1.1 #22 (*"deepest plots at quay; plot
-frontage narrowest of any family"*) as its reason for existing. **The obvious feature — ward-driven
-DEPTH — is inert, and measuring that is what changed the design**: 67.6% of parcels never reach
-`depthTarget`'s own 14 m floor (the block waist binds, not the draw) and tripling
-`plotDepthVariance` 0.22 → 0.60 moves median depth 11.09 → 11.07 m, which also explains why
-realised plot aspect is 1.09–1.74 against M-PAR-2's documented 1:3–1:10 band — **a block-SIZING
-question, not a parcel one**. What ships is the SUBDIVISION, whose two terms were driven by street
-age alone and a flat 0.4 halving chance; `wardGrain` defaults to 1 and 0 is bit-identical by
-construction, so a port can hold either as a constant. **Verify it as a per-ward SIGN against that
-ward's own baseline, never as a ranking across the wards** — mean frontage per ward is not a
-function of the pressure alone, because the blocks differ per ward. (2) `buildParcels`' water
-rejection has sampled only the four CORNERS since v0.95, and a plot spanning a NARROW channel has
-every corner on dry bank — the goldens caught one 41.3 m-deep, 5.8 m-wide parcel with its middle in
-the river. Pre-existing, unreachable until the grain varied, and proven so by measuring the prior
-version at `plotDepthVariance 0.60`: **zero wet parcels**. Any port of `buildParcels` inherits that
-hole. See `RC_ENGINE_CHANGES.md` §6s.
-
-**v2.66** is the version before it, and it carries one thing a port must not miss. Urban layout again, no
-height/climate/flow/pixel, `hash_gen1.js` vs v2.65 ALL IDENTICAL. The feature is a menu: pick a
-settlement TYPE, set its parameters, see a live preview — built on the discovery that the layout
-engine has exported a **22-parameter generation-rules table** (`DEFAULT_RULES` + `resolveRules` +
-two compound sliders) since v0.95, that `cityGen` reads `opts.rules` on its first lines, and that
-**the host adapter has never set it**, so every town the HTML has ever drawn came out at the
-defaults. **A port that has ported `cityGen` already has the table.** The part to read is
-`RC_ENGINE_CHANGES.md` **§6r.5**: exposing those parameters reached a **NON-TERMINATING region of
-the engine's own documented range** — `buildParcels` re-draws a frontage grant until one fits the
-remaining edge, with no bound, so when the remainder sits just above the 4.5 m floor the only
-escape is the lognormal's far lower tail (measured against a 4.6 m remainder: the 0.22 **default**
-escapes in ~28 571 draws, 0.18 in ~2 000 000, and 0.12 — the proof of concept's own 'Planned Grid'
-profile — effectively never). **A retry-until-it-fits loop over a heavy-tailed draw is a hang
-waiting for a parameter change.** The fix is a BOUND rather than a new formula — but note that the
-obvious claim for a bound is false here: the goldens pass because their fixtures never reach it, while an
-ordinary town runs to a measured 172 644 spins, so it is a **deliberate, bounded re-baseline of generated
-town layouts** measured at **10 of 12 towns, 46 of 8 939 parcels (0.51%)**. See `RC_ENGINE_CHANGES.md` §6r.
-
-**v2.65** is the version before it. Urban layout again, no height/climate/flow/pixel, `hash_gen1.js` vs v2.64
-ALL IDENTICAL. It makes the status gradient EXPLICIT (`par.status`, from proximity to the market,
-intramural-or-not, and how far downwind on v2.64's bearing) and adds its two visible ends. **Verify
-the SHAPE, not the existence**: 0.662 mean status near the market against 0.218 at the edge, and
-outer ground 0.143 downwind against 0.403 upwind. The part a port should read first is §6q.4 — there
-are TWO district palettes (building tint, parcel fill), the second silently skips an unknown
-district, v2.64 fed only the first, and **v2.64's own probe asserted only the palette it had
-remembered**; widening that to every district actually observed surfaced a pre-existing hole of the
-same shape. See `RC_ENGINE_CHANGES.md` §6q.
-
-**v2.64** is an URBAN-LAYOUT change — no height, climate, flow or pixel — that adds
-the two site-model vectors `docs/05` §7.1 asked for (prevailing wind, along-water gradient) together
-with their first consumer, the §4.7 industry-siting table. Neither vector is invented: the wind is
-`currentWindField()` and the downstream direction is §6n's own receiver tree. Two findings a port
-should not have to rediscover: `_civRiverFlowField` fills `km2` on every cell and `fx`/`fy` only on
-channel cells, so a nearest-cell search keyed on catchment lands on the town's own dry ground
-(1 of 14 towns got a bearing; 14 of 14 keyed on the vector); and **"downstream of the market" is
-unsatisfiable for most towns** — one carried 62 riverside parcels with all 62 upstream of its market
-— so §4.2 means the downstream END of the town's own frontage, an ORDER along the flow that needs no
-origin. See `RC_ENGINE_CHANGES.md` §6p.
-
-**v2.63** is a PARAMETER-SURFACE change plus a UI screen, and it writes no
-height, climate, flow or pixel — `hash_gen1.js` vs v2.62 is ALL IDENTICAL **by construction**,
-because `state.civParams` starts empty and every knob falls through to the constant it replaced.
-Seven settlement-generation constants (`SETTLE_SEED_THRESH`, `PORT_PREFERENCE_MULT`,
-`VILLAGE_SUIT_THRESH`, `VILLAGE_SPACING_KM`, `_CIV_VILLAGE_CAP`, `FOOD_SURPLUS_RATIO_MAX`,
-`FOOD_SHED_MIN_POP`) became runtime parameters read at AUTO-POPULATE time. **A port with no
-parameter UI can keep all seven as constants and skip the section entirely** — the values did not
-move. What a port MUST read before touching `foodSurplusRatio` is §6o.4: both ag-tech branches have
-to scale with the ceiling or one parameter means two different things, and the industrial case is
-correctly INERT. §6o.5 names three neighbours deliberately left as constants and why.
-See `RC_ENGINE_CHANGES.md` §6o.
-
-**v2.62** is a ROUTING and PLANNER change and it writes no height, climate or
-pixel — but it deliberately moves **generated road geometry**, so a port that generates roads must
-port it or its networks keep ignoring the rivers. A per-cell cost cannot tell walking ALONG a river
-from cutting ACROSS it, so the ford was charged on every river CELL while the navigable discount was
-multiplied into every river cell: the most navigable river on the map was its most expensive ground
-(**3.46x** plain). Both terms move to the EDGE, and `|align|` is symmetric by construction because
-an undirected Prim MST has no answer for an asymmetric cost. **Navigability is keyed on catchment
-km², not Strahler order** — this is where §6k's standing recommendation gets taken, for a new
-consumer; the three existing `order>=3` consumers are untouched and that migration is still open.
-The planner's current came from the route's elevation profile and was backwards one step in five.
-See `RC_ENGINE_CHANGES.md` §6n.
-
-**v2.61** is mostly a PAINT change — a river is drawn in the lake's own colour at
-its true coverage, with banks, because a lake is opaque while a river was a translucent tint at an
-alpha carrying the discharge magnitude — but two parts of it move generated values: a pooled
-depression a river flows into is now classified as a LAKE (local rainfall is the wrong gate for a
-terminal lake), and **v2.60's sculpt-derived digging pass is REVERTED**, which returns `field` to
-v2.59's bytes exactly in all five battery scenarios. A port that has not implemented v2.60's step
-2c should not implement it. See `RC_ENGINE_CHANGES.md` §6m.
-
-**v2.60 is a re-baseline** — of `field`, `flow` and the
-render alike. The source was rasterising a river as a chain of **one-cell discs**:
-`buildRiverNetwork` stamps a disc per channel cell and its `halfW` floors at 0.5, so
-`r = ceil(0.5) = 1` and only the centre cell passes. A D8 receiver chain steps
-diagonally about 42 % of the time and two diagonally adjacent squares touch only at a
-corner, so **884 of 1 305 main stems broke into visible parts** (3 554 breaks; 4 856
-four-connected components for 134 rivers). The carve has cut the same rivers at 0.8 —
-above a cell's circumradius `sqrt(1/2)` — since v2.30, and nobody carried that number
-to the render stamp. **Three constraints this port inherits whether or not it copies
-the fix**: assert **4-connectivity**, because 8-connectivity is free on a D8 chain and
-passes on the broken build; a width floor expressed in TILE PIXELS evaporates as you
-zoom in (0.014 cells at a 9.4 km view), so a resolution floor belongs in GRID CELLS;
-and flooring a drawn width without widening the polyline **cull margin** opens a real
-tile seam (measured 0.498 on a shared column against a 0.02 bound). The `field` half
-is a finishing descent pass over the final network's own cells, sized by measurement
-(a full re-carve moves 5.16 % of the map for 12.55 → 9.88 % climbing steps; the
-shipped pass reaches 4.33 % and moves 0.74 %) — and its root cause is a port-relevant
-duplicate: with integrated drainage on, receivers follow the depression-**filled**
-surface while `buildWaterBodies` runs its own separate priority-flood over the raw
-field. Two depression models, one question. See `RC_ENGINE_CHANGES.md` §6l.
-
-**v2.59 is a re-baseline too.** It turns depression-filled
-routing on by default: before the flip, **68.5 % of the source world's land
-drained into an interior pit** rather than to any outlet, so `field` itself moves
-(the carve cuts along the network integration changes). It also settles a
-question this port inherits — the source's own river-importance currency,
-Strahler order, was measured against upstream catchment area and found
-**resolution-stable but extent-dependent** (`order>=3` covers 0.32 % of the
-channel network on an 800 km map and 4.10 % on a 40 000 km one, same seed),
-unable to rank inside its own top bucket (123.7× in catchment) and not monotone
-in catchment. The ruling carried here: **keep the ordinal tier, key every
-threshold on catchment area in km²** — a nine-consumer migration the source has
-not made, and one this port gets for free by writing those consumers correctly
-the first time. See `RC_ENGINE_CHANGES.md` §6k and §7.12.
-
-**v2.58 is NOT a re-baseline** — it moves no generated value
-(the source's own hash battery is byte-identical against v2.57) — but it is a
-rendering contract this port will otherwise reimplement wrongly, because the
-defect it fixes is one this port is equally free to write: the source's river
-*drawing* has had a scale term since v2.25 while its river *selection* had none
-at all, so a 50 km region and a 40 000 km world chose the same set of rivers. Two
-constraints worth knowing before any river overlay is written here: gate on
-**screen pixels**, never on raw zoom (the source's own settlement ladder is raw
-zoom, which puts a hamlet on screen at a 28 571 km view on a 40 000 km world), and
-select over **whole main stems**, never over traced polyline fragments — fragment
-length *anti*-correlates with its own accumulation (ρ 0.207, rising to 0.963 once
-stems are assembled — **against upstream channel cells, not catchment area**; the
-source corrected that reading in v2.59, where the same stems measure ρ 0.105–0.398
-against the real catchment raster). See `RC_ENGINE_CHANGES.md` §6j and its
-correction box, and §7.11 for the real-km rule it is the eighth instance of.
-
-What changed in the interval is specified change by change in
-`RC_ENGINE_CHANGES.md`. **Which of it is already ported is not established
+**Which of the v2.11 → v2.73 interval is already ported is not established
 anywhere, including here** — a spot check found `food_shed` and
 `route_corridors` present in the crates and `crater_population` and
 `landmass_index` absent, i.e. uneven in both directions. That survey is
@@ -290,129 +87,17 @@ anywhere, including here** — a spot check found `food_shed` and
 any of the rest. Until it runs, this file has no honest status to report for the
 span, and says so rather than implying one.
 
-**What landed most recently** (full week in *The last seven days* below):
+**What landed most recently** is in *The last seven days*, below — a fixed
+snapshot here goes stale fast (this paragraph used to carry one and it read as
+current for ten days after it stopped being updated), so this section points
+at the dated log instead of keeping its own copy.
 
-> **This list stopped at 2026-09-02 and read as current for ten days** — in
-> the one section headed *"read this screen, then stop"*. The newer entries are
-> in *The last seven days* below and are the ones to read first:
-> **2026-09-12** (resumed after the weekly limit; Phase 5 found finished since
-> 2026-09-03 and never recorded; the on-glass method calibrated; owner-supplied
-> LOD-detail research arrived and was mapped), **2026-09-08** (backlog
-> 126 → 118; roofs drawing again; thirteen fills that had never drawn; a
-> padding ruling made and withdrawn; the first pass on glass), **2026-09-07**
-> (the three design canvases became the definition of done).
->
-> **Cargo floor: 3 253 passed / 0 failed / 28 ignored across 157 result
-> lines**, first recorded in `bb9a648` at 23:13 on 2026-09-07. **No Rust has
-> changed since that record** — the only `.rs` or `Cargo` commit after
-> 2026-09-07 00:00 is `77f9194`, at 04:25 the same day, nineteen hours before
-> it. The entries below are kept as history; every figure in them is true of
-> its own day and not of today.
-
-
-1. **2026-09-02** — **the landmark ("point of interest") pass, reported broken
-   by the owner, root-caused to three defects and fixed**; nine backlog rows
-   closed across memory, Rayon and economy; and **Vulkan / DirectX /
-   `RenderingDevice` answered by measurement — all three "no"**. The renderer
-   answer is not caution: on the owner's RX 7800 XT, `forward_plus`/vulkan
-   loses the GPU device during generate **3 runs of 3** (`VK_ERROR_DEVICE_LOST`),
-   `forward_plus`/d3d12 segfaults (`DXGI_ERROR_DEVICE_REMOVED`), and
-   `gl_compatibility` is clean. Four verified defects were found in passing
-   that nobody was looking for — `use_gpu` forced on over a `false` default so
-   **the shipped app does not generate the world the 88 golden suites verify**;
-   a software-rasterizer fallback the code's own comment denies; no `log`
-   backend anywhere, which makes the Android "zero wgpu lines in logcat" PASS
-   condition unfalsifiable; and LOD tiles in the route-map cutout registered
-   half a world cell off. Detail in *2026-09-02* below. **Uncommitted when written — since committed in `4ec07f5`.**
-   **Later the same day**, two further waves of five agents each, every engine
-   lane adversarially verified: **urban 17a golden-verified** (UM-17A-G above —
-   the blocker was wrong rather than stale, and two real port bugs fell out of
-   it, including an `f64::hypot` that should have been `js_hypot`); **landmark
-   M8's five way-graph kinds** took `kinds()` from 15 buildable to **20 of 50**,
-   each verified placing on a real `generate_terrain` world rather than by
-   flipping a flag, and `JUNCTION_MIN_WAYS` corrected 3 → 2 with its inherited
-   rationale shown false; `TERRAIN_APPEARANCE_SCOPE.md` **§16** (multi-scale
-   detail: `detail_macro/meso/micro_weight`, defaulting to the previously
-   hardcoded 0.40/0.40/0.20 so `golden_parity_render.rs` is untouched) and
-   **§19** (`atmo_desaturation`, `atmo_contrast`, both defaulting `0.0`);
-   `UNWIRED_FUNCTIONS.md` re-cut a third time — **0 of 21 closed, which is the
-   finding** — plus one new dangerous-class entry, the Settlement diagnostics
-   overlay's tooltip citing a blocker that no longer holds. And the **"no JS
-   runtime in this environment" blocker was found false and swept**: `node`
-   v24.19.0 runs the frozen reference, proved two ways by
-   `tools/jsruntime_probe.js`, and everything the claim gated had shipped on
-   2026-08-15. `cargo test --workspace` **2 751 passed, 0 failed, 21 ignored**
-   (floor was 2 734). **Uncommitted when written — since committed in `45b368d`.**
-2. **2026-09-01** — `OUTSTANDING_WORK.md` §1's eight in-flight items worked in
-   parallel and independently re-verified against the code, not the reports:
-   `UNWIRED_FUNCTIONS.md` re-cut from scratch (75 open rows → 23, dangerous
-   class 25 → 3); `UNIFIED_TOOL_PLAN.md` got its "Milestone F as built"
-   section; Vault §14 Compare shipped; route corridors/travel cost became a
-   selectable analysis field; one more landmark kind went buildable (15 of 50 —
-   *this entry read "14 of 49" until 2026-09-02; both figures were wrong, the
-   denominator is `grep -c "KindSpec {"` = 50*);
-   `civ_food_shed` was built, completing Economy milestone 2 at the crate level
-   (Godot wiring still open); WORLD and CIVIL's Landmarks/Factions categories
-   were restyled to the new left-dock spec; two real `statusMid` bugs were
-   fixed. **Same-day second pass**, three of that morning's residuals
-   independently re-verified against the code (not the agent reports) and
-   advanced: **Paint brush falloff shipped** — `PaintStamp::with_falloff`
-   wired end to end, bit-identical to the old hard disc at its default,
-   closing the highest-severity `UNWIRED_FUNCTIONS.md` row and both remaining
-   dangerous-class entries (3 → 0); **Economy milestone 2 reached Godot** —
-   `civ_food_shed` `#[func]`, `engine_bridge.gd`, `trade_store.gd` all real
-   and triggered by the existing "Match trade flows" button, leaving only a
-   UI display as the gap; **GUI replacement stage 4 closed** — CIVIL's Ways &
-   routes gained a live `ROUTES` teaser list, and Journey planner was
-   deliberately restyled (a thin honest summary, not an embed) rather than
-   left undone. **Third pass, same day**: a tectonics World-Structure
-   override-disclosure bug the owner found by manual testing was fixed (the
-   three overridden parameter rows now visibly disable, live, on toggle,
-   generate and load); and all six of `OUTSTANDING_WORK.md` §2.3's
-   journey/route cluster rows closed — four built (ocean/wind fields
-   reaching the sea-lane router and `jp_sea_condition`, `_civSeaTimeEdgeCost`,
-   `jp_road_cells` seeing hand-drawn ways, `DECISIONS.md` §7i's swamp/ford
-   terms) and two confirmed already done. **All four Journey Planner quality
-   ceilings are now closed.** Detail in each affected ledger row above and in
-   *2026-09-01* below. **Still entirely uncommitted.**
-3. **2026-08-31** — GUI replacement **stages 1 and 2** (`c03b43c`): the new
-   token system, and the rail folding five domains into three
-   (`dcc_shell.gd`'s `DOMAINS` now holds exactly world / civilization /
-   cartography; `RAIL_NODES` holds 3 heads and 10 nodes — counted in the file).
-4. **2026-08-30** — **landmark generation, end to end** (`a6feec3`,
-   `ae62adf`, `f084650`): `crates/cartalith-civ/src/landmark.rs`,
-   `crates/cartalith-terrain/src/analysis.rs`, `landmark_bridge.rs`, ten
-   `#[func]`s, 49 glyphs, and a CIVIL ▸ Landmarks panel. **13 of 49 declared
-   kinds generated that day** (14 of 49 as of 2026-09-01 — see the Landmark
-   generation ledger below); the rest each carry a `not_built:` reason in
-   source.
-
-**The next three things.** These are the three with the most work behind them
-and no blocker; the full list is `OUTSTANDING_WORK.md`.
-
-1. **~~Commit the working tree.~~ Done — and this row was wrong for a day.**
-   Corrected 2026-09-02. It claimed **132 tracked files / 17 576 insertions**
-   uncommitted and that `LARGE_ITEM_RULINGS.md`, `OUTSTANDING_WORK.md` and
-   `cartalith-native/docs/3D_TERRAIN_RENDER_RESEARCH.md` "exist only in the
-   working tree", so "a clean checkout loses all three". **All three are
-   tracked in `HEAD`** (`git cat-file -e HEAD:<path>` for each), and commit
-   `fd9de7c` ("Three rounds finishing in-flight work, then two bugs found by
-   hand") landed **237 files / 90 718 insertions**. The row survived its own
-   resolution because nothing re-checked it — the exact failure this file
-   exists to prevent, committed by this file. What *is* uncommitted today is
-   the 2026-09-02 work below. **The live successor task is to commit that**,
-   not to re-do this.
-2. **Urban morphology milestones 8-16 and the rest of 17**
-   (`URBAN_MORPHOLOGY_SCOPE.md`). ~28 reference functions, ~1 500 lines,
-   nothing started, nothing blocking. Milestone 10 (fortification) alone is
-   nine functions and the plan's self-declared largest.
-3. **GUI replacement stages 3, 5, 6 and 7**
-   (`design/dcc-environment-2026-08-31/spec/00-REPLACEMENT-PLAN.md`). Stages
-   1, 2 and 4 landed; **stages 3, 5, 6 and 7 are unblocked and unstarted**.
-   The plan itself still says stage 5 is *blocked* on a truncated prototype —
-   that blocker was cleared the same day the plan was written (the file in
-   the tree is 239 712 bytes and ends `</script></body></html>`), and the
-   plan was never updated. Anyone reading only the plan will skip real work.
+**What's next** is `OUTSTANDING_WORK.md`'s full backlog; see *What is left*,
+below, for the current count and the top blockers. (One item that used to be
+named here by name is stale: urban morphology's milestones 8-17 are `done`,
+1 `partial`, 1 `ready` in the Phase 5 ledger below, not "nothing started" —
+that milestone group finished after this paragraph was last written and was
+never updated to match.)
 
 ---
 
@@ -489,122 +174,96 @@ Three tracks landed in one session, run in parallel per the owner’s instructio
 
 ### 2026-09-12
 
-**Work resumed after the weekly limit reset, and most of the day went on the
-record rather than the tree.** The batch lost to the limit on 2026-09-08 had
-failed at dispatch, so the tree was clean and it was re-dispatched unchanged;
-the process then exited mid-batch and the run was resumed from its cache,
-which returned the one agent that had already finished.
+Work resumed after the weekly limit reset (the batch lost to the limit on
+2026-09-08 had failed at dispatch, so it was re-dispatched unchanged, then
+exited mid-batch and resumed from cache). Most of the day went into
+correcting status documents that had gone stale while the tree moved under
+them — **the costliest was Phase 5**: this file's own Orientation/phase table
+and `CLAUDE.md`'s Contents table both still called urban morphology *in
+progress* nine days after `9e79e52` closed its last two milestones under
+adversarial verification. Both corrected. Also stale: the Orientation's "what
+landed most recently" still led with 2026-09-02 and called it *uncommitted*
+ten days after `4ec07f5`/`45b368d` committed it; `OUTSTANDING_WORK.md`'s
+headline said 100 against a live 118; `SESSION_HANDOFF.md`'s budget line had
+run out and reset; the LOD phase-table row said *built and shipping* with no
+note that a deeper level can't be sharper. One known defect
+(`draw_layout`'s block-ground triangulation failure, from the 2026-09-08 roof
+fix) had no backlog row and was filed.
 
-**The costliest staleness was Phase 5.** This file’s Orientation and phase
-table called urban morphology *in progress* — the project’s largest
-outstanding block — nine days after `9e79e52` closed its last two milestones
-under adversarial verification, and `CLAUDE.md`, which loads into every
-session, said the same in its Contents table: a moving status in the one file
-its own rules say must never carry one. Both corrected.
+**Four owner rulings, H-K** (`LARGE_ITEM_RULINGS.md`, against reference
+images at `design/owner-references-2026-09-12/`) set direction for urban
+generation and the LOD zoom: a walled market-town plan (draw what the model
+already generates, add a culture profile, and an **authorised golden
+re-baseline scoped to `cartalith-urban`**), a citadel and star forts, a
+per-settlement city-type/regenerate menu, and LOD tiles carrying colour
+before ice — all behind the GUI rows, tablet first. Seven rows filed,
+backlog 119 → 126. **One ruling was asked on a false premise and caught
+before recording**: star forts were reported blocked on settlements carrying
+no `fortified` trait, but the trait path is live end to end — only the
+renderer's bastioned branch was missing, on a comment whose reason had gone
+stale. Ruling I was recorded with the verified chain; the mistake is in
+`MISTAKES.md`.
 
-**Three more documents that answer "where are we" had gone stale while the
-detail beneath each was kept current.** The Orientation’s *"what landed most
-recently"* still led with 2026-09-02 and called that work *uncommitted* ten
-days after `4ec07f5` and `45b368d` committed it. `OUTSTANDING_WORK.md`’s
-headline said **100** against a live count of **118**. `SESSION_HANDOFF.md`’s
-budget section was headed with a weekly-limit percentage that had since run out
-and reset. **The most-read line of each file was the stalest**, because day
-entries get appended and headers do not get revisited. And the phase table’s
-LOD row said *built and shipping* with no hint that a deeper level cannot be
-sharper.
+A phone-sheet clipping fix (pinning the GENERATE sheet's PIPELINE/SCULPT
+segment above its scroll) was built, then refuted — the canvas keeps that
+segment inside the scrolling body, under a header the shell never built, so
+at peek the shell leaked half a clipped row instead — and reverted, patch
+kept. Its citation sweep found 51 stale canvas citations, not 49.
 
-**One known defect had no row**: the roof fix of 2026-09-08 left `draw_layout`’s
-block-ground triangulation failure out of its scope, correctly, and recorded it
-only inside its own closed row. Filed.
+**The on-glass method's blanket claim was split**: a desktop probe cannot
+prove a finger reaches a control, but the same clipping defect reproduces on
+the desktop composition within **3 px** of the device, so **desktop layout
+measurements are trustworthy** — recorded on the METHOD row.
 
-**Four owner rulings, H-K, set the direction for urban generation and the LOD
-zoom** (`LARGE_ITEM_RULINGS.md`), given against two reference images now vendored
-at `design/owner-references-2026-09-12/`. Urban generation moves toward a walled
-market-town plan by three routes — draw what the model already generates, add a
-culture profile, and change the ported algorithm under an **authorised golden
-re-baseline scoped to `cartalith-urban`**. A citadel is to be built, star forts
-drawn, and a menu added to set a settlement’s city type and regenerate it alone.
-The zoom target is the Aletsch image read top-down with 3D still parked, and the
-order is ruled: LOD tiles carry colour first, then ice. **All of it sits behind the
-GUI rows, tablet first.** Seven rows filed; backlog 119 → 126.
+Owner-supplied research arrived, `docs/research/lod extra info.md` on
+scale-dependent terrain detail (left in the *source* project's `docs/` tree,
+where the owner put it, though it targets this port). **Mapped against the
+code before filing**: its crate names are not this workspace's; the pyramid,
+a live level ladder, and §16's macro/meso/micro weights and multi-scale
+shading already exist; the gap it describes is the one already on the
+backlog — LOD tiles carry a shade ratio rather than colour.
 
-**One of those rulings was asked on a false premise, and caught before it was
-recorded.** The question told the owner star forts never generate because
-settlements carry no `fortified` trait. Re-opened at the symbols while filing the
-row, the trait path is live end to end and only the renderer’s bastioned branch
-is missing — left out on a comment’s reason that went stale. Ruling I was
-recorded with the verified chain, and the mistake is in `MISTAKES.md`.
+**2026-09-13.** The owner re-sorted the PC left rail (**Ruling L**); five
+batches followed. First batch shipped two of Ruling L's three lanes: a typed
+seed now reaches the built world, including the rolled-while-hidden case
+that sank the previous attempt; re-entering a domain no longer drops the
+armed tool's options row; the journey planner no longer swallows CIVIL
+navigation while armed (the old code had swallowed all 14 categories). Three
+concurrent batches (five builders, file- and measurement-disjoint, on the
+owner's instruction) were each refuted in part and reverted — patches kept
+in `.claude/resume-2026-09-12/`: a tablet rail/menu fix shipped inside an
+undeclared landscape-dock change that turned three committed probes red; a
+seed fix broke rolled seeds; a re-arm lane shipped past its own gate and
+swallowed navigation again. Findings kept: Android BACK never commits a
+`SpinBox`; the journey planner is the only view with the re-arm pattern; and
+re-entering a domain overwrites any armed tool's options row (pre-existing).
+Zoom did not reproduce on desktop.
 
-**A phone fix was built, refuted and reverted — and the refutation found the real cause.** A lane pinned
-the GENERATE sheet’s PIPELINE/SCULPT segment above its scroll so the chips stop showing half-clipped at
-peek. The verifier measured the sheet at 98 dp against the canvas’s 66 and found the canvas keeps that
-segment inside the scrolling body, under a header block the shell never built. At peek the canvas shows no
-body at all; the shell, having no header, leaks half a row of it. Reverted, with the patch kept. The same
-batch’s citation sweep stopped correctly at its gate: 51 stale canvas citations, not 49, and of its three
-disagreements only one is the shell drifting from the canvas.
+Two further tablet/phone batches landed and held two items for fix-up (a
+phone GENERATE sheet header with unscaled text; a failed-open error hidden
+on phone): the tablet now fits its own frame (options row scrolls only on
+overflow; portrait 800×1280 and 1024×768 fit) and draws the canvas's ☰ File
+World Data menu bar with every accelerator; the phone bottom nav draws the
+canvas glyphs. Two more batches then closed both held items and more: the
+phone GENERATE sheet shows the canvas's header at peek; a refused project
+open no longer strands the user (dialog/picker stay open, phone shows a
+warning banner); 8 of 9 WORLD categories draw 232 px in tablet portrait; the
+Window menu's dock switches read real state; native saves show their seed;
+parcel ground fills stopped vanishing at deep zoom. A parallel small/medium
+run added round towers on curtain walls, a pan-mode drag cursor, a fitted
+tablet export pane, and a drop-count probe for reopened saves; a
+district-based roof tint and a vector river overlay were built, refuted
+(district is not wall containment; the overlay drew over debug views with no
+off switch) and reverted before commit.
 
-**2026-09-13, parallel small and medium runs:** curtain walls draw round towers; the map shows a drag cursor in pan mode;
-the tablet export pane fits; probes that used to pass with their own fix removed now fail; a drop-count probe covers
-reopened saves; the dashed-way pixel residual has a measured cause. Refuted and reverted before commit: a district-based
-roof tint (district is not wall containment) and a vector river overlay (drew over debug views, no off switch).
-
-**2026-09-13, fourth batch: tablet portrait fits, the Window switches tell the truth, and failed opens say why.** Eight of
-nine WORLD categories now draw exactly 232 px in tablet portrait with the canvas’s two-line slider cells, and nothing moved
-on desktop, laptop, landscape tablet or phone. The Window menu’s dock switches read the real dock and sheet state; a
-failed project open shows the engine’s reason inside the dialog or picker; native saves show their seed; the phone sheet
-header matches the canvas’s tracking and close circle; parcel ground fills no longer vanish at deep zoom.
-
-**2026-09-13, third batch: the phone tool sheet has the canvas’s header, and a failed open no longer strands
-the user.** At peek the GENERATE sheet shows its title, a live subtitle and a close button and no half-cut
-body row; the phone picker and the desktop dialog stay open after a refused project, the phone with a warning
-banner. The tablet portrait slider reflow was reverted a second time: it clipped dock titles on every form factor.
-
-**2026-09-13, second batch: the tablet now fits its own frame and draws the canvas menus.** The tablet
-options row fills its band and scrolls only when it overflows, so portrait 800×1280 and 1024×768 fit;
-the tablet menu bar is ☰ File World Data with every command and accelerator still reachable. The phone
-bottom nav draws the canvas glyphs, and the CARTO options caption names the current mode. Held as patches
-for fix-up: the phone GENERATE sheet header (works, but its text is unscaled) and the failed-open fix
-(works on desktop; on phone the error is hidden). The tablet portrait slider reflow was reverted: the
-canvas draws sliders as full-width two-line cells, not a grid.
-
-**2026-09-13 (evening): planning documents landed, and a new APK.** `LOD_DETAIL_SCOPE.md` turns the owner’s
-LOD research and Ruling K into milestones LOD-D0 to D6, now rows in `OUTSTANDING_WORK.md`; `ROADMAP.md`
-points at it. `REFERENCE_MAP_RECONSTRUCTION_RESEARCH.md` and Ruling M record the owner’s design answers for
-sculpting over a loaded map image — designed, not scheduled. A signed release APK built from `01e4faa` is on
-the 6T. The CIVIL half of Ruling L is **held, not committed**: its adversarial panel confirmed two behaviour
-bugs (an armed Way tool’s Commit/Discard row lost on some rail presses and jumps), so it is not built.
-
-**2026-09-13: the owner re-sorted the PC left rail (Ruling L), and the first three-builder batch shipped two of
-its three lanes.** A seed typed into New World now reaches the built world, including the rolled-while-hidden
-case that sank the previous attempt; re-entering a domain no longer throws away the armed tool’s options row,
-and with the journey planner armed every other CIVIL category navigates again (the old code swallowed all 14).
-The tablet rail and menu work was re-applied with docks kept at 400 and fits every tablet frame, but is held
-uncommitted: its scroll wrapper collapses the options row on every tablet frame.
-
-**Three concurrent batches ran, and all three were refuted in part and reverted.** Five builders worked
-at once on the owner’s instruction, file- and measurement-disjoint, and every change is kept as a
-re-appliable patch in `.claude/resume-2026-09-12/`. The tablet rail fix and menu collapse worked, but
-shipped inside a landscape dock change that did not render as declared and turned three committed probes
-red; the seed fix broke rolled seeds; the re-arm lane shipped past its own gate and swallowed navigation.
-What survives is findings: the seed mechanism (Android BACK never commits a `SpinBox`), proof that the
-planner is the only view with the re-arm pattern, and a pre-existing bug where re-entering a domain
-overwrites any armed tool’s options row. Zoom did not reproduce on desktop — an empty patch at deep
-zoom, not a freeze.
-
-**The on-glass method’s blanket claim was split.** A desktop probe cannot prove
-a finger reaches a control — but the same clipping defect reproduces on the
-desktop composition within **3 px** of the device, so **desktop layout
-measurements are trustworthy**. Recorded on the METHOD row with the three
-calibrations the first hour on glass produced.
-
-**Owner-supplied research arrived: `docs/research/lod extra info.md`**, on
-scale-dependent terrain detail — left where the owner put it, though `docs/`
-is the *source* project’s tree and this file targets this port. **Mapped
-against the code before being filed**: its crate names are not this
-workspace’s; the pyramid, a live level ladder, §16’s macro/meso/micro weights
-and multi-scale shading already exist; and the gap it describes is the one the
-backlog had already measured — LOD tiles carry a shade ratio rather than
-colour, so a deeper level cannot be sharper.
+**Evening**: `LOD_DETAIL_SCOPE.md` turned Ruling K and the owner's LOD
+research into milestones LOD-D0…D6, now rows in `OUTSTANDING_WORK.md`;
+`REFERENCE_MAP_RECONSTRUCTION_RESEARCH.md` and Ruling M recorded the owner's
+design answers for sculpting over a loaded map image (designed, not
+scheduled); a signed release APK from `01e4faa` went to the 6T. Ruling L's
+CIVIL half is **held, not committed** — its adversarial panel confirmed two
+behaviour bugs (an armed Way tool's Commit/Discard row lost on some rail
+presses and jumps).
 ### 2026-09-09 – 2026-09-11
 
 **Nothing happened, and that is the whole entry.** The weekly usage limit was
@@ -623,148 +282,113 @@ clean at `1bc24f6` and nothing partial had to be unwound. It was re-dispatched
 unchanged on 2026-09-12.
 ### 2026-09-08
 
-**Cheapest-first, at the owner’s direction** — *"locate low hanging fruit…
-take the cheap ones from cheapest first"* — with lanes allowed to run on a
-smaller model. Backlog **126 → 119** over the day.
+Cheapest-first at the owner's direction, lanes allowed a smaller model.
+Backlog **126 → 119**.
 
-**The day’s finding is about proof, not code.** A lane converted the right
-dock’s readouts to the user’s unit preference correctly — Sample *"Position"*,
-route Length (three call sites), river Catchment, Ecoregion and Territory area,
-every field of Measure — and the exceptions hold byte-identical across the flip
-as negative controls: elevation and metre readings, bearing degrees, Centroid
-(**grid cells**, not a distance), Discharge (a rate), Productivity (which HAS an
-area unit and still must not convert), Ruggedness.
+**Finding of the day was about proof, not code.** A lane converted the right
+dock's readouts to the user's unit preference correctly (Sample Position,
+route Length, river Catchment, Ecoregion/Territory area, every Measure
+field), holding elevation, bearing, Centroid (grid cells), Discharge (a
+rate) and Productivity/Ruggedness byte-identical as negative controls — but
+its own probe couldn't police it: the three Position checks tested for a
+`mi` suffix, a `km` suffix and inequality, **all three satisfied by
+relabelling alone** (a mutant that kept the km value and appended `mi`
+passed every one). A3b/A3c now rebuild the expected number from
+`DccUnits.to_unit()` at probe time instead of a typed constant; the same
+mutant now fails A3b. The conversion was right; only the proof was weak.
 
-**Its probe could not police it.** The three Position checks tested for a `mi`
-suffix, a `km` suffix, and inequality — **all three satisfied by relabelling**.
-A mutant that kept the kilometre value and appended `mi` (*"15.6 · 9.8 mi"*)
-**passed every one**, which is precisely the defect the row existed for. A3b/A3c
-now rebuild the expected number from `DccUnits.to_unit()` at probe time rather
-than from a typed constant; the same mutant fails A3b while A1–A3 still pass.
-**The conversion was right and only the proof was weak** — the thing worth
-knowing before scaling lane models down, and the argument for keeping the
-verifier on the stronger model.
+Four smaller findings the same day: **Falloff** was reported unbuilt by a
+stale note even though `Falloff`'s `coverage()` is consumed at three sites
+in `SculptStamp::apply_into`, registered as `GLOBAL_RANGES` row 9, and
+already a live dropdown — the fourth stale "unbuilt" reason this tree has
+shipped. Three rows (`shortcuts_dialog.gd:417`'s unmappable-key guard, the
+commit-message debt at `MISTAKES.md:132`, the Android `logcat` correction)
+closed for the cost of a grep each — already finished, just never struck
+from their numbered section (the counter reads sections, not strikethrough).
+`ANDROID_BUILD_SCOPE.md:1272` still contains the string it corrects, inside
+the blockquote doing the correcting — a grep for a stale string is not a
+test for a stale claim. And the units sweep's *"Discharge 4,200"* beside
+*"Catchment 3 500 km²"* turned out to be `right_dock.gd::_thousands()`
+disagreeing with the canvas's own spaced-thousands convention, pre-existing
+and just newly visible.
 
-**Falloff was a stale message, not a missing control.** `Falloff` is a
-four-variant enum whose `coverage()` is consumed at three sites inside
-`SculptStamp::apply_into`, registered as the 9th `GLOBAL_RANGES` row and already
-drawn as a live dropdown — while the note one line below it still listed
-*"custom Falloff"* among unbuilt items. **Fourth stale dashed reason this tree
-has shipped.**
+**Later the same day, the GUI rows, and three corrections to my own work.**
+Roofs stopped failing to draw: at deep zoom Godot logged triangulation
+failures and skipped buildings silently, but the geometry was never bad —
+the same 5 009 footprints are non-degenerate in layout metres and at
+fit-to-box scale, and the 2.7% that fail do so only through the deep-zoom
+transform, every one with a post-transform bounding-box diagonal under
+0.09 px (the renderer's own guard). Proved by whole-frame md5 (identical
+before/after, errors 151 → 0, frames not blank at 24.6% ink), then re-tested
+with the fix reverted. Thirteen fills across 9 files had never drawn a
+pixel: a `Button` with `flat = true` silently voids every stylebox override,
+`hover` as well as `normal` — verified on interior modal colour with the
+border ring excluded so ink can't contaminate the sample, mutation-tested.
+A ruling of mine (the action button takes `2px 12px`) was refuted and
+reverted the same hour: the canvas disambiguates by height role, not by
+frequency — `--btnH` (28px) is the action button at N=14, `--ctl` (24px) the
+inline chip at N=15, and all eight `2px 12px` nodes are `--ctl`/`--tool`, not
+one `--btnH`. Withdrawn as Ruling G. A lane separately reasoned past the
+brief's explicit stop-and-report gate and implemented anyway — a gate that
+can be reasoned past is not a gate.
 
-**Three rows closed for the cost of a grep each**, all of them already finished
-and still counting because they had never left a numbered section: the
-unmappable-key guard (live at `shortcuts_dialog.gd:417`), the commit-message
-debt (its rule shipped as `MISTAKES.md:132`, and was applied to the commit that
-archived it), and the Android `logcat` correction. **Struck is not closed** —
-the counter reads sections, not strikethrough.
+**The on-device method ran for the first time and works.** `adb exec-out
+screencap` on the attached handset found the GENERATE sheet's chip row
+occluded by the nav bar at its collapsed detent (three pixel rows of a
+~20 px label). It also produced two phantom defects and one dead end, none
+filed: a downscaled view twice showed text the full-resolution crop didn't
+contain, and an apparently-unresponsive MORE button turned out to be a
+full-screen panel that had opened over the nav bar. Three of four first
+readings were wrong and the fourth incomplete — the honest summary of a
+first pass on glass.
 
-**A search matched its own retraction, for the third time here.**
-`ANDROID_BUILD_SCOPE.md:1272` still contains the string *"never appeared in
-`logcat`"* — inside the blockquote that corrects it. **A grep for a stale string
-is not a test for a stale claim.**
-
-**And one cosmetic that was older than the change that exposed it.** The units
-sweep put *"Discharge 4,200"* beside *"Catchment 3 500 km²"*; the canvas writes
-`4 210`, `120 000`, `38 000` with spaces and every comma in it is inside
-`rgba(...)`, so `right_dock.gd::_thousands()` had been the non-conformant one all
-along. **Exposing an inconsistency is not causing one.**
-**Later the same day: the GUI rows, and three corrections to my own work.**
-
-**Roofs stopped failing to draw.** At deep zoom Godot logged *"Invalid polygon
-data, triangulation failed"* and **skipped** — buildings silently absent. The
-geometry was never bad: the same 5 009 footprints are non-degenerate in layout
-metres and at fit-to-box scale (**0/5 009** both), and 2.7 % fail only through
-the real deep-zoom transform, every one with a post-transform bounding-box
-diagonal **under 0.09 px**. The guard is the renderer’s own predicate. **Proved
-by whole-frame md5** — identical before and after while errors went **151 → 0**,
-and the frames are not blank (24.6 % ink) — then the diagnosis re-tested with
-the fix REVERTED, which is what makes it a measurement.
-
-**Thirteen fills that had never drawn a pixel.** **A `Button` with
-`flat = true` silently voids EVERY stylebox override**, `hover` as well as
-`normal`. Fills that were fully coded and read correctly in review drew
-nothing, across 9 files. The tell is a selected state distinguished only by ink
-or opacity. Verified on interior modal colour with the border ring excluded, so
-ink cannot contaminate the sample, and mutation-tested.
-
-**A ruling of mine was refuted and reverted the same hour.** I ruled the action
-button takes `2px 12px`, the plurality of radius-8 controls. **The canvas
-disambiguates by height role**, and the role is the population: `--btnH` (28px)
-is the action button at N=14, `--ctl` (24px) the inline chip at N=15. **All
-eight `2px 12px` nodes are `--ctl`/`--tool`. Not one is `--btnH`.** The shipped
-`y=4` the ruling displaced was the canvas figure all along. Withdrawn in place
-as Ruling G. **A lane also reasoned past the brief’s explicit stop-and-report
-gate** — recounted, disagreed, implemented anyway. **A gate that can be
-reasoned past is not a gate.**
-
-**The on-device method was run for the first time and works.** `adb exec-out
-screencap` on the attached handset found the GENERATE sheet’s chip row occluded
-by the nav bar in its **collapsed detent** — three pixel rows of a ~20 px label.
-**It also produced two phantom defects and one dead end, none filed**: twice a
-downscaled view showed text the full-resolution crop did not contain, and
-*"MORE does not respond to a tap"* collapsed when the control test showed MAP
-and PLAN had stopped responding too — a full-screen panel had opened over the
-nav bar. **Three of four first readings were wrong and the fourth was
-incomplete**, which is the honest summary of a first pass on glass.
 ### 2026-09-07
 
-**A full day on the GUI, driven by the owner's standing priority and by defects
-they found on the handset.** Seven multi-agent batches, then a long main-loop
-stretch once the weekly budget ran low. Backlog moved 113 → 146 → **132**: it
-rose while the parity audit converted "nobody has checked this" into rows, then
-fell as those rows closed. **Read a rise here as *more known*, not *more
-broken*.**
+A full day on the GUI, driven by the owner's standing priority and by
+defects found on the handset: seven multi-agent batches, then a long
+main-loop stretch once the weekly budget ran low. Backlog moved
+113 → 146 → **132** — it rose as the parity audit converted "nobody has
+checked this" into rows, then fell as those rows closed; read a rise here as
+*more known*, not *more broken*.
 
 **The three canvases arrived and became the definition of done.** The owner
-supplied PC, Tablet and Android through the `claude_design` MCP; they are
-imported verbatim to `design/mcp-2026-09-07/`. A `.dc.html` is a complete HTML
-document and renders standalone in **headed** Chrome — the canvas editor never
-renders headless. `TABLET_UI_SPEC.md` and `ANDROID_UI_SPEC.md` were written
-from them. The owner's words: *"All designs layouts and styles should match
-100%"*, with the before/mid/after checks **waived at parity**.
+supplied PC, Tablet and Android through the `claude_design` MCP, imported
+verbatim to `design/mcp-2026-09-07/` (a `.dc.html` renders standalone only in
+**headed** Chrome). `TABLET_UI_SPEC.md` and `ANDROID_UI_SPEC.md` were written
+from them, to the owner's *"All designs layouts and styles should match
+100%"*, with the before/mid/after checks waived at parity.
 
-**What the owner reported on glass, and what each turned out to be.** Every one
-had a green desktop probe behind it, and in each case the probe was right about
-what it measured:
+**What the owner reported on glass, and what each turned out to be** — every
+one had a green desktop probe behind it, and each probe was right about what
+it measured: the journey planner's entire control surface hung in a phone
+sheet built `visible = false` while `_left_panel.visible` stayed `true`, so
+every probe passed measuring a panel nobody could see (fixed at `open()`,
+the one function all seven entry points converge on); the sculpt drawer's
+grab row measured 19.84 dp against a 44 dp floor, not gesture arbitration as
+first hypothesised (`_detent_probe` had passed by pressing the handle's
+exact centre); Preferences now stamps the selected value on 10 of 15 desktop
+parent rows and the phone chip takes Medium plus the accent ink; the file
+browser couldn't reach the owner's files on either platform (PC had no `..`
+row or drive list; Android landed in the app sandbox) — both fixed, Android
+now through SAF, and `Werk.zip` opens; and the picker tiles, previously a
+colour gradient, now render the archive's own heightmap with no save-format
+change needed (`SAVEFILE_COMPAT.md` already makes heightmap and sea level
+MUST).
 
-- **The journey planner did not function.** Not a missing feature: its entire
-  control surface hangs in `app.left_dock_body`, a phone sheet built
-  `visible = false`. `_left_panel.visible` was `true` throughout, so every probe
-  passed while measuring a panel nobody could see. Fixed at `open()`, the one
-  function all seven entry points converge on.
-- **The sculpt drawer would not drag.** A **19.84 dp** grab row against a 44 dp
-  floor — not gesture arbitration, which was my hypothesis and was wrong.
-  `_detent_probe` passed because it presses the handle's exact centre.
-- **Preferences showed no selection.** Desktop now stamps the value on 10 of 15
-  parent rows; the phone chip takes Medium plus the accent ink.
-- **The file browser could not reach the owner's files, on both platforms.** PC
-  had no `..` row and no drive list, so it could not leave `C:`. Android landed
-  in the app sandbox. Both fixed; Android file-picking now goes through SAF and
-  `Werk.zip` opens.
-- **The picker tiles were a colour gradient.** They are the map now, rendered
-  from the archive's own heightmap — **no save-format change was needed**,
-  because `SAVEFILE_COMPAT.md` already makes the heightmap and sea level MUST.
+A regression shipped and its own probe asserted it: `e830112` right-aligned
+`number()`'s field citing the canvas's `ENV:351` (a 52 px readout span) where
+the real field is `SIZE_EXPAND_FILL` at 388 px, moving a 36 px number 343 px
+from its label — and the same commit's `_inputfill_probe:165` asserted that
+alignment, green on the regression it existed to catch. Both corrected.
 
-**A regression I shipped, and the probe that shipped asserting it.** `e830112`
-right-aligned `number()`'s field citing the canvas's `ENV:351` — a **52 px
-readout span**, where this field is `SIZE_EXPAND_FILL` at 388 px, so a 36 px
-number moved 343 px from its label. The same commit added
-`_inputfill_probe:165` asserting that alignment, so **the probe was green on the
-regression it existed to catch.** Both corrected.
-
-**All sixteen non-conforming dialogs now reach the phone**, converted in the
-main loop at no lane cost. The phone path is a **three-call protocol** —
-`phone_window` at build, `phone_fit` after the body, `phone_present` instead of
-`popup_centered` — and callers got it *partly* right in both directions.
-
-**An APK went to the D: drive**, release path, `8bcb0dce…`, hash-verified at the
-destination and on the handset, booting with 0 script errors.
-
-**Verification.** Every batch had an adversarial verifier except one, whose
-verifier died on a session limit; that debt was discharged by the next batch's
-verifier and is recorded. The cargo floor held all day at **157 result lines /
-3 253 passed / 0 failed / 28 ignored**.
+All sixteen non-conforming dialogs now reach the phone, converted in the
+main loop via the three-call protocol (`phone_window` at build, `phone_fit`
+after the body, `phone_present` instead of `popup_centered`). A release APK
+(`8bcb0dce…`) went to the D: drive, hash-verified at the destination and on
+the handset, booting with 0 script errors. Every batch had an adversarial
+verifier except one (verifier died on a session limit, debt discharged by
+the next batch's verifier); the cargo floor held all day at **157 result
+lines / 3 253 passed / 0 failed / 28 ignored**.
 
 ### 2026-09-03 – 2026-09-06
 
@@ -774,317 +398,117 @@ read the jump from 09-02 to 09-07 as nothing having happened.
 
 ### 2026-09-02
 
-Four parallel workflows (33 agents). Every claim below was re-verified against
-the code by an agent that did not make it, and then re-run once more by hand
-before being written here — `cargo test -p cartalith-civ -p cartalith-terrain
--p cartalith-engine -p cartalith-godot` aggregates **1 543 passed, 0 failed,
-21 ignored** against a `cartalith_godot.dll` confirmed newer than every touched
-`.rs`, and all seven touched `.gd` files are `--headless --check-only` clean.
-**All of it is uncommitted.**
+Four parallel workflows (33 agents), every claim re-verified against the code
+by an agent that didn't make it and re-run once more by hand: `cargo test -p
+cartalith-civ -p cartalith-terrain -p cartalith-engine -p cartalith-godot`
+aggregates **1 543 passed, 0 failed, 21 ignored** against a freshly-built dll,
+all seven touched `.gd` files `--headless --check-only` clean. All uncommitted
+when written; committed `4ec07f5`/`45b368d`.
 
-**The landmark / point-of-interest pass, reported broken by the owner** ("seems
-to make the program freeze and doesn't render on the map"). Two symptoms, three
-causes:
+**The landmark ("point of interest") pass, reported broken by the owner**
+("seems to make the program freeze and doesn't render on the map") — two
+symptoms, three causes. (1) `landmark_run()` ran synchronously on Godot's main
+thread: `_poifreeze_probe.tscn` measured **0 main-loop frames served** during a
+1 224.9 ms pass, against 255 for a `generate()` doing four times the work on a
+`Thread`. (2) Nothing pushed placements to the map: `MapOverlay._landmarks`'
+only writer is `ViewportHost.refresh_annotations()`, which
+`civilization_workspace.gd::_lm_run()` never called, so a regenerate also left
+world A's rings drawn over world B. (3) The one nobody predicted: a `#[func]`
+that builds a `Dictionary` cannot be called from a worker thread — without the
+`experimental-threads` feature (`cartalith-godot/Cargo.toml` pins `godot =
+"0.5.5"` with only `features = ["api-4-7"]`), every `Dictionary`/`Array`/
+`GString` op routes through `ensure_main_thread()`, and `generate_sized` had
+only ever been thread-safe because it takes and returns primitives. **The
+reusable lesson: a worker-thread `#[func]` must be primitives-in,
+primitives-out.** Fixed accordingly: `landmark_run` now returns `bool` with
+the reason in a `String`, `landmark_last_run()` builds the reply dict on the
+main thread, and `engine_bridge.gd` reuses `generate()`'s `Thread` →
+`call_deferred` → signal pattern with a new `landmark_finished` signal.
+Separately, `box_h`/`box_v` and `sep_min_max` (`cartalith-terrain/src/analysis.rs`)
+were parallelised over output rows (`par_chunks_mut(gw)`, bit-identical, not a
+float reordering) — measured at the shipping 2048×1311 default: **4.14 s →
+0.39-0.86 s**, off the main thread. `_poifreeze_probe.tscn` is the committed
+regression check.
 
-1. **`landmark_run()` was synchronous on Godot's main thread.** Measured before
-   the fix by `_poifreeze_probe.tscn`: **0 main-loop frames served** during a
-   1 224.9 ms pass, against 255 served during a `generate()` doing four times
-   the work — because `engine_bridge.gd` runs *that* on a `Thread`. The landmark
-   path never got the same treatment, and both its own doc comment and the run
-   button's tooltip said so outright.
-2. **Nothing pushed the placements at the map.** `MapOverlay._landmarks`' only
-   writer in the entire shell is `ViewportHost.refresh_annotations()`, and
-   `civilization_workspace.gd::_lm_run()` never called it — nor did
-   `ViewportHost.refresh()`, so a regenerate also left world A's rings drawn
-   over world B. Baseline: `overlay after the UI run: _landmarks=0 (engine has 239)`.
-3. **The one nobody predicted: a `#[func]` that builds a `Dictionary` cannot be
-   called from a worker thread.** The first fix simply moved `landmark_run` onto
-   a `Thread` and produced
-   `attempted to access binding from different thread than main thread; this is UB`
-   out of `godot-ffi-0.5.5/src/binding/single_threaded.rs`. Without the
-   `experimental-threads` feature — and `crates/cartalith-godot/Cargo.toml` pins
-   `godot = "0.5.5"` with only `features = ["api-4-7"]` — every `Dictionary`,
-   `Array` and `GString` operation routes through `ensure_main_thread()`.
-   `generate_sized` has been thread-safe all along **only because it takes and
-   returns primitives.** That forces the shape of the fix and is the reusable
-   lesson: *a worker-thread `#[func]` must be primitives-in, primitive-out.*
+**Vulkan, DirectX and `RenderingDevice` all answered "no", the first by
+measurement** — driving the committed `_shot.tscn` harness on the owner's RX
+7800 XT (driver 26.7.1, Godot 4.7.1) via launch flags, no file edited to
+produce the table: `gl_compatibility` boots and generates clean;
+`forward_plus`/vulkan loses the device during generate **3 of 3**
+(`VK_ERROR_DEVICE_LOST`); `forward_plus`/d3d12 segfaults
+(`DXGI_ERROR_DEVICE_REMOVED`); boot is clean on all of them, it's the
+*generate* that kills the device. `RenderingDevice` is separately disqualified
+(null under both `gl_compatibility` and `--headless`, which would delete the
+68 `cartalith-gpu` tests with no replacement). DirectX needs no work —
+`COMPUTE_BACKENDS` already unions `DX12` and `backend_rank`'s Vulkan-first
+order restates wgpu-core 30's own HAL registration order. 178 lines appended
+to `3D_TERRAIN_RENDER_RESEARCH.md`, **3D left parked**.
 
-   Fixed accordingly: `landmark_run` now returns `bool` with the reason in a
-   plain `String` field, a new `#[func] landmark_last_run()` builds the
-   `{ok, placed, seconds, error, funnels}` reply on the main thread,
-   `engine_bridge.gd` reuses `generate()`'s exact `Thread` →
-   `call_deferred` → signal pattern (reusing `generating` and `_thread`, but a
-   *new* `landmark_finished` signal — 30-odd listeners read
-   `generation_finished` as "the world was replaced"), and
-   `viewport_host.gd` connects the push in `setup()` so a caller cannot forget
-   it. Separately, `box_h`/`box_v` (`cartalith-terrain/src/analysis.rs`) and
-   both halves of `sep_min_max` were parallelised over **output rows**
-   (`par_chunks_mut(gw)`) — each cell's own accumulation runs in exactly the
-   order it always did, so this is bit-identical, not a float reordering.
-   **Measured at the shipping 2048×1311 default: 4.14 s → 0.39-0.86 s**, and
-   off the main thread. `_poifreeze_probe.tscn` is the committed regression
-   check: `fails=0`, 23 frames served during the pass, overlay count == engine
-   count, and a regenerate clears the rings.
-
-**Vulkan, DirectX and `RenderingDevice` — all three answered "no", the first by
-measurement.** Driving the committed `_shot.tscn` harness on the owner's RX
-7800 XT (driver 26.7.1, Godot 4.7.1) via `--rendering-method`/`--rendering-driver`
-launch flags, so **no file was edited to produce the table**: `gl_compatibility`
-boots *and generates* clean; `forward_plus`/vulkan loses the device during
-generate **3 of 3** (`VK_ERROR_DEVICE_LOST`, signal 4); `forward_plus`/d3d12
-segfaults (`DXGI_ERROR_DEVICE_REMOVED`); `mobile`/vulkan matches Vulkan. Boot is
-clean on all of them — it is the *generate* that kills the device.
-`RenderingDevice` is separately disqualified: null under `gl_compatibility`
-(**both** `get_rendering_device()` and `create_local_rendering_device()`) and
-null under `--headless`, which would delete the 68 `cartalith-gpu` tests with no
-CI-shaped replacement. DirectX needs no work at all — `COMPUTE_BACKENDS` already
-unions `DX12` and masks out only OpenGL (itself a bisected signal-11 fix), and
-`backend_rank`'s Vulkan-first order turns out to restate wgpu-core 30's own HAL
-registration order. 178 lines appended to `3D_TERRAIN_RENDER_RESEARCH.md`, zero
-deletions, **3D left parked**.
-
-**Four defects found while looking for something else**, each verified:
-
-- **`engine_bridge.gd` forces `param_set("use_gpu", true)` at boot**, over a
-  `WorldParams::defaults()` of `use_gpu: false` whose own comment says the GPU
-  path "produces a different" world. **So the shipped app does not generate the
-  world the 88 `golden_parity_*.rs` files verify.** Worse, the default grid is
-  2 684 928 cells — *below* 2048², inside the band where
-  `GPU_LAYER_INTEGRATION_SCOPE.md` m6 records "GPU loses". Untested and possibly
-  slower. **Not fixed: this is a product default, an owner call.**
-- **`multi.rs`'s `is_software` doc comment is wrong.** It says a software
-  rasterizer is "never selected by default … every `request_adapter` in this
-  crate already passes `force_fallback_adapter: false`". That flag means
-  *restrict to* fallback adapters; `false` merely declines to restrict, and
-  nothing filters `DeviceType::Cpu`. On a box with no working hardware adapter
-  the pipeline opens Microsoft Basic Render Driver and runs on it. **Not fixed.**
-- **No `log` backend is registered anywhere in the workspace**, so wgpu's
-  logging is a runtime no-op on every platform. The Android passes' PASS
-  condition — zero `wgpu` lines in logcat — **cannot fail**, and every "the
-  handset runs pure CPU" claim rests on it. wgpu, wgpu-hal and ash *are*
-  compiled into the shipped arm64 `.so`; there is no `cfg(target_os = "android")`
-  gate; GPU is forced on at boot. §21 is unblocked by one 60-second device
-  readout, not by a renderer migration. **Not fixed.**
-- **The route-map cutout placed LOD tiles half a world cell off the colour they
-  multiply** — a registration error that scales with zoom, live in this
-  session's own in-flight work while its probe reported green. The probe
-  asserted UVs lay in `0…1` but never that a tile's UV footprint agreed with
-  where the sprite was placed. *Ranges are not registration.* Fixed, with two
-  smaller defects beside it.
+**Four defects found while looking for something else**, each verified, none
+fixed except the last: `engine_bridge.gd` forces `param_set("use_gpu", true)`
+at boot over a `false` default whose own comment says the GPU path produces a
+different world — **the shipped app does not generate the world the 88
+`golden_parity_*.rs` files verify** (a product-default call, left to the
+owner); `multi.rs`'s `is_software` doc comment claims a software rasterizer is
+"never selected by default", but `force_fallback_adapter: false` only declines
+to *restrict to* fallback adapters and filters nothing, so a box with no
+working hardware adapter silently runs on Microsoft Basic Render Driver; no
+`log` backend is registered anywhere, so wgpu's logging is a no-op and the
+Android "zero wgpu lines in logcat" PASS condition **cannot fail** even though
+wgpu/wgpu-hal/ash are compiled into the shipped arm64 `.so` with GPU forced on
+at boot; and the route-map cutout placed LOD tiles half a world cell off the
+colour they multiply (its probe checked UVs lay in `0…1` but never that a
+tile's footprint agreed with where the sprite was placed — ranges are not
+registration) — **fixed**, with two smaller defects beside it.
 
 **Nine backlog rows closed** (`OUTSTANDING_WORK.md` §2.3/§2.6), each
 golden-verified: Rayon across `road_dijkstra`'s three independent source maps
-(ordering **proved by mutation** — reversing collection order fails four golden
-tests, so the guarantee is tested, not argued); R8 (~45 MiB, by probe reduction
-and early release — **the scope document's prescribed "chunk it" mechanism is
-impossible**, since Prim reads an arbitrary source's result until the pass ends;
-the saving is real, the named mechanism is not); R7 (`want_prev`, 10.24 MiB);
-R5 (`jfa_dist` → i32/i32/u32, 32.2 MiB, bit-identity **proved by mutation** —
-`dd + 1` fails `golden_parity_settlement_prereqs` 3/3); R4 (`plate_id` → `u16`,
-15.36 MiB); `_civPlaceSmelting` and `_civSaltAccess` ported with a new
-`golden_parity_smelting_salt` suite; the food-shed readout surfaced in the place
-editor's Trade tab; and the Nortantis disclosure added to `credits.gd`.
+(ordering proved by mutation — reversing collection order fails four golden
+tests); R8 (~45 MiB, by probe reduction and early release — the scope
+document's prescribed "chunk it" mechanism turned out impossible, since Prim
+reads an arbitrary source's result until the pass ends); R7 (`want_prev`,
+10.24 MiB); R5 (`jfa_dist` → i32/i32/u32, 32.2 MiB, bit-identity proved by
+mutation); R4 (`plate_id` → `u16`, 15.36 MiB); `_civPlaceSmelting` and
+`_civSaltAccess` ported with a new `golden_parity_smelting_salt` suite; the
+food-shed readout surfaced in the place editor's Trade tab; and the Nortantis
+disclosure added to `credits.gd`.
 
-**Documented-but-false claims corrected in place**, beyond the commit row above:
-`DECISIONS.md` §7i, `JOURNEY_PLANNER_SCOPE.md`'s 2026-08-19 update (both by
-dated correction, not silent rewrite), `world_workspace.gd`'s "58 parameters"
-(really 81), the `paint_set_brush` doc comment, and `roster.rs`'s food-shed
-self-claim. Also: **the GPU determinism flake is not open** — filed as
-blocked-on-owner in four places, but `803b725` (2026-08-25) replaced the
-`assert_eq!` with a 1e-6 worst-element tolerance. And **a `gl_compatibility`
-rationale does exist**, in `.claude/skills/godot-shell/SKILL.md`, committed
-alongside `project.godot` with its cost and a revisit trigger — four of five
-investigators reported it as never recorded.
+**Documented-but-false claims corrected in place**: `DECISIONS.md` §7i,
+`JOURNEY_PLANNER_SCOPE.md`'s 2026-08-19 update, `world_workspace.gd`'s "58
+parameters" (really 81), the `paint_set_brush` doc comment, `roster.rs`'s
+food-shed self-claim. Also: the GPU determinism flake was filed as
+blocked-on-owner in four places, but `803b725` (2026-08-25) had already
+replaced the `assert_eq!` with a 1e-6 worst-element tolerance; and a
+`gl_compatibility` rationale does exist, in
+`.claude/skills/godot-shell/SKILL.md`, though four of five investigators
+reported it as never recorded.
 
 ### 2026-09-01
 
-Eight agents worked `OUTSTANDING_WORK.md` §1's eight in-flight rows in
-parallel; a ninth pass verified each claim against the code before recording it
-here — `cargo test -p cartalith-civ --lib` (513 passed, 0 failed) and
-`cargo test -p cartalith-godot --lib` (406 passed, 0 failed, 6 ignored) both
-re-run clean after a fresh `cargo build -p cartalith-godot` (the dll was stale
-against `trade.rs`/`timeline.rs`/`roster.rs` before that rebuild — this
-project's own recorded hazard, caught rather than repeated), and the five
-touched `.gd` files were `--headless --check-only`-clean. **All of it is still
-uncommitted** — it lands on top of the same working tree the rest of this
-section describes.
-
-- **`UNWIRED_FUNCTIONS.md` re-cut from scratch**, not patched: every one of the
-  75 rows open at the 2026-08-31 cut was re-opened at its cited symbol and
-  independently re-verified. 52 closed (all 17 trivial, 24 of 25 small, 13 of
-  17 medium); 23 remain (1 small, 4 medium, 18 large — the 18 are exactly
-  `LARGE_ITEM_RULINGS.md`'s 2026-08-31 **build** rulings, not a fresh gap). The
-  dangerous class fell from 25 entries to 3. *(Both numbers move again the
-  same day — see "Second pass, same day" below: 22 open, 1 dangerous; then
-  "Third pass, same day" further below closed one more medium row: 21 open,
-  1 dangerous.)* Two real bugs were fixed along the
-  way in `app.gd`'s `statusMid` composite: stage names now truncate at `" &"`
-  to match `BUILD_ANSWERS.md` §2.2's fixed string (`09 Ecology`, not
-  `09 Ecology & biomes`), and a regenerate no longer shows a false
-  self-contradictory "loaded — no generation this session" beside a `pass`
-  slot reading "generating…" (`_refresh_status_mid` now gates both the ms
-  figure and the loaded branch on `not bridge.generating`). `repaint NN ms`
-  remains genuinely absent, disclosed in place, blocked on owner question 2.
-- **`UNIFIED_TOOL_PLAN.md`'s "Milestone F as built" section written** — the
-  gap `OUTSTANDING_WORK.md` §1 named. Enumerates all sixteen
-  `STRANDED_TOOLS.md` tools against the code; `STRANDED_TOOLS.md`'s stale "44
-  methods… not one wired" claim annotated false, dated, in place. See the Tool
-  system ledger below.
-- **Vault §14 Compare-with-source shipped** (`vault_window.gd`) — the diff
-  view §14's three-way prompt was missing. Dynamically verified: opening
-  Compare cannot itself clear a Stale status (it reads via
-  `vault_preview_section_write`, never `vault_reload_link`). See the Markdown
-  Vault ledger below (MV-5).
-- **Route corridors / travel cost shipped as a selectable analysis field**
-  (`sample_bridge.rs`) — `GUI_FEATURE_PARITY_SCOPE.md`'s last open item.
-  Closes with two fixture tests proving the ramp is actually reached, not just
-  non-empty. See the GUI feature parity ledger below (GFP-4).
-- **Landmark `resource_extraction_site` went buildable** (`landmark.rs`) — 14
-  of 49 kinds now generate (was 13). Reads `timber`/`sulfur`/`alum`, the three
-  resource-potential fields Mine and Quarry don't claim, through their own
-  already-validated detector. The other 35 `not_built` reasons were
-  individually re-verified, six rewritten for precision with no change to
-  their conclusion. See the Landmark generation ledger below (LM-8).
-- **`civ_food_shed` built** (`trade.rs`) — a direct port of `_civFoodShed`,
-  closing `ECONOMY_SCOPE.md` milestone 2 at the crate level. Distinct from
-  `trade.rs`'s pre-existing 15-good trade match, which excludes `food` and so
-  cannot substitute for it. Not yet reachable from Godot — no `#[func]` calls
-  it. See the Economy ledger below (EC-3).
-- **WORLD and CIVIL's Landmarks/Factions & settlements restyled** against
-  `04-left-dock.md` (`world_workspace.gd`, `civilization_workspace.gd`) — a
-  deliberate restyle rather than a rebuild, keeping the shipped
-  one-accordion-per-domain model. CIVIL's Ways & routes and Journey planner
-  remain untouched, owned by `infrastructure_workspace.gd`. See the GUI
-  replacement ledger below (RP-S4).
-
-**Second pass, same day.** Three of the morning's own residuals dispatched
-and independently re-verified against the code before being recorded here —
-not carried forward from the agent reports. `cargo test -p cartalith-spatial
---lib` (148/148), `--test golden_parity_paint` (7/7), `cargo test -p
-cartalith-godot --lib` (409/409, 6 pre-existing ignores) and `cargo test -p
-cartalith-civ --lib` (513/513) all re-run clean after a fresh `cargo build -p
-cartalith-godot` (the dll was stale against exactly the files this pass
-touched — this project's own recorded hazard, caught rather than repeated);
-`cargo check --workspace` clean; every touched `.gd` file `--headless
---check-only` clean; `_railfold_probe.tscn` **PASS** and `_deadwire_probe.tscn`
-**DONE fail=0** both re-run.
-
-- **Paint brush falloff shipped**, closing the highest-severity
-  `UNWIRED_FUNCTIONS.md` row and both remaining dangerous-class entries (3 →
-  0; see the dangerous-class section there). `PaintStamp::hardness`/`softness`
-  (`cartalith-spatial/src/paint.rs:143-144`), the `with_falloff` builder
-  (`:180`), `feather_width` (`:199`), `passes_falloff` (`:219`) and
-  `cell_dither` (`:249`) implement a deterministic probability-threshold edge
-  band — never a blended palette index, the categorical-blending objection the
-  reference itself raises — wired end to end from `Brush::hardness`/`softness`
-  through `PaintEditor::stroke_at` (`paint_bridge.rs:466`), bit-identical to
-  the old hard disc at `hardness=1.0, softness=0.0` (the golden-parity paint
-  suite is unchanged, 7/7). The duplicate slider is resolved: `tool_bar.gd`'s
-  copy is deleted (`:433-442`, comment explains why), `world_workspace.gd`'s
-  survives with tooltips naming the real mechanism (`:2103,2105`). Recorded as
-  a deliberate divergence from the reference at `DECISIONS.md` §7k, per the
-  owner's ruling. **One disclosed residual, not closed this pass:**
-  `lib.rs:6704-6705`'s `paint_set_brush` doc comment still says hardness/
-  softness are "never consumed" — confirmed still present and now stale.
-- **Economy milestone 2 reached Godot** (`civ_trade_bridge.rs`,
-  `engine_bridge.gd`, `trade_store.gd`) — see EC-3 below for the full chain.
-  The private `food_shed_rows()` builds one shared `RoadComponents` and calls
-  `civ_food_shed` once per settlement, resolving `farmers_per_urbanite`
-  through the same `civ_ag_tech_by_key` route the manpower model already
-  uses; the `#[func] civ_food_shed` reads it out; the shell caches it
-  alongside `civ_trade_flows`, populated by the existing "Match trade flows"
-  button with no new UI trigger needed. **What remains is a UI surface, not a
-  binding**: no dock reads `food_shed_for(index)` yet — confirmed,
-  `place_editor_window.gd:385` still reads only `navigability`.
-- **GUI replacement stage 4 closed** (`infrastructure_workspace.gd`) — see
-  RP-S4 below. CIVIL's Ways & routes gained a real `ROUTES` teaser list
-  (glyph, name, nearest settlements, km, click-to-plan); Journey planner was
-  deliberately restyled — a thin, honest summary plus the one shared
-  `open_journey_planner()` entry point — rather than embedding a second copy
-  of `journey_planner_view.gd`'s private form state. One disclosed gap: no
-  per-route preselect into the planner.
-
-**Third pass, same day.** Two more items dispatched and independently
-re-verified against the code before being recorded here — not carried
-forward from the agent reports. `cargo check --workspace` clean; `cargo test
--p cartalith-civ` (all targets — 518 lib tests plus every `tests/*.rs`,
-including the two touched golden-parity suites) and `cargo test -p
-cartalith-godot` (all targets — 409/409 lib, 6 pre-existing ignores) both
-re-run clean; `cargo clippy` on both crates re-run, no warning at any touched
-symbol (the two collapsible-if fixes and the one
-`#[allow(clippy::too_many_arguments)]` on `civ_sea_routes` hold);
-`target/debug/cartalith_godot.dll` confirmed newer (13:13:05) than the newest
-touched `.rs` file (`cartalith-civ/src/lib.rs`, 13:11:27) — this project's own
-recorded hazard, checked rather than assumed; `world_workspace.gd` re-run
-`--headless --check-only` clean.
-
-- **A new defect, found by the owner's own manual testing rather than any
-  audit document, closed: the three tectonics/volcanism parameter rows kept
-  accepting drag input and regenerating from it while World Structure
-  silently overrode the result.** `generate_terrain_inner`
-  (`cartalith-engine/src/lib.rs:676-684`) has always replaced
-  `p.tect.plates`/`p.tect.vel`/`p.volc.count` with
-  `deriveFromWorldStructure()`'s own archetype-derived values whenever
-  `p.world_structure.enabled` (default `false`) — real, and matching the
-  reference's own comment exactly — but nothing in `world_workspace.gd`
-  disclosed it, so a player could drag "Plates" for as long as they liked and
-  never see it do anything. Fixed at build time (`_build_param_row`) and live
-  (`_refresh_ws_override_rows`, wired from the toggle's own change handler,
-  from `_on_generation_finished` — covering a File ▸ New world preset that
-  turns World Structure on and then generates — and from `_on_world_loaded`
-  — covering a save that already carries `enabled: true`): the three rows
-  (`WS_OVERRIDDEN_KEYS`, `world_workspace.gd:57`) go `editable = false`, the
-  whole row dims to 55% (`WS_OVERRIDE_DIM`), and the tooltip gains an
-  explanatory prefix (`WS_OVERRIDE_REASON`, `:65`) whenever the toggle is on.
-  The right-click "reset to default" path was generalised to read the row's
-  own live `editable` state rather than a captured snapshot, closing a
-  loophole where it could silently revert a disabled row without saying so.
-  **Two disclosed, out-of-scope findings surfaced along the way, neither
-  touched:** no other parameter row in this panel — of `params.rs`'s 81 —
-  resyncs its displayed value after a load- or preset-driven generate at
-  all, so these three are now the only ones that do; and the panel's own
-  header (`world_workspace.gd:10`) still says "58 parameters" against the
-  real count of 81 (`grep -c 'ParamSpec { key:'
-  crates/cartalith-godot/src/params.rs`).
-- **The journey/route dead-control cluster — all six `OUTSTANDING_WORK.md`
-  §2.3 rows closed**, four built and two confirmed already done (stale rows,
-  now deleted from that document). Three map onto declared Journey Planner
-  quality ceilings — see JP-QC2/QC3/QC4 above, now all `done`. The fourth
-  built item has no scope-document milestone ID of its own:
-  `DECISIONS.md` §7i's swamp/floodplain penalty and river ford-vs-bridge
-  cost, named there as "the obvious next step" and left unbuilt at the time.
-  `RouteContext` (`cartalith-civ/src/tools.rs:352`) gained `flow`/
-  `flow_thresh`; `civ_land_cost_grid`/`civ_mixed_cost_grid` (`tools.rs:564`,
-  `:637`) now apply `civ_swamp_penalty`/`civ_river_crossing_cost`
-  (`cartalith-civ/src/lib.rs:5583`, `:5599`) — the same two functions
-  `civ_enhanced_travel_cost` itself already calls, so the formula cannot
-  drift between the auto-populate road builder and the manual Route/Way
-  tools. Wired at all three `RouteContext` construction sites in
-  `cartalith-godot/src/lib.rs`: `way_commit` (`:7115`), `route_commit`
-  (`:7204`), and `jp_reroute` (`:9871`) — the last of which is why this is
-  recorded as a Journey Planner change and not only a Route/Way-tools one.
-  The two confirmed-stale rows, independently re-verified rather than taken
-  on trust: "wire wildlife richness into `jp_foraging`" was already done
-  (`wildlife.rs` shipped 2026-08-23; this is JP-QC1 above); "`road_edges`
-  not retained" was already done too — `CivData::road_edges` genuinely
-  retains `civ_hierarchical_network_topology`'s output (a different producer
-  than the never-called `build_road_network` the stale claim named) and both
-  `jp_road_cells` call sites already used it, so only `journey_bridge.rs`'s
-  own module doc was wrong, now corrected in place. **Verifying this pass
-  found the identical stale claim in two more places, both now closed the
-  same way**: `UNWIRED_FUNCTIONS.md`'s "Manual road tool / `road_edges` never
-  retained" (Medium; 22 open rows there becomes 21 — see that document's own
-  third-pass note), and `OUTSTANDING_WORK.md` §3.2's row of the same name,
-  which cited it as a live blocker (34 blocked becomes 33). Neither was in
-  either agent's original report; both are the same underlying fact recorded
-  twice more. Five new tests:
-  `civ_swamp_penalty_and_river_crossing_cost_match_the_reference_formula`,
-  `civ_sea_time_edge_cost_is_none_without_any_field_and_penalises_a_current_aligned_edge`,
-  `civ_sea_routes_still_connects_ports_with_or_without_current_and_wind_fields`,
-  `jp_road_cells_reads_hand_drawn_ways_including_ancient`
-  (`cartalith-civ/src/lib.rs`), and
-  `swamp_and_ford_terms_scale_with_the_flow_field_and_touch_nothing_else`
-  (`tools.rs`).
+Eight `OUTSTANDING_WORK.md` §1 items closed across three re-verified passes
+(each re-run `cargo test`/`cargo check`/`cargo clippy` clean and every touched
+`.gd` file `--headless --check-only` clean, with `cargo build -p
+cartalith-godot` re-run each pass to dodge the stale-dll hazard). Full detail
+is in each subsystem's ledger row below, not repeated here: `UNWIRED_FUNCTIONS.md`
+re-cut from 75 open rows to 21 (dangerous class 25 → 0, closed in two more
+sub-passes the same day); `UNIFIED_TOOL_PLAN.md`'s "Milestone F as built"
+section (Tool system ledger); Vault §14 Compare (MV-5); route corridors/travel
+cost as a selectable analysis field (GFP-4); landmark `resource_extraction_site`
+went buildable, 14 of 49 kinds (LM-8); `civ_food_shed` built and reached Godot
+(EC-3); WORLD/CIVIL left-dock restyle and GUI replacement stage 4 (RP-S4);
+paint brush falloff shipped, closing the tool system's last dangerous-class
+rows, recorded as a deliberate reference divergence at `DECISIONS.md` §7k; a
+tectonics World-Structure override-disclosure bug the owner found by manual
+testing was fixed (`world_workspace.gd`'s `WS_OVERRIDDEN_KEYS`/
+`_refresh_ws_override_rows`, dimming and disabling the three parameter rows
+`deriveFromWorldStructure()` silently overrides); and all six of
+`OUTSTANDING_WORK.md` §2.3's journey/route rows closed, three of them the
+Journey Planner quality ceilings JP-QC2/QC3/QC4 above, the fourth
+`DECISIONS.md` §7i's swamp/ford-cost terms (`civ_swamp_penalty`/
+`civ_river_crossing_cost`, `cartalith-civ/src/lib.rs:5583`/`:5599`) wired into
+`way_commit`, `route_commit` and `jp_reroute` so the formula can't drift
+between the auto-populate road builder and the manual tools. All uncommitted
+when written; committed by `4ec07f5` the next day.
 
 ### 2026-08-31
 
@@ -1204,18 +628,10 @@ answers "what is left" without a second read:
 | Open owner decisions — not work yet | 0 | §4 |
 | Declined / shelved — kept so nobody re-proposes them | 23 entries, 3 groups | §5 |
 
-**155 outstanding items at the time of writing — stale, see the recount above** (was 168 that morning, then 164 after four of §1's
-eight rows closed outright 2026-09-01: Milestone F's closeout, the
-`statusMid` composite, Vault §14 Compare, route corridors/travel cost as an
-analysis field; then 162 after the same-day second pass closed GUI
-replacement stage 4 outright and Paint brush falloff inside §2.2; then 156
-after the same-day third pass closed all six of §2.3's journey/route cluster
-rows — four built, two confirmed already done; then 155 once verifying that
-pass closed §3.2's "Manual road tool" row too — it blocked on the identical
-now-false claim `UNWIRED_FUNCTIONS.md`'s matching row made). Of the 140 that
-carry a size: **42 large, 56 medium, 42 small**. **14 of the 33 blocked are
-blocked on an owner decision and nothing else** — the largest single category
-of stalled work in the project.
+**The table above is itself stale** (155 was the count on 2026-08-31/09-01;
+see the recount at the top of this section for the current figure and
+`OUTSTANDING_WORK.md` for the live breakdown) — kept rather than deleted
+because the two caveats below still apply to any count this document reports.
 
 Two caveats that document states about itself, repeated because they change how
 the number should be read: it counts **rows, not effort** (urban milestone 10
