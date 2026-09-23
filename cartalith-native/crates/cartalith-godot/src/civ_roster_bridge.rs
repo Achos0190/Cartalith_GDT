@@ -93,6 +93,17 @@ pub struct FactionEntry {
     /// render rule is untouched at rest, and `None` is exactly today's
     /// behaviour.
     pub color_override: Option<(u8, u8, u8)>,
+    /// IN-13 tariffs this faction levies **as importer**, keyed by the
+    /// exporting faction's id: rate `0..=1` (Ruling AE,
+    /// `LARGE_ITEM_RULINGS.md`). Its own relationship field, deliberately
+    /// not `civ_faction_relations`' score, which is documented as not
+    /// diplomacy. Stored on the importer's row because a tariff is the
+    /// importer's policy; `(a, b)` and `(b, a)` are independent.
+    ///
+    /// Empty is the default and the untariffed match. A row is never kept
+    /// at `0.0` — [`FactionRoster::set_tariff`] removes it — so an
+    /// unedited roster saves exactly as it did before this field existed.
+    pub tariffs: std::collections::BTreeMap<usize, f64>,
 }
 
 impl FactionEntry {
@@ -111,6 +122,7 @@ impl FactionEntry {
             ag_tech: "traditionalAgrarian".to_string(),
             color,
             color_override: None,
+            tariffs: Default::default(),
         }
     }
 }
@@ -172,7 +184,49 @@ impl FactionRoster {
             }
         }
         self.0.pop();
+        // A tariff on the removed faction's goods would otherwise outlive
+        // it and silently re-apply to whatever `add()` later puts at `idx`.
+        for e in self.0.iter_mut() {
+            e.tariffs.remove(&(idx as usize));
+        }
         true
+    }
+
+    /// Sets the rate `importer` levies on goods from `exporter`. Refuses
+    /// (returning `false`, changing nothing) an unknown faction on either
+    /// side, Unclaimed as importer (it has no government to levy with), a
+    /// faction taxing itself, and a rate outside `0..=1` or `NaN`. Rate
+    /// `0.0` removes the row, so "no tariff" has exactly one encoding.
+    pub fn set_tariff(&mut self, importer: usize, exporter: usize, rate: f64) -> bool {
+        let n = self.0.len();
+        if importer == 0 || importer >= n || exporter >= n || importer == exporter {
+            return false;
+        }
+        if !(0.0..=1.0).contains(&rate) {
+            return false;
+        }
+        let row = &mut self.0[importer].tariffs;
+        if rate == 0.0 {
+            row.remove(&exporter);
+        } else {
+            row.insert(exporter, rate);
+        }
+        true
+    }
+
+    /// Every nonzero tariff, as the engine's sparse rows.
+    pub fn tariff_rows(&self) -> Vec<cartalith_civ::trade::Tariff> {
+        self.0
+            .iter()
+            .enumerate()
+            .flat_map(|(i, e)| {
+                e.tariffs.iter().map(move |(&x, &rate)| cartalith_civ::trade::Tariff {
+                    importer: i as i32,
+                    exporter: x as i32,
+                    rate,
+                })
+            })
+            .collect()
     }
 
     /// `1..=count()` — a real, assignable faction id.
@@ -485,6 +539,42 @@ mod tests {
         assert_eq!(s[0].placement.faction, 0, "the removed faction's settlement reverts");
         assert_eq!(s[1].placement.faction, 3, "an untouched faction stays");
         assert_eq!(terr, vec![0, 3, 0, 0]);
+    }
+
+    #[test]
+    fn set_tariff_validates_and_zero_removes_the_row() {
+        let mut r = FactionRoster::seeded(3);
+        assert!(r.tariff_rows().is_empty(), "a fresh roster levies nothing");
+        assert!(r.set_tariff(2, 1, 0.25));
+        assert!(r.set_tariff(2, 0, 0.5), "goods from Unclaimed land may be taxed");
+        assert!(!r.set_tariff(0, 1, 0.25), "Unclaimed has no government to levy with");
+        assert!(!r.set_tariff(2, 2, 0.25), "a faction cannot tax itself");
+        assert!(!r.set_tariff(4, 1, 0.25), "unknown importer");
+        assert!(!r.set_tariff(2, 4, 0.25), "unknown exporter");
+        assert!(!r.set_tariff(2, 1, 1.5));
+        assert!(!r.set_tariff(2, 1, -0.1));
+        assert!(!r.set_tariff(2, 1, f64::NAN));
+        assert_eq!(r.0[2].tariffs.get(&1), Some(&0.25), "refusals changed nothing");
+        let rows = r.tariff_rows();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.contains(&cartalith_civ::trade::Tariff { importer: 2, exporter: 1, rate: 0.25 }));
+        assert!(r.set_tariff(2, 1, 0.0));
+        assert!(r.set_tariff(2, 0, 0.0));
+        assert!(r.0[2].tariffs.is_empty(), "rate 0 is the absence of a row, not a stored 0");
+        assert_eq!(r, FactionRoster::seeded(3));
+    }
+
+    #[test]
+    fn removing_a_faction_drops_every_tariff_on_its_goods() {
+        let mut r = FactionRoster::seeded(3);
+        assert!(r.set_tariff(1, 3, 0.4));
+        assert!(r.set_tariff(2, 3, 0.4));
+        assert!(r.set_tariff(1, 2, 0.1));
+        let (mut s, mut t): (Vec<NamedSettlement>, Vec<i32>) = (vec![], vec![]);
+        assert!(r.remove_last(&mut s, &mut t));
+        let _ = r.add(); // a new faction at index 3 must not inherit them
+        let rows = r.tariff_rows();
+        assert_eq!(rows, vec![cartalith_civ::trade::Tariff { importer: 1, exporter: 2, rate: 0.1 }]);
     }
 
     #[test]

@@ -241,9 +241,87 @@ pub struct TradeFlow {
     /// `_civFoodDeliverable(distance_km, mode)` — the fraction of a
     /// supplier's scale that survives the carriage.
     pub deliverable: f64,
-    /// People's worth of demand this flow covers. See
+    /// People's worth of demand this flow covers, **after** any tariff. See
     /// [`trade_flows`]'s doc comment for the whole of the rule.
     pub volume: f64,
+    /// The exporter's `placement.faction` (`0` = Unclaimed).
+    pub from_faction: i32,
+    /// The importer's `placement.faction` (`0` = Unclaimed).
+    pub to_faction: i32,
+    /// The good's scarcity price index, [`scarcity_price`] — dimensionless,
+    /// `1.0` where world demand and supply balance, in `(0, 2)`.
+    pub price: f64,
+    /// The rate the importing faction levied on this flow, `0.0` for every
+    /// same-faction flow and every pair with no [`Tariff`] row.
+    pub tariff: f64,
+}
+
+/// One faction's tariff on goods from another (Ruling AE,
+/// `LARGE_ITEM_RULINGS.md`): its own relationship field, deliberately not
+/// read from [`civ_faction_relations`](crate::relations::civ_faction_relations),
+/// whose module doc says it is not diplomacy.
+///
+/// **Directional.** A tariff is the *importer's* policy, so `(a, b)` and
+/// `(b, a)` are two independent rows. A pair with no row levies nothing,
+/// which is what makes a fresh world's match identical to the untariffed
+/// one: no rows exist until someone sets one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Tariff {
+    pub importer: i32,
+    pub exporter: i32,
+    /// Fraction of a flow's volume the levy removes, `0..=1`. `1.0` is an
+    /// embargo: the flow's volume reaches zero and it is dropped.
+    pub rate: f64,
+}
+
+/// The rate `importer` levies on `exporter`, clamped to `0..=1`; `0.0`
+/// for a missing row, a same-faction pair, and a `NaN` rate (`r > 0.0` is
+/// `false` for `NaN`, so it cannot leak into a volume).
+pub fn tariff_rate(tariffs: &[Tariff], importer: i32, exporter: i32) -> f64 {
+    if importer == exporter {
+        return 0.0;
+    }
+    match tariffs.iter().find(|t| t.importer == importer && t.exporter == exporter) {
+        Some(t) if t.rate > 0.0 => t.rate.min(1.0),
+        _ => 0.0,
+    }
+}
+
+/// A good's price index from world scarcity (Ruling AB: derived from
+/// `TradeBalance`'s own surplus/deficit verdicts, no authored table):
+///
+/// ```text
+/// price = 2·D / (D + S)
+///   D = Σ pop(d)                   over every settlement importing the good
+///   S = Σ SUPPLIER_SHARE · pop(s)  over every settlement exporting it
+/// ```
+///
+/// **Why this shape, since the ruling left it open.** `TradeBalance` is a
+/// *classification* — a settlement's good is an export, an import, or
+/// neither — and carries no magnitude, so the magnitude is the one
+/// [`trade_flows`] already uses for both sides of the same match: an
+/// importer demands its population, a supplier can give at most
+/// `SUPPLIER_SHARE` of its own. Using those two and no other numbers keeps
+/// the price and the volume on one scale. Then:
+///
+/// - it is `1.0` exactly when demand equals what suppliers can give, rises
+///   toward `2` as demand outruns supply and falls toward `0` as supply
+///   swamps demand — monotone in both;
+/// - it is bounded **without a clamp constant**: `D/(D+S)` is a share, so
+///   no floor or ceiling had to be invented;
+/// - it is one number per good for the whole world, not per pair. Carriage
+///   cost is already `deliverable`'s job, and a per-pair price would count
+///   distance twice.
+///
+/// `0.0` when both sides are empty (`D + S == 0`), which [`trade_flows`]
+/// never reaches: a good with a flow has an importer, so `D > 0`.
+pub fn scarcity_price(demand: f64, supply: f64) -> f64 {
+    let t = demand + supply;
+    if t > 0.0 {
+        2.0 * demand / t
+    } else {
+        0.0
+    }
 }
 
 /// A need that no reachable settlement can fill.
@@ -435,6 +513,9 @@ pub struct TradeInput<'a> {
     pub ways: &'a [Way],
     pub map_width_km: f64,
     pub gw: usize,
+    /// Sparse, directional [`Tariff`] rows. Empty is the untariffed match,
+    /// bit-identical to the one before tariffs existed.
+    pub tariffs: &'a [Tariff],
 }
 
 /// Match every surplus to every deficit it can actually reach, and route
@@ -464,6 +545,24 @@ pub struct TradeInput<'a> {
 /// straight through: seven of the fifteen keys can never be imports
 /// (`CIV_CONSUMED_RESOURCES`), so they never produce a flow, and that is the
 /// reference's rule and not an omission.
+///
+/// ## Factions, price and tariff (IN-13, Rulings AB/AE, 2026-09-23)
+///
+/// New engine work with no reference to port, so every choice here is a
+/// disclosed design decision rather than a parity claim. Each flow records
+/// both ends' `placement.faction` and its good's [`scarcity_price`]. A
+/// flow whose importer levies a [`Tariff`] on its exporter's faction
+/// carries `volume · (1 − rate)` — the levy is taken as landed quantity,
+/// the simplest reading under which "a tariff reduces what arrives" holds
+/// with no elasticity constant to invent — and that reduced volume is what
+/// the ways carry. A tariff never re-allocates demand onto an untaxed
+/// supplier: the split is computed before the levy, the same way demand
+/// the supplier cap leaves uncovered is not reassigned.
+///
+/// **No tariff rows means the pre-IN-13-pricing match, bit for bit**: the
+/// price is computed beside the allocation and read by nothing in it, and
+/// the levy is skipped by control flow at rate `0`. Pinned by
+/// `trade::tests::parity_*` against a digest recorded before this change.
 pub fn trade_flows(input: &TradeInput, w: &UrbanWorld) -> TradeNetwork {
     let n = input.settlements.len();
     let mut out = TradeNetwork::default();
@@ -498,6 +597,15 @@ pub fn trade_flows(input: &TradeInput, w: &UrbanWorld) -> TradeNetwork {
             continue;
         }
         let any_exporter = !exporters.is_empty();
+        // Read-only aggregates: nothing below that existed before pricing
+        // consumes them, so the pre-existing fields cannot move.
+        let demand_g: f64 =
+            importers.iter().map(|&d| input.settlements[d].pop as f64).sum();
+        let supply_g: f64 = exporters
+            .iter()
+            .map(|&s| SUPPLIER_SHARE * input.settlements[s].pop as f64)
+            .sum();
+        let price = scarcity_price(demand_g, supply_g);
 
         for &d in importers.iter() {
             cand.clear();
@@ -539,7 +647,17 @@ pub fn trade_flows(input: &TradeInput, w: &UrbanWorld) -> TradeNetwork {
             let demand = input.settlements[d].pop as f64;
             for &(s, frac, mode, reach, dist_km) in cand.iter() {
                 let cap = SUPPLIER_SHARE * input.settlements[s].pop as f64;
-                let volume = js_min(demand * frac / total, cap);
+                let mut volume = js_min(demand * frac / total, cap);
+                let (from_faction, to_faction) = (
+                    input.settlements[s].placement.faction,
+                    input.settlements[d].placement.faction,
+                );
+                // Identity by control flow, not arithmetic: an untariffed
+                // flow never reaches the multiply, so it cannot move a bit.
+                let tariff = tariff_rate(input.tariffs, to_faction, from_faction);
+                if tariff > 0.0 {
+                    volume *= 1.0 - tariff;
+                }
                 if !(volume > 0.0) {
                     continue;
                 }
@@ -555,6 +673,10 @@ pub fn trade_flows(input: &TradeInput, w: &UrbanWorld) -> TradeNetwork {
                     distance_km: dist_km,
                     deliverable: frac,
                     volume,
+                    from_faction,
+                    to_faction,
+                    price,
+                    tariff,
                 });
             }
         }

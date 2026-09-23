@@ -120,12 +120,14 @@ impl WorldGen {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
             world_seed: self.seed,
         };
+        let tariffs = civ.faction_roster.tariff_rows();
         let input = TradeInput {
             settlements: &civ.settlements,
             balances: &civ.trade_balances,
             ways: &civ.ways,
             map_width_km: self.map_width_km,
             gw,
+            tariffs: &tariffs,
         };
         let t0 = std::time::Instant::now();
         let net = cartalith_civ::trade::trade_flows(&input, &world);
@@ -413,7 +415,11 @@ impl WorldGen {
     ///   exporter and importer counts, total volume, bulk/luxury class and
     ///   dominant mode.
     /// - `flows` — every matched flow (`from`/`to` are indices into
-    ///   `get_settlements()`), capped at [`MAX_FLOW_ROWS`].
+    ///   `get_settlements()`), capped at [`MAX_FLOW_ROWS`]. Each also
+    ///   carries `from_faction`/`to_faction`, the good's scarcity `price`
+    ///   index (`1.0` = balanced, in `(0, 2)`), the `tariff` rate the
+    ///   importer levied (`0.0` when none), and `value` = volume · price,
+    ///   in people-of-demand × price-index units — not a currency.
     /// - `unmet` — one row per settlement with a need nothing can fill.
     /// - `navigability` — per settlement, in settlement order.
     /// - `way_load` — per way, in `get_roads()` order.
@@ -504,6 +510,11 @@ impl WorldGen {
                     "distance_km" => f.distance_km,
                     "deliverable" => f.deliverable,
                     "volume" => f.volume,
+                    "from_faction" => f.from_faction as i64,
+                    "to_faction" => f.to_faction as i64,
+                    "price" => f.price,
+                    "tariff" => f.tariff,
+                    "value" => f.volume * f.price,
                 }
             })
             .collect();
@@ -612,6 +623,40 @@ impl WorldGen {
         }
         d.set("way_load", &load);
         d
+    }
+
+    /// Sets the IN-13 tariff `importer` levies on goods from `exporter`
+    /// (Ruling AE) — a `0..=1` fraction of each crossing flow's volume;
+    /// `0.0` clears it, `1.0` is an embargo. Directional: the reverse pair
+    /// is its own row. Returns `false`, changing nothing, before any
+    /// `generate()`, for an unknown faction, for Unclaimed (`0`) as
+    /// importer, for a faction taxing itself, and for a rate outside
+    /// `0..=1`. See `FactionRoster::set_tariff`.
+    ///
+    /// Saved with the roster in `entities/factions.json`. Nothing is
+    /// recomputed here: the next [`WorldGen::civ_trade_flows`] reads it.
+    #[func]
+    fn civ_set_trade_tariff(&mut self, importer: i64, exporter: i64, rate: f64) -> bool {
+        let Some(civ) = self.civ.as_mut() else { return false };
+        if importer < 0 || exporter < 0 {
+            return false;
+        }
+        civ.faction_roster.set_tariff(importer as usize, exporter as usize, rate)
+    }
+
+    /// The rate `importer` levies on goods from `exporter`; `0.0` when no
+    /// tariff is set, for an unknown faction, and before any `generate()`.
+    #[func]
+    fn civ_trade_tariff(&self, importer: i64, exporter: i64) -> f64 {
+        let Some(civ) = self.civ.as_ref() else { return 0.0 };
+        if importer < 0 || exporter < 0 {
+            return 0.0;
+        }
+        civ.faction_roster
+            .0
+            .get(importer as usize)
+            .and_then(|e| e.tariffs.get(&(exporter as usize)).copied())
+            .unwrap_or(0.0)
     }
 
     /// CIVIL ▸ Trade's food half — `_civFoodShed` run for every settlement:

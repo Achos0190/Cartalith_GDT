@@ -861,6 +861,7 @@ MUST NOT allow index `0` to be removed.
 | `culture`, `religion`, `government`, `ag_tech` | string | MUST | Vocabulary keys. An unrecognised key MUST be preserved on write-back and MAY be shown to the user as-is; a reader MUST NOT substitute a default silently. |
 | `color` | array of 3 integers `[0,255]` | MUST | The faction's base palette colour, **as stored**. Not derivable — see below. |
 | `user_color` | array of 3 integers, or `null` | MUST | The author's chosen identity colour, or `null` for "use the stored `color`". A separate member rather than an overwrite of `color`, so that clearing the override restores the base colour rather than losing it. |
+| `tariffs` | object, exporting-faction id (as a decimal string key) → number in `(0, 1]` | MAY | Trade tariffs this faction levies **as importer** on goods from each named faction (IN-13, Ruling AE, added 2026-09-23) — the fraction of each crossing trade flow's volume the levy removes; `1` is an embargo. Directional: `A.tariffs[B]` and `B.tariffs[A]` are independent. A writer MUST omit the member when the faction levies nothing, so a file with no tariffs is byte-identical to one written before the member existed. A reader MUST treat an absent member as "no tariffs" and MUST drop, not clamp, an entry that is on faction `0` (Unclaimed levies nothing), names the faction itself, names an id with no row, or has a rate outside `(0, 1]`. |
 
 **`color` is stored because it is not a function of the index.** An earlier
 revision of this document described it as "the palette colour derived from the

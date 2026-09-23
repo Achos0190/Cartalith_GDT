@@ -323,6 +323,12 @@ struct FactionDto {
     color: [u8; 3],
     #[serde(default)]
     user_color: Option<[u8; 3]>,
+    /// IN-13 tariffs this faction levies as importer, keyed by exporting
+    /// faction id (Ruling AE). Omitted when empty, so a project with no
+    /// tariff set writes the same `factions.json` it did before the field
+    /// existed, and an older file reads back as "no tariffs".
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    tariffs: std::collections::BTreeMap<usize, f64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1404,6 +1410,7 @@ fn civ_documents(civ: &CivData, out: &mut BTreeMap<String, String>) {
                 ag_tech: f.ag_tech.clone(),
                 color: [f.color.0, f.color.1, f.color.2],
                 user_color: f.color_override.map(|c| [c.0, c.1, c.2]),
+                tariffs: f.tariffs.clone(),
             })
             .collect(),
     };
@@ -1637,6 +1644,21 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize) -> Option<CivDat
                     ag_tech: f.ag_tech.clone(),
                     color: (f.color[0], f.color[1], f.color[2]),
                     color_override: f.user_color.map(|c| (c[0], c[1], c[2])),
+                    // Rows outside `0..=1`, at 0, or naming a faction id this
+                    // roster does not have are dropped rather than trusted:
+                    // `FactionRoster::set_tariff`'s rules, applied on read.
+                    tariffs: f
+                        .tariffs
+                        .iter()
+                        .filter(|&(&x, &r)| {
+                            f.id != 0
+                                && x < factions_doc.factions.len()
+                                && x != f.id
+                                && r > 0.0
+                                && r <= 1.0
+                        })
+                        .map(|(&x, &r)| (x, r))
+                        .collect(),
                 })
                 .collect(),
         )
@@ -4469,6 +4491,43 @@ mod tests {
         // The one field that deliberately does not survive
         // (`SAVEFILE_COMPAT.md` §16.2).
         assert!(back.explanations.is_empty());
+    }
+
+    /// IN-13 tariffs (Ruling AE) ride `factions.json`: set rows survive a
+    /// real archive round trip, an untariffed roster writes no `tariffs`
+    /// key at all (so an unedited project's document is unchanged by the
+    /// field's existence), and rows `set_tariff` would refuse are dropped
+    /// on read rather than trusted.
+    #[test]
+    fn faction_tariffs_survive_a_real_archive_round_trip() {
+        let plain = sample_civ();
+        let mut docs = BTreeMap::new();
+        civ_documents(&plain, &mut docs);
+        assert!(
+            !docs[SLOT_FACTIONS].contains("tariffs"),
+            "no tariff set, no key written"
+        );
+
+        let mut civ = sample_civ();
+        assert!(civ.faction_roster.set_tariff(2, 5, 0.25));
+        assert!(civ.faction_roster.set_tariff(5, 2, 0.75));
+        assert!(civ.faction_roster.set_tariff(3, 0, 1.0));
+        let back = round_trip(&civ, 4, 3);
+        assert_eq!(back.faction_roster, civ.faction_roster);
+        assert_eq!(back.faction_roster.tariff_rows().len(), 3);
+
+        // Rows only a hand-edited file could hold.
+        let mut bad = sample_civ();
+        bad.faction_roster.0[2].tariffs.insert(2, 0.5); // self
+        bad.faction_roster.0[2].tariffs.insert(99, 0.5); // no such faction
+        bad.faction_roster.0[2].tariffs.insert(3, 1.5); // out of range
+        bad.faction_roster.0[0].tariffs.insert(1, 0.5); // Unclaimed levying
+        bad.faction_roster.0[4].tariffs.insert(1, 0.2); // the one valid row
+        let back = round_trip(&bad, 4, 3);
+        assert_eq!(
+            back.faction_roster.tariff_rows(),
+            vec![cartalith_civ::trade::Tariff { importer: 4, exporter: 1, rate: 0.2 }]
+        );
     }
 
     #[test]

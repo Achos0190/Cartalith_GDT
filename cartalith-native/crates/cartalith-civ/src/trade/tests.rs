@@ -182,6 +182,16 @@ fn run(
     ways: &[Way],
     map_width_km: f64,
 ) -> TradeNetwork {
+    run_t(settlements, balances, ways, map_width_km, &[])
+}
+
+fn run_t(
+    settlements: &[NamedSettlement],
+    balances: &[TradeBalance],
+    ways: &[Way],
+    map_width_km: f64,
+    tariffs: &[Tariff],
+) -> TradeNetwork {
     let (field, flow) = tiny_world();
     let polys: Vec<Vec<(f64, f64)>> = Vec::new();
     let w = UrbanWorld {
@@ -197,7 +207,7 @@ fn run(
         flow_thresh: 1.0,
         world_seed: 1,
     };
-    let input = TradeInput { settlements, balances, ways, map_width_km, gw: 16 };
+    let input = TradeInput { settlements, balances, ways, map_width_km, gw: 16, tariffs };
     trade_flows(&input, &w)
 }
 
@@ -1388,4 +1398,212 @@ fn place_trade_isolated_flag_follows_reach_not_export_count() {
         SaltAccess::default(), NavKind::Sea,
     );
     assert!(!coastal.trade_isolated, "the same bulk export reaches long range from a sea port");
+}
+
+// ------------------------------------------- IN-13 parity: factions, no tariff
+
+/// A seeded, deliberately busy fixture: 60 settlements on the 16x16 test
+/// world at 50 km/cell, so pairs fall on every side of `LOCAL_RADIUS_KM`
+/// and of the land/river/sea reach cliffs; ~30% coastal; every key
+/// exported by ~20% and imported by ~20%; 50 random ways. `factions` picks
+/// each settlement's faction: `1` for all of them, or `1..=5` drawn.
+fn parity_fixture(mixed_factions: bool) -> (Vec<NamedSettlement>, Vec<TradeBalance>, Vec<Way>) {
+    let mut st: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next = || {
+        st = st.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        (st >> 33) as u32
+    };
+    let n = 60;
+    let mut s = Vec::with_capacity(n);
+    let mut b = Vec::with_capacity(n);
+    for _ in 0..n {
+        let (x, y) = ((next() % 16) as usize, (next() % 16) as usize);
+        let coastal = next() % 10 < 3;
+        let pop = 50 + next() % 20_000;
+        let mut p = place(x, y, coastal, pop);
+        let f = 1 + (next() % 5) as i32;
+        if mixed_factions {
+            p.placement.faction = f;
+        }
+        s.push(p);
+        let mut bal = TradeBalance::default();
+        for &k in CIV_RESOURCE_KEYS.iter() {
+            match next() % 5 {
+                0 => bal.exports.push(k),
+                1 => bal.imports.push(k),
+                _ => {}
+            }
+        }
+        b.push(bal);
+    }
+    let ways = (0..50)
+        .map(|_| way((next() % n as u32) as usize, (next() % n as u32) as usize, 100.0))
+        .collect();
+    (s, b, ways)
+}
+
+/// FNV-1a over every pre-IN-13-pricing field of the answer, bit-exact:
+/// each flow's endpoints, good, mode, reach, distance, deliverable and
+/// volume; every unmet need; every way's load.
+fn parity_digest(net: &TradeNetwork) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |bytes: &[u8]| {
+        for &x in bytes {
+            h ^= x as u64;
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    for f in &net.flows {
+        eat(&(f.from as u64).to_le_bytes());
+        eat(&(f.to as u64).to_le_bytes());
+        eat(f.good.as_bytes());
+        eat(&[f.mode as u8, f.reach as u8]);
+        eat(&f.distance_km.to_bits().to_le_bytes());
+        eat(&f.deliverable.to_bits().to_le_bytes());
+        eat(&f.volume.to_bits().to_le_bytes());
+    }
+    for u in &net.unmet {
+        eat(&(u.settlement as u64).to_le_bytes());
+        eat(u.good.as_bytes());
+        eat(&[u.exporter_exists as u8]);
+    }
+    for v in &net.way_load {
+        eat(&v.to_bits().to_le_bytes());
+    }
+    h
+}
+
+/// Recorded by running this exact fixture through `trade_flows` at `842faf5`,
+/// before factions, price or tariff existed (567 flows, 45 unmet needs).
+/// A literal, not a recomputation: asserting the new code against itself
+/// would hold for any output.
+const PRE_PRICING_DIGEST: u64 = 0x1556_7c7d_f335_b4f9;
+
+/// Ruling AE's own open question 3: the faction-aware match must not move
+/// the single-faction, no-tariff answer.
+#[test]
+fn parity_one_faction_no_tariff_is_bit_identical_to_the_pre_pricing_match() {
+    let (s, b, w) = parity_fixture(false);
+    let net = run(&s, &b, &w, 800.0);
+    assert_eq!((net.flows.len(), net.unmet.len()), (567, 45), "fixture must stay busy");
+    assert_eq!(parity_digest(&net), PRE_PRICING_DIGEST);
+    assert!(net.flows.iter().all(|f| f.from_faction == 1 && f.to_faction == 1 && f.tariff == 0.0));
+}
+
+/// Stronger than the ruling asked: five factions, still no tariff rows —
+/// faction membership alone must change nothing.
+#[test]
+fn parity_many_factions_no_tariff_is_bit_identical_too() {
+    let (s, b, w) = parity_fixture(true);
+    let net = run(&s, &b, &w, 800.0);
+    assert_eq!(parity_digest(&net), PRE_PRICING_DIGEST);
+    let cross = net.flows.iter().filter(|f| f.from_faction != f.to_faction).count();
+    assert!(cross > 100, "the fixture must really cross factions, got {cross}");
+}
+
+/// A zero-rate row is the same as no row — the natural default of Ruling AE.
+#[test]
+fn a_zero_rate_tariff_row_changes_nothing() {
+    let (s, b, w) = parity_fixture(true);
+    let t = [Tariff { importer: 2, exporter: 3, rate: 0.0 }];
+    assert_eq!(parity_digest(&run_t(&s, &b, &w, 800.0, &t)), PRE_PRICING_DIGEST);
+}
+
+// ----------------------------------------------------------- price and tariff
+
+#[test]
+fn scarcity_price_literals() {
+    assert_eq!(scarcity_price(100.0, 100.0), 1.0, "balanced market is 1");
+    assert_eq!(scarcity_price(300.0, 100.0), 1.5);
+    assert_eq!(scarcity_price(100.0, 300.0), 0.5);
+    assert_eq!(scarcity_price(0.0, 0.0), 0.0, "no market is 0, not NaN");
+    // bounded without a clamp: extreme scarcity approaches 2 from below
+    assert!(scarcity_price(1e12, 1.0) < 2.0 && scarcity_price(1e12, 1.0) > 1.99);
+}
+
+/// Price is per good, from TradeBalance's verdicts weighted by the same
+/// population scale the allocation uses: one importer of 1000 against one
+/// exporter of 1000 is D = 1000, S = 0.6 · 1000 = 600, price = 2000/1600.
+#[test]
+fn flows_carry_the_goods_scarcity_price() {
+    let s = vec![place(0, 0, false, 1000), place(1, 0, false, 1000), place(2, 0, false, 1000)];
+    // iron: one exporter, two importers (scarce); salt: two exporters, one importer
+    let b = vec![
+        balance(&["iron", "salt"], &[]),
+        balance(&["salt"], &["iron"]),
+        balance(&[], &["iron", "salt"]),
+    ];
+    let net = run(&s, &b, &[], 160.0);
+    let p = |g: &str| net.flows.iter().find(|f| f.good == g).unwrap().price;
+    assert_eq!(p("iron"), 2.0 * 2000.0 / (2000.0 + 600.0));
+    assert_eq!(p("salt"), 2.0 * 1000.0 / (1000.0 + 1200.0));
+    assert!(p("iron") > 1.0 && p("salt") < 1.0, "scarce above par, glutted below");
+}
+
+fn two_faction_pair() -> (Vec<NamedSettlement>, Vec<TradeBalance>, Vec<Way>) {
+    let mut s = vec![place(0, 0, false, 1000), place(4, 0, false, 500), place(3, 0, false, 800)];
+    s[0].placement.faction = 2; // exporter, faction 2
+    s[1].placement.faction = 3; // importer, faction 3
+    s[2].placement.faction = 2; // second importer, same faction as the exporter
+    let b = vec![balance(&["iron"], &[]), balance(&[], &["iron"]), balance(&[], &["iron"])];
+    (s, b, vec![way(0, 1, 40.0), way(0, 2, 30.0)])
+}
+
+/// Direction of effect: a nonzero tariff strictly lowers the taxed flow's
+/// volume and value (volume · price), lowers what its way carries, and
+/// leaves the same-faction flow and its way untouched.
+#[test]
+fn a_tariff_strictly_reduces_only_the_flow_it_taxes() {
+    let (s, b, w) = two_faction_pair();
+    let free = run(&s, &b, &w, 160.0);
+    let t = [Tariff { importer: 3, exporter: 2, rate: 0.25 }];
+    let taxed = run_t(&s, &b, &w, 160.0, &t);
+    assert_eq!(free.flows.len(), 2);
+    assert_eq!(taxed.flows.len(), 2);
+    let (f0, t0) = (&free.flows[0], &taxed.flows[0]);
+    assert_eq!((t0.from, t0.to, t0.from_faction, t0.to_faction), (0, 1, 2, 3));
+    assert_eq!(t0.tariff, 0.25);
+    assert!(t0.volume < f0.volume);
+    assert_eq!(t0.volume, f0.volume * 0.75);
+    assert!(t0.volume * t0.price < f0.volume * f0.price, "value falls");
+    assert!(taxed.way_load[0] < free.way_load[0], "the way carries the landed volume");
+    // the same-faction flow is bit-identical
+    assert_eq!(taxed.flows[1], free.flows[1]);
+    assert_eq!(taxed.way_load[1].to_bits(), free.way_load[1].to_bits());
+}
+
+/// A tariff is the importer's policy: the reverse row taxes nothing here.
+#[test]
+fn a_tariff_is_directional() {
+    let (s, b, w) = two_faction_pair();
+    let reverse = [Tariff { importer: 2, exporter: 3, rate: 0.5 }];
+    assert_eq!(run_t(&s, &b, &w, 160.0, &reverse), run(&s, &b, &w, 160.0));
+}
+
+/// Rate 1 is an embargo: the taxed flow is dropped, not kept at zero, and
+/// the demand is not silently moved onto another supplier.
+#[test]
+fn a_full_tariff_is_an_embargo() {
+    let (s, b, w) = two_faction_pair();
+    let t = [Tariff { importer: 3, exporter: 2, rate: 1.0 }];
+    let net = run_t(&s, &b, &w, 160.0, &t);
+    assert_eq!(net.flows.len(), 1);
+    assert_eq!(net.flows[0].to, 2);
+    assert_eq!(net.way_load[0], 0.0);
+}
+
+#[test]
+fn tariff_rate_clamps_and_ignores_bad_rows() {
+    let t = [
+        Tariff { importer: 1, exporter: 2, rate: 3.0 },
+        Tariff { importer: 2, exporter: 1, rate: f64::NAN },
+        Tariff { importer: 3, exporter: 1, rate: -0.5 },
+        Tariff { importer: 4, exporter: 4, rate: 0.5 },
+    ];
+    assert_eq!(tariff_rate(&t, 1, 2), 1.0);
+    assert_eq!(tariff_rate(&t, 2, 1), 0.0, "NaN never leaks into a volume");
+    assert_eq!(tariff_rate(&t, 3, 1), 0.0);
+    assert_eq!(tariff_rate(&t, 4, 4), 0.0, "a faction cannot tax itself");
+    assert_eq!(tariff_rate(&t, 9, 9), 0.0);
+    assert_eq!(tariff_rate(&t, 5, 6), 0.0, "no row, no levy");
 }
