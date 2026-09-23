@@ -27,6 +27,10 @@ pub struct CivWorld {
     pub biome: Vec<u8>,
     pub river_order: Vec<i16>,
     pub places: Vec<civ::SettlementPlacement>,
+    pub suit: Vec<f32>,
+    pub flood: Vec<f32>,
+    pub flow_thresh: f64,
+    pub factions: i32,
 }
 
 pub fn world_placements(size: usize, seed: i32) -> CivWorld {
@@ -79,10 +83,21 @@ pub fn world_placements(size: usize, seed: i32) -> CivWorld {
         &seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea, world, p.civ.factions.max(1),
         &flood, &ws.flow_discharge, flow_thresh, mwk,
     );
-    CivWorld { gw, gh, world, map_width_km: mwk, ws, wb, biome, river_order, places }
+    CivWorld { gw, gh, world, map_width_km: mwk, ws, wb, biome, river_order, places, suit, flood, flow_thresh, factions: p.civ.factions.max(1) }
 }
 
 impl CivWorld {
+    /// `compute_civilisation`'s fixed-counts placement: the reference's
+    /// `thresh 0.35` and total-derived `suppR`, then the quota classifier.
+    pub fn place_counted(&self, want: [usize; 5]) -> Vec<civ::SettlementPlacement> {
+        let (thresh, supp_r) = civ::civ_want_counts_seed_params(self.gw, want.iter().sum());
+        let seeds = civ::find_settlement_seeds(&self.suit, self.gw, self.gh, thresh, supp_r);
+        civ::place_settlements_with_counts(
+            &seeds, &self.suit, &self.ws.field, &self.wb.classification, &self.wb.fill_level, self.gw, self.gh,
+            self.ws.sea_level, self.world, self.factions, &self.flood, &self.ws.flow_discharge, self.flow_thresh,
+            self.map_width_km, Some(want),
+        )
+    }
     pub fn network(&self, places: &[civ::SettlementPlacement]) -> civ::HierarchicalNetworkResult {
         civ::civ_hierarchical_network_topology(
             places, self.gw, self.gh, self.ws.sea_level, &self.ws.field, &self.ws.flow_discharge,
@@ -205,4 +220,100 @@ fn measure_tier_shift() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// `wantCounts` (reference v2.11 25863-25932): user-fixed per-tier counts. The
+// classifier itself is golden-verified in `golden_parity_want_counts.rs`; these
+// check it on real placement, where the candidate list is what limits it.
+// ---------------------------------------------------------------------------
+
+fn hist(ps: &[civ::SettlementPlacement]) -> [usize; 5] {
+    use civ::SettlementKind::*;
+    [Capital, City, Town, Village, Hamlet].map(|k| ps.iter().filter(|p| p.kind == k).count())
+}
+
+/// The reference's substitution, pinned as literals worked by hand:
+/// 256/22 = 11.636; x sqrt(33/24) = 13.645 -> 14; a total under 8 is floored
+/// to 8, x sqrt(33/8) = 23.63 -> 24; a 64-cell grid asking for 2000 rounds to
+/// 0 and takes the floor of 3.
+#[test]
+fn want_counts_seed_params_are_the_references() {
+    assert_eq!(civ::civ_want_counts_seed_params(256, 24), (0.35, 14.0));
+    assert_eq!(civ::civ_want_counts_seed_params(256, 2), (0.35, 24.0));
+    assert_eq!(civ::civ_want_counts_seed_params(256, 8), (0.35, 24.0));
+    assert_eq!(civ::civ_want_counts_seed_params(64, 2000), (0.35, 3.0));
+}
+
+/// Counts off is the default placement, field for field -- the same seeds
+/// through the counts entry point with `None` give what the production
+/// function gave before it existed.
+#[test]
+fn no_counts_is_the_default_placement() {
+    let w = world_placements(256, 12345);
+    let seeds = civ::find_settlement_seeds(&w.suit, w.gw, w.gh, 0.42, (w.gw as f64 / 22.0).floor().max(6.0));
+    let none = civ::place_settlements_with_counts(
+        &seeds, &w.suit, &w.ws.field, &w.wb.classification, &w.wb.fill_level, w.gw, w.gh, w.ws.sea_level, w.world,
+        w.factions, &w.flood, &w.ws.flow_discharge, w.flow_thresh, w.map_width_km, None,
+    );
+    assert_eq!(none, w.places);
+    assert!(w.places.len() >= 8, "fixture too small");
+}
+
+/// On real worlds, every requested tier count is met exactly whenever the
+/// world yields at least as many sites as were asked for; when it yields
+/// fewer, the quota is consumed in rank order and the shortfall falls on the
+/// LAST tiers with quota left -- which is the reference's behaviour too (it
+/// only `console.warn`s). Either way no tier exceeds its request and the
+/// total is `min(asked, sites)`.
+#[test]
+fn fixed_counts_hold_on_real_worlds() {
+    let (mut exact, mut short) = (0, 0);
+    for (size, seed, want) in [
+        (256usize, 12345, [2usize, 3, 5, 8, 6]),
+        (256, 24601, [1, 2, 4, 6, 10]),
+        (384, 314159, [3, 5, 8, 12, 20]),
+        (384, 7, [0, 4, 6, 0, 10]),
+        // More than a 256-cell world has sites for, so the short branch runs.
+        (256, 12345, [2, 3, 5, 40, 400]),
+    ] {
+        let w = world_placements(size, seed);
+        let ps = w.place_counted(want);
+        let asked: usize = want.iter().sum();
+        let h = hist(&ps);
+        println!("{size}/{seed}: asked {want:?} ({asked}) got {h:?} ({})", ps.len());
+        assert_eq!(h.iter().sum::<usize>(), ps.len());
+        assert_eq!(ps.len(), asked.min(ps.len()), "{size}/{seed}: more places than asked");
+        for t in 0..5 {
+            assert!(h[t] <= want[t], "{size}/{seed}: tier {t} {h:?} over {want:?}");
+        }
+        if ps.len() == asked {
+            assert_eq!(h, want, "{size}/{seed}: enough sites but counts differ");
+            exact += 1;
+        } else {
+            // Short: every tier before the first unmet one is full.
+            let first_short = (0..5).find(|&t| h[t] < want[t]).unwrap();
+            assert!((0..first_short).all(|t| h[t] == want[t]));
+            short += 1;
+        }
+        // The seat flag is placement's, not the quota's.
+        assert!(ps.iter().any(|p| p.capital), "{size}/{seed}: no territory seat");
+    }
+    assert!(exact >= 3, "only {exact} of 5 fixtures had enough sites -- the exact branch is barely exercised");
+    assert!(short >= 1, "no fixture ran short -- the shortfall branch is untested");
+}
+
+/// The re-tiering loop would undo the counts: one pass keeps them.
+#[test]
+fn one_pass_keeps_the_counts_and_three_would_not() {
+    let w = world_placements(256, 12345);
+    let want = [2usize, 3, 5, 8, 6];
+    let ps = w.place_counted(want);
+    assert_eq!(hist(&ps), want);
+    let mut one = ps.clone();
+    w.iterate(&mut one, 1);
+    assert_eq!(hist(&one), want);
+    let mut three = ps.clone();
+    w.iterate(&mut three, civ::CIV_AUTO_WORLD_PASSES);
+    assert_ne!(hist(&three), want, "fixture: the loop moved no tier, so the one-pass rule is untested here");
 }

@@ -544,6 +544,31 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.seed_suppress_div", group: "civ", kind: Kind::Float, min: 8.0, max: 60.0, step: 1.0,
         label: "Settlement packing", unit: "", reference_control: "",
         get_fn: |p| Value::Num(p.civ.seed_suppress_div), set_fn: |p, v| p.civ.seed_suppress_div = v },
+    // The reference's five Auto-populate count inputs (v2.11 lines
+    // 1393-1399), each with that input's own `min`/`max`. On, they OVERRIDE
+    // the two dials above outright -- `thresh 0.35` and a `suppR` derived from
+    // the total, the reference's own substitution -- and cut the centrality
+    // loop to one pass (`compute_civilisation`). Off, they are read by
+    // nothing. See `CivParams::want_counts` for why this is a flag plus five
+    // plain counts rather than five "blank-able" numbers.
+    ParamSpec { key: "civ.fixed_counts", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Fixed settlement counts", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.fixed_counts), set_fn: |p, v| p.civ.fixed_counts = v != 0.0 },
+    ParamSpec { key: "civ.n_capital", group: "civ", kind: Kind::Int, min: 0.0, max: 50.0, step: 1.0,
+        label: "Capitals", unit: "", reference_control: "civNCap",
+        get_fn: |p| Value::Num(f64::from(p.civ.counts[0])), set_fn: |p, v| p.civ.counts[0] = v as i32 },
+    ParamSpec { key: "civ.n_city", group: "civ", kind: Kind::Int, min: 0.0, max: 200.0, step: 1.0,
+        label: "Cities", unit: "", reference_control: "civNCity",
+        get_fn: |p| Value::Num(f64::from(p.civ.counts[1])), set_fn: |p, v| p.civ.counts[1] = v as i32 },
+    ParamSpec { key: "civ.n_town", group: "civ", kind: Kind::Int, min: 0.0, max: 500.0, step: 1.0,
+        label: "Towns", unit: "", reference_control: "civNTown",
+        get_fn: |p| Value::Num(f64::from(p.civ.counts[2])), set_fn: |p, v| p.civ.counts[2] = v as i32 },
+    ParamSpec { key: "civ.n_village", group: "civ", kind: Kind::Int, min: 0.0, max: 1000.0, step: 1.0,
+        label: "Villages", unit: "", reference_control: "civNVil",
+        get_fn: |p| Value::Num(f64::from(p.civ.counts[3])), set_fn: |p, v| p.civ.counts[3] = v as i32 },
+    ParamSpec { key: "civ.n_hamlet", group: "civ", kind: Kind::Int, min: 0.0, max: 2000.0, step: 1.0,
+        label: "Hamlets", unit: "", reference_control: "civNHam",
+        get_fn: |p| Value::Num(f64::from(p.civ.counts[4])), set_fn: |p, v| p.civ.counts[4] = v as i32 },
 ];
 
 // ===========================================================================
@@ -754,6 +779,14 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("civ.factions", ""),
     ("civ.seed_thresh", ""),
     ("civ.seed_suppress_div", ""),
+    // DOM inputs read once by `_civIterativeAutoWorld` and never written to
+    // `state`: the reference forgets them on reload, like the seven above.
+    ("civ.fixed_counts", ""),
+    ("civ.n_capital", ""),
+    ("civ.n_city", ""),
+    ("civ.n_town", ""),
+    ("civ.n_village", ""),
+    ("civ.n_hamlet", ""),
 ];
 
 /// A parameter's path inside the reference's own `state` object; `Some("")`
@@ -915,7 +948,7 @@ pub fn spec(key: &str) -> Option<&'static ParamSpec> {
 /// `GUI_GAP_REGISTER.md` **SG-03**: which node of
 /// [`cartalith_engine::staleness::pipeline_stage_graph`] a moved dial has to
 /// mark changed — or `None` for a parameter with **no live-apply path at
-/// all**, which is most of them (60 of the 93 rows).
+/// all**, which is most of them (60 of the 99 rows).
 ///
 /// ## The rule the table is derived from, not a judgement call
 ///

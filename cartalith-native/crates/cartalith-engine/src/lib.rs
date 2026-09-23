@@ -565,6 +565,29 @@ pub struct CivParams {
     /// The `6`-cell floor is not a dial: it is what stops a small grid from
     /// suppressing nothing at all.
     pub seed_suppress_div: f64,
+    /// The reference's Auto-populate count inputs (`civNCap`/`civNCity`/
+    /// `civNTown`/`civNVil`/`civNHam`, v2.11 lines 1393-1399), switched on as
+    /// a set. The reference tells "blank" from `0` per field, but only one
+    /// distinction survives into generation: either every field is blank
+    /// (automatic placement) or at least one is set and every blank one
+    /// counts as `0` (`c.capital||0`). This flag is that distinction, so no
+    /// count ever needs a "no value" sentinel. See [`CivParams::want_counts`].
+    pub fixed_counts: bool,
+    /// `[capital, city, town, village, hamlet]`, read only while
+    /// `fixed_counts` is on.
+    pub counts: [i32; 5],
+}
+
+impl CivParams {
+    /// The reference's `wantCounts`: `Some` only when fixed counts are on
+    /// AND they ask for at least one settlement. The reference refuses an
+    /// all-zero request with an alert and places nothing; a generation pass
+    /// here has nobody to alert, so an all-zero request falls back to
+    /// automatic placement instead -- the shell says so beside the fields.
+    pub fn want_counts(&self) -> Option<[usize; 5]> {
+        let w = self.counts.map(|n| n.max(0) as usize);
+        (self.fixed_counts && w.iter().sum::<usize>() >= 1).then_some(w)
+    }
 }
 
 /// Everything `generate_terrain` needs from `state` — one struct per
@@ -757,6 +780,8 @@ impl WorldParams {
                 factions: 6,
                 seed_thresh: 0.42,
                 seed_suppress_div: 22.0,
+                fixed_counts: false,
+                counts: [0; 5],
             },
             use_gpu: false,
         }

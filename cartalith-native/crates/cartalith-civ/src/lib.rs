@@ -4413,7 +4413,8 @@ pub fn fresh_river_network(
 // The pure, non-DOM-coupled core of `_civIterativeAutoWorld` (reference HTML line ~25336) --
 // `PHASE2_SCOPE.md` milestone 8. That function itself reads `document.getElementById(...)` for
 // user-fixed tier-count inputs and calls `alert()` on failure paths; neither belongs in a pure Rust
-// crate, so this ports only the deterministic algorithm it calls: land-component labelling, snap
+// crate, so the counts arrive as an argument (`place_settlements_with_counts`, read from
+// `CivParams::want_counts` by the bridge) and this ports only the deterministic algorithm it calls: land-component labelling, snap
 // seeds onto land then coast, faction assignment by landmass, settlement tier classification, and
 // ocean-port detection. Stops before population/naming (`_civSettleName`/`_civBasePopForKind`,
 // culture/economy -- milestone 9+, out of scope here).
@@ -5111,9 +5112,8 @@ pub fn assign_landmass_factions(
 /// when that costs little suitability -- see [`civ_snap_to_water_edge`]'s
 /// own doc comment for why this closes a real placement-fidelity gap, not
 /// a cosmetic one. `max_places = min(40, max(8, (gw*gh/65536*20)|0))`
-/// matches the reference's own default -- the `wantCounts` DOM-input
-/// branch that overrides it in production is out of scope here (no Godot
-/// UI exposes user-fixed tier counts in this port). The v1.46
+/// matches the reference's own default; the `wantCounts` branch that
+/// overrides it is [`place_settlements_with_counts`]. The v1.46
 /// landmass-scoped coastal-PREFERENCE swap (reference line 25447,
 /// redistributing WHICH settlements are coastal to hit a per-landmass
 /// target share) and the crossroads-settlement promotion pass (reference
@@ -5163,7 +5163,54 @@ pub fn place_settlements_with_water_edge_snap(
     flow_thresh: f64,
     map_width_km: f64,
 ) -> Vec<SettlementPlacement> {
-    let max_places = (((gw * gh) as f64 / 65536.0 * 20.0) as i64).clamp(8, 40) as usize;
+    place_settlements_with_counts(
+        seeds, suit, field, wb, lake_fill, gw, gh, sea, world, faction_count, flood, flow, flow_thresh, map_width_km, None,
+    )
+}
+
+/// [`place_settlements_with_water_edge_snap`] with the reference's
+/// `wantCounts` branch (`_civIterativeAutoWorld`, v2.11 lines 25863-25876 and
+/// 25925-25931): user-fixed per-tier counts in `[capital, city, town,
+/// village, hamlet]` order.
+///
+/// `Some(w)` changes two things and nothing else: `max_places` becomes the
+/// sum of `w`, and the rank cascade is REPLACED by the reference's stateful
+/// quota classifier -- a capital seat (`capital_of[rank]`) takes the capital
+/// quota first; otherwise a place takes the first tier, capital -> hamlet,
+/// with quota left; with every quota spent it is a hamlet. Note the second
+/// clause includes `capital`: while capital quota remains, a non-seat can take
+/// it, exactly as the reference's own `for(const k of ['capital',...])` does.
+///
+/// `None` is the other function, by control flow: the same `max_places`
+/// expression and the same cascade, untouched.
+///
+/// `capital` (this port's territory-seat flag, which the reference does not
+/// have) stays `capital_of[rank]` whatever tier the quota hands the place,
+/// the same rule [`civ_iterative_network`] follows when it moves `kind` --
+/// asking for zero capitals must not leave every faction without a seat.
+#[allow(clippy::too_many_arguments)]
+pub fn place_settlements_with_counts(
+    seeds: &[SettlementSeed],
+    suit: &[f32],
+    field: &[f32],
+    wb: &[u8],
+    lake_fill: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    faction_count: i32,
+    flood: &[f32],
+    flow: &[f32],
+    flow_thresh: f64,
+    map_width_km: f64,
+    want_counts: Option<[usize; 5]>,
+) -> Vec<SettlementPlacement> {
+    let max_places = match want_counts {
+        Some(w) => w.iter().sum(),
+        None => (((gw * gh) as f64 / 65536.0 * 20.0) as i64).clamp(8, 40) as usize,
+    };
+    let mut quota = want_counts;
 
     let comp = label_land_components(field, gw, gh, sea, world);
 
@@ -5221,19 +5268,23 @@ pub fn place_settlements_with_water_edge_snap(
         .enumerate()
         .map(|(rank, c)| {
             let is_capital = capital_of[rank];
-            let is_city = !is_capital && rank < 4;
-            let is_town = !is_capital && !is_city && rank < 12;
-            let is_village = !is_capital && !is_city && !is_town && rank < 24;
-            let kind = if is_capital {
-                SettlementKind::Capital
-            } else if is_city {
-                SettlementKind::City
-            } else if is_town {
-                SettlementKind::Town
-            } else if is_village {
-                SettlementKind::Village
+            let kind = if let Some(q) = quota.as_mut() {
+                civ_quota_tier(q, is_capital)
             } else {
-                SettlementKind::Hamlet
+                let is_city = !is_capital && rank < 4;
+                let is_town = !is_capital && !is_city && rank < 12;
+                let is_village = !is_capital && !is_city && !is_town && rank < 24;
+                if is_capital {
+                    SettlementKind::Capital
+                } else if is_city {
+                    SettlementKind::City
+                } else if is_town {
+                    SettlementKind::Town
+                } else if is_village {
+                    SettlementKind::Village
+                } else {
+                    SettlementKind::Hamlet
+                }
             };
             let sea_near =
                 (ocean_dist[c.y * gw + c.x] as f64) * cell_km <= SETTLE_WATER_SNAP_KM * 2.5;
@@ -5272,6 +5323,40 @@ pub fn place_settlements_with_water_edge_snap(
             }
         })
         .collect()
+}
+
+/// The seed-finding pair the reference substitutes when `wantCounts` is given
+/// (v2.11 25878-25879): `thresh 0.35` and `suppR = max(3,
+/// round((GW/22)*sqrt(33/max(8,total))))`, as `(thresh, supp_r)` for
+/// [`find_settlement_seeds`]. `f64::round` is JS `Math.round` for a positive
+/// argument (ties go up in both).
+pub fn civ_want_counts_seed_params(gw: usize, total: usize) -> (f64, f64) {
+    (0.35, ((gw as f64 / 22.0) * (33.0 / (total as f64).max(8.0)).sqrt()).round().max(3.0))
+}
+
+/// One step of the reference's `wantCounts` tier classifier (v2.11 lines
+/// 25928-25931), consuming from `quota` (`[capital, city, town, village,
+/// hamlet]`): a capital seat takes the capital quota first; otherwise the
+/// first tier, capital -> hamlet, with quota left; with every quota spent, a
+/// hamlet. Called once per candidate in rank order by
+/// [`place_settlements_with_counts`]; golden-verified against the reference's
+/// own text in `tests/golden_parity_want_counts.rs`.
+pub fn civ_quota_tier(quota: &mut [usize; 5], is_capital: bool) -> SettlementKind {
+    const TIERS: [SettlementKind; 5] = [
+        SettlementKind::Capital,
+        SettlementKind::City,
+        SettlementKind::Town,
+        SettlementKind::Village,
+        SettlementKind::Hamlet,
+    ];
+    let t = if quota[0] > 0 && is_capital { Some(0) } else { quota.iter().position(|&n| n > 0) };
+    match t {
+        Some(t) => {
+            quota[t] -= 1;
+            TIERS[t]
+        }
+        None => SettlementKind::Hamlet,
+    }
 }
 
 /// The original (pre-water-edge-snap) `place_settlements` -- land-component

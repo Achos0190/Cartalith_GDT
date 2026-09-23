@@ -904,15 +904,72 @@ func _build_placement_dials(parent: Control) -> void:
 		func(v: float): bridge.param_set("civ.factions", int(v)),
 		"How many rival polities settlement placement distributes into. The reference's own CIV_FACTIONS carries six. Faction 0 is \"Unclaimed\" and is not counted, so the floor is one. Renaming, recolouring and adding factions by hand stays in CIVIL ▸ Factions -- this is only what a fresh placement pass seeds into.")
 	var thr: Dictionary = bridge.param_info("civ.seed_thresh")
-	DccWidgets.slider(parent, "Suitability floor", float(thr.get("min", 0.1)), float(thr.get("max", 0.8)),
+	var thr_row: Dictionary = DccWidgets.slider(parent, "Suitability floor", float(thr.get("min", 0.1)), float(thr.get("max", 0.8)),
 		float(thr.get("step", 0.01)), _param_or_default("civ.seed_thresh", thr), "",
 		func(v: float): bridge.param_set("civ.seed_thresh", v),
 		"Reference SETTLE_SEED_THRESH, default 0.42. How good a site has to be before anyone settles it at all. Raise it and only the best land is occupied; lower it and marginal ground gets villages. Suitability rarely exceeds 0.8, so the top of this range settles almost nothing.")
 	var sup: Dictionary = bridge.param_info("civ.seed_suppress_div")
-	DccWidgets.slider(parent, "Packing", float(sup.get("min", 8.0)), float(sup.get("max", 60.0)),
+	var sup_row: Dictionary = DccWidgets.slider(parent, "Packing", float(sup.get("min", 8.0)), float(sup.get("max", 60.0)),
 		float(sup.get("step", 1.0)), _param_or_default("civ.seed_suppress_div", sup), "",
 		func(v: float): bridge.param_set("civ.seed_suppress_div", v),
 		"How close two settlements may stand. The engine suppresses a new seed within max(6, grid width / this) cells of an existing one, so the reference's default of 22 is a 17-cell radius on a 384-wide grid. Higher packs them tighter; the six-cell floor is what stops a small grid from suppressing nothing.")
+	_build_fixed_counts([thr_row, sup_row], parent)
+
+## The reference's Auto-populate count inputs (`civNCap`..`civNHam`), as one
+## switch and five counts -- `CivParams::want_counts` says why a switch rather
+## than five blank-able fields. On, the engine SUBSTITUTES the two dials above
+## (threshold 0.35, spacing derived from the total) exactly as the reference
+## does, so they are greyed out rather than left looking live. Absent on an
+## older cdylib, for the same reason the dials are.
+const COUNT_ROWS := [["civ.n_capital", "Capitals"], ["civ.n_city", "Cities"],
+	["civ.n_town", "Towns"], ["civ.n_village", "Villages"], ["civ.n_hamlet", "Hamlets"]]
+var _count_boxes: Array[SpinBox] = []
+var _count_dials: Array = []
+var _count_note: Label
+var _count_toggle: CheckBox
+
+func _build_fixed_counts(dials: Array, parent: Control) -> void:
+	var flag: Dictionary = bridge.param_info("civ.fixed_counts")
+	if flag.is_empty():
+		return
+	_count_dials = dials
+	var live = bridge.param_get("civ.fixed_counts")
+	var on := bool(live if live != null else flag.get("default", false))
+	_count_toggle = DccWidgets.toggle(parent, "Fixed settlement counts", on,
+		func(v: bool):
+			bridge.param_set("civ.fixed_counts", v)
+			_refresh_fixed_counts(),
+		"Reference Auto-populate count inputs (Capitals/Cities/Towns/Villages/Hamlets; blank = automatic). On, exactly that many of each tier are placed best-site-first, the suitability floor and packing dials are replaced by the reference's own 0.35 threshold and a spacing derived from the total, and the centrality re-tiering and imperial-seat passes are skipped so the counts hold. A world with fewer viable sites than asked fills the earlier tiers first.")
+	_count_boxes.clear()
+	for row in COUNT_ROWS:
+		var key: String = row[0]
+		var info: Dictionary = bridge.param_info(key)
+		_count_boxes.append(DccWidgets.number(parent, row[1], float(info.get("min", 0.0)),
+			float(info.get("max", 50.0)), 1.0, _param_or_default(key, info),
+			func(v: float):
+				bridge.param_set(key, int(v))
+				_refresh_fixed_counts(),
+			"Reference %s. Read only while Fixed settlement counts is on." % info.get("reference_control", key)))
+	_count_note = DccWidgets.note(parent, "")
+	_refresh_fixed_counts()
+
+func _refresh_fixed_counts() -> void:
+	var live = bridge.param_get("civ.fixed_counts")
+	var on := bool(live) if live != null else false
+	var total := 0
+	for sb in _count_boxes:
+		sb.editable = on
+		total += int(sb.value)
+	var active := on and total >= 1
+	for d in _count_dials:
+		(d["slider"] as HSlider).editable = not active
+		(d["row"] as Control).modulate.a = 0.45 if active else 1.0
+	if not on:
+		_count_note.text = "Counts off: placement is automatic, from the two dials above."
+	elif total < 1:
+		_count_note.text = "Every count is 0, so placement stays automatic. (The reference refuses an all-zero request outright; here it falls back.)"
+	else:
+		_count_note.text = "%d settlements requested. Suitability floor and packing are overridden (threshold 0.35, spacing from the total)." % total
 
 func _param_or_default(key: String, info: Dictionary) -> float:
 	var live = bridge.param_get(key)

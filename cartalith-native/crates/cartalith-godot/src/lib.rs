@@ -2068,6 +2068,9 @@ fn compute_civilisation(
     ocean_wind: (&cartalith_civ::JpCoarseField, &cartalith_civ::JpCoarseField),
 ) -> CivData {
     let keeping = keep.is_some();
+    // The reference's `wantCounts`. Only the auto-populate path reads it: the
+    // SG-02 keep path places nothing.
+    let want = opts.want_counts();
     let sea_level = ws.sea_level;
     let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea_level, world, Some(&ws.rainfall));
     let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
@@ -2196,28 +2199,27 @@ fn compute_civilisation(
             // point this function mirrors -- not the standalone .f32/JSON export
             // path, which the earlier golden-parity fixtures were built against):
             // `findSettlementSeeds(suit,GW,GH,{thresh:wantCounts?0.35:SETTLE_SEED_THRESH,suppR})`
-            // with `suppR=wantCounts?...:Math.max(6,(GW/22)|0)`. This port has no
-            // `wantCounts` (no fixed-tier-count UI), so the real default branch is
-            // `SETTLE_SEED_THRESH=0.42`/`max(6, floor(GW/22))` -- found and flagged
-            // by Phase 2 milestone 15's own investigation (`PHASE2_SCOPE.md`),
-            // corrected here rather than left as the placeholder 0.65/GW/20 an
-            // earlier pass used before this real call site existed to check against.
+            // with `suppR=wantCounts?...:Math.max(6,(GW/22)|0)` (v2.11 25878-25879).
             //
-            // Both are `civ.*` parameters now (the civ `PARAMS` group), and both
-            // DEFAULT to exactly those two reference values, so this line is
-            // unchanged for any world nobody has moved the dials on. The `6`-cell
-            // floor stays a literal: it is the reference's own guard against a
-            // small grid suppressing nothing, not a knob.
-            let seeds = cartalith_civ::find_settlement_seeds(
-                &suit,
-                gw,
-                gh,
-                opts.seed_thresh,
-                (gw as f64 / opts.seed_suppress_div.max(1.0)).floor().max(6.0),
-            );
-            cartalith_civ::place_settlements_with_water_edge_snap(
+            // Without fixed counts: `SETTLE_SEED_THRESH=0.42`/`max(6, floor(GW/22))`
+            // -- found and flagged by Phase 2 milestone 15's own investigation
+            // (`PHASE2_SCOPE.md`), corrected here rather than left as the
+            // placeholder 0.65/GW/20 an earlier pass used. Both are `civ.*`
+            // parameters now, and both DEFAULT to exactly those two reference
+            // values. The `6`-cell floor stays a literal: it is the reference's
+            // own guard against a small grid suppressing nothing, not a knob.
+            //
+            // With fixed counts (`civ.fixed_counts`, `CivParams::want_counts`)
+            // the reference SUBSTITUTES both, and so does this
+            // (`civ_want_counts_seed_params`), the two dials unread.
+            let (thresh, supp_r) = match want {
+                Some(w) => cartalith_civ::civ_want_counts_seed_params(gw, w.iter().sum()),
+                None => (opts.seed_thresh, (gw as f64 / opts.seed_suppress_div.max(1.0)).floor().max(6.0)),
+            };
+            let seeds = cartalith_civ::find_settlement_seeds(&suit, gw, gh, thresh, supp_r);
+            cartalith_civ::place_settlements_with_counts(
                 &seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, opts.factions.max(1),
-                &flood, &ws.flow_discharge, flow_thresh, map_width_km,
+                &flood, &ws.flow_discharge, flow_thresh, map_width_km, want,
             )
         }
     };
@@ -2238,8 +2240,10 @@ fn compute_civilisation(
     // Auto-populate does. Until 2026-09-23 this was one build and no
     // re-tiering. The SG-02 keep path takes one pass: its `kind`s may be a
     // user's own edits, which the loop would overwrite -- the same reason the
-    // metropolis pass below is skipped there.
-    let passes = if keeping { 1 } else { cartalith_civ::CIV_AUTO_WORLD_PASSES };
+    // metropolis pass below is skipped there. Fixed counts take one pass too,
+    // the reference's own `if(wantCounts) break` (v2.11 26107): re-tiering by
+    // centrality would undo the counts the user asked for.
+    let passes = if keeping || want.is_some() { 1 } else { cartalith_civ::CIV_AUTO_WORLD_PASSES };
     let mut topology = cartalith_civ::civ_iterative_network(
         &mut placements, passes, gw, gh, sea_level, &ws.field, &ws.flow_discharge, &river_order, &biome, &wb.classification, world, map_width_km,
     );
@@ -2260,9 +2264,8 @@ fn compute_civilisation(
     // lines 24961-24989), wired exactly where the reference wires it: inside
     // auto-populate, AFTER the road network exists and its betweenness has
     // been measured, BEFORE naming/population -- reference line 25711, whose
-    // own guard is `_civMetropolis && !wantCounts`. This port has no
-    // `wantCounts` (no fixed-tier-count UI, `place_settlements`' own note),
-    // so only the opt-in flag remains, default OFF like the reference's.
+    // own guard is `_civMetropolis && !wantCounts` (v2.11 26229) -- and so is
+    // this one's: `want.is_none()` below. Default OFF like the reference's.
     //
     // The reference reads betweenness out of `_civNetworkMetrics(places,
     // ways)` (line 21931), which this port has never needed and does not
@@ -2287,7 +2290,7 @@ fn compute_civilisation(
     // `kind` may be a user's own choice from the place editor. Re-running it
     // there would quietly undo an edit, which is the one thing that path
     // exists not to do.
-    if opts.metropolis && keep.is_none() {
+    if opts.metropolis && keep.is_none() && want.is_none() {
         let mut adj: Vec<std::collections::BTreeSet<usize>> =
             vec![Default::default(); placements.len()];
         for e in &topology.edges {

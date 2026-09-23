@@ -228,17 +228,20 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
         assert_eq!(c.factions, 6, "{label}: CIV_FACTIONS.length-1 (reference 14568)");
         assert_eq!(c.seed_thresh, 0.42, "{label}: SETTLE_SEED_THRESH (reference 6415)");
         assert_eq!(c.seed_suppress_div, 22.0, "{label}: the GW/22 in reference 25360");
+        assert!(!c.fixed_counts, "{label}: every count input blank (reference 1393-1399 placeholder \"auto\")");
+        assert_eq!(c.want_counts(), None, "{label}: no wantCounts");
     }
 }
 
 /// The group is reachable, typed as the shell expects, and reported as its
 /// own dialog section — the second half of the ruling, asserted rather than
-/// eyeballed. Seven rows: a group of four would be the old `WorldGen` flags
-/// renamed, which is not what was ruled.
+/// eyeballed. Thirteen rows: the seven the ruling added (a group of four
+/// would be the old `WorldGen` flags renamed, which is not what was ruled),
+/// plus `wantCounts`' flag and its five counts.
 #[test]
-fn the_civ_group_is_a_real_contiguous_group_of_seven() {
+fn the_civ_group_is_a_real_contiguous_group_of_thirteen() {
     let rows: Vec<&params::ParamSpec> = params::PARAMS.iter().filter(|s| s.group == "civ").collect();
-    assert_eq!(rows.len(), 7, "the civ group is seven rows");
+    assert_eq!(rows.len(), 13, "the civ group is thirteen rows");
     assert!(params::groups().contains(&"civ"), "the GUI builds its sections from groups()");
     assert!(
         rows.iter().all(|s| s.key.starts_with("civ.")),
@@ -661,7 +664,7 @@ fn refreshed(p: &WorldParams, ws: &WorldState) -> (Vec<f32>, Vec<f32>, Vec<f32>)
 /// For every row, move the value to the far end of its own range and re-run
 /// `refresh_climate`. If the output moves, the parameter has a live-apply
 /// path and must be marked; if it does not, marking it would promise a
-/// recompute that applies nothing. The two must agree for all 93 rows, so a
+/// recompute that applies nothing. The two must agree for all 99 rows, so a
 /// new parameter cannot be added without deciding this — and a wrong decision
 /// fails here rather than in the shell.
 ///
@@ -737,7 +740,7 @@ fn a_climate_dial_marks_the_node_that_actually_triggers_a_recompute() {
 
 /// A parameter with no live-apply path marks nothing — the half of the table
 /// that is about *not* promising anything. Stated as its own test because it
-/// is the answer for 60 of the 93 rows, including every terrain, tectonic
+/// is the answer for 60 of the 99 rows, including every terrain, tectonic
 /// and erosion knob.
 #[test]
 fn generation_time_only_parameters_mark_nothing() {
@@ -752,4 +755,29 @@ fn generation_time_only_parameters_mark_nothing() {
         assert_eq!(params::invalidates(key), None, "{key}");
     }
     assert_eq!(params::invalidates("not.a.parameter"), None);
+}
+
+/// `wantCounts`: the five count rows reach `CivParams::counts` in
+/// capital -> hamlet order, and only the flag plus a non-zero total switches
+/// them on. Off -- the default, and the byte-identity guarantee -- is `None`.
+#[test]
+fn fixed_counts_are_off_unless_flagged_and_non_empty() {
+    let mut p = params::defaults();
+    assert_eq!(p.civ.want_counts(), None, "default must be automatic placement");
+    for (k, v) in [("civ.n_capital", 1.0), ("civ.n_city", 2.0), ("civ.n_town", 3.0), ("civ.n_village", 4.0), ("civ.n_hamlet", 5.0)] {
+        assert_eq!(params::set(&mut p, k, Value::Num(v)), Outcome::Applied, "{k}");
+    }
+    assert_eq!(p.civ.counts, [1, 2, 3, 4, 5]);
+    assert_eq!(p.civ.want_counts(), None, "counts without the flag must stay inert");
+    assert_eq!(params::set(&mut p, "civ.fixed_counts", Value::Bool(true)), Outcome::Applied);
+    assert_eq!(p.civ.want_counts(), Some([1, 2, 3, 4, 5]));
+    p.civ.counts = [0; 5];
+    assert_eq!(p.civ.want_counts(), None, "an all-zero request falls back to automatic");
+    p.civ.counts = [0, 0, 0, 0, 1];
+    assert_eq!(p.civ.want_counts(), Some([0, 0, 0, 0, 1]));
+    // The reference inputs' own `max`: 50/200/500/1000/2000.
+    assert_eq!(params::set(&mut p, "civ.n_capital", Value::Num(51.0)), Outcome::Clamped);
+    assert_eq!(p.civ.counts[0], 50);
+    assert_eq!(params::set(&mut p, "civ.n_hamlet", Value::Num(2001.0)), Outcome::Clamped);
+    assert_eq!(p.civ.counts[4], 2000);
 }
