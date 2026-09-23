@@ -1,236 +1,136 @@
-# Stranded tools — RESOLVED by the design's §4.5 Tool palette
+# STRANDED_TOOLS.md — tools with an engine and no surface (closed 2026-08-19)
 
-> **Status: closed, 2026-08-19.** This document reported that seven tools had a
-> working, golden-verified Rust engine and nowhere in the DCC design to invoke
-> them, plus one half-surfaced. The owner took it to the design project, and the
-> revision imported at sync 2026-08-19T00:20Z adds **§4.5 Tool palette** — which
-> gives every one of them a home, adds a tool the report had missed, and splits
-> one row into the two tools the reference actually keeps separate.
->
-> | Was stranded | Now lives at |
-> |---|---|
-> | Measure | §4.5.1 global tool, key `M` |
-> | Region select / export | §4.5.1 global tool, key `R` — *"the marquee §9's export route was missing"*, two views of one rect |
-> | Biome paint | §4.5.2 WORLD tool, key `B` — moved out of Cartography, because §7's presentation-only rule forbids it there |
-> | Place settlement | §4.5.3 CIVIL tool, key `S` |
-> | Territory paint | §4.5.3 CIVIL tool, key `T` |
-> | Draw route / way | §4.5.4 INFRA — **split into two**, Way (`W`) and Route (`⇧R`), because v2.10 keeps `draw_way` and `route` separate |
-> | Label | §4.5.5 CARTO tool, key `L` |
-> | Icon stamp | §4.5.5 CARTO tool, key `I` — the library arms it, the tool places it |
->
-> Also added, and absent from this report because the report worked from the
-> engine's tool list rather than the reference's: **POI** (§4.5.3, key `P`,
-> `_civDropPOI`) — a separate record type from a settlement. And **Inspect**
-> (`V`) is named as the thing that makes every §6 inspector reachable at all,
-> which the previous revision left implicit.
->
-> §12 gained the twelve matching glyphs, so the no-emoji rule still covers the
-> whole product. §3 now states that every left dock opens with the TOOLS block
-> and that the armed tool survives a workspace switch.
->
-> **The engine question this raised is still open**, and is the real remaining
-> work: none of these tools has a `cartalith-godot` binding. Sculpt now does
-> (34 methods, 2026-08-19), which is the template for the rest. Milestone F is
-> partially done, not done.
->
-> **Update, 2026-09-01: that engine question is closed, and the paragraph
-> above is stale.** It described 2026-08-19, the day Sculpt's binding landed
-> and nothing else's had yet. By 2026-08-25 the rest had: every one of the
-> seven STRANDED rows and the one half-stranded row below now has a real
-> `cartalith-godot` binding behind a real tool-rail control, arming, storing
-> and rendering it — enumerated tool by tool, with file:line citations, in
-> `UNIFIED_TOOL_PLAN.md`'s new **"Milestone F as built"** section. Nobody
-> corrected this document when that happened, which is the exact defect
-> `OUTSTANDING_WORK.md` §1 ("Milestone F's own closeout") was opened to fix.
->
-> In brief, so a reader who stops here still gets the truth: **Milestone F is
-> done.** The "Status of all sixteen" table below is left exactly as written
-> on 2026-08-18 — it is the record of the investigation that found the gap,
-> and every one of its "Bound to Godot: ✗" and "State: STRANDED" marks is
-> now wrong, dated evidence of a state that no longer holds, not a live
-> status. Same for "What blocks all of it regardless"'s claim that the
-> GDExtension "exports 44 methods... and not one sculpt, stamp, paint,
-> label, icon, measure or region-export method" — false as of this update —
-> and for "Recommendation" item 2, which is done. The one exception the
-> table did not anticipate: the design's own later revision added a
-> seventeenth tool, **POI**, which this port still declines to bind — by a
-> Milestone D decision older than Milestone F itself, not an omission (see
-> `UNIFIED_TOOL_PLAN.md`'s new section for the three-file citation trail).
-> And one small, honestly-drawn loose end survives: Region select's corner
-> handles are drawn but a drag-resize is not wired to them (same section,
-> "One honest residual") — dragging a fresh marquee still reaches the whole
-> export loop correctly, only the handle shortcut does not.
->
-> The original report follows unchanged, as the record of how the gap was found.
+**What this is:** the 2026-08-18 report that found seven tools with a working,
+golden-verified Rust engine and nowhere in the DCC design to invoke them, plus
+one half-surfaced — and where each went when the design answered the next day.
+**What it is not:** status, or a description of the shell today. It closed on
+2026-08-19 and is history. Each tool's binding, arming, draft and rendering as
+built is `UNIFIED_TOOL_PLAN.md`'s "Milestone F as built"; status is
+`cartalith-native/docs/STATUS.md`.
+
+Code comments and two user-facing strings cite this file by row number
+(`rows 4-8`, `rows 10 and 12`, `row 11`), so the table keeps its numbering.
 
 ---
 
-> Written 2026-08-18 against `DCC_SHELL_SPEC.md` (sync 2026-08-18T23:05Z) and
-> `UNIFIED_TOOL_PLAN.md` milestones A–E. Companion to `DCC_CONTROL_INDEX.md`,
-> which indexes the design's controls against engine capability; this document
-> runs the comparison the other way — engine capability against the design's
-> controls — and finds the shortfall that direction hides.
+## 1. The finding (2026-08-18)
 
-The instruction was *"replace the current GUI and replace it in full by the DCC
-version including all its wiring and functionality."* That is buildable for
-everything the design specifies. It is not buildable for tools the design does
-not specify, and there are eleven of those in one state or another. This
-document records them rather than inventing UI for them.
+Written against `DCC_SHELL_SPEC.md` (sync 2026-08-18T23:05Z) and
+`UNIFIED_TOOL_PLAN.md` milestones A–E. `DCC_CONTROL_INDEX.md` indexes the
+design's controls against the engine; this report ran the comparison the other
+way — engine capability against the design's controls — which is the direction
+that shows what the design leaves out.
 
-## The finding in one sentence
+**The design had no tool palette.** The previous shell's tool rail (`main.gd`'s
+`TOOL_GROUPS`, five groups) had been replaced by the domain rail, which selects
+a *workspace*, not a tool, and nothing took over the tool rail's job. Of the
+sixteen tools `UNIFIED_TOOL_PLAN.md` defines, the design gave a chooser only to
+the six inside §5.2's Sculpt panel; three were viewport modes that need none;
+**seven had a working engine and no surface**, and one was half-surfaced.
 
-**The DCC design has no tool palette.** Of the sixteen tools `UNIFIED_TOOL_PLAN.md`
-defines and milestones B–E built, the design gives a chooser to exactly the six
-that live inside §5.2's Sculpt panel; three more are viewport modes that need no
-chooser; and **seven have a working Rust engine and nowhere in the shell to
-invoke it** — plus one that is half-surfaced.
+None of the stranded seven had a `cartalith-godot` binding either — the
+GDExtension then exported 44 methods, none for sculpt, stamp, paint, label,
+icon, measure or region export — so even the six *specified* Sculpt tools could
+not be wired. That made the binding layer, `UNIFIED_TOOL_PLAN.md` Milestone F,
+the critical path ahead of any surface.
 
-The previous shell had a tool rail (`main.gd`'s `TOOL_GROUPS`, five groups).
-This revision removed it and replaced it with the domain rail, which selects a
-*workspace*, not a tool. Nothing took over the job the tool rail was doing.
+**What the spec actually contained, per stranded tool** (the evidence, not an
+assertion):
 
-## Status of all sixteen
+- **Biome paint** — `biome` appears four times: generation stage 09, a Sample
+  readout, a surface-mode hotkey, and §7's rule that Cartography may not alter
+  biome classification. All four are *views of* biome; none is a brush, though
+  `paint.rs` has a whole override layer with its own golden suite.
+- **Place settlement** — the CIVIL docks read (*"Settlements, population,
+  economy, politics, culture"*; a Settlement inspector). `civ_drop_place`
+  writes, and had no caller.
+- **Draw route / way** — §6's Route inspector inspects routes that exist;
+  `ManualWay` and the four `RouteMode` variants make new ones.
+- **Territory / faction paint** — `territory` appears once, as a Faction
+  inspector field. `merge_territory_paint` had no surface at all.
+- **Label** — a Cartography *layer* row (visibility, opacity), and Edit ▸
+  Cut/Copy/Delete operating on *"labels, icons, places, stamps"*: **the verbs
+  exist, the noun cannot be created.** `labels.rs` (arc layout, zoom scaling,
+  hit boxes, handles, resize) had no authoring path.
+- **Icon stamp** — §2.3 and §8 specify the asset library, the icon families and
+  pack handling; `manual.rs` supplies arming, placing, hit-testing and
+  resizing. Nothing connected the two halves.
+- **Measure** — zero mentions in this sense (both matches are the English
+  verb). `measure.rs` ships `measure`, `measure_path` and `cell_km`.
+- **Region select / export** — §9's export route takes *world bounds* as a
+  typed field; `export_region_tiles` and `extract_region_as_world` both need a
+  rectangle somebody has to draw.
 
-Engine column cites the file that actually implements it. "Bound" means a
-`cartalith-godot` GDExtension method exists — **none of the stranded seven have
-one**, so each is two layers away from usable, not one.
+## 2. The sixteen tools, and where each went
 
-> **This table is dated 2026-08-18 and preserved as written.** Every `✗` and
-> every `STRANDED` below describes that day, not today: as of 2026-09-01
-> every row is bound (rows 1-3 correctly still show no binding — they never
-> needed one) except **POI**, a seventeenth tool the design added later and
-> this port still declines to bind by design. See `UNIFIED_TOOL_PLAN.md`'s
-> "Milestone F as built" for the current, verified state of each row and why
-> this one stayed stale for two weeks.
+The design revision imported at sync 2026-08-19T00:20Z added **§4.5 Tool
+palette**, which gave every row a home. The "2026-08-18" column is the
+report's finding, kept as evidence; none of it describes the shell today.
 
-| # | Tool | Engine (built, tested) | Bound to Godot | Design surface | State |
-|---|---|---|---|---|---|
-| 1 | Select / inspect (`V`) | selection is the shell's own | n/a | §6 "contents follow the selection" | **Mode, no chooser needed** |
-| 2 | Pan (`H`) | viewport navigation | n/a | implicit | **Mode, no chooser needed** |
-| 3 | Point sample (`I`) | all fields exist in `WorldState` | partial | §6 Sample context, 16 fields | **Readout surfaced, no tool** |
-| 4 | Raise / lower (`B`) | `sculpt.rs` Freehand `raise`/`lower` | ✗ | §4 default context, §5.2 | **Specified** |
-| 5 | Smooth (`S`) | `sculpt.rs` Freehand `smooth` | ✗ | §5.2 sub-mode | **Specified** |
-| 6 | Flatten / terrace (`F`) | `sculpt.rs` `Feature::Plateau` | ✗ | §5.2 feature | **Specified** |
-| 7 | Stamp (landform library) | `sculpt.rs` 13 features, `SculptStamp` | ✗ | §5.2 + §6 stamp stack | **Specified** |
-| 8 | River / water (`R`) | `sculpt.rs` river + lake, `sculpt_commit.rs` | ✗ | §5.2 + §6 River inspector | **Specified** |
-| 9 | **Biome paint (`P`)** | `cartalith-spatial/src/paint.rs`, `PaintStamp` | ✗ | none | **STRANDED** |
-| 10 | **Place settlement** | `cartalith-civ/src/tools.rs` `civ_drop_place`, `civ_pick_place_at` | ✗ | none | **STRANDED** |
-| 11 | **Draw route / way** | `tools.rs` `ManualWay`, `RouteContext`, `DijkstraPath` | ✗ | none | **STRANDED** |
-| 12 | **Territory / faction paint** | `tools.rs` `merge_territory_paint` | ✗ | none | **STRANDED** |
-| 13 | **Label (`T`)** | `cartalith-civ/src/labels.rs`, 886 lines | ✗ | layer visibility only | **STRANDED** |
-| 14 | **Icon stamp** | `cartalith-assets/src/manual.rs`, `place_manual_icon` | ✗ | library arms it; nothing places it | **STRANDED** |
-| 15 | **Measure (`M`)** | `cartalith-spatial/src/measure.rs` | ✗ | none — zero mentions in the spec | **STRANDED** |
-| 16 | Region select / export | `cartalith-engine/src/region_export.rs`, 565 lines | ✗ | export route exists (§9); on-map selection does not | **Half-stranded** |
+| # | Tool | Engine (2026-08-18) | 2026-08-18 | Home in §4.5 (2026-08-19) |
+|---|---|---|---|---|
+| 1 | Select / inspect (`V`) | the shell's own selection | mode, no chooser needed | §4.5.1 Inspect (`V`) — named as what makes every §6 inspector reachable |
+| 2 | Pan (`H`) | viewport navigation | mode, no chooser needed | §4.5.1 Pan, a legend: always available |
+| 3 | Point sample (`I` then; `I` is Icon now) | every field exists in `WorldState` | readout surfaced (§6 Sample), no tool | §6 Sample — a context, correctly not a tool |
+| 4 | Raise / lower | `sculpt.rs` Freehand `raise`/`lower` | specified (§5.2), unbound | §5.2 Sculpt panel |
+| 5 | Smooth | `sculpt.rs` Freehand `smooth` | specified, unbound | §5.2 |
+| 6 | Flatten / terrace | `sculpt.rs` `Feature::Plateau` | specified, unbound | §5.2 |
+| 7 | Stamp (landform library) | `sculpt.rs`, 13 features, `SculptStamp` | specified, unbound | §5.2 + §6 stamp stack |
+| 8 | River / water | `sculpt.rs` river + lake, `sculpt_commit.rs` | specified, unbound | §5.2 + §6 River inspector |
+| 9 | Biome paint | `cartalith-spatial/src/paint.rs`, `PaintStamp` | **stranded** | §4.5.2 WORLD, `B` — moved out of Cartography, because §7's presentation-only rule forbids it there |
+| 10 | Place settlement | `cartalith-civ/src/tools.rs` `civ_drop_place`, `civ_pick_place_at` | **stranded** | §4.5.3 CIVIL, `S` |
+| 11 | Draw route / way | `tools.rs` `ManualWay`, `RouteContext`, `DijkstraPath` | **stranded** | §4.5.4 INFRA, **split into two**: Way (`W`) and Route (`⇧R`), because v2.10 keeps `draw_way` and `route` separate |
+| 12 | Territory / faction paint | `tools.rs` `merge_territory_paint` | **stranded** | §4.5.3 CIVIL, `T` |
+| 13 | Label | `cartalith-civ/src/labels.rs` | **stranded** | §4.5.5 CARTO, `L` |
+| 14 | Icon stamp | `cartalith-assets/src/manual.rs`, `place_manual_icon` | **stranded** | §4.5.5 CARTO, `I` — the library arms it, the tool places it |
+| 15 | Measure | `cartalith-spatial/src/measure.rs` | **stranded** | §4.5.1 global, `M` |
+| 16 | Region select / export | `cartalith-engine/src/region_export.rs` | half-stranded: export route (§9), no on-map selection | §4.5.1 global, `R` — *"the marquee §9's export route was missing"*, two views of one rect |
 
-Seven fully stranded, one half, three chooser-less modes — eleven tools touched
-by the gap, which is the number the control index reported.
+§4.5 also added **POI** (§4.5.3, `P`, `_civDropPOI`) — a separate record type
+from a settlement, missed here because the report worked from the engine's tool
+list rather than the reference's. §12 gained twelve matching glyphs, so the
+no-emoji rule still covers the whole product.
 
-## Evidence, per stranded tool
+## 3. After the resolution — pointers, not status
 
-Not assertions — what the spec actually contains.
+- **Milestone F** bound rows 4-16 (2026-08-18 → 2026-08-25). `UNIFIED_TOOL_PLAN.md`
+  "Milestone F as built" walks every row, including how Measure (six modes) and
+  Region select (one marquee → readout → export loop) outgrew §4 below, and one
+  recorded residual on Region select's corner handles.
+- **POI** has no binding by a Milestone D decision older than Milestone F:
+  `_civDropPOI` has no Rust counterpart, and `civ_tools_bridge.rs`'s module doc
+  says POI "is not a ported concept". `civilization_workspace.gd::_build_tools`
+  omits the button rather than drawing it dead.
+- **Where the palette is drawn has moved twice since §4.5; the keys have not.**
+  The INFRA domain merged into CIVIL on 2026-08-20, so Way and Route arm from
+  CIVIL's tool set (`civilization_workspace.gd::_build_tools`). And **Ruling AK**
+  (`LARGE_ITEM_RULINGS.md`, 2026-09-23) moved the palette out of each left
+  dock's TOOLS block into an always-visible top bar on desktop and tablet
+  (`DccApp._install_tool_palette_bar()`, global cells in
+  `DccWidgets.GLOBAL_TOOL_ENTRIES`) — an owner decision over the canvas, which
+  still draws the dock block. The phone keeps its own arrangement.
 
-**Biome paint.** `biome` appears four times in the spec: generation stage 09, a
-Sample readout field, a viewport surface-mode hotkey (`Biome 2`), and §7's
-prohibition on Cartography altering biome classification. All four are *views
-of* biome. None is a brush. The engine has a whole override layer built for this
-(`paint.rs`, with its own golden-parity suite) and a documented rule that
-painting biome does **not** mark height, hydrology or climate stale — a rule
-with nothing to govern.
+## 4. The proposal — "What I would expect on the UI" (2026-08-18)
 
-**Place settlement.** The CIVIL left dock is specified as *"Settlements,
-population, economy, politics, culture"* and the right dock as a Settlement
-inspector. Both read. `civ_drop_place` writes, and has no caller.
+Superseded the next day by §4.5, which the owner commissioned from this report.
+Kept in summary because `UNIFIED_TOOL_PLAN.md` compares what shipped against
+it. Every proposal followed the design's own grammar — a tool lives with the
+domain that owns it, the tool options bar carries its frequently changed values,
+the right dock inspects what is selected:
 
-**Draw route / way.** INFRA's dock is *"Roads, rivers, ports, trade, logistics"*;
-§6's Route inspector carries *"stages, vessels, cost trace, per-stage overrides,
-daily stages"* — an inspector for routes that exist. `ManualWay` and the four
-`RouteMode` variants make new ones.
+| Tool | Proposed home | Options bar | Draft? |
+|---|---|---|---|
+| Biome paint | WORLD ▸ Sculpt panel, a `PAINT` sibling of the 13 features | biome swatch · radius (default 6) · hardness · Commit / Discard | yes — a `PaintStamp` draft that marks **only** ecology stale |
+| Place settlement | CIVIL left dock, a new `EDIT` section | kind (5 tiers) · faction · snap to water · pick radius | no — one record; Undo covers it |
+| Draw route / way | INFRA left dock, `EDIT` section | way type · mode (freehand / snap / Dijkstra) · undo/redo · Commit | a polyline until committed |
+| Territory paint | CIVIL left dock, `EDIT` section | faction swatch · radius · add / subtract | yes — `merge_territory_paint` is a merge by construction |
+| Label | CARTO ▸ `Labels & annotation` layer, plus a canvas tool | text · size mode · arc · anchor | presentation-only; §7 forbids it marking any stage stale |
+| Icon stamp | armed by the asset library, placed on the map | family + variant · scale · rotation · scatter rule | presentation-only |
+| Measure | viewport-level, every domain, `M` | segment / path · km · running total · Clear | nothing to commit — an ephemeral overlay |
+| Region select | a viewport marquee filling §9's `world bounds` | x/y/w/h in cells and km · lock aspect · use as export bounds | a selection; the export route owns the write |
 
-**Territory / faction paint.** `territory` appears once in the entire spec, as a
-field inside the Faction inspector. Cartography lists a `Political (off)` layer.
-`merge_territory_paint` has no surface at all.
-
-**Label.** The richest orphan: 886 lines covering arc layout along a path, font
-scaling by zoom, hit boxes, drag handles and resize. The spec gives labels a
-Cartography *layer* row (visibility, opacity) and lets Edit ▸ Cut/Copy/Delete
-operate on *"labels, icons, places, stamps"* — the verbs exist, the noun cannot
-be created. There is no way to author a label.
-
-**Icon stamp.** Half the pipeline is specified: §2.3 and §8 give the asset
-library, 24 icon families, and pack handling. `manual.rs` supplies the other
-half — arming an icon, placing it at a cursor, hit-testing it, resizing it by
-handle. Nothing in the shell connects the two.
-
-**Measure.** The word does not appear in the spec in this sense at all
-(both matches are the English verb). `measure.rs` ships `measure`,
-`measure_path` and `cell_km`.
-
-**Region select / export.** §9's Data manager has a real export route with tile
-scheme, zoom range, CRS and *world bounds* — but bounds as a typed field, not a
-marquee dragged on the map. `export_region_tiles` and `extract_region_as_world`
-both take a rectangle somebody has to choose.
-
-## What I would expect on the UI
-
-Not built, and not to be built until you say so — this is the proposal the
-report exists to let you accept or reject. Every row respects the design's own
-grammar: tools live where the domain that owns them lives, the tool options bar
-carries their frequently-changed values, and the right dock inspects what is
-selected.
-
-| Tool | Where it belongs | Chooser | Tool options bar row | Right dock | Non-destructive? |
-|---|---|---|---|---|---|
-| Biome paint | WORLD ▸ Sculpt panel, a second tab beside the 13 features | Feature-grid sibling: `PAINT` | `PAINT · BIOME` · biome swatch · radius (cells, default 6) · hardness · ✓ Commit · Discard | Painted-cell count, biome legend, override-layer toggle | Yes — `PaintStamp` draft, commits like a sculpt pass, marks **only** ecology stale |
-| Place settlement | CIVIL ▸ left dock, an `EDIT` section above the settlement list | Section action: `＋ Place settlement` | `CIVIL · PLACE` · kind (5 tiers) · faction · snap-to-water toggle · pick radius | Settlement inspector, live, on the placed marker | No pass buffer needed — a place is one record; Undo covers it |
-| Draw route / way | INFRA ▸ left dock, `EDIT` section | Section action: `＋ Draw route` | `INFRA · ROUTE` · way type (highway/regional/road/track) · mode (freehand / snap / Dijkstra) · ↶ ↷ · ✓ Commit | Route inspector with the cost trace it already specifies | Draft polyline until committed |
-| Territory paint | CIVIL ▸ left dock, `EDIT` section | Section action: `Territory brush` | `CIVIL · TERRITORY` · faction swatch · radius · add / subtract | Faction inspector (already specified) | Yes — `merge_territory_paint` is already a merge, so it is a draft by construction |
-| Label | CARTO ▸ Layer properties for `Labels & annotation`, plus a canvas tool | Layer-scoped action: `＋ Add label` | `CARTO · LABEL` · text field · size mode · arc on/off · anchor | Selected-label properties: text, size, arc curvature, handles | Presentation-only — §7 forbids it marking any stage stale, which is correct here |
-| Icon stamp | Asset library window arms it (already specified); the map places it | Armed-icon indicator in the tool options bar | `ASSETS · ICON` · armed family + variant · scale · rotation · scatter-rule toggle | Placed-icon properties: family, variant, scale, rotation | Presentation-only |
-| Measure | Viewport-level, available in every domain | Status-bar toggle or `M`; §12's rule set has no measure glyph yet, so one is owed | `MEASURE` · mode (segment / path) · units (km) · running total · ✕ Clear | Measurement readout: segment lengths, total, bearing | Nothing to commit — ephemeral overlay |
-| Region select / export | Viewport marquee that fills §9's `world bounds` | Drag with `R`, or `Select region` in the Data manager route pane | `REGION` · x/y/w/h in cells and km · lock aspect · Use as export bounds | Region summary: extent, cell count, estimated tiles | Selection only; the export route already owns the write |
-| Point sample | Already the default context | none needed — §6's Sample **is** the tool | (no row) | Already specified, 16 fields | n/a |
-
-Two consequences worth stating before anyone builds this:
-
-1. **The four `EDIT` sections above are new structure, not a re-skin.** §3 says
-   the CIVIL and INFRA docks hold data; giving them creation affordances changes
-   what those docks are for. That is a design decision, and it is yours.
-2. **Measure needs a glyph.** §12 fixes the icon rules and enumerates every
-   drawn glyph; a measure tool adds the first one the design has not specified.
-
-## What blocks all of it regardless
-
-Every stranded tool needs a `cartalith-godot` binding before any surface can
-call it. The GDExtension currently exports 44 methods — generation, parameters,
-textures, settlements, roads, sea routes, provinces, trade, quality tiers — and
-**not one** sculpt, stamp, paint, label, icon, measure or region-export method.
-So even the six *specified* Sculpt tools (rows 4–8) cannot be wired today: §5.2
-is fully designed and fully implemented in Rust, with nothing in between.
-
-> **False as of 2026-09-01.** The 44-method count and the "not one... method"
-> claim describe 2026-08-18. Sculpt, Paint, Label, Icon, Measure and Region
-> export all have `#[func]` bindings now — 34 for Sculpt alone, the same
-> figure this document's own top block already named on 2026-08-19 — each
-> enumerated with file:line citations in `UNIFIED_TOOL_PLAN.md`'s "Milestone
-> F as built".
-
-That makes the binding layer the real critical path, ahead of any of the
-proposals above. `UNIFIED_TOOL_PLAN.md` calls this Milestone F ("Shell wiring")
-and it is the only lettered milestone still outstanding.
-
-> **Also stale**: Milestone F shipped 2026-08-18 through 2026-08-25 and is no
-> longer outstanding. It was the *last* lettered milestone, not because one
-> remained after it, but because there is no Milestone G.
-
-## Recommendation
-
-1. Build the shell to the spec, exactly — nothing invented (in progress).
-2. Do Milestone F: bind sculpt, stamps, paint, labels, icons, measure and region
-   export to Godot. This unblocks rows 4–8 *and* every proposal above.
-   **Done, 2026-08-18 through 2026-08-25** — see `UNIFIED_TOOL_PLAN.md`'s
-   "Milestone F as built" for the tool-by-tool evidence.
-3. Bring this table to the design project and let the rows above be specified
-   properly, rather than improvised in code. **Also done** — the top of this
-   very document records it: the design's §4.5 Tool palette, imported at sync
-   2026-08-19T00:20Z, is that response, giving every one of these tools the
-   home this recommendation asked for.
+It flagged two consequences, and §4.5 answered both: the `EDIT` sections would
+have been new structure (docks that held data gaining creation affordances — a
+design decision), which §4.5 avoided with a separate palette; and Measure needed
+the first glyph §12 had not specified, which §4.5's twelve new glyphs supplied.
+The full 2026-08-18 text is in history: `git log -- STRANDED_TOOLS.md`.

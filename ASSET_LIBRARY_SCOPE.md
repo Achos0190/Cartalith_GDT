@@ -1,47 +1,66 @@
-# Asset Library (Phase 4): what it really is, and a milestone plan
+# ASSET_LIBRARY_SCOPE.md — Phase 4: the asset pack format, library and slicer
 
+**What this is:** the definition of Phase 4 — eight porting milestones (§6,
+§11), the asset library window and its binding surface (§9, §10) — together
+with the pack format as the reference really writes it and the design reasoning
+each pass found. **What it is not:** status. Where any of it stands is
+`cartalith-native/docs/STATUS.md`'s "Phase 4 — Asset Library" group (AL-1…AL-10).
+
+Everything here was read from `reference/Cartalith Gen1 v2.10.html` (every line
+number below resolves there), not from the two older design documents in
+`docs/`; where those and the reference disagree, the reference wins.
 `ROADMAP.md`'s Phase 4 is one sentence — "Block 3, the sprite and texture pack
-system" — plus a "Confirm before starting" note, which the owner's own
-direction to continue "until you've finished phase 4" satisfies. This document
-is the investigation that sentence deferred, written the same way
-`JOURNEY_PLANNER_SCOPE.md` / `GPU_LAYER_INTEGRATION_SCOPE.md` /
-`TERRAIN_APPEARANCE_SCOPE.md` were: read the real reference code first, say
-plainly how big the thing is, then break it into milestones that each stand on
-their own.
+system" — and this document is the investigation that sentence deferred.
 
-Everything below was verified by reading `reference/Cartalith Gen1 v2.10.html`
-directly — not the two design documents in `docs/` that predate the
-implementation. Where those documents and the shipped code disagree, the code
-wins and the disagreement is called out.
+**Three owner rulings bind this subsystem** (`LARGE_ITEM_RULINGS.md`):
 
-**This document defines Phase 4's milestones and records what each pass
-read, built and decided. It does not track them.** For where any of it
-stands today, read `cartalith-native/docs/STATUS.md`, which is the only
-place progress is recorded.
+- **Ruling F (2026-09-07): packs keep `.zip` and their format stays identical
+  to the HTML app's.** A pack written here must stay readable by the HTML app
+  and vice versa, so no entry name, layout or metadata may drift toward this
+  port's conventions — and `SAVEFILE_COMPAT.md`, which governs project archives,
+  does not apply to a pack.
+- **The pack-import warning is owner-ruled text** (2026-09-03, then Ruling W,
+  2026-09-21): a golden re-baseline of one string, taken knowingly (§6,
+  milestone 7).
+- **Ruling AP (2026-09-23): asset library images are embedded in the project
+  save** (§2).
 
 ---
 
 ## 1. What an "asset" actually is
 
-**Not** an arbitrary named image with free-form metadata. An asset is **one
-PNG bound to one slot in a frozen, ordered vocabulary the engine already knows
-how to draw**, plus an optional per-slot metadata record and an optional
-per-item display transform.
+**Not** an arbitrary named image with free-form metadata. An asset is **one PNG
+bound to one slot in a frozen, ordered vocabulary the engine already knows how
+to draw**, plus an optional per-slot metadata record and an optional per-item
+display transform.
 
-There are eight families, seven of them closed vocabularies (reference lines
+The reference has eight families, seven of them closed vocabularies (lines
 12029-12052, mirrored by the Asset Library's own `FAMILIES` table at line
-~26781):
+26784). This port adds a ninth, `seamarks`. `cartalith_assets::Family::ALL`
+holds all nine, in export and display order.
 
-| Family | Manifest section | Slots | Bake | Anchor | Consumed by |
+| Family | Manifest section | Slots | Bake | Anchor | Consumed by (reference) |
 |---|---|---|---|---|---|
 | Splat channels | `textures` | 7 | 512², opaque, seamless | tiled | `surfaceColor`'s splat blend + the parchment overlay |
 | Biome ground | `biomes` | 15 | 512², opaque, seamless | tiled | painted Cartography biome layer (`_paintedTex`) |
 | Terrain ground | `terrains` | 13 | 512², opaque, seamless | tiled | painted Cartography terrain layer |
 | Feature icons | `icons` | 10 | 256², RGBA | **bottom** | `placeMapIcons` → `drawMapIcons` |
+| Sea marks | `seamarks` | 8 | 256², RGBA | centre | *no reference counterpart* — added by owner ruling (2026-08-31, "CARTO ▸ Icons: generated placement") |
 | Settlement pins | `structures.settlement` | 9 | 256², RGBA | centre | civ layer `_structSprite` |
-| Settlement traits | `structures.trait` | 7 | 256², RGBA | centre | `_traitSprite` — **imported since v1.28, still not drawn** |
+| Settlement traits | `structures.trait` | 7 | 256², RGBA | centre | `_traitSprite` — imported since v1.28, never drawn by the reference |
 | POI markers | `structures.poi` | 8 | 256², RGBA | centre | `_customSprite`/`_featureSprite` |
 | Custom icons | `custom` | **open** | 256², RGBA | centre | manual icon brush + rule-driven scatter |
+
+**The sea-mark family** (`PACK_SEAMARK_SLOTS`) exists so the design's fourth
+placement family, `SEA MARKS`, and its *snap sea marks to coast* rule are
+literal rather than mapped onto three families. Its slot *count* is the
+design's (`'SEA MARKS':[6,8]` in `cartalith-dcc-parts.js`); the eight *names*
+are this port's, all shoreline things. It is **centre**-anchored by choice:
+half its slots (buoy, reef, shoal, whirlpool) float and have no base to stand
+on. It sits after `icons` in `Family::ALL`, so no existing pack's file order
+moves. The HTML app's reader never reads a section it does not name (§2), so a
+pack carrying `seamarks` still loads there, with that section unread. Frozen
+from its introduction on the same terms as the ported lists.
 
 Three properties matter more than the table:
 
@@ -55,1221 +74,753 @@ Three properties matter more than the table:
   Reordering any list silently re-points every pack ever authored.
 - **A missing slot is normal, not an error.** Every slot falls back to
   procedural art independently, so an icons-only or two-file pack is as valid
-  as a complete one. This is the property that makes the whole subsystem
-  optional rather than a dependency.
+  as a complete one. This is what makes the subsystem optional rather than a
+  dependency.
 
-A real inconsistency worth carrying forward, found by reading rather than
-assumed: the Asset Library's `poi` family has **ten** slots but the pack
-*import* vocabulary has **eight** — `lake` and `bridge` have no engine POI kind
-to attach to, so they can be authored and exported but never load. The
-reference documents this in a comment at line 12033 and shrugs; this port
-reproduces the same two lists rather than "fixing" one of them.
+**Two POI vocabularies, both real.** The Asset Library's `poi` family has
+**ten** slots (`LIBRARY_POI_SLOTS`, from the Library's own `FAMILIES`), but the
+pack *import* vocabulary has **eight** (`PACK_POI_SLOTS`): `lake` and `bridge`
+have no engine POI kind to attach to, so they can be authored and exported but
+never load. The reference documents this at line 12033 and leaves it; this port
+reproduces both lists rather than "fixing" one.
 
 ## 2. What an "asset pack" is as a format
 
-A real, versioned serialization format — comparable in status to the world
-save `SAVEFILE_COMPAT.md` documents, and now equally verified against live
-code.
+A real, versioned serialization format, verified against a pack the reference
+itself exported (milestone 2).
 
 ```
 mypack.zip
 ├── pack.json      # manifest, schema 1 or 2 (or pack.csv; JSON wins if both)
 ├── textures/  biomes/  terrains/      # one PNG per slot
-├── icons/  structures/{settlement,trait,poi}/   # slot_01.png, slot_02.png, …
+├── icons/  seamarks/  structures/{settlement,trait,poi}/   # slot_01.png, slot_02.png, …
 └── custom/<setId>/                    # slot_01.png …
 ```
 
-- **A plain PKZIP**, written by the same `zipStore()` the world save uses
-  (STORE + raw DEFLATE since v1.90) and read by `unzipAny()` via the central
-  directory. Nothing custom — the Rust `zip` crate reads it, exactly as
-  `cartalith-io` already proved for world saves.
+- **A plain PKZIP**, written by the same `zipStore()` (line 12009) the world
+  save uses and read by `unzipAny()` via the central directory. The export
+  policy the reference applies on top — which entries are stored, the
+  timestamps, the entry order — is ported behaviour; milestone 2 lists it.
 - **The manifest is the source of truth, not the folder layout.** Paths are
   ZIP-root-relative and may be anything; the directory names above are only
-  what the exporter happens to write.
+  what the exporter writes (`Family::dir`, `Family::asset_path`).
 - **Schema 2 is a strict superset of schema 1.** A schema-1 consumer reads a
-  schema-2 pack by ignoring what it does not know. Unknown keys anywhere are
-  dropped *with a warning*, never rejected — so parsing a pack can only fail
-  on a missing or malformed manifest, never on its content.
-- **`pack.csv` is a real second input format**, not a design-doc suggestion:
-  `parsePackCsv` (line 12093) ships. It is header/CRLF/blank-tolerant, carries
-  a `variant` ordering column, and — unlike the JSON path — drops unknown slots
-  *silently*. It predates `structures`/`custom` and cannot express them, nor a
-  pack name/author/licence.
-- **Warnings are ordered data.** `parsePackManifest` emits per-slot missing-file
-  and unknown-slot warnings in a traversal order that partly follows the
-  author's own key order (JavaScript iterates string keys by insertion). A UI
-  reports the count next to the import summary and proceeds.
+  schema-2 pack by ignoring what it does not know. **Nothing is rejected:** an
+  unknown slot inside a known section is dropped *with a warning*, and a
+  top-level section the reader does not know is not read at all (the reference
+  builds its result from the sections it names, lines 12113-12170). Parsing can
+  fail only on a missing or malformed manifest, never on its content.
+- **`pack.csv` is a real second input format:** `parsePackCsv` (line 12093)
+  ships. It is header/CRLF/blank-tolerant, carries a `variant` ordering column,
+  and — unlike the JSON path — drops unknown slots *silently*. It predates
+  `structures`/`custom` and cannot express them, nor a pack name, author or
+  licence.
+- **Warnings are ordered data.** `parsePackManifest` (line 12113) emits
+  per-slot missing-file and unknown-slot warnings in a traversal order that
+  partly follows the author's own key order (JavaScript iterates string keys by
+  insertion). A UI reports the count beside the import summary and proceeds.
 
-**Packs also travel inside a world save.** `_alExportEntries`/`_alImportProject`
-write `assetlib/library.json` + `assetlib/img/N.png` into the project `.zip` —
-a *second*, different serialization: the editable Library (per-slot metadata,
-tags, collections, per-item transforms, scatter rules) rather than a baked
-pack. `SAVEFILE_COMPAT.md` already lists "an Asset Library payload" among the
-entries the MVP reader ignores; that entry is this. The two formats are not
-interchangeable and both are real.
+**The editable Library travels inside a project save — a second, different
+serialization.** The reference's `_alExportEntries`/`_alImportProject` (lines
+27879/27900) write `assetlib/library.json` plus `assetlib/img/N.png` into the
+project `.zip`: per-slot metadata, tags, collections, per-item transforms and
+scatter rules, rather than a baked pack. The two formats are not
+interchangeable. This port's project archive carries the same record
+(`AssetDB::to_library_json`, field order matching a captured reference export)
+at `library/assets.json` (`project_bridge.rs`, `SLOT_ASSETS`). **Ruling AP
+(2026-09-23): the item images are embedded in the save file too**; the entry
+layout, and how a pre-change archive loads, are `SAVEFILE_COMPAT.md` §16.5's to
+specify. The restore reports how many items it rebuilt (`project_bridge.rs`),
+so an archive without the images comes back as slots, metadata and rules with
+zero items, never as an apparently complete library.
 
-A deliberate non-format, worth stating so nobody looks for it: the live
-`assetPack` global is **never serialized into `params.json`** (the reference's
-transient-UI invariant 6). The Library's `assetlib/` payload is the one
-persisted asset store.
+A deliberate non-format, so nobody looks for it: the live `assetPack` global
+is **never serialized into `params.json`** (the reference's transient-UI
+invariant 6). The Library payload is the one persisted asset store.
 
 ## 3. How assets are actually used
 
-Yes — the reference renderer really draws pack sprites onto the map, and has
-for many versions; the vector glyphs are the *fallback*, not the other way
-round.
+The reference renderer really draws pack sprites onto the map, and has for many
+versions; the vector glyphs are the *fallback*, not the other way round.
 
-The path, end to end:
-
-1. **`placeMapIcons(fld, biome, W, H, opts)`** decides *where* glyphs go. Pure
-   in the reference's own "amplifyRegion mold" — reads only its arguments plus
-   the pure `hash()`. Two engines behind one entry point: a **legacy** path
-   with the biome→slot mapping hard-coded, and **`placeMapIconsRuled`** (v1.26)
-   which makes that mapping *data* — a `ScatterRule` per asset. Passing no
-   rules keeps the legacy path bit-identical, which is what lets a pack-less
-   map stay unchanged.
-2. **`iconSlotForItem`** resolves a placed item to a slot key — the one place
-   the flat vocabulary and the open custom vocabulary are unified
+1. **`placeMapIcons(fld, biome, W, H, opts)`** decides *where* glyphs go —
+   pure, reading only its arguments plus `hash()`. Two engines behind one entry
+   point: a **legacy** path with the biome→slot mapping hard-coded, and
+   **`placeMapIconsRuled`** (v1.26, line 7194), which makes the mapping *data*
+   — a `ScatterRule` per asset. Passing no rules keeps the legacy path
+   bit-identical, which is what lets a pack-less map stay unchanged.
+2. **`iconSlotForItem`** (line 7294) resolves a placed item to a slot key — the
+   one place the flat vocabulary and the open custom one are unified
    (`custom::<set>::<slot>`).
 3. **`iconVariantsFor` + `pickWeightedVariant`** choose the variant
    (position-hash, optionally weighted by the asset's own rule).
-4. **`drawMapIcons`** composites: one Y-sorted painter's pass over every icon,
-   `spriteDrawRect(x,y,s,base,sw,sh)` giving bottom-centre placement scaled to
-   `base = max(3.5, W/110)` and the sprite's own aspect ratio. No pack art for
-   that slot ⇒ `drawIconGlyph` draws the procedural vector version instead.
+4. **`drawMapIcons`** composites one Y-sorted painter's pass over every icon,
+   `spriteDrawRect(x,y,s,base,sw,sh)` (line 12173) giving bottom-centre
+   placement scaled to `base = max(3.5, W/110)` and the sprite's own aspect
+   ratio. No pack art for a slot ⇒ `drawIconGlyph` draws the procedural
+   version.
 
-Ground textures take a different route entirely: `finalizePackTexture` stores a
-per-channel inverse mean so splatting modulates a procedural material ramp by
-`texel/mean`, while `biomes`/`terrains` deliberately **skip** that step and are
-sampled as true colour (`_paintedTex`), because dividing out a tile's absolute
-hue is right for splat and wrong for paint. That asymmetry is real, documented
-in the reference at line 12246, and easy to get wrong in a port.
+**Ground textures take a different route, and the asymmetry is easy to get
+wrong.** `finalizePackTexture` (line 12196) stores a per-channel inverse mean so
+splatting modulates a procedural material ramp by `texel/mean`; `biomes` and
+`terrains` deliberately **skip** that and are sampled as true colour
+(`_paintedTex`, line 12187), because dividing out a tile's absolute hue is
+right for splat and wrong for paint (the reference's own comment, line 12246).
 
-Phase 5's urban morphology does **not** consume packs today (checked: block 4
-has no `assetPack` reference). The consumers are the terrain renderer, the civ
-layer's settlement/POI drawing, and the Cartography manual-icon brush.
+The reference's consumers are the terrain renderer, the civ layer's
+settlement/POI drawing and the Cartography manual-icon brush; its urban
+morphology (block 4) consumes no pack.
+
+**In this port**, a loaded pack reaches the live map through:
+
+| Section | Path | Symbols |
+|---|---|---|
+| `textures` | splat blend, inverse means baked once at load | `render::SplatTextures` via `RenderCtx::with_splat`, strength `0.7` |
+| `biomes`, `terrains` | painted-cell blend, **true colour**, at the reference's own `0.60` weight and position | `pack::decode_ground_family` → `render::GroundTiles` via `RenderCtx::with_ground_tiles`, sampled by `render::painted_tex`. `GroundTile` has no inverse-mean field, so the asymmetry above cannot be broken silently |
+| `icons` | scatter placement and the Y-sorted composite | `pack::composite_map_icons` |
+| `structures.trait` | settlement trait badges — **beyond the reference**, which imports trait art and never draws it | `pack::resolve_trait_badges`/`composite_trait_badges`; the shell installs `civ_trait_badge_row` as the overlay's resolver (`viewport_host.gd::refresh_settlement_traits`) |
+
+The import warning names every section with no compositor on the live map, and
+under **Ruling W** it names all of them (`structures.settlement`,
+`structures.poi`, `custom`, `seamarks`); drawing those is separate work the
+ruling does not authorise. With a pack loaded the raster is quantised before
+the icon composite, which draws in bytes, and the colour space is applied after
+it (Ruling AN).
 
 ## 4. Portable vs. UI-only — the honest split
 
-The same split every Phase 2 milestone investigation drew. Line counts are
-measured, not estimated.
+**Portable pure logic (~600-800 reference lines):**
 
-**Genuinely portable pure logic (~600-800 lines):**
-
-- Pack manifest: `parsePackCsv`, `parsePackManifest`, `packSummary`, the six
+- Pack manifest: `parsePackCsv`, `parsePackManifest`, `packSummary`, the
   `PACK_*_SLOTS` vocabularies, `PackManifestBuilder`'s manifest half, `slugId`.
+- **The archive export policy** — STORE the PNGs, freeze the timestamps, write
+  `pack.json` last, deflate only when that helps, never normalise a name on
+  read. The container is crate work; this policy is ported behaviour that a
+  plain `zip` call gets wrong by default (the timestamp actively so). About
+  60 lines of policy over a crate.
 - Library model: `AssetDB`'s slot registry and custom-slot add/rename/remove
   (id slugging, uid collision handling, collection cascade), `AssetCollections`,
-  `defaultMeta`, `AssetValidator.run()`'s rule set.
+  `defaultMeta`, `AssetValidator.run()`'s rules — and the `mkSlots` title
+  table, which looks presentational and is not: the validator's "Identical
+  images" warning prints `slot.name`, not `slot.id` (milestone 5).
 - Scatter rules: `defaultScatterRule`, `SCATTER_RULE_PRESETS`,
-  `presetScatterRule`, `normalizeScatterRule` (with its real v1.27 hardening
-  against untrusted project input), `scatterRuleKey`, `currentScatterRules`,
-  `autopopulateScatterRules`, `pickWeightedVariant`.
-- Placement/geometry: `placeMapIconsRuled`, `pickIconVariant`, `spriteDrawRect`,
-  `iconSlotForItem`, `finalizePackTexture`'s inverse-mean maths.
-- Project persistence: the `assetlib/library.json` record shape.
-- Inside the slicer, a small pure core: cell rectangles from
-  cols/rows/spacing/interior-line fractions, and the chroma key's Euclidean
-  colour-distance test.
+  `presetScatterRule`, `normalizeScatterRule` (with its v1.27 hardening against
+  untrusted project input), `scatterRuleKey`, `currentScatterRules`,
+  `autopopulateScatterRules`, `pickWeightedVariant`, and `pickIconVariant`,
+  which is three lines and cannot be separated from it.
+- Placement/geometry: `placeMapIconsRuled`, `spriteDrawRect`, `iconSlotForItem`
+  with its `TREE_SLOT`/`SCATTER_SLOT` maps, `finalizePackTexture`'s arithmetic.
+- The slicer's pure core: cell rectangles from cols/rows/spacing/interior-line
+  fractions, the crop rounding, the chroma key's colour-distance test, the
+  blank-cell test (§11).
 
-**Inherently UI/DOM-coupled (~900+ of block 3's ~1,439 lines):**
+**UI/DOM-coupled (~900 of block 3's ~1,439 lines):** `AssetBrowserUI`,
+`InspectorUI`, `ImageEditor`, the `SpriteSheetImporter` **modal** (~408, the
+largest module in the block, almost entirely pointer and canvas interaction
+around that small core), the `AssetLibrary` page controller,
+`renderPackInspector`, `toast`, `UIState`'s `localStorage`, drag-and-drop
+intake, preview backdrops. Godot owns presentation (`ARCHITECTURE.md`); these
+were rebuilt as GDScript, not ported (§9-§11).
 
-`AssetBrowserUI` (rail/grid/toolbar/search/multi-select/batch ops, ~72),
-`InspectorUI` (~203), `ImageEditor` (~30), the `SpriteSheetImporter` **modal**
-(~408 — by far the largest single module in the block, and almost entirely
-drag/canvas/pointer interaction around that small pure core), the
-`AssetLibrary` page controller (~225), `renderPackInspector`, `toast`,
-`UIState`'s `localStorage`, drag-and-drop intake, preview backdrops.
+**Platform work, not a port:** image decode (`decodePackImage`,
+`AssetImporter.decodeBytes`), thumbnail and export rasterisation
+(`ThumbnailRenderer`, `encodeItemPng`), the ZIP container. In Rust these are
+the `image` and `zip` crates plus Godot's `Image`/`ImageTexture` —
+`PROVENANCE.md`'s "take a crate for anything downstream of the pixels".
 
-**Neither — platform work, not a port:** image decode (`decodePackImage`,
-`AssetImporter.decodeBytes`), thumbnail/export rasterisation
-(`ThumbnailRenderer`, `encodeItemPng`), ZIP read/write. In Rust these are the
-`image` and `zip` crates plus Godot's own `Image`/`ImageTexture`, not
-hand-ported logic — `PROVENANCE.md`'s "take a crate for anything downstream of
-the pixels" rule applies cleanly.
+## 5. How big Phase 4 is
 
-## 5. How big Phase 4 actually is
-
-**Honestly: large — roughly 70% of the Journey Planner by raw size, but with a
-much smaller portable core and a much larger UI surface.**
-
-- Block 3 (the Asset Library page): lines 26723-28161, **~1,439 lines**.
-- Block 1's asset-related regions: scatter rules + icon placement/drawing
-  (~6895-7420) and pack parse/load/inspector (~12028-12330), **~800 lines**.
+- Block 3 (the Asset Library page): lines 26723-28161, ~1,439 lines.
+- Block 1's asset regions: scatter rules and icon placement/drawing
+  (~6895-7420), pack parse/load/inspector (~12028-12330) — ~800 lines.
 - Block 2's consumers (`_structSprite`, `_traitSprite`, `_customSprite`,
-  `_featureSprite`, `_carIconBrush*`, the icon gallery/editor UI): several
-  hundred more, most of it UI.
+  `_featureSprite`, `_carIconBrush*`, the icon gallery/editor): several hundred
+  more, mostly UI.
 
-Total ≈ **2,250+ lines** against the Journey Planner's ~3,100. But where the
-Journey Planner was ~70 functions of *dense portable modelling*, Phase 4 is
-maybe 600-800 lines of portable logic wrapped in 1,000+ lines of editor UI and
-a platform layer of image/ZIP handling that is crate work rather than porting.
-
-So: **it is a real sub-phase, not a milestone.** It does not need its own phase
-the way the Journey Planner does, but it is not a one-pass job either, and
-anyone estimating it from `ROADMAP.md`'s single sentence will be wrong by an
-order of magnitude. Sequenced below in seven milestones.
+About 2,250 lines against the Journey Planner's ~3,100 — but where the Journey
+Planner was ~70 functions of dense portable modelling, Phase 4 is 600-800 lines
+of portable logic inside 1,000+ lines of editor UI, plus image/ZIP work that is
+crate integration. **A real sub-phase, not a milestone:** anyone estimating it
+from `ROADMAP.md`'s one sentence is wrong by an order of magnitude.
 
 ## 6. Milestone breakdown
 
-### Milestone 1 — pack manifest model, parsing, validation, serialization (2026-08-17)
+"Golden" below always means the same technique, and a milestone says where it
+does not apply: a transient Node `vm.runInContext` harness lifts the named
+reference functions out of the frozen HTML **by line range**, runs them on
+fixtures, and the Rust tests assert that run's output verbatim. Fixtures target
+what a rewrite gets *plausibly* wrong, not the happy path.
 
-New crate **`cartalith-assets`** (no `gdext`, no dependency on any other
-Cartalith crate — the standalone shape `cartalith-spatial` set). Deliberately
-the piece with no images, no archive, no renderer and no UI in it, and the
-piece every later milestone is defined against.
+### Milestone 1 — pack manifest model, parsing, validation, serialization
 
-Shipped:
+New crate **`cartalith-assets`**, no `gdext` — deliberately the piece with no
+images, no archive, no renderer and no UI, which every later milestone is
+defined against. It began with no dependency on another Cartalith crate; it has
+since taken `cartalith-noise` (milestone 3's `hash`) and `cartalith-jsmath`.
 
-- `slots.rs` — all seven frozen vocabularies verbatim, plus a `Family` enum
-  carrying each family's manifest section, export directory, bake size,
-  opacity, anchor and multi-variant flag (the reference's `FAMILIES` metadata),
-  `Family::asset_path` (the exporter's own path convention) and `slug_id`.
+- `slots.rs` — the frozen vocabularies verbatim, and a `Family` enum carrying
+  each family's manifest section, export directory, bake size, opacity, anchor
+  and multi-variant flag (the reference's `FAMILIES` metadata), plus
+  `Family::asset_path` (the exporter's path convention) and `slug_id`.
 - `manifest.rs` — `RawManifest` (as authored, key order preserved) and
-  `PackManifest` (validated), `parse_pack_csv`, `parse_pack_manifest`,
-  `parse_pack_entries` (the `parsePackManifest(zip)` equivalent, taking entry
-  names so the crate needs no archive dependency), `pack_summary`, `to_raw` /
-  `to_pack_json` for schema-2 export, `referenced_files`, and a `PackError`
-  whose `NoManifest` message is the reference's own string.
-- `ordered_map.rs` — a small insertion-ordered map. Not incidental:
-  the reference's unknown-slot warnings are emitted by iterating the author's
-  own objects, and JavaScript iterates string keys in insertion order, so
-  warning order is a function of how the pack was written. `BTreeMap` would
-  sort it away; serde_json's `preserve_order` feature would have leaked into
-  `cartalith-io` through workspace feature unification. ~40 lines instead.
+  `PackManifest` (validated); `parse_pack_csv`, `parse_pack_manifest`,
+  `parse_pack_entries` (the `parsePackManifest(zip)` equivalent, over entry
+  names so the model needs no archive), `pack_summary`, `to_raw`/`to_pack_json`
+  for schema-2 export, `referenced_files`, and a `PackError` whose `NoManifest`
+  message is the reference's own string.
+- `ordered_map.rs` — a small insertion-ordered map, and not incidental: warning
+  order is a function of how the author wrote the pack. `BTreeMap` would sort
+  it away; `serde_json`'s `preserve_order` would have leaked into `cartalith-io`
+  through workspace feature unification.
 
-**Golden-verified against the real reference** — a real execution path exists
-and was used, not stood in for. A transient Node `vm` harness (same technique
-as `cartalith-civ`'s golden tests) extracts `parsePackCsv`/`parsePackManifest`/
-`packSummary` plus their six vocabularies from the frozen HTML by line range
-and runs them on five fixtures; the expected values in
-`tests/golden_parity_pack_manifest.rs` are that run's output verbatim. Every
-case matched on the first run.
+Golden fixtures: a missing texture file; an unknown texture slot; an unknown
+biome slot that is really a *terrain* slot; one missing icon variant (slot
+survives) against all variants missing (slot dropped whole); a bare string
+standing in for a one-element variant list; an unknown settlement slot; a
+missing custom-set variant; CSV variant ordering as a *stable* sort with
+unnumbered rows last; JSON winning over CSV; an empty-string path counting as
+missing; and the exact wording and order of every resulting warning.
 
-The fixtures deliberately target what a rewrite gets *plausibly* wrong rather
-than the happy path: a missing texture file, an unknown texture slot, an
-unknown biome slot that is really a *terrain* slot, one missing icon variant
-(slot survives) vs. all variants missing (slot dropped whole), a bare string
-standing in for a one-element variant list, an unknown settlement slot, a
-missing custom-set variant, CSV variant ordering as a *stable* sort with
-unnumbered rows pushed to the end, JSON winning over CSV when both are present,
-an empty-string path counting as a missing file, and the exact wording and
-ordering of all nine resulting warnings.
+`packSummary`'s trailing "*N* custom icon(s)" counts custom **slots**, not
+variants — a two-variant lighthouse reads "1 custom icon". It looks like a bug
+and is the reference's behaviour.
 
-28 tests total (18 unit + 9 golden + 1 doctest). It shipped **ahead of any
-caller** — the same "don't wire in what nothing calls" discipline as
-`cartalith-spatial` and every Phase 2 primitive that landed before its
-orchestration.
+### Milestone 2 — pack ZIP read/write
 
-### Milestone 2 — pack ZIP read/write (2026-08-17)
+`unzipAny`/`zipStore` in Rust terms: read a real pack into
+`parse_pack_entries`, and write one back. **`cartalith-assets`, module
+`archive`, behind an on-by-default `zip` feature**, decided by reading
+`cartalith-io` first:
 
-`unzipAny`/`zipStore` in Rust terms: read a real `.zip` pack into
-`parse_pack_entries`, and write one back.
-
-**Placement, decided by reading rather than by the coin-toss this section
-originally left open: `cartalith-assets`, module `archive`, behind an
-on-by-default `zip` feature.** The open question was whether to put it in
-`cartalith-io` instead, or extract a shared helper. Reading `cartalith-io`
-first settled it:
-
-- **There is nothing to share.** `cartalith-io`'s entire "zip handling" is
-  `ZipArchive::new`, `by_name`, `read_to_end` and a `MissingEntry` error
-  variant — the `zip` crate *is* the shared helper the reference's own
-  `unzipAny`/`zipStore` pair was. A common wrapper over that would be a
-  wrapper around a wrapper; milestone 1's "packs use the same `zipStore()`
-  the world save uses" finding is true and, precisely because it is true,
-  implies **no shared code**, only a shared crate.
-- **`cartalith-io` writes nothing, on purpose.** `MVP_SCOPE.md` point 12 and
-  `SAVEFILE_COMPAT.md`'s own "Deferred" section make it reading-only.
-  A pack *writer* there would break that crate's stated boundary, and it is
-  the writer where the reference's real quirks live.
-- **The dependency would point the wrong way.** Putting packs in
-  `cartalith-io` makes it depend on `cartalith-assets`, so every consumer of
-  the world-save loader drags in the asset vocabulary. Packs are the optional
-  subsystem; the save loader is not.
+- **There is nothing to share.** `cartalith-io`'s zip handling is
+  `ZipArchive::new`, `by_name` and `read_to_end`: the `zip` crate *is* the
+  shared helper. "Packs use the same `zipStore()` the world save uses" is true,
+  and precisely because it is true it implies a shared crate, not shared code.
+- **The dependency would point the wrong way.** Packs in `cartalith-io` would
+  make every consumer of the world-save loader drag in the asset vocabulary;
+  packs are the optional subsystem.
 - **The feature keeps milestone 1's promise literally true.**
-  `default-features = false` gives back exactly the archive-free manifest
-  model, and it is tested that way (`cargo test -p cartalith-assets
-  --no-default-features`) rather than merely asserted.
+  `default-features = false` gives back the archive-free model, and it is
+  tested that way (`cargo test -p cartalith-assets --no-default-features`).
 
-**Reference quirks found and preserved** (the zip layer has its own, as
-expected):
+**The reference's archive behaviour, ported rather than left to `zip`'s
+defaults** (`archive::zip_store`, which the region-tile export writes through
+too):
 
-- **`.png` entries are STORED, never deflated** — a PNG is already internally
-  DEFLATE-compressed, so re-compressing it is wasted CPU for no gain. The
-  reference says so in its own comment; the port applies the same rule by
-  filename extension, case-insensitively.
-- **Timestamps are frozen at 1980-01-01 00:00:00.** `zipStore` hardcodes the
-  DOS date word to `0x0021` and the time word to `0`. That makes exports
-  byte-reproducible, and it is *not* what the `zip` crate does by default (it
-  uses the wall clock), so the port sets it explicitly.
-- **`pack.json` is written last**, after every image — the exporter appends it
-  once its family walk is done. Not semantically load-bearing, but it is what
-  a reference-written pack looks like.
-- **Names are read verbatim.** No wrapping-folder stripping, no backslash
-  rewriting. This is why zipping the *folder* instead of its *contents* yields
-  a pack whose manifest is at `MyPack/pack.json` and is therefore not found —
-  a real, reported failure (the reference's own error message says "try
-  re-zipping the folder…"), preserved rather than papered over.
-- **Directory entries are kept** as zero-byte members, because `unzipAny`
-  walks the central directory and stores what it finds. Harmless: no manifest
-  path ends in `/`.
-- **An unrecognised compression method is an error**, worded exactly as the
-  reference words it (`unsupported zip method 93 for pack.json`), not a
-  silently skipped entry.
+- **`.png` entries are STORED, never deflated** (case-insensitive) — a PNG is
+  already DEFLATE-compressed.
+- **Anything else is deflated only if that makes it smaller**, else STORED,
+  decided by compressing once with `flate2`, the encoder `zip` itself uses.
+  Milestone 2 first read this as a browser concern and left it out;
+  `UNIFIED_TOOL_PLAN.md` milestone E2 found the region export hits it on its
+  first entry, so it is ported.
+- **Timestamps are frozen at 1980-01-01 00:00:00** — `zipStore` hardcodes the
+  DOS date word to `0x0021` and the time word to `0`, which makes exports
+  byte-reproducible. `zip`'s default is the wall clock, so the port sets it.
+- **`pack.json` is written last**, after every image, as the exporter does.
+- **Names are read verbatim** — no wrapping-folder stripping, no backslash
+  rewriting. Zipping a *folder* rather than its *contents* therefore yields a
+  manifest at `MyPack/pack.json` that is not found — a real, reported failure
+  (the reference's own message says "try re-zipping the folder…"), preserved
+  rather than papered over.
+- **The writer emits no directory entries**; on read, a directory entry some
+  other tool wrote is kept as a zero-byte member, because `unzipAny` walks the
+  central directory. Harmless: no manifest path ends in `/`.
+- **An unrecognised compression method is an error** worded as the reference
+  words it (`unsupported zip method 93 for pack.json`), not a skipped entry.
 
-Two deliberate non-ports, stated rather than smuggled: `zipStore`'s extra
-"…and only if the compressed bytes actually came out smaller" fallback (a
-browser-side size/`CompressionStream`-availability concern that no reader can
-observe), and `unzipStore`, which is `unzipAny`'s fallback for an archive with
-no readable central directory and answers `null` for every deflated entry —
-a browser-quirk defence, not a format variant. `zip::ZipArchive` requires the
+Not ported: `unzipStore`, `unzipAny`'s fallback for an archive with no readable
+central directory, which answers `null` for every deflated entry — a browser
+defence against a truncated `ArrayBuffer`. `zip::ZipArchive` requires the
 central directory and errors cleanly without it, which is the better answer.
 
-**Verified against a pack the reference itself exported, in both directions.**
-The harness runs the reference's *own* `PackManifestBuilder.build()` (line
-26964) over its *own* `FAMILIES`/`AssetDB` vocabulary and its *own*
-`zipStore()` (line 12009) headlessly under Node's `vm.runInContext`, all
-lifted verbatim by line range from the frozen HTML. Only two things in that
-run are not reference code, and the test file says so: `renderToBlob` is a
-canvas rasteriser, replaced by a real PNG encoder emitting genuine PNGs at each
-family's own bake size, and the three DOM inputs `E('alPackName'|…)` are
-stubbed with real values. Everything else — filenames, entry order, which
-entries are stored vs. deflated, the frozen timestamps, the manifest's exact
-JSON text, every CRC-32 — is the reference's own output, checked in as
-`tests/fixtures/reference_pack.zip` (18 entries, 21 KB) alongside that run's
+**Verified against a pack the reference itself exported, both directions.** The
+harness runs the reference's own `PackManifestBuilder.build()` (line 26964) over
+its own `FAMILIES`/`AssetDB` vocabulary and its own `zipStore()` headlessly.
+Only two things in that run are not reference code, and the test file says so:
+`renderToBlob` (a canvas rasteriser, replaced by a real PNG encoder at each
+family's bake size) and three stubbed DOM inputs. The output is checked in as
+`tests/fixtures/reference_pack.zip` (18 entries, 21 KB) with that run's
 `unzipAny`/`parsePackManifest`/`packSummary` capture.
 
-- **Read**: this port's entries match the reference's `unzipAny` output name
-  for name and CRC for CRC; its `parse_pack_entries` reproduces the summary and
-  the one warning; and `to_pack_json()` reproduces the exporter's `pack.json`
-  **text byte for byte**.
-- **Write**: `write_pack` reproduces the reference archive's entry order,
-  per-entry method, CRC-32, uncompressed size and 1980 timestamps; and the
-  bytes were fed back through the reference's own `unzipAny` +
-  `parsePackManifest`, which read all 18 entries with identical payloads,
-  an identical `pack.json`, and an identical summary and warning list. The two
-  archives differ by 2 bytes in total; the first differing byte is the
-  version-needed-to-extract field. Exact byte equality is not achievable and
-  is not the bar — the single deflated entry is compressed by `miniz_oxide`
-  here and by the browser's zlib there, and two conforming encoders need not
-  agree on a bit stream.
+- **Read:** entries match `unzipAny` name for name and CRC for CRC;
+  `parse_pack_entries` reproduces the summary and warning; `to_pack_json()`
+  reproduces the exporter's `pack.json` **text byte for byte**.
+- **Write:** `write_pack` reproduces entry order, per-entry method, CRC-32,
+  uncompressed size and the 1980 timestamps, and the reference's own
+  `unzipAny` + `parsePackManifest` read the result back identically. The two
+  archives differ by 2 bytes, the first being the version-needed-to-extract
+  field. Byte equality is not the bar: the one deflated entry is compressed by
+  `miniz_oxide` here and the browser's zlib there, and two conforming encoders
+  need not agree on a bit stream.
 
-14 new tests (4 golden-parity + 10 unit). Still wired to nothing.
+### Milestone 3 — scatter rules
 
-**Corrections to this document that the milestone surfaced:**
+`cartalith-assets`, module `scatter`: `ScatterRule` + `ScatterMode`, `Default`
+(`defaultScatterRule`), `preset_scatter_rule` (the ten `SCATTER_RULE_PRESETS`),
+`normalize_scatter_rule`, `scatter_rule_key`, `current_scatter_rules`,
+`autopopulate_scatter_rules`, `pick_weighted_variant` and `pick_icon_variant`.
+`pick_icon_variant` is `hash`, which is why this crate depends on
+`cartalith-noise`: re-implementing that hash locally would have lost the two JS
+float subtleties its doc comment carries.
 
-- §4 files "ZIP read/write" under *"Neither — platform work, not a port"*.
-  That is three-quarters right and one-quarter wrong: the *container* is pure
-  crate work, but the reference's **export policy** — STORE the PNGs, freeze
-  the timestamps, write `pack.json` last, never normalise a name on read — is
-  real ported behaviour that a plain `zip` call gets wrong by default, in the
-  timestamp's case actively so. Roughly 60 lines of policy over a crate, not
-  zero.
-- Milestone 5 (the Library model) must keep **both** the raw set name and its
-  slug on a custom slot. Confirmed by watching the real exporter run: the file
-  path uses the slug (`custom/naval/lighthouse_01.png`) while the manifest key
-  is the author's own text (`"custom": {"Naval": …}`). Losing either makes a
-  round-trip lossy, and `AssetDB.addCustomSlot` really does carry both
-  (`slot.set` and `slot.setId`).
-- `packSummary`'s trailing "*N* custom icon(s)" counts custom **slots**, not
-  variants — a two-variant lighthouse reads as "1 custom icon". Already
-  matched by milestone 1's port; noted here because it looks like a bug and is
-  not.
+**The v1.27 hardening, re-derived for Rust rather than transcribed.** Rules are
+read out of `library.json` inside a *user-supplied project archive*, so every
+field reaching the normalizer is untrusted. v1.26 merged with `+x||fallback`,
+which lost a legitimate `0` and let `NaN` through. `tests/hardening_v1_27.rs`
+has one test per fix, each reproducing the *downstream* arithmetic from
+`placeMapIconsRuled` so the test shows the failure it prevents:
 
-### Milestone 3 — scatter rules (2026-08-17)
-
-`cartalith-assets`, module `scatter`: `ScatterRule` + `ScatterMode`,
-`Default` (`defaultScatterRule`), `preset_scatter_rule` (the ten
-`SCATTER_RULE_PRESETS` inline), `normalize_scatter_rule`, `scatter_rule_key`,
-`current_scatter_rules`, `autopopulate_scatter_rules`,
-`pick_weighted_variant` and `pick_icon_variant`. Pure and self-contained, and
-still wired to nothing.
-
-**The v1.27 hardening, ported as fixes rather than transcribed.** Rules are
-read out of `assetlib/library.json` inside a *user-supplied project `.zip`*, so
-every field reaching the normalizer is untrusted. v1.26 merged it with the
-`+x||fallback` idiom, which lost a legitimate `0` (falsy) and let a `NaN`
-propagate instead of rejecting it. A Rust port has different natural failure
-modes, so each of the three named failures was re-derived here rather than
-guarded by reflex — `tests/hardening_v1_27.rs` has one test per fix, each
-reproducing the *downstream* arithmetic inline (four lines, lifted from
-`placeMapIconsRuled`) so the test shows the failure it prevents rather than
-asserting a value:
-
-1. **`NaN` density scattered on every cell — still a real hazard, by the
-   opposite IEEE rule.** The JS predicate is `keep >= Math.min(1, density)`
-   and `Math.min(1, NaN)` is `NaN`, so nothing is ever rejected. Rust's
-   `f64::min` *absorbs* NaN (`f64::min(1.0, NAN) == 1.0`) — but `keep` is a
-   hash in `[0,1]`, so `keep >= 1.0` is false anyway and the corrupt rule
-   still carpets the map. Same catastrophe, opposite mechanism; rejecting
+1. **`NaN` density scatters on every cell — by the opposite IEEE rule.** JS's
+   `keep >= Math.min(1, density)` gets `NaN`, so nothing is rejected. Rust's
+   `f64::min` absorbs `NaN` to `1.0`, but `keep` is a hash in `[0,1)`, so
+   `keep >= 1.0` is false and the corrupt rule still carpets the map. Rejecting
    non-finite input at the boundary closes both.
-2. **`NaN` spacing collapsing an O(1) neighbour test to O(n²) — real, and
-   `f64::max` would have masked it.** `Math.ceil(W/NaN)||1` gives a 1×1 bucket
-   grid, so `fits()` degenerates from a nine-bucket lookup into a scan over
-   every icon placed so far. Rust's NaN-absorbing `f64::max` would rescue the
-   derived-spacing path *by accident*; the explicit `is_finite` check is kept,
-   because an implicit dependency on an IEEE corner is exactly what this fix
-   existed to remove — and fix 1 above shows how little that intuition can be
-   trusted.
-3. **The `Object.assign` aliasing bug — structurally unreachable, and not for
-   the reason one would guess.** It is not "Rust's ownership rules": the bug
-   needs the defaults and the untrusted input to inhabit *one mutable object*,
-   and here they are different **types** — `base` is an owned `ScatterRule`
-   with an `f64` field, the input is a `serde_json::Value`. There is no
-   merge-in-place operation to get wrong because a `"x"` can never be stored
-   in the field it would have to corrupt. **No defensive code was written for
-   it.** The test pins the reference's own probe case (`{minSize:"x",
-   maxSize:2}` must give the preset's `0.55` and a surviving `2`) so a future
-   refactor toward a "merge" helper fails loudly, and adds a
-   nothing-poisons-anything sweep over an all-garbage record.
+2. **`NaN` spacing collapses an O(1) neighbour test to O(n²)** —
+   `Math.ceil(W/NaN)||1` gives a 1×1 bucket grid. Rust's NaN-absorbing
+   `f64::max` would rescue the derived path *by accident*; the explicit
+   `is_finite` check stays, because an implicit dependency on an IEEE corner is
+   what the fix exists to remove. The fix is two-sided — reject at the
+   boundary, and guard the computed value for callers that bypass it
+   (`ScatterRule::spacing_cells(map_width)`, which also reproduces a density of
+   exactly `0` deriving spacing as if it were `1`, and the 3-cell floor).
+3. **The `Object.assign` aliasing bug is structurally unreachable** — not
+   because of ownership, but because the defaults (an owned `ScatterRule` with
+   `f64` fields) and the untrusted input (a `serde_json::Value`) are different
+   *types*: a `"x"` cannot be stored in the field it would corrupt. No
+   defensive code was written. The test pins the reference's own probe
+   (`{minSize:"x", maxSize:2}` gives the preset's `0.55` and a surviving `2`)
+   so a future "merge" helper fails loudly.
 
-A fourth guarantee this port has and the reference cannot: `ScatterRule`
-implements `Serialize` but **deliberately not `Deserialize`**. The hardening
-is not bypassable by a future caller reaching for `serde_json::from_str` —
-`normalize_scatter_rule` is the only door in. Untrusted input is typed as
+**`ScatterRule` implements `Serialize` and deliberately not `Deserialize`**, so
+`normalize_scatter_rule` is the only way in; untrusted input is typed as
 `&serde_json::Value` for the same reason.
 
-**Golden-verified against the real reference**, the same transient Node `vm`
-technique as milestones 1-2: all nine functions plus `hash` lifted out of the
-frozen HTML by line range and run on the fixtures. `pick_weighted_variant` is
-deterministic-hash-driven, so it diffs **exactly** — an 11-case × 36-position
-sweep matched index for index, including the three degenerate weightings that
-must fall through to `pickIconVariant`'s untouched v1.25 hash. 37
-`normalize_scatter_rule` fixtures cover the JavaScript idioms a rewrite gets
-plausibly wrong, and one did catch a real bug on the first run: **`density`'s
-fallback is not symmetric with the other numeric fields.** The reference
-merges first and *then* runs `num(out.density,0,3,1)`, so an absent `density`
-keeps the slot preset's own value (`cactus` stays 0.35) while a *rejected* one
-lands on a literal `1`. Every other numeric field falls back to the preset in
-both cases. Nothing but a golden run would have found that.
+**`biomes` is `Vec<f64>`, not integers.** The reference filters the list with
+`Number.isFinite`, which does not coerce: a `"4"` is dropped, a hand-edited
+`5.5` is **kept** and never matches. Truncating to `i32` would make it start
+matching, and would rewrite the author's file on the next round trip.
 
-24 new tests (11 golden + 4 hardening + 9 unit).
+Golden: `pick_weighted_variant` is hash-driven, so it diffs **exactly**,
+including the degenerate weightings that must fall through to
+`pickIconVariant`'s untouched v1.25 hash. One fixture caught a real bug on the
+first run: **`density`'s fallback is not symmetric with the other fields.** The
+reference merges first and *then* runs `num(out.density,0,3,1)`, so an absent
+`density` keeps the slot preset's value (`cactus` stays 0.35) while a
+*rejected* one lands on a literal `1`. Nothing but a golden run would have
+found that.
 
-**Corrections to milestone 4, which depends on this one:**
+### Milestone 4 — rule-driven icon placement
 
-- **Milestone 4 is not "the first milestone with a cross-crate dependency" —
-  milestone 3 is.** `pickWeightedVariant` falls through to `pickIconVariant`,
-  which is `hash`, so `cartalith-assets` already depends on `cartalith-noise`.
-  Reimplementing that hash locally to preserve milestone 1's "no dependency on
-  any other Cartalith crate" property would have been the worse trade by a
-  wide margin (`cartalith-noise`'s `hash` carries two hard-won JS float
-  subtleties in its own doc comment).
-- **`pickIconVariant` shipped here, not in milestone 4.** §4 files it under
-  "Placement/geometry"; it is three lines and `pickWeightedVariant` cannot be
-  golden-tested without it.
-- **`spaceOf`'s half of v1.27 fix 2 shipped here too**, as
-  `ScatterRule::spacing_cells(map_width)`. The fix is two-sided — reject at
-  the boundary, and guard the *computed* value for callers that bypass the
-  boundary — and leaving half of a named fix to a later milestone would have
-  made it untestable here. Milestone 4's `placeMapIconsRuled` calls the
-  method. It reproduces two reference quirks: a density of exactly `0` derives
-  spacing as if it were `1` (`+0||1`), and the floor of 3 cells.
-- **Milestone 4's own two v1.27 fixes are confirmed still its own** — the
-  most-specific-first priority sort and the `requireWetland` AND both live
-  inside `placeMapIconsRuled`'s scatter branch (reference lines 7258-7271), not
-  in the rule model.
-- **`biomes` is `Vec<f64>`, so milestone 4's `biomeOk` compares against
-  `biome[i] as f64`.** Not an aesthetic choice: the reference filters the list
-  with `Number.isFinite`, which does not coerce, so a `"4"` is dropped while a
-  hand-edited `5.5` is **kept** and simply never matches. Truncating to `i32`
-  would make it start matching, and would rewrite the author's file on the
-  next `library.json` round trip.
-- Milestone 4 also needs the legacy `TREE_SLOT`/`SCATTER_SLOT` kind→slot maps
-  (reference lines 7281-7283) for `iconSlotForItem`'s non-ruled branch. Small,
-  but not currently named anywhere in this document.
+`cartalith-assets`, module `placement`: `place_map_icons_ruled`
+(`placeMapIconsRuled`, line 7194), `icon_slot_for_item` with the
+`TREE_SLOT`/`SCATTER_SLOT` legacy maps (lines 7289-7290, `iconSlotForItem`
+7294), and `sprite_draw_rect` (12173). Positional and seeded, so it diffs
+exactly rather than within a tolerance.
 
-### Milestone 4 — rule-driven icon placement (2026-08-17)
+**The legacy (non-ruled) `placeMapIcons` body is out of scope, on purpose.** The
+reference enters `placeMapIconsRuled` only when `opts.rules` is non-empty, and
+`current_scatter_rules` already reproduces the empty-table condition under which
+it falls through. `icon_slot_for_item` is ported in full, legacy branches
+included, because a legacy-shaped item and a ruled one must agree on it.
 
-`cartalith-assets`, new module `placement`: `place_map_icons_ruled`
-(`placeMapIconsRuled`, reference line 7194), `icon_slot_for_item` with the
-`TREE_SLOT`/`SCATTER_SLOT` legacy fallback maps (7289-7300), and
-`sprite_draw_rect` (12173). Pure, and the first milestone in this crate with
-real golden-parity *placement* surface: positional and seeded, so it diffs
-**exactly** rather than within a tolerance. Still wired to nothing.
+**Both v1.27 fixes here transfer to Rust**, because both are logic defects, not
+JS-coercion artefacts:
 
-**The legacy (non-ruled) `placeMapIcons` body is out of scope, on purpose.**
-The reference only enters `placeMapIconsRuled` when `opts.rules` is
-non-empty; its own hard-coded v1.25 biome-switch body is untouched code this
-milestone's scope never named, and `current_scatter_rules` (milestone 3)
-already reproduces the empty-table condition under which the reference falls
-through to it. `icon_slot_for_item` is still ported in full — including its
-legacy `cat`/`kind` branches and the `TREE_SLOT`/`SCATTER_SLOT` maps
-milestone 3's corrections flagged as this milestone's remaining work — since
-it is the one function a legacy-shaped item and a ruled item would both have
-to agree with, even though this crate's own placement engine never produces
-the former.
-
-**Both named v1.27 fixes, checked with the same scrutiny milestone 3 applied
-to its three (one of which it found structurally unreachable in Rust) — and
-both of these transfer, because both are real logic defects, not JS-coercion
-artifacts:**
-
-1. **Most-specific-first priority sort** (reference lines 7250-7259, ported as
-   `specificity`). Before v1.27 a contested cell's winner was whichever rule
-   the caller's array happened to list first — which, since the table comes
-   from iterating an object, meant "whichever order the user added assets to
-   the Library in." **Structurally necessary in Rust too**: nothing about
-   ownership or types removes insertion-order dependence from a `Vec` any
-   more than from a JS array — ordering was always a real, ported
-   `sort_by_key`, not a JS artifact.
+1. **Most-specific-first priority** (lines 7250-7259, ported as
+   `specificity`). Before v1.27 a contested cell went to whichever rule the
+   array listed first — which meant the order the user added assets to the
+   Library. A `Vec` is as insertion-ordered as a JS array.
 2. **`requireWetland` ANDed with the biome test, not substituted for it**
-   (reference line 7273). v1.26's scatter branch let `requireWetland`
-   *replace* `biomeOk` outright, silently discarding a rule's biome
-   restriction whenever wetland was also required. **Structurally necessary
-   in Rust too**: an algorithm/predicate defect, not a consequence of JS
-   type coercion or `Object.assign` aliasing (the two mechanisms behind two
-   of `scatter.rs`'s three v1.27 fixes) — a straight transcription of the
-   old "replace" logic reproduces the bug in any language.
+   (line 7273). v1.26 let it *replace* `biomeOk`, silently discarding a rule's
+   biome restriction whenever wetland was also required.
 
-Proven with a hand-traceable fixture rather than left to a broad sweep's
-chance coverage: a 3x1 grid, `sea=-1` (every cell counts as land), `tGap=1`.
-The last choice is the trick — `hash(*)` is always in `[0,1)`, so
-`(hash(gx,gy,seed)*1)|0` is always `0`, meaning the scatter grid's own jitter
-degenerates to zero and `jx=gx, jy=gy` exactly for every cell (checked
-against the real reference `hash`, not assumed). Three cells — wetland+grass,
-dry+grass, wetland+shrub — and three rules (`wetland_grass`: wetland AND
-grass; `narrow_biome`: grass only; `generic_land`: any land) inserted
-**least-specific first** resolve to `wetland_grass` / `narrow_biome` /
-`generic_land` across three seeds, unchanged when the whole rule array is
-reversed. The third cell is fix 2's own proof: it is wetland (would have
-satisfied the pre-v1.27 OR/replace semantics) but the wrong biome, so
-`wetland_grass` is correctly rejected and the cell falls through.
+Proven by a hand-traceable fixture: a 3×1 grid, `sea=-1`, `tGap=1` — so
+`(hash(...)*1)|0` is always `0` and the jitter degenerates to `jx=gx, jy=gy`
+(checked against the real `hash`). Three cells (wetland+grass, dry+grass,
+wetland+shrub) and three rules inserted **least-specific first** resolve to
+`wetland_grass` / `narrow_biome` / `generic_land` across three seeds, unchanged
+when the rule array is reversed; the third cell is fix 2's proof. The golden
+run — a synthetic 10×8 grid through an eight-rule table across six
+sea/seed/density configurations, matched cell-for-cell to 1e-9 — includes a
+`ghost_biome` rule with `biomes:[5.5]` placing nothing anywhere, confirming the
+`f64` comparison above.
 
-**Golden-verified against the real reference**, the same transient Node `vm`
-technique as milestones 1-3. A synthetic 10x8 grid (single circular
-elevation peak, biome cycling through `(x*3+y*5)%14`, wetland mask on
-`(x+y)%4==0`) run through an eight-rule table across six sea/seed/density
-configurations matches cell-for-cell, key-for-key, and size-for-size to
-1e-9 — including one configuration that exercises every rule family at
-once (both relief bands sharing one bucket grid, including an unbounded
-`elevMin:null` relief rule; three different scatter specificities winning
-different cells; and a `ghost_biome` rule with `biomes:[5.5]` placing
-**nothing**, anywhere, confirming `biomeOk`'s `biome[i] as f64` cast: a
-non-integer rule biome is finite so nothing rejects it at the normalizer
-boundary, but it simply never equals an integer `BIOME_INDEX`).
+### Milestone 5 — the Library model
 
-23 new tests (12 unit + 11 golden).
+`cartalith-assets`, module `library`: `AssetDB` (slot registry, item store,
+`add_custom_slot`/`rename_custom_slot`/`remove_custom_slot`, lazy `slot_rules`,
+`clear`, `duplicate_groups`/`slot_has_dupe`), `AssetCollections`, `run` (the
+reference's `AssetValidator.run()`), `ItemTransform`, and the `library.json`
+record shape: `LibraryFile`/`SlotRecord`/`ItemRecord`, `parse_library_json`,
+`AssetDB::to_library_json`/`apply_library_file`. Pure data management —
+`LibraryItem.hash` is caller-supplied, which keeps the validator's duplicate
+detection golden-testable without decoding a PNG. Reuses milestone 1's
+`Family`/`slug_id` and milestone 3's rule functions rather than re-deriving
+them.
 
-**Corrections to milestones 5-7 found on this read: none.** `TREE_SLOT`/
-`SCATTER_SLOT` were already flagged by milestone 3's own corrections as this
-milestone's remaining, previously-unnamed work, and that is exactly where
-they landed — no further scope drift found.
+**The record shape**: `{version, kind, pack: {name, author, license},
+collections: {name -> [uid]}, slots: [{fam, id, name, meta, items: [{img, name,
+t}], set?, rules?}]}`, field order matching a captured `_alExportEntries()`
+export. No `hash` field — milestone 6 says why.
 
-### Milestone 5 — the Library model (2026-08-17)
+Findings that shape the model:
 
-`cartalith-assets`, new module `library`: `AssetDB` (slot registry, item
-store, `add_custom_slot`/`rename_custom_slot`/`remove_custom_slot`,
-`slot_rules` lazy attach, `clear`), `AssetCollections`, `run` (the reference's
-`AssetValidator.run()`), and the `assetlib/library.json` record shape
-(`LibraryFile`/`SlotRecord`/`ItemRecord`, `parse_library_json`,
-`AssetDB::to_library_json`/`apply_library_file`). Pure data management; no
-images — `LibraryItem.hash` is always caller-supplied (a test fixture today,
-milestone 6's real `itemHash`-equivalent later), which is what keeps the
-validator's duplicate-image detection fully implementable and
-golden-testable without decoding a single PNG. Depends on milestones 1 and 3,
-confirmed: `library` reuses `Family`/`slug_id` (1) and `ScatterRule`/
-`normalize_scatter_rule`/`scatter_rule_key`/`preset_scatter_rule` (3)
-directly rather than re-deriving any of them.
+- **Per-slot display names are load-bearing.** `AssetValidator.run()`'s
+  "Identical images" warning renders `slot.name`, not `slot.id` — golden:
+  `"Identical images: Mountain#1 = Hill#1"`. So the `mkSlots` title table is
+  ported (`slot_title`).
+- **A custom slot keeps both its raw set name and its slug.** Watching the real
+  exporter: the file path uses the slug (`custom/naval/lighthouse_01.png`) and
+  the manifest key is the author's text (`"custom": {"Naval": …}`). Losing
+  either makes a round trip lossy; `AssetDB.addCustomSlot` carries both
+  (`slot.set`, `slot.setId`).
+- **Id-slug and uid-collision hardening, in the reference's own code but with
+  no version tag.** `addCustomSlot` returns the *existing* slot on a uid
+  collision; `renameCustomSlot` refuses a colliding rename and keeps the old
+  uid. Ported faithfully and pinned in `tests/hardening_asset_db.rs` —
+  free-form user text slugging to a collision is a real hazard for content
+  editable outside the app.
+- **Two of `run`'s six checks are unreachable through the public API, in both
+  languages** ("Duplicate identifier", "Invalid filename id"); ported anyway as
+  defence in depth. "Collection references a missing asset" is reachable only
+  through `AssetCollections::from_map`'s deliberately unchecked assignment
+  (mirroring `_alImportProject`'s `AssetCollections.map=lib.collections||{}`),
+  because `remove_custom_slot` cleans membership up first.
 
-**The `library.json` record shape, and how it lines up with
-`SAVEFILE_COMPAT.md`'s existing cross-reference.** `SAVEFILE_COMPAT.md`
-already lists "an Asset Library payload" among the entries its MVP reader
-ignores, with the note "there is nothing in the port to deserialise them into
-yet." `LibraryFile` is that something, now real: `{version, kind, pack:
-{name, author, license}, collections: {name -> [uid]}, slots: [{fam, id,
-name, meta, items: [{img, name, t}], set?, rules?}]}` — field order matching
-a real `_alExportEntries()` export exactly (verified against a captured
-reference run, below). `SAVEFILE_COMPAT.md`'s own note stands as written and
-needed no correction: `cartalith-io` still deserialises nothing here (this
-crate has no dependency on it, and the reverse would be the wrong direction
-per milestone 2's own reasoning), so the MVP reader's ignore-list is still
-accurate. What changed is only that a real, tested Rust shape for that
-payload now exists in `cartalith-assets`, for milestone 6/7 (or a future
-`cartalith-io` extension) to read into rather than design from scratch.
+Golden: the real `AssetDB`/`AssetCollections`/`AssetValidator`/`_alExportEntries`
+on constructed library states — empty, duplicates across two and three slots,
+the grass-splat hint present and absent, an empty custom slot, a stale
+collection reference reached the only real way, and a combined case pinning
+warning *order* — and `to_library_json()`'s shape across its inclusion rules
+(a tagged-but-empty custom slot included by `fam.custom`, a tagged-but-empty
+frozen slot by its tags, a frozen slot with neither excluded, the
+whole-library-empty `None`).
 
-**A correction to this document itself, found by reading rather than
-assumed: per-slot display *names* are not purely presentational after all.**
-§4 filed `mkSlots`'s `name`/`desc`/`code` columns as UI-only text, and that
-holds for `desc`/`code` (genuinely never read outside the browser UI) — but
-`AssetValidator.run()`'s "Identical images" warning renders `slot.name`, not
-`slot.id` (`SLOT_REG[e.uid].slot.name+'#'+(e.idx+1)`), confirmed by a golden
-run: `"Identical images: Mountain#1 = Hill#1"`, not `mountain#1 = hill#1`.
-This milestone therefore ports the `mkSlots` title table too (`slot_title`,
-65 entries across six frozen families), the one piece of "presentational"
-data that turned out to be load-bearing for golden parity.
+`apply_library_file` restores everything a parsed file carries **except
+items** — pack info, collections (unvalidated, per the finding above), per-slot
+metadata and scatter rules (normalised during parsing, since the rule key is
+computable from a record's own `fam`/`id`/`set`). Items need pixels, which is
+milestone 6.
 
-**A second correction, also found by reading rather than assumed: the
-Library's own `poi` vocabulary is ten slots, not the eight
-[`PACK_POI_SLOTS`] milestone 1 ported.** `AssetDB` bootstraps a family from
-the Asset Library's own `FAMILIES` table, not from the pack-import
-vocabulary `parsePackManifest` validates against — and `FAMILIES[...].slots`
-for `poi` carries `lake`/`bridge` in addition to the eight `PACK_POI_SLOTS`
-already document as the pack-import subset. Both lists are real and now both
-exist (`LIBRARY_POI_SLOTS`, ten; `PACK_POI_SLOTS`, eight, unchanged) rather
-than one being "fixed" to match the other — reproducing the same
-`lake`/`bridge`-import-but-never-load inconsistency §1 already named.
+### Milestone 6 — image handling
 
-**The id-slugging and uid-collision hardening asked for by name, checked for
-rather than assumed absent.** `addCustomSlot`/`renameCustomSlot` carry real
-defensive logic in the reference's own code — `addCustomSlot` returns the
-*existing* slot on a uid collision rather than creating a second one or
-overwriting the first (`const existing=...find(...); if(existing) return
-existing;`), and `renameCustomSlot` refuses a colliding rename outright,
-keeping the *old* uid rather than clobbering the rename target
-(`if(SLOT_REG[nuid]) return uid;`). Unlike v1.27's fixes, **neither carries a
-version-tagged comment** — there is no `/* vX.YY fix */` marker to point at,
-so this is reported as a finding rather than a named historical fix. Both
-are ported faithfully and pinned with tests explaining the *why* (untrusted,
-free-form user text slugging to a collision is a real hazard for content
-editable outside the app, not a hypothetical) in `tests/hardening_asset_db.rs`.
+`cartalith-assets`, module `raster` (not feature-gated: no consumer needs an
+image-free build). Crate work plus a thin port: `image`, `default-features =
+false`, `features = ["png"]` — every asset this crate reads or writes is a PNG.
 
-That same file also documents a companion finding: two of `run`'s six checks
-— "Duplicate identifier" and "Invalid filename id" — are **structurally
-unreachable through this module's own public API, in both languages**, for
-a reason that is not "Rust's type system" (the same shape of surprise
-milestone 3's fix #3 found for the `Object.assign` aliasing bug). Ported
-anyway, faithfully, as real defence-in-depth. A third check, "Collection
-references a missing asset," is reachable but *only* via
-`AssetCollections::from_map`'s deliberately unchecked assignment (mirroring
-`AssetCollections.map=lib.collections||{}` in `_alImportProject`) —
-`remove_custom_slot` already cleans up membership before the validator could
-ever see a stale reference through ordinary editing.
+- `decode_png`/`encode_png`; `item_hash` (content hash from decoded pixels);
+  `fit_to_bottom` (writes the transform); `render_item`, the reference's own
+  shared render core (`drawItemOnly`/`renderItem` — per `ThumbnailRenderer`'s
+  own comment, "shared render core (thumbnails, inspector preview, export
+  bake)"), serving all three uses; `finalize_pack_texture_inv_mean`.
+- `AssetDB::apply_library_file_with_items`: `apply_library_file`, then, for
+  each item whose PNG bytes the caller supplies (keyed by `img` index —
+  reading them out of an archive is the caller's job), decode, hash and
+  `add_item`. A missing or undecodable item is skipped without failing the
+  rest, as the reference's own `try{…}catch(_){}` does (lines 27920-27923).
 
-**`AssetValidator.run()` golden-verified against the real reference** — the
-scope document's own suggestion that it is "a strong golden-verification
-candidate" held up. A transient Node `vm` harness (same technique as
-milestones 1-4) ran the real `AssetDB`/`AssetCollections`/`AssetValidator`/
-`_alExportEntries` on twelve constructed library states — empty, one item,
-duplicate hashes across two and three slots, the grass-splat hint present
-and absent, an empty custom slot, a stale collection reference reached the
-only real way, and a "kitchen sink" combining several warnings at once, to
-pin the reference's exact warning *order*. Every case matched on the first
-run; `to_library_json()`'s shape was checked the same way across five more
-scenarios (pack fields, a bare frozen slot, a tagged-but-empty custom slot
-included by `fam.custom`, a tagged-but-empty frozen slot included by its
-tags, a frozen slot with neither excluded entirely, collections
-round-tripping verbatim, and the whole-library-empty `None` case).
+**`itemHash` cannot usefully be golden-verified, for two independent
+reasons.** Its algorithm (line 26913) is ported verbatim as arithmetic — a
+`drawImage` downsample to 32×32, then a stride-7 FNV-1a variant (offset basis
+`0x811c9dc5`, prime `0x01000193`, 32-bit wrapping multiply), suffixed
+`-{w}x{h}`. But (1) **the hash is never serialized**: `_alExportEntries` writes
+`{img,name,t}` (line 27890) and `_alImportProject` recomputes it after its own
+decode (line 27922), so no process ever compares its hash with another's; and
+(2) **it could not match anyway**: the Canvas spec leaves `drawImage`'s resample
+kernel implementation-defined, so two *browsers* need not agree. "Matches
+itself" is the only coherent bar — same decoded pixels in, same string out,
+everywhere this binary runs (`image`'s `Triangle` filter stands in for the
+unspecified resample). `render_item`'s geometry is exact; its resampling
+(`CatmullRom`, for `imageSmoothingQuality:'high'`) is not reference-identical
+for the same reason.
 
-**Deliberately not restored by this milestone**: `apply_library_file`
-restores everything a parsed `LibraryFile` carries *except* items —
-pack info, collections (unvalidated, per the finding above), and per-slot
-metadata/scatter rules (`normalizeScatterRule`-on-load, applied eagerly
-during parsing rather than at apply time, since the rule key is fully
-computable from a record's own `fam`/`id`/`set` without touching the live
-registry). `SlotRecord.items` carries everything a real reader has *except*
-pixels — `img` index, name, transform — for milestone 6 to pair with decoded
-`assetlib/img/<idx>.png` bytes and a real `itemHash`.
+**Why only two functions here are golden.** The Node `vm` sandbox has no
+`document`, canvas, `Image` or `createImageBitmap`, so `itemHash`,
+`drawItemOnly`/`renderItem`, `encodeItemPng`, `decodeBytes` and
+`decodePackImage` cannot run there. `finalizePackTexture` (the per-channel mean
+across every pixel, clamped with `Math.max(1,mean)` so a near-black slot cannot
+blow the reciprocal past 1, then reciprocated) and `fitToBottom` touch no DOM
+API, and both are golden-verified; the rest are unit-tested, and
+`src/raster.rs`'s module docs say so.
 
-56 new tests (23 unit including `slot_title` completeness and bootstrap
-invariants + 32 golden-parity + 7 hardening, some overlap between the golden
-and hardening files by design — the same scenario pinned once for "matches
-the reference" and once for "and here is why it matters").
+**A named non-port: pack import into the Library.** `AssetImporter.importPackZip`
+(line 27067) decodes an external pack's manifest-declared images straight into
+`AssetDB`, as distinct from restoring a project (`_alImportProject`, covered
+above). This port's Assets ▸ Import pack loads a pack into the *renderer*
+(`WorldGen::load_asset_pack`, from `app.gd`), not into the Library. Every piece
+the equivalent would compose exists — `PackManifest`, `PackEntries`,
+`decode_png`/`item_hash`/`fit_to_bottom`.
 
-**Corrections to milestones 6-7's scope, both real and both small:**
+### Milestone 7 — renderer + Godot integration
 
-- Milestone 6's "`itemHash` duplicate detection" is **already implemented**
-  here (`duplicate_groups`/`slot_has_dupe`), just missing the one piece that
-  needs pixels: computing the hash itself. Milestone 6 should call
-  `AssetDB::add_item`/`slot_meta_mut` with a real `itemHash`-equivalent
-  string, not reimplement duplicate grouping.
-- Milestone 6's "per-item transform (scale/pan/`fitToBottom`)" already has
-  its data shape here (`ItemTransform`); `fitToBottom` is a real
-  pixel-dimension computation milestone 6 still owns, but the field it
-  writes into (and its `library.json` round trip) does not need
-  re-designing.
-- Milestone 6 needs to wire real item restoration into
-  `AssetDB::apply_library_file` (or a milestone-6-owned wrapper around it):
-  decode `assetlib/img/<SlotRecord.items[].img>.png`, compute its hash, and
-  call `AssetDB::add_item` with a [`LibraryItem`] built from
-  `ItemRecord::name`/`t`. This milestone deliberately stops one call short of
-  that so it never touches a pixel.
+`cartalith-godot`, module `pack` — the first consumer of `cartalith-assets`.
+`WorldGen::load_asset_pack(path) -> bool` (a native path, the `load_save`
+convention) and `has_asset_pack()` load and report the pack; the library
+window's Apply to map loads one from memory instead (§10). **No default pack
+ships** — nothing under `godot-project/` bundles pack art; the fixture every
+test loads is `cartalith-assets/tests/fixtures/reference_pack.zip`.
 
-### Milestone 6 — image handling (2026-08-17)
+- **Sprite compositing** (`composite_map_icons`, `drawMapIcons`'s Y-sorted
+  pass): builds a rule table from the loaded manifest
+  (`autopopulate_scatter_rules`); derives a `BIOME_INDEX` raster and a wetland
+  mask from the already-generated height/temperature/rainfall fields
+  (presentation-side, no new world data — `cartalith_civ::classify_biome` plus a
+  `buildWetlandMask` equivalent); calls `place_map_icons_ruled`; composites each
+  placed icon as a bilinear-sampled blit where the pack has art, or as the
+  per-slot procedural glyph (`draw_icon_glyph`, all ten `PACK_ICON_SLOTS`
+  shapes, "shrub" doubling as the reference's catch-all for an uncovered custom
+  asset).
+- **Ground-texture splat** (`land_color`'s splat branch in `render.rs`): the
+  six `SPLAT_PAINT_SLOTS` channels, decoded and inverse-mean-baked at load,
+  blended per cell using the exact `materialWeights` fractions and each
+  material's own procedural ramp colour — a read-only consumer of both.
+- **Painted ground tiles** (`biomes`/`terrains`): `decode_ground_family` fills
+  `LoadedPack::biomes`/`::terrains` as positional `Vec<Option<GroundTile>>`
+  tables, blended by the painted-cell path in §3. Reachable only through a
+  painted cell — the paint tool's committed layers (`paint_bridge.rs`'s
+  `PaintEditor`, driven from the WORLD dock), the port's counterpart of the
+  reference's Cartography paint brush.
 
-`cartalith-assets`, new module `raster` (not gated behind a feature — unlike
-`archive`'s `zip` feature, no consumer in this crate needs an image-free
-build, and `image`'s `default-features = false` + `png`-only already keeps
-its own dependency footprint small). First milestone that touches pixels.
+**Gating.** The reference gates icons behind `state.viz.icons` (default off)
+and splat behind `assetPack.texAny` at `state.viz.splat` `0.7`. This port has
+no icon toggle: `composite_map_icons` is a no-op whenever the loaded pack
+yields no scatter-rule table (`current_scatter_rules` returns `None`), which is
+also what keeps a pack-less render bit-identical. `golden_parity_render.rs`
+passes unmodified at its original `1e-4` tolerance, since
+`RenderCtx::with_splat` is never called on that path.
 
-**Narrower than this section's own original description, confirmed by
-reading rather than assumed — milestone 5's own corrections (above) called
-this exactly, before this milestone ever ran**: the transform *shape*
-(`ItemTransform`) and the duplicate-detection *machinery*
-(`duplicate_groups`/`slot_has_dupe`) already existed. What milestone 6
-actually shipped: real PNG decode/encode (`decode_png`/`encode_png`), a real
-content hash from decoded pixels (`item_hash`), the transform math itself
-applied to pixels rather than merely represented (`fit_to_bottom` mutates the
-transform; `render_item` is what actually composites scale/pan onto a
-canvas), thumbnail and pack-export bake (`render_item` again — the
-reference's own single shared function for both, per `ThumbnailRenderer`'s
-own architecture comment), `finalizePackTexture`'s inverse means
-(`finalize_pack_texture_inv_mean`), and wiring decoded items into library
-restoration (`AssetDB::apply_library_file_with_items`).
+**The pack-import warning is owner-ruled text, not the reference's.** The
+reference's `parsePackManifest` warns *"N pack section(s) not yet used by the
+live map (…)"* and names `biomes`/`terrains` even though `_paintedTex` draws
+them — its own comment at line 12164 calls that texturing "still follow-up
+work". The port's list names the sections *this* port leaves undrawn instead:
+the 2026-09-03 ruling authorised the first re-baseline of that string (and the
+three fixtures pinning it), the 2026-09-04 audit re-derived the true unused
+set, and Ruling W (2026-09-21) names all four remaining sections. The divergence
+from the reference is permanent and disclosed; `DECISIONS.md` §7a is what it
+overrides.
 
-**Crate work (`image`) plus a thin port, exactly as this section's original
-framing said** — not a hand-port, matching how milestone 2 already reused
-`zip` rather than reimplementing archive handling
-(`PROVENANCE.md`'s "take a crate for anything downstream of the pixels").
-`image = "0.25.10"`, `default-features = false`, `features = ["png"]`: every
-asset this crate ever reads or writes is a PNG (every pack entry, every
-`assetlib/img/N.png` project entry), so `image`'s gif/jpeg/webp/tiff/avif/exr
-codecs and its rayon/simd extras are dead weight this crate never calls. Not
-present anywhere else in the workspace before this milestone.
+**Verification.** `cartalith-godot/tests/pack_compositing.rs` loads the real
+fixture and proves, on a small synthetic world: sprite art blits where a relief
+mountain places one; the procedural fallback fires for a biome the fixture has
+no art for; a pack with no icon slots places nothing. `tests/paint_blend.rs`
+carries the fixture's own `biomes/jungle.png` and `terrains/paved.png` end to
+end. Windowed, on a real 512² world, the saved native `Image` showed a
+hard-edged flat block where a mountain places (pack art — a procedural blend is
+never hard-edged), an irregular checkerboard following land-material boundaries
+(per-pixel splat), and soft translucent blobs elsewhere (the glyph fallback).
 
-**`itemHash` — read the real reference algorithm, then a real, checked
-compatibility decision, not an assumption.** `itemHash(img,w,h)` (line
-26913) downsamples through `ctx.drawImage(img,0,0,32,32)` on a canvas, then
-runs a stride-7 FNV-1a variant (offset basis `0x811c9dc5`, prime
-`0x01000193`, 32-bit wrapping multiply) over the resulting pixels, appending
-`-{w}x{h}` (the item's original dimensions). The hash constants and stride
-are ported verbatim as arithmetic. **It is not, and cannot usefully be,
-golden-verified against a captured browser hash**, for two independent
-reasons both found by reading rather than assumed:
+Deliberately not built: an `image` dependency in `cartalith-godot` for the
+sprite resample (the icons are small; a hand-written bilinear sampler suffices),
+and two decorative glyph variants (the arid jagged hill, the cold-mountain snow
+cap), which the reference itself calls "procedural-fallback variety only" on
+top of the base silhouette that is ported.
 
-1. **The hash is never serialized, on either side of this format.**
-   `_alExportEntries` writes `{img,name,t}` per item (line 27890) — no
-   `hash` field — and `_alImportProject` **recomputes**
-   `hash:itemHash(img,w,h)` fresh after its own decode (line 27922) rather
-   than reading one back from a file. No process, browser or Rust, ever
-   compares its own hash against another process's; each computes one from
-   its own decode, for its own runtime's own duplicate detection.
-   `crate::library::ItemRecord` already reflected this before this
-   milestone ever named the reason — it shipped in milestone 5 with no
-   `hash` field at all.
-2. **It could not match even if the format required it to.** The
-   downsample runs through `ctx.drawImage`'s resample, whose exact kernel
-   the HTML5 Canvas spec leaves implementation-defined — two *browsers* are
-   not obliged to produce the same 32×32 pixels for the same source image,
-   so "matches the reference" was never a coherent bar for this function,
-   only "matches itself" is.
+## 7. Out of scope for milestones 1-7
 
-`item_hash` is therefore real, deterministic content hashing (`image`'s
-`Triangle` filter standing in for the browser's unspecified resample),
-verified with real unit tests for the property that actually matters: same
-decoded pixels in, same string out, on every run, on every platform this
-binary runs on; different pixels or different original dimensions, a
-different string out.
-
-**`finalizePackTexture`'s "inverse means" — read literally, and the
-literal reading holds.** It is not a reversed baking transform: it is the
-mean of each of R/G/B across every pixel of a texture, clamped so it never
-reads as less than 1 (`Math.max(1,mean)`, so an almost-black slot cannot
-blow the reciprocal past 1), then reciprocated. Ported as
-`finalize_pack_texture_inv_mean(w,h,rgba) -> [f64;3]`, pure arithmetic with
-no DOM dependency — unlike `item_hash`, this one **is** golden-verified
-against the real reference (same transient Node `vm` technique as every
-earlier milestone), six fixtures matched exactly including the `n==0` and
-mean-below-1-clamped cases. `fit_to_bottom` is the milestone's other DOM-free
-function and is golden-verified alongside it, seven fixtures spanning
-wide/tall/square items, non-1 scale, and pre-existing pan values.
-
-**`render_item` ports the reference's own shared render core**
-(`drawItemOnly`/`renderItem`; `ThumbnailRenderer`'s own architecture
-comment: "shared render core (thumbnails, inspector preview, export
-bake)") as one function serving the same three uses here. The *geometry* —
-position, size, alpha compositing via source-over — is exact; only the
-resampling kernel (`image`'s `CatmullRom`, standing in for the reference's
-unspecified `imageSmoothingQuality:'high'`) is not reference-identical, for
-the same underlying reason `item_hash`'s is not.
-
-**Why these five functions split real unit tests vs. golden-parity tests**:
-every prior milestone's golden tests lift real reference functions into a
-headless Node `vm.runInContext` sandbox. That sandbox has no `document`, no
-`HTMLCanvasElement`, no `CanvasRenderingContext2D`, and no `Image`/
-`createImageBitmap` — so `itemHash`, `drawItemOnly`/`renderItem`,
-`encodeItemPng`, `decodeBytes`, `decodePackImage` simply cannot execute
-there. `finalizePackTexture` and `fitToBottom` are the only two functions in
-this milestone's scope that touch no DOM API at all, so those two, and only
-those two, are golden-verified; everything else is real unit tests,
-documented as such in `src/raster.rs`'s own module docs.
-
-**`AssetDB::apply_library_file_with_items`** is the milestone-5-flagged
-wrapper (its own note: "wire real item restoration into
-`AssetDB::apply_library_file` (or a milestone-6-owned wrapper around it)").
-Calls `apply_library_file` first (pack/collections/meta/rules and slot
-creation — unchanged from milestone 5, still covered by its own tests), then
-walks the parsed file's records again and, for each item whose PNG bytes the
-caller supplies (keyed by `img` index — reading `assetlib/img/<idx>.png` out
-of a project `.zip` is the caller's job, `cartalith-io`/save-format
-territory, not this crate's), decodes it, computes a real `item_hash`, and
-calls `AssetDB::add_item` with a `LibraryItem` built from the record's own
-`name`/`t`. A missing byte entry or a decode failure for one item is skipped
-silently and does not fail the rest of the restore — the reference's own
-`try{...}catch(_){}` around this exact step (line 27920-27923).
-
-**A real, deliberate non-port worth naming, found while checking the milestone's
-own scope against the reference rather than assumed complete**:
-`AssetImporter.importPackZip` (reference line 27067) — decoding a whole
-*external pack's* manifest-declared images straight into `AssetDB`, as
-distinct from restoring a previously-exported *project*
-(`_alImportProject`, which `apply_library_file_with_items` above covers).
-The task driving this milestone named project restoration by its real
-reference function (`_alImportProject`'s shape); it did not name pack
-import. Building `importPackZip`'s equivalent without being asked would be
-scope creep this crate's own "narrower than its own original description"
-finding argues directly against. It is a real, small remaining gap — every
-piece it would compose already exists (`PackManifest` from milestone 1,
-`PackEntries` from milestone 2, `decode_png`/`item_hash`/`fit_to_bottom`
-from this one) — worth naming for whoever next touches pack import into the
-Library, but it is not a correction to milestone 7's scope below, which is
-renderer/Godot integration and does not need it.
-
-15 new tests (10 raster unit + 3 library unit + 2 golden-parity). Still
-wired to nothing.
-
-**Corrections to milestone 7's scope: none found.** Milestone 7 was already
-scoped as renderer + Godot integration plus only-then UI, with the sprite-
-sheet slicer's canvas interaction and the Library page UI itself both
-already named out of scope in §7 below. Reading this milestone's own real
-implementation surface (decode/encode/hash/transform/bake all now real, in
-`cartalith-assets`, no `gdext` dependency) confirms milestone 7's
-boundary is exactly where the scope doc already drew it: sprite compositing
-into the map render and ground-texture sampling are real rendering work in
-`cartalith-godot`/`render.rs`, and nothing this milestone shipped changes
-that surface's shape.
-
-### Milestone 7 — renderer + Godot integration (2026-08-17)
-
-`cartalith-godot`, new module `pack` — the first thing in the workspace to
-depend on `cartalith-assets` (its own doc comment said "nothing depends on
-this yet" until now). Two of this milestone's own three named surfaces are
-real:
-
-- **Sprite compositing** (`composite_map_icons`, `drawMapIcons`'s own
-  Y-sorted painter's pass): builds a scatter-rule table from a loaded pack's
-  manifest (`autopopulate_scatter_rules`), derives a `BIOME_INDEX` raster and
-  a wetland mask from the already-generated height/temperature/rainfall
-  fields (presentation-side computation, no new world-generation data —
-  `cartalith_civ::classify_biome`, already golden-verified elsewhere, plus a
-  `buildWetlandMask`-equivalent), calls `place_map_icons_ruled`, then
-  composites each placed icon: a real bilinear-sampled blit
-  (`sprite_draw_rect`'s destination geometry) where the pack has art for
-  that slot, a real per-slot procedural glyph fallback (`draw_icon_glyph`,
-  all ten `PACK_ICON_SLOTS` shapes — mountain/hill/six tree kinds/cactus/
-  boulder, "shrub" doubling as the reference's own documented catch-all for
-  an uncovered custom asset) otherwise.
-- **Ground-texture splat** (`land_color`'s new branch, `render.rs`): the six
-  `SPLAT_PAINT_SLOTS` channels, decoded and inverse-mean-baked at load time
-  (`finalize_pack_texture_inv_mean`, milestone 6's own function — wired to
-  something real for the first time), blended per-cell using the *exact*
-  `materialWeights` fractions and each material's own procedural ramp colour
-  `land_color` already computes — no new logic, splat is a read-only
-  consumer of both.
-
-**The third named surface — ground-texture sampling for the two "painted
-layers" — is deliberately not implemented this pass, and this is a real
-scope finding, not an oversight.** Read literally (reference lines
-7898-7900, 12187-12196): `pBio`/`pTer` are per-cell indices into
-`state.cartoPaint.biome`/`.terrain`, sparse arrays a manual Cartography
-paint-brush tool populates (`paintBiome`/`paintSplat`/`paintTerrain` module
-globals). This port has never ported that tool — there is no producer of a
-painted-cell array anywhere in the workspace, and building one from scratch
-is itself a real, separate UI+state effort this milestone's own "no GUI
-controls" boundary rules out (a paint tool has no meaning without a brush UI
-to drive it). Unlike splat (gated only by `assetPack.texAny`, on by default
-the instant a pack loads) and icons (gated by `state.viz.icons`, off by
-default regardless), the painted layers are gated by a *third* piece of
-state this port simply has no producer for — so `LoadedPack` parses
-`.biomes`/`.terrains` from the manifest (for a correct warning count) but
-never decodes or rasterises them. Named here as the natural remaining item
-for whoever next ports the Cartography paint-brush tool, per the terrain-
-appearance research vocabulary this document's own §1 table already used.
-
-> **Closed 2026-09-03; the paragraph above is kept as the record of why it
-> stayed open.** Both halves of the blocker it names are gone. The paint tool
-> shipped 2026-08-24 (`paint_bridge.rs`'s `PaintEditor` over three
-> `PaintLayer`s, `WorldGen::get_paint_layers`, and a brush UI in the WORLD
-> dock and the canvas tool-options row), which `render.rs`'s doc took the same
-> day and `pack.rs`'s did not until 2026-08-31. The decode was the only piece
-> left: `pack::decode_ground_family` now fills `LoadedPack::biomes`/
-> `::terrains` as positional `Vec<Option<GroundTile>>` tables, carried to the
-> renderer as `render::GroundTiles` by `RenderCtx::with_ground_tiles`, and
-> `land_color`'s paint blend prefers the tile over the flat swatch through
-> `render::painted_tex` — the reference's own `_paintedTex`, at its own
-> `0.60` weight and its own position. **True colour, no inverse mean**, the
-> asymmetry §1 above warns about; `GroundTile` has no `inv` field so the
-> mistake cannot be made silently. The default render is unmoved: a tile is
-> reachable only through a painted cell, and this port bundles no pack.
-> Ten tests in `cartalith-godot/tests/paint_blend.rs`, seven mutants killed,
-> and the real fixture pack's own `biomes/jungle.png` / `terrains/paved.png`
-> — present in `reference_pack.zip` since milestone 2 and dropped on the
-> floor until now — carried end to end.
->
-> **One thing was found and deliberately not changed**: `parse_pack_manifest`
-> still warns *"N pack section(s) not yet used by the live map (biomes,
-> terrains)"*. That staleness is the **reference's own** — its comment at line
-> 12164 calls biome/terrain texturing "still follow-up work" while
-> `_paintedTex` sits at 12187 doing it — and the emitted string is pinned
-> verbatim by `golden_parity_pack_manifest.rs`. Dropping the two names is a
-> golden re-baseline, which `DECISIONS.md` §7a protects; it needs an owner
-> ruling, not a lane's judgement.
-
-**Two real defaults confirmed by reading the reference, not assumed**:
-`state.viz.icons` defaults `false` (icons are an opt-in `state.viz.*`
-stretch feature like every other one `render.rs`'s own doc comment already
-excludes — a pack-less *or* icon-toggle-off render was always bit-identical,
-and `current_scatter_rules` returning `None` whenever no pack supplies real
-icon art is `composite_map_icons`'s own early return, reproducing exactly
-that no-op). `state.viz.splat` defaults **`0.7`** — the opposite shape,
-gated only by `assetPack.texAny`, real and active the instant a pack with
-real ground textures loads, no toggle at all. Both are genuinely additive/
-opt-in rather than JS-parity-gated stretch features (per this milestone's
-own "judge from what you find" instruction) — there is no pack-less version
-of "blend in a texture that doesn't exist" to stay bit-identical with.
-`golden_parity_render.rs` passes unmodified at its original `1e-4`
-tolerance either way, since `RenderCtx.splat` stays `None` on that path
-(`with_splat` is a builder method, never called by the test).
-
-**This port confirmed to ship no default asset pack** — nothing in
-`godot-project/` bundles pack art — so real sprite/splat compositing has
-nothing to composite in the common case, exactly as this milestone's own
-scope anticipated. Real, permanent new plumbing was added for it rather than
-a throwaway stand-in: `WorldGen::load_asset_pack(path) -> bool` (a native
-filesystem path, same convention as `load_save`) and
-`WorldGen::has_asset_pack() -> bool`, both real `#[func]` API surface with
-no GDScript UI call site anywhere — dormant, real code for a future importer
-or `GUI_SHELL_SCOPE.md` pass to call, not a GUI control in itself.
-
-**Verified three ways.** A new `cartalith-godot/tests/pack_compositing.rs`
-loads the real `reference_pack.zip` fixture milestone 2 golden-verified
-against the reference's own exporter (reused rather than inventing a new
-fixture, per this milestone's own instruction) and proves, on a small
-synthetic world: real sprite art blits where a relief-mode mountain places
-one; the procedural glyph fallback fires for a biome region the fixture has
-no art for at all; and a pack whose manifest has no icon slots places
-nothing — the same "keeps `placeMapIcons` on its legacy/no-op path"
-condition `current_scatter_rules`'s own doc comment names as what keeps a
-pack-less render bit-identical. Static: `cargo build -p cartalith-godot`/
-`--workspace`, `cargo test --workspace` (zero regressions,
-`golden_parity_render.rs` unmodified), `cargo clippy -p cartalith-godot -p
-cartalith-assets --all-targets` clean (the rasterizer's loose `bytes/gw/gh`
-argument triples became a small `Canvas` struct along the way, both for
-clippy's `too_many_arguments` and because it reads better), `godot4
---headless --quit main.tscn` clean. Real windowed: launched the actual
-`Godot_v4.7.1-stable_win64.exe`, generated a real 512² world, called
-`load_asset_pack` against the real fixture (temporary `main.gd` debug calls
-only, reverted before commit — the shipped diff carries no GDScript
-changes), and saved the native `Image` output directly to disk for
-full-resolution inspection rather than a scaled-down window screenshot.
-**Confirmed by actually looking at it**: a sharp-edged, flat-coloured
-rectangular block sits on land exactly where a relief-mode mountain would
-place one (real pack sprite art — a procedural blend is always noisy/
-gradient, never a hard-edged rectangle); a large irregular checkerboard
-region follows real land-material boundaries rather than sitting in a fixed
-box (real per-pixel splat sampling, not a sprite); small soft-edged
-translucent blobs appear elsewhere on plain terrain (the procedural glyph
-fallback, where the fixture has no matching art).
-
-3 new tests (real integration tests against the real fixture pack, not
-unit tests standing in for one). Not gold-plated beyond what was asked: the
-sprite resample is a hand-written bilinear sampler rather than a new `image`
-crate dependency in `cartalith-godot` (the icons involved are small; a
-manual sampler is the smaller, sufficient tool); the procedural glyph
-fallback drops two purely-decorative reference variants (the arid jagged
-hill outline, the cold-mountain snow-cap) since the reference itself
-describes them as "procedural-fallback variety only" on top of an
-unconditional base silhouette, which is what's ported.
-
-**Phase 4 is genuinely complete.** Checked honestly against §8's own "done
-means" below, written specifically to give this phase an operational finish
-line beyond `ROADMAP.md`'s one-sentence description — that bar is met. The
-Library-authoring workspace is that same sentence's own explicit carve-out,
-tracked separately in `GUI_SHELL_SCOPE.md`, not part of this phase's
-definition of done.
-
-## 7. Out of scope for all milestones above
-
-- **The Asset Library page UI itself** — browser rail/grid/toolbar/search/
-  multi-select, the inspector, drag-and-drop intake, toasts, `localStorage` UI
-  state, preview backdrops. `ARCHITECTURE.md`: Godot owns presentation.
-  `design/cartalith-menu-structure.md` §6 already names the real control
-  inventory (Library select/tag/collect/rename/duplicate/delete/clear; sprite
-  sheets; pack name/author/licence, validate, import, export) — that is a GUI
-  milestone, not a port.
-- **The sprite-sheet slicer's canvas interaction** — draggable grid rectangle,
-  interior line handles, eyedropper, live preview. Its pure core (cell
-  rectangles, chroma-key distance) is portable and can ride along with
-  milestone 6; the modal is not. *(Updated 2026-08-20: the pure core did not
-  ride along with milestone 6 — it became milestone 8, §11, where it is
-  ported and golden-verified. The canvas interaction is still out of scope and
-  is now tracked as `GUI_GAP_REGISTER.md` AS-17.)*
+- **The Asset Library page UI and the sprite-sheet slicer's canvas
+  interaction.** Presentation belongs to Godot; both were rebuilt later as
+  GDScript over new bindings (§9-§11), and the slicer's pure core became
+  milestone 8 (§11). `design/cartalith-menu-structure.md` §6 names the control
+  inventory.
 - **Authoring-side conveniences** the reference itself calls authoring-only:
   the standalone `asset_pack_compiler.html`, per-cell naming UI, the preview
   backdrop swatches.
-- **Wiring anything into `compute_civilisation()` or the Godot shell** before
-  milestone 7 — the same discipline the Journey Planner milestones follow.
 
 ## 8. Done means
 
 A real `.zip` asset pack authored outside the app can be imported, validated
 with the reference's own warnings, and rendered onto the map — sprites for the
-slots it carries, procedural art for the slots it does not — with a pack-less
-render staying bit-identical to today's. The Library workspace that *authors*
-such a pack is a separate, later GUI effort tracked in `GUI_SHELL_SCOPE.md`.
+slots it carries, procedural art for the slots it does not — while a render
+with no pack stays bit-identical to the render before this phase existed. The
+Library workspace that *authors*
+such a pack is the separate GUI effort of §9-§11 (built in the DCC shell; the
+panel-browser `GUI_SHELL_SCOPE.md` it was once filed under is superseded).
 
-## 9. The GUI window (2026-08-19), and what building it found
+## 9. The GUI window (2026-08-19)
 
-*Read this section as the 2026-08-19 pass's own close-out, not as a
-description of the window today: the gaps it enumerates below are exactly the
-ones §10 and §11 were then written to close.*
+*A snapshot of one pass. The gaps it found are closed by §10 and §11.*
 
 This pass built `DCC_SHELL_SPEC.md` §8's Asset library window
-(`cartalith-native/godot-project/shell/asset_library_window.gd`,
-`AssetLibraryWindow`) and turned `Assets ▸ ⧉ Asset library` / `▦ Sprite
-sheet slicer` from `_todo` into `_live` in `menus.gd`. This section is that
-pass's own honest close-out, in the same voice as §§1-8 above, not a rewrite
-of them.
+(`shell/asset_library_window.gd`, `AssetLibraryWindow`) and turned
+`Assets ▸ ⧉ Asset library` and `▦ Sprite sheet slicer` from `_todo` into
+`_live` in `menus.gd`.
 
-**A real discrepancy confirmed against the live engine, not the mockup**: §8's
-own prose describes "24 families... Settlements, Terrain, Cartography, plus
-Collections." `cartalith-assets` ships **eight**, exactly as §1 above already
-said ("eight families, seven of them closed vocabularies") — re-verified this
-pass by reading `slots.rs`/`library.rs` directly and by a headless smoke run
-that opened every one of the eight and confirmed each grid populates with the
-real frozen slot count (textures 7, biomes 15, terrains 13, icons 10,
-settlement 9, trait 7, poi 10 — the Library's own 10-slot `poi` list, not the
-8-slot pack-import one — custom 0/open). The 24-family, four-group rail is the
-mockup's own finer subdivision; nothing in the shipped crate draws that line,
-so the window's family rail groups the real eight the way the crate itself
-groups them (`Family::is_texture()`, the `structures.*` trio) rather than
-inventing a fifth grouping to hit 24.
+**The durable finding: the design's families are not the engine's.** §8's prose
+describes "24 families… Settlements, Terrain, Cartography, plus Collections";
+`cartalith-assets` then had the reference's eight (§1; the sea-mark family came
+later), confirmed by opening each in a headless run and counting its real slots
+(`poi` shows the Library's ten, not the pack-import eight). The 24-family rail is the mockup's finer subdivision,
+which no Rust type draws, so the window groups the engine's families the way the
+crate does (`Family::is_texture()`, the `structures.*` trio) rather than
+inventing a grouping to reach 24 — `GUI_GAP_REGISTER.md` AS-16, an owner
+decision.
 
-**What the window can honestly show, and what it can't, comes down to one
-gap**: `cartalith-godot/src/lib.rs` exposes exactly two asset-related
-`#[func]`s -- `load_asset_pack(path)` and `has_asset_pack()`. There is no live
-`AssetDB` on the Godot side of the boundary, so per-slot fill state,
-thumbnails, item variants, tags, scale, and pack metadata (name/author/
-license) are all disclosed gaps in the window, not guessed values -- the slot
-grid shows every slot as a checkerboard on principle, never as "empty" or
-"filled," because the engine genuinely cannot say which from here. Apply to
-map / Export pack .zip / batch edit / Validate / Clear library are gaps for
-the same reason: there is no in-memory library-editing session anywhere in
-this workspace for any of them to act on. The sprite-sheet slicer modal's
-image load, dimension readout, and columns/rows/margin/spacing grid overlay
-are real (Godot's own `Image` loader plus arithmetic); the slice operation
-itself is a gap -- `cartalith-assets::raster` decodes/encodes whole PNGs with
-no sheet-splitting function anywhere in the crate.
+What the pass could not show was everything behind the two asset `#[func]`s
+that existed (`load_asset_pack`, `has_asset_pack`): no `AssetDB` crossed the
+boundary, so fill state, thumbnails, variants, tags and pack metadata were
+disclosed as gaps rather than guessed (every slot drawn as a checkerboard, never
+as "empty" or "filled"), and the slicer could preview a grid but not slice.
 
-None of this needed a new `#[func]` or touched any Rust file. Closing the gap
-above -- a `#[func]` surface for `AssetDB` query/mutation -- is real, scoped
-future work, not filed here as a blocker to §8's "done means."
+## 10. The library's binding surface (2026-08-20)
 
-## 10. Closing the gap §9 named (2026-08-20)
-
-`cartalith-godot/src/asset_bridge.rs` is new: a godot-free
-`AssetLibrarySession` wrapping a live `AssetDB` plus a parallel decoded-pixel
-store (`AssetDB` itself carries no pixels by design -- see `library.rs`'s own
-module doc; every real operation below needs the actual bytes behind an
-item, so the session keeps them index-parallel to `AssetDB`'s own
-`store[uid]`, always the same uid/order/length). `WorldGen` carries one as a
-field (`asset_library`) that survives a re-generate the same way
-`travel_library` does -- an authored library describes the setting, not one
+`cartalith-godot/src/asset_bridge.rs`: `AssetLibrarySession` wraps a live
+`AssetDB` plus a decoded-pixel store kept index-parallel to its `store[uid]`
+(`AssetDB` itself holds no pixels, by design, and every operation below needs
+them). `WorldGen` holds one as `asset_library`, which survives a regenerate the
+way `travel_library` does — an authored library describes the setting, not one
 generation's output.
 
-Twenty `as_*` `#[func]`s in `lib.rs` (`#[godot_api(secondary)]`) expose it:
-import (`as_import_item`/`as_add_custom_slot`), per-slot fill state
-(`as_family_slots`), inspector queries (`as_slot_summary`/`as_item_summary`),
-real baked thumbnails (`as_thumbnail_png`, `render_item` -- the same shared
-core the reference itself uses for thumbnails/preview/export bake), pack
-metadata (`as_pack_info`/`as_set_pack_info`), removal/clearing
-(`as_remove_item`/`as_clear_library`), validation (`as_validate` ->
-`library::run`), export (`as_export_pack_bytes` -> bakes every item, builds a
-schema-2 manifest, writes it with `archive::write_pack`), apply-to-map
-(`as_apply_to_map` -- the reference's own `applyToMap()`: build the pack in
-memory and load it straight into the renderer, no round trip through a
-file), and the five batch operations (`as_batch_tag`/`_collect`/`_rename`/
-`_duplicate`/`_delete`), each read directly off the reference's own
-`alBatch*` handlers (`Cartalith Gen1 v2.10.html` ~line 28045-28090) rather
-than guessed from the button labels -- batch Rename in particular is
-honestly split exactly as the reference itself splits it: a custom slot is
-renamed for real (`AssetDB::rename_custom_slot`), a frozen slot instead
-renames its *item variants* in place (`AssetDB::item_mut`, a small new
-accessor this pass added -- frozen slot names are the constant `slot_title`,
-not editable at all).
+**The `as_*` `#[func]`s** (a `#[godot_api(secondary)]` block in `lib.rs`;
+eighteen when this section was written — it said "twenty" — and more since):
 
-`asset_library_window.gd` is wired against all twenty: real per-slot fill
-state and baked thumbnails replace the permanent checkerboard; the inspector
-shows real file/scale/tags/pack-metadata; Import image… targets whichever
-slot is focused in the grid; the five batch buttons drive real multi-select
-operations through a small reusable text-prompt dialog (no Godot
-`prompt()` equivalent exists, so this pass built one); Validate/Clear
-library/Export pack .zip…/Apply to map all call straight into the engine.
-`engine_bridge.gd` gained one `has_method`-guarded wrapper per `as_*`
-`#[func]`, the same convention `tl_*` already established for the Travel
-Library. `menus.gd`'s `_assets()` gained the `Assets ▸ Asset pack ▸`
-submenu §2's own omission O2 named (`DCC_CONTROL_INDEX.md` §2.3.1, "19
-backed-unwired against 1 engine gap") -- Active pack stats, Pack metadata…,
-and the Build group (Validate/Apply/Import/Export) call the engine directly;
-Edit and Batch open the real window, since both genuinely need slot/
-selection context only the grid provides (real navigation to a real
-control, not a disabled item).
+- import (`as_import_item`, `as_add_custom_slot`); per-slot fill state
+  (`as_family_slots`); inspector queries (`as_slot_summary`, `as_item_summary`);
+- baked thumbnails (`as_thumbnail_png`, through `render_item`, the reference's
+  own shared core); pack metadata (`as_pack_info`, `as_set_pack_info`);
+- per-item transform (`as_set_item_transform`, `as_reset_item_transform`,
+  writing `LibraryItem::transform` — AS-07); collections (`as_collections` —
+  AS-12);
+- removal (`as_remove_item`, `as_clear_library`); validation (`as_validate` →
+  `library::run`);
+- export (`as_export_pack_bytes`: bake every item, build a schema-2 manifest,
+  `archive::write_pack`); apply to map (`as_apply_to_map` — the reference's own
+  `applyToMap()`: build the pack in memory and load it into the renderer, no
+  file round trip);
+- five batch operations (`as_batch_tag`/`_collect`/`_rename`/`_duplicate`/
+  `_delete`), each read off the reference's `alBatch*` handlers (~lines
+  28045-28090) rather than guessed from the button labels. **Batch Rename is
+  split exactly as the reference splits it:** a custom slot is renamed for
+  real (`AssetDB::rename_custom_slot`); a frozen slot renames its *item
+  variants* in place (`AssetDB::item_mut`), because frozen slot names are the
+  constant `slot_title`;
+- the slicer (§11).
 
-**What's still honestly a gap, and why**: the sprite-sheet slicer's actual
-slice operation (AS-09/AS-10/AS-11) -- `cartalith-assets::raster` still only
-decodes/encodes whole PNGs, no sheet-splitting function exists anywhere in
-the crate, and inventing one was explicitly out of this dispatch's scope, a
-real engine gap not a binding gap. ~~Per-item scale/pan **editing** -- the
-inspector now shows the real `ItemTransform`, but no `as_set_item_transform`
-writes a new one back; reading it is done, writing it is a smaller
-follow-on.~~ — **corrected 2026-09-06, closed 2026-08-23** (`GUI_GAP_REGISTER.md`
-AS-07): `as_set_item_transform`/`as_reset_item_transform` (new `#[func]`s in
-`lib.rs`) write `LibraryItem::transform` for real; the Scale slider and two
-Pan SpinBoxes call the setter live, Fit/Reset call the reset. ~~AS-12's
-"Unassigned imports" bucket is still unmodeled (the engine has no slot-less
-bucket to bind it to)~~ — **corrected 2026-09-06, closed the same day**
-(`GUI_GAP_REGISTER.md` AS-12): modeled as a reserved custom-slot set
-(`UNASSIGNED_SET`) rather than a true slot-less concept, with a real pinned
-rail row and a new `#[func] as_collections` (`lib.rs`) as its read side.
-AS-14/AS-15/AS-16 are (D) owner decisions, not gaps, unchanged from §9.
+`engine_bridge.gd` wraps each in a `has_method`-guarded forwarder (the `tl_*`
+convention); the window drives real fill state, thumbnails, the inspector,
+import into the focused slot, batch operations through a small text-prompt
+dialog, Validate, Clear, Export and Apply. `menus.gd` gained `Assets ▸ Asset
+pack ▸` (`DCC_CONTROL_INDEX.md` §2.3.1's omission O2): stats, metadata and the
+Build group call the engine directly; Edit and Batch open the window, because
+both need slot or selection context only the grid provides.
 
-**Verified**: `cargo test -p cartalith-assets -p cartalith-godot --lib` --
-344 tests across the two crates, all passing (227 in `cartalith-godot`, 117
-in `cartalith-assets`), including 12 new `asset_bridge` tests and one new
-`item_mut` test. `cargo build -p cartalith-godot` succeeds. A headless
-`--script` drive (`WorldGen.new()` directly, no scene tree) ran the full
-authoring cycle end to end and printed `ALL PASS`: import into a frozen
-slot, real fill state and a real 32×32 thumbnail, a custom slot import,
-batch tag, batch duplicate (which correctly tripped a live "Identical
-images" validation warning), pack metadata round-trip, validate, export
-6454 real bytes, a disk round trip through `load_asset_pack` on a *second*
-`WorldGen`, apply-to-map, batch delete (frozen slot emptied, not removed),
-and clear library. A concurrent session held the shared
-`target/debug/cartalith_godot.dll` open for the whole pass, so this build
-and drive ran in an isolated `git worktree` with its own `CARGO_TARGET_DIR`
--- the source changes are the same files this repository ships; only the
-verification build's target directory was temporary.
+**Design choices recorded against the register:** the "Unassigned imports" rail
+bucket (AS-12) is a reserved custom-slot set (`UNASSIGNED_SET`,
+`asset_library_window.gd`), not a slot-less concept the engine does not have.
+Declined because the engine has no counterpart (`STATUS.md`): AS-14, a
+user-picked active variant (variant choice is weighted and seeded); AS-15, a
+per-slot anchor (`Anchor` is a *family* property); AS-16, the 24-family rail
+(§9).
+
+**Verified** by a headless `--script` drive (`WorldGen.new()`, no scene tree)
+through the whole authoring cycle: import into a frozen slot with real fill
+state and a real thumbnail; a custom-slot import; batch tag; batch duplicate,
+which correctly tripped an "Identical images" warning; pack metadata round
+trip; validate; export; a disk round trip through `load_asset_pack` on a second
+`WorldGen`; apply to map; batch delete (a frozen slot is emptied, not
+removed); clear.
 
 ## 11. Milestone 8 — the sprite-sheet slicer (2026-08-20)
 
-§10's last real engine gap. The owner's report was "the asset slicer and
-management system lacks the functionality the html had"; §10 closed the
-management half, and this milestone is the slicer half — the work
-`GUI_GAP_REGISTER.md` AS-09/AS-10/AS-11 name.
+The slicer half of the owner's report that "the asset slicer and management
+system lacks the functionality the html had" (§10 was the management half);
+`GUI_GAP_REGISTER.md` AS-09/AS-10/AS-11.
 
 ### What the reference actually does
 
-`SpriteSheetImporter` (`Cartalith Gen1 v2.10.html` lines **27465-27870**, the
-whole object literal — `#alSlicerBtn` opens it at 28038). Read directly rather
-than inferred from `DCC_SHELL_SPEC.md` §8, and the two disagree in ways worth
-recording, because §8's control list is what the Godot modal was built to:
+`SpriteSheetImporter` (lines **27465-27870**, the whole object literal —
+`#alSlicerBtn` opens it at 28038), read directly. It disagrees with
+`DCC_SHELL_SPEC.md` §8's control list, which the Godot modal was first built
+to:
 
-| §8's control | The reference's reality |
+| §8's control | The reference |
 |---|---|
 | Columns / Rows | `#alSlCols`/`#alSlRows`, `clampInt(v,1,128)` (line 27580) |
 | Spacing | `#alSlSpacing` — a **half-gutter on interior edges only**, not a pitch (line 27596) |
-| Margin | no such control; the reference has a *draggable* `gridRect` instead, of which a uniform margin is one case |
-| Skip empty cells | `#alSlSkip`, real — `isBlank`, alpha **> 8** (line 27768) |
-| Trim transparent edges | **does not exist.** The reference's second pixel toggle is `background → transparent`, a chroma key (`applyChroma`, line 27603) |
+| Margin | no such control; a *draggable* `gridRect`, of which a uniform margin is one case |
+| Skip empty cells | `#alSlSkip` — `isBlank`, alpha **> 8** (line 27768) |
+| Trim transparent edges | **does not exist.** The second pixel toggle is background → transparent, a chroma key (`applyChroma`, line 27603) |
 
-**The half-gutter is the finding that matters.** `computeCells` starts each
-cell at its uniform division line moved in by `spacing/2` *unless it is the
-first* column/row, and ends it at the next division line moved back by
-`spacing/2` *unless it is the last* — so the outer cells come out `spacing/2`
-wider than the interior ones. The classic equal-cell formula
-(`cell = (span − 2·margin − (n−1)·gutter)/n`, `pitch = cell + gutter`) does not
-reproduce it, and that formula is exactly what the Godot overlay carried
-before this pass: the preview drew a grid the slice would not have followed.
-Golden fixture `6x4 with spacing 8` over 3072px pins it — 508px outer, 504px
+**The half-gutter is the finding that matters.** `computeCells` starts each cell
+at its division line moved in by `spacing/2` *unless it is the first*
+column/row, and ends it at the next line moved back by `spacing/2` *unless it is
+the last* — so outer cells come out `spacing/2` wider than interior ones. The
+classic equal-cell formula (`cell = (span − 2·margin − (n−1)·gutter)/n`) does
+not reproduce it, and that formula is what the Godot overlay carried before
+this milestone: the preview drew a grid the slice would not have followed.
+Golden fixture `6x4 with spacing 8` over 3072 px pins it — 508 px outer, 504 px
 interior, where the equal-cell formula says 505.33 for all six.
 
 ### The port
 
-`cartalith-assets/src/slicer.rs` (new): `compute_cells` (the grid),
-`crop_cell` + `cell_source_rect` (`cropCell`'s `Math.max(0,Math.round(x))` /
-`Math.max(1,Math.round(w))` rounding and its clipped 1:1 blit — a source rect
-hanging off the sheet lands transparent, which is what `ctx.drawImage` does),
-`apply_chroma`, `is_blank`, `slice_sheet`, `count_cells`, `sheet_base_name`
-(`name.replace(/\.[^.]+$/,'')`), and the two default naming conventions
-(`base_r{R}c{C}` for a slot target, `cell N` for the per-cell one).
+`cartalith-assets/src/slicer.rs`: `compute_cells` (the grid, over line
+*fractions*), `crop_cell` + `cell_source_rect` (`cropCell`'s
+`Math.max(0,Math.round(x))` / `Math.max(1,Math.round(w))` rounding and its
+clipped 1:1 blit — a source rect hanging off the sheet lands transparent, as
+`ctx.drawImage` does), `apply_chroma`, `is_blank`, `slice_sheet`, `count_cells`,
+`sheet_base_name` (`name.replace(/\.[^.]+$/,'')`), and the two default naming
+conventions (`base_r{R}c{C}` for a slot target, `cell N` per cell).
 
-`asset_bridge.rs` gained the session half: a `LoadedSheet` held on
-`AssetLibrarySession` (so the modal's live readout re-runs the real detection
-pass on every spinbox change without re-sending a multi-megabyte PNG each
-time), `load_sheet`/`clear_sheet`/`slice_preview`/`apply_slice`, and a
-`SliceTarget` enum. `import_item`'s item-construction half was extracted to a
-shared `insert_decoded` (`mkItem` + the store write) rather than duplicated.
-Four new `#[func]`s: `as_load_sheet`, `as_clear_sheet`, `as_slice_preview`,
-`as_slice_apply`.
+`asset_bridge.rs` holds a `LoadedSheet` on the session, so the modal's live
+readout re-runs the real detection pass on every spinbox change without
+re-sending a multi-megabyte PNG; `load_sheet`/`clear_sheet`/`slice_preview`/
+`apply_slice` and a `SliceTarget` enum. `import_item`'s construction half is
+shared as `insert_decoded`, not duplicated. Bound as `as_load_sheet`,
+`as_clear_sheet`, `as_slice_preview`, `as_slice_apply`.
 
-### Two disclosed deviations, per `CLAUDE.md`'s no-silent-deviation rule
+**Two port-side additions, beyond the reference:**
 
-1. **`trim_transparent_edges` is an addition, not a port.** §8 asks for it and
-   the reference has no such operation. It is built out of the reference's
-   *own* `BLANK_ALPHA_THRESHOLD` (alpha > 8) so it can never disagree with
-   `isBlank` about what content is, it has no golden fixtures (there is
-   nothing to be golden against), and nothing that *is* a port depends on it.
-   The reference's real second toggle, chroma keying, is wired as well.
-2. **`SliceTarget::Family` is §8's framing, composed from reference
-   primitives.** The reference's `#alSlTarget` is a flat slot dropdown with
-   three special entries; §8 asks instead for "Assign to family" + "Fill from
-   first-empty/overwrite". The family target fills one cell per slot in frozen
-   vocabulary order, via `add_item` — no new arithmetic, nothing
-   golden-covered changed. The reference's own three targets are ported
-   exactly, including `store[uid]=[item]`'s replace-and-stop for a
-   single-image family.
+1. **`trim_transparent_edges`**, which §8 asks for and the reference lacks. It
+   uses the reference's own `BLANK_ALPHA_THRESHOLD` (alpha > 8), so it can
+   never disagree with `is_blank` about what counts as content; it has no
+   golden fixtures because there is nothing to be golden against, and nothing
+   ported depends on it. The reference's real second toggle, chroma keying, is
+   wired too.
+2. **`SliceTarget::Family`**, §8's "Assign to family" + "Fill from
+   first-empty/overwrite", composed from reference primitives: one cell per
+   slot in frozen vocabulary order, via `add_item` — no new arithmetic, nothing
+   golden-covered changed. The reference's own three targets (a flat slot
+   dropdown with three special entries) are ported exactly, including
+   `store[uid]=[item]`'s replace-and-stop for a single-image family.
 
 ### The Godot side
 
-`asset_library_window.gd`'s slicer modal is live end to end. Two things it
-deliberately does **not** do in GDScript: the `N cells detected · M non-empty`
-readout is `as_slice_preview`'s real detection pass (the 8×8-sampled
-GDScript probe it replaced was honestly labelled approximate and is deleted),
-and the grid overlay draws engine-computed cell spans
-(`CellGrid::column_spans`/`row_spans`, handed over as four
-`PackedFloat64Array`s plus the blank-cell indices) rather than recomputing the
-half-gutter arithmetic — which is precisely the drift the "no numbers in
-GDScript" rule exists to prevent. Slicing is non-destructive: the sheet stays
-loaded, so it can be re-sliced with different settings, and closing the modal
-drops the engine-side sheet.
+`asset_library_window.gd`'s slicer modal: the `N cells detected · M non-empty`
+readout is `as_slice_preview`'s real detection pass, and the grid overlay draws
+**engine-computed** cell spans (`CellGrid::column_spans`/`row_spans`, handed
+over as `PackedFloat64Array`s plus the blank-cell indices) rather than
+recomputing the half-gutter in GDScript — the drift the "no numbers in GDScript"
+rule exists to prevent. Slicing is non-destructive: the sheet stays loaded for a
+re-slice with different settings, and closing the modal drops it.
 
-**Deliberately left out by this pass, and said so plainly**: the slicer's
-~~*canvas interaction* — pan/zoom, draggable grid lines, click-to-select
-individual cells~~ (`GUI_GAP_REGISTER.md` AS-17, opened by this pass). The
-modal slices the whole uniform grid rather than a hand-picked selection. `compute_cells` is written against line
-*fractions* rather than `cols`/`rows` specifically so a draggable-line UI can
-supply its own without touching the golden-verified arithmetic.
-
-**Corrected 2026-09-06, closed 2026-08-23** (`GUI_GAP_REGISTER.md` AS-17):
-`SheetPreview` now has real wheel-zoom, middle-drag pan, click-to-select-a-cell
-and a draggable Margin handle, plus per-interior-line dragging
-(`cartalith_assets::SliceGrid::with_lines`/`move_line`, `slicer.rs`) and
-cell-scoped slicing (`SliceParams::only_cell`), exposed as `as_slicer_move_line`
-and `as_uniform_lines`. The `compute_cells` fraction-based design this
-paragraph anticipated is exactly what made the later addition golden-safe.
+**Canvas interaction** (AS-17): `SheetPreview` has wheel zoom, middle-drag pan,
+click-to-select a cell and a draggable margin handle, plus per-interior-line
+dragging (`SliceGrid::with_lines`, `slicer::move_line`; bound as
+`as_slicer_move_line` and `as_uniform_lines`) and cell-scoped slicing
+(`asset_bridge::SliceParams::only_cell`). Writing `compute_cells` against line
+fractions rather than `cols`/`rows` is what let the hand-placed lines land
+without touching the golden-verified arithmetic.
 
 ### Verified
 
-- `tests/golden_parity_slicer.rs` (new): 5 tests over 10 `computeCells`
-  fixtures (220 cells), 6 `cropCell` rounding fixtures, 6 `isBlank` and 5
-  `applyChroma` fixtures, extracted by a Node `vm` harness that lifts lines
-  27465-27870 out of the frozen HTML and asserts both ends of the range plus
-  the presence of all four functions before evaluating anything. Fixture
-  tables assert their own size and total cell count, against this port's own
-  "watch for silently-empty golden output" rule.
-- **Seven mutations, seven killed** (`CLAUDE.md`'s mutation-test rule, each
-  re-run against a fresh build): alpha threshold 8→7; chroma `<=`→`<`;
-  interior half-gutter→full gutter; gutter applied to outer edges too;
-  `index = row*cols+col`→`col*rows+row`; crop extent floor 1→0; count clamp
-  128→256.
-- `cargo test -p cartalith-assets -p cartalith-godot`: **502 passed, 0
-  failed**, including 17 new `slicer` unit tests and 13 new `asset_bridge`
-  ones. `cargo clippy --all-targets` reports nothing in any file this pass
-  touched. `cargo build -p cartalith-godot` clean (debug; the editor lock
-  §10 hit was gone this pass).
-- `Godot_v4.7.1-stable_win64_console.exe --headless --path godot-project
-  --quit`: clean, zero errors. A scripted headless drive (temporary, not
-  committed) built a real 64×32 PNG and ran the whole surface through the
-  real gdext boundary: load (and a garbage-bytes rejection), the detection
-  pass (`total=2 non_empty=1 blank=[1]`, spans `[0,32]/[32,64]`), the
-  half-gutter model over the boundary (outer 6.67px vs interior 2.67px at 6
-  columns/spacing 8), a too-dense grid reporting itself, an impossible margin
-  refused, a family slice (1 added, 1 blank skipped, landing in
-  `settlement:hamlet` with a real 326-byte baked thumbnail), a second slice
-  off the *same* sheet proving non-destructiveness, trim cropping a 64×32
-  cell to 32×32, chroma keying everything out and being refused rather than
-  adding nothing silently, four malformed targets each returning a real
-  error, and preview-after-clear erroring rather than crashing. A second
-  drive force-parsed and instantiated `asset_library_window.gd` and
-  `engine_bridge.gd`, built the whole modal, and exercised every target's
-  control-enable state.
+- `tests/golden_parity_slicer.rs`: `computeCells`, `cropCell` rounding,
+  `isBlank` and `applyChroma` fixtures from a Node `vm` harness that lifts lines
+  27465-27870, **asserts both ends of the range and the presence of all four
+  functions before evaluating anything**, and whose fixture tables assert their
+  own size and total cell count (the "watch for silently-empty golden output"
+  rule).
+- **Seven mutations, seven killed**, each re-run against a fresh build: alpha
+  threshold 8→7; chroma `<=`→`<`; interior half-gutter → full gutter; gutter
+  applied to outer edges too; `index = row*cols+col` → `col*rows+row`; crop
+  extent floor 1→0; count clamp 128→256.
+- A headless drive through the real gdext boundary on a built 64×32 PNG: load
+  (and a garbage-bytes rejection); detection (`total=2 non_empty=1 blank=[1]`,
+  spans `[0,32]/[32,64]`); the half-gutter across the boundary (outer 6.67 px
+  against interior 2.67 px at 6 columns, spacing 8); a too-dense grid reporting
+  itself; an impossible margin refused; a family slice landing in
+  `settlement:hamlet` with a real baked thumbnail; a second slice off the same
+  sheet (non-destructive); trim cropping a 64×32 cell to 32×32; chroma keying
+  everything out and being **refused** rather than silently adding nothing;
+  four malformed targets each returning an error; preview-after-clear erroring
+  rather than crashing.

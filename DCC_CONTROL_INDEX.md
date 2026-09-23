@@ -585,11 +585,14 @@ ramps, presets), which is a different thing.
 
 ## 8 · Asset library window
 
-Engine side: `cartalith-assets` is **Phase 4 complete** (7 milestones), and
-`cartalith-godot::pack` already composites real pack sprites and ground splat
-into the rendered map. What does not exist is any `#[func]` into the library
-model, and any authoring UI — `ASSET_LIBRARY_SCOPE.md` §8 puts the library
-page UI explicitly outside milestone 7.
+Engine side: `cartalith-assets` is **Phase 4 complete** (8 milestones, the
+slicer included), and `cartalith-godot::pack` composites real pack sprites and
+ground splat into the rendered map. *Corrected 2026-09-23:* this section said
+no `#[func]` into the library model and no authoring UI existed. Both do —
+`shell/asset_library_window.gd` since `0f0290d` (2026-08-19) and the `as_*`
+`#[func]`s in `cartalith-godot/src/lib.rs` since `8506f13` (2026-08-20,
+`ASSET_LIBRARY_SCOPE.md` §10). The rows
+below are the 2026-08 cut; read them against those two files.
 
 | Control | Spec ref | v2.10 id | Engine capability | Status | Notes |
 |---|---|---|---|---|---|

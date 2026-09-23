@@ -991,7 +991,7 @@ sprite-sheet slicer) landed 2026-08-20 and the count was never updated.
 | AL-7 | 7 — renderer + Godot integration | done | `cartalith-godot/src/pack.rs` — `load_pack_from_bytes`, `composite_map_icons`; `WorldGen::icon_list`; `tests/pack_compositing.rs` |
 | AL-8 | 8 / §11 — the sprite-sheet slicer | done | `cartalith-assets/src/slicer.rs::slice_sheet` with `tests/golden_parity_slicer.rs`; driven from `asset_bridge.rs`'s `load_sheet` / `slice_preview` / `apply_slice`, and `slice_params_from`. Reached from `menus.gd`'s "⧉ Sprite sheet slicer (▦)" |
 | AL-9 | §9 — the Asset library GUI window | done | `shell/asset_library_window.gd`, 160 685 bytes, reached from `menus.gd`'s `_live(p, "⧉ Asset library", ID_ASSET_LIBRARY, KEY_MASK_SHIFT \| KEY_A)`. The eight-family rail matches `cartalith-assets`' own `slots.rs` grouping. *§9's body enumerates eight gaps that §10 and §11 later close; both readings stand in the file and §9 is only true as of 2026-08-19* |
-| AL-10 | §10 — the `AssetDB` `#[func]` surface (twenty `as_*` methods) | done | `cartalith-godot/src/asset_bridge.rs` — `AssetLibrarySession` with `import_item`, `add_custom_slot`, `remove_item`, `validate`, `thumbnail_png`, batch tag/collect/rename/duplicate/delete, `export_pack_bytes`; held as `WorldGen::asset_library` and surviving re-generate |
+| AL-10 | §10 — the `AssetDB` `#[func]` surface (the `as_*` methods: eighteen at `8506f13`, 27 in `cartalith-godot/src/lib.rs` by 2026-09-23 — this row said "twenty") | done | `cartalith-godot/src/asset_bridge.rs` — `AssetLibrarySession` with `import_item`, `add_custom_slot`, `remove_item`, `validate`, `thumbnail_png`, batch tag/collect/rename/duplicate/delete, `export_pack_bytes`; held as `WorldGen::asset_library` and surviving re-generate |
 
 **Group total: 10 — 10 done.**
 Three items are **declined because the engine has no counterpart** and should
@@ -1001,7 +1001,9 @@ AS-16 (the 24-family rail — owner decision, disclosed in the window's header).
 ### Phase 5 — Urban morphology · `URBAN_MORPHOLOGY_SCOPE.md`
 
 Nineteen rows (milestones 1-17, plus 8a and 17a which shipped out of order).
-**This is the largest block of unbuilt work in the project.**
+*(Corrected 2026-09-23: this line called Phase 5 "the largest block of unbuilt
+work in the project", which stopped being true when its milestones closed —
+the group's own rows are the answer.)*
 
 The single decisive check: `crates/cartalith-urban/src/lib.rs` declares exactly
 ten `pub mod` lines — `astar`, `blocks`, `geom`, `graph`, `growth`, `plaza`,
@@ -1609,8 +1611,10 @@ half is deleted rather than left standing as history.
 
 - **`PHASE2_SCOPE.md` m17** — "Not yet wired anywhere — no real caller exists",
   then "Resolved same day" four lines down. Both sentences stand.
-- **`ASSET_LIBRARY_SCOPE.md` §9** — enumerates eight gaps that §10 and §11 later
-  close. Nothing marks §9 as a 2026-08-19 snapshot.
+- ~~**`ASSET_LIBRARY_SCOPE.md` §9** — enumerates eight gaps that §10 and §11 later
+  close. Nothing marks §9 as a 2026-08-19 snapshot.~~ Fixed 2026-09-23: §9 is
+  now labelled a dated snapshot and the closed gaps are written as the built
+  design.
 - **`MEMORY_OPTIMIZATION_SCOPE.md` §6** — the R2 table says
   `ChannelResult::slope` is read by "nobody, anywhere"; the later "Where the
   audit was wrong" section retracts it (`golden_parity_river.rs` asserts it

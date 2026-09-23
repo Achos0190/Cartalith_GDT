@@ -383,7 +383,7 @@ sprite-sheet slicer with canvas/pointer interaction, tag/collect/rename/
 duplicate, pack validation with a real hardening history: v1.27 NaN/aliasing
 fixes).
 
-**This port**: **Phase 4 complete**, all 7 milestones (`ASSET_LIBRARY_SCOPE.md`)
+**This port**: **Phase 4 complete**, all 8 milestones — the original seven plus milestone 8, the sprite-sheet slicer (`ASSET_LIBRARY_SCOPE.md`)
 — manifest model, ZIP read/write (round-tripped through the reference's own
 export/import code, not a synthetic fixture), scatter rules (hardening
 re-derived correctly for Rust's own failure modes, not transcribed), placement
