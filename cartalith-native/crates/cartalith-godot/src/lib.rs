@@ -11251,6 +11251,80 @@ impl WorldGen {
         }
     }
 
+    /// The Data manager's pyramid export: the **whole world's** LOD pyramid,
+    /// levels `0..=max_z`, as PNG tiles under slippy-map addressing plus a
+    /// `tiles.json` manifest (`cartalith_engine::slippy_export`). No marquee
+    /// needed -- unlike [`Self::region_export_tiles`], a pyramid is over the
+    /// world, which is what the bake pyramid already is.
+    ///
+    /// `opts` keys: `scheme` (String, **required**: `"xyz"`/`"tms"`/`"wmts"`
+    /// -- no default, so a typo returns nothing rather than silently becoming
+    /// XYZ), `max_z` (int, default `4`, clamped to `0..=MAX_BAKE_DEPTH`, the
+    /// bake's own ceiling), `tile_size` (int, default `256`), `retina`
+    /// (bool, default `false`: adds `@2x`), `ridged` (bool), `sun_az_deg`/
+    /// `exag` (float, `TileVisual::default()`'s), `version` (String). Seed and
+    /// sea level are the world's own, as in `region_export_tiles`.
+    ///
+    /// Returns the zipped archive, or an empty `PackedByteArray` with no world,
+    /// an unknown scheme, a failed tile encode, or a zip failure (each printed).
+    /// The whole pyramid is built in memory: depth 6 with retina is 10 922
+    /// tiles (5 461 per scale).
+    #[func]
+    fn slippy_export_tiles(&self, opts: VarDictionary) -> PackedByteArray {
+        let field: &[f32] = match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => &ws.field,
+            Some(WorldSource::Loaded(save)) => &save.fields.heightmap,
+            None => return PackedByteArray::new(),
+        };
+        let (gw, gh) = (self.gw as usize, self.gh as usize);
+        if gw < 2 || gh < 2 || field.len() < gw * gh {
+            return PackedByteArray::new();
+        }
+        let scheme_s = opts.get("scheme").and_then(|v| v.try_to::<GString>().ok()).map(|s| s.to_string()).unwrap_or_default();
+        let Some(scheme) = cartalith_io::slippy::TileScheme::parse(&scheme_s) else {
+            godot_print!("cartalith-godot: slippy_export_tiles: unknown scheme {scheme_s:?}");
+            return PackedByteArray::new();
+        };
+        let get_num = |key: &str| opts.get(key).and_then(|v| variant_to_num(&v));
+        let get_bool = |key: &str| opts.get(key).and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false);
+        let max_z = get_num("max_z").map(|n| n as i32).unwrap_or(4).clamp(0, bake_bridge::MAX_BAKE_DEPTH) as u32;
+        let tile_size = get_num("tile_size").map(|n| n as usize).filter(|&n| n > 0).unwrap_or(256);
+        let scales: &[u32] = if get_bool("retina") { &[1, 2] } else { &[1] };
+        let version = opts
+            .get("version")
+            .and_then(|v| v.try_to::<GString>().ok())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "cartalith-native".to_string());
+        let amplify = cartalith_terrain::amplify::AmplifyOpts {
+            seed: self.seed,
+            sea: self.sea_level,
+            ridged: get_bool("ridged"),
+            ..cartalith_terrain::amplify::AmplifyOpts::default()
+        };
+        let visual = cartalith_engine::region_export::TileVisual {
+            sea: self.sea_level,
+            sun_az_deg: get_num("sun_az_deg").unwrap_or(315.0),
+            exag: get_num("exag").unwrap_or(3.4),
+        };
+        let o = cartalith_engine::slippy_export::SlippyExportOpts {
+            scheme, max_z, tile_size, scales, amplify: &amplify, visual,
+            map_width_km: self.map_width_km, name: "Cartalith world", version: &version,
+        };
+        let e = cartalith_engine::slippy_export::export_slippy_tiles(field, gw, gh, &o);
+        if e.failed > 0 {
+            godot_print!("cartalith-godot: slippy_export_tiles: {} tile(s) failed to encode; nothing written", e.failed);
+            return PackedByteArray::new();
+        }
+        let refs: Vec<(&str, &[u8])> = e.entries.iter().map(|t| (t.name.as_str(), t.data.as_slice())).collect();
+        match cartalith_assets::zip_store_bytes(&refs) {
+            Ok(b) => PackedByteArray::from(b),
+            Err(err) => {
+                godot_print!("cartalith-godot: slippy_export_tiles zip failed: {err}");
+                PackedByteArray::new()
+            }
+        }
+    }
+
     // =======================================================================
     // Bake / tile pyramid / persistent atlas / finalize
     // (`GUI_GAP_REGISTER.md` WW-01, PR-10/S4, PR-12, S5, SH-07)

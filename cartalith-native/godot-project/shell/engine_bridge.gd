@@ -3366,6 +3366,14 @@ func region_export_tiles(opts: Dictionary) -> PackedByteArray:
 		return PackedByteArray()
 	return world_gen.region_export_tiles(opts)
 
+## The whole world's LOD pyramid under XYZ / TMS / WMTS addressing, zipped
+## (`lib.rs::slippy_export_tiles`, whose doc lists the `opts` keys). Empty on an
+## older binary, like every wrapper here.
+func slippy_export_tiles(opts: Dictionary) -> PackedByteArray:
+	if not _has("slippy_export_tiles"):
+		return PackedByteArray()
+	return world_gen.slippy_export_tiles(opts)
+
 ## `Region ▸ New world from selection` (`ops_bridge.rs::region_new_world`, the
 ## reference's `#regionNewWorldBtn`) -- **replaces the current world** with a
 ## higher-resolution resample of the Region-select marquee.

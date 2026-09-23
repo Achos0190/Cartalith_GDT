@@ -132,9 +132,13 @@ class_name DataManagerWindow
 ##   that caller. It exports the **current Region-select marquee** as a zipped
 ##   `cols × rows` tile grid (`tiles/refined_{row}_{col}_rg16.bin`, plus
 ##   `tiles/refined_{row}_{col}.png` when visual tiles are on, plus
-##   `tiles/index.json`). It is **not** a Leaflet XYZ pyramid, which is what the
-##   canvas draws; every control the pyramid needs and this export does not have
-##   is drawn and disabled with that reason.
+##   `tiles/index.json`). **Since 2026-09-23 the scheme row's XYZ / TMS / WMTS
+##   segments are live too**: they export the whole world's LOD pyramid through
+##   `slippy_export_tiles` (`cartalith_engine::slippy_export`), with the
+##   canvas's zoom range and retina toggle. What the canvas draws and neither
+##   export has -- a CRS, MBTiles/folder packaging, leaflet-preview.html,
+##   style.json, ocean skipping, overlay layers -- is still drawn disabled with
+##   its reason (`SCHEME_NOTE` and the notes beside it).
 ## - **Export ▸ GIS / GeoJSON** is real as of this pass (DM-03). Same shape of
 ##   story as Export ▸ Maps: `cartalith_engine::geojson` was fully ported and
 ##   golden-verified character-for-character against the reference's own
@@ -303,7 +307,7 @@ const PANE_PURPOSE := {
 	"import_gis": "read a FeatureCollection into the world — settlements and faction territory are placed; ways, rivers, POIs and provinces are counted but not yet placed",
 	"import_world": "a .ctl project archive replaces the whole world — the same loader as File ▸ Open project…",
 	"import_assets": "routes to Assets ▸ Import asset pack .zip…",
-	"export_maps": "the Region-select marquee as a zipped grid of height and colour tiles",
+	"export_maps": "the Region-select marquee as a zipped tile grid, or the whole world as an XYZ / TMS / WMTS tile pyramid",
 	"export_gis": "every generated entity as one document — settlements, ways, rivers, territory, provinces",
 	"export_world": "the whole world as a colour raster, a heightmap and a channel atlas",
 	"export_assets": "routes to the Asset library's own Export pack .zip…",
@@ -370,7 +374,7 @@ const ROUTES: Array[Dictionary] = [
 	{"group": "Import", "id": "import_assets", "label": "Assets", "badge": "→ Assets", "kind": "route",
 		"sub": "routes to the Assets menu"},
 	{"group": "Export", "id": "export_maps", "label": "Maps", "badge": "tiles", "kind": "live",
-		"sub": "region marquee · zipped tile grid"},
+		"sub": "marquee grid · or world pyramid, XYZ/TMS/WMTS"},
 	{"group": "Export", "id": "export_gis", "label": "GIS / GeoJSON", "badge": ".geojson", "kind": "live",
 		"sub": "whole world · planar km"},
 	{"group": "Export", "id": "export_world", "label": "World Data", "badge": "map + atlas", "kind": "live",
@@ -399,7 +403,15 @@ const GROUP_ORDER: Array[String] = ["Import", "Export", "Sources", "Validation"]
 # Export ▸ Maps -- the disclosures the canvas's pyramid controls need
 # ---------------------------------------------------------------------------
 
-const SCHEME_NOTE := "The export writes a flat row/column tile grid plus tiles/index.json (cartalith_engine::region_export::export_region_tiles), not a slippy-map pyramid. XYZ, TMS and WMTS all address tiles by zoom/x/y over a projected CRS; none of that addressing exists in the engine, and adding it is DM-02's remaining half."
+const SCHEME_NOTE := "grid + index.json exports the Region-select marquee as a flat row/column grid of height and colour tiles plus tiles/index.json (region_export_tiles). XYZ, TMS and WMTS export the WHOLE world's LOD pyramid, levels 0..N, as PNG tiles plus a tiles.json manifest (slippy_export_tiles): XYZ is z/x/y with row 0 at the top, TMS flips y, WMTS is TileMatrixSet/TileMatrix/TileRow/TileCol. There is no CRS -- tiles sit on the world's own planar cell grid, so a web client needs a flat CRS such as Leaflet's L.CRS.Simple."
+
+## The two OUTPUT checkboxes the pyramid export does not write. The tiles and
+## the manifest they would point at exist; the viewer page and style do not.
+const PREVIEW_NOTE := "Not built. The pyramid tiles and tiles.json are written; a leaflet-preview.html viewer page and a style.json are further writers on top of them that do not exist yet."
+
+## Why `0–8` is disabled: `slippy_export_tiles` clamps to the bake's own
+## ceiling, `bake_bridge::MAX_BAKE_DEPTH` (6).
+const ZOOM_NOTE := "The pyramid export shares the atlas bake's depth ceiling (MAX_BAKE_DEPTH = 6, 5 461 tiles per pixel density) and builds the whole archive in memory, so levels past 6 are refused rather than attempted."
 
 const CRS_NOTE := "The export is in the world's own cell grid. No CRS handling exists anywhere in the workspace -- reprojection was the substance of the Conversion group the owner deleted on 2026-08-20 (GUI_GAP_REGISTER.md §7.4), and no import or export path has carried a projection since."
 
@@ -457,7 +469,7 @@ const VAULT_NOTE := "The vault connection itself is live (Data ▸ Markdown vaul
 ## connection above them.
 const VAULT_EXPORT_NOTE := "Not built. cartalith-vault deliberately generates no obsidian:// URLs (its own module doc: \"no obsidian:// scheme here, no wikilink generation\"), cartalith-engine::geojson writes no note property, and two-way sync is MARKDOWN_VAULT_INTEGRATION.md §33's explicit V1 non-goal. Linking an entity to a note is live and lives in Data ▸ Markdown vault."
 
-const PACKAGING_NOTE := "zip_region_export always produces one stored (uncompressed) .zip. A loose folder tree and MBTiles are both new writers, and MBTiles additionally needs the XYZ addressing the scheme row above does not have."
+const PACKAGING_NOTE := "Both exports produce one stored (uncompressed) .zip. A loose folder tree and MBTiles are both new writers; MBTiles would take the XYZ/TMS pyramid the scheme row above now writes as its input."
 
 # ---------------------------------------------------------------------------
 # Export ▸ GIS / GeoJSON -- DM-03's own two disclosures
@@ -487,6 +499,12 @@ const HEIGHTMAP_FORMAT_NOTE := "TIFF is absent, and deliberately: the reference'
 ## canvas's own row is a four-way `0–4 / 0–6 / 0–8 / custom` zoom segment; this
 ## is the same control over the dimension this export actually has.
 const GRID_CHOICES: Array[int] = [2, 4, 8]
+
+## `slippy_export_tiles`' `scheme` values, by scheme-segment index; index 0 is
+## the marquee grid, which is not a slippy scheme.
+const TX_SCHEMES: Array[String] = ["", "xyz", "tms", "wmts"]
+## The canvas's own `0–4 / 0–6 / 0–8` zoom segment, as each range's top level.
+const ZOOM_CHOICES: Array[int] = [4, 6, 8]
 
 ## The two file names `setup()` derives from the exports root, named once
 ## because four sites use each of them: `setup()`'s pre-fill, the picker's
@@ -550,6 +568,12 @@ var _status_mid: Label
 ## an engine change.
 var _tx_cols := 4
 var _tx_rows := 4
+## Scheme segment: 0 is the marquee grid, 1-3 the whole-world pyramid under
+## `TX_SCHEMES[_tx_scheme]` addressing. `_tx_zmax`/`_tx_retina` are read only
+## by the pyramid.
+var _tx_scheme := 0
+var _tx_zmax := 4
+var _tx_retina := false
 var _tx_tile := 512
 var _tx_gzip := false
 var _tx_visual := true
@@ -2810,8 +2834,10 @@ func _record_wd_run(label: String, r: Dictionary) -> void:
 # `region_export_tiles` is the engine behind it (bound, golden-tested by
 # `cartalith-engine`'s own `region_export` tests, and until this pass callerless
 # -- `right_dock.gd`'s Region select ▸ *Send to Data ▸ Export* said so). What it
-# does **not** do is the pyramid the canvas draws; every control that needs the
-# pyramid is drawn in its canvas position and disabled with its reason.
+# does **not** do is the pyramid the canvas draws -- that is `slippy_export_tiles`,
+# behind the scheme row's XYZ / TMS / WMTS segments. Every canvas control that
+# neither export backs is drawn in its canvas position and disabled with its
+# reason.
 # ---------------------------------------------------------------------------
 
 func _build_tile_export_pane() -> void:
@@ -2877,14 +2903,19 @@ func _build_tiles_column(col: Control) -> void:
 
 	var scheme_row := _row(col, "Scheme")
 	_segments(scheme_row, [
-		{"text": "grid + index.json", "enabled": true},
-		{"text": "XYZ", "enabled": false, "tip": SCHEME_NOTE},
-		{"text": "TMS", "enabled": false, "tip": SCHEME_NOTE},
-		{"text": "WMTS", "enabled": false, "tip": SCHEME_NOTE},
-	], 0, func(_i: int): pass)
+		{"text": "grid + index.json", "enabled": true, "tip": SCHEME_NOTE},
+		{"text": "XYZ", "enabled": true, "tip": SCHEME_NOTE},
+		{"text": "TMS", "enabled": true, "tip": SCHEME_NOTE},
+		{"text": "WMTS", "enabled": true, "tip": SCHEME_NOTE},
+	], _tx_scheme, func(i: int):
+		_tx_scheme = i
+		_rebuild_tile_export())
 
-	## The canvas's `Zoom range 0–4 / 0–6 / 0–8 / custom` row, over the dimension
-	## this export actually has: `cols`/`rows`, a flat grid with no zoom ladder.
+	if _tx_pyramid():
+		_build_pyramid_rows(col)
+		return
+
+	## The marquee grid has no zoom ladder: its dimension is `cols`/`rows`.
 	var grid_row := _row(col, "Tile grid")
 	var grid_items: Array = []
 	for n in GRID_CHOICES:
@@ -2929,6 +2960,53 @@ func _build_tiles_column(col: Control) -> void:
 	_check(col, "Skip all-ocean tiles", false, func(): pass, "", false,
 		"No tile is skipped: export_region_tiles writes every cell of the cols × rows grid unconditionally. Detecting an all-ocean tile would need a per-tile sea test before the amplify pass, which the export path does not do.")
 
+func _tx_pyramid() -> bool:
+	return _tx_scheme > 0
+
+## Tiles the current settings write: `cols × rows` for the grid, and
+## `(4^(N+1) − 1) / 3` per pixel density for the pyramid -- the same count
+## `cartalith_spatial::pyramid_tile_count` gives the bake.
+func _tx_tile_count() -> int:
+	if not _tx_pyramid():
+		return _tx_cols * _tx_rows
+	var n := 0
+	for z in _tx_zmax + 1:
+		n += 1 << (2 * z)
+	return n * (2 if _tx_retina else 1)
+
+## The TILES column in pyramid mode: the canvas's zoom range, tile size, the
+## fixed PNG format, and the retina toggle. No gzip / visual / ridged / ocean
+## rows -- the pyramid writes colour PNGs only, and says so in Format.
+func _build_pyramid_rows(col: Control) -> void:
+	var zoom_row := _row(col, "Zoom range")
+	var zoom_items: Array = []
+	for n in ZOOM_CHOICES:
+		zoom_items.append({"text": "0–%d" % n, "enabled": n <= 6, "tip": "" if n <= 6 else ZOOM_NOTE})
+	_segments(zoom_row, zoom_items, ZOOM_CHOICES.find(_tx_zmax), func(i: int):
+		_tx_zmax = ZOOM_CHOICES[i]
+		_rebuild_tile_export())
+
+	var size_row := _row(col, "Tile size")
+	var size_items: Array = []
+	for n in TILE_SIZES:
+		size_items.append({"text": "%d px" % n, "enabled": true})
+	_segments(size_row, size_items, TILE_SIZES.find(_tx_tile), func(i: int):
+		_tx_tile = TILE_SIZES[i]
+		_rebuild_tile_export())
+
+	var fmt_row := _row(col, "Format")
+	_well_label(fmt_row, "PNG · tiles.json",
+		"Every tile is a colour + hillshade PNG of the bake's own pyramid tile at that address (cartalith_engine::slippy_export). tiles.json is a TileJSON 3.0.0 manifest for XYZ/TMS, with the zoom ladder under a cartalith key; WMTS gets the same manifest without the TileJSON claim, since TileJSON has no WMTS scheme.")
+
+	_check(col, "Retina @2x variants", _tx_retina, func():
+		_tx_retina = not _tx_retina
+		_rebuild_tile_export(),
+		"×2 files" if _tx_retina else "", true,
+		"Writes each tile again at twice the pixels over the same ground: z/x/y@2x.png for XYZ/TMS (Leaflet's {r}), a cartalith@2x TileMatrixSet for WMTS.")
+
+	_check(col, "Skip all-ocean tiles", false, func(): pass, "", false,
+		"No tile is skipped: slippy_export_tiles writes every tile of every level. A client asking for a missing ocean tile would get a 404 rather than sea, so skipping also needs a fallback the manifest does not describe yet.")
+
 func _build_projection_column(col: Control, region: Dictionary) -> void:
 	_col_header(col, "PROJECTION", CRS_NOTE)
 
@@ -2940,7 +3018,10 @@ func _build_projection_column(col: Control, region: Dictionary) -> void:
 	], 0, func(_i: int): pass)
 
 	var bounds_row := _row(col, "World bounds")
-	if region.is_empty():
+	if _tx_pyramid():
+		_well_label(bounds_row, "whole world",
+			"The pyramid covers the whole world at every level; the Region-select marquee is not used.")
+	elif region.is_empty():
 		_well_label(bounds_row, "no region selected",
 			"Arm the Region select tool (R) and drag a marquee on the map. region_export_tiles exports that marquee and nothing else -- with none set it returns an empty archive, so Export stays disabled.")
 	else:
@@ -2956,15 +3037,24 @@ func _build_projection_column(col: Control, region: Dictionary) -> void:
 
 func _build_layers_column(col: Control) -> void:
 	_col_header(col, "LAYERS INCLUDED", LAYER_NOTE)
+	if _tx_pyramid():
+		_check(col, "Elevation (RG16)", false, func(): pass, "", false,
+			"The pyramid export writes colour PNG tiles only. Height data is the grid + index.json scheme's, or the atlas's own World/ archive.")
+		_check(col, "Relief + hillshade", true, func(): pass, "always", false,
+			"Every pyramid tile is the colour + hillshade raster; a slippy map of blank tiles is not an export.")
+	else:
+		_build_grid_layer_rows(col)
+	_check(col, "Political tint", false, func(): pass, "", false, LAYER_NOTE)
+	_check(col, "Labels & icons", false, func(): pass, "raster", false, LAYER_NOTE)
+	_check(col, "Rivers & coastlines", false, func(): pass, "", false, LAYER_NOTE)
+
+func _build_grid_layer_rows(col: Control) -> void:
 	_check(col, "Elevation (RG16)", true, func(): pass, "always", false,
 		"Every export writes the height tiles; there is no option to omit them.")
 	_check(col, "Relief + hillshade", _tx_visual, func():
 		_tx_visual = not _tx_visual
 		_rebuild_tile_export(), "", true,
 		"The same `visual` option as the TILES column above -- the canvas lists it in both places, so both are drawn and both drive the one flag.")
-	_check(col, "Political tint", false, func(): pass, "", false, LAYER_NOTE)
-	_check(col, "Labels & icons", false, func(): pass, "raster", false, LAYER_NOTE)
-	_check(col, "Rivers & coastlines", false, func(): pass, "", false, LAYER_NOTE)
 
 func _build_output_column(col: Control) -> void:
 	_col_header(col, "OUTPUT")
@@ -2980,19 +3070,30 @@ func _build_output_column(col: Control) -> void:
 		{"text": "MBTiles", "enabled": false, "tip": PACKAGING_NOTE},
 	], 0, func(_i: int): pass)
 
-	_check(col, "Emit tiles/index.json", true, func(): pass, "always", false,
-		"export_region_tiles always writes tiles/index.json -- the per-tile file names, dimensions and world metadata. It is not optional.")
-	_check(col, "Emit leaflet-preview.html", false, func(): pass, "", false, SCHEME_NOTE)
-	_check(col, "Emit style.json + attribution", false, func(): pass, "", false, SCHEME_NOTE)
+	if _tx_pyramid():
+		_check(col, "Emit tiles.json", true, func(): pass, "always", false,
+			"slippy_export_tiles always writes tiles.json -- the address template, zoom range, tile size and per-level ground resolution. It is not optional.")
+	else:
+		_check(col, "Emit tiles/index.json", true, func(): pass, "always", false,
+			"export_region_tiles always writes tiles/index.json -- the per-tile file names, dimensions and world metadata. It is not optional.")
+	_check(col, "Emit leaflet-preview.html", false, func(): pass, "", false, PREVIEW_NOTE)
+	_check(col, "Emit style.json + attribution", false, func(): pass, "", false, PREVIEW_NOTE)
 
 func _build_estimate_block(col: Control, region: Dictionary) -> void:
 	_col_header(col, "ESTIMATE")
 	var block := _block(col)
-	var tiles := _tx_cols * _tx_rows
-	var files := tiles * (2 if _tx_visual else 1) + 1
-	_kv(block, "tiles", "%d (%d × %d)" % [tiles, _tx_cols, _tx_rows])
-	_kv(block, "files in archive", "%d" % files)
-	_kv(block, "tile size", "%d × %d px" % [_tx_tile, _tx_tile])
+	var tiles := _tx_tile_count()
+	if _tx_pyramid():
+		## One PNG per tile plus tiles.json. The long edge is `_tx_tile`; the
+		## short edge follows the world's aspect (`tile_dims`), so only the long
+		## edge is stated.
+		_kv(block, "tiles", "%d (z0–%d%s)" % [tiles, _tx_zmax, " · 1x + 2x" if _tx_retina else ""])
+		_kv(block, "files in archive", "%d" % (tiles + 1))
+		_kv(block, "tile size", "%d px long edge" % _tx_tile)
+	else:
+		_kv(block, "tiles", "%d (%d × %d)" % [tiles, _tx_cols, _tx_rows])
+		_kv(block, "files in archive", "%d" % (tiles * (2 if _tx_visual else 1) + 1))
+		_kv(block, "tile size", "%d × %d px" % [_tx_tile, _tx_tile])
 	var last := _last_run()
 	_kv(block, "size on disk",
 		_fmt_bytes(int(last.get("bytes", 0))) if not last.is_empty() else "measured by Dry run",
@@ -3000,7 +3101,9 @@ func _build_estimate_block(col: Control, region: Dictionary) -> void:
 	_kv(block, "render time",
 		("%.1f s" % float(last.get("secs", 0.0))) if not last.is_empty() else "measured by Dry run",
 		"text" if not last.is_empty() else "text_ghost")
-	if region.is_empty():
+	if _tx_pyramid():
+		_kv(block, "source", "whole world · synthesised, not read from the atlas")
+	elif region.is_empty():
 		_kv(block, "source", "no region selected", "accent")
 	else:
 		_kv(block, "source", "marquee · %d × %d cells" % [
@@ -3152,7 +3255,11 @@ func _build_recent_runs(col: Control) -> void:
 			"text_dim" if bool(run.get("ok", false)) else "accent")
 
 func _build_tile_export_footer(region: Dictionary) -> void:
-	var ready: bool = not region.is_empty()
+	## The pyramid needs no marquee. With no world at all the binding returns
+	## no bytes and `_run_export` reports that as a failed run.
+	var ready: bool = _tx_pyramid() or not region.is_empty()
+	var how := ("slippy_export_tiles (%s) -> one stored .zip, written with FileAccess." % TX_SCHEMES[_tx_scheme].to_upper()
+		if _tx_pyramid() else "region_export_tiles -> zip_region_export, written with FileAccess.")
 	_footer_note("writes to %s" % (_tx_dest if _tx_dest != "" else "—"))
 
 	var preset := DccWidgets.chip(_pane_footer, "Save as preset", func(): pass, false, 14, 6)
@@ -3164,10 +3271,10 @@ func _build_tile_export_footer(region: Dictionary) -> void:
 	dry.tooltip_text = ("Runs the whole export and reports the tile count and archive size without writing a file."
 		if ready else "No region marquee is set. Arm the Region select tool (R) and drag one on the map.")
 
-	var go := DccWidgets.chip(_pane_footer, "Export %d tiles" % (_tx_cols * _tx_rows),
+	var go := DccWidgets.chip(_pane_footer, "Export %d tiles" % _tx_tile_count(),
 		func(): _run_export(false), true, 16, 6)
 	go.disabled = not ready
-	go.tooltip_text = ("region_export_tiles -> zip_region_export, written with FileAccess."
+	go.tooltip_text = (how
 		if ready else "No region marquee is set. Arm the Region select tool (R) and drag one on the map.")
 
 ## The pane is small enough that rebuilding it on a toggle is cheaper than
@@ -3193,7 +3300,7 @@ func _rebuild_tile_export() -> void:
 func _pick_destination() -> void:
 	DccBrowseDialog.choose_save_path(self, "Export tiles .zip", "zip",
 		_tx_dest.get_base_dir() if _tx_dest != "" else DccSettings.storage_root("exports"),
-		"one .zip of %d tiles; nothing is written until you press Export" % (_tx_cols * _tx_rows),
+		"one .zip of %d tiles; nothing is written until you press Export" % _tx_tile_count(),
 		_tx_dest.get_file() if _tx_dest != "" else TX_DEFAULT_NAME,
 		func(path: String): _overwrite_guard(path, func():
 			_tx_dest = path
@@ -3474,7 +3581,7 @@ func _record_geojson_run(bytes: int, secs: float, ok: bool, path: String,
 func _run_export(dry: bool) -> void:
 	if _bridge == null:
 		return
-	if _bridge.region_get().is_empty():
+	if not _tx_pyramid() and _bridge.region_get().is_empty():
 		_host.set_status("hint", "export failed — no region marquee is set", "warn")
 		return
 	if not dry and _tx_dest == "":
@@ -3485,16 +3592,24 @@ func _run_export(dry: bool) -> void:
 	_status_left.add_theme_color_override("font_color", DccTheme.c("accent"))
 
 	var t0 := Time.get_ticks_msec()
-	var bytes: PackedByteArray = _bridge.region_export_tiles({
-		"cols": _tx_cols, "rows": _tx_rows, "tile_size": _tx_tile,
-		"gzip": _tx_gzip, "ridged": _tx_ridged, "visual": _tx_visual,
-	})
+	var binding := "slippy_export_tiles" if _tx_pyramid() else "region_export_tiles"
+	var bytes: PackedByteArray
+	if _tx_pyramid():
+		bytes = _bridge.slippy_export_tiles({
+			"scheme": TX_SCHEMES[_tx_scheme], "max_z": _tx_zmax, "tile_size": _tx_tile,
+			"retina": _tx_retina,
+		})
+	else:
+		bytes = _bridge.region_export_tiles({
+			"cols": _tx_cols, "rows": _tx_rows, "tile_size": _tx_tile,
+			"gzip": _tx_gzip, "ridged": _tx_ridged, "visual": _tx_visual,
+		})
 	var secs := float(Time.get_ticks_msec() - t0) / 1000.0
 
 	if bytes.is_empty():
 		_record_run(dry, 0, secs, false)
 		_host.set_status("hint",
-			"export failed — region_export_tiles returned no bytes (see the Godot log)", "warn")
+			"export failed — %s returned no bytes (see the Godot log)" % binding, "warn")
 		_rebuild_tile_export()
 		_refresh_foot()
 		_refresh_status()
@@ -3503,7 +3618,7 @@ func _run_export(dry: bool) -> void:
 	if dry:
 		_record_run(true, bytes.size(), secs, true)
 		_host.set_status("hint", "dry run — %d tiles, %s, %.1f s (nothing written)"
-			% [_tx_cols * _tx_rows, _fmt_bytes(bytes.size()), secs], "accent")
+			% [_tx_tile_count(), _fmt_bytes(bytes.size()), secs], "accent")
 	else:
 		var f := FileAccess.open(_tx_dest, FileAccess.WRITE)
 		if f == null:
@@ -3526,8 +3641,11 @@ func _record_run(dry: bool, bytes: int, secs: float, ok: bool) -> void:
 	_runs.push_front({
 		"stamp": "%02d:%02d" % [int(t["hour"]), int(t["minute"])],
 		"msec": Time.get_ticks_msec(), "route": "export_maps",
-		"label": "%s %d×%d z%d%s" % ["dry run" if dry else "tile grid",
-			_tx_cols, _tx_rows, _tx_tile, "" if _tx_visual else " (height only)"],
+		"label": ("%s %s z0–%d %dpx%s" % ["dry run" if dry else "pyramid",
+			TX_SCHEMES[_tx_scheme].to_upper(), _tx_zmax, _tx_tile, " @2x" if _tx_retina else ""]
+			if _tx_pyramid() else
+			"%s %d×%d z%d%s" % ["dry run" if dry else "tile grid",
+			_tx_cols, _tx_rows, _tx_tile, "" if _tx_visual else " (height only)"]),
 		"bytes": bytes, "secs": secs, "ok": ok,
 	})
 	while _runs.size() > 3:
@@ -3590,6 +3708,11 @@ func _refresh_status() -> void:
 		return
 	if _selected_id != "export_maps":
 		_status_mid.text = ""
+		return
+	if _tx_pyramid():
+		_status_mid.text = "whole world · %s pyramid z0–%d · %d tiles queued" % [
+			TX_SCHEMES[_tx_scheme].to_upper(), _tx_zmax, _tx_tile_count()]
+		_status_mid.add_theme_color_override("font_color", DccTheme.c("text_faint"))
 		return
 	var region := _bridge.region_get() if _bridge != null else {}
 	_status_mid.text = ("no region marquee — arm Region select (R) and drag one"

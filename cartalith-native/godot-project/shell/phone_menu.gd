@@ -49,8 +49,9 @@ class_name PhoneMenu
 ## `landmarks`, `lm-fam`, `help`, `gestures`), each over state this build
 ## actually holds. **`data-tiles` and `data-io` are not**, and the reason is
 ## stated at the head of the sub-screen section below rather than left as a
-## title with an empty screen under it: the first needs XYZ/TMS/WMTS tile
-## addressing this engine does not have, and the second is a mock in the
+## title with an empty screen under it: the first needed XYZ/TMS/WMTS tile
+## addressing this engine did not have until 2026-09-23 (it is now reachable
+## through the Data popup; the phone screen itself is unbuilt), and the second is a mock in the
 ## specification itself whose real equivalent the `data` screen already draws.
 ##
 ## ## Reachability is the constraint, and it is checked, not assumed
@@ -1303,19 +1304,15 @@ func _fill_prefs(body: VBoxContainer) -> void:
 #
 #   - **`data-tiles`** is §6.6's slippy-map pyramid export: a scheme chooser
 #     over `XYZ · TMS · WMTS`, a `Zoom levels 0 → N` range, an estimator, and
-#     an `EXPORT {tiles} TILES` act that emits `leaflet-preview.html`. **None of
-#     that addressing exists in this engine.** `data_manager_window.gd`'s
-#     `SCHEME_NOTE` is the measurement: *"The export writes a flat row/column
-#     tile grid plus tiles/index.json (cartalith_engine::region_export::
-#     export_region_tiles), not a slippy-map pyramid. XYZ, TMS and WMTS all
-#     address tiles by zoom/x/y over a projected CRS; none of that addressing
-#     exists in the engine, and adding it is DM-02's remaining half."* That
-#     window draws its own scheme chips **disabled** and its `Emit
-#     leaflet-preview.html` checkbox unchecked-and-dead for the same reason. A
-#     phone screen offering zoom levels and a tile estimate would be a control
-#     with nothing behind it. The real export -- the flat grid one -- is
-#     reachable: it is a `DataManagerWindow.ROUTES` row, drawn by the `data`
-#     screen through the real Data popup.
+#     an `EXPORT {tiles} TILES` act that emits `leaflet-preview.html`. **Was
+#     unbuildable when this was written; corrected 2026-09-23**: the addressing
+#     now exists (`slippy_export_tiles`, `cartalith_engine::slippy_export`) and
+#     `data_manager_window.gd`'s scheme row drives it, with zoom range and
+#     retina. `leaflet-preview.html` still does not exist (`PREVIEW_NOTE`
+#     there). So this screen is now simply unbuilt rather than blocked, and the
+#     pyramid export is reachable the same way the flat grid one always was: a
+#     `DataManagerWindow.ROUTES` row, drawn by the `data` screen through the
+#     real Data popup.
 #   - **`data-io`** is a mock in the specification itself. Its own first row is
 #     *"Route configuration is desktop-parity mock in this prototype. The route
 #     exists so nothing on the phone is unreachable"*, and §9 item 16 records

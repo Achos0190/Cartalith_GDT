@@ -102,6 +102,9 @@ pub mod region_export;
 /// from being regenerated out from under its own atlas
 /// (`GUI_GAP_REGISTER.md` WW-01/PR-10/S4/S5).
 pub mod bake;
+/// The LOD pyramid under XYZ/TMS/WMTS addressing (`FUNCTIONAL_CONTRACT.md`
+/// capabilities 6/9, §7d modernize — no reference ancestor).
+pub mod slippy_export;
 
 /// `exportGeoJSON` and its two feature builders (`UNIFIED_TOOL_PLAN.md`
 /// milestone E2). Unwired: nothing calls it yet.

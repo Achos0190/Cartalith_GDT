@@ -12,6 +12,7 @@ pub mod geojson_import;
 pub mod gzip;
 pub mod project;
 pub mod save;
+pub mod slippy;
 pub mod tiles;
 
 pub use atlas::{
