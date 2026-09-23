@@ -1581,17 +1581,7 @@ pub fn build_resource_potentials(
     let denom = (1.0 - sea).max(1e-6);
     let age_old = 0.60;
     let cu_lam = (gw as f64 / 24.0).max(3.0);
-
-    // copper source mask: subductionOC (2) or arcOO (3) boundary cells.
-    let mut cu_src = vec![0u8; n];
-    if let Some(bt) = boundary_type {
-        for i in 0..n {
-            if bt[i] == 2 || bt[i] == 3 {
-                cu_src[i] = 1;
-            }
-        }
-    }
-    let cu_dist = chamfer_dist(&cu_src, gw, gh);
+    let cu_dist = resource_copper_dist(boundary_type, gw, gh);
 
     let mut copper = vec![0f32; n];
     let mut tin = vec![0f32; n];
@@ -1609,14 +1599,7 @@ pub fn build_resource_potentials(
     let mut sulfur = vec![0f32; n];
     let mut alum = vec![0f32; n];
 
-    let flow_max_raw = flow
-        .map(|f| f.iter().fold(0.0f64, |m, &v| m.max(v as f64)))
-        .unwrap_or(0.0);
-    let flow_max = if flow_max_raw > 0.0 {
-        flow_max_raw
-    } else {
-        1.0
-    };
+    let flow_max = resource_flow_max(flow);
 
     // 15 outputs written per cell, computed in parallel into one `[f32; 15]`
     // per cell (rayon can't zip 15 output slices as cleanly as one), then
@@ -1843,6 +1826,62 @@ pub fn build_resource_potentials(
         }
         block_start = block_end;
     }
+
+    finish_resource_potentials(
+        [
+            copper, tin, iron, gold, salt, timber, lead, silver, clay, buildstone, flint, obsidian, gems, sulfur, alum,
+        ],
+        field,
+        sea,
+        scarcity,
+        scarcity_legacy,
+    )
+}
+
+/// `build_resource_potentials`' copper-source distance field: chamfer
+/// distance from every subductionOC (2) / arcOO (3) boundary cell. A
+/// whole-raster two-pass sweep, not a per-cell function -- split out so the
+/// GPU path (`cartalith_gpu::resource_potentials_grid_gpu_with`) can run it
+/// on the CPU and hand the kernel its result.
+pub fn resource_copper_dist(boundary_type: Option<&[u8]>, gw: usize, gh: usize) -> Vec<f32> {
+    let n = gw * gh;
+    let mut cu_src = vec![0u8; n];
+    if let Some(bt) = boundary_type {
+        for i in 0..n {
+            if bt[i] == 2 || bt[i] == 3 {
+                cu_src[i] = 1;
+            }
+        }
+    }
+    chamfer_dist(&cu_src, gw, gh)
+}
+
+/// `build_resource_potentials`' clay normaliser: the whole-raster maximum
+/// of `flow`, or `1.0` when there is no flow field or it is all zero. A
+/// global reduction, split out for the same reason as
+/// [`resource_copper_dist`].
+pub fn resource_flow_max(flow: Option<&[f32]>) -> f64 {
+    let flow_max_raw = flow
+        .map(|f| f.iter().fold(0.0f64, |m, &v| m.max(v as f64)))
+        .unwrap_or(0.0);
+    if flow_max_raw > 0.0 { flow_max_raw } else { 1.0 }
+}
+
+/// `build_resource_potentials`' tail: the scarcity cut over the fifteen
+/// per-cell fields, in `ResourcePotentials` field order (copper, tin, iron,
+/// gold, salt, timber, lead, silver, clay, buildstone, flint, obsidian,
+/// gems, sulfur, alum). A rank threshold over every land cell -- a sort,
+/// not a per-cell function -- so the GPU path runs it here on the CPU
+/// after reading its fifteen fields back.
+pub fn finish_resource_potentials(
+    fields: [Vec<f32>; 15],
+    field: &[f32],
+    sea: f64,
+    scarcity: bool,
+    scarcity_legacy: bool,
+) -> ResourcePotentials {
+    let [mut copper, mut tin, mut iron, mut gold, mut salt, mut timber, mut lead, mut silver, mut clay, mut buildstone, mut flint, mut obsidian, mut gems, mut sulfur, mut alum] =
+        fields;
 
     // Scarcity cut, applied AFTER geology so it can only remove deposits,
     // never invent them. Production default: scarcity=true,
@@ -3472,19 +3511,19 @@ const SUIT_W_BASE_D: f64 = 0.10;
 const SUIT_W_BASE_C: f64 = 0.15;
 
 /// `SUIT_W_FULL` (reference line 6308) -- the real, production weight set.
-const SUIT_W_FULL_K: f64 = 0.35;
-const SUIT_W_FULL_W: f64 = 0.20;
-const SUIT_W_FULL_A: f64 = 0.15;
-const SUIT_W_FULL_D: f64 = 0.10;
-const SUIT_W_FULL_AGRI: f64 = 0.12;
-const SUIT_W_FULL_BUILD: f64 = 0.08;
-const SUIT_W_FULL_COAST: f64 = 0.14;
-const SUIT_W_FULL_RIVER: f64 = 0.14;
-const SUIT_W_FULL_LAKE: f64 = 0.06;
-const SUIT_W_FULL_MINERAL: f64 = 0.08;
-const SUIT_W_FULL_CORRIDOR: f64 = 0.08;
-const SUIT_W_FULL_FLOOD: f64 = 0.14;
-const SUIT_W_FULL_ISLET: f64 = 0.30;
+pub const SUIT_W_FULL_K: f64 = 0.35;
+pub const SUIT_W_FULL_W: f64 = 0.20;
+pub const SUIT_W_FULL_A: f64 = 0.15;
+pub const SUIT_W_FULL_D: f64 = 0.10;
+pub const SUIT_W_FULL_AGRI: f64 = 0.12;
+pub const SUIT_W_FULL_BUILD: f64 = 0.08;
+pub const SUIT_W_FULL_COAST: f64 = 0.14;
+pub const SUIT_W_FULL_RIVER: f64 = 0.14;
+pub const SUIT_W_FULL_LAKE: f64 = 0.06;
+pub const SUIT_W_FULL_MINERAL: f64 = 0.08;
+pub const SUIT_W_FULL_CORRIDOR: f64 = 0.08;
+pub const SUIT_W_FULL_FLOOD: f64 = 0.14;
+pub const SUIT_W_FULL_ISLET: f64 = 0.30;
 
 /// How far a real traced river reaches, in grid cells, before
 /// [`build_river_reach`] falls to zero -- Ruling N (`LARGE_ITEM_RULINGS.md`,

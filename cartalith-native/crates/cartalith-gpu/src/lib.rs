@@ -19,6 +19,11 @@ use wgpu::util::DeviceExt;
 /// flat, like everything else this crate offers.
 mod multi;
 
+/// Phase 2 per-cell affordance fields (biome, carrying capacity, resource
+/// potentials, settlement suitability) -- `OUTSTANDING_WORK.md` §2.6.
+mod affordance;
+pub use affordance::*;
+
 /// Shared by this crate's unit tests and by `tests/multi_gpu.rs`, which pulls
 /// the same file in with `#[path]`. Test-only, so it never reaches the crate's
 /// public surface.
