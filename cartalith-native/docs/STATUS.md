@@ -55,7 +55,7 @@ only phase with milestone work outstanding.** Phase 5’s milestones closed on
 | **3** — rendering and 3D | partial | **partial** | 2D done, 3D absent and parked |
 | **4** — Asset Library | done | **done** | Eight milestones — the slicer landed 2026-08-20 (`ROADMAP.md` no longer carries a count) |
 | **5** — urban morphology | milestones closed, defects remain (2026-09-13) | **done\*** | Every milestone has code; 16 and 17 closed under adversarial verification 2026-09-03 (`9e79e52`), 12 of 13 stage modules mutation-covered. Open work is defects |
-| *not a phase* — LOD and large worlds | the base and integration scopes, then `LOD_DETAIL_SCOPE.md` (2026-09-13) | **built and shipping — but not sharper** | A tiled deep-zoom pyramid with a persistent chunk atlas is on screen, **and a deeper level cannot add detail**: tiles carry a shade ratio over one grid-resolution colour texture, and `renderBiomeTileRGBA` is unported (measured in `OUTSTANDING_WORK.md`). Owner-supplied direction arrived 2026-09-12 as `docs/research/lod extra info.md`; `LOD_DETAIL_SCOPE.md` turns it into milestones LOD-D0 to D6, and `ROADMAP.md`’s LOD section points there (2026-09-13) |
+| *not a phase* — LOD and large worlds | the base and integration scopes, then `LOD_DETAIL_SCOPE.md` (2026-09-13) | **built and shipping; LOD-D0 to D6 closed 2026-09-21** | A tiled deep-zoom pyramid with a persistent chunk atlas is on screen. **Since LOD-D1/D2 a deep tile is real colour**: `render_biome_tile_rgba` is the port of `renderBiomeTileRGBA`, byte-identical to the reference in `golden_parity_tile_biome.rs` (`f6d1bd5`), and `lod_bridge::synthesize_tile_rgba` feeds it to the tile shader (`9d2a800`). Corrected 2026-09-23: this cell said the port was missing and tiles carried only a shade ratio, which stopped being true when LOD-D1 closed. Several D-milestone acceptance bars were closed as measured and not met. See the *LOD detail* group below. Owner-supplied direction arrived 2026-09-12 as `docs/research/lod extra info.md`; `LOD_DETAIL_SCOPE.md` turns it into milestones LOD-D0 to D6 (plus an optional D7), and `ROADMAP.md`’s LOD section points there (2026-09-13) |
 
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
@@ -79,13 +79,19 @@ measured as the single highest-leverage constant in the height formula — the
 coastline is the level set of a blur of a piecewise-constant plate Voronoi map,
 and the un-retuned partition reproduced the land mask at only IoU 0.813.
 
-**Which of the v2.11 → v2.73 interval is already ported is not established
-anywhere, including here** — a spot check found `food_shed` and
-`route_corridors` present in the crates and `crater_population` and
-`landmass_index` absent, i.e. uneven in both directions. That survey is
-`OUTSTANDING_WORK.md` §2.9's first row and it is the prerequisite for scheduling
-any of the rest. Until it runs, this file has no honest status to report for the
-span, and says so rather than implying one.
+**Which of the v2.11 → v2.73 interval is already ported was surveyed on
+2026-09-21** (corrected 2026-09-23: this paragraph said it was "not established
+anywhere" for two days after the survey ran). The counts, the method and which
+of its claims were and were not spot-checked are in `OUTSTANDING_WORK.md` §2.9's
+first row. Read them there; they are not copied here, so they cannot go stale
+here. Two limits to know: the survey predates later ports on the same interval
+(depression-filled flow routing, §6g, landed 2026-09-22 in `76f64bc` —
+`build_routing_surface`, `DECISIONS.md` §7o), and it is a survey rather than a
+per-change ledger, so this file still carries no per-change status for the span.
+**Which line to follow is settled:** `LARGE_ITEM_RULINGS.md` Ruling AP
+(2026-09-23) chose the DCC line, so the re-freeze (`OUTSTANDING_WORK.md` §2.8)
+now waits only on picking an exact DCC version and regenerating the snapshot and
+its index.
 
 **What landed most recently** is in *The last seven days*, below — a fixed
 snapshot here goes stale fast (this paragraph used to carry one and it read as
@@ -134,7 +140,7 @@ never updated to match.)
 | **not started** | Verified absent. The row names what was searched for |
 | **blocked** | Not started, and something concrete stops it. The blocker is named |
 | **declined** | Deliberately not built, with the reason recorded in code or in a ruling. Not a gap |
-| **shelved** | Built or buildable, and stopped by the owner. Only `EXPORT_SCOPE.md`'s five rows carry this |
+| **shelved** | Built or buildable, and stopped by the owner. **No row carries this today.** `EXPORT_SCOPE.md`'s five rows did until the owner un-shelved them (ruling 15, 2026-09-06); Ruling AP (2026-09-23) resumed the remaining batches |
 | **unverified** | The deliverable is not a code artefact. The row says what it would take to check |
 
 A few rows carry a **qualified** status — *done, superseded*; *done, evidence
@@ -599,7 +605,11 @@ committed tree.
 
 ## What is left
 
-**Recounted 2026-09-20 (night): 122 items.** Was 124 after Ruling N/EF-3/EF-6/EF-9 were filed (120 after the `main` merge; before that 110, then 115, then 120 — the fuller chain is above). Ruling N’s river half, EF-6 and the PLAN subtitle row closed (-3); the coastal-binding row updated in place, unblocked now that EF-6 landed; one new small row filed for a disclosed residual (the header’s TITLE half still goes stale on stage isolate) (+1). Run
+**Recounted 2026-09-23: 69 open items.** These are the unstruck table rows in
+`OUTSTANDING_WORK.md` §1-§4, counted by script over the file. The newest entry
+in that file's *The count, honestly* gives the method, and explains why the
+figure is not the 71 its previous entry carried and what this pass closed and
+filed. Everything below in this paragraph is history. **Recounted 2026-09-20 (night): 122 items.** Was 124 after Ruling N/EF-3/EF-6/EF-9 were filed (120 after the `main` merge; before that 110, then 115, then 120 — the fuller chain is above). Ruling N’s river half, EF-6 and the PLAN subtitle row closed (-3); the coastal-binding row updated in place, unblocked now that EF-6 landed; one new small row filed for a disclosed residual (the header’s TITLE half still goes stale on stage isolate) (+1). Run
 `scratchpad/count_outstanding.py` rather than trusting this paragraph — it
 counts rows in the NUMBERED sections and skips the archive sections, which are
 deliberately unnumbered. **The counts below were 155 (3/99/33/20) and stood for
@@ -645,16 +655,23 @@ morning re-cut, 75 before it). Counted individually the true figure is nearer
 
 ### The open owner decisions
 
-Twenty, in full in `OUTSTANDING_WORK.md` §4. The six that gate the most:
+**None of the six below is open now** (re-checked 2026-09-23). All were
+answered, most of them twice: rulings 10, 12, 13 and 16 on 2026-09-06, then
+Rulings AO and AP on 2026-09-23. The table is kept because its right-hand
+column records what each answer does and does not build. The questions still
+open after Ruling AP live in their own `OUTSTANDING_WORK.md` rows, not here:
+the export's E4 scope questions and its 32K size/codec trade-off, and IN-13's
+sea-lane question. This line used to read *"Twenty, in full in
+`OUTSTANDING_WORK.md` §4"*, and §4 has recorded zero since 2026-09-06.
 
 | # | Question | Gates |
 |---|---|---|
 | 1 | ~~**What is a conflict attached to**~~ — **answered 2026-09-23, Ruling AO** (a settlement or province, by `tid`); built as SP-4 | Story planning SP-4, and through it landmark M9. The highest-leverage unanswered question in the project: two documents' largest remaining milestones sit behind one unasked question |
-| 2 | **The viewshed cost budget** — observer count, radius cap, grid resolution | Landmark M7 and six of the 49 landmark kinds. `needs_viewshed: true` already ships on six specs with nothing behind it |
+| 2 | ~~**The viewshed cost budget**~~ — **answered 2026-09-06 (ruling 16: cheap and coarse, plus a manual refine) and 2026-09-23 (Ruling AP: the conservative default M7 shipped stays; no work)** | Landmark M7, done 2026-09-21 on that default (LM-7) |
 | 3 | ~~**Regenerate semantics for a journey's route polyline**~~ — **answered 2026-09-23, Ruling AO: re-snapped**; built with SP-2 (policy in the ruling's addendum) | Story planning SP-2 — no longer gated |
-| 4 | **Does the landmark set live in the save tree, or regenerate on load?** | The record's shape. Storage is in memory today and the save format is untouched |
-| 5 | **Does a landmark become a `cartalith_vault::EntityKind`?** | A `Landmark` template exists in `design/vault-templates/` and `template.rs` recognises it; `links.rs` has no variant |
-| 6 | **Does `DECISIONS.md` §7a/§7d's parity contract apply to landmarks at all?** | `FUNCTION_INDEX.md` returns nothing for "landmark", so there is nothing to match against. `landmark.rs` was built assuming divergence-by-addition and no ruling is recorded |
+| 4 | ~~**Does the landmark set live in the save tree, or regenerate on load?**~~ — **answered 2026-09-06 (ruling 10: PERSIST) and re-affirmed 2026-09-23 by Ruling AP** | **Built for the run**: `entities/landmarks.json` carries the landmark settings and the last run's results (`project_bridge.rs::LandmarksDoc`). **Not built**: any per-landmark authored or temporal state (a player-given name, research §25's states), which neither `Landmark` nor `LandmarkDto` has. That is LM-9's remaining temporal half. *Corrected 2026-09-23: this row was still posed as open, and Ruling AP's own text calls the save slot new work, although it has existed since 2026-09-06* |
+| 5 | ~~**Does a landmark become a `cartalith_vault::EntityKind`?**~~ — **answered 2026-09-06 (ruling 13: YES) and re-affirmed 2026-09-23 by Ruling AP** | **Built**: `cartalith_vault::EntityKind::Landmark`, addressed by `landmark_entity_id` over `Landmark::key()` (`45630cc`, 2026-09-06). *Corrected 2026-09-23: this row said `links.rs` had no landmark variant* |
+| 6 | ~~**Does `DECISIONS.md` §7a/§7d's parity contract apply to landmarks at all?**~~ — **answered 2026-09-06 (ruling 12: EXEMPT) and re-affirmed 2026-09-23 by Ruling AP**; all landmark work is divergence-by-addition, tested for internal correctness and determinism | Nothing to build. This confirms the assumption `landmark.rs` was built under |
 
 **Answered on 2026-08-31 by `LARGE_ITEM_RULINGS.md`**, and therefore no longer
 open despite `UNWIRED_FUNCTIONS.md` still listing them as such: icon placement
@@ -774,8 +791,9 @@ can be referred to.
 | EC-7 | `_civSaltAccess` | done | `trade.rs` defines `civ_salt_access` with a three-case golden suite; committed in `4ec07f5` |
 | EC-8 | `_civFactionAggregates`' resource- and density-fed half, surfaced as a readout | blocked | `compute_civilisation` frees the resource rasters and never retains a population-density field; surfacing them is a memory decision, stated on screen at `faction_roster_window.gd`. The aggregate is computed but only its terrain / power / tax halves reach a control |
 | EC-9 | Military manpower as the economy layer's first real consumer | done | `cartalith-civ/src/manpower.rs` reads `civ_current_agrarian_density`, `civ_faction_aggregates`, `civ_catchment_pop`'s tiers and `RoadComponents`/place navigability; surfaced in `civilization_workspace.gd`'s "Military" category |
+| EC-10 | IN-13 — trade flows between settlements (`GUI_GAP_REGISTER.md` §42/§43; Rulings AB, AE, AF, AP) — **row added 2026-09-23; there was none** | partial — 3 of 4 pieces built | **Match and network flow** shipped on 2026-08-25 under `GUI_GAP_REGISTER.md` §42: `cartalith_civ::trade::trade_flows`, routed by the private `WayRouter` in `trade.rs`, probe `godot-project/_in13_probe.gd`. **Scarcity prices and tariffs** landed in `bbc255f` (2026-09-23): each flow carries `price` (Ruling AB); there is a directional `Tariff` (Ruling AE) on the importer's roster row (`civ_roster_bridge.rs` `tariffs`); and `civ_trade_bridge.rs` exposes `civ_set_trade_tariff` / `civ_trade_tariff`. **Caravans are not built.** Ruling AP chose a derived view (one per way with trade load, nothing persisted) and left the sea-lane question **open**. `OUTSTANDING_WORK.md` §2.3 has the row. Tariffs have no GUI |
 
-**Group total: 9 — 8 done, 1 blocked.**
+**Group total: 10 — 8 done, 1 partial, 1 blocked.** EC-10 added 2026-09-23.
 
 ### Military manpower · `MILITARY_MANPOWER_SCOPE.md`
 
@@ -793,8 +811,8 @@ and the era table is.
 | MM-6 | Per-settlement garrisons | declined | `manpower.rs` produces per-faction headcounts only — no settlement-keyed output type exists. Disclosed on screen in CIVIL ▸ Military ▸ Not built |
 | MM-7 | Campaigns, unit movement, combat resolution | declined | No combat or campaign type anywhere in `cartalith-civ`; still true after SP-4: `cartalith_civ::conflict` (2026-09-23) annotates a drawn conflict with authored free-text outcome and reads manpower, and resolves nothing (`STORY_PLANNING_SCOPE.md` §5) |
 | MM-8 | Change over time (manpower across the year cursor) | declined | `manpower.rs` takes no year argument and `TimelineSnapshot` carries no manpower field; the model reads the world as it stands, as §4 states |
-| MM-F2 | Finding 2 — the standing column; owner ruling AI (c), 2026-09-23: soldier upkeep per agricultural-labour bracket, derived from the era table | done (not yet committed) | `manpower.rs::SOLDIER_UPKEEP_BY_BRACKET` / `soldier_upkeep` / `alpha_bracket` (shared with `era_for`), replacing the flat `SOLDIER_UPKEEP = 3.0`. Re-derived from `ERA_BANDS` + `era_for` + `GOVERNMENT_EXTRACTION` + `CITIZEN_SHARE` by `soldier_upkeep_is_derived_from_the_era_table`; the Iron-Age-above-High-medieval pair pinned by `a_median_polity_of_each_bracket_lands_in_its_own_band`. **Re-baselines the worked example's standing army** (A 5 846 → 9 661, B 19 067 → 25 750; levy and field unchanged), accepted by the owner. Open: Kingdom B's standing now exceeds its own 365-day rung by 6.7 % (`the_force_ladder_decreases_with_duration`) |
-| MM-F3 | Finding 3's residue — `ecological_factor` tracked map area; owner ruling AI (b), 2026-09-23: normalise land per person to the world's own | done (not yet committed) | `manpower.rs::civ_military_manpower_world` / `world_land_reference`, called by `civ_military_bridge.rs::manpower_rows`. Pinned by `map_scale_does_not_move_the_ecological_factor` (land ×6.25 → identical outputs). Measured on `_mpscale_probe.tscn`: standing below-band 21/33/11 of 36 on the 1 200/800/2 000 km shapes before, 17/20/17 after (b)+(c). Open: the 0.25 floor now binds on 36 of 108 faction-samples |
+| MM-F2 | Finding 2 — the standing column; owner ruling AI (c), 2026-09-23: soldier upkeep per agricultural-labour bracket, derived from the era table | done | Committed `dda315e` (2026-09-23; corrected the same day from "done (not yet committed)"). `manpower.rs::SOLDIER_UPKEEP_BY_BRACKET` / `soldier_upkeep` / `alpha_bracket` (shared with `era_for`), replacing the flat `SOLDIER_UPKEEP = 3.0`. Re-derived from `ERA_BANDS` + `era_for` + `GOVERNMENT_EXTRACTION` + `CITIZEN_SHARE` by `soldier_upkeep_is_derived_from_the_era_table`; the Iron-Age-above-High-medieval pair pinned by `a_median_polity_of_each_bracket_lands_in_its_own_band`. **Re-baselines the worked example's standing army** (A 5 846 → 9 661, B 19 067 → 25 750; levy and field unchanged), accepted by the owner. Open: Kingdom B's standing now exceeds its own 365-day rung by 6.7 % (`the_force_ladder_decreases_with_duration`) |
+| MM-F3 | Finding 3's residue — `ecological_factor` tracked map area; owner ruling AI (b), 2026-09-23: normalise land per person to the world's own | done | Committed `dda315e` (2026-09-23; corrected the same day from "done (not yet committed)"). `manpower.rs::civ_military_manpower_world` / `world_land_reference`, called by `civ_military_bridge.rs::manpower_rows`. Pinned by `map_scale_does_not_move_the_ecological_factor` (land ×6.25 → identical outputs). Measured on `_mpscale_probe.tscn`: standing below-band 21/33/11 of 36 on the 1 200/800/2 000 km shapes before, 17/20/17 after (b)+(c). Open: the 0.25 floor now binds on 36 of 108 faction-samples |
 
 **Group total: 10 — 6 done, 4 declined.**
 
@@ -826,9 +844,9 @@ continents did not exist as entities; milestone 0 created them.
 | MV-3 | 3 — project-scoped links (§26) | done | **The defining document files this as *blocked*; the blocker has lifted.** The save format carries a civ layer: `project_bridge.rs` defines `SLOT_VAULT = "vault.json"`, writes `self.vault.store.to_json()` into the project's documents and restores it via `LinkStore::from_json`, and the same tree carries `entities/settlements.json`. The shell half is now wired: `shell/vault_store.gd` and `vault_bridge.rs` register the project-scoped `vault.json` slot; committed in `4ec07f5` |
 | MV-4 | 4 — the Android provider (§6) | not started | Storage Access Framework: a tree URI, a persisted permission grant, and a provider beside `FsVault`. `cartalith-vault/src/provider.rs` names the SAF requirement in a comment and `FsVault` is the only implementation in the file |
 | MV-5 | 5 — the conflict UI (§14's *Compare*) | done | Built 2026-09-01: `vault_window.gd`'s `_compare_link()`/`_compare_dialog()`/`_lcs_diff()`/`_build_diff_rows()` — an O(n·m) LCS diff between the on-disk file and the working copy's own preview, deliberately calling `vault_read_file`/`vault_preview_section_write` rather than `vault_reload_link`, so opening Compare cannot itself clear a Stale status. §14's three-way prompt (Reload source / Keep current / Compare…) is now complete. Dynamically verified end to end (edit externally → Stale → Compare shows the real diff without clearing Stale → Reload clears it) |
-| MV-6 | 6 — search, the note as data, culture, and "confirm always" | partial | **Three of four panel pieces are built**: search (`vault_window.gd::_build_search()` over `engine_bridge.gd`'s `vault_search`), the "note says" readout (`_build_note_data()` / `_build_entity_data()` over `vault_file_data` / `vault_link_data`), and the three don't-ask-again checkboxes (`_build_write_prefs()` over `vault_write_prefs()`). **Missing: the culture picker.** `EntityKind::Culture` and `get_cultures()` both shipped, but nothing in the shell opens the vault scoped to a culture — the `_knowledge_row` call sites pass `"faction"`, `"province"`, `"continent"` and `"settlement"`. See the record defect below: the shell tells the user `get_cultures()` does not exist while it sits in `cartalith-godot/src/lib.rs` |
+| MV-6 | 6 — search, the note as data, culture, and "confirm always" | done | **All four panel pieces are built**: search (`vault_window.gd::_build_search()` over `engine_bridge.gd`'s `vault_search`), the "note says" readout (`_build_note_data()` / `_build_entity_data()` over `vault_file_data` / `vault_link_data`), and the three don't-ask-again checkboxes (`_build_write_prefs()` over `vault_write_prefs()`). **The culture picker is built too** (corrected 2026-09-23: this cell said it was missing). `civilization_workspace.gd` calls `_knowledge_row(sec, "culture", …)` over `get_cultures()`, in the tree since 2026-09-01 (`fd9de7c`, per `git log -S`). The "record defect" this cell pointed to, a shell string claiming `get_cultures()` did not exist, was closed on 2026-08-25 (see *One shell string that used to lie to the user* below) |
 
-**Group total: 7 — 5 done, 1 partial, 1 not started.**
+**Group total: 7 — 6 done, 1 not started.** MV-6 corrected from partial to done 2026-09-23.
 
 ~~MV-3 is the row to watch … It is not-started, not blocked~~ — **superseded
 2026-09-06.** MV-3 **shipped 2026-09-02** in `4ec07f5`, and this table's own MV-3
@@ -842,14 +860,15 @@ days. `MARKDOWN_VAULT_SCOPE.md` was itself corrected on this point on 2026-09-04
 
 Nine milestones. The scope document's §0 says "**No code was written for this
 pass**" and §3 opens "**Nothing below is started**"; both sentences were true
-on the day they were written and false the next. Seven of the nine are
-substantially built.
+on the day they were written and false the next. Seven of the nine are done
+and two are partial (LM-5, LM-9), as of 2026-09-23.
 
-`crates/cartalith-civ/src/landmark.rs` is now **3 846 lines** (was 3 730): 49
-kind specs, of which **14 are `buildable: true`** (was 13;
-`resource_extraction_site` went buildable 2026-09-01 — see the residual note
-below) and 35 carry a `not_built:` reason; **6 carry `needs_viewshed: true`**
-with no implementation behind them.
+`crates/cartalith-civ/src/landmark.rs` is **8 138 lines** (`wc -l`,
+2026-09-23; it was 3 730 at first ship): 49 kind specs (`LandmarkKindSpec { key:`
+lines), of which **27 are `buildable: true`** and 22 carry a `not_built:` reason.
+**6 carry `needs_viewshed: true`**, and since LM-7 there is a real viewshed
+behind them. (Corrected 2026-09-23: this paragraph still read 14 buildable, 35
+blocked and "no implementation behind" the viewshed flag.)
 
 | ID | Milestone | Status | Evidence |
 |---|---|---|---|
@@ -857,15 +876,16 @@ with no implementation behind them.
 | LM-2 | M2 — hydrological candidates: waterfall, ford, confluence | done | `kinds()` marks `waterfall`, `ford`, `river_confluence` buildable, plus `spring`, `lake`, `gorge`, `cliff`, `harbour`; `LandmarkInputs` takes flow/channel/recv/order/water. Fixtures shaped to reach the code: `each_waterfall_constraint_is_load_bearing`, `dropping_the_strahler_field_still_places_confluences` |
 | LM-3 | M3 — mountain-pass candidates | done | `LandmarkInputs::corridors` — "`build_route_corridors` … Mountain passes read this and nothing else can substitute for it"; `mountain_pass` buildable; the §8 `S_pass` weights are named constants. The 2D saddle half was **declined in source**: `saddle`'s `not_built` reads "A saddle with connectivity is a mountain pass, which is generated; a saddle without it is a shape, not a landmark" |
 | LM-4 | M4 — peak / ridge / prominence candidates, generalised to 2D | done | `peak` and `ridge` buildable; the pass reads M1's extracted field through `Ctx::tpi_broad` built from `analysis::tpi` at the broad-scale radius; the two-cone fixture drives the spacing tests |
-| LM-5 | M5 — resource- and settlement-linked candidates | partial | **The resource half is built and reachable**: `mine` and `quarry` buildable, driven by `MINE_RESOURCES` (8 keys) and `QUARRY_RESOURCES` (4 keys) over `LandmarkInputs::resources`, assembled by `WorldGen::landmark_resource_pairs`. **The accessibility half is absent**: `Ctx::influence` is straight-line Euclidean gravity over a wrap-corrected distance, so a resource cell with real road access scores identically to one with none. `civ_dijkstra_path` / `WayRouter` are not inputs and `LandmarkInputs` has no roads/ways field — so `market_site`, `trade_depot` and `caravan_station` all carry `not_built` strings naming the same missing §13 route-load term |
+| LM-5 | M5 — resource- and settlement-linked candidates | partial | **The resource half is built and reachable**: `mine` and `quarry` buildable, driven by `MINE_RESOURCES` (8 keys) and `QUARRY_RESOURCES` (4 keys) over `LandmarkInputs::resources`, assembled by `WorldGen::landmark_resource_pairs`. **The accessibility half is still absent for mine and quarry**: their "settlement access" term is `Ctx::influence`, straight-line Euclidean gravity over a wrap-corrected distance, so a resource cell with real road access scores the same as one with none (re-read 2026-09-23). **Corrected 2026-09-23:** this cell also said `LandmarkInputs` had no roads/ways field and that `market_site`, `trade_depot` and `caravan_station` were `not_built`. `LandmarkInputs::ways` has existed since 2026-09-02 (`45b368d`), and all three, with `bridge_site` and `road_junction`, are `buildable: true` in `kinds()` |
 | LM-6 | M6 — spatial competition / Poisson-disc filtering | done | `landmark.rs::Buckets` / `Buckets::new(gw, gh, world, max_radius)`, used with a shared cross-type field. **Bridson (2007) was deliberately declined**, with the argument and the 0.866·r² vs π·r² packing measurement in the doc comment. Mutation/boundary tests present: `spacing_rejects_the_weaker_of_two_candidates_inside_one_radius`, `at_cap_and_spacing_are_different_answers`, `crowding_higher_packs_tighter`, `a_zero_or_nan_crowding_does_not_take_the_map_with_it`, `cross_type_competition_changes_the_answer`, `a_placed_landmark_is_never_inside_its_own_exclusion_radius` |
-| LM-7 | M7 — viewshed (the expensive one, entirely new) | blocked | **Owner decision 2** (accuracy/cost budget). Zero geometric line-of-sight code in any of the sixteen crates — `grep 'fn viewshed\|fn line_of_sight\|fn los_'` returns nothing; the only `viewshed` hits are comments naming its absence. Gates six kinds by name (`fort`, `watchtower`, `sacred_mountain`, `border_marker`, `volcanic_feature`, plus peak's scoring); `fort`'s `not_built` reads "§18's own model puts F_visibility at 0.20 — the joint-largest term — and there is no viewshed field anywhere in this workspace" |
+| LM-7 | M7 — viewshed (the expensive one, entirely new) | done | 2026-09-21, `222189f`: a real line-of-sight primitive, `cartalith_terrain::analysis::visibility` with `ViewObserver`, sized by a disclosed conservative default rather than an owner number. **Ruling AP (2026-09-23) ratified that default**, so there is no further work. It unblocked `fort`, `watchtower`, `fortified_pass`, `fortified_crossing` and `volcanic_feature`; `border_marker` followed on 2026-09-21. `sacred_mountain` stays blocked on §26's cultural-meaning input, not on the viewshed. *Corrected 2026-09-23: this row said "blocked, zero line-of-sight code" for two days after M7 landed* |
 | LM-8 | M8 — Category C suitability synthesis + the Landmark object model | done | `landmark.rs::Landmark { id, kind, class, x, y, elevation, score, importance, causal, seed }` — §22's object model including the causal chain and §27's `seed_L`; `pub fn generate(...)` runs §30's twelve steps; the Category C weight/threshold block has every weight a named commented constant. Reachable end to end: `landmark_bridge.rs` + `landmark_kinds()`, `landmark_settings()`, `landmark_run()`, `landmarks()`, `landmark_funnels()`, `landmark_headroom()` → `engine_bridge.gd` → CIVIL ▸ Landmarks (`civilization_workspace.gd::_build_landmarks`) and CARTO ▸ Assets & landmarks (`cartography_workspace.gd`). Edge-case bar met by `degenerate_grids_do_not_panic` and `a_wrongly_sized_optional_input_degrades_rather_than_panicking` |
-| LM-9 | M9 — cultural interpretation and temporal state (research §24-26) | partial | **The wiring itself is built 2026-09-23**: `LandmarkInputs::battles` takes every drawn `ConflictKind::Battle` (SP-4), anchor-resolved to its position now, and `battlefield` is buildable — the engine's 27th kind, checked (not assumed) to be reachable at the placement pass, probe `_lm9battle_probe.gd`. Checked, and still blocked for a different reason each: `battlefield_historic` would double-record a cell `battlefield` already covers unless a present-year read separates past from current battles (open question 1, persistence); `destroyed_fortress` still has no "destruction" to read, since `Conflict::outcome` stays free text by SP-4 §5's own deliberate no-resolution-model rule. **Owner decisions 4 and 5 still gate the rest of M9**: every other Cultural-family row in `kinds()` is `buildable: false`; `shrine`'s reason reads "§26 is explicit that cultural meaning must not be hardcoded into geography … That needs the civilisation's own traits as an input, which this pass does not take". `cartalith_vault::EntityKind` still has no `Landmark` variant |
+| LM-9 | M9 — cultural interpretation and temporal state (research §24-26) | partial | **The wiring itself is built 2026-09-23**: `LandmarkInputs::battles` takes every drawn `ConflictKind::Battle` (SP-4), anchor-resolved to its position now, and `battlefield` is buildable — the engine's 27th kind, checked (not assumed) to be reachable at the placement pass, probe `_lm9battle_probe.gd`. Checked, and still blocked for a different reason each: `battlefield_historic` would double-record a cell `battlefield` already covers unless a present-year read separates past from current battles (open question 1, persistence); `destroyed_fortress` still has no "destruction" to read, since `Conflict::outcome` stays free text by SP-4 §5's own deliberate no-resolution-model rule. **No owner decision gates the rest of M9 any more** (corrected 2026-09-23). Ruling AP re-affirmed three questions that had already been ruled on 2026-09-06 and partly built. Persistence is ruling 10: `entities/landmarks.json` has carried the settings and the last run's results since then (`project_bridge.rs::LandmarksDoc`). Vault linking is ruling 13: `cartalith_vault::EntityKind::Landmark`, addressed by `landmark_entity_id` over `Landmark::key()`, `45630cc`. The parity exemption is ruling 12. This cell used to say `EntityKind` had no `Landmark` variant, and it has had one since 2026-09-06. **What remains is build work**: per-landmark authored/temporal state (at minimum a name the player gave it, with research §25's discovered/named/monumentalized as the fuller shape — neither `Landmark` nor `LandmarkDto` has such a field), a present-year read for `battlefield_historic`, the civilisation-traits input §26 requires for the other Cultural-family kinds (`shrine`'s `not_built`: *"That needs the civilisation's own traits as an input, which this pass does not take"*), and a shell entry point for linking a landmark to a note (`vault_landmark_entity_id` has no shell caller; the right dock's `CTX_LANDMARK` context, added under Ruling AL, is now the surface it can hang off) |
 
-**Group total: 9 — 6 done, 2 partial (LM-5, LM-9), 1 blocked (LM-7).** LM-9 moved from blocked to partial 2026-09-23 (its conflict wiring is built).
-**Residual inside M8:** 35 of 49 declared kinds still ship `buildable: false`
-(was 36), each with its reason in source. `resource_extraction_site` went
+**Group total: 9 — 7 done, 2 partial (LM-5, LM-9).** LM-9 moved from blocked to partial 2026-09-23 (its conflict wiring is built). LM-7 corrected from blocked to done the same day (it landed 2026-09-21).
+**Residual inside M8:** 22 of 49 declared kinds still ship `buildable: false`
+(was 35 at the 2026-09-01 count this paragraph continues with), each with its
+reason in source. `resource_extraction_site` went
 buildable 2026-09-01 — it reads the three resource-potential fields (`timber`,
 `sulfur`, `alum`) that Mine's and Quarry's own resource lists don't, through
 their identical, already-validated detector, so it claims no cell either of
@@ -880,14 +900,17 @@ the largest landmark work remaining after M7.
 
 ### Religion diffusion · `RELIGION_DIFFUSION_SCOPE.md`
 
-Seven milestones from an owner-supplied paper, scoped 2026-08-29. **None is
-started.** A foundation landed the same day that the scope document does not
-number.
+Seven milestones from an owner-supplied paper, scoped 2026-08-29. **Milestone
+1 (RD-1) is done**, on top of a foundation the scope document does not number
+(RD-0), which landed the same day. Milestones 2-7 are not started. Corrected
+2026-09-23: this line said none was started, while RD-0 and RD-1 below both
+read `done`. `belief.rs::belief_step`, `belief_seed` and
+`SettlementReligionState` are all present.
 
 | ID | Milestone | Status | Evidence |
 |---|---|---|---|
 | RD-0 | Foundation — culture and religion as quantitative traits, and the compatibility relation | done, **consumed** | `cartalith-civ/src/belief.rs`, **2 220 lines** (was 945 at the 2026-09-03 correction below — the file has grown substantially since; **re-corrected 2026-09-23** by a religion-expansion research pass, not re-derived from scratch) — `culture_domain`, `ReligionDomain`, `CIV_RELIGION_DOMAIN`, `religion_domain`, `CompatBasis`, `Compat`, `compat`, `compat_value`, `NEUTRAL_COMPAT`, `COMPAT_WEIGHTS`. Its module doc says it is "the foundation both milestone 1 and milestone 3 need, and nothing above it". **Corrected 2026-09-03:** that claim was false. `grep 'belief::'` across `crates/` excluding the file itself returns **15 hits**, all in `cartalith-godot/src/lib.rs` (`belief_seed`, `belief_links_from_ways`, `BeliefNetwork::build`, `belief_step`, `BELIEF_STEP_RATE`). It has consumers and it is bound |
-| RD-1 | 1 — MVP: network exposure and conversion, read-only | **done — re-corrected 2026-09-23, the 2026-09-03 correction itself went stale** | `SettlementReligionState` is a real, built type (`share: [f64; CIV_RELIGION_COUNT]`, one per settlement, held on `CivData::belief`), not a name-only placeholder — confirmed at the symbol by an independent research pass, not re-derived from the 2026-09-03 note's own claim. `belief_step` is a three-term logistic (exposure, compatibility, conformity frequency); `belief_seed` seeds every settlement wholly into its faction's religion; `get_settlements()` emits `religion`/`adherents`. **What is genuinely still absent, per the same 2026-09-23 pass**: the retention split (§22/RD-2), competition (§18/RD-6), missionary/institutional terms, and sea-lane exposure — see `RELIGION_DIFFUSION_SCOPE.md` and the research doc it cites for the current, real remainder |
+| RD-1 | 1 — MVP: network exposure and conversion, read-only | **done — re-corrected 2026-09-23, the 2026-09-03 correction itself went stale** | `SettlementReligionState` is a real, built type (`share: [f64; CIV_RELIGION_COUNT]`, one per settlement, held on `CivData::belief`), not a name-only placeholder — confirmed at the symbol by an independent research pass, not re-derived from the 2026-09-03 note's own claim. `belief_step` is a three-term logistic (exposure, compatibility, conformity frequency); `belief_seed` seeds every settlement wholly into its faction's religion; `get_settlements()` emits `religion`/`adherents`. **What is genuinely still absent, per the same 2026-09-23 pass**: the retention split (§22/RD-2), competition (§18/RD-6), missionary/institutional terms, and sea-lane exposure — see `RELIGION_DIFFUSION_SCOPE.md` for the current, real remainder. That document embeds its owner-supplied research paper; there is no separate research file to cite. *Corrected 2026-09-23: this cell pointed to "the research doc it cites", which does not exist* |
 | RD-2 | 2 — institutional presence and retention split (§11, §22) | not started | No `Inst_{i,R}`, no clergy count, no `P_retain` |
 | RD-3 | 3 — religion trait vectors, authored (§6-§13) | not started | `COMPAT_WEIGHTS` is `[None, Some(1.0), None, None, None]` — one of five components populated. Primarily a content pass |
 | RD-4 | 4 — prestige and success bias (§15-16) | not started | Needs `EliteAdherents` / `RulerReligion` / `MerchantStatus` terms this port does not compute |
@@ -895,8 +918,8 @@ number.
 | RD-6 | 6 — competition (§18) and vertical/horizontal/oblique weighting (§23) | not started | — |
 | RD-7 | 7 — sensitivity-analysis tooling (§31) | not started | Dev-facing |
 
-**Group total: 8 — 1 done (unconsumed), 7 not started.**
-The religion *screens* are separately blocked; see the gap-register group.
+**Group total: 8 — 2 done, 6 not started.** (Corrected 2026-09-23 from "1 done (unconsumed), 7 not started": RD-1 was already `done`, and RD-0 is consumed.)
+The religion *screens* shipped in a 2026-09-03 batch. The gap-register group's GGR-RELIG row records the correction (this line used to call them blocked).
 
 ### Timeline · `TIMELINE_SCOPE.md`
 
@@ -1055,9 +1078,10 @@ annotated false in place, dated, rather than silently rewritten.
 
 ### GPU compute pilot · `GPU_COMPUTE_PILOT_SCOPE.md`
 
-Six "done means" criteria. All met — but the document carries **no resolution
-section at all**, and the only place the pilot is called done is the opening
-line of `GPU_LAYER_INTEGRATION_SCOPE.md`.
+Six "done means" criteria. All met. The document gained a resolution section,
+*What the pilot found (2026-08-16)*, in `0d8a547` on 2026-09-23. Until then
+this paragraph correctly said it had none, and the only place the pilot was
+called done was the opening line of `GPU_LAYER_INTEGRATION_SCOPE.md`.
 
 | ID | Criterion | Status | Evidence |
 |---|---|---|---|
@@ -1069,7 +1093,9 @@ line of `GPU_LAYER_INTEGRATION_SCOPE.md`.
 | PILOT-6 | Lives in its own crate with no gdext dependency | done | `cartalith-gpu/Cargo.toml` `[dependencies]` = `cartalith-noise`, `wgpu` 30, `pollster`, `bytemuck` only; no godot/gdext entry. Test-only dev-deps on `cartalith-terrain` / `-climate` / `-hydrology` |
 
 **Group total: 6 — 6 done.**
-`init_gpu_f64` is the pilot's undisposed residue and is owner decision 11.
+`init_gpu_f64`, the pilot's one undisposed residue, was deleted on 2026-09-06
+under ruling 22 (see the GPU layer integration group below). Its shader source
+stays as the pilot's finding.
 
 ### GPU layer integration · `GPU_LAYER_INTEGRATION_SCOPE.md`
 
@@ -1090,20 +1116,22 @@ does not mention at all.
 | GLI-9 | Flow accumulation on GPU — the first sequential algorithm redesigned | done | `shaders/gpu_flow.wgsl`; `GpuFlowContext`, `init_gpu_flow_with`, `dispatch_gpu_flow`, `GpuFlowResult`; `FLOW_TOLERANCE = 1e-3` and `FLOW_ANY_CELL_TOLERANCE = 5e-3`. Wired once per generate with a `flow_on_gpu` closure used at all four `compute_flow` call sites. Tests `gpu_flow_matches_real_cpu_compute_flow`, `gpu_flow_is_bit_reproducible`, `gpu_flow_downstream_river_network_divergence`; example `examples/flow_downstream_settlements.rs` |
 | GLI-P2 | Phase 2 per-cell affordance fields on GPU (`OUTSTANDING_WORK.md` §2.6) | done — 2 of 4 wired, 2 unwired on measurement | `cartalith-gpu/src/affordance.rs`, `shaders/gpu_{biome,carrying,resources,suitability}.wgsl`. **Wired** in `cartalith-godot::compute_civilisation` under `use_gpu`: `resource_potentials_grid_gpu_with` (per-cell kernel only; `cartalith_civ::{resource_copper_dist, resource_flow_max, finish_resource_potentials}` stay CPU) and `settlement_suitability_grid_gpu_with`, reported as `resource_potentials`/`settlement_suitability` in `get_gpu_stages_used`. **Built, not called by production**: `biome_raster_grid_gpu_with` (bit-identical) and `carrying_capacity_grid_gpu_with` — both measured slower than the CPU at every size. `CARRYING_TOLERANCE`, `RESOURCES_TOLERANCE`, `SUITABILITY_TOLERANCE`; test `tests/affordance.rs`; example `affordance_gpu_compare`; probe `godot-project/_civgpu_probe.tscn` |
 | GLI-D1 | Deferred at m5 — `compute_stress` gather reformulation | done | 2026-09-23. `shaders/gpu_stress.wgsl`; `stress_gather_grid_gpu_with`, `StressGather`/`StressParams`/`StressPair` in `cartalith-gpu/src/lib.rs`; `cartalith-engine`'s `compute_stress_gpu`, wired at the existing `use_gpu` call site, reported as `"stress"` in `gpu_stages_used`. Every boundary edge's contribution depends only on its plate pair, so the host tabulates it once per pair and each GPU cell gathers its up to 6 edges (4-neighbour plus world-wrap), writing only itself — no atomics; the boundary-type comparison is exact via a rounding-direction bit shipped with the f32 magnitude. `cartalith_terrain::compute_stress` had `stress_edge`/`normalize_by_abs_max` pulled out (arithmetic unchanged, `golden_parity_stress.rs` passes unmodified) so both paths share one formula. `STRESS_GPU_TOL = 2e-6` (measured: worst 5.36e-7 across 128²–2048², 6.3–6.7x at 2048²), 18/19 mutants killed (1 equivalent), probe `_stressgpu_probe.gd`. `cargo test --workspace --no-fail-fast` 3723 → 3725. `OUTSTANDING_WORK.md` §2.6's own row has the full account |
-| GLI-D2 | Deferred at m2 — world-wrap support for the milestone 1-5 kernels | not started | `pfbm` / `pridged` periodic variants were never ported to WGSL, so `world=true` silently takes the CPU path for warp and heterogeneity even with the GPU toggle on. `cartalith-engine` has `if p.use_gpu && !world` on both, each with an inline comment naming milestone 2's deferral. Milestone 9's flow kernel *does* support wrap |
+| GLI-D2 | Deferred at m2 — world-wrap support for the milestone 1-5 kernels | done | 2026-09-21, `023c904`. `cartalith-noise` gained `gpu_pvnoise` / `gpu_pfbm`, periodic siblings of `gpu_vnoise` / `gpu_fbm`, with matching WGSL behind a `world` flag in both shaders, so warp and heterogeneity now dispatch on the GPU under `world=true`. The old `if p.use_gpu && !world` gate survives only as history in a doc comment in `cartalith-engine/src/lib.rs`. *Corrected 2026-09-23: this row said "not started" for two days after it landed* |
+| GLI-E | Erosion's per-cell parts on GPU (`OUTSTANDING_WORK.md` §2.6) — **no milestone in the scope document; row added 2026-09-23** | done — thermal only; stream-power declined on measurement | 2026-09-23, `08020ee`. `shaders/gpu_thermal.wgsl` and `cartalith_gpu::thermal_grid_gpu_with`, the gather form of `erode_thermal`'s scatter (no atomics). Wired in `cartalith_engine::erode_op` (the Erode button's op, not a `generate_terrain` stage) behind the same `use_gpu` / `gpu_allowed_for_grid` gate as the other GPU stages, with CPU `erode_thermal` as fallback. `ErodeSummary::thermal_on_gpu` reports which path ran. `THERMAL_GPU_TOL = 1e-6` (`erode_op.rs` tests); probe `_thermalgpu_probe.gd`. **Stream-power is not ported, deliberately**: its per-cell phases measured 1.1-1.8% of the kernel, and the rest is serial by construction. `OUTSTANDING_WORK.md` §2.6's row keeps it open as a scoping question |
 | GLI-M | Multi-GPU device set, VRAM budgeting and split-tiles warp — **shipped, and this document has no milestone for it** | done | `cartalith-gpu/src/multi.rs`, 1 291 lines: `MultiGpuMode`, `VramFallback`, `GpuPreferences`, `enumerate_devices()`, `vram_verdict()`, `gpu_allowed_for_grid()`, `device_supports_grid()`, `GpuDeviceSet`, `init_gpu_device_set()`, `split_rows()`, `set_weights()`; `warp_grid_gpu_split` / `warp_band_gpu_with` in `src/lib.rs`. Reached from `cartalith-engine` **before every other GPU stage**, gating the whole GPU path on a VRAM verdict, and from the shell: `menus.gd::_build_gpu_mode_menu()` plus the `gpu_vram_budget_gb` / `gpu_set_vram_fallback` / `gpu_vram_estimate` `#[func]`s. `AlternateFrames` and `ReduceWorkingRes` are deliberately unimplemented variants whose `is_implemented()` returns false |
 
-**Group total: 14 — 12 done, 1 not started, 1 declined.** GLI-D1 moved not-started → done 2026-09-23.
+**Group total: 15 — 14 done, 1 declined.** GLI-D1 moved not-started → done
+2026-09-23; GLI-D2 was corrected to done the same day (it landed 2026-09-21);
+GLI-E was added the same day (it landed 2026-09-23 and had no row).
 
-**Seven public `cartalith-gpu` functions have zero callers**, re-verified by
-grep on 2026-08-31: `heterogeneity_grid_gpu`, `gauss_blur_grid_gpu`,
-`assign_plates_grid_gpu`, `flow_accumulation_gpu_with`, `gpu_resistance_grid_cpu`
-and `init_gpu_f64` have **0** external hits; `warp_grid_gpu` has exactly **1**,
-a doc comment in `cartalith-engine/src/lib.rs`. Deleting them is one small row
-in `OUTSTANDING_WORK.md` §3.1, blocked only on the ponytail pass's refusal to
-delete public API on its own authority, plus owner decision 11 for
-`init_gpu_f64`. Milestone 6's prose still describes the pipeline as calling four
-of them; the correction sits two milestones later, under milestone 8.
+**The seven zero-caller public `cartalith-gpu` functions are deleted**
+(corrected 2026-09-23: this paragraph still called them live and blocked on an
+owner decision). `init_gpu_f64` went on 2026-09-06 under `LARGE_ITEM_RULINGS.md`
+ruling 22; its shader source stays, and a doc comment in
+`cartalith-gpu/src/lib.rs` records why. The other six (`heterogeneity_grid_gpu`,
+`gauss_blur_grid_gpu`, `assign_plates_grid_gpu`, `flow_accumulation_gpu_with`,
+`gpu_resistance_grid_cpu`, `warp_grid_gpu`) went in `46aff27` (2026-09-21). A
+grep for `fn <name>` across `crates/` finds none of the seven, 2026-09-23.
 
 ### CPU multithreading · `CPU_MULTITHREADING_SCOPE.md`
 
@@ -1130,7 +1158,9 @@ removed duplicated work rather than adding parallelism.
 ### Memory optimisation · `MEMORY_OPTIMIZATION_SCOPE.md`
 
 Fifteen rows: five landed passes and the ranked R1-R8 list the 2026-08-25 audit
-produced. **R1-R3 landed; R4-R8 did not**, and each was re-verified absent.
+produced. **R1-R5, R7 and R8 have landed; R6 has not** (corrected 2026-09-23;
+this line said R4-R8 had not landed, and R4, R5, R7 and R8 had been in the tree
+since `4ec07f5` on 2026-09-02).
 
 | ID | Milestone | Status | Evidence |
 |---|---|---|---|
@@ -1143,19 +1173,22 @@ produced. **R1-R3 landed; R4-R8 did not**, and each was re-verified absent.
 | MEM-7 | R1 — free the previous world before generating the next | done | `cartalith-godot/src/lib.rs::release_world(&mut self)`, called from `generate_sized` and — the audit's own correction — from `generate_world_structure_sized`. Both call sites sit below their function's refusal checks, as the safety argument requires |
 | MEM-8 | R2 — delete four dead resident grids | done | `WorldState` no longer declares `flexure_field`, `heterogeneity_field` or `flow_area` — they are locals inside `generate_terrain`. `ChannelResult::slope` was **deliberately not deleted** and is released instead (`ch.slope = Vec::new()`), because `golden_parity_river.rs` asserts it in all three cases. *§6's R2 table still says `slope` is read by "nobody, anywhere"; the later "Where the audit was wrong" section retracts it and the table was never edited* |
 | MEM-9 | R3 — block `build_resource_potentials`' `per_cell` buffer | done | `const RESOURCE_BLOCK: usize = 1 << 18;` with `per_cell: Vec<[f32; 15]>` allocated at `RESOURCE_BLOCK.min(n)`, a `while block_start < n` loop, `collect_into_vec(&mut per_cell)` and a per-block sequential scatter |
-| MEM-10 | R4 — `plate_id: Vec<usize>` → `Vec<u16>` | not started | `WorldState::plate_id: Vec<usize>` and `assign_plates(...) -> Vec<usize>` are unchanged |
-| MEM-11 | R5 — `jfa_dist`'s three scratch grids to i32/i32/u32 | not started | `jfa_dist` still allocates `sx = vec![-1i64; n]`, `sy = vec![-1i64; n]`, `d2 = vec![0f64; n]` |
-| MEM-12 | R6 — the two `with_capacity(n)` heap reservations | not started | `MinHeap::with_capacity(n)` in `build_water_bodies` and `DijkstraHeap::with_capacity(n)` in `road_dijkstra` are both unchanged |
-| MEM-13 | R7 — `road_dijkstra`'s discarded `prev` | not started | `let (dist, _prev) = road_dijkstra(cost, gw, gh, …)` is still there; no `want_prev` parameter exists on `road_dijkstra` |
-| MEM-14 | R8 — chunk `civ_hierarchical_network_topology`'s parallel Dijkstras | not started | Still collects every settlement's `road_dijkstra` result in one parallel pass; no chunking constant or `chunks(8)` appears in it |
-| MEM-15 | Per-segment overlay culling (still open after `_run_offscreen`) | not started | `_run_offscreen` rejects at whole-run granularity only — it takes the run's `PackedVector2Array` and returns a single bool. A long way whose bounding box crosses the window is still walked and dashed in full |
+| MEM-10 | R4 — `plate_id: Vec<usize>` → `Vec<u16>` | done | `WorldState::plate_id: Vec<u16>` (`cartalith-engine/src/lib.rs`) and `assign_plates(...) -> Vec<u16>` (`cartalith-terrain`). Landed in `4ec07f5` (2026-09-02, per `git log -S`) |
+| MEM-11 | R5 — `jfa_dist`'s three scratch grids to i32/i32/u32 | done | `jfa_dist` (`cartalith-civ/src/lib.rs`) now carries an `R5` comment and `i32`/`i32`/`u32` scratch, argued **bit-identical**, with a `u32` headroom assertion. Landed in `4ec07f5` |
+| MEM-12 | R6 — the two `with_capacity(n)` heap reservations | not started | Unchanged, re-checked 2026-09-23: `MinHeap::with_capacity(n)` in `build_water_bodies` and `DijkstraHeap::with_capacity(n)` in `road_dijkstra`. `MEMORY_OPTIMIZATION_SCOPE.md` ranks it low on purpose (on Android an untouched reservation is address space, not resident pages), and `OUTSTANDING_WORK.md` §5 lists it as declined as low-value. Neither is a ruling or a code note, which this file's `declined` requires, so the row stays `not started` |
+| MEM-13 | R7 — `road_dijkstra`'s discarded `prev` | done | `road_dijkstra(..., want_prev: bool)` with an R7 doc comment; the sweep that only read `dist` passes `want_prev: false`, and a test asserts `prev` is not written. Landed in `4ec07f5` |
+| MEM-14 | R8 — chunk `civ_hierarchical_network_topology`'s parallel Dijkstras | done | `civ_hierarchical_network_topology` carries R8 comments: each settlement's `dist` is kept as a per-settlement probe row rather than a whole grid, and `res1` is released after pass 1. Landed in `4ec07f5` |
+| MEM-15 | Per-segment overlay culling (still open after `_run_offscreen`) | done | `map_overlay.gd::_segment_chains` returns the maximal runs of on-screen segments, so a long way crossing the window is no longer dashed in full. Probe `godot-project/_segcull_probe.gd`. Landed `af28882` (2026-09-05) |
 
-**Group total: 15 — 8 done, 6 not started, 1 declined.**
+**Group total: 15 — 13 done, 1 not started, 1 declined.** Corrected
+2026-09-23: MEM-10, -11, -13, -14 and -15 each said "not started" for about
+three weeks after they landed; each was re-opened at its symbol for this
+correction.
 
-§6's walk-down table projects 618.28 → 469.56 MiB for all eight R-changes. Only
-R1-R3 landed (518.92 MiB), and the "still on the table" status for R4-R8
-survives only in one sentence at the very end of a 1 031-line document. It is
-recorded properly here.
+§6's walk-down table projects 618.28 → 469.56 MiB for all eight R-changes.
+R1-R5, R7 and R8 have landed; R6 has not. No after-figure for the landed set
+has been re-measured here. The last measured point this file carries is
+R1-R3's 518.92 MiB.
 ### LOD and tiling · `LOD_TILING_BASE_SCOPE.md` + `LOD_TILING_INTEGRATION_SCOPE.md`
 
 `ROADMAP.md` files this under "Not a phase" and still says *"revisit when a
@@ -1164,8 +1197,8 @@ it is wired, and it is on screen.**
 
 | ID | Milestone | Status | Evidence |
 |---|---|---|---|
-| LODB-1 | Base — new crate `cartalith-spatial`: `TiledField`, packed `QuadTree`, `DirtyTracker`, serde round-trip | done | `cartalith-spatial/src/lib.rs` — `TiledField<T>` with `tile_size` as a constructor parameter and the comment defending that; packed `QuadTree<T>` (`Vec<Node<T>>` with index children); `DirtyTracker` with caller-supplied reason strings and a per-tile `version`. All three derive `Serialize`/`Deserialize`. **144 `#[test]`s across eight modules** (the document records 24, from the three modules that then existed) |
-| LODB-2 | Integration — the tool system picked the base up (2026-08-18) | done | `cartalith-spatial/src/pass.rs::PassBuffer<S>` and `staleness.rs::StageGraph`, both built on `TiledField`/`DirtyTracker`. **Now depended on by five external crates, not one**: `cartalith-civ`, `-engine`, `-godot`, `-io`, `-terrain` each list it. The crate has also grown five modules the document does not mention: `geo`, `measure`, `paint`, `pyramid`, `region` |
+| LODB-1 | Base — new crate `cartalith-spatial`: `TiledField`, packed `QuadTree`, `DirtyTracker`, serde round-trip | done, **two of its three structures since retired** | Built as specified. On 2026-09-22 `TiledField<T>` and `QuadTree<T>` were **retired** (`5c99cc9`: a full-workspace grep found no real caller for either, and their 16 tests went with them). **`DirtyTracker` is kept** because it has real callers, and is still in `cartalith-spatial/src/lib.rs` with caller-supplied reason strings and a per-tile `version`. Corrected 2026-09-23: this row still cited `TiledField` and `QuadTree` as present. The crate's own test count moved with the retirement and is not re-quoted here |
+| LODB-2 | Integration — the tool system picked the base up (2026-08-18) | done | `cartalith-spatial/src/pass.rs::PassBuffer<S>` and `staleness.rs::StageGraph`, built on `DirtyTracker` (`PassBuffer` does its own tile arithmetic; `TiledField` is retired, see LODB-1). **Now depended on by five external crates, not one**: `cartalith-civ`, `-engine`, `-godot`, `-io`, `-terrain` each list it. The crate has also grown modules the document does not mention: `contour`, `geo`, `measure`, `paint`, `pyramid`, `region` |
 | LODI-M0 | Integration M0 — confirm Z1 needs nothing once the camera lands | done\* | Verification, not new work; the confirming pass is a device measurement — **not checkable from code** |
 | LODI-M1 | Integration M1 — a minimal interactive Z2: tile the deep-zoom case only | done | `cartalith-spatial/src/pyramid.rs` (`pyramid_dims`, `pyramid_tile_bounds`, `pyramid_level_for_zoom`, `tiles_in_view`); `cartalith-terrain/src/amplify.rs` (`amplify_region`, `add_zoom_detail`) and `tile_render.rs::shade_tile`; `cartalith-godot/src/lod_bridge.rs` (783 lines); `engine_bridge.gd`'s `lod_level_for_zoom` and `lod_synthesize_tile`; the deep-zoom tile scheduler in `shell/viewport_host.gd` with `shell/lod_tile.gdshader`. The 2026-08-19 bug-fix pass (dropped tiles never reconsidered once the camera stopped) is recorded in the scope document and its fix is in the scheduler |
 | LODI-M2 | Integration M2 — nothing; the Data manager export panel, not a new milestone | declined | Declared not a milestone by the document itself. The export panel exists (`shell/data_manager_window.gd`) |
@@ -1174,6 +1207,27 @@ it is wired, and it is on screen.**
 **Group total: 6 — 5 done, 1 declined.**
 Shell surface: `Preferences ▸ Tiles & LOD` ships LOD levels 0-8 and
 auto/manual, both landed 2026-08-30 (`5f11b27`, `3338a79`).
+
+### LOD detail · `LOD_DETAIL_SCOPE.md`
+
+**Added 2026-09-23.** This group was missing, although `OUTSTANDING_WORK.md`
+closed LOD-D0 to D6 on 2026-09-21. Each row's evidence is the commit and symbol
+that milestone's closed backlog row cites, re-opened at the symbol for this
+entry. Several milestones were closed with acceptance bars measured and **not**
+met. By this file's vocabulary those are `partial`, and the rows say which bars.
+
+| ID | Milestone | Status | Evidence |
+|---|---|---|---|
+| LOD-D0 | Zoom-sweep harness (measurement only, no pixel change) | done | `cartalith-godot/src/lod_sweep.rs` (metric definitions and unit tests) and the windowed `godot-project/_lodsweep_probe.gd`. `11936cb` |
+| LOD-D1 | Port `renderBiomeTileRGBA` as a pure engine function | done | `render.rs::render_biome_tile_rgba`, golden-tested against the reference in `tests/golden_parity_tile_biome.rs` (worst delta 0). `f6d1bd5`. Two decisions it surfaced stay with the owner: the reference's tile and map shading disagree by construction, and single-thread synthesis measured above the scope's 40 ms budget |
+| LOD-D2 | Colour tiles on screen, and the sharpness bar | partial — built; 3 of 6 D0 bars met | `lod_bridge::synthesize_tile_rgba` calls `render_biome_tile_rgba`, and `shell/lod_tile.gdshader` samples the colour directly. `9d2a800`. Not met at close: zoom-40 detail on the 2048 world (also failing before this milestone), the LOD-entry `mean \|ΔL*\|` bar at both sizes, and the seam ratio at 512 |
+| LOD-D3 | Continuous transitions: parent fallback and a colour-space morph | partial — 2 of 4 bars met | `lod_bridge::morph_for_zoom`. `b6cc014`. Met: zero pops. Not met: worst level-boundary `T_i ≤ 1.5×` (1 of 12 still over), zero holes, and the seam ratio (unmoved) |
+| LOD-D4 | Ice and snow from fields that already exist | partial — 1 of 4 bars met | `TerrainAppearance::ice_strength` and `render.rs::apply_ice_cover`. `02f6d51`. The snow-versus-aspect bar failed because the main map's snow term is temperature-only (`material_weights`). **Ruling AP (2026-09-23) authorizes adding an aspect term**, which is a golden re-baseline of the main map. That is scheduled as separate work and is **not built** |
+| LOD-D5 | Scale-aware shading weights, and hydrology that resolves | partial — 2 of 3 bars met | `TerrainAppearance::detail_scale_strength`. `c685930`. The unmet bar (detail per pixel non-decreasing from zoom 4 to 40) needs `add_zoom_detail`'s octave decay changed, a golden re-baseline recorded in `amplify.rs` as awaiting an owner ruling |
+| LOD-D6 | Tile synthesis off the main thread, profiled per device | done\* — desktop bars met, phone bars unmeasured | `lod_worker.rs::LodSnapshot` and Rust-side `rayon` workers. `c74a150`. The phone frame-time and thermal bars need a handset and are not checkable from code |
+| LOD-D7 | *(optional)* Debug and info views in tiles (`renderAffordanceTileRGBA`) | blocked — owner question 6 | Not ported: a grep of `crates/` and `godot-project/shell/` for `affordance_tile` / `renderAffordanceTile` finds nothing, 2026-09-23. The scope builds it **only if the owner wants it** |
+
+**Group total: 8 — 2 done, 1 done\*, 4 partial, 1 blocked.**
 
 ### Save file and project archive · `SAVEFILE_COMPAT.md`
 
@@ -1238,8 +1292,14 @@ survived.
 
 ### GUI feature parity · `GUI_FEATURE_PARITY_SCOPE.md`
 
-Eight milestones. **Seven are done and one is superseded by another route** —
-the document still reads as an open plan and should be closed out.
+Eight milestones. **Seven are done and one, GFP-2, is partial.** GFP-2's
+largest item (`PopupMenu` styling) was solved by another route, and its
+tooltip and scrollbar chrome are still Godot stock: a grep of
+`godot-project/shell/` for `TooltipPanel`, `VScrollBar` and `HScrollBar` finds
+nothing, 2026-09-23. (Corrected 2026-09-23: this line used to call the eighth
+milestone "superseded by another route", which contradicted the table and the
+group total below.) The document still reads as an open plan and should be
+closed out.
 
 | ID | Milestone | Status | Evidence |
 |---|---|---|---|
@@ -1299,27 +1359,33 @@ outstanding.
 | GSS-4 | GUI decluttering pass — target information architecture (`NAV_GROUPS`: WORLD / CIVILIZATION / CARTOGRAPHY / EXPLORE) | declined (superseded) | The IA that shipped is three `DOMAINS` (WORLD/CIVIL/CARTO) over a ten-node rail tree, by owner ruling 2026-08-20 and rebuilt 2026-08-31. **No `NAV_GROUPS`, `NAV_SUBJECT_HINTS` or EXPLORE group exists anywhere in `godot-project/`** |
 
 **Group total: 4 — 4 declined (superseded).**
-This document's header still asserts *"UI work is now on hold entirely (owner,
-2026-08-18)"*. That hold was **lifted later the same day**. This is the third
-copy of that stale sentence the project has found — see the record defects below.
+This document's header **no longer** asserts *"UI work is now on hold entirely
+(owner, 2026-08-18)"*; that hold was lifted later the same day. Corrected
+2026-09-23: this paragraph said the header still carried the sentence, but it
+was removed on 2026-09-01 in `fd9de7c`. Checked with `git show`: one
+occurrence of "on hold" in `GUI_SHELL_SCOPE.md` at `fd9de7c^`, none at `fd9de7c`,
+and none today. The header now opens with a **SUPERSEDED** notice pointing
+here.
 
 ### Export · `EXPORT_SCOPE.md`
 
-Five milestones, **all shelved by the owner on 2026-08-25**. The document is
-findings only; nothing here is a gap in the ordinary sense.
+Five milestones. **Shelved by the owner 2026-08-25, un-shelved by ruling 15
+on 2026-09-06, and resumed by Ruling AP on 2026-09-23** (corrected 2026-09-23:
+this section said all five were still shelved and unbuilt, which had been false
+since E1 landed on 2026-09-22). Re-verified at the symbols 2026-09-23.
 
 | ID | Milestone | Status | Evidence |
 |---|---|---|---|
-| EXP-E1 | E1 — the banded terrain renderer (`ExportBandPlan`, `apply_local_contrast` / `build_grade_influence` splits, `tests/export_bands.rs`) | shelved / not started | The prototype was written, **measured byte-identical at five band heights**, and then deliberately reverted; nothing of it is in the tree. `grep ExportBandPlan\|BandWriter` across `crates/` → **0 hits**; no `tests/export_bands.rs`. `export_raster.rs` still reads `const BAKE_WIDTHS: [i64; 3] = [2048, 4096, 8192];` and still refuses anything outside it |
-| EXP-E2 | E2 — the streaming writer (PNG first, BigTIFF second, band-in / file-out) | shelved / not started | §6.2's `BandWriter` sketch was never compiled or run; no `tiff` dependency is referenced from any crate source. `export_raster_png` still renders once into RAM |
-| EXP-E3 | E3 — the options struct (one dictionary: width, format, style override, content set, settlement tier) | shelved / not started | `export_raster_png(&self, path: GString, width: i64, tiled: bool)` — three positional parameters, no options dictionary; `export_raster_estimate(width)` reports peak memory **and, since ruling 15, a measured-model file-size projection** (`FILE_BYTES_AT_GRID_WIDTH`/`FILE_BYTES_UPSAMPLE_DECAY`, fitted to five real exports and within 4.0% on its probe) -- but still no *per-format* estimate, since PNG is now the only format (ruling 26) |
-| EXP-E4 | E4 — the overlay session (cross-frame begin / band / composite / write / finish) | shelved / not started | `export_raster.rs` routes through `render::bake_rect` only; no `begin`/`finish` session `#[func]`s. `map_overlay.gd` still draws in camera space and is not reachable from any export path. **The one milestone with no reference behaviour to port against** — the reference's own bake draws terrain and nothing else — and §5's constraint stands: a synchronous `#[func]` cannot `await RenderingServer.frame_post_draw`, so it must be a GDScript-driven session |
-| EXP-E5 | E5 — the export dialog | shelved / blocked | Blocked on E3, which does not exist. `menus.gd` and `data_manager_window.gd` offer the raster export only — **2K/4K/8K/16K/32K since owner ruling 15 (2026-09-06)**, not 2K/4K/8K; no `export_raster_*` call site in `godot-project/shell/` passes anything beyond `(path, width, tiled)` |
+| EXP-E1 | E1 — the banded terrain renderer (`ExportBandPlan`, `apply_local_contrast` / `build_grade_influence` splits, `tests/export_bands.rs`) | done | `render.rs` — `ExportBandPlan`, `bake_export_band`; `crates/cartalith-godot/tests/export_bands.rs` present. `export_raster.rs`'s `BAKE_WIDTHS` is now `[2048, 4096, 8192, 16384, 32768]`. Landed `de3c95e` (2026-09-22) |
+| EXP-E2 | E2 — the streaming writer (PNG first, BigTIFF second, band-in / file-out) | done | `crates/cartalith-godot/src/export_stream.rs` pulls bands from `bake_export_band` and writes each before dropping it; PNG and BigTIFF (`tiff` crate). Landed `fc7db2b` (2026-09-23) |
+| EXP-E3 | E3 — the options struct (one dictionary: width, format, style override, content set, settlement tier) | done | `crates/cartalith-godot/src/export_options.rs`; `#[func]`s `export_image` and `export_image_estimate` in `export_raster.rs`. Landed `ce2c71d` (2026-09-23). No shell caller yet (that is E5) |
+| EXP-E4 | E4 — the overlay session (cross-frame begin / band / composite / write / finish) | partial | **Batch A of four landed** (`34db87f`, 2026-09-23): `export_session.rs` (`ExportSnapshot`, `ExportSessionCore`) and the `export_session_begin` / `_submit_tile` / `_finish` `#[func]`s in `export_raster.rs`, Rust core only. **Batches B-D are not built**, and no `.gd` file under `godot-project/shell/` calls any `export_session_*` (grep, 2026-09-23). Still **the one milestone with no reference behaviour to port against**. **Two owner questions remain open under Ruling AP**: E4's five scope questions (overlay content, label/road/river detail, which settlements, UI-freeze tolerance, river stroke vs bake) and the 32K size/codec trade-off. The second conflicts with ruling 26 (2026-09-06: PNG, "even if size balloons"), and a 32K PNG measures 213.9 MB (`EXPORT_SCOPE.md`). `OUTSTANDING_WORK.md` flags that for the owner |
+| EXP-E5 | E5 — the export dialog | not started | No `.gd` file under `godot-project/shell/` calls `export_image` or `export_session_*` (grep, 2026-09-23). `data_manager_window.gd` still drives the older `export_raster_png` path at 2K-32K (ruling 15) |
 
-**Group total: 5 — 5 shelved.**
-Un-shelving is **owner decision 17** and costs four things in order, listed in
-`OUTSTANDING_WORK.md` §5. Codec survey conclusion, kept because it is expensive
-to redo: WebP is eliminated at 16 383 px and JPEG XL at its AGPL encoder.
+**Group total: 5 — 3 done, 1 partial, 1 not started.**
+What is left, and what remains open for the owner, is `OUTSTANDING_WORK.md`
+§2.3's export row. Codec survey conclusion, kept because it is expensive to
+redo: WebP is eliminated at 16 383 px and JPEG XL at its AGPL encoder.
 
 ### Gap register · `GUI_GAP_REGISTER.md`
 
@@ -1362,48 +1428,56 @@ Neither is work until someone commits to it. Both are owner decisions (18 and
 
 ## Ledger totals
 
-**264 milestone rows across 29 subsystem groups**, counted from the tables
-above. Shares are rounded and do not sum to 100.
+**278 milestone rows across 30 subsystem groups**, recounted 2026-09-23 from
+the tables above. It was 264 across 29, and that figure had gone stale. Method:
+one script run classifying each row by the leading word of its Status cell,
+with `done*` counted inside `done`. Shares are rounded and do not sum to 100.
 
 | Status | Count | Share |
 |---|---:|---:|
-| **done** | 174 | 66 % |
-| **not started** | 41 | 16 % |
-| **declined** (deliberate, with the reason in code or a ruling) | 16 | 6 % |
-| **blocked** (a named blocker) | 13 | 5 % |
-| **partial** | 10 | 4 % |
-| **shelved** (owner, 2026-08-25 — all of `EXPORT_SCOPE.md`) | 5 | 2 % |
+| **done** (213, of which 7 are `done*`) | 213 | 77 % |
+| **not started** | 22 | 8 % |
+| **declined** (deliberate, with the reason in code or a ruling) | 17 | 6 % |
+| **partial** | 13 | 5 % |
 | **unverified** (not a code artefact) | 5 | 2 % |
+| **blocked** (a named blocker) | 4 | 1 % |
+| **other qualified statuses**, one each: MVP-OOS "4 of 5 shipped", UM-16 `ready`, CPU-6 "built, contrary to this document", GGR-RELIG "stale — corrected" | 4 | 1 % |
+| **shelved** | 0 | — |
 
-**Where the 41 not-started rows are.** Seven subsystems hold 33 of them; the
-other eight are singletons and pairs across Economy, Story planning, Android,
-the gap register and the two options kept open. **Journey Planner dropped out
-of this list 2026-09-01**: JP-QC4 (`jp_road_cells`/`ManualWay`) was its only
-not-started row and is now done, alongside JP-QC2 and JP-QC3 — see the Journey
-Planner ledger above.
+**What moved on 2026-09-23, beyond the day's builds.** A reconciliation pass
+corrected rows that had stayed wrong after their code landed:
+- GLI-D2, MEM-10, MEM-11, MEM-13, MEM-14 and MEM-15, from not started to done.
+- LM-7, from blocked to done.
+- MV-6, from partial to done.
+- EXP-E1 to E3 to done, EXP-E4 to partial and EXP-E5 to not started. All five
+  had read shelved.
+- RD-1 was already done, and the group header now says so.
+
+The same pass added three rows the ledger lacked: GLI-E (thermal erosion on
+the GPU), EC-10 (IN-13 trade) and the eight-row *LOD detail* group.
+
+**Where the 22 not-started rows are.**
 
 | Subsystem | Not started | Note |
 |---|---:|---|
-| Urban morphology | 7 | Milestones 8, 9, 10, 11, 13, 14, 15 — the largest block in the project |
-| Religion diffusion | 7 | RD-1…RD-7; the foundation shipped, nothing above it |
-| Memory optimisation | 6 | R4-R8 plus per-segment overlay culling — all small |
-| Markdown Vault | 3 | Map snapshot, project-scoped links, Android SAF — Compare view shipped 2026-09-01 |
+| Religion diffusion | 6 | RD-2…RD-7; the foundation and milestone 1 are built |
 | Sculpt live | 4 | L0 gates the rest; L3 is declined by design |
-| GUI replacement | 4 | Stages 3, 5, 6, 7 — **all unblocked** |
-| GPU layer integration | 2 | Both are the document's own named deferrals |
+| GUI replacement | 4 | Stages 3, 5, 6, 7 |
+| Android build and device | 2 | See that group |
+| Options kept open | 2 | Store distribution and WASM; neither is work until someone commits to it |
+| Markdown Vault | 1 | MV-4, the Android SAF provider (needs a device) |
+| Memory optimisation | 1 | MEM-12 (R6), ranked low on purpose |
+| Export | 1 | EXP-E5, the dialog |
+| Gap register | 1 | GGR-DS13 |
 
-**Where the 13 blocked rows are.** Seven of them trace to just three open owner
-decisions: conflict attachment (SP-2, SP-4, SP-5, LM-9), the viewshed budget
-(LM-7), and save compression (SF-5, SF-6 — **both answered 2026-09-23 by Ruling AJ**, SF-5 built and SF-6 declined, so the 13 above is two high until this paragraph is recounted). **Answering decision 1 alone unblocks
-three rows across two documents** — SP-4 directly, LM-9 which names SP-4 as its
-blocker, and SP-5 which needs two of SP-1…SP-4. The other six are blocked on
-a memory decision (EC-8), the era-table recalibration (MM-F2 — **answered 2026-09-23 by Ruling AI (c) and built**, uncommitted at this writing; one more off the 13), urban
-milestones 8-15 (UM-16), hardware (AND-10), an owner content decision
-(GGR-DS03) and a missing data path (GGR-RELIG). **JP-QC2 dropped off this list
-2026-09-01** — no longer blocked on `cartalith-engine` retention work it never
-actually needed; see the Journey Planner ledger above. **This whole paragraph is now stale past the point of layered corrections: SP-2, SP-3, SP-4, SP-5 and Landmark M9's Battlefield wiring are all built 2026-09-23** (the Story planning group and LM-9's own row above are current, updated the same day — don't trust this paragraph's counts, re-derive from the group tables instead).
+**Where the 4 blocked rows are.** EC-8 (a memory decision), AND-10 (hardware),
+LOD-D7 (owner question 6, an optional milestone) and GGR-DS03 (an owner content
+decision). The paragraph that used to stand here named thirteen blocked rows,
+most of them behind owner questions answered on 2026-09-06 or by Rulings AI,
+AJ, AO and AP on 2026-09-23. It had been flagged as "stale past the point of
+layered corrections" and is replaced rather than corrected again.
 
-**Read the `done` figure carefully.** 66 % of rows done is not 66 % of the
+**Read the `done` figure carefully.** 77 % of rows done is not 77 % of the
 project done — rows are not effort. Urban milestone 10 is one row and nine
 reference functions; "R7 — `road_dijkstra`'s discarded `prev`" is also one row.
 `OUTSTANDING_WORK.md` sizes every outstanding item; this table counts them.
@@ -1417,12 +1491,15 @@ and, where the milestone required reachability, a caller was opened.
 `PARITY_TESTING.md`'s
 golden suites are the actual correctness bar and there are **88
 `golden_parity_*.rs` files** in the workspace; whether they currently pass is
-not recorded here. One test is known intermittent —
+not recorded here. One test used to be known intermittent:
 `generate_terrain_gpu_path_is_deterministic_and_valid` in
-`cartalith-engine/src/lib.rs` fails roughly one run in three under full-workspace
-parallel load, by about 1 ulp; whether an `assert_eq!` on a whole f32 field is
-the right bar for a path `DECISIONS.md` §7a holds only to principled equivalence
-is an open owner decision, not a result.
+`cartalith-engine/src/lib.rs` failed roughly one run in three under
+full-workspace parallel load, by about 1 ulp. It now compares the worst
+per-element deviation against `GPU_DETERMINISM_TOL = 1e-6`, `DECISIONS.md` §7a's
+principled-equivalence bar, instead of a whole-field `assert_eq!` (`803b725`,
+2026-08-25). `OUTSTANDING_WORK.md` confirmed that on 2026-09-22 and closed the
+row. Corrected 2026-09-23: this paragraph still called it an open owner
+decision.
 
 ---
 
@@ -1473,7 +1550,7 @@ This is the defect class that caused this rewrite. Five instances survive:
 | Document | What it still says | What the code says |
 |---|---|---|
 | `ROADMAP.md`, "Options kept open" | Landmark generation was imported and cataloged 2026-08-30 with "**no code written**" | `landmark.rs` is 3 730 lines with `generate()`, ten `#[func]`s, a `landmark_store` field on `WorldGen`, 49 glyphs and a CIVIL ▸ Landmarks panel — all landed the same day |
-| `LANDMARK_GENERATION_SCOPE.md` §0, §3 | "**No code was written for this pass.**" / "**Nothing below is started.**" | Seven of nine milestones are substantially built (LM-1…LM-6, LM-8) |
+| `LANDMARK_GENERATION_SCOPE.md` §0, §3 | "**No code was written for this pass.**" / "**Nothing below is started.**" | Seven of nine milestones are done and two are partial as of 2026-09-23 (see the landmark group) |
 | `ROADMAP.md`, "Not a phase: LOD" | "Revisit when a concrete need appears rather than building it speculatively" | A tiled deep-zoom pyramid with a persistent chunk atlas is shipping and is on screen — `pyramid.rs`, `atlas.rs`, `lod_bridge.rs` (783 lines), the `viewport_host.gd` scheduler |
 | `CPU_MULTITHREADING_SCOPE.md` | "`cartalith-gpu` currently only ever requests a single `PowerPreference::HighPerformance` adapter … the integrated GPU is never enumerated or used at all, for anything" | `multi.rs::enumerate_devices()` walks every adapter and `GpuDeviceSet` opens more than one |
 | `GPU_LAYER_INTEGRATION_SCOPE.md` m6 | `use_gpu` "stays off by default and unexposed in the UI"; "generating a new map today still runs on CPU by construction" | `engine_bridge.gd` does `param_set("use_gpu", true)` in `_ready()`; `Preferences ▸ GPU acceleration` ships with `GPU_TOGGLE_TIP` |
@@ -1482,12 +1559,16 @@ This is the defect class that caused this rewrite. Five instances survive:
 
 The UI hold called by the owner on **2026-08-18 was lifted later the same day**.
 `CLAUDE.md` carried the stale version until 2026-08-23, when `PARITY_AUDIT.md`
-caught it. Two more copies are still in the tree and are cited as live blockers:
-`GUI_SHELL_SCOPE.md`'s header ("UI work is now on hold entirely"), and
-`UNIFIED_TOOL_PLAN.md` / `STRANDED_TOOLS.md` ("all UI work is on hold"). Three
-scope-document milestone entries rest their "not wired" verdict on it
-(PHASE2 m20, ECONOMY's `civ_culture_terrain_fit`, TERRAIN_APPEARANCE m1) and all
-three are wrong in code.
+caught it. **Both later copies are gone** (corrected 2026-09-23: this section
+said they were still in the tree). `GUI_SHELL_SCOPE.md`'s header ("UI work is
+now on hold entirely") and `UNIFIED_TOOL_PLAN.md`'s "all UI work is on hold"
+were both removed on 2026-09-01 in `fd9de7c`, verified by `git show` before and
+after that commit. `STRANDED_TOOLS.md` never carried the phrase
+(`git log -S "on hold"` on it is empty). Three scope-document milestone entries
+were recorded as resting their "not wired" verdict on the hold (PHASE2 m20,
+ECONOMY's `civ_culture_terrain_fit`, TERRAIN_APPEARANCE m1); all three are wrong
+in code, and whether their own prose was corrected was not re-checked in this
+pass.
 
 ### One shell string that used to lie to the user
 
@@ -1558,7 +1639,9 @@ Small, but this is the document set that exists because countable claims drift.
   the running total; see the Tool system and GUI feature parity rows above for
   two of the closures) — 23 rows remain open.
 - `LOD_TILING_BASE_SCOPE.md` records 24 unit tests and one dependent crate;
-  there are **144** tests across eight modules and **five** external dependents.
+  there were **144** tests across eight modules and **five** external dependents
+  on 2026-08-31, before `TiledField`/`QuadTree` and their 16 tests were retired
+  on 2026-09-22 (`5c99cc9`).
 - `CPU_MULTITHREADING_SCOPE.md`'s rayon census is four crates stale — see the
   re-measured figures in that group.
 - `ANDROID_BUILD_SCOPE.md` says "~100" probe scenes; a 2026-08-25 audit counted

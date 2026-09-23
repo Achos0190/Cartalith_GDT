@@ -18,7 +18,7 @@ does"; check separately whether the port already does it.
 | | |
 |---|---|
 | Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
-| Covered by this document | **v2.11 → v2.65** |
+| Covered by this document | **v2.11 → v2.73** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
 than anything else in this document:

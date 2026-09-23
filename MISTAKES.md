@@ -89,7 +89,7 @@ its rule before you start.
 | **Write a correction** | **The correction is new prose and can ship its own false clause.** A note rewritten to fix a stale claim said `_foodshed_probe.gd` *"drives all four of its branches"* — written in the same edit that gave the function a **fifth** branch, which that probe does not reach. A doc citation corrected in the same batch named `_show_project_stats()`, a symbol that exists nowhere in the project | Re-read a correction as if someone else wrote it, and grep every symbol it names — including the ones you just added |
 | **Dash a field with a reason** | **The reason is a claim and gets verified like any other.** A batch that minted zero fake *values* shipped three fake *causes*: a user-visible tooltip said `detectRiverCrossings is unported` (it is ported, runs in the pipeline, has tests — the gap was an adapter field one layer nearer); a chip said `no binding reports how many` (the binding exists, only its GDScript forwarder is missing); and two dashed states were each given **the other one's** reason. **A wrong reason is worse than none** — it reads as freshly checked and it routes the next brief at a whole subsystem | Open the symbol you are about to say does not exist. Write what is missing at the layer it is actually missing from. For a two-branch dash, exercise **both** branches — a probe that only walks the live path cannot see an inversion |
 | **Carry a rule from one variant of a design to another** | Open the other variant's **drawing**. A brief told a verifier "the destructive action must be text-only and not the rightmost" — the approved artboard's variant B draws it filled and rightmost, because B has no safe action for the rule to be relative to. A verifier following that literally would have failed a lane for building the approved design | Scope the rule to the condition that makes it true, in the design itself. Where two variants of one artboard disagree, the artboard is wrong and gets fixed before the code does |
-| **Choose which preflight rows to put in a brief** | Scan the table against the batch's **verbs**, not from memory. 7 of 55 rows were inlined by recall; four that matched exactly what the lanes were about to do were missing — change behaviour, grep `func <name>` first, change a widget's ink, replacing→appended context. One of them then bit the main loop personally in the same session | Read the left column top to bottom against the batch's own scope. It is one screen |
+| **Choose which preflight rows to put in a brief** | Scan the table against the batch's **verbs**, not from memory. 7 of 55 rows were inlined by recall; four that matched exactly what the lanes were about to do were missing — change behaviour, grep `func <name>` first, change a widget's ink, replacing→appended context. One of them then bit the main loop personally in the same session | Read the left column top to bottom against the batch's own scope. It was one screen at 55 rows; it is 186 rows now (counted 2026-09-23 as the `\| **` lines between this table's heading and *Why each rule exists*), so read the left column only, but all of it |
 | **Re-run the parse check after EVERY edit, not once per file** | A probe edited twice parse-checked clean after the first edit and shipped a duplicate `var` from the second. A failed script load makes `godot --headless` **hang** rather than exit, so it reads as a slow probe, not a broken one — two timeouts were spent before the output was captured | `--check-only --script` after the last edit to a file, always. If a probe that used to finish in seconds hangs, suspect a parse error first and capture stdout |
 | **Cite two examples as agreeing** | Open the **second** one. A new header quoted the asset-pack inspector *and* the Data manager's RECENT RUNS block and said *"Both settle one thing"* — RECENT RUNS settles the opposite (parent `#6f7478`, value overridden to `#8d9296`, so the identity is the **dimmer** ink). The code change was right for the first reason alone; the second example was decoration that made it false | Quote both, in full, with line numbers. If they disagree, say the canvas is split and name what actually breaks the tie |
 | **Quote a count of call sites, instances or files** | Measure it in the same edit that writes it, and paste the command. A comment shipped *"its 94 call sites across the shell"*; the real figure is **189 code call sites in 18 files**. It was an understatement, so the argument held anyway — which is exactly why nobody checked | `grep -rn 'Symbol(' dir/ \| grep -v ':[0-9]*:[[:space:]]*#' \| wc -l`, then write that number and the date |
@@ -108,8 +108,6 @@ its rule before you start.
 | **Repeat a design document's dashed field into a brief** | **Re-measure the dash's reason, not just the dash.** A brief told a lane *"there is no log file, so a log-tail line is dashed — do not invent one"*, taking the canvas's word. There is one: Godot enables file logging by default on desktop, `user://logs/godot.log` exists and rotates five deep, and a probe's unique marker was read back out of it the same run. **Keeping the dash would have shipped a false reason** | A dash is a claim about the code, so it expires like any other. Open the symbol before repeating it, and say in the brief that the lane may overturn it |
 | **Quote `.dll` and `.rs` mtimes in a report** | **Re-stat them at the END of your run, not when you looked.** A lane stated *"dll 16:08:10, atlas.rs 16:03:43"* truthfully and then edited `atlas.rs` again at 16:10:23, so the library shipped older than the fix and every Godot-side measurement after it was unattributable. The verifier caught it by re-stating rather than reading the claim | State both mtimes as your last action, after the final edit. If the `.dll` is older, rebuild and say you did |
 | **Commit a "clean" subset of files while a shared file stays uncommitted** | **A file split across two commits can leave an intermediate commit that does not build, even when the final working tree is fine.** Two lanes shared `landmark.rs`; one lane's commit shipped `lib.rs` calling `mark_icon_committed()` while `landmark.rs`, where that method is defined, stayed uncommitted (the other lane was still using it). `HEAD` did not compile until the second commit landed minutes later — a real, if brief, broken point in history, not just a working-tree inconvenience | `cargo build` (or `--check-only` for `.gd`) against **exactly what `git commit` is about to write** — stage the files, `git stash --keep-index` the rest, build, then restore — before pushing a commit that calls into a file left for later |
-
----
 | **Ask a lane to walk a touch floor** | **Say TARGET, not height.** A brief asked for "the laid heights" of a row. Every height was already 44 px; **both real defects were on the WIDTH axis** — a transport square at 36 px and a collapse chevron at **7 px**. A height-only walk executed literally would have reported the row green and shipped a 7 px finger target | Phrase it as "every tappable control's laid size, both axes, against the floor". A floor is a floor on the target, not on its taller axis |
 | **Run a probe `--headless` and report its error count** | **Godot writes `SCRIPT ERROR` to stderr, and `--headless` manufactures its own.** A lane reported *"0 SCRIPT ERROR"*; the same command with stderr captured showed **22**, all `Cannot call method 'save_png' on a null value` because `get_texture().get_image()` is null under the dummy driver. Identical before its edit, so it hid no regression — but the number was wrong | Capture stderr explicitly, and **run a probe in the mode its own header prescribes**. Windowed, that probe is genuinely 0 |
 | **Report a defect as density-specific** | **Check the other density before naming one.** A lane called a small-font violation "phone-density-only" because its 1440×3168 leg looked clean. Re-tallied: **15 of 23 screens at 1440 and 19 of 23 at 1080** — the label is a fixed `fs=10.0` that does not scale, so it is not density-specific at all. Handing it on as 1080-only would send the next lane looking at `phone_scale` | Tally per resolution before writing the word "only", and name the mechanism (a fixed size scales with nothing) rather than the symptom |
@@ -143,8 +141,6 @@ its rule before you start.
 | **Plan a phone probe that must reach a DIALOG** | **You cannot.** A synthetic tap cannot reach a control inside an embedded `AcceptDialog` sub-window at `content_scale_factor` 2.62 — canvas coords, physical coords and `get_final_transform()` all tried, `gui_get_hovered_control()` stays null. Taps into the MAIN viewport route normally | So the project-picker and New World legs are **provable on glass only**. A probe that falls back to pressing by label is testing the handler, not the touch path |
 | **State how many checks a probe runs** | **Print the count; never assert it in prose.** A doc said 26 where the probe ran 29, and a count that disagrees with its own output is the first thing a later reader distrusts | Increment in the `_check()` helper and put it in the RESULT line, so the output carries the truth and no header can drift from it |
 | **Report that you could not reach something** | **"I could not reach it" is an ABSENCE CLAIM and needs the same scepticism as "it does not exist."** A lane called six right-dock sections unreachable; the verifier reached **five of them in one pass with no shell change** | Say what you tried and what mechanism you assumed. That lane looked for a context REPLACEMENT where the file’s own header documents sections as **APPENDED** |
-
-## Why each rule exists
 | **Verify anything phone-shaped** | **`--force-touch` on the desktop is not the phone, and `pressed.emit()` is not a finger.** A whole session of probes reported a healthy phone shell; the owner picked up the APK and could not find the generation menu or use the journey planner within minutes. Synthesised input is injected **downstream** of `MOUSE_FILTER`, scrims, gesture handlers and hit areas, so a control unreachable by touch still passes | **See with `adb exec-out screencap`, act with `adb shell input tap/swipe`** at coordinates read off that image, and navigate from launch tapping only what is visible. Desktop probes are for regression, never for reachability |
 | **Claim a screen "works" on a phone** | **Separate "it renders", "it can be operated" and "it can be FOUND".** Probes proved the journey planner fits a 1080 px screen and clears the tap floor; the owner still could not use it. Those are three claims and only the first two were ever tested — reachability was never tested at all | State which of the three you measured. A route nobody can find is a defect even when every control behind it is perfect |
 | **Find a screen that is mostly blank** | **Ask what is IN it before ruling on how big it is.** A lane measured a phone sheet at 1 003 rows holding one horizontal strip — 933 blank empty, 912 blank *with a world* — and deferred it because the detent fraction is transcribed from the prototype and 'changing a transcribed detent needs an owner ruling'. Right measurement, wrong conclusion: **a correct detent over empty content is still an empty screen**, and the owner hit exactly that defect days later | When blankness survives the state change that should fill it (912 vs 933 with and without a world), the container is not the fault. Report what the screen is missing, not its dimensions |
@@ -190,7 +186,7 @@ its rule before you start.
 | **Fix a stale cache or an invalidation bug** | **Enumerate every path that writes the thing the cache depends on before fixing one.** 2026-09-13: a tile-cache fix covered one of three sculpt-commit buttons and none of undo, redo, revert, erode or the paint commits — the row named one path and the brief did not ask for the rest | grep every writer (here: every `map_view.texture =`) and probe each |
 | **Brief a layout change from a spec document’s summary** | **Open the canvas markup the summary cites and name the element.** wf49 briefed *"lay the sliders out as the canvas’s 2-column grid"* from `TABLET_UI_SPEC.md` §2.4; the canvas’s grid (`st.grid`) holds toggle/segment cells and its sliders are full-width two-line cells (`st.sliders`). The lane hit the gate the misreading created and built past it | Quote the canvas lines in the brief, not the spec’s paraphrase |
 | **Print from a Windows Python script** | **Print ASCII-safe, or set `PYTHONIOENCODING=utf-8`.** A filing script saved its first file and then crashed printing `▸` to the cp1252 console, leaving three files unwritten behind a "refuses to run twice" guard. **Put every print after every save, or make prints unable to fail** |
-| **Put a factual premise into a question for the owner** | **Verify it at the symbol first — the owner rules on the premise you hand them.** A question stated that star forts never generate because settlements carry no `fortified` trait; the Place Editor writes that trait, the bridge reads it, the engine grants the fort, and only the drawing was missing. **The premise was a stale code comment, repeated unchecked** — and a question is the worst place to repeat one, because its answer becomes a ruling |
+| **Put a question, or a factual premise, to the owner** | **Verify the premise at the symbol first — the owner rules on the premise you hand them. And search `LARGE_ITEM_RULINGS.md` for the question itself: a scope document's "open questions" list is not evidence that the question is open.** ×2. A question stated that star forts never generate because settlements carry no `fortified` trait; the Place Editor writes that trait, the bridge reads it, the engine grants the fort, and only the drawing was missing. **The premise was a stale code comment, repeated unchecked** — and a question is the worst place to repeat one, because its answer becomes a ruling. **2026-09-23:** Ruling AP re-asked landmark questions that `LANDMARK_GENERATION_SCOPE.md` §4 still listed as open. They had been ruled on 2026-09-06 (rulings 10, 12, 13, 16) or earlier the same day (the crate home). The ruling's text also calls work new that was built weeks earlier | Grep `LARGE_ITEM_RULINGS.md` for the question's subject, then open the symbol the answer would have built. Quote both in the question, or state that neither exists |
 | **Say something is OCCLUDING something else** | **Check whether the two edges merely COINCIDE.** A sheet’s clip boundary and the nav bar’s top edge both derived from `_phone_nav_reserve()` and landed on the same y — which reads as the bar covering the chip when the bar draws nothing there. **Sample a pixel at the covering element before and after; if it does not change, it is not on top** |
 | **Assume a device-only defect needs the device** | **Try the desktop composition first.** The same bug reproduced windowed at 1080×2340 `--force-touch` within **3 px** of the device measurement — and that agreement is also the evidence that the phone probes model the device at all |
 | **Capture a sheet, drawer or anything with detents** | **Name the detent in the finding, and put it back and re-measure.** A chip row clipped by the nav bar is fully visible one detent up — a fix verified in the wrong state looks correct and changes nothing |
@@ -204,8 +200,18 @@ its rule before you start.
 | **Strip comments and strings to find call sites** | **Strings FIRST (triple-quoted, then single-line), then comments.** A `#` inside a string literal otherwise orphans its closing quote, which pairs with the next quote anywhere later and eats every newline between — one file measured 299 lines → 62, silently swallowing real call sites. **Self-check by line count before trusting the output** |
 | **Assert that a converted value CHANGED** | **Inequality plus a suffix is satisfied by relabelling.** Reconstruct the expected NUMBER from the converter itself (`DccUnits.to_unit()`), never from a typed constant — a mutant that kept the km value and appended `mi` passed all three of the probe’s original checks |
 | **Fix a formatting inconsistency you just exposed** | **Check which side is non-conformant before picking one.** Two styles side by side usually means one was ALREADY wrong, and `design/**.dc.html` decides which, not taste and not majority |
+| **Chase an engine "bug" reported by a probe's own scan logic** | **Verify the probe's read against the API contract before re-testing the engine.** A probe scanning 26 000 cells for land via `d.has("water")` reported this session's showcase world (2026-09-20) as 100% ocean. That survived: a direct `world_gen.sample_cell()` call, a rebuild of a genuinely-stale `target/debug/cartalith_godot.dll`, a standalone `cartalith_engine::generate_terrain()` repro (65% land), a standalone `cartalith_civ::build_water_bodies()` repro (sane classification), and temporary `godot_print!` diagnostics inside `absorb()` proving `civ.water_bodies` was already correct at land(0)=1 485 988/ocean(1)=881 766/lake(2)=317 174 — before the actual defect (`has("water")` instead of checking the value) was found in the 26 000-point scan itself. Every stage the probe blamed was innocent | When a "generation is broken" symptom traces to one Godot-side probe and the engine crate tests clean in isolation, suspect the probe's read of the API before re-deriving the pipeline from scratch |
+| **Guard a fixture on several conditions before trusting it** | **Count the INTERSECTION the guards are meant to certify, never each population separately.** LOD-D4's glaciated test fixture (2026-09-21) put flow in the valley and altitude on the ridge flanks, so the two conditions `build_glacier_potential` needs never met on the same cell — it returned zero gated cells while three separately-counted guards (enough flow cells exist; enough cold cells exist; enough high cells exist) all passed. The same shape as the silently-empty-golden-output trap this file already tracks, one level up: not an empty result hidden by a swallowed exception, but a healthy-looking guard block hidden behind three true propositions that are never true together | Compute the actual gated population (the AND, not three separate counts) and assert it non-empty, the same discipline already applied to golden output |
+| **Measure "the picture" from a tile render without accounting for the frame** | **`apply_border`'s opaque margin (`max(0.014·gw, 10)` cells) is part of every tile render — a metrics probe placed near an edge is comparing content against frame.** LOD-D4's `the_metrics_agree_with_the_picture` test (2026-09-21) reported 89.3% agreement between a rendered tile and its own metrics and read as a real disagreement; the tile sat at `y0 = 8`, inside the 10-cell border band, so 424 pixels of parchment frame counted as mismatched content on both sides of the comparison | Place a metrics probe's sample tile outside the border margin, or exclude the margin explicitly, before trusting a "disagreement" between a render and its own metrics |
+| **Declare a list, a backlog or a sweep exhausted** | **Read it end to end once before saying so.** Three section-by-section surveys of `OUTSTANDING_WORK.md` (2026-09-23) each concluded "no decision-free work left"; one start-to-finish read found two buildable rows all three had missed, and both were then built (`b19b9ea`, `b5aff17`). A partial sweep's hit rate falls as it goes, and a falling hit rate looks exactly like an emptying list. See the 2026-09-23 entry below | Name the method in the claim ("read §1-§4 row by row"), not "surveyed". An exhaustion claim built from sampled sections is a claim about those sections only |
+| **Act on a summary's bucket for a row** ("ready", "no decision needed") | **Re-read the row's full text at the row first.** A fast classification pass (2026-09-23) put multi-ridge orogeny and IN-13's caravans in "no decision needed". The first row's own text said it *"does not authorize building it"*. The second recorded two unchosen options and an unasked sea-lane question. Both went to the owner as Ruling AP instead. This is the ×16 instance of the backlog-row entry below, one level up | Quote the row's own gating sentence beside the bucket, or say the row has none |
+| **Read a reference comment about what a later version did NOT change** | **It is not evidence of what the earlier version did. Open the earlier code.** v1.05's *"The BASE per-cell map loop is untouched"* was read as "the base draws no lakes". In fact v0.103's base-loop lake stamp was simply never ported, and the gap surfaced as lakes flickering on zoom (fixed `13062e5`). See the 2026-09-23 entry below | State what the earlier version's own code does for the thing the comment says was left alone, with its line in the frozen reference |
+| **Cull anything inside a Godot `_draw()`** | **Godot does not re-run `_draw()` when an ANCESTOR moves.** The map overlay culled against a rect computed once per `_draw()`, and only a zoom queued a redraw, so a pan kept the old frame's cull. Rivers and roads went missing on revealed ground and towns never requested their layouts (fixed `13062e5`, `ViewportHost._update_lod()`). See the 2026-09-23 entry below | Pan at unchanged zoom, then count the culled content on the newly revealed ground. It must appear with no other input |
+| **Declare a class of documents cleaned** ("all design docs", "all scope docs") | **Enumerate the class from `CLAUDE.md`'s routing table, not from a filename pattern.** "Design-document cleanup is complete" (2026-09-23) rested on a filename grep that missed design/spec documents the routing table lists, such as `ANDROID_UI_SPEC.md` and `TABLET_UI_SPEC.md` (eight, by the orchestrator's own recount). Merged into the "Declaring green" entry below | Paste the enumerated list and where it came from into the report. A class with no stated inventory has no completeness claim |
 
-### [2026-09-03] Believing a backlog row instead of re-opening it ×15
+## Why each rule exists
+
+### [2026-09-03] Believing a backlog row instead of re-opening it ×16
 
 **Mistake:** Work was scheduled, and briefs written, against rows already done or
 whose blocker had lifted. Seven described built work (the manual-icon tool's
@@ -218,12 +224,27 @@ does not exist; it is 945 lines.
 
 **What this changes:** a lane told to re-open a row before acting returns "already done, here is the evidence" often enough that it is a **first-class outcome, not a failed task** — and every one of these four still produced real work, because guarding built-but-unguarded code found defects (`ROLE["h_rail_head"]`, a golden covering 12 of 13 stage modules).
 
+**×16, 2026-09-23, one level up: a summary of the rows stood in for the rows.** A
+fast classification pass sorted `OUTSTANDING_WORK.md` into buckets and put two
+rows in "no decision needed": multi-ridge orogenic belts and IN-13's caravans.
+Each row's own full text said otherwise. The orogeny row ended *"this row only
+removes the 'maybe never shipped' blocker, it does not authorize building it"*.
+The IN-13 row recorded caravans as *"deliberately deferred"*, with two options
+nobody had chosen and a sea-lane question *"not yet asked"*. Both were caught
+before a build was dispatched and went to the owner in Ruling AP. The failure
+is the same one this entry has always recorded, with one more document in the
+chain: the row stood in for the code, and now the summary stood in for the row.
+**A bucket is a compression, and compressing a row drops its gates first**,
+because a gate is usually one qualifying sentence at the end.
+
 **Root cause:** Treating `OUTSTANDING_WORK.md` as state rather than as a router.
 
 **Prevention:** Re-open at the cited symbol before acting. Find the symbol, not
-the line — line numbers drift daily here.
+the line — line numbers drift daily here. When the thing in hand is a summary
+of rows, re-read each row's full text before acting on the summary's bucket.
 
-**Verification:** The report names the symbol opened, not the row's text.
+**Verification:** The report names the symbol opened, not the row's text. For
+a bucketed row, it quotes the row's own gating sentence or says there is none.
 
 ---
 
@@ -313,23 +334,35 @@ restated the code instead of pinning it.
 
 ---
 
-### [2026-09-02] Declaring green without both checks
+### [2026-09-02] Declaring green without both checks ×3
 
 **Mistake:** (a) Commit `0f0fe55` used an undeclared `_label_cull` in a `.gd`
 file: `cargo test` said **2 821 passed, 0 failed** while `shell/app.gd` — the
 application root — would not compile and the app could not boot. (b) After
 flipping a default, verified five crates, declared green, and had broken **16
-`cartalith-civ` golden suites**.
+`cartalith-civ` golden suites**. (c) **2026-09-23, the orchestrator, about
+documents rather than code.** It reported *"design-document cleanup is
+complete"* after enumerating the design documents with a filename grep. The
+grep missed design and spec documents that `CLAUDE.md`'s own routing table
+lists, among them `ANDROID_UI_SPEC.md` and `TABLET_UI_SPEC.md` (eight in all,
+by the orchestrator's recount). The claim was one of completeness, and the
+enumeration behind it covered part of the class.
 
 **Root cause:** The Rust suite and the Godot shell are separate compilation
 domains, and only one is in CI. Blast radius was reasoned about, not measured.
+(c) has the same shape in a different domain: "done" was declared over a set
+whose members were guessed from a naming pattern, not read from the place that
+defines the set.
 
 **Prevention:** `cargo test --workspace` **and** parse-check every `.gd` you
 touched plus `shell/app.gd`. Ship divergence behind the app-boundary pattern so
-goldens stay bit-identical.
+goldens stay bit-identical. For a documentation pass, enumerate the class from
+`CLAUDE.md`'s routing table (or the index that defines it), not a filename
+pattern.
 
 **Verification:** Paste the summed total line; grade `.gd` only on stderr
 containing "Parse Error" / "Failed to load script" — the exit code is unreliable.
+For a document class, paste the enumerated list and its source into the report.
 
 ---
 
@@ -1221,7 +1254,7 @@ cannot be trusted; that is right about REACHABILITY — a probe calling a handle
 proves nothing about a finger — and this is evidence it is **not** right about
 geometry. **Distinguish the two before dismissing a desktop measurement.**
 
-### [2026-09-12] I handed the owner a false premise, and they ruled on it
+### [2026-09-12] I handed the owner a false premise, and they ruled on it ×2
 
 Comparing the owner’s town plan against the urban generator, I wrote that star
 forts never appear because this port’s settlements carry no `fortified` trait. I
@@ -1254,6 +1287,30 @@ to put an unverified fact, because the answer is recorded as a ruling.** Check
 every premise in a question’s text and option descriptions at the symbol before
 asking it.
 
+**×2, 2026-09-23: the owner was asked questions they had already answered.**
+The owner-decision backlog behind Ruling AP was compiled partly from
+`LANDMARK_GENERATION_SCOPE.md` §4, which still reads *"Posed, not answered"*
+over its landmark questions. Four of them had been ruled on 2026-09-06:
+persistence (ruling 10, PERSIST), the parity contract (ruling 12, EXEMPT),
+vault linking (ruling 13, YES) and the viewshed budget (ruling 16). The fifth,
+the crate home, had been re-ruled earlier on 2026-09-23. All of them went to the
+owner again, and the answers matched. The recorded text of Ruling AP then
+repeated the stale premise as new work: *"Reverses the assumption every landmark
+row to date has shipped under ('regenerate on load, no save-tree slot'). Real
+work: a save-format addition (an `entities/landmarks.json`-shaped slot…)"* and
+*"A new `cartalith_vault::EntityKind` variant"*. Both have existed since
+2026-09-06: `entities/landmarks.json` carries the landmark settings and the last
+run (`project_bridge.rs::LandmarksDoc`), and `EntityKind::Landmark` landed in
+`45630cc`. The only cost was the owner's time and a ruling record that
+overstates its own consequence. The same shape could have produced a
+contradictory second ruling.
+
+**The rule this adds:** before putting any question to the owner, search
+`LARGE_ITEM_RULINGS.md` for its subject. A scope document's "open questions"
+list is a claim about the day it was written, and scope documents do not track
+(`CLAUDE.md`). Also open the symbol the answer would have built, because a
+ruling that was given is usually a ruling that was built on.
+
 ### [2026-09-12] The second lane in five days to argue past a gate its brief named
 
 The brief for the phone-sheet fix offered two options and named the obstacle for
@@ -1280,6 +1337,76 @@ required field of the lane’s structured report — named, and marked HIT or NO
 HIT with the number that decided it — so passing a gate needs a false statement
 rather than a quiet reinterpretation, and the verifier has a line to check.
 
-| **Chase an engine "bug" reported by a probe's own scan logic** | **Verify the probe's read against the API contract before re-testing the engine.** A probe scanning 26 000 cells for land via `d.has("water")` reported this session's showcase world (2026-09-20) as 100% ocean. That survived: a direct `world_gen.sample_cell()` call, a rebuild of a genuinely-stale `target/debug/cartalith_godot.dll`, a standalone `cartalith_engine::generate_terrain()` repro (65% land), a standalone `cartalith_civ::build_water_bodies()` repro (sane classification), and temporary `godot_print!` diagnostics inside `absorb()` proving `civ.water_bodies` was already correct at land(0)=1 485 988/ocean(1)=881 766/lake(2)=317 174 — before the actual defect (`has("water")` instead of checking the value) was found in the 26 000-point scan itself. Every stage the probe blamed was innocent | When a "generation is broken" symptom traces to one Godot-side probe and the engine crate tests clean in isolation, suspect the probe's read of the API before re-deriving the pipeline from scratch |
-| **Guard a fixture on several conditions before trusting it** | **Count the INTERSECTION the guards are meant to certify, never each population separately.** LOD-D4's glaciated test fixture (2026-09-21) put flow in the valley and altitude on the ridge flanks, so the two conditions `build_glacier_potential` needs never met on the same cell — it returned zero gated cells while three separately-counted guards (enough flow cells exist; enough cold cells exist; enough high cells exist) all passed. The same shape as the silently-empty-golden-output trap this file already tracks, one level up: not an empty result hidden by a swallowed exception, but a healthy-looking guard block hidden behind three true propositions that are never true together | Compute the actual gated population (the AND, not three separate counts) and assert it non-empty, the same discipline already applied to golden output |
-| **Measure "the picture" from a tile render without accounting for the frame** | **`apply_border`'s opaque margin (`max(0.014·gw, 10)` cells) is part of every tile render — a metrics probe placed near an edge is comparing content against frame.** LOD-D4's `the_metrics_agree_with_the_picture` test (2026-09-21) reported 89.3% agreement between a rendered tile and its own metrics and read as a real disagreement; the tile sat at `y0 = 8`, inside the 10-cell border band, so 424 pixels of parchment frame counted as mismatched content on both sides of the comparison | Place a metrics probe's sample tile outside the border margin, or exclude the margin explicitly, before trusting a "disagreement" between a render and its own metrics |
+### [2026-09-23] Partial sweeps converge on false negatives
+
+**Mistake:** Three separate section-by-section surveys of `OUTSTANDING_WORK.md`
+each concluded that no decision-free work was left. Each found fewer candidates
+than the one before, and that falling rate was read as the list running out.
+One start-to-finish read of every open row then found two real, buildable rows
+that all three had missed: Phone MORE's last sub-screen (`data-tiles`) and SP-2's
+journey-plan cache residual. Both were built the same evening (`b19b9ea`,
+`b5aff17`). The backlog's own count log recorded it at the time (commit
+`a71d911`).
+
+**Root cause:** A sweep that samples sections can only report on those
+sections. When passes overlap, each tends to revisit the same likely-looking
+sections, so the unread rows stay unread. The results look like convergence
+while the coverage stays where it was.
+
+**Prevention:** Before declaring a list exhausted, read it end to end once, row
+by row. Say which method the claim rests on.
+
+**Verification:** The claim names its method and range ("§1-§4, every row").
+A claim of "nothing left" without that is treated as a sample.
+
+### [2026-09-23] A reference comment about what a LATER version left alone was read as what the EARLIER version did
+
+**Mistake:** The reference's v1.05 tile-renderer block closes with *"The BASE
+per-cell map loop is untouched (default render identical)"*. The port read it
+as "the base map draws no lakes" and never gave the base screen texture an
+above-sea lake stamp. The LOD tiles drew those lakes and the base did not, so
+every tile that blended against the base faded lakes in and out, and the owner
+saw lakes flicker on zoom. The comment meant the opposite: v1.05 left the base
+loop's own v0.103 lake stamp alone. Fixed in `13062e5` with
+`RenderCtx::with_lakes` and a lake branch in `cell_color`. The corrected reading
+is now in `render.rs`'s tile-renderer header note.
+
+**Root cause:** A comment that says what a change did *not* touch is a claim
+about the diff, not about the thing it leaves in place. Reading it as a
+description of the earlier code turned a note about scope into an absence
+claim, and nobody opened the earlier code to check.
+
+**Prevention:** When a reference comment says a later version left something
+"untouched", open the earlier version's own code for that thing and port what
+it does.
+
+**Verification:** Name the earlier version's symbol and its line in the frozen
+reference, and say what it does, before recording any conclusion drawn from
+such a comment.
+
+### [2026-09-23] Godot does not re-run `_draw()` when an ancestor moves
+
+**Mistake:** `map_overlay.gd` culls rivers, ways and route runs (`_run_offscreen`,
+`_segment_chains`) and requests urban layouts against `_visible_local`, a rect
+computed once per `_draw()`. Only a zoom change queued a redraw
+(`set_camera_zoom`). A pan, a `move_view_to` or a reset at unchanged zoom moves
+the camera, which is an ancestor of the overlay, and Godot does not redraw a
+node when an ancestor's transform changes. The overlay kept the previous
+frame's cull. Rivers and roads were missing across newly revealed ground, and a
+town panned onto never requested its layout. It reached the owner as zoom no
+longer showing a settlement (`13062e5`'s message). Measured with `_owner5_probe.gd`: 0
+river/road pixels after a zoom-then-move, all of them back after an explicit
+redraw. Fixed in `13062e5` with one `overlay.queue_redraw()` in
+`ViewportHost._update_lod()`, which every camera move reaches.
+
+**Root cause:** A cull computed inside `_draw()` is only as fresh as the last
+`_draw()`. The redraw trigger was tied to the one input (zoom) its author was
+thinking about, not to every input the cull depends on. That is the
+"cover every input" preflight row again, in a Godot-specific form.
+
+**Prevention:** Anything culled in `_draw()` must redraw on every camera move
+(pan, zoom, programmatic moves, resets), not only on zoom. Put the redraw where
+every motion path converges.
+
+**Verification:** Pan at unchanged zoom and count the culled content on the
+newly revealed ground. It must be there without any other input.

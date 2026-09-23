@@ -2000,7 +2000,7 @@ Save layout** (§7.10 — all state is already in `DccShell`).
   only edits made were the five factual corrections in §4.
 - **`DCC_SHELL_SPEC.md`, `DCC_CONTROL_INDEX.md` and `design/` are untouched.**
   They are owner-supplied ground truth; this document cites them.
-- **`DCC_SHELL_SPEC.md`'s six header corrections are respected, not re-litigated.**
+- **`DCC_SHELL_SPEC.md`'s header corrections (three numbered, #1–#3, plus its other header notices) are respected, not re-litigated.**
   Every one of them (the sculpt commit prose, per-stage run, Brush shape/Stroke &
   grid/Actions, the sculpt global defaults, §12's text-symbol premise, the path
   note) appears here as a (C) or (D) with the correction cited, never as
