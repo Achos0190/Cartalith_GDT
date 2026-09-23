@@ -379,8 +379,35 @@ func _escape_action(force_disarm := false) -> void:
 		btn.button_pressed = false
 	arm_tool("inspect")
 
+## **The app idles.** `ANDROID_BUILD_SCOPE.md`'s power-draw row: on a OnePlus 12
+## the app redrew at an unbroken 60 fps with nothing on screen changing. Nothing
+## in the shell was animating -- Godot's default main loop simply draws every
+## iteration. Low-processor mode draws only when the RenderingServer reports a
+## change (a canvas or viewport command, a `queue_redraw()`, a shader parameter
+## write), and otherwise sleeps between iterations. `_idleredraw_probe.tscn`
+## measures both sides; run it rather than trusting a figure quoted here.
+##
+## `_process` still runs while idle, so every change-gated poll in the shell
+## (`tool_overlay.gd`'s zoom compare, the phone keyboard height, the generation
+## stage) still sees its change and its `queue_redraw()` still gets drawn. The
+## animated layers (`wind_fx_layer.gd`'s per-frame `queue_redraw()`,
+## `water_anim_layer.gd`'s per-frame `anim_time` write) are changes every frame,
+## so they keep running at full rate -- the same probe asserts both.
+##
+## **Only when this app owns the window.** Probes host the app in a
+## `SubViewport` set to `UPDATE_ALWAYS`, and that is NOT enough to keep frames
+## coming under low-processor mode: forced on for a hosted app, the probe's
+## `-- --hosted` check drew 0 frames in 290 iterations, so every probe awaiting
+## `RenderingServer.frame_post_draw` or capturing `get_texture()` would stall
+## or read a stale image. Gating on the parent keeps every probe exactly as it
+## was and keeps `project.godot` untouched.
+func _enable_idle_mode() -> void:
+	if get_parent() == get_tree().root:
+		OS.low_processor_usage_mode = true
+
 func _ready() -> void:
 	super._ready()
+	_enable_idle_mode()
 
 	bridge = EngineBridge.new()
 	bridge.name = "EngineBridge"
