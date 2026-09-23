@@ -188,14 +188,20 @@ worth nothing until at least two of them exist.
 
 ## 6. Open questions
 
-- **Grain.** A year is the Timeline's unit, but a journey takes days and a
-  battle takes hours. SP-2 needs sub-year positioning; whether that surfaces as
-  a real date or as a fraction of a year is unresolved.
-- **What a conflict is attached to.** Free geometry is simplest and matches
-  "draw things". Whether a conflict should also be able to *reference* a
-  settlement or a province — so that moving one moves the other — is a real
-  fork and is not decided here.
-- **Regenerate semantics.** A journey's route is a polyline in world space; a
-  regenerate changes the world under it. Whether journeys are invalidated,
-  re-snapped, or kept as-is with a staleness mark needs a ruling before SP-2
-  ships.
+- ~~**Grain.**~~ **RULED 2026-09-23, `LARGE_ITEM_RULINGS.md` Ruling AO: a real
+  calendar date, reusing the year/month/day Chronos already writes** (Ruling
+  AM) rather than a second date system — `chronos::Event`'s month/day are
+  parsed by the syntax but currently dropped by the reader (§5's "no finer
+  clock" rule, written for authored events, which don't need it; SP-2 does).
+  A specific 12-month, no-leap-year calendar (summing to 365 days, matching
+  the reference's own implicit assumption) still needs picking by whoever
+  builds this — not decided here. Not built yet.
+- ~~**What a conflict is attached to.**~~ **RULED 2026-09-23, Ruling AO: a
+  conflict can reference a settlement or a province** (not free-geometry-only)
+  — moving the place moves the conflict, and "what conflicts happened here"
+  becomes a real query. Not built yet.
+- ~~**Regenerate semantics.**~~ **RULED 2026-09-23, Ruling AO: re-snap onto the
+  new terrain.** Real added scope, disclosed: a re-snap must handle a stop
+  point that no longer exists and a route no longer geometrically valid — name
+  the edge-case behaviour explicitly when building this, don't assume the
+  happy path. Not built yet.
