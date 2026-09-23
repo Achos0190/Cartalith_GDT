@@ -1,7 +1,7 @@
 //! Golden-parity tests for `ECONOMY_SCOPE.md`'s last unstarted piece:
 //! `_civFactionAggregates` (reference HTML line 23575, v1.16, extended by
-//! v1.55's "Territory Fit"), its helper `_civFactionCapital` (23566), the
-//! `CIV_TAX_RATE`/`CIV_PRIMARY_SPECIALISATION` tables (23557/23553), and
+//! v1.55's "Territory Fit"), its helper `_civFactionCapital` (23560), the
+//! `CIV_TAX_RATE`/`CIV_PRIMARY_SPECIALISATION` tables (23553/23550), and
 //! `_civOceanDistField` (22450) which the terrain-mix coast axis needs.
 //! `_civCultureTerrainFit` (23748) is re-verified here **through** the real
 //! aggregate output rather than against hand-written maps -- that is the
