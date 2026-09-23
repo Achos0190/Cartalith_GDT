@@ -360,6 +360,11 @@ Build the mitigations rather than re-litigating — invalidation must be **loud*
 and stages are authored inputs and survive), and the Journey entity itself is not
 deleted; only its polyline is invalid.
 
+*Superseded 2026-09-23 by Ruling AO:* on regenerate a journey's route is
+**re-snapped** onto the new terrain, not invalidated (`journey_progress::resnap_journey`;
+AO's addendum gives the policy for a stop that no longer exists). AO re-ruled
+this without naming ruling 9; this note is the link.
+
 **10. Landmark persistence? → PERSIST** in `entities/landmarks.json`. Consistent
 with the recorded finding that research §25's state transitions cannot be
 recomputed. Needs a `SAVEFILE_COMPAT.md` entry and a format-version note.
@@ -1249,7 +1254,7 @@ Siting itself changes, not just the downstream render binding: a settlement only
 **Two consequences, both built into the reader (`cartalith_vault::chronos`):**
 
 - **Where in the note: anywhere, not inside the machine block.** §3's original wording ("inside the machine block") is superseded: the `CARTALITH:BEGIN/END` block is Cartalith-owned and replaced wholesale on every block write (`block::upsert`), so an author's event list inside it would be overwritten by the next export. The block is user content and lives outside it, like any other prose. `STORY_PLANNING_SCOPE.md` §3 corrected to match.
-- **Year precision only.** This port's clock is the Timeline's signed `i64` year and `STORY_PLANNING_SCOPE.md` §5 forbids a finer parallel clock, so `[1879-03-14]` is read as 1879; month/day/time are validated loosely and dropped. The note keeps them, so Obsidian still sees them.
+- **Year precision only.** This port's clock is the Timeline's signed `i64` year and `STORY_PLANNING_SCOPE.md` §5 forbids a finer parallel clock, so `[1879-03-14]` is read as 1879; month/day/time are validated loosely and dropped. The note keeps them, so Obsidian still sees them. *Superseded 2026-09-23 by Ruling AO's addendum:* month and day are now kept (`chronos::Event`'s `start_md`/`end_md: Option<MonthDay>`, a fixed 365-day calendar, `MONTH_DAYS`); only time of day is still dropped.
 
 **Read-only, and nothing fails.** Cartalith reads the block and never writes one; the author edits the note in Obsidian or in the Vault window's existing editor. A line that is not valid Chronos is reported (count plus the line text) and skipped, never fatal — one typo must not blank a settlement's history. `> ORDERBY`/`> DEFAULTVIEW` flags and `#` comments are view directives, not events, and are passed over silently.
 

@@ -714,7 +714,7 @@ window's own controls. *(Four groups since 2026-08-20: Conversion was deleted
 | Timeline — transport ▶ Play · ⏸ Pause · Step ◀ ▶ | §10 | — | none | engine gap | |
 | Timeline — speeds ×1 / ×10 / ×100 | §10 | — | none | engine gap | |
 | Timeline — run state (`PAUSED`) | §10 | — | none | engine gap | |
-| Timeline — simulation-layer toggles: Climate · Population · Economy · Politics · Infrastructure · Warfare | §10 | — | none | engine gap | **The engine is a one-shot static generator by explicit, repeated owner decision** (`HARDWARE_ACCELERATION.md`'s own scope correction). `GUI_FEATURE_PARITY_SCOPE.md` puts year-by-year playback and Warfare in *Out of scope*, both pending an explicit product decision (`VISION.md`). The current shell's `Simulate ▸ Time controls` is present and disabled with exactly that reason. **Owner decision — see summary §5.** |
+| Timeline — simulation-layer toggles: Climate · Population · Economy · Politics · Infrastructure · Warfare | §10 | — | none | engine gap | **The engine is a one-shot static generator by explicit, repeated owner decision** (`HARDWARE_ACCELERATION.md`'s own scope correction). `GUI_FEATURE_PARITY_SCOPE.md` puts year-by-year playback and Warfare in *Out of scope*, both pending an explicit product decision (`VISION.md`). The current shell's `Simulate ▸ Time controls` is present and disabled with exactly that reason. **Owner decision — see summary §5.** *Settled 2026-08-31 (`design/dcc-environment-2026-08-31/BUILD_ANSWERS.md` §3): intended as declared-but-inert — they record which layer you want; no layer renders yet.* |
 | Timeline absent from generation and style screens | §10 | — | none (chrome) | new | |
 | Status bar — left: the one thing needing attention, in accent | §10 | — | `ShellStatusLabel` exists | wired | Currently reports generation results. The four example strings the spec gives all depend on subsystems that do not exist (uncommitted strokes, stage staleness, style diff, draft stamps). |
 | Status bar — middle: last heavy pass / repaint / autosave | §10 | — | generation timing is measurable GDScript-side; autosave does not exist | backed, unwired | `AutosaveLabel` and `TileCacheLabel` exist and show placeholder text. |
@@ -883,6 +883,11 @@ of this design are a boundary-wrapper problem, not a capability problem.
    generator by explicit, repeated owner decision. Play/pause/step/speeds/year
    range/six simulation-layer toggles have no engine counterpart and none is
    planned. Not a gap to close — a product decision (§5).
+   *Stale as of 2026-09-23:* the port now has a timeline — recorded years, a
+   year cursor (`CivData::year`) that `timeline_bar` also drives, and the
+   collapse/recovery simulation (`TIMELINE_SCOPE.md`; status in `STATUS.md`).
+   The six layer toggles are declared-but-inert by design
+   (`BUILD_ANSWERS.md` §3). Continuous per-year simulation is still not built.
 10. **A per-cell sampler, and field retention.** Ten of §6's Sample fields want
     rasters that exist only transiently: `build_slope_field`,
     `build_biome_raster`, `build_lithology` and `build_resource_potentials` are
@@ -1094,7 +1099,9 @@ still have been ruled elsewhere — check `LARGE_ITEM_RULINGS.md` and
    (`DCC_SHELL_SPEC.md` §2.4). §9's PROJECTION block still names CRS
    choices — read it against that decision.
 9. **The asset family taxonomy** — 24 (spec) vs 8 (engine, frozen, ported from
-   the reference) vs 11 (mockup). Which is authoritative, and if it is the
+   the reference) vs 11 (mockup). *Since 2026-08-31 the engine has nine: the
+   owner's ruling added a sea-marks family (`Family::SeaMark`,
+   `LARGE_ITEM_RULINGS.md`'s CARTO ▸ Icons row); the other eight stay frozen.* Which is authoritative, and if it is the
    spec's, is the engine's frozen vocabulary being replaced?
 10. **Sculpt brush units** — radius in cells or km; strength in metres or the
     engine's dimensionless intensity; and whether §4's `hardness` and §5.2's

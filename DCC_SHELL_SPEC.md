@@ -268,6 +268,10 @@ Dropdown mirrors the window's four groups. Every item opens the Data manager
 window (§9) on the matching route; the dropdown is a shortcut, not a second
 implementation.
 
+> *Superseded 2026-09-05 (placement):* the Journey planner is the CIVIL rail
+> node `planner`, and ⇧J is handled in `app.gd::_unhandled_key_input` — not a
+> Data-menu item. The Travel library remains a Data-menu row.
+>
 > **Addition (2026-08-19), reconciled from `JOURNEY_PLANNER_SPEC.md` /
 > `TRAVEL_LIBRARY_SPEC.md`, which this vendored spec predates.** Two more
 > items sit above the groups, beside Data manager: **Journey planner** (⇧J, no
@@ -504,6 +508,9 @@ Way and Route are also **two tools**: a way is durable geometry others route
 over, a route is a journey along existing geometry. v2.10 separates them
 (`draw_way` vs `route`) and so does this.
 
+> *Superseded 2026-09-05:* the Journey tool is reached from the CIVIL rail node
+> `planner`, not a rail-foot slot or the Data menu; see `JOURNEY_PLANNER_SPEC.md` §2's port note.
+>
 > **Addition (2026-08-19, reconciled from `JOURNEY_PLANNER_SPEC.md` §2, which
 > this vendored spec predates)**: a third tool, **Journey** (rail-foot slot
 > below the domain buttons; no hotkey beyond `Data ▸ Journey planner… ⇧J`).

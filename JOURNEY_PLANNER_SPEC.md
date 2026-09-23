@@ -1,5 +1,14 @@
 # Journey planner — implementation spec
 
+> **Port note — not part of the vendored spec.** This file is the owner's
+> layout spec for the rebuilt planner, imported verbatim on 2026-08-19
+> (`c634110`) with `design/Journey Planner DCC.dc.html`, and its text is not
+> edited. The marked port notes record where a later owner ruling or a newer
+> design canvas supersedes it, or where the build departs from it; where two
+> canvases disagree, the newer wins (`CLAUDE.md`). It is not status — that is
+> `cartalith-native/docs/STATUS.md`'s — and it is not the engine: the `jp*` port,
+> its boundary and its request keys are `JOURNEY_PLANNER_SCOPE.md`.
+
 Rebuild of the Cartalith Gen1 v2.10 journey planner on the DCC shell. **Every field and
 every computation of the v2.10 planner is kept**; only the layout and visual system change.
 The planner itself is part of the shell (INFRA workspace); the Travel library that feeds it
@@ -37,6 +46,19 @@ Nothing about the model was wrong, so nothing about the model changed.
   carriage auto/manual, "re-route for <mode>…", save journey, export table.
 - Timeline bar carries the journey calendar: one band per day, coloured travel /
   water / weather hold / rest-layover.
+
+> **Port note — placement superseded.** Owner ruling, 2026-09-05
+> (`LARGE_ITEM_RULINGS.md`, item 4): *"Journey planner becomes a CIVIL rail node
+> (v3/RP) rather than a Data menu row."* The newer DCC environment canvas
+> (2026-08-31) draws it that way — CIVIL node `planner`
+> (`design/dcc-environment-2026-08-31/spec/02-rail-and-domains.md`), its left
+> dock in `04-left-dock.md` §6d, its results context and tool-options line in
+> `05-right-dock-and-bars.md` §1.13 and §2.2.14. So there is no INFRA rail
+> (INFRA merged into CIVIL on 2026-08-20) and no `Data ▸ Journey planner…` row;
+> ⇧J survives as a global accelerator (`app.gd::_unhandled_key_input`), and
+> every entry point calls `app.gd::open_journey_planner()`, which lights the
+> rail node and arms the `journey` takeover. The timeline band this section
+> describes borrows the shell's `timeline_row` while the planner is up.
 
 ## 3 · Direction 1a — distance spine
 
@@ -83,6 +105,13 @@ Auto-valued fields show `auto · <resolved value>` so the resolved value is neve
 The fodder-ceiling advisory ("a mule carries at most ~N days of its own fodder at this
 grazing setting") stays attached to the supplies field, where it is caused.
 
+> **Port note — the count.** The engine's plan carries **28** fields, not 26
+> (`journey_bridge::plan_to_pairs`, which `jp_default_plan()` returns). Carriage
+> *auto / manual* is not a plan field but a request flag (`jp_compute`'s
+> `auto_carriage`), and layovers are a separate map keyed by stop (`layovers`).
+> The newer canvas (`04-left-dock.md` §6d) draws these fields as five groups:
+> Traveler, Season, Carriage, Route, and Stops · Layovers.
+
 ## 6 · Stage inspector — the 15 override fields
 
 Travel mode · group size · cargo kg · pace · hours/day · weather · carry food · supplies
@@ -125,6 +154,12 @@ prose with the actions that resolve it. Then collapsible groups:
 - **Vessels** — per water leg: vessel, hold used, sailing window.
 - **Calculation trace** — opens in its own window (`⧉`).
 
+> **Port note — the trace is inline.** Built as an inline collapsible group over
+> the selected stage, not a `⧉` window, as `GUI_GAP_REGISTER.md` §7.12
+> recommended; it draws every land/water factor from the engine's structured
+> trace and reconciles `∏ factor == daily_km`. No owner ruling amends this line
+> of the spec.
+
 ## 9 · Blocked and strained states
 
 A blocked stage sets the verdict to impossible, colours the stage in the list, matrix,
@@ -136,3 +171,7 @@ the carry, a confidence band widening past a season change — is warned but not
 
 Light theme, blocked-stage inspector state, journey list/picker, and the 2560 tablet
 breakpoint — all on direction 1a.
+
+> **Port note.** This list is the design project's own to-do for the mockup as
+> of 2026-08-19, not a record of what the port has built — that is
+> `STATUS.md`'s.
