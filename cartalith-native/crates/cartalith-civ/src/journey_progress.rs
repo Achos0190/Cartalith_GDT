@@ -146,6 +146,27 @@ impl JourneyTimeline {
         self.calendar_days.ceil() as i64
     }
 
+    /// Calendar days after departure at which the party reaches route point
+    /// `p` -- the inverse of [`Self::at`]'s point mapping (the first leg
+    /// whose `i0..=i1` holds `p`, linear inside it, then the same even rest
+    /// spread). `0.0` before the first leg, `calendar_days` past the last.
+    /// SP-3 dates a journey's pass of a settlement with it.
+    pub fn elapsed_at_point(&self, p: usize) -> f64 {
+        let mut travel = 0.0;
+        for l in &self.legs {
+            if p < l.i0 {
+                break;
+            }
+            if p <= l.i1 {
+                let f = if l.i1 > l.i0 { (p - l.i0) as f64 / (l.i1 - l.i0) as f64 } else { 0.0 };
+                travel += l.days * f;
+                return travel * self.calendar_days / self.travel_days;
+            }
+            travel += l.days;
+        }
+        travel * self.calendar_days / self.travel_days
+    }
+
     pub fn food_kg(&self) -> f64 {
         self.legs.iter().map(|l| l.food_kg).sum()
     }
@@ -360,6 +381,23 @@ mod tests {
         let done = t.at(&pts, 50.0);
         assert_eq!((done.phase, done.point, done.km_done, done.food_kg_used), (Phase::Arrived, (20.0, 20.0), 250.0, 200.0));
         assert_eq!(t.at(&pts, 900.0).point, (20.0, 20.0));
+    }
+
+    /// `elapsed_at_point` is `at`'s inverse: the party is AT point `p` on the
+    /// day it names, for every point, across the zero-day seam leg.
+    #[test]
+    fn elapsed_at_point_round_trips_through_at() {
+        let (t, pts) = tl();
+        // Literals: point 1 = half of leg 0 = travel 5 = calendar 6.25; point
+        // 2 = end of leg 0 = 12.5; point 3 = travel 25 = 31.25; last = 50.
+        let want = [0.0, 6.25, 12.5, 31.25, 50.0];
+        for (p, &w) in want.iter().enumerate() {
+            let e = t.elapsed_at_point(p);
+            assert!((e - w).abs() < 1e-9, "point {p}: {e}");
+            let at = t.at(&pts, e).point;
+            assert!((at.0 - pts[p].0).abs() < 1e-9 && (at.1 - pts[p].1).abs() < 1e-9, "point {p}: {at:?}");
+        }
+        assert_eq!(t.elapsed_at_point(99), 50.0);
     }
 
     /// The supply readout falls monotonically, and the marker never moves

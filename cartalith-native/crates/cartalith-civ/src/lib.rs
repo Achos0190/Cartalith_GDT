@@ -13426,14 +13426,28 @@ pub fn civ_passed_settlements(
     gw: usize,
     world: bool,
 ) -> Vec<usize> {
+    civ_passed_settlements_at(pts, places, gw, world).into_iter().map(|(s, _)| s).collect()
+}
+
+/// [`civ_passed_settlements`] with, beside each place, the index of the
+/// route point at which it first became the nearest place in range -- the
+/// same test, the same order, the same first-occurrence dedup. SP-3's
+/// journey-pass mark reads the point index to date the pass
+/// (`journey_progress::JourneyTimeline::elapsed_at_point`).
+pub fn civ_passed_settlements_at(
+    pts: &[(f64, f64)],
+    places: &[JpPlace],
+    gw: usize,
+    world: bool,
+) -> Vec<(usize, usize)> {
     if pts.len() < 2 || places.is_empty() {
         return Vec::new();
     }
     let r = jp_stop_radius_cells(gw);
     let r2 = r * r;
-    let mut order: Vec<usize> = Vec::new();
+    let mut order: Vec<(usize, usize)> = Vec::new();
     let mut last: Option<usize> = None;
-    for &(px, py) in pts {
+    for (pi, &(px, py)) in pts.iter().enumerate() {
         let mut bi: Option<usize> = None;
         let mut bd = r2;
         for (s, p) in places.iter().enumerate() {
@@ -13451,12 +13465,12 @@ pub fn civ_passed_settlements(
         if let Some(b) = bi
             && last != Some(b)
         {
-            order.push(b);
+            order.push((b, pi));
             last = Some(b);
         }
     }
     let mut seen = std::collections::HashSet::new();
-    order.into_iter().filter(|b| seen.insert(*b)).collect()
+    order.into_iter().filter(|(b, _)| seen.insert(*b)).collect()
 }
 
 /// `_civPathWaterFrac` (reference line 21142, v0.73): what fraction of a
@@ -21845,6 +21859,21 @@ mod tests {
                 "Dunmarch|town|21.0,13.0"
             ]
         );
+        // SP-3's sibling: the same places in the same order, each with the
+        // first route point at which it was the nearest place in range.
+        let at = civ_passed_settlements_at(&pts, &f.places, M5_GW, false);
+        assert_eq!(at.iter().map(|&(s, _)| s).collect::<Vec<_>>(), passed);
+        let r = jp_stop_radius_cells(M5_GW);
+        for w in at.windows(2) {
+            assert!(w[0].1 < w[1].1, "point indices ascend: {at:?}");
+        }
+        for &(s, pi) in &at {
+            let (dx, dy) = (f.places[s].x - pts[pi].0, f.places[s].y - pts[pi].1);
+            assert!(dx * dx + dy * dy < r * r, "place {s} is in range of point {pi}");
+            // FIRST: no earlier point had this place as its nearest in range.
+            let earlier = civ_passed_settlements_at(&pts[..pi], &f.places, M5_GW, false);
+            assert!(earlier.iter().all(|&(e, _)| e != s), "place {s} first at {pi}");
+        }
     }
 
     /// The input `_jpEnsurePlan`'s `jn.sea` guess actually comes from --

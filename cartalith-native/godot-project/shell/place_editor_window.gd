@@ -418,6 +418,7 @@ func _rebuild() -> void:
 		"political":
 			_build_political(tab_content, s)
 			_build_authored_events(tab_content, s)
+			_build_journey_passes(tab_content, s)
 		"vault":
 			_build_knowledge(tab_content, s)
 		"layout":
@@ -772,6 +773,47 @@ func _build_political(parent: Control, s: Dictionary) -> void:
 		+ "reason: a hand-authored political period has no precedence rule against the derived "
 		+ "ones above -- if the two disagreed over the same years, nothing says which wins. Not "
 		+ "built: that rule does not exist yet.")
+
+
+# -- Journey passes (SP-3's third mark) ---------------------------------------
+
+## `STORY_PLANNING_SCOPE.md` SP-3: "Journeys from SP-2 that pass through the
+## settlement appear as a third mark." Read-only rows in the authored-events
+## row shape (swatch, date, name), from `civ_settlement_journey_passes` --
+## the Journey Planner's own stop test, dated off the same plan the map's
+## journey marker moves along. The swatch is the accent colour, one for every
+## journey: a saved journey has no colour of its own. A journey with no
+## honest date (a blocked plan) still lists, with its reason in place of one.
+func _build_journey_passes(parent: Control, s: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Journeys passing")
+	var tid := int(s.get("tid", 0))
+	if tid == 0:
+		DccWidgets.note(sec, "This settlement has no stable id yet, so no journey can be matched to it.")
+		return
+	var passes: Array = bridge.civ_settlement_journey_passes(tid)
+	if passes.is_empty():
+		DccWidgets.note(sec, "No saved journey passes here. Save one from the Journey Planner; it "
+			+ "lists here when its route comes within the planner's stop radius of this settlement.")
+		return
+	for p in passes:
+		var pd: Dictionary = p
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		var sw := ColorRect.new()
+		sw.custom_minimum_size = Vector2(12, 12)
+		sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		sw.color = DccTheme.c("accent")
+		row.add_child(sw)
+		row.add_child(DccTheme.mono_label(String(pd.get("date", "—")), "text", DccTheme.FS_SMALL))
+		var name_l := DccTheme.mono_label(String(pd.get("name", "")), "text_dim", DccTheme.FS_SMALL)
+		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row.add_child(name_l)
+		row.tooltip_text = "Departed %s · %s" % [String(pd.get("departure", "")),
+			String(pd.get("party_preset", ""))]
+		sec.add_child(row)
+		if pd.has("error"):
+			DccWidgets.note(sec, "Undated: %s." % String(pd.get("error", "")))
 
 
 # -- Authored events (SP-3, Ruling AM) ----------------------------------------

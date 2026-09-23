@@ -116,6 +116,60 @@ impl WorldGen {
         }
     }
 
+    /// Plans every saved journey whose index `want` accepts, through
+    /// `jp_plan_full` with its party preset and the planner's own world and
+    /// resolvers -- the one planning path `journey_positions` and
+    /// `civ_settlement_journey_passes` share, so the two cannot date the same
+    /// journey differently. `(journey index, preset_missing, timeline)`;
+    /// `None` for the timeline when the route yields no derivable stages.
+    /// Empty without a generated world or journeys.
+    pub(crate) fn plan_saved_journeys(
+        &mut self,
+        want: &dyn Fn(usize) -> bool,
+    ) -> Vec<(usize, bool, Option<Result<JourneyTimeline, NoTimeline>>)> {
+        if self.infra.as_ref().is_none_or(|i| !(0..i.journeys.len()).any(want)) {
+            return Vec::new();
+        }
+        self.refresh_wildlife_cache();
+        let (Some(WorldSource::Generated(ws)), Some(civ), Some(infra)) =
+            (self.source.as_ref(), self.civ.as_ref(), self.infra.as_ref())
+        else {
+            return Vec::new();
+        };
+        let parts = self.jp_world_parts(ws, civ);
+        let world = self.jp_world(ws, civ, &parts);
+        let forage = |mx: f64, my: f64| self.wildlife.as_ref().map_or(1.0, |w| w.forage_mod(mx, my));
+        // `jp_compute`'s resolvers with no `animal_entries` request key --
+        // `animal_overrides()`'s own implicit pick, the planner's default.
+        let (overrides, _) = self.travel_library.animal_overrides_selected(&std::collections::HashMap::new());
+        let (stats_fn, terrain_fn) = cartalith_civ::travel_library::animal_resolver_fns(&overrides);
+        let resolver = cartalith_civ::JpAnimalResolver { stats: &*stats_fn, terrain_mod: &*terrain_fn };
+        let vessel_overrides = self.travel_library.vessel_overrides();
+        let vessel_fn = cartalith_civ::travel_library::vessel_resolver_fn(&vessel_overrides);
+        let vessel_resolver = cartalith_civ::JpVesselResolver { stats: &*vessel_fn };
+        infra
+            .journeys
+            .iter()
+            .enumerate()
+            .filter(|&(ji, _)| want(ji))
+            .map(|(ji, j)| {
+                let preset = self.travel_library.presets.get(&j.party_preset);
+                let base = cartalith_civ::JpPlan::default();
+                let plan = preset.map_or_else(|| base.clone(), |p| p.apply_to(&base));
+                let planned = cartalith_civ::jp_plan_full(
+                    &world,
+                    &j.route.points,
+                    &plan,
+                    &cartalith_civ::JpLayovers::new(),
+                    &forage,
+                    Some(&resolver),
+                    Some(&vessel_resolver),
+                );
+                (ji, preset.is_none(), planned.as_ref().map(JourneyTimeline::from_plan))
+            })
+            .collect()
+    }
+
     /// Takes the outgoing world's journeys (and what re-snapping them needs)
     /// before a generate drops them. Idempotent: `release_world` and `absorb`
     /// both call it, and the second call finds nothing left to take.
@@ -270,30 +324,14 @@ impl WorldGen {
     /// Empty before any `generate()` (a loaded save has no civ layer).
     #[func]
     fn journey_positions(&mut self) -> Array<VarDictionary> {
-        if self.infra.as_ref().is_none_or(|i| i.journeys.is_empty()) {
-            return Array::new();
-        }
-        self.refresh_wildlife_cache();
-        let (Some(WorldSource::Generated(ws)), Some(civ), Some(infra)) =
-            (self.source.as_ref(), self.civ.as_ref(), self.infra.as_ref())
-        else {
+        let planned = self.plan_saved_journeys(&|_| true);
+        let (Some(civ), Some(infra)) = (self.civ.as_ref(), self.infra.as_ref()) else {
             return Array::new();
         };
-        let parts = self.jp_world_parts(ws, civ);
-        let world = self.jp_world(ws, civ, &parts);
-        let forage = |mx: f64, my: f64| self.wildlife.as_ref().map_or(1.0, |w| w.forage_mod(mx, my));
-        // `jp_compute`'s resolvers with no `animal_entries` request key --
-        // `animal_overrides()`'s own implicit pick, the planner's default.
-        let (overrides, _) = self.travel_library.animal_overrides_selected(&std::collections::HashMap::new());
-        let (stats_fn, terrain_fn) = cartalith_civ::travel_library::animal_resolver_fns(&overrides);
-        let resolver = cartalith_civ::JpAnimalResolver { stats: &*stats_fn, terrain_mod: &*terrain_fn };
-        let vessel_overrides = self.travel_library.vessel_overrides();
-        let vessel_fn = cartalith_civ::travel_library::vessel_resolver_fn(&vessel_overrides);
-        let vessel_resolver = cartalith_civ::JpVesselResolver { stats: &*vessel_fn };
-
         let cursor = chronos::day_number(civ.year, MonthDay::from_day_of_year(self.civ_day));
         let mut out = Array::new();
-        for j in &infra.journeys {
+        for (ji, preset_missing, timeline) in planned {
+            let j = &infra.journeys[ji];
             let departure = chronos::day_number(j.start_year, None);
             let elapsed = cursor - departure;
             let mut d = vdict! {
@@ -307,23 +345,10 @@ impl WorldGen {
             if let Some((_, _, o)) = infra.resnap_report.iter().find(|(id, _, _)| *id == j.id) {
                 d.set("resnap", &outcome_dict(o));
             }
-            let preset = self.travel_library.presets.get(&j.party_preset);
-            if preset.is_none() {
+            if preset_missing {
                 d.set("preset_missing", true);
             }
-            let base = cartalith_civ::JpPlan::default();
-            let plan = preset.map_or_else(|| base.clone(), |p| p.apply_to(&base));
             let pts = &j.route.points;
-            let planned = cartalith_civ::jp_plan_full(
-                &world,
-                pts,
-                &plan,
-                &cartalith_civ::JpLayovers::new(),
-                &forage,
-                Some(&resolver),
-                Some(&vessel_resolver),
-            );
-            let timeline = planned.as_ref().map(JourneyTimeline::from_plan);
             match timeline {
                 None => d.set("error", "no derivable stages for this journey's route"),
                 Some(Err(NoTimeline::Blocked { stage })) => {
@@ -352,6 +377,102 @@ impl WorldGen {
             out.push(&d);
         }
         out
+    }
+
+    /// SP-3's third mark: every saved journey whose route passes the
+    /// settlement `tid`, and when. "Passes" is the Journey Planner's own stop
+    /// test -- `civ_passed_settlements` (a route point within
+    /// `jp_stop_radius_cells` of the settlement, nearest wins), so a journey
+    /// passes exactly the settlements its plan lists as stops, origin and
+    /// destination included. One row per journey (the first pass, the
+    /// planner's own dedup), in route-date order where dated:
+    ///
+    /// - `id`, `name`, `party_preset`, `start_year`, `departure`
+    ///   (`YYYY-MM-DD`, 1 January of `start_year`, as `journey_positions`).
+    /// - When the plan has a timeline: `day_offset` (whole calendar days from
+    ///   departure, floored), `date` (`YYYY-MM-DD`) and `year` of the pass.
+    ///   Read off the same `jp_plan_full` plan `journey_positions` moves the
+    ///   marker along, so the party's marker is at this settlement on this
+    ///   date.
+    /// - When it has none: `error` (and `blocked_stage` for a blocked plan),
+    ///   and **no date keys** -- the journey still passes, it just has no
+    ///   honest date.
+    ///
+    /// Computed fresh on every call, never cached on `WorldGen` (the
+    /// `civ_food_shed` discipline); only journeys that pass are planned.
+    /// Empty before any `generate()`, for `tid <= 0`, and for a `tid` no
+    /// live settlement carries.
+    #[func]
+    fn civ_settlement_journey_passes(&mut self, tid: i64) -> Array<VarDictionary> {
+        let (Some(civ), Some(infra)) = (self.civ.as_ref(), self.infra.as_ref()) else {
+            return Array::new();
+        };
+        if tid <= 0 {
+            return Array::new();
+        }
+        let Some(target) = civ.settlements.iter().position(|s| s.tid == tid as u64) else {
+            return Array::new();
+        };
+        // Only x/y reach the stop test; `JourneyWorld::build`'s own mapping.
+        let places: Vec<cartalith_civ::JpPlace> = civ
+            .settlements
+            .iter()
+            .map(|s| cartalith_civ::JpPlace {
+                name: s.name.clone(),
+                kind: crate::journey_bridge::settlement_kind_key(s.placement.kind).to_string(),
+                x: s.placement.x as f64,
+                y: s.placement.y as f64,
+            })
+            .collect();
+        let gw = self.gw.max(0) as usize;
+        // journey index -> the route point index of the pass
+        let passes: std::collections::HashMap<usize, usize> = infra
+            .journeys
+            .iter()
+            .enumerate()
+            .filter_map(|(ji, j)| {
+                let at = cartalith_civ::civ_passed_settlements_at(&j.route.points, &places, gw, self.world);
+                at.iter().find(|&&(s, _)| s == target).map(|&(_, pi)| (ji, pi))
+            })
+            .collect();
+        let planned = self.plan_saved_journeys(&|ji| passes.contains_key(&ji));
+        let Some(infra) = self.infra.as_ref() else { return Array::new() };
+        let mut rows: Vec<(i64, VarDictionary)> = planned
+            .into_iter()
+            .map(|(ji, _, timeline)| {
+                let j = &infra.journeys[ji];
+                let pi = passes[&ji];
+                let departure = chronos::day_number(j.start_year, None);
+                let mut d = vdict! {
+                    "id" => j.id as i64,
+                    "name" => j.name.as_str(),
+                    "party_preset" => j.party_preset.as_str(),
+                    "start_year" => j.start_year,
+                    "departure" => date_text(departure).as_str(),
+                };
+                // Undated rows sort after every dated one.
+                let mut key = i64::MAX;
+                match timeline {
+                    Some(Ok(t)) => {
+                        let off = t.elapsed_at_point(pi).floor() as i64;
+                        let (year, md) = chronos::date_of_day_number(departure + off);
+                        d.set("day_offset", off);
+                        d.set("date", chronos::format_date(year, Some(md)).as_str());
+                        d.set("year", year);
+                        key = departure + off;
+                    }
+                    Some(Err(NoTimeline::Blocked { stage })) => {
+                        d.set("blocked_stage", stage as i64);
+                        d.set("error", format!("blocked at stage {} -- no honest date", stage + 1).as_str());
+                    }
+                    Some(Err(NoTimeline::NoTravel)) => d.set("error", "the plan has no travel time"),
+                    None => d.set("error", "no derivable stages for this journey's route"),
+                }
+                (key, d)
+            })
+            .collect();
+        rows.sort_by_key(|(k, _)| *k);
+        rows.into_iter().map(|(_, d)| d).collect()
     }
 
     /// The last regenerate's re-snap report: one row per journey the

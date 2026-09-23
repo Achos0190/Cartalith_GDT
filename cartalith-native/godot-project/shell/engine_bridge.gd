@@ -3380,6 +3380,15 @@ func journey_positions() -> Array:
 		return []
 	return world_gen.journey_positions()
 
+## SP-3's journey-pass mark (`story_bridge.rs`): every saved journey whose
+## route passes the settlement `tid` (the planner's own stop test), with the
+## pass's `date`/`year`/`day_offset` -- absent, with an `error`, when the plan
+## has no honest date. See the `#[func]`'s own doc.
+func civ_settlement_journey_passes(tid: int) -> Array:
+	if not _has("civ_settlement_journey_passes"):
+		return []
+	return world_gen.civ_settlement_journey_passes(tid)
+
 ## What the last regenerate's re-snap did, dropped journeys included.
 func journey_resnap_report() -> Array:
 	if not _has("journey_resnap_report"):
