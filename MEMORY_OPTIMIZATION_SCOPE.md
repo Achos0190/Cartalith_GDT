@@ -13,6 +13,14 @@ assume).
 > date of the section that carries it, on the hardware that section names.
 > Which candidates are built is a status question and lives in
 > `cartalith-native/docs/STATUS.md`, the single source of truth for this port.
+>
+> **Three numbering schemes meet here.** This document's own numbered
+> subsections are §1-§8 of *The generation peak, measured field by field*
+> (§6 is the ranked R1-R8 list, §8 the binding-constraint verdict — both
+> cited from elsewhere). A bare §47, §50, §52 or §54 is a section of
+> **`GUI_GAP_REGISTER.md`**, and MEM-01…MEM-04 are that register's rows in
+> its §52. `STATUS.md`'s MEM-1…MEM-15 are a third, unrelated set of IDs for
+> this document's milestones.
 
 ## Real measurement already done (2026-08-16, this session)
 
@@ -38,10 +46,10 @@ km, Phase 2 civ layer + rendering all active):
   device is connected) showing a large spike during every generate.
 - **Steady-state (~400 MB retained per generation) will scale with cell
   count** at higher resolutions — roughly ×4 at 4096² (~1.6 GB), ×16 at
-  8192² (~6+ GB). The resolution control (this session, `main.gd`) now
-  defaults to 2048 and goes to 8192 — the retained-memory consequence of
-  that range needs to actually be survivable, not just technically
-  selectable.
+  8192² (~6+ GB). The resolution control (then `main.gd`; the presets are
+  `new_world_dialog.gd`'s `RESOLUTION_PRESETS` today) defaulted to 2048 and
+  went to 8192 — the retained-memory consequence of that range needs to
+  actually be survivable, not just technically selectable.
 
 ## Working hypothesis for the peak (static code read, not yet confirmed by instrumentation)
 
@@ -116,7 +124,9 @@ this session has already modeled.
 - Resolution-range policy changes (e.g. capping the UI's max resolution
   lower) — a product decision, not this investigation's call to make
   unilaterally; report the real numbers at each size if reachable, let
-  the owner decide if the range itself needs revisiting.
+  the owner decide if the range itself needs revisiting. (§8 below supplied
+  the numbers, and the owner ruled on them: `LARGE_ITEM_RULINGS.md` Ruling
+  AH.)
 
 ## Done means
 
@@ -180,7 +190,7 @@ finding.
 cartalith-civ`, `cargo clippy -p cartalith-civ -p cartalith-godot
 --all-targets` (clean for the new code), `cargo test --workspace` (0
 regressions), `godot4 --headless --quit main.tscn` (clean). Full
-account in `cartalith-native/docs/CHANGELOG.md`.
+account in the retired `cartalith-native/docs/CHANGELOG.md`.
 
 ## Tracked budget line item: the global undo stack (added 2026-08-23)
 
@@ -324,8 +334,8 @@ one afternoon: **869 / 902 / 916 / 937 / 963 / 1 029 MB** steady. A 160 MB sprea
 seeds inside one process: 916 / 1 069 / 1 069 / 1 073 / 1 073 / 1 072 MB.
 
 A real level increase since 2026-08-20 is likely (647 MB is well below the 869 MB
-floor above) and MEM-02 names a mechanism for it, but the *percentage* is not
-supportable. **Any future Android memory figure in this document or in
+floor above) and `GUI_GAP_REGISTER.md` §52's MEM-02 names a mechanism for it,
+but the *percentage* is not supportable. **Any future Android memory figure in this document or in
 `ANDROID_BUILD_SCOPE.md` must state its seed**, the same way every golden test
 states its fixture.
 
@@ -368,12 +378,22 @@ than a reason to look away.
 
 ### Instrumentation kept
 
-`Preferences ▸ Memory ▸ Working set…` now reports Godot's own video/texture/
-buffer memory, the glyph raster cache in bytes, and the frame's draw-call and
-object counts, beside `OS.get_static_memory_usage()` and labelled as outside it.
-That closes `GUI_GAP_REGISTER.md` §50's registered "the app's own Memory row
-under-reports by about 4× on Android": the figure is still honest about its own
-source, but it is no longer the only figure on screen.
+This pass made `Preferences ▸ Memory ▸ Working set…` (then an opener for the
+Performance window) report Godot's own video/texture/buffer memory, the glyph
+raster cache in bytes, and the frame's draw-call and object counts, beside
+`OS.get_static_memory_usage()` and labelled as outside it. That closed
+`GUI_GAP_REGISTER.md` §50's registered "the app's own Memory row under-reports
+by about 4× on Android" (§52's MEM-04): the figure stayed honest about its own
+source, but was no longer the only figure on screen.
+
+`LARGE_ITEM_RULINGS.md` ruling 19 (2026-09-06) later removed the Performance
+window. Its video, texture and buffer figures moved onto the `Working set` row's
+own tooltip (`menus.gd`'s `_refresh_working_set_row` / `_video_mem_line`,
+reading the `RENDER_VIDEO_MEM_USED` / `RENDER_TEXTURE_MEM_USED` /
+`RENDER_BUFFER_MEM_USED` monitors). The glyph-cache and per-frame
+draw-call/object readouts did not move: on 2026-09-23 `menus.gd` was the only
+`shell/*.gd` file calling `Performance.get_monitor`, and it reads those three
+monitors only.
 
 ## The generation peak, measured field by field (2026-08-25, second pass)
 
@@ -388,9 +408,9 @@ is this one.
 disk: `cartalith-engine/src/bake.rs` writes a persistent store namespaced by
 `world_key`, skips already-baked chunks, resumes partial bakes and has
 export/import entries. And the steady-state Android memory this pass measured
-is not stored data at all but per-frame canvas geometry — §52 above, and a
-separate pass took the `draw_multiline` collapse up (it measured a no-op and
-was retired; see *The overlay's zoom cost* below).
+is not stored data at all but per-frame canvas geometry — `GUI_GAP_REGISTER.md`
+§52, summarised above — and a separate pass took the `draw_multiline` collapse
+up (it measured a no-op and was retired; see *The overlay's zoom cost* below).
 
 ### Method, and the one rule this pass inherited
 
@@ -402,7 +422,8 @@ the pipeline" below, which is itself a finding about where §52's 160 MB of
 spread lives.
 
 Two throwaway probes, both named `_peakaudit_*` per this pass's brief, both in
-`cartalith-native/crates/cartalith-civ/examples/`:
+`cartalith-native/crates/cartalith-civ/examples/` (since deleted — see *Probes*
+at the end of this document):
 
 - **`_peakaudit_peak.rs`** — a tracking `GlobalAlloc` (live bytes, per-stage
   high-water, run high-water), a 2 ms sampler thread for the inside of
@@ -601,23 +622,21 @@ in this document, and it is a reordering.**
 **R2 · Delete four dead resident grids.** — **40.96 MiB off peak *and*
 resident, permanently · 0 ms · `cartalith-engine`, `cartalith-hydrology`**
 
-Each has exactly one reader, inside `generate_terrain`, and none anywhere else
-in the workspace — grepped field by field across `cartalith-godot`,
-`cartalith-civ`, `cartalith-io` and the `.gd` shell:
+Each has at most one production reader, inside `generate_terrain`, and none
+anywhere else in production code — grepped field by field across
+`cartalith-godot`, `cartalith-civ`, `cartalith-io` and the `.gd` shell:
 
-| field | its one reader | MiB |
-|---|---|---:|
-| `WorldState::flexure_field` | `compute_height` (`lib.rs:933`) | 10.24 |
-| `WorldState::heterogeneity_field` | `compute_height` (`lib.rs:934`) | 10.24 |
-| `WorldState::flow_area` | `apply_climate_moisture_correctors` (`lib.rs:1085`) | 10.24 |
-| `ChannelResult::slope` | **nobody in production** | 10.24 |
+| field | its one production reader | also asserted by (missed by the audit) | MiB |
+|---|---|---|---:|
+| `WorldState::flexure_field` | `compute_height`, inside `generate_terrain` | `golden_parity_pipeline.rs` | 10.24 |
+| `WorldState::heterogeneity_field` | `compute_height`, inside `generate_terrain` | `golden_parity_pipeline.rs` | 10.24 |
+| `WorldState::flow_area` | `apply_climate_moisture_correctors`, inside `generate_terrain` | `golden_parity_pipeline.rs` | 10.24 |
+| `ChannelResult::slope` | **none in production** | `golden_parity_river.rs` | 10.24 |
 
-> **This table is what the audit found, and it was wrong about the goldens.**
-> The grep behind it covered production code only. All four fields are
-> asserted cell for cell by golden tests, and `ChannelResult::slope` was
-> consequently **not** deleted — it is released instead. The full correction is
-> *Where the audit was wrong* below; it is repeated here so a reader who lands
-> on this table does not carry the original claim away.
+> **The audit's grep covered production code only, and missed the goldens**
+> (the third column). So `ChannelResult::slope` was **not** deleted — it is
+> released instead — and the other three took six golden assertions with them.
+> *Where the audit was wrong*, below, has the reasoning.
 
 None is in `sample_bridge::FieldRefs` (which names thirteen of the others).
 None is written to a save. `import.rs`'s own comment and `staleness.rs`'s doc
@@ -771,7 +790,9 @@ and it is not the binding constraint on whether a session survives.**
   second needs 9.65 GiB on a 7.82 GB device. The 2026-08-16 pass deferred
   "resolution-range policy" to the owner as a product decision. **It now has
   numbers**: on Android, 2048 × 1311 is the last preset that fits, and 1024 is
-  the last one that fits comfortably.
+  the last one that fits comfortably. (The owner ruled on them 2026-09-23:
+  `LARGE_ITEM_RULINGS.md` Ruling AH keeps 2048 × 1311 as the Android ceiling,
+  higher presets desktop-only.)
 
 **What "supported" would take, in order.** R1 and R2 are free and remove
 269 MiB from the common case and 40.96 MiB from every case; R3 is +40 ms and is
@@ -786,28 +807,15 @@ census is 422.5 MiB. **The remaining peak is irreducible without changing what
 the civilisation pass computes**, and no amount of moving it to a folder on the
 hard drive changes that, because every byte of it is read.
 
-### Probes kept
-
-`cartalith-native/crates/cartalith-civ/examples/_peakaudit_peak.rs` and
-`_peakaudit_block.rs`. Neither is called by anything, neither is a test, and
-both are named for deletion.
-
-```text
-cargo run --release -p cartalith-civ --example _peakaudit_peak -- <gw> <gh> [seed]
-cargo run --release -p cartalith-civ --example _peakaudit_peak -- trace <gw> <gh> [seed]
-PEAKAUDIT_REGEN=1 …                      # §5's two-generation measurement
-cargo ndk -t arm64-v8a build --release -p cartalith-civ --example _peakaudit_peak
-```
-
-**No `.rs` or `.gd` file outside these two was touched by this pass**, and no
-`export_presets.cfg` or `Cargo.toml`.
+**No `.rs` or `.gd` file outside the two probes was touched by this pass**, and
+no `export_presets.cfg` or `Cargo.toml`.
 
 ## The overlay's zoom cost, bounded — and the batching lever retired (2026-08-25)
 
 The section above registered two levers and pulled neither. Both were pulled
 here, on the same handset, with **the seed fixed at 123456** — the discipline
-MEM-03 above demanded and the first time this document's Android figures have
-had one. Two APKs from one frozen snapshot of `HEAD`, differing in
+`GUI_GAP_REGISTER.md` §52's MEM-03 (summarised above) demanded, and the first
+time this document's Android figures have had one. Two APKs from one frozen snapshot of `HEAD`, differing in
 `map_overlay.gd` alone; both report `generated · 26.3 s` at 2048 × 1311. Full
 account, including why the working tree could not be used as the baseline, in
 **`GUI_GAP_REGISTER.md` §54**.
@@ -910,15 +918,15 @@ higher: R2 lowers the whole plateau by 40.96, R3 takes 138.63 off the
 that arithmetic through before measuring gave 518.87 MiB; the measurement is
 518.92 on Windows and 518.86 on the handset. **The model is right to about
 60 KiB.** R4–R8 were not attempted in this pass and would take it the rest of
-the way; whether any has since been built is a status question —
-`cartalith-native/docs/STATUS.md`.
+the way; whether any has since been built is `STATUS.md`'s question.
 
 ### Where the audit was wrong
 
-**1 · None of the four grids was dead to the test suite.** §6's R2 says
-`ChannelResult::slope` is read by "nobody, anywhere" and that the other three
-have "exactly one reader … and none anywhere else in the workspace". That grep
-covered production code and missed the goldens. All four are asserted cell for
+**1 · None of the four grids was dead to the test suite.** §6's R2 as first
+written said `ChannelResult::slope` was read by "nobody, anywhere" and that the
+other three had "exactly one reader … and none anywhere else in the workspace".
+That grep covered production code and missed the goldens; §6's table now
+carries both columns. All four are asserted cell for
 cell against the JS reference:
 
 | field | asserted in |
@@ -928,10 +936,10 @@ cell against the JS reference:
 | `flow_area` | `golden_parity_pipeline.rs`, both cases |
 | `ChannelResult::slope` | `golden_parity_river.rs`, all three cases |
 
-This is the failure mode `CLAUDE.md`'s own working rules name — "a deletion is
-the one error that cannot be caught by a test that never existed" — arriving
-from the other side: the tests existed and the audit did not look at them. It
-changed what landed.
+The tests existed and the audit did not look at them — the failure
+`MISTAKES.md`'s "Call a constant dead" preflight row now guards against (grep
+the key across the whole project, **including probes and tests**). It changed
+what landed.
 
 - **`ChannelResult::slope` was not deleted.** `build_channels` still computes
   and returns it, so all three golden assertions stand; `generate_terrain`
@@ -1038,13 +1046,20 @@ either way.
   inside a running Godot process — the case for it is the four points above,
   not a screenshot.
 
-### Probes kept (updated)
+## Probes
 
-Now three, all in `cartalith-native/crates/cartalith-civ/examples/`, none
-called by anything, none a test, all named for deletion:
-`_peakaudit_peak.rs`, `_peakaudit_block.rs`, `_peakaudit_hash.rs`.
+The three `_peakaudit_*` examples were throwaway by design — none called by
+anything, none a test, all named for deletion when the audit closed — and were
+deleted on 2026-09-03 (`0bba2f9`). They are in history:
+`_peakaudit_peak.rs` and `_peakaudit_block.rs` were added in `d195ed6`,
+`_peakaudit_hash.rs` in `dd2f386`, all under
+`cartalith-native/crates/cartalith-civ/examples/`. To re-run one, restore it
+from its adding commit; the invocations were:
 
 ```text
+cargo run --release -p cartalith-civ --example _peakaudit_peak -- <gw> <gh> [seed]
+cargo run --release -p cartalith-civ --example _peakaudit_peak -- trace <gw> <gh> [seed]
 cargo run --release -p cartalith-civ --example _peakaudit_hash -- <gw> <gh> [seed]
-PEAKAUDIT_REGEN=1 ...                    # the two-generate identity check
+PEAKAUDIT_REGEN=1 …          # §5's two-generation measurement / the identity check
+cargo ndk -t arm64-v8a build --release -p cartalith-civ --example _peakaudit_peak
 ```
