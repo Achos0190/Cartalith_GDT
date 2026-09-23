@@ -1159,3 +1159,27 @@ Siting itself changes, not just the downstream render binding: a settlement only
 **The finding is `OUTSTANDING_WORK.md`'s "a citadel enclosure straddling the town wall" row (Ruling I), whose own text named "settle the design first: which settlements get one" as a separate blocker independent of the GUI-sequencing gate (which was lifted 2026-09-22).**
 
 **Owner ruling, 2026-09-23: largest settlements only, by size tier — not gated on faction-seat status.** Matches how the existing rare bastioned-wall star fort is already gated by size/class. Still open: whether the citadel's area counts inside the wall circuit for growth purposes (the row's own second named question), and the citadel's own build (nothing like it exists yet — `fortify.rs` has no castle-enclosure construction, only the curtain/gates/spurs/star fort).
+
+## 2026-09-23 — Ruling AD: courtyard-perimeter blocks are gated by outermost ring, distance from market
+
+**The finding is the urban-algorithm town-plan row's candidate 4, "perimeter lots with open courtyards held at high density"** — real, un-shipped work (courtyard buildings exist today only as per-parcel typology on strip lots, not the ring-around-a-shared-courtyard block subdivision the owner's image describes), blocked only on what "perimeter" means structurally: the outermost ring by distance from the market/town centre, a district flag, or a rules threshold.
+
+**Owner ruling, 2026-09-23: the outermost ring by distance from market.** Matches how other density gradients already keyed on market distance work in this engine (e.g. Clark's demand-decay gradient in `growth.rs`). Not yet built — this ruling settles only the gating definition.
+
+## 2026-09-23 — Ruling AE: IN-13 tariffs get their own relationship field, not `civ_faction_relations`
+
+**The finding is IN-13 trade flows' second remaining sub-question**: whether a cross-faction tariff rate reuses `civ_faction_relations`'s existing pairwise score, or needs a dedicated field — `civ_faction_relations`'s own module doc is explicit that it deliberately is not diplomacy/treaties/vassalage, so reusing it for tariffs would repurpose a value past its stated scope.
+
+**Owner ruling, 2026-09-23: a new relationship field**, not a reuse of `civ_faction_relations`. Not yet built — this settles the source, not the field's own shape or default values. Two of IN-13's four original sub-questions remain: confirming the faction-aware trade match doesn't move the existing single-faction/no-tariff probe output (a verification constraint, not an owner decision), and caravan semantics (settled below, Ruling AF).
+
+## 2026-09-23 — Ruling AF: one caravan is one aggregate shipment per way
+
+**The finding is IN-13 trade flows' fourth sub-question**: what a "caravan" entity represents — one `TradeFlow` row, an aggregate per way, or a manually-initiated shipment — which decides whether caravans are a visualization of the existing stateless trade match or a real simulated, persisted thing with its own movement/consumption rules against the Timeline's year cursor.
+
+**Owner ruling, 2026-09-23: one aggregate shipment per way** — a periodic bundle of all matched trade volume currently routed over one way, not one entity per individual flow and not a manual player action. Closest in shape to `cartalith_civ::travel_library::Journey` (route + start_year + a persisted DTO), fewer entities than a per-flow model, easier to keep in sync with `trade_flows()`'s own deliberately stateless match. Not yet built — the exact tick/refresh cadence against the trade match and the Timeline's year cursor is still an implementation detail for whoever builds it.
+
+## 2026-09-23 — Ruling AG: unify label glyph layout on `map_overlay.gd`'s own (more recent) font-size model
+
+**The finding is the `label_glyph_layout` row** (`UNWIRED_FUNCTIONS.md`): two competing label-layout implementations exist — the engine's `label_glyph_layout`/`arc_label_layout` (Rust, `cartalith-civ/src/labels.rs`, introduced `29d0f50`/`611c5fa`, 2026-08-18) and `map_overlay.gd`'s own GDScript re-implementation with a different font-size model (introduced `fd9de7c`, 2026-09-01, **two weeks later**). `label_box_at`/`label_handles` already size off the engine's (older) font model, while the drawn glyphs size off the GDScript file's own (newer) model — a real mismatch between hit-testing/box placement and what's actually drawn.
+
+**Owner ruling, 2026-09-23: unify the models under the most recent one.** Checked at the symbol before recording this: `map_overlay.gd`'s own font-size model is the more recent of the two (2026-09-01 vs. 2026-08-18), so unification means bringing `label_box_at`/`label_handles` onto `map_overlay.gd`'s own model — not switching label drawing to call the engine's `label_glyph_layout` as originally proposed (that would have reverted to the OLDER model). Whether the engine's `label_glyph_layout`/`arc_label_layout` should also be updated to match (so the two stay unified going forward rather than just patched once) is an implementation call for whoever builds this, not decided here. Not yet built.
