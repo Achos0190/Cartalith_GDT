@@ -1156,8 +1156,9 @@ func _refresh_civ_data() -> void:
 ## Timeline "Exist only" filter (`_build_timeline_filters` below): keeps only
 ## settlements whose `tid` (`lib.rs`'s `get_settlements()`, now real -- see
 ## this file's own top-of-file Timeline comment, corrected below) is in the
-## active year's `civ_year_diff().present` set, so unchecking the box
-## actually removes pins from `map_overlay.gd`'s draw call -- filtering
+## active year's `civ_year_diff().present` set, so CHECKING the box removes
+## non-present pins from `map_overlay.gd`'s draw call (unchecked, every pin
+## draws; `_tl_apply_filters` returns early) -- filtering
 ## upstream of `set_civ_data`, not inside that file (out of scope for this
 ## pass, `CLAUDE.md`'s territory note). Gated on a non-empty timeline: with
 ## no recorded years, `civ_year_diff()` has nothing to diff and reports an
@@ -6595,13 +6596,21 @@ func _build_timeline_filters(body: Control) -> void:
 	DccWidgets.toggle(sec, "Exist only", _tl_filter_exist_only,
 		func(v: bool): _tl_filter_exist_only = v; _refresh_civ_data(),
 		"Reference: hide anything not present in the selected year (civ_year_diff().present). " +
-			"Real here -- unchecking removes non-present settlement pins from the map.")
-	DccWidgets.toggle(sec, "Ghost removed", _tl_filter_ghost,
+			"Real here -- checked, settlement pins not present in that year are hidden.")
+	## Drawn but DISABLED, with the reason on the tooltip: nothing reads
+	## `_tl_filter_ghost`/`_tl_filter_highlight` yet (per-pin fade/halo is
+	## unbuilt -- see the note below), and an enabled toggle that changes
+	## nothing is a lie (`OUTSTANDING_WORK.md` §2.3, `GUI_GAP_REGISTER.md` CV-03).
+	var ghost := DccWidgets.toggle(sec, "Ghost removed", _tl_filter_ghost,
 		func(v: bool): _tl_filter_ghost = v,
-		"Reference: fade objects removed since the previous recorded year (civ_year_diff().removed).")
-	DccWidgets.toggle(sec, "Highlight new", _tl_filter_highlight,
+		"Reference: fade objects removed since the previous recorded year (civ_year_diff().removed). " +
+			"Not available yet: the map cannot fade individual pins.")
+	ghost.disabled = true
+	var highlight := DccWidgets.toggle(sec, "Highlight new", _tl_filter_highlight,
 		func(v: bool): _tl_filter_highlight = v,
-		"Reference: halo objects added since the previous recorded year (civ_year_diff().added).")
+		"Reference: halo objects added since the previous recorded year (civ_year_diff().added). " +
+			"Not available yet: the map cannot halo individual pins.")
+	highlight.disabled = true
 	var years := _tl_years()
 	if not years.is_empty():
 		var diff: Dictionary = bridge.civ_year_diff(bridge.get_civ_year())
