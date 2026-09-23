@@ -4256,9 +4256,10 @@ func _pg_route_row(parent: Control, label_text: String, why: String) -> void:
 ##
 ## The canvas's `+ ADD DRAFT STAMP (MOCK STROKE)` is the prototype standing in
 ## for a map stroke it has no map to take. Here the equivalent is arming the
-## sculpt tool and getting out of the way, which is what
-## `phone_menu.gd::_go_civ_tool()` already does for the CIVIL tools -- so the
-## button arms and closes the sheet rather than fabricating a stamp.
+## sculpt tool and getting out of the way -- the arm-then-close pattern the
+## phone's tool rows use (this comment used to name `phone_menu.gd`'s
+## `_go_civ_tool()`, which no longer exists) -- so the button arms and closes
+## the sheet rather than fabricating a stamp.
 func _pg_sculpt(parent: Control) -> void:
 	if not bridge.has_world:
 		var l := _pg_mono("Generate a world first -- the Sculpt editor is created "

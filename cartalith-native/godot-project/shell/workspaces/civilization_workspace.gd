@@ -4201,6 +4201,10 @@ func _religion_run() -> void:
 # discrete `civTimeline` or the still-open six-toggle continuous simulation.
 # Left untouched rather than risk building into the wrong one; this category
 # is the "dedicated panel" that note calls for instead.
+# *Superseded since:* the bar was wired afterwards as a second view of the same
+# `CivData::year` (`dcc_shell.gd`'s timeline strip, over `civ_goto_year()`/
+# `get_civ_year()`). This category stays the full panel; the bar is the compact
+# scrubber. The paragraph above is kept as the reason the panel exists.
 #
 # `get_settlements()` (`lib.rs`) now carries a real `tid` field (previously a
 # disclosed gap here -- `NamedSettlement` had one at the Rust level but

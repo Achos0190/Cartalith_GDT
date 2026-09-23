@@ -287,9 +287,10 @@ func push_dock_readout() -> void:
 			return
 
 ## Draw the honest placeholder a workspace shows while its engine binding does
-## not exist. `STRANDED_TOOLS.md` is the standing record of which those are;
-## this is that record made visible in the product rather than only in a
-## document, so nobody mistakes an empty panel for a finished one.
+## not exist. Each call site carries its own reason; `STRANDED_TOOLS.md` kept
+## that list until it closed on 2026-08-19, when every tool it named got a
+## home, and is history now. This makes the gap visible in the product rather
+## than only in a document, so nobody mistakes an empty panel for a finished one.
 func _not_built(what: String, why: String) -> void:
 	var body := DccWidgets.section(self, what)
 	DccWidgets.note(body, why)
