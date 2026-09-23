@@ -39,8 +39,9 @@
 //! - `wildTwice1p5` / `wildThrice2` / `wildFive2` are the discriminator for
 //!   `dead_end_bias`'s accumulation, which a single application cannot see.
 //!
-//! Fifteen mutations were run; see `URBAN_MORPHOLOGY_SCOPE.md` for the table
-//! and the one reported survivor.
+//! `URBAN_MORPHOLOGY_SCOPE.md` milestone 4 records the sweep: 120 mutations,
+//! 114 dead, 4 survivors, 2 killed by the compiler. (This said fifteen
+//! mutations and one survivor until 2026-09-24.)
 
 use super::*;
 

@@ -45,7 +45,7 @@
 //! - **`pathsTown` / `pathsBigTown` set `g._fromPaths`**, which is the v1.01
 //!   discount on bare degree-2 primary vertices. Without it the enceinte
 //!   stretches along the arterial over empty land; the scope document's
-//!   finding 4 names it, and these two are what hold it.
+//!   milestone 2, finding 2 names it, and these two are what hold it.
 //! - **`ridgeTown` / `rollingTown` / `realRiverRidge` deflect the circuit onto
 //!   crests**; `flatTown` has a real heightfield whose relief is 0.0072 field
 //!   units, under the 0.01 floor, so the deflection block never engages at all.
@@ -69,8 +69,10 @@
 //!
 //! # What the mutation sweep found
 //!
-//! Recorded in `URBAN_MORPHOLOGY_SCOPE.md` with the milestone; the constants
-//! that no fixture can separate are named there rather than left implicit.
+//! **No record of one exists.** This said the results were in
+//! `URBAN_MORPHOLOGY_SCOPE.md` with the milestone; checked 2026-09-24, milestone
+//! 10's section carries no mutation table, and nothing else records a sweep of
+//! this module. Treat its constants as not mutation-tested until one is run.
 
 use super::*;
 use crate::geom::{js_cos, js_exp, js_sin};
