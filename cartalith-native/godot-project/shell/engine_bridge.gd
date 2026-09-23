@@ -3612,17 +3612,20 @@ func label_clear_all() -> void:
 	mark_world_dirty()
 	world_gen.label_clear_all()
 
-func label_hit_test(gx: float, gy: float) -> int:
+## `px_per_cell` sizes the hit box off `map_overlay.gd`'s own font model
+## (`LARGE_ITEM_RULINGS.md` Ruling AG, 2026-09-23) -- pass
+## `ViewportHost.label_px_per_cell()`.
+func label_hit_test(gx: float, gy: float, px_per_cell: float) -> int:
 	if not _has("label_hit_test"):
 		return -1
-	return world_gen.label_hit_test(gx, gy)
+	return world_gen.label_hit_test(gx, gy, px_per_cell)
 
 ## `label_hit_test` with the modifier the click carried -- see
 ## `icon_hit_test_mode` for the mode codes and the older-cdylib fallback.
-func label_hit_test_mode(gx: float, gy: float, mode: int) -> int:
+func label_hit_test_mode(gx: float, gy: float, px_per_cell: float, mode: int) -> int:
 	if not _has("label_hit_test_mode"):
-		return label_hit_test(gx, gy)
-	return world_gen.label_hit_test_mode(gx, gy, mode)
+		return label_hit_test(gx, gy, px_per_cell)
+	return world_gen.label_hit_test_mode(gx, gy, px_per_cell, mode)
 
 ## Every selected label's index, ascending. Falls back to whatever
 ## `label_get_selected()` reports against a cdylib without the set.
@@ -3643,10 +3646,14 @@ func label_select_all() -> int:
 		return 0
 	return world_gen.label_select_all()
 
-func label_handles(index: int, zoom: float) -> Dictionary:
+## `zoom` is only the handles' own screen-constant radius term
+## (`label_bridge::handle_circles`); `px_per_cell` sizes the box they sit on,
+## off `map_overlay.gd`'s own font model (`LARGE_ITEM_RULINGS.md` Ruling AG,
+## 2026-09-23) -- pass `ViewportHost.label_px_per_cell()`.
+func label_handles(index: int, zoom: float, px_per_cell: float) -> Dictionary:
 	if not _has("label_handles"):
 		return {}
-	return world_gen.label_handles(index, zoom)
+	return world_gen.label_handles(index, zoom, px_per_cell)
 
 func label_glyph_layout(index: int, zoom: float, char_widths: PackedFloat64Array, total_w: float) -> Array:
 	if not _has("label_glyph_layout"):

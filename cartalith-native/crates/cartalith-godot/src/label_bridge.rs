@@ -74,10 +74,10 @@
 //!   doc comment for the exact contract a caller must satisfy.
 
 use cartalith_civ::labels::{
-    arc_label_layout, civ_zoom_k, label_box, label_cull_rect, label_font_size, ArcLayout, GeneratedLabels,
+    arc_label_layout, civ_zoom_k, label_cull_rect, label_font_size, ArcLayout, GeneratedLabels,
     HandleCircle, LabelBox, LabelCullMetrics, LabelEditSession, LabelGenSettings, LabelHandles, LabelRect,
-    LabelSizeMode, LabelTypography, LabelViewEnv, MapLabel, LABEL_SIZE_MAX, LABEL_SIZE_MIN,
-    LABEL_TYPOGRAPHY_DEFAULTS,
+    LabelSizeMode, LabelTypography, LabelViewEnv, MapLabel, LABEL_BOX_LINE_HEIGHT, LABEL_SIZE_MAX,
+    LABEL_SIZE_MIN, LABEL_TYPOGRAPHY_DEFAULTS,
 };
 
 use crate::selection::{SelectMode, SelectionSet};
@@ -419,12 +419,13 @@ impl LabelBridge {
     /// is measured at `meas_w = 0.0` here — a disclosed placeholder, not a
     /// claim about the label's real rendered width.
     ///
-    /// `mode` is what the hit does to the selection set — [`SelectMode::
-    /// Replace`] is the plain click this always did; a miss leaves the
-    /// selection alone in every mode (`IconEditor::hit_test`'s own note on
-    /// why a modified click on empty ground is not a deselect gesture).
-    pub fn hit_test(&mut self, gx: f64, gy: f64, env: &LabelViewEnv, mode: SelectMode) -> Option<usize> {
-        let boxes: Vec<LabelBox> = self.labels.iter().map(|lb| label_box(lb, env, 0.0)).collect();
+    /// `px_per_cell` sizes the box — see [`shell_label_box`]. `mode` is what
+    /// the hit does to the selection set — [`SelectMode::Replace`] is the
+    /// plain click this always did; a miss leaves the selection alone in
+    /// every mode (`IconEditor::hit_test`'s own note on why a modified click
+    /// on empty ground is not a deselect gesture).
+    pub fn hit_test(&mut self, gx: f64, gy: f64, px_per_cell: f64, mode: SelectMode) -> Option<usize> {
+        let boxes: Vec<LabelBox> = self.labels.iter().map(|lb| shell_label_box(lb, px_per_cell)).collect();
         let hit = cartalith_civ::labels::label_hit_test(&boxes, &LabelHandles::default(), gx, gy)?;
         let index = hit.index?;
         self.selection.apply(mode, index);
@@ -434,9 +435,17 @@ impl LabelBridge {
 
     /// The five on-canvas handle circles for label `index`'s current box —
     /// see [`handle_circles`]. `None` for an out-of-range `index`.
-    pub fn handles(&self, index: usize, env: &LabelViewEnv) -> Option<LabelHandles> {
+    ///
+    /// `px_per_cell` sizes the box itself ([`shell_label_box`]); `env` is
+    /// still what [`handle_circles`] reads for the handles' own
+    /// screen-constant radius (`env.zoom_scale`, `env.grid_w`,
+    /// `env.icon_scale` — unrelated to a label's own font-size model, see
+    /// that function's doc comment). Two different inputs for two different
+    /// quantities over the same box, not a second disagreement reopening
+    /// this one.
+    pub fn handles(&self, index: usize, px_per_cell: f64, env: &LabelViewEnv) -> Option<LabelHandles> {
         let lb = self.labels.get(index)?;
-        let box_ = label_box(lb, env, 0.0);
+        let box_ = shell_label_box(lb, px_per_cell);
         Some(handle_circles(lb, &box_, env))
     }
 
@@ -456,6 +465,57 @@ impl Default for LabelBridge {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// `map_overlay.gd::LABEL_ZOOM_BASE_PX_PER_CELL`/`LABEL_FONT_PX_MIN`/
+/// `LABEL_FONT_PX_MAX` — **that file is the source of truth for all three**,
+/// mirrored here rather than left as literals so a change on that side has
+/// one required update on this one too, the same duplication-with-a-named-
+/// source `map_overlay.gd`'s own `ARC_STRAIGHT_THRESHOLD`/`ARC_RADIUS_FLOOR_K`/
+/// `ARC_SPREAD_DIVISOR` already use for the reverse direction (this crate's
+/// constant mirrored into the shell). See [`shell_label_box`].
+pub const SHELL_LABEL_ZOOM_BASE_PX_PER_CELL: f64 = 2.0;
+pub const SHELL_LABEL_FONT_PX_MIN: f64 = 8.0;
+pub const SHELL_LABEL_FONT_PX_MAX: f64 = 96.0;
+
+/// The label hit box and manipulation handles' own font-size model —
+/// `map_overlay.gd::_label_font_px`'s formula, **not**
+/// [`cartalith_civ::labels::label_font_size`]. `LARGE_ITEM_RULINGS.md`
+/// Ruling AG (2026-09-23): `map_overlay.gd`'s own model (introduced
+/// `fd9de7c`, 2026-09-01) is the more recent of the two competing models —
+/// the engine's `label_font_size` (`29d0f50`/`611c5fa`, 2026-08-18) predates
+/// it — so [`LabelBridge::hit_test`] and [`LabelBridge::handles`] size their
+/// box against *this* function now, not that one. `label_font_size` itself
+/// is untouched: it stays the literal, golden-pinned port of `_civLabelBox`'s
+/// own `fsz` (`golden_parity_labels.rs`), and remains what
+/// [`LabelBridge::glyph_layout`] sizes against — nothing in this shell calls
+/// `WorldGen::label_glyph_layout` yet (`map_overlay.gd`'s own doc comment on
+/// `ARC_STRAIGHT_THRESHOLD` has the full reasoning), so there is no live
+/// mismatch there to unify.
+///
+/// `px_per_cell` is `map_overlay.gd::displayed_rect().size.x / _gw` —
+/// `ViewportHost::label_px_per_cell()` on the Godot side — this control's own
+/// LOCAL, pre-camera pixels-per-cell. **Deliberately not the live camera
+/// zoom**: `_label_font_px`'s own formula never reads `_camera_zoom` (only
+/// `_label_raster_px`, the *rasterisation* size, does that) — the box
+/// geometry that sizes hit-testing and handles lives in this control's own
+/// local space, same as the reference-ported box does in grid-cell space.
+///
+/// `meas_w` is not a parameter here for the same reason [`LabelBridge::
+/// hit_test`]/[`LabelBridge::handles`] never had one: no live `Font` reaches
+/// this crate (the module doc's "text measurement" section), so the box
+/// narrows to a font-height square, exactly as it already did through
+/// `label_font_size`.
+pub fn shell_label_box(lb: &MapLabel, px_per_cell: f64) -> LabelBox {
+    let raw = match lb.size_mode {
+        LabelSizeMode::Fixed => lb.size,
+        LabelSizeMode::Zoom => lb.size * px_per_cell / SHELL_LABEL_ZOOM_BASE_PX_PER_CELL,
+    };
+    // `map_overlay.gd`'s own `int(clampf(px, MIN, MAX))` truncates; the clamp
+    // floor is positive, so truncation and `floor` agree.
+    let fsz = raw.clamp(SHELL_LABEL_FONT_PX_MIN, SHELL_LABEL_FONT_PX_MAX).floor();
+    let side = f64::max(0.0, fsz * LABEL_BOX_LINE_HEIGHT) * 1.25;
+    LabelBox { px: lb.x + 0.5, py: lb.y + 0.5, side, fsz }
 }
 
 /// The reference's `drawCivLayer` selection-box handle geometry (lines
@@ -614,6 +674,14 @@ mod tests {
         LabelViewEnv { grid_w: 512, zoom_scale: 1.0, icon_scale: 1.0 }
     }
 
+    /// `shell_label_box`'s own scale input for `hit_test`'s tests below —
+    /// chosen so a default (`size: 16.0`, `Zoom` mode) label's box comes out
+    /// with the identical `side` (`26.0`) `env()` used to give it through
+    /// `label_font_size`, so these tests keep asserting the same geometry
+    /// they always did rather than picking a value that happens to still
+    /// pass.
+    const PX_PER_CELL: f64 = 2.0;
+
     // ---- LabelBridge: create / delete / clear_all ----
 
     #[test]
@@ -713,7 +781,7 @@ mod tests {
         let mut b = LabelBridge::new();
         b.create(10.0, 10.0, "A");
         b.deselect();
-        let hit = b.hit_test(10.5, 10.5, &env(), SelectMode::Replace);
+        let hit = b.hit_test(10.5, 10.5, PX_PER_CELL, SelectMode::Replace);
         assert_eq!(hit, Some(0));
         assert_eq!(b.session.selected(), Some(0));
         assert_eq!(b.selected(), Some(0));
@@ -723,7 +791,7 @@ mod tests {
     fn hit_test_a_miss_returns_none_and_selects_nothing() {
         let mut b = LabelBridge::new();
         b.create(10.0, 10.0, "A");
-        assert_eq!(b.hit_test(-500.0, -500.0, &env(), SelectMode::Replace), None);
+        assert_eq!(b.hit_test(-500.0, -500.0, PX_PER_CELL, SelectMode::Replace), None);
     }
 
     // ---- the selection set (step one of the selection-sets ruling) ----
@@ -761,7 +829,7 @@ mod tests {
         agree!("select extend");
         b.select_set([0, 1]);
         agree!("select_set");
-        b.hit_test(10.5, 10.5, &env(), SelectMode::Toggle);
+        b.hit_test(10.5, 10.5, PX_PER_CELL, SelectMode::Toggle);
         agree!("hit_test");
         b.confirm_edit();
         agree!("confirm_edit");
@@ -788,7 +856,7 @@ mod tests {
         b.create(10.0, 10.0, "L0");
         b.labels[0].name = "edited".into();
         b.select(0, SelectMode::Replace);
-        b.hit_test(10.5, 10.5, &env(), SelectMode::Replace);
+        b.hit_test(10.5, 10.5, PX_PER_CELL, SelectMode::Replace);
         b.select(0, SelectMode::Extend);
         assert_eq!(b.selected(), Some(0), "three re-selections, still the same session");
         assert!(b.cancel_edit(), "the snapshot survived");
@@ -846,7 +914,7 @@ mod tests {
         for mode in [SelectMode::Replace, SelectMode::Toggle, SelectMode::Extend] {
             let mut b = three_labels();
             b.select_set([0, 1]);
-            assert_eq!(b.hit_test(-500.0, -500.0, &env(), mode), None);
+            assert_eq!(b.hit_test(-500.0, -500.0, PX_PER_CELL, mode), None);
             assert_eq!(b.selection.sorted(), vec![0, 1], "mode {mode:?} lost the selection on a miss");
         }
     }

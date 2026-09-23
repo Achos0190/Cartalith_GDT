@@ -1344,7 +1344,7 @@ func _on_label_click(gx: float, gy: float) -> void:
 			_begin_label_handle_drag(sel, mode, gx, gy)
 			return
 
-	var hit := bridge.label_hit_test_mode(gx, gy, sel_mode)
+	var hit := bridge.label_hit_test_mode(gx, gy, app.viewport.label_px_per_cell(), sel_mode)
 	if hit >= 0:
 		## A modified click selects; it does not also arm a position drag. A
 		## Ctrl-drag that moved the label it had just added to the set would
@@ -1372,7 +1372,7 @@ func _on_label_click(gx: float, gy: float) -> void:
 ## comment), so no offset is needed here -- only the drag-math calls below
 ## need the `+0.5` cell-centred `cx`/`cy`.
 func _handle_hit(index: int, gx: float, gy: float) -> int:
-	var h := bridge.label_handles(index, app.viewport.zoom())
+	var h := bridge.label_handles(index, app.viewport.zoom(), app.viewport.label_px_per_cell())
 	if h.is_empty():
 		return DragMode.NONE
 	for pair in [["resize", DragMode.RESIZE], ["rotate", DragMode.ROTATE], ["arc", DragMode.ARC]]:
@@ -1415,7 +1415,7 @@ func _begin_label_handle_drag(index: int, mode: int, gx: float, gy: float) -> vo
 ## from the box centre is always `side/2 * sqrt(2)` -- solved back out here
 ## rather than adding a new Rust accessor for one derived number.
 func _label_side_from_handles(index: int) -> float:
-	var h := bridge.label_handles(index, app.viewport.zoom())
+	var h := bridge.label_handles(index, app.viewport.zoom(), app.viewport.label_px_per_cell())
 	var resize_h: Dictionary = h.get("resize", {})
 	if resize_h.is_empty():
 		return 40.0
@@ -3062,7 +3062,7 @@ func _update_label_handles_overlay() -> void:
 	if idx < 0 or bridge.label_get_selection().size() != 1:
 		app.viewport.tool_overlay.set_handles([])
 		return
-	var h := bridge.label_handles(idx, app.viewport.zoom())
+	var h := bridge.label_handles(idx, app.viewport.zoom(), app.viewport.label_px_per_cell())
 	if h.is_empty():
 		app.viewport.tool_overlay.set_handles([])
 		return

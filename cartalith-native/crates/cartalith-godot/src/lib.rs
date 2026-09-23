@@ -12288,33 +12288,19 @@ impl WorldGen {
     /// to a font-height square rather than the label's true rendered width
     /// until a live `Font` is threaded through.
     ///
-    /// # A second placeholder, and this one drifts with the view
-    ///
-    /// `zoom_scale: 1.0` below is the same kind of stand-in as `meas_w = 0`
-    /// and has the worse consequence, because the view moves and the font
-    /// does not. This signature has no zoom parameter, so the box is always
-    /// evaluated at view scale 1, while [`Self::label_handles`] takes a real
-    /// `zoom` that `cartography_workspace.gd::_handle_hit` and
-    /// `_update_label_handles_overlay` both fill with `app.viewport.zoom()`.
-    /// The two are used in the same gesture -- `_on_label_click` box-hits
-    /// through here, `_handle_hit` tests the handles -- so at any zoom but
-    /// 1.0 they disagree about where the label is.
-    ///
-    /// The shell has a third answer again: `map_overlay.gd::_label_font_px`
-    /// derives the drawn size from its own px-per-cell fit
-    /// (`rect.size.x / _gw`) and `LABEL_ZOOM_BASE_PX_PER_CELL`, never from
-    /// `cartalith_civ::labels::label_font_size`. Three models for one
-    /// number.
-    ///
-    /// Not fixed here for the reason [`Self::icon_hit_test`] gives for its
-    /// identical defect: threading `zoom` in is a `#[func]` signature change
-    /// whose wrapper (`engine_bridge.gd::label_hit_test`) and call sites are
-    /// outside
-    /// this crate. Collapsing the shell's own font-size model into
-    /// `label_font_size` is the same pass and the larger half of it.
+    /// `px_per_cell` sizes that box off `map_overlay.gd`'s own font model
+    /// (`label_bridge::shell_label_box`), not `cartalith_civ::labels::
+    /// label_font_size` -- `LARGE_ITEM_RULINGS.md` Ruling AG, 2026-09-23.
+    /// **Resolved, at this symbol, the "three models for one number" defect
+    /// this doc comment used to describe**: `label_hit_test`/
+    /// `label_hit_test_mode` no longer stand in `zoom_scale: 1.0` for a real
+    /// view value, because the shell's own font model was never a function
+    /// of the live camera zoom to begin with (`shell_label_box`'s own doc
+    /// comment has the full reasoning) -- there is nothing left to thread a
+    /// `zoom` parameter in for. Pass `ViewportHost::label_px_per_cell()`.
     #[func]
-    fn label_hit_test(&mut self, gx: f64, gy: f64) -> i64 {
-        self.label_hit_test_mode(gx, gy, 0)
+    fn label_hit_test(&mut self, gx: f64, gy: f64, px_per_cell: f64) -> i64 {
+        self.label_hit_test_mode(gx, gy, px_per_cell, 0)
     }
 
     /// [`Self::label_hit_test`] with the modifier a click carried: `mode` is
@@ -12327,11 +12313,9 @@ impl WorldGen {
     /// this crate (`engine_bridge.gd`, `_deselect_probe.gd`), and step one of
     /// the selection-sets ruling is not the place to break them.
     #[func]
-    fn label_hit_test_mode(&mut self, gx: f64, gy: f64, mode: i64) -> i64 {
-        let grid_w = self.gw as usize;
+    fn label_hit_test_mode(&mut self, gx: f64, gy: f64, px_per_cell: f64, mode: i64) -> i64 {
         let Some(labels) = self.labels.as_mut() else { return -1 };
-        let env = cartalith_civ::labels::LabelViewEnv { grid_w, zoom_scale: 1.0, icon_scale: 1.0 };
-        labels.hit_test(gx, gy, &env, selection::SelectMode::from_i64(mode)).map_or(-1, |i| i as i64)
+        labels.hit_test(gx, gy, px_per_cell, selection::SelectMode::from_i64(mode)).map_or(-1, |i| i as i64)
     }
 
     /// The five on-canvas manipulation-box handle circles for label
@@ -12343,7 +12327,15 @@ impl WorldGen {
     /// `Dictionary` only if `index` itself is invalid (all five are always
     /// present together otherwise). `zoom` is the raw view scale before
     /// `_civZoomK`'s own clamp (`civ_zoom_k` applies that internally),
-    /// matching the reference's `viewT.scale`.
+    /// matching the reference's `viewT.scale` -- this is *only* the
+    /// handles' own screen-constant radius term (`label_bridge::
+    /// handle_circles`'s own doc comment), unrelated to `px_per_cell` below.
+    ///
+    /// `px_per_cell` sizes the box the handles sit on
+    /// (`label_bridge::shell_label_box`, `map_overlay.gd`'s own font model
+    /// -- `LARGE_ITEM_RULINGS.md` Ruling AG, 2026-09-23). Pass
+    /// `ViewportHost::label_px_per_cell()`; `zoom` is still
+    /// `app.viewport.zoom()`, unchanged.
     ///
     /// Empty top-level `Dictionary` for an out-of-range `index` or before
     /// any `generate()` call. Uses the same `meas_w = 0` placeholder
@@ -12351,11 +12343,11 @@ impl WorldGen {
     /// section) -- the handles are still correctly positioned relative to
     /// *that* box, just not the label's true rendered width.
     #[func]
-    fn label_handles(&self, index: i64, zoom: f64) -> VarDictionary {
+    fn label_handles(&self, index: i64, zoom: f64, px_per_cell: f64) -> VarDictionary {
         let Ok(i) = usize::try_from(index) else { return VarDictionary::new() };
         let Some(labels) = self.labels.as_ref() else { return VarDictionary::new() };
         let env = cartalith_civ::labels::LabelViewEnv { grid_w: self.gw as usize, zoom_scale: zoom, icon_scale: 1.0 };
-        let Some(h) = labels.handles(i, &env) else { return VarDictionary::new() };
+        let Some(h) = labels.handles(i, px_per_cell, &env) else { return VarDictionary::new() };
         vdict! {
             "resize" => &handle_circle_dict(h.resize),
             "rotate" => &handle_circle_dict(h.rotate),

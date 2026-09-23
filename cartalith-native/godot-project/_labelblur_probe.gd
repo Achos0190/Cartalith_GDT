@@ -171,11 +171,14 @@ func _ready() -> void:
 			% [KEEP_MIN * 100.0, Z_HIGH, gen_keep])
 
 	## Sharpening a label must not RESIZE it.  `_label_font_px()` is the size
-	## model, `label_box_at` on the engine side hit-tests against its own, and
-	## the two already disagree (`ARC_*`'s doc comment) -- a rasterisation fix
-	## that also moved the drawn size would widen that gap silently.  The
-	## measured box is inked pixels including the halo, so the tolerance covers
-	## font hinting at two sizes and the halo's own rounding, not a size change.
+	## model this file draws with; `label_box_at`/`label_handles` on the engine
+	## side hit-test and place handles against the SAME model now
+	## (`LARGE_ITEM_RULINGS.md` Ruling AG, 2026-09-23, verified by
+	## `_labelboxmodel_probe.gd`) -- so a rasterisation fix that also moved the
+	## drawn size would widen a gap that used to be silent and is now a real,
+	## checked invariant.  The measured box is inked pixels including the halo,
+	## so the tolerance covers font hinting at two sizes and the halo's own
+	## rounding, not a size change.
 	for pair in [[trk_lo, trk_hi, "tracked+oblique"], [arc_lo, arc_hi, "arched"]]:
 		var lo: Dictionary = pair[0]
 		var hi: Dictionary = pair[1]

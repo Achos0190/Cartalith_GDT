@@ -729,20 +729,24 @@ func _label_font_for(lb: Dictionary) -> Font:
 			return get_theme_default_font()
 
 ## `drawArcLabel`'s three layout numbers. **`cartalith-civ/src/labels.rs` is
-## the source of truth for all three** -- `ARC_STRAIGHT_THRESHOLD` (`:164`) and
-## the two inside `arc_label_layout` (`:182`, the radius floor and the
-## spread-over-1/2.2-of-a-circle term). They are duplicated here as named
-## constants, not left as literals in `_draw_labels`, so that a change on the
-## Rust side has one place to land on this one and `grep` finds the pair.
+## the source of truth for all three** -- `ARC_STRAIGHT_THRESHOLD` (`:179`,
+## re-verified 2026-09-23 against the real symbol, not trusted from an older
+## citation -- `MISTAKES.md`'s "re-resolve a citation late in a long pass"
+## row) and the two inside `arc_label_layout` (`:197`, likewise re-verified;
+## the radius floor and the spread-over-1/2.2-of-a-circle term). They are
+## duplicated here as named constants, not left as literals in
+## `_draw_labels`, so that a change on the Rust side has one place to land on
+## this one and `grep` finds the pair.
 ##
 ## Why they are duplicated at all rather than the layout being asked of
 ## `WorldGen.label_glyph_layout` (bound, wrapped by
-## `EngineBridge.label_glyph_layout`, `engine_bridge.gd:3503 func
-## label_glyph_layout` -- corrected 2026-09-20, drifted again since this was
-## last cited (`UNWIRED_FUNCTIONS.md`'s own "Small" row caught it at `:2469`
-## and then again at a claimed `:3211`, itself already stale by this date;
-## the number moves with every edit above it in that file, which is exactly
-## why the routing question below cannot be settled by a citation fix), and
+## `EngineBridge.label_glyph_layout`, `engine_bridge.gd:3651 func
+## label_glyph_layout` as of 2026-09-23 -- corrected 2026-09-20, drifted
+## again since this was last cited (`UNWIRED_FUNCTIONS.md`'s own "Small" row
+## caught it at `:2469` and then again at a claimed `:3211`, itself already
+## stale by this date; the number moves with every edit above it in that
+## file, which is exactly why the routing question below cannot be settled
+## by a citation fix), and
 ## preferable in principle -- its doc warns that summing per-`char`
 ## advances instead of measuring the whole string drifts on a kerned font,
 ## which is exactly what the loop below does): this control is data-*pushed*.
@@ -791,6 +795,23 @@ func _label_font_for(lb: Dictionary) -> Font:
 ## an undisclosed rendering change, not a bug fix, and exactly what
 ## `cartalith-rust-conventions` and `MISTAKES.md` both say not to ship.
 ## Left open on purpose; the fix is still the one two paragraphs up.
+##
+## **The box/handle half is resolved, 2026-09-23, `LARGE_ITEM_RULINGS.md`
+## Ruling AG.** Owner ruling: this file's own font-size model is the more
+## recent of the two (`fd9de7c`, 2026-09-01, against `label_font_size`'s
+## `29d0f50`/`611c5fa`, 2026-08-18), so unification goes the OTHER direction
+## from the "cheapest correct" paragraph above -- not `label_font_size`
+## reproducing `_label_font_px`, but `label_box_at`/`label_handles`
+## abandoning `label_font_size` for a new function that reproduces
+## `_label_font_px` instead (`cartalith-godot::label_bridge::
+## shell_label_box`, fed `label_px_per_cell()` below rather than a zoom
+## scale -- `_label_font_px` never read one either). `label_font_size`
+## itself is untouched and still golden-pinned to the reference; only the
+## engine's hit-test box and handle geometry moved. **The arc-drawing
+## question above is separate and still open**: this file still lays out
+## every glyph itself rather than calling `label_glyph_layout`, for the
+## reasons already given, and that call still has no live measured width to
+## offer it even if it were wired.
 const ARC_STRAIGHT_THRESHOLD := 0.01   ## `labels.rs:164`, the named constant there.
 const ARC_RADIUS_FLOOR_K := 1.2        ## `labels.rs:182`, `size_px * 1.2`.
 const ARC_SPREAD_DIVISOR := 2.2        ## `labels.rs:182`, `total_w / (2.2 * |a|)`.
@@ -1994,6 +2015,22 @@ func _displayed_rect() -> Rect2:
 ## not the reverse -- see `_grid_point()` for the inverse.
 func displayed_rect() -> Rect2:
 	return _displayed_rect()
+
+## This control's own local, pre-camera pixels-per-cell -- `_label_font_px()`'s
+## own `rect.size.x / _gw` term, exposed for `ViewportHost.label_px_per_cell()`
+## (`LARGE_ITEM_RULINGS.md` Ruling AG, 2026-09-23). The engine's label hit-test
+## box and manipulation handles now size themselves off this control's own font
+## model (`cartalith-godot::label_bridge::shell_label_box`) instead of their
+## former one, and this is the one number that model needs from here --
+## deliberately not the live camera zoom, which `_label_font_px()` never reads
+## either (see `_label_font_px()`'s own doc comment on why, and
+## `_label_raster_px()` for the one place a zoom term does belong). `0.0`
+## before any world is loaded, matching `_displayed_rect()`'s own degenerate
+## guard.
+func label_px_per_cell() -> float:
+	if _gw <= 0:
+		return 0.0
+	return _displayed_rect().size.x / float(_gw)
 
 
 ## The plate *interior*: `_displayed_rect()` minus the frame the terrain

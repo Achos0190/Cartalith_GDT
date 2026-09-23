@@ -2164,6 +2164,15 @@ func manual_routes() -> Array:
 func zoom() -> float:
 	return _zoom
 
+## `map_overlay.gd::label_px_per_cell()`, forwarded -- `label_handles(index,
+## zoom, px_per_cell)`/`label_hit_test(_mode)` callers (`DCC_SHELL_SPEC.md`
+## §4.5.5's Label tool) need this to size the engine's hit-test box and
+## manipulation handles off the shell's own font model (`LARGE_ITEM_RULINGS.md`
+## Ruling AG, 2026-09-23), the same way `zoom()` above already forwards what
+## those calls need for the handles' own screen-constant radius.
+func label_px_per_cell() -> float:
+	return overlay.label_px_per_cell()
+
 func set_layer_visible(layer: String, shown: bool) -> void:
 	match layer:
 		"territory": territory_view.visible = shown
