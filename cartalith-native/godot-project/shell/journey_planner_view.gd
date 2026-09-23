@@ -226,11 +226,10 @@ var _stage_auto := false
 var _trim := Vector2(0.0, 1.0)
 
 ## JP-06 / JP-08. The journeys list: a route index plus the whole party form,
-## named. **Session-only** (corrected 2026-09-24): `journeys_document()` and
-## `restore_journeys_document()` at the foot of this file are SP-1 stubs, so
-## this list starts empty on project open. The named journey itself is SP-1's
-## engine `Journey`, persisted in `entities/journeys.json` and drawn on the map;
-## reading it back into this list is `OUTSTANDING_WORK.md` §2.3's open row.
+## named. The named journey itself is SP-1's engine `Journey`, persisted in
+## `entities/journeys.json`; on project open `_restore_from_engine()` rebuilds
+## this list from it (2026-09-24). Only the name, party preset and route
+## persist, so a restored entry's per-stage edits start at their defaults.
 ## `route` is an index into the routes saved beside it, which is why
 ## `setup()` clears this list on a world change.
 ## Entries: `{name: String, route: int, plan: Dictionary, stage_overrides:
@@ -724,7 +723,8 @@ func _refresh_route_choice() -> void:
 		open_btn.text = "%s%s" % ["● " if i == _active_journey else "", String(j.get("name", "journey"))]
 		open_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		open_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		open_btn.tooltip_text = "Route #%d + this party form. This list lasts for the session: saving the project keeps the journey itself (it is drawn on the map again after reopening), but the list starts empty on File ▸ Open project. The route is stored as an INDEX, so a journey only means what it meant against the routes saved beside it." % int(j.get("route", 0))
+		open_btn.tooltip_text = ("Route #%d + this party form. Saved with the project and listed here again on File ▸ Open project." % int(j.get("route", 0))) + (
+			" Restored from the project: its party set-up and route came back, but per-stage overrides, layovers, animal choices and the trim were never saved and start at their defaults." if bool(j.get("restored", false)) else "")
 		open_btn.pressed.connect(func(): _load_journey(i))
 		jrow.add_child(open_btn)
 		var del_btn := Button.new()
@@ -4971,6 +4971,57 @@ func restore_journeys_document(_text: String) -> void:
 			return
 		_restored_documents = bridge.last_documents
 	clear_journeys()
+	_restore_from_engine()
+
+## Rebuilds this list from the engine's persisted `Journey`s (SP-1,
+## `entities/journeys.json`), so a reopened project's journeys are back in the
+## planner and not only on the map (2026-09-24; until then this list started
+## empty on every open). A `Journey` keeps a name, a party-preset id and a
+## route SNAPSHOT, so each entry gets that preset's party form and the saved
+## route whose points equal the snapshot (`-1` when none does -- the route
+## was deleted or redrawn). Stage overrides, layovers, animal entries and the
+## trim were never persisted, so a restored entry starts them at their
+## defaults; its `restored` flag lets the list say so.
+func _restore_from_engine() -> void:
+	if bridge == null:
+		return
+	var saved: Array = bridge.journey_list()
+	if saved.is_empty():
+		return
+	var defaults: Dictionary = bridge.jp_default_plan()
+	for s in saved:
+		var sd: Dictionary = s
+		var id := int(sd.get("id", -1))
+		var full: Dictionary = bridge.journey_get(id)
+		var plan: Dictionary = defaults.duplicate(true)
+		var preset: Dictionary = bridge.tl_get("preset", String(sd.get("party_preset", "")))
+		if bool(preset.get("ok", false)):
+			for key in defaults.keys():
+				if key != "party_fields" and preset.has(key):
+					plan[key] = preset[key]
+		_journeys.append({
+			"name": String(sd.get("name", "journey")),
+			"route": _route_matching(full.get("points", PackedVector2Array())),
+			"plan": plan,
+			"stage_overrides": {},
+			"layovers": {},
+			"animal_entries": {},
+			"trim": Vector2(0.0, 1.0),
+			"engine_id": id,
+			"restored": true,
+		})
+	if _bound:
+		_refresh_route_choice()
+
+## The saved route whose points equal `points` exactly (a `Journey` stores a
+## copy of its route's points at save time), or `-1`.
+func _route_matching(points: PackedVector2Array) -> int:
+	if points.is_empty():
+		return -1
+	for i in bridge.route_count():
+		if (bridge.route_get(i).get("points", PackedVector2Array()) as PackedVector2Array) == points:
+			return i
+	return -1
 
 ## Empties the list because the world its route indices pointed into is gone.
 ##
