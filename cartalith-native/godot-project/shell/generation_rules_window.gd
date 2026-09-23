@@ -238,12 +238,22 @@ func _apply_preset(p: Dictionary) -> void:
 	else:
 		bridge.apply_urban_wildness(float(p.w))
 		bridge.apply_urban_plot_chaos(float(p.c))
+	_rules_changed()
 	_rebuild()
+
+
+## Every rules change lands here: the map's cached towns were laid out under
+## the old rules, so they are dropped and redrawn (`ViewportHost.
+## forget_all_urban_layouts`). The City Viewer lays its town out afresh on open.
+func _rules_changed() -> void:
+	if app != null and app.viewport != null and app.viewport.has_method("forget_all_urban_layouts"):
+		app.viewport.forget_all_urban_layouts()
 
 
 func _do_reset() -> void:
 	_active_preset = "Organic Medieval"
 	bridge.reset_active_urban_rules()
+	_rules_changed()
 	_rebuild()
 
 
@@ -282,6 +292,7 @@ func _build_sliders_pane() -> Control:
 	var wild := DccWidgets.slider(body, "Wildness", 0.0, 2.0, 0.05, 1.0, "", func(v: float):
 		_active_preset = ""
 		bridge.apply_urban_wildness(v)
+		_rules_changed()
 		_rebuild_tables()
 		_rebuild_status())
 	_wild_readout = wild["readout"]
@@ -291,6 +302,7 @@ func _build_sliders_pane() -> Control:
 	var chaos := DccWidgets.slider(body, "Plot chaos", 0.0, 2.0, 0.05, 1.0, "", func(v: float):
 		_active_preset = ""
 		bridge.apply_urban_plot_chaos(v)
+		_rules_changed()
 		_rebuild_tables()
 		_rebuild_status())
 	_chaos_readout = chaos["readout"]

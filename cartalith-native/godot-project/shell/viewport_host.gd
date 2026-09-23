@@ -2260,6 +2260,14 @@ func _on_urban_layouts_needed(indices: PackedInt32Array) -> void:
 func forget_urban_layout(index: int) -> void:
 	overlay.forget_urban_layout(index)
 
+## The world-level town-generation rules changed (the Generation rules window):
+## every cached town was laid out under the old rules, so drop them all and let
+## the next draw re-request whatever is on screen. Without this a rules edit
+## reached only towns not yet cached (`RC_ENGINE_CHANGES.md` §6r.2's hazard).
+func forget_all_urban_layouts() -> void:
+	overlay.clear_urban_layouts()
+	overlay.queue_redraw()
+
 ## The per-class / per-way-type half of the reference's own layer filters
 ## (`#explSettlementFilterList`, and `#explShowRoads`'s by-way-type list --
 ## `design/Cartalith Menu Structure v2.dc.html`, MAP ▸ LAYERS). Passed
