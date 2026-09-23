@@ -1612,6 +1612,63 @@ mod tests {
         }
     }
 
+    /// Ruling AI (2026-09-23): *"a heavily industrialised nation needs less
+    /// manpower to foot a larger army than an agricultural nation that is
+    /// dependant on individual farmers without machines."* Checked against
+    /// this model before building anything, and **it is already what the
+    /// model does**: [`Manpower::standing_army`] is paid out of the
+    /// non-agricultural population, `total × (1 − α)` with
+    /// `α = f/(1+f)` from [`crate::roster::AG_TECH_LEVELS`], and the same
+    /// `(1 − α)` raises `state_capacity` through `urban_norm`. There is no
+    /// era-fixed standing ratio anywhere in the chain to replace --
+    /// [`ERA_BANDS`] is read only by the verdict.
+    ///
+    /// Pinned at **equal total population** (1 000 000), equal land (so
+    /// `ecological_factor` is exactly `1.0` on every row) and Kingdom A's
+    /// institutions, so the ag-tech row is the only thing that differs. The
+    /// literals are the model's output, not a fit: mutating
+    /// [`SOLDIER_UPKEEP`], [`EXTRACTION_CEILING`], [`MAX_NON_AGRICULTURAL_SHARE`]
+    /// or the `(1 − α)` term moves them.
+    #[test]
+    fn standing_army_rises_with_industrialisation_at_equal_population() {
+        let at = |key: &str| {
+            let f = crate::roster::civ_ag_tech_by_key(key).farmers_per_urbanite;
+            civ_military_manpower(&ManpowerInput {
+                nucleated_pop: 1_000_000.0 / (1.0 + f),
+                farmers_per_urbanite: f,
+                land_capacity: 1_000_000.0,
+                ..kingdom_a()
+            })
+        };
+        let mut prev = 0.0;
+        for (key, standing) in [
+            ("subsistence", 1_090.0),
+            ("traditionalAgrarian", 2_219.0),
+            ("advancedAgrarian", 4_597.0),
+            ("improvedAgrarian", 12_686.0),
+            ("earlyIndustrial", 18_537.0),
+            ("industrial", 24_617.0),
+        ] {
+            let m = at(key);
+            assert!((m.total_population - 1_000_000.0).abs() < 1e-6, "{key}");
+            assert_eq!(m.drivers.ecological_factor, 1.0, "{key}");
+            assert!((m.standing_army - standing).abs() < 1.0, "{key}: {}", m.standing_army);
+            assert!(m.standing_army > prev, "{key}: {} not above {prev}", m.standing_army);
+            prev = m.standing_army;
+        }
+        // The owner's comparison as one number: the same million people
+        // field about eleven times the standing army once they no longer
+        // farm by hand.
+        let ratio = at("industrial").standing_army / at("traditionalAgrarian").standing_army;
+        assert!((ratio - 11.09).abs() < 0.01, "{ratio}");
+        // And the levy, which is demographic, does NOT scale that way -- the
+        // industrial advantage is fiscal, which is the owner's point.
+        assert!(
+            at("industrial").emergency_mobilization
+                < at("traditionalAgrarian").emergency_mobilization * 3.0
+        );
+    }
+
     /// Every driver stays in its stated range across the whole input space,
     /// including the corners no generated world reaches.
     #[test]

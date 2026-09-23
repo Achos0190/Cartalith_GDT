@@ -713,11 +713,32 @@ the model agrees with the specification's *example* and disagrees with its
 > up by roughly 1.6× and that is enough on dense worlds — the 233-settlement
 > six read 0.68–0.72 % against a 0.5–2 % band, all `within`. On the sparser
 > 33-settlement world they read 0.19–1.20 % against a 1–2.5 % floor and only
-> the narrowest citizen body clears it. The remaining gap is this finding's
-> own: the model's standing armies sit at Imperial Rome's ratio, which the
-> table's standing column has never agreed with, and correcting *that* would
-> mean recalibrating outputs validated against the worked example. Reported,
-> not tuned.
+> the narrowest citizen body clears it.
+>
+> **Corrected 2026-09-23 — the framing above was wrong, not just the numbers.**
+> A fresh build read `manpower.rs` directly and found "the model's standing
+> armies sit at Imperial Rome's ratio" describes a *measured result at one
+> ag-tech level*, not a hardcoded constant the model is stuck at —
+> `standing = total × (1−α) × ecological_factor × fiscal_extraction_efficiency
+> / SOLDIER_UPKEEP`, with `α` already driven by `AG_TECH_LEVELS.farmers_per_
+> urbanite` per faction. The industrialisation dependence this row's own
+> "correcting that" implied needed building **already existed** — measured at
+> equal population/land/institutions, standing army runs 1 090 (subsistence)
+> to 24 617 (industrial), an **11.09× spread** — see `LARGE_ITEM_RULINGS.md`
+> Ruling AI's own correction for the full measurement. Re-measured with
+> today's date (post the 2026-09-06 ecological-ceiling raise and the
+> 2026-09-23 government-default wiring): the sparse world now reads **3 of 6
+> factions within band** (Aurelia 0.21%, Veldmark 0.43%, Draumr 0.34% — not
+> the 1-of-6 this row originally reported), and a 108-sample sweep across
+> seeds and world sizes traced most of the remaining below-band cases to
+> finding 3's own map-scale effect, not era or industrialisation. **Options
+> recorded, not yet ruled on**: accept the ag-tech rule as satisfied; take on
+> the map-scale normalisation separately; or rule on whether the era table's
+> own non-monotone band shape (Iron Age sits *above* High-medieval) should be
+> reproduced by re-fitting `SOLDIER_UPKEEP` to vary with `α`, which would
+> re-baseline the worked example below. No behaviour was changed in this
+> pass — one mutation-tested unit test was added confirming the 11.09× spread
+> and the strictly-increasing order across all six ag-tech levels.
 
 **3 · `ecological_factor` saturated on real generated worlds — ruled on and
 raised, 2026-09-06.** As first measured: five of six
