@@ -4877,6 +4877,30 @@ func tl_set_year(year: int) -> void:
 func tl_step(direction: int) -> void:
 	tl_set_year(tl_year() + direction * tl_speed)
 
+## The cursor's day within its year (`STORY_PLANNING_SCOPE.md` SP-2, Ruling
+## AO): 0-based in `cartalith_vault::chronos`'s 365-day, no-leap calendar,
+## held by the engine beside `CivData::year` (`WorldGen::civ_day`) so this
+## file still keeps no date of its own. Only saved journeys read it -- a year
+## is too coarse to place a party on a weeks-long route. The year controls
+## above leave it alone.
+func tl_day() -> int:
+	var bridge := _find_engine_bridge()
+	return 0 if bridge == null else bridge.get_civ_day_of_year()
+
+func tl_set_day(day_of_year: int) -> void:
+	if not tl_available():
+		return
+	var bridge := _find_engine_bridge()
+	if bridge == null:
+		return
+	bridge.civ_set_day_of_year(clampi(day_of_year, 0, 364))
+	timeline_changed.emit()
+
+## The cursor as `YYYY-MM-DD`; `""` before any world.
+func tl_date_text() -> String:
+	var bridge := _find_engine_bridge()
+	return "" if bridge == null else String(bridge.get_civ_date().get("text", ""))
+
 ## Every year CIVIL ▸ Politics has recorded a snapshot for, ascending.
 ##
 ## `Timeline.dc.html`'s row 2 draws one mark per entry of this array, and the

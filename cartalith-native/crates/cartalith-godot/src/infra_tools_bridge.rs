@@ -144,11 +144,19 @@ pub struct InfraTools {
     /// beside `routes` rather than as its own `WorldGen` field because a
     /// journey's route is a **snapshot** of a committed route's geometry
     /// (`cartalith_civ::travel_library::JourneyRoute`) taken at save time --
-    /// the two share the exact lifecycle every other field on this struct
-    /// already has (reset on regenerate/`load_save`, meaningless carried
-    /// across a differently-sized or entirely different grid).
+    /// the two share `load_save`'s reset. **A regenerate is the one
+    /// exception** (SP-2, Ruling AO): every other field here is dropped with
+    /// the old world, but saved journeys are carried and re-snapped onto the
+    /// new one (`story_bridge.rs`, `adopt_resnapped` below).
     pub journeys: Vec<cartalith_civ::travel_library::Journey>,
     next_journey_id: u64,
+    /// SP-2 (Ruling AO): what the last regenerate's re-snap did to each
+    /// journey the previous world held -- `(journey id, journey name,
+    /// outcome)`, one row per carried journey, **including the dropped ones**
+    /// (`ResnapOutcome::MissingStop`), which are no longer in `journeys` and
+    /// would otherwise vanish without a word. Empty on a world no journey was
+    /// carried into; not persisted (a report on one regenerate, not state).
+    pub resnap_report: Vec<(u64, String, cartalith_civ::journey_progress::ResnapOutcome)>,
 }
 
 impl Default for InfraTools {
@@ -168,6 +176,7 @@ impl InfraTools {
             region: None,
             journeys: Vec::new(),
             next_journey_id: 1,
+            resnap_report: Vec::new(),
         }
     }
 
@@ -391,6 +400,35 @@ impl InfraTools {
 
     pub fn next_journey_id(&self) -> u64 {
         self.next_journey_id
+    }
+
+    /// SP-2's regenerate re-snap, applied to this (fresh) store: every
+    /// carried journey goes through `resnap_journey` against `ctx_for(mode)`,
+    /// the survivors keep their ids, and the id counter is carried so a
+    /// dropped journey's id is never reissued. `ctx_for` builds a
+    /// `RouteContext` over the NEW world for one mode -- the caller's,
+    /// because building one needs `WorldGen`'s rasters.
+    pub fn adopt_resnapped(
+        &mut self,
+        carried: &[cartalith_civ::travel_library::Journey],
+        next_id: u64,
+        old_places: &[cartalith_civ::NamedSettlement],
+        old_dims: (usize, usize),
+        ctx_for: &dyn Fn(RouteMode, &mut dyn FnMut(&RouteContext)),
+    ) {
+        use cartalith_civ::journey_progress::{resnap_journey, ResnapOutcome};
+        self.set_next_journey_id(next_id);
+        for j in carried {
+            let mut result: Option<Result<_, ResnapOutcome>> = None;
+            ctx_for(j.route.mode, &mut |ctx| result = Some(resnap_journey(j, old_places, old_dims, ctx)));
+            match result.expect("ctx_for calls back exactly once") {
+                Ok((nj, outcome)) => {
+                    self.journeys.push(nj);
+                    self.resnap_report.push((j.id, j.name.clone(), outcome));
+                }
+                Err(outcome) => self.resnap_report.push((j.id, j.name.clone(), outcome)),
+            }
+        }
     }
 
     // ===================== Measure =====================
@@ -841,6 +879,54 @@ mod tests {
     }
 
     // ---------- Journey (SP-1) ----------
+
+    /// SP-2's regenerate re-snap as the store applies it: the survivor keeps
+    /// its id, the journey whose stop vanished is dropped from `journeys` but
+    /// still reported by name, and the id counter is carried so the dropped
+    /// id is never reissued.
+    #[test]
+    fn adopt_resnapped_keeps_survivors_reports_the_dropped_and_carries_the_counter() {
+        use cartalith_civ::journey_progress::ResnapOutcome;
+        use cartalith_civ::{NamedSettlement, SettlementKind, SettlementPlacement};
+        let (field, wb) = route_fixture();
+        let town = |tid: u64, name: &str, x: usize, y: usize| NamedSettlement {
+            tid,
+            placement: SettlementPlacement { x, y, suit: 1.0, faction: 0, capital: false, kind: SettlementKind::Town, coastal: false },
+            name: name.into(),
+            pop: 100,
+        };
+        let old = vec![town(1, "Ard", 12, 2), town(2, "Bel", 20, 13)];
+        let new = vec![town(1, "Ard", 13, 3)]; // Bel is gone
+        let journey = |id: u64, name: &str, pts: Vec<(f64, f64)>| cartalith_civ::travel_library::Journey {
+            id,
+            name: name.into(),
+            party_preset: "p".into(),
+            route: cartalith_civ::travel_library::JourneyRoute { points: pts, breaks: vec![], length_km: 1.0, mode: RouteMode::Land },
+            start_year: 5,
+        };
+        let carried = vec![
+            journey(3, "To the coast", vec![(12.0, 2.0), (22.0, 8.0)]),
+            journey(4, "To Bel", vec![(12.0, 2.0), (20.0, 13.0)]),
+        ];
+        let mut t = InfraTools::new();
+        let ctx_for = |_: RouteMode, f: &mut dyn FnMut(&RouteContext)| f(&RouteContext { places: &new, ..route_ctx(&field, &wb, &[]) });
+        t.adopt_resnapped(&carried, 9, &old, (24, 16), &ctx_for);
+
+        assert_eq!(t.journeys.iter().map(|j| j.id).collect::<Vec<_>>(), vec![3]);
+        assert_eq!(t.journeys[0].route.points.first(), Some(&(13.0, 3.0)), "follows Ard to its new cell");
+        assert_eq!(
+            t.resnap_report,
+            vec![
+                (3, "To the coast".to_string(), ResnapOutcome::Resnapped { unreachable_legs: 0 }),
+                (4, "To Bel".to_string(), ResnapOutcome::MissingStop { name: "Bel".into() }),
+            ]
+        );
+        assert_eq!(t.next_journey_id(), 9, "id 4 is never handed out again");
+        let (tfield, twb) = route_fixture();
+        let tctx = route_ctx(&tfield, &twb, &[]);
+        two_routes(&mut t, &tctx);
+        assert_eq!(t.journey_save("next", "p", 0, 1), Some(9));
+    }
 
     #[test]
     fn journey_save_snapshots_the_named_route_and_assigns_increasing_ids() {

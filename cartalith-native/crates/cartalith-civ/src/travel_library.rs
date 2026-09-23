@@ -702,8 +702,8 @@ pub fn validate_party_preset(p: &PartyPreset) -> ValidationState {
 /// A journey's route: a **snapshot** of the polyline it was planned against,
 /// not a live reference to a committed route's array index. Committed routes
 /// (`InfraTools::routes`) have no stable id -- `route_delete`'s own doc
-/// comment states that indices renumber, and this port's own shell already
-/// discards every saved journey on a regenerate for exactly that reason. A
+/// comment states that indices renumber, and the Journey Planner's own
+/// session list is cleared on a regenerate for exactly that reason. A
 /// snapshot sidesteps the instability rather than inventing a `tid` space for
 /// routes, and it is what `SAVEFILE_COMPAT.md` §9.6 already specifies:
 /// `entities/journeys.json`'s `route` member is `{points, breaks, length_km,

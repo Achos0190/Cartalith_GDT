@@ -3147,7 +3147,7 @@ func _tool_options_journey() -> void:
 		row.add_child(DccTheme.spacer())
 		var save_btn := DccWidgets.action(row, "save journey", _save_journey)
 		save_btn.disabled = count == 0
-		save_btn.tooltip_text = "Names this route + party form and adds it to the Journeys list in the left dock. File ▸ Save project writes that list into the archive as entities/journeys.json and reopening the project restores it -- it is not lost when the app closes. One real limit: a journey stores a route INDEX, so generating a new world discards the list rather than pointing it at routes that no longer exist."
+		save_btn.tooltip_text = "Names this route + party form and adds it to the Journeys list in the left dock. File ▸ Save project writes that list into the archive as entities/journeys.json and reopening the project restores it -- it is not lost when the app closes. One real limit: this list stores a route INDEX, so generating a new world clears it rather than pointing it at routes that no longer exist. The saved journey itself is kept: it is re-snapped onto the new world and its party still shows on the map at the timeline's date (dropped only if its start or end settlement no longer exists)."
 		var export_btn := DccWidgets.action(row, "export table", _export_stage_table)
 	)
 
@@ -3215,6 +3215,9 @@ func _save_journey() -> void:
 			})
 			_active_journey = _journeys.size() - 1
 			_refresh_route_choice()
+			## SP-2: the new journey's party appears on the map at the cursor.
+			if app.viewport != null:
+				app.viewport.refresh_journey_markers()
 			app.set_status("hint", "Saved journey \"%s\" — save the project to keep it." % jname, "accent"),
 		"Stored in this project — written by File ▸ Save project, restored on open.", 380)
 
@@ -3245,6 +3248,8 @@ func _delete_journey(i: int) -> void:
 	var engine_id := int((_journeys[i] as Dictionary).get("engine_id", -1))
 	if engine_id >= 0:
 		bridge.journey_delete(engine_id)
+		if app.viewport != null:
+			app.viewport.refresh_journey_markers()
 	_journeys.remove_at(i)
 	if _active_journey == i:
 		_active_journey = -1

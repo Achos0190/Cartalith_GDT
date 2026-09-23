@@ -38,6 +38,10 @@ const CTX_ROUTE := "route"
 const CTX_RIVER := "river"
 ## Ruling AL: a generated landmark clicked on the map (`on_landmark_selected`).
 const CTX_LANDMARK := "landmark"
+## `STORY_PLANNING_SCOPE.md` SP-4: a drawn conflict, selected from CIVIL ▸
+## Military ▸ Conflicts or just committed by the Conflict tool. A selection,
+## so a context -- the tool itself appends nothing here.
+const CTX_CONFLICT := "conflict"
 const CTX_FACTION := "faction"
 const CTX_MEASURE := "measure"
 const CTX_REGION := "region"
@@ -396,6 +400,9 @@ var _river: Dictionary = {}
 ## snapshot, so it is dropped whenever the landmark list can have been
 ## replaced: a regenerate, a world load, and a landmark pass (see `setup()`).
 var _landmark: Dictionary = {}
+## `CTX_CONFLICT`'s selection: an id, re-read from `conflict_get()` on every
+## rebuild so the form can never show a copy the engine has moved past.
+var _conflict_id := -1
 var _region_result: Dictionary = {}
 var _wildlife_region: Dictionary = {}
 ## ECOREGION's `12 more` collapse row (`design/proposed-2026-09-05/Wildlife.dc
@@ -910,6 +917,12 @@ func on_landmark_selected(data: Variant, _index: int) -> void:
 	_landmark = data
 	_rebuild()
 
+## SP-4. Called by `civilization_workspace.gd::select_conflict`.
+func show_conflict(id: int) -> void:
+	_context = CTX_CONFLICT
+	_conflict_id = id
+	_rebuild()
+
 func show_river(entity: Dictionary) -> void:
 	_context = CTX_RIVER
 	_river = entity
@@ -1206,6 +1219,7 @@ const CTX_TITLES := {
 	CTX_SETTLEMENT: "Settlement", CTX_ROUTE: "Route", CTX_RIVER: "River",
 	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
 	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History", CTX_LANDMARK: "Landmark",
+	CTX_CONFLICT: "Conflict",
 }
 
 func _rebuild() -> void:
@@ -1367,6 +1381,12 @@ func _dock_readout_text() -> String:
 			return _measure_readout()
 		CTX_LANDMARK:
 			return _landmark_label(String(_landmark.get("kind", ""))) if not _landmark.is_empty() else "no landmark"
+		CTX_CONFLICT:
+			var cf := bridge.conflict_get(_conflict_id)
+			if cf.is_empty():
+				return "no conflict"
+			var cfn := String(cf.get("name", ""))
+			return cfn if not cfn.is_empty() else "conflict #%d" % _conflict_id
 		CTX_REGION:
 			return ("%d cells" % int(_region_result.get("cell_count", 0))) if not _region_result.is_empty() else "no region"
 		CTX_WILDLIFE:
@@ -1391,6 +1411,8 @@ func _dispatch(body: Control) -> void:
 			_build_river(body)
 		CTX_LANDMARK:
 			_build_landmark(body)
+		CTX_CONFLICT:
+			_build_conflict(body)
 		CTX_FACTION:
 			_build_faction(body)
 		CTX_MEASURE:
@@ -1460,7 +1482,7 @@ func _tool_section() -> String:
 	match app.armed_tool:
 		"paint":
 			return TOOL_PAINT if app.active_domain() == "world" else ""
-		"territory":
+		"territory", "territory_lasso":
 			return TOOL_TERR
 		"label", "icon":
 			return TOOL_ANNO
@@ -2589,6 +2611,178 @@ func _term_strength(value: float) -> String:
 
 
 # -- Route ------------------------------------------------------------------
+
+# -- Conflict (`STORY_PLANNING_SCOPE.md` SP-4) ---------------------------
+
+## The form Way/Route's Route context never needed: a conflict is authored
+## after it is drawn. Every control writes straight through `conflict_update`
+## and rebuilds from `conflict_get`, so what is shown is always the engine's
+## own answer -- a refused edit (an end before the start) reappears as the
+## value that was kept, with the reason in the status bar.
+func _build_conflict(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Conflict")
+	var c := bridge.conflict_get(_conflict_id)
+	if c.is_empty():
+		DccWidgets.note(sec, "No conflict selected. Draw one with the Conflict tool, or pick one in CIVIL ▸ Military ▸ Conflicts.")
+		return
+	var id := _conflict_id
+	_accent_readout(sec, "Kind", String(c.get("kind", "")).capitalize(),
+		"Front and arrow are lines; siege and battle are one-point markers. The kind is " +
+		"chosen when drawing (the Conflict tool's options bar).")
+
+	var name_row := HBoxContainer.new()
+	name_row.add_theme_constant_override("separation", 8)
+	var nl := DccTheme.label("Name", "text_dim", DccTheme.FS_SMALL)
+	nl.custom_minimum_size.x = _FIELD_LABEL_W
+	name_row.add_child(nl)
+	var name_edit := LineEdit.new()
+	name_edit.text = String(c.get("name", ""))
+	name_edit.placeholder_text = "(unnamed)"
+	name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_edit.text_submitted.connect(func(v: String): _conflict_set(id, {"name": v}))
+	name_edit.focus_exited.connect(func():
+		if is_instance_valid(name_edit) and name_edit.text != String(c.get("name", "")):
+			_conflict_set(id, {"name": name_edit.text}))
+	name_row.add_child(name_edit)
+	sec.add_child(name_row)
+
+	var start := int(c.get("start_year", 0))
+	DccWidgets.number(sec, "Start year", -100000, 100000, 1, start,
+		func(v: float): _conflict_set(id, {"start_year": int(v)}),
+		"The first year it is drawn in. It shows on the map while the Timeline cursor is inside its range.")
+	var ongoing := not c.has("end_year")
+	DccWidgets.toggle(sec, "Ongoing", ongoing,
+		func(on: bool): _conflict_set(id, {"ongoing": true} if on else {"end_year": start}),
+		"No end year: drawn from its start year onwards.")
+	if not ongoing:
+		DccWidgets.number(sec, "End year", -100000, 100000, 1, int(c["end_year"]),
+			func(v: float): _conflict_set(id, {"end_year": int(v)}),
+			"The last year it is drawn in (inclusive). Refused if before the start year.")
+
+	var outcome_row := HBoxContainer.new()
+	outcome_row.add_theme_constant_override("separation", 8)
+	var ol := DccTheme.label("Outcome", "text_dim", DccTheme.FS_SMALL)
+	ol.custom_minimum_size.x = _FIELD_LABEL_W
+	ol.tooltip_text = "Authored, in your words. Nothing here decides who wins (STORY_PLANNING_SCOPE.md §5)."
+	outcome_row.add_child(ol)
+	var out_edit := LineEdit.new()
+	out_edit.text = String(c.get("outcome", ""))
+	out_edit.placeholder_text = "(not stated)"
+	out_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	out_edit.text_submitted.connect(func(v: String): _conflict_set(id, {"outcome": v}))
+	out_edit.focus_exited.connect(func():
+		if is_instance_valid(out_edit) and out_edit.text != String(c.get("outcome", "")):
+			_conflict_set(id, {"outcome": out_edit.text}))
+	outcome_row.add_child(out_edit)
+	sec.add_child(outcome_row)
+
+	## -- Attached to (Ruling AO). Keyed on `tid` both ways: a province is
+	## named by its seed settlement's tid, since its own id is re-issued by
+	## every province pass (`cartalith_civ::conflict::ConflictAnchor`).
+	var settlements := bridge.settlements()
+	var labels: Array = ["None (free geometry)"]
+	var keys: Array = [["none", 0]]
+	for s: Dictionary in settlements:
+		labels.append("Settlement · %s" % String(s.get("name", "?")))
+		keys.append(["settlement", int(s.get("tid", 0))])
+	for p: Dictionary in bridge.provinces():
+		var ci := int(p.get("capital_settlement_index", -1))
+		if ci >= 0 and ci < settlements.size():
+			labels.append("Province · %s" % String(p.get("name", "?")))
+			keys.append(["province", int((settlements[ci] as Dictionary).get("tid", 0))])
+	var cur := 0
+	if c.has("anchor_kind"):
+		cur = -1
+		for i in keys.size():
+			if keys[i][0] == String(c["anchor_kind"]) and int(keys[i][1]) == int(c.get("anchor_tid", 0)):
+				cur = i
+				break
+		if cur < 0:
+			## The anchor no longer resolves: say so in the picker itself rather
+			## than show "None", which would be a lie about what is stored.
+			labels.append("(missing) %s tid %d" % [String(c["anchor_kind"]), int(c.get("anchor_tid", 0))])
+			keys.append([String(c["anchor_kind"]), int(c.get("anchor_tid", 0))])
+			cur = keys.size() - 1
+	DccWidgets.choice(sec, "Attached to", labels, cur,
+		func(i: int): _conflict_set(id, {"anchor_kind": keys[i][0], "anchor_tid": keys[i][1]}),
+		"Attach it to a place and it moves with the place; \"what conflicts happened here\" " +
+		"is then a real query (conflicts_attached_to). Attaching keeps the drawing where it is.")
+	if c.has("anchor_kind"):
+		var resolved: bool = c.get("anchor_resolved", false)
+		_field(sec, "Anchor", String(c.get("anchor_name", "")) if resolved else "missing",
+			"" if resolved else ("That place is gone (deleted, or no longer a province seed). The link is " +
+			"kept, and the drawing stays where it was attached, half-strength on the map; it " +
+			"re-attaches if the place comes back. Pick None to detach."), resolved)
+
+	## -- Sides. Faction indices; Unclaimed is not a side.
+	var sides: Array = Array(c.get("sides", PackedInt32Array()))
+	var sides_group := DccWidgets.group(sec, "Sides")
+	for f: Dictionary in bridge.get_factions():
+		var fid := int(f.get("id", 0))
+		if fid <= 0:
+			continue
+		DccWidgets.toggle(sides_group, String(f.get("name", "Faction %d" % fid)), sides.has(fid),
+			func(on: bool):
+				var next := sides.duplicate()
+				if on and not next.has(fid):
+					next.append(fid)
+				elif not on:
+					next.erase(fid)
+				_conflict_set(id, {"sides": PackedInt32Array(next)}))
+
+	_build_conflict_manpower(body, id, sides.is_empty())
+
+	var del := DccWidgets.action(sec, "Delete conflict", func():
+		bridge.conflict_delete(id)
+		_conflict_id = -1
+		_conflicts_changed()
+		_rebuild())
+	del.tooltip_text = "Removes it from the map, the Military list and the next save."
+
+## SP-4's "reads the numbers": each side's real manpower, from the same
+## `cartalith_civ::manpower` pass CIVIL ▸ Military shows.
+func _build_conflict_manpower(body: Control, id: int, no_sides: bool) -> void:
+	var sec := DccWidgets.section(body, "Manpower by side")
+	if no_sides:
+		DccWidgets.note(sec, "No sides yet -- tick the factions involved above.")
+		return
+	for row: Dictionary in bridge.conflict_sides_manpower(id):
+		var g := DccWidgets.group(sec, String(row.get("name", "Faction %d" % int(row.get("faction", 0)))))
+		if not row.has("standing_army"):
+			_field(g, "Manpower", "—",
+				"This world has no manpower row for faction %d (no civilisation layer, or the roster no longer has it)." % int(row.get("faction", 0)), false)
+			continue
+		_field(g, "Standing army", _thousands(float(row["standing_army"])),
+			"Continuously maintained under arms (manpower.rs output 1).", true, true)
+		_field(g, "Field army", _thousands(float(row["field_army"])),
+			"Concentrable in one place and feedable there (output 2).", true, true)
+		_field(g, "Emergency levy", _thousands(float(row["emergency_mobilization"])),
+			"Callable up at all, temporarily (output 3).", true, true)
+		_field(g, "Field army lasts", "%d days" % roundi(float(row["field_duration_days"])),
+			"Sustainable war duration for the field army (output 4).", true, true)
+		_field(g, "Levy lasts", "%d days" % roundi(float(row["emergency_duration_days"])),
+			"Sustainable war duration at full emergency mobilisation (output 4).", true, true)
+		_field(g, "Era", String(row.get("era", "")),
+			"The era band these five variables put the polity in -- derived, never an input.")
+	DccWidgets.note(sec,
+		"These are the world as it stands now, not as of the conflict's own years: the model reads " +
+		"today's settlements and roster, and moving the Timeline cursor changes only the territory term. " +
+		"Capacity, not outcome -- nothing here decides who wins.")
+
+func _conflict_set(id: int, fields: Dictionary) -> void:
+	var r := bridge.conflict_update(id, fields)
+	if not r.get("ok", false):
+		app.set_status("hint", String(r.get("error", "Edit refused.")), "text_ghost")
+	_conflicts_changed()
+	## Deferred: a control's own signal is still on the stack, and `_rebuild()`
+	## frees it.
+	_rebuild.call_deferred()
+
+## The map layer and the Military list follow every edit.
+func _conflicts_changed() -> void:
+	var civ = app.workspace_panel("civilization") if app.has_method("workspace_panel") else null
+	if civ != null and civ.has_method("refresh_conflicts"):
+		civ.refresh_conflicts()
 
 func _build_route(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Route")

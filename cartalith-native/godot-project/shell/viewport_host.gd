@@ -1960,6 +1960,9 @@ func refresh() -> void:
 	## route layer rather than leaving the previous world's routes drawn over
 	## the new one.
 	overlay.set_manual_routes(manual_routes())
+	## SP-2: a regenerate re-snaps saved journeys (or drops them), so their
+	## party markers are re-read with everything else.
+	refresh_journey_markers()
 	## A town is sized in real metres, so the layout layer needs the map's own
 	## km extent to know how many pixels 1.7 km is worth.
 	overlay.set_map_width_km(_bridge.last_width_km)
@@ -2035,6 +2038,10 @@ func refresh_annotations() -> void:
 	## the CARTO panel re-ran the pass.
 	overlay.set_labels(_bridge.labels_render_list())
 	overlay.set_manual_routes(manual_routes())
+	## SP-4 conflicts: a regenerate or project open empties/restores the
+	## engine store, and this is the path both reach, so the map follows.
+	if overlay.has_method("set_conflicts"):
+		overlay.set_conflicts(_bridge.conflict_list())
 
 ## Push the engine's own faction swatches into `map_overlay.gd`, which drew
 ## its settlement pins from a frozen six-entry copy of them until
@@ -2144,6 +2151,17 @@ func refresh_faction_colors() -> void:
 		out.append(Color8(int(d.get("color_r", 128)), int(d.get("color_g", 128)),
 			int(d.get("color_b", 128))))
 	overlay.set_faction_colors(out)
+
+## `STORY_PLANNING_SCOPE.md` SP-2: every saved journey's party at the cursor
+## date (`journey_positions()`), pushed to `map_overlay.gd`. Connected to
+## `DccShell.timeline_changed` by `app.gd`, so scrubbing the year -- or the
+## day -- moves the markers; also run on `refresh()` and after a journey is
+## saved or deleted. Re-plans every journey per call (`story_bridge.rs`'s
+## `ponytail:` note has the ceiling).
+func refresh_journey_markers() -> void:
+	if _bridge == null or overlay == null or not overlay.has_method("set_journey_markers"):
+		return
+	overlay.set_journey_markers(_bridge.journey_positions() if _engine_readable() else [])
 
 ## Every committed Route-tool route, in `route_get`'s own dictionary shape.
 ## `route_count`/`route_get` are the only readback the Route tool has (see

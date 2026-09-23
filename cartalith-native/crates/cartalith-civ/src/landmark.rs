@@ -317,7 +317,7 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "fortified_pass", label: "Fortified pass", family: F::Military, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "fortified_crossing", label: "Fortified crossing", family: F::Military, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "battlefield", label: "Battlefield", family: F::Military, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: false,
-            not_built: "There is no conflict entity in this port. STORY_PLANNING_SCOPE.md SP-4 is not started, so a battlefield could only be a place where nothing recorded happened." },
+            not_built: "The conflict entity exists since SP-4 (cartalith_civ::conflict, a drawn battle marker with a year range and sides), but LandmarkInputs does not take it, so this pass has no recorded battle to place one at; that wiring is LANDMARK_GENERATION_SCOPE.md M9. Without it a battlefield could only be a place where nothing recorded happened." },
         LandmarkKindSpec { key: "border_marker", label: "Border marker", family: F::Military, class: C::Cultural, default_cap: 16, needs_viewshed: true, buildable: true, not_built: "" },
         // ---------------- Religious / cultural (8) ----------------
         LandmarkKindSpec { key: "shrine", label: "Shrine", family: F::Cultural, class: C::Local, default_cap: 30, needs_viewshed: false, buildable: false,
@@ -344,9 +344,9 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "ancient_road", label: "Ancient road", family: F::Historical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: false,
             not_built: "Needs a superseded route to be the ghost of. Way history is not retained." },
         LandmarkKindSpec { key: "battlefield_historic", label: "Historic battlefield", family: F::Historical, class: C::Cultural, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "§29 lists Battlefield in both Military and Historical; this is the second listing, keyed apart so the table has 49 unique rows. Blocked on the same missing conflict entity." },
+            not_built: "§29 lists Battlefield in both Military and Historical; this is the second listing, keyed apart so the table has 49 unique rows. Blocked on the same missing input: conflicts exist (SP-4) but are not passed to this pass (M9)." },
         LandmarkKindSpec { key: "destroyed_fortress", label: "Destroyed fortress", family: F::Historical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "Downstream of the conflict entity, which does not exist (STORY_PLANNING_SCOPE.md SP-4). This reason named Fort as a second blocker until Fort was built; the destruction is what is missing now, not the fortress." },
+            not_built: "Downstream of a conflict that destroyed the fortress. Conflicts exist since STORY_PLANNING_SCOPE.md SP-4 (a siege can be attached to a settlement), but they carry an authored outcome in free text, not a destruction this pass could read, and LandmarkInputs does not take them (M9). This reason named Fort as a second blocker until Fort was built." },
         LandmarkKindSpec { key: "historic_crossing", label: "Historic crossing", family: F::Historical, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: false,
             not_built: "A crossing that mattered. The crossing is generated as Ford; what made it matter is route history, which is not retained." },
     ]

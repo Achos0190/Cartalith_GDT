@@ -366,6 +366,15 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// no run at all, and `load_save` reached on its own still invalidates —
 /// `project_bridge.rs`'s restore puts the archive's own placements back on
 /// top afterwards, over the field and grid that archive carried.
+///
+/// # `entities/conflicts.json` is engine-owned
+///
+/// Registered 2026-09-23 (`STORY_PLANNING_SCOPE.md` SP-4,
+/// `SAVEFILE_COMPAT.md` §9.7). The payload is `WorldGen::conflicts`, which
+/// GDScript has no view of, so `project_bridge.rs` writes and reads it and
+/// lists it in `ENGINE_OWNED_SLOTS` -- the landmarks slot's arrangement. It
+/// is under `entities/` because a conflict is a thing other documents refer
+/// to by id (its settlement/province anchor points the other way, by `tid`).
 pub const DOCUMENT_SLOTS: &[&str] = &[
     "entities/settlements.json",
     "entities/factions.json",
@@ -374,6 +383,7 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
     "entities/continents.json",
     "entities/journeys.json",
     "entities/landmarks.json",
+    "entities/conflicts.json",
     "history/timeline.json",
     "annotations/labels.json",
     "annotations/icons.json",

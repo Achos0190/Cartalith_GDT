@@ -294,6 +294,47 @@ fn is_other_faction(cell: i32, faction: i32) -> bool {
     cell != 0 && cell != faction
 }
 
+/// The Territory lasso's rasteriser (owner request, 2026-09-23): a `gw*gh`
+/// mask, `1` for every cell whose **centre** `(x + 0.5, y + 0.5)` lies inside
+/// `ring`, `0` elsewhere. `ring` is in grid coordinates, the space the shell's
+/// map clicks and `tool_overlay.gd`'s drawn ring share (cell `x` spans
+/// `[x, x+1)` on screen), implicitly closed.
+///
+/// Even-odd rule, scanline with half-open edge crossings, so a
+/// self-intersecting ring fills its lobes and not the overlap, and a vertex
+/// exactly on a scanline is counted once. Fewer than three points, a
+/// non-finite coordinate or a zero-area ring gives an all-zero mask. Cells off
+/// the grid are clipped, never wrapped.
+pub fn polygon_cell_mask(ring: &[(f64, f64)], gw: usize, gh: usize) -> Vec<u8> {
+    let mut mask = vec![0u8; gw * gh];
+    if ring.len() < 3 || ring.iter().any(|&(x, y)| !x.is_finite() || !y.is_finite()) {
+        return mask;
+    }
+    let mut xs: Vec<f64> = Vec::new();
+    for y in 0..gh {
+        let cy = y as f64 + 0.5;
+        xs.clear();
+        for i in 0..ring.len() {
+            let (x0, y0) = ring[i];
+            let (x1, y1) = ring[(i + 1) % ring.len()];
+            if (y0 <= cy) != (y1 <= cy) {
+                xs.push(x0 + (cy - y0) / (y1 - y0) * (x1 - x0));
+            }
+        }
+        xs.sort_by(f64::total_cmp);
+        for pair in xs.chunks_exact(2) {
+            // Cells whose centre x + 0.5 lies in [pair[0], pair[1]).
+            let a = (pair[0] - 0.5).ceil().max(0.0);
+            let b = (pair[1] - 0.5).ceil().min(gw as f64);
+            let row = y * gw;
+            for x in (a as usize)..(b.max(a) as usize) {
+                mask[row + x] = 1;
+            }
+        }
+    }
+    mask
+}
+
 /// The live CIVIL-tool-group state for one generated world: the territory
 /// paint draft/accumulator pair, and the manual-placement name/population
 /// RNG stream. See this module's own doc comment for why each exists.
@@ -343,6 +384,38 @@ impl CivTools {
     pub fn paint_at(&mut self, gx: f64, gy: f64, faction: i32, radius: f64, subtract: bool) {
         let value = if subtract { 0u8 } else { faction.clamp(0, u8::MAX as i32) as u8 };
         self.territory_draft.push(PaintStamp::ungated(gx.round() as i64, gy.round() as i64, radius, value));
+    }
+
+    /// The Territory lasso: stages `ring`'s interior ([`polygon_cell_mask`])
+    /// into the same draft [`CivTools::paint_at`] feeds, as **one** stamp — a
+    /// disc covering the ring's cell bounding box, gated by the inverted
+    /// mask through `PaintStamp::mask` (skip where non-zero). One stamp, not
+    /// one per cell, because `PassBuffer::push` snapshots the whole entry
+    /// stack for draft undo, so per-cell pushes would be quadratic in area.
+    /// Commit, discard, rebase and subtract-restores-the-base are therefore
+    /// exactly the brush's. Returns the number of cells staged; `0` pushes
+    /// nothing.
+    pub fn paint_polygon(&mut self, ring: &[(f64, f64)], faction: i32, subtract: bool) -> usize {
+        let (gw, gh) = (self.territory_draft.width(), self.territory_draft.height());
+        let inside = polygon_cell_mask(ring, gw, gh);
+        let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0, 0);
+        let mut n = 0;
+        for (i, _) in inside.iter().enumerate().filter(|&(_, &v)| v != 0) {
+            let (x, y) = (i % gw, i / gw);
+            (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+            n += 1;
+        }
+        if n == 0 {
+            return 0;
+        }
+        let (cx, cy) = (((x0 + x1) / 2) as i64, ((y0 + y1) / 2) as i64);
+        let (dx, dy) = ((x1 as i64 - cx).max(cx - x0 as i64), (y1 as i64 - cy).max(cy - y0 as i64));
+        // +1 so the inclusive `hypot > R` gate can never shave a bbox corner.
+        let radius = ((dx * dx + dy * dy) as f64).sqrt() + 1.0;
+        let gate: std::sync::Arc<[u8]> = inside.iter().map(|&v| (v == 0) as u8).collect();
+        let value = if subtract { 0u8 } else { faction.clamp(0, u8::MAX as i32) as u8 };
+        self.territory_draft.push(PaintStamp::new(cx, cy, radius, value, gate));
+        n
     }
 
     /// Bakes the in-progress draft into `territory_paint`, then rebuilds
@@ -639,6 +712,105 @@ mod tests {
         tools.paint_at(1.0, 1.0, 3, 0.0, true);
         tools.commit(&mut territory);
         assert_eq!(territory[1 * 4 + 1], 9, "subtract must fall through to the computed base, not to unclaimed");
+    }
+
+    // ---------- Territory lasso: polygon_cell_mask / paint_polygon ----------
+
+    fn cells_of(mask: &[u8], gw: usize) -> Vec<(usize, usize)> {
+        mask.iter().enumerate().filter(|&(_, &v)| v != 0).map(|(i, _)| (i % gw, i / gw)).collect()
+    }
+
+    #[test]
+    fn lasso_square_fills_exactly_the_cells_whose_centres_it_encloses() {
+        let m = polygon_cell_mask(&[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)], 5, 5);
+        assert_eq!(cells_of(&m, 5), vec![(1, 1), (2, 1), (1, 2), (2, 2)]);
+    }
+
+    #[test]
+    fn lasso_running_off_the_grid_is_clipped_not_wrapped() {
+        let all = polygon_cell_mask(&[(-2.0, -2.0), (7.0, -2.0), (7.0, 7.0), (-2.0, 7.0)], 5, 5);
+        assert_eq!(all.iter().filter(|&&v| v != 0).count(), 25);
+        let edge = polygon_cell_mask(&[(3.0, -1.0), (10.0, -1.0), (10.0, 2.0), (3.0, 2.0)], 5, 5);
+        assert_eq!(cells_of(&edge, 5), vec![(3, 0), (4, 0), (3, 1), (4, 1)]);
+    }
+
+    #[test]
+    fn lasso_smaller_than_a_cell_takes_the_one_centre_it_holds_or_none() {
+        let one = polygon_cell_mask(&[(1.3, 1.3), (1.7, 1.3), (1.5, 1.7)], 4, 4);
+        assert_eq!(cells_of(&one, 4), vec![(1, 1)]);
+        let none = polygon_cell_mask(&[(1.1, 1.1), (1.4, 1.1), (1.4, 1.4)], 4, 4);
+        assert!(cells_of(&none, 4).is_empty());
+    }
+
+    #[test]
+    fn lasso_degenerate_rings_fill_nothing() {
+        assert!(cells_of(&polygon_cell_mask(&[(0.0, 0.0), (4.0, 4.0)], 4, 4), 4).is_empty());
+        assert!(cells_of(&polygon_cell_mask(&[(0.0, 0.0), (2.0, 2.0), (4.0, 4.0)], 4, 4), 4).is_empty());
+        assert!(cells_of(&polygon_cell_mask(&[(0.0, 0.0), (f64::NAN, 3.0), (3.0, 3.0)], 4, 4), 4).is_empty());
+        assert!(cells_of(&polygon_cell_mask(&[], 4, 4), 4).is_empty());
+    }
+
+    #[test]
+    fn lasso_vertex_exactly_on_a_centre_row_is_crossed_once() {
+        // The left vertex sits on row 1's centre line (y = 1.5): its two
+        // edges must count as one crossing, or the row's span collapses.
+        let m = polygon_cell_mask(&[(0.2, 1.5), (3.8, 0.2), (3.8, 2.8)], 4, 3);
+        assert_eq!(&m[4..8], &[1, 1, 1, 1]);
+    }
+
+    #[test]
+    fn lasso_self_intersecting_bowtie_fills_its_lobes_not_the_wedges() {
+        // Edges (0,0)-(4,4), (4,4)-(4,0), (4,0)-(0,4), (0,4)-(0,0): left and
+        // right lobes, the top and bottom wedges outside (even-odd).
+        let m = polygon_cell_mask(&[(0.0, 0.0), (4.0, 4.0), (4.0, 0.0), (0.0, 4.0)], 4, 4);
+        assert_eq!(m[1], 0, "top wedge (1,0)");
+        assert_eq!(m[3 * 4 + 1], 0, "bottom wedge (1,3)");
+        assert_eq!(m[2 * 4], 1, "left lobe (0,2)");
+        assert_eq!(m[2 * 4 + 3], 1, "right lobe (3,2)");
+    }
+
+    #[test]
+    fn lasso_commits_inside_only_and_a_subtract_ring_restores_the_base() {
+        let base = vec![9i32; 36]; // 6x6, all faction 9
+        let mut tools = CivTools::new(6, 6, base.clone(), 1);
+        let ring = [(1.0, 1.0), (4.0, 1.0), (4.0, 4.0), (1.0, 4.0)];
+        assert_eq!(tools.paint_polygon(&ring, 3, false), 9);
+        let mut territory = base.clone();
+        assert!(tools.commit(&mut territory));
+        for y in 0..6 {
+            for x in 0..6 {
+                let want = if (1..4).contains(&x) && (1..4).contains(&y) { 3 } else { 9 };
+                assert_eq!(territory[y * 6 + x], want, "cell ({x},{y})");
+            }
+        }
+        assert_eq!(tools.paint_polygon(&ring, 3, true), 9);
+        assert!(tools.commit(&mut territory));
+        assert_eq!(territory, base, "a subtract lasso over the same ring falls through to the base");
+    }
+
+    #[test]
+    fn lasso_one_stamp_reaches_the_ends_of_a_long_thin_ring() {
+        // A 6x1 strip: the covering disc must reach both bbox corners.
+        let base = vec![0i32; 18];
+        let mut tools = CivTools::new(6, 3, base.clone(), 1);
+        assert_eq!(tools.paint_polygon(&[(0.0, 0.2), (6.0, 0.2), (6.0, 0.8), (0.0, 0.8)], 2, false), 6);
+        let mut territory = base.clone();
+        tools.commit(&mut territory);
+        assert_eq!(&territory[..6], &[2; 6]);
+        assert!(territory[6..].iter().all(|&t| t == 0));
+    }
+
+    #[test]
+    fn lasso_enclosing_no_centre_pushes_nothing_and_discard_drops_a_staged_ring() {
+        let base = vec![0i32; 16];
+        let mut tools = CivTools::new(4, 4, base.clone(), 1);
+        assert_eq!(tools.paint_polygon(&[(1.1, 1.1), (1.4, 1.1), (1.4, 1.4)], 2, false), 0);
+        assert!(tools.territory_draft.is_empty());
+        tools.paint_polygon(&[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0)], 2, false);
+        tools.discard();
+        let mut territory = base.clone();
+        assert!(!tools.commit(&mut territory));
+        assert_eq!(territory, base);
     }
 
     #[test]

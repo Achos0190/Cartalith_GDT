@@ -1362,6 +1362,46 @@ func set_landmarks(items: Array) -> void:
 	_lm_hover_index = -1   ## an index into the array just replaced
 	queue_redraw()
 
+## `STORY_PLANNING_SCOPE.md` SP-4 -- the conflict overlay. `conflict_list()`'s
+## rows as-is: `points` are already resolved against each conflict's anchor, and
+## `active` is already answered for the Timeline cursor's year, so this layer
+## draws `active` rows and nothing else -- a conflict appears and disappears as
+## the cursor crosses its range because the list is re-pulled on every cursor
+## move (`civilization_workspace.gd::_refresh_conflicts`).
+##
+## Always hand-authored, so there is no generated/authored distinction to draw
+## (landmarks need one; conflicts never do). One ink for all four kinds,
+## crimson over a dark underlay -- the route layer's two-pass stroke, in a hue
+## no other civil layer uses -- told apart by **shape**: a front carries teeth
+## on its advancing side, an arrow a head, a siege a crenellated ring, a battle
+## a crossed-swords mark. An anchor that no longer resolves draws at half
+## alpha where it was attached, which is what the right dock reports in words.
+var _conflicts: Array = []
+var _selected_conflict_id := -1
+
+const CONFLICT_COLOR := Color(0.80, 0.14, 0.12, 0.95)
+const CONFLICT_SEL_COLOR := Color(1.0, 0.36, 0.26, 1.0)
+const CONFLICT_UNDERLAY := Color(0.07, 0.03, 0.02, 0.75)
+
+func set_conflicts(items: Array) -> void:
+	_conflicts = items
+	queue_redraw()
+
+func set_selected_conflict(id: int) -> void:
+	if id == _selected_conflict_id:
+		return
+	_selected_conflict_id = id
+	queue_redraw()
+
+## Rows drawn this frame -- the active ones. Public for probes, which must
+## assert what the layer draws rather than what it was handed.
+func drawn_conflict_ids() -> Array:
+	var out := []
+	for c: Dictionary in _conflicts:
+		if c.get("active", false):
+			out.append(int(c.get("id", 0)))
+	return out
+
 ## The Layers popover's own on/off for this overlay. Separate from
 ## `_landmarks` being empty, which means "the pass has not run", so the map can
 ## say those two apart.
@@ -1466,6 +1506,65 @@ func _label_below_lod(lb: Dictionary) -> bool:
 		return false
 	var bias := _label_weight_bias(klass, float(lb.get("weight", 0.0)))
 	return (_camera_zoom / _lod_zoom_base()) < base * bias
+
+## `STORY_PLANNING_SCOPE.md` SP-2: one party marker per saved journey at the
+## cursor date, in `journey_positions()`'s own dictionary shape. An entry with
+## no `x`/`y` (a blocked plan) draws nothing -- there is no honest place for
+## it -- and `ViewportHost.refresh_journey_markers()` is what re-reads the
+## engine on every `timeline_changed`.
+var _journey_markers: Array = []
+const JOURNEY_MARKER_RADIUS := 6.0   ## screen px
+const JOURNEY_MARKER_FILL := Color(1.0, 0.824, 0.314, 1.0)   ## `MANUAL_ROUTE_SEL_COLOR`, opaque: the party rides its route
+const JOURNEY_MARKER_RING := Color(0.10, 0.08, 0.05, 0.95)
+
+func set_journey_markers(markers: Array) -> void:
+	_journey_markers = markers
+	queue_redraw()
+
+## Drawn in screen px under `_crisp_begin()`, so the marker is the same size
+## at every zoom. En route: filled. Not yet departed or arrived: a ring only,
+## at the route's first or last point -- the party exists but is not moving.
+func _draw_journey_markers(rect: Rect2) -> void:
+	var k := _crisp_begin()
+	var font := get_theme_default_font()
+	var fs := 12
+	for m: Dictionary in _journey_markers:
+		if not (m.has("x") and m.has("y")):
+			continue
+		var p := _point_to_screen(Vector2(float(m["x"]), float(m["y"])), rect) * k
+		var moving := String(m.get("phase", "")) == "en_route"
+		draw_circle(p, JOURNEY_MARKER_RADIUS + 2.0, JOURNEY_MARKER_RING)
+		if moving:
+			draw_circle(p, JOURNEY_MARKER_RADIUS, JOURNEY_MARKER_FILL)
+		else:
+			draw_arc(p, JOURNEY_MARKER_RADIUS - 1.0, 0.0, TAU, 24, JOURNEY_MARKER_FILL, 2.0, true)
+		var label := String(m.get("name", ""))
+		var at := p + Vector2(JOURNEY_MARKER_RADIUS + 5.0, float(fs) * 0.35)
+		draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 3, LABEL_STROKE_COLOR)
+		draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, SETTLEMENT_LABEL_FILL)
+		## The supply readout SP-2's "done means" asks for, falling as the
+		## cursor moves, and the arrival it derives -- both the engine's.
+		var sub := _journey_marker_subline(m)
+		if sub != "":
+			var at2 := at + Vector2(0.0, float(fs) + 2.0)
+			draw_string_outline(font, at2, sub, HORIZONTAL_ALIGNMENT_LEFT, -1, fs - 2, 3, LABEL_STROKE_COLOR)
+			draw_string(font, at2, sub, HORIZONTAL_ALIGNMENT_LEFT, -1, fs - 2, SETTLEMENT_LABEL_FILL)
+	_crisp_end()
+
+## `food 32 of 106 kg left · arrives 412-01-16` en route; `departs …` before,
+## `arrived …` after. Food only: it is the one supply every party carries
+## (water is `0` off desert legs, fodder `0` for a party with no animals).
+func _journey_marker_subline(m: Dictionary) -> String:
+	match String(m.get("phase", "")):
+		"en_route":
+			var total := float(m.get("food_kg", 0.0))
+			var left := total - float(m.get("food_kg_used", 0.0))
+			return "food %d of %d kg left · arrives %s" % [roundi(left), roundi(total), String(m.get("arrival", ""))]
+		"not_departed":
+			return "departs %s" % String(m.get("departure", ""))
+		"arrived":
+			return "arrived %s" % String(m.get("arrival", ""))
+	return ""
 
 func set_manual_routes(routes: Array) -> void:
 	_manual_routes = routes
@@ -2240,12 +2339,14 @@ func _draw() -> void:
 	if (_settlements.is_empty() and _roads.is_empty() and _sea_routes.is_empty()
 			and _manual_icons.is_empty() and _labels.is_empty()
 			and _manual_routes.is_empty() and _landmarks.is_empty()
+			and _conflicts.is_empty()
 			## The rejects layer can be the ONLY thing on this control: a pass
 			## that placed nothing still rejects, and that is exactly the world
 			## where the diagnostic matters most. Leaving it out of this guard
 			## would make the layer silently undrawable on the one map worth
 			## drawing it on.
-			and _landmark_rejects.is_empty() and _rivers.is_empty()):
+			and _landmark_rejects.is_empty() and _rivers.is_empty()
+			and _journey_markers.is_empty()):
 		return
 	var rect := _displayed_rect()
 	if rect.size.x <= 0.0:
@@ -2349,6 +2450,19 @@ func _draw() -> void:
 				_draw_manual_route_segment(rpts, rstart, cut, rect, rsel)
 				rstart = cut
 			_draw_manual_route_segment(rpts, rstart, rpts.size(), rect, rsel)
+
+	## SP-4 conflicts: above the route network they are fought along, below
+	## the town layouts and pins, so a besieged town's pin sits inside its ring.
+	for c: Dictionary in _conflicts:
+		if c.get("active", false):
+			_draw_conflict(c, rect)
+
+	## SP-2 party markers, above the routes they ride. Not gated on
+	## `_show_roads`: a journey's route snapshot is not drawn by that layer
+	## (it is the journey's own copy, not a committed route), so hiding
+	## "Ways & routes" must not also hide where the party is.
+	if not _journey_markers.is_empty():
+		_draw_journey_markers(rect)
 
 	## Town layouts sit above the ways -- a town's own high street IS the
 	## through-road, so it must overlay it -- and *replace* the pin of every
@@ -3628,6 +3742,80 @@ func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, r
 			SEA_ROUTE_DASH_LENGTH * _way_scale, SEA_ROUTE_DASH_GAP * _way_scale, track[chain.x])
 	_crisp_end()
 
+
+## One SP-4 conflict (see `_conflicts`). Every size is in screen px inside
+## `_crisp_begin()`, so the symbol keeps its size at any zoom, like a pin.
+func _draw_conflict(c: Dictionary, rect: Rect2) -> void:
+	var pts: PackedVector2Array = c.get("points", PackedVector2Array())
+	if pts.is_empty():
+		return
+	var k := _crisp_begin()
+	var sp := PackedVector2Array()
+	for p in pts:
+		sp.append(_point_to_screen(p, rect) * k)
+	var sel := int(c.get("id", 0)) == _selected_conflict_id
+	var ink := CONFLICT_SEL_COLOR if sel else CONFLICT_COLOR
+	var under := CONFLICT_UNDERLAY
+	if c.has("anchor_kind") and not c.get("anchor_resolved", true):
+		ink.a *= 0.5
+		under.a *= 0.5
+	var w := (3.2 if sel else 2.4) * _way_scale
+	match String(c.get("kind", "")):
+		"front", "arrow":
+			if sp.size() >= 2:
+				draw_polyline(sp, under, w + 2.4, true)
+				draw_polyline(sp, ink, w, true)
+				if String(c.get("kind")) == "front":
+					_draw_front_teeth(sp, ink, 7.0 * _way_scale)
+				else:
+					var tip := sp[sp.size() - 1]
+					var d := (tip - sp[sp.size() - 2]).normalized()
+					var n := Vector2(-d.y, d.x)
+					var s := 11.0 * _way_scale
+					var head := PackedVector2Array([tip + d * s * 0.4, tip - d * s + n * s * 0.6, tip - d * s - n * s * 0.6])
+					draw_colored_polygon(head, ink)
+		"siege":
+			var r := 12.0 * _way_scale
+			draw_arc(sp[0], r, 0.0, TAU, 40, under, w + 2.4, true)
+			draw_arc(sp[0], r, 0.0, TAU, 40, ink, w, true)
+			for i in 8:   ## crenellations: the siege-works ring of an atlas plate
+				var a := TAU * float(i) / 8.0
+				var dir := Vector2(cos(a), sin(a))
+				draw_line(sp[0] + dir * r, sp[0] + dir * (r + 5.0 * _way_scale), ink, w, true)
+		"battle":
+			var s2 := 8.0 * _way_scale
+			for dv in [Vector2(1, 1), Vector2(1, -1)]:
+				var a2: Vector2 = sp[0] - dv * s2
+				var b2: Vector2 = sp[0] + dv * s2
+				draw_line(a2, b2, under, w + 2.4, true)
+				draw_line(a2, b2, ink, w, true)
+	var title := String(c.get("name", ""))
+	if not title.is_empty():
+		var font := get_theme_default_font()
+		var at := sp[0] + Vector2(10, -10)
+		draw_string_outline(font, at, title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, 3, under)
+		draw_string(font, at, title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, ink)
+	_crisp_end()
+
+## A front line's teeth: small triangles on the polyline's left-hand side
+## (the side it advances toward, by drawing order), every `spacing * 2` px.
+func _draw_front_teeth(sp: PackedVector2Array, ink: Color, size: float) -> void:
+	var spacing := size * 2.4
+	var carry := spacing * 0.5
+	for i in range(sp.size() - 1):
+		var a := sp[i]
+		var seg := sp[i + 1] - a
+		var L := seg.length()
+		if L <= 0.0:
+			continue
+		var d := seg / L
+		var n := Vector2(d.y, -d.x)
+		var t := carry
+		while t < L:
+			var base := a + d * t
+			draw_colored_polygon(PackedVector2Array([base - d * size * 0.5, base + d * size * 0.5, base + n * size]), ink)
+			t += spacing
+		carry = t - L
 
 ## One committed Route-tool route, `points[start:end]` (exclusive). The
 ## reference's own two-pass journey stroke (block 2b, lines 15555-15559):

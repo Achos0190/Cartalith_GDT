@@ -107,8 +107,13 @@ const PATHS := {
 	"tool_settlement": '<path d="M2.4 7.6 L8 2.8 L13.6 7.6"/><path d="M4 7 V13.4 H12 V7"/><path d="M6.8 13.4 V9.8 H9.2 V13.4"/>',
 	"tool_poi": '<path d="M8 2.2 L13.8 8 L8 13.8 L2.2 8 Z"/><circle cx="8" cy="8" r="0.7" fill="#ffffff" stroke="none"/>',
 	"tool_territory": '<path d="M2.2 5 L7.6 2.6 L13.8 5.4 L11 13.2 L4 12.4 Z"/><path d="M4 6.6 L6.4 11.8"/><path d="M6.8 5.4 L9.4 12.2"/><path d="M9.6 5.2 L11.4 10.4"/>',
+	## Territory lasso: an irregular ring with its clicked vertices marked.
+	"tool_lasso": '<path d="M3 5.2 L7.8 2.4 L13.4 5 L11.6 13 L2.6 11.6 Z"/><circle cx="7.8" cy="2.4" r="1.1"/><circle cx="13.4" cy="5" r="1.1"/><circle cx="11.6" cy="13" r="1.1"/><circle cx="2.6" cy="11.6" r="1.1"/><circle cx="3" cy="5.2" r="1.1"/>',
 	"tool_way": '<path d="M4 2.2 V13.8"/><path d="M12 2.2 V13.8"/><path d="M2.6 4.6 H13.4"/><path d="M2.6 8 H13.4"/><path d="M2.6 11.4 H13.4"/>',
 	"tool_route": '<path d="M2 12.6 C2 8.6 4.6 6 8 6"/><path d="M8 6 C10.2 6 11.6 5 12.6 3.6"/><path d="M11 2.6 L13.6 3.4 L12.4 5.8"/>',
+	## SP-4's Conflict tool: crossed swords, blades and cross-guards -- the
+	## battle mark the map layer draws, so the tool and its result read alike.
+	"tool_conflict": '<path d="M2.6 2.6 L11.4 11.4"/><path d="M13.4 2.6 L4.6 11.4"/><path d="M9.6 13.4 L13.4 9.6"/><path d="M2.6 9.6 L6.4 13.4"/>',
 	## A distance-spine glyph -- a path with elevation ticks along it, matching
 	## `JOURNEY_PLANNER_SPEC.md` §3's own "route map and terrain profile share
 	## one distance axis" (`DCC_SHELL_SPEC.md` §4.5.4's 2026-08-19 addition).

@@ -193,15 +193,18 @@ worth nothing until at least two of them exist.
   AM) rather than a second date system — `chronos::Event`'s month/day are
   parsed by the syntax but currently dropped by the reader (§5's "no finer
   clock" rule, written for authored events, which don't need it; SP-2 does).
-  A specific 12-month, no-leap-year calendar (summing to 365 days, matching
-  the reference's own implicit assumption) still needs picking by whoever
-  builds this — not decided here. Not built yet.
+  The calendar was picked by SP-2's build and recorded in Ruling AO's
+  addendum (Gregorian month lengths, February fixed at 28, 365 days).
 - ~~**What a conflict is attached to.**~~ **RULED 2026-09-23, Ruling AO: a
   conflict can reference a settlement or a province** (not free-geometry-only)
   — moving the place moves the conflict, and "what conflicts happened here"
-  becomes a real query. Not built yet.
+  becomes a real query. The builder's calls on the points the ruling left
+  open (a province keyed by its seed settlement's `tid`, deletion keeps the
+  link, auto-populate detaches, a new world empties the store) are the
+  ruling's 2026-09-23 addendum; status is `STATUS.md`'s.
 - ~~**Regenerate semantics.**~~ **RULED 2026-09-23, Ruling AO: re-snap onto the
   new terrain.** Real added scope, disclosed: a re-snap must handle a stop
   point that no longer exists and a route no longer geometrically valid — name
   the edge-case behaviour explicitly when building this, don't assume the
-  happy path. Not built yet.
+  happy path. The policy chosen is in Ruling AO's addendum (a vanished stop
+  drops the journey, an unroutable leg is kept and flagged).

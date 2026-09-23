@@ -138,8 +138,9 @@
 //! field -- a journey's `route` is a **snapshot** of a committed route's
 //! geometry taken at `journey_save` time (`JourneyRoute`'s own doc comment:
 //! committed routes have no stable id to reference instead), so the two
-//! share `InfraTools`' exact lifecycle (reset on regenerate/`load_save`,
-//! restored together below whenever the archive carries either).
+//! share `InfraTools`' lifecycle (reset on `load_save`, restored together
+//! below whenever the archive carries either; on a regenerate journeys are
+//! re-snapped rather than reset -- SP-2, `story_bridge.rs`).
 //!
 //! `journey_to_dto`/`dto_to_journey` below are this document's DTOs, same
 //! shape as every other entity in this file: the archive's member names
@@ -189,6 +190,7 @@ const SLOT_APPEARANCE: &str = "appearance.json";
 const SLOT_VAULT: &str = "vault.json";
 const SLOT_LANDMARKS: &str = "entities/landmarks.json";
 const SLOT_JOURNEYS: &str = "entities/journeys.json";
+const SLOT_CONFLICTS: &str = "entities/conflicts.json";
 
 // The four caller-owned slots this file builds the *contents* of without
 // owning the slot itself. They stay out of [`ENGINE_OWNED_SLOTS`] below --
@@ -229,6 +231,9 @@ const ENGINE_OWNED_SLOTS: &[&str] = &[
     // "the SHELL's two"); that paragraph is now stale for this slot and only
     // describes `annotations/measurements.json`.
     SLOT_JOURNEYS,
+    // `STORY_PLANNING_SCOPE.md` SP-4: the payload is `WorldGen::conflicts`,
+    // which GDScript has no view of -- the landmarks slot's reason.
+    SLOT_CONFLICTS,
 ];
 
 // ===================== the document schemas =====================
@@ -426,6 +431,89 @@ struct RouteDto {
 /// `entities/journeys.json`, `SAVEFILE_COMPAT.md` §9.6. `next_id` mirrors
 /// `SettlementsDoc::next_id`'s own convention (§9.1: "raised to `max(id)+1`
 /// if the stored value is lower").
+/// `SAVEFILE_COMPAT.md` §9.7 (SP-4). `end_year` and `anchor` are omitted
+/// when absent -- an ongoing conflict has no end year, an unattached one no
+/// anchor -- rather than written as a sentinel.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct ConflictsDoc {
+    #[serde(default)]
+    next_id: u64,
+    #[serde(default)]
+    conflicts: Vec<ConflictDto>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct ConflictDto {
+    #[serde(default)]
+    id: u64,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    start_year: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    end_year: Option<i64>,
+    #[serde(default)]
+    sides: Vec<i32>,
+    #[serde(default)]
+    outcome: String,
+    /// As drawn, grid cells -- **not** resolved against the anchor, so a
+    /// reopened project translates them exactly as the live one did.
+    #[serde(default)]
+    points: Vec<[f64; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    anchor: Option<ConflictAnchorDto>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct ConflictAnchorDto {
+    /// `"settlement"` or `"province"`.
+    #[serde(default)]
+    kind: String,
+    /// The settlement's `tid`; for a province, its seed settlement's `tid`.
+    #[serde(default)]
+    tid: u64,
+    /// Where the anchor stood when attached (`Conflict::anchor_at`).
+    #[serde(default)]
+    at: [f64; 2],
+}
+
+fn conflict_to_dto(c: &cartalith_civ::conflict::Conflict) -> ConflictDto {
+    ConflictDto {
+        id: c.id,
+        name: c.name.clone(),
+        kind: c.kind.key().to_string(),
+        start_year: c.start_year,
+        end_year: c.end_year,
+        sides: c.sides.clone(),
+        outcome: c.outcome.clone(),
+        points: c.points.iter().map(|&(x, y)| [x, y]).collect(),
+        anchor: c.anchor.map(|a| {
+            let (kind, tid) = crate::conflict_bridge::anchor_key(a);
+            ConflictAnchorDto { kind: kind.to_string(), tid, at: [c.anchor_at.0, c.anchor_at.1] }
+        }),
+    }
+}
+
+/// `None` for a row this build cannot read (unknown kind): that row is
+/// skipped, the rest of the document opens (§6.4a rung 3).
+fn dto_to_conflict(d: &ConflictDto) -> Option<cartalith_civ::conflict::Conflict> {
+    let anchor = d.anchor.as_ref().and_then(|a| crate::conflict_bridge::anchor_from_key(&a.kind, a.tid));
+    Some(cartalith_civ::conflict::Conflict {
+        id: d.id,
+        name: d.name.clone(),
+        kind: cartalith_civ::conflict::ConflictKind::from_key(&d.kind)?,
+        start_year: d.start_year,
+        end_year: d.end_year,
+        sides: d.sides.clone(),
+        outcome: d.outcome.clone(),
+        points: d.points.iter().map(|p| (p[0], p[1])).collect(),
+        anchor,
+        anchor_at: d.anchor.as_ref().filter(|_| anchor.is_some()).map_or((0.0, 0.0), |a| (a.at[0], a.at[1])),
+    })
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct JourneysDoc {
     #[serde(default)]
@@ -2164,6 +2252,19 @@ impl WorldGen {
             },
         );
 
+        // SP-4. Written only when there is one, the journeys slot's "absent,
+        // not empty" rule: an untouched project gains no conflicts document.
+        if !self.conflicts.conflicts.is_empty() {
+            insert_doc(
+                &mut documents,
+                SLOT_CONFLICTS,
+                &ConflictsDoc {
+                    next_id: self.conflicts.next_id,
+                    conflicts: self.conflicts.conflicts.iter().map(conflict_to_dto).collect(),
+                },
+            );
+        }
+
         // The vault's own serialized store, verbatim (§13.3) -- through
         // `LinkStore`'s own `to_json`, so the vault keeps owning its shape
         // and this file never has to know what a knowledge link is. Skipped
@@ -2556,6 +2657,21 @@ impl WorldGen {
                 infra.set_next_journey_id(doc.next_id.max(max_present));
                 infra.journeys = journeys;
                 restored.push("journeys");
+            }
+        }
+
+        // SP-4. `load_save` (run first) emptied the store; a damaged document
+        // costs itself, and an unreadable row costs that row (§6.4a rung 3).
+        if let Some(Ok(doc)) = data.parse::<ConflictsDoc>(SLOT_CONFLICTS) {
+            let conflicts: Vec<_> = doc.conflicts.iter().filter_map(dto_to_conflict).collect();
+            if !conflicts.is_empty() {
+                // §9.1's rule: `next_id` never trails its data.
+                let max_present = conflicts.iter().map(|c| c.id + 1).max().unwrap_or(1);
+                self.conflicts = cartalith_civ::conflict::ConflictStore {
+                    next_id: doc.next_id.max(max_present),
+                    conflicts,
+                };
+                restored.push("conflicts");
             }
         }
 
@@ -3899,6 +4015,78 @@ mod tests {
         // The whole point of `PartialEq` on `Journey`/`JourneyRoute`: one
         // assertion that nothing above was a partial check in disguise.
         assert_eq!(*b, journey);
+    }
+
+    /// SP-4's "the drawing persists through save/load", through a real
+    /// in-memory archive like `journeys_round_trip`. Two conflicts cover
+    /// every optional member both ways: an anchored, ended siege and an
+    /// unanchored, ongoing front.
+    #[test]
+    fn a_conflict_survives_save_load_reopen() {
+        use cartalith_civ::conflict::{Conflict, ConflictAnchor, ConflictKind};
+        let siege = Conflict {
+            id: 3,
+            name: "Siege of Kessra".into(),
+            kind: ConflictKind::Siege,
+            start_year: 212,
+            end_year: Some(214),
+            sides: vec![2, 1],
+            outcome: "Relieved in the third spring".into(),
+            points: vec![(40.5, 17.25)],
+            anchor: Some(ConflictAnchor::Province(9)),
+            anchor_at: (41.0, 18.0),
+        };
+        let front = Conflict {
+            id: 5,
+            name: "Northern front".into(),
+            kind: ConflictKind::Front,
+            start_year: 300,
+            end_year: None,
+            sides: vec![3, 4],
+            outcome: String::new(),
+            points: vec![(1.0, 2.0), (3.5, 2.5), (6.0, 1.0)],
+            anchor: None,
+            anchor_at: (0.0, 0.0),
+        };
+        let params = cartalith_io::SaveParams {
+            gw: 4,
+            gh: 3,
+            seed: 4242,
+            map_width_km: 800.0,
+            sea_level: 0.42,
+            world: false,
+            origin: None,
+            name: None,
+        };
+        let fields = cartalith_io::SaveFields {
+            heightmap: std::sync::Arc::new(vec![0.5; 12]),
+            temperature: std::sync::Arc::new(vec![10.0; 12]),
+            rainfall: std::sync::Arc::new(vec![1.0; 12]),
+            volcanic_field: vec![0.0; 12],
+            impact_field: vec![0.0; 12],
+            strahler_order: vec![0; 12],
+        };
+        let mut write = ProjectWrite::new(&params, &fields);
+        let mut documents = BTreeMap::new();
+        insert_doc(
+            &mut documents,
+            SLOT_CONFLICTS,
+            &ConflictsDoc { next_id: 6, conflicts: vec![conflict_to_dto(&siege), conflict_to_dto(&front)] },
+        );
+        write.documents = documents;
+        let mut buf = Vec::new();
+        project::write_project(std::io::Cursor::new(&mut buf), &write).expect("write");
+        let data = cartalith_io::read_project(std::io::Cursor::new(&buf)).expect("read");
+        assert!(data.warnings.is_empty(), "{:?}", data.warnings);
+        let text = data.document(SLOT_CONFLICTS).expect("present").to_string();
+        // Absent, not a sentinel: the ongoing front writes no end year and the
+        // unattached one no anchor.
+        assert_eq!(text.matches("end_year").count(), 1, "{text}");
+        assert_eq!(text.matches("\"anchor\"").count(), 1, "{text}");
+        let doc: ConflictsDoc = data.parse(SLOT_CONFLICTS).unwrap().unwrap();
+        assert_eq!(doc.next_id, 6);
+        let back: Vec<Conflict> = doc.conflicts.iter().filter_map(dto_to_conflict).collect();
+        assert_eq!(back, vec![siege, front]);
     }
 
     #[test]

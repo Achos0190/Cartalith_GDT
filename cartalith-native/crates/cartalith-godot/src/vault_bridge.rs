@@ -499,6 +499,11 @@ impl WorldGen {
             kind,
             start,
             end,
+            // The UI authors year-only events (SP-3); month/day stay absent,
+            // so the line it writes is byte-for-byte what it wrote before
+            // `chronos::Event` carried them.
+            start_md: None,
+            end_md: None,
             color: text("color"),
             group: text("group"),
             name: text("name").unwrap_or_default(),

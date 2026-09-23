@@ -61,6 +61,15 @@ const KIND_PLURAL := {
 ## tool`, so there is no other way to learn what is being armed away FROM.
 var _active_civ_tool := ""
 
+## -- Conflict tool (`STORY_PLANNING_SCOPE.md` SP-4). The draft lives here and
+## nowhere else: unlike Way/Route there is no engine routing to run on it, so
+## the click chain is the whole draft and `conflict_add` receives it at commit.
+var _conflict_points := PackedVector2Array()
+var _conflict_kind := "front"
+## The Military ▸ Conflicts list's own section, refilled by `refresh_conflicts`
+## without rebuilding the rest of Military (whose manpower pass is not free).
+var _conflicts_section: Control = null
+
 ## -- Settlement tool state (§4.5.3's own options row). Persists across
 ## re-arms/rebuilds of the tool options bar so the row always reflects the
 ## shell's last choice, the same reasoning `cartography_workspace.gd`'s own
@@ -80,6 +89,9 @@ var _settlement_snap_water := false
 var _territory_faction := 1
 var _territory_radius := 5.0
 var _territory_subtract := false
+## Territory lasso's ring, grid coords. Faction and Add/Subtract are the
+## brush's own two vars above -- one choice, shared by both input methods.
+var _lasso_points := PackedVector2Array()
 
 ## -- Timeline state (`TIMELINE_SCOPE.md` milestone 6). See the Timeline
 ## category's own header comment, below `_build_culture()`, for why this is a
@@ -732,11 +744,29 @@ func _build_tools() -> void:
 	DccWidgets.tools_block(self, app, app.tool_group, [
 		{"id": "settlement", "glyph": "tool_settlement", "label": "Settlement (S)"},
 		{"id": "territory", "glyph": "tool_territory", "label": "Territory (T)"},
+		{"id": "territory_lasso", "glyph": "tool_lasso", "label": "Territory lasso (⇧T)"},
 		{"id": "way", "glyph": "tool_way", "label": "Way (W)"},
 		{"id": "route", "glyph": "tool_route", "label": "Route (⇧R)"},
+		## SP-4. No letter in the label: `_tool_entry()` binds whatever letter a
+		## label advertises, and every free one is a guess nobody asked for.
+		{"id": "conflict", "glyph": "tool_conflict", "label": "Conflict"},
 	])
+	app.register_tool_click_handler("conflict", func(gx, gy): _conflict_click(gx, gy))
+	## Escape commits and leaves the tool armed -- Way/Route's own rule
+	## (`infrastructure_workspace.gd::_build_tools`), since this is their
+	## vocabulary.
+	app.register_tool_escape_handler("conflict", _commit_conflict)
+	## The cursor moved: re-pull the list so `active` answers for the new year.
+	if app.has_signal("timeline_changed"):
+		app.timeline_changed.connect(refresh_conflicts)
 	app.register_tool_click_handler("settlement", func(gx, gy): _settlement_click(gx, gy))
 	app.register_tool_drag_handler("territory", func(gx, gy): _territory_drag(gx, gy))
+	## Measure's Area-ring conventions (`global_tools.gd`): click adds a
+	## vertex, the ring is implicitly closed from three, ⌫ drops the last,
+	## Esc clears and stays armed. Commit is the options row's button.
+	app.register_tool_click_handler("territory_lasso", func(gx, gy): _lasso_click(gx, gy))
+	app.register_tool_backspace_handler("territory_lasso", _lasso_drop_last)
+	app.register_tool_escape_handler("territory_lasso", _lasso_clear)
 	app.tool_armed.connect(_on_civ_tool_armed)
 
 ## Reacts to ANY tool arming anywhere in the app (`app.tool_armed` is one
@@ -757,7 +787,29 @@ func _build_tools() -> void:
 ## away. A stray auto-commit of a half-finished territory claim would be a
 ## worse surprise than a draft that just waits.
 func _on_civ_tool_armed(id: String) -> void:
+	## The lasso's ring is tool chrome, not a draft: leaving the lasso for ANY
+	## tool (Territory's brush included, which the `_:` arm never sees) drops
+	## it, Measure's own rule. No staged polygon can be stranded -- the lasso
+	## stages and commits in one step.
+	if _active_civ_tool == "territory_lasso" and id != "territory_lasso":
+		_lasso_points = PackedVector2Array()
+		app.viewport.tool_overlay.set_path_preview(_lasso_points)
+	## Conflict follows Way/Route, not Territory: arming any other tool
+	## commits the draft (`_on_infra_tool_armed`'s rule), before the new tool
+	## arms, so the draft never leaks into it.
+	if _active_civ_tool == "conflict" and id != "conflict":
+		_commit_conflict()
+		app.viewport.tool_overlay.set_path_preview(PackedVector2Array())
 	match id:
+		"conflict":
+			_active_civ_tool = "conflict"
+			_conflict_points = PackedVector2Array()
+			app.viewport.tool_overlay.set_path_preview(_conflict_points)
+			if not bridge.has_world:
+				app.set_status("hint", "Generate a world first -- a conflict is drawn over a generated map.", "text_ghost")
+			_tool_options_conflict()
+			if app.right_dock_ctrl.has_method("leave_territory_context"):
+				app.right_dock_ctrl.leave_territory_context()
 		"settlement":
 			_active_civ_tool = "settlement"
 			_tool_options_settlement()
@@ -776,6 +828,12 @@ func _on_civ_tool_armed(id: String) -> void:
 			## there is nothing here for a disarm to restore.
 			if app.right_dock_ctrl.has_method("show_territory"):
 				app.right_dock_ctrl.show_territory(_territory_faction)
+		"territory_lasso":
+			_active_civ_tool = "territory_lasso"
+			_lasso_clear()
+			_tool_options_lasso()
+			if app.right_dock_ctrl.has_method("show_territory"):
+				app.right_dock_ctrl.show_territory(_territory_faction)
 		_:
 			if _active_civ_tool != "":
 				_active_civ_tool = ""
@@ -789,6 +847,128 @@ func _on_civ_tool_armed(id: String) -> void:
 					_tool_options_civ_idle()
 			if app.right_dock_ctrl.has_method("leave_territory_context"):
 				app.right_dock_ctrl.leave_territory_context()
+
+# -- Conflict tool (`STORY_PLANNING_SCOPE.md` SP-4) --------------------------
+#
+# Way/Route's vocabulary, deliberately: arm, click to add a point, ✓ Commit /
+# Discard in the options row, Escape commits and stays armed, arming another
+# tool commits. A siege or battle is one point, so a second click MOVES it
+# rather than adding one. Commit creates the entity at the cursor's year and
+# selects it; name, years, sides, outcome and the anchor are then filled in
+# the right dock's Conflict context (`right_dock.gd::_build_conflict`), which
+# is also where each side's real manpower is read.
+
+const CONFLICT_KIND_LABELS := {"front": "Front", "arrow": "Arrow", "siege": "Siege", "battle": "Battle"}
+
+func _conflict_is_marker() -> bool:
+	return _conflict_kind == "siege" or _conflict_kind == "battle"
+
+func _conflict_click(gx: float, gy: float) -> void:
+	if not bridge.has_world:
+		return
+	if _conflict_is_marker():
+		_conflict_points = PackedVector2Array([Vector2(gx, gy)])
+	else:
+		_conflict_points.append(Vector2(gx, gy))
+	app.viewport.tool_overlay.set_path_preview(_conflict_points)
+	_tool_options_conflict()
+
+func _set_conflict_kind(kind: String) -> void:
+	_conflict_kind = kind
+	## A line drawn as a front is still a fine arrow, but a marker keeps one
+	## point -- trimmed here so the preview shows what Commit will store.
+	if _conflict_is_marker() and _conflict_points.size() > 1:
+		_conflict_points = PackedVector2Array([_conflict_points[0]])
+	app.viewport.tool_overlay.set_path_preview(_conflict_points)
+	_tool_options_conflict()
+
+func _conflict_min_points() -> int:
+	return 1 if _conflict_is_marker() else 2
+
+## Shared by ✓ Commit, Escape and arming another tool. Under the kind's
+## minimum the draft is dropped with nothing created -- `way_commit`'s own
+## "no-op under two waypoints, but the draft is gone either way".
+func _commit_conflict() -> void:
+	var pts := _conflict_points
+	_conflict_points = PackedVector2Array()
+	app.viewport.tool_overlay.set_path_preview(_conflict_points)
+	if pts.size() >= _conflict_min_points():
+		var r := bridge.conflict_add({"kind": _conflict_kind, "points": pts,
+			"start_year": bridge.get_civ_year()})
+		if r.get("ok", false):
+			var id := int(r.get("id", 0))
+			refresh_conflicts()
+			select_conflict(id)
+			app.set_status("hint",
+				"%s #%d drawn -- name it, set its years and sides in the right dock." % [
+					CONFLICT_KIND_LABELS.get(_conflict_kind, "Conflict"), id], "text_ghost")
+		else:
+			app.set_status("hint", String(r.get("error", "The conflict was refused.")), "text_ghost")
+	if _active_civ_tool == "conflict":
+		_tool_options_conflict()
+
+func _discard_conflict() -> void:
+	_conflict_points = PackedVector2Array()
+	app.viewport.tool_overlay.set_path_preview(_conflict_points)
+	if _active_civ_tool == "conflict":
+		_tool_options_conflict()
+
+func _tool_options_conflict() -> void:
+	var kinds: Array = Array(bridge.conflict_kinds())
+	app.set_tool_options(func(row: HBoxContainer):
+		_tool_options_label(row, "CIVIL · CONFLICT")
+		DccWidgets.choice(row, "Kind", kinds.map(func(k): return CONFLICT_KIND_LABELS.get(k, String(k).capitalize())),
+			maxi(0, kinds.find(_conflict_kind)), func(i: int): _set_conflict_kind(String(kinds[i])))
+		var n := _conflict_points.size()
+		row.add_child(DccTheme.mono_label(
+			("%d point%s" % [n, "" if n == 1 else "s"]) if not _conflict_is_marker()
+				else ("placed" if n > 0 else "click to place"),
+			"text_ghost", DccTheme.FS_SMALL))
+		row.add_child(DccTheme.spacer())
+		var commit_btn := DccWidgets.action(row, "✓ Commit", _commit_conflict, true)
+		commit_btn.disabled = n < _conflict_min_points()
+		var discard_btn := DccWidgets.action(row, "Discard", _discard_conflict)
+		discard_btn.disabled = n == 0
+	)
+
+## Re-pulls `conflict_list()` into the map layer and the Military list. Public:
+## the right dock calls it after every edit, and it is wired to
+## `timeline_changed` because `active` is answered for the cursor's year.
+func refresh_conflicts() -> void:
+	if app == null or app.viewport == null:
+		return
+	var rows := bridge.conflict_list()
+	if app.viewport.overlay.has_method("set_conflicts"):
+		app.viewport.overlay.set_conflicts(rows)
+	if _conflicts_section != null and is_instance_valid(_conflicts_section):
+		_clear_body(_conflicts_section)
+		_fill_conflicts(_conflicts_section, rows)
+
+## Selects conflict `id`: the right dock's Conflict context, and the map's
+## selected stroke. `-1` clears the stroke only.
+func select_conflict(id: int) -> void:
+	if app.viewport.overlay.has_method("set_selected_conflict"):
+		app.viewport.overlay.set_selected_conflict(id)
+	if id >= 0 and app.right_dock_ctrl.has_method("show_conflict"):
+		app.right_dock_ctrl.show_conflict(id)
+
+func _fill_conflicts(parent: Control, rows: Array) -> void:
+	if rows.is_empty():
+		DccWidgets.note(parent,
+			"None drawn. Arm Conflict in %s, click the map (a front or arrow takes two points or more, a siege or battle one), then ✓ Commit." % DccWidgets.tools_home())
+		return
+	var year := bridge.get_civ_year()
+	for c: Dictionary in rows:
+		var nm := String(c.get("name", ""))
+		var span := "%d–%s" % [int(c.get("start_year", 0)),
+			str(int(c["end_year"])) if c.has("end_year") else "ongoing"]
+		var b := DccWidgets.action(parent, "%s%s · %s · %s" % [
+			"● " if c.get("active", false) else "○ ",
+			nm if not nm.is_empty() else "(unnamed #%d)" % int(c.get("id", 0)),
+			CONFLICT_KIND_LABELS.get(String(c.get("kind", "")), "?"), span],
+			select_conflict.bind(int(c.get("id", 0))))
+		b.tooltip_text = ("Active in %d -- drawn on the map." % year) if c.get("active", false) \
+			else ("Not active in %d -- hidden on the map until the year cursor enters its range." % year)
 
 ## §10's brush ring, wired from `on_cursor_sampled` per the tool-arming
 ## substrate's own instructions (`app.gd`'s `_wire_selection` forwards every
@@ -966,6 +1146,9 @@ func _refresh_civ_data() -> void:
 	## which is the same "cover every input, not the one you edited" rule the
 	## engine's own `belief_key` was rewritten for.
 	app.viewport.overlay.set_faction_religions(_religion_faction_column("religion"))
+	## SP-4: the left-dock Timeline's year pills land here, not on
+	## `timeline_changed`, and a conflict's `active` is keyed to that year.
+	refresh_conflicts()
 
 ## Timeline "Exist only" filter (`_build_timeline_filters` below): keeps only
 ## settlements whose `tid` (`lib.rs`'s `get_settlements()`, now real -- see
@@ -1076,18 +1259,88 @@ func _commit_territory() -> void:
 	app.right_dock_ctrl.show_territory(_territory_faction)
 	app.set_status("hint",
 		"Territory committed -- provinces/trade were computed before this edit.", "text_ghost")
-	if _active_civ_tool == "territory":
-		_tool_options_territory()
+	_refresh_territory_options()
 
 func _discard_territory() -> void:
 	bridge.civ_territory_discard()
-	if _active_civ_tool == "territory":
-		_tool_options_territory()
+	_refresh_territory_options()
 	## Discard only touches the draft (`civ_territory_discard`'s own doc);
 	## the committed stats the `TOOL_TERR` section reads are unaffected, but re-announcing
 	## costs nothing and keeps this symmetric with commit and arm above.
 	if app.right_dock_ctrl.has_method("show_territory"):
 		app.right_dock_ctrl.show_territory(_territory_faction)
+
+func _refresh_territory_options() -> void:
+	match _active_civ_tool:
+		"territory": _tool_options_territory()
+		"territory_lasso": _tool_options_lasso()
+
+# -- Territory lasso -----------------------------------------------------
+
+## The owner's 2026-09-23 request: assign an area to a faction by drawing a
+## polygon round it. A second INPUT for the brush's backend, not a second
+## backend -- `civ_territory_paint_polygon` stages the ring's interior as one
+## masked `PaintStamp` in the same draft a brush dab goes to, and ✓ Commit is
+## `_commit_territory()` itself. So the faction, Add/Subtract, the stats and
+## the commit/rebase/subtract-restores-the-base semantics are the brush's,
+## unmodified. Faction-level only: provinces are regenerated from territory
+## by `civ_generate_provinces` and have no hand-assignable state to paint.
+func _tool_options_lasso() -> void:
+	app.set_tool_options(func(row: HBoxContainer):
+		_tool_options_label(row, "CIVIL · TERRITORY LASSO")
+		_faction_choice(row, _territory_faction, func(fid: int):
+			_territory_faction = fid
+			if app.right_dock_ctrl.has_method("show_territory"):
+				app.right_dock_ctrl.show_territory(fid))
+		DccWidgets.choice(row, "Mode", ["Add", "Subtract"], 1 if _territory_subtract else 0,
+			func(i: int): _territory_subtract = (i == 1))
+		var n := _lasso_points.size()
+		row.add_child(DccTheme.mono_label(
+			"%d vertices · click to add, ⌫ drop last, Esc clear" % n if n > 0
+				else "click the map to place the first vertex",
+			"text_dim", DccTheme.FS_MICRO))
+		row.add_child(DccTheme.spacer())
+		DccWidgets.action(row, "✓ Commit", _lasso_commit, true)
+		DccWidgets.action(row, "Discard", _lasso_discard)
+	)
+
+func _lasso_redraw() -> void:
+	var ring := _lasso_points.duplicate()
+	if ring.size() >= 3:
+		ring.append(ring[0])
+	app.viewport.tool_overlay.set_path_preview(ring)
+	_tool_options_lasso()
+
+func _lasso_click(gx: float, gy: float) -> void:
+	_lasso_points.append(Vector2(gx, gy))
+	_lasso_redraw()
+
+func _lasso_drop_last() -> void:
+	if not _lasso_points.is_empty():
+		_lasso_points.remove_at(_lasso_points.size() - 1)
+	_lasso_redraw()
+
+func _lasso_clear() -> void:
+	_lasso_points = PackedVector2Array()
+	_lasso_redraw()
+
+## Stages the ring and commits in one step. A pending brush draft commits with
+## it -- one draft, one Commit, exactly as the brush's own button behaves.
+func _lasso_commit() -> void:
+	if _lasso_points.size() < 3:
+		app.set_status("hint", "Territory lasso needs at least three vertices.", "text_ghost")
+		return
+	var staged := bridge.civ_territory_paint_polygon(_lasso_points, _territory_faction, _territory_subtract)
+	_lasso_clear()
+	if staged <= 0:
+		app.set_status("hint", "That ring encloses no cell centre -- nothing assigned.", "text_ghost")
+		return
+	_commit_territory()
+
+func _lasso_discard() -> void:
+	_lasso_points = PackedVector2Array()
+	app.viewport.tool_overlay.set_path_preview(_lasso_points)
+	_discard_territory()
 
 
 # -- Settlements --------------------------------------------------------
@@ -5703,6 +5956,11 @@ static func _by_relation_value(x, y) -> bool:
 	return float((x as Dictionary).get("value", 0.0)) > float((y as Dictionary).get("value", 0.0))
 
 func _fill_military(parent: Control) -> void:
+	## SP-4's drawn conflicts. Here, not a fourteenth category: Ruling L fixed
+	## CIVIL's thirteen in the owner's order, and a conflict reads this
+	## category's own manpower model. ● = active in the cursor's year.
+	_conflicts_section = DccWidgets.section(parent, "Conflicts")
+	_fill_conflicts(_conflicts_section, bridge.conflict_list())
 	var data: Dictionary = bridge.civ_military_summary()
 	var factions: Array = data.get("factions", [])
 	var places: Array = data.get("settlements", [])

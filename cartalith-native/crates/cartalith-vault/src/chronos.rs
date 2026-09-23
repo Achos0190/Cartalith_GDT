@@ -21,12 +21,29 @@
 //! valid Chronos that describe a *view*, not an event, and are passed over
 //! without complaint.
 //!
-//! **Dates keep their year and nothing finer.** Chronos accepts
-//! `YYYY-MM-DDThh:mm:ss` with only `YYYY` required; this port's clock is the
-//! Timeline's signed `i64` year (`get_civ_timeline_years`, `civ_goto_year`)
-//! and `STORY_PLANNING_SCOPE.md` §5 forbids a finer parallel clock, so
-//! `[1879-03-14]` reads as year 1879 and the rest is validated loosely and
-//! dropped. Negative years (`[-300~250]`) are valid Chronos and read as-is.
+//! **Dates keep their year, month and day; nothing finer.** Chronos accepts
+//! `YYYY-MM-DDThh:mm:ss` with only `YYYY` required. Until 2026-09-23 this
+//! reader kept the year alone (`STORY_PLANNING_SCOPE.md` §5's "no finer
+//! clock", written for authored events, which do not need one). SP-2 does
+//! need one -- a journey is weeks long and the Timeline's year cannot place a
+//! party along it -- and Ruling AO (`LARGE_ITEM_RULINGS.md`) ruled that the
+//! finer grain is *this* date, not a second date system. So [`Event`] now
+//! also carries a [`MonthDay`] (`start_md`/`end_md`), **absent unless the
+//! source wrote a month that exists in [`MONTH_DAYS`]'s calendar**: a
+//! year-only line reads exactly as it always did, and a month or day this
+//! calendar has no room for (`-02-29`, `-13`) still reads as its bare year --
+//! the loose acceptance this reader has always had -- rather than being
+//! refused. The time of day is still validated loosely and dropped.
+//! Negative years (`[-300~250]`) are valid Chronos and read as-is.
+//!
+//! **The calendar** ([`MONTH_DAYS`]) is a disclosed choice, not a finding:
+//! twelve months of the Gregorian lengths with February fixed at 28 days, so
+//! every year is exactly 365 days and there is no leap year. The reference
+//! HTML has no calendar object; it treats a year as 365 days everywhere it
+//! counts days (`restCadence`/layover caps at 365, the food-demand `*365*2`,
+//! `jpSeasonAt`'s day-offset season walk). The owner's own vault (EBSS,
+//! checked 2026-09-23) writes bare years and one `YYYY-MM` and names no
+//! months or month lengths, so there was no in-world calendar to match.
 //!
 //! **A note is hand-edited free text, so nothing here fails.** A line that
 //! does not parse is returned in [`Chronos::skipped`] with its text, rather
@@ -74,11 +91,89 @@ pub struct Event {
     pub start: i64,
     /// `Some` only for a `[a~b]` range.
     pub end: Option<i64>,
+    /// The month (and day, if written) of `start`; `None` for a year-only
+    /// date. See the module doc for when a written month is not kept.
+    pub start_md: Option<MonthDay>,
+    /// The same for `end`; always `None` when `end` is.
+    pub end_md: Option<MonthDay>,
     /// The `#red` / `#ff8800` token without its `#`, as written.
     pub color: Option<String>,
     pub group: Option<String>,
     pub name: String,
     pub description: Option<String>,
+}
+
+/// Days in each month of this port's calendar, January first. Gregorian
+/// lengths with February fixed at 28: **365 days, every year, no leap
+/// year** -- the reference's own year length (see the module doc).
+pub const MONTH_DAYS: [u8; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/// The only year length there is: [`MONTH_DAYS`]' sum.
+pub const DAYS_PER_YEAR: i64 = 365;
+
+/// A Chronos date's `-MM` or `-MM-DD`, 1-based, and only ever a value that
+/// exists in [`MONTH_DAYS`] -- [`MonthDay::new`] is the one constructor that
+/// checks, and the reader and writer both go through it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MonthDay {
+    pub month: u8,
+    /// `None` for a `YYYY-MM` date: the month, no particular day in it.
+    pub day: Option<u8>,
+}
+
+impl MonthDay {
+    /// `Some` only when `month` (and `day`, if given) exist in [`MONTH_DAYS`].
+    pub fn new(month: u8, day: Option<u8>) -> Option<Self> {
+        let len = *MONTH_DAYS.get(usize::from(month).checked_sub(1)?)?;
+        match day {
+            Some(d) if d == 0 || d > len => None,
+            _ => Some(MonthDay { month, day }),
+        }
+    }
+
+    /// 0-based day of the year; a month with no day counts as its first.
+    pub fn day_of_year(self) -> i64 {
+        let before: i64 = MONTH_DAYS[..usize::from(self.month) - 1].iter().map(|&n| i64::from(n)).sum();
+        before + i64::from(self.day.unwrap_or(1)) - 1
+    }
+
+    /// The month and day a 0-based day of the year falls on; `None` outside
+    /// `0..DAYS_PER_YEAR`.
+    pub fn from_day_of_year(doy: i64) -> Option<Self> {
+        if !(0..DAYS_PER_YEAR).contains(&doy) {
+            return None;
+        }
+        let mut rest = doy;
+        for (i, &len) in MONTH_DAYS.iter().enumerate() {
+            if rest < i64::from(len) {
+                return Some(MonthDay { month: i as u8 + 1, day: Some(rest as u8 + 1) });
+            }
+            rest -= i64::from(len);
+        }
+        unreachable!("MONTH_DAYS sums to DAYS_PER_YEAR")
+    }
+}
+
+/// Whole days since 1 January of year 0 -- negative before it, so a signed
+/// year counts the same way on both sides of zero. A year-only date is its
+/// 1 January.
+pub fn day_number(year: i64, md: Option<MonthDay>) -> i64 {
+    year * DAYS_PER_YEAR + md.map_or(0, MonthDay::day_of_year)
+}
+
+/// [`day_number`]'s inverse: the year and its (always day-bearing) month/day.
+pub fn date_of_day_number(n: i64) -> (i64, MonthDay) {
+    let md = MonthDay::from_day_of_year(n.rem_euclid(DAYS_PER_YEAR)).expect("rem_euclid is in range");
+    (n.div_euclid(DAYS_PER_YEAR), md)
+}
+
+/// `YYYY`, `YYYY-MM` or `YYYY-MM-DD`: the Chronos form of a date.
+pub fn format_date(year: i64, md: Option<MonthDay>) -> String {
+    match md {
+        None => year.to_string(),
+        Some(MonthDay { month, day: None }) => format!("{year}-{month:02}"),
+        Some(MonthDay { month, day: Some(d) }) => format!("{year}-{month:02}-{d:02}"),
+    }
 }
 
 /// Everything read from every ` ```chronos ` block in one text.
@@ -136,9 +231,12 @@ pub fn parse_line(line: &str) -> Option<Event> {
     };
     let rest = chars.as_str().trim_start().strip_prefix('[')?;
     let close = rest.find(']')?;
-    let (start, end) = match rest[..close].split_once('~') {
-        Some((a, b)) => (year(a)?, Some(year(b)?)),
-        None => (year(&rest[..close])?, None),
+    let ((start, start_md), (end, end_md)) = match rest[..close].split_once('~') {
+        Some((a, b)) => {
+            let (y, md) = date(b)?;
+            (date(a)?, (Some(y), md))
+        }
+        None => (date(&rest[..close])?, (None, None)),
     };
     let mut rest = rest[close + 1..].trim_start();
 
@@ -161,12 +259,15 @@ pub fn parse_line(line: &str) -> Option<Event> {
     if name.is_empty() {
         return None;
     }
-    Some(Event { kind, start, end, color, group, name: name.to_string(), description })
+    Some(Event { kind, start, end, start_md, end_md, color, group, name: name.to_string(), description })
 }
 
-/// The signed year out of a Chronos date. The part after the year must be
-/// empty or begin `-MM…` / `T…`, so `[12x]` is refused rather than read as 12.
-fn year(s: &str) -> Option<i64> {
+/// The signed year out of a Chronos date, plus its month/day when they are
+/// well-formed and exist in [`MONTH_DAYS`]. The part after the year must be
+/// empty or begin `-…` / `T…`, so `[12x]` is refused rather than read as 12;
+/// what follows a `-` is kept if it can be and otherwise ignored, which is
+/// how every such date was read before month/day were kept at all.
+fn date(s: &str) -> Option<(i64, Option<MonthDay>)> {
     let s = s.trim();
     let (neg, body) = match s.strip_prefix('-') {
         Some(b) => (true, b),
@@ -181,7 +282,19 @@ fn year(s: &str) -> Option<i64> {
         return None;
     }
     let y: i64 = body[..digits].parse().ok()?;
-    Some(if neg { -y } else { y })
+    Some((if neg { -y } else { y }, month_day(tail)))
+}
+
+/// `-MM` or `-MM-DD`, either optionally followed by `T…`; `None` for
+/// anything else, including a month or day [`MonthDay::new`] refuses.
+fn month_day(tail: &str) -> Option<MonthDay> {
+    let rest = tail.strip_prefix('-')?;
+    let rest = rest.split_once('T').map_or(rest, |(d, _)| d);
+    let two = |p: &str| if p.len() == 2 && p.bytes().all(|b| b.is_ascii_digit()) { p.parse::<u8>().ok() } else { None };
+    match rest.split_once('-') {
+        None => MonthDay::new(two(rest)?, None),
+        Some((m, d)) => MonthDay::new(two(m)?, Some(two(d)?)),
+    }
 }
 
 /// The one Chronos line for `e`, such that `parse_line(&to_line(e)?) ==
@@ -219,12 +332,29 @@ pub fn to_line(e: &Event) -> Result<String, String> {
         Kind::Point => '*',
         Kind::Marker => '=',
     };
-    let mut out = format!("{sym} [{}", e.start);
+    // A month/day is written only as a value the reader keeps: one that
+    // exists in `MONTH_DAYS`, and never on an end that is not there.
+    let valid = |md: Option<MonthDay>| md.is_none_or(|m| MonthDay::new(m.month, m.day) == Some(m));
+    if !valid(e.start_md) || !valid(e.end_md) {
+        return Err(format!("a month/day must exist in the {DAYS_PER_YEAR}-day calendar"));
+    }
+    let mut out = format!("{sym} [{}", format_date(e.start, e.start_md));
     if let Some(end) = e.end {
         if end < e.start {
             return Err(format!("the end year {end} is before the start year {}", e.start));
         }
-        out += &format!("~{end}");
+        if let (true, Some(a), Some(b)) = (end == e.start, e.start_md, e.end_md)
+            && b.day_of_year() < a.day_of_year()
+        {
+            return Err(format!(
+                "the end date {} is before the start date {}",
+                format_date(end, e.end_md),
+                format_date(e.start, e.start_md)
+            ));
+        }
+        out += &format!("~{}", format_date(end, e.end_md));
+    } else if e.end_md.is_some() {
+        return Err("an end month/day needs an end year".into());
     }
     out.push(']');
     if let Some(c) = &e.color {
@@ -416,6 +546,8 @@ mod tests {
             kind: Kind::Event,
             start,
             end,
+            start_md: None,
+            end_md: None,
             color: color.map(str::to_string),
             group: group.map(str::to_string),
             name: name.to_string(),
@@ -492,6 +624,99 @@ mod tests {
         assert_eq!(parse_line("- [1] a | b").unwrap().name, "a");
         // A same-year range is not "before", and is written.
         let same = ev(5, Some(5), None, None, "x", None);
+        assert_eq!(parse_line(&to_line(&same).unwrap()), Some(same));
+    }
+
+    // ---------- the calendar (SP-2, Ruling AO) ----------
+
+    /// The table itself, as literals -- not asserted against its own sum.
+    #[test]
+    fn the_calendar_is_the_gregorian_lengths_with_no_leap_day() {
+        assert_eq!(MONTH_DAYS, [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]);
+        assert_eq!(MONTH_DAYS.iter().map(|&d| i64::from(d)).sum::<i64>(), 365);
+        assert_eq!(DAYS_PER_YEAR, 365);
+        assert_eq!(MonthDay::new(2, Some(28)).map(MonthDay::day_of_year), Some(58));
+        assert_eq!(MonthDay::new(2, Some(29)), None, "no leap day, in any year");
+        assert_eq!(MonthDay::new(4, Some(31)), None);
+        assert_eq!(MonthDay::new(0, None), None);
+        assert_eq!(MonthDay::new(13, None), None);
+        assert_eq!(MonthDay::new(12, Some(31)).map(MonthDay::day_of_year), Some(364));
+        assert_eq!(MonthDay::new(3, None).map(MonthDay::day_of_year), Some(59), "a bare month is its 1st");
+    }
+
+    #[test]
+    fn every_day_of_the_year_round_trips_through_month_and_day() {
+        let mut prev: Option<MonthDay> = None;
+        for doy in 0..365 {
+            let md = MonthDay::from_day_of_year(doy).unwrap();
+            assert_eq!(md.day_of_year(), doy);
+            assert_eq!(MonthDay::new(md.month, md.day), Some(md), "day {doy} is a real date");
+            if let Some(p) = prev {
+                // Consecutive: the next day in the month, or the 1st of the next.
+                let next_in_month = md.month == p.month && md.day == p.day.map(|d| d + 1);
+                let next_month = md.month == p.month + 1 && md.day == Some(1);
+                assert!(next_in_month || next_month, "{p:?} -> {md:?}");
+            }
+            prev = Some(md);
+        }
+        assert_eq!(MonthDay::from_day_of_year(-1), None);
+        assert_eq!(MonthDay::from_day_of_year(365), None);
+    }
+
+    #[test]
+    fn day_numbers_count_across_years_and_across_zero() {
+        let d = |y, m, dd| day_number(y, MonthDay::new(m, Some(dd)));
+        assert_eq!(d(0, 1, 1), 0);
+        assert_eq!(d(1, 1, 1), 365);
+        assert_eq!(d(-1, 12, 31), -1, "the day before year 0");
+        assert_eq!(d(1879, 3, 14) - d(1879, 1, 1), 72);
+        assert_eq!(d(1880, 1, 1) - d(1879, 12, 31), 1);
+        for n in [-800_000, -366, -365, -1, 0, 1, 364, 365, 686_000] {
+            let (y, md) = date_of_day_number(n);
+            assert_eq!(day_number(y, Some(md)), n);
+        }
+        assert_eq!(date_of_day_number(-1), (-1, MonthDay { month: 12, day: Some(31) }));
+        assert_eq!(day_number(1200, None), 1200 * 365, "a year-only date is 1 January");
+    }
+
+    #[test]
+    fn month_and_day_are_kept_when_written_and_absent_when_not() {
+        let e = parse_line("- [1879-03-14] Einstein born").unwrap();
+        assert_eq!((e.start, e.start_md), (1879, MonthDay::new(3, Some(14))));
+        let e = parse_line("- [-1200-06-01T12:00:00~-1199-02] Flood").unwrap();
+        assert_eq!((e.start, e.start_md), (-1200, MonthDay::new(6, Some(1))));
+        assert_eq!((e.end, e.end_md), (Some(-1199), MonthDay::new(2, None)));
+        // The owner's own vault line: a year and a month.
+        let e = parse_line("- [4349-09] #808080 Rot – Kaen | Nine months post-Fall.").unwrap();
+        assert_eq!((e.start, e.start_md), (4349, MonthDay::new(9, None)));
+        // Year-only: absent, exactly as before.
+        let e = parse_line("- [1991~2001] Santa").unwrap();
+        assert_eq!((e.start_md, e.end_md), (None, None));
+        // A date this calendar has no room for still reads as its year --
+        // the reader's loose acceptance is unchanged, only the month is not kept.
+        for bad in ["- [2000-02-29] Leap", "- [2000-13] X", "- [2000-1-5] X", "- [2000-00-10] X", "- [2000-04-31] X"] {
+            let e = parse_line(bad).unwrap_or_else(|| panic!("{bad} must still parse"));
+            assert_eq!((e.start, e.start_md), (2000, None), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_dated_event_round_trips_and_an_undated_one_is_written_as_before() {
+        let md = |m, d| MonthDay::new(m, d);
+        let e = Event { start_md: md(3, Some(14)), end: Some(1880), end_md: md(2, None), ..ev(1879, None, Some("red"), None, "Stay", None) };
+        let line = to_line(&e).unwrap();
+        assert_eq!(line, "- [1879-03-14~1880-02] #red Stay");
+        assert_eq!(parse_line(&line), Some(e));
+        let neg = Event { start_md: md(12, Some(31)), ..ev(-7, None, None, None, "Eve", None) };
+        assert_eq!(to_line(&neg).unwrap(), "- [-7-12-31] Eve");
+        assert_eq!(parse_line(&to_line(&neg).unwrap()), Some(neg));
+        // Refused: a date the reader would not give back, an end before the
+        // start within one year, and an end month with no end year.
+        assert!(to_line(&Event { start_md: Some(MonthDay { month: 2, day: Some(29) }), ..ev(1, None, None, None, "x", None) }).is_err());
+        assert!(to_line(&Event { start_md: md(5, Some(2)), end_md: md(5, Some(1)), ..ev(1, Some(1), None, None, "x", None) }).is_err());
+        assert!(to_line(&Event { end_md: md(5, None), ..ev(1, None, None, None, "x", None) }).is_err());
+        // Same day both ends is not "before".
+        let same = Event { start_md: md(5, Some(1)), end_md: md(5, Some(1)), ..ev(1, Some(1), None, None, "x", None) };
         assert_eq!(parse_line(&to_line(&same).unwrap()), Some(same));
     }
 

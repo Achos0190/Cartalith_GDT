@@ -418,6 +418,18 @@ impl WorldGen {
     }
 }
 
+impl WorldGen {
+    /// [`Self::manpower_rows`]' models alone, indexed `faction - 1` -- the
+    /// exact figures CIVIL ▸ Military shows, for a reader outside this file
+    /// (`conflict_bridge.rs`, SP-4). Empty with no civ layer.
+    pub(crate) fn manpower_by_faction(&self) -> Vec<cartalith_civ::manpower::Manpower> {
+        let defences = self.defences();
+        self.aggregates_with_walls(&defences)
+            .map(|agg| self.manpower_rows(&agg).into_iter().map(|r| r.manpower).collect())
+            .unwrap_or_default()
+    }
+}
+
 /// One faction's [`cartalith_civ::manpower::Manpower`], plus the two land
 /// figures its `ecological_factor` was read from, so the shell can show the
 /// working behind the normalisation rather than only its result.

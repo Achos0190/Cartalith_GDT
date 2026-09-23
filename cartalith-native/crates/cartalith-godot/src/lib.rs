@@ -22,6 +22,7 @@ mod bake_bridge;
 mod civ_military_bridge;
 mod civ_roster_bridge;
 mod civ_tools_bridge;
+mod conflict_bridge;
 mod civ_trade_bridge;
 mod erode_bridge;
 mod export_options;
@@ -49,6 +50,7 @@ mod render;
 mod sample_bridge;
 mod sculpt_bridge;
 mod selection;
+mod story_bridge;
 mod timeline_bridge;
 mod travel_bridge;
 mod undo;
@@ -3885,6 +3887,12 @@ struct WorldGen {
     /// it restores a run the archive already carried.
     landmark_store: cartalith_civ::landmark::LandmarkStore,
 
+    /// `STORY_PLANNING_SCOPE.md` SP-4: every drawn conflict. Emptied with
+    /// the world (`absorb`, `load_save`, a recentre); anchors detached when
+    /// `tid`s are reissued (`civ_populate`, `civ_clear_places`). See
+    /// `conflict_bridge.rs` for why each.
+    conflicts: cartalith_civ::conflict::ConflictStore,
+
     /// Every archive entry the **currently open project** carried that this
     /// build does not model, with its bytes — `cartalith_io::ProjectData::
     /// foreign`, held between `project_open` and the next
@@ -4004,6 +4012,19 @@ struct WorldGen {
     /// and would otherwise serve the *previous* world's precomputes to the
     /// new one's tiles — a whole-map colour error with nothing failing.
     world_epoch: u64,
+    /// `STORY_PLANNING_SCOPE.md` SP-2 / Ruling AO: the year cursor's day,
+    /// 0-based in `cartalith_vault::chronos`'s 365-day calendar, so the
+    /// cursor is a real date (`CivData::year` + this) rather than a year.
+    /// Not a second clock: `civ_goto_year` moves the year and leaves this,
+    /// and nothing but a journey reads it. Survives a regenerate, like the
+    /// year (which is re-read from the new `CivData`, starting at 0).
+    civ_day: i64,
+    /// SP-2's regenerate re-snap: the previous world's saved journeys, its
+    /// settlements (to know which endpoint was which town) and its grid
+    /// size, taken just before a generate drops them and consumed by
+    /// `absorb` once the new world exists. `None` whenever no journey needs
+    /// carrying.
+    journey_carry: Option<story_bridge::JourneyCarry>,
     /// Bumped on every assignment to [`Self::asset_pack`] — the two sites
     /// `git grep -n 'self\.asset_pack = '` finds. A loaded pack changes
     /// `land_color`'s splat and ground-tile branches, so it is an input to
@@ -4109,6 +4130,8 @@ impl IRefCounted for WorldGen {
             params: params::defaults(),
             gpu_stages_used: Vec::new(),
             world_epoch: 0,
+            civ_day: 0,
+            journey_carry: None,
             pack_epoch: 0,
             lod: std::cell::RefCell::new(LodCtxCache::default()),
             lod_worker: std::sync::Arc::new(lod_worker::LodWorker::default()),
@@ -4152,6 +4175,7 @@ impl IRefCounted for WorldGen {
             vault: cartalith_vault::VaultSession::new(),
             wildlife: None,
             landmark_store: cartalith_civ::landmark::LandmarkStore::new(),
+            conflicts: cartalith_civ::conflict::ConflictStore::new(),
             carried_foreign: std::collections::BTreeMap::new(),
             landmark_error: String::new(),
             region_error: String::new(),
@@ -4357,6 +4381,9 @@ impl WorldGen {
     ///
     /// Whichever is chosen, the four names above are the list.
     fn release_world(&mut self) {
+        // SP-2: the one thing here that is carried rather than dropped --
+        // saved journeys are re-snapped onto the next world (Ruling AO).
+        self.stash_journeys_for_resnap();
         // Every assignment to `source` bumps this -- see `world_epoch`.
         self.world_epoch = self.world_epoch.wrapping_add(1);
         self.source = None;
@@ -4434,6 +4461,9 @@ impl WorldGen {
         seed: i32,
         origin: &'static str,
     ) {
+        // SP-2: the import path reaches here without `release_world`, so
+        // take the outgoing journeys now (a no-op when that already did).
+        self.stash_journeys_for_resnap();
         // Not `p.sea_level` -- World-Structure archetypes re-anchor it;
         // `WorldState` carries the value actually used.
         self.sea_level = ws.sea_level;
@@ -4562,6 +4592,10 @@ impl WorldGen {
         // recomputed here: landmark generation is its own synchronous,
         // user-triggered pass (`landmark_run()`), not part of `generate()`.
         self.landmark_store.invalidate();
+        // SP-4: a new world reissues `tid`s from 1 and has a new grid, so a
+        // conflict kept across it would re-bind or float. See
+        // `conflict_bridge.rs`'s module doc.
+        self.conflicts = cartalith_civ::conflict::ConflictStore::new();
         // The project-scoped half of the Markdown Vault, for exactly the reason
         // `undo`/`redo`/`landmark_store` are cleared above: a knowledge link
         // and a map snapshot are both filed against an `entity_id` in the
@@ -4605,6 +4639,12 @@ impl WorldGen {
         // import's `seed` is the caller's own argument, so two imports at
         // the same seed name the same, exactly as two generates do.
         self.world_name = Some(cartalith_civ::naming::world_name(seed as u32));
+        // SP-2 (Ruling AO): saved journeys are re-snapped onto this world
+        // rather than dropped with the rest of the tool state. Last, because
+        // routing reads `self.source`, which is only set a few lines up --
+        // called beside `self.infra`'s reset it found no world and dropped
+        // every journey (caught by `_sp2journey_probe.gd`).
+        self.resnap_carried_journeys();
     }
 }
 
@@ -5541,6 +5581,8 @@ impl WorldGen {
             // Missing here while both siblings had it, so a centred world
             // drew the pre-rotation landmark set.
             self.landmark_store.invalidate();
+            // SP-4: conflicts are grid coordinates too, and `civ` is gone.
+            self.conflicts = cartalith_civ::conflict::ConflictStore::new();
             // ED-02: this rewrites the height field (and ~20 sibling grids)
             // with no undo step, so the history window is the only place it
             // can be seen at all. Inside the `offset != 0` branch for the
@@ -6010,6 +6052,9 @@ impl WorldGen {
     fn civ_clear_places(&mut self) -> VarDictionary {
         let mut out = self.civ_clear_ways();
         let mut removed = 0usize;
+        // SP-4: the settlements an anchor names are about to go, and the
+        // next auto-populate reissues their `tid`s. Detach first.
+        conflict_bridge::detach_all(&mut self.conflicts, self.civ.as_ref());
         if let Some(civ) = self.civ.as_mut() {
             removed = civ.settlements.len();
             let n = civ.territory.len();
@@ -6148,6 +6193,12 @@ impl WorldGen {
             ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, keep, (&ocean_f, &wind_f),
             p.use_gpu, &mut Vec::new(),
         );
+        // SP-4: auto-populate reissues every `tid` from 1, so an anchor kept
+        // across it would re-bind to an unrelated town. Detach first, while
+        // the old settlements still resolve (`conflict_bridge.rs`).
+        if mode == CivRebuild::Replace {
+            conflict_bridge::detach_all(&mut self.conflicts, self.civ.as_ref());
+        }
         let old = self.civ.take().expect("checked directly above");
         // `rederived` is this mode's own answer to "is the merged layer wholly
         // re-derived from the settlement list it now holds?" -- decided by the
@@ -6439,6 +6490,9 @@ impl WorldGen {
         // last world's landmarks over it. Not recomputed: landmark generation
         // is its own synchronous, user-triggered pass (`landmark_run()`).
         self.landmark_store.invalidate();
+        // SP-4: this world's conflicts belong to the file being closed;
+        // `project_open` restores the archive's own on top.
+        self.conflicts = cartalith_civ::conflict::ConflictStore::new();
         // The *settings* half, which `invalidate()` deliberately leaves alone
         // and which `absorb()` deliberately does not touch either: a cap
         // table describes what the user wants placed, so it rightly survives
@@ -10156,6 +10210,20 @@ impl WorldGen {
         if let Some(tools) = self.civ_tools.as_mut() {
             tools.paint_at(gx, gy, faction as i32, radius, subtract);
         }
+    }
+
+    /// The Territory lasso (owner request, 2026-09-23): stages every cell
+    /// whose centre lies inside `points` (grid coords, implicitly closed) into
+    /// the same uncommitted draft [`Self::civ_territory_paint_at`] feeds, as
+    /// one masked stamp (`civ_tools_bridge::CivTools::paint_polygon`).
+    /// `civ_territory_commit`/`civ_territory_discard` then apply unchanged.
+    /// Returns the cells staged; `0` before any `generate()` call or for a
+    /// ring enclosing no cell centre.
+    #[func]
+    fn civ_territory_paint_polygon(&mut self, points: PackedVector2Array, faction: i64, subtract: bool) -> i64 {
+        let Some(tools) = self.civ_tools.as_mut() else { return 0 };
+        let ring: Vec<(f64, f64)> = points.as_slice().iter().map(|p| (p.x as f64, p.y as f64)).collect();
+        tools.paint_polygon(&ring, faction as i32, subtract) as i64
     }
 
     /// Bakes the in-progress territory draft into the accumulated paint
@@ -14078,55 +14146,12 @@ impl WorldGen {
         // derives only the three tables no pipeline stage produces, and
         // `journey_bridge`'s module doc lists the whole mapping plus the
         // three inputs that used to be genuinely absent here (all three now
-        // wired, see that doc's own "corrected below" section).
-        let mut jw = journey_bridge::JourneyWorld::build(
-            &ws.field,
-            &civ.water_bodies,
-            &ws.temperature,
-            &ws.rainfall,
-            gw,
-            gh,
-            self.world,
-            self.sea_level,
-            &civ.ways,
-            &civ.settlements,
-        );
-        // The planner's second and third road sources -- `CivData::road_edges`
-        // (the auto-populate topology) and every hand-drawn way (the Route/Way
-        // tool's own draft list). `JourneyWorld::build` still passes `&[]` for
-        // both because widening its signature belongs to `journey_bridge.rs`;
-        // re-deriving the one table that reads them is the whole of the
-        // difference, and `jp_road_cells` is a walk over way polylines and
-        // edge cell paths -- not one of the two full-grid passes `build`
-        // spends its time in.
-        let manual_ways: &[cartalith_civ::tools::ManualWay] = self.infra.as_ref().map_or(&[], |t| &t.ways);
-        jw.road_cells = cartalith_civ::jp_road_cells(&civ.ways, manual_ways, &civ.road_edges, gw);
-        // The Journey Planner's real current/wind fields (`DECISIONS.md`,
-        // `journey_bridge.rs`'s own former "honestly absent" bullet) --
-        // computed fresh here exactly as the Wind/Ocean-currents debug views
-        // compute theirs, per `coarse_ocean_wind_fields`'s own doc comment.
-        let (ocean_f, wind_f) = coarse_ocean_wind_fields(&ws.field, gw, gh, self.world, self.sea_level, &self.params);
-        let world = cartalith_civ::JpWorld {
-            gw,
-            gh,
-            world: self.world,
-            map_width_km: self.map_width_km,
-            sea_level: self.sea_level,
-            peak_m: self.params.peak_m,
-            field: &ws.field,
-            cart_biome: &jw.cart_biome,
-            cart_terrain: &jw.cart_terrain,
-            temp: &ws.temperature,
-            rain: &ws.rainfall,
-            flow_field: Some(&ws.flow_discharge),
-            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
-            water_bodies: Some(&civ.water_bodies),
-            territory: Some(&civ.territory),
-            places: &jw.places,
-            road_cells: &jw.road_cells,
-            ocean_field: Some(&ocean_f),
-            wind_field: Some(&wind_f),
-        };
+        // wired, see that doc's own "corrected below" section). Built by
+        // `story_bridge`'s shared helpers, which SP-2's `journey_positions`
+        // also plans through -- one world, so a saved journey's party cannot
+        // travel at a different speed than the planner shows for it.
+        let parts = self.jp_world_parts(ws, civ);
+        let world = self.jp_world(ws, civ, &parts);
 
         // ---- the wildlife forage modifier (F12) ----
         //

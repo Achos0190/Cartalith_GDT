@@ -553,6 +553,10 @@ func _ready() -> void:
 	viewport = ViewportHost.new()
 	viewport_content.add_child(viewport)
 	viewport.setup(bridge)
+	## SP-2: the year cursor (and its day) is where every saved journey's
+	## party is read at, so moving it moves the markers. See
+	## `ViewportHost.refresh_journey_markers()`.
+	timeline_changed.connect(viewport.refresh_journey_markers)
 
 	bridge.generation_finished.connect(_repaint_close_if)
 	bridge.world_loaded.connect(_repaint_close)
@@ -1656,6 +1660,9 @@ var _tl_scrubbing := false
 ## those are a persisted shell preference with no engine behind them either way,
 ## so whether a world exists makes them neither more nor less real.
 var _tl_transport: Array[Control] = []
+## Row 3b (SP-2): the day slider and the `YYYY-MM-DD` beside it.
+var _tl_day_slider: HSlider
+var _tl_date_label: Label
 
 func _fill_timeline_strip() -> void:
 	if timeline_row == null:
@@ -1690,6 +1697,8 @@ func _fill_timeline_strip() -> void:
 	_tl_min_label = null
 	_tl_max_label = null
 	_tl_end_hint = null
+	_tl_day_slider = null
+	_tl_date_label = null
 	## A rebuild ends any drag: the `Control` that was receiving the motion
 	## events is on its way out of the tree, so its release never arrives.
 	_tl_scrubbing = false
@@ -1899,6 +1908,12 @@ func _build_timeline_expanded() -> void:
 		DccTheme.role_px("fs_timeline"), 0)
 	foot.add_child(_tl_max_label)
 
+	# Row 3b -- the cursor's day (SP-2, Ruling AO). No canvas draws it: the
+	# boards predate the owner's ruling that the cursor's grain is a real
+	# date. Built from row 3's own vocabulary (a ghost mono caption and a
+	# secondary mono value) plus the one control a 365-step value needs.
+	col.add_child(_build_timeline_day_row())
+
 	# Row 4 -- the note the six toggles owe the reader. See below.
 	var note := DccTheme.mono_label("Simulation layers — %s." % TL_LAYER_NOTE,
 		"text_ghost", DccTheme.FS_MICRO, 0)
@@ -1910,6 +1925,33 @@ func _build_timeline_expanded() -> void:
 	## state", so they are written by the same function that will write them
 	## again on the next `timeline_changed` rather than a second time here.
 	_repaint_timeline()
+
+## Row 3b: `DATE` · `YYYY-MM-DD` · a 0..364 day slider. The slider writes the
+## engine's day beside the year (`DccShell.tl_set_day()`); the year controls
+## above leave the day where it is. What reads it today is the saved journeys'
+## party markers on the map, and the tooltip says so rather than implying the
+## rest of the simulation has a finer clock than a year.
+func _build_timeline_day_row() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.add_child(DccTheme.mono_label("DATE", "text_ghost", DccTheme.role_px("fs_timeline"), 2))
+	_tl_date_label = DccTheme.mono_label("", "text_secondary", DccTheme.role_px("fs_timeline"), 0)
+	row.add_child(_tl_date_label)
+	var s := HSlider.new()
+	s.min_value = 0
+	s.max_value = 364
+	s.step = 1
+	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	s.focus_mode = Control.FOCUS_NONE
+	s.tooltip_text = ("The day within the cursor's year, in a 365-day calendar with no "
+		+ "leap year. Moves each saved journey's party along its route; the settlement "
+		+ "and territory history still changes only by year.")
+	s.value_changed.connect(func(v: float): tl_set_day(int(v)))
+	_tl_day_slider = s
+	_tl_transport.append(s)
+	row.add_child(s)
+	return row
 
 ## §4.2's transport square: `var(--ctl)`, radius 8, `background:var(--ins)`.
 func _tl_square(parent: Control, glyph: String, token: String, on_press: Callable) -> Button:
@@ -2377,6 +2419,8 @@ func _repaint_timeline() -> void:
 			continue
 		if c is Button:
 			(c as Button).disabled = not live
+		elif c is Slider:
+			(c as Slider).editable = live
 		if not live:
 			c.tooltip_text = TL_UNAVAILABLE
 	var label := _tl_year_label() if live else "no world"
@@ -2385,6 +2429,10 @@ func _repaint_timeline() -> void:
 			l.text = label
 	if is_instance_valid(_tl_phone_button):
 		_tl_phone_button.text = "TIMELINE · %s" % label
+	if is_instance_valid(_tl_date_label):
+		_tl_date_label.text = tl_date_text() if live else "—"
+	if is_instance_valid(_tl_day_slider):
+		_tl_day_slider.set_value_no_signal(tl_day())
 	if is_instance_valid(_tl_state_label):
 		_tl_state_label.text = tl_state_text() if live else "no world"
 		## **The ink is per state, not per label.** Board C draws `paused` in the

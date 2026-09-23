@@ -58,6 +58,16 @@ pub mod military;
 /// recomputed. The one thing here with no reference implementation to port;
 /// its module doc states the four terms and what is deliberately absent.
 pub mod relations;
+/// `STORY_PLANNING_SCOPE.md` SP-4 -- a drawn conflict (front, arrow, siege,
+/// battle), its optional settlement/province anchor (Ruling AO), and each
+/// side's reading of [`manpower`]. No combat resolution; no reference
+/// ancestor (`DECISIONS.md` §7d).
+pub mod conflict;
+/// `STORY_PLANNING_SCOPE.md` SP-2 -- a saved journey's party position,
+/// supply use and arrival over elapsed days, read off a [`JpJourneyPlan`]
+/// (so the Journey Planner's own speed governs), plus the regenerate re-snap
+/// of a journey's endpoints. No reference ancestor (`DECISIONS.md` §7d).
+pub mod journey_progress;
 /// `TIMELINE_SCOPE.md` milestone 1 -- the `_civSettlementPopulation`
 /// dependency chain, the shared tier tables, and the stable-id (`tid`)
 /// helpers `NamedSettlement`/`Way` carry.
@@ -13398,6 +13408,14 @@ pub fn jp_trim_points(pts: &[(f64, f64)], from: f64, to: f64) -> Option<Vec<(f64
     Some(out)
 }
 
+/// `_civPassedSettlements`' `R` (reference line 21154): how near a route
+/// point a settlement must be to count as a stop on it, in cells. Named so
+/// SP-2's regenerate re-snap (`journey_progress::bind_endpoint`) decides
+/// "this endpoint is that settlement" by the same distance the planner uses.
+pub fn jp_stop_radius_cells(gw: usize) -> f64 {
+    (gw as f64 / 90.0).max(3.0)
+}
+
 /// `_civPassedSettlements` (reference line 21154, v0.73): the ordered list of
 /// distinct settlements a route threads through (within `R` of some path
 /// point) -- origin, intermediate stops, destination. Returns indices into
@@ -13411,7 +13429,7 @@ pub fn civ_passed_settlements(
     if pts.len() < 2 || places.is_empty() {
         return Vec::new();
     }
-    let r = (gw as f64 / 90.0).max(3.0);
+    let r = jp_stop_radius_cells(gw);
     let r2 = r * r;
     let mut order: Vec<usize> = Vec::new();
     let mut last: Option<usize> = None;
@@ -14229,6 +14247,57 @@ pub struct JpJourneyPlan {
     pub has_land: bool,
 }
 
+/// One leg's share of [`JpJourneyPlan`]'s supply forecast (`food_kg`,
+/// `water_l`, `fodder_kg`). `water_l`/`fodder_kg` are `None` where that leg
+/// consumes none by construction (a non-desert land leg carries no water; a
+/// water leg feeds no animals), not `Some(0.0)`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JpLegSupply {
+    pub food_kg: f64,
+    pub water_l: Option<f64>,
+    pub fodder_kg: Option<f64>,
+}
+
+/// The per-leg term of `_jpPlan`'s supply forecast -- daily rates x the
+/// leg's days x Pandolf terrain/pace factors, under the leg's OWN effective
+/// plan. Lifted verbatim out of [`jp_plan_full`]'s roll-up so SP-2
+/// (`journey_progress`) can spread each leg's consumption over its own days
+/// rather than re-deriving the rates; the roll-up sums exactly these terms in
+/// the same order, which is why its goldens did not move. `None` for a
+/// blocked or zero-day leg, which the roll-up skips.
+pub fn jp_leg_supply(stage_terrain: &str, r: &JpLegResult) -> Option<JpLegSupply> {
+    if r.calc.is_err() || r.days() == 0.0 {
+        return None;
+    }
+    let ep = &r.eff;
+    let (sh_food, sh_water) = jp_seasonal_human(&ep.season);
+    match &r.calc {
+        Ok(JpLegCalc::Land(l)) => {
+            let cf = jp_consumption_factors(stage_terrain, &ep.pace);
+            Some(JpLegSupply {
+                food_kg: ep.party.group_size.max(1) as f64 * JP_HUMAN_FOOD * sh_food * cf.food * l.days,
+                fodder_kg: Some((l.cap.animal_food_daily + l.cap.draft_food_daily) * cf.food * l.days),
+                // v1.84: `is_desert` is checked here too -- otherwise the route
+                // summary would keep reporting a non-zero water figure for a
+                // non-desert stage even though nothing carries that water.
+                water_l: l.is_desert.then(|| {
+                    (ep.party.group_size.max(1) as f64 * l.cap.human_water_rate * sh_water
+                        + l.cap.animal_water_daily
+                        + l.cap.draft_water_daily)
+                        * cf.water
+                        * l.days
+                }),
+            })
+        }
+        Ok(JpLegCalc::Water(w)) => Some(JpLegSupply {
+            food_kg: (w.crew as f64 + ep.party.group_size.max(1) as f64) * JP_HUMAN_FOOD * w.days,
+            water_l: Some((w.crew as f64 + ep.party.group_size.max(1) as f64) * 2.5 * w.days),
+            fodder_kg: None,
+        }),
+        Err(_) => None,
+    }
+}
+
 /// A journey too long to walk a day at a time -- the reference's own
 /// `days<1500` timeline gate and its `dayNo>400` bail-out.
 const JP_TIMELINE_MAX_DAYS: f64 = 1500.0;
@@ -14413,35 +14482,17 @@ pub fn jp_plan_full(
     // factors, each stage under its OWN effective plan.
     let (mut food_kg, mut water_l, mut fodder_kg) = (0.0f64, 0.0f64, 0.0f64);
     for (i, r) in results.iter().enumerate() {
-        if r.calc.is_err() || r.days() == 0.0 {
-            continue;
-        }
-        let ep = &r.eff;
-        let (sh_food, sh_water) = jp_seasonal_human(&ep.season);
-        match &r.calc {
-            Ok(JpLegCalc::Land(l)) => {
-                let cf = jp_consumption_factors(&stages[i].terrain, &ep.pace);
-                food_kg +=
-                    ep.party.group_size.max(1) as f64 * JP_HUMAN_FOOD * sh_food * cf.food * l.days;
-                fodder_kg += (l.cap.animal_food_daily + l.cap.draft_food_daily) * cf.food * l.days;
-                // v1.84: `is_desert` is checked here too -- otherwise the route
-                // summary would keep reporting a non-zero water figure for a
-                // non-desert stage even though nothing carries that water.
-                if l.is_desert {
-                    water_l +=
-                        (ep.party.group_size.max(1) as f64 * l.cap.human_water_rate * sh_water
-                            + l.cap.animal_water_daily
-                            + l.cap.draft_water_daily)
-                            * cf.water
-                            * l.days;
-                }
+        if let Some(s) = jp_leg_supply(&stages[i].terrain, r) {
+            food_kg += s.food_kg;
+            // Added only where the leg consumes water at all, exactly as the
+            // inline loop this was lifted out of did (`+= 0.0` would be
+            // byte-identical anyway on a sum that starts at `+0.0`).
+            if let Some(w) = s.water_l {
+                water_l += w;
             }
-            Ok(JpLegCalc::Water(w)) => {
-                food_kg +=
-                    (w.crew as f64 + ep.party.group_size.max(1) as f64) * JP_HUMAN_FOOD * w.days;
-                water_l += (w.crew as f64 + ep.party.group_size.max(1) as f64) * 2.5 * w.days;
+            if let Some(f) = s.fodder_kg {
+                fodder_kg += f;
             }
-            Err(_) => {}
         }
     }
 
@@ -22007,6 +22058,42 @@ mod tests {
         // Everything not named is inherited, travel mode included.
         assert_eq!(eff.vessel, plan.vessel);
         assert_eq!(eff.party.cargo_kg, plan.party.cargo_kg);
+    }
+
+    /// SP-2 (`journey_progress`) against the same golden journey the test
+    /// below pins: the party's speed IS the planner's -- the timeline's
+    /// travel/calendar days, distance and supply totals are the plan's own
+    /// golden figures, not a re-derivation -- and the arrival is derived.
+    #[test]
+    fn sp2_progression_reads_the_planners_own_golden_journey() {
+        use crate::journey_progress::{JourneyTimeline, Phase};
+        let f = m5_fields();
+        let world = m5_world(&f);
+        let pts = m5_pts();
+        let p = jp_plan(&world, &pts, &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan");
+        let t = JourneyTimeline::from_plan(&p).expect("not blocked");
+        // The golden figures, as literals (not `p.days` against itself).
+        near5(t.travel_days, 41.317_750_030_325_15, "travel days");
+        near5(t.calendar_days, 51.317_750_030_325_15, "travel + 10 rest days");
+        near5(t.legs.iter().map(|l| l.days).sum::<f64>(), 41.317_750_030_325_15, "leg days sum to the plan's");
+        near5(t.legs.iter().map(|l| l.km).sum::<f64>(), 760.847_480_700_888_6, "km");
+        near5(t.food_kg(), 1_027.333_964_414_119_2, "foodKg");
+        near5(t.water_l(), 1_098.037_397_586_816_3, "waterL");
+        near5(t.fodder_kg(), 1_120.619_844_726_639_5, "fodderKg");
+        assert_eq!(t.arrival_offset_days(), 52, "ceil(51.32): under way at the start of day 51, arrived at day 52");
+
+        let start = t.at(&pts, 0.0);
+        assert_eq!((start.phase, start.point, start.km_done), (Phase::EnRoute, pts[0], 0.0));
+        assert_eq!(t.at(&pts, 51.0).phase, Phase::EnRoute);
+        let end = t.at(&pts, 52.0);
+        assert_eq!((end.phase, end.point), (Phase::Arrived, *pts.last().unwrap()));
+        near5(end.km_done, 760.847_480_700_888_6, "all the way");
+        near5(end.food_kg_used, 1_027.333_964_414_119_2, "all of it eaten");
+        // Mid-journey: somewhere strictly between, and supply part-used.
+        let mid = t.at(&pts, 25.0);
+        assert!(mid.km_done > 0.0 && mid.km_done < 760.0, "{}", mid.km_done);
+        assert!(mid.food_kg_used > 0.0 && mid.food_kg_used < 1_027.0);
+        assert_ne!(mid.point, pts[0]);
     }
 
     #[test]

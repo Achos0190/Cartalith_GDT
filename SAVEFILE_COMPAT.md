@@ -303,6 +303,7 @@ entities/                             discrete, id-bearing things — see §9
   continents.json             MAY
   journeys.json               MAY
   landmarks.json              MAY
+  conflicts.json              MAY
 
 history/                              recorded past states — see §10
   timeline.json               MAY
@@ -1130,6 +1131,41 @@ This is the slot §6.5 is written for. An implementation whose journey planner
 lives in its user interface rather than in its map engine **carries** this
 document rather than modelling it, and §6.5's text rule is then the whole of
 what it has to get right.
+
+
+### 9.7 `entities/conflicts.json`
+
+**Written since 2026-09-23** (`STORY_PLANNING_SCOPE.md` SP-4). Engine-owned
+in this port: the store is the engine's, and the shell may not write the slot.
+Written only when at least one conflict exists.
+
+```json
+{
+  "next_id": 6,
+  "conflicts": [
+    { "id": 3, "name": "Siege of Kessra", "kind": "siege",
+      "start_year": 212, "end_year": 214, "sides": [2, 1],
+      "outcome": "Relieved in the third spring",
+      "points": [[40.5, 17.25]],
+      "anchor": { "kind": "province", "tid": 9, "at": [41.0, 18.0] } },
+    { "id": 5, "name": "Northern front", "kind": "front",
+      "start_year": 300, "sides": [3, 4], "outcome": "",
+      "points": [[1.0, 2.0], [3.5, 2.5], [6.0, 1.0]] }
+  ]
+}
+```
+
+`kind` is one of `front`, `arrow` (lines, two points or more), `siege`,
+`battle` (one point). `sides` are faction indices as in §9.2. `points` are
+grid cells **as drawn**, not as currently displayed: when `anchor` is present
+the display is `points` translated by the anchor's current position minus
+`anchor.at`, so the shape moves with the place it is attached to. `anchor.tid`
+is a settlement `tid` (§9.1); for `"province"` it is the `tid` of the
+province's seed settlement, because a province `id` (§9.4) is re-issued by
+every province pass. `end_year` absent = ongoing; `anchor` absent =
+unattached. A row with an unknown `kind` is skipped, the rest of the document
+opens; an anchor that resolves to nothing is kept and the shape drawn at
+`points` as stored.
 
 ---
 

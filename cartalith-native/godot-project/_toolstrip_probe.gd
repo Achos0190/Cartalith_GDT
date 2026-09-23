@@ -12,12 +12,12 @@ extends Node
 
 const EXPECT := {
 	"Inspect (V)": "inspect", "Measure (M)": "measure", "Region select (R)": "region",
-	"Biome paint (B)": "paint", "Settlement (S)": "settlement", "Territory (T)": "territory",
+	"Biome paint (B)": "paint", "Settlement (S)": "settlement", "Territory (T)": "territory", "Territory lasso (⇧T)": "territory_lasso",
 	"Way (W)": "way", "Route (⇧R)": "route", "Icon (I)": "icon", "Label (L)": "label",
 }
 const KEYS := {
 	"inspect": [KEY_V, false], "measure": [KEY_M, false], "region": [KEY_R, false],
-	"paint": [KEY_B, false], "settlement": [KEY_S, false], "territory": [KEY_T, false],
+	"paint": [KEY_B, false], "settlement": [KEY_S, false], "territory": [KEY_T, false], "territory_lasso": [KEY_T, true],
 	"way": [KEY_W, false], "route": [KEY_R, true], "icon": [KEY_I, false], "label": [KEY_L, false],
 }
 
@@ -84,6 +84,7 @@ func _ready() -> void:
 	var win: float = get_viewport().get_visible_rect().size.x
 	for ctx in [["world", "b", "sculpt"], ["world", "b", "paint"], ["world", "a", "measure"],
 			["civilization", "", "way"], ["civilization", "", "route"], ["civilization", "", "territory"],
+			["civilization", "", "territory_lasso"],
 			["civilization", "", "settlement"], ["cartography", "", "label"], ["cartography", "", "icon"],
 			["cartography", "", "region"]]:
 		if ctx[1] != "":

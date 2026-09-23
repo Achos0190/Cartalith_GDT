@@ -2783,6 +2783,15 @@ func civ_territory_paint_at(gx: float, gy: float, faction: int, radius: float, s
 	mark_world_dirty()
 	world_gen.civ_territory_paint_at(gx, gy, faction, radius, subtract)
 
+## The Territory lasso's one stamp: every cell whose centre is inside the
+## ring, staged into the same draft `civ_territory_paint_at` feeds. Returns
+## the number of cells staged (0 = nothing pushed).
+func civ_territory_paint_polygon(points: PackedVector2Array, faction: int, subtract: bool) -> int:
+	if not _has("civ_territory_paint_polygon"):
+		return 0
+	mark_world_dirty()
+	return world_gen.civ_territory_paint_polygon(points, faction, subtract)
+
 func civ_territory_commit() -> void:
 	if not _has("civ_territory_commit"):
 		return
@@ -3025,6 +3034,59 @@ func civ_military_summary() -> Dictionary:
 	if not _has("civ_military_summary"):
 		return {}
 	return world_gen.civ_military_summary()
+
+
+# conflict_bridge.rs -- `STORY_PLANNING_SCOPE.md` SP-4, the conflict overlay.
+# `conflict_add`/`conflict_update` return `{ok, id, error?}`; see the Rust
+# doc comments for the field keys and the store's lifecycle.
+func conflict_kinds() -> PackedStringArray:
+	if not _has("conflict_kinds"):
+		return PackedStringArray()
+	return world_gen.conflict_kinds()
+
+func conflict_add(fields: Dictionary) -> Dictionary:
+	if not _has("conflict_add"):
+		return {"ok": false, "id": 0, "error": "This build has no conflict_add binding."}
+	var r: Dictionary = world_gen.conflict_add(fields)
+	if r.get("ok", false):
+		mark_world_dirty()
+	return r
+
+func conflict_update(id: int, fields: Dictionary) -> Dictionary:
+	if not _has("conflict_update"):
+		return {"ok": false, "id": id, "error": "This build has no conflict_update binding."}
+	var r: Dictionary = world_gen.conflict_update(id, fields)
+	if r.get("ok", false):
+		mark_world_dirty()
+	return r
+
+func conflict_delete(id: int) -> bool:
+	if not _has("conflict_delete"):
+		return false
+	var ok: bool = world_gen.conflict_delete(id)
+	if ok:
+		mark_world_dirty()
+	return ok
+
+func conflict_list() -> Array:
+	if not _has("conflict_list"):
+		return []
+	return world_gen.conflict_list()
+
+func conflict_get(id: int) -> Dictionary:
+	if not _has("conflict_get"):
+		return {}
+	return world_gen.conflict_get(id)
+
+func conflicts_attached_to(kind: String, tid: int) -> PackedInt64Array:
+	if not _has("conflicts_attached_to"):
+		return PackedInt64Array()
+	return world_gen.conflicts_attached_to(kind, tid)
+
+func conflict_sides_manpower(id: int) -> Array:
+	if not _has("conflict_sides_manpower"):
+		return []
+	return world_gen.conflict_sides_manpower(id)
 
 ## CIVIL ▸ Relationships (`GUI_GAP_REGISTER.md` CV-26). One row per
 ## unordered faction pair, with the four terms beside the verdict. Derived
@@ -3309,6 +3371,37 @@ func journey_delete(id: int) -> bool:
 		return false
 	mark_world_dirty()
 	return world_gen.journey_delete(id)
+
+## `STORY_PLANNING_SCOPE.md` SP-2 (`story_bridge.rs`): every saved journey at
+## the cursor date -- position (`x`/`y`, absent when the plan is blocked),
+## phase, supply used, the derived `arrival`. See the `#[func]`'s own doc.
+func journey_positions() -> Array:
+	if not _has("journey_positions"):
+		return []
+	return world_gen.journey_positions()
+
+## What the last regenerate's re-snap did, dropped journeys included.
+func journey_resnap_report() -> Array:
+	if not _has("journey_resnap_report"):
+		return []
+	return world_gen.journey_resnap_report()
+
+## The year cursor's day (Ruling AO): 0-based in the 365-day calendar.
+func get_civ_day_of_year() -> int:
+	if not _has("get_civ_day_of_year"):
+		return 0
+	return world_gen.get_civ_day_of_year()
+
+func civ_set_day_of_year(day_of_year: int) -> int:
+	if not _has("civ_set_day_of_year"):
+		return 0
+	return world_gen.civ_set_day_of_year(day_of_year)
+
+## `{year, month, day, day_of_year, text}`, `text` as `YYYY-MM-DD`.
+func get_civ_date() -> Dictionary:
+	if not _has("get_civ_date"):
+		return {}
+	return world_gen.get_civ_date()
 
 
 # measure_bridge.rs

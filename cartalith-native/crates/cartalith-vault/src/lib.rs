@@ -1060,7 +1060,7 @@ oops
         let link = s.attach(EntityKind::Settlement, 42, "Nareth", "Locations/Nareth.md",
             Selection::Heading { value: "History".into() }).unwrap();
         let e = |start, name: &str| chronos::Event {
-            kind: chronos::Kind::Event, start, end: None, color: None, group: None,
+            kind: chronos::Kind::Event, start, end: None, start_md: None, end_md: None, color: None, group: None,
             name: name.into(), description: None,
         };
 

@@ -179,12 +179,13 @@ func _ready() -> void:
 		app.set_phone_sim_strip_open(false)
 
 	# -- civ: arming a tool -----------------------------------------------------
-	## All four, not just the first. `PhoneMenu.CIV_TOOLS` is a hand copy of
+	## All six, not just the first. `PhoneMenu.CIV_TOOLS` is a hand copy of
 	## `civilization_workspace.gd::_build_tools()`, and a copy checked at one
 	## entry is a copy checked nowhere -- an id renamed in that file would arm
 	## nothing here and the row would still draw.
 	for spec in [["Settlement", "settlement"], ["Territory", "territory"],
-			["Way", "way"], ["Route", "route"]]:
+			["Territory lasso", "territory_lasso"], ["Way", "way"], ["Route", "route"],
+			["Conflict", "conflict"]]:
 		app.arm_tool("inspect")
 		await _screen("civ")
 		var trow := _row_named(String(spec[0]))

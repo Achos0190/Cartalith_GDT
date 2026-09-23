@@ -1105,9 +1105,9 @@ func _fill_project(body: VBoxContainer) -> void:
 ## §6.6 `civ`. The spec's row list is `Settlement · Point of interest · Way`,
 ## then Landmark generation, then the journey planner.
 ##
-## **This port's CIVIL tool set is four, and one of the spec's three is not in
+## **This port's CIVIL tool set is six, and one of the spec's three is not in
 ## it.** `civilization_workspace.gd::_build_tools()` builds Settlement,
-## Territory, Way and Route; the comment directly above it says of POI: *"no
+## Territory, Territory lasso, Way, Route and Conflict (SP-4); the comment directly above it says of POI: *"no
 ## function anywhere in this workspace drops one, so there is nothing an armed
 ## POI tool could call. Arming a button with no engine behind it would be the
 ## fake control this port's own discipline exists to avoid, so it is omitted
@@ -1115,18 +1115,22 @@ func _fill_project(body: VBoxContainer) -> void:
 ## screen too -- the row is drawn with the reason, and arms nothing.
 ##
 ## `CIV_TOOLS` mirrors that block **by hand**. There is no accessor on the
-## workspace to read the list from -- `_build_tools()` passes its four
+## workspace to read the list from -- `_build_tools()` passes its six
 ## dictionaries straight to `DccWidgets.tools_block()` and keeps nothing -- so
 ## the ids here are a copy and can go stale. `_phonemore_act_probe.gd` arms all
-## four through the drawn rows and reads `app.armed_tool` back, which is what
+## six through the drawn rows and reads `app.armed_tool` back, which is what
 ## turns the copy into a checked claim.
 const CIV_TOOLS: Array = [
 	{"id": "settlement", "label": "Settlement",
 		"sub": "tap drops a place · class and snapping from the CIVIL dock"},
 	{"id": "territory", "label": "Territory",
 		"sub": "drag to claim · commit or discard from the tool options"},
+	{"id": "territory_lasso", "label": "Territory lasso",
+		"sub": "taps place a ring · commit assigns its inside to the faction"},
 	{"id": "way", "label": "Way", "sub": "taps append waypoints · commit from the dock"},
 	{"id": "route", "label": "Route", "sub": "sea and river legs between two ports"},
+	{"id": "conflict", "label": "Conflict",
+		"sub": "taps draw a front, arrow, siege or battle · commit, then fill it in the dock"},
 ]
 
 func _fill_civ(body: VBoxContainer) -> void:
