@@ -1926,6 +1926,11 @@ pub struct UrbanLayout {
     /// than picked apart because that is one field against six and `WallState`
     /// is what `buildWall` writes — `ring: None` is an unwalled town.
     pub wall: WallState,
+    /// [`cartalith_urban::Town::citadel`] carried through — **not the
+    /// reference** (Ruling I / AC). `None` for every town under the size tier.
+    /// Not part of [`Self::wall`]'s ring, so [`Self::building_intramural`] is
+    /// unaffected by it.
+    pub citadel: Option<cartalith_urban::Citadel>,
     /// `wallStyle` as *requested* ([`UrbanContext::wall_style`]), before
     /// `build_wall` maps `stone` onto its legacy `curtain` tag. The two differ
     /// by that one rename, and both are worth having: this one is the ladder's
@@ -2139,6 +2144,7 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         building_tone,
         building_intramural,
         wall: t.wall,
+        citadel: t.citadel,
         wall_spec: ctx.wall_style,
         markets: t.markets,
         farmland,

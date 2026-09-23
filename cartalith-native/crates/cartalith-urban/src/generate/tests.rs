@@ -758,3 +758,20 @@ fn a_radial_town_builds_against_its_wall_without_moving_its_wedge_blocks() {
         assert!(matches!(b.kind, "main" | "lean-to"), "{}: {} on a wall lot", b.id, b.kind);
     }
 }
+
+/// Ruling AC's tier over the whole golden matrix: exactly the one organic,
+/// curtain-walled case at or above `CITADEL_MIN_POP` (10 000) gets a citadel.
+/// The other six at or above it are bastioned (`bayFortGenerations` 18 000,
+/// `realWaterThroughFort` 11 000, `wallStyleBastioned` 14 000,
+/// `landlockedFortDry` 12 000) or radial (`venusFortCanal` 16 000,
+/// `venusLandlockedCanal` 14 000), and `whole_subsystem_matches_reference`
+/// holds every one of them byte-identical.
+#[test]
+fn only_the_largest_curtain_walled_golden_case_gets_a_citadel() {
+    let got: Vec<&str> = golden::CASES
+        .iter()
+        .filter(|c| generate(c.seed, &opts_for(c)).citadel.is_some())
+        .map(|c| c.name)
+        .collect();
+    assert_eq!(got, vec!["coastHarbourChain"]);
+}

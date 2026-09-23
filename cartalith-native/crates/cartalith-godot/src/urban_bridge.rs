@@ -325,6 +325,18 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
         }
     }
 
+    // The citadel astride the curtain -- **not the reference** (Ruling I / AC,
+    // `cartalith_urban::citadel`). Absent, not empty, on every town under the
+    // size tier or where no stretch of curtain qualified.
+    if let Some(c) = &l.citadel {
+        d.set("citadel_wall", &poly(&c.wall));
+        d.set("citadel_towers", &poly(&c.towers));
+        d.set("citadel_tower_r", c.tower_r);
+        d.set("citadel_keep", &poly(&c.keep));
+        d.set("citadel_court", &poly(&c.court));
+        d.set("citadel_gate", pt(c.gate));
+    }
+
     // `buildMarkets`' specialised squares -- distinct from `plaza`, which is
     // the one chartered square carved out of the principal street. The
     // reference glyphs and labels these (line 23124); the outline is here too,

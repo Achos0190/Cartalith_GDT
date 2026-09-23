@@ -15,6 +15,10 @@
 //! faubourg is exempt from `clearFortZone`'s rampart sweep. Both are deliberate
 //! departures, and the whole-town golden that moved because of them is
 //! disclosed case by case in `tests/golden.rs`'s header.
+//! A second departure followed: [`build_citadel`] (`crate::citadel`, Ruling I,
+//! sited by Ruling AC 2026-09-23) sets a citadel astride the curtain of the
+//! largest organic towns, after the rampart sweep; its one moved golden case is
+//! disclosed in the same header.
 //!
 //! # Two orderings that are not interchangeable
 //!
@@ -68,6 +72,7 @@
 
 use crate::amenities::{Civic, GamesBuilding, Market, build_civic, build_games, build_markets};
 use crate::blocks::{Block, Parcel, build_blocks, build_parcels};
+use crate::citadel::{CITADEL_MIN_POP, Citadel, build_citadel, citadel_sweep};
 use crate::cleanup::{clear_fort_zone, lane_pass, privatize_alleys, remove_water_crossings};
 use crate::districts::{
     Building, FaithSite, Lot, assign_districts, build_buildings, build_faith_sites,
@@ -286,6 +291,12 @@ pub struct Town {
     pub building_ruined: Vec<bool>,
     pub churches: Vec<FaithSite>,
     pub details: Vec<Detail>,
+    /// **Not the reference** — a citadel astride the curtain (Ruling I, sited
+    /// by Ruling AC on the size tier). [`None`] below
+    /// [`CITADEL_MIN_POP`], on the radial plan, with no circuit or a bastioned
+    /// one, or where no stretch of curtain qualifies. **Not part of
+    /// [`Self::wall`]'s ring** — see `crate::citadel` for that default.
+    pub citadel: Option<Citadel>,
     /// The head count: 5.2 per built, non-churchyard, non-ruined parcel,
     /// accumulated in parcel order and then rounded.
     pub pop: f64,
@@ -719,6 +730,34 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         }
     }
 
+    // **Not the reference** (Ruling I / Ruling AC, `crate::citadel`): the
+    // largest organic towns get a citadel astride the curtain. After every lot,
+    // building and detail exists and after the rampart sweep, and drawn from its
+    // own substream, so a town under the tier is untouched byte for byte; before
+    // the crossing and metrics passes, because it kills and adds streets.
+    let citadel = if profile.planning != "radial" && pop_target >= CITADEL_MIN_POP {
+        build_citadel(seed, &site, &wall_state, &mut g)
+    } else {
+        None
+    };
+    if let Some(c) = &citadel {
+        let building_polys: Vec<Vec<Vec2>> = buildings.iter().map(|b| b.poly.clone()).collect();
+        let parcel_polys: Vec<Vec<Vec2>> = lots.iter().map(|l| l.par.poly.clone()).collect();
+        let detail_pts: Vec<Option<Vec2>> = details.iter().map(Detail::anchor).collect();
+        let sweep = citadel_sweep(c, &building_polys, &parcel_polys, &detail_pts);
+        // Both removal lists are descending.
+        for &i in &sweep.buildings_removed {
+            buildings.remove(i);
+            building_ruined.remove(i);
+        }
+        for &i in &sweep.parcels_cleared {
+            parcel_cleared[i] = true;
+        }
+        for &i in &sweep.details_removed {
+            details.remove(i);
+        }
+    }
+
     // v1.17 (S5). On the FINAL graph — after `removeWaterCrossings`,
     // `privatizeAlleys` AND `clearFortZone`, the last three passes that can kill
     // an edge — so a recorded bridge always has a live road on it.
@@ -798,6 +837,7 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         building_ruined,
         churches,
         details,
+        citadel,
         pop,
         metrics,
         through: site.through,

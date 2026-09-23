@@ -59,6 +59,7 @@
 pub mod amenities;
 pub mod astar;
 pub mod blocks;
+pub mod citadel;
 pub mod cleanup;
 pub mod districts;
 pub mod fortify;
@@ -99,6 +100,7 @@ pub use amenities::{
     Civic, GamesBuilding, GamesSpec, Market, Markets, build_civic, build_games, build_markets,
     games_shape_at, games_spec, oriented_rect,
 };
+pub use citadel::{Citadel, CitadelSweep, build_citadel, citadel_sweep};
 pub use cleanup::{
     FortZoneSweep, clear_fort_zone, kill_edge, lane_pass, privatize_alleys, prune_largest,
     remove_water_crossings,

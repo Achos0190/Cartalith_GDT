@@ -330,6 +330,49 @@
 //! bastioned (a glacis stays clear), and `venusThroughBridges` has no circuit at
 //! all (`wall.ring` is `None`). The ruling's "4 of 29 Venus cases" was 6 of 29,
 //! of which these 3 move.
+//!
+//! ## 2026-09-23 re-baseline — a citadel astride the curtain (Ruling I, sited by Ruling AC)
+//!
+//! **Not a reference change: new engine work** with no reference ancestor
+//! (`crate::citadel`'s header). Ruling AC (`LARGE_ITEM_RULINGS.md`,
+//! 2026-09-23): *"largest settlements only, by size tier"*; this golden is under
+//! Ruling H's re-baseline scope, as the row states. The tier is
+//! `citadel::CITADEL_MIN_POP` (10 000) on `pop_target`, organic plan only, and
+//! never on a bastioned trace.
+//!
+//! **One case of 29 moved: `coastHarbourChain`** (`pop_target` 12 000,
+//! curtain). Same method as the passes above: every asserted field re-derived
+//! from the crate's own new `generate()` output by a dump printing only the
+//! fields that differed, each old value checked (exactly once in its case)
+//! before replacement, no tolerance introduced or widened. Its citadel is
+//! 91.0 × 87.0 m with six towers (four corners, two curtain junctions) and one
+//! approach street.
+//!
+//! | field | old → new | why |
+//! |---|---|---|
+//! | `nodes` | 251 → 252 | the inner-gate node the approach street attaches |
+//! | `live_edges` | unchanged (306) | one street under the footprint killed, the approach added |
+//! | `buildings` | 995 → 946 | 49 under the citadel or on the approach |
+//! | `cleared_parcels` | 47 → 88 | 41 lots whose centroid is under the citadel |
+//! | `m_total_len` | 10125 → 10136 | the approach, less the killed street |
+//! | `m_median_seg` | 28.28725502437016 → 28.301260798186075 | same |
+//! | `last_edge` | (249, 250, street, 4.229…) → (251, 134, street, 5.0) | the approach |
+//! | `last_node` | (233.82…, 315.55…) → (980.89…, 194.66…) | the inner gate |
+//! | `hash` | 3369436761 → 2460722737 | buildings and graph |
+//!
+//! **`pop` does not move**, and that is the existing order, not an oversight:
+//! the head count is taken before the market and rampart sweeps too, so a lot
+//! cleared by any of the three still counts. `parcels`, `details` and every
+//! district count are unchanged — a cleared lot stays in the list, flagged.
+//!
+//! **What did not move, and is the control.** The other **28 cases on every
+//! field**, including the six others at or above 10 000: four bastioned
+//! (`bayFortGenerations`, `realWaterThroughFort`, `wallStyleBastioned`,
+//! `landlockedFortDry`) and two radial (`venusFortCanal`,
+//! `venusLandlockedCanal`). Under the tier the stage is not entered (identity by
+//! control flow); on a bastioned trace it refuses before drawing its substream
+//! or touching the graph. `super::only_the_largest_curtain_walled_golden_case_gets_a_citadel`
+//! pins the set.
 
 #![allow(clippy::approx_constant, clippy::unreadable_literal, clippy::excessive_precision)]
 
@@ -689,7 +732,7 @@ pub const CASES: &[Case] = &[
         o_primary_paths: false,
         o_rules: 0,
         // --- the reference's own whole-model hash ---
-        hash: 3369436761,
+        hash: 2460722737,
         // --- the scalars generate() derives itself ---
         pop_target: f64::from_bits(0x40c7700000000000),
         settlement_age: f64::from_bits(0x4072c00000000000),
@@ -702,17 +745,17 @@ pub const CASES: &[Case] = &[
         through: false,
         pop: f64::from_bits(0x40b2c00000000000),
         // --- counts ---
-        nodes: 251,
+        nodes: 252,
         live_edges: 306,
         blocks: 67,
         parcels: 1050,
-        buildings: 995,
+        buildings: 946,
         churches: 2,
         markets: 2,
         games: 1,
         details: 797,
         ruined_parcels: 0,
-        cleared_parcels: 47,
+        cleared_parcels: 88,
         district_counts: &[("agrarian", 173), ("artisan", 533), ("church", 6), ("faubourg", 266), ("harbour", 72)],
         detail_kinds: &[("bollard", 3), ("crane", 1), ("cross", 1), ("fence", 153), ("field", 33), ("pasture", 20), ("tree", 572), ("well", 14)],
         // --- the stages whose presence is a branch ---
@@ -746,12 +789,12 @@ pub const CASES: &[Case] = &[
         // --- computeMetrics, a full-precision probe over the FINAL graph ---
         m_nodes: 241,
         m_edges: 306,
-        m_total_len: f64::from_bits(0x40c3c68000000000),
+        m_total_len: f64::from_bits(0x40c3cc0000000000),
         m_dead_end_share: f64::from_bits(0x3fbcae351cae351d),
         m_deg3_share: f64::from_bits(0x3feab4eead3bab4f),
         m_deg4_share: f64::from_bits(0x3fc52c454b1152c4),
         m_mean_deg: f64::from_bits(0x400450baf450baf4),
-        m_median_seg: f64::from_bits(0x403c49898b974812),
+        m_median_seg: f64::from_bits(0x403c4d1f6d7bc6ab),
         m_meshedness: f64::from_bits(0x3fc1b5efe63d2eb1),
         m_median_block_area: f64::from_bits(0x4084e03cea195200),
         m_median_frontage: f64::from_bits(0x401e2148abb79dbd),
@@ -759,9 +802,9 @@ pub const CASES: &[Case] = &[
         market: (f64::from_bits(0x408a0fb883e7d90a), f64::from_bits(0x4089bf4f01732d48)),
         market_prov: "Market sited on the shore flat just behind the quay: goods change mode at the break-of-bulk point (harbour-city family, lit. review §4-5).",
         first_edge: (0, 1, "primary", f64::from_bits(0x401c000000000000)),
-        last_edge: (249, 250, "street", f64::from_bits(0x4010ead57199999a)),
+        last_edge: (251, 134, "street", f64::from_bits(0x4014000000000000)),
         first_node: (f64::from_bits(0x4071400000000000), f64::from_bits(0x4028000000000000)),
-        last_node: (f64::from_bits(0x406d3a5f56d8e335), f64::from_bits(0x4073b8bf452ba026)),
+        last_node: (f64::from_bits(0x408ea720a54d9fe4), f64::from_bits(0x40685525b33e4f34)),
         first_parcel: ("par0", f64::from_bits(0x4051ef4db2043000), "harbour"),
         last_parcel: ("faub265", f64::from_bits(0x405023457fd0ec00), "faubourg"),
     },

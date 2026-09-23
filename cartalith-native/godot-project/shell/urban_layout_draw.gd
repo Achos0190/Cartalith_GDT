@@ -174,6 +174,15 @@ const WALL_W := {"curtain": 4.5, "palisade": 2.2, "ditch": 1.6}
 ## a medieval wall, not the same stroke around a different polygon.
 const WALL_FORT_TRACE := Color(0.2353, 0.1961, 0.1333) # rgb(60,50,34)
 const WALL_FORT_RAVELIN := Color(0.2902, 0.2431, 0.1725) # rgb(74,62,44)
+## The citadel astride the curtain -- **not the reference** (Ruling I / AC,
+## `cartalith_urban::citadel`). Sampled off the owner's target plan
+## (`design/owner-references-2026-09-12/urban-town-plan-walled-market-town.jpg`):
+## a pale open court, an ochre great hall, and the curtain's own wall ink and
+## tower roundels, so it reads as part of the same fortification.
+const CITADEL_COURT := Color(0.922, 0.898, 0.816)  # ~rgb(235,229,208)
+const CITADEL_KEEP := Color(0.690, 0.545, 0.314)   # ~rgb(176,139,80)
+## The inner gate is drawn as a gap in the inner face this wide, in metres.
+const CITADEL_GATE_GAP_M := 9.0
 ## The reference's `bastioned` branch is not here -- **stale reasoning
 ## corrected 2026-09-13.** This used to say a star fort was unreachable
 ## because "this port's settlements carry no traits", written before trait
@@ -406,6 +415,11 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 	_draw_details(ci, layout, to_screen, m_scale, px_floor, alpha, detail, true)
 
 	_draw_roofs(ci, layout, to_screen, m_scale, px_floor, alpha, detail)
+
+	# The citadel, over the roofs and the curtain it straddles: its court is
+	# opaque ground, so the town wall's stretch through it disappears under it,
+	# as on the owner's plan where the citadel's own walls replace the curtain.
+	_draw_citadel(ci, layout, project, to_screen, m_scale, px_floor, alpha)
 
 	# v2.71's water clip (`RC_ENGINE_CHANGES.md` §8.2) -- the site's real
 	# water, drawn LAST so nothing this function laid down over it (measured:
@@ -722,6 +736,38 @@ static func _draw_wall(ci: CanvasItem, layout: Dictionary, project: Callable,
 	var gr: float = maxf(px_floor * 0.8, (1.8 if style == "palisade" else 2.2) * m_scale)
 	for g in gates:
 		ci.draw_circle(to_screen.call(g), gr, Color(gc.r, gc.g, gc.b, alpha))
+
+
+## The citadel -- **not the reference** (Ruling I / AC). `"citadel_wall"` is
+## four corners wound inner-left, inner-right, outer-right, outer-left
+## (`cartalith_urban::Citadel::wall`); absent on every town without one, which
+## draws nothing. The inner face is stroked with a gap at `"citadel_gate"`, so
+## the entrance from the town is visible as an opening, not a marker.
+static func _draw_citadel(ci: CanvasItem, layout: Dictionary, project: Callable,
+		to_screen: Callable, m_scale: float, px_floor: float, alpha: float) -> void:
+	var wall: PackedVector2Array = layout.get("citadel_wall", PackedVector2Array())
+	if wall.size() != 4:
+		return
+	var a := func(c: Color) -> Color:
+		return Color(c.r, c.g, c.b, c.a * alpha)
+	_fill_ground_polygon(ci, project.call(wall), a.call(CITADEL_COURT))
+	var keep: PackedVector2Array = layout.get("citadel_keep", PackedVector2Array())
+	if keep.size() >= 3:
+		var kp: PackedVector2Array = project.call(keep)
+		_fill_ground_polygon(ci, kp, a.call(CITADEL_KEEP))
+		kp.append(kp[0])
+		ci.draw_polyline(kp, a.call(WALL_STONE), maxf(px_floor, 1.2 * m_scale), true)
+	# The wall, leaving the gate open: from one side of the gate round the
+	# three outer faces to the other side.
+	var gate: Vector2 = layout.get("citadel_gate", wall[0].lerp(wall[1], 0.5))
+	var t: Vector2 = (wall[1] - wall[0]).normalized() * (CITADEL_GATE_GAP_M * 0.5)
+	var path := PackedVector2Array([gate + t, wall[1], wall[2], wall[3], wall[0], gate - t])
+	var lw: float = maxf(px_floor, float(WALL_W["curtain"]) * m_scale)
+	ci.draw_polyline(project.call(path), a.call(WALL_STONE), lw, true)
+	var towers: PackedVector2Array = layout.get("citadel_towers", PackedVector2Array())
+	var tr: float = maxf(px_floor * 1.4, float(layout.get("citadel_tower_r", 6.0)) * m_scale)
+	for p in towers:
+		ci.draw_circle(to_screen.call(p), tr, a.call(WALL_TOWER))
 
 
 ## The bastioned branch of `_draw_wall`, ported from `_umDrawLayout` lines
