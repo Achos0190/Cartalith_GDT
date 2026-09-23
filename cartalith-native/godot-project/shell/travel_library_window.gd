@@ -18,12 +18,14 @@ class_name TravelLibraryWindow
 ## shows is real, live `#[func]` data (`lib.rs`'s `tl_*` block, wired this
 ## dispatch) -- list/get/duplicate/add-blank/delete/edit/reset-to-stock/
 ## capture-from-planner all round-trip through the actual GDExtension
-## boundary, not client-side mock state. The one honest gap: wholly-new
-## species (the stock Ox/Yak/Reindeer) and every vehicle/vessel definition
-## are real, validated, inspectable data with **no live effect on a computed
-## journey yet** -- `species_key` empty means no `JpParty` slot exists for
-## it (`travel_library.rs`'s own module doc). Said plainly in the inspector
-## rather than implied away.
+## boundary, not client-side mock state. The honest gaps: an animal with no
+## party-form slot (the stock Ox/Yak/Reindeer, or a custom entry whose
+## `species_key` and `substitutes_for` chain reach none of the four species --
+## `tl_get`'s `species_slot` is `""`) and every vehicle definition are real,
+## validated, inspectable data with **no live effect on a computed journey
+## yet** (`travel_library.rs`'s own module doc). Vessels are live. Said
+## plainly in the inspector rather than implied away. *(Corrected 2026-09-24:
+## this keyed on `species_key` alone and called vessels inert.)*
 ##
 ## Edits are staged locally (`_draft`) and committed with the footer's own
 ## "save definition" button, matching `2b`'s own footer row exactly
@@ -680,9 +682,17 @@ func _refresh_inspector() -> void:
 	if not editable:
 		DccWidgets.note(_inspector_body, "Stock entries are read-only. Duplicate this entry (⧉ above) to create an editable custom copy.")
 
-	if _current_kind == "animal" and String(_entry.get("species_key", "")) == "":
+	## Keyed on the ENGINE's `species_slot` (`tl_get` ->
+	## `TravelLibrary::animal_species_slot`: its own `species_key`, else the
+	## species its `substitutes_for` chain reaches), not on `species_key` alone.
+	## Until 2026-09-24 an entry with an empty key but a substitute was told it
+	## had no live effect while the planner offered it and it re-planned.
+	if _current_kind == "animal" and String(_entry.get("species_slot", "")) == "":
 		DccWidgets.note(_inspector_body,
-			"No live effect yet: this is not one of the four built-in party-form species (donkey/mule/camel/horse). It is real, validated, inspectable data, but the party form's JpParty shape has no slot for a new species to occupy, so it does not change a computed journey (TRAVEL_LIBRARY_SPEC.md §6). Duplicating one of the four built-in animals below DOES affect computed journeys.")
+			"No live effect yet: this is not one of the four built-in party-form species (donkey/mule/camel/horse), and its Substitutes for field reaches none of them. It is real, validated, inspectable data, but the party form's JpParty shape has no slot for a new species to occupy, so it does not change a computed journey (TRAVEL_LIBRARY_SPEC.md §6). Set Substitutes for to one of the four, or duplicate one of them, and it DOES affect computed journeys.")
+	elif _current_kind == "animal" and String(_entry.get("species_key", "")) == "":
+		DccWidgets.note(_inspector_body,
+			"Live through its substitute: the Journey planner offers this entry in the %s slot, which its Substitutes for chain reaches, and it changes computed journeys." % String(_entry.get("species_slot", "")))
 	## **Split 2026-09-01.** These two used to share one note saying neither had
 	## a resolver hook. That is still true of vehicles and has not been true of
 	## vessels since the vessel resolver landed: `lib.rs`'s `jp_compute` builds
