@@ -331,7 +331,13 @@ paths' refusal policy has diverged and needs a ruling. Commit `ce2c71d`.
 
 ## The count, honestly
 
-**69 outstanding items** — 2026-09-23 (latest), **recounted from the rows, not
+**68 outstanding items** — 2026-09-23, later the same evening (latest). The
+Android documents' cleanup found §3's "phone overflow menu" row stale — built
+long ago as `shell/phone_menu.gd` (`STATUS.md` AND-4e) — and it is struck.
+**69 − 1 = 68**, confirmed by re-running the counting script: open §1 2, §2 54,
+§3 12; closed 111.
+
+**69 outstanding items** — 2026-09-23, **recounted from the rows, not
 carried forward.** Rule: a row is closed if and only if its first cell starts
 with strikethrough (`~~` or `**~~`). Every other table row in §1-§4 is open, and
 §5 is outside the figure, as before. Two independently written scripts agree:
@@ -2787,7 +2793,7 @@ never reaches the layout.
 
 | Item | Owns it | Size | Blocker |
 |---|---|---|---|
-| The phone overflow menu — re-present the seven desktop menus as a touch-sized drill-down | `ANDROID_BUILD_SCOPE.md` §5 | large | A mobile menu design is being produced separately; the pass was instructed to diagnose only. Four compounding causes including 15 hover-opened submenus and ~12 physical-px rows |
+| ~~The phone overflow menu — re-present the seven desktop menus as a touch-sized drill-down~~ — **CLOSED 2026-09-23 (stale: already built as `shell/phone_menu.gd`, `class_name PhoneMenu`, whose header names the four faults it replaces; `STATUS.md` AND-4e. The §5 this row cited was condensed out of `ANDROID_BUILD_SCOPE.md` the same day)** | `ANDROID_BUILD_SCOPE.md` | large | A mobile menu design is being produced separately; the pass was instructed to diagnose only. Four compounding causes including 15 hover-opened submenus and ~12 physical-px rows |
 | **BUILD_ANSWERS §3** — the Data-manager window and 13 of 24 asset families are absent from the new Environment prototype | `design/…/BUILD_ANSWERS.md` | medium | Awaiting a decision: build them against the older `Cartalith DCC Shell.dc.html` canvas, or have the design project add the window to the Environment file. **A standing offer to supply it exists.** Easy to lose, because it sits in an answers file rather than in the plan |
 | **BUILD_ANSWERS §4** — phone generation-failure and storage-full states are undesigned; content descriptions and dynamic type are absent; the 48 dp target sweep is partly done | `design/…/BUILD_ANSWERS.md` | small | The design does not exist; the design project has offered to produce it on request. Feeds stage 6 |
 | **DS-13** — the phone viewport control column (zoom/pan/navpad) redesign | `GUI_GAP_REGISTER.md` §57 | medium | Three registered, nothing built — and four high-severity refutations of the proposed design, including three colour equalities that were arithmetically false |

@@ -1265,10 +1265,10 @@ handset numbers.
 | AND-6 | Device pass — civ / urban / render windows on the phone (2026-08-24) | unverified | A device-driving pass; its findings live in `GUI_GAP_REGISTER.md` §22 PH-01 rather than in code this document owns |
 | AND-7 | APK staleness: the silent `has_method` guard now speaks | done | `shell/engine_bridge.gd::_has(method: String) -> bool` with a `push_warning(` and once-per-name suppression, plus `missing_bindings() -> PackedStringArray` and a summary warn. The `.gdextension` refresh-command comment block (per-entry, `;`-commented, with the "`#` is parsed as DATA" note) is in `godot-project/cartalith.gdextension` |
 | AND-8 | Device pass 2026-08-25 (§46/§47/§48 + ponytail LOD) and the SurfaceFlinger frame-time method | unverified | A measurement pass; the reusable output is the method write-up. **The build it verified is superseded** — `target/aarch64-linux-android/android-dev/libcartalith_godot.so` and `builds/android/Cartalith-lm.apk` are both dated 2026-08-30 |
-| AND-9 | Positive control that `push_warning` reaches Android logcat | not started | Owed since 2026-08-24 and explicitly not done by the 2026-08-25 pass either. Until it runs, a clean logcat is an *argument* that shell and native library match, not a measurement — precisely the failure mode AND-7 exists to catch. The mechanism it would test is present (`engine_bridge.gd::_has`'s `push_warning`) |
-| AND-10 | Landscape / rotation driven over adb | blocked | `project.godot` sets SCREEN_SENSOR (`orientation=6`), which follows the accelerometer and overrides `settings put system user_rotation`; `wm user-rotation lock` works only with auto-rotate off. **Not a code defect** — an interaction between the correct setting and adb. Needs the owner to physically rotate the handset |
-| AND-11 | Release keystore / signed release export | not started | `export_presets.cfg` contains `package/signed=true` and **no `keystore/*` entry at all**; every device pass has sideloaded a debug-signed APK. Note the discrepancy this document does not record: `builds/android/Cartalith-release.apk` and `Cartalith-perf-rel.apk` exist on disk and how they were signed is unrecorded |
-| AND-12 | APK cruft — development probe/shot scenes ship inside the APK; release profile unstripped | declined | The owner's call, not fixed. Real and still present: **84 `_*.gd` probe/shot scripts** sit at the root of `godot-project/` (counted 2026-08-31; the document says "~100", a 2026-08-25 audit counted 76), plus their `.tscn` and `.uid` siblings, all inside the exported filesystem |
+| AND-9 | Positive control that `push_warning` reaches Android logcat | done | Measured 2026-09-07 (`88bf297`) through the app's own UI on a release build: `E/godot WARNING …` followed by `at: push_warning (core/variant/variant_utility.cpp:…)`, with three negative controls — the third being the same marker string appearing earlier as `W/FilesystemDirectoryAccess` with **no** `push_warning` line, so "the marker is in the log" does not pass on its own. Corrected 2026-09-23: this row read "not started" for 16 days after it landed |
+| AND-10 | Landscape / rotation driven over adb | done | `project.godot` sets `orientation=6` (SCREEN_SENSOR), which respects the rotation lock, so `settings put system user_rotation` does nothing — but `adb shell wm user-rotation lock 1` does rotate with auto-rotate off, and the fourth pass (2026-08-20) captured landscape that way. Release with `wm user-rotation free` and restore `accelerometer_rotation` to `1`. The method is `ANDROID_BUILD_SCOPE.md` §2.1. Corrected 2026-09-23: this row read "blocked, needs the owner to rotate the handset" although the route had already been used |
+| AND-11 | Release keystore / signed release export | declined | **Ruling 23**: store distribution and signing are a deliberate non-goal; stay on debug signing, the repo holds no secret. `--export-release` failing at signing is expected, and the unsigned APK it leaves is the good one. How the release APKs were signed is now recorded: the 2026-09-07 drop signed that unsigned APK with Godot's debug keystore via `apksigner` (`CN=Godot`, ~57 MB) — `ANDROID_BUILD_SCOPE.md` §1.3. Corrected 2026-09-23 from "not started" |
+| AND-12 | APK cruft — development probe/shot scenes ship inside the APK; release profile unstripped | declined | **Half of this no longer holds.** The `_*` probe and shot scenes are excluded from the export since `686cd2a` (2026-09-03): `export_presets.cfg`'s Android preset has `exclude_filter="addons/godotsteam/*,addons/godot_ai/*,_*"`. They still sit in `godot-project/` for development; they do not ship. What remains is the owner's call: `cartalith-native/Cargo.toml` has no `[profile.release]` section, so the release `.so` is not stripped |
 
 **Group total: 16 — 10 done, 2 unverified, 2 not started, 1 blocked, 1 declined.**
 
@@ -1435,12 +1435,12 @@ with `done*` counted inside `done`. Shares are rounded and do not sum to 100.
 
 | Status | Count | Share |
 |---|---:|---:|
-| **done** (213, of which 7 are `done*`) | 213 | 77 % |
-| **not started** | 22 | 8 % |
-| **declined** (deliberate, with the reason in code or a ruling) | 17 | 6 % |
+| **done** (215, of which 7 are `done*`) | 215 | 77 % |
+| **not started** | 20 | 7 % |
+| **declined** (deliberate, with the reason in code or a ruling) | 18 | 6 % |
 | **partial** | 13 | 5 % |
 | **unverified** (not a code artefact) | 5 | 2 % |
-| **blocked** (a named blocker) | 4 | 1 % |
+| **blocked** (a named blocker) | 3 | 1 % |
 | **other qualified statuses**, one each: MVP-OOS "4 of 5 shipped", UM-16 `ready`, CPU-6 "built, contrary to this document", GGR-RELIG "stale — corrected" | 4 | 1 % |
 | **shelved** | 0 | — |
 
@@ -1452,25 +1452,28 @@ corrected rows that had stayed wrong after their code landed:
 - EXP-E1 to E3 to done, EXP-E4 to partial and EXP-E5 to not started. All five
   had read shelved.
 - RD-1 was already done, and the group header now says so.
+- Later the same evening, from the Android documents' cleanup: AND-9 from not
+  started to done (`88bf297`), AND-10 from blocked to done (the adb rotation
+  route was already in use), and AND-11 from not started to declined (Ruling 23).
+  AND-12's note was corrected: the probe scenes stopped shipping in `686cd2a`.
 
 The same pass added three rows the ledger lacked: GLI-E (thermal erosion on
 the GPU), EC-10 (IN-13 trade) and the eight-row *LOD detail* group.
 
-**Where the 22 not-started rows are.**
+**Where the 20 not-started rows are.**
 
 | Subsystem | Not started | Note |
 |---|---:|---|
 | Religion diffusion | 6 | RD-2…RD-7; the foundation and milestone 1 are built |
 | Sculpt live | 4 | L0 gates the rest; L3 is declined by design |
 | GUI replacement | 4 | Stages 3, 5, 6, 7 |
-| Android build and device | 2 | See that group |
 | Options kept open | 2 | Store distribution and WASM; neither is work until someone commits to it |
 | Markdown Vault | 1 | MV-4, the Android SAF provider (needs a device) |
 | Memory optimisation | 1 | MEM-12 (R6), ranked low on purpose |
 | Export | 1 | EXP-E5, the dialog |
 | Gap register | 1 | GGR-DS13 |
 
-**Where the 4 blocked rows are.** EC-8 (a memory decision), AND-10 (hardware),
+**Where the 3 blocked rows are.** EC-8 (a memory decision),
 LOD-D7 (owner question 6, an optional milestone) and GGR-DS03 (an owner content
 decision). The paragraph that used to stand here named thirteen blocked rows,
 most of them behind owner questions answered on 2026-09-06 or by Rulings AI,

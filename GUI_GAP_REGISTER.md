@@ -7238,8 +7238,8 @@ Kept so the next pass does not re-walk them.
   phone canvas's `01 Viewport` gives pan its own floating control — but it is
   the first thing a finger tries.
 - **Generation timing.** 2048 x 1311, read off the app's `Pass` row: **25.1 s**
-  cold, **24.8 s** and **25.8 s** warm. `ANDROID_BUILD_SCOPE.md` §4.1's
-  "roughly 16-18 s" is **not** comparable — it was *"inferred from the shape of
+  cold, **24.8 s** and **25.8 s** warm. `ANDROID_BUILD_SCOPE.md` §3.9's
+  2026-08-20 "roughly 16-18 s" is **not** comparable — it was *"inferred from the shape of
   the memory trace rather than an instrumented timer"*. This is the instrumented
   baseline, not a regression against the old.
 
