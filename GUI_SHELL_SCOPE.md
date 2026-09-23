@@ -27,9 +27,10 @@
 > decisions it records.
 >
 > `design/cartalith-menu-structure.md` and `design/Cartalith GUI.dc.html` are
-> this plan's source material and are superseded with it. The current design
-> sources are `UI_SHELL_DESIGN.md`, `design/Cartalith DCC Shell.dc.html` and
-> `design/Cartalith Menu Structure v2.dc.html`.
+> this plan's source material and are superseded with it. For the current
+> design sources see `DESIGN_HANDOFF.md` §2 — deliberately not listed here,
+> since the list this box used to carry (the DCC Shell and Menu Structure v2
+> canvases) has itself been superseded since.
 
 Owner-supplied design import (2026-08-17, via the `claude_design` MCP,
 project "UI mockups planning") — `design/Cartalith GUI.dc.html` (the mockup,
@@ -168,8 +169,8 @@ Every real control (`main.gd`'s existing generation flow, all four
 experimental flags, sea level, load-save, credits, the four map-overlay
 toggles) must keep working exactly as before, re-parented into the new
 shell, not rewritten from scratch. This session already found one real
-crash bug from screenshot verification alone (`CHANGELOG.md`'s "Wire sea
-routes" entry) — a shell rewrite this large needs the same rigor, not less.
+crash bug from screenshot verification alone (the "Wire sea routes" entry
+in the now-retired `cartalith-native/docs/CHANGELOG.md`) — a shell rewrite this large needs the same rigor, not less.
 
 ## Verification (per milestone)
 
@@ -541,4 +542,5 @@ skin, so "leave as native OS-chrome" cost nothing.
 **Files touched**: `cartalith-native/godot-project/main.tscn`, `main.gd`,
 `map_overlay.gd`, `project.godot`, new `theme/dark_theme.tres` (light
 `theme/app_theme.tres` untouched but retired from the live path), this
-file, `docs/CHANGELOG.md`, `docs/STATUS.md`.
+file, `cartalith-native/docs/CHANGELOG.md` (since retired) and
+`cartalith-native/docs/STATUS.md`.

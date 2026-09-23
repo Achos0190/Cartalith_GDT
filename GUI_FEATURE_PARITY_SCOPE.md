@@ -6,27 +6,24 @@
 > recorded. Everything below is a **2026-08-18 audit** — read it for what was
 > found, classified, researched and decided, never for what is built.
 >
-> **Read this box before the audit below.** This document was written
-> against the *panel-browser* shell (navigator + swapping subject panel).
-> That shell no longer exists: the DCC shell replaced it structurally
+> **Two shells ago.** This audit was written against the *panel-browser*
+> shell (navigator + swapping subject panel, `GUI_SHELL_SCOPE.md`), then
+> re-pointed the same day onto the DCC shell as it stood on 2026-08-18
 > (`DCC_SHELL_SCOPE.md`, `UI_SHELL_DESIGN.md` — eight menus, five workspace
-> tabs, a left tool rail, and a right dock holding only Layers/Properties/
-> Sample). The audit's findings about **what the Rust engine really has**
-> were checked against `lib.rs`, not against a layout, so they outlived the
-> shell they were written for. Its findings about **where a control should
-> live** did not: dock-panel recommendations do not map onto a shell whose
-> governing rule is *menu items open dialogs, never persistent side panels*.
-> Every placement below was re-stated against `UI_SHELL_DESIGN.md` on
-> 2026-08-18, and those DCC homes are the placement decisions this document
-> carries.
+> tabs, a left tool rail, a right dock holding only Layers/Properties/Sample,
+> and the rule *menu items open dialogs, never persistent side panels*).
+> Its findings about **what the Rust engine really had** were checked against
+> `lib.rs`, not against a layout, so they outlived both shells. Its
+> **placements** did not: the "DCC homes" below name menus — `Generate ▸`,
+> `Simulate ▸`, `View ▸`, `Render ▸` — that stopped existing when the shell
+> became seven program menus over a domain rail (`DESIGN_HANDOFF.md` §7;
+> `dcc_shell.gd`'s `DOMAINS` header). They are kept as the decisions this audit made;
+> where each control actually landed is in the evidence column of
+> `STATUS.md`'s GUI feature parity ledger.
 >
-> **One re-classification, recorded because it changes what a row *is*.**
-> Category 1 item 5 (faction culture-terrain-fit) was catalogued as
-> wiring-only and is not one: `civ_culture_terrain_fit` takes a per-faction
-> `terrain_mix` and a `world_mean_terrain` that nothing computed, so it needs
-> the `_civFactionAggregates` aggregation first — a `cartalith-civ` milestone
-> (Phase 2 milestone 20, `ECONOMY_SCOPE.md`), not a wiring job. **Item 5
-> belongs to Category 2**; the full reasoning is under Category 1 below.
+> **One re-classification changes what a row *is*:** Category 1 item 5
+> (faction culture-terrain-fit) belongs to Category 2. The reasoning is under
+> Category 1.
 
 Owner directive, verbatim: *"work through all phases until feature parity
 with the original project has been established... all options, sliders etc
@@ -131,26 +128,23 @@ about the engine is what made each row cheap in the first place:
 | 4 | Province list | `Simulate ▸ Statistics…`, Provinces tab (boundaries render from the Layers dock, which is a separate surface) |
 | 5 | Faction culture-terrain-fit | Belongs with `_civFactionAggregates` in Category 2, for the reason below — not a placement question until that exists |
 | 6 | Planet gravity / rotation / tilt | `Generate ▸ Climate…`, PLANET section |
-| 7 | GPU status / toggle | `View ▸ Performance readout…` — one line per stage, GPU or CPU. **This audit split the row: build the readout, defer the switch**, because `DECISIONS.md` §7c makes the GPU path produce a different world for the same seed, so a switch beside the readout offers a choice the parity contract does not allow. Per the honesty rule the deferred half is present and disabled with its reason on it, never omitted |
+| 7 | GPU status / toggle | `View ▸ Performance readout…` — one line per stage, GPU or CPU. **This audit split the row: build the readout, defer the switch**, because `DECISIONS.md` §7c makes the GPU path produce a different world for the same seed, so a switch beside the readout offers a choice the parity contract does not allow. Per the honesty rule the deferred half is present and disabled with its reason on it, never omitted. **Later reversed on the switch half**: the engine default (`WorldParams::default()`, `use_gpu = false`) stays the golden-parity path, and the *shell* now defaults GPU on — the owner repeatedly asked for the hardware to be used — with `Preferences ▸ GPU acceleration` to turn it off (`engine_bridge.gd`, where `param_set("use_gpu", true)` is called) |
 | 8 | World Structure raw sliders | `Generate ▸ Tectonics…`, WORLD STRUCTURE section (plus `apply_archetype()`, so a preset writes those same five sliders) |
 | 9 | Layer granularity | Layers dock — Settlements / Roads & ways / Sea routes as three toggles |
 | 10 | Click-to-pin selection | Properties dock |
 
-**Item 5, the one correction to this document's own classification.** `civ_culture_terrain_fit`'s signature is
+**Item 5, the one correction to this document's own classification.**
+`civ_culture_terrain_fit`'s signature is
 `(culture_key, terrain_mix, world_mean_terrain)`. When this sweep ran,
 neither map existed anywhere in this workspace — computing them *is* the
-territory-aggregation piece `ECONOMY_SCOPE.md` listed as unstarted and this
-document lists under Category 2 medium (`_civFactionAggregates`). So it was
-not a `#[func]` away; adding one would only have produced a function with no
-argument to call it with. This row moved to Category 2 and folded into that
-milestone — its dependency, and the order the two have to be built in, is the
-finding.
-
-`_civFactionAggregates` is Phase 2 milestone 20 (`ECONOMY_SCOPE.md`), and it
-is the right owner of the two maps: `FactionAggregate::terrain_mix` and
-`FactionAggregates::world_mean_terrain` drop straight into
-`civ_culture_terrain_fit`'s existing signature, so once that milestone exists
-item 5 is a `#[func]` and a panel and nothing more.
+territory-aggregation piece, `_civFactionAggregates` (Phase 2 milestone 20,
+`ECONOMY_SCOPE.md`). So it was not a `#[func]` away; adding one would only
+have produced a function with no argument to call it with. The row moved to
+Category 2 and folded into that milestone, which is the right owner of both
+maps: `FactionAggregate::terrain_mix` and
+`FactionAggregates::world_mean_terrain` drop straight into the existing
+signature, so once the aggregation exists item 5 is a `#[func]` and a panel
+and nothing more. The dependency, and the order it forces, is the finding.
 
 | # | Control | Real backing | What's missing |
 |---|---|---|---|
@@ -212,7 +206,8 @@ placement → the `Label`/`Icon stamp` tools on the left rail plus
 - **GeoJSON export** (`Project > Export`) — vector output of the already-real
   road/settlement/territory data; no Rust writer exists. Small, bounded by
   what's already computed (nothing new to derive, only to serialize).
-- **CPU/GPU/memory live readout** (`Top bar`, `View > Debug & performance`) —
+- **CPU/GPU/memory live readout** (`Top bar`, `View > Debug & performance`;
+  moved to Category 1 by the re-baseline above, kept here for its reasoning) —
   `GUI_SHELL_SCOPE.md`'s own "ambiguous, verify" list already confirmed no
   `#[func]` exists; Godot's own `OS`/`Performance` singleton supplies CPU/
   memory readouts natively without any Rust work — only GPU status has real
@@ -243,9 +238,8 @@ placement → the `Label`/`Icon stamp` tools on the left rail plus
   heuristic "power" composite **verbatim** rather than simplifying it, because
   the reference labels it honestly as derived/heuristic and a simplification
   would be a different heuristic with nothing to check it against. What this
-  document keeps is the GUI half — a faction roster, whose *mechanics*
-  (add/remove, persistent identity across a session) are new Rust-side state
-  in their own right, not a consequence of the aggregation.
+  document keeps is the GUI half — the faction roster above, whose mechanics
+  are new state in their own right, not a consequence of the aggregation.
 - **Terrain appearance GUI** (`Map > Terrain appearance`, all of §5b in
   `design/cartalith-menu-structure.md`) — `TERRAIN_APPEARANCE_SCOPE.md`
   milestones 1-4 built real, tested, CPU-only rendering improvements (relief
@@ -292,7 +286,8 @@ placement → the `Label`/`Icon stamp` tools on the left rail plus
   generator by explicit, repeated owner decision (`HARDWARE_ACCELERATION.md`'s
   static-generation correction; "no need to continuously calculate"). Any
   GUI work here would be building controls for a system that doesn't exist
-  and isn't planned to — see "Out of scope" below, not a milestone.
+  and isn't planned to — see "Out of scope" below, not a milestone. (The
+  note there records how this was overtaken the next day.)
 - **Tile/LOD pan-zoom viewport** (`View > LOD`, corner tile/LOD readout) —
   `LOD_TILING_BASE_SCOPE.md`: `cartalith-spatial` exists as a real,
   standalone, unintegrated crate. Integrating it into the viewport is real,
@@ -389,7 +384,9 @@ not have.
   a menu action; "save" *is* Export .zip) and deleted the fabricated
   originals. No new reasoning changes that; still correctly absent.
 
-**Should stay deliberately deferred/removed — doesn't fit this project's scope:**
+**Should stay deliberately deferred/removed — doesn't fit this project's scope**
+(as judged 2026-08-18; see the note under "Out of scope" for what was scoped
+since):
 
 - **Warfare** (`Simulate` layer toggle, `VISION.md`'s render) — mentioned
   nowhere in the reference or this port's own history except as a mockup
@@ -445,21 +442,11 @@ what a popup *would* look like if never opened during verification):
 
 ## Milestone breakdown
 
-> **Corrected 2026-09-06** — this section and the rest of the document below
-> still read as an open plan. They are not: `STATUS.md`'s GUI feature parity
-> ledger has **seven of these eight milestones done**, verified against the
-> code — 1 (Category 1 sweep), 3 (stale-field tracking), 4 (heightmap import/
-> GeoJSON export/CPU-memory readout, plus route-corridor/travel-cost as a
-> selectable analysis field, closed 2026-09-01 in `sample_bridge.rs`), 5
-> (terrain appearance GUI, `render_workspace.gd`), 6 (faction roster,
-> `faction_roster_window.gd`), 7 (layer opacity/measurement/quality tiers),
-> and 8 (Journey Planner, Asset Library UI, tile/LOD viewport). **Item 2 is
-> partial, not done**: `PopupMenu` theming was solved by a different route
-> (`DccWidgets.style_popup()`, called from `DccShell.style_popup()`, rather
-> than a `dark_theme.tres` entry), but Tooltip and ScrollBar chrome are still
-> Godot stock. This document should be closed out; the only real remaining
-> work it names is the never-attempted per-stage slider audit in its own
-> closing paragraph below, which was never one of these eight milestones.
+> **These eight milestones are defined here, as GFP-1…GFP-8, and tracked only
+> in `STATUS.md`'s GUI feature parity ledger** — which also records, per
+> milestone, what was built where and any milestone met by a different route
+> than the one written below. The plan reads as an open plan because it is
+> the 2026-08-18 plan; do not read its tense as its state.
 
 Ordered by value/risk: Category 1 first (near-zero new engine work, real
 function today), then Category 2 by size (small → medium → large, citing
@@ -497,6 +484,18 @@ anytime — not blocking, not blocked by, anything else here).
    **not** in this list (see Out of scope).
 
 ## Out of scope, and why
+
+> **Overtaken, in part, within a week.** The first bullet below is this
+> audit's 2026-08-18 reasoning and is kept as that. Two of its three subjects
+> were scoped elsewhere soon after: **year-by-year simulation** by
+> `TIMELINE_SCOPE.md` (the reference *does* carry a collapse/recovery timeline
+> — `FUNCTIONAL_CONTRACT.md` §4 found it, and the owner approved it
+> 2026-08-19), and **conflicts** by the owner's 2026-08-25 story-planning
+> direction (`STORY_PLANNING_SCOPE.md`'s conflict overlay) together with
+> `MILITARY_MANPOWER_SCOPE.md` — which keeps campaigns and combat resolution
+> out, as this bullet argued. The same applies to Category 2's playback entry
+> and Category 3's deferral list. Read those documents, not this section, for
+> what is in scope now; status is `STATUS.md`'s.
 
 - **Warfare, Narrative/Scenario, year-by-year historical simulation** —
   `VISION.md` already names all three as requiring an explicit product

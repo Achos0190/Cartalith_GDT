@@ -1,7 +1,31 @@
 # Cartalith Markdown Vault Integration
 ## Functional & Technical Design Specification
 
-> ## Owner clarification, 2026-08-18 — read before the spec below
+> ## Read this header before the spec
+>
+> **What this is.** An owner-supplied design, 2026-08-18 (*"Here is another
+> function for on the roadmap."*), imported verbatim from `**Status:**` down.
+> It is net-new scope, not a port: nothing in the reference HTML links to an
+> external Markdown corpus, so it sits outside `DECISIONS.md` §7d's parity
+> contract entirely — nothing to preserve, nothing to modernise over. The
+> spec's own metadata line *"Status: Proposed design"* is the owner's, kept
+> verbatim; it describes the document as supplied, not the work.
+>
+> **Where the work is defined and tracked.** The owner scheduled the work on
+> 2026-08-24, naming continents, provinces and settlements. The milestone
+> definitions, and the resolution of every place this design and the port
+> disagree, are in **`MARKDOWN_VAULT_SCOPE.md`** (its §2 table). How far those
+> milestones have got is recorded only in
+> **`cartalith-native/docs/STATUS.md`**. This header does neither.
+>
+> The question this note originally left open — *does the port have the
+> entities §3 and §35 assume?* — was answered by that scope's entity audit:
+> settlements and provinces were real; continents did not exist and were
+> created for this work (its milestone 0); POIs and region labels are not
+> ported concepts, so §3's POI/region scope and §35 criteria 6–7 are not
+> satisfiable in this port and are recorded there as such.
+>
+> ### Owner clarification, 2026-08-18
 >
 > Verbatim: *"In the spec obsidian is mentioned a lot but it should be a
 > Markdown-vault (i personally use obsidian) as a stretch goal an obsidian
@@ -18,23 +42,25 @@
 >    behaviour belongs in the core.
 > 2. **An Obsidian plugin is a wish, not a deliverable.** Already §33's
 >    non-goal and §34's stretch goal; now confirmed as deferred outright.
-> 3. **Priority is low.** "Not a critical part" — it stays at the end of
->    `ROADMAP.md`, under "Options kept open, not scheduled", and does not
->    compete with engine or parity work.
+> 3. **Priority is low.** "Not a critical part" — it does not compete with
+>    engine or parity work. The 2026-08-24 go-ahead scheduled it; it did not
+>    promote it (`ROADMAP.md`'s own wording).
 >
-> **This resolves a real conflict `DCC_CONTROL_INDEX.md` raised.** The newly
-> imported `DCC_SHELL_SPEC.md` §9 puts a *MARKDOWN VAULT · LINKED* block in
-> the Data manager that assumes more than this document scopes: `obsidian://`
-> links written into exported tiles, note links inside exported GeoJSON, and a
+> **This resolves a real conflict `DCC_CONTROL_INDEX.md` raised.**
+> `DCC_SHELL_SPEC.md` §9 puts a *MARKDOWN VAULT · LINKED* block in the Data
+> manager that assumes more than this document scopes: `obsidian://` links
+> written into exported tiles, note links inside exported GeoJSON, and a
 > **two-way sync toggle** — which is an explicit V1 non-goal here (§33). Under
 > this clarification the spec's `obsidian://` scheme is Obsidian-specific and
 > therefore out of core, and two-way sync stays a non-goal. Whoever builds §9
 > should treat that block as **deferred**, not as an approved requirement, and
 > the vault path/note-count readout is the only part of it consistent with V1.
 >
-> **Refined spec and templates are coming from the owner** — expect this
-> document to be replaced or extended. Do not start implementation against the
-> version below.
+> At import the owner also said a refined spec and templates would follow, and
+> that implementation should not start against this version. **The templates
+> arrived** (below). **No refined spec has been filed in this repository**, and
+> the owner's 2026-08-24 go-ahead started the work against this document as
+> amended by the four answers below.
 >
 > ### Templates received, and four answers that change §23
 >
@@ -64,24 +90,8 @@
 > | The delimited `CARTALITH:BEGIN/END` block | Machine-owned | Regenerated unattended; §23's rules stand unchanged |
 > | Field population in the author's own template | Author-owned | **Offered and explicitly confirmed, never silent** — consistent with §17's Explicit Write Principle and §16's preview-and-confirm. Must not clobber a field the author has already filled. |
 >
-> Whoever writes `MARKDOWN_VAULT_SCOPE.md` should reconcile §23's text against
-> this rather than leaving the contradiction in place.
-
-> Owner-supplied design (2026-08-18), imported verbatim — "Here is another
-> function for on the roadmap." Recorded as a future, unscheduled phase
-> (`ROADMAP.md`'s own "Options kept open" section) — a genuinely new feature,
-> not a port of anything in the reference HTML app, so it sits outside
-> `DECISIONS.md` §7d's contract entirely (nothing to preserve, nothing to
-> modernize-over — this is net-new scope). Not started; no code exists for
-> this yet, and nothing here has been cross-checked against the current Rust/
-> Godot architecture beyond this note. Whoever picks this up should write a
-> real `MARKDOWN_VAULT_SCOPE.md` first, the same discipline every other large
-> effort in this project has followed (`JOURNEY_PLANNER_SCOPE.md`,
-> `ASSET_LIBRARY_SCOPE.md`, `UNIFIED_TOOL_PLAN.md`) — in particular, V1's
-> acceptance criteria (§35) assume entity concepts (settlements, POIs,
-> regions) and an entity-information-panel UI that this port has some of
-> (settlements are real; POIs/regions as first-class addressable entities
-> with their own panel may not exist yet — verify before scoping).
+> §23's text below is left as the owner wrote it; the reconciliation this
+> header asked for is made in `MARKDOWN_VAULT_SCOPE.md` §2 (the §23 row).
 
 **Status:** Proposed design
 **Scope:** V1 implementation
