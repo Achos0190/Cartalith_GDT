@@ -1213,6 +1213,14 @@ pub struct SculptStamp {
     /// [`SculptStamp::with_sea_level`]) when the slider moves — the same
     /// result, an explicit step instead of an implicit global read.
     ///
+    /// *Checked 2026-09-24 (owner ruling 17 asks for the live read):* no such
+    /// move can happen in this port yet. The world's sea level changes only
+    /// when a generated world is absorbed or a save loads, and both replace
+    /// the draft, so this snapshot always equals the live value. It stops
+    /// being equal the day a LIVE sea-level control exists; that control must
+    /// re-stamp the draft through `with_sea_level` (`OUTSTANDING_WORK.md`
+    /// §2.5, "Sea level is not a live control").
+    ///
     /// Only Plateau and Coastline read it.
     pub sea_level: f64,
 }
