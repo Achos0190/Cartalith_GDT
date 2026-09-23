@@ -46,7 +46,8 @@
 //!    *faubourg* — a cluster of narrow, shallow lots against the wall's outer
 //!    face, district `"faubourg"`. It starts beside a land gate, as the
 //!    historical ones did (the faubourg is named for the gate road it grew
-//!    off), but it runs **along the wall**, into the gap between the roads —
+//!    off) — or, on a circuit with no land gate, at a drawn point on the arc —
+//!    but it runs **along the wall**, into the gap between the roads —
 //!    which is exactly what the road-anchored ribbon suburb in `grow` never
 //!    does, since there every extramural origin must lie within 90 m of a
 //!    primary. The two are additive: a faubourg lot that would overlap a ribbon
@@ -87,8 +88,25 @@
 //!   and a `bastioned` trace keeps its glacis clear — that clearance *is* the
 //!   design (a field of fire), and [`crate::cleanup::clear_fort_zone`] still
 //!   sweeps it.
-//! - **Organic planning only.** The Venus profile's radial plan and building
-//!   grammar are a designed city, not an accreted one.
+//! - **Both planning branches**, since Ruling AA (owner, 2026-09-23: *"extend
+//!   the radial branch … rather than reshaping grow's macro-structure"*). This
+//!   stage was organic-only when it shipped; opening it to the Venus plan needed
+//!   no change here, because nothing in it reads the street graph's *shape* —
+//!   only live edges (`Ctx::street_face`, `Ctx::crosses_street`), the ring,
+//!   the land arc and the gates, which `build_wall` writes the same way on
+//!   both branches. What a radial town changes is two facts about its input,
+//!   both measured on the goldens on 2026-09-23:
+//!   - **It usually has no land gate.** Its spokes stop at the outermost ring
+//!     and the curtain is the built-mass hull inflated past them, so no primary
+//!     crosses it (`venusRadial` and `venusTinyCanal`: 0 land gates; only
+//!     `venusSmall` has 2). A faubourg run then starts at a drawn point on the
+//!     arc — the `r.pick(&gates)` fallback that was always here — rather than
+//!     beside a gate. Adding approach roads to the radial plan so it *has*
+//!     gates is a separate change and is not made here.
+//!   - **Its building grammar is `venus-mixed`,** which `build_buildings`
+//!     applies before the wall grammar. A wall lot skips it, and its hub-distance
+//!     banding is measured over the street-platted lots only, so no lot the
+//!     reference already placed is re-banded (`crate::districts`).
 //! - **Unconditional**, not a rule toggle: Ruling H's other changes are direct
 //!   algorithm changes, and nothing here needs tuning a user would reach for.
 //!

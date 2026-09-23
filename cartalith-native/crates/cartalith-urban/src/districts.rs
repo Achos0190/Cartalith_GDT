@@ -600,9 +600,14 @@ pub fn build_buildings(
     // radial banding extent for the Venus profile: the max parcel distance from
     // the hub, so the grammar can place circular pavilions in the inner band and
     // logistics warehouses in the outer.
+    //
+    // **Not the reference** (Ruling AA, `crate::wallside`): measured over the
+    // street-platted lots only. The wall lots lie beyond them, so letting them
+    // in would stretch the extent and re-band every lot the reference already
+    // placed — a pavilion turning into an apartment for a lot nobody touched.
     let mut venus_max_r = 0.0f64;
     if profile.building_grammar == "venus-mixed" {
-        for lot in lots.iter() {
+        for lot in lots.iter().filter(|l| l.par.wall_backing == WallBacking::No) {
             let p = lot.par;
             let c = Vec2::new(
                 (p.poly[0].x + p.poly[1].x + p.poly[3].x + p.poly[2].x) / 4.0,
@@ -649,7 +654,13 @@ pub fn build_buildings(
         // rings, a seeded blend of the standardized modular apartment / Asian
         // courtyard house / Japanese machiya through the residential rings, and
         // logistics warehouses on the outermost built ring.
-        if profile.building_grammar == "venus-mixed" && d != "harbour" {
+        // A wall lot skips this grammar for the wall grammar below (Ruling AA):
+        // a lean-to on the curtain and a faubourg hovel are the whole point of
+        // the lot, and a Venus band would put a logistics warehouse there.
+        if profile.building_grammar == "venus-mixed"
+            && d != "harbour"
+            && par.wall_backing == WallBacking::No
+        {
             let cx = (par.poly[0].x + par.poly[1].x + par.poly[3].x + par.poly[2].x) / 4.0;
             let cy = (par.poly[0].y + par.poly[1].y + par.poly[3].y + par.poly[2].y) / 4.0;
             let r_norm = if venus_max_r > 0.0 {

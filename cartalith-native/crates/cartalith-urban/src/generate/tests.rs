@@ -706,11 +706,55 @@ fn lots_back_onto_the_wall_and_the_faubourg_survives_the_rampart_sweep() {
         assert!(ch.yard.iter().all(|id| !id.starts_with("wallin") && !id.starts_with("faub")));
     }
 
-    // A glacis stays clear, and a designed city grows no faubourg.
-    for name in ["wallStyleBastioned", "venusRadial"] {
+    // A glacis stays clear, on either planning branch.
+    for name in ["wallStyleBastioned", "venusFortCanal"] {
         let c = case(name);
         let t = generate(c.seed, &opts_for(c));
         assert!(t.wall.ring.is_some(), "{name} is walled");
+        assert_eq!(t.wall.style, "bastioned", "{name}");
         assert!(t.parcels.iter().all(|p| p.par.wall_backing == WallBacking::No), "{name}");
+    }
+}
+
+/// Ruling AA (owner, 2026-09-23): the radial plan carries the wall lots and the
+/// faubourg too. Pinned on a real Venus town, not on `wallside`'s helpers — and
+/// against the three things the change must NOT do: move a street, move a
+/// street-platted lot, or re-band a Venus building on one.
+#[test]
+fn a_radial_town_builds_against_its_wall_without_moving_its_wedge_blocks() {
+    use crate::geom::point_in_poly;
+    use crate::wallside::WallBacking;
+    let c = golden::CASES.iter().find(|c| c.name == "venusRadial").expect("case");
+    let t = generate(c.seed, &opts_for(c));
+    assert_eq!(t.culture, "venus");
+    assert_eq!(t.wall.style, "curtain");
+    let ring = t.wall.ring.as_ref().expect("walled");
+    let n = |wb| t.parcels.iter().filter(|p| p.par.wall_backing == wb).count();
+    // Literals from the re-derived golden, not from the code under test.
+    assert_eq!(
+        (n(WallBacking::Inside), n(WallBacking::Outside), n(WallBacking::OutsideRow)),
+        (64, 74, 133)
+    );
+    // The street-platted lots are exactly the 738 the reference placed, in
+    // order, and the wedge blocks are its 42 — the wall lots are appended.
+    assert_eq!(t.blocks.len(), 42);
+    assert!(t.parcels[..738].iter().all(|p| p.par.wall_backing == WallBacking::No));
+    assert_eq!(t.parcels[737].par.id, "par758");
+    for p in &t.parcels[738..] {
+        let outside = p.par.wall_backing.is_faubourg();
+        assert_eq!(p.district == "faubourg", outside, "{}", p.par.id);
+        assert!(p.par.poly.iter().all(|q| point_in_poly(*q, ring) != outside), "{}", p.par.id);
+        if outside {
+            assert!(!p.cleared, "{}: the rampart sweep must spare the faubourg", p.par.id);
+        }
+    }
+    // Every wall lot takes the wall grammar, never a Venus band: no pavilion,
+    // warehouse, apartment, courtyard house or machiya stands on one.
+    let wall_ids: std::collections::HashSet<&str> =
+        t.parcels[738..].iter().map(|p| p.par.id.as_str()).collect();
+    let on_wall: Vec<_> = t.buildings.iter().filter(|b| wall_ids.contains(b.parcel.as_str())).collect();
+    assert!(!on_wall.is_empty());
+    for b in &on_wall {
+        assert!(matches!(b.kind, "main" | "lean-to"), "{}: {} on a wall lot", b.id, b.kind);
     }
 }

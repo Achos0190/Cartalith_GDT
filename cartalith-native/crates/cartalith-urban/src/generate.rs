@@ -10,10 +10,11 @@
 //! **One stage is not the reference's, and neither is one exemption.**
 //! [`build_wall_lots`] (`crate::wallside`, Ruling H, owner 2026-09-22) plats
 //! lots against the wall — intramural lots backing onto its inner face, and a
-//! faubourg cluster against its outer face — straight after `buildParcels` on the
-//! organic branch; and the faubourg is exempt from `clearFortZone`'s rampart
-//! sweep. Both are deliberate departures, and the whole-town golden that moved
-//! because of them is disclosed case by case in `tests/golden.rs`'s header.
+//! faubourg cluster against its outer face — straight after `buildParcels` on
+//! both planning branches (the radial one since Ruling AA, 2026-09-23); and the
+//! faubourg is exempt from `clearFortZone`'s rampart sweep. Both are deliberate
+//! departures, and the whole-town golden that moved because of them is
+//! disclosed case by case in `tests/golden.rs`'s header.
 //!
 //! # Two orderings that are not interchangeable
 //!
@@ -499,12 +500,14 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
     // Appended after every street-platted lot and drawn from their own
     // substreams, so no earlier lot moves; see `crate::wallside` for why this
     // is a plat of the unplatted band rather than a bias on existing blocks.
-    // Organic planning only — the Venus plan is designed, not accreted.
-    if profile.planning != "radial" {
-        let wall_lots =
-            build_wall_lots(seed, &g, &wall_state, &site, &blocks, &parcels, pop_target, epochs);
-        parcels.extend(wall_lots);
-    }
+    // Both planning branches (Ruling AA, owner 2026-09-23, extended this to the
+    // radial plan: its rings and spokes are the wedge blocks the owner's town
+    // plan wants, and the wall lots and faubourg are what it lacked). Nothing
+    // here reads the street graph's shape — only live edges, the ring and the
+    // gates — so the stage is unchanged; see `crate::wallside`.
+    let wall_lots =
+        build_wall_lots(seed, &g, &wall_state, &site, &blocks, &parcels, pop_target, epochs);
+    parcels.extend(wall_lots);
 
     let quay = |h: &Option<HarbourWorks>| h.as_ref().map(|w| w.quay.clone());
     let quay_pts = quay(&harbour);
