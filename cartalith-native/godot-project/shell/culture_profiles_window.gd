@@ -26,23 +26,21 @@ class_name CultureProfilesWindow
 ##
 ## The mockup's middle column shows tokens like "Marcora, Novium, Auropolis"
 ## captioned "re-rolls on every open". There is no bound function that draws
-## from an ARBITRARY culture's syllable/suffix pool -- `civ_settle_name`
-## (`cartalith_civ::civ_settle_name`) is not `#[func]`-exposed at all, and the
-## one exposed roller, `civ_reroll_settlement_name(index)`, calls it keyed on
-## `civ_default_culture(faction)` = `CIV_CULTURES[faction id % 7]`, NOT on the
-## faction's own stored `culture` field this window writes. So a faction
-## whose culture has been reassigned away from its id-derived default cannot
-## be asked, honestly, for a fresh sample of the culture on screen --
+## a free sample from a culture's syllable/suffix pool -- `civ_settle_name`
+## (`cartalith_civ::civ_settle_name`) is not `#[func]`-exposed at all, and
 ## fabricating one from a hand-copied syllable table here would be exactly
 ## the second-source-of-truth `get_cultures()`'s own doc comment refuses.
 ##
 ## What this window does instead: shows the REAL names of settlements
 ## belonging to factions currently assigned that culture
 ## (`bridge.settlements()` filtered by `bridge.get_factions()`'s `culture`
-## field), and offers a reroll only on the rows where it is provably faithful
-## -- `faction id % 7 == culture id` -- via the same `civ_reroll_settlement_name`
-## the Place editor's own dice button already uses. Everywhere else the row is
-## shown, disabled, with the reason in its tooltip. See `_rebuild_detail()`.
+## field), and offers a reroll on each via the same
+## `civ_reroll_settlement_name` the Place editor's own dice button uses. That
+## reroll draws from the faction's stored `culture` -- the field this window
+## writes (`cartalith_civ::civ_faction_culture` over the roster, since
+## 2026-09-24; before that it read the id-derived default and this window had
+## to disable every row whose faction had been reassigned). See
+## `_rebuild_detail()`.
 ##
 ## ## Chrome: derived from §8's real convention, not invented
 ##
@@ -458,7 +456,9 @@ func _rebuild_detail() -> void:
 			var s: Dictionary = e.data
 			var idx: int = e.index
 			var fid := int(s.get("faction", 0))
-			var eligible := _cultures.size() > 0 and (fid % _cultures.size()) == _selected_id
+			# Every row is a settlement of a faction assigned this culture, and
+			# the reroll draws from that faction's assigned culture, so each
+			# one rerolls from the pool on screen.
 			var chip := DccWidgets.chip(flow, String(s.get("name", "?")),
 				func():
 					var new_name := bridge.civ_reroll_settlement_name(idx)
@@ -466,15 +466,12 @@ func _rebuild_detail() -> void:
 						app.set_status("hint", "Rerolled — %s" % new_name, "text_ghost")
 					_rebuild_detail(),
 				false, 9, 4)
-			chip.disabled = not eligible
-			chip.tooltip_text = "%s — %s, faction %d.%s" % [
-				String(s.get("name", "?")), String(s.get("kind", "?")).capitalize(), fid,
-				" Click to reroll a fresh name from this pool." if eligible
-				else " Not rerollable here: this faction's assigned culture differs from its id-derived default, so civ_reroll_settlement_name would draw from the wrong pool."]
+			chip.tooltip_text = "%s — %s, faction %d. Click to reroll a fresh name from this pool." % [
+				String(s.get("name", "?")), String(s.get("kind", "?")).capitalize(), fid]
 		if matches.size() > shown.size():
 			DccWidgets.note(pool_sec, "+%d more, sorted by population." % (matches.size() - shown.size()))
 		DccWidgets.note(pool_sec,
-			"Names are engine-generated, once, at world-generation time (civ_default_culture(faction id) = CIV_CULTURES[id mod 7]) -- reassigning a faction's culture here changes its naming-pool assignment and Territory-fit reading, but does not retroactively rename settlements already placed. The same is true of the roster window's own Culture picker.")
+			"Names are drawn from the faction's assigned culture -- by Auto-populate, by a Settlement drop left unnamed, and by a reroll. Reassigning a faction's culture here changes the pool those draw from next, and its Territory-fit reading; it does not rename settlements already placed. The same is true of the roster window's own Culture picker. A new world starts every faction on its default culture.")
 
 	var af_sec := DccWidgets.section(_detail_body, "Assigned factions (%d)" % int(d.get("faction_count", 0)))
 	var factions := bridge.get_factions()

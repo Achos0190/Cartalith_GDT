@@ -96,6 +96,11 @@ pub fn culture_name_len_limit(cul: &Culture) -> usize {
 /// the caller's own set, so uniqueness is a property of the map being built
 /// rather than global state in this stateless crate (`ARCHITECTURE.md`).
 ///
+/// Names in `faction`'s **default** culture ([`civ_default_culture`]), not
+/// a roster's: none of its callers (continents, lake labels, the world name)
+/// is handed the roster that settlement naming reads through
+/// [`crate::civ_faction_culture`].
+///
 /// Falls back to the last candidate after [`NAME_MAX_TRIES`], and if even that
 /// collides it appends a numeric discriminator rather than returning a
 /// duplicate -- a caller asking for uniqueness gets it or gets told, never a
@@ -105,10 +110,11 @@ pub fn civ_settle_name_bounded(
     faction: i32,
     seen: &mut BTreeSet<String>,
 ) -> String {
-    let limit = culture_name_len_limit(civ_default_culture(faction));
+    let cul = civ_default_culture(faction);
+    let limit = culture_name_len_limit(cul);
     let mut last = String::new();
     for _ in 0..NAME_MAX_TRIES {
-        let cand = civ_settle_name(rng, faction);
+        let cand = civ_settle_name(rng, cul);
         if cand.chars().count() <= limit && !seen.contains(&cand) {
             seen.insert(cand.clone());
             return cand;

@@ -18,8 +18,9 @@
 //! [`crate::Culture`] is a *naming pool* — `key`, `syl`, `sfx` — and
 //! `tests/golden_parity_settlement_naming.rs` pins its contents by index
 //! (its own module doc: *"faction 1 -> `CIV_CULTURES[1 % 7]` = imperial"*,
-//! which [`crate::civ_settle_name`] reaches through
-//! [`crate::civ_default_culture`]'s `CIV_CULTURES[faction % 7]`). Belief
+//! which [`crate::civ_settle_name`]'s callers reach through
+//! [`crate::civ_default_culture`]'s `CIV_CULTURES[faction % 7]` for a faction
+//! whose culture has not been edited). Belief
 //! traits are a different subsystem's concern, and the crate already
 //! established the pattern for exactly this:
 //! [`crate::CIV_CULTURE_TERRAIN_KEY`] is a parallel table keyed by culture

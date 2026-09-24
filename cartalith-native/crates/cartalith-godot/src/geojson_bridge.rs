@@ -402,6 +402,7 @@ impl WorldGen {
         let gh = self.gh.max(0) as usize;
         let sea = self.sea_level;
         let map_width_km = self.map_width_km;
+        let world = self.world;
         let (Some(civ), Some(WorldSource::Generated(ws)), Some(tools)) =
             (self.civ.as_mut(), self.source.as_mut(), self.civ_tools.as_mut())
         else {
@@ -416,6 +417,7 @@ impl WorldGen {
             gh,
             map_width_km,
             sea,
+            world,
             field: &ws.field,
             water_bodies: &civ.water_bodies,
         };
@@ -428,9 +430,15 @@ impl WorldGen {
             &mut civ.territory,
             &mut civ.faction_roster,
         );
+        // An imported territory polygon is a border written into the claim
+        // grid, like a paint commit, so the provinces follow it the same way
+        // (`crate::civ_reprovince`) rather than crossing it until a recompute.
+        if report.territory_features_applied() > 0 {
+            crate::civ_reprovince(civ, gw, gh);
+        }
         // SG-01, the same note `civ_drop_settlement` carries: roads,
-        // territory (the parts this call didn't itself paint), provinces
-        // and trade balances were all derived before any of this existed.
+        // territory (the parts this call didn't itself paint) and trade
+        // balances were all derived before any of this existed.
         self.civ_dirty = true;
 
         let factions_created: PackedStringArray =

@@ -217,7 +217,8 @@ pub enum DropPlace {
 /// - `coastal` -- computed with the same `civ_is_coastal(.., ocean_only =
 ///   true)` call and the same `max(6, gw/60)` radius `place_settlements`
 ///   uses, so a hand-placed port is coastal on the same test a generated
-///   one is.
+///   one is. `world` is the map's own wrap flag: the test wraps east-west
+///   only on a world map (Ruling AR).
 ///
 /// Name and population follow the reference exactly: `name: ""` and
 /// `pop: 1000` (a raw placeholder, deliberately *not*
@@ -239,6 +240,7 @@ pub fn civ_drop_place(
     gw: usize,
     gh: usize,
     sea: f64,
+    world: bool,
     faction: i32,
     kind: SettlementKind,
     suit: f64,
@@ -254,7 +256,7 @@ pub fn civ_drop_place(
         return DropPlace::Water;
     }
     let coast_r: isize = ((gw as f64 / 60.0) as isize).max(6);
-    let coastal = civ_is_coastal(gx, gy, coast_r, true, field, Some(water_bodies), gw, gh, sea);
+    let coastal = civ_is_coastal(gx, gy, coast_r, true, field, Some(water_bodies), gw, gh, sea, world);
     DropPlace::Placed(Box::new(NamedSettlement {
         tid: 0,
         placement: SettlementPlacement { x: gx, y: gy, suit, faction, capital: kind == SettlementKind::Capital, kind, coastal },
@@ -1274,19 +1276,19 @@ mod tests {
     #[test]
     fn drop_place_refuses_ocean_and_above_sea_lakes() {
         let (field, wb, gw, gh, sea) = drop_fixture();
-        assert_eq!(civ_drop_place(&[], 1, 1, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, 0.0), DropPlace::Water);
+        assert_eq!(civ_drop_place(&[], 1, 1, 5.0, &field, &wb, gw, gh, sea, false, 1, SettlementKind::Town, 0.0), DropPlace::Water);
         assert_eq!(
-            civ_drop_place(&[], 6, 6, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, 0.0),
+            civ_drop_place(&[], 6, 6, 5.0, &field, &wb, gw, gh, sea, false, 1, SettlementKind::Town, 0.0),
             DropPlace::Water,
             "an above-sea lake is water: the gate is wb != 0, not field < sea"
         );
-        assert_eq!(civ_drop_place(&[], 9, 1, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, 0.0), DropPlace::OutOfBounds);
+        assert_eq!(civ_drop_place(&[], 9, 1, 5.0, &field, &wb, gw, gh, sea, false, 1, SettlementKind::Town, 0.0), DropPlace::OutOfBounds);
     }
 
     #[test]
     fn drop_place_appends_a_settlement_downstream_cannot_tell_apart() {
         let (field, wb, gw, gh, sea) = drop_fixture();
-        let DropPlace::Placed(s) = civ_drop_place(&[], 5, 2, 5.0, &field, &wb, gw, gh, sea, 3, SettlementKind::City, 0.25) else {
+        let DropPlace::Placed(s) = civ_drop_place(&[], 5, 2, 5.0, &field, &wb, gw, gh, sea, false, 3, SettlementKind::City, 0.25) else {
             panic!("expected a placement on dry land");
         };
         assert_eq!(s.placement.x, 5);
@@ -1305,10 +1307,34 @@ mod tests {
     #[test]
     fn a_capital_drop_sets_the_capital_flag() {
         let (field, wb, gw, gh, sea) = drop_fixture();
-        let DropPlace::Placed(s) = civ_drop_place(&[], 5, 2, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Capital, 0.0) else {
+        let DropPlace::Placed(s) = civ_drop_place(&[], 5, 2, 5.0, &field, &wb, gw, gh, sea, false, 1, SettlementKind::Capital, 0.0) else {
             panic!("expected a placement");
         };
         assert!(s.placement.capital);
+    }
+
+    /// Ruling AR (2026-09-24): the coastal test wraps east-west only on a
+    /// world map. Ocean on the west edge only; a drop three cells from the
+    /// east edge is fifteen cells from that ocean across the map, but three
+    /// across the seam -- inside `coast_r = max(6, gw/60) = 6` only if the
+    /// map wraps.
+    #[test]
+    fn coastal_wraps_across_the_seam_only_on_a_world_map() {
+        let (gw, gh) = (20usize, 8usize);
+        let mut field = vec![0.6f32; gw * gh];
+        let mut wb = vec![0u8; gw * gh];
+        for y in 0..gh {
+            for x in 0..3 {
+                field[y * gw + x] = 0.2;
+                wb[y * gw + x] = 1;
+            }
+        }
+        let drop = |world: bool| match civ_drop_place(&[], 17, 4, 5.0, &field, &wb, gw, gh, 0.42, world, 1, SettlementKind::Town, 0.0) {
+            DropPlace::Placed(s) => s.placement.coastal,
+            other => panic!("expected a placement on dry land, got {other:?}"),
+        };
+        assert!(!drop(false), "a flat map has no seam: the west-edge ocean is 15 cells away");
+        assert!(drop(true), "a world map wraps: the same ocean is 3 cells away across the seam");
     }
 
     /// The select-near-existing branch runs *before* the water refusal --
@@ -1319,7 +1345,7 @@ mod tests {
         let (field, wb, gw, gh, sea) = drop_fixture();
         let places = vec![settlement(1, 1, SettlementKind::Town)];
         assert_eq!(
-            civ_drop_place(&places, 1, 1, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, 0.0),
+            civ_drop_place(&places, 1, 1, 5.0, &field, &wb, gw, gh, sea, false, 1, SettlementKind::Town, 0.0),
             DropPlace::Selected(0)
         );
     }

@@ -5432,7 +5432,7 @@ mod tests {
             width_km,
         );
         let mut rng = crate::civ_name_rng();
-        let settlements = crate::name_and_populate_settlements_with_rng(&placements, &mut rng);
+        let settlements = crate::name_and_populate_settlements_with_rng(&placements, &mut rng, &[]);
         let ways = crate::civ_consolidate_and_smooth_ways(
             &topology,
             &settlements,

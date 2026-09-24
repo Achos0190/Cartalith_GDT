@@ -263,9 +263,12 @@ pub fn territory_feature(
 /// `_geoProvinceFeature(prov)` (reference 12569): one province, traced out of
 /// the province raster exactly as territory is traced out of `civTerritory`.
 ///
-/// No clipping against the faction boundary is needed and none is done: a
-/// province never crosses its own faction's territory by construction, because
-/// `civ_generate_provinces` only ever assigns a cell to a same-faction seed.
+/// No clipping against the faction boundary is done. `civ_generate_provinces`
+/// assigns a cell only to a seed of that cell's own faction, so a province
+/// stays inside its faction's territory *in the grid it was built from*. The
+/// caller must pass the raster built from the territory being exported;
+/// `cartalith-godot` rebuilds provinces whenever paint or a GeoJSON import
+/// changes that grid.
 pub fn province_feature(
     prov_raster: &[i32],
     gw: usize,

@@ -167,6 +167,9 @@ pub struct ApplyCtx<'a> {
     pub gh: usize,
     pub map_width_km: f64,
     pub sea: f64,
+    /// The map wraps east-west (a whole world): the coastal test a placed
+    /// settlement gets wraps only then (Ruling AR).
+    pub world: bool,
     pub field: &'a [f32],
     pub water_bodies: &'a [u8],
 }
@@ -203,7 +206,10 @@ pub fn apply_geojson(
                 if let Some(name) = created {
                     report.factions_created.push(name);
                 }
-                apply_settlement(feat, fid, was_created, ctx, cell_km, settlements, next_tid, name_rng)
+                // A nameless import is named in the faction's culture as the
+                // roster holds it, the manual Settlement tool's own rule.
+                let culture = cartalith_civ::civ_faction_culture(&roster.cultures(), fid);
+                apply_settlement(feat, fid, was_created, culture, ctx, cell_km, settlements, next_tid, name_rng)
             }
             Some("territory") => {
                 let (fid, created) = resolve_faction(feat, roster);
@@ -246,6 +252,7 @@ fn apply_settlement(
     feat: &GeoFeature,
     faction: i32,
     faction_created: bool,
+    culture: &cartalith_civ::Culture,
     ctx: &ApplyCtx<'_>,
     cell_km: f64,
     settlements: &mut Vec<NamedSettlement>,
@@ -266,7 +273,7 @@ fn apply_settlement(
         .unwrap_or(SettlementKind::Town);
     let pick_r = civ_place_pick_radius(ctx.gw);
 
-    match civ_drop_place(settlements, cx, cy, pick_r, ctx.field, ctx.water_bodies, ctx.gw, ctx.gh, ctx.sea, faction, kind, 0.0) {
+    match civ_drop_place(settlements, cx, cy, pick_r, ctx.field, ctx.water_bodies, ctx.gw, ctx.gh, ctx.sea, ctx.world, faction, kind, 0.0) {
         DropPlace::OutOfBounds => FeatureOutcome::SettlementSkipped { reason: "coordinates fall outside the grid" },
         DropPlace::Water => FeatureOutcome::SettlementSkipped { reason: "coordinates are on water" },
         DropPlace::Selected(_) => {
@@ -274,7 +281,7 @@ fn apply_settlement(
         }
         DropPlace::Placed(mut s) => {
             let name = feat.prop("name").and_then(serde_json::Value::as_str).unwrap_or("");
-            s.name = manual_settlement_name(name, faction, name_rng);
+            s.name = manual_settlement_name(name, culture, name_rng);
             // The document's own population when it is a real, non-negative
             // number; the same tier-populated curve a manual drop uses
             // otherwise -- never a bare zero standing in for "the import
@@ -429,6 +436,7 @@ mod tests {
                 gh: GH,
                 map_width_km: MAP_WIDTH_KM,
                 sea: 0.0,
+                world: false,
                 field: &self.field,
                 water_bodies: &self.water_bodies,
             }

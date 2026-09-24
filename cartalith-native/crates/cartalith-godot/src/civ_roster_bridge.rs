@@ -172,6 +172,13 @@ impl FactionRoster {
         self.0.len().saturating_sub(1)
     }
 
+    /// The `culture` column indexed by faction id -- the reference's
+    /// `civFactionCulture` -- in the shape settlement naming reads it
+    /// (`cartalith_civ::civ_faction_culture`).
+    pub fn cultures(&self) -> Vec<&str> {
+        self.0.iter().map(|e| e.culture.as_str()).collect()
+    }
+
     /// `_civAddFaction` (reference 14644): append one at the next index
     /// with the reference's own defaults. Returns its id.
     pub fn add(&mut self) -> usize {

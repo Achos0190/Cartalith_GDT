@@ -242,7 +242,7 @@ fn case0_drop_place_matches_civ_drop_place() {
     assert_eq!(pick_r, 5.0);
     let mut places: Vec<NamedSettlement> = Vec::new();
 
-    let d = civ_drop_place(&places, C0_LAND_A.0, C0_LAND_A.1, pick_r, &w.field, &w.wb, w.gw, w.gh, w.sea, 2, SettlementKind::Town, 0.0);
+    let d = civ_drop_place(&places, C0_LAND_A.0, C0_LAND_A.1, pick_r, &w.field, &w.wb, w.gw, w.gh, w.sea, w.world, 2, SettlementKind::Town, 0.0);
     let DropPlace::Placed(s) = d else { panic!("land drop must place") };
     assert_eq!((s.placement.x, s.placement.y), C0_LAND_A);
     assert_eq!(s.placement.faction, 2);
@@ -253,19 +253,19 @@ fn case0_drop_place_matches_civ_drop_place() {
 
     // Ocean: refused, list unchanged.
     assert_eq!(
-        civ_drop_place(&places, C0_OCEAN_A.0, C0_OCEAN_A.1, pick_r, &w.field, &w.wb, w.gw, w.gh, w.sea, 2, SettlementKind::Town, 0.0),
+        civ_drop_place(&places, C0_OCEAN_A.0, C0_OCEAN_A.1, pick_r, &w.field, &w.wb, w.gw, w.gh, w.sea, w.world, 2, SettlementKind::Town, 0.0),
         DropPlace::Water
     );
     assert_eq!(places.len(), 1);
 
     // Re-clicking the same cell selects rather than stacking a second one.
     assert_eq!(
-        civ_drop_place(&places, C0_LAND_A.0, C0_LAND_A.1, pick_r, &w.field, &w.wb, w.gw, w.gh, w.sea, 2, SettlementKind::Town, 0.0),
+        civ_drop_place(&places, C0_LAND_A.0, C0_LAND_A.1, pick_r, &w.field, &w.wb, w.gw, w.gh, w.sea, w.world, 2, SettlementKind::Town, 0.0),
         DropPlace::Selected(0)
     );
 
     // A second, distant land click places a second settlement.
-    let d = civ_drop_place(&places, C0_LAND_B.0, C0_LAND_B.1, pick_r, &w.field, &w.wb, w.gw, w.gh, w.sea, 2, SettlementKind::Town, 0.0);
+    let d = civ_drop_place(&places, C0_LAND_B.0, C0_LAND_B.1, pick_r, &w.field, &w.wb, w.gw, w.gh, w.sea, w.world, 2, SettlementKind::Town, 0.0);
     let DropPlace::Placed(s) = d else { panic!("second land drop must place") };
     assert_eq!((s.placement.x, s.placement.y), C0_LAND_B);
     places.push(*s);

@@ -96,7 +96,7 @@
 // lib.rs` itself. Two different paths into the same crate, kept separate
 // below rather than glossed over with a blanket `cartalith_civ::*`.
 use cartalith_civ::tools::{civ_drop_place, DropPlace};
-use cartalith_civ::{civ_base_pop_for_kind, civ_settle_name, NamedSettlement, SettlementKind};
+use cartalith_civ::{civ_base_pop_for_kind, civ_settle_name, Culture, NamedSettlement, SettlementKind};
 use cartalith_spatial::{DirtyTracker, PaintLayer, PaintStamp, PassBuffer};
 
 /// Tile granularity for the territory-paint draft's `PassBuffer`/
@@ -185,9 +185,14 @@ pub fn nearest_land_cell(gx: usize, gy: usize, gw: usize, gh: usize, field: &[f3
 /// non-blank one is used verbatim. Trimmed before the blank check so a
 /// shell that sends whitespace by accident still gets a generated name
 /// rather than a settlement literally named " ".
-pub fn manual_settlement_name(name: &str, faction: i32, rng: &mut cartalith_rng::Mulberry32) -> String {
+///
+/// `culture` is the settlement's faction's culture as the roster holds it
+/// (`cartalith_civ::civ_faction_culture` over `FactionRoster::cultures`), so
+/// a culture the user reassigned names the next drop -- the reference's own
+/// `civFactionCulture[faction]` read.
+pub fn manual_settlement_name(name: &str, culture: &Culture, rng: &mut cartalith_rng::Mulberry32) -> String {
     if name.trim().is_empty() {
-        civ_settle_name(rng, faction)
+        civ_settle_name(rng, culture)
     } else {
         name.to_string()
     }
@@ -227,14 +232,16 @@ pub fn drop_settlement(
     gw: usize,
     gh: usize,
     sea: f64,
+    world: bool,
     faction: i32,
+    culture: &Culture,
     kind: SettlementKind,
     name: &str,
 ) -> Option<usize> {
-    match civ_drop_place(settlements, gx, gy, pick_r, field, water_bodies, gw, gh, sea, faction, kind, 0.0) {
+    match civ_drop_place(settlements, gx, gy, pick_r, field, water_bodies, gw, gh, sea, world, faction, kind, 0.0) {
         DropPlace::Selected(i) => Some(i),
         DropPlace::Placed(mut s) => {
-            s.name = manual_settlement_name(name, faction, name_rng);
+            s.name = manual_settlement_name(name, culture, name_rng);
             s.pop = manual_settlement_pop(kind, 0.0, name_rng);
             // `TIMELINE_SCOPE.md` milestone 1: a hand-placed settlement is
             // exactly the "placement time" this port's `tid` design assigns
@@ -546,14 +553,14 @@ mod tests {
     #[test]
     fn manual_settlement_name_uses_the_given_name_verbatim_when_not_blank() {
         let mut rng = cartalith_civ::civ_name_rng();
-        assert_eq!(manual_settlement_name("Port Callis", 1, &mut rng), "Port Callis");
+        assert_eq!(manual_settlement_name("Port Callis", cartalith_civ::civ_default_culture(1), &mut rng), "Port Callis");
     }
 
     #[test]
     fn manual_settlement_name_generates_one_when_blank_or_whitespace() {
         let mut rng = cartalith_civ::civ_name_rng();
-        let a = manual_settlement_name("", 1, &mut rng);
-        let b = manual_settlement_name("   ", 1, &mut rng);
+        let a = manual_settlement_name("", cartalith_civ::civ_default_culture(1), &mut rng);
+        let b = manual_settlement_name("   ", cartalith_civ::civ_default_culture(1), &mut rng);
         assert!(!a.is_empty());
         assert!(!b.is_empty());
         assert_ne!(a, b, "the stream must have advanced between the two calls, not repeated");
@@ -588,7 +595,7 @@ mod tests {
         let (mut places, field, wb, gw, gh, sea) = drop_fixture();
         let mut rng = cartalith_civ::civ_name_rng();
         let mut next_tid = 1u64;
-        let idx = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, 2, SettlementKind::Town, "");
+        let idx = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, false, 2, cartalith_civ::civ_default_culture(2), SettlementKind::Town, "");
         assert_eq!(idx, Some(0));
         assert_eq!(places.len(), 1);
         assert!(!places[0].name.is_empty());
@@ -600,8 +607,8 @@ mod tests {
         let (mut places, field, wb, gw, gh, sea) = drop_fixture();
         let mut rng = cartalith_civ::civ_name_rng();
         let mut next_tid = 1u64;
-        assert_eq!(super::drop_settlement(&mut places, &mut next_tid, &mut rng, 1, 1, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, ""), None);
-        assert_eq!(super::drop_settlement(&mut places, &mut next_tid, &mut rng, 99, 1, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, ""), None);
+        assert_eq!(super::drop_settlement(&mut places, &mut next_tid, &mut rng, 1, 1, 5.0, &field, &wb, gw, gh, sea, false, 1, cartalith_civ::civ_default_culture(1), SettlementKind::Town, ""), None);
+        assert_eq!(super::drop_settlement(&mut places, &mut next_tid, &mut rng, 99, 1, 5.0, &field, &wb, gw, gh, sea, false, 1, cartalith_civ::civ_default_culture(1), SettlementKind::Town, ""), None);
         assert!(places.is_empty());
     }
 
@@ -610,8 +617,8 @@ mod tests {
         let (mut places, field, wb, gw, gh, sea) = drop_fixture();
         let mut rng = cartalith_civ::civ_name_rng();
         let mut next_tid = 1u64;
-        let first = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, "First").unwrap();
-        let second = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, "");
+        let first = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, false, 1, cartalith_civ::civ_default_culture(1), SettlementKind::Town, "First").unwrap();
+        let second = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, false, 1, cartalith_civ::civ_default_culture(1), SettlementKind::Town, "");
         assert_eq!(second, Some(first));
         assert_eq!(places.len(), 1, "clicking an existing place must not stack a second settlement");
     }
@@ -626,14 +633,14 @@ mod tests {
         let (mut places, field, wb, gw, gh, sea) = drop_fixture();
         let mut rng = cartalith_civ::civ_name_rng();
         let mut next_tid = 1u64;
-        let first = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, "First").unwrap();
+        let first = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, false, 1, cartalith_civ::civ_default_culture(1), SettlementKind::Town, "First").unwrap();
         assert_eq!(places[first].tid, 1);
         assert_eq!(next_tid, 2);
-        let second = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 7, 2, 1.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Village, "Second").unwrap();
+        let second = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 7, 2, 1.0, &field, &wb, gw, gh, sea, false, 1, cartalith_civ::civ_default_culture(1), SettlementKind::Village, "Second").unwrap();
         assert_eq!(places[second].tid, 2);
         assert_eq!(next_tid, 3);
         // Re-clicking the first settlement selects it (no new tid drawn).
-        let reselect = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, "");
+        let reselect = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, false, 1, cartalith_civ::civ_default_culture(1), SettlementKind::Town, "");
         assert_eq!(reselect, Some(first));
         assert_eq!(next_tid, 3, "reselecting an existing settlement must not advance the counter");
     }

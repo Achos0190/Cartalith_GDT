@@ -299,7 +299,9 @@ struct CivData {
     ///
     /// Empty on the SG-02 keep path only insofar as the topology is: the
     /// endpoint remap that `ways` gets is applied before this is captured,
-    /// so `a`/`b` index into `settlements` here exactly as they do there.
+    /// and so is the recovery pass's (`remap_after_recovery`, which also
+    /// removes an edge whose settlement it abandoned), so `a`/`b` index into
+    /// `settlements` here exactly as they do there.
     /// Empty for a project restored from an archive — the format stores no
     /// channel topology (`SAVEFILE_COMPAT.md` §16.2), the same reason
     /// `explanations` is empty there.
@@ -639,6 +641,54 @@ fn civ_settle_staleness(stages: &mut cartalith_spatial::StageGraph, civ_dirty: &
     }
 }
 
+/// Rebuilds the province raster and list over `civ.territory` as it stands
+/// now, painted borders included. The reference's `_civGenerateProvinces`
+/// reads `civTerritory`, which in the reference *is* the painted grid; here
+/// `compute_civilisation` builds provinces from `assign_territory`'s raw
+/// output and the paint is merged afterwards, so without this a province
+/// ran straight across a border the user had painted (audit 2026-09-24,
+/// Part 1 A4). The list itself depends only on the settlements, so ids and
+/// names do not move; only which cells carry them does.
+fn civ_reprovince(civ: &mut CivData, gw: usize, gh: usize) {
+    let (provinces, province_list) = cartalith_civ::civ_generate_provinces(&civ.settlements, &civ.territory, gw, gh);
+    civ.provinces = provinces;
+    civ.province_list = province_list;
+}
+
+/// [`WorldGen::civ_rebuild`]'s paint step: re-anchor the accumulated
+/// territory paint onto the freshly computed borders
+/// ([`civ_tools_bridge::CivTools::rebase`]), then rebuild the provinces over
+/// the merged grid -- only when paint exists, so a world nobody painted keeps
+/// the provinces `compute_civilisation` built, untouched, and only when the
+/// mode re-derived the layer (`Routes` keeps its pre-run provinces on
+/// purpose; see [`civ_merge`]).
+fn civ_rebase_territory_paint(
+    tools: &mut civ_tools_bridge::CivTools,
+    civ: &mut CivData,
+    gw: usize,
+    gh: usize,
+    rederived: bool,
+) {
+    tools.rebase(&mut civ.territory);
+    if rederived && tools.territory_paint.cells().is_some() {
+        civ_reprovince(civ, gw, gh);
+    }
+}
+
+/// [`WorldGen::civ_territory_commit`]'s body: bake the draft, and when it
+/// changed the claim grid, rebuild the provinces over it. The reference
+/// regenerates provinces from a button (`civGenProvincesBtn`) rather than on
+/// every stroke; this port has no such button, and provinces that ignore the
+/// grid on screen until the next full recompute are the defect being fixed,
+/// so a commit -- one per stroke, not per dab -- is where they follow it.
+fn civ_commit_territory_paint(tools: &mut civ_tools_bridge::CivTools, civ: &mut CivData, gw: usize, gh: usize) -> bool {
+    if !tools.commit(&mut civ.territory) {
+        return false;
+    }
+    civ_reprovince(civ, gw, gh);
+    true
+}
+
 /// One test per [`CivRebuild`] mode, each asserting the same single claim:
 /// **`civ_merge`'s bool is true only when every field the merged layer
 /// derives from the settlement list came from the fresh pass.** That is the
@@ -937,6 +987,259 @@ mod civ_merge_tests {
         assert!(merged.place_extras.0.is_empty());
 
         assert_claim_matches_reality(CivRebuild::Replace);
+    }
+}
+
+/// The 2026-09-24 alignment audit's civ-pipeline defects
+/// (`ALIGNMENT_AUDIT.md` Part 1 A2, A3, A4), driven through the real
+/// `compute_civilisation` over a real generated world. That function and the
+/// paint helpers carry no `godot` type, so they run here without an engine;
+/// only the `#[func]` shells around them (`civ_rebuild`,
+/// `civ_territory_commit`) cannot.
+#[cfg(test)]
+mod civ_pipeline_tests {
+    use super::{
+        CivData, civ_commit_territory_paint, civ_rebase_territory_paint, civ_roster_bridge, civ_tools_bridge,
+        coarse_ocean_wind_fields, compute_civilisation, recovery_index_map, remap_after_recovery,
+    };
+    use cartalith_civ::timeline::CollapsePlace;
+    use cartalith_civ::{HierarchicalNetworkResult, NamedSettlement, RoadEdge, SettlementKind, Way, WayType};
+    use std::collections::HashSet;
+
+    /// One 256x192 world, the shipped app's parameters, CPU only.
+    fn world() -> &'static (cartalith_engine::WorldState, cartalith_engine::WorldParams) {
+        static W: std::sync::OnceLock<(cartalith_engine::WorldState, cartalith_engine::WorldParams)> =
+            std::sync::OnceLock::new();
+        W.get_or_init(|| {
+            let mut p = crate::params::defaults();
+            p.gw = 256;
+            p.gh = 192;
+            p.tect.seed = 12345;
+            p.use_gpu = false;
+            (cartalith_engine::generate_terrain(&p), p)
+        })
+    }
+
+    fn civ(p: &cartalith_engine::WorldParams, cultures: &[&str]) -> CivData {
+        let ws = &world().0;
+        let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
+        compute_civilisation(
+            ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, cultures, None, (&o, &w), false,
+            &mut Vec::new(),
+        )
+    }
+
+    /// A settlement's identity across two runs of the pipeline. `tid`s are
+    /// issued after the recovery pass, per run, so they cannot be compared
+    /// between a Stable and a recovered run; recovery moves no settlement and
+    /// renames none, so cell plus name is the same identity `tid` stands for.
+    type Key = (usize, usize, String);
+    fn key(s: &NamedSettlement) -> Key {
+        (s.placement.x, s.placement.y, s.name.clone())
+    }
+    fn pair(c: &CivData, a: usize, b: usize) -> (Key, Key) {
+        let at = |i: usize| key(c.settlements.get(i).unwrap_or_else(|| panic!("endpoint {i} past {} settlements", c.settlements.len())));
+        (at(a), at(b))
+    }
+
+    /// A2. Auto-populate names from the roster's cultures: a roster at its
+    /// defaults names exactly as no roster does, and an edited culture
+    /// renames that faction's settlements (villages included) and nothing
+    /// else -- positions and populations do not move, because a name draws
+    /// the same number of values whatever its culture.
+    #[test]
+    fn auto_populate_names_from_the_roster_culture() {
+        let mut p = world().1.clone();
+        p.civ.villages = true;
+        let names = |c: &CivData| c.settlements.iter().map(key).collect::<Vec<_>>();
+        let bare = civ(&p, &[]);
+        let roster = civ_roster_bridge::FactionRoster::seeded(p.civ.factions.max(1) as usize);
+        assert_eq!(names(&bare), names(&civ(&p, &roster.cultures())), "an unedited roster must name as no roster");
+
+        let f = bare.settlements.iter().map(|s| s.placement.faction).find(|&f| f > 0).expect("a claimed settlement");
+        let new_key = if roster.0[f as usize].culture == "desert" { "maritime" } else { "desert" };
+        let mut edited = roster.clone();
+        assert!(edited.set_field(f as usize, "culture", new_key));
+        let renamed = civ(&p, &edited.cultures());
+        assert_eq!(bare.settlements.len(), renamed.settlements.len());
+        let pool = cartalith_civ::civ_culture_by_key(new_key);
+        let mut moved = 0;
+        for (a, b) in bare.settlements.iter().zip(&renamed.settlements) {
+            assert_eq!((a.placement, a.pop), (b.placement, b.pop), "{} moved or re-populated", a.name);
+            if a.placement.faction == f {
+                moved += usize::from(a.name != b.name);
+                assert!(pool.sfx.iter().any(|s| b.name.ends_with(s)), "{} is not from the {new_key} pool", b.name);
+            } else {
+                assert_eq!(a.name, b.name, "faction {} was not edited", a.placement.faction);
+            }
+        }
+        assert!(moved > 0, "the edited faction's names never changed");
+    }
+
+    /// A3's acceptance test. With the recovery phase at I or II, settlements
+    /// are dropped and the list re-indexed; afterwards every way and raw edge
+    /// must join the same two settlements it joined in the Stable run, and
+    /// every road between two survivors must still be there.
+    #[test]
+    fn recovery_keeps_every_road_on_the_settlements_it_joined() {
+        let mut p = world().1.clone();
+        p.civ.villages = true;
+        let stable = civ(&p, &[]);
+        let mut before: HashSet<(Key, Key)> = stable.road_edges.iter().map(|e| pair(&stable, e.a, e.b)).collect();
+        before.extend(stable.ways.iter().map(|w| pair(&stable, w.a_idx, w.b_idx)));
+        assert!(!before.is_empty(), "fixture has no roads");
+
+        for phase in [1, 2] {
+            p.civ.recovery_phase = phase;
+            let rec = civ(&p, &[]);
+            assert!(
+                rec.settlements.len() < stable.settlements.len(),
+                "premise: phase {phase} must abandon something ({} of {})",
+                rec.settlements.len(),
+                stable.settlements.len()
+            );
+            let mut after: HashSet<(Key, Key)> = HashSet::new();
+            for (a, b) in rec.road_edges.iter().map(|e| (e.a, e.b)).chain(rec.ways.iter().map(|w| (w.a_idx, w.b_idx))) {
+                let joined = pair(&rec, a, b);
+                assert!(before.contains(&joined), "phase {phase}: {joined:?} was never a road");
+                after.insert(joined);
+            }
+            let survivors: HashSet<Key> = rec.settlements.iter().map(key).collect();
+            for (a, b) in &before {
+                if survivors.contains(a) && survivors.contains(b) {
+                    assert!(after.contains(&(a.clone(), b.clone())), "phase {phase}: the road {a:?} -> {b:?} was lost");
+                }
+            }
+            // Rebuilt, not filtered: consolidation had given some corridor
+            // cells of surviving roads to an abandoned place's edge, so merely
+            // dropping that edge's ways would leave gaps in roads between
+            // survivors. Drawn length is where that shows. On this world
+            // (215 settlements, 200 of them villages) phase I abandons five of
+            // the fifteen towns and every village, and filtering would keep
+            // 1492.6 km of network road where the rebuild draws 1611.9 km
+            // (measured 2026-09-24); phase II abandons only the villages, whose
+            // tracks own no network cell, so the two agree exactly.
+            let survives = |s: &NamedSettlement| survivors.contains(&key(s));
+            let drawn = |c: &CivData, keep: &dyn Fn(&Way) -> bool| -> f64 {
+                c.ways.iter().filter(|w| !w.hidden && w.way_type != WayType::Ancient && keep(w)).map(|w| w.km).sum()
+            };
+            let filtered =
+                drawn(&stable, &|w| survives(&stable.settlements[w.a_idx]) && survives(&stable.settlements[w.b_idx]));
+            let rebuilt = drawn(&rec, &|_| true);
+            if phase == 1 {
+                assert!(rebuilt > filtered + 50.0, "phase 1: rebuilt {rebuilt:.1} km, filtering keeps {filtered:.1} km");
+            } else {
+                assert!((rebuilt - filtered).abs() < 1e-9, "phase 2 abandons no network node: {rebuilt} vs {filtered}");
+            }
+        }
+    }
+
+    fn way(a: usize, b: usize) -> Way {
+        Way {
+            tid: 0,
+            pts: vec![(0.0, 0.0), (1.0, 1.0)],
+            brks: Vec::new(),
+            km: 1.0,
+            name: format!("{a}-{b}"),
+            way_type: WayType::Road,
+            a_idx: a,
+            b_idx: b,
+            hidden: false,
+        }
+    }
+
+    /// The remap itself on a hand-built case: settlement 1 of 4 abandoned.
+    #[test]
+    fn remap_repoints_survivors_and_removes_what_touched_the_abandoned() {
+        let place = |i: u64| CollapsePlace {
+            tid: i,
+            x: 0,
+            y: 0,
+            kind: SettlementKind::Town,
+            pop: 100.0,
+            fortified: false,
+            ruins: false,
+            port: false,
+        };
+        let map = recovery_index_map(4, &[place(0), place(2), place(3)]);
+        assert_eq!(map, vec![Some(0), None, Some(1), Some(2)]);
+
+        let edge = |a, b| RoadEdge { a, b, path: Vec::new() };
+        let mut topology = HierarchicalNetworkResult {
+            edges: vec![edge(0, 2), edge(1, 3), edge(2, 3), edge(0, 1)],
+            usage_count: Vec::new(),
+            degree_of: Vec::new(),
+        };
+        // Four network ways, then two village connectors.
+        let ways = vec![way(0, 2), way(1, 3), way(2, 3), way(0, 1), way(3, 1), way(3, 0)];
+        let out = remap_after_recovery(&map, &mut topology, ways, 4, |t| t.edges.iter().map(|e| way(e.a, e.b)).collect());
+        let edges: Vec<(usize, usize)> = topology.edges.iter().map(|e| (e.a, e.b)).collect();
+        assert_eq!(edges, vec![(0, 1), (1, 2)], "old 0-2 and 2-3, re-pointed; both edges touching 1 gone");
+        let ways: Vec<(usize, usize, &str)> = out.iter().map(|w| (w.a_idx, w.b_idx, w.name.as_str())).collect();
+        assert_eq!(ways, vec![(0, 1, "0-1"), (1, 2, "1-2"), (2, 0, "3-0")], "network rebuilt, connector 3-1 gone, 3-0 re-pointed");
+    }
+
+    /// Cells whose province belongs to a faction other than the cell's own
+    /// -- a province crossing a border. `civ_generate_provinces` makes this
+    /// zero on the grid it is handed; the defect was handing it the wrong grid.
+    fn crossings(territory: &[i32], provinces: &[i32], list: &[cartalith_civ::Province]) -> usize {
+        territory.iter().zip(provinces).filter(|&(&t, &p)| p > 0 && list[(p - 1) as usize].faction != t).count()
+    }
+    fn crossings_of(c: &CivData) -> usize {
+        crossings(&c.territory, &c.provinces, &c.province_list)
+    }
+
+    /// A4. Paint a border through one faction's land and commit it: no
+    /// province may cross it. Before the fix a commit merged the paint into
+    /// `territory` and left the provinces built on the unpainted grid.
+    #[test]
+    fn provinces_follow_a_painted_border() {
+        let p = &world().1;
+        let (gw, gh) = (p.gw, p.gh);
+        let mut c = civ(p, &[]);
+        assert_eq!(crossings_of(&c), 0, "an unpainted world has no crossings");
+        // Paint faction `g`'s claim over the capital of another faction `f`,
+        // where `f`'s own province certainly lies.
+        let cap = c.settlements.iter().find(|s| s.placement.capital && s.placement.faction > 0).expect("a capital");
+        let f = cap.placement.faction;
+        let g = c.province_list.iter().map(|pr| pr.faction).find(|&g| g != f).expect("a second faction with a province");
+        let (cx, cy) = (cap.placement.x as f64, cap.placement.y as f64);
+
+        // The defect, reproduced: merging the paint alone leaves crossings.
+        let mut bare = civ_tools_bridge::CivTools::new(gw, gh, c.territory.clone(), 1);
+        bare.paint_at(cx, cy, g, 12.0, false);
+        let mut unfixed = c.territory.clone();
+        assert!(bare.commit(&mut unfixed));
+        assert!(
+            crossings(&unfixed, &c.provinces, &c.province_list) > 0,
+            "premise: the paint must cut into {f}'s provinces"
+        );
+
+        let mut tools = civ_tools_bridge::CivTools::new(gw, gh, c.territory.clone(), 1);
+        tools.paint_at(cx, cy, g, 12.0, false);
+        assert!(civ_commit_territory_paint(&mut tools, &mut c, gw, gh));
+        assert_eq!(c.territory, unfixed, "the same claim grid either way");
+        assert_eq!(crossings_of(&c), 0, "a province crosses the painted border");
+
+        // A recompute re-anchors the paint on fresh borders and must keep
+        // the provinces on the merged grid too.
+        let mut fresh = civ(p, &[]);
+        civ_rebase_territory_paint(&mut tools, &mut fresh, gw, gh, true);
+        assert_eq!(fresh.territory, c.territory);
+        assert_eq!(crossings_of(&fresh), 0, "a recompute put provinces back on the unpainted grid");
+    }
+
+    /// A4's other half: with no paint, a recompute's provinces are exactly
+    /// what `compute_civilisation` built -- not rebuilt, not moved.
+    #[test]
+    fn provinces_are_untouched_when_nothing_was_painted() {
+        let p = &world().1;
+        let mut c = civ(p, &[]);
+        let (territory, provinces) = (c.territory.clone(), c.provinces.clone());
+        let mut tools = civ_tools_bridge::CivTools::new(p.gw, p.gh, territory.clone(), 1);
+        civ_rebase_territory_paint(&mut tools, &mut c, p.gw, p.gh, true);
+        assert_eq!(c.territory, territory);
+        assert_eq!(c.provinces, provinces);
     }
 }
 
@@ -1945,6 +2248,73 @@ fn recovery_phase_of(civ: &cartalith_engine::CivParams) -> cartalith_civ::timeli
     cartalith_civ::timeline::RecoveryPhase::from_index_clamped(i64::from(civ.recovery_phase))
 }
 
+/// Where each pre-recovery settlement index went: `Some(new index)` for a
+/// survivor, `None` for one `civ_apply_recovery` abandoned. Reads the
+/// pre-pass index `compute_civilisation` stores in `CollapsePlace::tid`
+/// (real `tid`s are assigned after the pass).
+fn recovery_index_map(n_before: usize, after: &[cartalith_civ::timeline::CollapsePlace]) -> Vec<Option<usize>> {
+    let mut map = vec![None; n_before];
+    for (new, p) in after.iter().enumerate() {
+        map[p.tid as usize] = Some(new);
+    }
+    map
+}
+
+/// Both endpoints through `map`, or `false` (leaving them untouched) when
+/// either settlement was abandoned.
+fn remap_endpoints(map: &[Option<usize>], a: &mut usize, b: &mut usize) -> bool {
+    match (map.get(*a).copied().flatten(), map.get(*b).copied().flatten()) {
+        (Some(na), Some(nb)) => {
+            *a = na;
+            *b = nb;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// The recovery pass's re-indexing, applied to everything that names a
+/// settlement by index: the raw road edges (`topology.edges`, kept as
+/// `CivData::road_edges`) and the ways. A pair whose two settlements both
+/// survived is re-pointed at their new indices, so every road joins the same
+/// two places it joined before the pass; an edge or way with an abandoned
+/// endpoint is removed.
+///
+/// **Removed, not kept.** The reference keeps every way (`civWays=ways`,
+/// v2.11 26279 onward) with its `aIdx`/`bIdx` left pointing into the
+/// pre-recovery list -- a road still drawn to the abandoned site, carrying an
+/// index that now names some other town or nothing. This port's `Way` has no
+/// "no endpoint" state, and trade (`RoadComponents`, `WayRouter`), belief
+/// links, manpower and the save all trust both ends, so the choice is between
+/// dropping the road and re-anchoring it on a place it never led to. It is
+/// dropped: a phase-I/II abandonment takes its spur road with it.
+///
+/// **The network's ways are rebuilt, not filtered.** Consolidation gives each
+/// corridor cell to the busiest edge through it, so a removed edge can own
+/// the drawn stretch of a road between two survivors; filtering its ways would
+/// cut a gap in that road. `rebuild` (`civ_consolidate_and_smooth_ways` over
+/// the re-indexed `settlements`) re-runs consolidation on the surviving
+/// edges instead. `usage_count` is left as the full network measured it, so
+/// every surviving road keeps the class it was generated with.
+///
+/// The village connectors (`ways[n_network_ways..]`) are each one village's
+/// own track and are remapped or removed in place. In phases I and II every
+/// addon village carries `pop: 0`, under the drop threshold, so all of them
+/// go with their villages.
+fn remap_after_recovery(
+    map: &[Option<usize>],
+    topology: &mut cartalith_civ::HierarchicalNetworkResult,
+    mut ways: Vec<cartalith_civ::Way>,
+    n_network_ways: usize,
+    rebuild: impl FnOnce(&cartalith_civ::HierarchicalNetworkResult) -> Vec<cartalith_civ::Way>,
+) -> Vec<cartalith_civ::Way> {
+    let connectors = ways.split_off(n_network_ways);
+    topology.edges.retain_mut(|e| remap_endpoints(map, &mut e.a, &mut e.b));
+    let mut out = rebuild(topology);
+    out.extend(connectors.into_iter().filter_map(|mut w| remap_endpoints(map, &mut w.a_idx, &mut w.b_idx).then_some(w)));
+    out
+}
+
 /// The coarse ocean-current/wind vector fields [`cartalith_civ::civ_sea_routes`]
 /// needs for current/wind-costed sea-lane routing (`DECISIONS.md`, the
 /// `_civSeaTimeEdgeCost` port) -- the exact same "recompute fresh, keep
@@ -2072,6 +2442,12 @@ fn compute_civilisation(
     map_width_km: f64,
     river_density: f64,
     opts: &cartalith_engine::CivParams,
+    // The faction roster's culture column (`FactionRoster::cultures`) that
+    // will be in force over the result -- the reference names from the
+    // editable `civFactionCulture[faction]` (v2.10 20718). `&[]` names every
+    // faction in its default culture, which is what a fresh roster holds.
+    // Read only where this function authors names (auto-populate + villages).
+    faction_cultures: &[&str],
     keep: Option<KeptCiv>,
     // `_civSeaTimeEdgeCost`'s port (`DECISIONS.md` §7i): current/wind-costed
     // sea lanes. Both callers build this via `coarse_ocean_wind_fields`,
@@ -2472,7 +2848,7 @@ fn compute_civilisation(
     let (mut settlements, kept_next_tid, kept_village_tids) = match keep {
         Some(k) => (k.settlements, k.next_tid, k.village_tids),
         None => (
-            cartalith_civ::name_and_populate_settlements_with_rng(&placements, &mut rng),
+            cartalith_civ::name_and_populate_settlements_with_rng(&placements, &mut rng, faction_cultures),
             1u64,
             Default::default(),
         ),
@@ -2505,6 +2881,7 @@ fn compute_civilisation(
             gh,
             sea_level,
             map_width_km,
+            faction_cultures,
         );
         // Reference `_civSeedVillages`'s own added object has no
         // suitability score, no capital/coastal flags, and an
@@ -2541,11 +2918,16 @@ fn compute_civilisation(
     //
     // Built HERE, before the recovery pass below, rather than after it: the
     // reference names its ways inside `_civHierarchicalNetwork`, long before
-    // `_civApplyRecovery` (v2.11 26279) -- and recovery can DROP entries,
-    // after which `settlements[e.a]` would name a different place. With
-    // recovery at its default (`Stable`, a strict no-op) `settlements` is the
-    // same list at both points, so the default path is unchanged.
+    // `_civApplyRecovery` (v2.11 26279), and the village connectors below
+    // route against these ways. Recovery can DROP entries, which re-indexes
+    // `settlements`; the recovery block remaps and rebuilds what hangs off
+    // the old indices (`remap_after_recovery`). With recovery at its default
+    // (`Stable`, a strict no-op) `settlements` is the same list at both
+    // points, so the default path is unchanged.
     let mut ways = cartalith_civ::civ_consolidate_and_smooth_ways(&topology, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km);
+    // Where the network's ways end and the village connectors begin, for the
+    // recovery remap below.
+    let n_network_ways = ways.len();
 
     // `_civConnectVillageAddons` (reference v2.11 25766): every addon village
     // gets a dirt track (`WayType::Ancient`) into the network just built. The
@@ -2631,6 +3013,7 @@ fn compute_civilisation(
         // `civ_apply_recovery` can drop entries, so the village flags are
         // carried through the same index map rather than left behind.
         is_village = after.iter().map(|p| is_village[p.tid as usize]).collect();
+        let index_map = recovery_index_map(before.len(), &after);
         settlements = after
             .into_iter()
             .map(|p| {
@@ -2640,6 +3023,17 @@ fn compute_civilisation(
                 s
             })
             .collect();
+        // ...and so does everything that names a settlement by index: the
+        // raw edges and every way (audit 2026-09-24, Part 1 A3 -- until then
+        // they kept their pre-recovery indices, so trade, belief links,
+        // manpower and the save all read a different town at each end).
+        // Only phases I and II drop anything; III and IV keep every entry,
+        // the map is the identity, and nothing here runs.
+        if settlements.len() < before.len() {
+            ways = remap_after_recovery(&index_map, &mut topology, ways, n_network_ways, |topo| {
+                cartalith_civ::civ_consolidate_and_smooth_ways(topo, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km)
+            });
+        }
     }
 
 
@@ -2729,11 +3123,14 @@ fn compute_civilisation(
     // territory, `assign_territory`'s own `if !capital continue`), so
     // whether villages were added above doesn't change this at all.
     let territory = cartalith_civ::assign_territory(&settlements, &cost, gw, gh, world);
-    // Provinces (`_civGenerateProvinces`, PHASE2_SCOPE.md): the reference
-    // itself has no programmatic `civTerritory` producer to subdivide, but
-    // this port's own `assign_territory` output above is the exact same
-    // per-cell shape (`Vec<i32>` faction id, 0 = unowned) the reference
-    // function expects -- see `civ_generate_provinces`'s own doc comment.
+    // Provinces (`_civGenerateProvinces`, PHASE2_SCOPE.md) over
+    // `assign_territory`'s output above, the same per-cell shape (`Vec<i32>`
+    // faction id, 0 = unowned) as the reference's `civTerritory`, which its
+    // `_civAutoPolity` (v2.10 20665) and the paint tool write. Paint is not
+    // in this grid yet: the caller merges it afterwards, and rebuilds the
+    // provinces over the merged grid when there is any
+    // (`civ_rebase_territory_paint`), so a province never crosses a painted
+    // border and a world with no paint keeps exactly these.
     let (provinces, province_list) = cartalith_civ::civ_generate_provinces(&settlements, &territory, gw, gh);
     // Addressable landmasses (`MARKDOWN_VAULT_SCOPE.md` milestone 0). Free:
     // `landmass` above is already the golden-verified flood fill, and this
@@ -2818,7 +3215,8 @@ fn compute_civilisation(
         ways,
         // The raw topology, kept rather than dropped with `topology` at the
         // end of this function -- see `CivData::road_edges`. Taken after the
-        // `net_idx` remap above, so the endpoints index into `settlements`.
+        // `net_idx` remap and the recovery remap above, so the endpoints
+        // index into `settlements`.
         road_edges: topology.edges,
         sea_routes,
         territory,
@@ -4479,8 +4877,10 @@ impl WorldGen {
         self.lat_s = p.climate.lat_s;
         self.gpu_stages_used = ws.gpu_stages_used.clone();
         let (ocean_f, wind_f) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
+        // `&[]`: a generation seeds a fresh roster (`CivData::faction_roster`),
+        // so every faction is at its default culture.
         self.civ = Some(compute_civilisation(
-            &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, None, (&ocean_f, &wind_f),
+            &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&ocean_f, &wind_f),
             p.use_gpu, &mut self.gpu_stages_used,
         ));
         // Milestone F: a fresh Sculpt draft over this world's own
@@ -6191,10 +6591,15 @@ impl WorldGen {
             CivRebuild::Replace => None,
         };
         let (ocean_f, wind_f) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, &p);
+        // Every mode keeps the live roster (`civ_merge`), so its cultures are
+        // the ones the result will be read under -- and `Replace` names with
+        // them, as the reference's Auto-populate names from the edited
+        // `civFactionCulture`.
+        let cultures = civ.faction_roster.cultures();
         // `gpu_stages_used` describes the last generate(), not a rebuild, so
         // this pass's own GPU report is not kept.
         let computed = compute_civilisation(
-            ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, keep, (&ocean_f, &wind_f),
+            ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &cultures, keep, (&ocean_f, &wind_f),
             p.use_gpu, &mut Vec::new(),
         );
         // SP-4: auto-populate reissues every `tid` from 1, so an anchor kept
@@ -6225,7 +6630,7 @@ impl WorldGen {
             ),
         );
         if let Some(tools) = self.civ_tools.as_mut() {
-            tools.rebase(&mut fresh.territory);
+            civ_rebase_territory_paint(tools, &mut fresh, p.gw, p.gh, rederived);
         }
         let (n_places, n_ways, n_prov) = (fresh.settlements.len(), fresh.ways.len(), fresh.province_list.len());
         self.civ = Some(fresh);
@@ -10218,6 +10623,9 @@ impl WorldGen {
         }
         let pick_r = cartalith_civ::tools::civ_place_pick_radius(gw);
         let name = name.to_string();
+        // A blank name is generated in the faction's culture as the roster
+        // holds it, so a reassigned culture names the next drop.
+        let culture = cartalith_civ::civ_faction_culture(&civ.faction_roster.cultures(), faction as i32);
         match civ_tools_bridge::drop_settlement(
             &mut civ.settlements,
             &mut civ.next_tid,
@@ -10230,7 +10638,9 @@ impl WorldGen {
             gw,
             gh,
             sea,
+            self.world,
             faction as i32,
+            culture,
             k,
             &name,
         ) {
@@ -10276,12 +10686,14 @@ impl WorldGen {
     /// Bakes the in-progress territory draft into the accumulated paint
     /// layer and rebuilds `get_provinces`/`build_territory_texture`'s own
     /// `territory` from `territory_base` merged with the full accumulated
-    /// layer -- a no-op with nothing pending, or before any `generate()`
-    /// call.
+    /// layer, then the provinces over that merged grid
+    /// ([`civ_commit_territory_paint`]) -- a no-op with nothing pending, or
+    /// before any `generate()` call.
     #[func]
     fn civ_territory_commit(&mut self) {
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         let (Some(civ), Some(tools)) = (self.civ.as_mut(), self.civ_tools.as_mut()) else { return };
-        let committed = tools.commit(&mut civ.territory);
+        let committed = civ_commit_territory_paint(tools, civ, gw, gh);
         if !committed {
             return;
         }
@@ -17303,7 +17715,10 @@ impl WorldGen {
         let Some(s) = usize::try_from(index).ok().and_then(|i| civ.settlements.get_mut(i)) else {
             return GString::new();
         };
-        s.name = cartalith_civ::civ_settle_name(&mut tools.name_rng, s.placement.faction);
+        // The roster's culture, not the id default: a reassigned culture is
+        // the pool the reference's own reroll draws from.
+        let culture = cartalith_civ::civ_faction_culture(&civ.faction_roster.cultures(), s.placement.faction);
+        s.name = cartalith_civ::civ_settle_name(&mut tools.name_rng, culture);
         GString::from(s.name.as_str())
     }
 

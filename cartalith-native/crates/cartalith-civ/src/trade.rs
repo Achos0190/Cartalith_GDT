@@ -46,9 +46,17 @@
 //!    `snapR = max(2, GW/50)`. The reference snaps because its `state.ways`
 //!    carries polylines and nothing else; this port's consolidation tail
 //!    already records which two settlements a way joins, so the snap would
-//!    be re-deriving an answer that is stored. Same union-find, same
-//!    components, strictly more accurate input — and it cannot change a
-//!    *number*, only which pairs are judged connected.
+//!    be re-deriving an answer that is stored. Same union-find, more
+//!    accurate input — but not the same answer, so it *can* change numbers:
+//!    a consolidated run that starts or ends mid-corridor at a junction
+//!    snaps to no settlement there, while its stored pair still joins two,
+//!    and every flow is computed over the components that come out.
+//!
+//!    It is only as good as the indices, which must name positions in the
+//!    settlement list being matched. `compute_civilisation` keeps that true
+//!    through the recovery phase's re-indexing (`remap_after_recovery`,
+//!    2026-09-24); before that fix a phase I/II world handed this ways whose
+//!    ends named other towns.
 //! 2. **`_civPlaceNavigability` is ported at branches (a) and (b) only.**
 //!    Branch (c) reads `_umSiteProfile`'s `coastDistKm`/`riverDistKm`/
 //!    `riverOrder`, which in this port are locals inside the layout

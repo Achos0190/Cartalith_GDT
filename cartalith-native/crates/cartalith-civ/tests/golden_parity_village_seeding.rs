@@ -90,7 +90,7 @@ fn village_seeding_two_isolated_hotspots_no_roads() {
         .collect();
 
     let mut rng = cartalith_rng::Mulberry32::new(12345);
-    let added = cartalith_civ::civ_seed_villages(&places, &[], 1, 1.0, &mut rng, &suit, &field, &water_bodies, &lake_fill, gw, gh, sea, map_width_km);
+    let added = cartalith_civ::civ_seed_villages(&places, &[], 1, 1.0, &mut rng, &suit, &field, &water_bodies, &lake_fill, gw, gh, sea, map_width_km, &[]);
 
     let expected = vec![
         cartalith_civ::VillageSettlement { x: 2, y: 9, name: "Nashzafwell".to_string(), faction: 3 },

@@ -48,8 +48,9 @@ class_name SettlementTypeStore
 ##
 ## **Name-pool override.** `civ_reroll_settlement_name` keys a re-roll off
 ## the settlement's own faction's stored `culture` field
-## (`civ_default_culture`), not off any per-type pool -- the same fact
-## `culture_profiles_window.gd`'s own doc comment already states for why it
+## (`cartalith_civ::civ_faction_culture` over the roster), not off any
+## per-type pool -- and no bound function draws from a pool it is handed,
+## which `culture_profiles_window.gd`'s own doc comment states for why it
 ## cannot fabricate an arbitrary culture's sample. So "Inherit the faction's
 ## culture" is the only functional value; a type's `name_pool` field is
 ## stored (for a future generation-side hook, if one is ever built) and the
