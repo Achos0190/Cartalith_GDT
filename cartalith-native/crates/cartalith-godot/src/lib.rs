@@ -316,11 +316,11 @@ struct CivData {
     /// and so is the recovery pass's (`remap_after_recovery`, which also
     /// removes an edge whose settlement it abandoned), so `a`/`b` index into
     /// `settlements` here exactly as they do there.
-    /// Empty for a project restored from an archive — the format stores no
-    /// road topology (`SAVEFILE_COMPAT.md` §16.2), the same reason
-    /// `explanations` is empty there. (The *river* channel topology is
-    /// stored since 2026-09-24, §8.3; this is the road router's cell path,
-    /// which is not.)
+    /// Saved and restored since 2026-09-24 (`entities/ways.json`'s
+    /// `road_edges`, `SAVEFILE_COMPAT.md` §9.3), so a reopened project plans
+    /// over the same road cells as the world it saved. Empty for a project
+    /// saved before then, which reopens as it always did: the smoothed `ways`
+    /// only.
     ///
     /// **`build_road_network` is still not this.** That is the reference's
     /// *manual*-placement-tool MST and no tool in this port calls it; this
@@ -443,8 +443,11 @@ struct CivData {
     /// `recompute_civilisation` (`fresh.year = old.year`).
     year: i64,
     /// The recorded year whose snapshot `territory` last came from, or `None`
-    /// when it did not come from one -- a fresh world, a reopened project, a
-    /// recompute or populate that re-derived the borders, a cleared map.
+    /// when it did not come from one -- a fresh world, a recompute or
+    /// populate that re-derived the borders, a cleared map. A reopened project
+    /// restores the value it was saved with (`history/timeline.json`'s
+    /// `territory_year`, `SAVEFILE_COMPAT.md` §10.1); one saved before
+    /// 2026-09-24 has none and opens with `None`.
     /// Ruling AT (2026-09-24): going to an *unrecorded* year leaves territory
     /// untouched, so the claims on screen there belong to whichever year last
     /// loaded them, and that is not always the recorded year below the cursor
@@ -7322,7 +7325,8 @@ impl WorldGen {
         self.icons = None;
         // Same restriction as `civ` above, for the same reason: a loaded
         // save has no `territory` for `civ_tools_bridge::CivTools::
-        // territory_base` to be a snapshot OF, and any in-progress paint
+        // territory_base` to be a snapshot OF (`project_open` builds one
+        // after this returns, from the project's restored grid), and any in-progress paint
         // draft from the *previous* world would silently apply to the wrong
         // dimensions if kept.
         self.civ_tools = None;

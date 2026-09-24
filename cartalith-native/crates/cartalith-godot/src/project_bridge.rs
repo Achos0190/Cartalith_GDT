@@ -363,6 +363,26 @@ struct WaysDoc {
     manual: Vec<ManualWayDto>,
     #[serde(default)]
     routes: Vec<RouteDto>,
+    /// `CivData::road_edges`, the auto-populate router's raw cell paths
+    /// (`SAVEFILE_COMPAT.md` §9.3, since 2026-09-24). Omitted when there are
+    /// none, so absent means one thing -- no router edges known -- whether the
+    /// router laid none or the archive predates the member; both restore as
+    /// no edges, which is how every earlier project has always reopened, and
+    /// re-saving such a project leaves this document byte-identical.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    road_edges: Vec<RoadEdgeDto>,
+}
+
+/// One `CivData::road_edges` entry: `from`/`to` are `RoadEdge::a`/`b`, and
+/// `cells` is `RoadEdge::path` -- flat cell indices, `y * gw + x`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+struct RoadEdgeDto {
+    #[serde(default)]
+    from: usize,
+    #[serde(default)]
+    to: usize,
+    #[serde(default)]
+    cells: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -611,6 +631,13 @@ struct TimelineDoc {
     year: i64,
     #[serde(default)]
     years: Vec<TimelineYearDto>,
+    /// `CivData::territory_year` (Ruling AT): the recorded year whose snapshot
+    /// the live claim grid last came from. Absent when it came from none, and
+    /// in every archive written before 2026-09-24 -- both restore as `None`.
+    /// A reader keeps it only when it names a year in `years`
+    /// (`SAVEFILE_COMPAT.md` §10.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    territory_year: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1611,6 +1638,11 @@ fn civ_documents(civ: &CivData, out: &mut BTreeMap<String, String>) {
         // the single home for every linear route (§9.3).
         manual: Vec::new(),
         routes: Vec::new(),
+        road_edges: civ
+            .road_edges
+            .iter()
+            .map(|e| RoadEdgeDto { from: e.a, to: e.b, cells: e.path.clone() })
+            .collect(),
     };
     insert_doc(out, SLOT_WAYS, &ways);
 
@@ -1668,6 +1700,7 @@ fn civ_documents(civ: &CivData, out: &mut BTreeMap<String, String>) {
                     ways: snap.ways.iter().map(road_to_dto).collect(),
                 })
                 .collect(),
+            territory_year: civ.territory_year,
         };
         insert_doc(out, SLOT_TIMELINE, &timeline);
     }
@@ -1727,7 +1760,10 @@ fn insert_doc<T: Serialize>(out: &mut BTreeMap<String, String>, slot: &str, valu
 /// Rebuilds a [`CivData`] from an opened archive. `None` when the archive
 /// carries no settlement document at all, which is a project saved before
 /// any civilisation layer existed rather than a failure.
-fn civ_from_project(data: &cartalith_io::ProjectData, n: usize) -> Option<CivData> {
+///
+/// Every element it drops is reported into `warnings` (§6.4a's closing
+/// rule: *"every substitution above is reported, never silent"*).
+fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut Vec<String>) -> Option<CivData> {
     let settlements_doc: SettlementsDoc = data.parse(SLOT_SETTLEMENTS)?.ok()?;
 
     let mut settlements = Vec::with_capacity(settlements_doc.settlements.len());
@@ -1805,6 +1841,26 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize) -> Option<CivDat
         .collect();
     for w in &ways {
         next_tid = next_tid.max(w.tid.saturating_add(1));
+    }
+    // §9.3's `road_edges`. Absent restores as none -- every archive written
+    // before the member existed, which reopens exactly as it always did. An
+    // edge with a cell off the grid is dropped and reported (§6.4a rung 2):
+    // `cells` is all the Journey Planner reads (`jp_road_cells`). `from`/`to`
+    // are **not** range-checked: nothing reads them after the router, and a
+    // settlement deleted since leaves them stale in memory too, so dropping
+    // on them would make the reopened network differ from the saved one.
+    let stored_edges = &ways_doc.road_edges;
+    let road_edges: Vec<cartalith_civ::RoadEdge> = stored_edges
+        .iter()
+        .filter(|e| e.cells.iter().all(|&c| c < n))
+        .map(|e| cartalith_civ::RoadEdge { a: e.from, b: e.to, path: e.cells.clone() })
+        .collect();
+    if road_edges.len() < stored_edges.len() {
+        warnings.push(format!(
+            "{SLOT_WAYS}: {} of {} road edges skipped (a cell outside the grid)",
+            stored_edges.len() - road_edges.len(),
+            stored_edges.len()
+        ));
     }
 
     let provinces_doc: ProvincesDoc = data
@@ -1942,6 +1998,11 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize) -> Option<CivDat
             _ => vec![0; n],
         }
     };
+    // Ruling AT's held year (§10.1), kept only while it still names a
+    // recorded year -- `civ_remove_year`'s own rule for a year gone from the
+    // track. Absent (every earlier archive) is `None`, as it always was.
+    let territory_year = timeline_doc.territory_year.filter(|y| timeline.iter().any(|s| s.year == *y));
+
     let territory = take_i32("rasters/territory.i32");
     let provinces = take_i32("rasters/provinces.i32");
     let water_bodies = match data.raster("rasters/water_bodies.u8") {
@@ -1956,13 +2017,10 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize) -> Option<CivDat
     Some(CivData {
         settlements,
         ways,
-        // Deliberately empty, for `explanations`' reason one field below: the
-        // archive stores no channel topology (`SAVEFILE_COMPAT.md` §16.2), and
-        // the raw `RoadEdge` cell paths cannot be recovered from the smoothed
-        // `ways` they were consolidated into. A loaded project's Journey
-        // Planner therefore reads one road source instead of two -- the same
-        // road network, without the un-smoothed router paths.
-        road_edges: Vec::new(),
+        // Stored since 2026-09-24 (§9.3): the raw cell paths cannot be
+        // recovered from the smoothed `ways` they were consolidated into, and
+        // the Journey Planner reads both. Empty for an archive written before.
+        road_edges,
         sea_routes,
         territory,
         provinces,
@@ -1987,7 +2045,7 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize) -> Option<CivDat
         // same as a freshly generated world.
         belief: Vec::new(),
         belief_seed_key: Vec::new(),
-        territory_year: None,
+        territory_year,
     })
 }
 
@@ -2616,7 +2674,24 @@ impl WorldGen {
             }
         };
 
-        if let Some(civ) = civ_from_project(&data, n) {
+        if let Some(civ) = civ_from_project(&data, n, &mut restore_warnings) {
+            // The Territory tool's model, as `absorb` builds it for a generate:
+            // the claim grid as the base, no paint, and the manual-placement
+            // name stream folded from this world's seed (`load_save` has just
+            // set `self.seed` from the archive). The base is the *restored*
+            // grid, which already carries every stroke committed before the
+            // save -- the paint layer is not stored -- so a subtract dab
+            // restores the saved owner, not the one `assign_territory` first
+            // computed; that is the same base `civ_year_loaded` gives the
+            // grid after a timeline jump. With it, territory paint and
+            // GeoJSON border import work on a reopened project. Built for
+            // any restored civ layer, substrate or not: neither reads it.
+            self.civ_tools = Some(crate::civ_tools_bridge::CivTools::new(
+                self.gw.max(0) as usize,
+                self.gh.max(0) as usize,
+                civ.territory.clone(),
+                self.seed as u32,
+            ));
             self.civ = Some(civ);
             self.civ_dirty = false;
             restored.push("civ");
@@ -4160,7 +4235,7 @@ mod tests {
         let data = cartalith_io::read_project(std::io::Cursor::new(&buf))
             .expect("read_project should succeed");
         assert!(data.warnings.is_empty(), "{:?}", data.warnings);
-        civ_from_project(&data, n).expect("a civ layer that was written must come back")
+        civ_from_project(&data, n, &mut Vec::new()).expect("a civ layer that was written must come back")
     }
 
     /// `STORY_PLANNING_SCOPE.md` SP-1's own round trip, at the same level
@@ -4494,7 +4569,7 @@ mod tests {
             .expect("write_project should succeed");
         let data = cartalith_io::read_project(std::io::Cursor::new(&buf))
             .expect("read_project should succeed");
-        let back = civ_from_project(&data, 12).expect("a civ layer that was written comes back");
+        let back = civ_from_project(&data, 12, &mut Vec::new()).expect("a civ layer that was written comes back");
 
         assert!(
             back.timeline.iter().any(|s| s.settlements.iter().any(|p| p.tid == 500)),
@@ -5061,7 +5136,7 @@ mod tests {
         )
         .unwrap();
         let data = cartalith_io::read_project(std::io::Cursor::new(&buf)).unwrap();
-        assert!(civ_from_project(&data, n).is_none());
+        assert!(civ_from_project(&data, n, &mut Vec::new()).is_none());
     }
 
     #[test]
@@ -6372,7 +6447,7 @@ mod substrate_tests {
         let mut data = project::read_project(Cursor::new(bytes)).expect("read");
         let save = data.save.clone();
         let ws = substrate::world_from_project(&mut data, &save);
-        let civ = civ_from_project(&data, GW * GH);
+        let civ = civ_from_project(&data, GW * GH, &mut Vec::new());
         (ws, civ, data)
     }
 
@@ -6418,6 +6493,17 @@ mod substrate_tests {
     /// the first two settlements. Wildlife forage at the neutral 1.0 on both
     /// sides, so the comparison is the world's and nothing else's.
     fn plan(ws: &cartalith_engine::WorldState, civ: &CivData) -> Option<cartalith_civ::JpJourneyPlan> {
+        plan_between(ws, civ, 0, 1)
+    }
+
+    /// [`plan`] between settlements `i` and `j`.
+    fn plan_between(ws: &cartalith_engine::WorldState, civ: &CivData, i: usize, j: usize) -> Option<cartalith_civ::JpJourneyPlan> {
+        let (a, b) = (&civ.settlements[i].placement, &civ.settlements[j].placement);
+        plan_via(ws, civ, &[(a.x as f64, a.y as f64), (b.x as f64, b.y as f64)])
+    }
+
+    /// [`plan`] through the waypoints `pts`, grid coordinates.
+    fn plan_via(ws: &cartalith_engine::WorldState, civ: &CivData, pts: &[(f64, f64)]) -> Option<cartalith_civ::JpJourneyPlan> {
         let p = &world().0;
         let mut jw = journey_bridge::JourneyWorld::build(
             &ws.field, &civ.water_bodies, &ws.temperature, &ws.rainfall, GW, GH, p.world, ws.sea_level, &civ.ways,
@@ -6446,11 +6532,9 @@ mod substrate_tests {
             ocean_field: Some(&ocean),
             wind_field: Some(&wind),
         };
-        let (a, b) = (&civ.settlements[0].placement, &civ.settlements[1].placement);
-        let pts = [(a.x as f64, a.y as f64), (b.x as f64, b.y as f64)];
         cartalith_civ::jp_plan_full(
             &jpw,
-            &pts,
+            pts,
             &cartalith_civ::JpPlan::default(),
             &cartalith_civ::JpLayovers::new(),
             &|_, _| 1.0,
@@ -6496,11 +6580,124 @@ mod substrate_tests {
             c.ways.iter().map(|w| (w.km.to_bits(), w.a_idx, w.b_idx)).collect::<Vec<_>>()
         };
         assert_eq!(way_bits(&civ2), way_bits(civ), "way lengths and endpoints");
-        // Holds on this fixture although the restored civ layer has no
-        // `road_edges` (§16.2 stores no road topology; 17 edges here): every
-        // road cell they add is also on a stored way. Not a general guarantee
-        // -- see the batch report's open item.
+        // The restored civ layer carries the router's own edges too (§9.3),
+        // so this is not a coincidence of the fixture any more -- see
+        // `a_reopened_project_plans_over_the_saved_road_edges`.
         assert_eq!(plan(&ws2, &civ2), generated, "journey plan: generated vs reopened project");
+    }
+
+    fn edge_tuples(c: &CivData) -> Vec<(usize, usize, Vec<usize>)> {
+        c.road_edges.iter().map(|e| (e.a, e.b, e.path.clone())).collect()
+    }
+
+    /// `jp_road_cells`' keys, the grid cells the planner treats as road.
+    fn road_keys(civ: &CivData, edges: &[cartalith_civ::RoadEdge]) -> std::collections::HashSet<(i64, i64)> {
+        cartalith_civ::jp_road_cells(&civ.ways, &[], edges, GW).into_keys().collect()
+    }
+
+    #[test]
+    fn a_reopened_project_restores_road_edges_exactly() {
+        let (_, ws, civ) = world();
+        assert!(!civ.road_edges.is_empty(), "the fixture must route edges to test them");
+        let (_, civ2, data) = reopen(&archive(ws, civ, true));
+        assert!(data.warnings.is_empty(), "{:?}", data.warnings);
+        let civ2 = civ2.expect("the civ layer is restored");
+        assert_eq!(edge_tuples(&civ2), edge_tuples(civ), "road_edges: generated vs reopened, endpoints and every cell");
+        // Independent of the round trip: the stored member is the list, in
+        // order, under §9.3's names.
+        let w: serde_json::Value = serde_json::from_str(data.text_of(SLOT_WAYS).expect("ways.json")).unwrap();
+        let stored = w["road_edges"].as_array().expect("road_edges is written");
+        assert_eq!(stored.len(), civ.road_edges.len());
+        assert_eq!(stored[0]["from"], civ.road_edges[0].a);
+        assert_eq!(stored[0]["to"], civ.road_edges[0].b);
+        assert_eq!(stored[0]["cells"].as_array().unwrap().len(), civ.road_edges[0].path.len());
+    }
+
+    /// Whether a road cell can exist that no stored way covers, and what it
+    /// does to a plan. It can: the ways are consolidated and smoothed, so the
+    /// router's raw cell path leaves their 3x3 footprint. A journey whose two
+    /// waypoints lie on such a stretch -- a real hand-placed journey -- plans
+    /// differently over the restored civ layer without the edges (every
+    /// project reopened before 2026-09-24) and exactly as generated with them.
+    #[test]
+    fn a_reopened_project_plans_over_the_saved_road_edges() {
+        let (_, ws, civ) = world();
+        let (back, civ2, _) = reopen(&archive(ws, civ, true));
+        let ws2 = back.unwrap().unwrap();
+        let civ2 = civ2.unwrap();
+
+        let with = road_keys(civ, &civ.road_edges);
+        let without = road_keys(civ, &[]);
+        let edge_only: std::collections::HashSet<(i64, i64)> = with.difference(&without).copied().collect();
+        assert!(!edge_only.is_empty(), "no road cell lies off the stored ways on this fixture");
+
+        // Before the fix: the restored civ layer with no edges.
+        let mut before = civ_from_project(&data_of(ws, civ), GW * GH, &mut Vec::new()).unwrap();
+        before.road_edges.clear();
+        // Straight legs along a row or a column of the grid, at least `GAP`
+        // cells long, every cell of which is road only because of an edge.
+        const GAP: i64 = 4;
+        let mut legs: Vec<[(f64, f64); 2]> = Vec::new();
+        let mut sorted: Vec<(i64, i64)> = edge_only.iter().copied().collect();
+        sorted.sort_unstable();
+        for &(x, y) in &sorted {
+            for (dx, dy) in [(1, 0), (0, 1)] {
+                let run = (1..).take_while(|k| edge_only.contains(&(x + dx * k, y + dy * k))).count() as i64;
+                if run >= GAP {
+                    legs.push([(x as f64, y as f64), ((x + dx * run) as f64, (y + dy * run) as f64)]);
+                }
+            }
+        }
+        assert!(!legs.is_empty(), "no stretch of {GAP} road-edge-only cells on this fixture");
+        let leg = legs
+            .iter()
+            .find(|pts| {
+                let g = plan_via(ws, civ, &pts[..]);
+                g.as_ref().is_some_and(|g| !g.stages.is_empty()) && plan_via(&ws2, &before, &pts[..]) != g
+            })
+            .expect("a journey along a road-edge-only stretch plans differently without the edges");
+        let generated = plan_via(ws, civ, &leg[..]);
+        assert_ne!(plan_via(&ws2, &before, &leg[..]), generated, "without road_edges the reopened plan differs {leg:?}");
+        assert_eq!(plan_via(&ws2, &civ2, &leg[..]), generated, "with road_edges it matches {leg:?}");
+        eprintln!(
+            "road-edge-only cells: {} of {} road cells; {} candidate legs; differing leg {leg:?}",
+            edge_only.len(),
+            with.len(),
+            legs.len()
+        );
+    }
+
+    /// The archive `reopen` reads, read again, for a second restore.
+    fn data_of(ws: &cartalith_engine::WorldState, civ: &CivData) -> cartalith_io::ProjectData {
+        project::read_project(Cursor::new(&archive(ws, civ, true))).expect("read")
+    }
+
+    #[test]
+    fn a_road_edge_with_a_cell_off_the_grid_is_dropped_and_reported() {
+        let (_, ws, civ) = world();
+        let mut bad = civ_from_project(&data_of(ws, civ), GW * GH, &mut Vec::new()).unwrap();
+        let kept = bad.road_edges.len();
+        bad.road_edges.push(cartalith_civ::RoadEdge { a: 0, b: 1, path: vec![5, GW * GH] });
+        let mut warnings = Vec::new();
+        let back = civ_from_project(&data_of(ws, &bad), GW * GH, &mut warnings).unwrap();
+        assert_eq!(back.road_edges.len(), kept, "the off-grid edge alone is dropped");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains(&format!("1 of {} road edges", kept + 1)), "{}", warnings[0]);
+    }
+
+    /// Ruling AT's held year survives the round trip, and a stored year that
+    /// names no recorded snapshot is not believed.
+    #[test]
+    fn the_held_territory_year_round_trips_and_a_dangling_one_is_dropped() {
+        let (_, ws, civ) = world();
+        let mut held = civ_from_project(&data_of(ws, civ), GW * GH, &mut Vec::new()).unwrap();
+        assert!(held.civ_add_year(300), "a first recorded year loads");
+        assert_eq!(held.territory_year, Some(300));
+        let back = civ_from_project(&data_of(ws, &held), GW * GH, &mut Vec::new()).unwrap();
+        assert_eq!(back.territory_year, Some(300));
+        held.territory_year = Some(301);
+        let back = civ_from_project(&data_of(ws, &held), GW * GH, &mut Vec::new()).unwrap();
+        assert_eq!(back.territory_year, None, "301 is not a recorded year");
     }
 
     #[test]
@@ -6520,8 +6717,22 @@ mod substrate_tests {
         assert!(matches!(substrate::world_from_project(&mut data, &save), Ok(None)), "no member is no substrate, not an error");
         assert_eq!(data.rasters.len(), before, "a refusal takes nothing");
         let n = save.params.gw * save.params.gh;
-        let civ = civ_from_project(&data, n).expect("its civ layer still restores");
+        let mut warnings = Vec::new();
+        let civ = civ_from_project(&data, n, &mut warnings).expect("its civ layer still restores");
         assert!(!civ.settlements.is_empty());
+        // §9.3's `road_edges` is absent from it, and that is no edges -- how
+        // it always reopened -- not a warning, and not an invented network.
+        assert!(!data.text_of(SLOT_WAYS).expect("it has ways").contains("road_edges"));
+        assert!(civ.road_edges.is_empty() && warnings.is_empty(), "{warnings:?}");
+        assert_eq!(civ.territory_year, None);
+        // Re-saved, its ways and timeline documents are byte-identical: an
+        // absent member is written back absent, never as an empty claim.
+        let mut docs = BTreeMap::new();
+        civ_documents(&civ, &mut docs);
+        for slot in [SLOT_WAYS, SLOT_TIMELINE] {
+            let Some(old) = data.text_of(slot) else { continue };
+            assert_eq!(docs[slot], old, "{slot} re-serialises byte for byte");
+        }
         // What every refusing readout now says of it: the substrate, not the
         // civ layer, which this very archive restores.
         assert!(!substrate::NEEDS_SUBSTRATE.contains("civilisation layer"));

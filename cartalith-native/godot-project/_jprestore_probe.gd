@@ -18,7 +18,10 @@ extends Node
 ##      summary, trade flows, two town layouts and a Sample-panel reading all
 ##      come back byte-identical (as JSON text) to what the generated world
 ##      answered before the save. Until the substrate rasters were saved, every
-##      one of them refused a reopened project.
+##      one of them refused a reopened project. Also compared (2026-09-24,
+##      `OUTSTANDING_WORK.md` §2.11): the SP-2 journey markers
+##      (`journey_positions`) with the cursor three days into the journey, and
+##      the landmark set of a landmark pass run before the save.
 
 var _fails := 0
 
@@ -75,6 +78,13 @@ func _ready() -> void:
 	_check("setup: route committed and journey saved", ridx >= 0 and jid >= 0 and bool(cap.get("ok", false)),
 		"route %d, journey %d, bumped %s to %d" % [ridx, jid, key, int(plan[key])])
 
+	# A landmark pass, so the saved project carries a landmark set to restore.
+	var lm: Dictionary = await bridge.landmark_run()
+	_check("setup: a landmark pass placed landmarks", bool(lm.get("ok", false)) and int(lm.get("placed", 0)) > 0, str(lm.get("error", lm.get("placed", ""))))
+	# The SP-2 markers are read at the cursor date: set it on both sides, three
+	# days after the journey's departure, so the party is on the road.
+	var day := 3
+
 	# The formerly refusing readouts, on the generated world, before saving.
 	var probe_pts := Vector2i(int(towns[0]["x"]), int(towns[0]["y"]))
 	var readouts := func() -> Dictionary:
@@ -85,8 +95,14 @@ func _ready() -> void:
 			"civ_trade_flows": bridge.civ_trade_flows(),
 			"urban_layouts": bridge.urban_layouts(PackedInt32Array([0, 1])),
 			"sample_cell": bridge.sample_cell(probe_pts.x, probe_pts.y),
+			"journey_positions": bridge.journey_positions(),
+			"landmarks": bridge.landmarks(),
 		}
+	bridge.civ_set_day_of_year(day)
 	var before: Dictionary = readouts.call()
+	var markers: Array = before["journey_positions"]
+	_check("generated world: the journey marker has a position", markers.size() == 1
+		and (markers[0] as Dictionary).has("x") and (markers[0] as Dictionary).has("y"), str(markers))
 	_check("generated world: jp_compute plans the route", bool((before["jp_compute"] as Dictionary).get("ok", false)),
 		String((before["jp_compute"] as Dictionary).get("error", "")))
 	for k in before.keys():
@@ -122,6 +138,7 @@ func _ready() -> void:
 		_check("it is marked restored (its tooltip says what was not saved)", bool(e.get("restored", false)))
 
 	# 4. the reopened world answers exactly as the generated one did
+	bridge.civ_set_day_of_year(day)
 	var after: Dictionary = readouts.call()
 	# `civ_trade_flows` reports its own wall-clock `elapsed_ms`, which is a
 	# measurement of this run and not a property of the world.

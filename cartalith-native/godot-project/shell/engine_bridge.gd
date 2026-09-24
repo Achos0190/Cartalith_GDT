@@ -4112,8 +4112,9 @@ func civ_goto_year(year: int) -> void:
 	world_gen.civ_goto_year(year)
 
 ## The recorded year the claim grid last loaded from, as `{"year": int}`, or
-## `{}` when it did not come from one (a fresh world, a reopened project, a
-## recompute). An unrecorded year keeps the claims it was reached with, so
+## `{}` when it did not come from one (a fresh world, a recompute, a project
+## saved before 2026-09-24; a later project reopens with the year it was saved
+## holding). An unrecorded year keeps the claims it was reached with, so
 ## this is the year the timeline strip's "territory holds at ..." names. `{}`
 ## on a binary without it, and before any generate.
 func get_civ_territory_year() -> Dictionary:

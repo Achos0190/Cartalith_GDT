@@ -1177,7 +1177,7 @@ directly about.
 }
 ```
 
-All four arrays are optional; an absent array means none of that kind.
+All five arrays are optional; an absent array means none of that kind.
 
 Common members:
 
@@ -1193,6 +1193,35 @@ Common members:
 `regional`, `road`, `track` — unrecognised reads as `track`), and `from`/`to`,
 which are **indices into `entities/settlements.json`'s array**, not settlement
 ids. A reader MUST drop a road whose `from` or `to` is out of range.
+
+**`road_edges[]` — the router's raw cell paths (added 2026-09-24, additive;
+`format_version` stays 2).** Optional; absent means no router edges are known,
+and is what a reader of any earlier archive sees.
+
+```json
+"road_edges": [ { "from": 0, "to": 4, "cells": [6412, 6413, 6573] } ]
+```
+
+| Member | Type | Meaning |
+|---|---|---|
+| `from`, `to` | integer | The two settlements the router joined — indices into `entities/settlements.json`'s array at the time it ran. **Informational**: a settlement deleted since leaves them stale, and a reader MUST NOT drop an edge for them. |
+| `cells` | array of integers | The un-smoothed path the router laid, as flat cell indices `y × gw + x`, in order. A reader MUST drop an edge any of whose cells is outside `0 … gw × gh − 1`, and report the count. |
+
+Why it is stored beside `roads[]` rather than derived from it: `roads[]` is
+the consolidated, smoothed, classified network the map draws, and the router's
+own cell paths cannot be recovered from it — consolidation hands each corridor
+cell to one road, and smoothing moves the line off cell centres. The journey
+planner treats a cell as road if it is within one cell of either, so a path
+cell that no smoothed road passes near is road only through this member.
+Measured on this port's 160 × 112 test world (seed 24601,
+`project_bridge::substrate_tests::a_reopened_project_plans_over_the_saved_road_edges`):
+**71 of 4 449** road cells come only from the router's edges, and a journey
+along one such stretch plans differently without them.
+
+A writer omits the member when there are no edges, so absent has one meaning
+and re-saving a project written before the member existed leaves this document
+byte-identical. A reader without it treats the smoothed `roads[]` as the only
+road network, which is how every project reopened before 2026-09-24.
 
 `manual[]` carries `kind` (one of `road`, `track`, `sea_lane`, `ancient`) and
 `sea` (whether it crosses water). `routes[]` carries `mode` (one of `land`,
@@ -1388,6 +1417,7 @@ already lets an older reader carry.
 | `years[].year` | integer | MUST | |
 | `years[].settlements` | array | MUST | The settlements as they were, using §9.1's object shape exactly. Ids are the same stable ids, which is what makes "the same settlement, renamed" distinguishable from "a different settlement". |
 | `years[].ways` | array | MUST | The roads as they were, using §9.3's `roads[]` shape. |
+| `territory_year` | integer | MAY | Added 2026-09-24 (owner Ruling AT). The recorded year whose snapshot the live claim grid (`rasters/territory.i32`) last came from; the timeline strip's "territory holds at …" names it. Absent when the grid came from no snapshot — a fresh world, a recompute, a cleared map — and in every earlier archive. A reader MUST ignore a value that names no year in `years`. |
 
 A snapshot is a **frozen copy**, not a reference: editing a settlement today
 must not rewrite history.
@@ -2417,6 +2447,12 @@ The travel library has no binary payload and is stored in full.
 An in-progress measurement chain, a half-drawn polyline, the currently armed
 brush. These are the state of a gesture, not of a project. Nothing that would
 be discarded by clicking elsewhere is stored.
+
+The Territory tool's paint layer is not stored either: `rasters/territory.i32`
+already holds every committed stroke merged in. A reopened project's Territory
+tool therefore starts from the saved claim grid with no paint, and a subtract
+stroke restores the saved owner rather than the one the generator first
+computed — the same base a jump to a recorded year gives it.
 
 ### 16.7 The edit history — and the save time, which is the file's own
 

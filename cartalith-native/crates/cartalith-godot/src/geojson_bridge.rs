@@ -377,10 +377,12 @@ impl WorldGen {
     /// gap.
     ///
     /// Refuses (`ok: false`, unchanged world) for the same parse faults
-    /// `geojson_inspect` reports, plus one more: no generated world to
-    /// apply anything to (before the first `generate()`, or a project
-    /// loaded from a save, which carries no civ layer at all —
-    /// `SAVEFILE_COMPAT.md`).
+    /// `geojson_inspect` reports, plus one more: no complete world with a
+    /// civilisation layer to apply anything to (before the first
+    /// `generate()`, a legacy `.zip` or a project saved before 2026-09-24,
+    /// which open without the world substrate -- `SAVEFILE_COMPAT.md` §8.3 --
+    /// or a world with no civ layer). A project saved since reopens complete,
+    /// with its territory editor, and imports as a generated world does.
     ///
     /// On success, `ok: true` plus counts of what happened — see this
     /// method's own field-by-field construction below for which keys are
@@ -404,13 +406,13 @@ impl WorldGen {
         let sea = self.sea_level;
         let map_width_km = self.map_width_km;
         let world = self.world;
-        // Three different absences, said as what they are. The third is real
-        // for a reopened project even with its substrate (§8.3): `project_open`
-        // restores the civ layer but builds no territory editor, which only a
-        // generate seeds (`absorb`).
+        // Three different absences, said as what they are. The third is
+        // defensive: `absorb` and, since 2026-09-24, `project_open` both build
+        // the territory editor beside every civ layer they install, so no path
+        // reaches it today.
         let refusal: &str = match (&self.source, &self.civ, &self.civ_tools) {
             (Some(WorldSource::Generated(_)), Some(_), None) => {
-                "this world has no territory editor -- a reopened project opens without one; regenerate to import borders"
+                "this world has no territory editor -- regenerate to import borders"
             }
             _ => self.full_world_refusal(),
         };
