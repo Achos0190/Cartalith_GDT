@@ -1377,3 +1377,26 @@ approach**, not to revert toward what the legacy HTML rendered. If the
 fix that bug while keeping the new pipeline's improvement intact — do not
 treat "it didn't look like this in the old HTML" as evidence the new
 approach itself is the problem.
+
+## 7q. Landmark generation has no parity contract (owner ruling 12, 2026-09-06; recorded here 2026-09-24)
+
+Causally-placed landmarks (`cartalith-civ/src/landmark.rs`,
+`LANDMARK_GENERATION_SCOPE.md`) are **exempt from §7's golden-value parity and
+from §7a/§7d's equivalence tests.** There is nothing to diff against:
+`FUNCTION_INDEX.md` returns nothing for "landmark", so the reference has no
+landmark generator. Ruling 12 in `LARGE_ITEM_RULINGS.md` decided this and asked
+for a note here, because §7a/§7d is where a lane looks. The note went unwritten
+for eighteen days; the 2026-09-24 alignment audit found the gap.
+
+**What the exemption does not lift.** The project's standing bar still applies,
+and ruling 12 says so:
+- property tests of what a placement must satisfy;
+- mutation-tested constants, with every pinning test asserting a literal and not
+  the constant against itself;
+- probes on the drawn output, since `cargo test` cannot see the shell.
+
+**Where it stops.** The exemption covers what landmarks *are* and *where they
+go*. It does not cover the inputs they read. A landmark placer that consumes a
+ported, golden-verified field (flow, the mountain-pass corridor detector, the
+mineral resources) must not change that field's computation. §7's ordinary
+discipline still governs those subsystems.

@@ -380,6 +380,7 @@ nothing for "landmark"; there is no reference to diff against. **Write it into
 `DECISIONS.md` as a §7-series note**, not only here — §7a/§7d is where a lane
 looks. The project's standing bar (property tests, mutation-tested constants,
 probes on drawn output) applies anyway; it was not separately ruled.
+*Written 2026-09-24 as `DECISIONS.md` §7q.*
 
 **13. Landmark as a vault `EntityKind`? → YES**, finish the wiring. The template
 exists and `template.rs:155` recognises it; `links.rs:81-84` does not resolve it.

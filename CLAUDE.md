@@ -127,7 +127,7 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
   code exists sometimes needs revision. Raise it, then record the new reasoning —
   the same way the *HTML project's own* CHANGELOG — a different file, in
   `Cartalith_RC`, not the retired one here — discloses every re-baseline.
-  §7a through §7p were all added that way.
+  §7a through §7q were all added that way.
 - **Expect these documents — this one included — to age, and say so when they
   have.** Godot versions, gdext maturity and crate specifics all move. Re-verify
   rather than trusting a version number or a count written here.
