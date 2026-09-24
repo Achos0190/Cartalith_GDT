@@ -5903,7 +5903,7 @@ func _on_view(id: int) -> void:
 func _world(p: PopupMenu) -> void:
 	## `world_workspace.gd::_regenerate_live()` -- the guarded path the WORLD
 	## dock's own Generate button already uses (`_on_generate_pressed()`),
-	## not `app.gd::_run_pipeline()`'s unguarded `bridge.generate()` the
+	## not `app.gd::_run_pipeline()`, which skips the discard prompt, that the
 	## tool-options RUN button calls. Guarded is the safer of the two real
 	## candidates: it asks first when the world holds hand-authored work a
 	## regenerate would discard (`_authored_inventory()`), which is the

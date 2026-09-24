@@ -2196,7 +2196,8 @@ func _stale_note_text() -> String:
 ##
 ## **One Generate button is still outside this guard**, and it is not in this
 ## file: `app.gd`'s tool-options row calls its own `_run_pipeline()`, which
-## reaches `bridge.generate()` directly. `_on_generate_pressed()` -- the
+## skips this discard prompt (it does pass the phone memory question, through
+## `NewWorldDialog.generate_checked()`). `_on_generate_pressed()` -- the
 ## dock's own copy of that button -- routes through here and does prompt.
 func _regenerate_live() -> void:
 	if app == null or app.new_world_dialog == null or bridge.generating:
@@ -2207,10 +2208,15 @@ func _regenerate_live() -> void:
 		return
 	_confirm_discard(at_stake)
 
+## Through `NewWorldDialog.generate_checked()`, not `bridge.generate()`: on a
+## phone, a grid above Ruling AH's 2048 x 1311 cells asks about memory first
+## (Ruling AS), and that question has one home. Cancel there generates nothing
+## and leaves the stale badge standing, exactly as the discard prompt's Cancel
+## does.
 func _regenerate_now() -> void:
 	if app == null or app.new_world_dialog == null or bridge.generating:
 		return
-	bridge.generate(app.new_world_dialog.request())
+	app.new_world_dialog.generate_checked()
 
 ## What a regenerate would destroy, as ready-to-print phrases. Empty when the
 ## world carries no hand-authored work at all.
@@ -3234,6 +3240,18 @@ func _on_paint_discard() -> void:
 	app.viewport.set_preview_texture(bridge.build_paint_preview_texture(), true)
 	_build_paint(_paint_body)
 	_rebuild_tool_bar()
+	_refresh_right_dock_paint()
+
+## CA-19 (Ruling P): a biome colour edit in CARTO ▸ Colours. The paint preview
+## on screen was packed from the old table, and the bounded patch path would
+## recolour only the next dab's window, so the whole preview is re-uploaded; the
+## right dock's paint legend reads the same table and is rebuilt. **Only while
+## paint is armed**: the preview slot is shared with sculpt, and a sculpt draft
+## on screen must not be overwritten by a paint raster.
+func on_biome_colours_changed() -> void:
+	if app == null or app.armed_tool != "paint":
+		return
+	app.viewport.set_preview_texture(bridge.build_paint_preview_texture(), true)
 	_refresh_right_dock_paint()
 
 ## The other half of the WW-13 cross-refresh -- see `rebuild_paint_panel()`.

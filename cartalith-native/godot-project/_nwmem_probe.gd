@@ -2,12 +2,23 @@ extends Node
 ## **Ruling AS: the phone's New World warns about memory above Ruling AH's
 ## ceiling, and generates only once the warning is confirmed.**
 ##
-## Three cases, one per run mode:
+## New World's Create, one case per run mode:
 ##   phone   + 2048 (region aspect, 2048 x 1311)  -> no question; generates at once
 ##   phone   + 4096 (region aspect)               -> a question quoting ~2.41 GiB;
 ##                                                  Cancel generates nothing and
 ##                                                  brings the form back; OK generates
 ##   desktop + 4096                               -> no question; generates at once
+##
+## **Then every other route that runs the pipeline at this form's size**
+## (2026-09-24 -- before it only Create asked), each at 2048 and at 4096:
+##   tool-options Generate   `app._run_pipeline()`
+##   WORLD ▸ Generate        `world_workspace._regenerate_live()` (-> `_regenerate_now`)
+##   Import heightmap        `app._import_heightmap_at(png)` -- its grid is the
+##                           picture's resample, read from the REAL engine's
+##                           `heightmap_grid_size`, not from the dialog
+## Phone: 2048 generates at once (the control); 4096 asks, Cancel generates
+## nothing and does NOT bring the form back (only Create's route does), OK
+## generates once. Desktop: every route generates at once at both sizes.
 ##
 ## **Generation is recorded, not run.** A 4096 generate is ~2.4 GiB and minutes
 ## of work, so the dialog's `bridge` is swapped for `RecBridge`, an
@@ -31,8 +42,16 @@ extends Node
 
 class RecBridge extends EngineBridge:
 	var calls: Array = []
+	var imports: Array = []
+	## The real bridge, for the one read the import route needs answered by
+	## the engine rather than recorded: the working grid a picture resamples to.
+	var real: EngineBridge
 	func generate(request: Dictionary) -> void:
 		calls.append(request)
+	func import_heightmap(path: String, request: Dictionary) -> void:
+		imports.append([path, request])
+	func heightmap_grid_size(grid_w: int, image_size: Vector2i) -> Vector2i:
+		return real.heightmap_grid_size(grid_w, image_size)
 
 var app: Node
 var _vp: SubViewport
@@ -154,6 +173,7 @@ func _ready() -> void:
 		if rec.calls.size() == 1:
 			_check(int(rec.calls[0]["grid_w"]) == 4096, "desktop 4096: the request carries grid_w 4096")
 		dlg.bridge = real_bridge
+		await _routes(dlg, real_bridge, false)
 		_finish()
 		return
 
@@ -212,4 +232,96 @@ func _ready() -> void:
 	_check(not is_instance_valid(dlg._memory_confirm) or dlg._memory_confirm.is_queued_for_deletion(),
 		"phone 4096 OK: the question is dismissed")
 	dlg.bridge = real_bridge
+	await _routes(dlg, real_bridge, true)
 	_finish()
+
+func _question_up(dlg: NewWorldDialog) -> bool:
+	var q: ConfirmationDialog = dlg._memory_confirm
+	return is_instance_valid(q) and q.visible and not q.is_queued_for_deletion()
+
+func _question_text(dlg: NewWorldDialog) -> String:
+	var q: ConfirmationDialog = dlg._memory_confirm
+	if not is_instance_valid(q):
+		return ""
+	var text := q.dialog_text
+	var nodes: Array = []
+	_all(q, nodes)
+	for n in nodes:
+		if n is Label or n is RichTextLabel:
+			text += "\n" + String(n.text)
+	return text
+
+## Recorded calls for a route: generate() calls, or imports for the import route.
+func _recorded(kind: String) -> int:
+	return rec.imports.size() if kind == "import" else rec.calls.size()
+
+## The three non-Create routes, at 2048 (control) and 4096, on this run's device.
+func _routes(dlg: NewWorldDialog, real_bridge: EngineBridge, phone: bool) -> void:
+	if dlg.visible:
+		dlg.hide()
+	await _frames(4)
+	var ws = app._world_workspace()
+	_check(ws != null, "the WORLD workspace exists")
+	## A 64 x 32 picture: at grid_w 2048 it resamples under the ceiling, at 4096
+	## over it. Its grid is asked of the REAL engine, independently of the gate.
+	var png := ProjectSettings.globalize_path("user://_nwmem_probe_2to1.png")
+	var img := Image.create(64, 32, false, Image.FORMAT_L8)
+	img.fill(Color(0.5, 0.5, 0.5))
+	img.save_png(png)
+	rec.real = real_bridge
+	var app_bridge: EngineBridge = app.bridge
+	var routes := [
+		["tool-options Generate", "generate", func(): app._run_pipeline()],
+		["WORLD Generate", "generate", func(): ws._regenerate_live()],
+		["Import heightmap", "import", func(): app._import_heightmap_at(png)],
+	]
+	for size in [2048, 4096]:
+		var d: Array = _size_grid(dlg, size)
+		for rt in routes:
+			var label: String = "%s %s %d" % ["phone" if phone else "desktop", rt[0], size]
+			var kind: String = rt[1]
+			var cells: int = d[0] * d[1]
+			if kind == "import":
+				var g: Vector2i = real_bridge.heightmap_grid_size(d[0], Vector2i(64, 32))
+				cells = g.x * g.y
+				_log("%s: working grid %d x %d (%d cells)" % [label, g.x, g.y, cells])
+			else:
+				_log("%s: grid %d x %d (%d cells)" % [label, d[0], d[1], cells])
+			var over: bool = cells > 2048 * 1311
+			_check(over == (size == 4096), "%s: fixture is %s the ceiling" % [label, "over" if size == 4096 else "at or under"])
+			dlg.bridge = rec
+			app.bridge = rec
+			rec.calls.clear()
+			rec.imports.clear()
+			(rt[2] as Callable).call()
+			await _frames(6)
+			if not (phone and over):
+				_check(not _question_up(dlg), "%s: no memory question" % label)
+				_check(_recorded(kind) == 1, "%s: ran at once (%d)" % [label, _recorded(kind)])
+			else:
+				_check(_question_up(dlg), "%s: the memory question is up" % label)
+				_check(_recorded(kind) == 0, "%s: nothing ran before an answer (%d)" % [label, _recorded(kind)])
+				var t := _question_text(dlg)
+				_check(t.contains("2048 × 1311"), "%s: the question names the ceiling" % label)
+				if kind == "generate":
+					_check(t.contains("2.41 GiB"), "%s: the question quotes 2.41 GiB" % label)
+				if _question_up(dlg):
+					dlg._memory_confirm.get_cancel_button().pressed.emit()
+				await _frames(10)
+				_check(_recorded(kind) == 0, "%s Cancel: nothing ran (%d)" % [label, _recorded(kind)])
+				_check(not dlg.visible, "%s Cancel: the New World form stays closed" % label)
+				(rt[2] as Callable).call()
+				await _frames(6)
+				_check(_question_up(dlg) and _recorded(kind) == 0, "%s: asked again, still nothing ran" % label)
+				if _question_up(dlg):
+					dlg._memory_confirm.get_ok_button().pressed.emit()
+				await _frames(6)
+				_check(_recorded(kind) == 1, "%s OK: ran exactly once (%d)" % [label, _recorded(kind)])
+			if _recorded(kind) == 1:
+				var req: Dictionary = rec.calls[0] if kind == "generate" else rec.imports[0][1]
+				_check(int(req["grid_w"]) == size, "%s: the request carries grid_w %d" % [label, size])
+			app.bridge = app_bridge
+			dlg.bridge = real_bridge
+			if is_instance_valid(dlg._memory_confirm) and dlg._memory_confirm.visible:
+				dlg._memory_confirm.hide()
+			await _frames(4)

@@ -999,7 +999,22 @@ pub use crate::render::{CART_BIOME_COLS, CART_TERRAIN_COLS};
 /// Legend rows for one view: `(r, g, b, label)`, drawn as swatches under the
 /// picker. Empty for a view whose meaning is continuous enough that a ramp
 /// caption says more than three swatches would.
+///
+/// The Biomes (`bclass`) rows read the frozen [`CART_BIOME_COLS`]; a caller
+/// holding a live `WorldGen` passes its user-edited table through
+/// [`legend_with`] instead.
 pub fn legend(id: &str) -> Vec<(u8, u8, u8, String)> {
+    legend_with(id, &CART_BIOME_COLS)
+}
+
+/// [`legend`], with the Biomes (`bclass`) swatches read from `biome_cols` —
+/// CA-19 (`LARGE_ITEM_RULINGS.md` Ruling P): the biome colour table is
+/// user-editable (`WorldGen::set_biome_color`), and a legend drawn from the
+/// frozen constant would name a class in a colour the map no longer uses.
+/// `WorldGen::debug_layers` passes `self.appearance().biome_cols`. Every other
+/// view ignores `biome_cols`; `cterrain` stays on the frozen terrain table,
+/// which the ruling does not make editable.
+pub fn legend_with(id: &str, biome_cols: &[(u8, u8, u8); 15]) -> Vec<(u8, u8, u8, String)> {
     let sw = |c: Rgb, l: &str| ((c.0 as u8), (c.1 as u8), (c.2 as u8), l.to_string());
     match id {
         "temp" => vec![
@@ -1035,7 +1050,7 @@ pub fn legend(id: &str) -> Vec<(u8, u8, u8, String)> {
             sw(npp_color(0.5), "~1500"),
             sw(npp_color(1.0), "3000 g/m2/yr (closed canopy)"),
         ],
-        "bclass" => CART_BIOME_COLS
+        "bclass" => biome_cols
             .iter()
             .enumerate()
             .map(|(k, c)| (c.0, c.1, c.2, CART_BIOMES[k].to_string()))
@@ -1795,7 +1810,19 @@ pub fn wildlife_regions(f: &FieldRefs) -> Option<cartalith_civ::wildlife::Ecoreg
 /// module never keeps.** Nothing is cached: re-picking a view re-derives it.
 /// That is the deliberate trade (`MEMORY_OPTIMIZATION_SCOPE.md`) — a cache
 /// of 17 full-grid RGBA rasters would be ~270 MB at 2048².
+///
+/// The Biomes (`bclass`) view reads the frozen [`CART_BIOME_COLS`] here; see
+/// [`debug_raster_with`] for the user-edited table.
 pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
+    debug_raster_with(f, id, &CART_BIOME_COLS)
+}
+
+/// [`debug_raster`], with the Biomes (`bclass`) view painted from
+/// `biome_cols` rather than the frozen constant — CA-19 (Ruling P), for the
+/// reason [`legend_with`] gives: the view and its legend must name a class in
+/// the colour the map draws it. `WorldGen::build_debug_texture` passes
+/// `self.appearance().biome_cols`. No other view reads `biome_cols`.
+pub fn debug_raster_with(f: &FieldRefs, id: &str, biome_cols: &[(u8, u8, u8); 15]) -> Option<Vec<u8>> {
     let n = f.gw * f.gh;
     if n == 0 || id == "off" || f.field.len() < n {
         return None;
@@ -1959,8 +1986,8 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
             let wb = f.water_bodies?;
             let cb = build_cart_biome(f.field, wb, f.temperature, f.rainfall, f.gw, f.gh, f.world, sea);
             for &b in cb.iter().take(n) {
-                let k = (if b == 0 { 15 } else { b } as usize - 1).min(CART_BIOME_COLS.len() - 1);
-                push(&mut out, u8c(CART_BIOME_COLS[k]));
+                let k = (if b == 0 { 15 } else { b } as usize - 1).min(biome_cols.len() - 1);
+                push(&mut out, u8c(biome_cols[k]));
             }
         }
         "cterrain" => {
@@ -3186,6 +3213,47 @@ mod tests {
         assert_eq!(CART_TERRAIN_COLS.len(), CART_TERRAINS.len());
         assert_eq!(BTYPE_COLS[1], (235, 96, 40));
         assert_eq!(LITH_COLS[0], (208, 150, 150));
+    }
+
+    /// CA-19 (Ruling P): the Biomes legend and the Biomes raster both follow
+    /// the table they are handed, and nothing else does. The expected class
+    /// at each cell is derived from the INPUTS (`build_cart_biome` over the
+    /// same fields `debug_raster_with` reads), never from the frozen output.
+    #[test]
+    fn biome_legend_and_raster_follow_an_edited_table() {
+        let mut edited = CART_BIOME_COLS;
+        edited[5] = (1, 2, 3);
+        let lg = legend_with("bclass", &edited);
+        assert_eq!(lg.len(), 15);
+        assert_eq!((lg[5].0, lg[5].1, lg[5].2), (1, 2, 3), "the edited class takes the override");
+        assert_eq!((lg[1].0, lg[1].1, lg[1].2), (58, 122, 74), "an unedited class keeps Temperate Forest's literal");
+        let frozen = legend("bclass");
+        assert_eq!((frozen[5].0, frozen[5].1, frozen[5].2), (42, 106, 58), "the frozen legend is untouched");
+        assert_eq!(legend_with("cterrain", &edited), legend("cterrain"), "terrain never reads the biome table");
+
+        // Every class a distinct marker (G = 250 matches no reference colour),
+        // so a pixel still on the frozen table cannot pass by coincidence.
+        let mut markers = [(0u8, 0u8, 0u8); 15];
+        for (k, m) in markers.iter_mut().enumerate() {
+            *m = (k as u8 * 3 + 1, 250, 5);
+        }
+        let o = owned(32, 24);
+        let f = view(&o, true);
+        let px = debug_raster_with(&f, "bclass", &markers).expect("bclass draws with a civ layer");
+        let classes = build_cart_biome(f.field, f.water_bodies.unwrap(), f.temperature, f.rainfall, f.gw, f.gh, f.world, f.sea_level);
+        let mut seen = std::collections::BTreeSet::new();
+        for (i, &b) in classes.iter().enumerate().take(f.gw * f.gh) {
+            let k = if b == 0 { 15 } else { b } as usize - 1;
+            seen.insert(k);
+            let m = markers[k];
+            assert_eq!(&px[i * 4..i * 4 + 4], &[m.0, m.1, m.2, 255], "cell {i} (class {k})");
+        }
+        assert!(seen.len() >= 2, "fixture must reach more than one class, got {seen:?}");
+        // And the frozen entry point is still the frozen table.
+        let px0 = debug_raster(&f, "bclass").unwrap();
+        let k0 = if classes[0] == 0 { 15 } else { classes[0] } as usize - 1;
+        let c0 = CART_BIOME_COLS[k0];
+        assert_eq!(&px0[0..4], &[c0.0, c0.1, c0.2, 255]);
     }
 
     #[test]

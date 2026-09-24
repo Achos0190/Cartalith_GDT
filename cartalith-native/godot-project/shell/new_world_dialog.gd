@@ -1169,16 +1169,33 @@ func _on_archetype_selected(index: int) -> void:
 ##
 ## **On a phone, a grid above Ruling AH's ceiling asks first** (Ruling AS,
 ## 2026-09-24): the phone keeps 4K and 8K rather than hiding them, but a Create
-## above 2048 × 1311 cells stops at `_confirm_phone_memory()` and generates
-## only on its OK. Desktop and tablet never reach that branch -- `_phone` is
-## false there -- so they generate exactly as before.
+## above 2048 × 1311 cells stops at the memory question and generates only on
+## its OK. Desktop and tablet never reach that branch -- `_phone` is false
+## there -- so they generate exactly as before. Cancel here brings this form
+## back (`_represent_form`), which is the one thing only Create's route wants.
 func _on_create() -> void:
-	var gw := int(grid_w_input.value)
-	var gh := int(grid_h_input.value)
+	generate_checked(_represent_form)
+
+## **Every generate at this dialog's size goes through here** -- Create, WORLD ▸
+## Generate / the live regenerate (`world_workspace.gd::_regenerate_now`) and the
+## tool-options row's Generate (`app.gd::_run_pipeline`). Before 2026-09-24 only
+## Create asked; the other two regenerated a phone at 4K or 8K without a word.
+## `on_cancel` runs when the question is declined; nothing is generated then.
+func generate_checked(on_cancel: Callable = Callable()) -> void:
+	var r := request()
+	confirm_phone_memory_then(int(r["grid_w"]), int(r["grid_h"]),
+		func(): bridge.generate(r), on_cancel)
+
+## The one gate, for any pipeline run whose grid is `gw` x `gh`: `proceed` runs
+## at once on desktop, on tablet, and on a phone at or under the ceiling;
+## above it on a phone, only on the question's OK. The heightmap import uses it
+## directly (`app.gd::_import_heightmap_at`), because its grid is the picture's
+## resample rather than this form's rows.
+func confirm_phone_memory_then(gw: int, gh: int, proceed: Callable, on_cancel: Callable = Callable()) -> void:
 	if _phone and exceeds_phone_ceiling(gw, gh):
-		_confirm_phone_memory(gw, gh)
+		_confirm_phone_memory(gw, gh, proceed, on_cancel)
 		return
-	bridge.generate(request())
+	proceed.call()
 
 ## Ruling AH (2026-09-23) keeps **2048 × 1311** as the Android ceiling, and
 ## Ruling AS (2026-09-24) turns it into a warning rather than a limit. Counted
@@ -1224,18 +1241,16 @@ func phone_memory_warning_text(gw: int, gh: int) -> String:
 
 ## `DccWidgets.confirm()`, the shell's protocol-complete question, hosted on
 ## the shell rather than on this dialog: it is itself an exclusive window, and
-## this dialog has already hidden (`_build_phone_actions()`'s CREATE WORLD
-## hides before it calls `_on_create()`). **Cancel brings the form back** with
-## everything as it was -- the dialog is a persistent singleton, so the values
-## are still in its controls -- rather than dropping the user on the map with
-## nothing generated and no form to change the size in.
-func _confirm_phone_memory(gw: int, gh: int) -> void:
+## on Create's route this dialog has already hidden (`_build_phone_actions()`'s
+## CREATE WORLD hides before it calls `_on_create()`); on the other routes it
+## was never open.
+func _confirm_phone_memory(gw: int, gh: int, proceed: Callable, on_cancel: Callable) -> void:
 	var host := get_parent()
 	if is_instance_valid(_memory_confirm):
 		_memory_confirm.queue_free()
 	_memory_confirm = DccWidgets.confirm(host, "Large world",
 		phone_memory_warning_text(gw, gh), "Generate anyway",
-		func(): bridge.generate(request()),
+		proceed,
 		func():
 			## Hidden here, not left to Godot: `AcceptDialog` defers its own
 			## `hide()` past the `canceled` emit, so the question is still the
@@ -1243,8 +1258,16 @@ func _confirm_phone_memory(gw: int, gh: int) -> void:
 			## would be refused ("already has another exclusive child").
 			if is_instance_valid(_memory_confirm):
 				_memory_confirm.hide()
-			if not DccWidgets.phone_present(self, host):
-				popup_centered())
+			if on_cancel.is_valid():
+				on_cancel.call())
+
+## Create's Cancel: **the form comes back** with everything as it was -- the
+## dialog is a persistent singleton, so the values are still in its controls --
+## rather than dropping the user on the map with nothing generated and no form
+## to change the size in.
+func _represent_form() -> void:
+	if not DccWidgets.phone_present(self, get_parent()):
+		popup_centered()
 
 ## The keys `EngineBridge.generate()` reads. Sea level and the four
 ## experimental flags are read live off `bridge` rather than cached locally --

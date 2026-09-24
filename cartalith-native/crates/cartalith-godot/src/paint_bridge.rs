@@ -689,7 +689,20 @@ impl PaintEditor {
     /// cannot fire through the shipped path — `PaintLayer::cells_mut(n)`
     /// takes its length from the same `gw * gh` every caller here passes,
     /// and the editor is rebuilt per `generate()`.
+    ///
+    /// Biome cells take the frozen [`crate::render::CART_BIOME_COLS`]; a
+    /// caller with a live `WorldGen` uses [`PaintEditor::preview_full_with`].
     pub fn preview_full(&self, gw: usize, gh: usize) -> Option<Vec<u8>> {
+        self.preview_full_with(gw, gh, &crate::render::CART_BIOME_COLS)
+    }
+
+    /// [`PaintEditor::preview_full`], with Biome cells coloured from
+    /// `biome_cols` — CA-19 (`LARGE_ITEM_RULINGS.md` Ruling P): the preview
+    /// has to show a painted class in the colour the committed map will blend
+    /// it toward, and after `WorldGen::set_biome_color` that is the override,
+    /// not the constant. `WorldGen::build_paint_preview_texture` passes
+    /// `self.appearance().biome_cols`. Terrain and Splat ignore it.
+    pub fn preview_full_with(&self, gw: usize, gh: usize, biome_cols: &[(u8, u8, u8); 15]) -> Option<Vec<u8>> {
         let n = gw * gh;
         if self.active_layer().is_empty() && self.active_draft().is_empty() {
             return None;
@@ -704,7 +717,7 @@ impl PaintEditor {
         };
         let mut scratch = vec![0u8; n];
         self.active_draft().preview_into(base, &mut scratch);
-        Some(pack_window(self.layer, &scratch, gw, Region::new(0, 0, gw, gh), self.layer.palette().len()))
+        Some(pack_window(self.layer, &scratch, gw, Region::new(0, 0, gw, gh), self.layer.palette().len(), biome_cols))
     }
 
     /// The same raster, restricted to the rectangle the uncommitted draft
@@ -736,7 +749,17 @@ impl PaintEditor {
     /// preview_touched_into`, whose own doc carries the argument), same
     /// packer, asserted byte-for-byte by
     /// `tests/paint_preview_cost.rs::the_patch_is_byte_identical_to_a_full_reupload`.
+    ///
+    /// Biome cells take the frozen table; see [`PaintEditor::preview_patch_with`].
     pub fn preview_patch(&self, gw: usize, gh: usize) -> Option<PreviewPatch> {
+        self.preview_patch_with(gw, gh, &crate::render::CART_BIOME_COLS)
+    }
+
+    /// [`PaintEditor::preview_patch`], with Biome cells coloured from
+    /// `biome_cols`, for [`PaintEditor::preview_full_with`]'s reason.
+    /// `WorldGen::build_paint_preview_patch` passes
+    /// `self.appearance().biome_cols`.
+    pub fn preview_patch_with(&self, gw: usize, gh: usize, biome_cols: &[(u8, u8, u8); 15]) -> Option<PreviewPatch> {
         let n = gw * gh;
         if self.active_layer().is_empty() && self.active_draft().is_empty() {
             return None;
@@ -759,7 +782,7 @@ impl PaintEditor {
             Some(win) => (win, &scratch[..]),
             None => (Region::new(0, 0, gw, gh), base),
         };
-        let rgba = pack_window(self.layer, src, gw, region, self.layer.palette().len());
+        let rgba = pack_window(self.layer, src, gw, region, self.layer.palette().len(), biome_cols);
         Some(PreviewPatch { region, rgba })
     }
 }
@@ -778,12 +801,13 @@ pub struct PreviewPatch {
 
 /// Packs `win` of a `stride`-wide composited override grid into RGBA8,
 /// row-major from `win`'s own top-left. Unpainted (`0`) cells render
-/// `(0, 0, 0, 0)`; every other index takes [`swatch_color`].
+/// `(0, 0, 0, 0)`; every other index takes [`swatch_color_with`] over
+/// `biome_cols`.
 ///
 /// The single packer both preview paths run, so "the patch matches a full
 /// re-upload" is a property of one loop over two windows rather than of two
 /// loops that have to be kept in step.
-fn pack_window(target: PaintTarget, cells: &[u8], stride: usize, win: Region, palette_len: usize) -> Vec<u8> {
+fn pack_window(target: PaintTarget, cells: &[u8], stride: usize, win: Region, palette_len: usize, biome_cols: &[(u8, u8, u8); 15]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(win.w * win.h * 4);
     for y in win.y..win.y + win.h {
         let row = y * stride + win.x;
@@ -791,7 +815,7 @@ fn pack_window(target: PaintTarget, cells: &[u8], stride: usize, win: Region, pa
             if v == 0 {
                 bytes.extend_from_slice(&[0, 0, 0, 0]);
             } else {
-                let (r, g, b) = swatch_color(target, v, palette_len);
+                let (r, g, b) = swatch_color_with(target, v, palette_len, biome_cols);
                 bytes.extend_from_slice(&[r, g, b, 255]);
             }
         }
@@ -824,6 +848,12 @@ fn pack_window(target: PaintTarget, cells: &[u8], stride: usize, win: Region, pa
 /// texture's own pixels at full coverage (7765-7773), so a splat class has
 /// no swatch colour to port — only a texture, which is a different thing
 /// and is not something a flat overlay can show.
+///
+/// **No shipped caller since CA-19's preview routing (2026-09-24)**: the
+/// preview packer reads [`swatch_color_with`] over the live table. This
+/// frozen-table form stays for the tests that pin the reference's own
+/// colours (`tests/paint_preview_cost.rs`, this file's `tests`).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn swatch_color(target: PaintTarget, index: u8, palette_len: usize) -> (u8, u8, u8) {
     swatch_color_with(target, index, palette_len, &crate::render::CART_BIOME_COLS)
 }
@@ -1294,6 +1324,29 @@ mod tests {
 
     /// Splat has no reference colour at all — it names pack textures. Kept
     /// on the generated hue, and pinned so the distinction stays deliberate.
+    /// CA-19 (Ruling P): both preview rasters colour a painted Biome cell from
+    /// the table they are handed, so the overlay names a class in the colour
+    /// the committed map will blend toward. The dab's centre cell is the
+    /// probe point, chosen by where the stroke was placed, not by its colour.
+    #[test]
+    fn biome_previews_take_the_table_they_are_handed() {
+        let (gw, gh) = (16usize, 12usize);
+        let mut e = PaintEditor::new(gw, gh, land_mask(gw * gh));
+        e.set_brush(6, 2.0, 1.0, 0.0, false, false);
+        e.stroke_at(8.0, 6.0);
+        let mut edited = crate::render::CART_BIOME_COLS;
+        edited[5] = (1, 2, 3);
+        let at = (6 * gw + 8) * 4;
+        let full = e.preview_full_with(gw, gh, &edited).expect("a pending dab draws");
+        assert_eq!(&full[at..at + 4], &[1, 2, 3, 255], "full preview takes the override");
+        let frozen = e.preview_full(gw, gh).unwrap();
+        assert_eq!(&frozen[at..at + 4], &[42, 106, 58, 255], "the frozen entry point keeps CART_BIOME_COLS[5]");
+        let patch = e.preview_patch_with(gw, gh, &edited).expect("a pending dab draws");
+        let (rx, ry) = (8 - patch.region.x, 6 - patch.region.y);
+        let pat = (ry * patch.region.w + rx) * 4;
+        assert_eq!(&patch.rgba[pat..pat + 4], &[1, 2, 3, 255], "patch preview takes the override");
+    }
+
     #[test]
     fn splat_swatches_stay_generated_because_the_reference_has_no_colour_for_them() {
         assert_ne!(swatch_color(PaintTarget::Splat, 1, 6), crate::render::CART_BIOME_COLS[0]);

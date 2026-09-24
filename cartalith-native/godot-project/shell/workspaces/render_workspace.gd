@@ -405,6 +405,10 @@ var _custom_note: Label
 ## The base-look picker, kept so a Map-style tile can move it rather than
 ## leaving it naming a look that is not the one drawing the map.
 var _look_pick: OptionButton
+## One `ColorPickerButton` per biome class, index-aligned with the engine's
+## 1-based table: `_biome_swatches[k]` is class `k + 1`. Empty when the block
+## did not draw its pickers (no appearance API, or no biome colour binding).
+var _biome_swatches: Array = []
 
 ## The Colour management picker and the names behind it, retained for
 ## `_sync_color_space()` -- see `_build_color_management()` for why a control
@@ -542,42 +546,86 @@ func _build_map_view() -> void:
 
 ## Ruling L CARTO ▸ Colours ▸ Biome colours (`left_rail_tree_resorted.md`
 ## L294-296): `bio_blend`, which used to sit in Map view among the relief
-## sliders, and the read-only biome table it is the mix control for, which used
-## to sit under the colour grade. Neither moved for tidiness: the slider decides
-## how far the biome palette pulls away from grey relief, and the link is what
-## shows that palette, so they are one row and its legend.
+## sliders, and the biome table it is the mix control for, which used to sit
+## under the colour grade. Neither moved for tidiness: the slider decides how
+## far the biome palette pulls away from grey relief, and the table is that
+## palette, so they are one block.
+##
+## **The table is editable** (`GUI_GAP_REGISTER.md` CA-19, `LARGE_ITEM_RULINGS.md`
+## Ruling P): one picker per class over `set_biome_color`, a per-row reset and a
+## reset-all. The names come from the engine's own Biomes legend
+## (`debug_layers()`'s `bclass` rows), so this list and the Layers popover's
+## cannot disagree about which class is which. An edit changes the map's paint
+## blend, the Biomes field and its legend, and the paint preview; nothing here
+## touches a generated value. It is **not saved with the project** --
+## `engine_bridge.gd`'s biome block says why.
 func _build_biome_colours() -> void:
 	if not bridge.appearance_api:
 		return
 	var body := DccWidgets.section(_h(), "Biome colours")
 	for key in APPEARANCE_BIOME:
 		_appearance_slider(body, key)
-	## `GUI_GAP_REGISTER.md` **CA-19**, corrected 2026-08-25: the table has
-	## been *readable* all along -- `debug_layers()` carries all fifteen
-	## classes, name and swatch, as the Biomes field's own legend, and the
-	## paint palette reads the same constant. What it is not is *writable*.
-	var n := 0
+	var names: Array = []
 	for g in bridge.debug_layers():
 		for it in (g as Dictionary).get("items", []):
 			if String((it as Dictionary).get("id", "")) == "bclass":
-				n = ((it as Dictionary).get("legend", []) as Array).size()
+				for row in (it as Dictionary).get("legend", []):
+					names.append(String((row as Dictionary).get("label", "")))
 	var see := DccWidgets.action(body,
-		"Biome colour table (%d classes) → Layers ▸ Biomes" % n,
+		"Show the Biomes field (%d classes) → Layers ▸ Biomes" % names.size(),
 		func():
 			app.viewport.set_debug_layer("bclass")
 			app.layers_popover.open())
 	see.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	see.tooltip_text = "CART_BIOME_COLS, the reference's own fifteen-class table, rendered as the Biomes field's legend -- one picker, not a second copy of the list."
+	see.tooltip_text = "The Biomes field paints every cell in its class colour, from the same table the swatches below edit, and its legend lists them."
+	_biome_swatches = []
+	if not bridge.biome_colors_api:
+		DccWidgets.note(body,
+			"This build's engine has no biome colour binding (set_biome_color), "
+			+ "so the table is shown read-only, as the Biomes field's legend.")
+		return
+	var tablet := DccTheme.is_tablet()
+	for k in names.size():
+		var index: int = k + 1
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		body.add_child(row)
+		var pick := ColorPickerButton.new()
+		## Opaque: the table has no alpha, and `set_biome_color` takes r/g/b only.
+		pick.edit_alpha = false
+		pick.focus_mode = Control.FOCUS_NONE
+		## The tablet floor applied where the target is made, for the reason
+		## `cartography_workspace.gd`'s label-colour picker gives; `phone_fit()`
+		## floors it on a phone.
+		var tap := float(DccTheme.role_px("btn_min_h")) if tablet else 0.0
+		pick.custom_minimum_size = Vector2(maxf(30.0, tap), maxf(18.0, tap))
+		## The picker's own popup is an embedded `Window` that `phone_fit()`
+		## never reaches (it scales `OptionButton` lists, not this), so on a
+		## phone it opened at its desktop 298 px -- about 114 dp, a third of
+		## the screen, with the hue strip too narrow to hit. Scaled here by the
+		## phone's own factor, measured by `_biomecol_probe.gd`.
+		if DccTheme.is_phone():
+			pick.get_popup().content_scale_factor = DccTheme.phone_scale()
+		pick.tooltip_text = "%s -- the colour a painted %s cell blends toward, the Biomes field draws, and the paint preview shows." % [names[k], names[k]]
+		## The engine takes every change (cheap); the map re-renders once, when
+		## the picker closes -- a full-map re-render per drag sample is not this
+		## dock's convention.
+		pick.color_changed.connect(func(c: Color): bridge.set_biome_color(index, c))
+		pick.popup_closed.connect(_after_biome_edit)
+		row.add_child(pick)
+		_biome_swatches.append(pick)
+		var name_lbl := DccTheme.label(String(names[k]), "text", DccTheme.FS_SMALL)
+		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(name_lbl)
+		var rs := DccWidgets.text_button(row, "Reset", func(): _reset_biome_colour(index))
+		rs.tooltip_text = "Back to the reference's own colour for %s." % names[k]
+	var all := DccWidgets.action(body, "Reset all biome colours", _reset_biome_colours)
+	all.tooltip_text = "Every class back to the reference's own table (CART_BIOME_COLS). Does not touch the look, the ramp or the grade."
 	DccWidgets.note(body,
-		"A writable biome table  ·  costs a re-baseline\n"
-		+ "All fifteen classes are readable today; making one writable is what "
-		+ "is not built (GUI_GAP_REGISTER.md CA-19). It is a frozen "
-		+ "reference constant compiled into render.rs, which five test targets "
-		+ "include standalone, and it is what a painted biome cell blends "
-		+ "toward -- so a rewritable palette is a field threaded through "
-		+ "RenderCtx and re-baselined golden expectations, not a picker. The "
-		+ "four field weights under Colour grade are the influence half of the "
-		+ "same subject and are live.")
+		"Not saved with the project: the save format has no slot for this table "
+		+ "yet, so an edit lasts until the app closes. Reset appearance leaves it "
+		+ "alone; Reset all above is its own reset.")
+	_sync_biome_colours()
 
 # -- The reference's Map style presets (reference HTML 1719-1729) --------------
 
@@ -1868,6 +1916,34 @@ func _refresh_map() -> void:
 	if app != null and app.viewport != null:
 		app.viewport.refresh()
 
+## Re-read every swatch from the engine. A plain `.color` write, which does not
+## emit `color_changed`, so a sync never writes the value it just read back.
+func _sync_biome_colours() -> void:
+	if _biome_swatches.is_empty() or not bridge.biome_colors_api or bridge.generating:
+		return
+	for k in _biome_swatches.size():
+		var pick: ColorPickerButton = _biome_swatches[k]
+		if is_instance_valid(pick):
+			pick.color = bridge.biome_color(k + 1)
+
+func _reset_biome_colour(index: int) -> void:
+	if bridge.reset_biome_color(index):
+		_after_biome_edit()
+
+func _reset_biome_colours() -> void:
+	if bridge.reset_biome_colors() > 0:
+		_after_biome_edit()
+
+## After the engine call, never before: the map, the Biomes field (which
+## `viewport.refresh()` re-reads), the swatches, and -- when Biome paint is
+## armed -- the paint preview and the right dock's paint legend.
+func _after_biome_edit() -> void:
+	_sync_biome_colours()
+	_refresh_map()
+	var ws = app._world_workspace() if app != null else null
+	if ws != null:
+		ws.on_biome_colours_changed()
+
 ## Animated water is the one member of the block this renderer does not draw:
 ## it is per-frame, so it lives on its own shader overlay over the map. The
 ## layer is created the first time it is asked for and parented under the map
@@ -2094,6 +2170,7 @@ func on_world_changed() -> void:
 	if not _npr_rows.is_empty():
 		_sync_npr()
 	_sync_color_space()
+	_sync_biome_colours()
 
 ## Re-read the engine's colour space into the picker.
 ##

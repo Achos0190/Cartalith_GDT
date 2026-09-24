@@ -2698,10 +2698,14 @@ func _tool_options_cartography_default() -> void:
 		"Presentation only — nothing here marks a generation stage stale. Map view, Map style and Rendering-advanced apply live; the quality tier they start from is set in Preferences.")
 
 ## The whole chain, which is the only granularity the engine offers.
+##
+## Through `NewWorldDialog.generate_checked()`, the one home of Ruling AS's
+## phone memory question: a phone asked to regenerate above 2048 x 1311 cells
+## asks first. Cancel generates nothing.
 func _run_pipeline() -> void:
 	if bridge.generating:
 		return
-	bridge.generate(new_world_dialog.request())
+	new_world_dialog.generate_checked()
 
 ## One text for both buttons that raise this pass -- the tool-options row above
 ## and `world_workspace.gd`'s WORLD-dock row, which calls straight into
@@ -2877,12 +2881,34 @@ func open_heightmap_import() -> void:
 			## no honest answer (no import API, unreadable file, an engine too
 			## old to compute the grid), which is why there is no second guard
 			## here: the empty string simply leaves the old sentence standing.
-			var summary := new_world_dialog.heightmap_grid_summary(path)
-			set_status("hint",
-				("importing %s…" % path.get_file()) if summary == ""
-					else "importing %s — %s" % [path.get_file(), summary],
-				"text_ghost")
-			bridge.import_heightmap(path, new_world_dialog.request()))
+			_import_heightmap_at(path))
+
+## The import itself, once a file is picked. Its own function so the phone
+## memory gate can be driven without a file browser (`_nwmem_probe.gd`).
+##
+## **The import runs the whole pipeline at the picture's working grid**
+## (`bridge.heightmap_grid_size()`: this form's width, the image's aspect), so
+## on a phone it asks Ruling AS's memory question above 2048 x 1311 cells like
+## every other generate. A working grid the engine cannot compute (`ZERO`)
+## skips the question rather than inventing a size: the import then fails or
+## succeeds on its own terms, as it did before.
+func _import_heightmap_at(path: String) -> void:
+	var summary := new_world_dialog.heightmap_grid_summary(path)
+	var r: Dictionary = new_world_dialog.request()
+	var go := func():
+		set_status("hint",
+			("importing %s…" % path.get_file()) if summary == ""
+				else "importing %s — %s" % [path.get_file(), summary],
+			"text_ghost")
+		bridge.import_heightmap(path, r)
+	var img := Image.load_from_file(path)
+	var grid := Vector2i.ZERO
+	if img != null and not img.is_empty():
+		grid = bridge.heightmap_grid_size(int(r["grid_w"]), img.get_size())
+	if grid == Vector2i.ZERO:
+		go.call()
+		return
+	new_world_dialog.confirm_phone_memory_then(grid.x, grid.y, go)
 
 ## The other end of `_project_documents()`: puts the archive's caller-owned
 ## documents back, and returns the sentences the person is owed about whatever
