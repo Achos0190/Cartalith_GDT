@@ -1632,8 +1632,10 @@ pub struct TerrainAppearance {
     // Same rule as the four above, for the same reason: `0.0` in both
     // `default()` and `js_reference()`, each one behind its own `if` rather
     // than an arithmetic no-op, so the shipped image and the golden-verified
-    // reference image are byte-for-byte what they were. `render_default_pin.rs`
-    // is the guard that says so with a digest rather than with an inference.
+    // reference image are byte-for-byte what they were. `tests/color_space.rs`'s
+    // `FINISHED_RENDER_FNV1A` and `tests/layer_stack.rs`'s
+    // `the_default_stack_renders_the_pre_change_image` are the guards that say
+    // so with a digest rather than with an inference.
     /// `state.viz.rockSlope` (reference HTML 7788-7790, "R2 slope-material
     /// refinement") — extra `G^1.5`-weighted rock exposure on steep ground,
     /// blended **over** the finished material mix rather than into it, so the
@@ -1712,25 +1714,29 @@ pub struct TerrainAppearance {
 
     // ---- 2026-09-03 (`OUTSTANDING_WORK.md` §2.5): the ocean lattice ----
     /// How far the sea-grain sample lattice is rotated and domain-warped away
-    /// from the reference's axis-aligned one. `0.0` is the reference's
-    /// `vnoise(x·25.6/GW, y·25.6/GW, 5)` **exactly**, by a dedicated branch in
-    /// [`sea_grain`].
+    /// from the reference's axis-aligned one — the fix for the ocean lattice
+    /// artefact, **on in the shipped look** (`1.0` in `default()`, Ruling AS,
+    /// 2026-09-24). `0.0` is the reference's `vnoise(x·25.6/GW, y·25.6/GW, 5)`
+    /// **exactly**, by a dedicated branch in [`sea_grain`], and is what
+    /// `js_reference()` pins so the golden-parity path keeps rendering the
+    /// reference's own sea.
     ///
-    /// This one is a **divergence, and is flagged rather than fixed**.
     /// `TERRAIN_APPEARANCE_SCOPE.md` milestone 6 recorded rectangular
     /// blockiness in the open ocean — squares ~80 grid cells across at 2048² —
-    /// and established that it is *inherited from the reference*, present in
-    /// the `js_reference` dump and more visible there. That makes today's
-    /// output faithful, so silently smoothing it would move a golden-verified
-    /// path to satisfy taste. `n_low` is not decoration either: it is the `t`
-    /// of every water `ramp3` in [`sea_color_core`] plus its `(n_low - 0.5)·5`
-    /// grain, so a different sample is a different colour at every sea pixel.
+    /// coming from the reference's own axis-aligned sample lattice. Under
+    /// `DECISIONS.md` §7p a rendering improvement is correct on its own terms,
+    /// so the shipped look fixes it; parity stays verified on `js_reference()`.
+    /// `n_low` is not decoration: it is the `t` of every water `ramp3` in
+    /// [`sea_color_core`] plus its `(n_low - 0.5)·5` grain, so a different
+    /// sample is a different colour at every sea pixel.
     ///
-    /// The fix behind the flag is milestone 4's own, reused rather than
-    /// invented: the stipple read as a halftone screen for exactly this reason
-    /// (value noise on an axis-aligned lattice at a few cells per feature), and
-    /// was fixed by rotating the lattice and domain-warping it with a second
-    /// coherent field. Same treatment, same rotation, one frequency.
+    /// The fix is milestone 4's own, reused rather than invented: the stipple
+    /// read as a halftone screen for exactly this reason (value noise on an
+    /// axis-aligned lattice at a few cells per feature), and was fixed by
+    /// rotating the lattice and domain-warping it with a second coherent
+    /// field. Same treatment, same rotation, one frequency. `1.0` is the
+    /// strength [`sea_grain`] was written to reach — half a lattice cell of
+    /// warp, its "fully broken-up" end of the slider.
     pub sea_grain_warp: f64,
     /// Chroma of the **material** colour, as a delta about the mix
     /// `material_weights` produced: `+0.20` is 20% more chroma at the same
@@ -1962,9 +1968,9 @@ impl Default for TerrainAppearance {
             tex_strength: 0.0,
             ridged_strength: 0.0,
             curve_shade: 0.0,
-            // The two remaining reference stages (2026-09-03) and the one
-            // deliberate divergence, all three at the value that makes them a
-            // no-op — `render_default_pin.rs` holds the digest that proves it.
+            // The two remaining reference stages (2026-09-03), at the value
+            // that makes them a no-op — `tests/color_space.rs`'s
+            // `FINISHED_RENDER_FNV1A` holds the digest that proves it.
             rock_slope: 0.0,
             wetness: 0.0,
             // The last three reference viz stages this file had no port for
@@ -1984,7 +1990,10 @@ impl Default for TerrainAppearance {
             // band's own call site is a length test that never fires.
             sdf_rivers: 0.0,
             sdf_biomes: 0.0,
-            sea_grain_warp: 0.0,
+            // The ocean lattice fix, on (Ruling AS, 2026-09-24): `1.0` is the
+            // full strength `sea_grain` was written for. `js_reference()` pins
+            // `0.0`, the reference's own lattice.
+            sea_grain_warp: 1.0,
             biome_sat: 0.0,
             relief_chroma: 0.0,
             haze_strength: 0.18,
@@ -2238,6 +2247,11 @@ impl TerrainAppearance {
             // branch — see the field's own doc comment for why the identity
             // is safe here where `ice_strength` needed a branch.
             detail_scale_strength: 0.0,
+            // Ruling AS: `default()` turns the ocean lattice fix on, so the
+            // parity path pins the reference's own axis-aligned sea-grain
+            // lattice here rather than inheriting it. `sea_grain` returns the
+            // reference expression from a dedicated branch at `0.0`.
+            sea_grain_warp: 0.0,
             ..TerrainAppearance::default()
         }
     }
@@ -2473,8 +2487,9 @@ tunables! {
     "sdf_coast"             => sdf_coast,             0.0,   1.0,  "Coast bands (SDF)";
     "sdf_rivers"            => sdf_rivers,            0.0,   1.0,  "River bands (SDF)";
     "sdf_biomes"            => sdf_biomes,            0.0,   1.0,  "Biome blend (SDF)";
-    // -- Not a reference row: the flag over the reference's own ocean lattice.
-    //    `0.0` is the reference exactly; see the field's doc comment --
+    // -- Not a reference row: the fix for the reference's ocean lattice, on
+    //    at `1.0` in the shipped look; `0.0` is the reference exactly. See
+    //    the field's doc comment --
     "sea_grain_warp"        => sea_grain_warp,        0.0,   1.0,  "Ocean grain warp";
     // -- Chroma and atmosphere (no reference counterpart for the first two;
     //    the third is the reference's own literal, made adjustable) --
@@ -5534,19 +5549,20 @@ fn quantize_flat_palette(c: Rgb) -> Rgb {
     (q(c.0), q(c.1), q(c.2))
 }
 
-/// The sea's own noise sample — the `nLow` argument `seaColor` (8280) and the
-/// bake's `surfaceColorSampled` (11939) both build as `vnoise(x·25.6/GW,
-/// y·25.6/GW, 5)`, factored out so the two paths cannot disagree.
+/// The sea's own noise sample — the `nLow` argument `seaColor` (v2.10 8280)
+/// and the tile renderer `renderBiomeTileRGBA` (v2.10 11684, 11718) both
+/// build as `vnoise(x·25.6/GW, y·25.6/GW, 5)`, factored out so the paths
+/// cannot disagree.
 ///
 /// **At `sea_grain_warp == 0.0` this is that expression and nothing else**,
 /// returned from a dedicated branch — the `ColorSpace::Srgb => return` rule,
-/// not an arithmetic identity that a float reassociation could break.
+/// not an arithmetic identity that a float reassociation could break. That
+/// is the `js_reference()` path.
 ///
-/// Above zero it is `TERRAIN_APPEARANCE_SCOPE.md` milestone 6's recorded
-/// ocean-lattice artifact, flagged: see [`TerrainAppearance::sea_grain_warp`]
-/// for why a fix is a divergence rather than a repair, and
-/// `OUTSTANDING_WORK.md` §2.5 for the row. The treatment is milestone 4's own
-/// stipple fix reused — rotate the sampling lattice off the axes so its
+/// Above zero — the shipped look, `1.0` since Ruling AS — it fixes
+/// `TERRAIN_APPEARANCE_SCOPE.md` milestone 6's recorded ocean-lattice
+/// artefact (see [`TerrainAppearance::sea_grain_warp`]). The treatment is
+/// milestone 4's own stipple fix reused — rotate the sampling lattice off the axes so its
 /// iso-contours stop forming a rectangular quilt, and domain-warp it with a
 /// second coherent field so the remaining lattice period stops being one
 /// period. The `(0.8290, 0.5592)` rotation is the stipple's own `(cos, sin)`

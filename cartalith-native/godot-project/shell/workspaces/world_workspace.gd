@@ -150,14 +150,10 @@ const STAGES: Array = [
 	{"name": "Tectonics", "needs": "01 Planet, 03 World structure",
 	 "produces": "elevation, plate_id, boundary_type, resistance → 05 Volcanism, 06 Erosion, 10 Resources & soils",
 	 "groups": ["tectonics"], "keys": [],
-	 ## Corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 A2): the old text said the
-	 ## hardcoded `OrogenyParams { fold_k: 0.16, trench_k: 1.0, fault_block_k:
-	 ## 0.0 }` in `generate_terrain_inner` were the reference's own defaults "so
-	 ## behaviour matches". They are not: v2.10 `deriveFromWorldStructure`
-	 ## (2536-2538) sets foldIntensity/trenchDepth from the archetype and state
-	 ## carries faultBlock 0.6 (2265). Ruling AS orders the derivation ported;
-	 ## re-check this sentence when it lands.
-	 "gap": "Mountain-belt shaping (fold intensity, trench depth, fault blocks) has no dials. With World Structure on, this version uses fixed values rather than deriving them from the world's structure settings, so fold belts and trenches do not yet scale with them and block-faulted (horst-and-graben) terrain does not form."},
+	 ## With World Structure on, `world_structure_orogeny_ks` derives the fold
+	 ## and trench strengths the way v2.10 `deriveFromWorldStructure` does
+	 ## (2536-2538) and carries faultBlock 0.6 (2265) — ported under Ruling AS.
+	 "gap": "Mountain-belt shaping (fold intensity, trench depth, fault blocks) has no dials. With World Structure on, fold and trench strength are derived from the world's structure settings, and block-faulted (horst-and-graben) terrain forms at rifts."},
 	{"name": "Volcanism & impacts", "needs": "04 Tectonics",
 	 "produces": "cones, provinces, craters → 06 Erosion",
 	 "groups": ["volcanism"], "keys": [], "gap": ""},

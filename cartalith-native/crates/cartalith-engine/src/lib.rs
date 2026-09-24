@@ -28,12 +28,14 @@
 //! `T=oro?oro[i]+Math.min(sf,0):sf` does — the kept negative (divergent)
 //! stress layered under the structured margin features, not replaced by
 //! them. `foldIntensity`/`trenchDepth`/`faultBlock` (JS's own orogeny-only
-//! T5 tuning knobs) aren't exposed as configurable params yet, so
-//! `foldK`/`trenchK`/`faultBlockK` are hardcoded to the exact values JS's
-//! own null-coalescing defaults produce when nothing overrides them
-//! (`0.16`, `1.0`, `0`) — not a separate approximation, the same reasoning
-//! `build_orogeny_field`'s own doc comment gives for hardcoding `block_w`/
-//! `jitter`.
+//! T5 tuning knobs) aren't exposed as configurable params, but on this path
+//! the reference never uses its null-coalescing fallbacks either:
+//! `deriveFromWorldStructure()` sets `foldIntensity = 0.6 + tectonicEnergy`
+//! and `trenchDepth = 0.7 + 0.8·oceanDepth` (each through `+toFixed(3)`), and
+//! `state.tect` carries `faultBlock: 0.6` (v2.10 2265, 2536-2538; v2.11 2291,
+//! 2562-2564). [`world_structure_orogeny_ks`] ports exactly that (Ruling AS,
+//! 2026-09-24 — until then this port hardcoded `0.16`/`1.0`/`0`, which the
+//! reference never reaches with World Structure on).
 //!
 //! ## What else this deliberately does NOT reproduce, and why
 //! - **Ocean-current SST folding** (`state.climate.currents`, JS default
@@ -165,14 +167,30 @@ use cartalith_jsmath::js_round;
 
 use std::sync::Arc;
 
+/// `(fold_k, trench_k, fault_block_k)` for [`OrogenyParams`] with World
+/// Structure on — the reference's own values on that path (Ruling AS,
+/// 2026-09-24). `deriveFromWorldStructure()` (v2.10 2536-2538) sets
+/// `foldIntensity = +(0.6 + tectonicEnergy·1.0).toFixed(3)` and
+/// `trenchDepth = +(0.7 + oceanDepth·0.8).toFixed(3)`; the orogeny call site
+/// (v2.10 3442) passes `foldK: 0.16·foldIntensity`, `trenchK: trenchDepth` and
+/// `faultBlockK: state.tect.faultBlock`, which `state.tect` initialises to
+/// `0.6` (v2.10 2265) and nothing on the World-Structure path changes.
+pub fn world_structure_orogeny_ks(ws: &WorldStructureParams) -> (f64, f64, f64) {
+    let fold_intensity = cartalith_jsmath::js_to_fixed(0.6 + ws.tectonic_energy * 1.0, 3);
+    let trench_depth = cartalith_jsmath::js_to_fixed(0.7 + ws.ocean_depth * 0.8, 3);
+    (0.16 * fold_intensity, trench_depth, 0.6)
+}
+
 /// `state.tect` (reference HTML line 2264-2265) — the formula's real tuning
 /// knobs, plus `resist` (`streamParams()`'s erodibility-resistance weight,
 /// now read by `carveRiverValleys`'s light stream-power pass) and
 /// `dynamic_lithology` (`eroFinish`'s L4 exhumation-hardening gate — see
 /// `recompute_resistance_after_erosion`'s call site below). The remaining
 /// World-Structure-gated fields (`tectonicGraph`/`foldIntensity`/
-/// `trenchDepth`/`faultBlock`) stay omitted — WS stays off in this pipeline
-/// (see the module doc comment), so nothing here reads them.
+/// `trenchDepth`/`faultBlock`) stay omitted: the reference sets them only in
+/// `deriveFromWorldStructure()`, which this port models as
+/// [`world_structure_orogeny_ks`] off [`WorldStructureParams`] rather than as
+/// independent knobs (see the module doc comment).
 #[derive(Clone, Debug, PartialEq)]
 pub struct TectonicParams {
     pub seed: i32,
@@ -1523,21 +1541,21 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // gated on `state.tect.tectonicGraph`, which JS's own
     // deriveFromWorldStructure() sets true exactly when World-Structure is
     // enabled (see this module's doc comment) -- the only trigger this
-    // port models, matching the doc comment's own "not modeled at all"
-    // note on foldIntensity/trenchDepth/faultBlock: nothing here exposes
-    // those T5 knobs yet, so foldK/trenchK/faultBlockK are the exact
-    // values JS's own null-coalescing defaults produce when nothing
-    // overrides them (`0.16*1`, `1.0`, `0`), not a separate approximation.
+    // port models. foldK/trenchK/faultBlockK are the values the reference
+    // actually reaches on that path: `deriveFromWorldStructure` derives
+    // foldIntensity/trenchDepth from the archetype and `state.tect` carries
+    // `faultBlock: 0.6` -- see `world_structure_orogeny_ks` (Ruling AS).
     let oro = if p.world_structure.enabled {
         let mut graph = trace_boundaries(&stress.boundary_mask, gw, gh);
         tag_boundary_types(&mut graph, &stress.boundary_type, gw);
+        let (fold_k, trench_k, fault_block_k) = world_structure_orogeny_ks(&p.world_structure);
         let oro_params = OrogenyParams {
             blur_r: p.tect.blur_r,
             seed: p.tect.seed,
             shear: Some(&stress.shear_field),
-            fold_k: 0.16,
-            trench_k: 1.0,
-            fault_block_k: 0.0,
+            fold_k,
+            trench_k,
+            fault_block_k,
         };
         let raw = build_orogeny_field(&graph.polylines, &stress.stress_field, &base_raw, gw, gh, &oro_params);
         Some(smooth_orogeny(&raw, gw, gh, p.tect.blur_r, world))

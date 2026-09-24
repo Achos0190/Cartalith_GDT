@@ -786,12 +786,13 @@ reference HTML, and it is on §30's anti-list ("banding that looks artificial").
 **The fix exists** as `TerrainAppearance::sea_grain_warp` ("Ocean grain warp",
 added 2026-09-03): milestone 4's stipple fix reused — rotate the sampling lattice
 and domain-warp it — at `0.0` it takes a dedicated branch that is the reference
-expression exactly. Its `default()` value is `0.0`. Being inherited from the
-reference is not a reason to keep the artefact: under `DECISIONS.md` §7p a
-rendering improvement is the standard on its own terms, and the golden is not in
-the way — it is the same gated-stage pattern every milestone here used, with one
-extra line: `js_reference()` inherits this field from `default()`, so it must pin
-`sea_grain_warp: 0.0` explicitly before `default()` turns it on.
+expression exactly. Being inherited from the reference is not a reason to keep
+the artefact: under `DECISIONS.md` §7p a rendering improvement is the standard on
+its own terms, and the golden is not in the way — it is the same gated-stage
+pattern every milestone here used. Ruling AS (2026-09-24) turned it on:
+`default()` is `1.0`, the full strength `sea_grain` was written for, and
+`js_reference()` pins `sea_grain_warp: 0.0` explicitly so the parity path keeps
+the reference's own lattice.
 
 ### Verified
 

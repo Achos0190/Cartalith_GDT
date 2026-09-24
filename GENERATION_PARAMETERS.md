@@ -696,20 +696,20 @@ still absent.
   (thermal pass + 0..1 clamp + isostatic rebound) is a second orchestration to
   transcribe, and it was outside the passes wired above. The one remaining gap
   in the `erosion` group's manual passes.
-- **Structured-orogeny tuning** (`foldI`, `trenchD`, `faultB`) — the T5 knobs.
-  With World Structure on, `generate_terrain_inner` builds
-  `OrogenyParams { fold_k: 0.16, trench_k: 1.0, fault_block_k: 0.0 }`. **These
-  are not the reference's effective values**, which this entry claimed until
-  2026-09-24: the reference's `deriveFromWorldStructure` sets
-  `foldIntensity = 0.6 + tectonicEnergy` and `trenchDepth = 0.7 + 0.8·oceanDepth`,
-  and `state` carries `faultBlock: 0.6` (v2.10 2265, 2536-2538), so its
-  null-coalescing fallback is never reached and horst-and-graben terrain
-  (`fault_block_k > 0`) never forms here. **Ruling AS (2026-09-24) rules the
-  derivation be ported** as a disclosed re-baseline of World-Structure worlds;
-  as of 2026-09-24 the code still hardcodes the three values (its own comment
-  above the call repeats the false "null-coalescing defaults" claim). Where the
-  port stands is `STATUS.md`'s answer. Exposing the knobs as parameters is a
-  separate question the ruling does not decide.
+- **Structured-orogeny tuning** (`foldI`, `trenchD`, `faultB`) — the T5 knobs
+  have no dials. With World Structure on, `generate_terrain_inner` takes them
+  from `world_structure_orogeny_ks`, the reference's own derivation (Ruling AS,
+  2026-09-24): `deriveFromWorldStructure` sets
+  `foldIntensity = +(0.6 + tectonicEnergy).toFixed(3)` and
+  `trenchDepth = +(0.7 + 0.8·oceanDepth).toFixed(3)`, and `state.tect` carries
+  `faultBlock: 0.6` (v2.10 2265, 2536-2538), giving `fold_k = 0.16·foldIntensity`,
+  `trench_k = trenchDepth`, `fault_block_k = 0.6` — so horst-and-graben terrain
+  now forms at rift boundaries. Before the ruling the port hardcoded
+  `fold_k: 0.16, trench_k: 1.0, fault_block_k: 0.0` and this entry wrongly
+  called those the reference's defaults; World-Structure and archetype worlds
+  moved (pinned in `cartalith-engine/tests/world_structure_orogeny.rs`).
+  Exposing the knobs as parameters is a separate question the ruling does not
+  decide.
 - **Geoid** (`geoidChk`, `geoidAmp`) — a default-off sub-object of
   `state.planet`, not ported.
 - **The moon roster** (`tidesChk`, `tideMass`, `tideDist`, `tideK2`) — the

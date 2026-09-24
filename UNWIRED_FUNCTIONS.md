@@ -228,11 +228,12 @@ wrong. Checked at the 2026-09-03 passes unless marked:
   live in the next sentence; `relations.rs` agrees in its own words.
 - `world_workspace.gd`'s Geoid/tides `STAGES` row, which separates a missing
   sub-system from a present one enabled by another toggle.
-- `world_workspace.gd`'s Orogeny `STAGES` row — `generate_terrain` hardcodes
-  fold intensity, trench depth and fault blocks at the reference's own
-  defaults (0.16, 1.0, 0): **verified 2026-09-23** at `generate_terrain_inner`'s
-  `OrogenyParams` literal (`fold_k: 0.16`, `trench_k: 1.0`,
-  `fault_block_k: 0.0`).
+- `world_workspace.gd`'s Orogeny `STAGES` row — fold intensity, trench depth
+  and fault blocks have no dials. **Corrected 2026-09-24:** the 2026-09-23 pass
+  recorded the hardcoded `OrogenyParams` literal (`fold_k: 0.16`,
+  `trench_k: 1.0`, `fault_block_k: 0.0`) as "the reference's own defaults"; it
+  was not (the reference derives them from World Structure). Since Ruling AS
+  `generate_terrain_inner` uses that derivation (`world_structure_orogeny_ks`).
 
 **Stopped being true: GeoJSON import.** `data_manager_window.gd`'s *"No
 GeoJSON import path exists; `cartalith-engine::geojson` is write-only"* was

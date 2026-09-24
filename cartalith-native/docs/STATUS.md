@@ -698,8 +698,13 @@ ruling 16's refine action's scope and the Peak viewshed term; the Military
 authored-battle spacing; erosion §8 Q1 and Q3-Q5. Ruling AS (2026-09-24)
 answered three the audit listed as open — the orogeny derivation, the
 `sea_grain_warp` default and the phone's 4K/8K presets — and added a fourth
-(a sculpt commit clears the paint it covers); **all four are ruled and not
-built** (`3e6e0e1` recorded them and changed no code). None of the LOD
+(a sculpt commit clears the paint it covers). `3e6e0e1` recorded them and
+changed no code. **Two are now built and verified (2026-09-24):** the
+orogeny derivation (`cartalith-engine::world_structure_orogeny_ks`, pinned by
+`cartalith-engine/tests/world_structure_orogeny.rs`) and the `sea_grain_warp`
+default (`1.0` in `TerrainAppearance::default()`, `0.0` pinned in
+`js_reference()`; `tests/color_space.rs::the_ocean_lattice_fix_is_on_in_the_shipped_look_only`).
+The phone presets and the sculpt/paint clear are ruled and not built. None of the LOD
 questions has a row in `OUTSTANDING_WORK.md` §3.1.
 
 | # | Question | Gates |
@@ -1027,7 +1032,7 @@ this document and does not exist — see *Orientation*.
 | TA-4F | 4 follow-up — the overlays learn about the frame | done | `WorldGen::get_border_inset_frac` (wrapped as `engine_bridge.gd::border_inset_frac`; *re-pointed 2026-09-24 — the `#[func]` is `get_border_inset_frac`*) is consumed by every overlay draw call — `viewport_host.gd` and `civilization_workspace.gd` both pass `_bridge.border_inset_frac()` alongside the road/sea-route geometry |
 | TA-5 | 5 — geological material exposure + local contrast | done | `TerrainAppearance::{litho_exposure, local_contrast, local_contrast_radius_frac, local_contrast_knee}`; `render.rs::apply_local_contrast`, a rayon-parallel neighbourhood pass over final colour |
 | TA-6 | 6 — the GPU question answered by measurement; §29 quality tiers | done | Parallel pass: `use rayon::prelude::*` in `render.rs` with `par_chunks_mut` at three sites and a `rayon::join`. Tiers: `enum QualityTier`, `TerrainAppearance::for_tier`, `recommended_quality_tier` (with an explicit Android downgrade); `WorldGen::{get_quality_tier, set_quality_tier, list_quality_tiers, get_recommended_quality_tier}`; `engine_bridge.gd` and the tier picker in `menus.gd`; `tests/appearance_tiers.rs` |
-| TA-20s | §20's staged half: the finishing stages as one pass with one quantisation (owner ruling, `LARGE_ITEM_RULINGS.md` Ruling AN, 2026-09-23) | done, pending independent verification | `render.rs::finish_rgb`/`finish_raster`/`local_contrast_rows`; called from `lib.rs::build_color_texture`, `export_raster.rs` (`export_raster_png`, layers), `render::bake_export_band`, `render::render_biome_tile_rgba`. `tests/color_space.rs::fusing_the_finishing_passes_is_a_bounded_rounding_change` and `ANTIQUE_P3_FNV1A`; the default `FINISHED_RENDER_FNV1A` was unchanged by this milestone (both hashes were later re-baselined by the snow aspect term, `19c38d9`, 2026-09-24 — see LOD-D4). Probe: `godot-project/_finishpass_probe.gd` (windowed). §20's output half (HDR/tone mapping, a non-8-bit encoder) is **not built** |
+| TA-20s | §20's staged half: the finishing stages as one pass with one quantisation (owner ruling, `LARGE_ITEM_RULINGS.md` Ruling AN, 2026-09-23) | done, pending independent verification | `render.rs::finish_rgb`/`finish_raster`/`local_contrast_rows`; called from `lib.rs::build_color_texture`, `export_raster.rs` (`export_raster_png`, layers), `render::bake_export_band`, `render::render_biome_tile_rgba`. `tests/color_space.rs::fusing_the_finishing_passes_is_a_bounded_rounding_change` and `ANTIQUE_P3_FNV1A`; the default `FINISHED_RENDER_FNV1A` was unchanged by this milestone (both hashes were later re-baselined by the snow aspect term, `19c38d9`, 2026-09-24 — see LOD-D4 — and again by Ruling AS's ocean lattice fix, same day). Probe: `godot-project/_finishpass_probe.gd` (windowed). §20's output half (HDR/tone mapping, a non-8-bit encoder) is **not built** |
 
 **Group total: 8 — 8 done.**
 The GUI for all of this is `shell/workspaces/render_workspace.gd` (2 140 lines at `919bce1`, counted 2026-09-24; this said 1 055),
