@@ -3142,7 +3142,8 @@ fn compute_civilisation(
     // about what a continent is: a two-cell rock is not something a user
     // wants a note attached to, and an archipelago world legitimately has no
     // large landmass at all and correctly reports none.
-    let continents = cartalith_civ::civ_continents(&landmass, gw, gh, CONTINENT_MIN_CELLS, Some(&territory));
+    let continents = cartalith_civ::civ_continents_with_cultures(
+        &landmass, gw, gh, CONTINENT_MIN_CELLS, Some(&territory), faction_cultures);
 
     // Sea routes (milestone 13): reference calls `_civMstRoutes(ports,true)`
     // unconditionally whenever >=2 port-tagged settlements exist, over the

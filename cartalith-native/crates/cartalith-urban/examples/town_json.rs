@@ -3,9 +3,10 @@
 //! a town the shipping app cannot yet ask for.
 //!
 //! Exists for the Venus/radial plan: `cartalith-civ`'s urban adapter sets a
-//! `culture` only from a settlement's own override (`PlaceOverrides`); the
-//! faction's culture is not threaded into `UrbanContext` (`urban_adapter.rs`'
-//! header), so a generated world without overrides produces medieval towns,
+//! `culture` only from a settlement's own override (`PlaceOverrides`). A
+//! faction's culture is a naming culture, which the reference's
+//! `resolveProfile` sends to `medieval` too (`urban_adapter.rs`' header), so
+//! a generated world without overrides produces medieval towns,
 //! and `_radialwall_probe.gd` needs a real radial one drawn by the real
 //! renderer without editing a settlement first.
 //!

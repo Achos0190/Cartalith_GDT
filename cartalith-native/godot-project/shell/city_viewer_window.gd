@@ -598,12 +598,14 @@ func _build_town_plan() -> void:
 			c_sel = i
 	var c_ob := DccWidgets.choice(sec, "Culture", c_names, c_sel,
 		func(i: int): _set_plan({"culture": String(cultures[i]["id"])}),
-		"The culture profile the town is planned with. Unset, a town is planned as medieval: the faction's culture (the one that names its settlements) does not choose a town plan, so this is the only way to get another.")
-	## Corrected 2026-09-24 (audit B14d). Faction cultures DO exist (the roster's
-	## `culture`, which drives naming since `c4435ee`); what is true is that
-	## `urban_adapter::run_layout` takes `GenOpts::culture` only from
-	## `PlaceOverrides::culture`, never from the faction -- so `resolve_profile`
-	## falls back to medieval. The old text said no faction-culture table existed.
+		"The culture profile the town is planned with. Unset, a town is planned as medieval: a faction's culture names its settlements but is not a town plan, so this is the only way to get another.")
+	## Corrected 2026-09-24 (audit B14d), re-checked against the reference the
+	## same day. Faction cultures DO exist (the roster's `culture`, which drives
+	## naming since `c4435ee`). The reference passes that key into the town
+	## generator, but it is a naming culture (common, imperial, ...) and
+	## `resolveProfile` sends every one of them to medieval -- the same answer
+	## `urban_adapter::run_layout` gets by passing only `PlaceOverrides::culture`.
+	## The old text said no faction-culture table existed.
 	for i in cultures.size():
 		c_ob.set_item_tooltip(i, String(cultures[i]["name"]))
 	_fit_column(c_ob)

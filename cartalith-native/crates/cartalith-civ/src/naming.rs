@@ -97,9 +97,11 @@ pub fn culture_name_len_limit(cul: &Culture) -> usize {
 /// rather than global state in this stateless crate (`ARCHITECTURE.md`).
 ///
 /// Names in `faction`'s **default** culture ([`civ_default_culture`]), not
-/// a roster's: none of its callers (continents, lake labels, the world name)
-/// is handed the roster that settlement naming reads through
-/// [`crate::civ_faction_culture`].
+/// a roster's: its callers here (lake labels, the world name, the re-roll
+/// stem) are not handed the roster that settlement naming reads through
+/// [`crate::civ_faction_culture`]. A caller that has resolved a culture itself
+/// -- continents, through [`crate::civ_continents_with_cultures`] -- uses
+/// [`civ_settle_name_bounded_in`] instead.
 ///
 /// Falls back to the last candidate after [`NAME_MAX_TRIES`], and if even that
 /// collides it appends a numeric discriminator rather than returning a
@@ -110,7 +112,17 @@ pub fn civ_settle_name_bounded(
     faction: i32,
     seen: &mut BTreeSet<String>,
 ) -> String {
-    let cul = civ_default_culture(faction);
+    civ_settle_name_bounded_in(rng, civ_default_culture(faction), seen)
+}
+
+/// [`civ_settle_name_bounded`] in a culture the caller has already resolved
+/// (for a roster-edited faction, [`crate::civ_faction_culture`]'s answer).
+/// Same RNG draws, length bound and uniqueness rule.
+pub fn civ_settle_name_bounded_in(
+    rng: &mut cartalith_rng::Mulberry32,
+    cul: &Culture,
+    seen: &mut BTreeSet<String>,
+) -> String {
     let limit = culture_name_len_limit(cul);
     let mut last = String::new();
     for _ in 0..NAME_MAX_TRIES {

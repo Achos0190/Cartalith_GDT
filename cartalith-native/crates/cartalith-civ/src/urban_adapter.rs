@@ -72,14 +72,23 @@
 //!
 //! One `_umPlaceContext` field is still genuinely absent, because its input is:
 //!
-//! - **`culture`** — reads `civFactionCulture[p.faction]`. This port does
-//!   resolve a faction's culture (`crate::civ_faction_culture`, over the
-//!   roster's culture column), but only for naming: nothing threads it into
-//!   [`UrbanContext`], so the faction never picks the town plan's culture
-//!   profile. `None`, which is `resolve_profile`'s own `medieval` fallback and
-//!   the `|| 'medieval'` arm of the reference's own expression. A `venus` settlement would lay out today —
-//!   `generate()` dispatches the radial branch itself. Since Ruling J
-//!   (2026-09-23) the host can ask for one per settlement:
+//! - **`culture`** — the reference's expression (v2.11 `_umPlaceContext`) is
+//!   `culture:(typeof civFactionCulture!=='undefined'&&civFactionCulture[p.faction])||'medieval'`,
+//!   and its only reader is `const profile=resolveProfile(opts.culture);` in
+//!   `generate()`, where `resolveProfile(id)` is
+//!   `CULTURE_PROFILES[id]||CULTURE_PROFILES.medieval`. The faction's value is
+//!   a **naming** culture key (`CIV_CULTURES`: `common`, `imperial`,
+//!   `highland`, `desert`, `riverlands`, `sylvan`, `maritime`), and none of
+//!   those is a `CULTURE_PROFILES` key (`medieval`, `venus`) — so in the
+//!   reference too, a faction's culture always resolves to `medieval`. There
+//!   is no naming-culture → town-plan mapping to port (checked 2026-09-24).
+//!   This port passes `None`, which `resolve_profile` also resolves to
+//!   `medieval`: identical output for every culture the roster can hold,
+//!   because `FactionRoster::set_field` refuses anything outside
+//!   `CIV_CULTURES`. (The one input that could differ is a hand-edited save
+//!   whose faction culture is literally `venus`: the reference would lay that
+//!   faction out radially, and this port would not.) Since Ruling J
+//!   (2026-09-23) the host picks a profile per settlement instead:
 //!   `PlaceOverrides::culture`, set from the City Viewer's Town plan.
 //!
 //! **`harbourScale` is no longer on that list.** [`um_harbour_scale`] is
@@ -2040,11 +2049,11 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         return None;
     }
     let opts = GenOpts {
-        // `civFactionCulture[p.faction] || 'medieval'` — the faction's culture
-        // (`crate::civ_faction_culture`) is not threaded into `UrbanContext`,
-        // so this is the `|| 'medieval'` arm, which is also
-        // `resolve_profile`'s own fallback for a `None` — unless Ruling J's
-        // per-settlement override (`PlaceOverrides::culture`) names one.
+        // `civFactionCulture[p.faction] || 'medieval'` — a naming-culture key
+        // that `resolveProfile` sends to `medieval` for every `CIV_CULTURES`
+        // entry (this module's header), so `None` — `resolve_profile`'s own
+        // `medieval` — is the same town. Ruling J's per-settlement override
+        // (`PlaceOverrides::culture`) is the only thing that picks another.
         culture: ctx.culture.clone(),
         // `_umPlaceContext` itself passes no `rules` — `generate()` takes
         // `DEFAULT_RULES` unless this function's own caller supplies one (the
