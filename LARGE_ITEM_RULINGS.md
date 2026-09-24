@@ -1476,3 +1476,25 @@ marks it stale and falls back to the coarse result.
 **A sculpt commit clears splat (ground-texture) paint under its stroke as well
 as biome and terrain paint**, as shipped in `5639e3d`: a sculpt changes the
 ground.
+
+## 2026-09-24 — Ruling AU: tile shading, glaciation, currencies, legacy archives
+
+Asked through the session's question tool; the owner picked each answer.
+
+**Deep-zoom tiles keep the reference tile's shading** (`LOD_DETAIL_SCOPE.md`
+owner question 1). The shipped app does not switch tiles to match this port's
+screen; the gap at LOD entry stays as measured, and no change is made.
+
+**New worlds turn the glacial erosion pass on** (`LOD_DETAIL_SCOPE.md` owner
+question 3). It is an app-default divergence: `cartalith_godot::params::defaults()`
+enables it, `WorldParams::defaults()` and every golden stay as they are. Cold
+mountains gain carved troughs and ice by default; generation takes longer, and
+the cost is to be measured and disclosed.
+
+**Per-faction exchange rates are user-set** (Ruling R, kept by AR). Each faction
+carries its own currency; the user types its rate in the faction roster and the
+engine only converts. No rate is derived from the economy.
+
+**Legacy flat `.zip` archives import their settlements, labels and icons**,
+mapped onto today's settlements, annotations and icons, with a report of
+anything that did not map.
