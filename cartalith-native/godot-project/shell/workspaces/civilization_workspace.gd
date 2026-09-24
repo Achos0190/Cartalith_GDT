@@ -1238,7 +1238,14 @@ func _tool_options_territory() -> void:
 ## erases" precedent (`world_workspace.gd`'s `_paint_apply_dab`).
 func _territory_drag(gx: float, gy: float) -> void:
 	var subtract := _territory_subtract or Input.is_key_pressed(KEY_SHIFT)
-	bridge.civ_territory_paint_at(gx, gy, _territory_faction, _territory_radius, subtract)
+	## `false` is "nothing staged". Today the faction picker offers only roster
+	## ids, so the one refusal a user could meet is unreachable from here; the
+	## hint is for the day an id arrives from somewhere else, and says the same
+	## as the lasso's `-1` below. Only for an out-of-range id: a `false` for
+	## "no world yet" is not this faction's fault and would be the wrong words.
+	var staged := bridge.civ_territory_paint_at(gx, gy, _territory_faction, _territory_radius, subtract)
+	if not staged and not subtract and (_territory_faction < 0 or _territory_faction > 255):
+		app.set_status("hint", "Faction %d cannot be painted -- territory holds ids 0 to 255. Nothing assigned." % _territory_faction, "accent")
 
 func _commit_territory() -> void:
 	bridge.civ_territory_commit()

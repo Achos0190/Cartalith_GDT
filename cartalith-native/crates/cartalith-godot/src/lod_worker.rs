@@ -740,6 +740,21 @@ impl LodSnapshot {
         &self,
         z_max: i32,
     ) -> Option<(usize, usize, std::collections::BTreeMap<ChunkId, Vec<u8>>)> {
+        self.pyramid_masks_with(z_max, |z, col, row| {
+            self.render_tile(z, col, row).map(|(rgba, _, _)| lod_bridge::tile_mask(&rgba))
+        })
+    }
+
+    /// The pyramid walk itself, with where each tile's mask comes from left
+    /// to `mask`: [`Self::render_pyramid_masks`] synthesises every one, and
+    /// [`LodWorker::pyramid_masks`] reuses a held seeded mask where its
+    /// producer is still this snapshot's. One walk, so the two cannot
+    /// disagree about which tiles a pyramid has or in what shape.
+    fn pyramid_masks_with(
+        &self,
+        z_max: i32,
+        mut mask: impl FnMut(i32, i32, i32) -> Option<Vec<u8>>,
+    ) -> Option<(usize, usize, std::collections::BTreeMap<ChunkId, Vec<u8>>)> {
         if !(0..=lod_bridge::MAX_LEVEL).contains(&z_max) {
             return None;
         }
@@ -749,8 +764,7 @@ impl LodSnapshot {
             let n = lod_bridge::tiles_per_axis(z) as i32;
             for col in 0..n {
                 for row in 0..n {
-                    let (rgba, _, _) = self.render_tile(z, col, row)?;
-                    tiles.insert(ChunkId::new(z as u32, col as u32, row as u32), lod_bridge::tile_mask(&rgba));
+                    tiles.insert(ChunkId::new(z as u32, col as u32, row as u32), mask(z, col, row)?);
                 }
             }
         }
@@ -1114,6 +1128,53 @@ impl LodWorker {
             return None;
         }
         Some((lod_bridge::mask_to_rgba(mask), w, h))
+    }
+
+    /// The held mask at `(z, col, row)`, verbatim, under exactly
+    /// [`Self::seeded_tile`]'s conditions -- the producer is `snap`'s and the
+    /// mask is the size `snap` would draw. The save path's counterpart of
+    /// that function: a mask goes back into an archive as a mask, so it is
+    /// cloned rather than round-tripped through RGBA.
+    fn seeded_mask(&self, snap: &LodSnapshot, z: i32, col: i32, row: i32) -> Option<Vec<u8>> {
+        if z < 0 || col < 0 || row < 0 {
+            return None;
+        }
+        let held = self.seed.lock().ok()?;
+        let p = held.as_ref()?;
+        let (w, h) = lod_bridge::tile_size_px(snap.gw, snap.gh, z);
+        if p.producer != snap.producer || (p.tile_w, p.tile_h) != (w, h) {
+            return None;
+        }
+        let mask = p.tiles.get(&ChunkId::new(z as u32, col as u32, row as u32))?;
+        (mask.len() == w * h * 3).then(|| mask.clone())
+    }
+
+    /// Every tile of levels `0..=z_max` for `snap` as storable masks --
+    /// [`LodSnapshot::render_pyramid_masks`]' shape and walk -- **reusing
+    /// each held seeded mask whose producer is still `snap`'s** and
+    /// synthesising only the rest. The save path's entry point
+    /// (`project_bridge.rs`, `include_lod_tiles`), so re-saving a project
+    /// that reopened with a still-valid pyramid writes those tiles back
+    /// without drawing them again (`OUTSTANDING_WORK.md` §2.11, 2026-09-24).
+    ///
+    /// Safe for the same reason serving them on screen is: the producer
+    /// string is the snapshot's own digest of every tile input, and
+    /// [`LodSnapshot::render_tile`] is deterministic in those inputs, so a
+    /// matching held mask is the mask synthesis would produce. Counts into
+    /// [`Self::seed_stats`] exactly as [`Self::tile`] does.
+    pub fn pyramid_masks(
+        &self,
+        snap: &LodSnapshot,
+        z_max: i32,
+    ) -> Option<(usize, usize, std::collections::BTreeMap<ChunkId, Vec<u8>>)> {
+        snap.pyramid_masks_with(z_max, |z, col, row| {
+            if let Some(m) = self.seeded_mask(snap, z, col, row) {
+                self.seeded_served.fetch_add(1, Ordering::SeqCst);
+                return Some(m);
+            }
+            self.synthesized.fetch_add(1, Ordering::SeqCst);
+            snap.render_tile(z, col, row).map(|(rgba, _, _)| lod_bridge::tile_mask(&rgba))
+        })
     }
 
     /// One tile for `snap`: the seeded one if it is valid, else synthesised.
@@ -1707,6 +1768,53 @@ mod tests {
         let deeper = worker.tile(&live, z_max + 1, 0, 0).expect("a deeper tile");
         assert_eq!(deeper, live.render_tile(z_max + 1, 0, 0).expect("tile"));
         assert_eq!(worker.seed_stats().2, 1, "a tile the pyramid does not carry is synthesised");
+    }
+
+    /// **A re-save reuses the seed.** A project reopened with a still-valid
+    /// pyramid and saved again with tiles writes the held masks back: nothing
+    /// is synthesised, and the archive's pyramid is byte-identical to the one
+    /// it was opened with. The negative control is a seed under another
+    /// producer, where every tile is synthesised and still comes out the same
+    /// -- so the zero above is the reuse, not an empty walk.
+    #[test]
+    fn a_re_save_after_a_seeded_open_synthesises_nothing() {
+        let (gw, gh) = (48usize, 36usize);
+        let saved = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
+        let heightmap: Vec<f32> = (*saved.field).clone();
+        let z_max = 2;
+        let lod = archived(&saved, &heightmap, saved.producer_id().to_string(), z_max).expect("pyramid");
+        let opened_tiles = lod.tiles.clone();
+        let live = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
+
+        let worker = LodWorker::default();
+        worker.seed(StoredPyramid::from(lod.clone()));
+        let (tile_w, tile_h, tiles) = worker.pyramid_masks(&live, z_max).expect("pyramid");
+        let n = every_tile(z_max).len();
+        assert_eq!(n, 21, "z 0..=2 is 1 + 4 + 16 tiles");
+        assert_eq!(worker.seed_stats(), (21, 21, 0), "every tile reused, none synthesised");
+        assert_eq!((tile_w, tile_h), (lod.tile_w, lod.tile_h));
+        assert_eq!(tiles, opened_tiles, "the re-saved pyramid is the opened one, byte for byte");
+
+        // Through the real writer: the re-saved archive's pyramid reads back
+        // identical to the one the project was opened with.
+        let params = save_params(gw, gh);
+        let fields = save_fields(heightmap.clone());
+        let mut write = cartalith_io::project::ProjectWrite::new(&params, &fields);
+        write.lod_tiles = Some(cartalith_io::project::LodTiles { source_key: String::new(), producer: live.producer_id().to_string(), tile_w, tile_h, tiles });
+        let mut buf: Vec<u8> = Vec::new();
+        cartalith_io::project::write_project(std::io::Cursor::new(&mut buf), &write).expect("write");
+        let back = cartalith_io::project::read_project(std::io::Cursor::new(&buf)).expect("read").lod_tiles.expect("pyramid kept");
+        assert_eq!(back.tiles, opened_tiles);
+        assert_eq!(back.producer, lod.producer);
+
+        // Negative control: a seed under another producer is not reused.
+        let other = LodWorker::default();
+        let mut stale = StoredPyramid::from(lod);
+        stale.producer.push_str(";stale");
+        other.seed(stale);
+        let (_, _, again) = other.pyramid_masks(&live, z_max).expect("pyramid");
+        assert_eq!(other.seed_stats(), (21, 0, 21), "a stale seed is held but never reused");
+        assert_eq!(again, opened_tiles, "and synthesis draws the same pyramid");
     }
 
     /// **The backward-compatible case.** A project saved by the code before

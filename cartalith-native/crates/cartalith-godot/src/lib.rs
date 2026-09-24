@@ -4683,7 +4683,7 @@ impl IRefCounted for WorldGen {
             // read and write it; seeding it here rather than in
             // `Npr::default()` is what keeps `js_reference()` — which inherits
             // its `npr` from `Default` — the reference's single-sun shading.
-            npr: render::Npr { multi_sun: true, ..render::Npr::default() },
+            npr: session_npr(),
             appearance_over: std::collections::HashMap::new(),
             appearance_ramp: None,
             appearance_layers: None,
@@ -4733,6 +4733,14 @@ impl IRefCounted for WorldGen {
             export_session: export_session::ExportSessionCore::default(),
         }
     }
+}
+
+/// The NPR block a fresh session starts with: multi-sun on, everything else
+/// `Npr::default()`. One function because two places need it -- `init` and
+/// `load_save`'s reset of the project-owned look -- and two literals would be
+/// two defaults that drift.
+fn session_npr() -> render::Npr {
+    render::Npr { multi_sun: true, ..render::Npr::default() }
 }
 
 /// Plain (non-`#[func]`) helpers shared by `generate()` and
@@ -7038,6 +7046,31 @@ impl WorldGen {
         // SP-4: this world's conflicts belong to the file being closed;
         // `project_open` restores the archive's own on top.
         self.conflicts = cartalith_civ::conflict::ConflictStore::new();
+        // The project-owned half of the look: exactly the members
+        // `project_open` replaces *wholesale* from `appearance.json`
+        // (`project_bridge.rs`) -- the scalar overrides, the ramp, the NPR
+        // block and CA-19's biome colour table. A tree archive always carries
+        // that document, so it always overwrote them; a flat or legacy archive
+        // carries none, so until 2026-09-24 it silently inherited whatever the
+        // previous session had edited, and the next save wrote those edits
+        // into a file that never had them. Reset here, before `project_open`'s
+        // restore (which calls this function first), so an archive with an
+        // `appearance.json` still wins and one without opens at the defaults.
+        //
+        // Deliberately **not** reset: `quality` and `look` (`project_open`
+        // applies them only when recognised, keeping the current one
+        // otherwise -- a session choice the document may refine), the
+        // `territory_opacity` it treats the same way, `appearance_preset` (a
+        // loaded look is not project state -- `AppearanceDoc`'s own note),
+        // `appearance_layers` (no project document stores it, so a tree
+        // archive keeps it too) and `color_space` (the monitor, not the map).
+        self.appearance_over.clear();
+        self.appearance_ramp = None;
+        // The *session* default (multi-sun on), not `Npr::default()` -- the
+        // latter is the reference's single-sun block `js_reference()` keeps,
+        // and resetting to it would switch multi-sun off on every legacy open.
+        self.npr = session_npr();
+        self.biome_col_overrides = [None; 15];
         // The *settings* half, which `invalidate()` deliberately leaves alone
         // and which `absorb()` deliberately does not touch either: a cap
         // table describes what the user wants placed, so it rightly survives

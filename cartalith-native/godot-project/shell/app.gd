@@ -2176,10 +2176,13 @@ func _build_timeline_scrub() -> Control:
 	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	## `civ_goto_year` is the cursor. The recording category is CIVIL ▸
 	## Timeline (`civilization_workspace.gd`); "CIVIL > Politics" was a stale
-	## name (audit B15), corrected 2026-09-24.
+	## name (audit B15), corrected 2026-09-24. Also corrected 2026-09-24: the
+	## tooltip said territory "holds" between recorded years. It does not --
+	## `civ_snapshot_load` blanks it at any unrecorded year (`dcc_shell.gd`'s
+	## §10a note); whether it should is an open owner question.
 	track.tooltip_text = ("Drag to move the civilisation year cursor anywhere in "
-		+ "-400..1200. The map's territory changes only at the years CIVIL ▸ Timeline has "
-		+ "recorded a snapshot for; between them the cursor moves and the territory holds. "
+		+ "-400..1200. A year CIVIL ▸ Timeline has recorded a snapshot for loads that "
+		+ "snapshot's territory; any other year shows no territory. "
 		+ "The marks below the rail are those recorded years; hold Shift while dragging to "
 		+ "snap to the nearest one.")
 

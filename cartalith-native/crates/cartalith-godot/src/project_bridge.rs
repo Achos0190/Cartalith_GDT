@@ -2118,8 +2118,13 @@ impl WorldGen {
         // it in here would be asserting a claim this function cannot verify.
         if include_lod_tiles {
             if let Some(snapshot) = self.lod_snapshot() {
+                // Through the worker, not `snapshot.render_pyramid_masks`: a
+                // project reopened with a pyramid whose producer is still this
+                // snapshot's writes those held tiles straight back instead of
+                // drawing every one again (`LodWorker::pyramid_masks`). Any
+                // tile the seed does not validly cover is synthesised as before.
                 if let Some((tile_w, tile_h, tiles)) =
-                    snapshot.render_pyramid_masks(lod_bridge::SAVE_PYRAMID_MAX_LEVEL)
+                    self.lod_worker.pyramid_masks(&snapshot, lod_bridge::SAVE_PYRAMID_MAX_LEVEL)
                 {
                     write.lod_tiles = Some(project::LodTiles {
                         source_key: String::new(),

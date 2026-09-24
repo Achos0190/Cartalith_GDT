@@ -185,5 +185,37 @@ func _init() -> void:
 	else:
 		print("  E. skipped: no set_color_space binding")
 
+	# -- F. a re-save writes the held tiles back (2026-09-24) ---------------
+	# Open the seeded project and save it again with tiles, asking for no tile
+	# in between: `LodWorker::pyramid_masks` must reuse every held mask, so
+	# nothing is synthesised and every stored entry is byte-identical to the
+	# archive it was opened from. Reads zip bytes only, so this section is
+	# valid headless as well.
+	var p_resave := dir.path_join("_lodseed_resaved.ctl")
+	var re := _open(p_loaded_tiles)
+	if _save(re, p_resave, true):
+		var rs: Dictionary = re.lod_worker_stats()
+		print("  F. re-save: seeded_served=%d synthesized=%d" % [rs.get("seeded_served", -1), rs.get("synthesized", -1)])
+		if int(rs.get("synthesized", -1)) != 0:
+			_fail("a re-save synthesised %d tiles the project already held" % int(rs.get("synthesized", -1)))
+		if int(rs.get("seeded_served", -1)) != asked.size():
+			_fail("a re-save reused %d of %d held tiles" % [int(rs.get("seeded_served", -1)), asked.size()])
+		var za := ZIPReader.new()
+		var zb := ZIPReader.new()
+		if za.open(p_loaded_tiles) == OK and zb.open(p_resave) == OK:
+			var same := 0
+			for t in asked:
+				var e := "cartography/tiles/%d/%d/%d.u8" % [t.x, t.y, t.z]
+				var a := za.read_file(e)
+				if not a.is_empty() and a == zb.read_file(e):
+					same += 1
+			print("     %d of %d stored tiles byte-identical after the re-save" % [same, asked.size()])
+			if same != asked.size():
+				_fail("the re-saved pyramid differs from the one it was opened with")
+		else:
+			_fail("could not reopen the two archives to compare")
+		za.close()
+		zb.close()
+
 	print("lod-seed probe: ", "PASS" if fails == 0 else "%d FAILURE(S)" % fails)
 	quit(1 if fails > 0 else 0)

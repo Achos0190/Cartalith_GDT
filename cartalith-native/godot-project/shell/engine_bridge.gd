@@ -2858,20 +2858,34 @@ func civ_drop_settlement(gx: float, gy: float, kind: String, faction: int, name:
 	mark_world_dirty()
 	return world_gen.civ_drop_settlement(gx, gy, kind, faction, name, snap_to_water)
 
-func civ_territory_paint_at(gx: float, gy: float, faction: int, radius: float, subtract: bool) -> void:
+## One Territory brush dab. Returns the engine's own answer: `true` when a dab
+## was staged, `false` when nothing was -- no world yet, or an add dab whose
+## `faction` the paint layer cannot hold (negative, or past 255), which the
+## engine refuses rather than clamping to another faction
+## (`WorldGen::civ_territory_paint_at`). `false` too on a binary without the
+## call. The project is marked dirty only after a dab was actually staged.
+func civ_territory_paint_at(gx: float, gy: float, faction: int, radius: float, subtract: bool) -> bool:
 	if not _has("civ_territory_paint_at"):
-		return
-	mark_world_dirty()
-	world_gen.civ_territory_paint_at(gx, gy, faction, radius, subtract)
+		return false
+	var staged: bool = world_gen.civ_territory_paint_at(gx, gy, faction, radius, subtract)
+	if staged:
+		mark_world_dirty()
+	return staged
 
 ## The Territory lasso's one stamp: every cell whose centre is inside the
 ## ring, staged into the same draft `civ_territory_paint_at` feeds. Returns
-## the number of cells staged (0 = nothing pushed).
+## the number of cells staged; `0` = nothing pushed (no world, or a ring
+## enclosing no cell centre); **`-1` = refused**: an add ring naming a faction
+## the paint layer cannot hold (negative, or past 255), with nothing staged
+## (`WorldGen::civ_territory_paint_polygon`). The project is marked dirty only
+## when cells were staged.
 func civ_territory_paint_polygon(points: PackedVector2Array, faction: int, subtract: bool) -> int:
 	if not _has("civ_territory_paint_polygon"):
 		return 0
-	mark_world_dirty()
-	return world_gen.civ_territory_paint_polygon(points, faction, subtract)
+	var staged: int = world_gen.civ_territory_paint_polygon(points, faction, subtract)
+	if staged > 0:
+		mark_world_dirty()
+	return staged
 
 func civ_territory_commit() -> void:
 	if not _has("civ_territory_commit"):

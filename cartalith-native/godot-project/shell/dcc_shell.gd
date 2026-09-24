@@ -4817,9 +4817,21 @@ func set_timeline_metrics(pad_y: int, fixed_h: int) -> void:
 # (`cartalith-godot/src/lib.rs:400 CivData::civ_goto_year` -- note there are
 # TWO `civ_goto_year` in that file; this is the inner one, on `CivData`, not
 # the `#[func]` wrapper on `WorldGen` cited further down). So the -400..1200
-# track is continuous and
-# honest -- the cursor really does land where the playhead is -- and the
-# territory under it changes only at the years the dock has recorded.
+# track is continuous and honest -- the cursor really does land where the
+# playhead is.
+#
+# **The territory under it changes at every year, not only the recorded ones.**
+# Corrected 2026-09-24: this said territory "changes only at the years the dock
+# has recorded", which is false. `cartalith_civ::timeline::civ_snapshot_load`
+# runs `territory.fill(0)` unconditionally (the reference's own `terr.fill(0)`)
+# and paints a snapshot on top only when one exists for exactly that year -- so
+# scrubbing or playing through an UNRECORDED year blanks every claim, and on a
+# world with no recorded year at all the first move of the cursor does. A
+# recorded year loads its snapshot. Neither path touches the Territory tool's
+# base or paint layers; how Go to year should meet that model is an open owner
+# question (`OUTSTANDING_WORK.md` §2.11, "Go to year bypasses the territory
+# paint model"), and this strip's behaviour is deliberately left as it is
+# until it is answered.
 
 ## `05-right-dock-and-bars.md` §4.2: "the scrub range is therefore fixed at
 ## year -400 ... year 1200 (1600 years)", and `06-phone.md` §6.2's slider is
@@ -8878,7 +8890,7 @@ func _refresh_phone_sim_strip() -> void:
 	_phone_sim_play.text = DccIcons.SYMBOLS["pause"] if tl_playing \
 		else DccIcons.SYMBOLS["play"]
 	_phone_sim_play.tooltip_text = ("Pause" if tl_playing else "Play") \
-		+ " -- %s. The cursor is the civilisation timeline's own year; the map's territory changes only at the years CIVIL ▸ Timeline has recorded." % tl_state_text()
+		+ " -- %s. The cursor is the civilisation timeline's own year; a year CIVIL ▸ Timeline has recorded loads its territory, and any other year shows none." % tl_state_text()
 	## `civ_goto_year`. "CIVIL > Politics" was a stale category name (audit B15).
 	## The glyph swaps between `▶` and `⏸`, so the name has to swap with it --
 	## a fixed "Play" would be wrong for half the button's life.
