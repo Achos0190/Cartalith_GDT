@@ -4114,8 +4114,10 @@ struct WorldGen {
     /// overrides onto `render::CART_BIOME_COLS`, 1-based like the table
     /// itself (`biome_col_overrides[0]` is class 1). `[None; 15]` on a
     /// fresh session, so an untouched `WorldGen` renders exactly what it
-    /// rendered before this field existed — `set_biome_color`/
-    /// `reset_biome_color(s)` are the only writers. Applied in
+    /// rendered before this field existed. Written by `set_biome_color`/
+    /// `reset_biome_color(s)`, and by `project_open` from `appearance.json`'s
+    /// `biome_cols` member (`project_bridge.rs`, `SAVEFILE_COMPAT.md` §13.2),
+    /// which the save writes from here. Applied in
     /// `appearance()`, the same "presentation only, layered over the base"
     /// slot `appearance_over` uses, and for the same reason: this never
     /// touches the heightmap, climate, hydrology, biomes, settlements,

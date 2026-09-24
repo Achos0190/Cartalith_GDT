@@ -217,11 +217,16 @@ func _ready() -> void:
 	## -- The edit, through the real picker ----------------------------------
 	var pick: ColorPickerButton = rw._biome_swatches[cls - 1]
 	_check(_same8(pick.color, frozen_legend[cls - 1]), "the picker opens on the reference colour %s" % _c8(pick.color))
+	## The edit marks the project unsaved now that the save carries the table
+	## (`appearance.json`'s `biome_cols`, 2026-09-24). Cleared first so the
+	## check reads this edit, not the generate before it.
+	bridge._set_dirty(false)
 	pick.color = EDIT
 	pick.color_changed.emit(EDIT)
 	pick.popup_closed.emit()
 	await _frames(4)
 	_check(_same8(bridge.biome_color(cls), EDIT), "the engine holds the edit (%s)" % _c8(bridge.biome_color(cls)))
+	_check(bridge.world_dirty, "the edit marks the project unsaved")
 	var m2 := _px(bridge.color_texture(), cell)
 	var f2 := _px(bridge.color_texture(), far)
 	_log("map at cell after the edit %s" % _c8(m2))
@@ -242,9 +247,17 @@ func _ready() -> void:
 		if c is Button and not (c is ColorPickerButton) and String((c as Button).text) == "Reset":
 			reset_btn = c
 	_check(reset_btn != null, "the row has a Reset button")
+	bridge._set_dirty(false)
 	if reset_btn != null:
 		reset_btn.pressed.emit()
 	await _frames(4)
+	_check(bridge.world_dirty, "the row's Reset marks the project unsaved")
+	## A reset with nothing to drop changes nothing a save would write.
+	bridge._set_dirty(false)
+	if reset_btn != null:
+		reset_btn.pressed.emit()
+	await _frames(2)
+	_check(not bridge.world_dirty, "a second Reset, with nothing left to drop, leaves the project clean")
 	var m3 := _px(bridge.color_texture(), cell)
 	_check(_same8(m3, m1), "reset restores the map pixel exactly (%s vs %s)" % [_c8(m3), _c8(m1)])
 	_check(_same8(_legend(cls), frozen_legend[cls - 1]), "reset restores the legend swatch")

@@ -557,8 +557,11 @@ func _build_map_view() -> void:
 ## (`debug_layers()`'s `bclass` rows), so this list and the Layers popover's
 ## cannot disagree about which class is which. An edit changes the map's paint
 ## blend, the Biomes field and its legend, and the paint preview; nothing here
-## touches a generated value. It is **not saved with the project** --
-## `engine_bridge.gd`'s biome block says why.
+## touches a generated value. It is **saved with the project**
+## (`appearance.json`'s `biome_cols`, `SAVEFILE_COMPAT.md` §13.2) and an edit
+## marks the project unsaved -- `engine_bridge.gd`'s biome block. How it meets
+## Reset appearance and a saved look was measured by `_biomesave_probe.gd`
+## (step 5), and the note at the end of the block says the same thing.
 func _build_biome_colours() -> void:
 	if not bridge.appearance_api:
 		return
@@ -599,13 +602,9 @@ func _build_biome_colours() -> void:
 		## floors it on a phone.
 		var tap := float(DccTheme.role_px("btn_min_h")) if tablet else 0.0
 		pick.custom_minimum_size = Vector2(maxf(30.0, tap), maxf(18.0, tap))
-		## The picker's own popup is an embedded `Window` that `phone_fit()`
-		## never reaches (it scales `OptionButton` lists, not this), so on a
-		## phone it opened at its desktop 298 px -- about 114 dp, a third of
-		## the screen, with the hue strip too narrow to hit. Scaled here by the
-		## phone's own factor, measured by `_biomecol_probe.gd`.
-		if DccTheme.is_phone():
-			pick.get_popup().content_scale_factor = DccTheme.phone_scale()
+		## Its popup is scaled on a phone by `phone_fit()`, through
+		## `DccWidgets.phone_color_popup()` -- the one path every picker in the
+		## shell takes. This block used to carry its own copy of that fix.
 		pick.tooltip_text = "%s -- the colour a painted %s cell blends toward, the Biomes field draws, and the paint preview shows." % [names[k], names[k]]
 		## The engine takes every change (cheap); the map re-renders once, when
 		## the picker closes -- a full-map re-render per drag sample is not this
@@ -618,13 +617,13 @@ func _build_biome_colours() -> void:
 		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(name_lbl)
 		var rs := DccWidgets.text_button(row, "Reset", func(): _reset_biome_colour(index))
-		rs.tooltip_text = "Back to the reference's own colour for %s." % names[k]
+		rs.tooltip_text = "Drop your edit to %s: back to the reference's own colour, or to a loaded saved look's." % names[k]
 	var all := DccWidgets.action(body, "Reset all biome colours", _reset_biome_colours)
-	all.tooltip_text = "Every class back to the reference's own table (CART_BIOME_COLS). Does not touch the look, the ramp or the grade."
+	all.tooltip_text = "Drop every class's edit: back to the reference's own table (CART_BIOME_COLS), or to a loaded saved look's table. Does not touch the look, the ramp or the grade."
 	DccWidgets.note(body,
-		"Not saved with the project: the save format has no slot for this table "
-		+ "yet, so an edit lasts until the app closes. Reset appearance leaves it "
-		+ "alone; Reset all above is its own reset.")
+		"Saved with the project. Reset appearance leaves your edits alone; the "
+		+ "resets above drop them. A saved look carries the table it was saved "
+		+ "with, and while one is loaded the resets return to that table.")
 	_sync_biome_colours()
 
 # -- The reference's Map style presets (reference HTML 1719-1729) --------------

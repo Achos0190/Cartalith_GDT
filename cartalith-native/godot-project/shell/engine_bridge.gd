@@ -1228,11 +1228,15 @@ func reset_appearance() -> int:
 # `cc0f561`, after the tunables, so an older cdylib has the sliders and not
 # these. Indices are 1-based, `CART_BIOME_COLS`' own convention.
 #
-# **Not saved with the project.** `appearance.json` (`SAVEFILE_COMPAT.md`
-# §13.2) has no member for the biome table and `project_bridge.rs`'s
-# `AppearanceDoc` writes none, so an edit here lasts the session. That is why
-# none of these calls `mark_world_dirty()`: marking the project unsaved for a
-# change a save would not carry would promise something the save cannot keep.
+# **Saved with the project** since 2026-09-24: `appearance.json`'s optional
+# `biome_cols` member (`SAVEFILE_COMPAT.md` §13.2, `project_bridge.rs`'s
+# `AppearanceDoc`). Until then an edit lasted the session and these setters
+# deliberately did not call `mark_world_dirty()`, because marking a project
+# unsaved for a change the save would not carry promised something it could
+# not keep. Now the save carries it, so each setter marks the project dirty --
+# **after** the engine call, and only when the engine says something changed
+# (a refused index, a reset of a class that had no override, or a reset-all
+# with nothing set changes nothing a save would write).
 var biome_colors_api := false
 
 ## The colour biome class `index` (1..15) renders with right now -- the
@@ -1248,19 +1252,28 @@ func biome_color(index: int) -> Color:
 func set_biome_color(index: int, c: Color) -> bool:
 	if not biome_colors_api or generating:
 		return false
-	return world_gen.set_biome_color(index, c.r8, c.g8, c.b8)
+	var ok: bool = world_gen.set_biome_color(index, c.r8, c.g8, c.b8)
+	if ok:
+		mark_world_dirty()
+	return ok
 
 ## Drop one class's override. `true` only when one was actually set.
 func reset_biome_color(index: int) -> bool:
 	if not biome_colors_api or generating:
 		return false
-	return world_gen.reset_biome_color(index)
+	var dropped: bool = world_gen.reset_biome_color(index)
+	if dropped:
+		mark_world_dirty()
+	return dropped
 
 ## Drop every override. Returns how many were set.
 func reset_biome_colors() -> int:
 	if not biome_colors_api or generating:
 		return 0
-	return world_gen.reset_biome_colors()
+	var n: int = world_gen.reset_biome_colors()
+	if n > 0:
+		mark_world_dirty()
+	return n
 
 
 # -- Colour ramp (`GUI_GAP_REGISTER.md` CA-02) ---------------------------------

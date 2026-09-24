@@ -2894,6 +2894,39 @@ static func _floor_dialog_bar(dlg: Window, target: Vector2i) -> void:
 ## the handler re-checks `is_instance_valid` regardless.
 const _OVERSAMPLE_META := "_dcc_oversample"
 
+## **A `ColorPickerButton`'s popup, scaled to the phone.** The popup is a
+## `PopupPanel` -- a `Window`, not a `Control` -- so `DccShell.phone_fit()`'s
+## walk never reached it, and on a phone every picker opened at its desktop
+## 298 px: about 114 dp on a 1080 px handset, a third of the screen, with a
+## hue strip too thin to hit (`_pickerpopup_probe.gd`, five of the six picker
+## sites; the sixth, the biome table, carried its own copy of this fix).
+##
+## The factor is the phone scale **divided by whatever the popup's embedder
+## already applies**. Today that divisor is 1.0 at every site, including the
+## content-scaled roster and slicer windows: they do not embed sub-windows,
+## so the popup is embedded in the main viewport and inherits none of their
+## scale (measured, same probe -- 298 px there too). Walking to the real
+## embedder rather than assuming it means a future window that does embed its
+## popups gets 1.0 here instead of a doubled popup.
+##
+## `oversample()` for the reason it exists: a content-scaled window magnifies
+## a font rasterised at its authored size, and the popup's hex field and
+## labels would smear exactly as HD-01's windows did.
+##
+## Called from `phone_fit()`, which reaches every picker the shell builds.
+## A no-op off the phone; a picker not yet in the tree is left alone rather
+## than guessed at, and the walk re-fits it when it arrives.
+static func phone_color_popup(pick: ColorPickerButton) -> void:
+	if pick == null or not DccTheme.is_phone() or not pick.is_inside_tree():
+		return
+	var emb: Viewport = pick.get_viewport()
+	while emb is Window and not (emb as Window).gui_embed_subwindows and emb.get_parent() != null:
+		emb = emb.get_parent().get_viewport()
+	var already := (emb as Window).content_scale_factor if emb is Window else 1.0
+	var pop := pick.get_popup()
+	pop.content_scale_factor = DccTheme.phone_scale() / maxf(0.0001, already)
+	oversample(pop, pop.content_scale_factor)
+
 static func oversample(w: Window, scale: float = 0.0) -> void:
 	if w == null:
 		return

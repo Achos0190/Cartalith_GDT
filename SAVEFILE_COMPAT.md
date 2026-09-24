@@ -1530,7 +1530,8 @@ this tree exists to remove.
   "territory_opacity": 0.32,
   "overrides": { "sun_azimuth": 315.0 },
   "ramp": null,
-  "npr": {}
+  "npr": {},
+  "biome_cols": [[90, 147, 184], [58, 122, 74], [12, 200, 77], "... 15 in all"]
 }
 ```
 
@@ -1539,6 +1540,37 @@ ignore this file entirely and still render the world with its own defaults; a
 reader that applies it MUST NOT let anything in it change a generated value.
 All members optional. `overrides` is a flat map of appearance keys to numbers,
 layered over whatever base the reader uses. Unknown keys are ignored (§14.3).
+This port writes `overrides` with its keys sorted, so saving the same look
+twice writes the same bytes; a reader MUST NOT depend on the order.
+
+**`biome_cols`** (added 2026-09-24, CA-19 / Ruling P) is the biome colour
+table: exactly **15** entries, each `[r, g, b]` with integer channels in
+`0..=255`, in biome-class order (entry 0 is class 1, the order of
+`CART_BIOME_COLS` and of the Biomes legend). It is the whole table, not a
+sparse list of edits, and it has the shape a saved-look preset file already
+uses for the same field. The example above is truncated for display; a real
+member has fifteen triples and no string.
+
+- **Absent means the reference table** (`CART_BIOME_COLS`, reference HTML
+  `CART_BIOME_COLS`). It never means a table of zeros or "keep whatever the
+  reader had". A document written before the member existed is therefore read
+  exactly as it always was, and a project opened over a session with edited
+  colours opens at the reference table.
+- **A writer SHOULD omit the member when the table equals the reference
+  table**, and this port does. Absent already says "reference table", so
+  writing it would be a second spelling of the same state, and every untouched
+  project would stop being byte-identical to one written before the member
+  existed. An edit that sets a class to its own reference colour is dropped by
+  the same rule.
+- **Refused whole.** A member that is not exactly 15 triples of integers in
+  range (wrong length, a pair, `256`, `-1`, `2.5`, a string, an object) MUST
+  NOT be applied in part. This port uses the reference table, adds a warning
+  to `project_open`'s `warnings`, and still applies every other member of the
+  file: a bad table costs itself only (§6.4a). `null` is read as absent.
+- It records the user's edits over the reference table, as `overrides` records
+  them over the tier. A saved look (appearance preset) that the session has
+  loaded is not project state (see `appearance_preset` in `project_bridge.rs`),
+  so its own table is not written here either.
 
 ### 13.3 `vault.json` — links out to a Markdown vault
 

@@ -835,9 +835,75 @@ struct AppearanceDoc {
     quality: String,
     look: String,
     territory_opacity: f64,
-    overrides: std::collections::HashMap<String, f64>,
+    /// A `BTreeMap`, not the `HashMap` `WorldGen::appearance_over` is: a hash
+    /// map serialises in a per-process random order, so the same project
+    /// saved twice produced two different `appearance.json`s and no load/save
+    /// cycle could be byte-identical (found 2026-09-24 writing CA-19's
+    /// backward-compatibility test, which asserts exactly that). The keys are
+    /// the same; only their order on disk is now fixed (sorted).
+    overrides: BTreeMap<String, f64>,
     ramp: Option<crate::render::ElevationRamp>,
     npr: crate::render::Npr,
+    /// CA-19 (`LARGE_ITEM_RULINGS.md` Ruling P): the biome colour table, as
+    /// all fifteen `[r, g, b]` entries in `CART_BIOME_COLS` order (class 1
+    /// first) -- the shape `TerrainAppearance::biome_cols` already has in a
+    /// saved-look preset file, so the two formats spell the table the same
+    /// way. `SAVEFILE_COMPAT.md` §13.2 has the format note.
+    ///
+    /// **Absent means the reference's own table**, and the writer omits the
+    /// member when the table equals it ([`biome_cols_member`]), so a project
+    /// nobody recoloured is byte-identical to one written before the member
+    /// existed. Kept as a raw `Value` rather than a typed array on purpose:
+    /// a typed member that failed to parse would fail the **whole**
+    /// `AppearanceDoc`, and one bad table would silently cost the look, the
+    /// overrides, the ramp and the NPR block with it. [`biome_overrides_from_member`]
+    /// validates it on its own and `project_open` reports a refusal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    biome_cols: Option<serde_json::Value>,
+}
+
+/// `AppearanceDoc::biome_cols` as the writer spells it: the reference table
+/// with `WorldGen::biome_col_overrides` laid over it, or `None` -- **no
+/// member** -- when that equals `CART_BIOME_COLS`.
+///
+/// Why omit rather than write the default: absent already means "the
+/// reference's own table" to every reader (§13.2), so writing the default
+/// would be a second spelling of the same state, and it would make every
+/// untouched project differ from the one the previous writer produced. An
+/// override that happens to equal its class's default colour is dropped by
+/// the same rule; it draws identically, and a project does not save the
+/// loaded preset that is the only base it could ever differ from.
+///
+/// Over `CART_BIOME_COLS`, not over `appearance()`: the table here is the
+/// user's edits, the member `appearance_over` is to the scalar tunables. A
+/// loaded preset's own table is deliberately not written into the project
+/// (see [`AppearanceDoc`]'s note on `appearance_preset`).
+fn biome_cols_member(overrides: &[Option<(u8, u8, u8)>; 15]) -> Option<serde_json::Value> {
+    let base = crate::render::CART_BIOME_COLS;
+    let table: [(u8, u8, u8); 15] = std::array::from_fn(|i| overrides[i].unwrap_or(base[i]));
+    if table == base {
+        return None;
+    }
+    serde_json::to_value(table).ok()
+}
+
+/// The inverse of [`biome_cols_member`]: the overrides a stored table
+/// describes. An absent member (`None`) is the reference table, i.e. no
+/// override at all -- never a table of zeros.
+///
+/// **All or nothing.** Anything but exactly fifteen `[r, g, b]` triples of
+/// integers in `0..=255` is refused as a whole with the reason, and the
+/// caller falls back to the default table: applying the entries that did
+/// parse would draw a palette nobody chose. Entries equal to the reference
+/// colour come back as `None`, the writer's own rule.
+fn biome_overrides_from_member(
+    member: Option<&serde_json::Value>,
+) -> Result<[Option<(u8, u8, u8)>; 15], String> {
+    let Some(v) = member else { return Ok([None; 15]) };
+    let table: [(u8, u8, u8); 15] = serde_json::from_value(v.clone())
+        .map_err(|e| format!("is not 15 [r, g, b] triples of 0-255 ({e})"))?;
+    let base = crate::render::CART_BIOME_COLS;
+    Ok(std::array::from_fn(|i| (table[i] != base[i]).then_some(table[i])))
 }
 
 /// `entities/landmarks.json` -- the Landmark Generation dock's **settings and
@@ -2229,9 +2295,10 @@ impl WorldGen {
                 quality: self.quality.name().to_string(),
                 look: self.look.clone(),
                 territory_opacity: self.territory_opacity,
-                overrides: self.appearance_over.clone(),
+                overrides: self.appearance_over.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                 ramp: self.appearance_ramp.clone(),
                 npr: self.npr.clone(),
+                biome_cols: biome_cols_member(&self.biome_col_overrides),
             },
         );
 
@@ -2703,9 +2770,23 @@ impl WorldGen {
             if (0.0..=1.0).contains(&doc.territory_opacity) {
                 self.territory_opacity = doc.territory_opacity;
             }
-            self.appearance_over = doc.overrides;
+            self.appearance_over = doc.overrides.into_iter().collect();
             self.appearance_ramp = doc.ramp;
             self.npr = doc.npr;
+            // CA-19. Replaced wholesale, `appearance_over`'s rule: an absent
+            // member is this project's table being the reference one, so the
+            // outgoing project's edits must not survive into it. A member
+            // this build refuses costs itself only -- the default table and a
+            // warning, never a partial table and never the rest of the look.
+            self.biome_col_overrides = match biome_overrides_from_member(doc.biome_cols.as_ref()) {
+                Ok(ov) => ov,
+                Err(e) => {
+                    restore_warnings.push(format!(
+                        "{SLOT_APPEARANCE}: biome_cols {e}; the default biome colour table is used"
+                    ));
+                    [None; 15]
+                }
+            };
             restored.push("appearance");
         }
 
@@ -5391,6 +5472,8 @@ mod tests {
         for key in ["quality", "look", "territory_opacity", "overrides", "ramp", "npr"] {
             assert!(v.get(key).is_some(), "appearance.json must carry {key}");
         }
+        // CA-19: the default table is spelled by omission, not by a member.
+        assert!(v.get("biome_cols").is_none(), "a default table must write no biome_cols: {text}");
     }
 
     #[test]
@@ -5951,5 +6034,146 @@ mod icon_document_tests {
         let doc: IconsDoc = serde_json::from_str(text).expect("parses");
         let kept = doc.icons.iter().filter_map(icon_from_dto).count();
         assert_eq!(doc.icons.len() - kept, 2, "the warning would understate the loss");
+    }
+}
+
+/// CA-19: `appearance.json`'s `biome_cols` member (`SAVEFILE_COMPAT.md`
+/// §13.2).
+#[cfg(test)]
+mod biome_cols_tests {
+    use super::*;
+
+    /// **A real project's `appearance.json`, saved by the writer before this
+    /// member existed** -- not a hand-typed document. Provenance: written
+    /// 2026-09-24 by `_biomesave_probe.gd -- --capture`, running
+    /// `WorldGen::project_save` in the `cartalith_godot.dll` built at 09:56
+    /// from a tree whose `project_bridge.rs` was byte-identical to `bab9edd`
+    /// (mtime 09:43, `git diff --stat HEAD` empty). That session had set the
+    /// look to vibrant, two tunable overrides **and biome class 3 to
+    /// (12, 200, 77)** -- and the file carries no trace of the last, which
+    /// is the defect this member closes. Copied out of the archive verbatim,
+    /// no trailing newline, exactly as `insert_doc` wrote it.
+    const APPEARANCE_BEFORE_BIOME_COLS: &str = r#"{
+  "quality": "quality",
+  "look": "Natural Vibrant",
+  "territory_opacity": 0.3215686274509804,
+  "overrides": {
+    "bio_blend": 0.625,
+    "sun_az_deg": 300.0
+  },
+  "ramp": null,
+  "npr": {
+    "contours": 0.0,
+    "contour_m": 0.0,
+    "peak_m": 0.0,
+    "ink": 0.0,
+    "hachure": 0.0,
+    "watercolor": 0.0,
+    "cel": 0.0,
+    "crosshatch": 0.0,
+    "stipple": 0.0,
+    "sepia": 0.0,
+    "risograph": 0.0,
+    "pointillism": 0.0,
+    "waves": false,
+    "wave_dist": 0.0,
+    "multi_sun": true,
+    "animate_water": false,
+    "village": false
+  }
+}"#;
+
+    /// MISTAKES.md's backward-compatibility rule, whole: the old document
+    /// **opens, resolves, and re-serialises byte-identically**, through the
+    /// two seams a real save/open uses -- so opening an old project and
+    /// saving it does not grow a `biome_cols` member it never had.
+    #[test]
+    fn a_project_saved_before_biome_cols_opens_at_the_default_table_and_writes_back_unchanged() {
+        let doc: AppearanceDoc =
+            serde_json::from_str(APPEARANCE_BEFORE_BIOME_COLS).expect("the HEAD-written document parses");
+        assert!(doc.biome_cols.is_none());
+        let ov = biome_overrides_from_member(doc.biome_cols.as_ref()).expect("absent is valid");
+        assert_eq!(ov, [None; 15], "absent must be the reference table, not a table of anything");
+        // The rest of the look came through the parse, so the member did not
+        // cost its siblings.
+        assert_eq!(doc.look, "Natural Vibrant");
+        assert_eq!(doc.overrides["bio_blend"], 0.625);
+        assert_eq!(doc.overrides["sun_az_deg"], 300.0);
+        let back = AppearanceDoc { biome_cols: biome_cols_member(&ov), ..doc };
+        assert_eq!(
+            serde_json::to_string_pretty(&back).expect("serialises"),
+            APPEARANCE_BEFORE_BIOME_COLS,
+            "a load-and-save cycle rewrote a project written before biome_cols existed"
+        );
+    }
+
+    /// An edited class survives the writer and the reader, and the table on
+    /// disk is the literal colours, in class order.
+    #[test]
+    fn an_edited_biome_colour_survives_the_round_trip() {
+        let mut ov = [None; 15];
+        ov[2] = Some((12, 200, 77));
+        let doc = AppearanceDoc { biome_cols: biome_cols_member(&ov), ..AppearanceDoc::default() };
+        let text = serde_json::to_string_pretty(&doc).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let table = v["biome_cols"].as_array().expect("an edited table is written");
+        assert_eq!(table.len(), 15);
+        assert_eq!(table[2], serde_json::json!([12, 200, 77]));
+        // Unedited classes are written as the reference's own colours.
+        assert_eq!(table[0], serde_json::json!([90, 147, 184]));
+        assert_eq!(table[14], serde_json::json!([30, 70, 110]));
+
+        let back: AppearanceDoc = serde_json::from_str(&text).unwrap();
+        let got = biome_overrides_from_member(back.biome_cols.as_ref()).unwrap();
+        assert_eq!(got[2], Some((12, 200, 77)));
+        assert_eq!(got.iter().filter(|c| c.is_some()).count(), 1, "only the edited class is an override");
+    }
+
+    /// Equal to the default is written as nothing, even when every class
+    /// carries an explicit override that happens to equal its colour.
+    #[test]
+    fn a_table_equal_to_the_reference_writes_no_member() {
+        assert!(biome_cols_member(&[None; 15]).is_none());
+        let explicit: [Option<(u8, u8, u8)>; 15] = std::array::from_fn(|i| Some(crate::render::CART_BIOME_COLS[i]));
+        assert!(biome_cols_member(&explicit).is_none());
+    }
+
+    /// Every malformed shape is refused whole -- never a partial table.
+    #[test]
+    fn a_malformed_table_is_refused_whole() {
+        let good: Vec<serde_json::Value> = (0..15).map(|_| serde_json::json!([1, 2, 3])).collect();
+        let short = serde_json::Value::Array(good[..14].to_vec());
+        let long = serde_json::Value::Array([good.clone(), vec![serde_json::json!([1, 2, 3])]].concat());
+        let mut two = good.clone();
+        two[4] = serde_json::json!([1, 2]);
+        let mut big = good.clone();
+        big[4] = serde_json::json!([1, 256, 3]);
+        let mut neg = good.clone();
+        neg[4] = serde_json::json!([1, -1, 3]);
+        let mut frac = good.clone();
+        frac[4] = serde_json::json!([1, 2.5, 3]);
+        let mut word = good.clone();
+        word[4] = serde_json::json!("red");
+        for (name, v) in [
+            ("14 entries", short),
+            ("16 entries", long),
+            ("a pair", serde_json::Value::Array(two)),
+            ("256", serde_json::Value::Array(big)),
+            ("-1", serde_json::Value::Array(neg)),
+            ("2.5", serde_json::Value::Array(frac)),
+            ("a string entry", serde_json::Value::Array(word)),
+            ("an object", serde_json::json!({"3": [1, 2, 3]})),
+            ("a number", serde_json::json!(7)),
+        ] {
+            assert!(biome_overrides_from_member(Some(&v)).is_err(), "{name} was accepted");
+        }
+        // The positive control: the same fifteen, well-formed, are accepted.
+        let ok = biome_overrides_from_member(Some(&serde_json::Value::Array(good))).expect("15 triples parse");
+        assert_eq!(ok[4], Some((1, 2, 3)));
+        // And a bad member does not fail its document: the siblings parse.
+        let doc: AppearanceDoc =
+            serde_json::from_str(r#"{"look":"vibrant","biome_cols":[[1,2]]}"#).expect("the document still parses");
+        assert_eq!(doc.look, "vibrant");
+        assert!(biome_overrides_from_member(doc.biome_cols.as_ref()).is_err());
     }
 }

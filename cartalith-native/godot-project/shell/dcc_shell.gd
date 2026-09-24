@@ -2315,6 +2315,13 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 				## above already rasterised the font at its real size, so nothing
 				## is set and nothing changes.
 				DccWidgets.oversample(pop, _phone_magnify(unit))
+			## The same hole one class over: a `ColorPickerButton`'s popup is a
+			## `Window` this walk cannot reach either. Scaled by the phone's own
+			## factor, **not** by `unit` -- `unit` is 1.0 inside the roster and
+			## the slicer, but their pickers' popups embed in the main viewport
+			## and inherit none of those windows' scale. See the helper.
+			if ctl is ColorPickerButton:
+				DccWidgets.phone_color_popup(ctl as ColorPickerButton)
 		phone_fit(child, unit, wide)
 
 ## **The gesture arbitration, extracted so the tablet can have it too.**
