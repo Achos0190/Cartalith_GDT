@@ -1453,3 +1453,26 @@ Asked through the session's question tool; the owner picked each answer.
 **The phone keeps 4K and 8K in New World, with a memory warning.** Ruling AH's 2048 ceiling stands as the recommendation; the phone offers the higher presets but warns about memory before generating rather than hiding them.
 
 **A sculpt commit clears painted override cells it covers.** Today painted biome/terrain cells survive a sculpt commit (and are dropped on regenerate and load). A sculpt changes the ground, so the paint under a committed stamp is cleared.
+
+## 2026-09-24 — Ruling AT: Go to year, the viewshed refine, and splat under a sculpt
+
+Asked through the session's question tool; the owner picked each answer.
+
+**Go to year: a recorded year's snapshot becomes the new territory base.**
+Going to a recorded year makes its snapshot the paint base and clears the paint
+layer and any pending stroke, so the next stroke, subtract or recompute edits
+that year rather than erasing it. **Going to an unrecorded year leaves
+territory, base and paint untouched.** That departs from the reference's
+`terr.fill(0)` on a year with no snapshot, deliberately, so scrubbing the
+timeline strip can no longer erase unsaved territory. The strip's comments and
+its board-D readout ("territory holds at …") then become true and stay.
+
+**Ruling 16's "recompute and refine" covers the current view only**, beside
+Preferences ▸ Tiles & LOD's existing *Refine detail for the current view*.
+**A refined viewshed result is saved with the project** in
+`entities/landmarks.json`; a regenerate or sculpt that changes the terrain
+marks it stale and falls back to the coarse result.
+
+**A sculpt commit clears splat (ground-texture) paint under its stroke as well
+as biome and terrain paint**, as shipped in `5639e3d`: a sculpt changes the
+ground.
