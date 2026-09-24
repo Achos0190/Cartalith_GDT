@@ -566,14 +566,17 @@ pub fn mask_to_rgba(mask: &[u8]) -> Vec<u8> {
 /// exercises that rather than asserting it.
 ///
 /// **What it does not cover, stated rather than implied:** the river ink, the
-/// lake mask, the colour space and the paint/pack overrides also reach a tile,
-/// through `TileFields` and the `RenderCtx` builders. Those are *world* state,
-/// which is the archive key's half of this contract -- except the colour
-/// space, which is neither, and is the one honest gap here. It is a display
-/// setting, it changes a stored tile's bytes, and nothing in this id or in the
-/// archive key moves when it changes. Recorded rather than assumed away: the
-/// storage path is unwired (see the section header above), so it costs nothing
-/// today and it is whoever wires it who has to close it.
+/// lake mask, the colour space, the flow and lithology, the finished grid
+/// raster and the paint/pack overrides also reach a tile, through `TileFields`
+/// and the `RenderCtx` builders -- and the archive key covers none of them
+/// either. That gap was open while nothing read a stored pyramid back; it was
+/// closed on 2026-09-24 when the read path was wired, not here but one level
+/// up: a stored pyramid's producer is
+/// [`crate::lod_worker::LodSnapshot::producer_id`], which is this id plus
+/// `;in=` and a digest of every one of those inputs
+/// ([`crate::lod_worker::SnapshotInputs::fingerprint`]). This function stays
+/// the constants-and-look half, and a pyramid stored under it alone (every
+/// project saved before that date) is never seeded.
 ///
 /// The interpolation of the `const`s is not test-covered and cannot be: no
 /// test can vary a `const`, so `px={TILE_PX}` and the literal `px=256` are the
@@ -1198,9 +1201,12 @@ mod tests {
         // closer together and *must* differ less. Measured on this very
         // fixture, per adjacent pixel pair: 7.29, 4.63, 3.55, 3.46 L-units
         // across four levels. The old path hid that behind a scale-normalised
-        // exaggeration of its own invention (`EXAG * px_per_cell`), which a
-        // ratio was free to choose and a colour is not -- a tile shades under
-        // the same sun and the same `exag` as the map, or it does not match it.
+        // exaggeration of its own invention (`EXAG * px_per_cell`). A tile
+        // shades under the map's own sun and `exag` -- scaled since
+        // 2026-09-24 by the DCC line's v2.25 `tileShadeExag` (`render::
+        // tile_shade_exag`, `RC_ENGINE_CHANGES.md` §4), which is the same
+        // per-coarse-cell normalisation the map's `exag / s` applies, not a
+        // constant of this module's choosing.
         //
         // So the same question is asked over the same GROUND instead:
         // adjacent-pixel difference times pixels per coarse cell, i.e. how
@@ -1211,9 +1217,17 @@ mod tests {
         // one could regress alone:
         //
         // 1. **Per unit ground, a deeper level carries strictly more.**
-        //    Measured 57.3 -> 65.0 -> 86.3 -> 146.8 at the four levels below.
-        //    **These four numbers moved on 2026-09-21 and the claim did not.**
-        //    They were 58.3 -> 74.1 -> 113.5 -> 221.4 until LOD-D5 gave
+        //    Measured 64.1 -> 77.2 -> 108.6 -> 197.9 at the four levels below.
+        //    **They moved again on 2026-09-24 and the claim did not**: they
+        //    were 54.0 -> 62.0 -> 87.5 -> 156.6 until `tileShadeExag`
+        //    (Ruling AP, `RC_ENGINE_CHANGES.md` §4) scaled a tile's hillshade
+        //    by its pixels per coarse cell, so a deeper tile's relief is no
+        //    longer flattened. (Those are re-measured with the change reverted
+        //    on the same tree; the 57.3 -> 65.0 -> 86.3 -> 146.8 this note
+        //    carried until then no longer matched this tree even with the
+        //    change reverted; the test asserts the ladder's shape, not its
+        //    values, so the drift was silent, and its cause was not traced.)
+        //    Before that they moved on 2026-09-21: they were 58.3 -> 74.1 -> 113.5 -> 221.4 until LOD-D5 gave
         //    `build_crest` a ground-unit stencil (`render.rs`'s LOD-D5
         //    section): `TestWorld::appearance()` is `default().with_look(
         //    LOOK_VIBRANT)`, which carries `crest_strength: 0.12` and
@@ -1228,9 +1242,11 @@ mod tests {
         //    fails here.
         // 3. **The octaves are what carry it at depth**, stated against a
         //    no-octave baseline synthesised the same way and as a ratio, since
-        //    the baseline moves too. Measured 1.000, 1.044, 1.306, 1.961 --
+        //    the baseline moves too. Measured 1.000, 1.048, 1.282, 1.788 --
         //    and every one of them is exactly 1.000 if `add_zoom_detail` is
         //    removed, which is the red this test owes the scope. (1.048,
+        //    1.296, 1.834 with `tileShadeExag` reverted on 2026-09-24, where
+        //    this note had carried a stale 1.044, 1.306, 1.961; 1.048,
         //    1.258, 1.787 before LOD-D5, for the reason recorded above: the
         //    ratio's own baseline is drawn with the same crest.)
         let (gw, gh) = (512usize, 512usize);
@@ -1266,6 +1282,7 @@ mod tests {
         let (z0, w0, o0) = seen[0];
         assert_eq!(w0, o0, "at z_base ({z0}) the octaves must be a no-op: {seen:?}");
         let ratios: Vec<f64> = seen.iter().map(|&(_, w, o)| w / f64::max(1e-9, o)).collect();
+        println!("per-ground detail {seen:?}; octave ratios {ratios:?}");
         assert!(
             ratios[1..].windows(2).all(|p| p[1] > p[0]),
             "the octaves stopped paying off with depth: {seen:?} ratios {ratios:?}"

@@ -306,6 +306,211 @@ pub struct SnapshotInputs {
     pub gravity: f64,
 }
 
+/// A word-at-a-time FNV-1a-style digest, for [`SnapshotInputs::fingerprint`].
+///
+/// Word-wise rather than the byte-wise FNV-1a `lod_source_key` uses because
+/// it runs over every grid a tile reads — ~100 MB at 2048x1311 with a
+/// lithology — and eight times fewer multiplies is the difference between
+/// noise and a visible slice of the ~480 ms snapshot build. It guards against
+/// a *changed* input, not a forged one: each step (`xor` a word, multiply by
+/// an odd constant) is a bijection on the state, so any change confined to
+/// one word always changes the result.
+struct Digest(u64);
+
+impl Digest {
+    fn new() -> Self {
+        Digest(0xcbf2_9ce4_8422_2325)
+    }
+    fn word(&mut self, w: u64) {
+        self.0 = (self.0 ^ w).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    fn f64(&mut self, v: f64) {
+        self.word(v.to_bits());
+    }
+    /// Length-prefixed, so `[a, b] + []` and `[a] + [b]` differ.
+    fn bytes(&mut self, b: &[u8]) {
+        self.word(b.len() as u64);
+        let mut it = b.chunks_exact(8);
+        for c in &mut it {
+            let mut w = [0u8; 8];
+            w.copy_from_slice(c);
+            self.word(u64::from_le_bytes(w));
+        }
+        let rem = it.remainder();
+        let mut w = [0u8; 8];
+        w[..rem.len()].copy_from_slice(rem);
+        self.word(u64::from_le_bytes(w));
+    }
+    /// Two `f32` bit patterns per word, length-prefixed.
+    fn f32s(&mut self, v: &[f32]) {
+        self.word(v.len() as u64);
+        let mut it = v.chunks_exact(2);
+        for c in &mut it {
+            self.word(c[0].to_bits() as u64 | ((c[1].to_bits() as u64) << 32));
+        }
+        if let [x] = it.remainder() {
+            self.word(x.to_bits() as u64);
+        }
+    }
+    fn tag(&mut self, present: bool) {
+        self.word(if present { 1 } else { 0 });
+    }
+}
+
+impl SnapshotInputs {
+    /// A digest of **everything a tile is a function of** except its own
+    /// address — the half of a stored pyramid's validity that the archive's
+    /// `source_key` cannot give (owner rulings 28/29's read path).
+    ///
+    /// # Why the archive key is not enough
+    ///
+    /// `cartalith_io::project::lod_source_key` covers the heightmap, the grid,
+    /// the seed and the sea level. A tile also reads the appearance, the
+    /// **colour space** (`OUTSTANDING_WORK.md`'s *"stored LOD pyramids carry
+    /// no colour space"*), the climate grids, the flow field, the lithology
+    /// substrate, the river ink, the pack's splat and ground tiles, the paint
+    /// layers, the finished grid raster local contrast is measured from, and
+    /// four cryosphere parameters. A pyramid stored under one set of those
+    /// and seeded under another would draw last week's look over this week's
+    /// map, and a **generated** world and the same world **reopened** differ
+    /// in two of them by construction (`lod_snapshot_inputs`' `Loaded` arm
+    /// passes no flow and no lithology), so this is not a theoretical gap.
+    ///
+    /// # Derived from the definition
+    ///
+    /// The destructuring below names every field of [`SnapshotInputs`] and
+    /// binds `key` to `_`: a field added to the struct is a compile error
+    /// here until someone decides whether it is a tile input
+    /// (`MISTAKES.md`: *"derive the list from the definition"*). `key` is
+    /// deliberately excluded — it carries `world_epoch` and stage versions,
+    /// which are per-session counters and would make every reopened
+    /// project's key differ from its save's.
+    ///
+    /// Two inputs are folded in only where a tile can read them, mirroring
+    /// the gates the consumers apply, so their *presence* cannot refuse a
+    /// valid pyramid: `grid_rgb` only when `TileFields::new` would measure a
+    /// detail band from it (`local_contrast > 0` and a full-length buffer —
+    /// whether it is present at all depends on whether the base map has been
+    /// drawn yet, which is timing, not world), and `glacial_snowline` only
+    /// when `ice_strength > 0` (the same gate `WorldGen::lod_cache_key`
+    /// applies, for the reason its comment gives).
+    pub fn fingerprint(&self) -> u64 {
+        let SnapshotInputs {
+            key: _,
+            gw,
+            gh,
+            sea_level,
+            world,
+            lat_n,
+            lat_s,
+            map_width_km,
+            seed,
+            field,
+            temperature,
+            rainfall,
+            flow,
+            litho,
+            appearance,
+            color_space,
+            ink,
+            splat,
+            ground_biomes,
+            ground_terrains,
+            paint_present,
+            paint_biome,
+            paint_terrain,
+            paint_splat,
+            grid_rgb,
+            glacial_snowline,
+            peak_m,
+            lapse_rate,
+            gravity,
+        } = self;
+        let mut d = Digest::new();
+        d.word(*gw as u64);
+        d.word(*gh as u64);
+        d.f64(*sea_level);
+        d.tag(*world);
+        d.f64(*lat_n);
+        d.f64(*lat_s);
+        d.f64(*map_width_km);
+        d.word(*seed as i64 as u64);
+        d.f32s(field);
+        d.f32s(temperature);
+        d.f32s(rainfall);
+        d.tag(flow.is_some());
+        if let Some(f) = flow {
+            d.f32s(f);
+        }
+        d.tag(litho.is_some());
+        if let Some(l) = litho {
+            for g in [&l.age, &l.volcanic, &l.crust, &l.resistance] {
+                d.f32s(g);
+            }
+        }
+        d.word(lod_bridge::appearance_fingerprint(appearance));
+        // Exhaustive, so a third colour space is a compile error here rather
+        // than a silent alias of one of these two.
+        d.word(match color_space {
+            ColorSpace::Srgb => 0,
+            ColorSpace::DisplayP3 => 1,
+        });
+        match ink {
+            None => d.word(0),
+            Some(OwnedInk::Stamped(v)) => {
+                d.word(1);
+                d.f32s(v);
+            }
+            Some(OwnedInk::Flag(v)) => {
+                d.word(2);
+                d.bytes(v);
+            }
+        }
+        d.tag(splat.is_some());
+        if let Some(s) = splat {
+            for c in [&s.grass, &s.rock, &s.sand, &s.snow, &s.wetland, &s.canopy] {
+                d.tag(c.is_some());
+                if let Some(c) = c {
+                    d.word(c.w as u64);
+                    d.word(c.h as u64);
+                    d.bytes(&c.rgba);
+                    for v in c.inv {
+                        d.f64(v);
+                    }
+                }
+            }
+        }
+        for family in [ground_biomes, ground_terrains] {
+            d.word(family.len() as u64);
+            for t in family {
+                d.tag(t.is_some());
+                if let Some(t) = t {
+                    d.word(t.w as u64);
+                    d.word(t.h as u64);
+                    d.bytes(&t.rgba);
+                }
+            }
+        }
+        d.tag(*paint_present);
+        for layer in [paint_biome, paint_terrain, paint_splat] {
+            d.tag(layer.is_some());
+            if let Some(v) = layer {
+                d.bytes(v);
+            }
+        }
+        let band = grid_rgb.as_ref().filter(|b| appearance.local_contrast > 0.0 && b.len() >= gw * gh * 3);
+        d.tag(band.is_some());
+        if let Some(b) = band {
+            d.bytes(b);
+        }
+        d.f64(if appearance.ice_strength > 0.0 { *glacial_snowline } else { 0.0 });
+        d.f64(*peak_m);
+        d.f64(*lapse_rate);
+        d.f64(*gravity);
+        d.0
+    }
+}
+
 /// LOD-D2's `LodCtxCache`, made **owned and shareable** so a worker thread can
 /// colour a tile from it.
 ///
@@ -315,6 +520,10 @@ pub struct SnapshotInputs {
 /// so the main thread and every worker share one copy.
 pub struct LodSnapshot {
     key: String,
+    /// The producer string a pyramid stored from this snapshot carries, and
+    /// the one a seeded pyramid must match exactly — see
+    /// [`LodSnapshot::producer_id`].
+    producer: String,
     gw: usize,
     gh: usize,
     sea_level: f64,
@@ -358,6 +567,7 @@ impl LodSnapshot {
     /// degenerate grid, a short height field, or a `RenderCtx` the
     /// precompute does not match.
     pub fn build(i: SnapshotInputs) -> Option<LodSnapshot> {
+        let producer = format!("{};in={:016x}", lod_bridge::tile_producer_id(&i.appearance), i.fingerprint());
         let SnapshotInputs {
             key,
             gw,
@@ -425,6 +635,7 @@ impl LodSnapshot {
         };
         Some(LodSnapshot {
             key,
+            producer,
             gw,
             gh,
             sea_level,
@@ -457,6 +668,21 @@ impl LodSnapshot {
     /// whether it is still the current world.
     pub fn key(&self) -> &str {
         &self.key
+    }
+
+    /// What a pyramid stored from this snapshot calls its producer, and
+    /// therefore the exact string a stored pyramid must carry to be seeded
+    /// in its place: `lod_bridge::tile_producer_id` (the build's constants
+    /// and the appearance) plus `;in=` and [`SnapshotInputs::fingerprint`]
+    /// (every other tile input, the colour space among them).
+    ///
+    /// `SAVEFILE_COMPAT.md` §16.1: *"A reader MUST drop the tiles unless it
+    /// produced this exact string itself."* A project saved before
+    /// 2026-09-24 carries the bare `tile_producer_id`, with no `;in=`, and so
+    /// is never seeded — the backward-compatible reading of a key that cannot
+    /// say which look and colour space its tiles were drawn in.
+    pub fn producer_id(&self) -> &str {
+        &self.producer
     }
 
     /// **The one function that colours a tile**, called identically from the
@@ -657,6 +883,28 @@ struct WorkerState {
 /// Held by `WorldGen` as an `Arc<LodWorker>`; the `Arc` is what a job captures.
 /// Nothing inside is Godot-aware, which is what makes crossing a thread with it
 /// legal at all.
+/// A pyramid read back from a project archive, held until a snapshot can say
+/// whether it is still this world's (owner rulings 28/29's read half).
+///
+/// Held rather than decided at open because the decision needs the
+/// snapshot's [`LodSnapshot::producer_id`], and the one input that is timing-
+/// rather than world-dependent — the finished grid raster — only exists once
+/// the base map has been drawn.
+pub struct StoredPyramid {
+    pub producer: String,
+    pub tile_w: usize,
+    pub tile_h: usize,
+    pub tiles: std::collections::BTreeMap<ChunkId, Vec<u8>>,
+}
+
+/// What `WorldGen::project_open` holds out of `ProjectData::lod_tiles` — one
+/// conversion, so the tests below exercise the open path's own code.
+impl From<cartalith_io::project::LodTiles> for StoredPyramid {
+    fn from(l: cartalith_io::project::LodTiles) -> Self {
+        StoredPyramid { producer: l.producer, tile_w: l.tile_w, tile_h: l.tile_h, tiles: l.tiles }
+    }
+}
+
 #[derive(Default)]
 pub struct LodWorker {
     /// Bumped whenever the snapshot key changes or [`Self::invalidate`] runs.
@@ -666,6 +914,17 @@ pub struct LodWorker {
     /// previous world can therefore never be installed, however late it lands.
     generation: AtomicU64,
     state: Mutex<WorkerState>,
+    /// The reopened project's stored pyramid, if it carried one. **Not
+    /// cleared by [`Self::invalidate`]**: that runs whenever the snapshot is
+    /// dropped, and the seed's validity is its producer string, not the
+    /// snapshot's lifetime. [`Self::clear_seed`] is the world-release half.
+    seed: Mutex<Option<StoredPyramid>>,
+    /// Tiles answered from `seed` instead of synthesised. A probe's
+    /// "reopened and did not re-synthesise" signal.
+    seeded_served: AtomicU64,
+    /// Tiles actually coloured by [`LodSnapshot::render_tile`] through this
+    /// worker, on either path.
+    synthesized: AtomicU64,
 }
 
 impl LodWorker {
@@ -780,6 +1039,14 @@ impl LodWorker {
             if st.in_flight.contains(&id) || st.ready.iter().any(|t| (t.z, t.col, t.row) == id) {
                 return false;
             }
+            // A seeded tile needs no job: it is already coloured. Handed
+            // straight to `ready`, ahead of the in-flight cap, which exists
+            // to bound work and there is none.
+            if let Some((rgba, w, h)) = self.seeded_tile(&snap, z, col, row) {
+                self.seeded_served.fetch_add(1, Ordering::SeqCst);
+                st.ready.push(ReadyTile { z, col, row, w, h, rgba });
+                return true;
+            }
             if st.in_flight.len() >= max_in_flight.max(1) {
                 return false;
             }
@@ -788,6 +1055,7 @@ impl LodWorker {
         };
         let me = Arc::clone(self);
         pool.spawn(move || {
+            me.synthesized.fetch_add(1, Ordering::SeqCst);
             let out = snap.render_tile(z, col, row);
             let Ok(mut st) = me.state.lock() else { return };
             st.in_flight.remove(&(z, col, row));
@@ -804,6 +1072,60 @@ impl LodWorker {
             }
         });
         true
+    }
+
+    /// Hold a stored pyramid for seeding. Replaces any held before.
+    pub fn seed(&self, p: StoredPyramid) {
+        if let Ok(mut s) = self.seed.lock() {
+            *s = Some(p);
+        }
+    }
+
+    /// Drop the held pyramid — a world release, whose tiles it described.
+    pub fn clear_seed(&self) {
+        if let Ok(mut s) = self.seed.lock() {
+            *s = None;
+        }
+    }
+
+    /// `(tiles held, tiles served from them, tiles synthesised)`.
+    pub fn seed_stats(&self) -> (usize, u64, u64) {
+        let held = self.seed.lock().ok().and_then(|s| s.as_ref().map(|p| p.tiles.len())).unwrap_or(0);
+        (held, self.seeded_served.load(Ordering::SeqCst), self.synthesized.load(Ordering::SeqCst))
+    }
+
+    /// The held tile at `(z, col, row)` as RGBA, **only if** the held
+    /// pyramid's producer is exactly `snap`'s — the world, the look, the
+    /// colour space and every attachment the same — and it has that tile at
+    /// the size `snap` would draw it. Otherwise `None`, and the caller
+    /// synthesises as it always did.
+    fn seeded_tile(&self, snap: &LodSnapshot, z: i32, col: i32, row: i32) -> Option<(Vec<u8>, usize, usize)> {
+        if z < 0 || col < 0 || row < 0 {
+            return None;
+        }
+        let held = self.seed.lock().ok()?;
+        let p = held.as_ref()?;
+        let (w, h) = lod_bridge::tile_size_px(snap.gw, snap.gh, z);
+        if p.producer != snap.producer || (p.tile_w, p.tile_h) != (w, h) {
+            return None;
+        }
+        let mask = p.tiles.get(&ChunkId::new(z as u32, col as u32, row as u32))?;
+        if mask.len() != w * h * 3 {
+            return None;
+        }
+        Some((lod_bridge::mask_to_rgba(mask), w, h))
+    }
+
+    /// One tile for `snap`: the seeded one if it is valid, else synthesised.
+    /// The synchronous path's entry point; [`Self::request`] applies the
+    /// same rule before it spawns a job.
+    pub fn tile(&self, snap: &LodSnapshot, z: i32, col: i32, row: i32) -> Option<(Vec<u8>, usize, usize)> {
+        if let Some(t) = self.seeded_tile(snap, z, col, row) {
+            self.seeded_served.fetch_add(1, Ordering::SeqCst);
+            return Some(t);
+        }
+        self.synthesized.fetch_add(1, Ordering::SeqCst);
+        snap.render_tile(z, col, row)
     }
 
     /// Take up to `max` finished tiles. Called on the main thread, which then
@@ -1295,5 +1617,249 @@ mod tests {
         let data = cartalith_io::project::read_project(std::io::Cursor::new(&buf)).expect("read succeeds");
         assert!(data.lod_tiles.is_none(), "no tiles were written, so none must be read back");
         assert!(data.warnings.is_empty(), "an archive with no LOD entries is not a damaged one: {:?}", data.warnings);
+    }
+
+    // -- owner rulings 28/29: the stored pyramid, read back and seeded ------
+
+    fn save_params(gw: usize, gh: usize) -> cartalith_io::SaveParams {
+        cartalith_io::SaveParams { gw, gh, seed: 1234, map_width_km: 800.0, sea_level: 0.42, world: false, origin: None, name: None }
+    }
+
+    fn save_fields(heightmap: Vec<f32>) -> cartalith_io::SaveFields {
+        let n = heightmap.len();
+        cartalith_io::SaveFields {
+            heightmap: Arc::new(heightmap),
+            temperature: Arc::new(vec![15.0f32; n]),
+            rainfall: Arc::new(vec![0.5f32; n]),
+            volcanic_field: vec![0.0f32; n],
+            impact_field: vec![0.0f32; n],
+            strahler_order: vec![0u8; n],
+        }
+    }
+
+    /// A pyramid for `snap`'s world, written through the real archive writer
+    /// under `producer` and read back through the real reader — the bytes
+    /// `project_open` receives, not a hand-built struct.
+    fn archived(snap: &LodSnapshot, heightmap: &[f32], producer: String, z_max: i32) -> Option<cartalith_io::project::LodTiles> {
+        let (tile_w, tile_h, tiles) = snap.render_pyramid_masks(z_max).expect("pyramid synthesizes");
+        let params = save_params(snap.gw, snap.gh);
+        let fields = save_fields(heightmap.to_vec());
+        let mut write = cartalith_io::project::ProjectWrite::new(&params, &fields);
+        write.lod_tiles = Some(cartalith_io::project::LodTiles { source_key: String::new(), producer, tile_w, tile_h, tiles });
+        let mut buf: Vec<u8> = Vec::new();
+        cartalith_io::project::write_project(std::io::Cursor::new(&mut buf), &write).expect("write succeeds");
+        cartalith_io::project::read_project(std::io::Cursor::new(&buf)).expect("read succeeds").lod_tiles
+    }
+
+    fn every_tile(z_max: i32) -> Vec<(i32, i32, i32)> {
+        let mut v = Vec::new();
+        for z in 0..=z_max {
+            let n = lod_bridge::tiles_per_axis(z) as i32;
+            for col in 0..n {
+                for row in 0..n {
+                    v.push((z, col, row));
+                }
+            }
+        }
+        v
+    }
+
+    /// **The seeded path's positive case, end to end.** A pyramid saved from
+    /// one snapshot and reopened against a snapshot built from the same
+    /// inputs is served back **byte-identical to what synthesis draws**, on
+    /// both the synchronous path and the worker path, and nothing is
+    /// synthesised while it is.
+    #[test]
+    fn a_reopened_pyramid_is_served_instead_of_synthesised() {
+        let (gw, gh) = (48usize, 36usize);
+        let saved = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
+        let heightmap: Vec<f32> = (*saved.field).clone();
+        let z_max = 2;
+        let lod = archived(&saved, &heightmap, saved.producer_id().to_string(), z_max).expect("the pyramid survives the archive");
+
+        // The reopened session builds its own snapshot from the same world.
+        let live = Arc::new(LodSnapshot::build(inputs(gw, gh)).expect("snapshot"));
+        assert_eq!(live.producer_id(), saved.producer_id(), "the same inputs must give the same producer");
+        assert!(live.producer_id().contains(";in="), "the producer must carry the input digest: {}", live.producer_id());
+
+        let worker = Arc::new(LodWorker::default());
+        worker.seed(StoredPyramid::from(lod));
+        let asked = every_tile(z_max);
+        assert_eq!(worker.seed_stats().0, asked.len(), "every tile of the pyramid is held");
+        for &(z, c, r) in &asked {
+            let seeded = worker.tile(&live, z, c, r).expect("a seeded tile");
+            let drawn = live.render_tile(z, c, r).expect("a synthesised tile");
+            assert_eq!(seeded, drawn, "tile {:?}: the seeded bytes are not what synthesis draws", (z, c, r));
+        }
+        let (_, served, synthesized) = worker.seed_stats();
+        assert_eq!((served, synthesized), (asked.len() as u64, 0), "every tile served from the seed, none synthesised");
+
+        // The worker path: a seeded tile is handed straight to `ready`,
+        // with no job and nothing synthesised.
+        worker.install(Arc::clone(&live));
+        assert!(worker.request(1, 1, 0, 1), "a seeded tile is accepted");
+        let got = worker.take_ready(4);
+        assert_eq!(got.len(), 1, "the seeded tile is ready at once, not queued");
+        assert_eq!(got[0].rgba, live.render_tile(1, 1, 0).expect("tile").0);
+        assert_eq!(worker.seed_stats().2, 0, "the worker path synthesised nothing");
+
+        // A tile deeper than the stored pyramid is synthesised as before.
+        let deeper = worker.tile(&live, z_max + 1, 0, 0).expect("a deeper tile");
+        assert_eq!(deeper, live.render_tile(z_max + 1, 0, 0).expect("tile"));
+        assert_eq!(worker.seed_stats().2, 1, "a tile the pyramid does not carry is synthesised");
+    }
+
+    /// **The backward-compatible case.** A project saved by the code before
+    /// 2026-09-24 stored `tile_producer_id(appearance)` alone — no colour
+    /// space, no attachments, no `;in=`. It is built here exactly as that
+    /// code built it (`project_bridge.rs`'s save path at `5e09ae8`), and it
+    /// must never be seeded, because nothing in it says which colour space or
+    /// attachments its tiles were drawn under.
+    #[test]
+    fn a_pyramid_saved_before_the_input_digest_is_never_seeded() {
+        let (gw, gh) = (48usize, 36usize);
+        let saved = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
+        let heightmap: Vec<f32> = (*saved.field).clone();
+        let head_producer = lod_bridge::tile_producer_id(&TerrainAppearance::default());
+        let lod = archived(&saved, &heightmap, head_producer, 1).expect("the old archive still reads, as a cache");
+        let live = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
+        let worker = LodWorker::default();
+        worker.seed(StoredPyramid::from(lod));
+        for (z, c, r) in every_tile(1) {
+            worker.tile(&live, z, c, r).expect("synthesised");
+        }
+        let (held, served, synthesized) = worker.seed_stats();
+        assert!(held > 0, "the old pyramid is held -- the refusal below is the producer check, not an empty seed");
+        assert_eq!(served, 0, "a pre-digest pyramid must not be served");
+        assert_eq!(synthesized, every_tile(1).len() as u64);
+    }
+
+    /// Every input the archive's `source_key` does not cover refuses the seed
+    /// on its own: the colour space (the audit's "no colour space" gap), the
+    /// look, and the reopened world's missing flow and lithology
+    /// (`lod_snapshot_inputs`' `Loaded` arm). Each is one change from the
+    /// saving snapshot; the negative control at the end shows the same seed
+    /// IS served when nothing changed, so the refusals are not vacuous.
+    #[test]
+    fn a_seed_drawn_under_other_inputs_is_not_served() {
+        let (gw, gh) = (48usize, 36usize);
+        let saved = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
+        let heightmap: Vec<f32> = (*saved.field).clone();
+        let lod = archived(&saved, &heightmap, saved.producer_id().to_string(), 1).expect("pyramid");
+
+        let variants: Vec<(&str, SnapshotInputs)> = vec![
+            ("colour space", { let mut i = inputs(gw, gh); i.color_space = ColorSpace::DisplayP3; i }),
+            ("appearance", { let mut i = inputs(gw, gh); i.appearance.exag += 0.5; i }),
+            ("no flow (a reopened world)", { let mut i = inputs(gw, gh); i.flow = None; i }),
+            ("river ink", { let mut i = inputs(gw, gh); i.ink = Some(OwnedInk::Flag(vec![1u8; gw * gh])); i }),
+            ("paint", { let mut i = inputs(gw, gh); i.paint_present = true; i.paint_biome = Some(vec![2u8; gw * gh]); i }),
+        ];
+        for (what, i) in variants {
+            let live = LodSnapshot::build(i).expect("snapshot");
+            assert_ne!(live.producer_id(), saved.producer_id(), "{what}: the producer did not move");
+            let worker = LodWorker::default();
+            worker.seed(StoredPyramid::from(lod.clone()));
+            let got = worker.tile(&live, 1, 0, 0).expect("tile");
+            assert_eq!(got, live.render_tile(1, 0, 0).expect("tile"), "{what}: not the live world's tile");
+            assert_eq!(worker.seed_stats().1, 0, "{what}: a tile drawn under other inputs was served");
+        }
+        let live = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
+        let worker = LodWorker::default();
+        worker.seed(StoredPyramid::from(lod));
+        worker.tile(&live, 1, 0, 0).expect("tile");
+        assert_eq!(worker.seed_stats().1, 1, "negative control: unchanged inputs must be served");
+    }
+
+    /// **The key-mismatch case**: an archive whose stored `source_key` names
+    /// a different world than the heightmap beside it — a project re-sculpted
+    /// by another tool that kept the old tiles — reaches `project_open` with
+    /// no pyramid at all, so there is nothing to seed. Built by rewriting a
+    /// real archive's index, not by constructing a `ProjectData`.
+    #[test]
+    fn a_source_key_mismatch_leaves_nothing_to_seed() {
+        use std::io::{Read, Write};
+        let (gw, gh) = (48usize, 36usize);
+        let saved = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
+        let heightmap: Vec<f32> = (*saved.field).clone();
+        let (tile_w, tile_h, tiles) = saved.render_pyramid_masks(1).expect("pyramid");
+        let params = save_params(gw, gh);
+        let fields = save_fields(heightmap.clone());
+        let mut write = cartalith_io::project::ProjectWrite::new(&params, &fields);
+        write.lod_tiles = Some(cartalith_io::project::LodTiles { source_key: String::new(), producer: saved.producer_id().to_string(), tile_w, tile_h, tiles });
+        let mut buf: Vec<u8> = Vec::new();
+        cartalith_io::project::write_project(std::io::Cursor::new(&mut buf), &write).expect("write");
+        assert!(cartalith_io::project::read_project(std::io::Cursor::new(&buf)).expect("read").lod_tiles.is_some(), "precondition: the untampered archive keeps its pyramid");
+
+        // The same archive with the index's key swapped for another world's.
+        let mut other = heightmap.clone();
+        other[0] += 0.25;
+        let other_key = cartalith_io::project::lod_source_key(&params, &other);
+        let mut zr = zip::ZipArchive::new(std::io::Cursor::new(&buf)).expect("zip");
+        let mut out: Vec<u8> = Vec::new();
+        {
+            let mut zw = zip::ZipWriter::new(std::io::Cursor::new(&mut out));
+            let opts = zip::write::SimpleFileOptions::default();
+            let mut swapped = false;
+            for k in 0..zr.len() {
+                let mut f = zr.by_index(k).expect("entry");
+                let name = f.name().to_string();
+                let mut bytes = Vec::new();
+                f.read_to_end(&mut bytes).expect("read entry");
+                if name == cartalith_io::project::LOD_TILE_INDEX {
+                    let mut v: serde_json::Value = serde_json::from_slice(&bytes).expect("index json");
+                    v["source_key"] = serde_json::Value::String(other_key.clone());
+                    bytes = serde_json::to_vec(&v).expect("json");
+                    swapped = true;
+                }
+                zw.start_file(name, opts).expect("start");
+                zw.write_all(&bytes).expect("write entry");
+            }
+            zw.finish().expect("finish");
+            assert!(swapped, "the archive had no LOD index to tamper with");
+        }
+        let data = cartalith_io::project::read_project(std::io::Cursor::new(&out)).expect("the archive still opens");
+        assert!(data.lod_tiles.is_none(), "a pyramid keyed to another world must be dropped at read");
+        assert!(data.warnings.iter().any(|w| w.contains("cartography/tiles")), "and the drop is reported: {:?}", data.warnings);
+
+        // What `project_open` does with it: nothing to hold, nothing served.
+        let worker = LodWorker::default();
+        if let Some(l) = data.lod_tiles {
+            worker.seed(StoredPyramid::from(l));
+        }
+        let live = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
+        worker.tile(&live, 0, 0, 0).expect("tile");
+        assert_eq!(worker.seed_stats(), (0, 0, 1), "nothing held, nothing served, the tile synthesised");
+    }
+
+    /// The digest is derived from the definition, and every field it reads
+    /// moves it. One mutation per field class; `key` must NOT move it.
+    #[test]
+    fn the_input_fingerprint_moves_with_every_tile_input_and_not_with_the_key() {
+        let (gw, gh) = (16usize, 12usize);
+        let base = inputs(gw, gh).fingerprint();
+        let mut i = inputs(gw, gh);
+        i.key = "another session's key".to_string();
+        assert_eq!(i.fingerprint(), base, "the session key must not move the digest");
+        let mut moved: Vec<(&str, SnapshotInputs)> = Vec::new();
+        moved.push(("field", { let mut i = inputs(gw, gh); Arc::make_mut(&mut i.field)[5] += 0.01; i }));
+        moved.push(("temperature", { let mut i = inputs(gw, gh); Arc::make_mut(&mut i.temperature)[5] += 1.0; i }));
+        moved.push(("rainfall", { let mut i = inputs(gw, gh); Arc::make_mut(&mut i.rainfall)[5] += 0.1; i }));
+        moved.push(("sea_level", { let mut i = inputs(gw, gh); i.sea_level = 0.43; i }));
+        moved.push(("seed", { let mut i = inputs(gw, gh); i.seed = 1235; i }));
+        moved.push(("map_width_km", { let mut i = inputs(gw, gh); i.map_width_km = 801.0; i }));
+        moved.push(("colour space", { let mut i = inputs(gw, gh); i.color_space = ColorSpace::DisplayP3; i }));
+        moved.push(("peak_m", { let mut i = inputs(gw, gh); i.peak_m = 4001.0; i }));
+        moved.push(("litho", { let mut i = inputs(gw, gh); let n = gw * gh; i.litho = Some(LithoSource { age: Arc::new(vec![0.1; n]), volcanic: Arc::new(vec![0.1; n]), crust: Arc::new(vec![0.1; n]), resistance: Arc::new(vec![0.1; n]) }); i }));
+        moved.push(("grid_rgb under local contrast", { let mut i = inputs(gw, gh); i.appearance.local_contrast = 0.5; i.grid_rgb = Some(vec![9u8; gw * gh * 3]); i }));
+        for (what, i) in moved {
+            assert_ne!(i.fingerprint(), base, "{what} did not move the digest");
+        }
+        // Gated inputs: a finished grid raster with local contrast OFF is
+        // never read by a tile, so it must not refuse a valid seed.
+        let mut i = inputs(gw, gh);
+        i.appearance.local_contrast = 0.0;
+        let off = i.fingerprint();
+        i.grid_rgb = Some(vec![9u8; gw * gh * 3]);
+        assert_eq!(i.fingerprint(), off, "grid_rgb must not count while local contrast is off");
     }
 }

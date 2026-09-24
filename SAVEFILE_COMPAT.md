@@ -2131,7 +2131,17 @@ reader that cannot find or parse it MUST drop every tile under
 - **`producer`** — an opaque string naming the writer and its own constants
   (tile size, encoding, detail schedule). A reader MUST drop the tiles unless
   it produced this exact string itself. The key above covers the *world*; this
-  covers the *renderer*, and neither substitutes for the other.
+  covers the *renderer*, and neither substitutes for the other. **This port's
+  producer string also carries `;in=` and a digest of every other tile input
+  the key does not cover** (since 2026-09-24): the appearance, the display
+  colour space, the flow and lithology, the river ink, paint and pack, and the
+  finished grid raster local contrast is measured from. So a reopened project
+  is seeded from its stored tiles only when the session would draw exactly
+  those bytes, and a pyramid written before that date — whose producer has no
+  `;in=` — is carried as a cache but never seeded. A world saved from a fresh
+  generation and reopened is **not** seeded today: the reopened world has no
+  flow and no lithology (this format stores neither), so it draws different
+  tiles, and the digest says so.
 - **`tile_w`, `tile_h`** — one tile's pixel dimensions, the same for every
   level (a level changes a tile's **footprint**, not its pixel count). Every
   tile entry MUST be exactly `tile_w * tile_h * 3` bytes (RGB — see below); a

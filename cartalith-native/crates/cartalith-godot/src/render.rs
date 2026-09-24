@@ -1317,6 +1317,27 @@ pub struct TerrainAppearance {
     /// from the grid sweep and proves it on a tile instead, exactly as it
     /// does for [`Self::ice_strength`].
     pub detail_scale_strength: f64,
+    /// **v2.25's `tileShadeExag(bounds, W)`** (`RC_ENGINE_CHANGES.md` §4,
+    /// followed under Ruling AP): a tile's hillshade exaggeration is scaled
+    /// by tile pixels per coarse cell, `(W - 1) / bounds.w`, clamped at `1`
+    /// so it never *reduces* the exaggeration. See [`tile_shade_exag`].
+    ///
+    /// Why: the main map shades with `exag / s` (`shadeFactor2`, v2.10 7684 —
+    /// *"/s keeps slope magnitude consistent with 1-px sample"*), and the
+    /// tile's own material slope is divided by `cx`/`cy` one line later, but
+    /// the tile's shading term used the bare `exag`. A tile pixel spans `cx`
+    /// coarse cells, so a height difference across it is `1/cx` times too
+    /// small a slope, and relief flattened exactly as the view zoomed in.
+    ///
+    /// A `bool` rather than a strength: this is a unit correction, not a
+    /// look, and there is no meaningful value between the two. `true` in
+    /// `default()` (the DCC line's behaviour); `false` in
+    /// [`Self::js_reference`], which is the v2.11 `ex = state.exag` that
+    /// `tests/golden_parity_tile_biome.rs` pins byte for byte. **At one tile
+    /// pixel per coarse cell or coarser the two are identical** — the clamp
+    /// makes the factor exactly `1` — so the main map, the screen-identity
+    /// check and LOD entry are untouched either way.
+    pub tile_shade_exag_scaled: bool,
 
     // ---- Milestone 2: ambient occlusion ----
     /// AO darkening strength (`TERRAIN_APPEARANCE_RESEARCH.md` §15).
@@ -1928,6 +1949,9 @@ impl Default for TerrainAppearance {
             // per cell this changes no pixel whatever this number is. The
             // `0.0` that matters is `js_reference`'s.
             detail_scale_strength: 1.0,
+            // v2.25 `tileShadeExag` (RC_ENGINE_CHANGES.md §4, Ruling AP): on
+            // in the shipped look. `js_reference()` pins `false`.
+            tile_shade_exag_scaled: true,
             ao_strength: 0.28,
             ao_radius_frac: 0.012,
             hydro_wet_strength: 0.38,
@@ -2252,6 +2276,10 @@ impl TerrainAppearance {
             // lattice here rather than inheriting it. `sea_grain` returns the
             // reference expression from a dedicated branch at `0.0`.
             sea_grain_warp: 0.0,
+            // v2.25's `tileShadeExag` (RC_ENGINE_CHANGES.md §4) is on in
+            // `default()`; the frozen v2.11 reference shades a tile with the
+            // bare `ex = state.exag` (11670), and the golden pins that.
+            tile_shade_exag_scaled: false,
             ..TerrainAppearance::default()
         }
     }
@@ -7442,6 +7470,14 @@ fn channel_tint(a: &TerrainAppearance, c: (f64, f64, f64), t: f64, gx: f64, gy: 
 //    the contract"*, so it is transcribed as written and measured rather than
 //    quietly corrected; `tests/golden_parity_tile_biome.rs` attributes the screen-identity
 //    residual to it by holding the term equal on both sides.
+//
+//    **Not to be confused with the DCC line's v2.25 `tileShadeExag`**, which
+//    this port does follow in the shipped look (Ruling AP; see
+//    [`tile_shade_exag`] and [`TerrainAppearance::tile_shade_exag_scaled`]).
+//    That one scales `exag` by tile pixels per coarse cell and is exactly `1`
+//    at one pixel per cell or coarser, so it leaves this LOD-entry asymmetry
+//    as it was and removes only the flattening *with zoom*:
+//    `tests/tile_shade_exag.rs` measures both.
 // 3. **Lakes.** The tile draws above-sea lakes with the v1.05 `_lakeFill`
 //    shoreline (11717-11740); `cell_color` draws them per cell, the v0.103
 //    stamp (8580), once a caller attaches the classification with
@@ -8363,6 +8399,26 @@ pub fn tile_river_seeds(ctx: &RenderCtx, w: usize, h: usize, bounds: TileBounds)
     (mask, thresh)
 }
 
+/// `tileShadeExag(bounds, W)` (DCC line v2.25, `RC_ENGINE_CHANGES.md` §4) —
+/// the hillshade exaggeration for a tile `w` pixels wide covering `bounds_w`
+/// coarse cells: `exag * max(1, (w - 1) / bounds_w)`.
+///
+/// `(w - 1) / bounds_w` is tile pixels per coarse cell, the reciprocal of the
+/// `cx` [`render_biome_tile_rgba`] steps by, so the shading gradient is read
+/// per coarse cell exactly as the main map's `exag / s` reads it per sample.
+/// The clamp at `1` is the reference's: a tile *coarser* than the grid keeps
+/// the bare exaggeration rather than losing relief.
+///
+/// A `bounds_w` that is not a positive finite number returns `exag` — the
+/// reference's own *"bounds omitted ⇒ the previous value exactly"*, and the
+/// value that cannot divide by zero into an infinite normal.
+pub fn tile_shade_exag(exag: f64, bounds_w: f64, w: usize) -> f64 {
+    if !(bounds_w > 0.0 && bounds_w.is_finite()) {
+        return exag;
+    }
+    exag * ((w as f64 - 1.0) / bounds_w).max(1.0)
+}
+
 /// `renderBiomeTileRGBA(tile, W, H, bounds)` (reference HTML 11668-11779) —
 /// one LOD/atlas tile of **amplified** height as the full biome look, RGBA8,
 /// row-major, four bytes per pixel, alpha always `255`.
@@ -8391,7 +8447,11 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
     }
     let a = &ctx.appearance;
     let sl = ctx.sea_level;
-    let ex = a.exag;
+    // v2.11's `ex = state.exag` (11670) under `js_reference()`; v2.25's
+    // `ex = tileShadeExag(bounds, W)` otherwise. One `ex`, used by both the
+    // macro normal and the meso normal below, exactly as the reference's one
+    // `const ex` is.
+    let ex = if a.tile_shade_exag_scaled { tile_shade_exag(a.exag, bounds.w, w) } else { a.exag };
     let az = a.sun_az_deg.to_radians();
     let alt = a.sun_alt_deg.to_radians();
     let (lx, ly, lz) = (alt.cos() * az.sin(), -alt.cos() * az.cos(), alt.sin());

@@ -2057,7 +2057,12 @@ impl WorldGen {
                 {
                     write.lod_tiles = Some(project::LodTiles {
                         source_key: String::new(),
-                        producer: lod_bridge::tile_producer_id(&self.appearance()),
+                        // The snapshot's own id: `tile_producer_id` plus a
+                        // digest of every other tile input, the colour space
+                        // among them -- what `project_open` compares before
+                        // it will seed these tiles back in
+                        // (`LodSnapshot::producer_id`).
+                        producer: snapshot.producer_id().to_string(),
                         tile_w,
                         tile_h,
                         tiles,
@@ -2398,6 +2403,12 @@ impl WorldGen {
     ///   list is therefore informational -- "this archive holds N payloads a
     ///   newer build wrote" -- and no longer a warning a Save command has to
     ///   put in front of the user.
+    /// - `lod_tiles_held` is how many stored LOD tiles the archive carried
+    ///   and this call held for seeding (`0` when it carried none, or
+    ///   `read_project` dropped them as another world's). Held is not used:
+    ///   a held tile is served only while the live tile context's producer
+    ///   string matches the one it was saved under; `lod_worker_stats`'
+    ///   `seeded_served` counts the ones that were.
     /// - `restored` names the engine-owned payloads that were applied, in
     ///   push order: `civ`, `landmark settings`, `landmarks`, `labels`,
     ///   `icons`, `ways`, `region`, `appearance`, `vault`, `paint layers`,
@@ -2832,7 +2843,27 @@ impl WorldGen {
             }
         }
 
+        // Owner rulings 28/29's read half: the stored LOD pyramid, if the
+        // archive carried one that `read_project` did not drop on a
+        // `source_key` mismatch. **Held, not trusted**: `LodWorker::tile`
+        // and `request` serve a held tile only when its producer string is
+        // exactly the live snapshot's -- the same world, look, colour space
+        // and attachments -- and synthesise as before otherwise. Last, after
+        // every restore above, though nothing here depends on the order: the
+        // comparison happens when a tile is asked for, against whatever the
+        // world then is. `load_save` above already cleared the previous
+        // project's (`release_world`).
+        let lod_tiles_held = match data.lod_tiles.take() {
+            Some(lod) => {
+                let n = lod.tiles.len();
+                self.lod_worker.seed(crate::lod_worker::StoredPyramid::from(lod));
+                n
+            }
+            None => 0,
+        };
+
         let mut out = vdict! { "ok" => true, "error" => "" };
+        out.set("lod_tiles_held", lod_tiles_held as i64);
         out.set(
             "layout",
             if data.layout == cartalith_io::Layout::Tree {

@@ -261,6 +261,13 @@ the previous value exactly.**
   `render.rs::render_biome_tile_rgba` (called from `lod_bridge.rs`), shades with
   the bare `a.exag`. `tileShadeExag` has no port — nothing in
   `cartalith-native/crates` matches it — so this v2.25 change is unported.)*
+  *(Updated 2026-09-24: ported as `render::tile_shade_exag`, applied in
+  `render_biome_tile_rgba` when `TerrainAppearance::tile_shade_exag_scaled` is
+  set — `true` in `default()`, `false` in `js_reference()` so the v2.11 golden
+  keeps the bare `exag`. Both the macro and the meso normal take it, as the
+  reference's one `const ex` does. `renderHeightTileRGBA`'s counterpart,
+  `cartalith_terrain::tile_render::render_height_tile_rgba`, still takes a bare
+  `exag` and no bounds.)*
 
 **Two plausible LOD fixes were refuted by their own measurement — do not re-chase:**
 raising `lodDetailFreqK` measures 3.7× more Laplacian energy, but the octaves land

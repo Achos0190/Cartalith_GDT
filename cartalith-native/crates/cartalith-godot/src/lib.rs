@@ -4814,6 +4814,10 @@ impl WorldGen {
         // for the outgoing world lands stale and is discarded rather than
         // queued for a shell that has moved on.
         self.lod_worker.invalidate();
+        // A reopened project's stored pyramid describes the outgoing world.
+        // Its producer check would refuse it over the next one anyway; this
+        // returns the bytes (tens of MB at a real grid).
+        self.lod_worker.clear_seed();
         // The bytes of the last-opened project's unmodelled entries. They
         // belong to *that file*; a generate makes them nobody's, and leaving
         // them here would write another project's payloads into this world's
@@ -13518,6 +13522,11 @@ impl WorldGen {
     /// bar is read off and is measured from the live snapshot rather than
     /// estimated from a formula.
     ///
+    /// `seeded_held`, `seeded_served` and `synthesized` are the stored-
+    /// pyramid counters ([`lod_worker::LodWorker::seed_stats`]): tiles a
+    /// reopened project carried and is holding, tiles answered from them, and
+    /// tiles actually coloured — on both the synchronous and the worker path.
+    ///
     /// `generation` is [`lod_worker::LodWorker::generation`] — bumped only
     /// on an actual snapshot rebuild (`install`/`prepare`'s decision to
     /// build), never on a cache hit. Unlike `built`/`dropped`, which only
@@ -13527,7 +13536,11 @@ impl WorldGen {
     #[func]
     fn lod_worker_stats(&self) -> VarDictionary {
         let (ready, building, in_flight, waiting, built, dropped, bytes) = self.lod_worker.stats();
+        let (seeded_held, seeded_served, synthesized) = self.lod_worker.seed_stats();
         dict! {
+            "seeded_held" => seeded_held as i64,
+            "seeded_served" => seeded_served as i64,
+            "synthesized" => synthesized as i64,
             "ready" => ready,
             "building" => building,
             "in_flight" => in_flight as i64,
@@ -13582,7 +13595,10 @@ impl WorldGen {
     /// and is exactly why the part that can be tested elsewhere should not be
     /// welded to the part that cannot).
     fn lod_tile_bytes(&self, z: i32, col: i32, row: i32) -> Option<(Vec<u8>, usize, usize)> {
-        self.lod_snapshot()?.render_tile(z, col, row)
+        let snap = self.lod_snapshot()?;
+        // A reopened project's stored tile when it is still exactly this
+        // world's, else synthesised -- `LodWorker::tile`.
+        self.lod_worker.tile(&snap, z, col, row)
     }
 
     /// The live snapshot for this world and appearance, **built here and now

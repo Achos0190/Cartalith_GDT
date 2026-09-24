@@ -691,7 +691,9 @@ Rulings AQ, AR and AS: `LOD_DETAIL_SCOPE.md`'s six owner questions (no ruling
 in `LARGE_ITEM_RULINGS.md` answers any of them; question 6 gates LOD-D7),
 LOD-D5's `add_zoom_detail` octave-decay re-baseline, LOD-D1's two surfaced
 decisions (tile vs map shading; the 40 ms synthesis
-budget); whether v2.25's `tileShadeExag` is ported or declined; the MV-4
+budget); ~~whether v2.25's `tileShadeExag` is ported or declined~~ (ported
+2026-09-24 under Ruling AP, *verified 2026-09-24* — see the
+LOD-D2 row); the MV-4
 folder-picking mechanism; importing legacy flat `.zip` settlements/labels;
 ruling 16's refine action's scope and the Peak viewshed term; the Military
 *Not built* wording; the citadel's area in growth (Ruling AC left it open);
@@ -1335,7 +1337,7 @@ met. By this file's vocabulary those are `partial`, and the rows say which bars.
 |---|---|---|---|
 | LOD-D0 | Zoom-sweep harness (measurement only, no pixel change) | done | `cartalith-godot/src/lod_sweep.rs` (metric definitions and unit tests) and the windowed `godot-project/_lodsweep_probe.gd`. `11936cb` |
 | LOD-D1 | Port `renderBiomeTileRGBA` as a pure engine function | done | `render.rs::render_biome_tile_rgba`, golden-tested against the reference in `tests/golden_parity_tile_biome.rs` (worst delta 0). `f6d1bd5`. Two decisions it surfaced stay with the owner: the reference's tile and map shading disagree by construction, and single-thread synthesis measured above the scope's 40 ms budget |
-| LOD-D2 | Colour tiles on screen, and the sharpness bar | partial — built; 3 of 6 D0 bars met | `lod_bridge::synthesize_tile_rgba` calls `render_biome_tile_rgba`, and `shell/lod_tile.gdshader` samples the colour directly. `9d2a800`. Not met at close: zoom-40 detail on the 2048 world (also failing before this milestone), the LOD-entry `mean \|ΔL*\|` bar at both sizes, and the seam ratio at 512 |
+| LOD-D2 | Colour tiles on screen, and the sharpness bar | partial — built; 3 of 6 D0 bars met | `lod_bridge::synthesize_tile_rgba` calls `render_biome_tile_rgba`, and `shell/lod_tile.gdshader` samples the colour directly. `9d2a800`. Not met at close: zoom-40 detail on the 2048 world (also failing before this milestone), the LOD-entry `mean \|ΔL*\|` bar at both sizes, and the seam ratio at 512. **2026-09-24, verified:** v2.25's `tileShadeExag` is ported (`render::tile_shade_exag`, on in `default()` via `TerrainAppearance::tile_shade_exag_scaled`, off in `js_reference()` so the v2.11 golden is byte-identical). `tests/tile_shade_exag.rs` measures a deep tile's relief against the map's, normalised to LOD entry: before 0.569 / 0.300 / 0.155 at 2 / 4 / 8 px per cell, after 1.095 / 1.139 / 1.169. At LOD entry the tile already carries 2.20x the map's relief on that fixture — departure 2, untouched by this; no D0 bar was re-run |
 | LOD-D3 | Continuous transitions: parent fallback and a colour-space morph | partial — 2 of 4 bars met | `lod_bridge::morph_for_zoom`. `b6cc014`. Met: zero pops. Not met: worst level-boundary `T_i ≤ 1.5×` (1 of 12 still over), zero holes, and the seam ratio (unmoved) |
 | LOD-D4 | Ice and snow from fields that already exist | partial — 1 of 4 bars met | `TerrainAppearance::ice_strength` and `render.rs::apply_ice_cover`. `02f6d51`. **The aspect term Ruling AP (2026-09-23) authorised is built** (`19c38d9`, 2026-09-24; *corrected the same day: this row said not built*): `TerrainAppearance::snow_aspect_c` (2.0 °C shipped, 0.0 under `js_reference()`, so no JS-parity golden moved; the Rust render hashes in `tests/color_space.rs` and `tests/layer_stack.rs` were re-baselined) and `render.rs::snow_aspect_shift`, fed to `material_weights` as a snow temperature shift, with `tile_snow_facing` on LOD tiles. **The snow-versus-aspect bar (1b) is still not met** after it, per the commit's own reading (not re-measured here), so the count stays 1 of 4. `snow_aspect_c` has no GUI control |
 | LOD-D5 | Scale-aware shading weights, and hydrology that resolves | partial — 2 of 3 bars met | `TerrainAppearance::detail_scale_strength`. `c685930`. The unmet bar (detail per pixel non-decreasing from zoom 4 to 40) needs `add_zoom_detail`'s octave decay changed, a golden re-baseline recorded in `amplify.rs` as awaiting an owner ruling |
@@ -1362,11 +1364,19 @@ measurements) was scheduled by the 2026-08-31 rulings.~~ *Stale, re-checked
 (`project_bridge.rs` parses `SLOT_PAINT` / `SLOT_SCULPT` on open; `app.gd`
 restores the two library slots through `asset_library_restore_document` /
 `travel_library_restore_document`), and the fifth slot exists —
-`annotations/measurements.json`, restored by `app.gd`. **What is written and
-never read by the product is the stored LOD pyramid**, `cartography/tiles/**`:
-`cartalith-io` loads and validates it into `lod_tiles` (dropping it when its
-`source_key` does not match the world), and in `cartalith-godot` only the
-save path writes that field and only `lod_worker.rs`'s tests read it.
+`annotations/measurements.json`, restored by `app.gd`. ~~**What is written and
+never read by the product is the stored LOD pyramid**~~ — *read back since
+2026-09-24, verified:* `WorldGen::project_open` holds
+`ProjectData::lod_tiles` in `LodWorker`, and `LodWorker::tile`/`request` serve
+a held tile instead of synthesising it only when its producer string equals
+the live snapshot's (`LodSnapshot::producer_id`: `tile_producer_id` plus a
+digest of every other tile input, the colour space included). Pyramids saved
+before that date have no digest and are never seeded. **A freshly generated
+world saved with tiles and reopened is not seeded**: the reopened world has no
+flow or lithology, and `_lodseed_probe.gd` measured 75 481 of 174 080 sample
+pixels differing between its stored and its live tiles. A world saved *from a
+reopened session* is seeded: 341 of 341 tiles served, 0 synthesised, all
+byte-identical to synthesis.
 
 ### Android build and device · `ANDROID_BUILD_SCOPE.md`
 
