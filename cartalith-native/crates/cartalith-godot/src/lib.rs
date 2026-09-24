@@ -19,6 +19,7 @@ use godot::prelude::*;
 
 mod asset_bridge;
 mod bake_bridge;
+mod campaign_bridge;
 mod civ_military_bridge;
 mod civ_roster_bridge;
 mod civ_tools_bridge;

@@ -2042,6 +2042,21 @@ func refresh_annotations() -> void:
 	## engine store, and this is the path both reach, so the map follows.
 	if overlay.has_method("set_conflicts"):
 		overlay.set_conflicts(_bridge.conflict_list())
+	refresh_campaigns()
+
+## CARTO ▸ Conflict (Ruling AW): re-pulls `conflict_campaigns()` for the
+## Timeline cursor's year. Called after the engine call that changed its
+## answer -- a conflict edit (`civilization_workspace.gd::refresh_conflicts`,
+## which `timeline_changed` also reaches), a regenerate or project open (the
+## refresh above), and turning the layer on. While the layer is off nothing is
+## pulled: the whole-grid read is not paid for a layer nobody sees.
+func refresh_campaigns() -> void:
+	if not overlay.has_method("set_campaigns") or _bridge == null:
+		return
+	if not overlay.layer_visible("conflict"):
+		overlay.set_campaigns([])
+		return
+	overlay.set_campaigns(_bridge.conflict_campaigns(_bridge.get_civ_year()))
 
 ## Push the engine's own faction swatches into `map_overlay.gd`, which drew
 ## its settlement pins from a frozen six-entry copy of them until
@@ -2227,6 +2242,14 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 		## longer bakes them (`WorldGen::screen_river_ink`) -- so switching
 		## this off hides the rivers; there is no raster tint to fall back on.
 		"rivers": overlay.set_show_rivers(shown)
+		## CARTO ▸ Conflict (Ruling AW). Guarded on the method like the
+		## landmark arms. Off means not drawn *and* not pulled, so turning it
+		## on re-reads the cursor's year rather than showing a stale one.
+		"conflict":
+			if overlay.has_method("set_show_conflict"):
+				overlay.set_show_conflict(shown)
+				if shown:
+					refresh_campaigns()
 		_:
 			push_error("ViewportHost: unknown layer '%s'" % layer)
 			return

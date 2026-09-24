@@ -544,7 +544,7 @@ func _band(title: String, first: bool) -> void:
 	_list.add_child(pad)
 
 ## One VISIBLE LAYERS row: a `DccWidgets.toggle()`, the same factory CARTO's own
-## rail dock builds these eight with. Seeded from `host.layer_visible()` and
+## rail dock builds these rows with. Seeded from `host.layer_visible()` and
 ## writing through `host.set_layer_visible()`, so the switch state lives in
 ## `ViewportHost` and neither surface holds a copy that could drift -- and the
 ## `layer_visibility_changed` that call emits is what

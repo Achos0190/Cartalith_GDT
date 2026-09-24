@@ -1402,6 +1402,62 @@ func drawn_conflict_ids() -> Array:
 			out.append(int(c.get("id", 0)))
 	return out
 
+## Ruling AW -- CARTO ▸ **Conflict**, its own layer (not the SP-4 overlay
+## above, which stays CIVIL's authoring view). `conflict_campaigns(year)`'s
+## rows (`campaign_bridge.rs`; `MILITARY_MANPOWER_SCOPE.md` §5): only
+## conflicts active in the cursor's year arrive, so the layer follows the
+## cursor because `ViewportHost.refresh_campaigns()` re-pulls on every
+## `timeline_changed`.
+##
+## Three things per row, in SP-4's crimson (the hue reserved for conflicts)
+## over the route layer's dark underlay, and told apart by shape as SP-4's
+## four kinds are:
+## - **changed hands** -- a flat crimson wash on the cells that moved between
+##   the sides since the conflict began. Cell-exact runs, not a texture, so a
+##   deep zoom shows the true cell edges rather than a filtered blur;
+## - **the front** -- the cell edges where the sides meet, as a two-pass
+##   stroke in screen px;
+## - **the siege line** -- a ring at the attested map radius (so it grows with
+##   zoom, unlike SP-4's pin-sized siege mark), with short ticks facing the
+##   besieged place: the contravallation's side.
+var _campaigns: Array = []
+## Per row, the changed-hands cells merged into horizontal runs, in grid
+## cells (`Rect2(x, y, len, 1)`). Built once per `set_campaigns`, not per frame.
+var _campaign_runs: Array = []
+var _show_conflict := true
+
+const CAMPAIGN_WASH := Color(0.80, 0.14, 0.12, 0.30)
+
+func set_campaigns(items: Array) -> void:
+	_campaigns = items
+	_campaign_runs.clear()
+	for c: Dictionary in items:
+		var runs: Array[Rect2] = []
+		var cells: PackedInt32Array = c.get("changed_cells", PackedInt32Array())
+		if _gw > 0:
+			var i := 0
+			while i < cells.size():
+				var j := i
+				while j + 1 < cells.size() and cells[j + 1] == cells[j] + 1 \
+						and cells[j + 1] % _gw != 0:
+					j += 1
+				runs.append(Rect2(cells[i] % _gw, cells[i] / _gw, j - i + 1, 1))
+				i = j + 1
+		_campaign_runs.append(runs)
+	queue_redraw()
+
+func set_show_conflict(shown: bool) -> void:
+	_show_conflict = shown
+	queue_redraw()
+
+## Conflict ids drawn this frame. Public for probes (see `drawn_conflict_ids`).
+func drawn_campaign_ids() -> Array:
+	var out := []
+	if _show_conflict:
+		for c: Dictionary in _campaigns:
+			out.append(int(c.get("id", 0)))
+	return out
+
 ## The Layers popover's own on/off for this overlay. Separate from
 ## `_landmarks` being empty, which means "the pass has not run", so the map can
 ## say those two apart.
@@ -1999,6 +2055,7 @@ func layer_visible(layer: String) -> bool:
 		"landmark_rejects": return _landmark_rejects_visible
 		"urban_layouts": return _show_urban_layouts
 		"rivers": return _show_rivers
+		"conflict": return _show_conflict
 		_:
 			push_error("MapOverlay: unknown layer '%s'" % layer)
 			return true
@@ -2339,7 +2396,7 @@ func _draw() -> void:
 	if (_settlements.is_empty() and _roads.is_empty() and _sea_routes.is_empty()
 			and _manual_icons.is_empty() and _labels.is_empty()
 			and _manual_routes.is_empty() and _landmarks.is_empty()
-			and _conflicts.is_empty()
+			and _conflicts.is_empty() and _campaigns.is_empty()
 			## The rejects layer can be the ONLY thing on this control: a pass
 			## that placed nothing still rejects, and that is exactly the world
 			## where the diagnostic matters most. Leaving it out of this guard
@@ -2453,6 +2510,11 @@ func _draw() -> void:
 
 	## SP-4 conflicts: above the route network they are fought along, below
 	## the town layouts and pins, so a besieged town's pin sits inside its ring.
+	## CARTO ▸ Conflict (Ruling AW) first, so SP-4's own authored marks sit on
+	## top of the war they annotate.
+	if _show_conflict:
+		for ci in _campaigns.size():
+			_draw_campaign(_campaigns[ci], _campaign_runs[ci] if ci < _campaign_runs.size() else [], rect)
 	for c: Dictionary in _conflicts:
 		if c.get("active", false):
 			_draw_conflict(c, rect)
@@ -3833,6 +3895,36 @@ func _draw_conflict(c: Dictionary, rect: Rect2) -> void:
 		var at := sp[0] + Vector2(10, -10)
 		draw_string_outline(font, at, title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, 3, under)
 		draw_string(font, at, title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, ink)
+	_crisp_end()
+
+## One Ruling AW campaign row (see `_campaigns`).
+func _draw_campaign(c: Dictionary, runs: Array, rect: Rect2) -> void:
+	if _gw <= 0 or _gh <= 0:
+		return
+	var cell := Vector2(rect.size.x / _gw, rect.size.y / _gh)
+	for r: Rect2 in runs:
+		draw_rect(Rect2(rect.position + r.position * cell, r.size * cell), CAMPAIGN_WASH, true)
+	var k := _crisp_begin()
+	var w := 2.4 * _way_scale
+	var seg: PackedVector2Array = c.get("front_segments", PackedVector2Array())
+	if seg.size() >= 2:
+		var sp := PackedVector2Array()
+		sp.resize(seg.size())
+		for i in seg.size():
+			sp[i] = _point_to_screen(seg[i], rect) * k
+		draw_multiline(sp, CONFLICT_UNDERLAY, w + 2.4)
+		draw_multiline(sp, CONFLICT_COLOR, w)
+	var siege: Dictionary = c.get("siege", {})
+	if siege.has("centre") and siege.has("radius_cells"):
+		var ctr := _point_to_screen(siege["centre"], rect) * k
+		var r := float(siege["radius_cells"]) * cell.x * k
+		draw_arc(ctr, r, 0.0, TAU, 64, CONFLICT_UNDERLAY, w + 2.4, true)
+		draw_arc(ctr, r, 0.0, TAU, 64, CONFLICT_COLOR, w, true)
+		var tick := minf(5.0 * _way_scale, r * 0.5)
+		for i in 16:   ## ticks facing the besieged place: the contravallation
+			var a := TAU * float(i) / 16.0
+			var dir := Vector2(cos(a), sin(a))
+			draw_line(ctr + dir * r, ctr + dir * (r - tick), CONFLICT_COLOR, w, true)
 	_crisp_end()
 
 ## A front line's teeth: small triangles on the polyline's left-hand side

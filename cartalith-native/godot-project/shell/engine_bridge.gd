@@ -3174,6 +3174,14 @@ func conflict_list() -> Array:
 		return []
 	return world_gen.conflict_list()
 
+# campaign_bridge.rs -- Ruling AW, the CARTO ▸ Conflict layer's rows for one
+# year: siege rings, front segments and changed-hands cells of every conflict
+# active that year. Keys that cannot be read are absent; see the Rust doc.
+func conflict_campaigns(year: int) -> Array:
+	if not _has("conflict_campaigns"):
+		return []
+	return world_gen.conflict_campaigns(year)
+
 func conflict_get(id: int) -> Dictionary:
 	if not _has("conflict_get"):
 		return {}

@@ -25,7 +25,9 @@ Sections, in this order:
 - **§3 · Verification** — the two worked examples, the live figures, and the
   four findings the build produced, including the two where the specification
   is internally inconsistent.
-- **§4 · What this deliberately does not build.**
+- **§4 · What this deliberately does not build** — reopened by Ruling AW.
+- **§5 · Campaigns over time (Ruling AW)** — the CARTO ▸ Conflict layer: what
+  a siege line, a front and "territory over time" are drawn from.
 
 ---
 
@@ -944,7 +946,7 @@ same six factions spread **0.11 … 0.91** and roads carry real weight.
 > per-settlement garrisons. The bullets below are the reasoning as it stood
 > before that ruling; per-settlement garrisons and change over time are now
 > scheduled, and campaigns are scheduled in the form the ruling names (no
-> unit movement or combat resolution).
+> unit movement or combat resolution) — scoped in **§5**.
 
 CV-25's own narrowing, kept, minus the manpower half this document supersedes.
 These are **declined**, with the reason, rather than deferred — nobody should
@@ -964,3 +966,130 @@ re-propose them without reopening the reasoning:
   stands, and stops there — the same boundary `relations` holds.
 
 Disclosed on screen in CIVIL ▸ Military ▸ Not built, in the same words.
+**Superseded on screen by Ruling AW**: CIVIL ▸ Military now points campaigns at
+CARTO ▸ Conflict (§5) and lists garrisons and change over time as scheduled,
+not declined.
+
+---
+
+## 5 · Campaigns over time (Ruling AW)
+
+The owner, 2026-09-24 (`LARGE_ITEM_RULINGS.md`, Ruling AW): war campaigns over
+time "should not be declined", built as **"Territory over time and siege lines
+drawn in their own Conflict layer under Carto."** This section defines what
+that layer draws and from what. It adds **no simulation**: every line on it is
+either something the author drew (a conflict's kind, place, years and sides —
+`cartalith_civ::conflict`, SP-4) or something the timeline recorded (territory
+per year — Ruling AT's base model). No reference ancestor; divergence by
+addition (`DECISIONS.md` §7d).
+
+The code is `cartalith_civ::campaign::campaigns_at`, one pure function over
+the recorded timeline, the conflict store, the map scale and one year; the
+bridge is `WorldGen::conflict_campaigns(year)` (`campaign_bridge.rs`); the
+layer is the `conflict` row of CARTO ▸ Layers, drawn by
+`map_overlay.gd::_draw_campaign`.
+
+### 5.0 Which conflicts, and which territory
+
+- **Which conflicts.** Every conflict whose years contain the cursor's year —
+  SP-4's own `Conflict::active_in` (inclusive both ends, an open end runs on).
+  Outside every conflict's years the layer has nothing to draw, and draws
+  nothing.
+- **Which territory "that year" is.** The recorded snapshot **in force**: the
+  latest recorded year at or before the cursor. An unrecorded year between two
+  records reads the earlier — claims hold until the next record changes them,
+  which is Ruling AT's model. It is deliberately **not** the live claim grid's
+  "territory holds at" year (`CivData::territory_year`): that one depends on
+  the path the cursor took (scrub back from a later record and the grid keeps
+  the later claims), and a history layer must draw the same front for the same
+  year however you arrived at it. The two agree whenever the cursor sits on a
+  recorded year.
+- **Before anything is recorded**, there is no territory to read: the front
+  and the changes are **absent** (not an empty list, which would read as "no
+  border" or "nothing changed"). A snapshot recorded on a grid of another size
+  reads the same way.
+
+### 5.1 What a siege line is drawn from
+
+- **From an authored siege, and only from one.** A conflict of kind `siege`
+  (SP-4's marker) active in the cursor's year draws one ring. The ring's
+  centre is the siege's drawn point, resolved against its anchor exactly as
+  SP-4 draws it — so a siege attached to a settlement moves with it.
+- **The besieged settlement** is the siege's anchor, when it is anchored to a
+  settlement. A free-standing siege mark names no place; the layer does **not**
+  guess the nearest town, because "nearest within how far" is a number nothing
+  here grounds.
+- **Defender and besiegers** are read, not decided: the defender is the owner
+  of the cell under the centre in the territory in force, when that owner is
+  one of the conflict's sides; the besiegers are the other sides. When the
+  owner is not a side, or nothing is recorded, both are absent.
+- **Radius: Alesia's contravallation.** Caesar gives the circuit of the inner
+  siege line as eleven Roman miles (*XI milia passuum*, *De Bello Gallico*
+  VII.69). At the customary 1.48 km to the Roman mile that is 16.28 km of
+  line, a ring of radius 16.28 / 2π = **2.591 km** — converted to cells by the
+  map's own scale (`map_width_km / gw`). One attested work, used as the stated
+  scale of "a siege line", not fitted to anything
+  (`SIEGE_LINE_CIRCUIT_MILES = 11.0`, `ROMAN_MILE_KM = 1.48`).
+- **Floor: one cell** (`SIEGE_RING_MIN_CELLS = 1.0`). A cell's circumradius
+  is √2/2 ≈ 0.707 cells, so a tighter ring would cut through the cell it is
+  meant to surround; one is the smallest whole-cell radius that clears it. It
+  binds on coarse maps, above ~2.6 km per cell. A map with no usable scale has
+  no radius (absent), not a default one.
+- **Not scaled by the besieger's field army**, which the brief offered as a
+  possibility. A faction's field army (§2.4) is its whole deployable force;
+  how much of it sits at one siege is a placement rule — exactly the kind the
+  derived garrisons (MM-6) will need to state — and nothing yet states it.
+  Scaling the ring by the whole field army would draw Rome's entire field army
+  around one town. When MM-6 lands, it can be revisited against that rule.
+
+### 5.2 What a front is drawn from
+
+The **border between the conflict's sides** in the territory in force: every
+pair of 4-neighbour cells where one side's cell meets a *different* side's
+cell. Each pair is drawn as the cell edge they share, so the front is a
+cell-exact line, not a smoothed guess. A border with a third faction, or with
+unclaimed land, is not this war's front. The whole shared border is the front:
+nothing in an authored conflict says which stretch of it is contested, and
+cutting it to the drawn geometry's extent would be a rule invented here. A
+conflict with one side has no front (an empty one, since the territory *was*
+readable).
+
+### 5.3 How "territory over time" is shown
+
+The recorded snapshots, across the cursor. The layer adds one derived reading
+on top of them: **the cells that changed hands between the conflict's sides
+since it began** — every cell whose owner in the snapshot in force at the
+conflict's *start* is one side, and whose owner in the snapshot in force at the
+*cursor* is another. Both ends must be sides; a cell lost to a third faction or
+to unclaimed land may be another war's or a recompute's doing, and is not
+attributed to this one. Drawn as a wash in the conflict ink, so the war's
+gains read against the Political territory layer rather than repainting it.
+If nothing is recorded at or before the conflict's start there is no
+baseline, and the changes are absent.
+
+Nothing had to be added to the timeline for this: `TimelineSnapshot` already
+records territory per year (`civ_territory_at` reconstructs any recorded
+year), and the conflict already records its sides and years.
+
+### 5.4 Visual language
+
+No DCC canvas draws a siege line or a war front — the only siege in `design/`
+is a settlement-timeline card (`settlement-editor-2026-09-21`) — so the layer
+takes its vocabulary from the existing CARTO/CIVIL layers: SP-4's conflict
+crimson (the hue no other civil layer uses) over the route layer's dark
+two-pass underlay, told apart by shape as SP-4's four kinds are. The ring is
+map-scaled (it grows with zoom, like a real work on a plate) where SP-4's
+siege mark is pin-sized; its ticks face inward, the contravallation's side.
+The layer sits under SP-4's own marks, so an authored annotation stays on top
+of the war it annotates.
+
+### 5.5 What stays out
+
+- **No unit movement and no combat resolution.** The owner did not ask for
+  them, and Ruling AW says to settle either with the owner before building it.
+  Nothing here moves a force, decides a battle, or writes territory: the layer
+  only reads what the author and the timeline already hold.
+- **No new clock.** The cursor is `CivData::year` (`STORY_PLANNING_SCOPE.md`
+  §5).
+- **Garrisons (MM-6) and manpower across the cursor (MM-8)** are the ruling's
+  other two items and are not part of this layer.

@@ -79,7 +79,7 @@ class_name CartographyWorkspace
 ## never from this field directly (`_layer_checks`'s own doc comment). It
 ## earns its keep by being asserted rather than left to drift silently:
 ## `_verify_layers_probe.gd` builds the same `LIVE_LAYERS` checkboxes this
-## file does (9 as of the vector river overlay row, was 8) and fails if any
+## file does (10 as of the Conflict row, Ruling AW; was 9) and fails if any
 ## of them disagrees with the engine's own default at launch (`godot
 ## --headless --script _verify_layers_probe.gd`; ALL PASS as of 2026-09-03,
 ## re-run 2026-09-21 with the new row). Re-run it after moving a default
@@ -116,6 +116,14 @@ const LIVE_LAYERS: Array = [
 	## candidates and lists the best-scoring 3 216 of them, which is a real
 	## diagnostic and would be pure noise arriving unasked on every world.
 	{"id": "landmark_rejects", "label": "Landmark rejects (diagnostic)", "on": false},
+	## Ruling AW (`LARGE_ITEM_RULINGS.md`, 2026-09-24): "Territory over time
+	## and siege lines drawn in their own Conflict layer under Carto". The
+	## siege lines, fronts and changed-hands cells of every conflict active in
+	## the Timeline cursor's year (`MILITARY_MANPOWER_SCOPE.md` §5; drawn by
+	## `map_overlay.gd::_draw_campaign`). **On by default**, for the Landmarks
+	## row's reason: a conflict is something the user deliberately authored,
+	## and the layer draws nothing until one is active in the cursor's year.
+	{"id": "conflict", "label": "Conflict", "on": true},
 	## The vector river overlay (`OUTSTANDING_WORK.md` "The vector river
 	## overlay", re-applied 2026-09-21 after its 2026-09-13 revert -- see
 	## `map_overlay.gd::_show_rivers`'s own doc comment for the full history).

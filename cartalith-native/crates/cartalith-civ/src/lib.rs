@@ -63,6 +63,11 @@ pub mod relations;
 /// side's reading of [`manpower`]. No combat resolution; no reference
 /// ancestor (`DECISIONS.md` §7d).
 pub mod conflict;
+/// Ruling AW -- war campaigns over time: siege rings, fronts and cells that
+/// changed hands, read per cursor year from [`conflict`] and the recorded
+/// timeline (`MILITARY_MANPOWER_SCOPE.md` §5). Moves no unit, resolves no
+/// battle.
+pub mod campaign;
 /// `STORY_PLANNING_SCOPE.md` SP-2 -- a saved journey's party position,
 /// supply use and arrival over elapsed days, read off a [`JpJourneyPlan`]
 /// (so the Journey Planner's own speed governs), plus the regenerate re-snap

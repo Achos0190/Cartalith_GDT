@@ -29,8 +29,8 @@ func _initialize() -> void:
 	app.viewport = vp
 	ws.app = app
 
-	# Build the LIVE_LAYERS checkboxes (9 as of the vector river overlay row,
-	# was 8) EXACTLY as cartography_workspace.gd's two loops do -- same
+	# Build the LIVE_LAYERS checkboxes (10 as of the Conflict row, Ruling AW;
+	# was 9) EXACTLY as cartography_workspace.gd's two loops do -- same
 	# DccWidgets.toggle call, same seed, same callback -- and record every
 	# write-back the callback would make.
 	var host := VBoxContainer.new()

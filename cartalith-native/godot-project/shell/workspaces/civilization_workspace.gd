@@ -946,6 +946,9 @@ func refresh_conflicts() -> void:
 	var rows := bridge.conflict_list()
 	if app.viewport.overlay.has_method("set_conflicts"):
 		app.viewport.overlay.set_conflicts(rows)
+	## CARTO ▸ Conflict (Ruling AW) reads the same store and the same cursor.
+	if app.viewport.has_method("refresh_campaigns"):
+		app.viewport.refresh_campaigns()
 	if _conflicts_section != null and is_instance_valid(_conflicts_section):
 		_clear_body(_conflicts_section)
 		_fill_conflicts(_conflicts_section, rows)
@@ -6101,14 +6104,19 @@ func _fill_military(parent: Control) -> void:
 			b.tooltip_text = "%s · population %d · faction %d. Pin it in the right dock." % [
 				String(d.get("kind", "")).capitalize(), int(d.get("pop", 0)), int(d.get("faction", 0))]
 
-	## `MILITARY_MANPOWER_SCOPE.md` §4 and STATUS MM-6/7/8: all three declined.
-	## Ruling AV (2026-09-24) fixed this note's wording -- audit owner Q8,
-	## `ALIGNMENT_AUDIT.md` B12 -- as one line: campaigns over time were
-	## considered and declined, and the conflict overlay (SP-4,
-	## `conflict_sides_manpower`) is where each side's manpower is shown.
+	## STATUS MM-6/7/8. Ruling AV's one-line "considered and declined" wording
+	## (`70adb7a`) is superseded by **Ruling AW** (2026-09-24): campaigns over
+	## time are not declined. They are drawn in CARTO ▸ Conflict
+	## (`MILITARY_MANPOWER_SCOPE.md` §5, `conflict_campaigns`), so this panel
+	## points there. Garrisons (MM-6) and manpower across the cursor (MM-8) are
+	## scheduled by the same ruling and not built yet -- said as that, not as
+	## declined. The SP-4 overlay still shows each side's manpower.
+	var camp := DccWidgets.section(parent, "Campaigns")
+	DccWidgets.note(camp,
+		"War campaigns over time are drawn on the map in CARTO ▸ Conflict: siege lines, fronts, and the cells that changed hands since each conflict began, following the year cursor. The conflict overlay shows each side's manpower.")
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
-		"War campaigns over time were considered and declined; the conflict overlay shows each side's manpower.")
+		"Per-settlement garrisons and manpower across the year cursor are scheduled (Ruling AW) and not built yet.")
 
 ## The manpower half of CIVIL ▸ MILITARY (`MILITARY_MANPOWER_SCOPE.md`, built
 ## 2026-08-25 on the owner's own supplied specification).
