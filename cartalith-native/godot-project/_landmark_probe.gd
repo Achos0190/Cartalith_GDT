@@ -32,13 +32,13 @@ var _fail := 0
 # -- the contract, as fixtures ------------------------------------------------
 
 class StubBridge extends EngineBridge:
-	## `landmark_kinds()`'s shape, exactly: two families, all four classes, one
-	## `needs_viewshed` type, one `buildable: false` type. Peak is `false`, as
-	## it is in the engine since 2026-09-24 (`pool_peak` reads no visibility);
-	## the flagged type is the fixture's own `pilgrim_way`.
+	## `landmark_kinds()`'s shape, exactly: two families, all four classes, two
+	## `needs_viewshed` types, one `buildable: false` type. Peak is `true`, as
+	## it is in the engine since Ruling AV (2026-09-24: `pool_peak` scores the
+	## land in view); the other flagged type is the fixture's own `pilgrim_way`.
 	const KINDS := [
 		{"key": "peak", "label": "Peak", "family": "physical", "class": "regional",
-			"default_cap": 24, "needs_viewshed": false, "buildable": true},
+			"default_cap": 24, "needs_viewshed": true, "buildable": true},
 		{"key": "waterfall", "label": "Waterfall", "family": "physical", "class": "regional",
 			"default_cap": 40, "needs_viewshed": false, "buildable": true},
 		{"key": "cliff", "label": "Cliff", "family": "physical", "class": "local",
@@ -253,12 +253,13 @@ func _ready() -> void:
 			(civ.get("_lm_run_btn") as Button).disabled, false)
 		## The viewshed exists (`landmark.rs` `Derived::vis`), so the old
 		## `[no viewshed]` tag was false and is gone. Since 2026-09-24 the
-		## engine's `needs_viewshed` is pinned to the six kinds whose scorer
-		## reads `Derived::vis`, and each of those rows carries `[viewshed]`.
+		## engine's `needs_viewshed` is pinned to the kinds whose scorer reads
+		## `Derived::vis` -- seven since Ruling AV added Peak's land-in-view
+		## term -- and each of those rows carries `[viewshed]`.
 		_ok("the live panel draws no false [no viewshed] tag",
 			civ_blob.find("no viewshed") < 0, true)
-		_ok("the engine flags the six kinds whose scorer reads the viewshed",
-			live_vs, 6)
+		_ok("the engine flags the seven kinds whose scorer reads the viewshed",
+			live_vs, 7)
 		var live_tagged := 0
 		var live_wrong := 0
 		for k in live_kinds:

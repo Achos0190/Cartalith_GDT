@@ -1987,6 +1987,7 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize) -> Option<CivDat
         // same as a freshly generated world.
         belief: Vec::new(),
         belief_seed_key: Vec::new(),
+        territory_year: None,
     })
 }
 
@@ -4003,6 +4004,7 @@ mod tests {
             road_edges: Vec::new(),
             belief: Vec::new(),
             belief_seed_key: Vec::new(),
+            territory_year: None,
             settlements: vec![
                 cartalith_civ::NamedSettlement {
                     tid: 7,

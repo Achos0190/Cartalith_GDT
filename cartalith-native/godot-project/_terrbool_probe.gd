@@ -1,15 +1,15 @@
 extends SceneTree
 
 ## `OUTSTANDING_WORK.md` §2.11, "Go to year bypasses the territory paint
-## model" -- its "Also" clause only (Go to year's behaviour is an owner
-## question and is not changed):
+## model", through the real `WorldGen` funcs:
 ##   1. `EngineBridge.civ_territory_paint_at` returns the engine's `bool`, and
 ##      marks the project dirty only when a dab was staged;
 ##   2. `civ_territory_paint_polygon` still returns `-1` for a refused faction,
 ##      and does not mark the project dirty then;
-##   3. the corrected `dcc_shell.gd` §10a claim, measured: Go to year at an
-##      unrecorded year leaves no claimed cell; at a recorded year its
-##      snapshot comes back.
+##   3. Ruling AT (2026-09-24), measured: Go to year at an unrecorded year
+##      leaves territory -- and a pending stroke -- exactly as it was; at a
+##      recorded year the snapshot comes back and becomes the paint base, so a
+##      stroke, a subtract and Add year all act on that year.
 ##
 ## HEADLESS:
 ##   Godot_v4.7.1-stable_win64_console.exe --headless --path . --script res://_terrbool_probe.gd
@@ -67,17 +67,59 @@ func _initialize() -> void:
 	_check("lasso: staged cells mark the project dirty", bridge.world_dirty == true)
 	bridge.civ_territory_discard()
 
-	## 3. Go to year, measured (the §10a correction's claim).
+	## 3. Go to year (Ruling AT), measured.
 	var live := _total(wg, ids)
 	_check("premise: the world has claimed cells", live > 0, "%d" % live)
+	## Year 100 is the computed map; year 200 is it plus a stroke of faction
+	## `g` over a 40x40 square, so the two years differ in a known place.
+	var g := int(ids[ids.size() - 1])
+	var sq := PackedVector2Array([Vector2(20, 20), Vector2(60, 20), Vector2(60, 60), Vector2(20, 60)])
 	wg.civ_add_year(100)
 	var at100 := _total(wg, ids)
+	var g100 := int(wg.civ_faction_territory_stats(g).get("claimed_cells", -1))
+	wg.civ_add_year(200)
+	wg.civ_territory_paint_polygon(sq, g, false)
+	wg.civ_territory_commit()
+	wg.civ_add_year(200)   # records the stroke under 200; the cursor stays
+	var g200 := int(wg.civ_faction_territory_stats(g).get("claimed_cells", -1))
+	_check("premise: year 200 gives faction %d more cells than 100" % g, g200 > g100, "%d vs %d" % [g200, g100])
+
+	## Unrecorded: nothing but the cursor moves, a pending stroke included.
+	wg.civ_territory_paint_polygon(PackedVector2Array([Vector2(70, 70), Vector2(90, 70), Vector2(90, 90), Vector2(70, 90)]), g, false)
 	wg.civ_goto_year(150)
-	var at150 := _total(wg, ids)
-	_check("an unrecorded year leaves no claimed cell", at150 == 0, "%d at 150 (was %d)" % [at150, at100])
+	var g150 := int(wg.civ_faction_territory_stats(g).get("claimed_cells", -1))
+	_check("an unrecorded year leaves territory untouched", g150 == g200 and _total(wg, ids) > 0, "faction %d: %d at 150, %d before" % [g, g150, g200])
+	_check("an unrecorded year keeps naming the year the claims came from", wg.get_civ_territory_year() == {"year": 200}, str(wg.get_civ_territory_year()))
+	wg.civ_territory_commit()
+	var g150c := int(wg.civ_faction_territory_stats(g).get("claimed_cells", -1))
+	_check("the pending stroke survived the move and commits", g150c > g200, "%d -> %d" % [g200, g150c])
+
+	## Recorded: the snapshot comes back, paint and the pending stroke go.
+	wg.civ_territory_paint_polygon(sq, g, false)   # pending again, must be dropped
 	wg.civ_goto_year(100)
 	var back := _total(wg, ids)
-	_check("the recorded year's snapshot comes back", back == at100 and back > 0, "%d vs %d" % [back, at100])
+	var g_back := int(wg.civ_faction_territory_stats(g).get("claimed_cells", -1))
+	_check("the recorded year's snapshot comes back", back == at100 and g_back == g100, "%d vs %d, faction %d %d vs %d" % [back, at100, g, g_back, g100])
+	_check("the territory year is 100", wg.get_civ_territory_year() == {"year": 100}, str(wg.get_civ_territory_year()))
+	## A one-cell subtract dab where year 100 and 200 differ must restore year
+	## 100's owner. Before the ruling the base was the first computed map and
+	## the paint still held year 200's square, so the first commit here redrew it.
+	wg.civ_territory_paint_at(90.0, 20.0, g, 0.0, false)
+	wg.civ_territory_commit()
+	var g_dab := int(wg.civ_faction_territory_stats(g).get("claimed_cells", -1))
+	_check("a stroke at year 100 edits year 100 only", g_dab <= g100 + 1 and g_dab >= g100, "%d vs %d" % [g_dab, g100])
+	wg.civ_territory_paint_at(90.0, 20.0, 0, 0.0, true)
+	wg.civ_territory_commit()
+	var g_sub := int(wg.civ_faction_territory_stats(g).get("claimed_cells", -1))
+	_check("subtract restores year 100's owner", g_sub == g100, "%d vs %d" % [g_sub, g100])
+	## Add year re-records 100 from the live grid: still year 100's map.
+	wg.civ_add_year(300)
+	wg.civ_goto_year(100)
+	var g_rec := int(wg.civ_faction_territory_stats(g).get("claimed_cells", -1))
+	_check("Add year recorded year 100, not the pre-jump map", g_rec == g100, "%d vs %d (year 200 had %d)" % [g_rec, g100, g200])
+	wg.civ_goto_year(200)
+	var g_200 := int(wg.civ_faction_territory_stats(g).get("claimed_cells", -1))
+	_check("year 200 is untouched", g_200 == g200, "%d vs %d" % [g_200, g200])
 
 	print("RESULT %s  checks=%d fails=%d" % ["PASS" if _fails == 0 else "FAIL", _checks, _fails])
 	quit(1 if _fails > 0 else 0)

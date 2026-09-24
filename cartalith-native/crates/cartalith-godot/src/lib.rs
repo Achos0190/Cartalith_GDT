@@ -442,6 +442,22 @@ struct CivData {
     /// civ.year`), and carried across a civ-only recompute by
     /// `recompute_civilisation` (`fresh.year = old.year`).
     year: i64,
+    /// The recorded year whose snapshot `territory` last came from, or `None`
+    /// when it did not come from one -- a fresh world, a reopened project, a
+    /// recompute or populate that re-derived the borders, a cleared map.
+    /// Ruling AT (2026-09-24): going to an *unrecorded* year leaves territory
+    /// untouched, so the claims on screen there belong to whichever year last
+    /// loaded them, and that is not always the recorded year below the cursor
+    /// (step back from 705 to 450 and they are 705's). The timeline strip's
+    /// "territory holds at …" (`app.gd::_tl_readout_state`) reads this rather
+    /// than the nearest earlier mark so it cannot name the wrong year.
+    ///
+    /// Set by [`CivData::civ_goto_year`] on a recorded year, and by
+    /// [`CivData::civ_add_year`] when it snapshots the live grid under the
+    /// cursor (the grid then *is* that year's). Paint strokes after a load
+    /// are edits to the held year and leave it as it is, the way the
+    /// readout's "recorded" word already treats an edited recorded year.
+    territory_year: Option<i64>,
     /// `TIMELINE_SCOPE.md` milestone 5's own addition -- `currentAgrarianDensity()`'s
     /// per-cell output (`cartalith_civ::timeline::civ_current_agrarian_density`),
     /// computed once here from `carrying_cap`/`water_access`/`biome` (already-live
@@ -725,6 +741,25 @@ fn civ_reset_territory_paint(tools: &mut civ_tools_bridge::CivTools, civ: &mut C
     tools.rebase(&mut civ.territory);
 }
 
+/// Ruling AT (2026-09-24): after a timeline move that loaded a recorded
+/// year's snapshot into `civ.territory` (`loaded`, as
+/// [`CivData::civ_goto_year`], [`CivData::civ_add_year`] and
+/// [`CivData::civ_remove_year`] answer it), that snapshot becomes the
+/// Territory tool's base and the paint layer and any pending stroke are
+/// dropped -- [`civ_reset_territory_paint`], the same reset Clear territory
+/// runs. Without it the base and paint still describe the pre-jump map, and
+/// the next commit or subtract (`CivTools::recompose`) rebuilds that map over
+/// the loaded year, which a following Add year then records under it.
+///
+/// An unrecorded year (`loaded == false`) touches nothing: territory, base
+/// and paint all stay as they were, so the paint model and the grid still
+/// agree.
+fn civ_year_loaded(tools: Option<&mut civ_tools_bridge::CivTools>, civ: &mut CivData, loaded: bool) {
+    if let (true, Some(tools)) = (loaded, tools) {
+        civ_reset_territory_paint(tools, civ);
+    }
+}
+
 /// [`WorldGen::civ_clear_places`]' state half, split out so it can run under
 /// `cargo test` (a `#[func]` returning a `VarDictionary` cannot). Removes the
 /// settlements and everything derived from them, the recorded timeline, and
@@ -745,6 +780,7 @@ fn civ_clear_places_state(civ: &mut CivData, tools: Option<&mut civ_tools_bridge
     civ.territory = vec![0; n];
     civ.timeline.clear();
     civ.year = 0;
+    civ.territory_year = None;
     if let Some(tools) = tools {
         civ_reset_territory_paint(tools, civ);
     }
@@ -772,7 +808,8 @@ fn civ_clear_places_state(civ: &mut CivData, tools: Option<&mut civ_tools_bridge
 mod civ_merge_tests {
     use super::{
         CIV_FACTION_COUNT, CivData, CivRebuild, PipelineStage, SettlementExplanation, civ_clear_places_state, civ_merge,
-        civ_rebase_territory_paint, civ_roster_bridge, civ_settle_staleness, civ_tools_bridge, pipeline_stage_graph,
+        civ_rebase_territory_paint, civ_roster_bridge, civ_settle_staleness, civ_tools_bridge, civ_year_loaded,
+        pipeline_stage_graph,
     };
     use cartalith_civ::{
         Continent, NamedSettlement, Province, RoadEdge, SeaRoute, SettlementKind, SettlementPlacement,
@@ -894,6 +931,7 @@ mod civ_merge_tests {
             village_tids: Default::default(),
             belief: Vec::new(),
             belief_seed_key: Vec::new(),
+            territory_year: None,
         }
     }
 
@@ -1047,6 +1085,117 @@ mod civ_merge_tests {
         tools.territory_paint.cells_mut(4)[2] = 6;
         tools.recompose(&mut civ.territory);
         assert_eq!(civ.territory, vec![5, 0, 6, 0]);
+    }
+
+    /// Ruling AT, recorded year: a 2x2 world computed as faction 7. Year 0 is
+    /// recorded as `[7, 7, 7, 3]` and year 100 as `[5, 7, 7, 3]`, each by a
+    /// stroke at that year. Going back to 0 must make `[7, 7, 7, 3]` the base
+    /// and drop the paint and a pending dab; then a stroke, a subtract and an
+    /// Add year all act on year 0. Before the ruling the base stayed `[7; 4]`
+    /// with every stroke still in the paint layer, so the first commit at year
+    /// 0 recomposed `[5, 9, 4, 3]` -- year 100's stroke and the pending dab
+    /// drawn over the viewed year -- and Add year recorded that as year 0.
+    #[test]
+    fn go_to_a_recorded_year_rebases_the_territory_tool_on_its_snapshot() {
+        let (mut civ, mut tools) = recorded_0_and_100();
+        // A dab pending at jump time (cell 1, faction 9) goes with the paint.
+        assert!(tools.paint_at(1.0, 0.0, 9, 0.0, false));
+
+        let loaded = civ.civ_goto_year(0);
+        assert!(loaded, "year 0 is recorded");
+        civ_year_loaded(Some(&mut tools), &mut civ, loaded);
+        assert_eq!(civ.territory, vec![7, 7, 7, 3], "year 0's snapshot is loaded");
+        assert_eq!(tools.territory_base, vec![7, 7, 7, 3], "and is the new base");
+        assert!(tools.territory_paint.is_unallocated(), "the paint layer is cleared");
+        assert!(tools.territory_draft.is_empty(), "the pending dab is dropped");
+        assert_eq!(civ.territory_year, Some(0));
+
+        // A stroke edits year 0.
+        assert!(tools.paint_at(0.0, 1.0, 4, 0.0, false));
+        assert!(tools.commit(&mut civ.territory));
+        assert_eq!(civ.territory, vec![7, 7, 4, 3], "the stroke lands on year 0, nothing else comes back");
+        // A subtract restores year 0's owner (3), not the first computed map's (7).
+        assert!(tools.paint_at(1.0, 1.0, 6, 0.0, false));
+        assert!(tools.commit(&mut civ.territory));
+        assert_eq!(civ.territory, vec![7, 7, 4, 6]);
+        assert!(tools.paint_at(1.0, 1.0, 0, 0.0, true));
+        assert!(tools.commit(&mut civ.territory));
+        assert_eq!(civ.territory, vec![7, 7, 4, 3], "subtract falls through to year 0's owner");
+
+        // Add year records the edited year 0, not the pre-jump map, and
+        // leaves year 100 as it was.
+        let loaded = civ.civ_add_year(300);
+        civ_year_loaded(Some(&mut tools), &mut civ, loaded);
+        let at = |y| cartalith_civ::timeline::civ_territory_at(&civ.timeline, y).unwrap();
+        assert_eq!(at(0), vec![7, 7, 4, 3]);
+        assert_eq!(at(100), vec![5, 7, 7, 3]);
+        assert_eq!(at(300), vec![5, 7, 7, 3], "300 carries its nearest earlier year, 100, forward");
+    }
+
+    /// Ruling AT, unrecorded year: territory, the base, the committed paint
+    /// and a pending dab are all exactly as they were -- the reference's
+    /// `terr.fill(0)` is not reproduced. Only the cursor moves, and the year
+    /// the claims came from is still the one last loaded.
+    #[test]
+    fn go_to_an_unrecorded_year_leaves_territory_base_and_paint_untouched() {
+        let (mut civ, mut tools) = recorded_0_and_100();
+        assert!(tools.paint_at(1.0, 0.0, 2, 0.0, false));
+        assert!(tools.commit(&mut civ.territory));
+        assert_eq!(civ.territory, vec![5, 2, 7, 3], "premise: an unrecorded edit at year 100");
+        assert!(tools.paint_at(0.0, 1.0, 9, 0.0, false)); // pending
+
+        let loaded = civ.civ_goto_year(150);
+        assert!(!loaded, "150 was never recorded");
+        civ_year_loaded(Some(&mut tools), &mut civ, loaded);
+        assert_eq!(civ.year, 150, "the cursor moves");
+        assert_eq!(civ.territory, vec![5, 2, 7, 3], "territory is untouched, not zeroed");
+        assert_eq!(tools.territory_base, vec![7, 7, 7, 3], "the base is untouched (year 100 as loaded)");
+        assert_eq!(tools.territory_paint.cells().unwrap()[1], 2, "the committed paint is untouched");
+        assert!(!tools.territory_draft.is_empty(), "the pending dab is still pending");
+        assert_eq!(civ.territory_year, Some(100), "the claims are still year 100's");
+
+        // Stepping back from a later year to an unrecorded one names the later
+        // year, not the nearest earlier mark.
+        assert!(civ.civ_goto_year(0));
+        assert!(!civ.civ_goto_year(50));
+        assert_eq!(civ.territory_year, Some(0));
+        assert!(civ.civ_goto_year(100));
+        assert!(!civ.civ_goto_year(50));
+        assert_eq!(civ.territory_year, Some(100), "held at 100, although 0 is the mark below 50");
+
+        // Add year at the unrecorded cursor records the live grid as 50 and
+        // stays there: the claims are now 50's.
+        assert!(!civ.civ_add_year(50));
+        assert_eq!(civ.territory_year, Some(50));
+        // Removing the year the claims came from leaves nothing to name.
+        assert!(civ.civ_goto_year(100));
+        assert!(!civ.civ_goto_year(60));
+        assert!(!civ.civ_remove_year(100), "the cursor is on 60, so nothing is loaded");
+        assert_eq!(civ.territory_year, None, "100 is gone from the track");
+        assert_eq!(civ.territory, vec![5, 7, 7, 3], "and the claims themselves stay");
+    }
+
+    /// The fixture both Ruling AT tests start from: year 0 recorded as
+    /// `[7, 7, 7, 3]`, year 100 as `[5, 7, 7, 3]`, cursor on 100, the tool
+    /// based on year 100 with no paint.
+    fn recorded_0_and_100() -> (CivData, civ_tools_bridge::CivTools) {
+        let mut civ = tagged(4);
+        civ.territory = vec![7, 7, 7, 7];
+        let mut tools = civ_tools_bridge::CivTools::new(2, 2, civ.territory.clone(), 1);
+        assert!(tools.paint_at(1.0, 1.0, 3, 0.0, false));
+        assert!(tools.commit(&mut civ.territory));
+        let loaded = civ.civ_add_year(0);
+        civ_year_loaded(Some(&mut tools), &mut civ, loaded);
+        let loaded = civ.civ_add_year(100);
+        assert!(loaded);
+        civ_year_loaded(Some(&mut tools), &mut civ, loaded);
+        assert!(tools.paint_at(0.0, 0.0, 5, 0.0, false));
+        assert!(tools.commit(&mut civ.territory));
+        assert!(!civ.civ_add_year(100), "re-recording the cursor's year moves nothing");
+        let at = |y| cartalith_civ::timeline::civ_territory_at(&civ.timeline, y).unwrap();
+        assert_eq!((at(0), at(100)), (vec![7, 7, 7, 3], vec![5, 7, 7, 3]), "premise");
+        assert_eq!(civ.year, 100);
+        (civ, tools)
     }
 
     /// SG-02's recompute rebuilds everything below the settlement list, so
@@ -1543,22 +1692,35 @@ impl CivData {
     /// `civGotoYear` (reference lines 20615-20617, minus `_civBuildTimelineUI()`
     /// -- UI wiring is milestone 6's job). Sets the active-year cursor and
     /// restores `territory` from that year's recorded snapshot
-    /// (`cartalith_civ::timeline::civ_snapshot_load`) -- never touches
+    /// (`cartalith_civ::timeline::civ_territory_at`) -- never touches
     /// `settlements`/`ways`, matching `TIMELINE_SCOPE.md` §7 success
     /// criterion 2.
     ///
-    /// **Open, not settled (`OUTSTANDING_WORK.md` §2.11, 2026-09-24):** this
-    /// writes `territory` outside the Territory tool's base+paint model, so
-    /// `CivTools::territory_base`/`territory_paint` still describe the map
-    /// from before the jump. The next paint commit, subtract or recompute
-    /// rebuilds `territory` from those and the loaded year disappears from
-    /// the claim grid -- while `year` still names it, so a following
-    /// `civ_add_year` records the rebuilt grid under the viewed year. A year
-    /// with no snapshot zeroes `territory` (the reference's `terr.fill(0)`).
-    /// Which way to close this is an owner decision, routed from that row.
-    fn civ_goto_year(&mut self, year: i64) {
+    /// **Ruling AT (2026-09-24), a deliberate departure from the reference.**
+    /// A year with no snapshot -- or one whose delta chain cannot be rebuilt,
+    /// which `civ_territory_at` answers `None` for too -- leaves `territory`
+    /// **untouched**. The reference (`civSnapshotLoad`, and this port's
+    /// `civ_snapshot_load`, which still reproduces it) runs `terr.fill(0)`
+    /// first, so scrubbing the timeline strip through an unrecorded year
+    /// erased every claim, unsaved edits included. Only the cursor moves.
+    ///
+    /// Returns `true` when a recorded year's snapshot was loaded. The caller
+    /// holding the Territory tool must then make that snapshot the paint base
+    /// and drop the paint and any pending stroke ([`civ_year_loaded`]), or
+    /// the next commit, subtract or recompute rebuilds the pre-jump map over
+    /// the loaded year.
+    fn civ_goto_year(&mut self, year: i64) -> bool {
         self.year = year;
-        cartalith_civ::timeline::civ_snapshot_load(&self.timeline, year, &mut self.territory);
+        let Some(snap) = cartalith_civ::timeline::civ_territory_at(&self.timeline, year) else {
+            return false;
+        };
+        // `civ_snapshot_load`'s own copy: zero, then the overlapping prefix, so a
+        // snapshot recorded against another grid size never panics here.
+        self.territory.fill(0);
+        let n = self.territory.len().min(snap.len());
+        self.territory[..n].copy_from_slice(&snap[..n]);
+        self.territory_year = Some(year);
+        true
     }
 
     /// `civAddYear` (reference lines 20618-20634): if the timeline is empty,
@@ -1577,7 +1739,11 @@ impl CivData {
     /// already safely snapshotted above in every case before this check, so
     /// refusing to grow the timeline further never loses data, it just stops
     /// recording new ones.
-    fn civ_add_year(&mut self, year: i64) {
+    ///
+    /// Returns `true` when it moved the cursor onto a recorded year and loaded
+    /// it -- the same answer [`CivData::civ_goto_year`] gives, for the same
+    /// caller duty ([`civ_year_loaded`]). The early returns move nothing.
+    fn civ_add_year(&mut self, year: i64) -> bool {
         if self.timeline.is_empty() {
             cartalith_civ::timeline::civ_snapshot_save(
                 &mut self.timeline,
@@ -1586,8 +1752,7 @@ impl CivData {
                 self.settlements.clone(),
                 self.ways.clone(),
             );
-            self.civ_goto_year(year);
-            return;
+            return self.civ_goto_year(year);
         }
         cartalith_civ::timeline::civ_snapshot_save(
             &mut self.timeline,
@@ -1596,11 +1761,14 @@ impl CivData {
             self.settlements.clone(),
             self.ways.clone(),
         );
+        // The live grid was just recorded as the cursor's year, so that is now
+        // the year it holds.
+        self.territory_year = Some(self.year);
         if self.timeline.iter().any(|s| s.year == year) {
-            return;
+            return false;
         }
         if self.timeline.len() >= TIMELINE_MAX_YEARS {
-            return;
+            return false;
         }
         let prev = self
             .timeline
@@ -1629,7 +1797,7 @@ impl CivData {
             settlements,
             ways,
         );
-        self.civ_goto_year(year);
+        self.civ_goto_year(year)
     }
 
     /// `civRemoveYear` (reference lines 20635-20641, minus `_civBuildTimelineUI()`
@@ -1639,17 +1807,27 @@ impl CivData {
     /// `TIMELINE_SCOPE.md` §7 success criterion 2. `self.timeline` stays
     /// sorted by construction (every write path above sorts), so `.first()`
     /// is always the earliest remaining year.
-    fn civ_remove_year(&mut self, year: i64) {
+    ///
+    /// Returns `true` when the fallback loaded a recorded year
+    /// ([`civ_year_loaded`]). With none left, the fallback year `0` is
+    /// unrecorded and, under Ruling AT, leaves `territory` as it is.
+    fn civ_remove_year(&mut self, year: i64) -> bool {
         // `civ_timeline_remove`, not `Vec::remove`, since owner ruling 27: the entry after this
         // one may be a delta *against* it, and dropping the base would leave that entry (and
         // every entry chained behind it) unable to reconstruct at all.
         if !cartalith_civ::timeline::civ_timeline_remove(&mut self.timeline, year) {
-            return;
+            return false;
+        }
+        // The grid still holds that year's claims, but the year is gone from
+        // the track, so naming it would point at a mark that is not there.
+        if self.territory_year == Some(year) {
+            self.territory_year = None;
         }
         if self.year == year {
             let next_year = self.timeline.first().map(|s| s.year).unwrap_or(0);
-            self.civ_goto_year(next_year);
+            return self.civ_goto_year(next_year);
         }
+        false
     }
 
     /// `_civYearDiff` (reference lines 20580-20595) over this instance's own
@@ -1780,6 +1958,7 @@ mod civ_timeline_tests {
             village_tids: Default::default(),
             belief: Vec::new(),
             belief_seed_key: Vec::new(),
+            territory_year: None,
         }
     }
 
@@ -3450,6 +3629,7 @@ fn compute_civilisation(
         // Milestone 1's belief layer is not built here -- see `CivData::belief`.
         belief: Vec::new(),
         belief_seed_key: Vec::new(),
+        territory_year: None,
     }
 }
 
@@ -6800,6 +6980,7 @@ impl WorldGen {
             civ.territory.iter_mut().for_each(|t| *t = 0);
             civ.provinces.iter_mut().for_each(|p| *p = 0);
             civ.province_list.clear();
+            civ.territory_year = None;
         }
         // The paint layer *and* the base it merges over, or the next commit
         // silently restores what was just cleared -- see this method's doc.
@@ -16466,16 +16647,22 @@ impl WorldGen {
     #[func]
     fn civ_add_year(&mut self, year: i64) {
         if let Some(civ) = self.civ.as_mut() {
-            civ.civ_add_year(year);
+            let loaded = civ.civ_add_year(year);
+            civ_year_loaded(self.civ_tools.as_mut(), civ, loaded);
         }
     }
 
     /// `civGotoYear` (reference lines 20615-20617) -- never touches settlements/ways,
     /// only `territory`. A no-op before any `generate()` call.
+    ///
+    /// Ruling AT: a recorded year's snapshot becomes the Territory tool's base,
+    /// with paint and any pending stroke dropped; an unrecorded year moves the
+    /// cursor and nothing else ([`civ_year_loaded`], `CivData::civ_goto_year`).
     #[func]
     fn civ_goto_year(&mut self, year: i64) {
         if let Some(civ) = self.civ.as_mut() {
-            civ.civ_goto_year(year);
+            let loaded = civ.civ_goto_year(year);
+            civ_year_loaded(self.civ_tools.as_mut(), civ, loaded);
         }
     }
 
@@ -16484,7 +16671,22 @@ impl WorldGen {
     #[func]
     fn civ_remove_year(&mut self, year: i64) {
         if let Some(civ) = self.civ.as_mut() {
-            civ.civ_remove_year(year);
+            let loaded = civ.civ_remove_year(year);
+            civ_year_loaded(self.civ_tools.as_mut(), civ, loaded);
+        }
+    }
+
+    /// The recorded year whose snapshot the claim grid last came from, as
+    /// `{"year": int}`, or `{}` when it did not come from one (see
+    /// `CivData::territory_year`). Under Ruling AT an unrecorded year keeps
+    /// the claims it was reached with, so this -- not the nearest earlier
+    /// mark -- is the year the timeline strip's "territory holds at …" may
+    /// name. `{}` before any `generate()`.
+    #[func]
+    fn get_civ_territory_year(&self) -> VarDictionary {
+        match self.civ.as_ref().and_then(|c| c.territory_year) {
+            Some(y) => vdict! { "year" => y },
+            None => VarDictionary::new(),
         }
     }
 
@@ -16735,8 +16937,10 @@ impl WorldGen {
             }
             timeline_bridge::CollapseSimOutcome::Ran(report) => {
                 // Reuses milestone 4's own `civ_goto_year` (never duplicated here) --
-                // sets the cursor AND reloads `territory` for `end_year` in one call.
-                civ.civ_goto_year(report.end_year);
+                // sets the cursor AND reloads `territory` for `end_year` in one call,
+                // and (Ruling AT) re-bases the Territory tool on what it loaded.
+                let loaded = civ.civ_goto_year(report.end_year);
+                civ_year_loaded(self.civ_tools.as_mut(), civ, loaded);
                 vdict! {
                     "ok" => true,
                     "rejected" => &rejected,

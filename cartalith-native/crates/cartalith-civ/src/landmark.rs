@@ -14,7 +14,8 @@
 //!
 //! [`kinds`] declares all 49 landmark types of research §29 — which family
 //! (§29), which class (§23), a default cap, whether the type's scorer reads
-//! the viewshed field (`Derived::vis`; six do, see
+//! the viewshed field (`Derived::vis`; seven do since Peak gained its
+//! land-in-view term under Ruling AV, see
 //! [`LandmarkKindSpec::needs_viewshed`]), and whether the type is **actually
 //! generated**.
 //! **Twenty-six are, as of the border-marker fix (2026-09-21):** fifteen off
@@ -234,13 +235,13 @@ pub struct LandmarkKindSpec {
     /// Whether this kind's scorer reads the viewshed, [`Derived::vis`]:
     /// exactly the kinds whose pool function reads it — Fort, Watchtower,
     /// Fortified pass, Fortified crossing (all four through `pool_military`),
-    /// Volcanic feature (`pool_volcanic`) and Border marker
-    /// (`pool_border_marker`). **A description of the scorer, not a design
-    /// tag**: `LANDMARK_UI_DESIGN.md` §9.3 named a different six (Peak and
-    /// Sacred mountain instead of the two fortified kinds), but `pool_peak`
-    /// reads no visibility (its visible-land term is owner question Q7) and
-    /// Sacred mountain is not built, so it has no scorer to read anything.
-    /// `Needs::of` builds the field for the same six; a test pins the two
+    /// Volcanic feature (`pool_volcanic`), Border marker
+    /// (`pool_border_marker`) and, since Ruling AV (2026-09-24), Peak
+    /// (`pool_peak`'s land-in-view term). **A description of the scorer, not a
+    /// design tag**: `LANDMARK_UI_DESIGN.md` §9.3 named a different six (Peak
+    /// and Sacred mountain instead of the two fortified kinds); Sacred
+    /// mountain is not built, so it has no scorer to read anything.
+    /// `Needs::of` builds the field for the same seven; a test pins the two
     /// together. The shell draws its viewshed tag from this flag.
     pub needs_viewshed: bool,
     /// `false` = the type is **declared and honestly not generated**. The UI
@@ -283,7 +284,7 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
     use LandmarkFamily as F;
     &[
         // ---------------- Physical (15) ----------------
-        LandmarkKindSpec { key: "peak", label: "Peak", family: F::Physical, class: C::Regional, default_cap: 24, needs_viewshed: false, buildable: true, not_built: "" },
+        LandmarkKindSpec { key: "peak", label: "Peak", family: F::Physical, class: C::Regional, default_cap: 24, needs_viewshed: true, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "ridge", label: "Ridge", family: F::Physical, class: C::Regional, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "saddle", label: "Saddle", family: F::Physical, class: C::Local, default_cap: 16, needs_viewshed: false, buildable: false,
             not_built: "A saddle that links two valleys is a mountain pass, and Mountain pass already places those; a saddle that links nothing is a shape, not a landmark. Placing both would put two landmarks on one spot." },
@@ -1532,7 +1533,7 @@ impl Needs {
             }
             _ => (false, false, false, false, false),
         };
-        // A list rather than two more tuple columns: five keys set these
+        // A list rather than two more tuple columns: seven keys set these
         // and every one of the sixteen arms above would otherwise grow two
         // `false`s to say nothing.
         let viewshed = matches!(
@@ -1543,6 +1544,7 @@ impl Needs {
                 | "fortified_crossing"
                 | "volcanic_feature"
                 | "border_marker"
+                | "peak"
         );
         let commanding =
             matches!(key, "fort" | "watchtower" | "fortified_pass" | "fortified_crossing");
@@ -2443,8 +2445,25 @@ const PASS_TERMS: [(&str, f64); 4] = [
 /// to agree with the 1D tool rather than silently invent a second meaning of
 /// "prominent"; using the same number is how.
 const PEAK_MIN_PROMINENCE_M: f64 = 100.0;
-const PEAK_TERMS: [(&str, f64); 3] =
-    [("prominence", 0.40), ("elevation", 0.30), ("topographic position", 0.30)];
+/// Ruling AV (2026-09-24): a peak also scores the land it overlooks, read from
+/// the coarse viewshed [`Derived::vis`] — the settlement and road observer
+/// weight within [`VIEW_RADIUS_KM`] that can see the summit, which by the
+/// symmetry of a sight line is the inhabited land the summit looks out over.
+///
+/// **Category C, and the weight is §19's own number.** Research §19 gives its
+/// summit-shaped model, Sacred mountain, `0.20 F_visibility`; [`FORT_TERMS`]
+/// carries the same `0.20` from §18. A peak is a physical landmark first, so
+/// its view is given no more than that, and the three terrain terms keep
+/// exactly the `40 : 30 : 30` ratios they had before, scaled by `0.8`. Where
+/// no field exists — no settlement and no road to observe from — the term is
+/// **omitted** rather than scored zero, [`weighted_sum`] renormalises, and
+/// the weights are exactly the old three again.
+const PEAK_TERMS: [(&str, f64); 4] = [
+    ("prominence", 0.32),
+    ("elevation", 0.24),
+    ("topographic position", 0.24),
+    ("land in view", 0.20),
+];
 
 /// A ridge crest must stand above its own surroundings, or it is a slope.
 const RIDGE_MIN_TPI_M: f64 = 40.0;
@@ -3346,13 +3365,21 @@ fn pool_pass(c: &Ctx<'_>) -> Option<Pool> {
 
 /// Local maxima with a radius-bounded prominence, the 2D generalisation of the
 /// Measure tool's own 1D prominence walk.
+///
+/// The fourth term is the land in view ([`PEAK_TERMS`], Ruling AV). Unlike
+/// [`pool_military`] this is **not** a gate: a summit nobody lives within
+/// sight of is still a summit, and a world with no observers at all
+/// (`Derived::vis` empty) still places peaks on terrain alone, with the term
+/// left out rather than filled with zeros.
 fn pool_peak(c: &Ctx<'_>) -> Option<Pool> {
     if c.d.hmax.is_empty() {
         return None;
     }
     let gw = c.inp.gw;
+    let has_view = !c.d.vis.is_empty();
+    let view_km = c.d.r_view as f64 * c.cell_km;
     let mut p = Pool::new();
-    let (mut t_p, mut t_e, mut t_t) = (vec![], vec![], vec![]);
+    let (mut t_p, mut t_e, mut t_t, mut t_v) = (vec![], vec![], vec![], vec![]);
     for i in 0..c.n {
         if !c.is_land(i) || c.inp.field[i] < c.d.hmax[i] {
             continue;
@@ -3370,17 +3397,22 @@ fn pool_peak(c: &Ctx<'_>) -> Option<Pool> {
         let (x, y) = (i % gw, i / gw);
         let elev = c.elev_m(i);
         let tpi = c.inp.dh_m(c.d.tpi_broad(i) as f64);
-        p.cands.push(Cand {
-            i,
-            x,
-            y,
-            facts: vec![
-                "a local summit — no ground within reach is higher".to_string(),
-                format!("prominence {}", fmt_m(prom)),
-                format!("stands {} above its surroundings", fmt_m(tpi)),
-                format!("{} above sea level", fmt_m(elev)),
-            ],
-        });
+        let mut facts = vec![
+            "a local summit — no ground within reach is higher".to_string(),
+            format!("prominence {}", fmt_m(prom)),
+            format!("stands {} above its surroundings", fmt_m(tpi)),
+            format!("{} above sea level", fmt_m(elev)),
+        ];
+        if has_view {
+            let vis = c.d.vis(i);
+            facts.push(format!(
+                "overlooks settlements and roads within {}, at observer weight {:.1}",
+                fmt_km(view_km),
+                vis
+            ));
+            t_v.push(vis as f32);
+        }
+        p.cands.push(Cand { i, x, y, facts });
         t_p.push(prom as f32);
         t_e.push(elev as f32);
         t_t.push(tpi as f32);
@@ -3390,6 +3422,9 @@ fn pool_peak(c: &Ctx<'_>) -> Option<Pool> {
         (PEAK_TERMS[1].0, PEAK_TERMS[1].1, t_e),
         (PEAK_TERMS[2].0, PEAK_TERMS[2].1, t_t),
     ];
+    if has_view {
+        p.terms.push((PEAK_TERMS[3].0, PEAK_TERMS[3].1, t_v));
+    }
     Some(p)
 }
 
@@ -5605,11 +5640,11 @@ mod tests {
             let n = ks.iter().filter(|k| k.family == fam).count();
             assert_eq!(n, want, "{:?} should have {} types", fam, want);
         }
-        // The six kinds whose pool function reads `Derived::vis`, by reading
+        // The seven kinds whose pool function reads `Derived::vis`, by reading
         // every pool function (2026-09-24): `pool_military` (fort,
         // watchtower, fortified_pass, fortified_crossing), `pool_volcanic`,
-        // `pool_border_marker`. Not §9.3's list — Peak reads no visibility
-        // and Sacred mountain has no scorer.
+        // `pool_border_marker`, and `pool_peak`'s land-in-view term (Ruling
+        // AV). Not §9.3's list — Sacred mountain has no scorer.
         let mut vs: Vec<&str> = ks.iter().filter(|k| k.needs_viewshed).map(|k| k.key).collect();
         vs.sort_unstable();
         assert_eq!(
@@ -5619,10 +5654,11 @@ mod tests {
                 "fort",
                 "fortified_crossing",
                 "fortified_pass",
+                "peak",
                 "volcanic_feature",
                 "watchtower",
             ],
-            "the six kinds whose scorer reads the viewshed"
+            "the seven kinds whose scorer reads the viewshed"
         );
         // And the flag is the same answer `Needs::of` gives when it decides
         // whether to build the viewshed at all — a flag that drifts from the
@@ -6106,8 +6142,9 @@ mod tests {
             assert_eq!(f.limit, LandmarkLimit::NoTerrain, "{}: {:?}", key, f);
             assert_eq!(f.placed, 0, "{} placed with nothing able to see it", key);
         }
-        // The control: a kind that reads no observer is unaffected, so this is
-        // the viewshed going away and not the world.
+        // The control: Peak reads the viewshed but is not gated on it (Ruling
+        // AV: the land-in-view term is left out when there is no field), so
+        // it still places — this is the viewshed going away and not the world.
         assert!(out.placed("peak") > 0, "peak needs no observer and must still place");
     }
 
@@ -6213,6 +6250,86 @@ mod tests {
         assert_eq!(ctx.d.r_view, 13);
         assert!(ctx.d.vis(32 * gw + 14) > 0.0, "12.5 km of flat ground is inside any horizon");
         assert_eq!(ctx.d.vis(32 * gw + 20), 0.0, "31 km of flat ground is over the horizon");
+    }
+
+    /// **Ruling AV: a peak scores the land it overlooks.** Two identical
+    /// Gaussian summits on a plain, 64 cells (128 km) apart, each with one
+    /// town 18 cells (36 km) out on the same row — inside the 20-cell horizon
+    /// — on its outer side. Between B and its town, 3-4 cells from the town
+    /// and 14-15 from B (just outside B's 13-cell broad window, so B's
+    /// prominence, elevation and TPI are A's exactly), stands a 0.08-unit
+    /// wall. The sight line from B's town clears the wall by nowhere near
+    /// enough, so B overlooks nothing and A overlooks its town.
+    ///
+    /// Terrain alone ties the two exactly; the land-in-view term is the only
+    /// thing that can separate them. The wall is no candidate (B's cone is
+    /// inside its window and higher), so the pool is A and B alone, and each
+    /// tied terrain term normalises to `norm_term`'s constant `0.5`. Scores
+    /// are therefore literals: A is `0.8·0.5 + 0.20·1 = 0.60`, B is
+    /// `0.8·0.5 + 0.20·0 = 0.40`. The control removes both towns: no
+    /// observer, no field, the term is omitted, and both are `0.50`.
+    #[test]
+    fn a_peak_that_overlooks_more_land_outranks_an_equal_one_that_overlooks_less() {
+        let (gw, gh) = (128usize, 64usize);
+        let mut f = vec![0.50f32; gw * gh];
+        let (a, b) = ((32usize, 32usize), (96usize, 32usize));
+        for (cx, cy) in [a, b] {
+            for y in 0..gh {
+                for x in 0..gw {
+                    let d2 = ((x as f64 - cx as f64).powi(2) + (y as f64 - cy as f64).powi(2)) / 8.0;
+                    let v = (0.50 + 0.20 * (-d2).exp()) as f32;
+                    if v > f[y * gw + x] {
+                        f[y * gw + x] = v;
+                    }
+                }
+            }
+        }
+        for y in 26..=38 {
+            for x in 110..=111 {
+                f[y * gw + x] = 0.58;
+            }
+        }
+        let towns = [
+            LandmarkSite { x: 14, y: 32, population: 9_000.0 },
+            LandmarkSite { x: 114, y: 32, population: 9_000.0 },
+        ];
+        // 256 km over 128 cells: 2 km cells, a 13-cell broad window and a
+        // 20-cell (40 km) horizon.
+        let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, 256.0);
+        inp.peak_m = PEAK_M;
+        inp.settlements = &towns;
+
+        // The fixture presents what it claims to the detector.
+        let ctx = Ctx::build(&inp, Needs::of("peak"));
+        assert_eq!((ctx.d.r_broad, ctx.d.r_view), (13, 20));
+        let (ia, ib) = (a.1 * gw + a.0, b.1 * gw + b.0);
+        assert_eq!(ctx.d.vis(ia), 1.0, "A is in sight of its town");
+        assert_eq!(ctx.d.vis(ib), 0.0, "the wall hides B from its town");
+        assert_eq!(ctx.d.tpi_broad(ia), ctx.d.tpi_broad(ib), "B's window must not reach the wall");
+        assert_eq!(ctx.d.hmin[ia], ctx.d.hmin[ib]);
+
+        let score = |out: &LandmarkResult, (x, y): (usize, usize)| {
+            out.landmarks
+                .iter()
+                .find(|l| l.kind == "peak" && (l.x, l.y) == (x, y))
+                .unwrap_or_else(|| panic!("no peak at ({x}, {y})"))
+                .score
+        };
+        let out = generate(&inp, &only_peaks(64), 3);
+        assert_eq!(out.funnel("peak").unwrap().placed, 2, "the pool is the two summits");
+        assert!((score(&out, a) - 0.60).abs() < 1e-9, "A: {}", score(&out, a));
+        assert!((score(&out, b) - 0.40).abs() < 1e-9, "B: {}", score(&out, b));
+        let chain = &out.landmarks.iter().find(|l| l.kind == "peak" && (l.x, l.y) == a).unwrap().causal;
+        assert!(
+            chain.iter().any(|c| c == "overlooks settlements and roads within 40 km, at observer weight 1.0"),
+            "{chain:?}"
+        );
+
+        // Control: no observer anywhere, the term is omitted, and terrain alone ties them.
+        inp.settlements = &[];
+        let bare = generate(&inp, &only_peaks(64), 3);
+        assert!((score(&bare, a) - 0.50).abs() < 1e-9, "A bare: {}", score(&bare, a));
+        assert!((score(&bare, b) - 0.50).abs() < 1e-9, "B bare: {}", score(&bare, b));
     }
 
     /// **The load-bearing test for `border_marker`.** A flat, fully visible

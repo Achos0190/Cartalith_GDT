@@ -4820,18 +4820,16 @@ func set_timeline_metrics(pad_y: int, fixed_h: int) -> void:
 # track is continuous and honest -- the cursor really does land where the
 # playhead is.
 #
-# **The territory under it changes at every year, not only the recorded ones.**
-# Corrected 2026-09-24: this said territory "changes only at the years the dock
-# has recorded", which is false. `cartalith_civ::timeline::civ_snapshot_load`
-# runs `territory.fill(0)` unconditionally (the reference's own `terr.fill(0)`)
-# and paints a snapshot on top only when one exists for exactly that year -- so
-# scrubbing or playing through an UNRECORDED year blanks every claim, and on a
-# world with no recorded year at all the first move of the cursor does. A
-# recorded year loads its snapshot. Neither path touches the Territory tool's
-# base or paint layers; how Go to year should meet that model is an open owner
-# question (`OUTSTANDING_WORK.md` §2.11, "Go to year bypasses the territory
-# paint model"), and this strip's behaviour is deliberately left as it is
-# until it is answered.
+# **The territory under it changes only at the years CIVIL ▸ Timeline has
+# recorded** (Ruling AT, 2026-09-24). A recorded year loads its snapshot and
+# makes it the Territory tool's base, dropping paint and any pending stroke, so
+# the next stroke, subtract or recompute edits that year. An UNRECORDED year
+# moves the cursor and nothing else: territory, base and paint stay as they
+# were. That departs from the reference's `terr.fill(0)` deliberately, so
+# scrubbing or playing across the track cannot erase unsaved territory. The
+# claims shown between marks are therefore those of whichever recorded year
+# last loaded them -- not always the mark below the cursor, since stepping back
+# from 705 to 450 keeps 705's -- and `tl_territory_year()` names it.
 
 ## `05-right-dock-and-bars.md` §4.2: "the scrub range is therefore fixed at
 ## year -400 ... year 1200 (1600 years)", and `06-phone.md` §6.2's slider is
@@ -4918,6 +4916,13 @@ func tl_set_year(year: int) -> void:
 func tl_step(direction: int) -> void:
 	tl_set_year(tl_year() + direction * tl_speed)
 
+## The recorded year the claims on screen last loaded from, `{"year": int}`,
+## or `{}` when they did not come from one (see §10a above). Omitted rather
+## than defaulted, for the reason `tl_year_neighbours()` gives.
+func tl_territory_year() -> Dictionary:
+	var bridge := _find_engine_bridge()
+	return {} if bridge == null else bridge.get_civ_territory_year()
+
 ## The cursor's day within its year (`STORY_PLANNING_SCOPE.md` SP-2, Ruling
 ## AO): 0-based in `cartalith_vault::chronos`'s 365-day, no-leap calendar,
 ## held by the engine beside `CivData::year` (`WorldGen::civ_day`) so this
@@ -4968,10 +4973,11 @@ func tl_recorded_years() -> PackedInt64Array:
 ## **Every key is omitted rather than defaulted.** There is no year value that
 ## means "none" on a -400..1200 track -- `0` and `-400` are both legal cursor
 ## positions and `-400` is the first frame of the axis -- so callers ask with
-## `has()`. Board D's readout is exactly this dictionary rendered: `prev`
-## present and `next` present prints *territory holds at 412 AD · next 500 AD*;
-## board F's cursor at 1200 has no `next` and the clause is dropped rather than
-## printed empty.
+## `has()`. Board D's readout renders `next` from this dictionary; its
+## *territory holds at 412 AD* comes from `tl_territory_year()` instead (Ruling
+## AT), which equals `prev` when the cursor moved forward from that mark and
+## not when it stepped back from a later one. Board F's cursor at 1200 has no
+## `next` and that part is dropped rather than printed empty.
 ##
 ## `prev` is also the year `civ_year_diff()` diffs against: `engine_bridge.gd`
 ## documents that binding as diffing "against the chronologically-previous
@@ -8890,7 +8896,7 @@ func _refresh_phone_sim_strip() -> void:
 	_phone_sim_play.text = DccIcons.SYMBOLS["pause"] if tl_playing \
 		else DccIcons.SYMBOLS["play"]
 	_phone_sim_play.tooltip_text = ("Pause" if tl_playing else "Play") \
-		+ " -- %s. The cursor is the civilisation timeline's own year; a year CIVIL ▸ Timeline has recorded loads its territory, and any other year shows none." % tl_state_text()
+		+ " -- %s. The cursor is the civilisation timeline's own year; a year CIVIL ▸ Timeline has recorded loads its territory, and any other year keeps the territory already shown." % tl_state_text()
 	## `civ_goto_year`. "CIVIL > Politics" was a stale category name (audit B15).
 	## The glyph swaps between `▶` and `⏸`, so the name has to swap with it --
 	## a fixed "Play" would be wrong for half the button's life.

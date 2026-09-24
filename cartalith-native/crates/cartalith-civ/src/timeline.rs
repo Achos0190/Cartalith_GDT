@@ -2390,6 +2390,12 @@ pub fn civ_timeline_remove(timeline: &mut Vec<TimelineSnapshot>, year: i64) -> b
 /// A year with no entry leaves `territory` zeroed, as before. So does a year whose chain is
 /// broken -- and that is the one case where zeroing hides something, which is why
 /// [`civ_territory_at`] exists as the answer a caller can actually test against `None`.
+///
+/// **No production caller since Ruling AT (2026-09-24).** The app's Go to year
+/// (`cartalith-godot`'s `CivData::civ_goto_year`) now reads [`civ_territory_at`] itself and, on
+/// `None`, leaves the live grid untouched rather than zeroing it -- a deliberate departure from
+/// the reference so that scrubbing past an unrecorded year cannot erase unsaved territory. This
+/// function stays as the port of the reference's restore, and its tests pin that behaviour.
 pub fn civ_snapshot_load(timeline: &[TimelineSnapshot], year: i64, territory: &mut [i32]) {
     territory.fill(0);
     if let Some(snap) = civ_territory_at(timeline, year) {

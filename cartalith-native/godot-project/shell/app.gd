@@ -2123,10 +2123,14 @@ func _build_timeline_readout() -> Control:
 ##   board G draws.
 ## - **on a recorded year** -- board C. No clause: the counts row takes the
 ##   slot, and `since` inside it is the year `civ_year_diff()` diffed against.
-## - **between** -- boards D and F. `prev` and `next` are both optional and the
-##   clause is built from whichever exist. A cursor below the first recorded
-##   year has no `prev`, so "territory holds at ..." would be a false sentence
-##   and only "next ..." is printed; board F's cursor at 1200 has no `next`.
+## - **between** -- boards D and F. The clause is built from whichever of
+##   its two parts exist. "territory holds at ..." names
+##   `tl_territory_year()`, the recorded year the claims on screen last loaded
+##   from -- under Ruling AT an unrecorded year keeps them, so that is true as
+##   written. It is not `prev`: stepping back from 705 to 450 keeps 705's
+##   claims, and naming 412 would be false. With no such year (a fresh load,
+##   a recompute) the part is omitted. "next ..." is the mark above; board F's
+##   cursor at 1200 has no `next`.
 func _tl_readout_state() -> Dictionary:
 	var year := tl_year()
 	var recorded := tl_recorded_years()
@@ -2145,8 +2149,9 @@ func _tl_readout_state() -> Dictionary:
 	if n.has("at"):
 		return {"word": "recorded", "token": "accent"}
 	var parts: Array[String] = []
-	if n.has("prev"):
-		parts.append("territory holds at %s" % _tl_format_year(int(n["prev"])))
+	var held := tl_territory_year()
+	if held.has("year"):
+		parts.append("territory holds at %s" % _tl_format_year(int(held["year"])))
 	if n.has("next"):
 		parts.append("next %s" % _tl_format_year(int(n["next"])))
 	var between := {"word": "between", "token": "text_dim"}
@@ -2176,13 +2181,12 @@ func _build_timeline_scrub() -> Control:
 	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	## `civ_goto_year` is the cursor. The recording category is CIVIL ▸
 	## Timeline (`civilization_workspace.gd`); "CIVIL > Politics" was a stale
-	## name (audit B15), corrected 2026-09-24. Also corrected 2026-09-24: the
-	## tooltip said territory "holds" between recorded years. It does not --
-	## `civ_snapshot_load` blanks it at any unrecorded year (`dcc_shell.gd`'s
-	## §10a note); whether it should is an open owner question.
+	## name (audit B15), corrected 2026-09-24. Ruling AT (2026-09-24): any
+	## other year keeps the territory already on screen (`dcc_shell.gd`'s
+	## §10a note).
 	track.tooltip_text = ("Drag to move the civilisation year cursor anywhere in "
 		+ "-400..1200. A year CIVIL ▸ Timeline has recorded a snapshot for loads that "
-		+ "snapshot's territory; any other year shows no territory. "
+		+ "snapshot's territory; any other year keeps the territory already shown. "
 		+ "The marks below the rail are those recorded years; hold Shift while dragging to "
 		+ "snap to the nearest one.")
 

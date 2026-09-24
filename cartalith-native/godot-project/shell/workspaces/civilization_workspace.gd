@@ -4795,12 +4795,11 @@ func _lm_types(parent: Control, kinds: Array, st: Dictionary, funnels: Dictionar
 
 	## §9.3 asked for the viewshed GAP to show on the row. There is no gap now:
 	## `landmark.rs`'s `Derived::vis` (M7) is read by Fort, Watchtower, Fortified
-	## pass, Fortified crossing, Volcanic feature and Border marker, and since
-	## 2026-09-24 `needs_viewshed` says exactly that (a test in `landmark.rs`
-	## pins it to what the scorer builds). So the row carries a `[viewshed]`
-	## tag driven by the flag -- a statement of what the type is scored on, not
-	## a gap. Peak's missing visible-land term is an open owner question
-	## (`ALIGNMENT_AUDIT.md` owner Q7), not a panel string.
+	## pass, Fortified crossing, Volcanic feature, Border marker and -- since
+	## Ruling AV (2026-09-24) gave it a land-in-view term -- Peak, and
+	## `needs_viewshed` says exactly that (a test in `landmark.rs` pins it to
+	## what the scorer builds). So the row carries a `[viewshed]` tag driven by
+	## the flag -- a statement of what the type is scored on, not a gap.
 	if unbuildable > 0:
 		DccWidgets.note(sec,
 			"%d are listed and disabled because the generator does not place them " % unbuildable
@@ -6103,19 +6102,13 @@ func _fill_military(parent: Control) -> void:
 				String(d.get("kind", "")).capitalize(), int(d.get("pop", 0)), int(d.get("faction", 0))]
 
 	## `MILITARY_MANPOWER_SCOPE.md` §4 and STATUS MM-6/7/8: all three declined.
-	## Rewritten 2026-09-24 (`ALIGNMENT_AUDIT.md` B12): it said "needs a
-	## decision" and that no clock existed, but the Timeline and drawn conflicts
-	## (SP-4, `cartalith_civ::conflict`) do exist -- they resolve nothing. The
-	## owner question on this note's wording (audit owner Q8) is open; this
-	## states the declined status neutrally.
+	## Ruling AV (2026-09-24) fixed this note's wording -- audit owner Q8,
+	## `ALIGNMENT_AUDIT.md` B12 -- as one line: campaigns over time were
+	## considered and declined, and the conflict overlay (SP-4,
+	## `conflict_sides_manpower`) is where each side's manpower is shown.
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
-		"Per-settlement garrisons · campaigns · unit movement · combat · change over time  ·  declined\n"
-		+ "The per-FACTION headcounts above are real and derived (Manpower). "
-		+ "Which settlement holds which part of a standing army is a placement "
-		+ "rule nothing here implies. A conflict you record shows each side's "
-		+ "manpower, but nothing moves armies or decides a battle. Every "
-		+ "number in this category is a reading of the world as it stands.")
+		"War campaigns over time were considered and declined; the conflict overlay shows each side's manpower.")
 
 ## The manpower half of CIVIL ▸ MILITARY (`MILITARY_MANPOWER_SCOPE.md`, built
 ## 2026-08-25 on the owner's own supplied specification).

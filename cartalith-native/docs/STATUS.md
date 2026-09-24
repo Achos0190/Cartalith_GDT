@@ -885,7 +885,7 @@ and the era table is.
 | MM-4 | CIVIL ▸ Military panel, including the "Not built" disclosure in the same words | done | `civilization_workspace.gd` — `_military_body = DccWidgets.category(self, "Military", categories)`, `_fill_manpower(parent, factions)`, per-faction manpower dicts read at five sites |
 | MM-5 | CV-25's fortification axis and `power.military` left as they are | declined | `cartalith-civ/src/military.rs` untouched by the manpower pass; the golden-verified `0.45·normPop + 0.35·fortifiedFraction + 0.20·capitalTierNorm` composite still feeds `civ_faction_aggregates`. Reason recorded in `civ_military_bridge.rs`'s module doc |
 | MM-6 | Per-settlement garrisons | declined | `manpower.rs` produces per-faction headcounts only — no settlement-keyed output type exists. Disclosed on screen in CIVIL ▸ Military ▸ Not built |
-| MM-7 | Campaigns, unit movement, combat resolution | declined | No combat or campaign type anywhere in `cartalith-civ`; still true after SP-4: `cartalith_civ::conflict` (2026-09-23) annotates a drawn conflict with authored free-text outcome and reads manpower, and resolves nothing (`STORY_PLANNING_SCOPE.md` §5) |
+| MM-7 | Campaigns, unit movement, combat resolution | declined | No combat or campaign type anywhere in `cartalith-civ`; still true after SP-4: `cartalith_civ::conflict` (2026-09-23) annotates a drawn conflict with authored free-text outcome and reads manpower, and resolves nothing (`STORY_PLANNING_SCOPE.md` §5). CIVIL ▸ Military ▸ Not built says so in Ruling AV's one line (`_fill_military`: "War campaigns over time were considered and declined; the conflict overlay shows each side's manpower.") — 2026-09-24, verified 2026-09-24 |
 | MM-8 | Change over time (manpower across the year cursor) | declined | `manpower.rs` takes no year argument and `TimelineSnapshot` carries no manpower field; the model reads the world as it stands, as §4 states |
 | MM-F2 | Finding 2 — the standing column; owner ruling AI (c), 2026-09-23: soldier upkeep per agricultural-labour bracket, derived from the era table | done | Committed `dda315e` (2026-09-23; corrected the same day from "done (not yet committed)"). `manpower.rs::SOLDIER_UPKEEP_BY_BRACKET` / `soldier_upkeep` / `alpha_bracket` (shared with `era_for`), replacing the flat `SOLDIER_UPKEEP = 3.0`. Re-derived from `ERA_BANDS` + `era_for` + `GOVERNMENT_EXTRACTION` + `CITIZEN_SHARE` by `soldier_upkeep_is_derived_from_the_era_table`; the Iron-Age-above-High-medieval pair pinned by `a_median_polity_of_each_bracket_lands_in_its_own_band`. **Re-baselines the worked example's standing army** (A 5 846 → 9 661, B 19 067 → 25 750; levy and field unchanged), accepted by the owner. Open: Kingdom B's standing now exceeds its own 365-day rung by 6.7 % (`the_force_ladder_decreases_with_duration`) |
 | MM-F3 | Finding 3's residue — `ecological_factor` tracked map area; owner ruling AI (b), 2026-09-23: normalise land per person to the world's own | done | Committed `dda315e` (2026-09-23; corrected the same day from "done (not yet committed)"). `manpower.rs::civ_military_manpower_world` / `world_land_reference`, called by `civ_military_bridge.rs::manpower_rows`. Pinned by `map_scale_does_not_move_the_ecological_factor` (land ×6.25 → identical outputs). Measured on `_mpscale_probe.tscn`: standing below-band 21/33/11 of 36 on the 1 200/800/2 000 km shapes before, 17/20/17 after (b)+(c). Open: the 0.25 floor now binds on 36 of 108 faction-samples |
@@ -952,14 +952,18 @@ lines), of which **27 are `buildable: true`** and 22 carry a `not_built:` reason
 (recounted 2026-09-24, unchanged). **The `needs_viewshed` flag matches the
 viewshed reads since 2026-09-24** (it did not before: alignment audit Part 1
 C24 found `peak` and the unbuilt `sacred_mountain` flagged, and the two
-fortified kinds unflagged). The six flagged kinds are exactly the six whose
-pool function reads `Derived::vis` — `fort`, `watchtower`, `fortified_pass`,
+fortified kinds unflagged). The flagged kinds are exactly those whose pool
+function reads `Derived::vis` — `fort`, `watchtower`, `fortified_pass`,
 `fortified_crossing` (all through `pool_military`), `volcanic_feature`
-(`pool_volcanic`) and `border_marker` (`pool_border_marker`) — pinned as a
-literal set, and against `Needs::of`, by
-`the_kind_table_matches_the_research_and_the_design`. CIVIL ▸ Landmarks and
-the phone's family sheet draw a `[viewshed]` tag from the flag. Peak's missing
-visible-land term is owner question Q7.
+(`pool_volcanic`), `border_marker` (`pool_border_marker`) and, **since Ruling
+AV (2026-09-24, verified 2026-09-24), `peak`**: `pool_peak`
+carries a fourth term, "land in view" (`PEAK_TERMS`, weight 0.20, the three
+terrain terms scaled by 0.8), omitted when no observer exists — seven, pinned
+as a literal set, and against `Needs::of`, by
+`the_kind_table_matches_the_research_and_the_design`, and the term by
+`a_peak_that_overlooks_more_land_outranks_an_equal_one_that_overlooks_less`.
+CIVIL ▸ Landmarks and the phone's family sheet draw a `[viewshed]` tag from the
+flag (`_landmark_probe` reads 7 live).
 (Corrected 2026-09-23: this paragraph still read 14 buildable, 35 blocked and
 "no implementation behind" the viewshed flag.)
 
@@ -1024,7 +1028,7 @@ Six milestones, all built 2026-08-19.
 | TL-2 | 2 — proximity graph + Brandes betweenness centrality | done | `timeline.rs::civ_proximity_adjacency` and `civ_betweenness_from_adjacency`, the latter documented as Brandes (2001), un-normalised, one BFS per source |
 | TL-3 | 3 — the collapse and recovery step functions | done | `timeline.rs::{civ_collapse_step, civ_recovery_growth_step, civ_apply_recovery, civ_settlement_stress, civ_mortality_migration_rates, civ_gravity_migrate}` with `CollapseStepResult` / `RecoveryStepResult` |
 | TL-4 | 4 — snapshot data model + orchestrator | done | `timeline.rs::{TimelineSnapshot, YearDiff, civ_year_diff, civ_snapshot_save, civ_snapshot_load, civ_simulate_timeline}` with `SimulateMode` / `SimulateTimelineOpts` |
-| TL-5 | 5 — the Godot boundary | done | `cartalith-godot/src/timeline_bridge.rs` (`CollapseSimRequest`, `CollapseSimReport`, `run_collapse_simulation`) and the `#[func]`s `civ_add_year`, `civ_goto_year`, `civ_year_diff`, `civ_run_collapse_simulation` |
+| TL-5 | 5 — the Godot boundary | done | `cartalith-godot/src/timeline_bridge.rs` (`CollapseSimRequest`, `CollapseSimReport`, `run_collapse_simulation`) and the `#[func]`s `civ_add_year`, `civ_goto_year`, `civ_year_diff`, `civ_run_collapse_simulation`. **Go to year follows Ruling AT** (2026-09-24, verified 2026-09-24): a recorded year's snapshot becomes the Territory tool's base with paint and any pending stroke dropped (`lib.rs::civ_year_loaded`, run after goto, add, remove and the collapse sim); an unrecorded year moves only the cursor — a deliberate departure from the reference's `terr.fill(0)`. `get_civ_territory_year` names the year the claims came from, which the strip's "territory holds at …" now reads. Tests `go_to_a_recorded_year_rebases_the_territory_tool_on_its_snapshot`, `go_to_an_unrecorded_year_leaves_territory_base_and_paint_untouched`; probe `_terrbool_probe.gd` §3 |
 | TL-6 | 6 — UI playback controls | partial | `shell/workspaces/civilization_workspace.gd`'s **Timeline** category (`_build_timeline`, `DccWidgets.category(self, "Timeline", …)`; its own header cites `TIMELINE_SCOPE.md` milestone 6): years pill row + Add year, the 1200 ms playback transport, the collapse/recovery form with its overwrite confirmation, and the "Exist only" filter over `civ_year_diff().present` (`_tl_apply_filters`). **Not met:** the milestone's *three* filters — "Ghost removed" and "Highlight new" are drawn but do nothing (`_build_timeline_filters`: per-pin fade/halo is unbuilt, and `civ_year_diff()` returns tid sets only, not the removed settlements' positions). *Corrected 2026-09-24 (alignment audit Part 1 C25/B15): this row said `done` and placed the controls "under Politics"; the category has been called Timeline since Ruling L* |
 
 **Group total: 6 — 5 done, 1 partial.** TL-6 moved done → partial 2026-09-24.
@@ -1381,7 +1385,7 @@ the live snapshot's (`LodSnapshot::producer_id`: `tile_producer_id` plus a
 digest of every other tile input, the colour space included). Pyramids saved
 before that date have no digest and are never seeded. ~~**A freshly generated
 world saved with tiles and reopened is not seeded**~~ — *seeded since owner
-Ruling AR's world substrate (2026-09-24, pending independent verification):*
+Ruling AR's world substrate (2026-09-24, verified 2026-09-24):*
 the reopened world used to have no flow or lithology (75 481 of 174 080 sample
 pixels differed); a project now stores the substrate (`SAVEFILE_COMPAT.md`
 §8.3) and reopens as the complete world with the Paint/Sculpt editors a

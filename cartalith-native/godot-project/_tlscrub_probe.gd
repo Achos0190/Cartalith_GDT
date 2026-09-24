@@ -272,14 +272,17 @@ func _s4_recorded() -> void:
 	_ok("D clause", _has_text("territory holds at 412 AD · next 500 AD"), true)
 	_ok("D drops the counts", _has_text("since 340 AD"), false)
 
-	## Below the first recorded year there is no `prev`, so the clause that
-	## would claim the territory holds somewhere is omitted, not blanked.
+	## Below the first recorded year there is no `prev`. Under Ruling AT an
+	## unrecorded year keeps the claims it was reached with, so the clause
+	## names the year they were last loaded from -- 412, from the step above --
+	## and not the mark below the cursor, which does not exist here.
 	_app.call("tl_set_year", -300)
 	await _frames(3)
 	var below: Dictionary = _app.call("tl_year_neighbours", -300)
 	_ok("below the first mark: no prev", below.has("prev"), false)
-	_ok("below the first mark: next only", _has_text("next 200 BC"), true)
-	_ok("no 'territory holds at' with nothing to hold at",
+	_ok("below the first mark: the claims are still 412's",
+		_has_text("territory holds at 412 AD · next 200 BC"), true)
+	_ok("no 'territory holds at' naming a mark it did not load",
 		_has_text("territory holds at 200 BC · next 200 BC"), false)
 
 	## The snap the shift-drag hint names, on the model rather than through a

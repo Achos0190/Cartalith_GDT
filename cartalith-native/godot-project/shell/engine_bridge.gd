@@ -4101,13 +4101,25 @@ func civ_add_year(year: int) -> void:
 	mark_world_dirty()
 	world_gen.civ_add_year(year)
 
-## `civGotoYear`: moves the active-year cursor and restores `territory` from
-## that year's recorded snapshot. Never touches settlements/ways. A no-op
-## before any generate.
+## `civGotoYear`: moves the active-year cursor. A recorded year loads its
+## snapshot's territory and makes it the Territory tool's base (paint and any
+## pending stroke dropped); an unrecorded year leaves territory, base and paint
+## untouched (Ruling AT, 2026-09-24 -- the reference zeroed it). Never touches
+## settlements/ways. A no-op before any generate.
 func civ_goto_year(year: int) -> void:
 	if not _has("civ_goto_year"):
 		return
 	world_gen.civ_goto_year(year)
+
+## The recorded year the claim grid last loaded from, as `{"year": int}`, or
+## `{}` when it did not come from one (a fresh world, a reopened project, a
+## recompute). An unrecorded year keeps the claims it was reached with, so
+## this is the year the timeline strip's "territory holds at ..." names. `{}`
+## on a binary without it, and before any generate.
+func get_civ_territory_year() -> Dictionary:
+	if not _has("get_civ_territory_year"):
+		return {}
+	return world_gen.get_civ_territory_year()
 
 ## `civRemoveYear`: deletes a recorded year. If it was the active year, falls
 ## back to the earliest remaining one (or year 0 if none remain). A no-op
