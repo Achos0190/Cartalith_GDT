@@ -1043,17 +1043,12 @@ corroborating comment.
 
 **Group total: 19 — 19 done** (corrected 2026-09-24 from "17 done, 1 partial, 1 ready").
 
-Two known count defects in the defining document, recorded here rather than
-carried: it gives the `_um*` denominator as **20** in one place and **28** in
-another (the 20-item list is the one that enumerates names, so it is the
-checkable one), and it contains the sentence *"the crate is not a dependency of
-`cartalith-godot`"* — a **quotation of a pre-milestone-17a finding**. Read out
-of context that sentence produces a ruling to add a Cargo edge that would buy
-nothing: `urban_bridge.rs` already does `use cartalith_civ::urban_adapter::{…}`
-and `cartalith-civ/Cargo.toml` carries `cartalith-urban`, with a comment
-defending the indirection as deliberate layering so `cartalith-urban`'s only
-dependency stays `cartalith-rng`. The owner's 2026-08-31 authorisation to edit
-that `Cargo.toml` was **withdrawn as unnecessary and not exercised**.
+*Resolved 2026-09-24 by the scope's cleanup (`c4c930c`):* the defining
+document's two count defects are gone -- it now says 27 `_um*` functions in
+total and 20 in the adapter's scope, and the quoted "not a dependency of
+`cartalith-godot`" sentence was removed. The layering stands:
+`urban_bridge.rs` reaches `cartalith-urban` through `cartalith_civ::urban_adapter`,
+and `cartalith-urban` depends only on `cartalith-rng` and `cartalith-jsmath`.
 
 ### Tool system · `UNIFIED_TOOL_PLAN.md`
 
@@ -1643,8 +1638,9 @@ Small, but this is the document set that exists because countable claims drift.
 - `ROADMAP.md` Phase 0 says the skeleton "builds and runs on all three targets";
   `export_presets.cfg` defines **two**, and the same file calls the third
   (WASM) uncommitted.
-- `URBAN_MORPHOLOGY_SCOPE.md` gives the `_um*` denominator as **20** in one
-  place and **28** in another.
+- ~~`URBAN_MORPHOLOGY_SCOPE.md` gives the `_um*` denominator as **20** in one
+  place and **28** in another.~~ Resolved 2026-09-24 (`c4c930c`): 27 in total,
+  20 in scope, everywhere.
 - `UNWIRED_FUNCTIONS.md`'s 2026-08-31 headline **77** double-counted two rows
   its own "fixed during the audit" section closed; 75 were genuinely open at
   that cut, and its Large section heading read "(16)" where the intro said 18.
