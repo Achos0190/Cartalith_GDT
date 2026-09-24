@@ -69,10 +69,11 @@
 //!
 //! # What the mutation sweep found
 //!
-//! **No record of one exists.** This said the results were in
-//! `URBAN_MORPHOLOGY_SCOPE.md` with the milestone; checked 2026-09-24, milestone
-//! 10's section carries no mutation table, and nothing else records a sweep of
-//! this module. Treat its constants as not mutation-tested until one is run.
+//! Swept 2026-09-24: every constant, tuning comparator and boolean gate in
+//! `fortify.rs`, one mutant at a time. The table — killed, survivors killed by
+//! a fixture added for them, equivalent mutants with the reason, and the ones
+//! still open — is in `URBAN_MORPHOLOGY_SCOPE.md` under milestone 10. The
+//! fixtures written for the survivors are the last section of this file.
 
 use super::*;
 use crate::geom::{js_cos, js_exp, js_sin};
@@ -1289,4 +1290,780 @@ fn wet_moat_is_an_input_nothing_in_the_reference_supplies() {
     eq_bits(dry.glacis_off, 22.0 + 8.0 + 48.0, "the plain glacis offset");
     eq_bits(wet.glacis_off, (22.0 + 8.0 + 22.0 * 0.9) + 48.0, "the doubled-moat glacis offset");
     assert!(wet.glacis_off > dry.glacis_off);
+}
+
+// ------------------------------------------- mutation-sweep fixtures (2026-09-24) --
+//
+// Every test below exists because a mutant survived the 2026-09-24 sweep
+// (`URBAN_MORPHOLOGY_SCOPE.md`, milestone 10). Each is built out of the geometry
+// under test: a hand-laid junction graph, a site field overwritten to put one
+// side of a comparison where the fixture needs it, and — where the survivor
+// was a tie — an exact tie, asserted exact before it is used.
+
+/// A closed ring of `n` points at radius `r` about `c`, starting at angle
+/// `phase`, with the first point repeated at the end.
+fn closed_ring(c: Vec2, n: usize, r: f64, phase: f64) -> Vec<Vec2> {
+    (0..=n)
+        .map(|i| {
+            let a = phase + 2.0 * PI * (i % n) as f64 / n as f64;
+            Vec2::new(c.x + js_cos(a) * r, c.y + js_sin(a) * r)
+        })
+        .collect()
+}
+
+/// The junctions `built_mass_hull` counts: at least two live edges.
+fn junctions(g: &Graph) -> Vec<Vec2> {
+    g.nodes.iter().filter(|n| g.live_degree(n.id) >= 2).map(|n| n.pt()).collect()
+}
+
+fn landlocked() -> (Site, Anchors) {
+    let site = build_site(5, 1700.0, 1250.0, "landlocked", SiteOpts::default());
+    let anchors = place_anchors(5, &site);
+    (site, anchors)
+}
+
+fn extent(p: &[Vec2]) -> (f64, f64) {
+    let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+    for q in p {
+        x0 = x0.min(q.x);
+        x1 = x1.max(q.x);
+        y0 = y0.min(q.y);
+        y1 = y1.max(q.y);
+    }
+    (x1 - x0, y1 - y0)
+}
+
+#[test]
+fn nearest_idx_starts_from_infinity_not_from_any_finite_bound() {
+    // Every candidate is more than a kilometre away and the nearest is not the
+    // first: a finite starting bound would find nothing and answer 0.
+    let pts = pts(&[5000., 0., 0., 0.]);
+    assert_eq!(nearest_idx(&pts, Vec2::new(0.0, 5000.0)), 1);
+}
+
+#[test]
+fn corner_cut_clamps_the_cosine_to_exactly_minus_one_and_one() {
+    // A 0.1 rad needle under a 0.3 rad threshold: clamping the cosine anywhere
+    // short of 1 would floor the angle above 0.3 and leave the needle uncut.
+    let needle = vec![Vec2::new(0.0, 0.0), Vec2::new(100.0, 0.0), Vec2::new(100.0 * js_cos(0.1), 100.0 * js_sin(0.1))];
+    assert_eq!(corner_cut(&needle, 0.3, 1).len(), 4, "only the needle vertex is cut");
+    // A 3.06 rad near-straight vertex under a 3.0 rad threshold: clamping the
+    // cosine anywhere short of -1 would cap the angle below 3.0 and cut it.
+    let bent = pts(&[0., 0., 50., -2., 100., 0., 100., 100., 0., 100.]);
+    assert_eq!(corner_cut(&bent, 3.0, 1).len(), 9, "four right angles cut, the 3.06 rad vertex kept");
+}
+
+#[test]
+fn corner_cut_keeps_a_vertex_exactly_at_the_threshold() {
+    // `angI < minAng`, strict: a square's corners have a dot product of exactly
+    // zero, so their angle is exactly `js_acos(0)`.
+    let right = js_acos(0.0);
+    assert_eq!(right, 1.5707963267948966);
+    let square = pts(&[0., 0., 100., 0., 100., 100., 0., 100.]);
+    assert_eq!(corner_cut(&square, right, 1), square, "an angle equal to the threshold is not cut");
+}
+
+#[test]
+fn town_bank_keeps_its_normal_when_the_market_lies_on_the_tangent() {
+    // `nl.dot(market - p) < 0` flips the offset toward the market. With the
+    // market on the centreline's own extension the dot product is exactly zero,
+    // and zero does not flip.
+    let line = pts(&[100., 600., 500., 600., 900., 600.]);
+    let mut site = build_site(7, 1700.0, 1250.0, "river", SiteOpts::default());
+    site.river = line.clone();
+    site.river_w = 20.0;
+    let anchors = Anchors { market: Vec2::new(1300.0, 600.0), prov: "fixture" };
+    assert_eq!(town_bank(&site, &anchors)[1], Vec2::new(500.0, 615.0), "channel: riverW/2 + 5 along +y");
+    let mut coast = build_site(7, 1700.0, 1250.0, "coast", SiteOpts::default());
+    coast.river = line;
+    coast.uses_real_water = true;
+    assert_eq!(town_bank(&coast, &anchors)[1], Vec2::new(500.0, 605.0), "real coast: 5 m along +y");
+}
+
+#[test]
+fn from_paths_discounts_only_all_primary_vertices_under_degree_three() {
+    let (site, mut anchors) = landlocked();
+    let m = Vec2::new(850.0, 625.0);
+    anchors.market = m;
+    // Eight rim junctions of degree exactly 3, every edge primary: counted,
+    // because the discount is for degree < 3.
+    let mut g = Graph::new();
+    let rim = closed_ring(m, 8, 150.0, 0.1);
+    g.add_polyline_street(&rim, "primary", 6.0, 1, "fixture rim");
+    for p in &rim[..8] {
+        g.add_street(m.x, m.y, p.x, p.y, "primary", 6.0, 1, "fixture spoke");
+    }
+    g.from_paths = true;
+    let deg3 = g.nodes.iter().filter(|n| g.live_degree(n.id) == 3).count();
+    assert_eq!(deg3, 8, "eight all-primary junctions of degree three");
+    assert!(built_mass_hull(&site, &anchors, &g).is_some(), "degree-3 primary junctions are built mass");
+    // Eight degree-2 junctions, each between one primary and one street:
+    // counted, because the discount is for vertices whose edges are ALL primary.
+    let mut g = Graph::new();
+    let rim = closed_ring(m, 8, 150.0, 0.1);
+    for (i, w) in rim.windows(2).enumerate() {
+        let cls = if i % 2 == 0 { "primary" } else { "street" };
+        g.add_street(w[0].x, w[0].y, w[1].x, w[1].y, cls, 6.0, 1, "fixture rim");
+    }
+    g.from_paths = true;
+    assert_eq!(junctions(&g).len(), 8);
+    assert!(built_mass_hull(&site, &anchors, &g).is_some(), "a mixed-class junction is built mass");
+}
+
+/// A `river`-kind synthetic site whose centreline is overwritten with a
+/// horizontal line at `y`, spanning the box.
+fn river_at(kind: &str, y: f64, w: f64) -> Site {
+    let mut site = build_site(7, 1700.0, 1250.0, kind, SiteOpts::default());
+    site.river = vec![Vec2::new(0.0, y), Vec2::new(850.0, y), Vec2::new(1700.0, y)];
+    site.river_w = w;
+    site
+}
+
+#[test]
+fn built_mass_hull_keeps_a_junction_exactly_at_the_channel_margin() {
+    // `riverDist(p) < riverW/2 + 14` sets a node aside; exactly at the margin it
+    // stays. Eight junctions, one of them placed so the margin lands on it.
+    let m = Vec2::new(850.0, 500.0);
+    let rim = closed_ring(m, 8, 150.0, 0.0);
+    let low = rim[2]; // angle pi/2: the southernmost
+    let mut site = river_at("river", low.y + 20.0, 10.0);
+    let rd = site.river_dist(low);
+    assert_eq!(rd, 20.0, "the fixture's distance is exact");
+    site.river_w = 2.0 * (rd - 14.0);
+    assert_eq!(site.river_w / 2.0 + 14.0, rd, "the margin lands exactly on the junction");
+    let anchors = Anchors { market: m, prov: "fixture" };
+    let mut g = Graph::new();
+    g.add_polyline_street(&rim, "street", 4.0, 1, "fixture ring");
+    assert_eq!(junctions(&g).len(), 8);
+    assert!(built_mass_hull(&site, &anchors, &g).is_some(), "the junction on the margin still counts");
+}
+
+#[test]
+fn a_through_site_still_needs_eight_near_bank_junctions() {
+    // `near.length < 8` is tested on the near bank alone, before the far bank
+    // is folded in — so seven near junctions refuse even when a riverthrough
+    // site's far bank would bring the mass to fifteen.
+    let m = Vec2::new(850.0, 400.0);
+    let site = river_at("riverthrough", m.y + 100.0, 20.0);
+    assert!(site.through, "a riverthrough site spans the water by definition");
+    let anchors = Anchors { market: m, prov: "fixture" };
+    let build = |near_n: usize| {
+        let mut g = Graph::new();
+        g.add_polyline_street(&closed_ring(m, near_n, 40.0, 0.2), "street", 4.0, 1, "near");
+        g.add_polyline_street(&closed_ring(Vec2::new(m.x, m.y + 200.0), 8, 40.0, 0.2), "street", 4.0, 1, "far");
+        assert_eq!(junctions(&g).len(), near_n + 8);
+        built_mass_hull(&site, &anchors, &g)
+    };
+    assert!(build(7).is_none(), "seven near-bank junctions refuse");
+    assert!(build(8).is_some(), "eight are a town");
+}
+
+#[test]
+fn the_bridge_town_rule_is_strictly_more_than_max_twenty_and_thirty_two_percent() {
+    // `far > max(20, near * 0.32)`: both arms, at their exact integer boundaries.
+    let m = Vec2::new(850.0, 300.0);
+    let site = river_at("river", m.y + 300.0, 20.0);
+    let anchors = Anchors { market: m, prov: "fixture" };
+    let spans = |near_n: usize, near_r: f64, far_n: usize, far_r: f64, far_y: f64| {
+        let mut g = Graph::new();
+        g.add_polyline_street(&closed_ring(m, near_n, near_r, 0.05), "street", 4.0, 1, "near");
+        g.add_polyline_street(&closed_ring(Vec2::new(m.x, m.y + far_y), far_n, far_r, 0.05), "street", 4.0, 1, "far");
+        let js = junctions(&g);
+        assert_eq!(js.iter().filter(|p| p.y < m.y + 300.0).count(), near_n, "near-bank junctions");
+        assert_eq!(js.iter().filter(|p| p.y > m.y + 300.0).count(), far_n, "far-bank junctions");
+        built_mass_hull(&site, &anchors, &g).expect("a town").spans_water
+    };
+    // 40 near: 40 * 0.32 = 12.8, so the floor of 20 binds.
+    assert!(!spans(40, 90.0, 20, 50.0, 450.0), "twenty is not more than twenty");
+    assert!(spans(40, 90.0, 21, 55.0, 450.0), "twenty-one is");
+    // 100 near: 100 * 0.32 = 32, over the floor.
+    assert!(spans(100, 200.0, 33, 70.0, 420.0), "thirty-three is more than thirty-two percent of a hundred");
+}
+
+#[test]
+fn the_percentile_cut_keeps_a_junction_exactly_on_it() {
+    // `d <= cut`, inclusive: seven junctions on a ring about the market and an
+    // eighth placed exactly at `ds[floor(8 * 0.85)] * 1.12`. The market is the
+    // origin so that distance along the axis is exact.
+    let (site, mut anchors) = landlocked();
+    let m = Vec2::new(0.0, 0.0);
+    anchors.market = m;
+    let mut g = Graph::new();
+    let ring = closed_ring(m, 7, 150.0, 0.0);
+    g.add_polyline_street(&ring, "street", 4.0, 1, "fixture ring");
+    let mut ds: Vec<f64> = junctions(&g).iter().map(|p| p.dist(m)).collect();
+    ds.sort_by(|a, b| js_num_cmp(*a, *b));
+    assert_eq!(ds.len(), 7);
+    let cut = ds[6] * 1.12; // floor(8 * 0.85) = 6 once the eighth joins, and it sorts last
+    g.add_polyline_street(&[ring[0], Vec2::new(cut, 0.0), Vec2::new(cut + 140.0, 0.0)], "street", 4.0, 1, "spur");
+    let js = junctions(&g);
+    assert_eq!(js.len(), 8);
+    assert!(js.iter().any(|p| p.dist(m) == cut), "the eighth junction sits exactly on the cut");
+    assert!(built_mass_hull(&site, &anchors, &g).is_some(), "a junction on the cut is kept");
+}
+
+/// A rectangle of junctions, `2a` by `2b`, about `c`: corners plus points
+/// along the long sides, every coordinate an exact integer.
+fn rect_town(c: Vec2, a: f64, b: f64) -> Graph {
+    let mut ring = Vec::new();
+    for k in 0..=4 {
+        ring.push(Vec2::new(c.x - a + 2.0 * a * k as f64 / 4.0, c.y - b));
+    }
+    for k in 0..=4 {
+        ring.push(Vec2::new(c.x + a - 2.0 * a * k as f64 / 4.0, c.y + b));
+    }
+    ring.push(ring[0]);
+    let mut g = Graph::new();
+    g.add_polyline_street(&ring, "street", 4.0, 1, "fixture rect");
+    g
+}
+
+#[test]
+fn the_aspect_cap_is_for_real_water_only_and_compresses_the_long_axis() {
+    let (mut site, mut anchors) = landlocked();
+    let m = Vec2::new(850.0, 625.0);
+    anchors.market = m;
+    let g = rect_town(m, 400.0, 48.0);
+    assert!(junctions(&g).len() >= 8);
+    // Synthetic water: the hull keeps its aspect, 800 m and more across.
+    let bm = built_mass_hull(&site, &anchors, &g).expect("a town");
+    let (w, h) = extent(&bm.hull);
+    assert!(w > 800.0 && h < 200.0, "uncapped: {w} x {h}");
+    // Real water: capped at 2.4, by compressing along the long (x) axis.
+    site.uses_real_water = true;
+    let bm = built_mass_hull(&site, &anchors, &g).expect("a town");
+    let (w2, h2) = extent(&bm.hull);
+    assert!(w2 < 400.0, "the long axis is compressed: {w2}");
+    assert!((h2 - h).abs() < 1e-6, "the short axis is not: {h2} vs {h}");
+}
+
+#[test]
+fn the_aspect_cap_applies_to_a_three_vertex_hull() {
+    // `hull.length >= 3`: a triangle is the smallest hull the cap reads, and it
+    // is capped. Every junction lies exactly on one of the three sides, so the
+    // hull is exactly the three corners.
+    let (mut site, mut anchors) = landlocked();
+    site.uses_real_water = true;
+    let m = Vec2::new(850.0, 625.0);
+    anchors.market = m;
+    let (t1, t2, t3) = (Vec2::new(550.0, 665.0), Vec2::new(1150.0, 665.0), Vec2::new(850.0, 545.0));
+    let mut ring = Vec::new();
+    for (a, b) in [(t1, t2), (t2, t3), (t3, t1)] {
+        for k in 0..4 {
+            ring.push(a.lerp(b, k as f64 / 4.0));
+        }
+    }
+    ring.push(t1);
+    let mut g = Graph::new();
+    g.add_polyline_street(&ring, "street", 4.0, 1, "fixture triangle");
+    assert_eq!(junctions(&g).len(), 12);
+    let bm = built_mass_hull(&site, &anchors, &g).expect("a town");
+    assert_eq!(bm.hull.len(), 3, "the hull is the triangle");
+    let (w, _) = extent(&bm.hull);
+    assert!(w < 600.0, "the triangle's 600 m base is compressed: {w}");
+}
+
+/// A landlocked site with a real heightfield: a linear ramp rising along
+/// `(dx, dy)` at 1e-4 field units per metre.
+fn ramp_site(dx: f64, dy: f64) -> Site {
+    let (mw, mh, cell) = (68usize, 50usize, 25.0);
+    let mut grid = vec![0.0f64; mw * mh];
+    for j in 0..mh {
+        for i in 0..mw {
+            let (x, y) = ((i as f64 + 0.5) * cell, (j as f64 + 0.5) * cell);
+            grid[j * mw + i] = 0.5 + 1e-4 * (dx * x + dy * y);
+        }
+    }
+    let h_min = grid.iter().copied().fold(f64::INFINITY, js_min);
+    let h_max = grid.iter().copied().fold(f64::NEG_INFINITY, js_max);
+    let t = TerrainCtx { grid, mw, mh, cell_m: cell, h_min, h_max };
+    build_site(5, 1700.0, 1250.0, "landlocked", SiteOpts { terrain: Some(t), ..SiteOpts::default() })
+}
+
+fn deflected(site: &Site, m: Vec2, g: &Graph) -> WallState {
+    let anchors = Anchors { market: m, prov: "fixture" };
+    let mut ws = WallState::default();
+    build_wall(1, site, &anchors, g, &mut ws, 1, None, &FortOpts::default());
+    assert!(ws.ring.is_some(), "the fixture must build a circuit");
+    ws
+}
+
+#[test]
+fn terrain_deflection_needs_real_terrain_not_merely_a_relief_value() {
+    // The ramp that deflects at relief 0.01 (below), with the flag cleared.
+    let m = Vec2::new(850.0, 625.0);
+    let mut site = ramp_site(1.0, 0.0);
+    site.terrain_relief = 0.01;
+    let mut g = Graph::new();
+    g.add_polyline_street(&closed_ring(m, 8, 150.0, 0.0), "street", 4.0, 1, "ring");
+    assert!(deflected(&site, m, &g).terrain_deflected > 0, "the flag set: it deflects");
+    site.uses_real_terrain = false;
+    assert_eq!(deflected(&site, m, &g).terrain_deflected, 0, "the flag cleared: it does not");
+}
+
+#[test]
+fn terrain_deflection_engages_at_exactly_the_relief_floor_and_on_a_triangle() {
+    let m = Vec2::new(850.0, 625.0);
+    let mut site = ramp_site(1.0, 0.0);
+    assert!(site.uses_real_terrain);
+    let mut g = Graph::new();
+    g.add_polyline_street(&closed_ring(m, 8, 150.0, 0.0), "street", 4.0, 1, "ring");
+    // `relief >= 0.01`, inclusive.
+    site.terrain_relief = 0.01;
+    assert!(deflected(&site, m, &g).terrain_deflected > 0, "relief exactly 0.01 engages");
+    site.terrain_relief = 0.0099;
+    assert_eq!(deflected(&site, m, &g).terrain_deflected, 0, "just under it does not");
+    // `hull.length >= 3`: a three-vertex hull is deflected too.
+    site.terrain_relief = 0.01;
+    let (t1, t2, t3) = (Vec2::new(700.0, 725.0), Vec2::new(1000.0, 725.0), Vec2::new(850.0, 465.0));
+    let mut ring = Vec::new();
+    for (a, b) in [(t1, t2), (t2, t3), (t3, t1)] {
+        for k in 0..4 {
+            ring.push(a.lerp(b, k as f64 / 4.0));
+        }
+    }
+    ring.push(t1);
+    let mut tg = Graph::new();
+    tg.add_polyline_street(&ring, "street", 4.0, 1, "triangle");
+    let anchors = Anchors { market: m, prov: "fixture" };
+    assert_eq!(built_mass_hull(&site, &anchors, &tg).expect("a town").hull.len(), 3);
+    assert!(deflected(&site, m, &tg).terrain_deflected > 0, "a triangle's vertices are deflected");
+}
+
+#[test]
+fn terrain_deflection_prices_distance_at_three_point_three_e_minus_four() {
+    // On a linear ramp every offset gains in proportion to it, so the best is
+    // +60 whenever `60 * slope * ux > 60 * 3.3e-4 * relief + 0.015 * relief`.
+    // With the relief overwritten the threshold on `ux` is known exactly:
+    // 1e-4 * 60 * ux > relief * (60 * 3.3e-4 + 0.015) is ux > 0.9 at
+    // relief = 0.006 / (0.0198 + 0.015) — so the hull vertex at 25 degrees
+    // (ux = 0.906) deflects, and at a price of 3.4e-4 it would not (ux > 0.915).
+    let m = Vec2::new(850.0, 625.0);
+    let mut site = ramp_site(1.0, 0.0);
+    site.terrain_relief = 1e-4 * 60.0 * 0.9 / (60.0 * 3.3e-4 + 0.015);
+    let mut g = Graph::new();
+    g.add_polyline_street(&closed_ring(m, 12, 150.0, 25f64.to_radians()), "street", 4.0, 1, "ring");
+    let anchors = Anchors { market: m, prov: "fixture" };
+    let hull = built_mass_hull(&site, &anchors, &g).expect("a town").hull;
+    let c0 = crate::geom::poly_centroid(&hull);
+    // A west-side vertex gains by stepping inward (-60), an east-side one by
+    // stepping outward (+60): both are priced the same, on |ux|.
+    let ux: Vec<f64> = hull.iter().map(|v| (*v - c0).norm().x.abs()).collect();
+    assert_eq!(ux.iter().filter(|&&u| u > 0.9).count(), 4, "four vertices clear 0.9: {ux:?}");
+    assert_eq!(ux.iter().filter(|&&u| u > 0.9155).count(), 2, "two of them clear 0.9155");
+    assert_eq!(deflected(&site, m, &g).terrain_deflected, 4);
+}
+
+#[test]
+fn terrain_deflection_keeps_twenty_metres_off_the_far_box_edges() {
+    // `q.x > wm - 20` and `q.y > hm - 20`: on a ramp rising east (south) the
+    // easternmost (southernmost) candidate is the +60 m offset of the extreme
+    // hull vertex, and it is the one chosen. Put the box edge 20.5 m past it:
+    // inside the margin, so nothing changes.
+    let m = Vec2::new(850.0, 625.0);
+    for (dx, dy) in [(1.0, 0.0), (0.0, 1.0)] {
+        let mut site = ramp_site(dx, dy);
+        site.terrain_relief = 0.01;
+        let mut g = Graph::new();
+        g.add_polyline_street(&closed_ring(m, 8, 150.0, 0.0), "street", 4.0, 1, "ring");
+        let free = deflected(&site, m, &g);
+        let anchors = Anchors { market: m, prov: "fixture" };
+        let hull = built_mass_hull(&site, &anchors, &g).expect("a town").hull;
+        let c0 = crate::geom::poly_centroid(&hull);
+        let far = hull
+            .iter()
+            .map(|v| *v + (*v - c0).norm() * 60.0)
+            .fold(f64::NEG_INFINITY, |acc, q| acc.max(if dx > 0.0 { q.x } else { q.y }));
+        if dx > 0.0 {
+            site.wm = far + 20.5;
+        } else {
+            site.hm = far + 20.5;
+        }
+        let boxed = deflected(&site, m, &g);
+        assert!(free.terrain_deflected > 0);
+        assert_eq!(boxed.ring, free.ring, "a candidate 20.5 m inside the edge is still allowed ({dx},{dy})");
+    }
+}
+
+/// `riverTown`'s own circuit, rebuilt with a harbour of the fixture's choosing.
+fn river_town_with(harbour: Option<&HarbourFront>) -> WallState {
+    let c = golden::GOLDEN.iter().find(|c| c.name == "riverTown").expect("riverTown");
+    let (site, anchors, g, _) = town(c);
+    let mut ws = WallState::default();
+    build_wall(c.wall_seed, &site, &anchors, &g, &mut ws, c.ep, harbour, &FortOpts::default());
+    ws
+}
+
+#[test]
+fn the_harbour_mouth_is_a_strict_48_metre_gap_and_needs_a_quay() {
+    let plain = river_town_with(None);
+    let water = plain.water_closure.clone().expect("riverTown follows its bank");
+    assert!(water.len() >= 5, "a real water walk");
+    assert_eq!(plain.water_walls.len(), 1);
+    let k = water.len() / 2;
+    let w = water[k];
+    // The mouth straight across the channel from bank point `k`, at a chosen
+    // distance, with every other bank point farther away.
+    let runs = |d: f64, quay: bool| {
+        let s = if w.y < 780.0 { 1.0 } else { -1.0 };
+        let pt = Vec2::new(w.x, w.y + s * d);
+        let nearest = water.iter().map(|q| q.dist(pt)).fold(f64::INFINITY, f64::min);
+        assert_eq!(nearest, pt.dist(w), "bank point k is the nearest");
+        assert_eq!(pt.dist(w), d, "the distance is exact");
+        let h = HarbourFront { quay: if quay { vec![pt] } else { Vec::new() }, pt };
+        river_town_with(Some(&h)).water_walls.len()
+    };
+    assert_eq!(runs(47.5, true), 2, "47.5 m is inside the gap");
+    assert_eq!(runs(48.0, true), 1, "exactly 48 m is not");
+    assert_eq!(runs(48.5, true), 1, "48.5 m is not");
+    assert_eq!(runs(0.0, false), 1, "an empty quay draws no gap, wherever its point is");
+}
+
+#[test]
+fn an_empty_wall_style_is_the_legacy_curtain() {
+    let (site, anchors) = landlocked();
+    let mut g = Graph::new();
+    build_primaries(5, &site, &anchors, &mut g);
+    let mut ws = WallState::default();
+    let opts = GrowOpts { target_len: 3600.0, max_rf: 430.0, ..GrowOpts::default() };
+    grow(5, &site, &anchors, &mut g, 8, &mut ws, &opts, &mut RecordingWallBuilder::default());
+    let mut ws = WallState::default();
+    let fo = FortOpts { wall_style: Some(String::new()), ..FortOpts::default() };
+    build_wall(5, &site, &anchors, &g, &mut ws, 9, None, &fo);
+    assert_eq!(ws.style, "curtain");
+}
+
+/// A landlocked ring town and one primary straight south through its wall at
+/// `x`: the wall and that one land gate.
+fn gated(site: &Site, x_off: f64) -> (WallState, Vec2) {
+    let m = Vec2::new(850.0, 400.0);
+    let mut g = Graph::new();
+    g.add_polyline_street(&closed_ring(m, 8, 150.0, 0.2), "street", 4.0, 1, "ring");
+    g.add_street(m.x + x_off, m.y, m.x + x_off, m.y + 420.0, "primary", 6.0, 1, "primary");
+    let anchors = Anchors { market: m, prov: "fixture" };
+    let mut ws = WallState::default();
+    build_wall(1, site, &anchors, &g, &mut ws, 1, None, &FortOpts::default());
+    assert_eq!(ws.gates.len(), 1, "one gate");
+    let cp = ws.gates[0].pt;
+    (ws, cp)
+}
+
+#[test]
+fn a_shoreline_gate_is_a_water_gate_within_24_metres_of_the_straddling_vertex() {
+    let (base, _) = landlocked();
+    let (ws0, cp) = gated(&base, 10.0);
+    assert!(!ws0.gates[0].water, "no shoreline, no water-gate");
+    let water = |line: Vec<Vec2>| {
+        let mut site = base.clone();
+        site.river = line;
+        let (ws, _) = gated(&site, 10.0);
+        assert_eq!(ws.ring, ws0.ring, "the shoreline must not move the circuit");
+        ws.gates[0].water
+    };
+    let (near, far) = (cp.y + 10.0, cp.y + 100.0);
+    // `|p.y - b| < 24`, strict, against the vertex straddling p.x.
+    assert!(!water(vec![Vec2::new(0.0, cp.y + 24.5), Vec2::new(1700.0, cp.y + 24.5)]), "24.5 m is dry");
+    assert_eq!((cp.y - (cp.y + 24.0)).abs(), 24.0);
+    assert!(!water(vec![Vec2::new(0.0, cp.y + 24.0), Vec2::new(1700.0, cp.y + 24.0)]), "exactly 24 m is dry");
+    assert!(water(vec![Vec2::new(0.0, cp.y + 23.5), Vec2::new(1700.0, cp.y + 23.5)]), "23.5 m is wet");
+    // The straddling vertex is the first with `p.x <= q.x` whose predecessor has
+    // `p.x > prev.x`: a vertex exactly at p.x is chosen, and its successor is not.
+    assert!(water(vec![Vec2::new(0.0, far), Vec2::new(cp.x, near), Vec2::new(1700.0, far)]), "q.x == p.x is the one");
+    // Vertex 0 needs no predecessor test.
+    assert!(water(vec![Vec2::new(cp.x + 50.0, near), Vec2::new(cp.x + 100.0, far)]), "vertex 0 straddles alone");
+    // Past every vertex, the first vertex's y stands.
+    assert!(water(vec![Vec2::new(cp.x - 200.0, cp.y + 23.5), Vec2::new(cp.x - 100.0, far)]), "the first y stands");
+}
+
+#[test]
+fn a_channel_gate_is_a_water_gate_strictly_within_half_width_plus_22() {
+    let m_y = 400.0;
+    let mut site = river_at("river", m_y + 500.0, 20.0);
+    let (ws0, cp) = gated(&site, 10.0);
+    assert!(!ws0.gates[0].water);
+    let run = |site: &Site| {
+        let (ws, _) = gated(site, 10.0);
+        assert_eq!(ws.ring, ws0.ring, "moving the channel must not move the circuit");
+        ws.gates[0].water
+    };
+    // riverW = 20: the margin is 32.
+    site.river = vec![Vec2::new(0.0, cp.y + 32.5), Vec2::new(1700.0, cp.y + 32.5)];
+    assert!(!run(&site), "32.5 m is dry");
+    site.river = vec![Vec2::new(0.0, cp.y + 30.0), Vec2::new(1700.0, cp.y + 30.0)];
+    let rd = site.river_dist(cp);
+    assert_eq!(rd, 30.0);
+    site.river_w = 2.0 * (rd - 22.0);
+    assert_eq!(site.river_w / 2.0 + 22.0, rd);
+    assert!(!run(&site), "exactly on the margin is dry");
+}
+
+#[test]
+fn two_land_gates_merge_strictly_inside_40_metres() {
+    // A square town's wall runs flat along its south side, so two vertical
+    // primaries cross it at the same y and exactly their x offset apart.
+    let (site, _) = landlocked();
+    let m = Vec2::new(850.0, 400.0);
+    let count = |half: f64| {
+        let mut g = rect_town(m, 150.0, 150.0);
+        g.add_street(m.x - half, m.y, m.x - half, m.y + 420.0, "primary", 6.0, 1, "primary a");
+        g.add_street(m.x + half, m.y, m.x + half, m.y + 420.0, "primary", 6.0, 1, "primary b");
+        let anchors = Anchors { market: m, prov: "fixture" };
+        let mut ws = WallState::default();
+        build_wall(1, &site, &anchors, &g, &mut ws, 1, None, &FortOpts::default());
+        if ws.gates.len() == 2 {
+            assert_eq!(ws.gates[0].pt.y, ws.gates[1].pt.y, "both cross the flat side");
+            assert_eq!(ws.gates[0].pt.dist(ws.gates[1].pt), 2.0 * half, "exactly {} apart", 2.0 * half);
+        }
+        ws.gates.len()
+    };
+    assert_eq!(count(20.25), 2, "40.5 m apart: two gates");
+    assert_eq!(count(20.0), 2, "exactly 40 m apart: still two");
+    assert_eq!(count(19.75), 1, "39.5 m apart: merged");
+}
+
+/// A fortified landlocked ring town with radial primaries at `angles` (radians,
+/// from the town centre) and the market pulled 40 m toward `pull`: the angles
+/// of the land gates the bastioned cap keeps, measured as the code measures
+/// them, from the circuit's centroid.
+fn capped_gate_angles(angles: &[f64], pull: f64) -> Vec<f64> {
+    let (site, _) = landlocked();
+    let c = Vec2::new(850.0, 625.0);
+    let mut g = Graph::new();
+    g.add_polyline_street(&closed_ring(c, 12, 150.0, 0.13), "street", 4.0, 1, "ring");
+    for &a in angles {
+        g.add_street(c.x, c.y, c.x + 520.0 * js_cos(a), c.y + 520.0 * js_sin(a), "primary", 6.0, 1, "spoke");
+    }
+    let anchors = Anchors { market: Vec2::new(c.x + 40.0 * js_cos(pull), c.y + 40.0 * js_sin(pull)), prov: "fixture" };
+    let mut ws = WallState::default();
+    build_wall(1, &site, &anchors, &g, &mut ws, 1, None, &FortOpts { fortified: true, ..FortOpts::default() });
+    assert_eq!(ws.style, "bastioned");
+    let n = ws.fort.as_ref().expect("fort").bastions.len();
+    assert!((4..=6).contains(&n), "{n} bastions: a cap of two");
+    let cen = ws.centroid.expect("built");
+    ws.gates.iter().filter(|g| !g.water).map(|g| js_atan2(g.pt.y - cen.y, g.pt.x - cen.x)).collect()
+}
+
+fn has_near(angles: &[f64], a: f64) -> bool {
+    angles.iter().any(|&x| {
+        let d = (x - a).abs();
+        d.min(2.0 * PI - d) < 0.1
+    })
+}
+
+#[test]
+fn the_bastioned_cap_spreads_its_gates_at_least_0_9_rad_apart() {
+    // Three primaries: two near the market (at 0 and at `b`) and one opposite.
+    // With `b` under 0.9 rad the second near gate clashes with the first and
+    // the opposite one is kept instead; over 0.9 rad both near ones are kept.
+    let kept = capped_gate_angles(&[0.0, 0.85, PI], 0.425);
+    assert_eq!(kept.len(), 2);
+    assert!(has_near(&kept, PI), "0.85 rad clashes: the opposite gate is kept {kept:?}");
+    let kept = capped_gate_angles(&[0.0, 0.95, PI], 0.475);
+    assert_eq!(kept.len(), 2);
+    assert!(!has_near(&kept, PI), "0.95 rad does not clash {kept:?}");
+    // Across the ±pi seam: gates at ±2.1 rad are 2.08 rad apart the short way,
+    // not 4.2, and do not clash.
+    let kept = capped_gate_angles(&[2.1, -2.1, 0.0], PI);
+    assert_eq!(kept.len(), 2);
+    assert!(!has_near(&kept, 0.0), "the seam is wrapped {kept:?}");
+}
+
+#[test]
+fn a_star_fort_applies_to_a_triangular_circuit() {
+    let (site, _) = landlocked();
+    let mut ws = WallState { ring: Some(pts(&[500., 500., 900., 500., 700., 800.])), ..WallState::default() };
+    apply_star_fort(4, &site, &mut ws, &FortOpts::default());
+    assert_eq!(ws.style, "bastioned", "a three-point hull is enough");
+    assert!(ws.fort.is_some_and(|f| f.bastions.len() >= 4));
+}
+
+#[test]
+fn a_ditch_floods_strictly_within_175_metres_of_the_waterline() {
+    // A hexagon's trace; then a straight shoreline laid `d` metres south of
+    // its southernmost point, so the trace's nearest approach is exactly `d`.
+    let ring: Vec<Vec2> = closed_ring(Vec2::new(850.0, 450.0), 6, 250.0, 0.0)[..6].to_vec();
+    let fort = |site: &Site, wet_moat: bool| {
+        let mut ws = WallState { ring: Some(ring.clone()), ..WallState::default() };
+        apply_star_fort(4, site, &mut ws, &FortOpts { wet_moat, ..FortOpts::default() });
+        ws.fort.expect("the hexagon applies")
+    };
+    let mut coast = build_site(7, 1700.0, 1250.0, "coast", SiteOpts::default());
+    coast.river = vec![Vec2::new(0.0, 5000.0), Vec2::new(1700.0, 5000.0)];
+    let trace = fort(&coast, false).trace;
+    let low = trace.iter().copied().fold(Vec2::new(0.0, f64::NEG_INFINITY), |a, p| if p.y > a.y { p } else { a });
+    let at = |d: f64| {
+        let mut s = coast.clone();
+        s.river = vec![Vec2::new(0.0, low.y + d), Vec2::new(1700.0, low.y + d)];
+        let near = trace.iter().map(|p| s.river_dist(*p)).fold(f64::INFINITY, f64::min);
+        assert_eq!(near, d, "the trace's nearest approach is exactly {d}");
+        s
+    };
+    assert!(!fort(&at(177.5), false).wet_ditch, "177.5 m is dry");
+    assert!(!fort(&at(175.0), false).wet_ditch, "exactly 175 m is dry");
+    assert!(fort(&at(172.5), false).wet_ditch, "172.5 m floods");
+    // `!(d < 175) && wetMoat`: a supplied moat past the waterline's reach is canal-fed.
+    let f = fort(&at(177.5), true);
+    assert!(f.wet_ditch && f.canal_fed, "177.5 m with wetMoat is canal-fed");
+    // `site.noWater` skips the measurement outright, whatever `river` holds.
+    let mut dry = at(100.0);
+    assert!(fort(&dry, false).wet_ditch, "100 m floods");
+    dry.no_water = true;
+    assert!(!fort(&dry, false).wet_ditch, "a noWater site never measures");
+}
+
+#[test]
+fn the_builder_passes_wall_style_and_wet_moat_through() {
+    let (site, anchors) = landlocked();
+    let mut g = Graph::new();
+    build_primaries(5, &site, &anchors, &mut g);
+    let mut ws = WallState::default();
+    let base = GrowOpts { target_len: 3600.0, max_rf: 430.0, walls: false, ..GrowOpts::default() };
+    grow(5, &site, &anchors, &mut g, 8, &mut ws, &base, &mut RecordingWallBuilder::default());
+    let mut b = FortificationBuilder;
+    let mut ws = WallState::default();
+    let opts = GrowOpts { wall_style: Some("palisade".into()), ..base.clone() };
+    b.build_wall(5, &site, &anchors, &mut g, &mut ws, 9, &opts);
+    assert_eq!(ws.style, "palisade");
+    let mut ws = WallState::default();
+    let opts = GrowOpts { fortified: true, wet_moat: true, ..base };
+    b.build_wall(5, &site, &anchors, &mut g, &mut ws, 9, &opts);
+    let f = ws.fort.expect("fortified");
+    assert!(f.wet_ditch && f.canal_fed, "landlocked with wetMoat is canal-fed");
+}
+
+/// The circuit `build_wall` traces round `hull` on dry land: two closed Chaikin
+/// passes, the corner cut and the simplify — the all-land branch, written out.
+fn all_land_ring(hull: &[Vec2]) -> Vec<Vec2> {
+    simplify(&corner_cut(&chaikin(&chaikin(hull, true), true), 1.75, 4), 2.0)
+}
+
+/// A landlocked site whose 1 m heightfield is a circular crest of radius
+/// `crest` about `c0` (flat past 100 m either side), so bilinear sampling
+/// cannot move it and every hull vertex steps straight onto it.
+fn crest_site(c0: Vec2, crest: f64) -> Site {
+    let (mw, mh) = (700usize, 700usize);
+    let mut grid = vec![0.0f64; mw * mh];
+    for j in 0..mh {
+        for i in 0..mw {
+            let r = Vec2::new(i as f64 + 0.5, j as f64 + 0.5).dist(c0);
+            grid[j * mw + i] = 0.5 - 2e-6 * js_min((r - crest) * (r - crest), 1e4);
+        }
+    }
+    let h_min = grid.iter().copied().fold(f64::INFINITY, js_min);
+    let h_max = grid.iter().copied().fold(f64::NEG_INFINITY, js_max);
+    let t = TerrainCtx { grid, mw, mh, cell_m: 1.0, h_min, h_max };
+    let site = build_site(5, 1700.0, 1250.0, "landlocked", SiteOpts { terrain: Some(t), ..SiteOpts::default() });
+    assert!(site.terrain_relief >= 0.01);
+    site
+}
+
+/// An eight-junction ring town at `m`: its graph, hull, hull centroid and the
+/// hull's (common) vertex radius.
+fn octagon_town(m: Vec2) -> (Graph, Vec<Vec2>, Vec2, f64) {
+    let mut g = Graph::new();
+    g.add_polyline_street(&closed_ring(m, 8, 150.0, 0.0), "street", 4.0, 1, "ring");
+    let (flat, _) = landlocked();
+    let hull = built_mass_hull(&flat, &Anchors { market: m, prov: "fixture" }, &g).expect("a town").hull;
+    let c0 = crate::geom::poly_centroid(&hull);
+    let r_v = hull[0].dist(c0);
+    assert!(hull.iter().all(|v| (v.dist(c0) - r_v).abs() < 1e-6), "a regular hull");
+    (g, hull, c0, r_v)
+}
+
+#[test]
+fn terrain_deflection_can_choose_the_thirty_metre_inward_step() {
+    // A crest 30 m inside every hull vertex: every vertex steps exactly -30.
+    let m = Vec2::new(350.0, 350.0);
+    let (g, hull, c0, r_v) = octagon_town(m);
+    let site = crest_site(c0, r_v - 30.0);
+    let ws = deflected(&site, m, &g);
+    assert_eq!(ws.terrain_deflected as usize, hull.len(), "every vertex steps onto the crest");
+    let moved: Vec<Vec2> = hull.iter().map(|v| *v + (*v - c0).norm() * -30.0).collect();
+    assert_eq!(ws.ring.as_deref(), Some(all_land_ring(&moved).as_slice()), "each by exactly -30 m");
+}
+
+#[test]
+fn terrain_deflection_keeps_twenty_metres_off_the_near_box_edges() {
+    // `q.x < 20` and `q.y < 20`: a crest 60 m outside every hull vertex, and
+    // the town placed so that its westernmost (northernmost) vertex's +60
+    // candidate is 20.5 m from the box edge — still allowed, so every vertex
+    // steps exactly +60.
+    for west in [true, false] {
+        let m0 = Vec2::new(350.0, 350.0);
+        let far = |m: Vec2| {
+            let (_, hull, c0, _) = octagon_town(m);
+            hull.iter()
+                .map(|v| *v + (*v - c0).norm() * 60.0)
+                .map(|q| if west { q.x } else { q.y })
+                .fold(f64::INFINITY, f64::min)
+        };
+        let d = 20.5 - far(m0);
+        let m = if west { Vec2::new(m0.x + d, m0.y) } else { Vec2::new(m0.x, m0.y + d) };
+        assert!((far(m) - 20.5).abs() < 1e-6, "the extreme candidate is 20.5 m from the edge");
+        let (g, hull, c0, r_v) = octagon_town(m);
+        let site = crest_site(c0, r_v + 60.0);
+        let ws = deflected(&site, m, &g);
+        assert_eq!(ws.terrain_deflected as usize, hull.len(), "west {west}: every vertex steps");
+        let moved: Vec<Vec2> = hull.iter().map(|v| *v + (*v - c0).norm() * 60.0).collect();
+        assert_eq!(ws.ring.as_deref(), Some(all_land_ring(&moved).as_slice()), "west {west}: each by +60 m");
+    }
+}
+
+#[test]
+fn a_hull_vertex_exactly_at_the_channel_margin_is_water() {
+    // `isLand` on a channel is `riverDist > riverW/2 + 1`, strict. The
+    // octagon's southernmost hull vertex is one of the densified samples; put
+    // the channel so that it sits exactly on the margin and it is water, which
+    // sends the circuit down the bank-following branch.
+    let m = Vec2::new(850.0, 400.0);
+    let (g, hull, _, _) = octagon_town(m);
+    let v = hull.iter().copied().fold(Vec2::new(0.0, f64::NEG_INFINITY), |a, p| if p.y > a.y { p } else { a });
+    let mut site = river_at("river", v.y + 20.0, 10.0);
+    let d = site.river_dist(v);
+    site.river_w = 2.0 * (d - 1.0);
+    assert_eq!(site.river_w / 2.0 + 1.0, d, "the margin lands exactly on the vertex");
+    assert!(densify_loop(&hull, 8.0).contains(&v), "the vertex is a sample");
+    let anchors = Anchors { market: m, prov: "fixture" };
+    assert!(built_mass_hull(&site, &anchors, &g).is_some_and(|b| b.hull == hull), "the channel moves no junction");
+    let mut ws = WallState::default();
+    build_wall(1, &site, &anchors, &g, &mut ws, 1, None, &FortOpts::default());
+    assert!(ws.ring.is_some());
+    assert!(ws.water_closure.is_some(), "one sample on the margin is water: the wall follows the bank");
+    assert_eq!(ws.spurs.len(), 2);
+}
+
+#[test]
+fn two_river_crossings_merge_into_one_water_gate_only_inside_40_metres() {
+    // A riverthrough town spans the water by definition, and its water-gates
+    // are wherever the centreline crosses the circuit. A square notch in the
+    // centreline crosses the flat south side twice, 40.5 m apart.
+    let m = Vec2::new(850.0, 400.0);
+    let g = rect_town(m, 150.0, 150.0);
+    let anchors = Anchors { market: m, prov: "fixture" };
+    let mut site = river_at("riverthrough", 5000.0, 20.0);
+    let mut ws = WallState::default();
+    build_wall(1, &site, &anchors, &g, &mut ws, 1, None, &FortOpts::default());
+    let ring = ws.ring.expect("built");
+    let yb = ring.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max);
+    let flat: Vec<f64> = ring.iter().filter(|p| p.y == yb).map(|p| p.x).collect();
+    assert!(flat.len() >= 2, "a flat south side");
+    let (x0, x1) = (flat.iter().copied().fold(f64::INFINITY, f64::min), flat.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+    let xa = (x0 + 10.0).floor();
+    assert!(xa + 40.5 < x1 - 10.0, "the notch fits the flat side: {x0}..{x1}");
+    let mut gates = |gap: f64| {
+        site.river = vec![
+            Vec2::new(xa, yb + 60.0),
+            Vec2::new(xa, yb - 10.0),
+            Vec2::new(xa + gap, yb - 10.0),
+            Vec2::new(xa + gap, yb + 60.0),
+        ];
+        let mut ws = WallState::default();
+        build_wall(1, &site, &anchors, &g, &mut ws, 1, None, &FortOpts::default());
+        assert_eq!(ws.ring.as_deref(), Some(ring.as_slice()), "the notch does not move the circuit");
+        ws.gates.iter().filter(|gt| gt.water).map(|gt| gt.pt).collect::<Vec<_>>()
+    };
+    let two = gates(40.5);
+    assert_eq!(two.len(), 2, "40.5 m apart: two water-gates");
+    assert!((two[0].dist(two[1]) - 40.5).abs() < 1e-9);
+    assert_eq!(gates(39.5).len(), 1, "39.5 m apart: one");
 }

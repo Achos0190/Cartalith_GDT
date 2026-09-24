@@ -1329,6 +1329,89 @@ trace.
 
 `fortify/tests.rs`'s header records the fixtures and what each exists for.
 
+#### Mutation testing: 225 mutations, 188 dead, 19 equivalent, 18 open (2026-09-24)
+
+The first sweep of this module (`OUTSTANDING_WORK.md` §2.11). The mutants cover
+every numeric literal on a code line of `fortify.rs`, every comparator on a
+tuning path, and every boolean gate: the `usesRealWater`, `usesRealTerrain`,
+`_fromPaths`, `noWater`, `fortified` and `wetMoat` guards, the style ternary, both
+prov ternaries, and the builder's three pass-throughs. Each constant was moved
+one step, and where a step could hide under rounding it was moved both ways.
+Provenance prose was not mutated; the goldens hash it. The mutants ran one at a
+time in a scratch mirror of the crate with its own target directory. Each
+anchor was asserted to match exactly once, each file was restored in `finally`
+and hash-checked, and every survivor was re-run in isolation after a clean
+rebuild: **91 of 91 survived again, so there were no false survivors**. There
+were no build errors.
+
+**134 died to the existing suite; 54 more died to fixtures written for them.**
+The new tests are in `fortify/tests.rs` under *mutation-sweep fixtures*. Each is
+built from the geometry under test: hand-laid junction rings, a channel or
+shoreline overwritten on the site, the market moved, and every tie made exact
+and asserted exact before use.
+
+| new test | kills |
+|---|---|
+| `nearest_idx_starts_from_infinity_not_from_any_finite_bound` | `bd = Infinity` → 1000 |
+| `corner_cut_clamps_the_cosine_to_exactly_minus_one_and_one` | both clamp bounds (a 0.1 rad needle at `minAng` 0.3; a 3.06 rad vertex at 3.0) |
+| `corner_cut_keeps_a_vertex_exactly_at_the_threshold` | `angI < minAng` → `<=` (a square at `minAng = js_acos(0)`) |
+| `town_bank_keeps_its_normal_when_the_market_lies_on_the_tangent` | both `nl·(market−p) < 0` → `<=` (channel and real coast) |
+| `from_paths_discounts_only_all_primary_vertices_under_degree_three` | `alive.len() < 3` → 4; `.all` → `.any` |
+| `built_mass_hull_keeps_a_junction_exactly_at_the_channel_margin` | `< riverW/2 + 14` → `<=` |
+| `a_through_site_still_needs_eight_near_bank_junctions` | `near.len() < 8` → 7 (seven near and eight far on a riverthrough site) |
+| `the_bridge_town_rule_is_strictly_more_than_max_twenty_and_thirty_two_percent` | `>` → `>=`, 20 → 21, 0.32 → 0.33 (exact integer counts on each bank) |
+| `the_percentile_cut_keeps_a_junction_exactly_on_it` | `<= cut` → `<` (market at the origin, so the distance is exact) |
+| `the_aspect_cap_is_for_real_water_only_and_compresses_the_long_axis` | the `usesRealWater` gate; the `ul < 1e-6` fallback axis |
+| `the_aspect_cap_applies_to_a_three_vertex_hull` | `hull.len() >= 3` → `> 3` |
+| `terrain_deflection_needs_real_terrain_not_merely_a_relief_value` | the `usesRealTerrain` gate |
+| `terrain_deflection_engages_at_exactly_the_relief_floor_and_on_a_triangle` | `relief >= 0.01` → `>`; `hull.len() >= 3` → `> 3` |
+| `terrain_deflection_prices_distance_at_three_point_three_e_minus_four` | `3.3e-4` → `3.4e-4` (relief set so the threshold falls between two hull vertices) |
+| `terrain_deflection_can_choose_the_thirty_metre_inward_step` | the −30 offset (a 1 m-cell crest 30 m inside every vertex) |
+| `terrain_deflection_keeps_twenty_metres_off_the_near_box_edges` / `…_far_box_edges` | all four 20 m box margins (candidate at 20.5 m) |
+| `a_hull_vertex_exactly_at_the_channel_margin_is_water` | `isLand`'s `> riverW/2 + 1` → `>=` |
+| `two_river_crossings_merge_into_one_water_gate_only_inside_40_metres` | the spanning circuit's water-gate dedupe 40 → 41 (a square notch in the centreline) |
+| `the_harbour_mouth_is_a_strict_48_metre_gap_and_needs_a_quay` | `GAP_R` both ways, `<` → `<=`, the `quay.length` gate (`riverTown`'s own bank, mouth at 47.5/48/48.5 m) |
+| `an_empty_wall_style_is_the_legacy_curtain` | the `s.is_empty()` arm |
+| `a_shoreline_gate_is_a_water_gate_within_24_metres_of_the_straddling_vertex` | 24 both ways, `<` → `<=`, both straddle comparators, `i == 0`, the first-vertex seed |
+| `a_channel_gate_is_a_water_gate_strictly_within_half_width_plus_22` | 22 → 23, `<` → `<=` |
+| `two_land_gates_merge_strictly_inside_40_metres` | 40 → 41, `<` → `<=` (two primaries across a flat wall side) |
+| `the_bastioned_cap_spreads_its_gates_at_least_0_9_rad_apart` | 0.9 both ways, `2π − da` → `π − da`, the clash gate |
+| `a_star_fort_applies_to_a_triangular_circuit` | `base.len() < 3` → 4 |
+| `a_ditch_floods_strictly_within_175_metres_of_the_waterline` | 175 in `wet` both ways and `<` → `<=`, 175 in `canalFed`, the `noWater` gate |
+| `the_builder_passes_wall_style_and_wet_moat_through` | `FortificationBuilder`'s `wall_style` and `wet_moat` pass-throughs |
+
+**Equivalent (19):**
+
+| mutant | why it cannot change an output |
+|---|---|
+| `cornerCut`'s `if (!cut) break` removed | a pass that cuts nothing returns its input, so every later pass is the same pass |
+| 6 × `minAng`/`passes` at the three closed double-Chaikin call sites (spanning, all-land, needle fallback) | two Chaikin passes leave every angle over 1.75 rad; `the_closed_ring_corner_cut_is_a_no_op_after_two_chaikin_passes` asserts it over every golden hull |
+| `js_max(0, tr²/4 − det)` → `js_max(1, …)` | the discriminant is ≥ 0; below 1 it gives `l1 − l2 ≤ 2`, so with `l2 > 1` the aspect is ≤ √3, under the 2.4 cap either way |
+| `l2 > 1` → `> 2` and → `>=` | `l2` sums squared across-axis spreads of a hull inflated 16 m outward. It is hundreds at least, and never near 1 or 2 |
+| `aspect > CAP` → `>=` | at aspect exactly 2.4, `k = 1` and the map is a rotation there and back: the identity up to an ulp |
+| the all-water `return` removed | the empty land run gives an empty `land_arc`, and the `let … else { return }` guard below refuses the same way |
+| `je <= js` → `<` | at `je == js` both arms produce `[bank[je]]` |
+| `min(3, …)` → `min(4, …)` | `nSeg ≤ 9`, so `round(n/3) ≤ 3`; already asserted in `the_golden_file_is_the_shape_it_claims_to_be` |
+| `da > π` → `>=` | at `da = π`, `2π − π = π` |
+| `pc.length < 3` → 4 | `acc + d` on the last side is summed in `arc`'s own order, so it equals `arc` bit for bit; every target is under `arc`, so `pc` always has `nSeg ≥ 4` points |
+| `ab.len() \|\| 1` → `\|\| 2` | resampled corners are ≥ `arc/9` apart, so `ab` is never zero-length |
+| `nrm·(a − c) < 0` → `<=` | zero would put the hull centroid on a side's own line, which a convex polygon of positive area cannot do |
+| `o > maxBulge` → `>=` | on a tie it assigns the value already held |
+
+**Open (18)** — none is proved equivalent, and none has a fixture:
+
+| mutant(s) | why no fixture reaches it yet |
+|---|---|
+| `net > bestNet` → `>=` | needs a height difference minus a price to equal `minGain` to the bit; a ramp's bilinear samples do not give that |
+| spanning water-gate dedupe `< 40` → `<=` | needs two crossings exactly 40.0 m apart; `seg_int`'s crossing point carries rounding (the 41 m mutant is killed) |
+| `count > bestLen` → `>=` | two land runs of exactly equal sample count on one densified hull |
+| the needle guard off synthetic water, `water.length > 1` → 2, 1.6, 500, `wl >` → `>=` (5) | no synthetic town's bank walk approaches `max(1.6·ll, 500)`; the real-water goldens that trip it (`straitTown`, `islandTown`) exceed it by far |
+| `ring.length < 6` both ways | a finished ring of exactly 5 or 6 points is an output count no constructed town produces |
+| the land/water-gate dedupe 40 → 41 and `<` → `<=` | needs a primary crossing within 40-41 m of a spanning water-gate |
+| `da < 0.9` → `<=` | two land gates exactly 0.9 rad apart as seen from the circuit's centroid |
+| the four bulge-window bounds (−0.05, 1.05, both ways) | needs a ring point just past a chord's end that out-bulges every in-window point |
+| `maxBulge` starts at −1 | believed equivalent: some ring point always lies on or outside a chord, so the maximum is never negative. A 230 m square, whose resample falls exactly on its corners, still reads 0. Not proved |
+
 ### Milestone 11 — graph cleanup passes
 
 Reference lines 30034-30190 (the `clearFortZone` header comment; `_killEdge`
@@ -1601,6 +1684,91 @@ header for the whole town, `site/tests.rs`'s for Ruling N.
 not missing): the place editor's `fortified` trait reaches `GenOpts::fortified`,
 and `generate()` grants the bastioned trace to a walled town on the `organic`
 gate scheme with `pop_target >= FORT_MIN` (2 500).
+
+### Mutation testing: `courtyard.rs` and `wallside.rs` (2026-09-24)
+
+Neither module is a reference port, so neither has a reference golden. Their
+acceptance bar was hand-built geometry plus properties of generated towns, and
+until this sweep no mutation run had checked it (`OUTSTANDING_WORK.md` §2.11,
+*"Smaller gaps"*). The method is milestone 10's, above: every constant,
+comparator and gate, one mutant at a time in an isolated mirror. **Every
+survivor was re-run in isolation after a clean rebuild, and all 78 survived
+again.** The new tests are at the end of `courtyard/tests.rs` and
+`wallside/tests.rs`, under *mutation-sweep fixtures*.
+
+#### `courtyard.rs`: 59 mutations, 54 dead, 4 equivalent, 1 open
+
+29 died to the existing suite and 25 to new tests:
+
+| new test | kills |
+|---|---|
+| `the_dense_court_window_is_80_square_metres_to_35_percent_inclusive` | `COURT_MAX_FRAC` 0.34, `COURT_MIN_AREA` both ways, both window comparators (a 26 × 24 block's 80 m² court; a 64 × 30 block's court of exactly 35 %) |
+| `a_target_met_exactly_by_the_deepest_ring_takes_it_without_bisecting` | `court(hi) >= target` → `>` |
+| `the_bisection_moves_down_on_a_midpoint_that_meets_the_target_exactly` | `court(mid) > target` → `>=` (the first midpoint, 15, is exact for a 60 m square) |
+| `a_lot_of_exactly_26_square_metres_is_kept` | `>= MIN_LOT_AREA` → `>` |
+| `ring_lots_carry_their_own_streets_class_and_age` | edge lookup `(i+1) % n`, the depth mean, both `age` arms, the `'street'` default |
+| `the_outer_ring_skips_plazas_and_is_inclusive_at_seventy_percent` | the plaza exclusion; `>= max_d · 0.7` → `>` |
+| `a_block_whose_every_lot_is_a_sliver_keeps_its_strip_plat` | the `lots.is_empty()` refusal |
+| `every_corner_of_every_lot_must_be_dry_by_both_tests` | the `'river'` margin test, both margins, `riverW / 2`, both halves of `dry`, `>=` → `>`, both `.all`s |
+
+| equivalent | why |
+|---|---|
+| `court(lo) <= target` → `<` | at a tie the bisection keeps `lo` at 8 (the court shrinks strictly with depth), so it returns 8 either way |
+| `poly_self_intersects(quad) \|\|` removed | `court_of` accepts only an inset whose every edge runs the same way as its original. Front and back of each lot are then parallel and same-directed, which is a trapezoid and cannot be a bowtie |
+| `area <= 0` → `< 0`, and the area test removed | the same trapezoid has a front of positive length and a depth of at least 8 m, so its area is positive |
+
+| open | why |
+|---|---|
+| `court_of`'s `> 0` → `>=` | needs an inset edge closed to exactly zero length that `inset_poly` still returns. The collapse measured, a 30 × 16 block at 8 m, is refused by `inset_poly` itself |
+
+#### `wallside.rs`: 161 mutations, 153 dead, 6 equivalent, 1 open, 1 build error
+
+The sweep had 160 mutants plus 1 re-typed. `deepest = 0.0` did not compile (an
+ambiguous float for `.max`) and is recorded as a build error, not a survivor;
+`0.0f64` is its re-typed twin. 111 died to the existing suite and 42 to new
+tests:
+
+| new test | kills |
+|---|---|
+| `arc_at_a_vertex_is_the_vertex_itself` | `partition_point(c <= s)` → `<` (a lerp that misses its endpoint by an ulp) |
+| `arc_at_a_zero_length_last_segment_is_its_start` | `seg <= 0` → `<` |
+| `bow_walks_a_closed_arc_one_lap_either_side` | all three lap-offset mutants |
+| `project_keeps_the_first_of_two_equidistant_segments` | `d < best` → `<=` |
+| `street_face_keeps_the_first_of_two_streets_hit_at_the_same_point` | `h.t < t` → `<=` |
+| `crosses_street_ignores_a_dead_street` | the `alive` gate |
+| `accepts_bounds_every_test_it_makes` | the area floor both ways, the self-intersection gate, the box's `y` and `hm` sides, the gate clearance `<` → `<=`, the plaza, the fourth (closing) edge's street test |
+| `accepts_measures_the_water_margin_on_every_corner_and_the_centroid` | the `'river'` test, both margins, `<` → `<=`, both halves of the water test, the centroid |
+| `accepts_refuses_a_lot_touching_a_taken_one_where_the_half_open_test_says_inside` | the bounding-box skip's min-side comparators |
+| `outward_probes_three_metres_off_the_chord` | the 3 m probe |
+| `a_faubourg_lot_allows_a_bow_of_exactly_one_metre` | `> MAX_BOW` → `>=` |
+| `a_faubourg_lot_looks_eight_metres_past_its_depth_for_a_street` | `depth + 8` → 9 |
+| `a_faubourg_lot_takes_a_streets_class_only_when_the_street_cuts_it` | both `d < da/db` → `<=`; the class taken from `fb`'s street |
+| `a_two_point_land_arc_is_platted_and_every_wall_lot_is_as_old_as_the_town` | `land.len() < 2` → 3; `age` |
+| `the_last_intramural_lot_needs_four_metres_of_arc_and_gets_it` | `total − 4` → 5; the 4 m chord minimum → 5 |
+| `an_intramural_lot_exactly_six_metres_deep_is_kept` | `< MIN_DEPTH` → `<=` |
+| `an_intramural_wedge_of_exactly_twelve_metres_is_kept` | `> 12` → `>=` |
+| `gate_quality_is_measured_round_the_closed_circuit_to_the_nearest_gate` | the seam wrap, the short-way-round `min`, the `max(0)` floor |
+| `a_faubourg_run_stops_at_the_end_of_an_open_arc` | both open-arc `break`s — see the finding below |
+| `a_city_has_three_faubourg_runs` | the third run |
+
+| equivalent | why |
+|---|---|
+| `project`'s `l2 > 0` → `>=` | a zero-length segment's one point is also an endpoint of its neighbour, at the same arc length, and it wins that tie first; for a two-point arc of identical points both answer 0 |
+| the bounding-box skip's two max-side comparators, and the skip removed entirely | the skip is only an optimisation. A box that is disjoint, or that touches on a max side, puts no corner inside under the half-open `point_in_poly` |
+| `s < total − 4` → `s < total` | the remainder is under 4 m, so its chord is too and the 4 m guard skips it; the extra draw is on `"wallside/in"`, which nothing reads afterward |
+| `deepest` starts at `0.0f64` | every drawn depth is clamped to ≥ `MIN_DEPTH`, and at least one is drawn whenever the run has length |
+
+| open | why |
+|---|---|
+| the row loop's bound `row_len · (TAPER_ONSET + TAPER_SPAN)` → `· 0.9` | at the original bound `taper_end_chance` is already 1, so the bound itself is redundant; the mutant tightens it to 1.395 of nominal, which only a row that survives every taper draw past that point would expose |
+
+**Finding.** The open-arc `break` in both faubourg loops is backstopped by
+`Arc::bow`. `bow` walks every arc one lap either side, open arcs included, so it
+finds vertex 0 at arc length `total` and refuses any lot that crosses the end.
+The one exception is an arc whose start lies within `MAX_BOW` of the lot's
+chord, which is a nearly-closed arc. That is the fixture above: an arc that ends
+1 m short of its own start. On an open arc the lap walk is otherwise harmless,
+and no behaviour was changed.
 
 ## Out of scope for every milestone
 
