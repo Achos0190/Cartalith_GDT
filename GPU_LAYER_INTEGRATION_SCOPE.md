@@ -43,7 +43,7 @@ later, or work defined in another document that belongs to the same effort.
 | D1 | GLI-D1 | `compute_stress` as a gather (deferred at milestone 5) | this document, "Named deferrals" |
 | D2 | GLI-D2 | World-wrap for the milestone 1-5 kernels (deferred at milestone 2) | this document, "Named deferrals" |
 | P2 | GLI-P2 | Phase 2 per-cell affordance fields | this document, "Later milestones from the feasibility table" |
-| E | *(no row)* | Erosion's per-cell parts (thermal, stream-power) | this document, "Later milestones from the feasibility table" |
+| E | GLI-E *(added to `STATUS.md` 2026-09-23; this cell said "no row" until 2026-09-24)* | Erosion's per-cell parts (thermal, stream-power) | this document, "Later milestones from the feasibility table" |
 | M | GLI-M | Multi-GPU device set, VRAM budget, split-tiles warp | `HARDWARE_ACCELERATION.md`, "2026-08-20 — Multi-GPU" |
 | — | *(no row)* | Device reuse *across* generations | `LARGE_ITEM_RULINGS.md` Ruling Y; summarised under milestone 8 |
 
@@ -233,7 +233,8 @@ family `cartalith-civ::build_coast_sdf` already uses) — likely a *good* fit,
 not a graph-shaped poor one. Don't assume either way; this note exists so
 the misfiling isn't carried forward.
 
-**In scope**: `gpu_compute_height` in `cartalith-gpu`, taking the CPU
+**In scope**: `gpu_compute_height` (built as `dispatch_gpu_height`; no
+symbol named `gpu_compute_height` exists) in `cartalith-gpu`, taking the CPU
 function's inputs as GPU buffers, verified as milestone 2 was (internal
 determinism, statistical sanity, real timing).
 
@@ -287,7 +288,12 @@ anywhere from 38 to 78 ms across runs of the same binary).
   `par_chunks_mut` across every core. Against the function that ships, the
   GPU wins **2.13× at 1024² and 1.15× at 2048²** — about **5 ms** either
   way.
-- **`gpu_compute_height` stays uncalled, as a recorded decision.**
+  *(Withdrawn 2026-09-05 and corrected here 2026-09-24: these figures were
+  superseded by `measured_gpu_height_vs_the_real_compute_height` run alone —
+  **1.95× (1.52..2.01×) at 1024²**, and at 2048² **no difference established**
+  after a verifier's three serial re-runs bracketed 1.00×. The current record
+  is `dispatch_gpu_height`'s doc comment; quote no 2048² figure.)*
+- **`gpu_compute_height` (`dispatch_gpu_height`) stays uncalled, as a recorded decision.**
   `HEIGHT_LAYOUT` binds **9 storage buffers**, and
   `REUSED_STAGE_MAX_STORAGE_BUFFERS` — the limit milestone 8's shared device
   opens at, sized for JFA — is **8**. That is why height is the one

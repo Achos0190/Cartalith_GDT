@@ -1270,7 +1270,8 @@ continuing to patch the symptom.
 
 **Not a literal JS port, and said so rather than claimed otherwise.** The
 reference's own fix (`buildRoutingSurface`, v2.41) postdates every HTML
-snapshot in this repository — `reference/` holds v2.10, the root holds v2.11,
+snapshot in this repository — `reference/` holds v2.10 and v2.11 (the root also
+holds v2.11),
 and the source's own newest line is a dozen-plus versions further on
 (`CLAUDE.md`'s own disclosure). There is no JavaScript here to diff against.
 What is built is the **standard published algorithm** `RC_ENGINE_CHANGES.md`

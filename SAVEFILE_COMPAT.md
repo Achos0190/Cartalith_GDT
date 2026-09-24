@@ -318,6 +318,7 @@ annotations/                          marks on the sheet — see §11
 library/                              setting-level definitions — see §12
   assets.json                 MAY
   travel.json                 MAY
+  settlement_types.json       MAY
 
 drafts/                               uncommitted edits — see §12
   paint.json                  MAY
@@ -337,14 +338,25 @@ calls a written slot reserved is not a harmless lag: `reserved` invites the
 second implementation to claim the name for something else, which is the exact
 collision §5 exists to prevent.
 
-**`cartography/` is `MAY` and is not yet reached by any shipping code path,
-and those are two different statements.** The reader and writer are built and
-tested (§16.1, §17); what does not exist yet is the call that hands
-`write_project` a tile set — this port's tiles are synthesized on demand for
-the camera, and the producer is not wired into the save. So an archive written
-by this build today carries no `cartography/` entries at all. It is listed
-here rather than as `reserved` because the name is claimed, the shape is
-normative, and a second implementation writing it would be conforming.
+**`library/settlement_types.json` was missing from this table until
+2026-09-24** while being a registered slot (`cartalith-io`'s `DOCUMENT_SLOTS`)
+with a live writer: the shell's `SettlementTypeStore`, written and restored by
+`app.gd` since 2026-09-21. It is caller-owned in this port; §12 carries its
+shape.
+
+**`cartography/` is `MAY`, and since `8cade54` (2026-09-22) a shipping code
+path writes it — but nothing reads it back.** This paragraph said no shipping
+path reached it until 2026-09-24. The *Save project as…* dialog's LOD-tiles
+checkbox sets `app.gd`'s `_include_lod_tiles_pref`, and all three save paths —
+Save as, plain Save, and the save offered before a destructive action — pass
+it to `project_save_with_documents`'s `include_lod_tiles`, which fills
+`write_project`'s `lod_tiles`. Off by default (ruling 28), so an archive
+carries `cartography/` entries only when the user ticked it. `cartalith-io`'s
+reader parses the pyramid back into `ProjectData::lod_tiles`, but
+`project_open` does not consume it — only tests do — so today the stored
+pyramid is written and never used on load. It is listed here rather than as
+`reserved` because the name is claimed, the shape is normative, and a second
+implementation writing it would be conforming.
 
 ### 5.1 Why each boundary falls where it does
 
@@ -1104,10 +1116,13 @@ or `0`.
 ### 9.6 `entities/journeys.json`
 
 **Written since 2026-08-31**; this heading said "reserved" and the paragraph
-under it said "not written by any implementation today". In this port the
-writer is the *shell*, not the engine — a saved journey is a route index plus
-a party form, neither of which the engine models — which is exactly the
-caller-owned split §6.5 describes. The shape:
+under it said "not written by any implementation today". **Engine-owned in
+this port since SP-1** (`STORY_PLANNING_SCOPE.md`, `750fe79`, 2026-09-21): the
+payload is `InfraTools::journeys`, a typed `Journey` entity, which
+`project_bridge.rs` writes and restores itself and lists in
+`ENGINE_OWNED_SLOTS`, so the shell may not write the slot. Until 2026-09-24
+this paragraph still said the writer was the shell and that the engine modelled
+no journey. Written only when at least one journey exists. The shape:
 
 ```json
 {
@@ -1127,10 +1142,10 @@ one — which is why it is its own entity and not a fifth array in
 a reader MUST tolerate a name that resolves to nothing and MUST show the
 journey rather than drop it.
 
-This is the slot §6.5 is written for. An implementation whose journey planner
-lives in its user interface rather than in its map engine **carries** this
-document rather than modelling it, and §6.5's text rule is then the whole of
-what it has to get right.
+This is still a slot §6.5 serves: an implementation whose journey planner
+lives in its user interface rather than in its map engine may **carry** this
+document rather than model it, and §6.5's text rule is then the whole of what
+it has to get right. (This port did exactly that until SP-1.)
 
 
 ### 9.7 `entities/conflicts.json`
@@ -1166,6 +1181,53 @@ every province pass. `end_year` absent = ongoing; `anchor` absent =
 unattached. A row with an unknown `kind` is skipped, the rest of the document
 opens; an anchor that resolves to nothing is kept and the shape drawn at
 `points` as stored.
+
+### 9.8 `entities/landmarks.json`
+
+**Written since 2026-09-06; specified here 2026-09-24.** Owner ruling 10
+(`LARGE_ITEM_RULINGS.md`, 2026-09-06) decided landmarks **persist** in this
+slot and asked for an entry here; the slot shipped with its writer and this
+section did not exist until now. Engine-owned in this port: the payload is
+`WorldGen::landmark_store`, which `project_bridge.rs` writes and restores
+(`LandmarksDoc`) and lists in `ENGINE_OWNED_SLOTS`. No `format_version` change
+came with it — it is a new optional slot, which §6.3's unknown-entry rule
+already lets an older reader carry.
+
+```json
+{
+  "settings": { "caps": { "peak": 12 }, "armed": { "peak": true },
+                "crowding": 1.0, "class_radius_km": [200.0, 34.0, 10.0, 6.0],
+                "cross_type_competition": true },
+  "results": {
+    "landmarks": [ { "kind": "peak", "x": 40, "y": 17, "elevation_m": 3120.0,
+                      "score": 0.91, "importance": 0.74, "causal": ["..."] } ],
+    "funnels": [ { "kind": "peak", "candidates": 310, "rejected_constraint": 0,
+                    "rejected_score": 250, "rejected_spacing": 40,
+                    "rejected_cap": 8, "cap": 12, "placed": 12, "limit": "at_cap" } ],
+    "seconds": 0.42
+  }
+}
+```
+
+(Values illustrative; the member names are `LandmarkSettingsDto`,
+`LandmarkRunDto`, `LandmarkDto` and `LandmarkFunnelDto`.)
+
+- **`settings` is written on every save**, because
+  `LandmarkSettings::default()` is a full per-kind table, not "nothing" — absent
+  and at-defaults are the same state.
+- **`results` is the last run, written only when there is one.** Absent means
+  no run is retained (never run, or invalidated since) — not "it ran and placed
+  nothing". Ruling 10's reason for persisting it: the run's state cannot be
+  recomputed.
+- `x`/`y` are grid cells. On open, a landmark row with an unknown `kind`, an
+  off-grid cell or a non-finite number is skipped and reported by count; the
+  rest restore.
+- The run's per-kind **reject list is deliberately not stored** — the funnel
+  counts keep the true totals; see `LandmarkRunDto`'s doc for the size
+  measurement behind that.
+- **Stored twice when the POI icon pass has run**: each landmark it placed as a
+  glyph is also a `poi` row with `"origin": "generated"` in
+  `annotations/icons.json` (§11.2, §17).
 
 ---
 
@@ -1402,10 +1464,12 @@ drop the document from an archive it rewrites (§6.2).
 
 ---
 
-## 12. `library/` and `drafts/` — the four caller-owned slots
+## 12. `library/` and `drafts/` — the five caller-owned slots
 
 **This section said "reserved… not written today", and stopped being true on
-2026-08-31.** All four are written, and since 2026-09-03 all four restore.
+2026-08-31.** All four original slots are written, and since 2026-09-03 all four
+restore; `library/settlement_types.json` joined them on 2026-09-21 and was
+added here on 2026-09-24.
 They share one property that sets them apart from every other slot, and it is
 the reason they are described together: each is a document a *caller* decides
 about — save a copy without my drafts, import a library from another project —
@@ -1416,6 +1480,7 @@ any of them; none is required to display a world.
 |---|---|---|
 | `library/assets.json` | asset-pack info, collections, custom slots, per-slot metadata and scatter rules | **The item images are not in it.** The record carries each item's image *index*; the bytes those indices point at have no channel in this format. A restore therefore rebuilds every slot and zero items, and a reader MUST report that rather than presenting an empty library as a complete one. |
 | `library/travel.json` | every **custom** animal, vehicle, vessel and party preset | Stock entries are deliberately absent: they are read-only by construction and rebuilt identically on every launch, so storing them would store one build's constants. A restore replaces the custom half and leaves stock alone. |
+| `library/settlement_types.json` | the user's settlement types: `{"types": [{"id", "name", "kind", "specialisation", "traits": [...], "walls", "age_mode", "age_years", "name_pool", "usage_count"}], "faction_defaults": {"<faction index>": "<type id>"}}` | Written by the shell's `SettlementTypeStore.document()`, only when there is at least one type or faction default. An **absent** slot means "no types" and clears the outgoing project's on open; so does a document that does not parse. A type row with no `id` is skipped. |
 | `drafts/paint.json` | the three committed paint layers, each a sparse `[index, value, …]` pair list, plus `gw`/`gh` | An index means nothing without the grid: a reader MUST refuse a document whose `gw`/`gh` are not the world's, because a layer decoded against a different grid is a scrambled picture, not a smaller one. |
 | `drafts/sculpt.json` | the uncommitted stamp stack as *recipes* (feature key, seed, stroke points, globals, that feature's controls, `hidden`), plus the armed feature and next stroke's seed | Recipes, not height deltas — that is what makes a draft non-destructive. Same grid rule as `paint.json`, for the same reason: a stroke point is a grid-cell coordinate. |
 
@@ -1517,8 +1582,12 @@ kind of thing from a mark drawn on the map.
 | `version` | integer ≥ 1 | MUST | The **link store's own** version, `1` today. Independent of `format_version` (§4): the two version different things, and a reader MUST NOT assume they move together. A reader that meets a higher value SHOULD read what it recognises, apply §14.3, and warn. |
 | `vaults` | array | SHOULD | Every vault this project references. Absent or empty is valid — a project with links but no vault entry is damaged filing, not a parse error; see §13.3.4. |
 | `links` | array | SHOULD | Every entity-to-note relationship. Absent or empty is valid and is the normal state of a project nobody has linked yet. |
+| `snapshots` | object, string → string | MAY | Generated map snapshots of an entity, keyed `<entity key>\|<radius>` (e.g. `settlement:42\|local`; `cartalith-vault`'s `snapshot_key`), each valued with the image's path **relative to the vault root**. Keyed by entity, not by link: a snapshot exists whether or not a note is attached. Omitted, not written empty, when there are none; an older document without it is valid. Added to this table 2026-09-24 — `LinkStore::snapshots` had been written without being specified here. |
 
-A writer MAY omit `vault.json` entirely when there are no links.
+A writer MAY omit `vault.json` entirely when `vaults`, `links` and
+`snapshots` are all empty (`LinkStore::is_empty`, the gate this port's writer
+uses). It MUST NOT omit it merely because `links` is empty: a project whose
+only vault state is a snapshot would lose it.
 
 #### 13.3.2 `vaults[]` — a vault as the *project* knows it
 
@@ -2266,13 +2335,20 @@ weaker answer to a question two existing mechanisms already answer.
   the POI automatic placement still stores each landmark **twice**, once in
   `entities/landmarks.json`'s `results` and once as a `poi` row here. `origin`
   now makes the two **separable** — a reader can tell which rows generation owns
-  — but nothing yet de-duplicates them, and the renderer still draws both passes,
-  so those landmarks draw twice on screen. That is tracked, not fixed here.
-- §6.5's partition is `project_bridge.rs`'s `ENGINE_OWNED_SLOTS` — the eleven
-  documents this port models — against the six it carries
-  (`entities/journeys.json`, `annotations/measurements.json`,
-  `library/assets.json`, `library/travel.json`,
-  `drafts/paint.json`, `drafts/sculpt.json`). `caller_slot_refusal` is the one
+  — and nothing de-duplicates them **in the archive**. On screen they no longer
+  draw twice: since `af0129c` (2026-09-06) `map_overlay.gd` suppresses a
+  generated `poi` glyph whose cell a landmark ring already marks
+  (`_icon_shadowed_by_ring`). This bullet said both passes still drew until
+  2026-09-24.
+- §6.5's partition is `project_bridge.rs`'s `ENGINE_OWNED_SLOTS` — the
+  fourteen documents this port models — against the six of `cartalith-io`'s
+  twenty `DOCUMENT_SLOTS` it carries (`annotations/measurements.json`,
+  `library/settlement_types.json`, `library/assets.json`,
+  `library/travel.json`, `drafts/paint.json`, `drafts/sculpt.json`). Counted
+  2026-09-24 from the two lists; this said eleven and six, with
+  `entities/journeys.json` among the carried ones, until then —
+  `entities/landmarks.json`, `entities/journeys.json` (SP-1) and
+  `entities/conflicts.json` (SP-4) have all joined the engine-owned side. `caller_slot_refusal` is the one
   place that decides, and both directions of the channel go through it:
   `project_save_with_documents` refuses a modelled slot on the way in and
   `project_read_document` refuses one on the way out. `project_document_slots`
@@ -2289,8 +2365,9 @@ weaker answer to a question two existing mechanisms already answer.
   archive held, which is the right shape when the caller is opening the project
   anyway; its keys are §6.5's "which documents did it contain" report.
   `project_read_document(path, slot)` answers the same question about a file
-  the caller does **not** want to open — a shell reloading its saved journeys
-  should not replace the world as a side effect — and `cartalith-io`'s
+  the caller does **not** want to open — a shell reloading one of its own
+  documents should not replace the world as a side effect (this example was
+  saved journeys, which are engine-owned since SP-1 and so refused here) — and `cartalith-io`'s
   `read_document` gives it that without decoding a single raster.
 - The writer's refusal of a document it would have to edit (§6.5's last
   paragraph) falls out of `write_project`'s existing validation: it parses each

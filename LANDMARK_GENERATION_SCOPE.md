@@ -275,7 +275,13 @@ to learn the hard way.
 ### M7 — Viewshed (Category A, the expensive one, entirely new)
 
 The one landmark input with zero existing code and the highest cost risk.
-Scoped down from "every cell sees every cell" to research §9's own framing —
+*(As of the 2026-08-30 inventory. Since built: `landmark.rs`'s `Derived::vis`,
+bounded by `VIEW_RADIUS_KM` / `VIEW_MAX_CELLS` / `VIEW_OBSERVER_CAP`. Checked
+2026-09-24, it is read by `pool_military`, which serves `fort`, `watchtower`,
+`fortified_pass` and `fortified_crossing`, and by `pool_volcanic` and
+`pool_border_marker`. It does not follow the `needs_viewshed` flag: `peak` is
+flagged and reads no `vis`, and the fortified pass and crossing read it
+unflagged. Status is in `STATUS.md`.)* Scoped down from "every cell sees every cell" to research §9's own framing —
 a **bounded set of observer points** (settlements, road/pass samples, pass
 candidates from M3) rather than a dense viewshed field — per the cost note in
 §5 below.
@@ -342,6 +348,22 @@ that cultural meaning must not be hardcoded into geography (it needs the
 civilisation's traits as an input, which the pass does not take), `tomb` and
 `monument` for want of a historical figure or event to commemorate. Each
 kind's own reason is its `not_built` string.
+
+*Checked against the code 2026-09-24.* Several `not_built` strings are now
+false:
+- `monument` says no battle exists as a record. Drawn battles reach this pass
+  as `LandmarkInputs::battles`.
+- `ruin` and `abandoned_settlement` say the collapse drops the site's
+  coordinates. `TimelineSnapshot::collapse_flags` and per-step snapshots
+  exist.
+- `ancient_road` says way history is not retained. Each `TimelineSnapshot`
+  keeps that year's `ways`.
+
+The strings are also **not shown to the user**. `landmark_kinds` in
+`cartalith-godot/src/lib.rs` emits a `not_built` key, and no `.gd` file reads
+it; the shell shows one generic "not buildable" reason. `ALIGNMENT_AUDIT.md`
+Part 1 item 8 has the full list. The kinds stay unbuilt, but the reasons need
+rewriting.
 
 Not specified further here — beyond the conflict half, research §24-26's
 interpretation and state transitions have nothing in this repository to

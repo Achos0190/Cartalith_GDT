@@ -29,7 +29,7 @@ tables — `PARAMS` (key, group, kind, range, step, label, unit,
 in the reference's own `state` object, `""` when it does not) — not retyped
 by hand or copied from an earlier revision of this file. To regenerate it:
 `grep -c "ParamSpec { key:" crates/cartalith-godot/src/params.rs` for the row
-count (**99** on 2026-09-23), then walk `PARAMS` in file order for the
+count (**100** on 2026-09-24; 99 on 2026-09-23, before `tect.narrow_plate_base_blur` landed in `a74b35c`), then walk `PARAMS` in file order for the
 per-row facts and `JS_PATHS` for which keys are genuinely this port's own.
 
 **The two "has no reference" signals are not the same question**, and both
@@ -37,9 +37,9 @@ are recorded per row rather than collapsed into one. `reference_control: ""`
 means the reference never gave a user a *control* for the field (the field
 can still exist in `state`, e.g. `climate.current_k` does). `JS_PATHS`
 carrying `""` means the reference's saved `state` has **no path** for the
-key — the stronger claim. **30** keys carry `""` (the `JS_PATHS` entries
-with an empty path, counted 2026-09-23): `integrate_drainage`, `use_gpu`,
-`volc.exclude_transform`, `volc.edifice_model`, `crater.physical_model`,
+key — the stronger claim. **31** keys carry `""` (the `JS_PATHS` entries
+with an empty path, counted 2026-09-24): `integrate_drainage`, `use_gpu`,
+`tect.narrow_plate_base_blur`, `volc.exclude_transform`, `volc.edifice_model`, `crater.physical_model`,
 `crater.surface_age_myr`, nine `passes.*` keys (`velocity`, `glacial`,
 `coastal`, `hillslope`, `diffuse_d`, `diffuse_passes`, `sediment_fill`,
 `sediment_capacity`, `tidal_k`), `climate.terrain_wind_deflection`,
@@ -63,9 +63,10 @@ finishes). By 2026-09-23 the tables had fallen 14 rows behind — 85
 written up and `integrate_drainage` (owner-authorised 2026-09-22) had landed
 in the `world` group with no row here. The stage-by-stage audit near the end
 added both. **`world_workspace.gd`'s header comment carries the same count
-and is behind too** — it reads "85 parameters" (line 10, checked
-2026-09-23); it is outside this document's regeneration surface, so it is
-flagged here rather than edited.
+and is behind too** — it read "85 parameters" on 2026-09-23 and "99
+parameters in 9 groups" on 2026-09-24, one behind `tect.narrow_plate_base_blur`;
+it is outside this document's regeneration surface, so it is flagged here
+rather than edited.
 
 Every row also carries **Stage(s) that read it** and **Live-apply**, the
 columns `OUTSTANDING_WORK.md` §2.5 asked this document to carry — see
@@ -84,8 +85,9 @@ with no path for raw values — the World-Structure block
 live in the engine and unreachable from the UI.
 
 After it, **58** parameters are reachable, covering all eight structs. The
-seven that were already reachable keep their old `#[func]`s (`main.gd` drives
-them) — those are now thin sugar over the same storage, so the two surfaces
+seven that were already reachable keep their old `#[func]`s (`main.gd` drove
+them then; `main.gd` no longer exists, and today `shell/engine_bridge.gd` calls
+`set_sea_level`/`set_experimental_flags` beside its `param_set` path) — those are now thin sugar over the same storage, so the two surfaces
 cannot disagree.
 
 **That 58 is this section's own historical snapshot, not the current total.**
@@ -115,7 +117,8 @@ reader of either side finds the other without a lookup table.
 | `apply_archetype(name: String) -> bool` | Writes a named World-Structure preset into the **persistent** parameters and enables World Structure, so the five knobs then show real numbers and stay editable. `false` for an unknown name, changing nothing. |
 | `get_archetypes() -> PackedStringArray` | `["earth", "supercontinent", "archipelago", "volcanic", "rift"]`. |
 
-Unchanged, and still the way `main.gd` drives them:
+Unchanged (the caller was `main.gd`, since removed; `shell/engine_bridge.gd`
+calls them now):
 `set_sea_level(f)`, `set_experimental_flags(bool × 4)`,
 `set_villages_enabled(bool)`, `generate(seed, width_km, resolution)`,
 `generate_world_structure(seed, width_km, resolution, archetype) -> bool`.
@@ -268,10 +271,10 @@ is non-empty, that is a bug in the caller, not user error.
 to be the same call and no longer are, see below), and `generate()` overwrites
 only `gw`/`gh`/`tect.seed`/`map_width_km` before calling `generate_terrain`.
 An instance nobody calls a setter on therefore builds a `WorldParams`
-byte-identical to the one the old code built inline, **except for the four
+byte-identical to the one the old code built inline, **except for the five
 fields below**.
 
-**The four deliberate divergences**, each an owner ruling, all turned on in
+**The five deliberate divergences**, each an owner ruling, all turned on in
 `params::defaults()` and all left `false` in `WorldParams::defaults` — the
 goldens' own parity baseline:
 
@@ -281,12 +284,13 @@ goldens' own parity baseline:
 | `volc.exclude_transform` | §7l-ii, ruling 1 (2026-09-02) | shear-dominant cells drop out of the arc/rift pools; the measured 34.3%/32.3% transform contamination becomes 0.0% |
 | `volc.edifice_model` | §7l-ii, ruling 1 (2026-09-02) | shield/strato/cone edifices instead of one power-law profile at every scale |
 | `integrate_drainage` | owner-authorised 2026-09-22 (`RC_ENGINE_CHANGES.md` §6g/§6k) | flow and the channel tree route over the depression-filled surface, so water reaching a local pit carries on to the sea — the source's own default since v2.59 |
+| `tect.narrow_plate_base_blur` | `DECISIONS.md` §7n, carried under Ruling AP (`a74b35c`, 2026-09-24; `RC_ENGINE_CHANGES.md` §6i) | the plate-base blur radius is `max(2, blur_r·0.18)` (source v2.57 `PLATE_BASE_BLUR_K`) instead of `blur_r·0.35`, so coastlines leave the plate polygons |
 
 Those defaults live at this one boundary specifically so the parity baseline
 underneath them stays untouched. Every other parameter is unaffected, and
 `tests/params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`
-asserts that — it neutralises exactly these four and requires the result to
-equal `WorldParams::defaults`, so a fifth divergence added without a ruling
+asserts that — it neutralises exactly these five and requires the result to
+equal `WorldParams::defaults`, so a sixth divergence added without a ruling
 fails there rather than being discovered later.
 
 **One further change of 2026-09-02 is not a divergence but does change behaviour**:
@@ -312,7 +316,13 @@ check on the table, not (since §7l) a claim that `params::defaults()` equals
 - **Key** — the dotted key `set_params`/`get_params`/`get_param_info` use.
 - **Field** — the `cartalith_engine::WorldParams` field path.
 - **Default** — `WorldParams::defaults`' value, which is the reference's own
-  `state` literal in every case.
+  `state` literal wherever the reference has one — with one exception,
+  `passes.evolve_cycles` (`0` = off here; the reference's `stream.cycles` is
+  `5`, the slider value for a button). It is **not** what the shipped app
+  generates with at the five ruled divergences above, which
+  `params::defaults()` turns on, nor for `use_gpu`, which
+  `engine_bridge.gd`'s `_ready` turns on at boot. (Qualified 2026-09-24; this
+  said "in every case".)
 - **Range** — the `min`..`max` (and `step`) `get_param_info` reports and
   `set_params` clamps to.
 - **Reference control** — the reference HTML element id, its raw slider range,
@@ -320,7 +330,11 @@ check on the table, not (since §7l) a claim that `params::defaults()` equals
   this as a user control**: it is an internal tuning constant this port
   chooses to surface anyway. Per `DECISIONS.md` §7d that is a superset, not a
   violation, because the default reproduces reference behaviour exactly — but
-  the distinction is recorded, not blurred.
+  the distinction is recorded, not blurred. That holds at
+  `WorldParams::defaults`, not at the app boundary: a `—` row that is one of
+  the five ruled divergences, or that only a ruled divergence reads
+  (`crater.surface_age_myr` under `crater.physical_model`), does not
+  reproduce the reference in the shipped app.
 
 Where a reference slider's raw range maps to a narrower float range than the
 underlying field could hold (`tect.flexure` reaches only `0.36`, `tect.hetero`
@@ -342,7 +356,7 @@ are the truth and both sit inside the reachable range.
 | `carve_rivers` | `carve_rivers` | bool | `true` | — | `carveRiversChk` | Runs the light stream-power pass plus parabolic valley stamping along the Strahler network inside `generate()`, so rivers sit in carved terrain instead of painted on a flat surface. Off → no channel topology at all. | Erosion, Hydrology (gates the whole carve block) | — full regenerate only |
 | `river_density` | `river_density` | float | `1.00` | 0.30 .. 3.00, step 0.05 | `riverDensR`, raw 30-300 step 5, `v/100` | Scales the channel-initiation drainage-area threshold. Higher = fewer, larger channels; lower = a denser network. (`state.viz.riverDensity` in the reference — a viz field that genuinely feeds generation.) | Hydrology (channel width/order), Civilisation (`fresh_river_network`) | Climate → `compute_civilisation` |
 | `integrate_drainage` | `integrate_drainage` | bool | `false`¹ | — | **—** | Routes flow accumulation and the channel tree over the **depression-filled** surface, so water that reaches a local pit carries on to the sea instead of stopping there. Owner-authorised 2026-09-22 (`RC_ENGINE_CHANGES.md` §6g/§6k; the source's own default since v2.59). No reference control in v2.10/v2.11 — the source added `state.hydro.integrate` at v2.41, after both frozen snapshots. **`true` in the shipped app (`params::defaults()`), `false` in `WorldParams::defaults`**, the goldens' own parity baseline, which compares against a reference with no fill — same shape as the crater/volcanism divergences above. | Hydrology (depression-filled routing), Civilisation (`fresh_river_network`) | Hydrology → `refresh_climate` |
-| `use_gpu` | `use_gpu` | bool | `false` | — | `gpuToggle` | Runs plate assignment, domain warp, heterogeneity, the flexure/base blur, weather and flow accumulation on GPU where available, falling back to CPU **per stage** on any failure. **Not a performance-only switch**: per `DECISIONS.md` §7c the GPU noise primitive is a different hash function, so the same seed produces a different (still valid, still deterministic) world. Read `get_gpu_stages_used()` for what actually ran. | Tectonics, Volcanism & Impacts (warp/plate GPU paths), Hydrology, Climate (GPU dispatch selector) | — full regenerate only |
+| `use_gpu` | `use_gpu` | bool | `false` (the shell turns it on at boot: `engine_bridge.gd` `_ready` → `param_set("use_gpu", true)`) | — | `gpuToggle` | Runs domain warp, plate assignment, stress, the plate-base blur, heterogeneity, flow accumulation and weather on GPU where available (the stage names `generate_terrain_inner` pushes into `gpu_stages_used`: `warp`/`warp_split`, `plate_assignment`, `stress`, `base_field_blur`, `heterogeneity`, `flow`, `weather`; corrected 2026-09-24), falling back to CPU **per stage** on any failure. **Not a performance-only switch**: per `DECISIONS.md` §7c the GPU noise primitive is a different hash function, so the same seed produces a different (still valid, still deterministic) world. Read `get_gpu_stages_used()` for what actually ran. | Tectonics (warp, plate, stress, base-blur and heterogeneity GPU paths), Hydrology (flow), Climate (weather). Not Volcanism, which this row named until 2026-09-24 | — full regenerate only |
 
 ## Group `planet`
 
@@ -408,8 +422,9 @@ The height formula these feed:
 | `tect.ridged` | `tect.ridged` | bool | `true` | — | `ridged` | Switches the fractal between ridged (sharp crests, mountainous) and standard fBm (rolling). | Tectonics (`compute_height` fractal mode) | — full regenerate only |
 | `tect.flexure` | `tect.flexure` | float | `0.20` | 0.0 .. 0.36, step 0.006 | `flexure`, raw 0-60, `v/100·0.6` | Lithospheric-flexure weight: broad isostatic arches around mountain loads and subsidence in rift basins — the main driver of continental shelves. | Tectonics (`compute_height` flexure weight) | — full regenerate only |
 | `tect.hetero` | `tect.hetero` | float | `0.08` | 0.0 .. 0.16, step 0.004 | `hetero`, raw 0-40, `v/100·0.4` | Within-plate crustal-diversity weight: low-frequency fBm × age, giving craton interiors and sedimentary basins their own topography. | Tectonics (`compute_height` heterogeneity weight) | — full regenerate only |
-| `tect.resist` | `tect.resist` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `resist`, raw 0-100, `v/100` | Erodibility spread by rock type in the stream-power pass: old shields resist incision (5-30% rate), young volcanic arcs erode at full rate. | Tectonics (`compute_resistance`), Erosion (stream-power erodibility spread) | — full regenerate only |
+| `tect.resist` | `tect.resist` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `resist`, raw 0-100, `v/100` | Erodibility spread by rock type in the stream-power pass: old shields resist incision (5-30% rate), young volcanic arcs erode at full rate. Filed under `tectonics` because `params.rs` files it there (it is `TectonicParams::resist`), but only the stream-power pass reads it. | Erosion only (`StreamPowerParams::resist`, at every `stream_power_kernel` call). `compute_resistance` builds the per-rock field without it; this column named it until 2026-09-24 | — full regenerate only |
 | `tect.dynamic_lithology` | `tect.dynamic_lithology` | bool | `false` | — | `dynLithChk` | Exhumation hardening: after erosion, re-derives the resistance field so stripped-down crust exposes more resistant rock. Reference default off. | Erosion (`recompute_resistance_after_erosion`, gated on every erosion pass) | — full regenerate only |
+| `tect.narrow_plate_base_blur` | `tect.narrow_plate_base_blur` | bool | `false`¹ | — | **—** | Blurs the piecewise-constant plate-base field at `plate_base_blur_r` = `max(2, blur_r·K)` with the source's v2.57 `K = PLATE_BASE_BLUR_K = 0.18` instead of the frozen snapshots' `0.35` (`PLATE_BASE_BLUR_K_V2_10`), so the noise term can carry the coast off the plate polygons. The source has it as a constant, not a control. **`true` in the shipped app (`params::defaults()`), `false` in `WorldParams::defaults`** and for any save that does not carry the key. Added `a74b35c`, 2026-09-24 | Tectonics (plate-base blur, CPU and GPU `base_field_blur`) | — full regenerate only |
 | `tect.lloyd` | `tect.lloyd` | int | `2` | 0 .. 8, step 1 | **—** | Lloyd-relaxation passes over the plate centroids before Voronoi assignment. More = more evenly sized, less clustered plates. The reference stores it in `state.tect` but never gave it a control; range is this port's own judgement. | Tectonics (`build_plates` Lloyd relaxation) | — full regenerate only |
 
 ## Group `volcanism` — Volcanism & impacts
@@ -428,11 +443,11 @@ Stamped after the base height is built and normalized, before erosion.
 | `crater.physical_model` | `crater.physical_model` | bool | `false`¹ | — | **—** | `DECISIONS.md` §7l (owner ruling, 2026-09-02). Switches crater generation from `crater.count`'s fixed count to an area-density model: `lambda = R20·T·A·(20/Dmin)^b·I` (Poisson-drawn count, truncated `D⁻²` sizes over a resolution-aware `[Dmin, 400 km]`), so density is correct at every map scale instead of a slider whose meaning changes by 64,000,000× between a 5 km region and a 40,000 km world. The reference has neither a density model nor this flag — no reference counterpart at all, not just no control. | Volcanism & Impacts (dispatch: density-law vs. fixed count) | — full regenerate only |
 | `crater.surface_age_myr` | `crater.surface_age_myr` | float | `100.0` | 0.0 .. 4000.0, step 10.0 | **—** | Geological surface exposure age in **millions of years** — feeds `crater.physical_model`'s `T` term. **Not** the civilisation Timeline and **not** `crater.age`'s 0-1 morphological wear: three distinct clocks (`DECISIONS.md` §7l), six-plus orders of magnitude apart and not convertible. No reference counterpart: the reference has no geological-age concept to store one under. | Volcanism & Impacts (crater count AND `crater_degradation_tau`; inert unless `physical_model` on) | — full regenerate only |
 
-¹ All four ¹-marked flags (`integrate_drainage` in the `world` group and the
-three above) share one shape, and the `Default` column gives
+¹ All five ¹-marked flags (`integrate_drainage` in the `world` group,
+`tect.narrow_plate_base_blur` in `tectonics`, and the three above) share one shape, and the `Default` column gives
 `WorldParams::defaults`' value throughout this document: `false` restores the
 reference's own path byte-for-byte and is the goldens' parity baseline, while
-the **shipped app** defaults all four `true` at the
+the **shipped app** defaults all five `true` at the
 `cartalith-godot::params::defaults()` boundary (see "Zero behaviour change at
 defaults" above for why the two differ, and
 `exactly_the_ruled_divergences_ship_at_the_app_boundary` for the enforced list).
@@ -474,7 +489,10 @@ never does, so each *kernel* is golden-parity bit-exact alone and the
 Every toggle's **Reference control is `—`** for one reason, stated once here
 rather than repeated per row: the reference's control is a **button**, not a
 checkbox, so the toggle *is* the §7d addition. Each knob below, by contrast,
-does have a real reference slider and carries its reachable range.
+has a real reference slider and carries its reachable range — **except
+`passes.glacial_mg`, `passes.sediment_capacity` and `passes.tidal_k`**, which
+have no reference slider (each row says so; this paragraph claimed every knob
+had one until 2026-09-24).
 
 | Key | Field | Type | Default | Range | Reference control | Meaning | Stage(s) that read it | Live-apply |
 |---|---|---|---|---|---|---|---|---|
@@ -494,7 +512,7 @@ does have a real reference slider and carries its reachable range.
 | `passes.marsh_band` | `passes.marsh_band` | float | `0.03` | 0.0 .. 0.1, step 0.001 | `cMar`, raw 0-100, `v/100·0.1` | Height band above sea level where tidal marsh accretes, on slopes under 0.08. | Erosion | — full regenerate only |
 | `passes.coastal_passes` | `passes.coastal_passes` | int | `4` | 1 .. 15, step 1 | `cPas`, raw 1-15 step 1 | Wave/estuary passes. The marsh pass runs once, after them. | Erosion | — full regenerate only |
 | `passes.hillslope` | `passes.hillslope` | bool | `false` | — | — (`#diffuseBtn` is a button) | Run `hillslopeDiffuseCPU` — `∂z/∂t = D∇²z` by explicit forward Euler. Rounds ridge detail and softens relief everywhere at once. X wraps only in world mode; Y never (the poles are hard edges). | Erosion | — full regenerate only |
-| `passes.diffuse_d` | `passes.diffuse_d` | float | `0.15` | 0.002 .. 0.2, step 0.002 | `edD`, raw 1-100, `v/100·0.2` | Diffusivity D — **and the one knob in this group that changes terrain with every pass off.** Since owner ruling 2 of 2026-09-02 (`DECISIONS.md` §7l-ii) it is the world's single hillslope diffusivity, read by `cartalith_terrain::crater_degradation_tau` as well as by `hillslope_diffuse`: under `crater.physical_model` (on in the shipped app) raising it relaxes craters further at the same surface age, whether or not `passes.hillslope` is enabled. Hence the label *"Diffusivity D (also weathers craters)"*. Craters read the **raw** value, not `hillslope_extent_scale`'s corrected one — that correction is a discretisation fix for the one-cell Laplacian (§7m), not a different `kappa`. The default is unchanged and `0.15` is the anchor `crater_degradation_tau` was calibrated at, so the shipped configuration is bit-identical to the private anchor it replaced. | Erosion (hillslope pass) AND Volcanism & Impacts (`crater_degradation_tau`, unconditionally — see its own row) | — full regenerate only |
+| `passes.diffuse_d` | `passes.diffuse_d` | float | `0.15` | 0.002 .. 0.2, step 0.002 | `edD`, raw 1-100, `v/100·0.2` | Diffusivity D — **and the one knob in this group that changes terrain with every pass off.** Since owner ruling 2 of 2026-09-02 (`DECISIONS.md` §7l-ii) it is the world's single hillslope diffusivity, read by `cartalith_terrain::crater_degradation_tau` as well as by `hillslope_diffuse`: under `crater.physical_model` (on in the shipped app) raising it relaxes craters further at the same surface age, whether or not `passes.hillslope` is enabled. Hence the label *"Diffusivity D (also weathers craters)"*. Craters read the **raw** value, not `hillslope_extent_scale`'s corrected one — that correction is a discretisation fix for the one-cell Laplacian (§7m), not a different `kappa`. The default is unchanged and `0.15` is the anchor `crater_degradation_tau` was calibrated at, so the shipped configuration is bit-identical to the private anchor it replaced. | Erosion (hillslope pass) AND Volcanism & Impacts (`crater_degradation_tau`, whenever `crater.physical_model` is on — the app default — whether or not `passes.hillslope` is; `stamp_craters` calls it only under `physical`. This said "unconditionally" until 2026-09-24) | — full regenerate only |
 | `passes.diffuse_passes` | `passes.diffuse_passes` | int | `6` | 1 .. 40, step 1 | `edPas`, raw 1-40 step 1 | Forward-Euler steps. | Erosion | — full regenerate only |
 | `passes.sediment_fill` | `passes.sediment_fill` | bool | `false` | — | — (`#sedimentBtn` is a button) | Run `depositSediment` — a stream-power carve, then route the eroded mass downstream and redeposit it (mass-conserving) instead of the broad isostatic rebound. Builds deltas, shelves and floodplains. | Erosion | — full regenerate only |
 | `passes.sediment_capacity` | `passes.sediment_capacity` | float | `6.0` | 0.0 .. 20.0, step 0.5 | — | `routeSediment`'s transport capacity (`capacity × discharge × slope`); load above it deposits. The reference has no slider — this is its own `opts.capacity` default. | Erosion | — full regenerate only |
@@ -574,7 +592,7 @@ existence.
 | `civ.recovery_phase` | `civ.recovery_phase` | int | `0` | 0 .. 4, step 1 | `civRecoveryPhase` | Post-collapse recovery stage: `0` Stable / `1` Survival / `2` Subsistence / `3` Regional / `4` Mature. `0` is a strict no-op; the reference's own `Math.max(0,Math.min(4,rp.value\|0))`. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
 | `civ.biome_k` | `civ.biome_k` | bool | `false` | — | `civBiomeKChk` | Biome carrying-capacity residual. Off is byte-identical to the pre-existing path (the reference's own `currentCarryingCapacity` short-circuits its correction at `biomeK:false`); on, also builds a wetland mask that feeds the correction. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
 | `civ.factions` | `civ.factions` | int | `6` | 1 .. 24, step 1 | **—** | How many factions settlement placement assigns into. The reference's `CIV_FACTIONS` array length (6 by default), edited there through `_civAddFaction`/`_civRemoveFaction` rather than a count dial — this port's superset. Floor `1` (0 would leave every settlement unclaimed, `assign_territory`'s sentinel); ceiling `24` is this port's own legibility judgement over `roster::civ_faction_color`'s well-defined-for-any-index hue walk. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
-| `civ.seed_thresh` | `civ.seed_thresh` | float | `0.42` | 0.10 .. 0.80, step 0.01 | **—** | `SETTLE_SEED_THRESH`: the suitability score (`[0,1]`) a cell must reach to seed a settlement. A reference **constant** (14568/6415) with no control. **Read only when `civ.fixed_counts` is off** — the Auto-populate count fields, when on, substitute `thresh:0.35` unconditionally (`civ_want_counts_seed_params`), so this dial is silently inert whenever fixed counts are enabled. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert under `civ.fixed_counts`**) | Climate → `compute_civilisation` |
+| `civ.seed_thresh` | `civ.seed_thresh` | float | `0.42` | 0.10 .. 0.80, step 0.01 | **—** | `SETTLE_SEED_THRESH`: the suitability score (`[0,1]`) a cell must reach to seed a settlement. A reference **constant** (v2.10 line 6415, v2.11 line 6441; this cited "14568", which is `CIV_FACTIONS`, until 2026-09-24) with no control. **Read only when `civ.fixed_counts` is off** — the Auto-populate count fields, when on, substitute `thresh:0.35` unconditionally (`civ_want_counts_seed_params`), so this dial is silently inert whenever fixed counts are enabled. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert under `civ.fixed_counts`**) | Climate → `compute_civilisation` |
 | `civ.seed_suppress_div` | `civ.seed_suppress_div` | float | `22.0` | 8.0 .. 60.0, step 1.0 | **—** | Divisor in the settlement-suppression radius `max(6, floor(gw / this))` (reference `Math.max(6,(GW/22)\|0)`, a constant with no control). Larger = smaller radius = denser packing. **Same `civ.fixed_counts` override as the row above** — verified at the symbol: `compute_civilisation` reads it only in the `None => (opts.seed_thresh, (gw as f64 / opts.seed_suppress_div.max(1.0)).floor().max(6.0))` arm of the `want` match. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert under `civ.fixed_counts`**) | Climate → `compute_civilisation` |
 | `civ.fixed_counts` | `civ.fixed_counts` | bool | `false` | — | **—** | The reference's five Auto-populate count inputs, switched on as a set (`CivParams::want_counts`). On, **overrides** `civ.seed_thresh`/`civ.seed_suppress_div` outright and cuts the centrality re-tiering loop to one pass. Off, the five `civ.n_*` counts below are read by nothing. An all-zero request falls back to automatic placement (the reference alerts and places nothing instead — this port has nobody to alert). | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline) | Climate → `compute_civilisation` |
 | `civ.n_capital` | `civ.counts[0]` | int | `0` | 0 .. 50, step 1 | `civNCap` | Fixed capital count. Read only while `civ.fixed_counts` is on and at least one of the five counts is non-zero. | Civilisation (`compute_civilisation`, outside the WORLD 10-stage pipeline; **inert unless `civ.fixed_counts`**) | Climate → `compute_civilisation` |
@@ -679,10 +697,19 @@ still absent.
   transcribe, and it was outside the passes wired above. The one remaining gap
   in the `erosion` group's manual passes.
 - **Structured-orogeny tuning** (`foldI`, `trenchD`, `faultB`) — the T5 knobs.
-  `generate_terrain` hardcodes them to the exact values the reference's own
-  null-coalescing defaults produce (`0.16`, `1.0`, `0`), documented in the
-  engine's module doc comment. Exposing them means threading three new fields
-  through `OrogenyParams`' call site — real work, not a wiring gap.
+  With World Structure on, `generate_terrain_inner` builds
+  `OrogenyParams { fold_k: 0.16, trench_k: 1.0, fault_block_k: 0.0 }`. **These
+  are not the reference's effective values**, which this entry claimed until
+  2026-09-24: the reference's `deriveFromWorldStructure` sets
+  `foldIntensity = 0.6 + tectonicEnergy` and `trenchDepth = 0.7 + 0.8·oceanDepth`,
+  and `state` carries `faultBlock: 0.6` (v2.10 2265, 2536-2538), so its
+  null-coalescing fallback is never reached and horst-and-graben terrain
+  (`fault_block_k > 0`) never forms here. **Ruling AS (2026-09-24) rules the
+  derivation be ported** as a disclosed re-baseline of World-Structure worlds;
+  as of 2026-09-24 the code still hardcodes the three values (its own comment
+  above the call repeats the false "null-coalescing defaults" claim). Where the
+  port stands is `STATUS.md`'s answer. Exposing the knobs as parameters is a
+  separate question the ruling does not decide.
 - **Geoid** (`geoidChk`, `geoidAmp`) — a default-off sub-object of
   `state.planet`, not ported.
 - **The moon roster** (`tidesChk`, `tideMass`, `tideDist`, `tideK2`) — the
@@ -804,7 +831,8 @@ documented rather than being real defects:
      `civ` group table, which is the "dash a field with its reason"
      `MISTAKES.md` rule applied to a row that silently goes inert rather
      than to a bare value.
-   - `passes.diffuse_d` is read by **two** stages unconditionally — the
+   - `passes.diffuse_d` is read by **two** stages, each gated (this said
+     "unconditionally" until 2026-09-24) — the
      hillslope-diffuse pass (Erosion, gated on `passes.hillslope`) and
      `crater_degradation_tau` (Volcanism & Impacts, gated on
      `crater.physical_model`, **independent of `passes.hillslope`**). Already
@@ -884,6 +912,12 @@ as exactly the shape of defect to look for; none turned up on this pass.
   call inside the carve and erosion-pass blocks further down — one dial,
   two genuinely different physical roles (boundary-stress spread vs.
   isostatic-rebound wavelength), not a documentation duplicate.
+
+**Correction, 2026-09-24.** This audit's `tect.resist` Stage entry named
+`compute_resistance` (Tectonics); that function does not take the dial — only
+`StreamPowerParams::resist` reads it. Its `use_gpu` entry named Volcanism,
+which has no GPU stage. Both rows above are corrected; neither changes the
+"zero unwired" finding.
 
 ### Summary for `OUTSTANDING_WORK.md` §2.5
 

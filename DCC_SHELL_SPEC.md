@@ -26,6 +26,12 @@
 > 1. **§5.2's commit prose** says it "re-runs erosion, hydrology and climate
 >    once". `commit_sculpt_pass` deliberately marks tiles stale instead. The
 >    engine is right and the line is stale — see `SCULPT_FUNCTION_CHART.md` §7.
+>    *Corrected 2026-09-24: this correction is itself stale since `8e666ac`
+>    (2026-08-24).* `WorldGen::sculpt_commit` now calls `mark_and_recompute`,
+>    whose `staleness::recompute_stale` **re-runs hydrology and climate once**
+>    (`refresh_climate`). Erosion is not re-run, and the civ stage is left
+>    stale for an explicit recompute. So §5.2's line is two-thirds right: it is
+>    wrong only about erosion.
 > 2. **§5.1's "Run stage *n*", "Run *n* → 10" and "stale from *n* — *k*
 >    downstream stages will re-run" describe a capability that exists nowhere
 >    — not in this engine, not in the reference app being ported.** Established
@@ -702,9 +708,10 @@ Immediate, applied to the selection, undoable.
 
 Every stroke becomes a live procedural stamp (`sculptStamps`). Nothing touches
 the real heightfield until Commit (`#sculptCommitBtn`), which bakes the whole
-stack in one pass and re-runs erosion, hydrology and climate once *(superseded —
-header correction #1: commit marks downstream tiles stale rather than re-running
-them)*. Discard
+stack in one pass and re-runs erosion, hydrology and climate once *(header
+correction #1: in this port, commit re-runs hydrology and climate once
+through `staleness::recompute_stale`, does not re-run erosion, and leaves the
+civ stage stale)*. Discard
 (`#sculptDiscardBtn`) drops the draft. Sculpting is locked while the world is
 finalized (`#sculptFinalizedNote`).
 

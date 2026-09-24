@@ -47,7 +47,8 @@ continentality field
    own docs** rather than dropping it quietly. Its outcome is recorded in
    `STATUS.md` as row MVP-S6.
 7. **Erosion** — droplet, stream-power, thermal. Choose the parallelism strategy
-   deliberately and record why (`ARCHITECTURE.md`, threading).
+   deliberately and record why (`ARCHITECTURE.md` §Threading, which points to
+   `CPU_MULTITHREADING_SCOPE.md` and the per-kernel notes).
 8. **Hydrology** — flow accumulation, Strahler ordering, river polyline tracing,
    and real-km-aware channel width (v2.07): a river widens with map width as it
    does today.

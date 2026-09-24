@@ -25,24 +25,44 @@ layer converts at the edge.
 ## Crate layout: one crate per subsystem
 
 A Cargo workspace of small crates, each independently compilable and testable.
-Dependencies run one way, in pipeline order:
+Dependencies run one way, roughly in pipeline order. The one exception is
+deliberate and test-only: `cartalith-gpu`'s dev-dependencies on
+`cartalith-engine` and `cartalith-civ` close a **dev-dependency cycle**
+(civ → engine → gpu → civ), which Cargo permits; `cartalith-gpu`'s
+`Cargo.toml` says why. Its normal `[dependencies]` stay acyclic.
 
 ```
 cartalith-native/                 (workspace root, new repository)
-├── crates/
+├── crates/                       16 crates; internal [dependencies] in brackets
 │   ├── cartalith-jsmath/         Math.hypot/exp/sin/cos/log/atan2/round/toFixed
 │   │                             with V8's semantics — no dependencies at all
-│   ├── cartalith-noise/          hash/vnoise/fbm/ridged — hand-ported, see below
-│   ├── cartalith-rng/            mulberry32, ported exactly (PARITY_TESTING.md)
+│   ├── cartalith-noise/          hash/vnoise/fbm/ridged — hand-ported, see below  []
+│   ├── cartalith-rng/            mulberry32, ported exactly (PARITY_TESTING.md)   []
+│   ├── cartalith-vault/          Markdown Vault: sections, links, fs provider      []
+│   ├── cartalith-spatial/        tiling, dirty-tracking, draft stack, geometry [jsmath]
+│   ├── cartalith-urban/          urban morphology (UME engine)        [jsmath, rng]
+│   ├── cartalith-assets/         asset packs, library, PNG            [jsmath, noise]
+│   ├── cartalith-io/             save/load (SAVEFILE_COMPAT.md)       [spatial]
 │   ├── cartalith-terrain/        tectonics → height → normalize → volcanism → archetypes
-│   ├── cartalith-climate/        temperature, wind, rainfall
+│   │                             [jsmath, noise, rng, spatial]
+│   ├── cartalith-climate/        temperature, wind, rainfall  [jsmath, noise, terrain]
 │   ├── cartalith-erosion/        droplet, stream-power, thermal
+│   │                             [jsmath, noise, rng, terrain]
 │   ├── cartalith-hydrology/      flow accumulation, river network, channel width
+│   │                             [jsmath, terrain]
+│   ├── cartalith-gpu/            wgpu compute stages, CPU fallback elsewhere  [noise]
+│   │                             (dev-deps: terrain, climate, hydrology, engine, civ)
 │   ├── cartalith-engine/         orchestrator: owns WorldState, runs the pipeline
-│   ├── cartalith-io/             save/load (SAVEFILE_COMPAT.md)
-│   └── cartalith-godot/          the only crate that depends on gdext
+│   │                             [jsmath, terrain, climate, hydrology, erosion,
+│   │                              spatial, io, assets, gpu]
+│   ├── cartalith-civ/            civilisation layer [jsmath, engine, hydrology, rng,
+│   │                             terrain, urban, noise] (dev-dep: spatial)
+│   └── cartalith-godot/          the only crate that depends on gdext; depends on
+│                                 every crate above except urban and erosion
+│                                 (reached through civ and engine)
 ├── godot-project/                scenes, GDScript glue, export presets
-└── docs/                         CHANGELOG.md, HANDOFF.md
+└── docs/                         STATUS.md, the retired CHANGELOG.md,
+                                  3D_TERRAIN_RENDER_RESEARCH.md
 ```
 
 **`cartalith-jsmath` is a true leaf, and that is the point.** It has **no
@@ -56,9 +76,9 @@ three of `js_min`/`js_max`, two of `toFixed`, and one each of `js_exp`,
 could reach. The copies had already drifted apart in three measurable ways.
 
 A dependency-free crate is the only shape that reaches all fifteen without
-disturbing the one-way ordering above: `cartalith-urban` is allowed only
-`cartalith-rng`, and `cartalith-assets` only `cartalith-io`/`-noise`, so neither
-can see `cartalith-spatial` or `cartalith-hydrology`, where two of those helpers
+disturbing the one-way ordering above: `cartalith-urban` otherwise depends
+only on `cartalith-rng`, and `cartalith-assets` only on `cartalith-noise`, so
+neither can see `cartalith-spatial` or `cartalith-hydrology`, where two of those helpers
 used to live. Sitting below everything, it cannot create a cycle wherever it is
 added. Adding *anything* to its `[dependencies]` — including a dev-dependency —
 would put that back in question, which is why its bulk goldens carry a four-line
@@ -74,8 +94,11 @@ effects where matching is not the goal (`ROADMAP.md`).
 
 - Each crate golden-parity-verifies in isolation, which is what makes
   `PARITY_TESTING.md`'s one-stage-at-a-time structure natural rather than forced.
-- Later subsystems (civ, urban morphology, assets) arrive as new crates depending
-  on `cartalith-engine`'s public types, without touching terrain or climate. The
+- Later subsystems (civ, urban morphology, assets, vault) arrive as new crates
+  without touching terrain or climate. Only `cartalith-civ` depends on
+  `cartalith-engine`'s public types; `-urban`, `-assets` and `-vault` depend on
+  no pipeline crate at all, and `cartalith-engine` itself depends on `-assets`
+  (region export's PNG/zip) and `-gpu`. The
   boundary makes accidental duplication harder: you would have to add a
   dependency and import, not just paste inline.
 - Only `cartalith-godot` knows Godot exists, so a future `cartalith-wasm` swaps
@@ -111,16 +134,25 @@ this, rather than leaving it implicit.
 
 The JS engine runs erosion kernels in Web Workers with a synchronous fallback
 (root `CLAUDE.md` invariant 11). Rust's equivalent is `rayon`, which removes the
-need for a worker pool.
+need for a hand-written worker pool. The decomposition was decided per kernel
+and is recorded in `CPU_MULTITHREADING_SCOPE.md`'s passes and at each kernel:
+`cartalith-erosion::droplet_kernel` stays sequential (each droplet's path reads
+what every earlier droplet carved), and the CPU thermal pass stays sequential
+because its scatter-writes race; `gpu_thermal.wgsl` is the gather version that
+`erode_op` runs under `use_gpu`.
 
-Decide the decomposition when porting erosion rather than assuming one. Droplets
-mutate a shared height array as they carve, which is a data race across droplets
-unless bucketed or serialised — read how `dropletKernel` handles it before
-reaching for `par_iter`.
+The pool is Rayon's global pool, built once by
+`cartalith_engine::ensure_thread_pool` with the worker count
+`set_configured_thread_count` recorded (0 = Rayon's default). A count chosen
+after the pool exists takes effect at the next start; that function's doc says
+why a live rebuild is not offered.
 
-## Not decided yet
+## Decided since this file was written
 
-- The array library (`ndarray` versus `Vec<f32>` with manual indexing) — choose
-  from real ergonomics while writing `cartalith-engine`.
-- The GDExtension API surface — design against Phase 0 and Phase 1's actual needs.
-- Windows cross-compilation route — see `TOOLCHAIN.md`.
+- The array library: plain `Vec<f32>` / slices with manual indexing. No crate
+  in the workspace depends on `ndarray`.
+- The GDExtension API surface: `cartalith-godot`'s `WorldGen` class and its
+  bridge modules; `STATUS.md` and `GENERATION_PARAMETERS.md` describe what it
+  exposes.
+- Windows builds are native on this machine; `TOOLCHAIN.md` keeps the
+  Linux cross-compilation routes.

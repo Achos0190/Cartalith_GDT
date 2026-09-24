@@ -43,8 +43,11 @@ Stated once here; each milestone below names only what it added.
   milestone here acted on lighting, a final tonal stage, or a builder input
   instead. **Ruling AP (`LARGE_ITEM_RULINGS.md`, 2026-09-23) authorises the first
   deliberate edit:** giving the snow term an aspect (slope-direction) input — a
-  re-baseline of the main map, scheduled, and traced in `LOD_DETAIL_SCOPE.md`'s
-  LOD-D4.
+  re-baseline of the main map, traced in `LOD_DETAIL_SCOPE.md`'s LOD-D4. It was
+  built in `19c38d9` (2026-09-24): `material_weights` takes a `snow_shift_c`
+  from `snow_aspect_shift`, scaled by `TerrainAppearance::snow_aspect_c`. That
+  is 0.0 under `js_reference()`, so the JS-parity goldens are unchanged; the
+  Rust render hashes were re-baselined.
 - **`js_reference()` is a test path, not a look.** It is what keeps
   `golden_parity_render.rs` honest; no shell control selects it. The shipped
   standard is `default()`. Under `DECISIONS.md` §7p a deliberate rendering

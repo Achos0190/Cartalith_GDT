@@ -113,7 +113,7 @@ applies to this port today.
 | Path | What it is |
 |---|---|
 | `cartalith-native/` | the Cargo workspace and the Godot project |
-| `reference/` | the frozen `Cartalith Gen1 v2.10.html` + `FUNCTION_INDEX.md` — since 2026-08-23 a full checklist: every user-facing control (with backing functions) and a one-line purpose for all 1094 functions. **Both are v2.10 while a tracked `Cartalith Gen1 v2.11.html` sits at this repository's root** — the re-freeze is open work (`OUTSTANDING_WORK.md` §2.8), and `CLAUDE.md` records what is and is not established about it |
+| `reference/` | two frozen snapshots: `Cartalith Gen1 v2.10.html` + `FUNCTION_INDEX.md` — since 2026-08-23 a full checklist: every user-facing control (with backing functions) and a one-line purpose for all 1094 functions — and, since 2026-09-02 (`45b368d`), `Cartalith Gen1 v2.11.html` + `FUNCTION_INDEX_v2.11.md`, a byte copy of the v2.11 still at this repository's root. Scope-document line ranges resolve against v2.10; `REFERENCE_DRIFT_v2.10_to_v2.11.md` maps between them. Re-freezing to the DCC line's newer versions is open work (`OUTSTANDING_WORK.md` §2.8) |
 | `docs/` | **the source project's own documentation**, kept as provenance — see `docs/README.md`; two filenames collide with the port's |
 | `design/` | owner-supplied UI mockups and handoff specs, imported verbatim |
 | `skills/` | the vendored Claude Code skills this project uses |

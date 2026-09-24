@@ -438,6 +438,9 @@ which in turn means the Rust side must either rebuild its `RenderCtx` per band
 (the honest simple option — `RenderCtx::with_appearance`'s precomputes are
 grid-resolution, so this is seconds added to an export that is minutes long) or
 hold the heavy precomputes as owned parts. This was reached but not built.
+*(2026-09-24: built since — the second option. `cartalith-godot/src/export_session.rs`'s
+`ExportSnapshot` owns what a band reads, assembled from the LOD worker's
+`SnapshotInputs`, in E4 Batch A, `34db87f`, 2026-09-23. Progress is `STATUS.md`'s.)*
 
 ### The settlement-LOD question, now sharper
 

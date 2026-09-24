@@ -164,10 +164,10 @@ three added since have their own:
 
 | Entity | Key | Survives a rename/move | Survives `civ_recompute()` | Survives a regenerate | Survives save/load |
 |---|---|---|---|---|---|
-| Settlement | `NamedSettlement::tid` | **Yes** | **Yes** (kept settlements keep their tid) | No | No — civ is not saved |
-| Province | `Province::id` | Yes | Only if the seed set is unchanged | No | No |
-| Continent | rank by area | Yes | Yes (terrain unchanged) | No | No |
-| Faction | roster row index | Yes | Yes | No | No |
+| Settlement | `NamedSettlement::tid` | **Yes** | **Yes** (kept settlements keep their tid) | No | Reference `.zip`: no. Project archive: yes — `entities/settlements.json` stores each `tid` |
+| Province | `Province::id` | Yes | Only if the seed set is unchanged | No | Reference `.zip`: no. Project archive: yes — `entities/provinces.json` stores `id` |
+| Continent | rank by area | Yes | Yes (terrain unchanged) | No | Reference `.zip`: no. Project archive: yes — `entities/continents.json` stores `id` |
+| Faction | roster row index | Yes | Yes | No | Reference `.zip`: no. Project archive: yes — `entities/factions.json` stores the roster in order, with `id` |
 | Culture | `CIV_CULTURES` index | **Yes** | **Yes** | **Yes** | **Yes** |
 | Landmark | `Landmark::key()` (`kind@x,y`) through `links::landmark_entity_id` | No name to change; a terrain edit that moves the feature is a new key | Not touched by it; the key survives a landmark re-run at the same seed, a cap change and a disarmed kind | No, not at a different seed | Reference `.zip`: no (`load_save` invalidates the run). Project archive: yes — `LandmarksDoc` restores the last run |
 
@@ -185,9 +185,11 @@ generated entity could survive it. That column is a property of whatever save
 format is current rather than of the id designs beside it, and it is the one
 column here to re-read against the code instead of against this page — the
 project archive now carries `entities/settlements.json`, `provinces.json`,
-`continents.json` and `factions.json`, and the settlement, province,
-continent and faction rows have not been re-answered against it. The landmark row, added after the archive existed,
-answers for both formats. The other four columns are properties of the ids
+`continents.json` and `factions.json`. The settlement, province, continent and
+faction rows were re-answered against it on 2026-09-24, from
+`project_bridge.rs`'s `SLOT_*` documents and their DTOs' id fields. Like the
+landmark row, which was added after the archive existed, they now answer for
+both formats. The other four columns are properties of the ids
 themselves and do not move.
 
 The last row is the exception that proves the rule: a culture's id is an index
@@ -313,6 +315,13 @@ reasoning.
 Storage Access Framework: a tree URI, a persisted permission grant, and a
 provider implementation beside `FsVault`. Cross-device vault identity (§35
 criterion 2) is designed for and unverified until this exists.
+
+*Checked 2026-09-24:* the Rust half exists. `cartalith-godot/src/vault_saf.rs`
+has `SafVaultProvider` and `#[func] vault_connect_saf(tree_uri, display_name,
+dispatch)`, which `cff1edc` added, and `engine_bridge.gd` wraps it. The
+Android half does not: no shell `_saf_dispatch` implementation, no folder
+picker and no caller outside `_vaultsaf_probe.gd`'s fake provider. How the
+tree URI is picked is still an open owner question. Status is in `STATUS.md`.
 
 ### Milestone 5 — the conflict UI (§14's *Compare*)
 

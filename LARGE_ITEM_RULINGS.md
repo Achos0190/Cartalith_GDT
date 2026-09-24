@@ -1079,6 +1079,8 @@ Siting itself changes, not just the downstream render binding: a settlement only
 
 **Not scheduled as a build yet.** The river half is unblocked; the coastal half waits on EF-6. Neither has a build row in `OUTSTANDING_WORK.md` as of this ruling.
 
+*Stale, noted 2026-09-24: both halves have since been built.* The river half is `649897f` (the suitability river term reads real traced river geometry, and `build_site`'s `riverPath` truthiness fix went in with it, re-baselining `pathOfOne`/`pathEmpty`). The coastal half is `9ad4399` (`build_coast_reach`, proximity to EF-6's traced coastline, is the suitability coastal term). **`civ_is_coastal` was deliberately left as a proxy.** It is the port and sea-lane eligibility gate, not the suitability term, and `9ad4399` scoped Ruling N to suitability only, so the "re-baselines `civ_is_coastal`'s golden tests" sentence above did not happen as written. Its east-west wrap on non-wrapping maps was a separate defect. Ruling AR fixed it (`c4435ee`: the `world` argument to `civ_is_coastal`). Status lives in `cartalith-native/docs/STATUS.md`.
+
 ## 2026-09-21 — Ruling O: v2.69's tile-refinement sea-level clamp lands
 
 **The finding is `OUTSTANDING_WORK.md`'s v2.69 row, checked at the symbol and measured, not merely "confirmed inherited."** `amplify_region`'s underwater term already tapers going down into water and measures symmetric (0.32%/0.32%) at that layer alone — fine. One layer up, `add_zoom_detail` (the deep-zoom octave-stacking pass) gives a water cell zero extra octaves (`if base < sea { continue; }`) while a land cell gets up to six *unclamped* extra octaves with no `[0,1]` clamp on the write-back. Measured on a synthetic coastal gradient: 0.00% land→sea at z=2 rising to 0.17% at z≥4, and 0.00% sea→land at every level tested — strictly one-directional, and more extreme than the HTML's own asymmetry because this port's water cells are fully exempt rather than merely tapered.
@@ -1104,6 +1106,8 @@ Siting itself changes, not just the downstream render binding: a settlement only
 **The finding is `OUTSTANDING_WORK.md`'s IN-13 row.** Trade flows (who trades with whom, prices, tariffs, caravans as entities) cannot be built without first deciding what "currency" means in this world — `TradeBalance` already names *what* moves, never *who* holds it or in what unit.
 
 **Owner ruling, 2026-09-21: each faction has its own currency, with an exchange rate between any two.** Cross-faction trade needs a conversion step at the point of exchange, not a single universal unit of account. This is a design decision at the start of a large, unbuilt subsystem — no golden exists yet to move, and the build itself is not scheduled by this ruling; it only settles the question that was blocking a design.
+
+*Status note, 2026-09-24:* this ruling is **still unbuilt**. What shipped instead was Ruling AB's single world-wide scarcity price index, with Ruling AE's tariffs (`bbc255f`). No `currency` or `exchange_rate` exists in any crate: the only matches are doc comments saying that a value is *not* a currency. Ruling AR (2026-09-24) confirms that R stands and is not superseded, and that per-faction currencies are built on top of AB's pricing.
 
 ## 2026-09-21 — Ruling S: v2.71 half 2, woodland as a spatial area — declined
 
@@ -1165,11 +1169,15 @@ Siting itself changes, not just the downstream render binding: a settlement only
 
 **Owner ruling, 2026-09-23: derive price from `TradeBalance`'s existing surplus/deficit (scarcity-based).** No new authored data. This still leaves open how the derivation itself is shaped (the specific curve from surplus/deficit to a price number) and the three other IN-13 blockers unresolved (tariff-rate source — reuse `civ_faction_relations` or a new field; confirming a faction-aware match doesn't move the existing single-faction/no-tariff probe output; caravan entity semantics) — this ruling settles only the price-basis question.
 
+*Status note, 2026-09-24:* the price is built (`bbc255f`, each `TradeFlow` carries `price`). The other blockers were ruled by AE (tariffs), AF and AP (caravans) and AQ (sea lanes).
+
 ## 2026-09-23 — Ruling AC: a citadel enclosure is sited on a settlement's size tier, not faction-seat status
 
 **The finding is `OUTSTANDING_WORK.md`'s "a citadel enclosure straddling the town wall" row (Ruling I), whose own text named "settle the design first: which settlements get one" as a separate blocker independent of the GUI-sequencing gate (which was lifted 2026-09-22).**
 
 **Owner ruling, 2026-09-23: largest settlements only, by size tier — not gated on faction-seat status.** Matches how the existing rare bastioned-wall star fort is already gated by size/class. Still open: whether the citadel's area counts inside the wall circuit for growth purposes (the row's own second named question), and the citadel's own build (nothing like it exists yet — `fortify.rs` has no castle-enclosure construction, only the curtain/gates/spurs/star fort).
+
+*Stale, noted 2026-09-24: the citadel is built.* It is `cartalith_urban::citadel::build_citadel`, gated in `generate.rs` on `CITADEL_MIN_POP` (this ruling's size tier), in `9467a23`. Whether the citadel's area counts toward growth is still unruled.
 
 ## 2026-09-23 — Ruling AD: courtyard-perimeter blocks are gated by outermost ring, distance from market
 
@@ -1177,17 +1185,23 @@ Siting itself changes, not just the downstream render binding: a settlement only
 
 **Owner ruling, 2026-09-23: the outermost ring by distance from market.** Matches how other density gradients already keyed on market distance work in this engine (e.g. Clark's demand-decay gradient in `growth.rs`). Not yet built — this ruling settles only the gating definition.
 
+*Stale, noted 2026-09-24: built* as `cartalith_urban::courtyard::build_courtyard_rings`, which `generate.rs` calls with `anchors.market` (`ae6a8c8`).
+
 ## 2026-09-23 — Ruling AE: IN-13 tariffs get their own relationship field, not `civ_faction_relations`
 
 **The finding is IN-13 trade flows' second remaining sub-question**: whether a cross-faction tariff rate reuses `civ_faction_relations`'s existing pairwise score, or needs a dedicated field — `civ_faction_relations`'s own module doc is explicit that it deliberately is not diplomacy/treaties/vassalage, so reusing it for tariffs would repurpose a value past its stated scope.
 
 **Owner ruling, 2026-09-23: a new relationship field**, not a reuse of `civ_faction_relations`. Not yet built — this settles the source, not the field's own shape or default values. Two of IN-13's four original sub-questions remain: confirming the faction-aware trade match doesn't move the existing single-faction/no-tariff probe output (a verification constraint, not an owner decision), and caravan semantics (settled below, Ruling AF).
 
+*Stale, noted 2026-09-24: built.* `cartalith_civ::trade::Tariff` and `tariff_rate` shipped with AB's pricing in `bbc255f`.
+
 ## 2026-09-23 — Ruling AF: one caravan is one aggregate shipment per way
 
 **The finding is IN-13 trade flows' fourth sub-question**: what a "caravan" entity represents — one `TradeFlow` row, an aggregate per way, or a manually-initiated shipment — which decides whether caravans are a visualization of the existing stateless trade match or a real simulated, persisted thing with its own movement/consumption rules against the Timeline's year cursor.
 
 **Owner ruling, 2026-09-23: one aggregate shipment per way** — a periodic bundle of all matched trade volume currently routed over one way, not one entity per individual flow and not a manual player action. Closest in shape to `cartalith_civ::travel_library::Journey` (route + start_year + a persisted DTO), fewer entities than a per-flow model, easier to keep in sync with `trade_flows()`'s own deliberately stateless match. Not yet built — the exact tick/refresh cadence against the trade match and the Timeline's year cursor is still an implementation detail for whoever builds it.
+
+*Superseded in part, noted 2026-09-24.* **Ruling AP** (2026-09-23) kept "one per way" and replaced the persisted, `Journey`-shaped entity with a **derived view**: one row per loaded way, rebuilt from the live trade match, nothing saved. So the cadence question above no longer arises. The land half is built as that view (`da51a57`: `TradeNetwork::way_goods`, and `civ_trade_flows`'s `caravans` array). Ruling AQ gave sea lanes one caravan each; that half is not built.
 
 ## 2026-09-23 — Ruling AH: keep 2048×1311 as the Android resolution ceiling
 
@@ -1339,6 +1353,8 @@ Two stay partially chained:
 
 Not yet built. See `OUTSTANDING_WORK.md`'s SP-2/SP-4 rows for status.
 
+*Stale, noted 2026-09-24:* the two addenda below record SP-2 and SP-4 as built. Status is in `cartalith-native/docs/STATUS.md`, not here.
+
 **Addendum, 2026-09-23 — SP-2 built; the three points this ruling left to the builder, as decided.** Implementing this ruling's own open points, not a new owner decision.
 
 - **The calendar: `cartalith_vault::chronos::MONTH_DAYS` = `[31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]`**, `DAYS_PER_YEAR` = 365. The Gregorian lengths with February fixed at 28 — no leap year, ever. It was chosen over an invented scheme because it keeps Chronos's own `MM`/`DD` meaning what an Obsidian user expects for 365 of 366 days. The owner's EBSS vault was checked first: it writes bare years and one `YYYY-MM` (`[4349-09]`, `Timeline Summary.md`) and names no months or month lengths, so there was no in-world calendar to match. The only date Chronos can write that this calendar cannot hold is `-02-29`. It reads as its bare year, the way every month/day read before this change. It is not refused.
@@ -1379,11 +1395,13 @@ The backlog compiled earlier the same day (`OUTSTANDING_WORK.md`'s cross-referen
 
 **Snow gets an aspect (slope-direction) term.** Reverses LOD-D4's declined golden re-baseline. A real, visible change to the main map's `materialWeights` snow term, not just LOD tiles — every existing snowy mountain's rendered look changes. Scheduled, not yet built.
 
+*Stale, noted 2026-09-24:* built in `19c38d9`, and verified partial. It shipped as `TerrainAppearance::snow_aspect_c` (2.0 °C shipped; 0.0 under `js_reference()`) and `snow_aspect_shift`. The Rust render hashes were re-baselined, and the JS-parity goldens did not move. LOD-D4's bar 1b is still not met. Status is in `STATUS.md`.
+
 **Asset library images: embedded in the save file.** Real save-format work — the library currently persists item definitions with no image payload at all.
 
 **Crater model constants: kept as they are.** No work authorized — this closes the question rather than opening a task. The port's independently-derived constants stay; re-deriving to match the reference exactly was declined.
 
-**IN-13 caravans: the derived view.** One row per way with active trade load, nothing persisted, rebuilt from the live trade match every time — not a saved entity with its own refresh rule. **Not yet resolved by this ruling**: whether a sea trade route counts as a "way" for this purpose or needs its own entity — Ruling AF's own text flagged this as "one more question, not yet asked"; it is asked now and **still open**, raise it before building the sea-lane case.
+**IN-13 caravans: the derived view.** One row per way with active trade load, nothing persisted, rebuilt from the live trade match every time — not a saved entity with its own refresh rule. **Not yet resolved by this ruling**: whether a sea trade route counts as a "way" for this purpose or needs its own entity — Ruling AF's own text flagged this as "one more question, not yet asked"; it is asked now and **still open**, raise it before building the sea-lane case. *(Answered 2026-09-24 by Ruling AQ: one caravan per sea lane. The land half was built as this derived view in `da51a57`.)*
 
 **"Fixed size" map labels: fix them to actually stay fixed.** Confirms the already-flagged bug is a real defect, not intended behavior.
 

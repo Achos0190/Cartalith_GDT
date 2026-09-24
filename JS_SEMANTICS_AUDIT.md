@@ -857,7 +857,9 @@ cell scans, `cartalith-assets`' `js_round_is_half_up_which_matters_at_the_left_e
 and `cartalith-civ`'s NaN-absorption tests all stayed where they are: they test a
 *call site's* behaviour, not the helper's, which is the line this consolidation
 drew. `cartalith-assets::scatter::js_number`, `-assets::manifest::js_parse_float`,
-`-io::tiles::js_num` and `-urban::site::js_or` also stayed — they are JS
+`-io::tiles::js_num` and `-urban::geom::js_or` (formerly three private copies,
+`site::js_or`, `fortify::js_or` and `cleanup::or_zero`, now consolidated there;
+corrected 2026-09-24) also stayed — they are JS
 *coercions* over crate-specific types (`serde_json::Value`, `Option<f64>`,
 strings), not floating-point semantics, and pulling them into a math crate would
 have been the wrong boundary.
@@ -1042,7 +1044,7 @@ first real test of whether the catalogue is complete rather than merely tidy.
 directly from the leaf crate. No eighth copy of anything, no ninth FDLIBM site,
 and no new helper. Section 5's recommendation #2 is doing what it was for.
 
-**One boundary confirmed rather than revisited.** `-urban::site::js_or` — the
+**One boundary confirmed rather than revisited.** `-urban::geom::js_or` — the
 general `x || d` on a number, which this section already recorded as
 deliberately *not* moved — is what milestone 7's `settlementAge` fallback would
 have reached for. It did not need it: `js_or(v, d)` is exactly

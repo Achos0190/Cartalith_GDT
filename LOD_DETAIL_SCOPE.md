@@ -12,7 +12,9 @@ The owner questions in the last section each carry the default the milestones
 were written against; a ruling on any of them is recorded in
 `LARGE_ITEM_RULINGS.md`, not here. **One ruling already moves this plan:**
 Ruling AP (2026-09-23) authorised the main-map snow re-baseline that LOD-D4 could
-not reach under the no-re-baseline rule — see *Rules* and LOD-D4.
+not reach under the no-re-baseline rule — see *Rules* and LOD-D4. Checked
+2026-09-24: `LARGE_ITEM_RULINGS.md` carries no ruling on any of the six owner
+questions below, so each still stands at its default.
 
 Where a milestone's premise was refuted when it was built, the milestone carries
 a short **Found when built** note naming the symbol. Those notes are design
@@ -159,9 +161,12 @@ two of them, and both are owner questions:
 - **A golden re-baseline needs an owner ruling.** None was planned in these seven
   milestones. **One has since been ruled:** Ruling AP (2026-09-23) authorises
   giving the **main map's** `material_weights` snow term an aspect
-  (slope-direction) term — a deliberate re-baseline of `golden_parity_render.rs`,
-  and a visible change to every snowy mountain, not only to LOD tiles. It is
-  scheduled work outside D0–D7; see LOD-D4.
+  (slope-direction) term, a visible change to every snowy mountain and not only
+  to LOD tiles. It was built outside D0–D7 in `19c38d9`; see LOD-D4. The term
+  is 0.0 under `js_reference()`, so `golden_parity_render.rs` and every
+  JS-parity golden stayed unedited. What moved were the Rust render hashes
+  (`tests/color_space.rs`'s `FINISHED_RENDER_FNV1A` and its siblings, and
+  `tests/layer_stack.rs`).
 - **No Rust panic crosses the gdext boundary.** Every new `#[func]` returns an
   `Option` or a result the shell can dash with a reason.
 - **Android stays viable.** The generation peak on the phone (878–908 MB at
@@ -449,10 +454,11 @@ see question 3.
    `T_sampled − lapse_rate·g·(h_tile − h_coarse)·height_scale`, using
    `cartalith-climate`'s own lapse relation, so the snow fraction follows sub-cell
    relief. *As planned*, "the existing aspect and curvature inputs of
-   `material_weights` drive the breakup" — **that premise was false** (see
-   *Snow's aspect term* below): `material_weights`' snow term is
+   `material_weights` drive the breakup". **That premise was false when D4 was
+   built** (see *Snow's aspect term* below): `material_weights`' snow term was
    `smoothstep(3, -5, t)`, temperature alone, as this document's own gap table
-   (§16 row) already said.
+   (§16 row) already said. Since `19c38d9` it takes a `snow_shift_c` argument
+   from `snow_aspect_shift`.
 3. **Ice colour.** Where glacier potential is high, snow takes `snow_glac` plus a
    slope- and flow-aligned brightness term from the tile's own height. Rock exposure
    keeps `geo_exposure(slope, r, snow)`, so steep faces above the snowline stay rock.
@@ -502,15 +508,19 @@ Aletsch zoom target."
 its stages on `TerrainAppearance::ice_strength` (`build_glacier_potential`,
 `apply_ice_cover`, which rebalances the material weights off `geo_exposure`'s own
 slope term). The aspect bar then measured no correlation (|r| under 0.1 on three
-seeds, `OUTSTANDING_WORK.md`'s LOD-D4 row), and the cause is at the symbol: snow
-reads temperature alone, so no stage that leaves `material_weights` untouched can
+seeds, `OUTSTANDING_WORK.md`'s LOD-D4 row), and the cause was at the symbol: snow
+read temperature alone, so no stage that left `material_weights` untouched could
 make it follow aspect. Giving snow an aspect term is a **re-baseline of the main
 map's own `material_weights`**, which D4's no-re-baseline rule excluded.
 **Ruling AP (`LARGE_ITEM_RULINGS.md`, 2026-09-23) authorises exactly that
 re-baseline**: snow gets an aspect (slope-direction) term in `material_weights`
 itself — on the main map, not only in LOD tiles — and every existing snowy
-mountain's rendered look changes. It is scheduled as its own work, not as part of
-D4; its status is `STATUS.md`'s.
+mountain's rendered look changes. It was built as its own work, not as part of
+D4, in `19c38d9` (2026-09-24). The term is `TerrainAppearance::snow_aspect_c`,
+2.0 °C in `default()` and 0.0 under `js_reference()`. `snow_aspect_shift` feeds
+it to `material_weights` as a temperature shift, and LOD tiles supply their own
+facing through `tile_snow_facing`. That commit's own measurement left bar 1b
+unmet. Status is in `STATUS.md`.
 
 Two further findings from building D4, both kept in `MISTAKES.md`: a fixture
 guarded by three separately-true conditions (flow, cold, height) never had all

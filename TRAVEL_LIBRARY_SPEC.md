@@ -133,8 +133,13 @@ TRAVEL_LIBRARY_SPEC.md` has them.
 **§2's submenu actions**: *New from selected* is ⧉ duplicate; *New blank*,
 *delete* and *Reset to stock* are window actions; *Validate constraints* and
 *Show usage in journeys* are shown per entry rather than invoked; *Capture party
-from planner* is the planner's `capture party…` (below). No action imports
-definitions from `.csv`.
+from planner* is the planner's `capture party…` (below). *Import definitions
+.csv…* is the rail's ⇪ button: `travel_library_window.gd::import_csv` reads a
+file picked in a `FileDialog` into the tab on screen — row 1 names columns by
+`tl_get`'s field keys, each later row becomes a custom entry through
+`tl_add_blank` + `tl_edit`, and refusals are reported by line and key
+(`c1e0a2a`, 2026-09-24; this paragraph said no action imported `.csv` until
+then).
 
 ### 6.2 How a definition reaches a computed journey
 

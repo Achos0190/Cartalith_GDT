@@ -4,7 +4,7 @@
 > not track progress.** What it names as future work — `_civPlaceSmelting`,
 > `_civSaltAccess`, the food-surplus cluster, the surfaced resource half of
 > `_civFactionAggregates` — is defined here and **tracked only in
-> `cartalith-native/docs/STATUS.md`** (rows EC-1…EC-9). The dated pass
+> `cartalith-native/docs/STATUS.md`** (rows EC-1…EC-10; EC-10, IN-13 trade flows, was added 2026-09-23). The dated pass
 > narratives below say what each pass read, built and decided; they are history
 > and are written in the past tense on purpose. Reference line numbers resolve
 > against `reference/Cartalith Gen1 v2.10.html`.

@@ -178,7 +178,7 @@ morphology (block 4) consumes no pack.
 | `textures` | splat blend, inverse means baked once at load | `render::SplatTextures` via `RenderCtx::with_splat`, strength `0.7` |
 | `biomes`, `terrains` | painted-cell blend, **true colour**, at the reference's own `0.60` weight and position | `pack::decode_ground_family` → `render::GroundTiles` via `RenderCtx::with_ground_tiles`, sampled by `render::painted_tex`. `GroundTile` has no inverse-mean field, so the asymmetry above cannot be broken silently |
 | `icons` | scatter placement and the Y-sorted composite | `pack::composite_map_icons` |
-| `structures.trait` | settlement trait badges — **beyond the reference**, which imports trait art and never draws it | `pack::resolve_trait_badges`/`composite_trait_badges`; the shell installs `civ_trait_badge_row` as the overlay's resolver (`viewport_host.gd::refresh_settlement_traits`) |
+| `structures.trait` | settlement trait badges — **beyond the reference**, which imports trait art and never draws it | `pack::resolve_trait_badges`, through `WorldGen::civ_trait_badge_row`, which the shell installs as the overlay's resolver (`viewport_host.gd::refresh_settlement_traits`). `pack::composite_trait_badges` exists and is tested (`tests/pack_trait_badges.rs`) but has no caller in the live path *(corrected 2026-09-24)* |
 
 The import warning names every section with no compositor on the live map, and
 under **Ruling W** it names all of them (`structures.settlement`,

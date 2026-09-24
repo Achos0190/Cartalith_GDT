@@ -25,7 +25,7 @@ no re-freeze question to raise."* Counted directly:
 | `Cartalith Gen1 v*.html` | 152 | **164** |
 | Newest mainline | v2.10 | **v2.22** |
 | DCC-line files (`Cartalith v*.* DCC test.html`) | not mentioned | **49, newest v2.71** |
-| Frozen here in `reference/` | v2.10 | v2.10 — unmoved |
+| Frozen here in `reference/` | v2.10 | v2.10 **and v2.11** (v2.11 frozen 2026-09-02, `45b368d`, with `FUNCTION_INDEX_v2.11.md`; this cell said "v2.10 — unmoved" until 2026-09-24) |
 
 So the frozen reference is **twelve mainline versions behind**, and the source
 project has since **forked**: v2.23 duplicated v2.22 to carry this port's own
@@ -38,7 +38,8 @@ against — that debt is now understated by the same twelve versions.
 source project moved past.** Treat a tag as "true as of v2.10", not as true
 today, until the re-freeze lands. **What changed in the interval is not
 unknown** — it is specified, change by change, in `RC_ENGINE_CHANGES.md`, which
-covers v2.11 → v2.60 as a porting spec. Read that before trusting any tag in a
+covers v2.11 → v2.73 as a porting spec (its own span table, read 2026-09-24;
+this said v2.60). Read that before trusting any tag in a
 subsystem it touches.
 
 **This was a standing instruction, not an oversight nobody could have caught.**
@@ -106,6 +107,14 @@ Strahler order, real-km channel width, v2.07). Deterministic from a seed.
 bit-exact/tight-tolerance, including world-structure archetypes and ocean
 currents (`MVP_SCOPE.md` had flagged ocean currents as a stretch goal; it
 shipped). Sea level (`MVP_SCOPE.md` point 9) done as a real user control.
+**Qualified 2026-09-24:** "golden-verified" describes the parity baseline,
+`cartalith_engine::WorldParams::defaults`. The shipped app generates with five
+owner-ruled divergences on at `cartalith_godot::params::defaults` — the physical
+crater model and two volcanism flags (§7l/§7l-ii), depression-filled flow
+routing (`integrate_drainage`, §7o) and the v2.57 plate-base blur
+(`tect.narrow_plate_base_blur`) — none of which has a JS output to diff against
+in this repository; §7o says what the drainage routing was validated against
+instead. `GENERATION_PARAMETERS.md` lists the five.
 
 **§7d tag**: port as-is. The generation math is the contract's core and is
 already verified against JS output directly — this is exactly the case §7d
@@ -202,8 +211,11 @@ snapshots, timeline playback — reference lines ~20597-26478) with its own
 design grounding in RC's vendored `docs/research/collapse-timeline-
 dynamics.md` and `settlement-emergence.md` §5-6.
 
-**This port**: **done**, 19 Phase 2 milestones (`PHASE2_SCOPE.md`), each
-golden-verified against the real reference where an execution path exists.
+**This port**: **done**, 21 Phase 2 milestones (`PHASE2_SCOPE.md`; this said
+19 until 2026-09-24), golden-verified against the real reference where an
+execution path exists — **except provinces** (milestone 16,
+`_civGenerateProvinces`), which `PHASE2_SCOPE.md` records as *not*
+golden-verified although a golden is possible.
 One disclosed divergence, corrected 2026-08-19: territory assignment is
 this port's own cost-distance Voronoi design (`DECISIONS.md` §7b) —
 **not** a from-scratch invention as previously claimed here, since the
@@ -227,8 +239,10 @@ contract's most thoroughly verified layer. Territory now has real
 reference precedent too (`_civAutoPolity`) that it was never checked
 against — **resolved 2026-08-19 (owner decision)**: the current design
 stays as the only mode, un-reconciled, closed (`DECISIONS.md` §7b).
-Timeline/collapse is **approved for build, 2026-08-19 (owner decision)**
-— see `TIMELINE_SCOPE.md` once scoped.
+Timeline/collapse was **approved for build, 2026-08-19 (owner decision)**,
+and is scoped in `TIMELINE_SCOPE.md` and built (the correction above); how far
+its milestones have got is `STATUS.md`'s answer. (This read "once scoped"
+until 2026-09-24.)
 
 ### 5. Journey Planner
 
@@ -252,11 +266,18 @@ and ⇧-drag spine trim (JP-07) are **all closed** — real Rust ports with real
 call sites (`jp_auto_pick_transport`, `jp_reroute_for_mode`, `jp_plan_cost`,
 the inline calculation-trace group, `jp_trim_points`). The vessel sailing
 window (JP-09/IN-06) is likewise closed (`JpWaterCalc::sailing_window_h`).
-What remains is **journey save/registry (JP-06/JP-08), partly closed**: a
-journey can be named and reloaded within a session, but nothing persists it
-across a restart — `save_project` builds `params.json`'s `state` from the
-parameter table alone, with no channel yet for GDScript-owned project state
-(the journeys list, the Travel Library, saved measurements) to reach it.
+What remains is **journey save/registry (JP-06/JP-08), partly closed**.
+**Corrected 2026-09-24** — this said nothing persisted a journey across a
+restart, which stopped being true on 2026-08-31: journeys are saved in
+`entities/journeys.json`, engine-owned since SP-1 (`InfraTools::journeys`,
+2026-09-21), and since `a64ffad` (2026-09-24) the planner's list is rebuilt
+from them on *File ▸ Open project*. The Travel Library (`library/travel.json`)
+and saved measurements (`annotations/measurements.json`) persist too. **What
+is still lost** is most of the plan: the slot stores a journey's name, route
+snapshot, start year and the *name* of its party preset, so per-stage
+overrides, layovers, animal choices, trim and the plan fields outside the
+preset come back at defaults. Ruling AR (2026-09-24) rules that a saved
+journey keep its full plan; where that stands is `STATUS.md`'s answer.
 
 **§7d tag**: port as-is. This is deep, historically-grounded domain logic
 (real v1.27/v1.50/v1.52/v1.63/v1.97/v1.98 fixes cited throughout) with no
@@ -284,14 +305,17 @@ exact, all real deliberate improvements past the reference under §7a/§7d's
 own carve-out. **Splat texturing is real** — Asset Library milestone 7 wired
 ground-texture splat into the already-golden `materialWeights` blend. **NPR
 Painter styles are built and live, corrected 2026-08-24**
-(`PARITY_AUDIT.md` pass 2, F2): all ten styles (contour veins, ink
+(`PARITY_AUDIT.md` pass 2, F2): all ten reference styles (contour veins, ink
 linework, hachure, watercolor, cel/toon, engraving, stipple, sepia,
 risograph, pointillism) plus the contour-interval control, coastal wave
 lines and multi-sun lighting are literal per-pixel ports
 (`render::apply_npr`/`apply_waves`/`multi_sun_from_normal`, golden-tested in
 `golden_parity_npr.rs`), bound through `WorldGen::get_npr`/`set_npr` and
 built as real controls in the RENDER dock (`render_workspace.gd`'s
-`_build_npr`). Animated water is a Godot `ShaderMaterial` overlay
+`_build_npr`). An eleventh style, `Npr::village` (a flat-palette
+quantisation of the lit colour), is **not** a literal port: its own doc says
+the source's quantisation constant was not available, so the band count is
+this port's choice (noted 2026-09-24; this said "all ten styles"). Animated water is a Godot `ShaderMaterial` overlay
 (principled-equivalent, not golden — `DECISIONS.md` §7a). **Corrected
 2026-09-21 — this paragraph itself had gone stale, contradicting both the
 summary table above and the absent-entirely list below in the same
@@ -472,6 +496,18 @@ disclosed limitation carries over: `state.erosion` is unshimmed by
 `loadZip()` (only 2 of 16 keys modelled), so it is deliberately not written
 rather than written partially — `SAVEFILE_COMPAT.md` has the detail.
 
+**Corrected 2026-09-24 — the paragraph above describes a writer File ▸ Save
+no longer uses.** Since the owner's 2026-08-25 format decision
+(`SAVEFILE_COMPAT.md` §1), File ▸ Save / Save as / Autosave write the **tree
+project archive** (`.ctl`, `SAVEFILE_COMPAT.md` §5) through
+`WorldGen::project_save_with_documents` (`project_bridge.rs`; Save and Save as
+via `app.gd::_write_project` → `EngineBridge.save_project`, Autosave directly), carrying the civilisation layer, annotations, libraries,
+drafts and vault links the flat layout cannot. The flat seven-entry
+`exportZip()` writer (`cartalith_io::write_save`, wrapped by
+`WorldGen::save_project`) still exists and is what the paragraph above
+verified, but no shell menu calls it; only a probe does. Reading the flat
+layout is still supported (`SAVEFILE_COMPAT.md` §15).
+
 **§7d tag**: port as-is. This is a well-specified binary format with a
 correctness bar (byte-for-byte compatibility with reference-produced files),
 now proven on both the read and write sides — there's no "QGIS does this
@@ -492,8 +528,11 @@ brings it back" — Phase 3 has landed 2D fidelity work but not the 3D drape
 itself yet). **Corrected 2026-08-23** (`PARITY_AUDIT.md` C2): LOD is **no
 longer absent** — deep-zoom tile synthesis is live and automatic
 (`lod_bridge.rs`, `viewport_host.gd`'s `_lod_backlog`), `cartalith-spatial`
-has real consumers now (`PassBuffer`/`StageGraph`, then the LOD tiles); only
-the persistent on-disk atlas/cache remains unbuilt. **Analysis-field
+has real consumers now (`PassBuffer`/`StageGraph`, then the LOD tiles). The
+persistent on-disk atlas/cache is **built** too (capability 6; this sentence
+called it unbuilt until 2026-09-24, contradicting capability 6) — but it is
+**write-only**: *Bake* fills it and nothing reads a baked chunk back at draw
+time (`menus.gd`'s atlas note says why). **Analysis-field
 switching is resolved**, not ambiguous: `sample_bridge.rs` exposes 18 live
 debug views plus 11 more with stated reasons for their absence — the
 "ambiguous, verify before building" flag from `GUI_FEATURE_PARITY_SCOPE.md`
@@ -618,7 +657,9 @@ Verified directly at the code rather than taken from that row, per
 `cleanup`, `districts`, `fortify`, `generate`, `geom`, `graph`, `growth`,
 `hinterland`, `plaza`, `radial`, `routes`, `rules`, `site` and `water` —
 milestones 8-17's own subject matter, all present as real modules, not
-stubs. `shell/urban_layout_draw.gd` (842 lines) draws blocks/parcels/
+stubs (and `citadel`, `courtyard` and `wallside` have joined them since, the
+port's own Ruling H/I work). `shell/urban_layout_draw.gd` (842 lines then,
+1 158 on 2026-09-24) draws blocks/parcels/
 buildings via `_draw_roofs`, the wall circuit via `_draw_wall`, hinterland
 farmland via `_draw_farmland`, and settlement-side water infrastructure via
 `_draw_water_mask` — so "drawn nowhere, stubbed nowhere" no longer holds.
@@ -632,12 +673,24 @@ replayed from the port. Refinement work remains — a fort-trace bridge gap,
 a reverted intramural/extramural roof tint, and several owner-ruling-gated
 additions (a third culture profile, a citadel, a per-settlement regenerate
 menu) — tracked in `OUTSTANDING_WORK.md` §2.1, which is where that remainder
-belongs, not this contract.
+belongs, not this contract. **That list is a 2026-09-21 cut and has moved
+(checked 2026-09-24):** the citadel exists (`cartalith-urban/src/citadel.rs`,
+Ruling I), star forts draw (`urban_layout_draw.gd::_draw_wall`'s `bastioned`
+branch), and the City Viewer has a per-settlement **Regenerate** (Ruling J);
+the third culture profile does not (`rules.rs::resolve_profile` still knows
+only `medieval` and `venus`). What remains is `STATUS.md`'s answer.
 
 **§7d tag**: port as-is. This is deep procedural-generation domain logic
 with real reference precedent line-for-line (`URBAN_MORPHOLOGY_SCOPE.md`
 cites exact reference line ranges per milestone); nothing here suggests a
 modernize-over-port angle the way tile pyramids or layer compositing do.
+**Qualified 2026-09-24:** "port as-is" was the starting point, not the
+standing contract. Rulings H, I and J (2026-09-12, `LARGE_ITEM_RULINGS.md`)
+move urban generation **toward the owner's town plan** — a new culture
+profile, a citadel, a regenerate menu and deliberate changes to the ported
+algorithm, with a golden re-baseline authorised for `cartalith-urban` — and
+`DECISIONS.md` §7p makes a deliberate departure from the legacy behaviour the
+correct outcome there.
 
 ## Summary coverage table
 
@@ -656,7 +709,7 @@ modernize-over-port angle the way tile pyramids or layer compositing do.
 | Labels/annotation (manual tools) | **Built**, incl. biome/terrain paint (corrected 2026-08-23) | Port as-is |
 | Asset library (data layer) | Done, Phase 4 complete | Port as-is |
 | Asset library (authoring UI) | **Built** (corrected 2026-08-23) | Port as-is |
-| Import (GeoJSON/heightmap) | **Heightmap done; GeoJSON import still absent** (corrected 2026-08-23) | Port as-is |
+| Import (GeoJSON/heightmap) | **Heightmap done; GeoJSON import live** (`data_manager_window.gd::_run_geojson_import` → `apply_geojson_document`, over `cartalith_io::geojson_import`; corrected 2026-09-24 — "still absent" was stale from 2026-09-21) | Port as-is |
 | Export (tiles/image) | **Tile export live; GeoJSON export live end to end** (corrected 2026-08-24) | Modernize (tile-server-style) for slippy-map addressing remainder |
 | Save (read) | Done | Port as-is |
 | Save (write) | **Done** (corrected 2026-08-24) | Port as-is |
@@ -698,15 +751,22 @@ genuinely still absent, as of this correction:
   remains is refinement and owner-ruling-gated additions, tracked in
   `OUTSTANDING_WORK.md` §2.1, not an absent capability — see capability 13
   above.
-- **GeoJSON import**: absent. (GeoJSON *export* is no longer on this list —
-  it went live end to end on 2026-08-24; see capability 9.)
+- ~~**GeoJSON import**: absent.~~ **No longer absent — removed 2026-09-24.**
+  The Data manager imports a GeoJSON document
+  (`data_manager_window.gd::_run_geojson_import` → `apply_geojson_document`,
+  parsed by `cartalith_io::geojson_import`, applied in `geojson_apply.rs`),
+  live since 2026-09-21 (`d79d776` is Ruling V's change to it). GeoJSON
+  *export* went live end to end on 2026-08-24; see capability 9.
 - ~~**Geology microtexture, SVF/cast-shadow fields, SDF tinting**~~: **all three
   shipped 2026-09-03** and this entry was false when read. `render.rs`'s
   "Deliberately excludes" list no longer names them; the microtexture and
   SVF/cast-shadow work is covered by `tests/geology_micro_and_sky_fields.rs`
-  and the SDF river/biome legs by `tests/sdf_river_and_biome.rs`. The one leg
+  and the SDF river/biome legs by `tests/sdf_river_and_biome.rs`. ~~The one leg
   still genuinely absent is the **vector river overlay** — `map_overlay.gd` has
-  no `drawRiverWays` equivalent. **Corrected 2026-09-03**
+  no `drawRiverWays` equivalent.~~ **The vector river overlay is not absent
+  either** (corrected 2026-09-24): `map_overlay.gd::_draw_rivers` strokes the
+  traced river runs and carries `drawRiverWays`' anti-barcode rule, since
+  `347db6e` (2026-09-21). **Corrected 2026-09-03**
   — NPR Painter styles and contour intervals are removed from this bullet;
   both are built and live (see capability 6). **Revised again 2026-08-25**
   (`PARITY_AUDIT.md` pass 3, F4): **ambient occlusion left this bullet too.**
@@ -715,9 +775,13 @@ genuinely still absent, as of this correction:
   calls one *"the reference's own Ambient occlusion slider"*. Geological
   material *exposure* (milestone 5) also ships; what stays absent is the
   geology **microtexture**/dune-ripple layer specifically.
-- **Journey save/registry across sessions (JP-06/JP-08), partly**: a
+- **Journey save/registry across sessions (JP-06/JP-08), partly**. ~~a
   journey names and reloads within a session; nothing persists to disk yet
-  — `save_project` has no channel for shell-owned project state. **Revised
+  — `save_project` has no channel for shell-owned project state.~~ **Revised
+  2026-09-24:** journeys persist in `entities/journeys.json` and come back
+  into the planner's list on open (capability 5); what is still lost across a
+  save is most of the *plan* — stage overrides, layovers, animal choices,
+  trim — which Ruling AR says to keep. **Revised
   2026-08-24**: the other five individually-registered Journey Planner gaps
   (`jpAutoPickTransport`/`_jpRerouteForMode`, `jp_journey_cost`'s caller, the
   calculation-trace window, ⇧-drag spine trim, the vessel sailing

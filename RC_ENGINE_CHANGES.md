@@ -17,7 +17,7 @@ does"; check separately whether the port already does it.
 
 | | |
 |---|---|
-| Reference frozen here | `reference/Cartalith Gen1 v2.10.html` (plus `Cartalith Gen1 v2.11.html` at this repo's root) |
+| Reference frozen here | `reference/Cartalith Gen1 v2.10.html` and `reference/Cartalith Gen1 v2.11.html` (frozen 2026-09-02, `45b368d`; also at this repo's root) |
 | Covered by this document | **v2.11 → v2.73** |
 
 **The HTML source has two lines, and they diverged at v2.22.** This matters more
@@ -255,6 +255,12 @@ the previous value exactly.**
   at z=4: **22.4% → 36.1%**; z=0 identical.
 - **The native port found the same gap independently at `lod_bridge.rs:420`** — worth
   checking whether that fix and this one agree in form as well as in effect.
+  *(Corrected 2026-09-24: that port-side fix no longer exists. LOD-D2 replaced
+  `lod_bridge.rs`'s own scale-normalised exaggeration (`EXAG * px_per_cell`)
+  with the map's appearance, and the live tile path,
+  `render.rs::render_biome_tile_rgba` (called from `lod_bridge.rs`), shades with
+  the bare `a.exag`. `tileShadeExag` has no port — nothing in
+  `cartalith-native/crates` matches it — so this v2.25 change is unported.)*
 
 **Two plausible LOD fixes were refuted by their own measurement — do not re-chase:**
 raising `lodDetailFreqK` measures 3.7× more Laplacian energy, but the octaves land
@@ -2583,11 +2589,11 @@ rather than under §8.2 because each changes the visible map at scale even thoug
 moves a generated value. **Eight are deliberate re-baselines** (v2.48, v2.50, v2.51, v2.57, v2.59, v2.60, v2.61,
 and v2.49 above 12 800 km): a world generated from the same seed does not come back
 the same, which is a decision to carry across deliberately, not a regression to
-chase. **Nine of the eighteen rows already own full sections above** and appear
+chase. **Ten of the eighteen rows already own full sections above** and appear
 here only so the span reads complete — go to the section, not the row:
 **v2.39 → §6e, v2.40 → §6f, v2.41 → §6g, v2.53 → §6h.1, v2.55 → §6h.2/§6h.3,
 v2.57 → §6i, v2.58 → §6j, v2.59 → §6k, v2.60 → §6l, v2.61 → §6m.** (This list said *five* and omitted the two §6h rows
-until 2026-09-17 — the same append-without-re-reading habit that produced §8's
+until 2026-09-17, and its count said *nine* over ten entries until 2026-09-24 — the same append-without-re-reading habit that produced §8's
 own split.)
 
 | Version | Change | Why it may still matter to the port |
