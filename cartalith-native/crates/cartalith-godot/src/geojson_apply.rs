@@ -25,10 +25,24 @@
 //!   feature's own `name`/`pop`/`kind` used when present rather than the
 //!   manual tool's synthesised placeholders — an import is real data, not a
 //!   blank click.
-//! * **`territory`** — a `Polygon`/`MultiPolygon`, rasterised into
-//!   `CivData::territory` with [`cartalith_spatial::geo::point_in_ring`]
-//!   (even-odd, holes subtracted), the exact inverse of the trace
-//!   `mask_outline_coords` already does for export.
+//! * **`territory`** — a `Polygon`/`MultiPolygon`, rasterised with
+//!   [`cartalith_spatial::geo::point_in_ring`] (even-odd, holes
+//!   subtracted), the exact inverse of the trace `mask_outline_coords`
+//!   already does for export — into the Territory tool's own accumulated
+//!   override layer (`CivTools::territory_paint`), **not** into
+//!   `CivData::territory` directly. An imported border is therefore a
+//!   painted border in every respect: a civilisation recompute re-anchors it
+//!   onto the fresh computed borders (`CivTools::rebase`) instead of
+//!   erasing it, a later brush or lasso stroke composes on top of it, and a
+//!   subtract stroke over it restores the computed owner. The caller
+//!   recomposes the claim grid afterwards (`CivTools::recompose`).
+//!
+//!   The layer is a `u8` per cell in which `0` means "no override, show the
+//!   computed owner", so two territory features cannot be carried in it and
+//!   are refused rather than approximated: one naming **no faction** (it
+//!   would have to mean "force unclaimed", which the layer cannot say — and
+//!   writing `0` would instead mean "show the computed owner"), and one whose
+//!   faction id is past `u8::MAX`.
 //!
 //! # What this deliberately does not apply
 //!
@@ -76,6 +90,7 @@ use cartalith_civ::tools::{civ_drop_place, civ_place_pick_radius, DropPlace};
 use cartalith_civ::{NamedSettlement, SettlementKind};
 use cartalith_io::{CrsClaim, GeoFeature, GeoJsonDoc, Geometry};
 use cartalith_spatial::geo::point_in_ring;
+use cartalith_spatial::PaintLayer;
 
 use crate::civ_roster_bridge::FactionRoster;
 use crate::civ_tools_bridge::{kind_from_str, manual_settlement_name, manual_settlement_pop};
@@ -128,6 +143,10 @@ impl ApplyReport {
 
     pub fn territory_features_applied(&self) -> usize {
         self.outcomes.iter().filter(|o| matches!(o, FeatureOutcome::TerritoryPainted { .. })).count()
+    }
+
+    pub fn territory_features_skipped(&self) -> usize {
+        self.outcomes.iter().filter(|o| matches!(o, FeatureOutcome::TerritorySkipped { .. })).count()
     }
 
     pub fn territory_cells_painted(&self) -> usize {
@@ -185,7 +204,7 @@ pub fn apply_geojson(
     settlements: &mut Vec<NamedSettlement>,
     next_tid: &mut u64,
     name_rng: &mut cartalith_rng::Mulberry32,
-    territory: &mut [i32],
+    territory_paint: &mut PaintLayer,
     roster: &mut FactionRoster,
 ) -> ApplyReport {
     let mut report =
@@ -217,7 +236,7 @@ pub fn apply_geojson(
                 if let Some(name) = created {
                     report.factions_created.push(name);
                 }
-                apply_territory(feat, fid, was_created, ctx, cell_km, territory)
+                apply_territory(feat, fid, was_created, ctx, cell_km, territory_paint)
             }
             Some(other) => FeatureOutcome::Unsupported { layer: other.to_string() },
             None => FeatureOutcome::Unsupported { layer: String::new() },
@@ -311,19 +330,24 @@ fn apply_territory(
     faction_created: bool,
     ctx: &ApplyCtx<'_>,
     cell_km: f64,
-    territory: &mut [i32],
+    territory_paint: &mut PaintLayer,
 ) -> FeatureOutcome {
     let polys: Vec<RingSet<'_>> = match &feat.geometry {
         Geometry::Polygon(rings) => vec![rings.as_slice()],
         Geometry::MultiPolygon(parts) => parts.iter().map(|p| p.as_slice()).collect(),
         _ => return FeatureOutcome::TerritorySkipped { reason: "geometry is not a Polygon or MultiPolygon" },
     };
-    if territory.len() != ctx.gw * ctx.gh {
-        // A stale/short raster from a resolution this document does not
-        // match -- the same guard `feature_collection`'s own province
-        // branch uses on export, applied here on the way back in.
-        return FeatureOutcome::TerritorySkipped { reason: "territory raster does not match the grid" };
+    // The paint layer's `0` is "no override", not "unclaimed" -- see the
+    // module doc. Refused, never written as a value that means something else.
+    if faction == 0 {
+        return FeatureOutcome::TerritorySkipped {
+            reason: "no faction named; the territory override layer cannot force a cell unclaimed",
+        };
     }
+    let Ok(value) = u8::try_from(faction) else {
+        return FeatureOutcome::TerritorySkipped { reason: "faction id is past the territory override layer's range" };
+    };
+    let n = ctx.gw * ctx.gh;
 
     let mut cells_painted = 0usize;
     for rings in polys {
@@ -361,7 +385,10 @@ fn apply_territory(
                 if hole_rings.iter().any(|h| point_in_ring(px, py, h)) {
                     continue;
                 }
-                territory[y as usize * ctx.gw + x as usize] = faction;
+                // Allocated on the first painted cell, not up front, so a
+                // polygon covering nothing leaves an unpainted world's layer
+                // unallocated (a recompute then keeps its provinces as built).
+                territory_paint.cells_mut(n)[y as usize * ctx.gw + x as usize] = value;
                 cells_painted += 1;
             }
         }
@@ -490,7 +517,7 @@ mod tests {
         roster: FactionRoster,
         settlements: Vec<NamedSettlement>,
         next_tid: u64,
-        territory: Vec<i32>,
+        territory_paint: PaintLayer,
         rng: cartalith_rng::Mulberry32,
     }
 
@@ -500,9 +527,15 @@ mod tests {
                 roster: FactionRoster::seeded(faction_count),
                 settlements: Vec::new(),
                 next_tid: 1,
-                territory: vec![0i32; GW * GH],
+                territory_paint: PaintLayer::new(),
                 rng: cartalith_civ::civ_name_rng(),
             }
+        }
+
+        /// The override written at `(x, y)`; `0` (no override) while the
+        /// layer is still unallocated.
+        fn painted(&self, x: usize, y: usize) -> u8 {
+            self.territory_paint.cells().map_or(0, |c| c[y * GW + x])
         }
 
         fn apply(&mut self, w: &World, features: &str) -> ApplyReport {
@@ -513,7 +546,7 @@ mod tests {
                 &mut self.settlements,
                 &mut self.next_tid,
                 &mut self.rng,
-                &mut self.territory,
+                &mut self.territory_paint,
                 &mut self.roster,
             )
         }
@@ -640,9 +673,9 @@ mod tests {
         assert_eq!(fid, 2);
 
         // An interior cell of the square is painted...
-        assert_eq!(fx.territory[7 * GW + 7], fid);
+        assert_eq!(fx.painted(7, 7), fid as u8);
         // ...and a cell well outside it is untouched.
-        assert_eq!(fx.territory[1 * GW + 1], 0);
+        assert_eq!(fx.painted(1, 1), 0);
     }
 
     #[test]
@@ -654,7 +687,7 @@ mod tests {
         let report = fx.apply(&w, &feat);
         assert!(report.factions_created.is_empty());
         assert_eq!(fx.roster.count(), 6);
-        assert_eq!(fx.territory[5 * GW + 5], 2);
+        assert_eq!(fx.painted(5, 5), 2);
     }
 
     #[test]
@@ -690,7 +723,7 @@ mod tests {
         let d = doc(&settlement_feature(1.0, 1.0, "A", "F", 100, "hamlet"));
         assert_eq!(d.crs, CrsClaim::Unstated);
         let report = apply_geojson(
-            &d, &w.ctx(), &mut fx.settlements, &mut fx.next_tid, &mut fx.rng, &mut fx.territory, &mut fx.roster,
+            &d, &w.ctx(), &mut fx.settlements, &mut fx.next_tid, &mut fx.rng, &mut fx.territory_paint, &mut fx.roster,
         );
         assert!(report.crs_unstated);
 
@@ -702,7 +735,7 @@ mod tests {
         let d2 = cartalith_io::parse_geojson(&text).unwrap();
         assert_eq!(d2.crs, CrsClaim::PlanarKm);
         let report2 = apply_geojson(
-            &d2, &w.ctx(), &mut fx.settlements, &mut fx.next_tid, &mut fx.rng, &mut fx.territory, &mut fx.roster,
+            &d2, &w.ctx(), &mut fx.settlements, &mut fx.next_tid, &mut fx.rng, &mut fx.territory_paint, &mut fx.roster,
         );
         assert!(!report2.crs_unstated);
     }
@@ -713,12 +746,84 @@ mod tests {
         let mut fx = Fixture::seeded(1);
         let d = cartalith_io::parse_geojson(r#"{"type":"FeatureCollection","features":[]}"#).unwrap();
         let report = apply_geojson(
-            &d, &w.ctx(), &mut fx.settlements, &mut fx.next_tid, &mut fx.rng, &mut fx.territory, &mut fx.roster,
+            &d, &w.ctx(), &mut fx.settlements, &mut fx.next_tid, &mut fx.rng, &mut fx.territory_paint, &mut fx.roster,
         );
         assert!(report.outcomes.is_empty());
         assert!(report.factions_created.is_empty());
         assert_eq!(report.settlements_placed(), 0);
         assert_eq!(report.territory_features_applied(), 0);
         assert!(report.unsupported_layer_counts().is_empty());
+        assert!(fx.territory_paint.is_unallocated(), "nothing painted, nothing allocated");
+    }
+
+    /// A territory feature with no faction cannot be carried by the override
+    /// layer, whose `0` means "show the computed owner" -- refused, and the
+    /// layer left unallocated rather than written with a value that means
+    /// something else.
+    #[test]
+    fn a_territory_polygon_naming_no_faction_is_refused_not_written_as_zero() {
+        let w = World::new();
+        let mut fx = Fixture::seeded(3);
+        let ring = [en(2.0, 2.0), en(8.0, 2.0), en(8.0, 8.0), en(2.0, 8.0), en(2.0, 2.0)];
+        let coords: Vec<String> = ring.iter().map(|&(e, n)| format!("[{e},{n}]")).collect();
+        let feat = format!(
+            r#"{{"type":"Feature","geometry":{{"type":"Polygon","coordinates":[[{}]]}},"properties":{{"layer":"territory"}}}}"#,
+            coords.join(",")
+        );
+        let report = fx.apply(&w, &feat);
+        assert_eq!(report.territory_features_applied(), 0);
+        assert_eq!(report.territory_features_skipped(), 1);
+        assert_eq!(
+            report.outcomes,
+            vec![FeatureOutcome::TerritorySkipped {
+                reason: "no faction named; the territory override layer cannot force a cell unclaimed"
+            }]
+        );
+        assert!(fx.territory_paint.is_unallocated());
+        assert_eq!(fx.roster.count(), 3, "nothing created");
+    }
+
+    /// `OUTSTANDING_WORK.md` §2.11 "A recompute erases territory imported
+    /// from GeoJSON", through the real `CivTools` the bridge hands the
+    /// import. Computed owner 4 everywhere; the import claims the square
+    /// (5,5)-(10,10) for Veldmark (id 2); a recompute then computes 6
+    /// everywhere. The imported claim must survive it, a later brush stroke
+    /// must compose on top of it, and a subtract over it must fall through to
+    /// the recompute's computed owner.
+    #[test]
+    fn imported_territory_survives_a_recompute_and_paint_composes_on_top() {
+        let w = World::new();
+        let mut fx = Fixture::seeded(6);
+        let mut tools = crate::civ_tools_bridge::CivTools::new(GW, GH, vec![4; GW * GH], 1);
+        let d = doc(&territory_feature(5.0, 5.0, 10.0, 10.0, "Veldmark"));
+        let report = apply_geojson(
+            &d, &w.ctx(), &mut fx.settlements, &mut fx.next_tid, &mut fx.rng, &mut tools.territory_paint,
+            &mut fx.roster,
+        );
+        assert_eq!(report.territory_features_applied(), 1);
+        let mut territory = vec![4; GW * GH];
+        tools.recompose(&mut territory);
+        assert_eq!(territory[7 * GW + 7], 2, "the import is on the claim grid");
+        assert_eq!(territory[1 * GW + 1], 4, "outside it, the computed owner");
+        let imported = territory.iter().filter(|&&t| t == 2).count();
+        assert_eq!(imported, report.territory_cells_painted());
+
+        // The recompute: `civ_rebuild` hands `rebase` the fresh, unpainted
+        // `assign_territory` answer.
+        let mut territory = vec![6; GW * GH];
+        tools.rebase(&mut territory);
+        assert_eq!(territory[7 * GW + 7], 2, "a recompute erased the imported border");
+        assert_eq!(territory[1 * GW + 1], 6);
+        assert_eq!(territory.iter().filter(|&&t| t == 2).count(), imported);
+
+        // A brush dab over one imported cell, then a subtract over another.
+        tools.paint_at(7.0, 7.0, 1, 0.0, false);
+        assert!(tools.commit(&mut territory));
+        assert_eq!(territory[7 * GW + 7], 1, "the stroke wins over the import");
+        assert_eq!(territory[8 * GW + 8], 2, "the rest of the import stays");
+        tools.paint_at(8.0, 8.0, 0, 0.0, true);
+        assert!(tools.commit(&mut territory));
+        assert_eq!(territory[8 * GW + 8], 6, "subtract falls through to the computed owner");
+        assert_eq!(territory[7 * GW + 7], 1);
     }
 }

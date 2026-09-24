@@ -436,12 +436,21 @@ impl CivTools {
         }
         let n = self.territory_base.len();
         self.territory_draft.commit(self.territory_paint.cells_mut(n), &mut self.territory_tracker, "territory_painted");
+        self.recompose(territory);
+        true
+    }
+
+    /// Rebuilds `territory` as `territory_base` merged with the whole
+    /// accumulated `territory_paint` -- [`CivTools::commit`]'s tail, and the
+    /// step a writer that fills `territory_paint` directly (the GeoJSON
+    /// import, `geojson_apply::apply_geojson`) runs afterwards so the claim
+    /// grid shows what it wrote.
+    pub fn recompose(&self, territory: &mut Vec<i32>) {
         let mut rebuilt = self.territory_base.clone();
         if let Some(cells) = self.territory_paint.cells() {
             cartalith_civ::tools::merge_territory_paint(&mut rebuilt, cells);
         }
         *territory = rebuilt;
-        true
     }
 
     /// Re-anchors onto a freshly recomputed `assign_territory` output
@@ -455,6 +464,13 @@ impl CivTools {
     /// `assign_territory` raster and silently erase every hand-painted
     /// border, while `territory_base` still described the pre-edit world so
     /// the *next* subtract stroke would restore stale cells.
+    ///
+    /// `territory` must be an **unpainted** computed answer. Handing it a grid
+    /// that already carries the paint makes every painted cell part of the
+    /// "computed" base, so a later subtract restores the paint instead of the
+    /// computed owner -- which is why `lib.rs::civ_rebase_territory_paint`
+    /// does not call this for Generate Roads, whose territory is the
+    /// pre-run, already-painted grid.
     pub fn rebase(&mut self, territory: &mut Vec<i32>) {
         self.territory_base = territory.clone();
         if let Some(cells) = self.territory_paint.cells() {

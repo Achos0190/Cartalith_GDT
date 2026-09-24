@@ -427,19 +427,41 @@ impl WorldGen {
             &mut civ.settlements,
             &mut civ.next_tid,
             &mut tools.name_rng,
-            &mut civ.territory,
+            &mut tools.territory_paint,
             &mut civ.faction_roster,
         );
-        // An imported territory polygon is a border written into the claim
-        // grid, like a paint commit, so the provinces follow it the same way
-        // (`crate::civ_reprovince`) rather than crossing it until a recompute.
-        if report.territory_features_applied() > 0 {
+        // An imported territory polygon is written into the Territory tool's
+        // accumulated override layer, not the claim grid, so a recompute
+        // re-anchors it (`CivTools::rebase`) instead of erasing it. The grid
+        // is then recomposed exactly as a paint commit recomposes it, and the
+        // provinces follow it the same way (`crate::civ_reprovince`) rather
+        // than crossing it until a recompute.
+        let territory_applied = report.territory_features_applied() > 0;
+        if territory_applied {
+            tools.recompose(&mut civ.territory);
             crate::civ_reprovince(civ, gw, gh);
         }
+        let placed = report.settlements_placed();
         // SG-01, the same note `civ_drop_settlement` carries: roads,
         // territory (the parts this call didn't itself paint) and trade
         // balances were all derived before any of this existed.
         self.civ_dirty = true;
+        // ED-02, recorded and not reversible -- the same entry kind a
+        // Territory commit records, for the same reason: the pre-import claim
+        // grid and settlement list are not retained.
+        if territory_applied || placed > 0 {
+            self.ledger.record(
+                "civ",
+                "GeoJSON import",
+                format!(
+                    "{placed} settlement(s) placed, {} territory cell(s) claimed",
+                    report.territory_cells_painted()
+                ),
+                crate::undo::EntryKind::Recorded(
+                    "the pre-import claim grid and settlement list are not retained; imported borders live in the Territory paint layer, so a Territory subtract stroke over them restores the computed owner",
+                ),
+            );
+        }
 
         let factions_created: PackedStringArray =
             report.factions_created.iter().map(GString::from).collect();
@@ -467,6 +489,13 @@ impl WorldGen {
         }
         if report.crs_unstated {
             out.set("crs_unstated", true);
+        }
+        // Omitted, not zeroed. A territory polygon naming no faction lands
+        // here: the override layer it is written into cannot say "unclaimed"
+        // (`geojson_apply.rs`'s module doc).
+        let territory_skipped = report.territory_features_skipped();
+        if territory_skipped > 0 {
+            out.set("territory_features_skipped", territory_skipped as i64);
         }
         out
     }

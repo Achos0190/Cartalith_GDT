@@ -1729,6 +1729,8 @@ func _pattern_prose(col: Control, route: Dictionary) -> void:
 			DccWidgets.note(col,
 				"Reads a FeatureCollection and places what it can: a settlement feature (bounds/occupied/water gates, same as the Settlement tool) and a territory polygon (rasterised cell by cell). A feature naming a faction this world doesn't have creates it -- by its imported name, never a fuzzy remap, never silently dropped to unclaimed.")
 			DccWidgets.note(col,
+				"Imported territory is laid down as Territory paint: it survives Recompute civilisation, a later Territory stroke paints over it, and a subtract stroke over it shows the computed owner again. A territory polygon naming no faction is skipped, because paint cannot force a cell unclaimed.")
+			DccWidgets.note(col,
 				"poi, way, river and province features are read and counted but not placed: the import does not turn a point of interest into a landmark yet, a way needs real settlement endpoints an import doesn't carry, a river is generated hydrology rather than user data, and a province must stay inside its own faction's territory in a way an arbitrary polygon isn't checked against. The result after importing names each one.")
 			DccWidgets.note(col,
 				"Coordinates are read as this world's own planar kilometres regardless of what the document's own CRS property claims -- the only coordinate system a generated world has.")
@@ -3496,6 +3498,12 @@ func _geojson_import_summary(result: Dictionary) -> String:
 	if terr > 0:
 		parts.append("%d territory polygon%s -> %d cells" % [terr, "" if terr == 1 else "s",
 			int(result.get("territory_cells_painted", 0))])
+	## Omitted by the engine when zero. The usual cause is a polygon naming no
+	## faction: imported territory is Territory paint, which cannot force a
+	## cell unclaimed (`geojson_apply.rs`'s module doc).
+	var terr_skipped := int(result.get("territory_features_skipped", 0))
+	if terr_skipped > 0:
+		parts.append("%d territory polygon%s skipped" % [terr_skipped, "" if terr_skipped == 1 else "s"])
 
 	var created := PackedStringArray(result.get("factions_created", PackedStringArray()))
 	if not created.is_empty():

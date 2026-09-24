@@ -659,9 +659,14 @@ fn civ_reprovince(civ: &mut CivData, gw: usize, gh: usize) {
 /// territory paint onto the freshly computed borders
 /// ([`civ_tools_bridge::CivTools::rebase`]), then rebuild the provinces over
 /// the merged grid -- only when paint exists, so a world nobody painted keeps
-/// the provinces `compute_civilisation` built, untouched, and only when the
-/// mode re-derived the layer (`Routes` keeps its pre-run provinces on
-/// purpose; see [`civ_merge`]).
+/// the provinces `compute_civilisation` built, untouched.
+///
+/// Only when the mode re-derived the layer. `Routes` keeps its pre-run
+/// territory and provinces on purpose (see [`civ_merge`]), and that pre-run
+/// territory already carries the paint: rebasing onto it made every painted
+/// cell part of `territory_base`, so a later subtract stroke restored the
+/// paint instead of the computed owner. Under `Routes` the base, the paint
+/// and the claim grid therefore all stay exactly as they were.
 fn civ_rebase_territory_paint(
     tools: &mut civ_tools_bridge::CivTools,
     civ: &mut CivData,
@@ -669,8 +674,11 @@ fn civ_rebase_territory_paint(
     gh: usize,
     rederived: bool,
 ) {
+    if !rederived {
+        return;
+    }
     tools.rebase(&mut civ.territory);
-    if rederived && tools.territory_paint.cells().is_some() {
+    if tools.territory_paint.cells().is_some() {
         civ_reprovince(civ, gw, gh);
     }
 }
@@ -710,7 +718,7 @@ fn civ_commit_territory_paint(tools: &mut civ_tools_bridge::CivTools, civ: &mut 
 mod civ_merge_tests {
     use super::{
         CIV_FACTION_COUNT, CivData, CivRebuild, PipelineStage, SettlementExplanation, civ_merge,
-        civ_roster_bridge, civ_settle_staleness, pipeline_stage_graph,
+        civ_rebase_territory_paint, civ_roster_bridge, civ_settle_staleness, civ_tools_bridge, pipeline_stage_graph,
     };
     use cartalith_civ::{
         Continent, NamedSettlement, Province, RoadEdge, SeaRoute, SettlementKind, SettlementPlacement,
@@ -913,6 +921,41 @@ mod civ_merge_tests {
 
         let (merged, _) = civ_merge(CivRebuild::Routes, fresh, old);
         assert_eq!(merged.faction_roster, before, "never overwrites an existing faction");
+    }
+
+    /// `OUTSTANDING_WORK.md` §2.11 "Routes mode re-bases on already-painted
+    /// territory". A 2x2 world computed as faction 9 everywhere; cell 3 is
+    /// painted faction 3, so its computed and painted owners differ. After a
+    /// rebuild, a subtract dab on that cell must bring back the *computed*
+    /// owner of the rebuild's own base -- 9 under Routes (which keeps the
+    /// pre-run territory), 5 under Downstream and Replace (whose fresh pass
+    /// computes 5) -- never the painted 3.
+    #[test]
+    fn a_subtract_after_any_rebuild_restores_the_computed_owner_not_the_paint() {
+        for mode in [CivRebuild::Routes, CivRebuild::Downstream, CivRebuild::Replace] {
+            let mut old = tagged(4);
+            old.territory = vec![9, 9, 9, 9];
+            // On the 2x2 grid: `tagged` places settlement i at (i, 0), and
+            // provinces may be rebuilt over them.
+            old.settlements.truncate(2);
+            let mut tools = civ_tools_bridge::CivTools::new(2, 2, old.territory.clone(), 1);
+            tools.paint_at(1.0, 1.0, 3, 0.0, false);
+            assert!(tools.commit(&mut old.territory));
+            assert_eq!(old.territory, vec![9, 9, 9, 3], "{mode:?}: premise, the paint landed");
+
+            let mut fresh = tagged(4);
+            fresh.territory = vec![5, 5, 5, 5];
+            fresh.settlements.truncate(2);
+            let (mut merged, rederived) = civ_merge(mode, fresh, old);
+            civ_rebase_territory_paint(&mut tools, &mut merged, 2, 2, rederived);
+            let computed = if mode == CivRebuild::Routes { 9 } else { 5 };
+            assert_eq!(merged.territory, vec![computed, computed, computed, 3], "{mode:?}: the paint survives the rebuild");
+            assert_eq!(tools.territory_base, vec![computed; 4], "{mode:?}: the base is unpainted");
+
+            tools.paint_at(1.0, 1.0, 0, 0.0, true);
+            assert!(tools.commit(&mut merged.territory));
+            assert_eq!(merged.territory[3], computed, "{mode:?}: subtract must restore the computed owner, not the paint");
+        }
     }
 
     /// SG-02's recompute rebuilds everything below the settlement list, so
