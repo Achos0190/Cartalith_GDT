@@ -145,3 +145,48 @@ G6 dead: import.rs _base_field blur; AtlasStore::chunk_len; cartalith-gpu test-o
 
 ### I. Owner questions (unruled)
 orogeny knobs derivation; sea_grain_warp default flip; LOD questions (LOD_DETAIL q1,4,5,6; D5 octave decay; D1 40ms budget; sawtooth tolerance); v2.25 tileShadeExag port/decline; §7p vs GPU default/CPU toggle interpretation; Ruling AH phone New World offers 4K/8K.
+
+---
+
+## Part 3 — found by the sculpt/tool document cleanup, 2026-09-24
+
+The last document group's cleanup (UNIFIED_TOOL_PLAN, SCULPT_LIVE_SCOPE,
+SCULPT_FUNCTION_CHART, EROSION_GEOLOGICAL_TIME_SCOPE) re-read those subsystems
+at the code and reported these outside its own files.
+
+- **"Commit only marks flow and climate stale" is false since `8e666ac`
+  (2026-08-24):** `WorldGen::sculpt_commit` → `mark_and_recompute` →
+  `staleness::recompute_stale` re-runs hydrology and climate once; civ stays
+  stale. Still claimed in `DCC_SHELL_SPEC.md` (header correction #1, §5.2 note)
+  and `DCC_CONTROL_INDEX.md` (~477).
+- **Seven places say UNIFIED_TOOL_PLAN milestone C measured ~7 s per stroke;
+  it measured nothing of the kind** (7.07 s is `CPU_MULTITHREADING_SCOPE.md`'s
+  full-generation figure): `lib.rs` docs on `sculpt_commit`,
+  `build_sculpt_preview_texture`, `recompute_civilisation`;
+  `sculpt_bridge.rs::SculptEditor::commit`; `staleness.rs` `recompute_stale`
+  and `pipeline_stage_graph`; and a USER-VISIBLE string, the Recompute tooltip
+  in `app.gd::_setup_staleness` ("(UNIFIED_TOOL_PLAN.md milestone C measured why)").
+- **STATUS:** SL-0 "not started" (the L0 harness `tests/sculpt_live_l0_bench.rs`
+  exists since `611c5fa`; the group total is wrong with it); SL-2 "blocked on
+  L0's numbers" (they exist); UTP-C cites `sculpt.rs::apply_stamp` (it is
+  `SculptStamp::apply_into`); DCC-T2 cites UNIFIED_TOOL_PLAN as 2 268 lines.
+- **Comments:** `PaintLayer::clear` "the shell does not exist yet";
+  `sculpt_bridge.rs:3` cites a removed chart row; `icon_bridge.rs:32` cites a
+  removed test tally; `paint_bridge.rs:86-89` cites a removed UI_SHELL_DESIGN
+  phrase; `CLAUDE.md` calls SCULPT_LIVE_SCOPE "tiers L1-L3" (it is L0-L4); the
+  GPU-weather "0.93x" comment in `cartalith-engine/src/lib.rs` contradicts L0.
+- **A test that compares a constant with itself:**
+  `global_controls_defaults_match_sculpt_globals_default` reads a value from
+  `SculptGlobals::default()` and compares it with `SculptGlobals::default()`,
+  so it pins the key mapping, not any value (`MISTAKES.md`).
+- **L1 sizing:** the sculpt preview now runs more whole-grid work than L0
+  measured (`GridPrecompute::build` adds lighting, crest and coast SDF;
+  `with_map_scale` adds the river SDF and a `build_water_bodies`; the preview
+  runs its own `build_water_bodies`). Re-run L0 before sizing L1.
+- **Gaps:** region select's corner handles are drawn but do nothing (no
+  `region_resize`); the region export omits `params.json` although a writer now
+  exists in `cartalith-io`.
+- **Owner questions confirmed unruled:** erosion §8 Q1, Q3-Q5 (the 2026-09-02
+  ruling declined the clock for now); whether a sculpt commit should clear
+  painted override cells (today they survive a sculpt and are dropped on
+  regenerate and load).

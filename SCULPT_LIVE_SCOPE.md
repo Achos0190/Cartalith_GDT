@@ -1,358 +1,303 @@
-# Live sculpt manipulation — scope
+# SCULPT_LIVE_SCOPE.md — live sculpt manipulation, tiers L0–L4
+
+**What this is:** the scope for making sculpt edits live — what "live" has to
+mean, how comparable tools do it, milestones L0–L4, and L0's measurements.
+**What it is not:** status. Where each milestone stands is
+`cartalith-native/docs/STATUS.md`'s "Sculpt live" group (SL-0…SL-4). The
+sculpt editor itself is `UNIFIED_TOOL_PLAN.md` milestone B, charted in
+`SCULPT_FUNCTION_CHART.md`.
 
 > Owner's ruling, 2026-08-18: *"the fix in this version would be to have all
 > these manipulations live (as we have the computational power available
 > directly)"*, and *"scope it accordingly and research similar tools on how they
 > perform this task / have a solution."*
->
-> This replaces the reference's deliberately-cheap draft overlay. v2.10 drew
-> each stamp's footprint as a translucent outline and hatch, and its own comment
-> called that *"a deliberately simpler indicator than a full live-recolor… the
-> real height/material colouring only appears after Commit."* That was a
-> JavaScript cost compromise. We are not reproducing a compromise made against
-> a constraint we do not have.
 
-## What "live" has to mean, precisely
+This replaces the reference's deliberately cheap draft overlay. v2.10 drew
+each stamp's footprint as a translucent outline and hatch, and its own comment
+called that *"a deliberately simpler indicator than a full live-recolor… the
+real height/material colouring only appears after Commit."* That was a
+JavaScript cost compromise; this port does not reproduce a compromise made
+against a constraint it does not have.
 
-Three different things get called live, and they cost three very different
-amounts. Separating them is most of this document's work.
+## What "live" has to mean
 
-| Tier | What updates while you drag | Cost driver | Status |
-|---|---|---|---|
-| **L1 · Draft height + colour** | The stamp stack rendered into the terrain raster — real elevation, real hillshade, real material colour | The stamp's own `apply()` over its footprint, plus a re-render | **Bindings done**; preview is full-grid, wants bounding |
-| **L2 · Water response** | Rivers re-routing, lakes re-filling around the edit | Flow accumulation — globally coupled | Not started |
-| **L3 · Full causal chain** | Erosion, climate, biomes, and everything civ derives from them | The whole downstream pipeline | Not started, and see §6 |
+Three different things get called live, and they cost very different amounts.
+Separating them is most of this document's work.
 
-The owner's ask is unambiguously L1, and L1 is achievable now. L2 is achievable
-and is where the interesting engineering is. L3 is a different proposition and
-this document argues for a proxy rather than the real thing.
+| Tier | What updates while you drag | Cost driver |
+|---|---|---|
+| **L1 · Draft height + colour** | The stamp stack rendered into the terrain raster — real elevation, hillshade and material colour | The stamp's own `apply()` over its footprint, plus a re-render |
+| **L2 · Water response** | Rivers re-routing, lakes re-filling around the edit | Flow accumulation — globally coupled |
+| **L3 · Full causal chain** | Erosion, climate, biomes, and everything civ derives from them | The whole downstream pipeline |
+
+The owner's ask is L1. L2 is achievable and is where the interesting
+engineering is. L3 is a different proposition, and §6 argues for a proxy
+rather than the real thing.
+
+"Live" here means *during the drag*. At **commit**, a sculpt already runs
+the reference's own tail once — hydrology and climate through one
+`refresh_climate`, via `cartalith_engine::staleness::recompute_stale`
+(`8e666ac`, 2026-08-24; `SCULPT_FUNCTION_CHART.md` §7).
 
 ## 1 · Correcting a number this scope was nearly built on
 
-I had been citing *"the eager form measured ~7 s per stroke at 2048²"* as the
-reason commit defers. That is wrong, and it matters here more than anywhere.
+*"The eager form measured ~7 s per stroke at 2048²"* was being cited as the
+reason commit defers. It is wrong. What `CPU_MULTITHREADING_SCOPE.md` measured
+at 2048², Rayon-parallel, is a **full generation**: `cartalith-terrain` alone
+~5.1 s, ~7.07 s once the civ per-cell layer is added — a figure that
+explicitly **excludes** climate, erosion and hydrology, and civ's sequential
+stages. No per-stroke measurement existed.
 
-What `CPU_MULTITHREADING_SCOPE.md` actually measured at 2048², Rayon-parallel,
-is a **full generation**: `cartalith-terrain` alone ~5.1 s, ~7.07 s once the civ
-per-cell layer is added — a figure that explicitly **excludes** climate, erosion
-and hydrology, and excludes civ's sequential stages. It is not a per-stroke
-measurement, and no per-stroke measurement exists.
-
-The conclusion it was used to support still stands — firing the whole causal
-chain per stroke is not viable — but it stands on a **structural** argument, not
-a numeric one: `cartalith-hydrology` and `cartalith-civ` are not tile-incremental
-at all. `UNIFIED_TOOL_PLAN.md` says so plainly: *"they operate on the whole
-field."* That is the blocker. Not seconds.
-
-**So milestone L0 is to measure**, because every scheduling decision below is
-currently resting on an unmeasured assumption.
+The conclusion it supported — firing the whole causal chain per stroke is not
+viable — still stands, but on a **structural** argument, not a numeric one:
+`cartalith-hydrology` and `cartalith-civ` are not tile-incremental; they
+operate on the whole field. So milestone L0 is to measure, because every
+scheduling decision below rested on an unmeasured assumption.
 
 ## 2 · How comparable tools solve this
 
-Four families of solution, and what each implies for us. Vendor documentation is
-thin on internals — this is drawn from what the docs do state plus the shape of
-the products.
+Vendor documentation is thin on internals; this is drawn from what the docs
+state plus the shape of the products, and marked as inference where it is.
 
 **Node-graph, recompute-downstream (World Machine, Houdini).** A change marks
-its node dirty and dirtiness propagates along the dependency graph; evaluation
-is pull-based, so a node cooks only when something asks for it. Houdini's
-HeightField Paint is interactive and immediate — *"you'll immediately see the
-result of your action"* — but that immediacy is the paint node itself, not the
-erosion nodes below it, which re-cook on demand. **This is already our model.**
-`StageGraph` and `DirtyTracker` are the same idea, and the lesson is that the
-industry does *not* run the full chain live either. It runs the edited node live
-and defers the rest.
+its node dirty and dirtiness propagates along the graph; evaluation is
+pull-based. Houdini's HeightField Paint is immediate — *"you'll immediately see
+the result of your action"* — but that is the paint node itself, not the
+erosion nodes below it, which re-cook on demand. **This is already our model**
+(`StageGraph`, `DirtyTracker`): the industry does *not* run the full chain live
+either. It runs the edited node live and defers the rest.
 
-**Non-destructive layer stack composited on the GPU (Unreal Landscape Edit
-Layers + Landmass Blueprint Brushes).** The closest analogue to our stamp stack:
-layers are *"independent, non-destructive containers"* in a *"stack-based
-workflow"*, and brushes are *"a stack of user-defined sculpting brushes… changes
-to a brush lower in the stack automatically flow through to the brushes above
-it."* That is `PassBuffer<SculptStamp>` almost exactly. The instructive detail is
-the constraint: the default limit is **8 edit layers**, configurable. Even an
-engine compositing on the GPU caps the live stack, which tells us a stamp-count
-budget is normal engineering, not a failure.
+**Non-destructive layer stack on the GPU (Unreal Landscape Edit Layers +
+Landmass Blueprint Brushes).** The closest analogue to our stamp stack: layers
+are *"independent, non-destructive containers"* in a *"stack-based
+workflow"*, and brushes are *"a stack of user-defined sculpting brushes…
+changes to a brush lower in the stack automatically flow through to the
+brushes above it."* That is `PassBuffer<SculptStamp>` almost exactly. The
+default limit is **8 edit layers**, configurable: even a GPU compositor caps
+the live stack, so a stamp-count budget is normal engineering.
 
-**GPU-resident whole-field recompute (Gaea, World Creator).** Both lean on the
-GPU to make iteration feel immediate rather than on incremental evaluation. This
-is the "throw compute at it" answer, and it is the one the owner's ruling
-gestures at. It works when the field fits in VRAM and the passes are
-data-parallel — which is exactly true of our noise, warp, blur, height and
-weather kernels, and exactly *not* true of flow accumulation, priority-flood and
+**GPU-resident whole-field recompute (Gaea, World Creator).** Throw compute at
+it — the answer the owner's ruling gestures at. It works when the field fits
+in VRAM and the passes are data-parallel: true of our noise, warp, blur,
+height and weather kernels, **not** of flow accumulation, priority-flood and
 Dijkstra.
 
-**Tile/dirty-rect compositing (image editors).** Bound work to the touched
-rectangle and recomposite only those tiles. This is the right model for L1 and
-we already own the machinery (`cartalith-spatial`'s tiling, `DirtyTracker`,
+**Tile / dirty-rect compositing (image editors).** Bound work to the touched
+rectangle and recomposite only those tiles — the right model for L1, and we
+own the machinery (`cartalith-spatial`'s tiling, `DirtyTracker`,
 `PassBuffer::touched_bounds`).
 
-**What this adds up to:** nobody runs the full chain live. The industry answer is
-*live for the edited layer, deferred or proxied for everything downstream*, with
-the GPU used to widen what counts as "the edited layer". That is the shape this
-scope adopts.
+**What this adds up to:** nobody runs the full chain live. The industry answer
+is *live for the edited layer, deferred or proxied for everything downstream*,
+with the GPU used to widen what counts as "the edited layer". This scope
+adopts that shape.
 
 ## 3 · What we already have
 
-Better than the scope assumed before checking:
-
-- `cartalith-gpu` ships compute for noise, warp, heterogeneity, height,
-  resistance, JFA plates, gaussian blur, **weather/climate**, and **flow
-  accumulation** — the last redesigned rather than ported (pointer doubling over
-  the receiver forest, bounded at **22 rounds at 2048²**, 0 flow-direction
-  mismatches out of 262 144 at 512²).
-- `PassBuffer<SculptStamp>` with `touched_bounds()`, draft/commit/discard, and
-  two-tier undo.
-- 34 sculpt `#[func]` methods, including `build_sculpt_preview_texture`, which
-  already returns a real live colour+hillshade raster rather than a footprint.
+- `cartalith-gpu` compute for noise, warp, heterogeneity, height, resistance,
+  JFA plates, gaussian blur, **weather/climate** and **flow accumulation** —
+  the last redesigned rather than ported (pointer doubling over the receiver
+  forest, bounded at **22 rounds at 2048²**, 0 flow-direction mismatches out of
+  262 144 at 512²).
+- `PassBuffer<SculptStamp>` with `touched_bounds()`, draft / commit / discard,
+  two-tier undo, and `preview_touched_into` — a bounded composite that returns
+  the window it touched. The paint preview already uploads only that window
+  (`build_paint_preview_patch`); the sculpt preview does not, for §4's reason.
+- `build_sculpt_preview_texture`, which returns a real colour + hillshade
+  raster of the draft rather than a footprint — L1's live preview, at
+  whole-grid cost.
 - `DirtyTracker` with per-stage version counters, and `StageGraph`.
-
-So L1 is *working today* — just not efficiently.
 
 ## 4 · The one thing standing in L1's way
 
 `build_sculpt_preview_texture` renders the **whole grid** on every call.
-`PassBuffer::touched_bounds()` gives the rectangle it could restrict to, but
-restricting only the final per-pixel loop would shrink the output image without
-touching the dominant cost: `RenderCtx::with_appearance` unconditionally
-precomputes `smooth_sea_h`, `build_ao` and `build_hydro_wetness` over the entire
-grid regardless of which pixels are read back. Bounding the loop alone would be
-a cosmetic optimisation reported as a real one.
+`touched_bounds()` gives the rectangle it could restrict to, but restricting
+only the final per-pixel loop would shrink the image without touching the
+dominant cost: `RenderCtx::with_appearance` precomputes whole-grid rasters on
+construction regardless of which pixels are read back. Bounding the loop
+alone would be a cosmetic optimisation reported as a real one.
 
-A genuine bounded preview means reworking those three passes to run over a
-caller-supplied window. That is real surgery on `render.rs`, which
-`golden_parity_render.rs` pins bit-for-bit — so it needs the window to be an
+That set has grown since L0 measured it. On 2026-08-18 (`611c5fa`) the
+constructor ran `smooth_sea_h`, `sea_shade_from`, `build_ao`,
+`build_hydro_wetness` and `build_lights`. Today's body, `GridPrecompute::build`,
+also runs `fold_lighting_fields` and `build_crest` unconditionally, and
+`coast_distance` / `build_coast_sdf` when their appearance stages are on; the
+preview then calls `with_map_scale`, which adds `build_river_sdf` and, for
+biome SDFs, a whole-grid `build_water_bodies` + `build_biome_raster`; and the
+preview itself runs `build_water_bodies` over the drafted field for
+`with_lakes`. L1's window has to cover every one of those, and L0's breakdown
+should be re-run before L1 is sized.
+
+A genuine bounded preview means reworking those passes to run over a
+caller-supplied window — real surgery on `render.rs`, which
+`golden_parity_render.rs` pins bit-for-bit, so the window must be an
 *addition* whose full-grid path stays byte-identical, not a rewrite.
 
-## Milestones
+## 5 · Milestones
 
 ### L0 · Measure, before deciding anything else
 
-Instrument a commit and a preview at 512², 1024², 2048², CPU and GPU, per stage:
-stamp `apply()`, the three `with_appearance` precomputes, the per-pixel loop,
+Instrument a commit and a preview at 512², 1024², 2048², CPU and GPU, per
+stage: stamp `apply()`, the `with_appearance` precomputes, the per-pixel loop,
 `enforce_river_channels`, `compute_flow`, `refresh_climate`. Publish the table.
-
-Nothing below should be built until this exists — the whole plan currently rests
-on one figure that turned out to describe something else.
+Nothing below should be built until it exists. The measurement is §8.
 
 ### L1 · Bounded live preview
 
-Add a window parameter to `smooth_sea_h`, `build_ao` and `build_hydro_wetness`,
+Add a window parameter to every whole-grid pass the preview runs (§4),
 defaulting to the full grid so `golden_parity_render.rs` is untouched. Feed it
 `touched_bounds()` expanded by each pass's own neighbourhood radius. Return the
-window's rect alongside the texture so the viewport blits rather than replaces.
+window's rect alongside the texture so the viewport blits rather than
+replaces.
 
-Target: preview cost proportional to brush footprint, not map area. Verified by
-L0's harness re-run, and by the golden render test still passing byte-for-byte.
+Target: preview cost proportional to brush footprint, not map area. Verified
+by L0's harness re-run, and by the golden render test still passing
+byte-for-byte. L0 found a second cost L1 does not touch —
+`SculptStamp::apply()` itself (§8, finding 1).
 
-### L2 · Live water, at proxy resolution
+### L2 · Live water
 
 Flow accumulation cannot be bounded to a footprint — a stroke's hydrological
-effect extends up its whole contributing catchment and down its outflow path, so
-"recompute the rectangle" is simply the wrong answer. Two viable routes:
+effect extends up its whole contributing catchment and down its outflow path,
+so "recompute the rectangle" is the wrong answer. Two routes:
 
-1. **Proxy resolution during the drag.** Run flow at a coarse LOD (¼ or ⅛ linear)
-   while dragging, full resolution at commit. The tiling base already gives us
-   the pyramid. This is what makes the water *respond* without pretending the
-   response is final.
-2. **GPU at full resolution.** 22 pointer-doubling rounds at 2048² may already be
-   fast enough to skip the proxy entirely — L0 will say. If it is, take it: no
-   proxy means no discrepancy between what you drag and what you commit.
+1. **Proxy resolution during the drag.** Flow at a coarse LOD (¼ or ⅛ linear)
+   while dragging, full resolution at commit. The tiling base already gives
+   the pyramid.
+2. **GPU at full resolution.** No proxy means no discrepancy between what you
+   drag and what you commit.
 
-Route 2 is preferable and may be free. Decide on L0's numbers, not on taste.
+Decide on L0's numbers, not on taste. L0 favours route 2 for accumulation
+itself (§8, finding 2); a complete "water responds" feature also needs
+river/lake reclassification, which L0 did not measure and L2 must before
+committing to "GPU only, no proxy".
 
-### L3 · Downstream: proxied, not live
+### L3 · Downstream
 
-Erosion, climate, biomes and everything civ derives are **not** proposed to run
-live, and this is a recommendation rather than a limitation to be engineered
-away. Two reasons:
-
-- **Structural.** `cartalith-hydrology` and `cartalith-civ` operate on the whole
-  field. Making them tile-incremental is a substantial redesign of two crates —
-  larger than everything else in this document combined.
-- **Semantic.** Erosion and climate are *global equilibria*. A locally-recomputed
-  erosion result is not a preview of the real one, it is a different answer.
-  Showing it live would be showing something untrue at 60 Hz.
-
-What ships instead: the status bar names precisely what is stale and what will
-change on commit, and the stage rows carry their state dots — which is the model
-§5.1 already specifies and which Houdini and World Machine both use. If this
-turns out to be unsatisfying in practice, revisit with L0's numbers in hand.
+Not a buildable milestone: see §6.
 
 ### L4 · The three §5.2 blocks with no engine
 
-Separate from live-ness, and independently scoped because the design asks for
-them and neither v2.10 nor `sculpt.rs` has them:
+Separate from live-ness, and scoped independently because the design asks for
+them and neither v2.10 nor `sculpt.rs` has them (`SCULPT_FUNCTION_CHART.md`
+§10 has the current engine state):
 
-- **Brush shape** — eight built-in shapes, imported greyscale stamps, operation
-  override (subtract/multiply/min/max), five falloff curves, rotation, spacing,
-  mirror. The engine today has **one** falloff (`smoothstep`) and no brush-shape
-  concept: coverage is distance-to-stroke, full stop. This is the largest single
+- **Brush shape** — eight built-in shapes, imported greyscale stamps,
+  operation override (subtract/multiply/min/max), falloff curves, rotation,
+  spacing, mirror. The four named falloff shapes exist (`sculpt::Falloff`); a
+  hand-drawn curve is deliberately not built. The rest is the largest single
   addition and the one that would most change the tool's character.
+  `Falloff`'s doc estimates the costs: `apply_into` is per-pixel-independent
+  over one distance, and an elliptical tip, spacing/jitter or an airbrush each
+  breaks that across all thirteen feature formulas.
 - **Stroke & grid** — add point, duplicate, rotate, scale, tilt, push, pull,
-  align, editing a committed-to-draft stamp's control points. A stamp stores its
-  `pts`; nothing edits them after the stroke ends.
+  align, editing a draft stamp's control points. A stamp stores its `pts`;
+  nothing edits them after the stroke ends.
 - **Actions** — flip X/Y, rotate left/right, flatten selection.
 
 All three are *additive to a stamp*, so they compose with L1 for free: a brush
-shape changes what `apply()` writes, and L1 re-previews the footprint either way.
+shape changes what `apply()` writes, and L1 re-previews the footprint either
+way.
 
-## Sequencing
+## 6 · L3 — downstream is proxied, not live
 
-L0 → L1 → (L2 route chosen on L0's numbers) → L4. L3 stays deferred by
-recommendation. L1 is the milestone that delivers the owner's ask; L0 is the one
-that stops the next decision from resting on another misread number.
+Erosion, climate, biomes and everything civ derives are **not** proposed to
+run live during a drag, and this is a recommendation rather than a limitation
+to engineer away:
 
-## L0 as measured
+- **Structural.** `cartalith-hydrology` and `cartalith-civ` operate on the
+  whole field. Making them tile-incremental is a substantial redesign of two
+  crates — larger than everything else in this document combined.
+- **Semantic.** Erosion and climate are *global equilibria*. A
+  locally-recomputed erosion result is not a preview of the real one; it is a
+  different answer. Showing it live would be showing something untrue at
+  60 Hz.
 
-**Answers first, numbers below.**
+What ships instead: at commit, hydrology and climate re-run once (the
+reference's own tail, measured affordable in §8); civ is left stale and the
+status bar names it (`stale` slot, with Recompute civilisation to settle it),
+which is the model Houdini and World Machine both use. If that proves
+unsatisfying in practice, revisit with §8's numbers in hand.
 
-1. **Yes, the three `with_appearance` precomputes dominate — but "dominate"
-   means ~55-67%, not ~95%.** `smooth_sea_h` + `build_ao` + `build_hydro_wetness`
-   are 56% of whole-grid preview cost at 512², 67% at 1024², 64% at 2048² (the
-   remainder is the per-pixel colour loop, which L1's own design already plans
-   to bound alongside them via the returned window rect). L1's bounded-window
-   surgery is worth doing. It is **not** the whole story, though: `SculptStamp
-   ::apply()` itself — a separate, unparallelized, noise-heavy per-pixel loop
-   that L1 does not touch — already costs 40-58ms for a single typical stroke
-   *regardless of grid size* (footprint-bound, not grid-bound, confirmed by its
-   near-flat cost across all three sizes). L1 will make the *render* proportional
-   to brush footprint; it will not by itself make the *stamp application* fast,
-   because that cost was never grid-proportional to begin with. See finding 4
-   below.
-2. **Yes — GPU flow accumulation is affordable at full resolution.** A warm
-   `GpuFlowContext` runs one accumulation at 2048² in ~28-32ms versus
-   ~429-449ms on CPU (8-16x faster, growing with size). That is comfortably
-   inside a "responds within a beat of releasing the drag" budget and arguably
-   close to a live one if throttled. Route 2 (§ L2, "GPU at full resolution")
-   is the right call; the proxy-LOD fallback (route 1) is not needed for flow
-   accumulation itself. The caveat: this measures flow accumulation alone, the
-   cost driver the scope document itself names as the reason L2 can't be
-   footprint-bounded — a complete "water responds" feature likely still needs
-   river/lake reclassification on top, which this milestone did not measure
-   (out of scope per the task; a real candidate for L2's own milestone to
-   measure before committing to "GPU only, no proxy needed").
-3. **Yes, deferring L3 is still right — but not for the reason the cost table
-   would suggest if read carelessly.** Climate refresh alone is cheap (37-53ms
-   CPU, 25-41ms GPU, nearly flat with grid size because `simulate_weather`'s
-   working grid is capped at `min(gw,240)`) — cheap enough that, in isolation,
-   it would not obviously need deferring. That is not evidence against §6's
-   argument, because §6 was never a speed argument for climate: it is a
-   *structural* argument about `cartalith-hydrology`/`cartalith-civ` not being
-   tile-incremental, and a *semantic* one about erosion/climate being global
-   equilibria that a bounded recompute would misrepresent. Neither erosion nor
-   civ was measured here (also out of scope for L0 — the task named `compute_flow`
-   and climate refresh specifically). §6's recommendation stands, on the same
-   grounds it already gave, now with climate's own real cost on record rather
-   than assumed.
+## 7 · Sequencing
 
-**A number the scope was built on, re-confirmed cheap.** §1 already corrected
-the "~7s/stroke" figure to a full-generation number that never described a
-per-stroke cost. This milestone's own totals confirm the correction from the
-other direction: a full CPU-only "bake + reclamp + carve + lake, then flow,
-then climate" sequence — everything downstream of a commit *except* erosion
-and civ — costs **~123ms at 512², ~204ms at 1024², ~564ms at 2048²**, and with
-GPU flow + GPU weather, **~94ms / ~100ms / ~131ms**. Not free, not 60Hz-live,
-but nowhere near seconds, and nowhere near what "~7s/stroke" implied about
-deferring commit's own scope.
+L0 → L1 → (L2's route chosen on L0's numbers) → L4. L3 stays deferred by
+recommendation. L1 delivers the owner's ask; L0 is what stops the next
+decision resting on another misread number.
+
+## 8 · L0 as measured (2026-08-18)
+
+### Findings
+
+1. **The whole-grid precomputes dominate the preview — at ~55–67%, not ~95%.**
+   `smooth_sea_h` + `build_ao` + `build_hydro_wetness` are 56% of whole-grid
+   preview cost at 512², 67% at 1024², 64% at 2048²; the rest is the per-pixel
+   colour loop, which L1 bounds alongside them. L1's surgery is worth doing but
+   is **not** the whole story: `SculptStamp::apply()` — a separate,
+   unparallelized, noise-heavy per-pixel loop L1 does not touch — costs
+   40–58 ms for one typical stroke *regardless of grid size*
+   (footprint-bound). L1 makes the *render* proportional to the brush; it does
+   not make *stamp application* fast.
+2. **GPU flow accumulation is affordable at full resolution.** A warm
+   `GpuFlowContext` runs one accumulation at 2048² in ~28–32 ms against
+   ~429–449 ms on CPU (8–16× faster, growing with size) — inside a "responds
+   within a beat of releasing the drag" budget and close to a live one if
+   throttled. Route 2 is the right call for accumulation; river/lake
+   reclassification on top is unmeasured.
+3. **Deferring L3 is still right, though not for a speed reason.** Climate
+   refresh alone is cheap — 37–53 ms CPU, 25–41 ms GPU, nearly flat with grid
+   size because `simulate_weather`'s working grid is capped at `min(gw, 240)`.
+   §6 was never a speed argument for climate; it is the structural and
+   semantic argument, unchanged. Erosion and civ were not measured.
+
+**The ~7 s figure, re-confirmed from the other direction.** Everything
+downstream of a commit *except* erosion and civ — CPU "bake + re-clamp + carve
++ lake, then flow, then climate" — costs **~123 ms at 512², ~204 ms at 1024²,
+~564 ms at 2048²**; with GPU flow + GPU weather, **~94 / ~100 / ~131 ms**. Not
+60 Hz-live, but nowhere near seconds.
 
 ### Methodology
 
-- **Harness**: `cartalith-native/crates/cartalith-godot/tests/sculpt_live_l0_bench.rs`,
-  a `#[test]`, `#[ignore]`-gated (real `generate_terrain` calls, seconds each).
-  Run with `cargo test --release -p cartalith-godot --test sculpt_live_l0_bench
-  -- --ignored --nocapture --test-threads=1`. `cartalith-godot` is `cdylib`-only
-  (`ARCHITECTURE.md`), so there is no `rlib` to link an external bench against —
-  the same constraint `CPU_MULTITHREADING_SCOPE.md`'s civ timing bench hit. This
-  file follows this crate's own established fix: `#[path = "../src/render.rs"]
-  mod render;`, the same technique `golden_parity_render.rs`/`appearance_ab_dump.rs`/
-  `pack_compositing.rs`/`nonsquare.rs`/`appearance_tiers.rs` already use.
-- **The one engine-code touch**: `smooth_sea_h`, `build_ao` and
-  `build_hydro_wetness` in `render.rs` were bumped from private to `pub(crate)`
-  so the harness could call them individually to produce the breakdown the
-  scope asks for — the whole reason this milestone exists is to stop inferring
-  that breakdown from reading the code. Visibility-only; this crate ships as
-  `cdylib` only, so `pub(crate)` is already as narrow as `pub` would be to any
-  real external consumer, and the full existing test suite (`cargo test -p
-  cartalith-godot`, plus a workspace-wide `cargo test --workspace`) passes
-  unmodified — see "Verification" below. Everything else measured
-  (`commit_sculpt_pass`'s four internal steps, `compute_flow`, the climate
-  chain, GPU flow/weather) was already `pub` in `cartalith-spatial`/
-  `cartalith-hydrology`/`cartalith-terrain::sculpt`/`cartalith-climate`/
-  `cartalith-gpu` and needed no change at all — the harness calls them
-  directly, in the same order `cartalith-engine`'s `sculpt_commit.rs` and
-  `generate_terrain` already do, rather than reimplementing anything.
-  `cartalith-climate` and `cartalith-gpu` were added to `cartalith-godot`'s
-  `[dev-dependencies]` (both already transitively present via `cartalith-engine`,
-  so this adds nothing to the shipped `cdylib`).
-- **Grid sizes**: 512², 1024², 2048² (this project's standing benchmark
-  sizes), seed 12345, `WorldParams::defaults`, CPU-generated fixture world
-  reused as input for every downstream stage measured (so CPU/GPU comparisons
-  for `compute_flow`/climate operate on identical input data, isolating the
-  stage's own cost rather than confounding it with a different generation
-  path).
-- **Stroke fixtures**: "typical" = 64px brush across a 300px, 21-point dense
-  stroke; "large" = 200px brush (the control's own max) across a stroke
-  spanning 90% of `min(gw,gh)`, 61 points — dense sampling throughout, matching
-  `enforce_channel_descent`'s own reliance on a dense captured polyline (it
-  walks the stroke's own points and does not resample). Commit fixtures use a
-  3-stamp draft (Mountains + River + Lake, all "typical"-sized) plus a
-  synthetic pre-locked channel (~40% of grid width, matching the technique
-  `cartalith-engine/src/sculpt_commit.rs`'s own
-  `an_earlier_lock_is_reclamped_before_new_carving` test uses) so
-  `enforce_river_channels` has real, size-proportional work to reclamp.
-- **Runs**: 1 untimed warm-up + 5 timed runs per cell, minimum/mean/maximum
-  reported; every timed operation runs against a *freshly rebuilt* fixture
-  (fixture construction happens outside the timed region). The GPU scope
-  flagged single-run variance as a real problem this project has already been
-  burned by once — addressed here two ways: (a) min/mean/max within each
-  5-run cell, not a single sample, following `appearance_ab_dump.rs`'s own
-  established convention of taking the minimum as "the least contaminated
-  sample"; (b) the **entire harness was run three independent times**
-  end-to-end (once mid-development, where it caught its own bug — see below —
-  plus two clean runs after the fix). Cross-run spread was mostly under ~10%;
-  the largest was `compute_flow`'s CPU number at 512² (~19.8-25.5ms across the
-  three runs, ~22% spread) narrowing to ~4.5% spread at 2048². The table below
-  reports the first clean run after the fix; where a number matters to a
-  conclusion above, the conclusion was checked against all three runs, not
-  just the reported one.
-- **A bug the methodology itself caught, worth recording**: the first version
-  of this harness put `RenderCtx::with_appearance`'s constructor call inside
-  the untimed `setup` closure instead of the timed `op` closure, so the
-  "`with_appearance` full ctor" row silently reported near-zero (0.08-2ms)
-  instead of a real number. Caught by the same sanity check
-  `cartalith-porting-discipline` already teaches for golden tests — the ctor
-  total must be close to the sum of its own three precomputes, not orders of
-  magnitude under it — and fixed before any number below was trusted. Recorded
-  here rather than quietly corrected, matching this project's own "watch for
-  silently-empty/wrong output" working rule.
-- **Machine**: AMD Ryzen 7 9800X3D (8-core / 16-thread), 32 GB RAM, AMD Radeon
-  RX 7800 XT (dedicated, Vulkan backend — what `cartalith-gpu`'s
-  `PowerPreference::HighPerformance` request selects) alongside an integrated
-  AMD Radeon Graphics adapter (unused, per `HARDWARE_ACCELERATION.md`'s
-  already-recorded note that this port never enumerates the integrated GPU).
-  Different from the 16-logical-core machine `CPU_MULTITHREADING_SCOPE.md`'s
-  own table was measured on in core *count* coincidentally but not
-  necessarily in per-core performance — the CPU numbers below are not
-  directly comparable to that table's, only internally comparable to each
-  other and to the GPU numbers on this same run.
-- **Verification**: `cargo build -p cartalith-godot` (the shipped `cdylib`)
-  clean, unaffected by the dev-dependency additions. `cargo test --release -p
-  cartalith-godot` (forced fresh via the visibility-bump edit landing first,
-  so this was not a stale-binary pass): 43 passed, 0 failed, 3 pre-existing
-  `#[ignore]`d (real-world-generation) tests unaffected, 0 modified results —
-  including both golden-parity render fixtures bit-for-bit and the
-  render-parallel-matches-serial determinism test. No file under
-  `godot-project/**` or `cartalith-urban/**` touched. **Note**: this
-  verification pass and all measurement runs above completed before a
-  concurrent session's own in-progress edit to `lib.rs` (adding
-  `civ_tools_bridge.rs`/`icon_bridge.rs`, per `UNIFIED_TOOL_PLAN.md`
-  milestone F's CIVIL group) landed mid-`git status` and left the crate
-  transiently uncompilable — unrelated to, and after, this milestone's own
-  changes and their verification. `git status` at the time of writing showed
-  `cartalith-godot/src/lib.rs` modified by that other session; this
-  milestone touched only `render.rs`, `Cargo.toml` and the new test file.
+- **Harness:** `cartalith-native/crates/cartalith-godot/tests/sculpt_live_l0_bench.rs`,
+  `#[ignore]`-gated (real `generate_terrain` calls). Run with
+  `cargo test --release -p cartalith-godot --test sculpt_live_l0_bench -- --ignored --nocapture --test-threads=1`.
+  `cartalith-godot` is `cdylib`-only, so the file compiles `render.rs` in via
+  `#[path = "../src/render.rs"] mod render;`, the crate's established
+  technique. The one engine-code touch: `smooth_sea_h`, `build_ao` and
+  `build_hydro_wetness` were bumped from private to `pub(crate)` so the harness
+  could time them individually — visibility only. Everything else measured
+  was already `pub` and is called directly, in the order
+  `cartalith-engine/src/sculpt_commit.rs` and `generate_terrain` call it.
+- **Grids:** 512², 1024², 2048², seed 12345, `WorldParams::defaults`, one
+  CPU-generated fixture world reused as input to every downstream stage, so
+  CPU/GPU comparisons run on identical data.
+- **Strokes:** "typical" = 64 px brush across a 300 px, 21-point dense
+  stroke; "large" = 200 px brush (the control's maximum) across 90% of
+  `min(gw, gh)`, 61 points — dense throughout, because
+  `enforce_channel_descent` walks the stroke's own points and does not
+  resample. Commit fixture: a 3-stamp draft (Mountains + River + Lake,
+  typical) plus a synthetic pre-locked channel (~40% of grid width) so
+  `enforce_river_channels` has real work.
+- **Runs:** 1 untimed warm-up + 5 timed runs per cell, min/mean/max; every
+  timed run against a freshly rebuilt fixture built outside the timed region.
+  The whole harness ran three independent times end to end; cross-run spread
+  was mostly under ~10%, the largest `compute_flow` CPU at 512² (~19.8–25.5 ms,
+  ~22%), narrowing to ~4.5% at 2048². Tables report the first clean run; every
+  conclusion above was checked against all three.
+- **A bug the method caught.** The first version put `RenderCtx::with_appearance`'s
+  constructor inside the untimed setup closure, so its row reported
+  0.08–2 ms. Caught because the constructor total must be close to the sum of
+  its own precomputes, not orders of magnitude under it; fixed before any
+  number was trusted.
+- **Machine:** AMD Ryzen 7 9800X3D (8-core / 16-thread), 32 GB RAM, AMD Radeon
+  RX 7800 XT (Vulkan; what `PowerPreference::HighPerformance` selects). The CPU
+  numbers are comparable only to each other and to this run's GPU numbers, not
+  to `CPU_MULTITHREADING_SCOPE.md`'s table.
+- **Not measured:** texture upload (`Image::create_from_data` +
+  `ImageTexture::create_from_image`) needs a live Godot process; the harness
+  header bounds it rather than measuring it.
 
-### Table: preview breakdown (`build_sculpt_preview_texture`), CPU — no GPU path exists for any of these stages
+### Preview breakdown (`build_sculpt_preview_texture`), CPU — no GPU path exists for these stages
 
 | Stage | 512² | 1024² | 2048² |
 |---|---:|---:|---:|
@@ -360,17 +305,18 @@ deferring commit's own scope.
 | `build_ao` | 4.24 ms | 24.08 ms | 98.83 ms |
 | `build_hydro_wetness` | 3.89 ms | 18.75 ms | 70.71 ms |
 | **three precomputes, sum** | **11.46 ms** | **64.70 ms** | **255.19 ms** |
-| `sea_shade_from` + `build_lights` (remainder of the ctor) | ~2.2 ms | ~5.4 ms | ~40.8 ms |
+| `sea_shade_from` + `build_lights` (remainder of the constructor) | ~2.2 ms | ~5.4 ms | ~40.8 ms |
 | `with_appearance` full constructor | 13.62 ms | 70.14 ms | 296.03 ms |
 | per-pixel colour loop (`cell_color`, rayon row-parallel) | 6.92 ms | 26.04 ms | 100.93 ms |
-| **whole-grid preview total (ctor + loop)** | **20.54 ms** | **96.18 ms** | **396.96 ms** |
+| **whole-grid preview total (constructor + loop)** | **20.54 ms** | **96.18 ms** | **396.96 ms** |
 | precomputes' share of the total | 55.8% | 67.3% | 64.3% |
-| texture upload (`Image::create_from_data` + `ImageTexture::create_from_image`) | not measurable outside a live Godot process — see methodology | | |
 
-### Table: commit breakdown (`commit_sculpt_pass`), CPU — no GPU path exists for any of these stages
+The constructor measured here is the 2026-08-18 one; §4 lists what the
+preview runs today.
 
-3-stamp draft (Mountains + River + Lake, all "typical"-sized), plus one
-pre-locked channel `enforce_river_channels` reclamps.
+### Commit breakdown (`commit_sculpt_pass`), CPU — no GPU path exists for these stages
+
+3-stamp draft plus one pre-locked channel.
 
 | Stage | 512² | 1024² | 2048² |
 |---|---:|---:|---:|
@@ -379,65 +325,47 @@ pre-locked channel `enforce_river_channels` reclamps.
 | `enforce_channel_descent` (1 river) | 0.04 ms | 0.12 ms | 0.39 ms |
 | lake deposit (`water_only` dry run) | 1.98 ms | 2.90 ms | 3.49 ms |
 | **sum of the four steps** | **62.49 ms** | **65.30 ms** | **68.05 ms** |
-| `commit_sculpt_pass`, measured end to end | 66.09 ms | 64.66 ms | 67.82 ms |
+| `commit_sculpt_pass`, end to end | 66.09 ms | 64.66 ms | 67.82 ms |
 
-Bake cost is essentially flat across grid size — expected, since a stamp only
-touches its own padded bounding box, not the grid, and this draft's brush
-sizes are fixed regardless of `gw`/`gh`. The water hooks (steps 2-4, the
-"special commit path" the module doc calls out) are a small fraction of the
-total at every size; the generic per-stamp bake dominates, driven by
-`SculptStamp::apply()`'s own unparallelized per-pixel noise cost (see finding
-4 below), not by anything water-specific.
+Bake cost is flat across grid size — a stamp touches only its own padded
+bounding box. The water hooks are a small fraction at every size; the generic
+per-stamp bake dominates, driven by `SculptStamp::apply()`.
 
-### Table: `SculptStamp::apply()`, CPU — no GPU path exists
+### `SculptStamp::apply()`, CPU — no GPU path exists
 
 | Stroke | 512² | 1024² | 2048² |
 |---|---:|---:|---:|
-| typical (64px brush, 300px stroke) | 39.87 ms | 56.90 ms | 51.98 ms |
-| large (200px brush, ~0.9·min(gw,gh) stroke) | 164.15 ms | 499.73 ms | 894.86 ms |
+| typical (64 px brush, 300 px stroke) | 39.87 ms | 56.90 ms | 51.98 ms |
+| large (200 px brush, ~0.9·min(gw, gh) stroke) | 164.15 ms | 499.73 ms | 894.86 ms |
 
-The typical stroke's near-flat cost across grid size confirms it is
-footprint-bound, not grid-bound — consistent with `bbox()`'s own padded,
-grid-independent footprint. It is not *cheap*, though: 40-58ms for one modest
-stroke is already over a 16ms (60Hz) frame budget, on a single-threaded,
-noise-heavy per-pixel loop L1's own plan does not touch. The large stroke
-scales with its own length (which was sized proportional to grid here) and
-reaches ~0.9s at 2048² — the same "cap the stack/footprint" lesson §2 already
-drew from Unreal's 8-edit-layer limit, now with a number behind it for stroke
-*size* specifically, not just stack depth.
+The typical stroke's near-flat cost confirms it is footprint-bound (`bbox()`'s
+padded, grid-independent footprint). It is not *cheap*: 40–58 ms for one
+modest stroke is already over a 16 ms frame. The large stroke scales with its
+own length and reaches ~0.9 s at 2048² — §2's "cap the stack" lesson, now with
+a number for stroke *size*.
 
-### Table: downstream stages a commit does not run today
+### Flow and climate — the post-commit tail
 
 | Stage | 512² CPU | 512² GPU | 1024² CPU | 1024² GPU | 2048² CPU | 2048² GPU |
 |---|---:|---:|---:|---:|---:|---:|
 | `compute_flow` (one accumulation) | 19.82 ms | 2.47 ms | 100.78 ms | 7.29 ms | 448.93 ms | 27.89 ms |
-| GPU speedup | — | 8.0x | — | 13.8x | — | 16.1x |
+| GPU speedup | — | 8.0× | — | 13.8× | — | 16.1× |
 | climate refresh (temperature + `simulate_weather` + moisture correctors) | 37.18 ms | 25.48 ms | 38.54 ms | 27.76 ms | 47.57 ms | 35.17 ms |
 
-GPU `compute_flow` uses one warm `GpuFlowContext` (`init_gpu_flow_with` built
-once, `dispatch_gpu_flow` timed per run) — the same reuse pattern
-`generate_terrain` itself already uses across its own up-to-four accumulations
-per call, not a fresh adapter/shader handshake per stroke. GPU climate reuses
-`compute_temperature` on CPU (no GPU path exists for it) and runs
-`simulate_weather` on GPU via `build_weather_grid` + `simulate_weather_loop_gpu_with`
-+ `finish_weather_grid`, exactly as `generate_terrain`'s own `use_gpu` path
-does — this one is **not** held-context-reused (`simulate_weather_loop_gpu_with`
-rebuilds its own pipeline per call, matching real production behaviour, so the
-number above is honest about what a live climate refresh would actually pay
-today).
+When L0 ran, a commit ran neither of these; since `8e666ac` it runs both once,
+through one `refresh_climate`. GPU `compute_flow` uses one warm
+`GpuFlowContext` (`init_gpu_flow_with` built once, `dispatch_gpu_flow` timed
+per run), the reuse pattern `generate_terrain` uses. GPU climate runs
+`compute_temperature` on CPU and `simulate_weather` on GPU via
+`build_weather_grid` + `simulate_weather_loop_gpu_with` +
+`finish_weather_grid`, rebuilding its pipeline per call as production does.
 
-**A discrepancy worth flagging, not resolved here**: `cartalith-engine/src/lib.rs`'s
-own comment on `simulate_weather`'s GPU path states GPU "losing to CPU even
-with the shared `gpu_device` (0.93x at the real 240x240/70-iters working
-size)". This run measured the opposite — GPU climate refresh beating CPU by
-~25-35% at every size tested. Different hardware (a dedicated Radeon RX 7800
-XT here vs. whatever machine that comment's own number came from) is the most
-likely explanation, not a regression in either number; per this project's own
-"expect these documents to age, re-verify rather than trust a version number"
-rule, that comment is now a candidate for re-verification on real current
-hardware rather than being treated as still-current, but doing so is outside
-this milestone's own scope (measurement of the *sculpt-live* stages, not a
-re-audit of `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 7).
+**An unresolved discrepancy.** A comment in `cartalith-engine/src/lib.rs` on
+`simulate_weather`'s GPU path says GPU loses to CPU *"(0.93x at the real
+240x240/70-iters working size)"*. This run measured the whole climate refresh
+~25–35% faster on GPU at every size. Different hardware is the likeliest
+explanation; the comment should be re-verified on current hardware rather
+than trusted (`GPU_LAYER_INTEGRATION_SCOPE.md` milestone 7's territory).
 
 ---
 
@@ -446,6 +374,3 @@ Sources for §2: [Landscape Edit Layers](https://dev.epicgames.com/documentation
 [Houdini HeightField painting](https://www.sidefx.com/docs/houdini/heightfields/painting.html),
 [Houdini terrain workflow](https://www.sidefx.com/docs/houdini/model/terrain_workflow.html),
 [World Machine](https://www.world-machine.com/), [Gaea](https://quadspinner.com/).
-Vendor documentation is user-facing and states little about internals; the
-architectural claims above are drawn from what the docs do say plus our own
-measurements, and are marked as inference where they are inference.
