@@ -23,6 +23,11 @@
 #[path = "../src/params.rs"]
 mod params;
 
+// The world substrate (`SAVEFILE_COMPAT.md` §8.3) -- free of `godot`, so it
+// comes in the same way, and the harness below saves what a real save saves.
+#[path = "../src/substrate.rs"]
+mod substrate;
+
 use cartalith_engine::{generate_terrain, WorldParams, WorldState};
 use cartalith_io::project::{ProjectWrite, Raster};
 
@@ -270,7 +275,9 @@ fn the_real_html_app_export_opens_as_a_flat_project() {
 ///
 /// The worlds are the shell's own defaults (`params::defaults()`, the
 /// generator a user's Generate press runs) at seed 24601 with no civilisation
-/// layer -- the shape §18.1 measured. `CARTALITH_SAVE_SIZES` overrides the
+/// layer -- the shape §18.1 measured -- written twice: terrain only, and with
+/// the world substrate every save has carried since owner Ruling AR
+/// (§8.3), so the substrate's cost is printed as a difference. `CARTALITH_SAVE_SIZES` overrides the
 /// grid list as `WxH,WxH`; the default leaves out 4096² because generating it
 /// dominates the run.
 ///
@@ -299,7 +306,11 @@ fn measure_a_real_save() {
             origin: Some("gen".into()),
             name: None,
         };
-        let write = ProjectWrite::new(&sp, &fields);
+        let bare = ProjectWrite::new(&sp, &fields);
+        let mut bare_buf = Vec::new();
+        cartalith_io::write_project(std::io::Cursor::new(&mut bare_buf), &bare).unwrap();
+        let mut write = ProjectWrite::new(&sp, &fields);
+        substrate::write_substrate(&ws, n, &mut write).expect("a generated world's substrate is writable");
         let mut times = Vec::new();
         let mut buf = Vec::new();
         for _ in 0..5 {
@@ -318,6 +329,12 @@ fn measure_a_real_save() {
         println!(
             "{}x{}: archive {:.2} MiB, write median {:.3} s ({:.3}..{:.3}, 5 runs), format_version {}",
             p.gw, p.gh, mib(buf.len() as u64), times[2], times[0], times[4], back.format_version
+        );
+        println!(
+            "    terrain only {:.2} MiB; the substrate adds {:.2} MiB ({:+.0}%)",
+            mib(bare_buf.len() as u64),
+            mib((buf.len() - bare_buf.len()) as u64),
+            100.0 * (buf.len() as f64 / bare_buf.len() as f64 - 1.0)
         );
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&buf)).unwrap();
         for i in 0..archive.len() {

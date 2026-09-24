@@ -1468,7 +1468,7 @@ impl WorldGen {
             return fail("no world to export -- generate one first");
         }
         let Some(WorldSource::Generated(ws)) = self.source.as_ref() else {
-            return fail("the channel atlas needs a generated world -- a loaded save carries none of the substrate its fields are built from");
+            return fail(&format!("the channel atlas needs the full world: {}", self.full_world_refusal()));
         };
 
         let f = AtlasFields::build(self, ws);

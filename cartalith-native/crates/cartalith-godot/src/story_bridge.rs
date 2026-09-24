@@ -479,7 +479,8 @@ impl WorldGen {
     /// - `resnap`: the last regenerate's outcome for it (`resnapped` /
     ///   `unroutable` + `unreachable_legs`), absent if it was not carried.
     ///
-    /// Empty before any `generate()` (a loaded save has no civ layer).
+    /// Empty before any `generate()`, and on a world opened without its substrate
+    /// (a legacy `.zip`, or a project saved before 2026-09-24 -- `SAVEFILE_COMPAT.md` §8.3).
     #[func]
     fn journey_positions(&mut self) -> Array<VarDictionary> {
         let planned = self.plan_saved_journeys(&|_| true);

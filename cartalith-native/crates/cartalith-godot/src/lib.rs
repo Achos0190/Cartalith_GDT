@@ -51,6 +51,7 @@ mod sample_bridge;
 mod sculpt_bridge;
 mod selection;
 mod story_bridge;
+mod substrate;
 mod timeline_bridge;
 mod travel_bridge;
 mod undo;
@@ -239,14 +240,24 @@ impl WalkingSkeleton {
     }
 }
 
-/// Either a fresh `generate_terrain()` run or a loaded save
-/// (`cartalith_io::load_save`, `MVP_SCOPE.md` point 12/criterion 7). A
-/// loaded save only carries the terrain fields `SAVEFILE_COMPAT.md`
-/// documents (no plate/stress/flexure substrate — those aren't part of the
-/// save format), so this is a separate variant rather than trying to
-/// backfill a full `WorldState`; `build_color_texture` reads through
-/// `WorldGen`'s own small accessor methods below so it doesn't need to
-/// know which source is active.
+/// Either a complete `WorldState` or a terrain-only loaded save
+/// (`cartalith_io::load_save`, `MVP_SCOPE.md` point 12/criterion 7).
+///
+/// **`Generated` means complete, not "generated in this session".** Since
+/// owner Ruling AR (2026-09-24) a project archive carries the whole world
+/// substrate (`SAVEFILE_COMPAT.md` §8.3, `substrate.rs`), and `project_open`
+/// rebuilds the saved `WorldState` from it and installs it here, so every
+/// readout that matches this variant works on a reopened project exactly as it
+/// did before the save. The name was kept rather than churned across the ~80
+/// sites that match it; what the variant promises is that every `WorldState`
+/// grid is real.
+///
+/// `Loaded` is a save that carries only the six terrain fields -- a legacy
+/// `.zip`, a project written before 2026-09-24, or one whose substrate was
+/// damaged -- and is a separate variant rather than a backfilled `WorldState`,
+/// because the missing grids have no honest value to backfill with.
+/// `build_color_texture` reads through `WorldGen`'s own small accessor methods
+/// below so it doesn't need to know which source is active.
 enum WorldSource {
     Generated(Box<cartalith_engine::WorldState>),
     Loaded(Box<cartalith_io::SaveData>),
@@ -256,12 +267,15 @@ enum WorldSource {
 /// milestones 1-11): settlements (placed, faction-assigned, named,
 /// populated) and the road network connecting them. Computed once,
 /// automatically, right after a fresh `generate()`/`generate_world_structure()`
-/// call — `Loaded` saves carry none of the substrate fields (`crust_field`,
-/// `boundary_type`, `shear_field`, `age_field`) this pipeline needs
-/// (`SAVEFILE_COMPAT.md` doesn't store them), so civ data is only ever
-/// real for a freshly generated world, never a loaded one. `None` before
-/// the first successful `generate()`, or if generation produced zero
-/// settlement candidates (a legitimate empty-map outcome, not an error).
+/// call, and **restored** by `project_open` from a project archive's
+/// documents -- over a rebuilt `WorldSource::Generated` world when the archive
+/// carries the substrate (`SAVEFILE_COMPAT.md` §8.3), and over a terrain-only
+/// `Loaded` one when it does not. It is only ever *recomputed* over a
+/// complete world: a `Loaded` save lacks the substrate fields (`crust_field`,
+/// `boundary_type`, `shear_field`, `age_field`) the pipeline reads. `None`
+/// before the first successful `generate()`, after a legacy `.zip` load, or
+/// if generation produced zero settlement candidates (a legitimate empty-map
+/// outcome, not an error).
 struct CivData {
     settlements: Vec<cartalith_civ::NamedSettlement>,
     /// Consolidated, classified, Catmull-Rom-smoothed, named road
@@ -303,8 +317,10 @@ struct CivData {
     /// removes an edge whose settlement it abandoned), so `a`/`b` index into
     /// `settlements` here exactly as they do there.
     /// Empty for a project restored from an archive — the format stores no
-    /// channel topology (`SAVEFILE_COMPAT.md` §16.2), the same reason
-    /// `explanations` is empty there.
+    /// road topology (`SAVEFILE_COMPAT.md` §16.2), the same reason
+    /// `explanations` is empty there. (The *river* channel topology is
+    /// stored since 2026-09-24, §8.3; this is the road router's cell path,
+    /// which is not.)
     ///
     /// **`build_road_network` is still not this.** That is the reference's
     /// *manual*-placement-tool MST and no tool in this port calls it; this
@@ -2562,6 +2578,69 @@ fn coarse_ocean_wind_fields(
 ///   settlement. `KeptCiv::village_tids` comes in because villages are not
 ///   road-network nodes — see [`CivData::village_tids`].
 #[allow(clippy::too_many_arguments)]
+/// `civ_faction_economy`'s computation, apart from its `Dictionary` shaping --
+/// a free function so the project-substrate round trip (`project_bridge.rs`'s
+/// `substrate_tests`) can compare the economy of a generated world against the
+/// same world reopened, through the code the `#[func]` runs.
+fn faction_economy_aggregates(
+    ws: &cartalith_engine::WorldState,
+    civ: &CivData,
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    map_width_km: f64,
+) -> cartalith_civ::FactionAggregates {
+        let biome = cartalith_civ::build_biome_raster(&civ.water_bodies, &ws.temperature, &ws.rainfall);
+        let resources = cartalith_civ::build_resource_potentials(
+            &cartalith_civ::build_lithology(
+                &ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field,
+                &ws.rainfall, sea,
+            ),
+            Some(&ws.boundary_type),
+            Some(&ws.shear_field),
+            Some(&ws.flow_discharge),
+            Some(&biome),
+            &ws.field,
+            &ws.rainfall,
+            &ws.age_field,
+            gw,
+            gh,
+            sea,
+            Some(&ws.volcanic_field),
+            true,
+            false,
+        );
+        let has_religion = civ.faction_roster.has_religion_flags();
+        // `dens` is per-cell and `territory` is per-cell, so a length mismatch
+        // (a save restored onto a differently-sized grid) would index out of
+        // bounds inside the aggregate. Dropped rather than trusted -- the
+        // aggregate's own `Option` is exactly this guard, and a panic here
+        // crosses the gdext boundary (`cartalith-rust-conventions`).
+        let dens = (civ.dens.len() == gw * gh).then_some(civ.dens.as_slice());
+        let input = cartalith_civ::FactionAggregatesInput {
+            faction_count: civ.faction_roster.0.len(),
+            gw,
+            gh,
+            sea,
+            map_width_km,
+            field: &ws.field,
+            territory: Some(&civ.territory),
+            density: dens,
+            resources: Some(&resources),
+            // The terrain-mix half only; `civ_faction_terrain_fits` is the
+            // call that pays for those two extra passes, and nothing below
+            // reads `terrain_mix`.
+            biome: None,
+            flow: None,
+            flow_thresh: f64::INFINITY,
+            ocean_dist: None,
+            faction_has_religion: Some(&has_religion),
+        };
+        let places: Vec<cartalith_civ::FactionPlace> =
+            civ.settlements.iter().map(cartalith_civ::FactionPlace::from_settlement).collect();
+        cartalith_civ::civ_faction_aggregates(&input, &places)
+}
+
 fn compute_civilisation(
     ws: &cartalith_engine::WorldState,
     gw: usize,
@@ -4990,6 +5069,67 @@ impl WorldGen {
         self.vault.store.snapshots.clear();
     }
 
+    /// Replaces the `Loaded` world `load_save` just installed with the complete
+    /// `WorldState` a project archive carried (owner Ruling AR, 2026-09-24;
+    /// `SAVEFILE_COMPAT.md` §8.3; `substrate.rs`). Called by `project_open`
+    /// only, after `load_save` has already reset every per-world editor.
+    ///
+    /// **Not `absorb`.** `absorb` is a *generation*: it recomputes the civ
+    /// layer, seeds fresh editors and names the world from its seed, and a
+    /// reopened project restores all of those from the archive instead. What
+    /// this sets is the short list of `WorldGen` state that is derived from
+    /// the source kind and that `load_save` set for a terrain-only world:
+    ///
+    /// - the latitude band, which `load_save` pins to the reference's literal
+    ///   `55`/`5` because a terrain-only save carried none; a project carries
+    ///   its parameter block, which `load_save` has just restored, so the band
+    ///   is the one the world was generated with -- `absorb`'s own source;
+    /// - the staleness graph, sized over this world's tiling exactly as
+    ///   `absorb` sizes it (`SculptEditor`'s `PassBuffer` tile count), with
+    ///   every stage current: the world is the one that was saved;
+    /// - the source itself, with `world_epoch` bumped because every assignment
+    ///   to `source` bumps it.
+    ///
+    /// `gpu_stages_used` stays empty (`load_save` cleared it): nothing ran on
+    /// the GPU for this world in this process.
+    /// Why a readout that needs the complete world -- the `WorldState`
+    /// substrate and, for the civ readouts, the civilisation layer -- cannot
+    /// run on this one. One sentence per real state, so no refusal has to
+    /// guess which it is in:
+    ///
+    /// - no world at all;
+    /// - a `Loaded` world: opened from an archive that did not carry the
+    ///   substrate (`substrate::NEEDS_SUBSTRATE`). **Not** "a loaded save
+    ///   carries no civilisation layer" -- a reopened project restores its civ
+    ///   layer whether or not it has a substrate, and that sentence was false
+    ///   for every one of them (`ALIGNMENT_AUDIT.md` Part 1 A1);
+    /// - a complete world with no civilisation layer: nothing was placed, or
+    ///   Center landmasses discarded it.
+    ///
+    /// Only meaningful where the caller has already found the world lacking;
+    /// on a complete world with a civ layer it says so rather than returning
+    /// an empty string a caller could print.
+    fn full_world_refusal(&self) -> &'static str {
+        match (self.source.as_ref(), self.civ.as_ref()) {
+            (None, _) => "no world -- generate one, or open a project, first",
+            (Some(WorldSource::Loaded(_)), _) => substrate::NEEDS_SUBSTRATE,
+            (Some(WorldSource::Generated(_)), None) => {
+                "this world has no civilisation layer -- none was placed, or Center landmasses discarded it"
+            }
+            (Some(WorldSource::Generated(_)), Some(_)) => "this world is complete; nothing is missing",
+        }
+    }
+
+    fn install_reopened_world(&mut self, ws: cartalith_engine::WorldState) {
+        self.lat_n = self.params.climate.lat_n;
+        self.lat_s = self.params.climate.lat_s;
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let t = sculpt_bridge::SCULPT_TILE_SIZE;
+        self.stages = pipeline_stage_graph(gw.div_ceil(t) * gh.div_ceil(t));
+        self.world_epoch = self.world_epoch.wrapping_add(1);
+        self.source = Some(WorldSource::Generated(Box::new(ws)));
+    }
+
     /// Stores a finished generation: the effective sea level, the render
     /// inputs `render.rs` needs, the civ layer, and which stages actually ran
     /// on GPU.
@@ -6110,8 +6250,8 @@ impl WorldGen {
     fn center_landmasses(&mut self) -> VarDictionary {
         let (gw, gh, world) = (self.gw.max(0) as usize, self.gh.max(0) as usize, self.world);
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
-            return dict! { "ok" => false, "offset" => 0i64, "seam_column" => 0i64,
-                "reason" => "Center landmasses needs a generated world; a loaded save carries no tectonic substrate to rotate." };
+            let reason = format!("Center landmasses needs the full world: {}.", self.full_world_refusal());
+            return dict! { "ok" => false, "offset" => 0i64, "seam_column" => 0i64, "reason" => reason };
         };
         let Some(r) = cartalith_engine::center::center_landmasses(ws, gw, gh, world) else {
             return dict! { "ok" => false, "offset" => 0i64, "seam_column" => 0i64,
@@ -6194,8 +6334,8 @@ impl WorldGen {
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         let sea = self.sea_level;
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
-            return dict! { "ok" => false, "cells_masked" => 0i64, "cells_carved" => 0i64,
-                "reason" => "Carve fjords needs a generated world; a loaded save carries no lithology inputs (crust_field/age_field) to derive the mask from." };
+            let reason = format!("Carve fjords needs the full world (its lithology inputs): {}.", self.full_world_refusal());
+            return dict! { "ok" => false, "cells_masked" => 0i64, "cells_carved" => 0i64, "reason" => reason };
         };
         let n = gw * gh;
         if n == 0 || ws.field.len() != n {
@@ -6708,9 +6848,7 @@ impl WorldGen {
         let p = self.recompute_params();
         let n = p.gw * p.gh;
         let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref()) else {
-            return refuse(
-                "Recompute civilisation needs a generated world with a civ layer; a loaded save carries none (SAVEFILE_COMPAT.md stores no lithology substrate to derive one from).",
-            );
+            return refuse(&format!("Recompute civilisation needs the full world: {}.", self.full_world_refusal()));
         };
         if n == 0 || ws.field.len() != n {
             return refuse("No world.");
@@ -6974,10 +7112,11 @@ impl WorldGen {
         // WorldParams::defaults uses.
         self.lat_n = 55.0;
         self.lat_s = 5.0;
-        // A loaded save carries none of the tectonic substrate fields
-        // (crust_field/boundary_type/shear_field/age_field) the civ
-        // pipeline needs (SAVEFILE_COMPAT.md doesn't store them) --
-        // civ data only ever exists for a freshly generated world.
+        // The outgoing world's civ layer, dropped. A terrain-only save
+        // carries none; `project_open` (which calls this first) restores a
+        // project's own from its documents afterwards, and rebuilds the
+        // complete world under it when the archive carries the substrate
+        // (`SAVEFILE_COMPAT.md` §8.3).
         self.civ = None;
         // A loaded save was not generated by this process at all -- reporting
         // the previous world's GPU stages against it would be a lie.
@@ -14696,7 +14835,8 @@ impl WorldGen {
     /// `jp_confidence`'s own `None`: there is nothing honest to band.
     ///
     /// `ok` is `false` (with `error` set) before any `generate()` call, on a
-    /// loaded save (which carries none of the civ substrate), for a route
+    /// world opened without its substrate (`Self::full_world_refusal` says
+    /// which), for a route
     /// index that does not exist, for a polyline under two points, and for
     /// the reference's own "no derivable stages" `return null`.
     #[func]
@@ -14708,7 +14848,7 @@ impl WorldGen {
         self.refresh_wildlife_cache();
         let fail = |msg: &str| vdict! { "ok" => false, "error" => msg, "rejected" => &PackedStringArray::new() };
         let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else {
-            return fail("no generated world -- call generate() first (a loaded save carries no civilisation layer)");
+            return fail(self.full_world_refusal());
         };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         if gw == 0 || gh == 0 {
@@ -15007,7 +15147,7 @@ impl WorldGen {
     fn jp_reroute(&mut self, route_index: i64, transport: GString, force_mode: GString) -> VarDictionary {
         let fail = |msg: &str| vdict! { "ok" => false, "error" => msg, "km" => 0.0, "points" => &PackedVector2Array::new() };
         let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else {
-            return fail("no generated world -- call generate() first");
+            return fail(self.full_world_refusal());
         };
         let Ok(i) = usize::try_from(route_index) else { return fail("`route_index` must be non-negative") };
         let Some(route) = self.infra.as_ref().and_then(|t| t.routes.get(i)) else {
@@ -16213,12 +16353,13 @@ impl WorldGen {
 /// every sibling bridge already uses.
 impl WorldGen {
     /// Borrows every raster `sample_bridge` reads, straight off this
-    /// instance's live state. `None` before any `generate()` and for a
-    /// loaded save (whose format carries none of the substrate fields --
-    /// `crust_field`, `boundary_type`, `resistance_field` and the rest --
-    /// that both the Sample panel and the debug views read; see
-    /// `SAVEFILE_COMPAT.md`). **Borrows only. Nothing is copied, nothing is
-    /// retained.**
+    /// instance's live state. `None` before any `generate()` and for a world
+    /// opened without its substrate (a legacy `.zip`, or a project saved
+    /// before 2026-09-24: neither carries `crust_field`, `boundary_type`,
+    /// `resistance_field` and the rest, which both the Sample panel and the
+    /// debug views read -- `SAVEFILE_COMPAT.md` §8.3). A project saved with
+    /// its substrate is `Generated` again once opened, so this answers for it.
+    /// **Borrows only. Nothing is copied, nothing is retained.**
     /// Brings [`Self::wildlife`] up to date with this world, rebuilding it
     /// only when [`sample_bridge::wildlife_inputs_fingerprint`] says an input
     /// actually changed (`PARITY_AUDIT.md` §23 **F12**).
@@ -16559,8 +16700,9 @@ impl WorldGen {
         rejected_vec.extend(more_rejected);
         let rejected: PackedStringArray = rejected_vec.iter().map(GString::from).collect();
 
+        let refusal = self.full_world_refusal();
         let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_mut()) else {
-            return fail("no generated world -- call generate() first (a loaded save carries no civilisation layer)");
+            return fail(refusal);
         };
         let active_year = civ.year;
         let world = cartalith_civ::timeline::SimulateWorldParams {
@@ -17673,58 +17815,7 @@ impl WorldGen {
         let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref()) else {
             return Array::new();
         };
-        let gw = self.gw as usize;
-        let gh = self.gh as usize;
-        let sea = self.sea_level;
-        let biome = cartalith_civ::build_biome_raster(&civ.water_bodies, &ws.temperature, &ws.rainfall);
-        let resources = cartalith_civ::build_resource_potentials(
-            &cartalith_civ::build_lithology(
-                &ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field,
-                &ws.rainfall, sea,
-            ),
-            Some(&ws.boundary_type),
-            Some(&ws.shear_field),
-            Some(&ws.flow_discharge),
-            Some(&biome),
-            &ws.field,
-            &ws.rainfall,
-            &ws.age_field,
-            gw,
-            gh,
-            sea,
-            Some(&ws.volcanic_field),
-            true,
-            false,
-        );
-        let has_religion = civ.faction_roster.has_religion_flags();
-        // `dens` is per-cell and `territory` is per-cell, so a length mismatch
-        // (a save restored onto a differently-sized grid) would index out of
-        // bounds inside the aggregate. Dropped rather than trusted -- the
-        // aggregate's own `Option` is exactly this guard, and a panic here
-        // crosses the gdext boundary (`cartalith-rust-conventions`).
-        let dens = (civ.dens.len() == gw * gh).then_some(civ.dens.as_slice());
-        let input = cartalith_civ::FactionAggregatesInput {
-            faction_count: civ.faction_roster.0.len(),
-            gw,
-            gh,
-            sea,
-            map_width_km: self.map_width_km,
-            field: &ws.field,
-            territory: Some(&civ.territory),
-            density: dens,
-            resources: Some(&resources),
-            // The terrain-mix half only; `civ_faction_terrain_fits` is the
-            // call that pays for those two extra passes, and nothing below
-            // reads `terrain_mix`.
-            biome: None,
-            flow: None,
-            flow_thresh: f64::INFINITY,
-            ocean_dist: None,
-            faction_has_religion: Some(&has_religion),
-        };
-        let places: Vec<cartalith_civ::FactionPlace> =
-            civ.settlements.iter().map(cartalith_civ::FactionPlace::from_settlement).collect();
-        let agg = cartalith_civ::civ_faction_aggregates(&input, &places);
+        let agg = faction_economy_aggregates(ws, civ, self.gw as usize, self.gh as usize, self.sea_level, self.map_width_km);
 
         let keyed = |m: &std::collections::HashMap<&'static str, f64>| -> VarDictionary {
             let mut d = VarDictionary::new();
@@ -19122,10 +19213,7 @@ impl WorldGen {
     /// nothing Godot-shaped — see the caller for why that is the rule here.
     fn landmark_run_inner(&mut self) -> Result<(), String> {
         let Some(WorldSource::Generated(ws)) = self.source.as_ref() else {
-            return Err(
-                "Landmark generation needs a generated world; a loaded save carries no substrate to place landmarks over (SAVEFILE_COMPAT.md)."
-                    .to_string(),
-            );
+            return Err(format!("Landmark generation needs the full world: {}.", self.full_world_refusal()));
         };
         let gwu = self.gw.max(0) as usize;
         let ghu = self.gh.max(0) as usize;

@@ -470,8 +470,9 @@ pub struct ChannelResult {
     /// `strahler_from_receivers`' output and therefore not available until
     /// after this function has returned its `recv`. `generate_terrain` fills
     /// it two statements later. A consumer must treat an empty vector as "no
-    /// stamp on this world" — a loaded save has one, since
-    /// `SAVEFILE_COMPAT.md` stores no channel topology.
+    /// stamp on this world". A project archive stores the stamp beside the
+    /// channel topology since 2026-09-24 (`SAVEFILE_COMPAT.md` §8.3), and a
+    /// reopened project gets it back, empty if it was saved empty.
     pub intensity: Vec<f32>,
 }
 

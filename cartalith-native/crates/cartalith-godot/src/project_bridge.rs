@@ -91,11 +91,11 @@
 //! * The Sculpt editor's were `river_mask`/`river_floor`, and `None`/`None`
 //!   is the *legal* empty lock state (`SculptEditor::new` falls back to
 //!   `WaterState::new`, exactly what a world generated with `carve_rivers`
-//!   off gets) rather than a stand-in for a missing value. What a loaded
-//!   project still cannot do is **commit** the draft: `sculpt_commit`
-//!   pattern-matches `WorldSource::Generated`, which this pass did not
-//!   change. Recalling a draft and baking it are different questions, the
-//!   same distinction the last section of this doc draws for the civ layer.
+//!   off gets) rather than a stand-in for a missing value. A project saved
+//!   with its substrate (`SAVEFILE_COMPAT.md` §8.3) seeds them from the
+//!   world's own saved carve lock instead, exactly as `absorb` does, and can
+//!   **commit** the draft; one saved without it still cannot, since
+//!   `sculpt_commit` needs `WorldSource::Generated`.
 //!
 //! [`WorldGen::paint_restore_document`] and
 //! [`WorldGen::sculpt_restore_document`] stay on the surface as the *import*
@@ -121,12 +121,17 @@
 //! `MARKDOWN_VAULT_SCOPE.md` milestone 3 and `STORY_PLANNING_SCOPE.md` SP-1
 //! were both waiting on.
 //!
-//! It does **not** make a loaded project regenerable. Every function that
-//! needs the tectonic substrate pattern-matches `WorldSource::Generated`
-//! and bails on a loaded world; that was already true and is unchanged.
-//! The distinction is between *recalling* the civilisation layer, which the
-//! archive now carries, and *recomputing* it, which needs rasters the
-//! archive deliberately does not store (`SAVEFILE_COMPAT.md` §16.2).
+//! **Since owner Ruling AR (2026-09-24) it also restores the world.** The
+//! archive carries every `WorldState` grid the core rasters do not
+//! (`SAVEFILE_COMPAT.md` §8.3, `substrate.rs`), and `project_open` installs
+//! the rebuilt `WorldState` as `WorldSource::Generated`, so journey planning,
+//! trade flows, military, town layouts, the faction economy, the Sample panel,
+//! Erode and the rest answer on a reopened project exactly as they did before
+//! the save. An archive without the substrate -- written before that date, or
+//! a flat legacy one -- still opens as `WorldSource::Loaded`, restores its civ
+//! layer all the same, and every readout that needs the substrate refuses with
+//! `substrate::NEEDS_SUBSTRATE`: recalling the civilisation layer and
+//! recomputing over it are still different questions for such a world.
 //!
 //! ## The Journey entity (`STORY_PLANNING_SCOPE.md` SP-1)
 //!
@@ -1016,13 +1021,12 @@ struct LandmarkRunDto {
 /// engine's field is `Landmark::elevation` and is documented as metres above
 /// sea level, and the format's reader should not have to find that out.
 ///
-/// **The three floats can move by one ULP on the first save-open cycle** and
-/// are stable from the second on. That is a property of every `f64` in this
-/// archive rather than of this document -- `serde_json` is built here without
-/// `float_roundtrip`, so its parser is the fast one -- and it is measured and
-/// bounded in `an_open_save_cycle_reaches_a_fixed_point`, which found 34 of
-/// 128 placements affected on a real world and the document a fixed point
-/// from the second write. Nothing here rounds or truncates on purpose.
+/// **The three floats come back bit for bit.** Until 2026-09-24 they could
+/// move by one ULP on the first save-open cycle -- `serde_json` was built
+/// without `float_roundtrip`, and 34 of 128 placements moved on a real world
+/// -- and `cartalith-io` now takes the feature; `an_open_save_cycle_reaches_
+/// a_fixed_point` asserts that nothing moves. Nothing here rounds or
+/// truncates on purpose.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct LandmarkDto {
     #[serde(default)]
@@ -1669,6 +1673,46 @@ fn civ_documents(civ: &CivData, out: &mut BTreeMap<String, String>) {
     }
 }
 
+/// The civ layer's rasters and recorded-year territories, into `write` --
+/// `project_save_with_documents`' own block, a function so the substrate
+/// round-trip test saves a civ layer exactly the way a save does.
+fn civ_rasters(civ: &CivData, n: usize, write: &mut ProjectWrite<'_>) {
+    if civ.territory.len() == n {
+        write.raster("rasters/territory.i32", Raster::I32(civ.territory.clone()));
+    }
+    if civ.provinces.len() == n {
+        write.raster("rasters/provinces.i32", Raster::I32(civ.provinces.clone()));
+    }
+    if civ.water_bodies.len() == n {
+        write.raster(
+            "rasters/water_bodies.u8",
+            Raster::U8(civ.water_bodies.clone()),
+        );
+    }
+    if civ.dens.len() == n {
+        write.raster(
+            "rasters/agrarian_density.f32",
+            Raster::F32(civ.dens.clone()),
+        );
+    }
+    // Reconstructed, not copied out: owner ruling 27 made
+    // `TimelineSnapshot::territory` a delta chain in memory. **The
+    // archive shape did not move** -- §10.2's
+    // `history/territory/<year>.i32` still gets one whole raster per
+    // recorded year, so no `format_version` bump and no fail-loud
+    // marker is owed here. The on-disk half of ruling 27 is a
+    // separate change; see this batch's report.
+    for snap in &civ.timeline {
+        if let Some(raster) =
+            cartalith_civ::timeline::civ_territory_at(&civ.timeline, snap.year)
+        {
+            if raster.len() == n {
+                write.history_territory.insert(snap.year, raster);
+            }
+        }
+    }
+}
+
 fn insert_doc<T: Serialize>(out: &mut BTreeMap<String, String>, slot: &str, value: &T) {
     // `to_string_pretty` cannot fail for these shapes (no non-string map
     // keys, no non-finite floats reachable from them), and a failure here
@@ -2101,6 +2145,24 @@ impl WorldGen {
 
         let mut write = ProjectWrite::new(&params, &fields);
         write.readme = Some(project::DEFAULT_README.to_string());
+        // Owner Ruling AR (2026-09-24): the rest of the `WorldState`, so the
+        // project reopens as this world and not as a terrain-only stand-in
+        // (`SAVEFILE_COMPAT.md` §8.3, `substrate.rs`). A `Loaded` world has
+        // none to write -- it was opened from an archive that did not carry
+        // one -- and saving it keeps it that way, honestly, rather than
+        // inventing grids. `Err` (a grid of the wrong length, a stream order
+        // the core `u8` raster cannot hold) writes none of it: a manifest
+        // claiming a set it does not have is worse than no set.
+        let substrate_written = match source {
+            WorldSource::Generated(ws) => match crate::substrate::write_substrate(ws, n, &mut write) {
+                Ok(()) => true,
+                Err(e) => {
+                    godot_warn!("cartalith-godot: saved without the world substrate ({e})");
+                    false
+                }
+            },
+            WorldSource::Loaded(_) => false,
+        };
         // `preview.png` — see the doc comment above for why this is
         // caller-supplied. Empty/absent writes no entry (the damage ladder
         // for a missing thumbnail is "no thumbnail", never a zero-byte
@@ -2155,40 +2217,7 @@ impl WorldGen {
         let mut documents: BTreeMap<String, String> = BTreeMap::new();
         if let Some(civ) = self.civ.as_ref() {
             civ_documents(civ, &mut documents);
-            if civ.territory.len() == n {
-                write.raster("rasters/territory.i32", Raster::I32(civ.territory.clone()));
-            }
-            if civ.provinces.len() == n {
-                write.raster("rasters/provinces.i32", Raster::I32(civ.provinces.clone()));
-            }
-            if civ.water_bodies.len() == n {
-                write.raster(
-                    "rasters/water_bodies.u8",
-                    Raster::U8(civ.water_bodies.clone()),
-                );
-            }
-            if civ.dens.len() == n {
-                write.raster(
-                    "rasters/agrarian_density.f32",
-                    Raster::F32(civ.dens.clone()),
-                );
-            }
-            // Reconstructed, not copied out: owner ruling 27 made
-            // `TimelineSnapshot::territory` a delta chain in memory. **The
-            // archive shape did not move** -- §10.2's
-            // `history/territory/<year>.i32` still gets one whole raster per
-            // recorded year, so no `format_version` bump and no fail-loud
-            // marker is owed here. The on-disk half of ruling 27 is a
-            // separate change; see this batch's report.
-            for snap in &civ.timeline {
-                if let Some(raster) =
-                    cartalith_civ::timeline::civ_territory_at(&civ.timeline, snap.year)
-                {
-                    if raster.len() == n {
-                        write.history_territory.insert(snap.year, raster);
-                    }
-                }
-            }
+            civ_rasters(civ, n, &mut write);
         }
 
         // Hand-drawn ways and routes merge into the one ways document, so
@@ -2415,6 +2444,11 @@ impl WorldGen {
                 let mut d = vdict! { "ok" => true, "error" => "" };
                 d.set("bytes", buf.len() as i64);
                 d.set("entries", entries as i64);
+                // Whether the file carries the world substrate (§8.3): `false`
+                // is a world opened from an archive without one, and that
+                // file will reopen without journey planning, trade flows,
+                // military, town layouts or the faction economy.
+                d.set("substrate", substrate_written);
                 d
             }
             Err(e) => err(format!("could not write {path}: {e}")),
@@ -2493,9 +2527,12 @@ impl WorldGen {
     ///   project_bridge.rs`, which returns eleven lines, and `landmarks` is
     ///   the one this pass added.
     ///
-    /// A loaded project is **not** regenerable: every path that needs the
-    /// tectonic substrate still requires a freshly generated world. See
-    /// this module's own doc comment.
+    /// - `substrate` is `"complete"` when the archive carried the world
+    ///   substrate and this world is its rebuilt `WorldState`, `"absent"` for
+    ///   an archive written without one, and `"incomplete"` for one whose
+    ///   substrate could not be honoured (with a line in `warnings`). Only a
+    ///   `"complete"` world runs the readouts that need flow, channels or the
+    ///   tectonic grids. See this module's own doc comment.
     #[func]
     fn project_open(&mut self, path: GString) -> VarDictionary {
         let file = match std::fs::File::open(path.to_string()) {
@@ -2541,6 +2578,42 @@ impl WorldGen {
         // the project they came from. Moved, not cloned -- `data` is dropped
         // at the end of this function and nothing else reads them.
         self.carried_foreign = std::mem::take(&mut data.foreign);
+
+        // Owner Ruling AR (2026-09-24): an archive that carries the world
+        // substrate (`SAVEFILE_COMPAT.md` §8.3) reopens as the complete
+        // `WorldState` it was saved from, so every readout that needs flow,
+        // channels or the tectonic grids works on it exactly as it did before
+        // the save. One that does not -- written before the substrate existed,
+        // a flat legacy archive, or one whose substrate is damaged -- stays the
+        // `Loaded` world `load_save` just installed, and those readouts refuse
+        // with `substrate::NEEDS_SUBSTRATE`. Before the civ restore, which
+        // does not depend on it, and before the sculpt restore, which does.
+        let substrate = match self.source.take() {
+            Some(WorldSource::Loaded(save)) => match crate::substrate::world_from_project(&mut data, &save) {
+                Ok(Some(ws)) => {
+                    self.install_reopened_world(ws);
+                    "complete"
+                }
+                Ok(None) => {
+                    self.source = Some(WorldSource::Loaded(save));
+                    "absent"
+                }
+                Err(e) => {
+                    restore_warnings.push(format!(
+                        "{e} -- the terrain opened, but journey planning, trade flows, military, town layouts \
+                         and the faction economy need the full world: regenerate it to use them"
+                    ));
+                    self.source = Some(WorldSource::Loaded(save));
+                    "incomplete"
+                }
+            },
+            // `load_save` returned `true`, so it installed a `Loaded` world;
+            // anything else here is put back untouched.
+            other => {
+                self.source = other;
+                "absent"
+            }
+        };
 
         if let Some(civ) = civ_from_project(&data, n) {
             self.civ = Some(civ);
@@ -2887,24 +2960,61 @@ impl WorldGen {
             && (doc.gw, doc.gh) == grid
             && n > 0
         {
-            // `None`/`None` for the water hooks, and that is the *legal*
-            // empty lock state rather than a stand-in: `SculptEditor::new`
-            // falls back to `WaterState::new(n)`, which is exactly what a
-            // world generated with `carve_rivers` off gets
-            // (`WaterState::from_generated`'s own doc). What a loaded project
-            // cannot do is **commit** -- `sculpt_commit` pattern-matches
-            // `WorldSource::Generated` and refuses, unchanged by this -- so
-            // the draft comes back visible and editable, and baking it still
-            // needs the world it was drawn over.
+            // The water hooks are the world's own carve lock -- exactly what
+            // `absorb` seeds a fresh editor with -- when the archive carried
+            // the substrate (§8.3). That matters because such a world can now
+            // **commit** the draft (`sculpt_commit` needs
+            // `WorldSource::Generated`, which a rebuilt world is), and a
+            // commit writes the editor's lock masks back over `ws.river_mask`/
+            // `river_floor`: seeded with `None` it would erase the saved lock.
+            //
+            // Without a substrate it is `None`/`None`, the *legal* empty lock
+            // state rather than a stand-in (`SculptEditor::new` falls back to
+            // `WaterState::new(n)`, what a world generated with `carve_rivers`
+            // off gets), and the draft comes back visible and editable but
+            // cannot be committed -- that still needs the world it was drawn
+            // over.
+            let (mask, floor) = match self.source.as_ref() {
+                Some(WorldSource::Generated(ws)) => (ws.river_mask.clone(), ws.river_floor.clone()),
+                _ => (None, None),
+            };
             self.sculpt = Some(crate::sculpt_bridge::SculptEditor::new(
                 doc.gw,
                 doc.gh,
-                None,
-                None,
+                mask,
+                floor,
                 doc.seed,
             ));
             if self.sculpt_apply_doc(&doc).is_ok() {
                 restored.push("sculpt draft");
+            }
+        }
+
+        // A complete world gets the two draft editors `absorb` gives a
+        // generated one, when the archive carried no draft for them: an empty
+        // Paint editor over this world's water mask, and a Sculpt editor
+        // seeded with the saved carve lock. Without them a reopened project
+        // was a different session state from the world it saved -- the Paint
+        // and Sculpt tools said "no editor for this world", and the LOD
+        // snapshot's `paint_present` input differed, so a pyramid stored by
+        // the generated session was never seeded into its reopened self
+        // (`_lodseed_probe.gd` case D). A `Loaded` world keeps its long-standing
+        // "no draft session" state.
+        if let Some(WorldSource::Generated(ws)) = self.source.as_ref() {
+            let (gw, gh) = grid;
+            let seed_lock = (ws.river_mask.clone(), ws.river_floor.clone());
+            if self.sculpt.is_none() && n > 0 {
+                self.sculpt = Some(crate::sculpt_bridge::SculptEditor::new(
+                    gw,
+                    gh,
+                    seed_lock.0,
+                    seed_lock.1,
+                    self.seed as u32,
+                ));
+            }
+            if self.paint.is_none() && n > 0 {
+                let mask = self.loaded_water_mask(n);
+                self.paint = Some(crate::paint_bridge::PaintEditor::new(gw, gh, mask));
             }
         }
 
@@ -2950,6 +3060,11 @@ impl WorldGen {
 
         let mut out = vdict! { "ok" => true, "error" => "" };
         out.set("lod_tiles_held", lod_tiles_held as i64);
+        // `"complete"`, `"absent"` or `"incomplete"` -- whether this world
+        // reopened with its substrate (§8.3). `"incomplete"` also put a line in
+        // `warnings`; `"absent"` is every archive written before 2026-09-24
+        // and is not a warning, since nothing in the file is damaged.
+        out.set("substrate", substrate);
         out.set(
             "layout",
             if data.layout == cartalith_io::Layout::Tree {
@@ -3528,21 +3643,22 @@ impl WorldGen {
     /// one that lets every dab through rather than one that silently
     /// mis-sizes.
     fn loaded_water_mask(&self, n: usize) -> std::sync::Arc<[u8]> {
+        // `absorb()`'s own source first: the civ layer's classification, which
+        // a reopened project restores from `rasters/water_bodies.u8`.
+        if let Some(civ) = self.civ.as_ref().filter(|c| c.water_bodies.len() == n) {
+            return std::sync::Arc::from(civ.water_bodies.as_slice());
+        }
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        let wb = match self.source.as_ref() {
-            Some(WorldSource::Loaded(save)) => cartalith_civ::build_water_bodies(
-                &save.fields.heightmap,
-                gw,
-                gh,
-                self.sea_level,
-                self.world,
-                Some(&save.fields.rainfall),
-            ),
-            // `absorb()` takes this from `CivData::water_bodies`, which a
-            // generated world always has; reaching here means neither, so
-            // there is nothing to classify.
-            _ => return std::sync::Arc::from(vec![0u8; n].as_slice()),
+        // Otherwise classified from the terrain -- from either source: a
+        // project reopened with its substrate is `Generated` (§8.3), and this
+        // used to answer all-land for it because only `Loaded` was matched.
+        let (field, rain): (&[f32], &[f32]) = match self.source.as_ref() {
+            Some(WorldSource::Loaded(save)) => (&save.fields.heightmap, &save.fields.rainfall),
+            Some(WorldSource::Generated(ws)) => (&ws.field, &ws.rainfall),
+            // No world: nothing to classify.
+            None => return std::sync::Arc::from(vec![0u8; n].as_slice()),
         };
+        let wb = cartalith_civ::build_water_bodies(field, gw, gh, self.sea_level, self.world, Some(rain));
         std::sync::Arc::from(wb.classification.as_slice())
     }
 
@@ -5230,44 +5346,28 @@ mod tests {
         }
     }
 
-    /// **An open/save cycle settles on the second write, and this measures
-    /// where.** `serde_json` is built here without its `float_roundtrip`
-    /// feature (`crates/cartalith-godot/Cargo.toml` asks for `serde_json =
-    /// "1.0.151"` and nothing else), so its parser is the fast one and a
-    /// `f64` read back can land **one ULP** from the one written.
+    /// **An open/save cycle is exact from the first write.** Until 2026-09-24
+    /// `serde_json` was built without its `float_roundtrip` feature, so its
+    /// parser was the fast one and an `f64` read back could land **one ULP**
+    /// from the one written: measured 2026-09-06 on `sample_landmark_run`
+    /// (192 x 144, seed 24601), 34 of its 128 placements carried a float that
+    /// moved on the first cycle, and the document only became a fixed point
+    /// from the second write on. This test asserted that walk.
     ///
-    /// Measured 2026-09-06 on `sample_landmark_run` (192 x 144, seed
-    /// 24601): **34 of its 128 placements** carry a float that moves on the
-    /// first write-read cycle, and the document is a fixed point from the
-    /// second write on -- 40 005 bytes, then 39 986
-    /// bytes three times running. The value that moves is the shortest
-    /// decimal for a neighbouring double, so it stops moving as soon as one
-    /// has been written.
-    ///
-    /// The fixed point is the property that matters and the one asserted: a
-    /// project opened and saved repeatedly does not walk. This is a property
-    /// of every float in this archive, not of landmarks -- `suitability`,
-    /// `length_km` and `territory_opacity` all go through the same parser --
-    /// and it is measured here because this is the first document to carry
-    /// generated `f64`s in quantity.
+    /// It mattered beyond landmarks: `length_km` goes through the same parser,
+    /// and owner Ruling AR's reopen round trip found 32 of 191 way lengths one
+    /// ULP off, moving `civ_military_summary`'s road density. `cartalith-io`
+    /// now takes `float_roundtrip` (its `Cargo.toml` says why), which feature
+    /// unification applies to this crate too, so the first read is exact and
+    /// **nothing** moves -- which is what is asserted now, so that losing the
+    /// feature again turns this red.
     #[test]
     fn an_open_save_cycle_reaches_a_fixed_point() {
         let (r, _) = sample_landmark_run();
         assert!(r.landmarks.len() > 50);
-        let mut dto = LandmarkRunDto::from(&r);
-        let mut texts: Vec<String> = Vec::new();
-        for _ in 0..3 {
-            let t = serde_json::to_string(&dto).unwrap();
-            dto = serde_json::from_str(&t).unwrap();
-            texts.push(t);
-        }
-        assert_eq!(texts[1], texts[2], "the document is still moving on the third write");
-
-        // The move itself, so that a change to the parser or its features is
-        // visible here rather than silent. Not a fixed count: what is being
-        // asserted is that floats are the only thing that moves, and that
-        // each moves by at most one ULP.
-        let back: LandmarkRunDto = serde_json::from_str(&texts[0]).unwrap();
+        let t0 = serde_json::to_string(&LandmarkRunDto::from(&r)).unwrap();
+        let back: LandmarkRunDto = serde_json::from_str(&t0).unwrap();
+        assert_eq!(serde_json::to_string(&back).unwrap(), t0, "the document moved on its first read-write cycle");
         let mut moved = 0usize;
         for (a, b) in back.landmarks.iter().zip(&r.landmarks) {
             assert_eq!((&a.kind, a.x, a.y, &a.causal), (&b.kind, b.x, b.y, &b.causal));
@@ -5276,13 +5376,12 @@ mod tests {
                 (a.score, b.score),
                 (a.importance, b.importance),
             ] {
-                assert!(within_one_ulp(x, y), "{x} and {y} are more than one ULP apart");
-                if x != y {
+                if x.to_bits() != y.to_bits() {
                     moved += 1;
                 }
             }
         }
-        assert!(moved > 0, "nothing moved, so this test is not measuring the parser it names");
+        assert_eq!(moved, 0, "a float came back other than it was written -- is `float_roundtrip` still on?");
     }
 
     /// `a == b`, or the two are adjacent doubles. Written as a relative
@@ -6180,5 +6279,376 @@ mod biome_cols_tests {
             serde_json::from_str(r#"{"look":"vibrant","biome_cols":[[1,2]]}"#).expect("the document still parses");
         assert_eq!(doc.look, "vibrant");
         assert!(biome_overrides_from_member(doc.biome_cols.as_ref()).is_err());
+    }
+}
+
+/// Owner Ruling AR's round trip (`SAVEFILE_COMPAT.md` §8.3, `substrate.rs`):
+/// generate a real world with a real civ layer, save it through the same
+/// writers `project_save_with_documents` calls, reopen it through the same
+/// readers `project_open` calls, and compare what the formerly refusing
+/// readouts compute -- not "it opened".
+#[cfg(test)]
+mod substrate_tests {
+    use super::*;
+    use crate::substrate::{self, SubstrateManifest};
+    use std::io::Cursor;
+
+    const GW: usize = 160;
+    const GH: usize = 112;
+
+    /// One real world, the shipped parameters, CPU only, rivers carved.
+    fn world() -> &'static (cartalith_engine::WorldParams, cartalith_engine::WorldState, CivData) {
+        static W: std::sync::OnceLock<(cartalith_engine::WorldParams, cartalith_engine::WorldState, CivData)> =
+            std::sync::OnceLock::new();
+        W.get_or_init(|| {
+            let mut p = crate::params::defaults();
+            p.gw = GW;
+            p.gh = GH;
+            p.tect.seed = 24601;
+            p.use_gpu = false;
+            p.civ.villages = true;
+            let ws = cartalith_engine::generate_terrain(&p);
+            let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, &p);
+            let civ = crate::compute_civilisation(
+                &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
+                &mut Vec::new(),
+            );
+            (p, ws, civ)
+        })
+    }
+
+    /// `project_save_with_documents`' own field extraction.
+    fn core_fields(ws: &cartalith_engine::WorldState, n: usize) -> cartalith_io::SaveFields {
+        cartalith_io::SaveFields {
+            heightmap: ws.field.clone(),
+            temperature: ws.temperature.clone(),
+            rainfall: ws.rainfall.clone(),
+            volcanic_field: ws.volcanic_field.as_ref().clone(),
+            impact_field: ws.impact_field.clone(),
+            strahler_order: match ws.stream_order.as_ref() {
+                Some(order) => order.iter().map(|&o| o.clamp(0, 255) as u8).collect(),
+                None => vec![0u8; n],
+            },
+        }
+    }
+
+    fn save_params(p: &cartalith_engine::WorldParams, ws: &cartalith_engine::WorldState) -> cartalith_io::SaveParams {
+        cartalith_io::SaveParams {
+            gw: p.gw,
+            gh: p.gh,
+            seed: p.tect.seed,
+            map_width_km: p.map_width_km,
+            sea_level: ws.sea_level,
+            world: p.world,
+            origin: Some("gen".into()),
+            name: None,
+        }
+    }
+
+    /// The archive bytes, with or without the substrate.
+    fn archive(ws: &cartalith_engine::WorldState, civ: &CivData, with_substrate: bool) -> Vec<u8> {
+        let p = &world().0;
+        let n = GW * GH;
+        let params = save_params(p, ws);
+        let fields = core_fields(ws, n);
+        let mut write = ProjectWrite::new(&params, &fields);
+        if with_substrate {
+            substrate::write_substrate(ws, n, &mut write).expect("a generated world's substrate is writable");
+        }
+        let mut documents = BTreeMap::new();
+        civ_documents(civ, &mut documents);
+        civ_rasters(civ, n, &mut write);
+        write.documents = documents;
+        let mut buf = Vec::new();
+        project::write_project(Cursor::new(&mut buf), &write).expect("write");
+        buf
+    }
+
+    /// `project_open`'s order: read, rebuild the world from the save half,
+    /// restore the civ layer.
+    fn reopen(bytes: &[u8]) -> (Result<Option<cartalith_engine::WorldState>, String>, Option<CivData>, cartalith_io::ProjectData) {
+        let mut data = project::read_project(Cursor::new(bytes)).expect("read");
+        let save = data.save.clone();
+        let ws = substrate::world_from_project(&mut data, &save);
+        let civ = civ_from_project(&data, GW * GH);
+        (ws, civ, data)
+    }
+
+    fn assert_same_world(a: &cartalith_engine::WorldState, b: &cartalith_engine::WorldState) {
+        assert_eq!(a.sea_level.to_bits(), b.sea_level.to_bits(), "sea_level");
+        let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        for (name, x, y) in [
+            ("field", &a.field[..], &b.field[..]),
+            ("temperature", &a.temperature[..], &b.temperature[..]),
+            ("rainfall", &a.rainfall[..], &b.rainfall[..]),
+            ("flow_discharge", &a.flow_discharge[..], &b.flow_discharge[..]),
+            ("stress_field", &a.stress_field[..], &b.stress_field[..]),
+            ("shear_field", &a.shear_field[..], &b.shear_field[..]),
+            ("age_field", &a.age_field[..], &b.age_field[..]),
+            ("resistance_field", &a.resistance_field[..], &b.resistance_field[..]),
+            ("crust_field", &a.crust_field[..], &b.crust_field[..]),
+            ("volcanic_field", &a.volcanic_field[..], &b.volcanic_field[..]),
+            ("impact_field", &a.impact_field[..], &b.impact_field[..]),
+        ] {
+            assert!(bits(x) == bits(y), "{name} differs after the round trip");
+        }
+        assert_eq!(a.plate_id, b.plate_id, "plate_id");
+        assert_eq!(a.boundary_mask, b.boundary_mask, "boundary_mask");
+        assert_eq!(a.boundary_type, b.boundary_type, "boundary_type");
+        assert_eq!(a.integrated_drainage, b.integrated_drainage, "integrated_drainage");
+        assert_eq!(a.stream_order, b.stream_order, "stream_order");
+        assert_eq!(a.river_mask, b.river_mask, "river_mask");
+        assert_eq!(a.river_floor.as_deref().map(bits), b.river_floor.as_deref().map(bits), "river_floor");
+        match (&a.channels, &b.channels) {
+            (Some(x), Some(y)) => {
+                assert_eq!(x.recv, y.recv, "channels.recv");
+                assert_eq!(x.chan, y.chan, "channels.chan");
+                assert_eq!(bits(&x.intensity), bits(&y.intensity), "channels.intensity");
+                assert_eq!(x.slope, y.slope, "channels.slope");
+            }
+            (None, None) => {}
+            _ => panic!("channels present on one side only"),
+        }
+    }
+
+    /// A real journey plan, through `jp_world_parts`/`jp_world`'s own
+    /// construction and `jp_plan_full` -- what `jp_compute` runs -- between
+    /// the first two settlements. Wildlife forage at the neutral 1.0 on both
+    /// sides, so the comparison is the world's and nothing else's.
+    fn plan(ws: &cartalith_engine::WorldState, civ: &CivData) -> Option<cartalith_civ::JpJourneyPlan> {
+        let p = &world().0;
+        let mut jw = journey_bridge::JourneyWorld::build(
+            &ws.field, &civ.water_bodies, &ws.temperature, &ws.rainfall, GW, GH, p.world, ws.sea_level, &civ.ways,
+            &civ.settlements,
+        );
+        jw.road_cells = cartalith_civ::jp_road_cells(&civ.ways, &[], &civ.road_edges, GW);
+        let (ocean, wind) = crate::coarse_ocean_wind_fields(&ws.field, GW, GH, p.world, ws.sea_level, p);
+        let jpw = cartalith_civ::JpWorld {
+            gw: GW,
+            gh: GH,
+            world: p.world,
+            map_width_km: p.map_width_km,
+            sea_level: ws.sea_level,
+            peak_m: p.peak_m,
+            field: &ws.field,
+            cart_biome: &jw.cart_biome,
+            cart_terrain: &jw.cart_terrain,
+            temp: &ws.temperature,
+            rain: &ws.rainfall,
+            flow_field: Some(&ws.flow_discharge),
+            flow_thresh: cartalith_hydrology::river_flow_thresh(GW, GH, GW, p.map_width_km),
+            water_bodies: Some(&civ.water_bodies),
+            territory: Some(&civ.territory),
+            places: &jw.places,
+            road_cells: &jw.road_cells,
+            ocean_field: Some(&ocean),
+            wind_field: Some(&wind),
+        };
+        let (a, b) = (&civ.settlements[0].placement, &civ.settlements[1].placement);
+        let pts = [(a.x as f64, a.y as f64), (b.x as f64, b.y as f64)];
+        cartalith_civ::jp_plan_full(
+            &jpw,
+            &pts,
+            &cartalith_civ::JpPlan::default(),
+            &cartalith_civ::JpLayovers::new(),
+            &|_, _| 1.0,
+            None,
+            None,
+        )
+    }
+
+    fn economy(ws: &cartalith_engine::WorldState, civ: &CivData) -> cartalith_civ::FactionAggregates {
+        let p = &world().0;
+        crate::faction_economy_aggregates(ws, civ, GW, GH, ws.sea_level, p.map_width_km)
+    }
+
+    #[test]
+    fn a_saved_world_reopens_as_the_world_that_was_saved() {
+        let (_, ws, civ) = world();
+        assert!(ws.channels.is_some() && ws.stream_order.is_some(), "the fixture must carve rivers to test them");
+        assert!(civ.settlements.len() >= 2, "the fixture needs two settlements to plan between");
+        let (back, civ2, data) = reopen(&archive(ws, civ, true));
+        assert!(data.warnings.is_empty(), "{:?}", data.warnings);
+        let ws2 = back.expect("the substrate is honoured").expect("the archive carries a substrate");
+        assert_same_world(ws, &ws2);
+        assert!(ws2.gpu_stages_used.is_empty(), "nothing ran on the GPU for a reopened world");
+        let civ2 = civ2.expect("the civ layer is restored");
+
+        // The substrate half on its own: the reopened world under the
+        // original civ layer plans and prices exactly as the generated one.
+        let generated = plan(ws, civ);
+        let g = generated.as_ref().expect("the generated world plans this journey");
+        assert!(!g.stages.is_empty(), "a plan with no stages proves nothing");
+        assert_eq!(plan(&ws2, civ), generated, "journey plan: generated vs reopened world");
+        let e = economy(ws, civ);
+        assert!(e.by_faction.iter().any(|f| f.pop > 0.0), "an economy with no population proves nothing");
+        assert_eq!(economy(&ws2, civ), e, "faction economy: generated vs reopened world");
+
+        // The whole reopened project -- its own restored civ layer too.
+        assert_eq!(economy(&ws2, &civ2), e, "faction economy: generated vs reopened project");
+        // Every way's length comes back bit for bit. It did not until
+        // `cartalith-io` took serde_json's `float_roundtrip`: 32 of this
+        // fixture's 191 came back one ulp off, and `civ_military_summary`'s
+        // road density with them.
+        let way_bits = |c: &CivData| {
+            c.ways.iter().map(|w| (w.km.to_bits(), w.a_idx, w.b_idx)).collect::<Vec<_>>()
+        };
+        assert_eq!(way_bits(&civ2), way_bits(civ), "way lengths and endpoints");
+        // Holds on this fixture although the restored civ layer has no
+        // `road_edges` (§16.2 stores no road topology; 17 edges here): every
+        // road cell they add is also on a stored way. Not a general guarantee
+        // -- see the batch report's open item.
+        assert_eq!(plan(&ws2, &civ2), generated, "journey plan: generated vs reopened project");
+    }
+
+    #[test]
+    fn a_project_saved_before_the_substrate_opens_and_says_so() {
+        // `MISTAKES.md`: a backward-compatibility fixture built from a real
+        // prior-format archive, not a reconstruction. Provenance: written by
+        // `_biomesave_probe.gd -- --capture` through `WorldGen::project_save`
+        // on 2026-09-24 (archive mtime 10:04), by a build before this
+        // change -- `project.json` has no `substrate` member and `rasters/`
+        // holds only the six core grids plus the civ layer's four.
+        let bytes = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
+        let mut data = project::read_project(Cursor::new(&bytes[..])).expect("a pre-substrate project still reads");
+        assert!(data.substrate.is_null());
+        assert_eq!(data.core_substituted.as_deref(), Some(&[][..]));
+        let save = data.save.clone();
+        let before = data.rasters.len();
+        assert!(matches!(substrate::world_from_project(&mut data, &save), Ok(None)), "no member is no substrate, not an error");
+        assert_eq!(data.rasters.len(), before, "a refusal takes nothing");
+        let n = save.params.gw * save.params.gh;
+        let civ = civ_from_project(&data, n).expect("its civ layer still restores");
+        assert!(!civ.settlements.is_empty());
+        // What every refusing readout now says of it: the substrate, not the
+        // civ layer, which this very archive restores.
+        assert!(!substrate::NEEDS_SUBSTRATE.contains("civilisation layer"));
+        assert!(substrate::NEEDS_SUBSTRATE.contains("regenerate"));
+    }
+
+    /// The archive without one entry, copied raw.
+    fn without(bytes: &[u8], entry: &str) -> Vec<u8> {
+        let mut src = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let mut out = Vec::new();
+        {
+            let mut w = zip::ZipWriter::new(Cursor::new(&mut out));
+            for i in 0..src.len() {
+                let e = src.by_index_raw(i).unwrap();
+                if e.name() == entry {
+                    continue;
+                }
+                w.raw_copy_file(e).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        out
+    }
+
+    #[test]
+    fn a_damaged_substrate_is_refused_whole_and_names_what_is_missing() {
+        let (_, ws, civ) = world();
+        let bytes = archive(ws, civ, true);
+        // A promised substrate raster, and the core raster stream order is
+        // rebuilt from -- whose absence would otherwise read as "no rivers".
+        for (entry, named) in [
+            ("rasters/river_mask.u8", "rasters/river_mask.u8"),
+            ("rasters/strahler_order.u8", "rasters/strahler_order.u8"),
+        ] {
+            let mut data = project::read_project(Cursor::new(&without(&bytes, entry))).unwrap();
+            let save = data.save.clone();
+            let before = data.rasters.len();
+            let err = substrate::world_from_project(&mut data, &save).err().expect("refused");
+            assert!(err.contains(named), "{err}");
+            assert_eq!(data.rasters.len(), before, "a refusal takes nothing");
+        }
+    }
+
+    #[test]
+    fn a_substrate_member_of_another_version_is_refused() {
+        let (_, ws, civ) = world();
+        let (_, _, mut data) = reopen(&archive(ws, civ, true));
+        // `reopen` consumed the rasters; the manifest check comes first.
+        data.substrate["version"] = serde_json::json!(2);
+        let save = data.save.clone();
+        let err = substrate::world_from_project(&mut data, &save).err().expect("refused");
+        assert!(err.contains("version 2"), "{err}");
+    }
+
+    #[test]
+    fn the_manifest_records_each_optional_grid_as_it_was() {
+        let (_, ws, _) = world();
+        let (rasters, m) = substrate::substrate_rasters(ws, GW * GH).unwrap();
+        assert_eq!(
+            m,
+            SubstrateManifest {
+                version: 1,
+                integrated_drainage: ws.integrated_drainage,
+                channels: true,
+                river_intensity: !ws.channels.as_ref().unwrap().intensity.is_empty(),
+                stream_order: true,
+                river_mask: true,
+                river_floor: true,
+            }
+        );
+        let names: Vec<&str> = rasters.iter().map(|(p, _)| *p).collect();
+        for p in cartalith_io::SUBSTRATE_RASTERS {
+            let optional = p == "rasters/river_intensity.f32" && !m.river_intensity;
+            assert_eq!(names.contains(&p), !optional, "{p}");
+        }
+
+        // A world with no carve: every optional grid absent, none written as
+        // zeros, and it comes back `None` rather than as an empty lock.
+        let mut bare = clone_ws(ws);
+        bare.channels = None;
+        bare.stream_order = None;
+        bare.river_mask = None;
+        bare.river_floor = None;
+        let (rasters, m) = substrate::substrate_rasters(&bare, GW * GH).unwrap();
+        assert!(!m.channels && !m.stream_order && !m.river_mask && !m.river_floor && !m.river_intensity);
+        assert_eq!(rasters.len(), 9, "the nine always-present grids and nothing else");
+        let (back, _, _) = reopen(&archive(&bare, &world().2, true));
+        let back = back.unwrap().unwrap();
+        assert!(back.channels.is_none() && back.stream_order.is_none());
+        assert!(back.river_mask.is_none() && back.river_floor.is_none());
+    }
+
+    #[test]
+    fn a_stream_order_the_core_raster_cannot_hold_writes_no_substrate() {
+        let (_, ws, _) = world();
+        let mut w = clone_ws(ws);
+        w.stream_order.as_mut().unwrap()[0] = 256;
+        let err = substrate::substrate_rasters(&w, GW * GH).err().expect("refused");
+        assert!(err.contains("256"), "{err}");
+    }
+
+    fn clone_ws(ws: &cartalith_engine::WorldState) -> cartalith_engine::WorldState {
+        cartalith_engine::WorldState {
+            sea_level: ws.sea_level,
+            field: ws.field.clone(),
+            plate_id: ws.plate_id.clone(),
+            boundary_mask: ws.boundary_mask.clone(),
+            stress_field: ws.stress_field.clone(),
+            age_field: ws.age_field.clone(),
+            resistance_field: ws.resistance_field.clone(),
+            crust_field: ws.crust_field.clone(),
+            boundary_type: ws.boundary_type.clone(),
+            shear_field: ws.shear_field.clone(),
+            volcanic_field: ws.volcanic_field.clone(),
+            impact_field: ws.impact_field.clone(),
+            temperature: ws.temperature.clone(),
+            rainfall: ws.rainfall.clone(),
+            flow_discharge: ws.flow_discharge.clone(),
+            integrated_drainage: ws.integrated_drainage,
+            channels: ws.channels.as_ref().map(|c| cartalith_hydrology::ChannelResult {
+                recv: c.recv.clone(),
+                chan: c.chan.clone(),
+                slope: c.slope.clone(),
+                intensity: c.intensity.clone(),
+            }),
+            stream_order: ws.stream_order.clone(),
+            river_mask: ws.river_mask.clone(),
+            river_floor: ws.river_floor.clone(),
+            gpu_stages_used: Vec::new(),
+        }
     }
 }

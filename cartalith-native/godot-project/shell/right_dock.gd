@@ -305,11 +305,11 @@ const SAMPLE_FIELDS := [
 	{"label": "Drainage", "key": "drainage",
 		"tip": "WorldState::flow_discharge (upstream accumulation), with the Strahler order from stream_order when river extraction ran."},
 	{"label": "Biome", "key": "biome",
-		"tip": "CivData::water_bodies for ocean/lake, otherwise classifyBiome(temperature, rainfall) at this cell. Reads — on a world opened from a file, which does not carry the generated climate fields this reading needs (a reopened project does keep its civilisation layer)."},
+		"tip": "CivData::water_bodies for ocean/lake, otherwise classifyBiome(temperature, rainfall) at this cell. Reads — on a world opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24), which lacks the fields this reading needs."},
 	{"label": "Soil", "key": "soil",
 		"tip": "buildSoilFertility() at this one cell, over the same one-element-slice call the Lithology row uses."},
 	{"label": "Control", "key": "control",
-		"tip": "CivData::territory -- assign_territory()'s owner per cell, 0 = unowned. Reads — on a loaded save."},
+		"tip": "CivData::territory -- assign_territory()'s owner per cell, 0 = unowned. Reads — on a world opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24)."},
 ]
 
 ## `05-right-dock-and-bars.md` §1.4's footnote, verbatim: *"fields owned by
@@ -1952,13 +1952,15 @@ func _build_sample(body: Control) -> void:
 	if not valid:
 		DccWidgets.note(sec, "No world generated -- every field goes live once one exists.")
 	elif bridge.sample_cell(0, 0).is_empty():
-		## A loaded save has no `WorldSource::Generated` behind it, so
-		## `sample_refs()` returns nothing and the whole panel stays dashed.
-		## Said out loud rather than left looking broken.
+		## A `WorldSource::Loaded` world -- a legacy .zip, or a project saved
+		## before Ruling AR (2026-09-24) -- has no substrate, so `sample_refs()`
+		## returns nothing and the whole panel stays dashed. A project saved
+		## since reopens complete and samples normally. Said out loud rather
+		## than left looking broken.
 		DccWidgets.note(sec,
-			"This world was loaded from a save, which carries none of the substrate " +
+			"This world was opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24), so it lacks the substrate " +
 			"fields (crust, boundary type, resistance) the Sample panel reads. " +
-			"Generate a world to sample it.")
+			"Regenerate the world to sample it.")
 
 ## `sample_cell()` omits a key whose backing data genuinely is not there, so
 ## every read here is `has()`-guarded and an absent key becomes an em dash --
@@ -3506,7 +3508,7 @@ func _build_measure_derived(body: Control) -> void:
 	_field(sec, "3D length", (DccUnits.format(float(_measure_result.get("total_km_3d", 0.0)), 1)) if relief else "—",
 		"The chain followed over the ground rather than across the map.", relief)
 	if not relief:
-		DccWidgets.note(sec, "The three relief rows need a generated world: a loaded save carries no height substrate to read.")
+		DccWidgets.note(sec, "The three relief rows need the full world, which one opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24) lacks.")
 
 ## The canvas's foot: save · copy · CSV · plan journey, with the canvas's
 ## Saved measurements list above them.
@@ -3716,7 +3718,7 @@ func _build_measure_area(body: Control) -> void:
 	_field(sec, "Perimeter", DccUnits.format(float(r.get("perimeter_km", 0.0))))
 	_field(sec, "Water subtracted", "−%s" % DccUnits.format_area(float(r.get("water_km2", 0.0))),
 		"Ocean and lake cells inside the ring." if bool(r.get("water_from_civ", false)) else
-			"No civilisation layer for this world, so water here means \"below sea level\" -- it counts no lake standing above the waterline.")
+			"No water-body classification for this world (no civilisation layer, or one opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24)), so water here means \"below sea level\" -- it counts no lake standing above the waterline.")
 	_field(sec, "Land area", DccUnits.format_area(float(r.get("land_km2", 0.0))))
 	_field(sec, "Centroid", "%.0f E · %.0f N" % [float(r.get("centroid_x", 0.0)), float(r.get("centroid_y", 0.0))],
 		"polyCentroid (reference line 28291) -- area-weighted, in grid cells.")
@@ -5046,7 +5048,7 @@ func _build_sculpt(body: Control) -> void:
 		DccWidgets.note(sec, "Generate a world first.")
 		return
 	if bridge.sculpt_get_globals().is_empty():
-		DccWidgets.note(sec, "No sculpt editor for this world -- a loaded save has no draft session, only a freshly generated world does.")
+		DccWidgets.note(sec, "No sculpt editor for this world -- one opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24) has no draft session.")
 		return
 
 	var stamps: Array = bridge.sculpt_list_stamps()   ## already newest-first
@@ -5248,7 +5250,7 @@ func _build_paint(body: Control) -> void:
 	var layers := bridge.get_paint_layers()
 	if layers.is_empty():
 		DccWidgets.note(DccWidgets.section(body, "Paint"),
-			"No paint editor for this world -- a loaded save has no draft session, same ceiling as Sculpt.")
+			"No paint editor for this world -- one opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24) has no draft session, same ceiling as Sculpt.")
 		return
 	var layer: String = _paint_ctx_layer if layers.has(_paint_ctx_layer) else String(layers[0])
 

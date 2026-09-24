@@ -93,10 +93,11 @@ impl WorldGen {
         }
 
         // --- rivers ---------------------------------------------------
-        // Only a generated world retains the receiver tree and Strahler
-        // orders these need; a loaded save has neither (`SAVEFILE_COMPAT.md`
-        // stores no channel topology), which is the same reason `CivData` is
-        // `None` for one.
+        // Only a complete world holds the receiver tree and Strahler orders
+        // these need: a generated one, or a project saved with its substrate
+        // (`SAVEFILE_COMPAT.md` §8.3). A `Loaded` world -- a legacy `.zip`, or
+        // a project saved before 2026-09-24 -- has no receiver tree, so it
+        // exports its settlements, roads and borders without rivers.
         let river_polys = match self.source.as_ref() {
             Some(WorldSource::Generated(ws)) => match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
                 (Some(order), Some(ch)) => {
@@ -403,12 +404,22 @@ impl WorldGen {
         let sea = self.sea_level;
         let map_width_km = self.map_width_km;
         let world = self.world;
+        // Three different absences, said as what they are. The third is real
+        // for a reopened project even with its substrate (§8.3): `project_open`
+        // restores the civ layer but builds no territory editor, which only a
+        // generate seeds (`absorb`).
+        let refusal: &str = match (&self.source, &self.civ, &self.civ_tools) {
+            (Some(WorldSource::Generated(_)), Some(_), None) => {
+                "this world has no territory editor -- a reopened project opens without one; regenerate to import borders"
+            }
+            _ => self.full_world_refusal(),
+        };
         let (Some(civ), Some(WorldSource::Generated(ws)), Some(tools)) =
             (self.civ.as_mut(), self.source.as_mut(), self.civ_tools.as_mut())
         else {
             return vdict! {
                 "ok" => false,
-                "error" => "no generated world to apply this document to"
+                "error" => refusal
             };
         };
 

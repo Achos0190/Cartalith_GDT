@@ -32,7 +32,7 @@ pub use gzip::{gunzip_bytes, gzip_bytes};
 pub use project::{
     coerce_integral_floats, read_project, write_project, Element, Layout, ProjectData, ProjectWrite, Raster,
     RasterSlot, CORE_RASTERS, DEFAULT_README, DOCUMENT_SLOTS, HISTORY_TERRITORY_PREFIX, PROJECT_FORMAT,
-    PROJECT_FORMAT_VERSION, PROJECT_MANIFEST, RASTER_SLOTS, SHUFFLED_INFIX,
+    PROJECT_FORMAT_VERSION, PROJECT_MANIFEST, RASTER_SLOTS, SHUFFLED_INFIX, SUBSTRATE_MEMBER, SUBSTRATE_RASTERS,
 };
 pub use save::{params_json, write_save, SaveError, SaveWrite, SAVE_VERSION};
 pub use tiles::{
@@ -112,9 +112,12 @@ pub struct SaveFields {
     /// world's does, and before this an `Arc::new` there wrapped a fresh
     /// clone on every LOD snapshot rather than bumping a refcount
     /// (`lod_worker.rs`'s `SnapshotInputs` doc used to say so explicitly).
-    /// `flow_discharge` has no counterpart here: the save format never
-    /// stores it (`SAVEFILE_COMPAT.md`), which is also why a loaded save's
-    /// `flow` is always `None`.
+    /// `flow_discharge` has no counterpart here. A project archive stores it
+    /// since 2026-09-24 as one of the world-substrate rasters
+    /// (`SAVEFILE_COMPAT.md` §8.3), read into `ProjectData::rasters` rather
+    /// than here; a terrain-only `SaveData` -- a legacy `.zip`, or a project
+    /// saved without the substrate -- has none, which is why its `flow` is
+    /// `None`.
     pub heightmap: Arc<Vec<f32>>,
     pub temperature: Arc<Vec<f32>>,
     pub rainfall: Arc<Vec<f32>>,

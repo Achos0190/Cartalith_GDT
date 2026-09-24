@@ -1161,11 +1161,10 @@ func _build_layout(parent: Control, s: Dictionary) -> void:
 	if got.is_empty():
 		DccWidgets.note(sec,
 			"No layout for this settlement right now. Two real reasons, and this bridge call "
-			+ "cannot tell which applies: layouts carry none of the substrate on a freshly "
-			+ "loaded save or before this world's own first generate (a save carries no "
-			+ "field/flow rasters to build streets from); or this settlement's site sits in "
+			+ "cannot tell which applies: the world was opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24), which carries "
+			+ "no flow rasters to build streets from; or this settlement's site sits in "
 			+ "open water, which urban_layouts() skips rather than errors on (_umModelFor's "
-			+ "own refusal -- there is no shore to build). Generate a world, or open a "
+			+ "own refusal -- there is no shore to build). Regenerate the world, or open a "
 			+ "settlement with dry ground under it.")
 		return
 	var l: Dictionary = got[0]

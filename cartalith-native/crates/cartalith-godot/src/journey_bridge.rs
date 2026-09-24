@@ -93,7 +93,7 @@
 //! §23 F12) for why the missing piece was a cache and never the model.
 //!
 //! `1.0` survives only as the **fallback**, in exactly the reference's own
-//! three positions: no civilisation layer (a loaded save), no region under the
+//! three positions: no civilisation layer, no region under the
 //! stage midpoint, or a world mean of zero.
 //!
 //! **This paragraph used to say the subsystem was "unported and on no

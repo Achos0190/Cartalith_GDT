@@ -462,7 +462,7 @@ pub fn boundary_type_name(bt: u8) -> &'static str {
 }
 
 /// One cell's full reading. Every `Option` is `None` because the backing
-/// data genuinely is not there (no civilisation layer on a loaded save, no
+/// data genuinely is not there (no civilisation layer, no
 /// river network when `carve_rivers` was off, no boundary within the search
 /// cap) — never as a placeholder for something that was too expensive.
 pub struct CellSample {
@@ -1682,7 +1682,8 @@ pub struct WildlifeCache {
 
 impl WildlifeCache {
     /// `None` on exactly the worlds [`wildlife_regions`] answers `None` for —
-    /// a loaded save or any world with no civilisation layer, where the
+    /// a world opened without its substrate, or any world with no
+    /// civilisation layer, where the
     /// reference's own `_jpWildlifeForageMod` returns `1.0` for want of a
     /// `currentWildlife()`.
     pub fn build(f: &FieldRefs) -> Option<Self> {

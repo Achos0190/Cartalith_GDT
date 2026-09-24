@@ -120,7 +120,8 @@ impl WorldGen {
     /// reference's own `_civRegionalPopulation` ("never touches
     /// generate()/render").
     ///
-    /// Empty on no generated world or no civilisation layer, matching
+    /// Empty with no complete world (none, or a world opened without its substrate
+    /// (a legacy `.zip`, or a project saved before 2026-09-24 -- `SAVEFILE_COMPAT.md` §8.3)) or no civilisation layer, matching
     /// `civ_agrarian_regional_total`'s own guard.
     ///
     /// **Recomputed fresh on every call.** Unlike `CivData::dens`

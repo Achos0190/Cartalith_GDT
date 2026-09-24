@@ -872,13 +872,12 @@ func _match_trade_flows() -> void:
 	_clear_body(_flows_body)
 	if d.is_empty():
 		DccWidgets.note(_flows_body,
-			"Nothing to match: this world has no settlements, or it was opened from a "
-			+ "file. Matching trade needs the generated terrain under the settlements, "
-			+ "which a reopened project does not carry yet, even though it keeps its "
-			+ "settlements and roads.")
+			"Nothing to match: this world has no settlements, or it was opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24). "
+			+ "Matching trade needs the terrain under the settlements, which such a save "
+			+ "does not carry even though it keeps its settlements and roads. Regenerate to use it.")
 		## `civ_trade_bridge.rs` returns nothing unless the source is
-		## `WorldSource::Generated` -- a reopened .ctl project included, whose
-		## `CivData` is restored. Corrected 2026-09-24 (audit A1, Ruling AR).
+		## `WorldSource::Generated`, which since Ruling AR (2026-09-24) includes a
+		## project reopened with its substrate (SAVEFILE_COMPAT.md §8.3).
 		return
 	_fill_flows()
 	## The map draws the same match as way thickness, so it is handed the

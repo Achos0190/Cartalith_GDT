@@ -707,10 +707,12 @@ func _on_ctx_id(id: int) -> void:
 				## drawn layer -- the reference's own `state.debug === 'wildlife'`
 				## gate. The real limitation is narrower and is what this now
 				## says: the biome reading needs `sample_refs()`, which is None on
-				## any `WorldSource::Loaded` world -- a reopened .ctl project
-				## included, although its `CivData` is restored (2026-09-24).
+				## a `WorldSource::Loaded` world. Since Ruling AR (2026-09-24) a
+				## project reopens as the complete world when it was saved with
+				## its substrate, so only a legacy .zip or an older project is
+				## still that case.
 				app.set_status("hint",
-					"Nothing here. This cell's readings are in the Sample panel (right dock) — biome included, on a generated world; a world opened from a file does not carry the generated climate fields biome needs, so Biome reads — there. Wildlife appears in the same dock while Layers ▸ Wildlife is the drawn view.",
+					"Nothing here. This cell's readings are in the Sample panel (right dock) — biome included. On a world opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24), Biome reads — there. Wildlife appears in the same dock while Layers ▸ Wildlife is the drawn view.",
 					"text_ghost")
 
 ## `PARITY_AUDIT.md` §5 item 4 / reference block 2's keydown at line 26096:
@@ -1625,14 +1627,14 @@ func _analyse_influence() -> void:
 	if d.is_empty():
 		DccWidgets.note(_influence_body,
 			"No territory to analyse. Either this world has no capitals to project "
-			+ "territory from, or it was opened from a file: the analysis needs the "
-			+ "generated terrain behind the borders, which a reopened project does not "
-			+ "carry yet, even though it keeps its borders and settlements.")
+			+ "territory from, or it was opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24): "
+			+ "the analysis needs the terrain behind the borders, which such a save does "
+			+ "not carry even though it keeps its borders and settlements. Regenerate to use it.")
 		## `civ_territory_influence` returns `{}` whenever `sample_refs()` is None,
-		## i.e. on any `WorldSource::Loaded` world -- including a reopened .ctl
-		## project whose `CivData` WAS restored. The old text said "every loaded
-		## save carries no civilisation layer", false for a project (Ruling AR
-		## will save the rasters; until then this is the true reason).
+		## i.e. on a `WorldSource::Loaded` world. Since Ruling AR (2026-09-24) a
+		## project saved with its substrate reopens complete and answers here;
+		## the old "every loaded save carries no civilisation layer" was false
+		## for any project.
 		return
 	var owned := int(d.get("owned_cells", 0))
 	var frontier := int(d.get("contested_cells", 0))

@@ -3973,8 +3973,9 @@ func wildlife_region_at(gx: float, gy: float) -> Dictionary:
 ## **Computed on demand and held nowhere** -- the per-cell influence field
 ## behind these numbers is built, read and dropped inside the call (the same
 ## shape `wildlife_regions()` uses). The returned `transient_bytes` is what
-## that cost for this world. `{}` before any generate, on a loaded save, and
-## on a world with no capital.
+## that cost for this world. `{}` before any generate, on a world opened
+## without its substrate (SAVEFILE_COMPAT.md §8.3), and on a world with no
+## capital.
 func civ_territory_influence() -> Dictionary:
 	if not _has("civ_territory_influence"):
 		return {}
@@ -3997,8 +3998,8 @@ func civ_territory_influence() -> Dictionary:
 ## avoid. `TradeStore` is what keeps the result on the shell side, where it
 ## can be dropped.
 ##
-## `{}` before any generate, on a loaded save (no civilisation layer), and on
-## a world with no settlements.
+## `{}` before any generate, on a world opened without its substrate
+## (SAVEFILE_COMPAT.md §8.3), and on a world with no settlements.
 func civ_trade_flows() -> Dictionary:
 	if not _has("civ_trade_flows"):
 		return {}
@@ -4014,8 +4015,8 @@ func civ_trade_flows() -> Dictionary:
 ## nothing is saved. `TradeStore` is what keeps the result on the shell
 ## side, alongside the trade-flow match.
 ##
-## `{}` before any generate, on a loaded save (no civilisation layer), and
-## on a world with no settlements.
+## `{}` before any generate, on a world opened without its substrate
+## (SAVEFILE_COMPAT.md §8.3), and on a world with no settlements.
 func civ_food_shed() -> Dictionary:
 	if not _has("civ_food_shed"):
 		return {}
@@ -4030,8 +4031,8 @@ func civ_food_shed() -> Dictionary:
 ## is saved. `TradeStore` is what keeps the result on the shell side,
 ## alongside the trade-flow match and the food shed.
 ##
-## `{}` before any generate, on a loaded save (no civilisation layer), and
-## on a world with no settlements.
+## `{}` before any generate, on a world opened without its substrate
+## (SAVEFILE_COMPAT.md §8.3), and on a world with no settlements.
 ##
 ## **This wrapper was missing until 2026-09-05**, and its absence was not a
 ## degrade: `#[func] civ_place_smelting` has been on `WorldGen` since

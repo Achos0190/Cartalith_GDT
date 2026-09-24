@@ -17,7 +17,15 @@ name = "cartalith_io"
 # + serde, no gdext, no pipeline state) -- fine per ARCHITECTURE.md.
 cartalith-spatial = { path = "../cartalith-spatial" }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+# `float_roundtrip`: correctly rounded float parsing. Without it serde_json's
+# fast path may land one ulp off, and a project's documents came back that way
+# -- measured 2026-09-24: 32 of 191 way `length_km` values one ulp off after a
+# save and reopen, which moved `civ_military_summary`'s `road_density` in its
+# 15th digit (owner Ruling AR's round trip, `_jprestore_probe.gd`). The writer
+# (ryu, shortest round-trip) was already exact; only the reader lost bits.
+# Feature unification makes this the parse for the whole build, which is the
+# point: V8's `JSON.parse` is correctly rounded too.
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 zip = { version = "8.6.0", features = ["deflate"] }
 # UNIFIED_TOOL_PLAN.md milestone E2: gzip for the region export's `.bin`
 # tiles (the reference's `gzipBytes`, a one-liner over the browser's own

@@ -57,10 +57,13 @@ extends Node
 ## | the ledger itself | did **not** survive the reload -- one floor row is all there is |
 ## | the confirmation's predicate | true at the boundary row, false above it |
 ##
-## **The invalidation half is in phase SAVE and not here, and the reason is
-## measured rather than assumed:** `carve_fjords()` -- the cheapest operation
-## that pushes a height snapshot -- refuses a loaded world outright, and phase
-## OPEN prints that refusal rather than describing it.
+## **The invalidation half is in phase SAVE**, where it was written when a
+## reopened project refused every height edit. Since owner Ruling AR
+## (2026-09-24) a project saved with its world substrate (`SAVEFILE_COMPAT.md`
+## §8.3) reopens as the complete world and takes one, so phase OPEN now also
+## makes the edit across the process boundary: `carve_fjords()` is accepted,
+## records one ledger row above the `Open project` floor, and leaves
+## `saved_seq` where the file put it.
 ##
 ## | `--phase legacy --archive <path>` | |
 ## |---|---|
@@ -359,23 +362,22 @@ func _phase_open() -> void:
 
 	# -- the confirmation's own condition, both sides of the boundary ---------
 	##
-	## A pure predicate, so it needs no edit to exercise -- which matters here,
-	## because a **loaded** world cannot take one: `carve_fjords()` refuses it
-	## outright (printed below as the measurement, not as a recollection). The
-	## invalidation half of the boundary is exercised in phase SAVE for exactly
-	## that reason.
+	## A pure predicate, so it needs no edit to exercise. Phase SAVE exercises
+	## the invalidation half; the edit below is the same half across the
+	## process boundary, which a reopened project can take since Ruling AR.
 	var saved_seq := int(st.get("saved_seq", -1))
 	_check("reverting TO the boundary row counts as past it (the <= fix)",
 		_rd._reverts_past_committed(saved_seq), "saved_seq=%d" % saved_seq)
 	_check("reverting above it does not",
 		not _rd._reverts_past_committed(saved_seq + 1), "saved_seq=%d" % saved_seq)
-	var refused: Dictionary = _bridge.carve_fjords()
-	_p("carve_fjords() on the loaded world -> %s" % str(refused))
-	_check("a height edit on a loaded world is refused with a reason, not silently",
-		not bool(refused.get("ok", true)) and String(refused.get("reason", "")) != "",
-		str(refused))
-	_check("and it recorded no ledger row, so the rule has not moved",
-		_newest_seq() == floor_seq and int(_stats().get("saved_seq", -1)) == saved_seq,
+	var carved: Dictionary = _bridge.carve_fjords()
+	_p("carve_fjords() on the reopened project -> %s" % str(carved))
+	await _frames(4)
+	await _history()
+	_check("a reopened project (saved with its substrate) takes a height edit",
+		bool(carved.get("ok", false)), str(carved))
+	_check("the edit is one ledger row above the floor, and the rule stays at the saved row",
+		_newest_seq() > floor_seq and int(_stats().get("saved_seq", -1)) == saved_seq,
 		"newest=%d floor=%d saved_seq=%s" % [_newest_seq(), floor_seq,
 			str(_stats().get("saved_seq", "(absent)"))])
 

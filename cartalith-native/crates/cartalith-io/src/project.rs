@@ -273,7 +273,100 @@ pub const RASTER_SLOTS: &[RasterSlot] = &[
         path: "rasters/wildlife.u8",
         element: Element::U8,
     },
+    // The world substrate (`SAVEFILE_COMPAT.md` §8.3, owner Ruling AR,
+    // 2026-09-24): every grid of `cartalith_engine::WorldState` the six core
+    // rasters above do not already carry, so a reopened project is the world
+    // that was saved rather than a terrain-only stand-in for it. Written
+    // together, under `project.json`'s `substrate` member ([`SUBSTRATE_MEMBER`]),
+    // which is what says the set is complete; see [`SUBSTRATE_RASTERS`].
+    RasterSlot {
+        path: "rasters/flow_discharge.f32",
+        element: Element::F32,
+    },
+    RasterSlot {
+        path: "rasters/plate_id.i32",
+        element: Element::I32,
+    },
+    RasterSlot {
+        path: "rasters/boundary_mask.u8",
+        element: Element::U8,
+    },
+    RasterSlot {
+        path: "rasters/boundary_type.u8",
+        element: Element::U8,
+    },
+    RasterSlot {
+        path: "rasters/stress_field.f32",
+        element: Element::F32,
+    },
+    RasterSlot {
+        path: "rasters/shear_field.f32",
+        element: Element::F32,
+    },
+    RasterSlot {
+        path: "rasters/age_field.f32",
+        element: Element::F32,
+    },
+    RasterSlot {
+        path: "rasters/resistance_field.f32",
+        element: Element::F32,
+    },
+    RasterSlot {
+        path: "rasters/crust_field.f32",
+        element: Element::F32,
+    },
+    RasterSlot {
+        path: "rasters/channel_receiver.i32",
+        element: Element::I32,
+    },
+    RasterSlot {
+        path: "rasters/channel_mask.u8",
+        element: Element::U8,
+    },
+    RasterSlot {
+        path: "rasters/river_intensity.f32",
+        element: Element::F32,
+    },
+    RasterSlot {
+        path: "rasters/river_mask.u8",
+        element: Element::U8,
+    },
+    RasterSlot {
+        path: "rasters/river_floor.f32",
+        element: Element::F32,
+    },
 ];
+
+/// The world-substrate rasters, in [`RASTER_SLOTS`] order (`SAVEFILE_COMPAT.md`
+/// §8.3). A caller that writes any of them MUST also write the
+/// [`SUBSTRATE_MEMBER`] manifest member describing the set, and a reader MUST
+/// NOT treat the set as complete without it: a raster present with no member
+/// is a payload an older build carried through a re-save it could not
+/// describe.
+pub const SUBSTRATE_RASTERS: [&str; 14] = [
+    "rasters/flow_discharge.f32",
+    "rasters/plate_id.i32",
+    "rasters/boundary_mask.u8",
+    "rasters/boundary_type.u8",
+    "rasters/stress_field.f32",
+    "rasters/shear_field.f32",
+    "rasters/age_field.f32",
+    "rasters/resistance_field.f32",
+    "rasters/crust_field.f32",
+    "rasters/channel_receiver.i32",
+    "rasters/channel_mask.u8",
+    "rasters/river_intensity.f32",
+    "rasters/river_mask.u8",
+    "rasters/river_floor.f32",
+];
+
+/// `project.json`'s top-level member describing the world substrate
+/// (`SAVEFILE_COMPAT.md` §8.3). This crate carries it opaquely -- written from
+/// [`ProjectWrite::substrate`], read into [`ProjectData::substrate`] -- because
+/// its schema is the producer's: which optional grids the world had, and the
+/// one scalar (`integrated_drainage`) that is a property of the drainage those
+/// grids describe. Absent in every archive written before 2026-09-24.
+pub const SUBSTRATE_MEMBER: &str = "substrate";
 
 /// The six rasters [`SaveFields`] carries, in the order
 /// `SAVEFILE_COMPAT.md` §8.1 lists them. Written by [`write_project`] from
@@ -713,6 +806,10 @@ pub struct ProjectWrite<'a> {
     /// that offers one, and inventing a timestamp is the caller's decision
     /// to make, not a file writer's).
     pub created: Option<String>,
+    /// `project.json`'s [`SUBSTRATE_MEMBER`], verbatim. `Value::Null` writes
+    /// no member -- which is what [`ProjectWrite::new`] builds, and what a
+    /// world that is not saving its substrate rasters must leave it as.
+    pub substrate: serde_json::Value,
 }
 
 impl<'a> ProjectWrite<'a> {
@@ -731,6 +828,7 @@ impl<'a> ProjectWrite<'a> {
             readme: None,
             generator: format!("cartalith-native {}", env!("CARGO_PKG_VERSION")),
             created: None,
+            substrate: serde_json::Value::Null,
         }
     }
 
@@ -894,6 +992,22 @@ pub struct ProjectData {
     /// The cost is honest and bounded: these bytes stay in memory for the
     /// lifetime of the `ProjectData`, next to the rasters, which are larger.
     pub foreign: BTreeMap<String, Vec<u8>>,
+    /// `project.json`'s [`SUBSTRATE_MEMBER`], verbatim and integer-coerced, or
+    /// `Value::Null` when the manifest had none (every archive written before
+    /// 2026-09-24, and every flat one).
+    pub substrate: serde_json::Value,
+    /// The core rasters (`CORE_RASTERS` after the heightmap) this read did
+    /// **not** find, and filled in [`SaveData::fields`] with §8.1's
+    /// substitute instead -- zeros, for all five. `Some(empty)` is a tree
+    /// archive that carried every one; `None` is a flat archive, whose reader
+    /// does not report it.
+    ///
+    /// Needed because the substitute is indistinguishable from data once it
+    /// is in `fields`: an all-zero `strahler_order` is both "no channels" and
+    /// "the raster was missing". A consumer that rebuilds state *from* one of
+    /// these grids -- the world substrate (§8.3) rebuilds `stream_order` from
+    /// `strahler_order` -- must be able to tell which it holds.
+    pub core_substituted: Option<Vec<String>>,
     /// Everything that was skipped and why (`SAVEFILE_COMPAT.md` §6.4).
     ///
     /// A damaged optional entry must not cost the user their world, so it
@@ -1307,6 +1421,11 @@ pub fn manifest_json(project: &ProjectWrite<'_>) -> serde_json::Value {
             .insert("name".into(), serde_json::json!(name));
     }
     root.insert("world".into(), world);
+    // `substrate` (`SAVEFILE_COMPAT.md` §8.3) -- written only when the caller
+    // saved the substrate rasters it describes.
+    if !project.substrate.is_null() {
+        root.insert(SUBSTRATE_MEMBER.into(), project.substrate.clone());
+    }
     serde_json::Value::Object(root)
 }
 
@@ -1588,10 +1707,14 @@ fn read_tree(
         // an honest substitute; a project with no terrain has nothing.
         _ => return Err(LoadError::MissingEntry("rasters/heightmap.f32")),
     };
+    // Which core rasters were substituted rather than read -- see
+    // [`ProjectData::core_substituted`] for why a caller needs the list.
+    let mut core_substituted: Vec<String> = Vec::new();
     let mut take_f32 = |path: &str, honest_zero: bool| -> Vec<f32> {
         match rasters.remove(path) {
             Some(Raster::F32(v)) => v,
             _ => {
+                core_substituted.push(path.to_string());
                 if !honest_zero {
                     // Zero is a *lie* for temperature and rainfall (§8.1),
                     // so the substitution is reported rather than assumed.
@@ -1609,7 +1732,10 @@ fn read_tree(
     let impact_field = take_f32(CORE_RASTERS[4], true);
     let strahler_order = match rasters.remove(CORE_RASTERS[5]) {
         Some(Raster::U8(v)) => v,
-        _ => vec![0u8; n],
+        _ => {
+            core_substituted.push(CORE_RASTERS[5].to_string());
+            vec![0u8; n]
+        }
     };
 
     // --- documents -------------------------------------------------------
@@ -1775,6 +1901,7 @@ fn read_tree(
     });
 
     let preview_png = read_entry_bytes(archive, "preview.png").and_then(|r| r.ok());
+    let substrate = manifest.get(SUBSTRATE_MEMBER).cloned().unwrap_or(serde_json::Value::Null);
 
     Ok(ProjectData {
         save: SaveData {
@@ -1798,6 +1925,8 @@ fn read_tree(
         lod_tiles,
         preview_png,
         foreign,
+        substrate,
+        core_substituted: Some(core_substituted),
         warnings,
     })
 }
@@ -1827,6 +1956,9 @@ fn read_flat(archive: &mut zip::ZipArchive<impl Read + Seek>) -> Result<ProjectD
         // the older format and that saving converts it -- and the
         // conversion, not the census, is what a user has to decide about.
         foreign: BTreeMap::new(),
+        // §15 predates the substrate (§8.3) and has no manifest to carry it.
+        substrate: serde_json::Value::Null,
+        core_substituted: None,
         // Not a warning: a flat archive carrying no project layer is the
         // format working as specified (`SAVEFILE_COMPAT.md` §15), not
         // something the reader failed at.
@@ -3123,6 +3255,65 @@ mod tests {
             write_project(Cursor::new(&mut buf), &p).expect_err("a duplicate terrain must be refused"),
             SaveError::UnknownSlot(s) if s == "rasters/heightmap.f32"
         ));
+    }
+
+    /// `SAVEFILE_COMPAT.md` §8.3: the `substrate` member travels verbatim in
+    /// `project.json`, is absent when the writer had none, and every
+    /// substrate raster is a registered slot the reader keeps (not foreign).
+    #[test]
+    fn the_substrate_member_and_rasters_round_trip() {
+        let (params, fields) = sample(3, 3);
+        let mut p = ProjectWrite::new(&params, &fields);
+        let mut buf = Vec::new();
+        write_project(Cursor::new(&mut buf), &p).unwrap();
+        let back = read_project(Cursor::new(&buf)).unwrap();
+        assert!(back.substrate.is_null(), "no member written, none read");
+        assert_eq!(back.core_substituted.as_deref(), Some(&[][..]), "all six core rasters were read");
+
+        p.substrate = serde_json::json!({"version": 1, "integrated_drainage": true});
+        for (i, path) in SUBSTRATE_RASTERS.iter().enumerate() {
+            let slot = raster_slot(path).expect("registered");
+            p.raster(*path, match slot.element {
+                Element::F32 => Raster::F32(vec![i as f32 + 0.5; 9]),
+                Element::I32 => Raster::I32(vec![i as i32 - 3; 9]),
+                Element::U8 => Raster::U8(vec![i as u8; 9]),
+            });
+        }
+        let mut buf = Vec::new();
+        write_project(Cursor::new(&mut buf), &p).unwrap();
+        let back = read_project(Cursor::new(&buf)).unwrap();
+        assert_eq!(back.substrate, serde_json::json!({"version": 1, "integrated_drainage": true}));
+        assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
+        for path in SUBSTRATE_RASTERS {
+            assert_eq!(back.raster(path), p.rasters.get(path), "{path}");
+        }
+    }
+
+    /// A core raster that was absent is reported, not only zero-filled --
+    /// the substrate rebuilds stream order from `strahler_order.u8` and must
+    /// tell "no channels" from "no raster".
+    #[test]
+    fn a_missing_core_raster_is_named_in_core_substituted() {
+        let (params, fields) = sample(3, 3);
+        let p = ProjectWrite::new(&params, &fields);
+        let mut buf = Vec::new();
+        write_project(Cursor::new(&mut buf), &p).unwrap();
+        let mut src = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+        let mut out = Vec::new();
+        {
+            let mut w = zip::ZipWriter::new(Cursor::new(&mut out));
+            for i in 0..src.len() {
+                let e = src.by_index_raw(i).unwrap();
+                if e.name() == "rasters/strahler_order.u8" {
+                    continue;
+                }
+                w.raw_copy_file(e).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        let back = read_project(Cursor::new(&out)).unwrap();
+        assert_eq!(back.core_substituted, Some(vec!["rasters/strahler_order.u8".to_string()]));
+        assert_eq!(back.save.fields.strahler_order, vec![0u8; 9]);
     }
 
     #[test]

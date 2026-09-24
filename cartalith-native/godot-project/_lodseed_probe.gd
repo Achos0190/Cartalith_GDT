@@ -18,11 +18,14 @@ extends SceneTree
 ##  C. The seeded tiles are byte-identical to what synthesis draws for the
 ##     same reopened world -- a second session that opens the same world with
 ##     no stored tiles synthesises every one of them, and they are compared.
-##  D. A GENERATED world's stored tiles are NOT seeded into its reopened self,
-##     and the probe measures why: the reopened world has no flow and no
-##     lithology (`lod_snapshot_inputs`' `Loaded` arm), so the tiles it draws
-##     differ from the stored ones, and serving those would put rivers and
-##     rock on tiles over a base map that has neither.
+##  D. A GENERATED world's stored tiles ARE seeded into its reopened self
+##     (owner Ruling AR, 2026-09-24). Until then they were refused, correctly:
+##     the reopened world had no flow and no lithology (`lod_snapshot_inputs`'
+##     `Loaded` arm), so it drew different tiles. A project now carries the
+##     world substrate (`SAVEFILE_COMPAT.md` §8.3) and reopens as the complete
+##     `WorldState`, so every sample tile is served from the archive, nothing
+##     is synthesised, and a no-seed session over the same reopened world
+##     draws exactly the stored pixels.
 ##  E. A different colour space refuses the seed.
 
 const LEVEL_MAX := 4  # lod_bridge::SAVE_PYRAMID_MAX_LEVEL
@@ -151,25 +154,28 @@ func _init() -> void:
 	print("  D. generated-world pyramid reopened: held %d, served %d, synthesized %d" % [gs.get("seeded_held", -1), gs.get("seeded_served", -1), gs.get("synthesized", -1)])
 	if int(gs.get("seeded_held", 0)) <= 0:
 		_fail("the generated world's pyramid should be held (it is the same heightmap)")
-	if int(gs.get("seeded_served", -1)) != 0:
-		_fail("a generated world's tiles were served over its reopened self, which draws no rivers or rock")
-	# How different they are, read straight from the archive.
+	if int(gs.get("seeded_served", -1)) != sample.size() or int(gs.get("synthesized", -1)) != 0:
+		_fail("a generated world's reopened self should serve all %d sample tiles from the archive and synthesise none" % sample.size())
+	# The stored pixels against what the reopened world draws with no seed.
+	var drawn := _open(p_plain)
 	var zr := ZIPReader.new()
 	if zr.open(p_gen) == OK:
 		var moved := 0
 		var total := 0
 		for t in sample:
 			var stored: PackedByteArray = zr.read_file("cartography/tiles/%d/%d/%d.u8" % [t.x, t.y, t.z])
-			var live := _bytes(from_gen, t)
+			var live := _bytes(drawn, t)
 			var n := mini(stored.size() / 3, live.size() / 4)
 			for i in range(n):
 				total += 1
 				if stored[i * 3] != live[i * 4] or stored[i * 3 + 1] != live[i * 4 + 1] or stored[i * 3 + 2] != live[i * 4 + 2]:
 					moved += 1
 		zr.close()
-		print("     stored vs reopened-live: %d of %d pixels differ over %d sample tiles" % [moved, total, sample.size()])
+		print("     stored vs reopened-synthesised: %d of %d pixels differ over %d sample tiles" % [moved, total, sample.size()])
 		if total == 0:
 			_fail("no pixels compared")
+		elif moved != 0:
+			_fail("the reopened world draws %d pixels differently from the world that stored them" % moved)
 
 	# -- E. another colour space refuses the seed --------------------------
 	var p3 := WorldGen.new()

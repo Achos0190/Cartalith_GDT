@@ -406,8 +406,10 @@ impl WorldGen {
     /// `CivData`, nothing is saved, and calling this twice on an unchanged
     /// world returns the same answer.
     ///
-    /// `{}` before any `generate()`, on a loaded save (which carries no
-    /// civilisation layer at all), and on a world with no settlements.
+    /// `{}` before any `generate()`, on a world opened without its substrate
+    /// (a legacy `.zip`, or a project saved before 2026-09-24 -- `SAVEFILE_COMPAT.md` §8.3),
+    /// and on a world with no settlements. A reopened project that carries its
+    /// substrate answers exactly as the world it was saved from.
     ///
     /// Returned shape:
     /// - `flow_count`, `goods_moving`, `importing`, `supplied`,
@@ -702,8 +704,10 @@ impl WorldGen {
     /// module doc for the one place that contract costs more here than
     /// there (the `lithology`/`soil` recompute).
     ///
-    /// `{}` before any `generate()`, on a loaded save (which carries no
-    /// civilisation layer at all), and on a world with no settlements.
+    /// `{}` before any `generate()`, on a world opened without its substrate
+    /// (a legacy `.zip`, or a project saved before 2026-09-24 -- `SAVEFILE_COMPAT.md` §8.3),
+    /// and on a world with no settlements. A reopened project that carries its
+    /// substrate answers exactly as the world it was saved from.
     ///
     /// Returned shape:
     /// - `rows` — one entry per settlement, in `get_settlements()` order:
@@ -764,8 +768,10 @@ impl WorldGen {
     /// **Derived on demand and held nowhere**, the same contract
     /// [`WorldGen::civ_trade_flows`] ships on.
     ///
-    /// `{}` before any `generate()`, on a loaded save (which carries no
-    /// civilisation layer at all), and on a world with no settlements.
+    /// `{}` before any `generate()`, on a world opened without its substrate
+    /// (a legacy `.zip`, or a project saved before 2026-09-24 -- `SAVEFILE_COMPAT.md` §8.3),
+    /// and on a world with no settlements. A reopened project that carries its
+    /// substrate answers exactly as the world it was saved from.
     ///
     /// Returned shape:
     /// - `rows` — one entry per settlement, in `get_settlements()` order:
@@ -812,8 +818,10 @@ impl WorldGen {
     /// **Derived on demand and held nowhere**, the same contract
     /// [`WorldGen::civ_trade_flows`] ships on.
     ///
-    /// `{}` before any `generate()`, on a loaded save (which carries no
-    /// civilisation layer at all), and on a world with no settlements.
+    /// `{}` before any `generate()`, on a world opened without its substrate
+    /// (a legacy `.zip`, or a project saved before 2026-09-24 -- `SAVEFILE_COMPAT.md` §8.3),
+    /// and on a world with no settlements. A reopened project that carries its
+    /// substrate answers exactly as the world it was saved from.
     ///
     /// Returned shape:
     /// - `rows` — one entry per settlement, in `get_settlements()` order:

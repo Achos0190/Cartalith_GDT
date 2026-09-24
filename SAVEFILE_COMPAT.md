@@ -294,6 +294,20 @@ rasters/                              one value per grid cell — see §8
   lithology.u8                reserved
   koppen.u8                   reserved
   wildlife.u8                 reserved
+  flow_discharge.f32          MAY     ┐
+  plate_id.i32                MAY     │
+  boundary_mask.u8            MAY     │
+  boundary_type.u8            MAY     │
+  stress_field.f32            MAY     │
+  shear_field.f32             MAY     │ the world substrate — §8.3.
+  age_field.f32               MAY     │ Written as a set, under
+  resistance_field.f32        MAY     │ project.json's `substrate`
+  crust_field.f32             MAY     │ member (§7), since 2026-09-24
+  channel_receiver.i32        MAY     │
+  channel_mask.u8             MAY     │
+  river_intensity.f32         MAY     │
+  river_mask.u8               MAY     │
+  river_floor.f32             MAY     ┘
 
 entities/                             discrete, id-bearing things — see §9
   settlements.json            MAY
@@ -640,6 +654,7 @@ the grid every raster is measured against.
 | `world.sea_level` | number in `[0,1]` | MUST | The **effective** threshold against the heightmap's own `[0,1]` range. A cell is land where `heightmap[i] >= sea_level`. If the generator re-anchored sea level from a world-structure archetype, this is the re-anchored value, not the user's input — the user's input belongs in `params.json`. |
 | `world.seed` | integer | MUST | The generation seed. Range: §14.1. |
 | `world.origin` | string | MAY | **How the height field was produced**, and the one member here that is not a generation input. `"gen"` — produced by the generator from the tuple above; `"import"` — inverted from an imported image, so the tuple does *not* determine it; `"region"` — resampled out of another world's marquee, inheriting that world's `seed`. Other values are permitted and §14.3 governs them: an unrecognised origin is carried, not folded into a known one. **Absent is not `"gen"`** — see the reader table below. |
+| `substrate` | object | MAY | Top level, not under `world`. Describes the world-substrate rasters (§8.3) and is what says the set is complete. Written only with them; absent in every archive written before 2026-09-24. |
 | `world.name` | string | MAY | The world's own generated display name (`cartalith_civ::naming::world_name`, seeded from `world.seed` — deterministic, but **carries no parity contract**: this concept does not exist in the reference HTML at all, unlike every other member in this table). A writer with none MUST omit the member rather than invent one — the same discipline `world.origin` already follows. Closes `OUTSTANDING_WORK.md`'s "File ▸ Recent worlds leaves show a filename where the canvas shows the world" row (name half; the seed half closed earlier, 2026-09-13). |
 
 **What a reader does when a MUST member is missing or mistyped.** Each MUST
@@ -763,6 +778,10 @@ world. A reader MUST compare the entry's uncompressed length against
 | `rasters/water_bodies.u8` | u8 | MAY | `0` = land, `1` = ocean, `2` = lake. | Absent. A reader that needs it MUST recompute it from `heightmap` and `sea_level` rather than assume land. |
 | `rasters/agrarian_density.f32` | f32 | MAY | Carrying-capacity density used by population simulation. | Absent. |
 
+The fourteen world-substrate rasters (`flow_discharge.f32` through
+`river_floor.f32`) are §8.3's; they are MAY individually and mean nothing
+without the `substrate` member that describes them.
+
 `biome.u8`, `lithology.u8`, `koppen.u8` and `wildlife.u8` are **reserved**:
 named so that no implementation invents a second location for them, not
 written by any implementation today (§16.4).
@@ -881,6 +900,122 @@ symmetric:
 (§3.3 is unchanged: store and deflate only, and the container still opens in
 any zip tool). It is not quantisation (§8.1's last paragraph). It does not
 touch any JSON document, `preview.png`, a history raster or a tile.
+
+### 8.3 The world substrate — owner Ruling AR, 2026-09-24 (`format_version` stays 2)
+
+**Why.** Until this section existed, a project stored six terrain grids and
+nothing of the hydrology or the tectonic substrate they were derived with. A
+reopened project restored its civilisation layer over a terrain-only world,
+and every readout that reads flow, channels or the tectonic grids refused it —
+journey planning, trade flows, military, town layouts, the faction economy, the
+Sample panel, Erode, the LOD tiles' lithology — while telling the user the save
+"carries no civilisation layer", which was false for every project
+(`ALIGNMENT_AUDIT.md` Part 1 A1). The owner chose to **store the missing
+rasters** rather than recompute them on open.
+
+**What.** Every grid of the generator's world state the core rasters do not
+already carry — decided from the state's definition, not from the readouts
+that happened to be reported:
+
+| Path | Element | Meaning | Present when |
+|---|---|---|---|
+| `rasters/flow_discharge.f32` | f32 | Upstream flow accumulation (the final, post-carve routing). | always, in a set |
+| `rasters/plate_id.i32` | i32 | Tectonic plate per cell, `0 …` (at most 40 today). A reader MUST refuse the set if a value is outside `0 … 65535`. | always |
+| `rasters/boundary_mask.u8` | u8 | `1` on a plate boundary. | always |
+| `rasters/boundary_type.u8` | u8 | Boundary class (convergent / divergent / transform). | always |
+| `rasters/stress_field.f32` | f32 | Normalised crustal stress. | always |
+| `rasters/shear_field.f32` | f32 | Normalised shear. | always |
+| `rasters/age_field.f32` | f32 | Crust age. | always |
+| `rasters/resistance_field.f32` | f32 | Rock resistance (after erosion, when dynamic lithology ran). | always |
+| `rasters/crust_field.f32` | f32 | Raw plate base; `< 0` is oceanic crust. | always |
+| `rasters/channel_receiver.i32` | i32 | Each channel cell's downstream cell index, `-1` for none. | `substrate.channels` |
+| `rasters/channel_mask.u8` | u8 | `1` where a channel runs. | `substrate.channels` |
+| `rasters/river_intensity.f32` | f32 | The drawn river's disc stamp. | `substrate.channels` and `substrate.river_intensity` |
+| `rasters/river_mask.u8` | u8 | The carve lock: `1` where a river was carved. | `substrate.river_mask` |
+| `rasters/river_floor.f32` | f32 | The carved floor height under the lock. | `substrate.river_floor` |
+
+Stream order is **not** a fourteenth raster: it is `strahler_order.u8` (§8.1),
+which every tree archive already carries. Strahler order is `≥ 0` and bounded by
+the depth of the drainage tree, so the byte is lossless; a writer MUST NOT
+write the set if any order is outside `0 … 255`, and a reader MUST refuse the
+set if `strahler_order.u8` was absent or damaged (its all-zero substitute would
+rebuild a world with no river orders).
+
+**The manifest member.** `project.json`'s top-level `substrate`:
+
+```json
+"substrate": {
+  "version": 1,
+  "integrated_drainage": true,
+  "channels": true,
+  "river_intensity": true,
+  "stream_order": true,
+  "river_mask": true,
+  "river_floor": true
+}
+```
+
+`version` is this set's own version; a reader MUST refuse any it does not know.
+`integrated_drainage` is the one scalar in the set — whether flow and channels
+were routed over the depression-filled surface — and belongs here because it is
+a property of *these* grids, not of the parameters (which may since have
+moved). The five booleans record which optional grids the world had, because
+they are not always together: river carving off leaves all of them absent, a
+sculpt commit then creates the carve lock alone, and recentring the landmasses
+can drop the channel network alone. **An absent grid is recorded absent and
+read back absent — never as zeros**, since an all-zero carve lock or channel
+mask is a real, different world.
+
+**Writer obligations.** Write the member and every raster it promises in one
+save, or neither. A world that has no substrate to write (it was opened from an
+archive without one) writes neither; it does not invent grids.
+
+**Reader obligations.** Treat the set as complete only when the member is
+present, its `version` is known, and every raster it promises was read at the
+right length. Anything less — including rasters present with no member, which
+is what an older build's re-save leaves (§6.2 carries them) — is **no
+substrate**: open the terrain as before and report it, never a partial world.
+
+**Store, not recompute.** Flow, the channel network and the carve lock depend
+on the field as it was before carving, and a sculpt, an erode or an undo moves
+the stored heightmap away from it, so recomputing on open would reproduce the
+saved world only for one nobody had edited. The tectonic grids come from the
+plate simulation, whose inputs the archive does not hold either. Nothing in the
+set is derivable from the rest of the archive except stream order, which is
+why stream order alone is rebuilt.
+
+**Why `format_version` stays 2.** The change is additive. An older reader
+finds registered-looking names it does not know, carries them as foreign
+entries (§6.2) and reads the terrain exactly as before; it never reads a
+substrate grid as something else. A version bump would make every older build
+warn about an archive it handles correctly. What an older build cannot do is
+write the member back — so its re-save carries the rasters without it, and a
+newer reader then reads the archive as having no substrate, which is the safe
+direction.
+
+**This port** (`cartalith-godot`'s `substrate.rs`, `project_bridge.rs`):
+`project_save_with_documents` writes the set for every complete world and
+returns `substrate: true`; `project_open` rebuilds the saved world state from it
+and reports `substrate: "complete"`, `"absent"` (no member — every earlier
+archive) or `"incomplete"` (a member it could not honour, with a warning). An
+`"absent"` or `"incomplete"` world opens as before, restores its civilisation
+layer, and every readout that needs the substrate says so — that the save does
+not carry the hydrology and tectonic rasters, and to regenerate — rather than
+that it has no civilisation layer.
+
+**What it costs** (measured 2026-09-24, `measure_a_real_save`, the shell's
+default parameters at 2048 × 1311, seed 24601, no civilisation layer): the
+archive goes from **16.42 MiB to 32.85 MiB** — the set adds **16.43 MiB
+(+100 %)**. Almost all of it is four grids: `flow_discharge` 7.36 MiB, `stress`
+2.17, `shear` 2.17, `resistance` 1.87 and `age` 1.77 MiB. The masks, plate ids,
+crust and receivers compress to under 0.25 MiB each.
+
+**Found on the way, and fixed in the same change.** Reopening a world was not
+yet bit-exact once the substrate was: 32 of one test world's 191 way lengths
+(`entities/ways.json`'s `length_km`) came back one ulp off, because the JSON
+reader used serde_json's fast float parse, which is not correctly rounded, and
+that moved the military summary's road density in its fifteenth digit. The
+writer was already exact; `cartalith-io` now parses with `float_roundtrip`.
 
 ---
 
@@ -2247,12 +2382,13 @@ restored from 2026-09-03; between those dates every painted cell and every
 sculpt stamp was in the archive and applied to nothing on open. §12 is the
 normative shape of both.
 
-The one part of the old reasoning that survives is the last clause, and it is
-narrower than "nothing can commit": a *sculpt* draft restored into a project
-opened from disk is visible and editable but **cannot be committed**, because
-baking it needs the generated world's substrate. Recalling a draft and baking
-it are different questions — the same distinction §16.2 draws for settlement
-placement.
+The one part of the old reasoning that survived was the last clause: a
+*sculpt* draft restored into a project opened from disk was visible and
+editable but **could not be committed**, because baking it needs the world's
+substrate. Since §8.3 (2026-09-24) that holds only for an archive without the
+substrate. One with it reopens as the complete world, its Sculpt editor is
+seeded with the saved carve lock (`river_mask`/`river_floor`), and the draft
+commits as it would have before the save.
 
 ### 16.4 The reserved rasters
 

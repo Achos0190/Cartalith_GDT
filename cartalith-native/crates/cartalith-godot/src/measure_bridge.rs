@@ -106,7 +106,7 @@ pub struct SectionSample {
     pub flow: f64,
     pub river_order: i64,
     pub lithology: &'static str,
-    /// `None` for a world with no civilisation layer (a loaded save), which
+    /// `None` for a world with no civilisation layer, which
     /// is the same condition every other biome reading in this port reports
     /// as absent rather than fabricating.
     pub biome: Option<&'static str>,

@@ -562,9 +562,9 @@ impl WorldGen {
     /// every field absent, which *is* `PlaceOverrides::default()`, so nothing
     /// about an untouched world changed.
     ///
-    /// Empty on a loaded save or before the first `generate()` — same
-    /// restriction the whole civilisation layer already has
-    /// (`SAVEFILE_COMPAT.md`: a save carries none of the substrate).
+    /// Empty before the first `generate()` and on a world opened without its substrate
+    /// (a legacy `.zip`, or a project saved before 2026-09-24 -- `SAVEFILE_COMPAT.md` §8.3). A reopened project that carries its substrate lays
+    /// its towns out exactly as the world it was saved from.
     #[func]
     fn urban_layouts(&self, indices: PackedInt32Array) -> Array<VarDictionary> {
         let out = Array::new();

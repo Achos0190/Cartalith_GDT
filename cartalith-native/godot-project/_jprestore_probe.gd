@@ -12,7 +12,13 @@ extends Node
 ##   2. the project is written (`_write_project`) and opened (`_load_project`);
 ##   3. the planner's list holds that journey again: its name, its engine id,
 ##      the SAME route index, and the preset's non-default field -- a list
-##      rebuilt from defaults would fail the last check.
+##      rebuilt from defaults would fail the last check;
+##   4. (owner Ruling AR, 2026-09-24) the reopened world is the saved world:
+##      a journey plan over the route, the faction economy, the military
+##      summary, trade flows, two town layouts and a Sample-panel reading all
+##      come back byte-identical (as JSON text) to what the generated world
+##      answered before the save. Until the substrate rasters were saved, every
+##      one of them refused a reopened project.
 
 var _fails := 0
 
@@ -69,6 +75,24 @@ func _ready() -> void:
 	_check("setup: route committed and journey saved", ridx >= 0 and jid >= 0 and bool(cap.get("ok", false)),
 		"route %d, journey %d, bumped %s to %d" % [ridx, jid, key, int(plan[key])])
 
+	# The formerly refusing readouts, on the generated world, before saving.
+	var probe_pts := Vector2i(int(towns[0]["x"]), int(towns[0]["y"]))
+	var readouts := func() -> Dictionary:
+		return {
+			"jp_compute": bridge.jp_compute({"route": ridx}),
+			"civ_faction_economy": bridge.civ_faction_economy(),
+			"civ_military_summary": bridge.civ_military_summary(),
+			"civ_trade_flows": bridge.civ_trade_flows(),
+			"urban_layouts": bridge.urban_layouts(PackedInt32Array([0, 1])),
+			"sample_cell": bridge.sample_cell(probe_pts.x, probe_pts.y),
+		}
+	var before: Dictionary = readouts.call()
+	_check("generated world: jp_compute plans the route", bool((before["jp_compute"] as Dictionary).get("ok", false)),
+		String((before["jp_compute"] as Dictionary).get("error", "")))
+	for k in before.keys():
+		var v = before[k]
+		_check("generated world: %s is not empty" % k, (v is Dictionary and not (v as Dictionary).is_empty()) 			or (v is Array and not (v as Array).is_empty()))
+
 	# 2. write and open the project through the app's own paths
 	var path := OS.get_user_data_dir().path_join("_jprestore_probe.zip")
 	var done := [false]
@@ -96,6 +120,33 @@ func _ready() -> void:
 		_check("the preset's non-default field came back", int((e.get("plan", {}) as Dictionary).get(key, -1)) == int(plan[key]),
 			"%s = %s" % [key, (e.get("plan", {}) as Dictionary).get(key)])
 		_check("it is marked restored (its tooltip says what was not saved)", bool(e.get("restored", false)))
+
+	# 4. the reopened world answers exactly as the generated one did
+	var after: Dictionary = readouts.call()
+	# `civ_trade_flows` reports its own wall-clock `elapsed_ms`, which is a
+	# measurement of this run and not a property of the world.
+	for d in [before, after]:
+		(d["civ_trade_flows"] as Dictionary).erase("elapsed_ms")
+	for k in before.keys():
+		var a := JSON.stringify(before[k])
+		var b := JSON.stringify(after[k])
+		_check("reopened project: %s is identical to the generated world's" % k, a == b,
+			"%d vs %d chars; after starts %s" % [a.length(), b.length(), b.substr(0, 120)])
+	# 5. a project saved before the substrate existed still opens, keeps its
+	#    settlements, and refuses planning for the true reason
+	var legacy := ProjectSettings.globalize_path("res://../crates/cartalith-godot/tests/fixtures/project_pre_substrate_2026-09-24.zip")
+	_check("the pre-substrate fixture opens", app._load_project(legacy), legacy)
+	await _frames(10)
+	var old_towns: Array = bridge.settlements()
+	_check("its civilisation layer is restored", old_towns.size() >= 2, "%d settlements" % old_towns.size())
+	if old_towns.size() >= 2:
+		var r: Dictionary = bridge.jp_compute({"points": PackedVector2Array([
+			Vector2(float(old_towns[0]["x"]), float(old_towns[0]["y"])),
+			Vector2(float(old_towns[1]["x"]), float(old_towns[1]["y"]))])})
+		var err := String(r.get("error", ""))
+		_check("it refuses to plan, naming the missing rasters", not bool(r.get("ok", true)) 			and err.contains("hydrology and tectonic rasters") and not err.contains("civilisation layer"), err)
+		_check("and says what to do", err.contains("regenerate"), err)
+
 	DirAccess.remove_absolute(path)
 	print("JPRESTORE %s  (%d failures)" % ["PASS" if _fails == 0 else "FAIL", _fails])
 	get_tree().quit(0 if _fails == 0 else 1)

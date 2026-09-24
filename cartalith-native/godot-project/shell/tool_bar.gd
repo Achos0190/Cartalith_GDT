@@ -287,7 +287,7 @@ func _note(row: HBoxContainer, text: String, detail: String = "") -> void:
 
 func _build_sculpt_tools(row: HBoxContainer) -> void:
 	if not bridge.has_world or bridge.sculpt_get_globals().is_empty():
-		_note(row, "no sculpt editor for this world", "Only a freshly generated world has a draft session; a loaded save carries none.")
+		_note(row, "no sculpt editor for this world", "A world opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24) has no draft session.")
 		return
 	var current := bridge.sculpt_get_freehand_mode()
 	var on_freehand := bridge.sculpt_get_feature() == "freehand"
@@ -374,7 +374,7 @@ func _on_sculpt_discard() -> void:
 func _build_paint_tools(row: HBoxContainer) -> void:
 	var layers := bridge.get_paint_layers() if bridge.has_world else PackedStringArray()
 	if layers.is_empty():
-		_note(row, "no paint editor for this world", "A loaded save has no draft session -- the same ceiling Sculpt has.")
+		_note(row, "no paint editor for this world", "A world opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24) has no draft session -- the same ceiling Sculpt has.")
 		return
 	var current := String(_paint_state().get("layer", "biome"))
 	for l in layers:

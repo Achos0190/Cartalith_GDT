@@ -212,9 +212,10 @@ impl WorldGen {
         let n = p.gw * p.gh;
 
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
-            return refuse_erode(
-                "Erode needs a generated world; a loaded save has no pipeline graph to refresh flow and climate through afterwards.",
-            );
+            return refuse_erode(&format!(
+                "Erode needs the full world, to refresh flow and climate through afterwards: {}.",
+                self.full_world_refusal()
+            ));
         };
         if n == 0 || ws.field.len() != n {
             return refuse_erode("No world.");
@@ -298,7 +299,7 @@ impl WorldGen {
     #[func]
     fn apply_force_lake(&mut self) -> VarDictionary {
         let Some(sculpt) = self.sculpt.as_ref() else {
-            return refuse("Force lake needs a generated world with a Sculpt session; a loaded save has no draft.");
+            return refuse("Force lake needs a Sculpt session, which a world opened without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24) does not have -- regenerate to use it.");
         };
         let Some(mask) = sculpt.water.lake_mask.as_ref() else {
             return refuse("No lake has been stamped yet — commit a Lake stamp in Sculpt first.");

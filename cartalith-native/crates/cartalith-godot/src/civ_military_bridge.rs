@@ -562,9 +562,11 @@ impl WorldGen {
     ///   `cartalith_civ::military::WALL_SPECS`), `walled`, and
     ///   `defensibility` (0-1).
     ///
-    /// Empty arrays before the first generate, or on a loaded save (which
-    /// carries no `CivData` — `SAVEFILE_COMPAT.md`), never an error: an
-    /// absent civilisation layer is a real state, not a fault.
+    /// Empty arrays before the first generate, on a world with no civilisation
+    /// layer, or on a world opened without its substrate
+    /// (a legacy `.zip`, or a project saved before 2026-09-24 -- `SAVEFILE_COMPAT.md` §8.3) -- never an error: each is a real state,
+    /// not a fault. A reopened project that carries its substrate answers
+    /// exactly as the world it was saved from.
     ///
     /// **What this deliberately does not report:** garrison headcounts,
     /// campaigns, or anything that moves. See
@@ -573,7 +575,8 @@ impl WorldGen {
     fn civ_military_summary(&self) -> VarDictionary {
         let mut out = VarDictionary::new();
         let defences = self.defences();
-        // Both `None` arms are the same real state (no civilisation layer),
+        // Both `None` arms are real states (no civilisation layer, or no
+        // substrate behind it),
         // and neither is an error. No `unwrap`/`expect` anywhere in this
         // file: a panic here unwinds through a GDExtension callback.
         let (Some(civ), Some(agg)) = (self.civ.as_ref(), self.aggregates_with_walls(&defences))
