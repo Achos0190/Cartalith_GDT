@@ -176,6 +176,7 @@ got. Status for everything below is in `STATUS.md`.
 | `PROVENANCE.md` | sources, algorithms, formats; what must be hand-ported |
 | `SAVEFILE_COMPAT.md` | the `.zip` format, verified against live code |
 | `REFERENCE_DRIFT_v2.10_to_v2.11.md` | the line-offset map between the two frozen snapshots (see Constraints) |
+| `ALIGNMENT_AUDIT.md` | the 2026-09-24 code-versus-documentation audit: every place a document, string or comment disagreed with the code, with evidence; findings only, routed from `OUTSTANDING_WORK.md` §2.11 |
 | `PARITY_AUDIT.md` | three dated passes (2026-08-23 to 25) checking the port's progress claims against the legacy checklist and the code; findings only, kept as a trail |
 | `PERFORMANCE_BENCHMARKS.md` | compute-configuration benchmarks at 2048² and 8192², measured on this machine and judged on smoothness, not throughput |
 | `TOOLCHAIN.md` | setup, in order |
