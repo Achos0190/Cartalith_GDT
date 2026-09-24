@@ -11167,7 +11167,7 @@ impl WorldGen {
         }
         let gw = self.gw as usize;
         let gh = self.gh as usize;
-        let packed = PackedByteArray::from(p.preview_full(gw, gh)?);
+        let packed = PackedByteArray::from(p.preview_full_with(gw, gh, &self.appearance().biome_cols)?);
         let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGBA8, &packed)?;
         ImageTexture::create_from_image(&image)
     }
@@ -11223,7 +11223,7 @@ impl WorldGen {
         let Some(p) = self.paint.as_ref() else { return VarDictionary::new() };
         let gw = self.gw as usize;
         let gh = self.gh as usize;
-        let Some(patch) = p.preview_patch(gw, gh) else { return VarDictionary::new() };
+        let Some(patch) = p.preview_patch_with(gw, gh, &self.appearance().biome_cols) else { return VarDictionary::new() };
         // `PreviewPatch`'s own invariant, restated at the boundary because
         // `Image::create_from_data` is the one thing here that can fail and
         // a length mismatch is the only way it can — and a failure past this
@@ -15646,6 +15646,8 @@ impl WorldGen {
     #[func]
     fn debug_layers(&self) -> Array<VarDictionary> {
         let refs = self.sample_refs();
+        // CA-19: the Biomes legend names each class in the colour the map uses.
+        let biome_cols = self.appearance().biome_cols;
         sample_bridge::LAYER_GROUPS
             .iter()
             .map(|(group, entries)| {
@@ -15654,7 +15656,7 @@ impl WorldGen {
                     .map(|(id, label, hint)| {
                         let available =
                             refs.as_ref().map(|f| sample_bridge::layer_available(f, id)).unwrap_or(*id == "off");
-                        let legend: Array<VarDictionary> = sample_bridge::legend(id)
+                        let legend: Array<VarDictionary> = sample_bridge::legend_with(id, &biome_cols)
                             .into_iter()
                             .map(|(r, g, b, text)| {
                                 vdict! { "r" => r as i64, "g" => g as i64, "b" => b as i64, "label" => text.as_str() }
@@ -16062,7 +16064,7 @@ impl WorldGen {
     #[func]
     fn build_debug_texture(&self, view: GString) -> Option<Gd<ImageTexture>> {
         let f = self.sample_refs()?;
-        let bytes = sample_bridge::debug_raster(&f, &view.to_string())?;
+        let bytes = sample_bridge::debug_raster_with(&f, &view.to_string(), &self.appearance().biome_cols)?;
         let packed = PackedByteArray::from(bytes);
         let image = Image::create_from_data(self.gw, self.gh, false, Format::RGBA8, &packed)?;
         ImageTexture::create_from_image(&image)
