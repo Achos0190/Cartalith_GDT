@@ -3357,7 +3357,7 @@ func _refresh_tool_bar() -> void:
 ## gated by CARTO > Layers' Rivers row), and the reasons now say that.
 const PHONE_GEN_ABSENT: Array = [
 	{"stage": 1, "label": "Working resolution", "route": "new_world",
-	 "why": "Resolution is a creation-time call argument, not a stored parameter -- params.rs' \"world\" group holds world, sea_level, peak_m, carve_rivers, river_density, integrate_drainage and use_gpu, and no resolution key exists anywhere in the 99-row table. Set it in File > New world, which carries it on this phone's card as well as on the desktop form."},
+	 "why": "Resolution is a creation-time call argument, not a stored parameter -- params.rs' \"world\" group holds world, sea_level, peak_m, carve_rivers, river_density, integrate_drainage and use_gpu, and no resolution key exists anywhere in the parameter table. Set it in File > New world, which carries it on this phone's card as well as on the desktop form."},
 	{"stage": 2, "label": "Archetype", "route": "new_world",
 	 "why": "apply_archetype() is live and seeds the six world_structure dials below, but request()[\"archetype\"] is what decides which generation call runs, and new_world_dialog.gd's own NOTE_CREATION_ONLY says extent, resolution and archetype reallocate every field in the pipeline. Pick it in File > New world -- on this phone it is on that dialog's card, under World structure."},
 	{"stage": 5, "label": "Erosion strength", "route": "",

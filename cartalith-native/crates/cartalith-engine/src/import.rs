@@ -59,7 +59,7 @@ use cartalith_terrain::infer::{
     pick_plate_seeds, reconstruct_boundary_stress, stamp_volcanic_arcs,
 };
 use cartalith_terrain::{
-    assign_plates, build_age_field, compute_resistance, gauss_blur,
+    assign_plates, build_age_field, compute_resistance,
     normalize_field,
 };
 
@@ -198,10 +198,13 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
     }
     let stress = reconstruct_boundary_stress(&field, &plate_id, &base, &relief, gw, gh, world, None, None, None);
 
-    // `baseField` = per-cell plate base, then the same 0.35x blur the
-    // forward substrate applies (reference line 6767).
+    // Per-cell plate base (reference line 6767's `baseField`, unblurred).
+    // The reference then blurs it the way the forward substrate does, into a
+    // global. That blur is not run here: `WorldState` retains no base field,
+    // and an imported world's height is the image, untouched, so in this port
+    // nothing would read the result. It used to run anyway -- a full-grid
+    // blur bound to `_base_field` and dropped.
     let crust_field: Vec<f32> = plate_id.iter().map(|&pi| plates[pi as usize].base as f32).collect();
-    let _base_field = gauss_blur(&crust_field, (p.tect.blur_r * 0.35).max(2.0), gw, gh, world);
 
     // ---- forward stages, reused verbatim (reference HTML lines 6769-6776) ----
     let age_field = build_age_field(gw, gh, &stress.boundary_mask);

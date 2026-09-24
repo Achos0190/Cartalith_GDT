@@ -189,6 +189,48 @@ pub struct TectonicParams {
     pub hetero: f64,
     pub resist: f64,
     pub dynamic_lithology: bool,
+    /// Blur the plate-base field with [`PLATE_BASE_BLUR_K`] (source v2.57)
+    /// rather than [`PLATE_BASE_BLUR_K_V2_10`] -- see [`plate_base_blur_r`].
+    ///
+    /// **`false` here and `true` in the shipped app** (`cartalith-godot`'s
+    /// `params::defaults`), the same split as `integrate_drainage`: this
+    /// function is the goldens' parity baseline, captured from the v2.10/v2.11
+    /// reference, which blurred at 0.35. `DECISIONS.md` §7n registers v2.57
+    /// as a re-baseline to carry; Ruling AP authorises carrying it.
+    pub narrow_plate_base_blur: bool,
+}
+
+/// `PLATE_BASE_BLUR_K` (source v2.57, `RC_ENGINE_CHANGES.md` §6i): the
+/// plate-base blur radius as a fraction of `tect.blur_r`.
+///
+/// **The highest-leverage single number in the height formula.** `baseField`
+/// is piecewise-constant -- each cell is its plate's `base` -- and this one
+/// blur is the only thing that turns it into a ramp. A box blur's edge
+/// gradient scales as 1/radius, so the radius decides how far the noise term
+/// can push the shoreline off the plate polygon: the source measured the pure
+/// Voronoi partition reproducing its land mask at IoU 0.813, i.e. the coast was
+/// the level set of a blurred plate map. Narrowing K lets the noise carry the
+/// coast off the polygon edges: at its seed 77805 on a 40 000 km world,
+/// straight coast 49.3% -> 36.9% and box-count dimension 1.032 -> 1.074 as K
+/// goes 0.35 -> 0.18, monotone in both directions.
+///
+/// Why 0.18 and not further (the source's own reasoning): 0.25 moved the app
+/// default too little to justify re-baselining every world, and 0.112 lands
+/// exactly on the `max(2, ..)` floor at the default `blur_r` of 18, so the dial
+/// would stop responding to `blur_r` at and below its own default.
+pub const PLATE_BASE_BLUR_K: f64 = 0.18;
+
+/// The plate-base blur fraction before v2.57 -- what the frozen v2.10/v2.11
+/// reference and every golden fixture captured from it use. Read only when
+/// [`TectonicParams::narrow_plate_base_blur`] is off, which is the parity
+/// baseline `WorldParams::defaults` and nothing the shipped app generates.
+pub const PLATE_BASE_BLUR_K_V2_10: f64 = 0.35;
+
+/// `plateBaseBlurR()` (source v2.57): `max(2, blurR * K)`. v2.57 changed K
+/// alone; the 2-cell floor is the reference's own, unchanged.
+pub fn plate_base_blur_r(tect: &TectonicParams) -> f64 {
+    let k = if tect.narrow_plate_base_blur { PLATE_BASE_BLUR_K } else { PLATE_BASE_BLUR_K_V2_10 };
+    (tect.blur_r * k).max(2.0)
 }
 
 /// `state.volc` (reference HTML line 2266). `provinces` selects
@@ -687,6 +729,9 @@ impl WorldParams {
                 hetero: 0.08,
                 resist: 0.50,
                 dynamic_lithology: false,
+                // The v2.10/v2.11 blur the goldens were captured at. On at the
+                // app boundary -- see the field's own doc comment.
+                narrow_plate_base_blur: false,
             },
             // `provinces: true`, matching JS's own literal default.
             // stamp_volcanoes_provinces is golden-verified
@@ -1331,12 +1376,18 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
 
     let plates = build_plates(gw, gh, p.tect.seed as u32, tect_plates, p.tect.lloyd, world, world_structure_arg);
 
+    // `world` reaches the kernel: a world map's plates wrap at the x seam on
+    // the GPU exactly as `assign_plates` wraps them on the CPU. Until
+    // 2026-09-24 it was never passed, and the kernel had no wrap, so the
+    // shipped shell (GPU on at boot) cut every seam-straddling plate in two.
     let plate_id = if p.use_gpu {
         let plate_x: Vec<f32> = plates.iter().map(|pl| pl.x as f32).collect();
         let plate_y: Vec<f32> = plates.iter().map(|pl| pl.y as f32).collect();
         gpu_device
             .as_ref()
-            .and_then(|gpu| cartalith_gpu::assign_plates_grid_gpu_with(gpu, gw as u32, gh as u32, &plate_x, &plate_y, warp_x, warp_y))
+            .and_then(|gpu| {
+                cartalith_gpu::assign_plates_grid_gpu_with(gpu, gw as u32, gh as u32, &plate_x, &plate_y, warp_x, warp_y, world)
+            })
             .filter(|ids| ids.iter().all(|&id| id >= 0)) // any unassigned cell => treat as a failed dispatch, fall back
             .map(|ids| {
                 gpu_stages_used.push("plate_assignment".to_string());
@@ -1394,9 +1445,10 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     };
 
     let base_raw: Vec<f32> = plate_id.iter().map(|&pid| plates[pid as usize].base as f32).collect();
+    let base_blur_r = plate_base_blur_r(&p.tect);
     let base_field = if p.use_gpu {
         match gpu_device.and_then(|gpu| {
-            cartalith_gpu::gauss_blur_grid_gpu_with(gpu, &base_raw, (p.tect.blur_r * 0.35).max(2.0), gw as u32, gh as u32, world)
+            cartalith_gpu::gauss_blur_grid_gpu_with(gpu, &base_raw, base_blur_r, gw as u32, gh as u32, world)
         }) {
             Some(v) => {
                 if !gpu_stages_used.iter().any(|s| s == "base_field_blur") {
@@ -1404,10 +1456,10 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 }
                 v
             }
-            None => gauss_blur(&base_raw, (p.tect.blur_r * 0.35).max(2.0), gw, gh, world),
+            None => gauss_blur(&base_raw, base_blur_r, gw, gh, world),
         }
     } else {
-        gauss_blur(&base_raw, (p.tect.blur_r * 0.35).max(2.0), gw, gh, world)
+        gauss_blur(&base_raw, base_blur_r, gw, gh, world)
     };
 
     let age_field = build_age_field(gw, gh, &stress.boundary_mask);
@@ -2859,6 +2911,108 @@ mod tests {
         assert!(b.field.iter().all(|&v| v.is_finite()));
         let differs = a.field.iter().zip(b.field.iter()).any(|(x, y)| (x - y).abs() > 1e-6);
         assert!(differs, "world=true must produce a genuinely different field from world=false under use_gpu=true");
+    }
+
+    /// Alignment audit A1 (`OUTSTANDING_WORK.md` §2.11): with `use_gpu` on --
+    /// the shipped shell's boot default -- a world map's plates must wrap at
+    /// the x seam as the CPU's do. The GPU call site used to pass no `world`
+    /// and the kernel had no wrap, so every plate straddling the seam was
+    /// assigned on a flat sheet and cut in two.
+    ///
+    /// Warp is zeroed so both paths assign from the same plates with the same
+    /// (absent) warp: `build_plates` is CPU on both, but the GPU warp is
+    /// different noise from `compute_warp` (`DECISIONS.md` §7c), which would
+    /// make the two worlds differ for a reason this test is not about. The
+    /// cells that matter are the ones the wrap decides -- where the CPU's
+    /// world assignment and a flat `assign_plates` disagree. The GPU must side
+    /// with the world there; elsewhere it may differ from the CPU only by the
+    /// double-buffered-vs-in-place JFA gap `cartalith-gpu`'s own tests measure.
+    #[test]
+    fn generate_terrain_world_wrap_gpu_plates_wrap_like_the_cpu() {
+        let (gw, gh) = (128usize, 64usize);
+        let mut cpu_p = WorldParams::defaults(gw, gh, 777);
+        cpu_p.world = true;
+        cpu_p.tect.warp = 0.0;
+        let mut gpu_p = cpu_p.clone();
+        gpu_p.use_gpu = true;
+
+        let gpu = generate_terrain(&gpu_p);
+        if gpu.gpu_stages_used.is_empty() {
+            eprintln!("no GPU stage ran on this machine (CPU fallback) -- nothing to prove about the GPU wrap");
+            return;
+        }
+        assert!(
+            gpu.gpu_stages_used.iter().any(|s| s == "plate_assignment"),
+            "a GPU opened but plate assignment did not run on it: {:?}",
+            gpu.gpu_stages_used
+        );
+        let cpu = generate_terrain(&cpu_p);
+        let plates = cartalith_terrain::build_plates(gw, gh, 777, cpu_p.tect.plates, cpu_p.tect.lloyd, true, None);
+        assert_eq!(
+            cpu.plate_id,
+            cartalith_terrain::assign_plates(gw, gh, true, &plates, None, None),
+            "the fixture's own premise: the CPU path is assign_plates(world) over these plates with no warp"
+        );
+        let flat = cartalith_terrain::assign_plates(gw, gh, false, &plates, None, None);
+
+        let n = gw * gh;
+        let decided: Vec<usize> = (0..n).filter(|&i| cpu.plate_id[i] != flat[i]).collect();
+        let sided = decided.iter().filter(|&&i| gpu.plate_id[i] == cpu.plate_id[i]).count();
+        let off = (0..n).filter(|&i| gpu.plate_id[i] != cpu.plate_id[i]).count();
+        eprintln!(
+            "world {gw}x{gh}: the wrap decides {} cells, the GPU sides with the CPU's world assignment on {sided}; \
+             GPU vs CPU plate_id differ on {off}/{n}",
+            decided.len()
+        );
+        assert!(decided.len() > 50, "only {} cells depend on the wrap -- the fixture tests nothing", decided.len());
+        assert!(
+            sided * 100 >= decided.len() * 95,
+            "the GPU matched the CPU's wrapped plates on only {sided} of the {} cells the wrap decides",
+            decided.len()
+        );
+        assert!(off * 100 < n * 2, "GPU vs CPU world plate_id differ on {off}/{n} cells");
+    }
+
+    /// v2.57's `plateBaseBlurR()` (`RC_ENGINE_CHANGES.md` §6i), asserted as
+    /// literals rather than against the constants: `max(2, blurR * K)`, with K
+    /// 0.18 when the v2.57 flag is on and the reference's 0.35 when it is off.
+    /// At the default `blur_r` of 18 that is 3.24 against 6.3; at 10 the new K
+    /// meets the 2-cell floor (1.8 -> 2) and the old one does not (3.5).
+    #[test]
+    fn plate_base_blur_r_is_v2_57s_on_and_the_references_off() {
+        let parity = WorldParams::defaults(8, 8, 1).tect;
+        assert!(!parity.narrow_plate_base_blur, "the parity baseline must keep the v2.10/v2.11 blur");
+        assert_eq!(parity.blur_r, 18.0);
+        let mut narrow = parity.clone();
+        narrow.narrow_plate_base_blur = true;
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-12;
+        assert!(close(plate_base_blur_r(&parity), 6.3), "{}", plate_base_blur_r(&parity));
+        assert!(close(plate_base_blur_r(&narrow), 3.24), "{}", plate_base_blur_r(&narrow));
+        let (mut p10, mut n10) = (parity.clone(), narrow.clone());
+        p10.blur_r = 10.0;
+        n10.blur_r = 10.0;
+        assert!(close(plate_base_blur_r(&p10), 3.5), "{}", plate_base_blur_r(&p10));
+        assert_eq!(plate_base_blur_r(&n10), 2.0, "the reference's own 2-cell floor");
+    }
+
+    /// The flag has to reach the blur: moving it moves the height field, and
+    /// nothing upstream of the base-field blur -- the plate partition is the
+    /// same world either way. Both paths are the CPU one, so this is exact.
+    #[test]
+    fn narrow_plate_base_blur_moves_the_height_field_and_nothing_upstream() {
+        let mut old = WorldParams::defaults(96, 72, 2026);
+        old.carve_rivers = false;
+        let mut new = old.clone();
+        new.tect.narrow_plate_base_blur = true;
+        let a = generate_terrain(&old);
+        let b = generate_terrain(&new);
+        assert_eq!(a.field.len(), 96 * 72, "the probe generated nothing");
+        assert_eq!(a.plate_id, b.plate_id, "the blur is downstream of plate assignment");
+        assert_eq!(a.boundary_mask, b.boundary_mask, "and of the boundary stress");
+        let moved = a.field.iter().zip(b.field.iter()).filter(|(x, y)| x != y).count();
+        eprintln!("v2.57 blur: {moved} of {} height cells moved", a.field.len());
+        assert!(moved * 2 > a.field.len(), "only {moved} cells moved -- the flag is not reaching the blur");
+        assert!(b.field.iter().all(|&v| (0.0..=1.0).contains(&v)), "height escaped [0,1]");
     }
 
     /// Ruling Y (`LARGE_ITEM_RULINGS.md`, 2026-09-21): the actual entry

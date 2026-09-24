@@ -420,7 +420,9 @@ struct JfaParams {
     width: u32,
     height: u32,
     step: i32,
-    _pad0: u32,
+    /// World-wrap flag, `0`/`1`: reuses the slot that was `_pad0`, so the
+    /// uniform stays 16 bytes. See `gpu_jfa_plates.wgsl`'s header.
+    world: u32,
 }
 
 /// Which path actually produced a [`vnoise_grid`] result.
@@ -2353,8 +2355,11 @@ pub fn simulate_weather_loop_gpu_with(
 }
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 5: double-buffered JFA plate
-/// assignment. `world`-mode x-wrap is deliberately unimplemented (matching
-/// every GPU milestone so far) -- callers must pass `world=false` data.
+/// assignment. `world` wraps the x axis the way `assign_plates` does --
+/// neighbour columns modulo `width`, and the distance's x term folded to the
+/// nearest periodic image (`gpu_jfa_plates.wgsl`'s header). It used to be
+/// unimplemented, and the one caller never passed it, so a world map's plates
+/// were assigned on a flat sheet and cut at the seam.
 ///
 /// Seeding (`nearest[home_cell]=p, best_d2=0`) and the CPU-side fallback
 /// fill for any cell JFA never reached (`nearest<0`, filled by brute-force
@@ -2371,6 +2376,7 @@ fn dispatch_gpu_assign_plates(
     plate_y: &[f32],
     warp_x: Option<&[f32]>,
     warp_y: Option<&[f32]>,
+    world: bool,
 ) -> Option<Vec<i32>> {
     let w = width as usize;
     let h = height as usize;
@@ -2474,7 +2480,7 @@ fn dispatch_gpu_assign_plates(
     let param_bufs: Vec<wgpu::Buffer> = steps
         .iter()
         .map(|&step| {
-            let params = JfaParams { width, height, step, _pad0: 0 };
+            let params = JfaParams { width, height, step, world: u32::from(world) };
             ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("jfa params"),
                 contents: bytemuck::bytes_of(&params),
@@ -2544,7 +2550,7 @@ fn dispatch_gpu_assign_plates(
 
     // Fallback: any cell JFA never reached (rare/none in practice) gets a
     // brute-force nearest-plate search, matching `assign_plates`'s own
-    // fallback loop.
+    // fallback loop -- including its world-wrap distance.
     for i in 0..n {
         if nearest[i] >= 0 {
             continue;
@@ -2556,7 +2562,7 @@ fn dispatch_gpu_assign_plates(
         let mut best = 0i32;
         let mut bd = f32::INFINITY;
         for p in 0..np {
-            let dx = ax - plate_x[p];
+            let dx = wrap_dx(ax - plate_x[p], width, world);
             let dy = ay - plate_y[p];
             let d = dx * dx + dy * dy;
             if d < bd {
@@ -2807,8 +2813,8 @@ pub fn dispatch_gpu_flow(
 /// (GPU, double-buffered JFA) are each an *approximation* of. Used to
 /// characterize both JFA variants' real mismatch rate against the true
 /// answer, since the two JFA variants are not expected to match each other
-/// exactly (see `gpu_jfa_plates.wgsl`'s header comment). `world`-mode
-/// unimplemented, matching the GPU kernel it's verifying.
+/// exactly (see `gpu_jfa_plates.wgsl`'s header comment). `world` measures
+/// the x distance on the cylinder, as the kernel it verifies does.
 pub fn brute_force_nearest_plate(
     width: u32,
     height: u32,
@@ -2816,6 +2822,7 @@ pub fn brute_force_nearest_plate(
     plate_y: &[f32],
     warp_x: Option<&[f32]>,
     warp_y: Option<&[f32]>,
+    world: bool,
 ) -> Vec<i32> {
     let w = width as usize;
     let h = height as usize;
@@ -2829,7 +2836,7 @@ pub fn brute_force_nearest_plate(
             let mut best = 0i32;
             let mut bd = f32::INFINITY;
             for p in 0..np {
-                let dx = ax - plate_x[p];
+                let dx = wrap_dx(ax - plate_x[p], width, world);
                 let dy = ay - plate_y[p];
                 let d = dx * dx + dy * dy;
                 if d < bd {
@@ -2841,6 +2848,19 @@ pub fn brute_force_nearest_plate(
         }
     }
     out
+}
+
+/// The x term of a plate distance on a world map: folded to the nearest
+/// periodic image, `ddx - round(ddx / width) * width`, with `round` as
+/// `floor(v + 0.5)` to match both `assign_plates`' `js_round` and the
+/// kernel's own spelling of it. The identity when `world` is off.
+fn wrap_dx(ddx: f32, width: u32, world: bool) -> f32 {
+    if world {
+        let w = width as f32;
+        ddx - (ddx / w + 0.5).floor() * w
+    } else {
+        ddx
+    }
 }
 
 /// `compute_heterogeneity`'s trailing max-reduce normalize pass, factored
@@ -3486,7 +3506,9 @@ pub fn stress_gather_grid_gpu_with(
 /// indices as `i32`, matching `dispatch_gpu_assign_plates`'s own output
 /// type (the caller casts to `usize` as `assign_plates`'s own return type
 /// requires, after checking for `-1`/unassigned cells the same way the CPU
-/// path's callers already must).
+/// path's callers already must). `world` wraps the x axis, as
+/// `assign_plates`' own `world` does.
+#[allow(clippy::too_many_arguments)]
 pub fn assign_plates_grid_gpu_with(
     gpu: &GpuDevice,
     width: u32,
@@ -3495,10 +3517,11 @@ pub fn assign_plates_grid_gpu_with(
     plate_y: &[f32],
     warp_x: Option<&[f32]>,
     warp_y: Option<&[f32]>,
+    world: bool,
 ) -> Option<Vec<i32>> {
     on_grid(gpu, width, height, || {
         let ctx = init_gpu_jfa_plates_with(gpu);
-        dispatch_gpu_assign_plates(&ctx, width, height, plate_x, plate_y, warp_x, warp_y)
+        dispatch_gpu_assign_plates(&ctx, width, height, plate_x, plate_y, warp_x, warp_y, world)
     })
 }
 
@@ -3594,7 +3617,7 @@ mod tests {
     unwrapping_dispatch!(dispatch_gpu_height(ctx: &GpuContext, width: u32, height: u32, seed: i32, nf: f32, a: f32, b: f32, age_inf: f32, fwt: f32, hwt: f32, ridged: bool, has_oro: bool, base_field: &[f32], stress: &[f32], flex: &[f32], hetero: &[f32], age: &[f32], warp_x: &[f32], warp_y: &[f32], oro: &[f32]) -> Vec<f32>);
     unwrapping_dispatch!(dispatch_gpu_gauss_blur(ctx: &GpuBlurContext, src: &[f32], radius: f64, width: u32, height: u32, wrap_x: bool) -> Vec<f32>);
     unwrapping_dispatch!(dispatch_gpu_resistance(ctx: &GpuContext, width: u32, height: u32, plate_id: &[u32], age: &[f32], crustal_per_plate: &[f32]) -> Vec<f32>);
-    unwrapping_dispatch!(dispatch_gpu_assign_plates(ctx: &GpuContext, width: u32, height: u32, plate_x: &[f32], plate_y: &[f32], warp_x: Option<&[f32]>, warp_y: Option<&[f32]>) -> Vec<i32>);
+    unwrapping_dispatch!(dispatch_gpu_assign_plates(ctx: &GpuContext, width: u32, height: u32, plate_x: &[f32], plate_y: &[f32], warp_x: Option<&[f32]>, warp_y: Option<&[f32]>, world: bool) -> Vec<i32>);
     unwrapping_dispatch!(dispatch_gpu_flow(ctx: &GpuFlowContext, gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, use_rain: bool, world: bool) -> GpuFlowResult);
 
     fn try_gpu() -> Option<GpuContext> {
@@ -5103,8 +5126,8 @@ mod tests {
             let n = (w * h) as usize;
             let (px, py) = scattered_plates(np, w, h, salt);
 
-            let gpu = dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None);
-            let truth = brute_force_nearest_plate(w, h, &px, &py, None, None);
+            let gpu = dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None, false);
+            let truth = brute_force_nearest_plate(w, h, &px, &py, None, None, false);
 
             let plates: Vec<cartalith_terrain::Plate> =
                 px.iter().zip(py.iter()).map(|(&x, &y)| cartalith_terrain::Plate {
@@ -5161,9 +5184,68 @@ mod tests {
         };
         let (w, h) = (256u32, 256u32);
         let (px, py) = scattered_plates(9, w, h, 5);
-        let a = dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None);
-        let b = dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None);
+        let a = dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None, false);
+        let b = dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None, false);
         assert_eq!(a, b, "same input must produce identical GPU JFA output across runs");
+    }
+
+    /// World-wrap (`OUTSTANDING_WORK.md` §2.11, alignment audit A1). On a
+    /// world map the x axis is a cylinder, so a cell just left of the seam can
+    /// belong to a plate whose centre sits just right of it. The kernel used
+    /// to ignore `world` entirely, which put every such cell on the nearest
+    /// plate of a *flat* sheet instead.
+    ///
+    /// The cells this test is about are the ones the wrap actually decides:
+    /// where brute-force nearest on the cylinder and on the flat sheet
+    /// disagree. There the GPU must side with the cylinder. Everywhere else
+    /// it is held to the same JFA approximation ceiling as the flat test
+    /// above, and to the CPU `assign_plates(world=true)` it stands in for.
+    /// Two cases: no warp, and a warp large enough to move cells across a
+    /// plate boundary, since the engine hands the kernel both.
+    #[test]
+    fn gpu_jfa_plates_world_wrap_sides_with_the_cylinder() {
+        let Some(ctx) = try_gpu_jfa_plates() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let (w, h, np) = (256u32, 128u32, 14usize);
+        let n = (w * h) as usize;
+        let (px, py) = scattered_plates(np, w, h, 71);
+        let wx: Vec<f32> = (0..n).map(|i| 6.0 * ((i / w as usize) as f32 * 0.11).sin()).collect();
+        let wy: Vec<f32> = (0..n).map(|i| 6.0 * ((i % w as usize) as f32 * 0.07).cos()).collect();
+        let plates: Vec<cartalith_terrain::Plate> = px
+            .iter()
+            .zip(py.iter())
+            .map(|(&x, &y)| cartalith_terrain::Plate { x: x as f64, y: y as f64, vx: 0.0, vy: 0.0, base: 0.0 })
+            .collect();
+
+        for (label, warp_x, warp_y) in [("no warp", None, None), ("warped", Some(wx.as_slice()), Some(wy.as_slice()))] {
+            let gpu = dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, warp_x, warp_y, true);
+            let cylinder = brute_force_nearest_plate(w, h, &px, &py, warp_x, warp_y, true);
+            let flat = brute_force_nearest_plate(w, h, &px, &py, warp_x, warp_y, false);
+            let cpu = cartalith_terrain::assign_plates(w as usize, h as usize, true, &plates, warp_x, warp_y);
+
+            let decided: Vec<usize> = (0..n).filter(|&i| cylinder[i] != flat[i]).collect();
+            let sided = decided.iter().filter(|&&i| gpu[i] == cylinder[i]).count();
+            let off_truth = (0..n).filter(|&i| gpu[i] != cylinder[i]).count();
+            let off_cpu = (0..n).filter(|&i| gpu[i] != cpu[i] as i32).count();
+            eprintln!(
+                "gpu_jfa_plates world {w}x{h} ({label}): wrap decides {} cells, GPU sides with the cylinder on {sided}; \
+                 gpu_vs_cylinder_truth={off_truth}/{n}, gpu_vs_cpu_world={off_cpu}/{n}",
+                decided.len()
+            );
+            // The fixture has to reach the code: with no cell the wrap
+            // decides, a kernel that ignores `world` passes too.
+            assert!(decided.len() > 100, "{label}: only {} cells depend on the wrap -- the fixture tests nothing", decided.len());
+            assert!(
+                sided * 100 >= decided.len() * 95,
+                "{label}: the GPU sided with the cylinder on only {sided} of the {} cells the wrap decides -- \
+                 world-wrap is not reaching the kernel",
+                decided.len()
+            );
+            assert!((off_truth as f64 / n as f64) < 0.05, "{label}: GPU vs cylinder truth {off_truth}/{n}");
+            assert!((off_cpu as f64 / n as f64) < 0.05, "{label}: GPU vs CPU assign_plates(world) {off_cpu}/{n}");
+        }
     }
 
     /// Real timing, same honest methodology every prior milestone used.
@@ -5178,7 +5260,7 @@ mod tests {
         };
         // Warm up: first dispatch pays one-time pipeline/driver JIT cost.
         let (wx, wy) = scattered_plates(8, 64, 64, 1);
-        let _ = dispatch_gpu_assign_plates(&ctx, 64, 64, &wx, &wy, None, None);
+        let _ = dispatch_gpu_assign_plates(&ctx, 64, 64, &wx, &wy, None, None, false);
         let quote = timings_quotable("measured_gpu_jfa_plates_vs_cpu_timing");
         if quote {
             eprintln!("gpu_jfa_plates {}", device_note(&ctx.adapter_name, ctx.adapter_backend, ctx.device_type));
@@ -5197,7 +5279,7 @@ mod tests {
                 }).collect();
 
             let n = (w * h) as usize;
-            let (gpu_t, gpu) = timed_for(quote, || dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None));
+            let (gpu_t, gpu) = timed_for(quote, || dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None, false));
             let (cpu_t, cpu) =
                 timed_for(quote, || cartalith_terrain::assign_plates(w as usize, h as usize, false, &plates, None, None));
 

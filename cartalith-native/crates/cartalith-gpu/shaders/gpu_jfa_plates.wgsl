@@ -16,14 +16,20 @@
 // the same *procedure*. See the Rust-side test suite for how this is actually verified
 // (against brute-force exact-nearest ground truth, not against the CPU function directly).
 //
-// World-wrap (`world` mode's x-axis wraparound) is deliberately NOT implemented here,
-// matching every GPU milestone so far (1-4) -- the non-wrapping case is the one exercised
-// and verified.
+// World-wrap (`params.world != 0u`): the x axis is a cylinder, exactly as
+// `assign_plates` treats it -- a neighbour column is taken modulo `width` instead of being
+// skipped off the edge, and the x term of the distance is folded to the nearest periodic
+// image, `ddx - round(ddx / width) * width`. `round` is written `floor(v + 0.5)` because the
+// CPU side is `js_round` (ties toward +infinity) and WGSL's `round` ties to even. Without
+// this a world map's plates stopped dead at the x seam: the cells either side of it took
+// their nearest plate on a flat sheet, so a plate straddling the seam was cut in two
+// (`OUTSTANDING_WORK.md` §2.11, alignment audit A1).
 
 struct JfaParams {
     width: u32,
     height: u32,
     step: i32,
+    world: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: JfaParams;
@@ -64,9 +70,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             if dx == 0 && dy == 0 {
                 continue;
             }
-            let nx = x + dx;
+            var nx = x + dx;
             let ny = y + dy;
-            if nx < 0 || nx >= w || ny < 0 || ny >= h {
+            if ny < 0 || ny >= h {
+                continue;
+            }
+            if params.world != 0u {
+                nx = ((nx % w) + w) % w;
+            } else if nx < 0 || nx >= w {
                 continue;
             }
             let j = ny * w + nx;
@@ -74,7 +85,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             if p < 0 {
                 continue;
             }
-            let ddx = ax - plate_x[p];
+            var ddx = ax - plate_x[p];
+            if params.world != 0u {
+                ddx = ddx - floor(ddx / f32(w) + 0.5) * f32(w);
+            }
             let ddy = ay - plate_y[p];
             let d2 = ddx * ddx + ddy * ddy;
             if d2 < best_d2 {

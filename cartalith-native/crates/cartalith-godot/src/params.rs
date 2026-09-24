@@ -130,7 +130,7 @@ pub struct ParamSpec {
 /// This function is where the product's own rulings land instead: a divergence
 /// recorded in `DECISIONS.md` turns on here, not there, so it reaches every
 /// generated world without deleting the parity baseline underneath it. Today
-/// that is four flags, each independently revertible by deleting its own line.
+/// that is five flags, each independently revertible by deleting its own line.
 pub fn defaults() -> WorldParams {
     let mut p = WorldParams::defaults(0, 0, 0);
     // `DECISIONS.md` §7l (owner ruling, 2026-09-02): craters generate from an
@@ -155,6 +155,12 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::defaults`, which the goldens compare against a reference
     // that has no fill.
     p.integrate_drainage = true;
+    // Source v2.57 (`RC_ENGINE_CHANGES.md` §6i; `DECISIONS.md` §7n registers
+    // it, Ruling AP authorises carrying it): the plate-base blur narrows from
+    // 0.35 to 0.18 of `tect.blur_r`, so the coastline stops tracing the plate
+    // polygons. Off in `WorldParams::defaults`, whose goldens were captured
+    // from the v2.10/v2.11 reference at 0.35.
+    p.tect.narrow_plate_base_blur = true;
     p
 }
 
@@ -259,6 +265,12 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "tect.lloyd", group: "tectonics", kind: Kind::Int, min: 0.0, max: 8.0, step: 1.0,
         label: "Lloyd relaxation passes", unit: "", reference_control: "",
         get_fn: |p| Value::Num(p.tect.lloyd as f64), set_fn: |p, v| p.tect.lloyd = v as usize },
+    // No reference control: the source names this as a constant
+    // (`PLATE_BASE_BLUR_K`, v2.57), never a dial, and neither frozen snapshot
+    // has it. ON at the app boundary, OFF in `WorldParams::defaults`.
+    ParamSpec { key: "tect.narrow_plate_base_blur", group: "tectonics", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Coastline leaves the plate outlines (v2.57 blur)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.tect.narrow_plate_base_blur), set_fn: |p, v| p.tect.narrow_plate_base_blur = v != 0.0 },
 
     // ---- volcanism & impacts --------------------------------------------
     ParamSpec { key: "volc.count", group: "volcanism", kind: Kind::Int, min: 0.0, max: 100.0, step: 1.0,
@@ -683,6 +695,9 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("tect.resist", "tect.resist"),
     ("tect.dynamic_lithology", "tect.dynamicLithology"),
     ("tect.lloyd", "tect.lloyd"),
+    // No path: the source's `PLATE_BASE_BLUR_K` is a constant, not a `state`
+    // key, so there is nowhere in the reference's `tect` block to write it.
+    ("tect.narrow_plate_base_blur", ""),
 
     ("volc.count", "volc.count"),
     ("volc.age", "volc.age"),
@@ -900,7 +915,7 @@ pub fn world_key_state(p: &WorldParams) -> serde_json::Value {
 /// in a hand-edited (or future-version) save is clamped or rejected on the
 /// same terms as a GUI write, and never panics.
 pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usize {
-    // The one parameter whose *absence* is information. A save that does not
+    // The two parameters whose *absence* is information. A save that does not
     // carry `integrate_drainage` -- every archive written before it existed,
     // and every reference-app export -- was generated without integrated
     // drainage, so it must reload as that world, not as whatever the session's
@@ -910,6 +925,12 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // deliberately disagree"). A save that carries the key sets it in the loop
     // below like any other row.
     p.integrate_drainage = false;
+    // Same reasoning, same shape: every save without the key was generated
+    // at the pre-v2.57 plate-base blur, so a regenerate from its parameters
+    // must reproduce that coastline. (The source has no key to consult -- K
+    // is a constant there -- so this follows `integrate_drainage` here, not a
+    // source loader.)
+    p.tect.narrow_plate_base_blur = false;
     let Some(native) = state.get(NATIVE_PARAMS_KEY).and_then(|v| v.as_object()) else {
         return 0;
     };
@@ -948,7 +969,7 @@ pub fn spec(key: &str) -> Option<&'static ParamSpec> {
 /// `GUI_GAP_REGISTER.md` **SG-03**: which node of
 /// [`cartalith_engine::staleness::pipeline_stage_graph`] a moved dial has to
 /// mark changed — or `None` for a parameter with **no live-apply path at
-/// all**, which is most of them (60 of the 99 rows).
+/// all**, which is most of them (61 of the 100 rows, 2026-09-24).
 ///
 /// ## The rule the table is derived from, not a judgement call
 ///
