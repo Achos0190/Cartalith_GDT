@@ -8,7 +8,9 @@
 //! consume and produce", and it is no longer a subset of the *pipeline* at
 //! all.** Milestones 8-16 have all landed and [`run_layout`] is now a thin
 //! caller of [`cartalith_urban::generate`] — the reference's own `generate()`,
-//! all 29 stages in its own order, golden-verified whole against `hashModel`.
+//! its 29 stages in its own order plus the three this port adds (wall lots,
+//! citadel, courtyard rings; `generate.rs`'s module doc), golden-verified
+//! whole against `hashModel` with each moved case disclosed.
 //! What is still a subset is the `_um*` **adapter** surface: the table below
 //! marks what is ported, what is deliberately absent, and why. Read
 //! `cartalith-native/docs/STATUS.md` for what is built — not this header, which
@@ -70,10 +72,12 @@
 //!
 //! One `_umPlaceContext` field is still genuinely absent, because its input is:
 //!
-//! - **`culture`** — reads `civFactionCulture[p.faction]`; this port has no
-//!   faction-culture table at all (verified by grep). `None`, which is
-//!   `resolve_profile`'s own `medieval` fallback and the `|| 'medieval'` arm of
-//!   the reference's own expression. A `venus` settlement would lay out today —
+//! - **`culture`** — reads `civFactionCulture[p.faction]`. This port does
+//!   resolve a faction's culture (`crate::civ_faction_culture`, over the
+//!   roster's culture column), but only for naming: nothing threads it into
+//!   [`UrbanContext`], so the faction never picks the town plan's culture
+//!   profile. `None`, which is `resolve_profile`'s own `medieval` fallback and
+//!   the `|| 'medieval'` arm of the reference's own expression. A `venus` settlement would lay out today —
 //!   `generate()` dispatches the radial branch itself. Since Ruling J
 //!   (2026-09-23) the host can ask for one per settlement:
 //!   `PlaceOverrides::culture`, set from the City Viewer's Town plan.
@@ -2012,7 +2016,8 @@ pub struct UrbanLayout {
 }
 
 /// [`cartalith_urban::generate`] — the reference's `generate()` (line 30931),
-/// all 29 stages, called with a [`GenOpts`] built out of `ctx`.
+/// its 29 stages plus this port's three (wall lots, citadel, courtyard
+/// rings), called with a [`GenOpts`] built out of `ctx`.
 ///
 /// This function runs no generation stage itself. Everything below the
 /// `GenOpts` literal is projection: [`cartalith_urban::Town`] into
@@ -2035,8 +2040,9 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         return None;
     }
     let opts = GenOpts {
-        // `civFactionCulture[p.faction] || 'medieval'` — this port has no
-        // faction-culture table, so the `|| 'medieval'` arm, which is also
+        // `civFactionCulture[p.faction] || 'medieval'` — the faction's culture
+        // (`crate::civ_faction_culture`) is not threaded into `UrbanContext`,
+        // so this is the `|| 'medieval'` arm, which is also
         // `resolve_profile`'s own fallback for a `None` — unless Ruling J's
         // per-settlement override (`PlaceOverrides::culture`) names one.
         culture: ctx.culture.clone(),

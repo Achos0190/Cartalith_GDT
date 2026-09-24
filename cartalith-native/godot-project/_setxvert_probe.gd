@@ -596,13 +596,15 @@ func _part_f() -> void:
 	if climb != null:
 		## The drawn value is thousands-grouped, so the comparison strips the
 		## separators rather than looking for a bare integer inside it.
-		var drew := _row_value(climb).replace(",", "").replace(" ", "")
+		## `right_dock.gd::_thousands` groups with U+202F NARROW NO-BREAK SPACE,
+		## not a comma or a plain space, so that is stripped too.
+		var drew := _row_value(climb).replace(",", "").replace(" ", "").replace("\u202f", "")
 		_check("TOTAL CLIMB is the profile's ascent, not the endpoint difference",
 			drew.contains("%d" % int(round(float(stats["ascent_m"])))),
 			"drew '%s', ascent is %.0f" % [_row_value(climb), float(stats["ascent_m"])])
 	var desc := _node_with_text("Total descent")
 	if desc != null:
-		var drew_d := _row_value(desc).replace(",", "").replace(" ", "")
+		var drew_d := _row_value(desc).replace(",", "").replace(" ", "").replace("\u202f", "")
 		_check("TOTAL DESCENT is the profile's descent, already signed by the engine",
 			drew_d.contains("%d" % int(round(float(stats["descent_m"])))),
 			"drew '%s', descent is %.0f" % [_row_value(desc), float(stats["descent_m"])])

@@ -933,15 +933,17 @@ started" as still standing there; the cleanup removed both, and a grep of
 `crates/cartalith-civ/src/landmark.rs` is **8 138 lines** (`wc -l`,
 2026-09-23; it was 3 730 at first ship): 49 kind specs (`LandmarkKindSpec { key:`
 lines), of which **27 are `buildable: true`** and 22 carry a `not_built:` reason
-(recounted 2026-09-24, unchanged). **The `needs_viewshed` flag and the viewshed
-reads do not match** (re-checked 2026-09-24, alignment audit Part 1 C24; this
-said "6 carry `needs_viewshed: true`, and since LM-7 there is a real viewshed
-behind them"). Six kinds carry the flag — `peak`, `volcanic_feature`, `fort`,
-`watchtower`, `border_marker`, `sacred_mountain` (unbuilt). Six kinds read
-`Derived::vis` — `fort`, `watchtower`, `fortified_pass`, `fortified_crossing`
-(all through `pool_military`), `volcanic_feature` (`pool_volcanic`) and
-`border_marker` (`pool_border_marker`). So **`peak` is flagged and reads no
-viewshed**, and **`fortified_pass` / `fortified_crossing` read it unflagged**.
+(recounted 2026-09-24, unchanged). **The `needs_viewshed` flag matches the
+viewshed reads since 2026-09-24** (it did not before: alignment audit Part 1
+C24 found `peak` and the unbuilt `sacred_mountain` flagged, and the two
+fortified kinds unflagged). The six flagged kinds are exactly the six whose
+pool function reads `Derived::vis` — `fort`, `watchtower`, `fortified_pass`,
+`fortified_crossing` (all through `pool_military`), `volcanic_feature`
+(`pool_volcanic`) and `border_marker` (`pool_border_marker`) — pinned as a
+literal set, and against `Needs::of`, by
+`the_kind_table_matches_the_research_and_the_design`. CIVIL ▸ Landmarks and
+the phone's family sheet draw a `[viewshed]` tag from the flag. Peak's missing
+visible-land term is owner question Q7.
 (Corrected 2026-09-23: this paragraph still read 14 buildable, 35 blocked and
 "no implementation behind" the viewshed flag.)
 

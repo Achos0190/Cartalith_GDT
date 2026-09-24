@@ -4397,6 +4397,12 @@ const LM_CLASS_LABEL := {
 	"continental": "Continental", "regional": "Regional",
 	"local": "Local", "cultural": "Cultural",
 }
+## What a `[viewshed]` tag means, for a kind whose `needs_viewshed` is true
+## (the engine's flag for "this scorer reads `Derived::vis`", whose observers
+## are settlements and sampled roads -- `landmark.rs` `view_observers`). Shared
+## by the desktop row and the phone caption so the two cannot drift.
+const LM_VIEWSHED_WHY := ("Scored partly on line of sight: how well the site "
+	+ "can be seen from settlements and roads.")
 ## Which element of `class_radius_km` the Crowding readout quotes. §4.1's own
 ## example sentence is about a *regional* landmark, and regional is the
 ## middle-of-the-road class most of §29's types fall in.
@@ -4775,11 +4781,11 @@ func _lm_types(parent: Control, kinds: Array, st: Dictionary, funnels: Dictionar
 
 	## §9.3 asked for the viewshed GAP to show on the row. There is no gap now:
 	## `landmark.rs`'s `Derived::vis` (M7) is read by Fort, Watchtower, Fortified
-	## pass, Fortified crossing, Volcanic feature and Border marker. The row's
-	## old `[no viewshed]` tag keyed off `needs_viewshed`, a design tag that
-	## matches neither set (Peak is flagged and reads no visibility; the two
-	## fortified kinds read it unflagged), so it was removed rather than kept
-	## false. Peak's missing visible-land term is an open owner question
+	## pass, Fortified crossing, Volcanic feature and Border marker, and since
+	## 2026-09-24 `needs_viewshed` says exactly that (a test in `landmark.rs`
+	## pins it to what the scorer builds). So the row carries a `[viewshed]`
+	## tag driven by the flag -- a statement of what the type is scored on, not
+	## a gap. Peak's missing visible-land term is an open owner question
 	## (`ALIGNMENT_AUDIT.md` owner Q7), not a panel string.
 	if unbuildable > 0:
 		DccWidgets.note(sec,
@@ -4896,6 +4902,7 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 	var fam := String(kind.get("family", "other"))
 	var cls := String(kind.get("class", ""))
 	var buildable := bool(kind.get("buildable", true))
+	var needs_vs := bool(kind.get("needs_viewshed", false))
 	var default_cap := int(kind.get("default_cap", 0))
 	var caps: Dictionary = st.get("caps", {})
 	var armed_map: Dictionary = st.get("armed", {})
@@ -4904,6 +4911,8 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 	var rung := _lm_rung(cap) if armed else 0
 
 	var tip := "%s -- %s class." % [label, String(LM_CLASS_LABEL.get(cls, cls))]
+	if needs_vs:
+		tip += " " + LM_VIEWSHED_WHY
 	if not buildable:
 		## The engine's own per-type reason (`LandmarkKindSpec::not_built`).
 		tip += " Not placed by the generator. " + _lm_not_built_why(kind)
@@ -4964,7 +4973,7 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 	## The canvas gives the *name* the slack (`flex:1` on the row's name span),
 	## so the expansion moves off `_row()`'s spacer and onto the label, and the
 	## label's fixed `ROW_LABEL_W` goes to zero. Both halves matter: with the
-	## width left at 132 a row carrying the (since-removed) `[no viewshed]` tag
+	## width left at 132 a row carrying the old, longer `[no viewshed]` tag
 	## needed ~334 px of a dock the user can drag down to `W_LEFT_DOCK_MIN`
 	## (300), and the row would overflow rather than clip. At zero it clips,
 	## which is what `_row()`'s own `clip_text` is already there for.
@@ -4974,9 +4983,18 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 	if slack != null:
 		slack.size_flags_horizontal = Control.SIZE_FILL
 
-	## §9.3 / `Dock.dc.html` drew a bracketed `[no viewshed]` tag here. It was
-	## removed 2026-09-24: the viewshed exists and the tag was false on every
-	## row it appeared on but Peak -- see the note in `_lm_types()`.
+	## §9.3 / `Dock.dc.html`: the bracketed tag beside the type's name, on the
+	## row, never in a footnote. It used to read `[no viewshed]`, which was false
+	## once M7 built the viewshed; it now reads `[viewshed]` and is driven by
+	## `needs_viewshed`, which the engine pins to the kinds whose scorer really
+	## reads `Derived::vis` -- see the note in `_lm_types()`.
+	if needs_vs:
+		var tag := DccTheme.mono_label("[viewshed]", "text_faint", DccTheme.FS_MICRO, 0)
+		tag.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		tag.tooltip_text = LM_VIEWSHED_WHY
+		tag.mouse_filter = Control.MOUSE_FILTER_PASS
+		row.add_child(tag)
+		row.move_child(tag, name_label.get_index() + 1 if name_label != null else 2)
 
 	## §2.2 part 1 -- **the crux**. A second 2 px rule directly under the slider
 	## track, its length the placed count as a fraction of the cap. Two bars,

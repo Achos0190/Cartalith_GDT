@@ -2323,8 +2323,16 @@ func undo_last() -> String:
 ## item stays disabled with its old reason still honest.
 
 ## True when there is a step forward of the cursor to take.
+##
+## **Guarded on `generating`** (2026-09-24), like every read the shell polls
+## per frame: `right_dock.gd::_process` asks this and `redo_labels()` every
+## frame while HISTORY is the live context, and during `generate()` the worker
+## thread holds `bind_mut` on the `WorldGen`, so the call panicked with
+## `Gd<WorldGen>::bind() failed, already bound` once per frame of the run
+## (traced from `_setxvert_probe`). Nothing can be redone mid-generation, so
+## "no redo" is the true answer; the poll converges once the run ends.
 func redo_available() -> bool:
-	if not _has("redo_available"):
+	if generating or not _has("redo_available"):
 		return false
 	return world_gen.redo_available()
 
@@ -2332,7 +2340,7 @@ func redo_available() -> bool:
 ## fjords"), or "" when the cursor is already at the top of the stack. Same
 ## shape as `undo_label()`, so a menu can label both from one code path.
 func redo_label() -> String:
-	if not _has("redo_label"):
+	if generating or not _has("redo_label"):
 		return ""
 	return String(world_gen.redo_label())
 
@@ -2365,7 +2373,7 @@ func redo_last() -> bool:
 ## the only state in which undone rows are drawn at all -- so the agreement is
 ## a coincidence of that state, not a licence to swap one for the other.
 func redo_labels() -> PackedStringArray:
-	if not _has("redo_labels"):
+	if generating or not _has("redo_labels"):
 		return PackedStringArray()
 	return world_gen.redo_labels()
 

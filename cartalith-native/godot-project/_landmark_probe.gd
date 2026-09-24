@@ -16,7 +16,8 @@ extends Node
 ##   B — the same workspace built against `StubBridge`, a GDScript subclass of
 ##       `EngineBridge` implementing the locked contract over fixtures. This is
 ##       what exercises the wiring the live bridge cannot yet: the rows, the
-##       ABSENCE of the retired viewshed tag, the disabled unbuildable row with
+##       `[viewshed]` tag on exactly the flagged rows (and the ABSENCE of the
+##       retired, false `[no viewshed]` one), the disabled unbuildable row with
 ##       the engine's own reason, the class chips, the run
 ##       button, and the crux — a `spacing`-limited row whose placed bar is
 ##       genuinely shorter than its cap bar while an `at cap` row's two bars are
@@ -32,10 +33,12 @@ var _fail := 0
 
 class StubBridge extends EngineBridge:
 	## `landmark_kinds()`'s shape, exactly: two families, all four classes, one
-	## `needs_viewshed` type, one `buildable: false` type.
+	## `needs_viewshed` type, one `buildable: false` type. Peak is `false`, as
+	## it is in the engine since 2026-09-24 (`pool_peak` reads no visibility);
+	## the flagged type is the fixture's own `pilgrim_way`.
 	const KINDS := [
 		{"key": "peak", "label": "Peak", "family": "physical", "class": "regional",
-			"default_cap": 24, "needs_viewshed": true, "buildable": true},
+			"default_cap": 24, "needs_viewshed": false, "buildable": true},
 		{"key": "waterfall", "label": "Waterfall", "family": "physical", "class": "regional",
 			"default_cap": 40, "needs_viewshed": false, "buildable": true},
 		{"key": "cliff", "label": "Cliff", "family": "physical", "class": "local",
@@ -44,14 +47,14 @@ class StubBridge extends EngineBridge:
 			"class": "continental", "default_cap": 2, "needs_viewshed": false,
 			"buildable": true},
 		{"key": "ice_shelf", "label": "Ice shelf", "family": "physical",
-			"class": "continental", "default_cap": 3, "needs_viewshed": true,
+			"class": "continental", "default_cap": 3, "needs_viewshed": false,
 			"buildable": false,
 			"not_built": "Fixture reason: no ice-shelf model is wired to this pass."},
 		{"key": "mountain_pass", "label": "Mountain pass", "family": "transportation",
 			"class": "regional", "default_cap": 16, "needs_viewshed": false,
 			"buildable": true},
 		{"key": "pilgrim_way", "label": "Pilgrim way", "family": "transportation",
-			"class": "cultural", "default_cap": 12, "needs_viewshed": false,
+			"class": "cultural", "default_cap": 12, "needs_viewshed": true,
 			"buildable": true},
 	]
 
@@ -205,8 +208,16 @@ func _ready() -> void:
 	var civ_blob := _blob(civ)
 	_ok("the old 'not a ported concept' note is gone",
 		civ_blob.find("not a ported concept") >= 0, false)
-	_ok("the old 'Not built' section title is gone",
-		civ_blob.find("Not built") >= 0, false)
+	## Scoped to Landmarks 2026-09-24. This check was written (`a6feec3`) to
+	## prove v3's `_build_poi` "Not built" stub section was replaced by this
+	## panel; it searched all of CIVIL, where other categories (Economy,
+	## Military, ...) legitimately still carry a "Not built" section.
+	var lm_body: Control = null
+	for e in (civ.get("categories") as Array):
+		if String((e as Dictionary)["title"]) == "Landmarks":
+			lm_body = (e as Dictionary)["body"]
+	_ok("the old 'Not built' section title is gone from Landmarks",
+		lm_body != null and _blob(lm_body).find("Not built") < 0, true)
 
 	print("\n=== A2: the live panel is either wired or DISCLOSED, never quiet ===")
 	var live_kinds: Array = live_bridge.landmark_kinds() if live_api else []
@@ -240,11 +251,29 @@ func _ready() -> void:
 		_ok("the run button is live too", (civ.get("_lm_run_btn") as Button) != null, true)
 		_ok("...and pressable with a world absent or present",
 			(civ.get("_lm_run_btn") as Button).disabled, false)
-		## Inverted 2026-09-24: the viewshed exists (`landmark.rs` `Derived::vis`,
-		## read by fort/watchtower/fortified pass & crossing/volcanic/border
-		## marker), so the old `[no viewshed]` tag was false and is gone.
+		## The viewshed exists (`landmark.rs` `Derived::vis`), so the old
+		## `[no viewshed]` tag was false and is gone. Since 2026-09-24 the
+		## engine's `needs_viewshed` is pinned to the six kinds whose scorer
+		## reads `Derived::vis`, and each of those rows carries `[viewshed]`.
 		_ok("the live panel draws no false [no viewshed] tag",
 			civ_blob.find("no viewshed") < 0, true)
+		_ok("the engine flags the six kinds whose scorer reads the viewshed",
+			live_vs, 6)
+		var live_tagged := 0
+		var live_wrong := 0
+		for k in live_kinds:
+			var kd: Dictionary = k
+			var rr: Dictionary = live_rows_dict.get(String(kd.get("key", "")), {})
+			if rr.is_empty():
+				continue
+			var has_tag := _blob(rr["row"]).find("[viewshed]") >= 0
+			if has_tag:
+				live_tagged += 1
+			if has_tag != bool(kd.get("needs_viewshed", false)):
+				live_wrong += 1
+				print("  TAG MISMATCH ", kd.get("key", ""))
+		_ok("a [viewshed] tag on every flagged live row and no other",
+			[live_tagged, live_wrong], [live_vs, 0])
 		if live_nb > 0:
 			_ok("the live panel says how many types it cannot build",
 				civ_blob.find("are listed and disabled") >= 0, true)
@@ -270,27 +299,38 @@ func _ready() -> void:
 			print("  MISSING ", (k as Dictionary)["key"])
 	_ok("...and each by its own key", all_present, true)
 
-	## Inverted 2026-09-24 (`ALIGNMENT_AUDIT.md` B7). This half used to require
-	## a `[no viewshed]` tag on every `needs_viewshed` row and a § TYPES note
-	## saying the engine computes no visibility. Both were false once M7 built
-	## `Derived::vis`, and `needs_viewshed` is a design tag that matches neither
-	## the kinds that read visibility nor the one (Peak) that does not. So it now
-	## guards that the false claim stays gone, fixture flag or not.
-	print("\n=== B1: no false viewshed claim, even on a needs_viewshed row ===")
-	var vs_tagged := 0
+	## `ALIGNMENT_AUDIT.md` B7. This half used to require a `[no viewshed]` tag
+	## on every `needs_viewshed` row and a § TYPES note saying the engine
+	## computes no visibility. Both were false once M7 built `Derived::vis`.
+	## Since 2026-09-24 `needs_viewshed` is the engine's statement that a kind's
+	## scorer reads the viewshed, and the row carries a truthful `[viewshed]`
+	## tag driven by it: present on a flagged row, absent on every other, and
+	## never the old false wording.
+	print("\n=== B1: [viewshed] on exactly the flagged rows, no false claim ===")
 	var vs_flagged := 0
+	var vs_right := 0
+	var vs_old := 0
 	for k in StubBridge.KINDS:
 		var kd: Dictionary = k
-		if not bool(kd["needs_viewshed"]):
-			continue
-		vs_flagged += 1
+		var flagged := bool(kd["needs_viewshed"])
 		var rr: Dictionary = rows[String(kd["key"])]
-		if _blob(rr["row"]).find("no viewshed") >= 0 \
-				or (rr["row"] as Control).tooltip_text.find("no visibility") >= 0:
-			vs_tagged += 1
-			print("  STILL TAGGED ", kd["key"])
+		var rblob := _blob(rr["row"])
+		var tip := (rr["row"] as Control).tooltip_text
+		if flagged:
+			vs_flagged += 1
+		var tagged := rblob.find("[viewshed]") >= 0
+		var tipped := tip.find(CivilizationWorkspace.LM_VIEWSHED_WHY) >= 0
+		if tagged == flagged and tipped == flagged:
+			vs_right += 1
+		else:
+			print("  WRONG ", kd["key"], " flagged=", flagged, " tag=", tagged, " tip=", tipped)
+		if rblob.find("no viewshed") >= 0 or tip.find("no visibility") >= 0:
+			vs_old += 1
+			print("  STILL OLD TAG ", kd["key"])
 	_ok("there ARE needs_viewshed types in the fixture", vs_flagged > 0, true)
-	_ok("none of them carries the old tag or tooltip", vs_tagged, 0)
+	_ok("tag and tooltip on every flagged row and no other",
+		vs_right, StubBridge.KINDS.size())
+	_ok("no row carries the old false tag or tooltip", vs_old, 0)
 	var ws_blob := _blob(ws)
 	_ok("§ TYPES no longer says the engine computes no visibility",
 		ws_blob.find("no viewshed") < 0
@@ -473,8 +513,18 @@ func _ready() -> void:
 	print("  info writes: ", stub.writes)
 	_ok("landmark_set_crowding on release, not per tick",
 		stub.writes, ["crowding=0.70"])
-	_ok("...and the km sentence followed the dial (34 x 0.70)",
-		String((ws.get("_lm_crowd_note") as Label).text).find("24 km") >= 0, true)
+	## Crowding DIVIDES the class radius, as the engine does
+	## (`LandmarkSettings::radius_km` = base / crowding; the shell's
+	## `_lm_radius_in_force`). The expectation is that division done here from
+	## the fixture's own regional radius, not a hardcoded figure -- this used to
+	## expect 24 km (34 x 0.70), the multiplication the shell dropped 2026-09-03.
+	var want_km: float = float(stub.radii[CivilizationWorkspace.LM_QUOTED_CLASS]) / 0.70
+	var crowd_after := String((ws.get("_lm_crowd_note") as Label).text)
+	print("  info crowding after: ", crowd_after, "   want ", DccUnits.format(want_km))
+	_ok("...and the km sentence followed the dial (34 / 0.70)",
+		crowd_after.find(DccUnits.format(want_km)) >= 0, true)
+	_ok("...which is not the old multiplied figure",
+		crowd_after.find("24 km") >= 0, false)
 
 	stub.writes.clear()
 	var rs := _find_row_slider(ws, "Regional")

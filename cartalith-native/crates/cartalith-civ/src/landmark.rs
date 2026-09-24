@@ -13,17 +13,18 @@
 //! ## What this is, in one paragraph
 //!
 //! [`kinds`] declares all 49 landmark types of research §29 — which family
-//! (§29), which class (§23), a default cap, whether the type leans on the
-//! viewshed field (§9.3 of the UI design names exactly six; `Derived::vis`
-//! now built, see below), and whether the type is **actually generated**.
+//! (§29), which class (§23), a default cap, whether the type's scorer reads
+//! the viewshed field (`Derived::vis`; six do, see
+//! [`LandmarkKindSpec::needs_viewshed`]), and whether the type is **actually
+//! generated**.
 //! **Twenty-six are, as of the border-marker fix (2026-09-21):** fifteen off
 //! the terrain and hydrology rasters, plus the five M8 closed by threading
 //! the **routed way graph** in as [`LandmarkInputs::ways`] — Road junction,
 //! Bridge site, Market site, Caravan station and Trade depot, each of which
 //! named exactly that missing input in the `not_built` reason it used to
-//! carry — plus the five §9.3 viewshed kinds M7 unblocked (Fort, Watchtower,
+//! carry — plus the five viewshed-reading kinds M7 unblocked (Fort, Watchtower,
 //! Fortified pass, Fortified crossing, Volcanic feature) and Border marker,
-//! the sixth and last of §9.3's viewshed kinds, closed the same day by
+//! the sixth and last kind that reads the viewshed, closed the same day by
 //! threading [`LandmarkInputs::territory`] in alongside the viewshed.
 //! **Twenty-seven since M9's conflict wiring (2026-09-23):** Battlefield reads
 //! the drawn battles of `STORY_PLANNING_SCOPE.md` SP-4 through
@@ -230,12 +231,17 @@ pub struct LandmarkKindSpec {
     /// 24, Cliff 30, Gorge 8, Waterfall 40), that number is used here, so the
     /// shipped panel and the drawn one agree.
     pub default_cap: u32,
-    /// `LANDMARK_UI_DESIGN.md` §9.3's six types that the design said lean on a
-    /// viewshed. **A design tag, not a description of the scorer.** The
-    /// viewshed exists now ([`Derived::vis`], M7): Fort, Watchtower, Fortified
-    /// pass, Fortified crossing, Volcanic feature and Border marker read it,
-    /// while Peak (flagged) does not and Sacred mountain (flagged) is not
-    /// built. The shell no longer draws a "no viewshed" tag from this.
+    /// Whether this kind's scorer reads the viewshed, [`Derived::vis`]:
+    /// exactly the kinds whose pool function reads it — Fort, Watchtower,
+    /// Fortified pass, Fortified crossing (all four through `pool_military`),
+    /// Volcanic feature (`pool_volcanic`) and Border marker
+    /// (`pool_border_marker`). **A description of the scorer, not a design
+    /// tag**: `LANDMARK_UI_DESIGN.md` §9.3 named a different six (Peak and
+    /// Sacred mountain instead of the two fortified kinds), but `pool_peak`
+    /// reads no visibility (its visible-land term is owner question Q7) and
+    /// Sacred mountain is not built, so it has no scorer to read anything.
+    /// `Needs::of` builds the field for the same six; a test pins the two
+    /// together. The shell draws its viewshed tag from this flag.
     pub needs_viewshed: bool,
     /// `false` = the type is **declared and honestly not generated**. The UI
     /// lists it, shows [`not_built`](Self::not_built) as the reason (the
@@ -277,7 +283,7 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
     use LandmarkFamily as F;
     &[
         // ---------------- Physical (15) ----------------
-        LandmarkKindSpec { key: "peak", label: "Peak", family: F::Physical, class: C::Regional, default_cap: 24, needs_viewshed: true, buildable: true, not_built: "" },
+        LandmarkKindSpec { key: "peak", label: "Peak", family: F::Physical, class: C::Regional, default_cap: 24, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "ridge", label: "Ridge", family: F::Physical, class: C::Regional, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "saddle", label: "Saddle", family: F::Physical, class: C::Local, default_cap: 16, needs_viewshed: false, buildable: false,
             not_built: "A saddle that links two valleys is a mountain pass, and Mountain pass already places those; a saddle that links nothing is a shape, not a landmark. Placing both would put two landmarks on one spot." },
@@ -341,8 +347,8 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         // ---------------- Military (6) ----------------
         LandmarkKindSpec { key: "fort", label: "Fort", family: F::Military, class: C::Regional, default_cap: 16, needs_viewshed: true, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "watchtower", label: "Watchtower", family: F::Military, class: C::Local, default_cap: 20, needs_viewshed: true, buildable: true, not_built: "" },
-        LandmarkKindSpec { key: "fortified_pass", label: "Fortified pass", family: F::Military, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
-        LandmarkKindSpec { key: "fortified_crossing", label: "Fortified crossing", family: F::Military, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
+        LandmarkKindSpec { key: "fortified_pass", label: "Fortified pass", family: F::Military, class: C::Regional, default_cap: 8, needs_viewshed: true, buildable: true, not_built: "" },
+        LandmarkKindSpec { key: "fortified_crossing", label: "Fortified crossing", family: F::Military, class: C::Local, default_cap: 8, needs_viewshed: true, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "battlefield", label: "Battlefield", family: F::Military, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "border_marker", label: "Border marker", family: F::Military, class: C::Cultural, default_cap: 16, needs_viewshed: true, buildable: true, not_built: "" },
         // ---------------- Religious / cultural (8) ----------------
@@ -354,9 +360,11 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
             not_built: "Not placed, for the same reason as Shrine: it has to come from a people's own culture and beliefs, which the landmark generator does not take into account yet." },
         LandmarkKindSpec { key: "sacred_grove", label: "Sacred grove", family: F::Cultural, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: false,
             not_built: "Not placed, for the same reason as Shrine, and also because nothing records how old a forest is (see Ancient forest)." },
-        LandmarkKindSpec { key: "sacred_mountain", label: "Sacred mountain", family: F::Cultural, class: C::Cultural, default_cap: 6, needs_viewshed: true, buildable: false,
+        LandmarkKindSpec { key: "sacred_mountain", label: "Sacred mountain", family: F::Cultural, class: C::Cultural, default_cap: 6, needs_viewshed: false, buildable: false,
             // Research §19: 0.20 F_visibility + 0.15 F_cultural. `Derived::vis` is
-            // built; F_cultural has nothing behind it (§26).
+            // built; F_cultural has nothing behind it (§26). `needs_viewshed`
+            // is false because there is no scorer yet to read the viewshed;
+            // set it when one is built and reads `Derived::vis`.
             not_built: "A sacred mountain is a peak a people revere. How visible a summit is can be measured, but which peak a people hold sacred depends on their culture and beliefs, which the landmark generator does not take into account yet. Peak already places the summits themselves." },
         LandmarkKindSpec { key: "pilgrimage_site", label: "Pilgrimage site", family: F::Cultural, class: C::Cultural, default_cap: 8, needs_viewshed: false, buildable: false,
             // Research §35: shrine -> pilgrimage route.
@@ -5597,8 +5605,11 @@ mod tests {
             let n = ks.iter().filter(|k| k.family == fam).count();
             assert_eq!(n, want, "{:?} should have {} types", fam, want);
         }
-        // §9.3 names exactly six viewshed-dependent types, by name: Peak,
-        // Volcanic feature, Watchtower, Fort, Sacred mountain, Border marker.
+        // The six kinds whose pool function reads `Derived::vis`, by reading
+        // every pool function (2026-09-24): `pool_military` (fort,
+        // watchtower, fortified_pass, fortified_crossing), `pool_volcanic`,
+        // `pool_border_marker`. Not §9.3's list — Peak reads no visibility
+        // and Sacred mountain has no scorer.
         let mut vs: Vec<&str> = ks.iter().filter(|k| k.needs_viewshed).map(|k| k.key).collect();
         vs.sort_unstable();
         assert_eq!(
@@ -5606,13 +5617,24 @@ mod tests {
             vec![
                 "border_marker",
                 "fort",
-                "peak",
-                "sacred_mountain",
+                "fortified_crossing",
+                "fortified_pass",
                 "volcanic_feature",
                 "watchtower",
             ],
-            "§9.3's six viewshed-dependent types"
+            "the six kinds whose scorer reads the viewshed"
         );
+        // And the flag is the same answer `Needs::of` gives when it decides
+        // whether to build the viewshed at all — a flag that drifts from the
+        // field it describes is the defect this pin exists for.
+        for k in ks.iter() {
+            assert_eq!(
+                Needs::of(k.key).viewshed,
+                k.needs_viewshed,
+                "{}: needs_viewshed disagrees with Needs::of",
+                k.key
+            );
+        }
         let mut built: Vec<&str> = ks.iter().filter(|k| k.buildable).map(|k| k.key).collect();
         built.sort_unstable();
         assert_eq!(

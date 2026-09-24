@@ -11,8 +11,10 @@
 //! ## What comes back
 //!
 //! **As of 2026-09-02 this is the whole town.** `run_layout` became a caller of
-//! `cartalith_urban::generate` — the reference's own `generate()`, all 29
-//! stages in its own order — instead of a hand-ordered subset beside it, and
+//! `cartalith_urban::generate` — the reference's own `generate()`, its 29
+//! stages in its own order (plus, since 2026-09-22/23, the three this port
+//! adds: wall lots, citadel and courtyard rings — `generate.rs`'s module doc)
+//! — instead of a hand-ordered subset beside it, and
 //! five layers that had no key here arrived at once: the wall circuit and its
 //! gates, buildings, per-parcel districts, markets and farmland.
 //!
@@ -460,11 +462,13 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
     // imply. Kept as data so the disclosure cannot drift from the code.
     //
     // It is no longer a hand-maintained subset: `run_layout` calls
-    // `cartalith_urban::generate`, which runs all 29 of the reference's stages,
-    // so this names the ones whose output is *visible here* and says which of
-    // them produced nothing and why.
+    // `cartalith_urban::generate`, which runs the reference's 29 stages plus
+    // the three this port adds (`generate.rs`'s module doc: Ruling H's wall
+    // lots and courtyard rings, Ruling I's citadel), so this names the ones
+    // whose output is *visible here* and says which of them produced nothing
+    // and why.
     let stages: PackedStringArray = [
-        "generate() — all 29 reference stages, in the reference's order".to_string(),
+        "generate() — the reference's 29 stages in its order, plus this port's wall lots, citadel and courtyard rings".to_string(),
         format!("buildSite → {} site", l.site_kind),
         if l.plaza.is_some() {
             "buildPlaza → market square".to_string()

@@ -3233,9 +3233,16 @@ func _build_vault_block(col: Control) -> void:
 	## `_refresh_status()` rewrites `_status_mid` with the marquee line on the way
 	## through -- so anything written there would be gone before it was read.
 	## `_run_export()` reports through `_host.set_status()` for the same reason.
+	##
+	## **Saved, since 2026-09-24.** A successful re-scan writes the index to
+	## `VaultStore.INDEX_PATH`, exactly as Data ▸ Markdown vault's own Refresh
+	## and Rebuild do (`vault_window.gd::_refresh_index`). Before, the rebuilt
+	## index lived only in memory and the next launch restored the stale one.
 	var rescan := DccWidgets.chip(btns, "Re-scan vault", func():
 		_bridge.vault_rebuild_backlinks()
 		var r: Dictionary = _bridge.vault_refresh_backlinks()
+		if bool(r.get("ok", false)):
+			VaultStore.save_index_from(_bridge)
 		if _host != null:
 			_host.set_status("hint",
 				("vault re-scanned — %d note(s)" % int(r.get("notes", 0)))
@@ -3258,8 +3265,15 @@ func _build_vault_block(col: Control) -> void:
 	change.tooltip_text = ("Opens Data ▸ Markdown vault, which owns the folder picker and the connection itself."
 		if _host != null else "This window has no shell host to open the vault panel from.")
 
+	## **Persisted, since 2026-09-24**, through the same path Connect uses:
+	## `vault_window.gd` emits `store_changed` after `vault_connect`, and
+	## `app.gd`'s handler is the only writer of `VaultStore.PATH` (and marks the
+	## project dirty). This chip used to call `vault_disconnect` and stop, so the
+	## sidecar kept the old binding and the next launch silently re-bound it.
+	## Emitted after the engine call, never before.
 	var unlink := DccWidgets.chip(btns, "Unlink", func():
 		_bridge.vault_disconnect()
+		_vault_store_changed()
 		_rebuild_tile_export(), false, 0, 6)
 	unlink.disabled = not bound
 	unlink.tooltip_text = ("Drops this device's binding (vault_disconnect). The links themselves survive -- that is the difference between disconnecting and detaching."
@@ -3311,6 +3325,15 @@ func _build_tile_export_footer(region: Dictionary) -> void:
 ## The pane is small enough that rebuilding it on a toggle is cheaper than
 ## threading a refresh through every control, and it keeps the estimate, the
 ## footer's tile count and the Format well in one consistent state.
+## Hands a vault mutation made here to the one place that persists vault
+## state: `VaultWindow.store_changed`, whose handler in `app.gd` writes
+## `VaultStore.PATH` and marks the project dirty. Emitting that signal rather
+## than calling `VaultStore.save_from` here keeps one writer, so this window
+## cannot disagree with the vault panel about when or how the sidecar is saved.
+func _vault_store_changed() -> void:
+	if _host != null and _host.vault_window != null:
+		_host.vault_window.store_changed.emit()
+
 func _rebuild_tile_export() -> void:
 	if _selected_id == "export_maps":
 		_select_route("export_maps")

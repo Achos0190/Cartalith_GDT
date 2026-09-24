@@ -2,11 +2,12 @@
 //! `urban_layout_draw.gd`'s `draw_layout` reads, so a windowed probe can draw
 //! a town the shipping app cannot yet ask for.
 //!
-//! Exists for the Venus/radial plan: `cartalith-civ`'s urban adapter never
-//! passes a `culture` (`urban_adapter.rs`' header — this port has no
-//! faction-culture table), so `WorldGen::urban_layouts` only ever produces
-//! medieval towns, and `_radialwall_probe.gd` needs a real radial one drawn by
-//! the real renderer.
+//! Exists for the Venus/radial plan: `cartalith-civ`'s urban adapter sets a
+//! `culture` only from a settlement's own override (`PlaceOverrides`); the
+//! faction's culture is not threaded into `UrbanContext` (`urban_adapter.rs`'
+//! header), so a generated world without overrides produces medieval towns,
+//! and `_radialwall_probe.gd` needs a real radial one drawn by the real
+//! renderer without editing a settlement first.
 //!
 //! ```text
 //! cargo run -p cartalith-urban --example town_json -- <seed> <culture> <pop> <site|-> <out.json>

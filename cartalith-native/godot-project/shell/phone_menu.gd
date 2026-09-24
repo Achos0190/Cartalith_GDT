@@ -2214,21 +2214,28 @@ func _fill_lm_family(body: VBoxContainer, family: String) -> void:
 		return
 
 	var ladder: Array = CivilizationWorkspace.LM_LADDER
+	var any_viewshed := false
 	for k in mine:
 		var kd: Dictionary = k
 		var key := String(kd.get("key", ""))
 		var label := String(kd.get("label", key))
 		var cls := String(kd.get("class", ""))
 		var buildable := bool(kd.get("buildable", true))
+		var needs_vs := bool(kd.get("needs_viewshed", false))
+		if needs_vs:
+			any_viewshed = true
 		var cap := int(caps.get(key, int(kd.get("default_cap", 0))))
 		var is_armed: bool = buildable and bool(armed_map.get(key, false))
 		var rung: int = CivilizationWorkspace._lm_rung(cap) if is_armed else 0
 
-		## The "· no viewshed" suffix that used to key off `needs_viewshed` was
-		## removed 2026-09-24: the viewshed exists and the suffix was false on
-		## every flagged row but Peak (see `CivilizationWorkspace._lm_types()`).
-		var caption := "%s · %s" % [label,
-			String(CivilizationWorkspace.LM_CLASS_LABEL.get(cls, cls)).to_lower()]
+		## The desktop row's `[viewshed]` tag, as a caption suffix: driven by
+		## `needs_viewshed`, which the engine pins to the kinds whose scorer
+		## reads the viewshed (see `CivilizationWorkspace._lm_types()`). It
+		## used to read "· no viewshed", which was false once the viewshed
+		## existed.
+		var caption := "%s · %s%s" % [label,
+			String(CivilizationWorkspace.LM_CLASS_LABEL.get(cls, cls)).to_lower(),
+			" · viewshed" if needs_vs else ""]
 		if not buildable:
 			## An unbuildable type is drawn, disabled, with the engine's own
 			## per-type reason (`landmark_kinds()`' `not_built`) -- `menus.gd`'s
@@ -2266,7 +2273,9 @@ func _fill_lm_family(body: VBoxContainer, family: String) -> void:
 		null, _chevron(), func(): _lm_bulk(fam, false), false))
 	_info(body, "The slider is one gesture — zero disarms the type and remembers "
 		+ "its number; drag up and it resumes. The track is a 1-2-3-5 ladder, "
-		+ "not a linear count.")
+		+ "not a linear count."
+		+ (" · viewshed = " + CivilizationWorkspace.LM_VIEWSHED_WHY.to_lower()
+			if any_viewshed else ""))
 
 ## Index 0 is the detented zero stop: it disarms and **never writes a cap of
 ## 0**, so the row keeps its number. That is the desktop panel's own rule

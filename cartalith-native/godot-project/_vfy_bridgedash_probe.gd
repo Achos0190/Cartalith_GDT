@@ -97,7 +97,10 @@ func _ready() -> void:
 		app.right_dock_ctrl.on_settlement_selected(settle, best)
 		await _frames(6)
 		var found := {}
-		for l in _labels(app.right_dock_ctrl):
+		## `right_dock_ctrl` is the RightDock controller; the rows it draws
+		## live in the shell's `right_dock_body` (`dcc_shell.gd`), so that is
+		## what is searched. Searching the controller found nothing.
+		for l in _labels(app.right_dock_body):
 			var t := String((l as Label).text)
 			if t == "Bridges":
 				var par := (l as Label).get_parent() as Control
