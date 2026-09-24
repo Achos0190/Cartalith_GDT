@@ -1498,3 +1498,23 @@ engine only converts. No rate is derived from the economy.
 **Legacy flat `.zip` archives import their settlements, labels and icons**,
 mapped onto today's settlements, annotations and icons, with a report of
 anything that did not map.
+
+## 2026-09-24 — Ruling AV: Peak viewshed, the Android vault picker, Military wording, deep-zoom info views
+
+Asked through the session's question tool; the owner picked each answer.
+
+**Peak landmarks score the land they overlook.** `pool_peak` gains a
+visible-land term from the existing coarse viewshed, so `peak` joins the kinds
+whose `needs_viewshed` is true. Landmarks carry no parity contract
+(`DECISIONS.md` §7q); the standing bar applies.
+
+**The Android vault folder is picked through a small Android plugin**: a `.aar`
+that opens the system folder picker (`ACTION_OPEN_DOCUMENT_TREE`), takes a
+persisted grant, and hands the tree URI to `vault_connect_saf`.
+
+**CIVIL ▸ Military says the campaign items were declined, in one line**: war
+campaigns over time were considered and declined; the conflict overlay shows
+each side's manpower. No "needs a decision".
+
+**Build LOD-D7: info and debug views get deep-zoom tiles** like the terrain
+view (`LOD_DETAIL_SCOPE.md` owner question 6).
