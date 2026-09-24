@@ -315,19 +315,21 @@ func _part_c() -> void:
 	_check("WALLS prints um_wall_spec's rung verbatim",
 		_has_text(String(l.get("wall_spec", ""))), "expecting '%s'" % l.get("wall_spec", ""))
 
-	## BRIDGES: the one row that must NOT carry a number. `bridge_pt` is an
-	## Option (0 or 1 by construction, never a tally) and `urban_bridge.rs`
-	## calls even that a candidate point rather than a validated crossing.
+	## BRIDGES: re-pinned 2026-09-24 (`ALIGNMENT_AUDIT.md` B14b). This used to
+	## require a dash, on the reading that only `bridge_pt` reached the dock;
+	## `urban_bridge.rs` has emitted the validated `"bridges"`/`"ford"` since
+	## 2026-09-05, and the row now prints the count ("ford"/"none" when there
+	## is no bridge). An absent `"bridges"` key (older library) still dashes.
 	var bridges := _node_with_text("Bridges")
 	_check("a BRIDGES row exists", bridges != null)
 	if bridges != null:
 		var value := _row_value(bridges)
-		_check("BRIDGES is DASHED, not counted -- the artboard's '2' is illustrative",
-			value == "—", "drew '%s'" % value)
-		_check("and it says why, naming what would supply it",
-			String((bridges.get_parent() as Control).tooltip_text).contains("detectRiverCrossings")
-			or String((bridges as Control).tooltip_text).contains("detectRiverCrossings"),
-			"tip='%s'" % String((bridges.get_parent() as Control).tooltip_text).substr(0, 60))
+		var expect := "—"
+		if l.has("bridges"):
+			var nb := (l.get("bridges", PackedVector2Array()) as PackedVector2Array).size()
+			expect = str(nb) if nb > 0 else ("ford" if l.has("ford") else "none")
+		_check("BRIDGES prints the layout's own crossing answer",
+			value == expect, "drew '%s', expected '%s'" % [value, expect])
 
 	_check("the City Viewer launcher is here, as the artboard's link",
 		_has_text_containing("open viewer"))

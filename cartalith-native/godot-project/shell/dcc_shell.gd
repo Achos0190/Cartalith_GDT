@@ -4923,7 +4923,7 @@ func tl_date_text() -> String:
 	var bridge := _find_engine_bridge()
 	return "" if bridge == null else String(bridge.get_civ_date().get("text", ""))
 
-## Every year CIVIL ▸ Politics has recorded a snapshot for, ascending.
+## Every year CIVIL ▸ Timeline has recorded a snapshot for, ascending.
 ##
 ## `Timeline.dc.html`'s row 2 draws one mark per entry of this array, and the
 ## board's own note is the reason it could be drawn at all: the marks are real
@@ -8871,7 +8871,8 @@ func _refresh_phone_sim_strip() -> void:
 	_phone_sim_play.text = DccIcons.SYMBOLS["pause"] if tl_playing \
 		else DccIcons.SYMBOLS["play"]
 	_phone_sim_play.tooltip_text = ("Pause" if tl_playing else "Play") \
-		+ " -- %s. The cursor is the CIVIL timeline's own year (civ_goto_year); the map's territory changes only at the years CIVIL > Politics has recorded." % tl_state_text()
+		+ " -- %s. The cursor is the civilisation timeline's own year; the map's territory changes only at the years CIVIL ▸ Timeline has recorded." % tl_state_text()
+	## `civ_goto_year`. "CIVIL > Politics" was a stale category name (audit B15).
 	## The glyph swaps between `▶` and `⏸`, so the name has to swap with it --
 	## a fixed "Play" would be wrong for half the button's life.
 	_phone_sim_play.accessibility_name = "Pause" if tl_playing else "Play"

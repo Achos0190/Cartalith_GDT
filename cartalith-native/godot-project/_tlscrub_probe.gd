@@ -235,7 +235,7 @@ func _s3_no_years() -> void:
 	await _frames(3)
 	_ok("word", _has_text("no years recorded"), true)
 	_ok("clause names the command that puts a mark there",
-		_has_text("CIVIL › Politics › Add year puts a mark here"), true)
+		_has_text("CIVIL › Timeline › Add year puts a mark here"), true)
 	_ok("no counts printed", _has_text("0 present"), false)
 	_ok("no zeroed diff printed", _has_text("+0"), false)
 

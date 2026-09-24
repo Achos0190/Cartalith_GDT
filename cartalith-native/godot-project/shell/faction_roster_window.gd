@@ -885,16 +885,21 @@ func _build_settlement_sublist() -> void:
 
 func _build_gaps() -> void:
 	var sec := DccWidgets.section(_inspector_body, "Not built")
+	## Corrected 2026-09-24 (audit B18): it listed food, exports/imports and
+	## strategic resources as unbuilt, but `civilization_workspace.gd::
+	## _fill_faction_economy` draws them (Economy ▸ By faction, off
+	## `civ_faction_economy`). Still undrawn anywhere: `FactionPower`'s four
+	## non-military axes, `tax_income`, trade income, `craft_share` -- all from
+	## `_civFactionAggregates`. Relationships is CV-26.
 	DccWidgets.note(sec,
-		"The Power breakdown's four remaining axes (economic, political, cultural, religious) "
-		+ "and the Economy block (food production and surplus, tax income, trade income, primary "
-		+ "exports and imports, strategic resources, craft share). The military axis and the "
-		+ "manpower model above are live; these read the same _civFactionAggregates pass and are "
-		+ "a widget away rather than a model away -- see Civilization ▸ Economy and ▸ Trade for "
-		+ "the parts that already have their own category.\n"
-		+ "Diplomatic relations exists now (Civilization ▸ Relationships, CV-26): a derived, "
-		+ "recomputed value per faction pair. What is still absent there is anything that ACTS "
-		+ "-- treaties, vassalage, war declarations, change over time.")
+		"Not shown in this window: the Power breakdown's four remaining axes (economic, "
+		+ "political, cultural, religious), tax income, trade income and craft share. The "
+		+ "military axis and the manpower model above are live. A faction's food capacity and "
+		+ "surplus, exports, imports and strategic resources are under Civilization ▸ Economy "
+		+ "▸ By faction.\n"
+		+ "Relations between factions are under Civilization ▸ Relationships: a derived value "
+		+ "per faction pair, recomputed rather than stored. What is still absent there is "
+		+ "anything that acts -- treaties, vassalage, war declarations, change over time.")
 
 
 # -- Roster mutation --------------------------------------------------------

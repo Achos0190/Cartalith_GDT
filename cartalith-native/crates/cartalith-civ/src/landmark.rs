@@ -230,16 +230,22 @@ pub struct LandmarkKindSpec {
     /// 24, Cliff 30, Gorge 8, Waterfall 40), that number is used here, so the
     /// shipped panel and the drawn one agree.
     pub default_cap: u32,
-    /// `LANDMARK_UI_DESIGN.md` §9.3: six of the 49 lean on a viewshed field
-    /// that does not exist anywhere in this workspace, and "the panel must say
-    /// so on the row, not in a footnote". These are those six.
+    /// `LANDMARK_UI_DESIGN.md` §9.3's six types that the design said lean on a
+    /// viewshed. **A design tag, not a description of the scorer.** The
+    /// viewshed exists now ([`Derived::vis`], M7): Fort, Watchtower, Fortified
+    /// pass, Fortified crossing, Volcanic feature and Border marker read it,
+    /// while Peak (flagged) does not and Sacred mountain (flagged) is not
+    /// built. The shell no longer draws a "no viewshed" tag from this.
     pub needs_viewshed: bool,
     /// `false` = the type is **declared and honestly not generated**. The UI
-    /// lists it, shows [`not_built`](Self::not_built) as the reason and never
-    /// pretends a run could place one.
+    /// lists it, shows [`not_built`](Self::not_built) as the reason (the
+    /// desktop row's tooltip and the phone row's caption, via
+    /// `landmark_kinds()`) and never pretends a run could place one.
     pub buildable: bool,
     /// Why a `buildable: false` kind is not generated. Empty for buildable
-    /// kinds.
+    /// kinds. **User-visible**, so written in the user's words: provenance
+    /// (research section numbers, symbols) goes in a `//` comment beside the
+    /// row, never in the string (Ruling AQ).
     ///
     /// **Not in the agreed contract** — added because "declared and honestly
     /// NOT generated" is only honest if the panel can say *why*, and the
@@ -274,39 +280,57 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "peak", label: "Peak", family: F::Physical, class: C::Regional, default_cap: 24, needs_viewshed: true, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "ridge", label: "Ridge", family: F::Physical, class: C::Regional, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "saddle", label: "Saddle", family: F::Physical, class: C::Local, default_cap: 16, needs_viewshed: false, buildable: false,
-            not_built: "A saddle with connectivity is a mountain pass, which is generated; a saddle without it is a shape, not a landmark. Generating both would put two records on one cell." },
+            not_built: "A saddle that links two valleys is a mountain pass, and Mountain pass already places those; a saddle that links nothing is a shape, not a landmark. Placing both would put two landmarks on one spot." },
         LandmarkKindSpec { key: "cliff", label: "Cliff", family: F::Physical, class: C::Local, default_cap: 30, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "gorge", label: "Gorge", family: F::Physical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "cave", label: "Cave", family: F::Physical, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: false,
-            not_built: "Needs a karst/void model. Lithology classifies rock type but nothing in this engine dissolves it, so a cave could only be placed at random on limestone." },
+            // Lithology (`build_lithology`) classifies rock; no karst/void model exists.
+            not_built: "Caves need a model of rock dissolving underground. The generator knows where limestone is, but nothing in it carves hollows, so a cave could only be placed at random on limestone." },
         LandmarkKindSpec { key: "waterfall", label: "Waterfall", family: F::Physical, class: C::Regional, default_cap: 40, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "spring", label: "Spring", family: F::Physical, class: C::Local, default_cap: 30, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "lake", label: "Lake", family: F::Physical, class: C::Regional, default_cap: 16, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "delta", label: "Delta", family: F::Physical, class: C::Regional, default_cap: 6, needs_viewshed: false, buildable: false,
-            not_built: "A river mouth is detectable; a delta is a deposition landform and this engine carries no sediment budget. Placing one at every mouth would be a rename, not a detection." },
+            // `cartalith-erosion::passes::route_sediment` deposits sediment into the
+            // heightfield and returns only a total; no per-cell deposition map is
+            // kept or reaches `LandmarkInputs`. (This reason used to claim the
+            // engine "carries no sediment budget", which was false.)
+            not_built: "Erosion does carry sediment downriver and lay it down, but how much settles at each river mouth is not kept once the terrain is finished, so the generator cannot tell a delta from any other mouth. Placing one at every mouth would be a rename, not a detection." },
         LandmarkKindSpec { key: "river_confluence", label: "River confluence", family: F::Physical, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "volcanic_feature", label: "Volcanic feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: true, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "rock_formation", label: "Rock formation", family: F::Physical, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "glacial_feature", label: "Glacial feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: false, buildable: false,
-            not_built: "No general glaciation model. cartalith-terrain's fjord module reconstructs one specific glacial landform from paleoclimate temperature, relief and lithology, but covers coastal fjords only — not a cirque, moraine or esker inland — and needs three inputs this pass does not take." },
+            // `cartalith-erosion::passes::glacial_kernel` runs during generation and
+            // `cartalith-terrain::landform::build_landform_field` classes cirques
+            // (the Landform layer), but `LandmarkInputs` takes neither; the fjord
+            // module is coastal only. (This reason used to say "no general
+            // glaciation model" and "not a cirque", both false.)
+            not_built: "Glaciers carve the terrain during erosion, and the Landform map layer marks cirques, but the landmark generator reads neither of them yet, and nothing models moraines or eskers. Fjords are reconstructed on coasts only. So no glacial landmark is placed." },
         LandmarkKindSpec { key: "ancient_forest", label: "Ancient forest", family: F::Physical, class: C::Continental, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "Biome says where forest is; nothing says how old it is. Age is what makes the forest a landmark." },
+            not_built: "The biome map says where forest is; nothing says how old it is, and age is what makes a forest a landmark." },
         // ---------------- Transportation (8) ----------------
         LandmarkKindSpec { key: "mountain_pass", label: "Mountain pass", family: F::Transport, class: C::Regional, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "river_crossing", label: "River crossing", family: F::Transport, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: false,
-            not_built: "A crossing is a route crossing a river, and now that the routed way graph reaches this pass that is exactly what Ford and Bridge site already are — the same channel cells, partitioned at the flow a traveller can wade. A third record on them would be a rename, not a detection. (This reason used to read 'without a routed way network'; that blocker is gone, the double-count is not.)" },
+            // `pool_bridge` takes every way-on-channel cell above the wading flow;
+            // `pool_ford` takes wadeable channel cells with low banks whether or not
+            // a way crosses them. So the two overlap most crossings but do not
+            // partition them exactly (a steep-banked or very small crossing is
+            // neither) — the old text claimed they were "exactly" the crossings.
+            not_built: "Bridge site already marks where a road meets a river too deep to wade, and Ford marks shallow river crossings with easy banks, so a separate River crossing would mostly duplicate those two." },
         LandmarkKindSpec { key: "ford", label: "Ford", family: F::Transport, class: C::Local, default_cap: 24, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "bridge_site", label: "Bridge site", family: F::Transport, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "road_junction", label: "Road junction", family: F::Transport, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "caravan_station", label: "Caravan station", family: F::Transport, class: C::Local, default_cap: 10, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "portage", label: "Portage", family: F::Transport, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "Needs labelled drainage basins to know that two navigable waters belong to different ones. The scope inventory confirmed no basin entity exists." },
+            // LANDMARK_GENERATION_SCOPE.md's inventory: no drainage-basin entity.
+            not_built: "A portage links two navigable waters in different river basins, and the generator has no map of which basin each river belongs to." },
         LandmarkKindSpec { key: "harbour", label: "Harbour", family: F::Transport, class: C::Regional, default_cap: 16, needs_viewshed: false, buildable: true, not_built: "" },
         // ---------------- Economic (6) ----------------
         LandmarkKindSpec { key: "mine", label: "Mine", family: F::Economic, class: C::Local, default_cap: 24, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "quarry", label: "Quarry", family: F::Economic, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "salt_works", label: "Salt works", family: F::Economic, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "The salt potential exists, but rock salt and a coastal salt pan are different installations in the same field and nothing here separates them. build_resource_potentials computes it as one arid-lowland evaporite-basin model with no coastal term at all, so a coastal split would be invented, not read. Mine already covers the rock-salt shape." },
+            // `build_resource_potentials` computes salt as one arid-lowland
+            // evaporite-basin model with no coastal term.
+            not_built: "Salt is mapped, but only as salt in dry inland basins, with nothing on coastal salt pans, so a works on the coast would be invented rather than read. Mine already places rock-salt workings." },
         // Built from EXTRACTION_RESOURCES (timber, sulfur, alum) — the three
         // potentials Mine and Quarry do not read — via the same pool_resource
         // test those two use. See EXTRACTION_RESOURCES's own doc for why this
@@ -323,34 +347,58 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "border_marker", label: "Border marker", family: F::Military, class: C::Cultural, default_cap: 16, needs_viewshed: true, buildable: true, not_built: "" },
         // ---------------- Religious / cultural (8) ----------------
         LandmarkKindSpec { key: "shrine", label: "Shrine", family: F::Cultural, class: C::Local, default_cap: 30, needs_viewshed: false, buildable: false,
-            not_built: "§26 is explicit that cultural meaning must not be hardcoded into geography — one mountain, three civilisations, three readings. That needs the civilisation's own traits as an input, which this pass does not take." },
+            // Research §26: cultural meaning must not be hardcoded into geography.
+            // `LandmarkInputs` carries no faction culture or belief.
+            not_built: "What makes a place sacred depends on who reads it — one mountain can mean three things to three peoples — so a shrine has to come from a people's own culture and beliefs, and the landmark generator does not take those into account yet." },
         LandmarkKindSpec { key: "temple", label: "Temple", family: F::Cultural, class: C::Cultural, default_cap: 16, needs_viewshed: false, buildable: false,
-            not_built: "The same gap as Shrine: awaiting §26's cultural-interpretation layer." },
+            not_built: "Not placed, for the same reason as Shrine: it has to come from a people's own culture and beliefs, which the landmark generator does not take into account yet." },
         LandmarkKindSpec { key: "sacred_grove", label: "Sacred grove", family: F::Cultural, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: false,
-            not_built: "The same gap as Shrine, plus the forest-age gap Ancient forest names." },
+            not_built: "Not placed, for the same reason as Shrine, and also because nothing records how old a forest is (see Ancient forest)." },
         LandmarkKindSpec { key: "sacred_mountain", label: "Sacred mountain", family: F::Cultural, class: C::Cultural, default_cap: 6, needs_viewshed: true, buildable: false,
-            not_built: "§19's model is 0.20 F_visibility and 0.15 F_cultural. The visibility half is built now (Derived::vis) and this kind reads none of it, because F_cultural still has nothing behind it and §26 is explicit that cultural meaning must not be hardcoded into geography — one mountain, three civilisations, three readings. The physical half is already generated as Peak." },
+            // Research §19: 0.20 F_visibility + 0.15 F_cultural. `Derived::vis` is
+            // built; F_cultural has nothing behind it (§26).
+            not_built: "A sacred mountain is a peak a people revere. How visible a summit is can be measured, but which peak a people hold sacred depends on their culture and beliefs, which the landmark generator does not take into account yet. Peak already places the summits themselves." },
         LandmarkKindSpec { key: "pilgrimage_site", label: "Pilgrimage site", family: F::Cultural, class: C::Cultural, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "§35's chain reaches a pilgrimage route through a shrine. The shrine is not generated, so this cannot be either." },
+            // Research §35: shrine -> pilgrimage route.
+            not_built: "A pilgrimage leads to a shrine, and shrines are not placed yet, so neither is this." },
         LandmarkKindSpec { key: "tomb", label: "Tomb", family: F::Cultural, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: false,
-            not_built: "Needs a named historical figure to be the tomb of. No such entity exists." },
+            not_built: "A tomb needs a named historical figure to belong to, and the world does not record any." },
         LandmarkKindSpec { key: "monument", label: "Monument", family: F::Cultural, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: false,
-            not_built: "§24 wants a monument to be the product of world history — a battle, a founding, a victory. None of those events exist as records yet." },
+            // Research §24. Battles drawn as Conflict records reach this pass as
+            // `LandmarkInputs::battles` (Battlefield reads them). The old text
+            // said no such events existed as records, which was false.
+            not_built: "A monument should commemorate something from the world's history — a battle, a founding, a victory. Battles you draw already reach the generator (they place Battlefields), but nothing yet decides which event a people would raise a monument to, so none is placed." },
         LandmarkKindSpec { key: "ceremonial_site", label: "Ceremonial site", family: F::Cultural, class: C::Cultural, default_cap: 10, needs_viewshed: false, buildable: false,
-            not_built: "The same gap as Shrine: awaiting §26's cultural-interpretation layer." },
+            not_built: "Not placed, for the same reason as Shrine: it has to come from a people's own culture and beliefs, which the landmark generator does not take into account yet." },
         // ---------------- Historical (6) ----------------
         LandmarkKindSpec { key: "ruin", label: "Ruin", family: F::Historical, class: C::Regional, default_cap: 20, needs_viewshed: false, buildable: false,
-            not_built: "§20 is explicit that a ruin comes from a settlement's own decline chain. timeline.rs's civ_collapse_step models that decline but drops an abandoned settlement from its output entirely rather than retaining the site's coordinates, so there is nothing to place a Ruin at even before the Conflict link in that chain (SP-4) is reached." },
+            // Research §20/§25. `TimelineSnapshot` keeps each recorded year's
+            // settlements (with coordinates) and, in memory, `collapse_flags`
+            // (ruins/fortified) from the collapse run; `LandmarkInputs` reads no
+            // Timeline data. The old text said the site's coordinates were not
+            // retained and named SP-4 as pending — both false.
+            not_built: "A ruin should come from a settlement's own decline. The Timeline records each year's settlements, and a collapse run marks which of them lie in ruins, but the landmark generator does not read the Timeline yet, so it has no ruined site to place." },
         LandmarkKindSpec { key: "abandoned_settlement", label: "Abandoned settlement", family: F::Historical, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: false,
-            not_built: "The same chain as Ruin, one state earlier in §25 — and the same missing coordinates: civ_collapse_step drops the site rather than marking it abandoned in place." },
+            not_built: "Not placed, for the same reason as Ruin: the Timeline records where settlements stood in earlier years, but the landmark generator does not read the Timeline yet." },
         LandmarkKindSpec { key: "ancient_road", label: "Ancient road", family: F::Historical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "Needs a superseded route to be the ghost of. Way history is not retained." },
+            // `TimelineSnapshot::ways` keeps each recorded year's roads and is
+            // saved with the project; `LandmarkInputs::ways` is today's only.
+            // The old text said way history was not retained, which was false.
+            not_built: "An ancient road is a route that fell out of use. The Timeline keeps each recorded year's roads, but the landmark generator reads only today's, so it cannot tell an abandoned road from a travelled one." },
         LandmarkKindSpec { key: "battlefield_historic", label: "Historic battlefield", family: F::Historical, class: C::Cultural, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "§29 lists Battlefield in both Military and Historical; this is the second listing, keyed apart so the table has 49 unique rows. Battlefield (Military) is generated from the drawn battles now, so generating this too would put two records on one cell. What would separate them — a battle in the past rather than one being fought — needs a present year, and a landmark whose kind changes as the Timeline cursor moves is §25's temporal state. Landmarks persist (owner ruling 10), but per-landmark state that changes with the year is not built yet (LANDMARK_GENERATION_SCOPE.md M9)." },
+            // Research §29 lists Battlefield under both Military and Historical;
+            // keyed apart so the table has 49 unique rows. Year-dependent landmark
+            // state is LANDMARK_GENERATION_SCOPE.md M9; landmarks persist (ruling 10).
+            not_built: "Battlefield already places a landmark at every battle you draw, so placing this too would put two landmarks on one spot. What would tell them apart — a battle in the past rather than one being fought — needs landmarks that change as the Timeline year moves, and that is not built yet." },
         LandmarkKindSpec { key: "destroyed_fortress", label: "Destroyed fortress", family: F::Historical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "Downstream of a conflict that destroyed the fortress. Conflicts exist since STORY_PLANNING_SCOPE.md SP-4 (a siege can be attached to a settlement), and their battles reach this pass as LandmarkInputs::battles (sieges do not), but a conflict carries an authored outcome in free text, not a destruction this pass could read — and SP-4 §5 keeps it free text deliberately, since a closed vocabulary of outcomes is the start of a resolution model. This reason named Fort as a second blocker until Fort was built, and the conflict wiring as a third until M9 wired it." },
+            // STORY_PLANNING_SCOPE.md SP-4: conflicts exist; battles reach this pass
+            // as `LandmarkInputs::battles` (sieges do not); the outcome is free text
+            // by design (SP-4 §5).
+            not_built: "A destroyed fortress needs a conflict that destroyed it. Conflicts can be recorded, but their outcome is written as free text, deliberately, so there is no destruction the generator could read." },
         LandmarkKindSpec { key: "historic_crossing", label: "Historic crossing", family: F::Historical, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "A crossing that mattered. The crossing is generated as Ford; what made it matter is route history, which is not retained." },
+            // `TimelineSnapshot::ways` keeps road history; `LandmarkInputs` does
+            // not read it. The old text said route history was not retained.
+            not_built: "A crossing that mattered. Ford already places the crossings themselves; what made one matter is the history of the roads through it, which the Timeline keeps but the landmark generator does not read yet." },
     ]
 }
 
@@ -1186,9 +1234,8 @@ pub struct LandmarkInputs<'a> {
     /// nothing about contrast with its neighbours.
     pub lithology: Option<&'a [u8]>,
     /// `WorldState::volcanic_field`, raw — not the `> 0.35` cut
-    /// `build_lithology` reduces it to. Threaded through so a viewshed pass
-    /// can reach it; Volcanic feature is blocked on that being absent, not
-    /// on this (`kinds()`'s own `not_built` string for that kind).
+    /// `build_lithology` reduces it to. Volcanic feature (built) scores on it
+    /// together with the viewshed, [`Derived::vis`].
     pub volcanism: Option<&'a [f32]>,
     /// `WorldState::resistance_field`, `[0,1]` — `compute_resistance`'s
     /// erosion resistance. Rock formation's whole domain is differential
@@ -3621,10 +3668,12 @@ fn pool_resource(
                 format!("stone exposed at {}", fmt_pct(grad))
             },
         ];
+        // Said "{N} settlements within reach" with N = the map's total
+        // settlement count, which is not a within-reach figure at all.
         if has_settle {
             facts.push(format!(
-                "{} settlements within reach",
-                c.inp.settlements.len()
+                "nearest settlement {}",
+                fmt_km(c.nearest_settlement_km(x, y))
             ));
         }
         p.cands.push(Cand { i, x, y, facts });
@@ -3698,7 +3747,7 @@ fn pool_harbour(c: &Ctx<'_>) -> Option<Pool> {
             format!("shore falls at {}", fmt_pct(grad)),
         ];
         if has_settle {
-            facts.push(format!("{} settlements within reach", c.inp.settlements.len()));
+            facts.push(format!("nearest settlement {}", fmt_km(c.nearest_settlement_km(x, y))));
         }
         p.cands.push(Cand { i, x, y, facts });
         t_sh.push(shelter as f32);
@@ -3871,7 +3920,7 @@ fn pool_bridge(c: &Ctx<'_>) -> Option<Pool> {
             format!("abutments at {}", fmt_pct(grad)),
         ];
         if has_settle {
-            facts.push(format!("{} settlements within reach", c.inp.settlements.len()));
+            facts.push(format!("nearest settlement {}", fmt_km(c.nearest_settlement_km(x, y))));
         }
         p.cands.push(Cand { i, x, y, facts });
         t_q.push(q as f32);

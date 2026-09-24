@@ -128,8 +128,12 @@ impl PipelineStage {
 /// Every stage starts current. A committed terrain pass then marks
 /// [`PipelineStage::Height`] changed at the tiles it touched, and everything
 /// downstream becomes stale lazily, on query — nothing recomputes until a
-/// caller decides to, which at 2048² is the difference between an
-/// interactive brush and a seven-second-per-stroke one.
+/// caller decides to. At 2048² that is the difference between an
+/// interactive brush and one that pays a multi-second recompute per stroke:
+/// the civ re-derivation alone measures 4.22 s there (`cartalith-godot`'s
+/// `recompute_civilisation`). No per-stroke cascade was ever timed; the
+/// "seven-second-per-stroke" this said until 2026-09-24 was
+/// `CPU_MULTITHREADING_SCOPE.md`'s full terrain + civ generation (7.07 s).
 pub fn pipeline_stage_graph(tile_count: usize) -> StageGraph {
     let mut g = StageGraph::new(tile_count);
     let height = g.add_stage(PipelineStage::Height.name(), &[]);
@@ -186,9 +190,14 @@ pub struct RecomputeReport {
 /// - **`civ`.** `compute_civilisation` lives in `cartalith-godot` (it builds
 ///   Godot-facing types), so this crate cannot call it — and would not want
 ///   to: the reference's own `sculptCommit` never cascades into settlements,
-///   roads or territory either, and the measured cost of doing so is the
-///   ~7 s/stroke figure `UNIFIED_TOOL_PLAN.md` milestone C rejected. It is
-///   reported in `still_stale` for a caller to act on when it chooses.
+///   roads or territory either, and `UNIFIED_TOOL_PLAN.md` milestone C
+///   rejected doing so per stroke on cost. That cost was never measured per
+///   stroke: the "~7 s/stroke" this said until 2026-09-24 is
+///   `CPU_MULTITHREADING_SCOPE.md`'s full `generate_terrain` + per-cell civ
+///   layer at 2048² (7.07 s). The civ re-derivation alone is
+///   `cartalith-godot`'s `recompute_civilisation`, measured at 4.22 s at
+///   2048². It is reported in `still_stale` for a caller to act on when it
+///   chooses.
 /// - **The carve-time river *network*** — `channels`, `stream_order`,
 ///   `river_mask`, `river_floor`. `refresh_climate` re-derives drainage
 ///   (`flow_discharge`), not the vector channel network, and neither does the

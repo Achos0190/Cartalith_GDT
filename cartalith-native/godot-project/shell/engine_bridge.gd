@@ -5178,7 +5178,9 @@ func _read_landmark_kinds() -> void:
 	_landmark_settings_cache = world_gen.landmark_settings() if _has("landmark_settings") else {}
 
 ## The ~49-row type registry: `[{key,label,family,class,default_cap,
-## needs_viewshed,buildable}, …]`. Served from the startup cache -- safe to
+## needs_viewshed,buildable,not_built}, …]` -- `not_built` is the engine's own
+## reason a `buildable: false` type is not placed, empty for the rest, and the
+## text the panels show for that row. Served from the startup cache -- safe to
 ## call at any time, including mid-generation.
 func landmark_kinds() -> Array:
 	return _landmark_kinds_cache

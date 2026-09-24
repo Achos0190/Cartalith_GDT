@@ -305,7 +305,7 @@ const SAMPLE_FIELDS := [
 	{"label": "Drainage", "key": "drainage",
 		"tip": "WorldState::flow_discharge (upstream accumulation), with the Strahler order from stream_order when river extraction ran."},
 	{"label": "Biome", "key": "biome",
-		"tip": "CivData::water_bodies for ocean/lake, otherwise classifyBiome(temperature, rainfall) at this cell. Reads — on a loaded save, which carries no civilisation layer at all."},
+		"tip": "CivData::water_bodies for ocean/lake, otherwise classifyBiome(temperature, rainfall) at this cell. Reads — on a world opened from a file, which does not carry the generated climate fields this reading needs (a reopened project does keep its civilisation layer)."},
 	{"label": "Soil", "key": "soil",
 		"tip": "buildSoilFertility() at this one cell, over the same one-element-slice call the Lithology row uses."},
 	{"label": "Control", "key": "control",
@@ -2418,13 +2418,23 @@ func _build_settlement_layout(body: Control) -> void:
 			% ("drawn in the plan beside this" if bool(l.get("walls", false))
 				else "absent: this rung does not build one"),
 		l.has("wall_spec"), true, lw)
-	_field(col, "Bridges", "—",
-		"Not a count this dock can reach yet. The engine does compute real "
-		+ "crossings -- cartalith-urban's detect_river_crossings runs at the end "
-		+ "of the layout pipeline and writes site.bridges -- but cartalith-civ's "
-		+ "UrbanLayout adapter does not carry that field through, so what arrives "
-		+ "here is only bridge_pt, an Option that is 0 or 1 by construction and "
-		+ "never a tally.", false, true, lw)
+	## `urban_bridge.rs` has emitted `"bridges"` (always present, often empty)
+	## and `"ford"` (present only for an unbridged through-town) since
+	## 2026-09-05 -- `detect_river_crossings`' own result. This row used to say
+	## the adapter dropped them; corrected 2026-09-24 (audit B14b). An absent
+	## `"bridges"` key means an older library, and dashes.
+	var has_cross := l.has("bridges")
+	var n_bridges := (l.get("bridges", PackedVector2Array()) as PackedVector2Array).size()
+	var cross_text := "—"
+	if has_cross:
+		cross_text = str(n_bridges) if n_bridges > 0 else ("ford" if l.has("ford") else "none")
+	_field(col, "Bridges", cross_text,
+		("Where this town's roads cross its river: the number of bridges the layout "
+			+ "built, or \"ford\" where the river is crossed on foot because no road "
+			+ "bridges it, or \"none\" where no road crosses water.")
+			if has_cross else
+		"This build's town layout does not report river crossings.",
+		has_cross, true, lw)
 
 	var link := Button.new()
 	link.flat = true
@@ -2964,12 +2974,12 @@ func _build_river(body: Control) -> void:
 			"still missing is the other half: the course is derived from the receiver " +
 			"tree on every call, and nothing writes an edited polyline back into the " +
 			"flow field it came from, so an edit would be discarded by the next trace.",
+		## The same missing input `landmark.rs` names for Portage (not River
+		## confluence, which is built): no labelled drainage-basin entity.
 		"Analyse catchment":
 			"Would break the catchment down -- which sub-basins feed this river, and " +
-			"where. The total is on the Catchment row above; what does not exist is " +
-			"the decomposition, which needs labelled drainage basins. landmark.rs " +
-			"records the same absence for its own confluence rule: \"no basin entity " +
-			"exists\".",
+			"where. The total is on the Catchment row above; what does not exist yet " +
+			"is the breakdown, which needs a map of which basin each river belongs to.",
 	}
 	for label_text in ["Edit geometry", "Analyse catchment"]:
 		var b := DccWidgets.action(actions, label_text, func(): pass)

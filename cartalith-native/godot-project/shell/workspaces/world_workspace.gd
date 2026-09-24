@@ -2775,11 +2775,17 @@ func _build_sculpt_draft(parent: Control) -> void:
 	_sculpt_discard_btn = discard_btn
 	if not bridge.sculpt_draft_changed.is_connected(_refresh_sculpt_draft):
 		bridge.sculpt_draft_changed.connect(_refresh_sculpt_draft)
+	## Corrected 2026-09-24. It said commit does not re-run hydrology or
+	## climate and that the eager form "measured ~7s/stroke at 2048²".
+	## `WorldGen::sculpt_commit` does run `recompute_stale` (hydrology +
+	## climate); civ stays stale; no stroke was ever timed -- 7.07 s is
+	## CPU_MULTITHREADING_SCOPE.md's full terrain + civ generation at 2048²,
+	## and `recompute_civilisation` measures 4.22 s there.
 	DccWidgets.note(sec,
-		"Commit bakes the whole stamp stack into the heightfield in one pass and marks the " +
-		"tiles it touched stale -- it deliberately does not re-run erosion, hydrology or " +
-		"climate (measured ~7s/stroke at 2048² and rejected on that ground; " +
-		"DCC_SHELL_SPEC.md header correction #1). A draft carries no lock state of its " +
+		"Commit bakes the whole stamp stack into the heightfield in one pass, then re-runs " +
+		"river flow and climate over the new ground. It does not re-run erosion, and it " +
+		"leaves settlements, roads and borders as they are until you recompute the " +
+		"civilisation, which takes seconds on a large map. A draft carries no lock state of its " +
 		"own: the lock is per-world and lives in the Finalize section above, which bakes " +
 		"the LOD pyramid and then refuses further sculpting until it is un-finalized.")
 	_build_force_lake_row(sec)

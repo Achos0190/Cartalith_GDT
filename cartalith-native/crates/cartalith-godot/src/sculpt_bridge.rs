@@ -563,8 +563,12 @@ impl SculptEditor {
     /// see its own module doc for the exact five-step ordering
     /// (`SCULPT_FUNCTION_CHART.md` §7). Marks tiles stale in `self.tracker`
     /// via that call; deliberately does **not** recompute erosion,
-    /// hydrology or climate — `UNIFIED_TOOL_PLAN.md` milestone C measured
-    /// the eager form at ~7s/stroke at 2048² and rejected it. Clears the
+    /// hydrology or climate itself — `WorldGen::sculpt_commit` re-runs
+    /// hydrology and climate through the staleness graph afterwards, and
+    /// `UNIFIED_TOOL_PLAN.md` milestone C rejected an eager cascade on cost.
+    /// (No stroke was ever timed: the "~7s/stroke at 2048²" this said until
+    /// 2026-09-24 is `CPU_MULTITHREADING_SCOPE.md`'s full terrain + civ
+    /// generation at 2048², 7.07 s.) Clears the
     /// draft on return (`PassBuffer::commit`'s own contract), so
     /// `self.selected` is left pointing nowhere valid — callers should
     /// treat a commit as also deselecting.

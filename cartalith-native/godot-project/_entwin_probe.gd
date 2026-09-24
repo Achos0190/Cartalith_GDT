@@ -125,6 +125,12 @@ func _ready() -> void:
 		## line carries "all 29 reference stages". This probe asserted `>= 20`
 		## first and measured 10, which is how the window's note came to be
 		## corrected: it claimed every line was one of the 29.
+		##
+		## **Twelve since `buildDetails`, `buildHarbour` and
+		## `detectRiverCrossings` joined the list** (`urban_bridge.rs::
+		## layout_dict`, re-counted 2026-09-24). The window's note now reads the
+		## count off the array instead of hard-coding it, so this pins the
+		## engine's list and checks the note quotes the same number.
 		var stage_lines := 0
 		var stage_head := ""
 		for t in cvt:
@@ -134,8 +140,15 @@ func _ready() -> void:
 				stage_lines = lines.size()
 				stage_head = String(lines[0])
 				break
-		_check("CV6: the stages list still draws under it", stage_lines == 10,
+		_check("CV6: the stages list still draws under it", stage_lines == 12,
 			"%d stage lines" % stage_lines)
+		var count_quoted := false
+		for t in cvt:
+			if String(t).begins_with("%d lines above" % stage_lines):
+				count_quoted = true
+				break
+		_check("CV6c: the note under it quotes the list's own length",
+			count_quoted, "%d" % stage_lines)
 		_check("CV6b: and its first line is the one that carries the 29",
 			stage_head.find("29") >= 0, "head='%s'" % stage_head)
 

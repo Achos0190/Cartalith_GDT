@@ -2132,7 +2132,7 @@ func _tl_readout_state() -> Dictionary:
 	var recorded := tl_recorded_years()
 	if recorded.is_empty():
 		return {"word": "no years recorded", "token": "text_dim",
-			"detail": "CIVIL › Politics › Add year puts a mark here"}
+			"detail": "CIVIL › Timeline › Add year puts a mark here"}
 	var n := tl_year_neighbours(year)
 	if _tl_scrubbing:
 		var snap := tl_nearest_recorded(year)
@@ -2174,8 +2174,11 @@ func _build_timeline_scrub() -> Control:
 	track.custom_minimum_size.y = maxf(float(DccTheme.role_px("timeline_track_h")),
 		float(DccTheme.role_px("btn_min_h")))
 	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	track.tooltip_text = ("Drag to move the CIVIL year cursor (civ_goto_year) anywhere in "
-		+ "-400..1200. The map's territory changes only at the years CIVIL > Politics has "
+	## `civ_goto_year` is the cursor. The recording category is CIVIL ▸
+	## Timeline (`civilization_workspace.gd`); "CIVIL > Politics" was a stale
+	## name (audit B15), corrected 2026-09-24.
+	track.tooltip_text = ("Drag to move the civilisation year cursor anywhere in "
+		+ "-400..1200. The map's territory changes only at the years CIVIL ▸ Timeline has "
 		+ "recorded a snapshot for; between them the cursor moves and the territory holds. "
 		+ "The marks below the rail are those recorded years; hold Shift while dragging to "
 		+ "snap to the nearest one.")

@@ -12,9 +12,10 @@ class_name VaultWindow
 ## column — the file browser, the reader/working copy (§29), the preview, and
 ## the two write actions.
 ##
-## One window, three entity kinds, because §11's whole point is a generic
-## `KnowledgeLink`: `open_for("settlement", tid, name)`,
-## `open_for("province", id, name)`, `open_for("continent", rank, name)`.
+## One window, six entity kinds (`cartalith-vault`'s `EntityKind`), because
+## §11's whole point is a generic `KnowledgeLink`: `open_for("settlement", tid,
+## name)`, `open_for("province", id, name)`, `open_for("continent", rank,
+## name)`, and the same for `faction`, `culture` and `landmark`.
 ## Opened with no entity it shows the whole link store instead.
 ##
 ## ## Every write here is explicit, and every write is previewed

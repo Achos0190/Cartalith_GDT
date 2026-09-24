@@ -85,7 +85,11 @@ func _ready() -> void:
 		"%d towns with bridges, %d spans total, %d with a ford; busiest = index %d with %d"
 			% [with_bridges, total_bridges, with_ford, best, best_n])
 
-	print("[2] right_dock.gd's `Bridges` field -- same dictionary, still dashed")
+	## Inverted 2026-09-24 (`ALIGNMENT_AUDIT.md` B14a/b): [2] and [3] used to
+	## pin the stale dash as this verifier's finding. The field now reads the
+	## count and the diagnostic card no longer claims nothing surfaces it, so
+	## both halves assert the corrected state.
+	print("[2] right_dock.gd's `Bridges` field -- same dictionary, now counted")
 	if best < 0:
 		_ck("a settlement with bridges was found to inspect", false)
 	else:
@@ -107,17 +111,16 @@ func _ready() -> void:
 		var vals: Array = found.get("vals", [])
 		var joined := " | ".join(PackedStringArray(vals))
 		var tip := String(found.get("tip", ""))
-		_ck("it still reads as a dash, though the dictionary beside it holds %d span(s)" % best_n,
-			joined.find("—") != -1, joined)
-		_ck("its tooltip still says the adapter does not carry the field", 
-			tip.find("does not carry that field through") != -1,
+		_ck("it reads the %d span(s) the dictionary beside it holds" % best_n,
+			vals.has(str(best_n)), joined)
+		_ck("its tooltip no longer says the adapter does not carry the field",
+			tip.find("does not carry that field through") == -1,
 			tip.substr(0, 260))
 
 	print("[3] civilization_workspace.gd's third line")
-	var cw = app.get_node_or_null("%s" % "") # placeholder, resolved below
-	_ck("the shipped source still draws `not surfaced by any binding yet`",
+	_ck("the shipped source no longer draws `not surfaced by any binding yet`",
 		FileAccess.get_file_as_string("res://shell/workspaces/civilization_workspace.gd")
-			.find("bridge/ford: — not surfaced by any binding yet") != -1)
+			.find("not surfaced by any binding yet") == -1)
 
 	print("=== %d FAILED (a FAIL here is the verifier's finding, not a broken probe) ===" % _fail)
 	get_tree().quit(0)

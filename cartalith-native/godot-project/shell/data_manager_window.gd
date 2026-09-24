@@ -469,7 +469,11 @@ const PRESET_NOTE := "No export-preset store exists: DccSettings has no preset s
 ## (`MARKDOWN_VAULT_SCOPE.md`'s own divergence table), plus two-way sync,
 ## which `MARKDOWN_VAULT_INTEGRATION.md` §33 keeps an explicit V1 non-goal.
 ## Those three are exactly the three checkboxes below, and they stay disabled.
-const VAULT_NOTE := "The vault connection itself is live (Data ▸ Markdown vault): cartalith-vault indexes a folder of .md files and links settlements, provinces and continents to notes in it. What is still DM-14 is the export half -- obsidian:// links in exported tiles and note links in exported GeoJSON -- plus two-way sync, which MARKDOWN_VAULT_INTEGRATION.md §33 makes an explicit V1 non-goal. The three checkboxes below are those three items."
+## Corrected 2026-09-24 (audit B17): it named three linkable kinds; the
+## vault's `EntityKind` has six (settlement, province, continent, faction,
+## culture, landmark). Still open is DM-14's export half; two-way sync is
+## MARKDOWN_VAULT_INTEGRATION.md §33's V1 non-goal.
+const VAULT_NOTE := "The vault connection itself is live (Data ▸ Markdown vault): it indexes a folder of .md files and links settlements, provinces, continents, factions, cultures and landmarks to notes in it. Not built yet is the export half -- obsidian:// links in exported tiles and note links in exported GeoJSON -- plus two-way sync, which is deliberately left out of this first version. The three checkboxes below are those three items."
 
 ## The disabled reason for the three checkboxes specifically, which is a
 ## narrower statement than `VAULT_NOTE`: these three are unbuilt, not the
@@ -486,7 +490,11 @@ const PACKAGING_NOTE := "Both exports produce one stored (uncompressed) .zip. A 
 ## from the reference, so a consumer reading the file learns it too.
 const GEOJSON_CRS_NOTE := "Coordinates are local planar kilometres (east, north) at this world's own scale, with north up -- not WGS84 longitude/latitude. RFC 7946 assumes WGS84, but a procedurally generated world has no true georeference; the reference makes the same call, and the document says so in its own note property."
 
-const GEOJSON_CIV_NOTE := "Settlements, ways, territory and provinces come from the civilisation layer, which only exists for a freshly generated world -- a loaded .zip save carries none of the substrate that pipeline needs (SAVEFILE_COMPAT.md). Exporting a loaded save produces a valid document whose features are rivers and nothing else. Landmarks (the map's points of interest) are not exported yet, so there is no poi layer: every exported place is a settlement."
+const GEOJSON_CIV_NOTE := "Settlements, ways, territory and provinces come from the civilisation layer. A generated world and a reopened project both carry it; a legacy .zip save does not. Rivers are traced from the drainage network, which only a world generated in this session holds, so a reopened project exports its settlements, roads and borders without rivers, and a .zip save exports a valid document with no features. Landmarks (the map's points of interest) are not exported yet, so there is no poi layer: every exported place is a settlement."
+## Civ/river sentences corrected 2026-09-24 (ALIGNMENT_AUDIT Part 1 A1):
+## `geojson_bridge.rs::export_geojson` reads `self.civ` whatever the source
+## (a reopened .ctl project restores it) and traces rivers only for
+## `WorldSource::Generated`; the old text had both backwards for a project.
 ## POI sentence corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 B9): landmarks
 ## and the `poi` icon family exist; what is missing is only the GeoJSON side --
 ## `geojson_bridge.rs` builds every place `is_poi: false` and reads no landmark.
@@ -1601,12 +1609,15 @@ func _include_chips(row: Control) -> void:
 ## Returns `{"count": int, "how": String}` when a real source answers and
 ## `{"why": String}` when none can -- **never a zero standing in for an
 ## absence**, which is why every caller tests `has("count")`. A world whose
-## civilisation layer is missing entirely (every loaded `.zip` save:
-## `SAVEFILE_COMPAT.md`) reports the reason, not `0`.
+## civilisation layer is missing entirely (a legacy `.zip` save:
+## `SAVEFILE_COMPAT.md`; a reopened project keeps its layer) reports the
+## reason, not `0`.
 func _gis_count(key: String) -> Dictionary:
 	if _bridge == null or not _bridge.has_world:
 		return {"why": "No world is loaded."}
-	var civ_absent := "None, and that is one of two states this window cannot tell apart: a generated world always has some, and a loaded save carries no civilisation layer at all (SAVEFILE_COMPAT.md, and GEOJSON_CIV_NOTE above). Either way there is nothing of this group to write."
+	## A reopened .ctl project restores its civilisation layer; only a legacy
+	## .zip save lacks one (`SAVEFILE_COMPAT.md`). Corrected 2026-09-24.
+	var civ_absent := "None. Either this world has none (they were cleared, or never placed), or it was opened from a legacy .zip save, which carries no civilisation layer -- this window cannot tell those apart. Either way there is nothing of this group to write."
 	match key:
 		"settlements":
 			var n: int = _bridge.settlements().size()
@@ -2562,7 +2573,7 @@ func _build_wd_atlas_column(col: Control, api: bool) -> void:
 		"Every group the reference's channelAtlasGroups builds, and there is no option to omit one: an atlas missing a documented channel is worse than no atlas. A group whose every channel is empty is dropped rather than written black -- channel_atlas::entries' own rule.")
 	if not gen:
 		DccWidgets.note(col,
-			"A loaded .zip save carries none of the tectonic substrate these fields are derived from (SAVEFILE_COMPAT.md), which is the same reason its civilisation layer is absent. The atlas needs a generated world.")
+			"A world opened from a file -- a .zip save or a reopened project -- carries none of the tectonic fields these are derived from, so the atlas needs a world generated in this session.")
 
 func _build_wd_output_column(col: Control, api: bool) -> void:
 	_col_header(col, "OUTPUT")

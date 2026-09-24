@@ -6258,17 +6258,20 @@ impl WorldGen {
     /// stage [`Self::recompute_stale_stages`] deliberately leaves stale, and
     /// the recompute `ED-03d` says a place edit or delete never triggered.
     ///
-    /// Manual on purpose. `UNIFIED_TOOL_PLAN.md` milestone C measured
-    /// cascading into civ after every stroke at ~7 s at 2048², which is not
-    /// a per-stroke cost an interactive tool can pay; this is that same work,
-    /// paid once, when the user asks for it.
+    /// Manual on purpose. `UNIFIED_TOOL_PLAN.md` milestone C rejected
+    /// cascading into civ after every sculpt stroke on cost. No stroke was
+    /// measured: the "~7 s at 2048²" quoted for it (here, until 2026-09-24)
+    /// is `CPU_MULTITHREADING_SCOPE.md`'s full `generate_terrain` + per-cell
+    /// civ layer at 2048² (5.11 s + 1.96 s = 7.07 s). What this call itself
+    /// costs is below, and at 4.22 s at 2048² it is still not a per-stroke
+    /// cost an interactive tool can pay; this is that work, paid once, when
+    /// the user asks for it.
     ///
     /// **Measured**, release build, CPU path, square grids at 1200 km:
     /// 0.94 s at 512², 1.60 s at 1024², 4.22 s at 2048² — about half the
     /// cost of a full `generate()` of the same world (1.28 s / 2.59 s /
-    /// 8.16 s on the same machine and run), and cheaper than the ~7 s figure
-    /// because skipping placement and naming also skips seed-finding and the
-    /// water-edge snap. Repeatable to within a few ms on a second call: this
+    /// 8.16 s on the same machine and run), because skipping placement and
+    /// naming also skips seed-finding and the water-edge snap. Repeatable to within a few ms on a second call: this
     /// does the same work every time, it has no "nothing changed" fast path.
     ///
     /// **What it does.** Hydrology and climate are settled first (a civ layer
@@ -10005,9 +10008,11 @@ impl WorldGen {
     /// independent of height entirely) or cost a whole-field pass
     /// (`build_lithology`) that this method would otherwise re-run on
     /// every brush stroke a caller previews, not just on commit -- the
-    /// same ~7s/2048² measurement `UNIFIED_TOOL_PLAN.md` milestone C cites
-    /// for why commit itself stays deferred applies here to *any* eager
-    /// per-stroke whole-field work.
+    /// same objection `UNIFIED_TOOL_PLAN.md` milestone C makes to eager
+    /// per-stroke whole-field work applies here. (That objection is a cost
+    /// argument, not a measured stroke: the "~7 s/2048²" this comment quoted
+    /// until 2026-09-24 is `CPU_MULTITHREADING_SCOPE.md`'s full terrain + civ
+    /// generation at 2048², and no per-stroke timing exists.)
     ///
     /// **Renders the whole grid, not just the draft's touched region.**
     /// `PassBuffer::touched_bounds` would give the rectangle a bounded
@@ -10104,8 +10109,11 @@ impl WorldGen {
     /// refreshClimate();`), not the eager cascade `DCC_SHELL_SPEC.md` §5.2's
     /// prose describes — erosion does **not** re-run (it is part of the
     /// height stage, which the user just edited by hand), and civ does not
-    /// either, since the eager form was measured at ~7 s/stroke at 2048² and
-    /// rejected in `UNIFIED_TOOL_PLAN.md` milestone C. `still_stale` below
+    /// either: `UNIFIED_TOOL_PLAN.md` milestone C rejected the eager form on
+    /// cost. That was never a measured stroke -- the "~7 s/stroke at 2048²"
+    /// written here until 2026-09-24 is `CPU_MULTITHREADING_SCOPE.md`'s full
+    /// terrain + civ generation at 2048² (7.07 s); the civ re-derivation alone
+    /// is [`Self::recompute_civilisation`]'s measured 4.22 s at 2048². `still_stale` below
     /// reports what was left, for a caller to act on when it chooses.
     ///
     /// `reason` is a short caller-chosen string for the dirty-tile record

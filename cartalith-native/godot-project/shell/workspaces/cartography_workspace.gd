@@ -916,7 +916,7 @@ func _refresh_trade_load_row(available: bool) -> void:
 			_trade_load_toggle.button_pressed = false
 			app.viewport.overlay.set_show_trade_load(false)
 		_trade_load_toggle.tooltip_text = ("No trade match has been run on this world. "
-			+ "Civilization ▸ Trade ▸ Match trade flows produces the per-way volume this "
+			+ "Civilization ▸ Economy ▸ Trade flows ▸ Match trade flows produces the per-way volume this "
 			+ "draws; it is computed on demand and held nowhere, so a generate clears it.")
 
 

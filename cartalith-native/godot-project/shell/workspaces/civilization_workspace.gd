@@ -706,10 +706,11 @@ func _on_ctx_id(id: int) -> void:
 				## by `app.gd`'s cursor handler whenever the Wildlife view is the
 				## drawn layer -- the reference's own `state.debug === 'wildlife'`
 				## gate. The real limitation is narrower and is what this now
-				## says: the biome raster needs the civilisation layer's water
-				## bodies, which a loaded `.zip` save does not carry.
+				## says: the biome reading needs `sample_refs()`, which is None on
+				## any `WorldSource::Loaded` world -- a reopened .ctl project
+				## included, although its `CivData` is restored (2026-09-24).
 				app.set_status("hint",
-					"Nothing here. This cell's readings are in the Sample panel (right dock) — biome included, on a generated world; a loaded save carries no civilisation layer, so Biome reads — there. Wildlife appears in the same dock while Layers ▸ Wildlife is the drawn view.",
+					"Nothing here. This cell's readings are in the Sample panel (right dock) — biome included, on a generated world; a world opened from a file does not carry the generated climate fields biome needs, so Biome reads — there. Wildlife appears in the same dock while Layers ▸ Wildlife is the drawn view.",
 					"text_ghost")
 
 ## `PARITY_AUDIT.md` §5 item 4 / reference block 2's keydown at line 26096:
@@ -1484,9 +1485,15 @@ func _fill_factions(parent: Control) -> void:
 		DccWidgets.note(notes,
 			"Cartalith can fill Name, Culture, Government, Religion, its capital's "
 			+ "coordinates, member settlements, total population and claimed area "
-			+ "into its own block in that note. The three vocabulary fields drive "
-			+ "nothing in the engine (ECONOMY_SCOPE.md) — which is exactly why "
-			+ "they are worth writing where an author's prose about them is.")
+			+ "into its own block in that note. Culture, Government and Religion "
+			+ "also shape the world — culture its settlement names, government its "
+			+ "military manpower, culture and religion its relations with other "
+			+ "factions — so they are worth writing where an author's prose about "
+			+ "them is.")
+		## Rewritten 2026-09-24 (`ALIGNMENT_AUDIT.md` B13): it said the three
+		## fields "drive nothing in the engine". Culture drives settlement naming
+		## (`c4435ee`) and `relations`' shared-culture term; government drives
+		## `manpower.rs`; religion drives `relations`' faith term.
 
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
@@ -1554,12 +1561,17 @@ func _fill_territories(parent: Control) -> void:
 	var gaps := DccWidgets.section(parent, "Not built")
 	## `GUI_GAP_REGISTER.md` §42's Not-built anatomy: the noun, the blocker
 	## named specifically, and what does exist instead.
+	## Rewritten 2026-09-24 (`ALIGNMENT_AUDIT.md` B13): it said the timeline
+	## holds no per-year ownership grid. `TimelineSnapshot::territory` is a
+	## `TerritoryFrame` per recorded year, and `civ_goto_year` loads it when the
+	## Timeline cursor moves. What this panel lacks is a history readout of its
+	## own (GUI_GAP_REGISTER.md CV-23's third quantity).
 	DccWidgets.note(gaps,
-		"Historical occupation over time  ·  blocked on the timeline\n"
-		+ "The timeline records a settlement snapshot per year, not a per-year "
-		+ "ownership grid, so there is nothing to scrub a border against. That is "
-		+ "timeline work rather than territory work (GUI_GAP_REGISTER.md CV-23's "
-		+ "third quantity).\n"
+		"An occupation history in this panel\n"
+		+ "The Timeline records each year's borders along with its settlements, "
+		+ "and moving its cursor to a recorded year shows that year's territory. "
+		+ "This panel reads the present year only; it has no summary of who held "
+		+ "each place over time.\n"
 		+ "Borders, claims and influence at the present year are built: "
 		+ "Borders & influence, above.")
 
@@ -1600,8 +1612,15 @@ func _analyse_influence() -> void:
 	var d := bridge.civ_territory_influence()
 	if d.is_empty():
 		DccWidgets.note(_influence_body,
-			"No territory to analyse: territory is projected from capitals, and this world "
-			+ "has none (or carries no civilisation layer at all, which is every loaded save).")
+			"No territory to analyse. Either this world has no capitals to project "
+			+ "territory from, or it was opened from a file: the analysis needs the "
+			+ "generated terrain behind the borders, which a reopened project does not "
+			+ "carry yet, even though it keeps its borders and settlements.")
+		## `civ_territory_influence` returns `{}` whenever `sample_refs()` is None,
+		## i.e. on any `WorldSource::Loaded` world -- including a reopened .ctl
+		## project whose `CivData` WAS restored. The old text said "every loaded
+		## save carries no civilisation layer", false for a project (Ruling AR
+		## will save the rasters; until then this is the true reason).
 		return
 	var owned := int(d.get("owned_cells", 0))
 	var frontier := int(d.get("contested_cells", 0))
@@ -2055,15 +2074,16 @@ func _on_compute_regional_population() -> void:
 ## no separate populate step" (SG-02 made the *downstream* half re-entrant in
 ## 2026-08-24, and this ruling made placement itself re-entrant), then "nor
 ## any parameter for the three counts — `params.rs` exposes no civ parameters
-## at all" (the civ `PARAMS` group is seven rows, and three of them are
-## placement dials Auto-populate reads).
+## at all" (the civ `PARAMS` group is 13 rows at 2026-09-24, several of them
+## placement dials Auto-populate reads; the tooltip below states no count,
+## since the seven it used to say had gone stale).
 func _build_settlement_gaps(parent: Control) -> void:
 	var pop_sec := DccWidgets.section(parent, "Populate")
 	_populate_btn = DccWidgets.action(pop_sec, "Auto-populate world", _populate_world)
 	_populate_btn.disabled = not bridge.has_world
 	_populate_btn.tooltip_text = ("The reference's #civAutoPopulateBtn. Re-places every settlement "
 		+ "from the current suitability field and rebuilds everything under it — roads, sea lanes, "
-		+ "territory, provinces, economy — without re-rolling the terrain. This is how the seven "
+		+ "territory, provinces, economy — without re-rolling the terrain. This is how the "
 		+ "civilisation parameters in File ▸ New world ▸ Generation become adjustable: move one, "
 		+ "press this, see the world it makes.\n\n"
 		+ "Replaces every settlement, so names, tiers, populations and per-place notes are all "
@@ -2171,7 +2191,7 @@ const SITE_RIVER_CONTEXT_KM := 25.0
 ## 3. `specialisation == ""`. Real, and usually empty -- it is the place
 ##    editor's override, `'none'` until a player sets one. It already
 ##    carried its reason and now carries the dash too, so it reads as the
-##    same kind of absence as the third line's bridge/ford.
+##    same kind of absence as the other dashed readings.
 ## 4. `name == ""`. `d.get("name", "?")` only defends against a *missing*
 ##    key; an empty string passes straight through and draws a button with
 ##    no label, which is the "left blank" case verbatim.
@@ -2248,14 +2268,16 @@ func _diag_card(parent: Control, settlement: Dictionary, d: Dictionary, index: i
 		+ "claim a river the settlement does not have). The confluence marker is dropped in "
 		+ "that state too -- it is evaluated inside the same reach test, so its absence there "
 		+ "would be a question never asked, not an answer of no.")
-	var third := DccWidgets.note(box, "%s · bridge/ford: — not surfaced by any binding yet" % harbour_text)
-	third.tooltip_text = ("The reference's own third line reads a cached model this port keeps "
-		+ "no equivalent of (`_umModelCache`, out of scope for every urban milestone). This "
-		+ "port's nearest equivalent, City Viewer's per-settlement layout, surfaces "
-		+ "bridge_pt/harbour_pt as candidate points, not detectRiverCrossings' validated "
-		+ "crossings -- that call's own doc comment still lists the crossings as unsurfaced. "
-		+ "Harbour scale is real (um_harbour_scale); bridge and ford are dashed because there "
-		+ "is nothing true to put there yet, not because of milestones 9/10/13, which shipped.")
+	## The reference's third line also carried bridge/ford off its cached town
+	## model (`_umModelCache`). Here the validated crossings arrive with the
+	## town layout (`urban_layouts()`' `"bridges"`/`"ford"`, since 2026-09-05)
+	## and are shown by the right dock's town plan (its Bridges row), not by
+	## `settlement_diagnostics()`, which carries neither. The old text said no
+	## binding surfaced them; corrected 2026-09-24 (audit B14a).
+	var third := DccWidgets.note(box, harbour_text)
+	third.tooltip_text = ("How large a harbour this site would support, from its shoreline. "
+		+ "River crossings -- bridges and fords -- come with the town's plan: pin the "
+		+ "settlement and read the Bridges row beside the plan in the right dock.")
 	parent.add_child(box)
 
 ## `04-left-dock.md` §6b's `hCivPlaceSel`: "selects the place, arms inspect,
@@ -2412,12 +2434,15 @@ func _fill_population(parent: Control) -> void:
 				func(): app.right_dock_ctrl.show_faction(int(fd.get("id", 0))))
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.tooltip_text = "get_factions()'s own population field -- the sum of this faction's settlements' pop. Opens the faction in the right dock."
+	## Rewritten 2026-09-24 (`ALIGNMENT_AUDIT.md` B13). The old text said no
+	## settlement belongs to a province across the bridge; the per-cell
+	## province raster does cross it (`conflict_bridge.rs::anchors_touching`
+	## resolves a settlement's province). What is missing is a per-province
+	## sum -- `get_provinces()` carries name, faction and capital index only.
 	DccWidgets.note(sec,
-		"Per-settlement population is real (get_settlements()'s own field) and "
-		+ "faction-level aggregation is get_factions()'s. Province-level is the one "
-		+ "that has no binding: get_provinces() carries a name, a faction and a "
-		+ "capital index, and no settlement belongs to a province in anything that "
-		+ "crosses the boundary, so there is nothing here to sum.")
+		"Per-settlement population and each faction's total (the sum of its "
+		+ "settlements) are real. Province totals are not shown yet: the map knows "
+		+ "which province each settlement lies in, but nothing adds them up.")
 
 # -- Economy ----------------------------------------------------------------
 
@@ -2471,15 +2496,21 @@ func _fill_economy(parent: Control, faction_parent: Control = null) -> void:
 		trading, settlements.size()])
 	DccWidgets.note(sec, "Most-exported: %s. Most-imported: %s." % [
 		_top_key(exports), _top_key(imports)])
+	## `civ_resource_trade_balance`: the per-settlement hinterland term.
 	DccWidgets.note(sec,
-		"This is the per-settlement hinterland term (civ_resource_trade_balance). The " +
-		"faction-level aggregation is below.")
+		"Each settlement's surplus or shortfall against its own hinterland. The " +
+		"faction-level totals are below.")
 	## L229: the Trade ▸ Flows readout and this one, "one copy". Its count line
 	## repeated the first note above, so only its disclosure moved here --
 	## reworded, because it named this category from outside it.
+	##
+	## Rewritten 2026-09-24 (`ALIGNMENT_AUDIT.md` B13): it said nothing ties a
+	## trade relationship to a road or sea lane, but the Trade flows match
+	## (`civ_trade_bridge.rs`, `WayRouter`) routes each flow over the way
+	## network and the coast, and caravans are listed per way.
 	DccWidgets.note(sec,
-		"Goods flow, not route assignment: nothing ties a trade relationship to the " +
-		"road or sea lane that would carry it.")
+		"These are surpluses and shortfalls, not routes: Trade flows matches them " +
+		"to trading partners along the roads and sea lanes that carry the goods.")
 	_fill_faction_economy(faction_parent if faction_parent != null else parent)
 
 ## `OUTSTANDING_WORK.md` §2.3: `_civFactionAggregates`' resource- and
@@ -2496,9 +2527,9 @@ func _fill_economy(parent: Control, faction_parent: Control = null) -> void:
 ## future scope per ECONOMY_SCOPE.md, not yet computed". Half of that was
 ## already false when written -- `civ_faction_aggregates` has been ported and
 ## called since the military bridge landed -- and what was genuinely missing
-## was a caller that fed it `pots`/`dens` and showed the result. Tax and the
-## five-axis power heuristic really are still unsurfaced, so the note below
-## names those two and nothing else.
+## was a caller that fed it `pots`/`dens` and showed the result. Tax and four
+## of the five power axes really are still unsurfaced (`power.military` is
+## drawn by Military and the roster), so the note below names those.
 func _fill_faction_economy(parent: Control) -> void:
 	var rows := bridge.civ_faction_economy()
 	if rows.is_empty():
@@ -2536,9 +2567,13 @@ func _fill_faction_economy(parent: Control) -> void:
 		"a polity that has to import. Strategic resources are catchment means above the " +
 		"reference's own 0.4 bar; exports and imports compare that catchment against the world " +
 		"mean, with food added by the surplus sign.")
+	## `FactionAggregates::tax_income` and `FactionPower`'s economic /
+	## political / cultural / religious axes are undrawn (ECONOMY_SCOPE.md);
+	## `power.military` IS drawn (CIVIL ▸ Military, faction roster).
 	DccWidgets.note(grp,
-		"Tax income and the five-axis power heuristic come out of the same pass and are not " +
-		"drawn anywhere yet -- ECONOMY_SCOPE.md owns them.")
+		"Tax income and four of the five power scores (economic, political, cultural, " +
+		"religious) come out of the same calculation and are not shown anywhere yet. " +
+		"The military score is shown under Military and in the faction roster.")
 
 func _top_key(counts: Dictionary) -> String:
 	if counts.is_empty():
@@ -4388,8 +4423,12 @@ const LM_CROWDING_STEP := 0.05
 const LM_LIMIT_WORD := {
 	"at_cap": "at cap", "spacing": "spacing", "no_terrain": "no terrain",
 	"candidates": "candidates", "disarmed": "off", "not_buildable": "not buildable",
-	## `not_generated` had a row here until 2026-09-01. `LandmarkLimit` has six
-	## variants and no seventh: nothing in `landmark.rs` ever emitted that token,
+	## `LandmarkLimit::Unrecorded`: a reopened project whose saved landmarks carry
+	## no funnel for this type (written by a build with a different type table).
+	"unrecorded": "not recorded",
+	## `not_generated` had a row here until 2026-09-01. `LandmarkLimit` has seven
+	## variants (`as_str()` in `landmark.rs`) and none of them is that token:
+	## nothing in `landmark.rs` ever emitted it,
 	## and the case it was written for -- a declared type with no generator --
 	## reports `not_buildable`. Dropped rather than kept defensively, because
 	## `_lm_limit_word`/`_lm_limit_why` below already answer an unknown token
@@ -4411,8 +4450,19 @@ const LM_LIMIT_WHY := {
 	"no_terrain": "Every remaining candidate failed this type's own constraints. The cap is not what is limiting you.",
 	"candidates": "The candidate pool ran out before the cap or the spacing did. The world is too small or too coarse for more of these.",
 	"disarmed": "Disarmed. The cap is retained and the row says what it was.",
-	"not_buildable": "The engine reports no placement rule for this type yet, so it is listed and disabled rather than quietly omitted -- a reader can tell 'unimplemented' from 'hidden'.",
+	## The per-type reason is the engine's own `not_built` string, which the row
+	## tooltip shows (`_lm_type_row`); this is the generic line for a place that
+	## has only the token, such as the funnel popover.
+	"not_buildable": "This type is not placed by the generator. It is listed and disabled rather than quietly omitted; its row says why.",
+	"unrecorded": "This project was saved without a record of how this type's last run went, so there is nothing to report. Run the landmark pass again to measure it.",
 }
+
+## The reason a `buildable: false` type is not placed: the engine's own
+## `not_built` text from `landmark_kinds()` (`LandmarkKindSpec::not_built`),
+## falling back to the generic line only when a build does not carry it.
+static func _lm_not_built_why(kind: Dictionary) -> String:
+	var why := String(kind.get("not_built", "")).strip_edges()
+	return why if not why.is_empty() else String(LM_LIMIT_WHY["not_buildable"])
 
 ## The engine's `limit` token, normalised before it is looked up.
 ##
@@ -4704,7 +4754,6 @@ func _lm_types(parent: Control, kinds: Array, st: Dictionary, funnels: Dictionar
 	var fams: Array[String] = []
 	var by_fam := {}
 	var by_class := {}
-	var viewshed := 0
 	var unbuildable := 0
 	for k in kinds:
 		var kd: Dictionary = k
@@ -4715,8 +4764,6 @@ func _lm_types(parent: Control, kinds: Array, st: Dictionary, funnels: Dictionar
 		(by_fam[f] as Array).append(kd)
 		var c := String(kd.get("class", ""))
 		by_class[c] = int(by_class.get(c, 0)) + 1
-		if bool(kd.get("needs_viewshed", false)):
-			viewshed += 1
 		if not bool(kd.get("buildable", true)):
 			unbuildable += 1
 
@@ -4726,30 +4773,20 @@ func _lm_types(parent: Control, kinds: Array, st: Dictionary, funnels: Dictionar
 		+ "filter, not a second tree -- a waterfall is Physical by family and "
 		+ "regional by class, and those are different questions.")
 
-	## §9.3, and the rule this panel is held to: the viewshed gap shows on the
-	## ROW, not in a footnote. The engine computes no visibility term at all --
-	## no line of sight, no horizon march, no sky-view factor -- so the types that
-	## lean on it carry `[no viewshed]` beside their name and this line says how
-	## many there are and what it costs them.
-	##
-	## The weight quoted here was the research's 0.20 until 2026-08-31, when
-	## `BUILD_ANSWERS.md` §3 replaced it with the owner's own formula. Text only:
-	## the design asks for the gap to be *stated on the panel* and this port
-	## already puts it on every affected row too, which is the stricter of the
-	## two, so the placement stands and only the number moved.
-	if viewshed > 0:
-		DccWidgets.note(sec,
-			"%d of them carry [no viewshed]: this engine computes no visibility " % viewshed
-			+ "term. Once visibility analysis lands the owner's formula is "
-			+ "score = 0.6 × prominence + 0.4 × visible land area inside 30 km, "
-			+ "caps unchanged; until then the second half of that score has nothing "
-			+ "behind it, and the panel says so on the row rather than presenting a "
-			+ "score it cannot honestly compute.")
+	## §9.3 asked for the viewshed GAP to show on the row. There is no gap now:
+	## `landmark.rs`'s `Derived::vis` (M7) is read by Fort, Watchtower, Fortified
+	## pass, Fortified crossing, Volcanic feature and Border marker. The row's
+	## old `[no viewshed]` tag keyed off `needs_viewshed`, a design tag that
+	## matches neither set (Peak is flagged and reads no visibility; the two
+	## fortified kinds read it unflagged), so it was removed rather than kept
+	## false. Peak's missing visible-land term is an open owner question
+	## (`ALIGNMENT_AUDIT.md` owner Q7), not a panel string.
 	if unbuildable > 0:
 		DccWidgets.note(sec,
-			"%d are listed and disabled: the engine reports no placement rule for " % unbuildable
-			+ "them yet. Omitting them would be worse -- a reader who finds no row "
-			+ "cannot tell whether the type is unimplemented or simply hidden.")
+			"%d are listed and disabled because the generator does not place them " % unbuildable
+			+ "yet; hover a row to see why. Omitting them would be worse -- a reader "
+			+ "who finds no row cannot tell whether the type is unimplemented or "
+			+ "simply hidden.")
 
 	## **DIVERGENCE.** §3.1 gives every type row an L5 `+ advanced` fold holding
 	## its own constraints (§7's four hydraulic tests for a waterfall, §8's
@@ -4859,7 +4896,6 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 	var fam := String(kind.get("family", "other"))
 	var cls := String(kind.get("class", ""))
 	var buildable := bool(kind.get("buildable", true))
-	var needs_vs := bool(kind.get("needs_viewshed", false))
 	var default_cap := int(kind.get("default_cap", 0))
 	var caps: Dictionary = st.get("caps", {})
 	var armed_map: Dictionary = st.get("armed", {})
@@ -4868,13 +4904,9 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 	var rung := _lm_rung(cap) if armed else 0
 
 	var tip := "%s -- %s class." % [label, String(LM_CLASS_LABEL.get(cls, cls))]
-	if needs_vs:
-		tip += (" [no viewshed]: this engine computes no visibility term. Once "
-			+ "visibility analysis lands the owner's formula is score = 0.6 × "
-			+ "prominence + 0.4 × visible land area inside 30 km, caps unchanged; "
-			+ "until then this type scores without that second half.")
 	if not buildable:
-		tip += " " + String(LM_LIMIT_WHY["not_buildable"])
+		## The engine's own per-type reason (`LandmarkKindSpec::not_built`).
+		tip += " Not placed by the generator. " + _lm_not_built_why(kind)
 	else:
 		tip += (" Drag to the zero stop to disarm; the cap is kept and the row "
 			+ "says what it was. The track is a 1-2-3-5 ladder, not a linear "
@@ -4932,23 +4964,19 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 	## The canvas gives the *name* the slack (`flex:1` on the row's name span),
 	## so the expansion moves off `_row()`'s spacer and onto the label, and the
 	## label's fixed `ROW_LABEL_W` goes to zero. Both halves matter: with the
-	## width left at 132 a row carrying the `[no viewshed]` tag needs ~334 px of
-	## a dock the user can drag down to `W_LEFT_DOCK_MIN` (300), and the row
-	## would overflow rather than clip. At zero it clips, which is what
-	## `_row()`'s own `clip_text` is already there for.
+	## width left at 132 a row carrying the (since-removed) `[no viewshed]` tag
+	## needed ~334 px of a dock the user can drag down to `W_LEFT_DOCK_MIN`
+	## (300), and the row would overflow rather than clip. At zero it clips,
+	## which is what `_row()`'s own `clip_text` is already there for.
 	if name_label != null:
 		name_label.custom_minimum_size.x = 0
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if slack != null:
 		slack.size_flags_horizontal = Control.SIZE_FILL
 
-	## §9.3 / `Dock.dc.html`: the bracketed tag beside the type's name, on the
-	## row, never in a footnote.
-	if needs_vs:
-		var tag := DccTheme.mono_label("[no viewshed]", "text_faint", DccTheme.FS_MICRO, 0)
-		tag.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		row.add_child(tag)
-		row.move_child(tag, 2)
+	## §9.3 / `Dock.dc.html` drew a bracketed `[no viewshed]` tag here. It was
+	## removed 2026-09-24: the viewshed exists and the tag was false on every
+	## row it appeared on but Peak -- see the note in `_lm_types()`.
 
 	## §2.2 part 1 -- **the crux**. A second 2 px rule directly under the slider
 	## track, its length the placed count as a fraction of the cap. Two bars,
@@ -4992,7 +5020,7 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 
 	_lm_rows[key] = {
 		"family": fam, "class": cls, "label": label, "buildable": buildable,
-		"needs_viewshed": needs_vs, "row": row, "under": under, "bar": bar,
+		"needs_viewshed": bool(kind.get("needs_viewshed", false)), "row": row, "under": under, "bar": bar,
 		"line": line, "count": count, "token": token, "slider": slider,
 		"readout": parts["readout"], "cap": cap, "armed": armed, "rung": rung,
 		"retained": cap, "default_cap": default_cap,
@@ -6042,17 +6070,20 @@ func _fill_military(parent: Control) -> void:
 			b.tooltip_text = "%s · population %d · faction %d. Pin it in the right dock." % [
 				String(d.get("kind", "")).capitalize(), int(d.get("pop", 0)), int(d.get("faction", 0))]
 
+	## `MILITARY_MANPOWER_SCOPE.md` §4 and STATUS MM-6/7/8: all three declined.
+	## Rewritten 2026-09-24 (`ALIGNMENT_AUDIT.md` B12): it said "needs a
+	## decision" and that no clock existed, but the Timeline and drawn conflicts
+	## (SP-4, `cartalith_civ::conflict`) do exist -- they resolve nothing. The
+	## owner question on this note's wording (audit owner Q8) is open; this
+	## states the declined status neutrally.
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
-		"Per-settlement garrisons · campaigns · unit movement · combat  ·  needs a decision\n"
-		+ "The per-FACTION headcounts above are real and derived (Manpower). What "
-		+ "is still absent is allocating them: which settlement holds which part "
-		+ "of a standing army is a placement rule nothing here implies, and a "
-		+ "campaign needs a clock, a map objective and an opposed force — none of "
-		+ "which exists. The reference has none of it either. A feature to "
-		+ "specify, not a gap to wire (GUI_GAP_REGISTER.md CV-25).\n"
-		+ "Also absent by design: change over time. Every number in this category "
-		+ "is a reading of the world as it stands.")
+		"Per-settlement garrisons · campaigns · unit movement · combat · change over time  ·  declined\n"
+		+ "The per-FACTION headcounts above are real and derived (Manpower). "
+		+ "Which settlement holds which part of a standing army is a placement "
+		+ "rule nothing here implies. A conflict you record shows each side's "
+		+ "manpower, but nothing moves armies or decides a battle. Every "
+		+ "number in this category is a reading of the world as it stands.")
 
 ## The manpower half of CIVIL ▸ MILITARY (`MILITARY_MANPOWER_SCOPE.md`, built
 ## 2026-08-25 on the owner's own supplied specification).
@@ -6249,17 +6280,29 @@ func _fill_manpower(parent: Control, factions: Array) -> void:
 	## (Xerxes' invasion is described in millions and reconstructs to ~70 000
 	## infantry and 9 000 cavalry), so the honest check is what could have been
 	## fed in one place, not what a chronicle claims.
-	var worst := 1.0
+	##
+	## `concentration_ratio` is field_army / emergency_mobilization; the engine
+	## writes 0.0 when the emergency figure is zero, which means "no value",
+	## not "0 %". A bound on EVERY faction is the largest ratio, not the
+	## smallest; with no faction carrying a value, no percentage is printed.
+	var highest := -1.0
 	for r in rows:
 		var m: Dictionary = (r as Dictionary).get("manpower", {})
-		var c := float(m.get("concentration_ratio", 1.0))
-		if c > 0.0 and c < worst:
-			worst = c
-	DccWidgets.note(sec,
-		"Plausibility: no faction here can concentrate more than %.0f%% of what "
-		% [100.0 * worst]
-		+ "it can raise. A host reported above its own field-army figure could "
-		+ "not have been supplied in one place, whatever the source says.")
+		var c := float(m.get("concentration_ratio", 0.0))
+		if c > 0.0 and c > highest:
+			highest = c
+	if highest > 0.0:
+		DccWidgets.note(sec,
+			"Plausibility: no faction here can concentrate more than %.0f%% of what "
+			% [100.0 * highest]
+			+ "it can raise. A host reported above its own field-army figure could "
+			+ "not have been supplied in one place, whatever the source says.")
+	else:
+		DccWidgets.note(sec,
+			"Plausibility: a host reported above a faction's own field-army figure "
+			+ "could not have been supplied in one place, whatever the source says. "
+			+ "No faction here can raise an emergency force, so there is no share "
+			+ "to report.")
 
 	## Said on screen rather than only in the scope document, because the
 	## denominator the bands are read against is a modelling decision and not

@@ -103,14 +103,14 @@
 //! technique is the faithful port, not a `_draw()` glyph layer this
 //! reference view never had.
 //!
-//! **Four reference rows are genuine engine gaps, not unexposed data.**
-//! Three were confirmed by grepping every subsystem crate for the
-//! reference's own algorithm name and finding none: Orogeny (the *signed*
-//! preview value needs the boundary-polyline structure `generate_terrain`
-//! folds into height and never retains — distinct from
+//! **Four reference rows cannot be drawn on any world.** Orogeny (the
+//! *signed* preview value needs the boundary-polyline structure
+//! `generate_terrain` folds into height and never retains — distinct from
 //! `crust_field`/`boundary_type`, which *are* retained), river
-//! Velocity-erosion ("Pillar 2", `cartalith-erosion` has no velocity field
-//! at all) and the Site-profile composite. **The fourth, regional
+//! Velocity-erosion ("Pillar 2": `cartalith_erosion::velocity_erode_kernel`
+//! runs when enabled and returns a `VelocityField`, which `cartalith-engine`
+//! discards — corrected 2026-09-24, this said the crate had no velocity field
+//! at all) and the Site-profile composite (genuinely unported). **The fourth, regional
 //! Population density, is not that kind of gap, and this paragraph and its
 //! row hint both said it was until 2026-09-03**:
 //! `cartalith_civ::estimate_regional_density_km2` exists, is golden-covered,
@@ -673,7 +673,11 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
             (
                 "velo",
                 "Velocity",
-                "Not available: no hydraulic velocity-erosion pass (the reference's own \"Pillar 2\") exists in cartalith-erosion.",
+                // `cartalith_erosion::velocity_erode_kernel` runs in generation when
+                // velocity erosion is on (`cartalith-engine`'s `let _ = ...`) and its
+                // returned `VelocityField { water, vx, vy }` is discarded. The old
+                // hint said the pass did not exist, which was false.
+                "Not available: the velocity-erosion pass runs during generation when it is switched on, but its water and velocity field is discarded afterwards, so nothing drawable is kept.",
             ),
             (
                 "fjord",
@@ -777,9 +781,9 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
     ),
 ];
 
-/// The reference rows this engine has no computation for at all — not
-/// "unretained", genuinely never ported (this module's own "layer-
-/// visualization audit" doc section above). Always unavailable, on every
+/// The reference rows this engine cannot draw on any world — for the four
+/// different reasons set out at the end of this comment (two of them ARE
+/// computed and simply not retained). Always unavailable, on every
 /// world, which is why these are a flat id list rather than a per-world
 /// input check like every other row below.
 ///
@@ -795,12 +799,17 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
 /// and `wildlife` (`cartalith_civ::wildlife`), all four golden-verified.
 /// `wildlife` joined `windthrow` on the per-world check below for the same
 /// reason — it needs the Cartalith biome grid, which needs water bodies.
-/// Two remain honestly unavailable for a *missing computation*
-/// (`oro`, `velo`) and two for a missing composite (`popdensity`,
-/// `siteprofile`).
+/// What remains is **not** four missing computations (corrected 2026-09-24;
+/// this read "two for a missing computation (`oro`, `velo`)"): `oro` and
+/// `velo` are both *computed* during generation and not retained — the
+/// orogeny's signed boundary structure is folded into height, and
+/// `cartalith_erosion::velocity_erode_kernel`'s returned `VelocityField` is
+/// discarded (`let _ =` in `cartalith-engine`); `popdensity` is estimated and
+/// integrated away to one total; `siteprofile` is a composite with no Rust
+/// equivalent.
 ///
-/// **What "missing composite" means for each of those two, since it is not
-/// the same thing.** `siteprofile` has no Rust equivalent of the flood +
+/// **What each of the last two means, since it is not the same thing.**
+/// `siteprofile` has no Rust equivalent of the flood +
 /// slope composite at all, only its two inputs. `popdensity` has the
 /// opposite shape: `cartalith_civ::estimate_regional_density_km2` is whole,
 /// golden-covered, and already run by `ops_bridge.rs`'s

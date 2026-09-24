@@ -500,38 +500,46 @@ func _rebuild_side() -> void:
 	for s in _layout.get("stages", PackedStringArray()) as PackedStringArray:
 		ran += "· " + s + "\n"
 	DccWidgets.note(stages, ran.strip_edges())
-	## **Corrected 2026-09-05.** This read "Every line above is the reference's
-	## own generate() — all 29 stages", against a list a reader can count: it is
-	## ten lines (`_entwin_probe.gd` CV6 measures the array), because
-	## `urban_bridge.rs` builds `stages` as ten entries whose own first line
-	## already carries the 29. The run is 29; the list is the ten whose output
-	## this window draws, which is what that file's own comment says it is.
+	## **Corrected 2026-09-05, and again 2026-09-24 (audit B14c).** The count
+	## was hard-coded "Ten" after `urban_bridge.rs::layout_dict` grew to twelve
+	## entries (details, harbour, crossings), so it is now read off the array.
+	## And "all 29" hid the three stages this port adds to
+	## `cartalith_urban::generate` (Ruling H's wall-side lots and courtyard
+	## rings, Ruling I's citadel -- `generate.rs`'s own module doc). The
+	## not-drawn list named the crossings as "one bridge field away" after
+	## those fields arrived (2026-09-05; the water is released at them, but no
+	## deck or ford band is drawn) and omitted the harbour works (`piers`,
+	## `mole`, `harbour_defence`), which no layout key carries.
+	var n_stage_lines := (_layout.get("stages", PackedStringArray()) as PackedStringArray).size()
 	DccWidgets.note(stages,
-		"Ten lines above, and twenty-nine stages behind them. run_layout calls "
-		+ "the reference's own generate() — all 29, in its own order, "
-		+ "golden-verified whole against its own hashModel; these ten are the "
-		+ "stages whose output is visible in this window, each carrying what it "
-		+ "actually produced. The list is built in urban_bridge.rs beside the "
-		+ "code that ran, so it cannot drift from it. It replaced a hand-ordered "
-		+ "subset on 2026-09-02, which is where the buildings, the wall, the "
-		+ "districts, the markets and the farmland came from all at once.")
+		("%d lines above, and more stages behind them. The town is laid out by the "
+			% n_stage_lines)
+		+ "reference generator's own 29 stages, in its own order, plus three this "
+		+ "port adds (lots built against both faces of the wall, courtyard blocks "
+		+ "in the outer ring of an organic town, and a citadel on the wall of the "
+		+ "largest organic towns). The lines "
+		+ "above are the stages whose output is visible in this window, each "
+		+ "saying what it actually produced.")
 	DccWidgets.note(stages,
-		"Two of the model's own layers are generated and not drawn: the "
-		+ "justified crossings (a stone deck where a road really crosses the "
-		+ "river, a stippled ford band where a through-town has none), and the "
-		+ "civic hall and places of worship. They are on the engine's Town and "
-		+ "are one bridge field each away. The hinterland clutter — garden and "
-		+ "orchard trees, wells, the market cross, fences, the working yards' "
-		+ "props — is drawn.")
+		"Some of the model's own layers are generated and not drawn: the river "
+		+ "crossings (the plan leaves the water open where a road crosses it, but "
+		+ "draws no bridge deck or ford band), the civic hall, games buildings and "
+		+ "places of worship, and the harbour's piers, mole and defences. The "
+		+ "hinterland clutter — garden and orchard trees, wells, the market cross, "
+		+ "fences, the working yards' props — is drawn.")
 	DccWidgets.note(stages,
 		"Nothing on screen is ahead of the generator any more. A rooftop was a "
 		+ "whole parcel until 2026-09-02; it is now buildBuildings' own "
 		+ "footprint, with the grammar its district calls for and the ridge "
 		+ "line the engine laid, and a lot with no roof on it is a lot the "
 		+ "engine left empty.")
-	if not _layout.has("wall_ring"):
+	## Gated on the wall ladder's own "none" (audit B14e), not on the ring's
+	## absence: a rung above "none" whose circuit was not built is a different
+	## case, and this sentence ("that is the ladder's verdict") would be false
+	## for it. `um_wall_spec` is the ladder.
+	if String(_layout.get("wall_spec", "")) == "none":
 		DccWidgets.note(stages,
-			"This settlement has no wall, and that is _umWallSpec's verdict on "
+			"This settlement has no wall, and that is the wall ladder's verdict on "
 			+ "its tier, function, threat, wealth, age and command of ground — "
 			+ "not a missing stage. A town of 1,200 or 260 years gets stone; a "
 			+ "hamlet on flat ground gets nothing.")
@@ -590,7 +598,12 @@ func _build_town_plan() -> void:
 			c_sel = i
 	var c_ob := DccWidgets.choice(sec, "Culture", c_names, c_sel,
 		func(i: int): _set_plan({"culture": String(cultures[i]["id"])}),
-		"The culture profile generate() plans with. Unset, a town takes medieval -- this port has no faction-culture table, so every town was medieval until this override.")
+		"The culture profile the town is planned with. Unset, a town is planned as medieval: the faction's culture (the one that names its settlements) does not choose a town plan, so this is the only way to get another.")
+	## Corrected 2026-09-24 (audit B14d). Faction cultures DO exist (the roster's
+	## `culture`, which drives naming since `c4435ee`); what is true is that
+	## `urban_adapter::run_layout` takes `GenOpts::culture` only from
+	## `PlaceOverrides::culture`, never from the faction -- so `resolve_profile`
+	## falls back to medieval. The old text said no faction-culture table existed.
 	for i in cultures.size():
 		c_ob.set_item_tooltip(i, String(cultures[i]["name"]))
 	_fit_column(c_ob)

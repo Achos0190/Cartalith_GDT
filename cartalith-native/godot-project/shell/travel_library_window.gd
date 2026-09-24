@@ -845,7 +845,17 @@ func _build_validation_banners(parent: Control) -> void:
 		for c in conflicts:
 			_banner(parent, "block", String(c))
 	elif state == "ok":
-		_banner(parent, "water", "Selectable in the party form. Changing capacity, fodder or a constraint re-plans %d saved set-up(s)/journey(s)." % (int(_entry.get("usage_presets", 0)) + _usage_journeys()))
+		## Only a definition that reaches a computed journey re-plans anything.
+		## A vehicle never does (no `vehicle_overrides()` resolver), and neither
+		## does an animal with no party-form slot (`species_slot == ""`) -- the
+		## inspector's own "No live effect yet" notes above say so, and this
+		## banner used to contradict them (audit B15, corrected 2026-09-24).
+		var live := _current_kind != "vehicle" \
+			and not (_current_kind == "animal" and String(_entry.get("species_slot", "")) == "")
+		if live:
+			_banner(parent, "water", "Selectable in the party form. Changing capacity, fodder or a constraint re-plans %d saved set-up(s)/journey(s)." % (int(_entry.get("usage_presets", 0)) + _usage_journeys()))
+		else:
+			_banner(parent, "water", "Valid. Editing it changes no computed journey yet -- see the note at the top of this entry.")
 
 ## How many saved journeys reference this entry (`TRAVEL_LIBRARY_SPEC.md` §4).
 ##

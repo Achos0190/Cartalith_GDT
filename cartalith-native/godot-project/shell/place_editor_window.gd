@@ -1393,7 +1393,11 @@ func _build_class_and_polity(parent: Control, s: Dictionary) -> void:
 	DccWidgets.choice(sec, "Class", KIND_ORDER.map(func(k): return String(k).capitalize()),
 		maxi(0, KIND_ORDER.find(kind)),
 		func(i: int): _apply({"kind": KIND_ORDER[i]}); _rebuild(),
-		"Metropolis is selectable here even though the Settlement tool refuses it: promoting an existing settlement is exactly what _civSelectMetropolises does. Changing class also sets/clears the capital flag, which is the same fact stored twice.")
+		"The settlement's size class. Changing it also sets or clears the capital flag: a capital or metropolis is its polity's seat.")
+	## Corrected 2026-09-24 (audit B18): it said the Settlement tool refuses
+	## Metropolis, untrue since 2026-08-20 (`civ_tools_bridge.rs::kind_from_str`
+	## accepts it; `_civSelectMetropolises` port). The capital flag is the same
+	## fact stored twice, which is why class changes move it.
 
 	var factions := bridge.get_factions()
 	if factions.is_empty():
@@ -1407,7 +1411,9 @@ func _build_class_and_polity(parent: Control, s: Dictionary) -> void:
 		labels.append("%d · %s" % [int(d.get("id", 1)), String(d.get("name", "?"))])
 	DccWidgets.choice(sec, "Polity", labels, maxi(0, ids.find(int(s.get("faction", 1)))),
 		func(i: int): _apply({"faction": ids[i]}); _rebuild(),
-		"The reference's own Polity picker. Territory is NOT repainted -- assign_territory runs inside generate() and no #[func] re-runs it (GUI_GAP_REGISTER.md CV-20). Civilization ▸ Territories ▸ Recalculate territories is the shortcut that does re-run it.")
+		"Which polity this settlement belongs to. Changing it does not repaint the borders by itself; Civilization ▸ Territories ▸ Recalculate territories re-derives them from the current settlements.")
+	## Corrected 2026-09-24 (audit B18): it said no function re-runs
+	## `assign_territory` and then named the button that does (`civ_recompute`).
 
 
 # -- Population + economy ---------------------------------------------------
@@ -1465,7 +1471,7 @@ func _build_trade(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Trade")
 	if not TradeStore.is_matched():
 		DccWidgets.note(sec,
-			"No trade match on this world yet. Civilization ▸ Trade ▸ Match trade flows "
+			"No trade match on this world yet. Civilization ▸ Economy ▸ Trade flows ▸ Match trade flows "
 			+ "computes who supplies whom; it is derived on demand and held nowhere, so a "
 			+ "generate clears it.")
 		return
@@ -1551,7 +1557,7 @@ func _food_shed_note(sec: Control) -> void:
 			DccWidgets.note(sec, "Food shed: — the pass ran and covers %d settlement%s, "
 				% [held, "" if held == 1 else "s"]
 				+ "but has no row at index %d. The roster and the last food-shed pass " % _index
-				+ "have drifted apart -- re-run Civilization ▸ Trade ▸ Match trade flows.")
+				+ "have drifted apart -- re-run Civilization ▸ Economy ▸ Trade flows ▸ Match trade flows.")
 		return
 	var supported := FactionRosterWindow._thousands(int(round(float(shed.get("supported", 0.0)))))
 	var local := FactionRosterWindow._thousands(int(round(float(shed.get("local_capacity", 0.0)))))
@@ -1606,7 +1612,7 @@ func _smelting_salt_note(sec: Control) -> void:
 				+ "above for an engine build without the binding.")
 		else:
 			DccWidgets.note(sec, "Smelting: — the pass ran but has no row at index %d. " % _index
-				+ "Re-run Civilization ▸ Trade ▸ Match trade flows.")
+				+ "Re-run Civilization ▸ Economy ▸ Trade flows ▸ Match trade flows.")
 	elif float(smelt.get("iron_kg_yr", 0.0)) <= 0.0:
 		DccWidgets.note(sec, "Smelting: none possible here -- ore, fuel, or both are absent from "
 			+ "this catchment.")
@@ -1632,7 +1638,7 @@ func _smelting_salt_note(sec: Control) -> void:
 				+ "above for an engine build without the binding.")
 		else:
 			DccWidgets.note(sec, "Salt: — the pass ran but has no row at index %d. " % _index
-				+ "Re-run Civilization ▸ Trade ▸ Match trade flows.")
+				+ "Re-run Civilization ▸ Economy ▸ Trade flows ▸ Match trade flows.")
 	elif bool(salt.get("has", false)):
 		DccWidgets.note(sec, "Salt: yes, from %s." % String(salt.get("source", "?")))
 	else:

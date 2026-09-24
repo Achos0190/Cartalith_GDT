@@ -642,15 +642,23 @@ func build_trade_into(parent: Control) -> void:
 ## CIVIL ▸ ECONOMY ▸ NOT BUILT (L233): Trade's gap note, drawn once. Its own
 ## entry point because Economy's By faction expander sits between it and the
 ## flows above.
+##
+## Rewritten 2026-09-24 (`ALIGNMENT_AUDIT.md` B11). It used to call prices,
+## tariffs and caravans underivable and undecided. What is true: every matched
+## flow carries a scarcity `price` (Ruling AB) and a `tariff` (Ruling AE) --
+## `civ_trade_bridge.rs` returns both, but no panel shows them and there is no
+## `engine_bridge.gd` wrapper for `civ_set_trade_tariff`; caravans are built
+## and listed above (`da51a57`, `_fill_flows_caravans`); Ruling R decided
+## per-faction currencies with exchange rates, which are not built.
 func build_trade_gaps_into(parent: Control) -> void:
 	DccWidgets.note(DccWidgets.section(parent, "Not built"),
-		"Prices · tariffs · caravans as entities · change over time  ·  needs a decision\n"
-		+ "None of the four is derivable from anything the civ layer holds, and "
-		+ "each needs a decision about what a currency is here before it could be "
-		+ "anything but a fabricated number (GUI_GAP_REGISTER.md IN-13, narrowed "
-		+ "to exactly these).\n"
-		+ "The flows above are a reading of the world as it stands, and stop "
-		+ "there.")
+		"Not shown yet: each flow's price and tariff. The generator prices every "
+		+ "matched flow by how scarce the good is and applies any tariff between the "
+		+ "two factions, but this panel does not display either, and there is no "
+		+ "control for setting a tariff.\n"
+		+ "Not built: separate currencies per faction with exchange rates (decided, "
+		+ "not yet built), and trade that changes over time.\n"
+		+ "The flows above are a reading of the world as it stands.")
 
 ## `GUI_GAP_REGISTER.md` **IN-13** -- trade flows as a routed quantity.
 ##
@@ -823,7 +831,7 @@ func _fill_flows_ways(d: Dictionary) -> void:
 		DccWidgets.note(g, "%d of %d ways carry nothing."
 			% [int(d.get("idle_ways", 0)), int(d.get("way_count", 0))])
 	DccWidgets.note(g,
-		"Drawn on the map as way thickness -- Cartography ▸ Roads & routes ▸ Trade load. Width "
+		"Drawn on the map as way thickness -- Cartography ▸ Feature style ▸ Ways ▸ Thicken ways by carried volume. Width "
 		+ "and not colour, because a way's colour is already its type.")
 
 ## § CARAVANS -- IN-13 piece 4 (2026-09-24). Ruling AF: a caravan is one
@@ -864,8 +872,13 @@ func _match_trade_flows() -> void:
 	_clear_body(_flows_body)
 	if d.is_empty():
 		DccWidgets.note(_flows_body,
-			"Nothing to match: this world carries no civilisation layer (which is every loaded "
-			+ "save) or has no settlements.")
+			"Nothing to match: this world has no settlements, or it was opened from a "
+			+ "file. Matching trade needs the generated terrain under the settlements, "
+			+ "which a reopened project does not carry yet, even though it keeps its "
+			+ "settlements and roads.")
+		## `civ_trade_bridge.rs` returns nothing unless the source is
+		## `WorldSource::Generated` -- a reopened .ctl project included, whose
+		## `CivData` is restored. Corrected 2026-09-24 (audit A1, Ruling AR).
 		return
 	_fill_flows()
 	## The map draws the same match as way thickness, so it is handed the

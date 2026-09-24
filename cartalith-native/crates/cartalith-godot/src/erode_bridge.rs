@@ -158,9 +158,14 @@ impl WorldGen {
     /// | `init_water` | `1.0` | none |
     /// | `radius` | `3` | none |
     ///
-    /// The nine with no reference control are exactly the nine the
-    /// reference's own Erosion panel never exposed; they are accepted here as
-    /// a superset, at the engine's own default.
+    /// The nine with no reference control are not a superset of the
+    /// reference's parameters: they are fields of the same `state.erosion`
+    /// literal that the reference's Erosion panel never exposed. They are
+    /// accepted here beyond the panel's five controls and default to that
+    /// literal's own values ([`ErodeOpts::default`], pinned by
+    /// `defaults_match_the_reference_state_literal`) — the reference's
+    /// defaults, not a choice made by this engine. (Corrected 2026-09-24; this
+    /// said "a superset, at the engine's own default".)
     ///
     /// `g`, `ck` and `seed` are deliberately **not** accepted: `dropletParams`
     /// reads them from `state.planet.g`, `state.stream.climateK` and

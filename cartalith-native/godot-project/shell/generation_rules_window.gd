@@ -299,8 +299,16 @@ func _build_sliders_pane() -> Control:
 		_rebuild_tables()
 		_rebuild_status())
 	_wild_readout = wild["readout"]
+	## Corrected 2026-09-24 (audit B18). It said 1.00 "reproduces DEFAULT_RULES
+	## exactly", which holds only for a fresh rule set: `apply_wildness`
+	## (`cartalith-urban/src/rules.rs`) ADDS `(w - 1) * 0.15` to `dead_end_bias`
+	## on every call, and each drag tick calls it on the current rules, so
+	## dragging back to 1.00 leaves the accumulated bias in place. Reset does
+	## restore the defaults (`_do_reset`).
 	DccWidgets.note(body, "The primary organic-versus-planned control. Drives ten street "
-		+ "parameters; 1.00 is the baseline that reproduces DEFAULT_RULES exactly.")
+		+ "parameters. One of them, the dead-end bias, builds up as the slider moves "
+		+ "rather than following it, so dragging back to 1.00 does not undo it -- "
+		+ "Reset returns every parameter to the default rule set.")
 
 	var chaos := DccWidgets.slider(body, "Plot chaos", 0.0, 2.0, 0.05, 1.0, "", func(v: float):
 		_active_preset = ""

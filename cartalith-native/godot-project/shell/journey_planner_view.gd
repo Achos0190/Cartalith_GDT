@@ -723,7 +723,11 @@ func _refresh_route_choice() -> void:
 		open_btn.text = "%s%s" % ["● " if i == _active_journey else "", String(j.get("name", "journey"))]
 		open_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		open_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		open_btn.tooltip_text = ("Route #%d + this party form. Saved with the project and listed here again on File ▸ Open project." % int(j.get("route", 0))) + (
+		## A restored journey can carry route -1 (no committed route index this
+		## session); "Route #-1" read as a real index (audit B15 nit).
+		var route_i := int(j.get("route", 0))
+		var route_txt := ("Route #%d" % route_i) if route_i >= 0 else "Its saved route"
+		open_btn.tooltip_text = ("%s + this party form. Saved with the project and listed here again on File ▸ Open project." % route_txt) + (
 			" Restored from the project: its party set-up and route came back, but per-stage overrides, layovers, animal choices and the trim were never saved and start at their defaults." if bool(j.get("restored", false)) else "")
 		open_btn.pressed.connect(func(): _load_journey(i))
 		jrow.add_child(open_btn)
@@ -3677,6 +3681,7 @@ func _build_load_group(body: Control, plan: Dictionary) -> void:
 	var g := DccWidgets.section(body, "Load")
 	var results: Array = plan.get("results", [])
 	var worst_cap: Dictionary = {}
+	var worst_trace: Array = []
 	var worst_ratio := 0.0
 	for r in results:
 		var d: Dictionary = r
@@ -3687,6 +3692,7 @@ func _build_load_group(body: Control, plan: Dictionary) -> void:
 		if lr >= worst_ratio:
 			worst_ratio = lr
 			worst_cap = land.get("capacity", {})
+			worst_trace = land.get("trace", [])
 	if worst_cap.is_empty():
 		DccWidgets.note(g, "No land leg computed for this journey -- capacity is a land-transport concept (river/sea legs report crew and hold instead, see Vessels below).")
 	else:
@@ -3706,7 +3712,22 @@ func _build_load_group(body: Control, plan: Dictionary) -> void:
 	## stage matrix's rate column, and a note naming a column heading that no
 	## longer reads that way sends the reader looking for a column that is not
 	## there.
-	DccWidgets.note(g, "Speed penalty is folded into each leg's own %s rather than reported as a separate percentage -- jp_plan does not return one." % _rate_suffix("day"))
+	##
+	## Corrected 2026-09-24 (`ALIGNMENT_AUDIT.md` B15): it said the plan
+	## returns no load term. Every land leg's `trace` carries one
+	## (`jp_calc_land`'s `term("load", ..., load_mod_final)`), so the worst-loaded
+	## leg's factor is read here; with no such term (no land leg, or an older
+	## library) the sentence simply omits the number.
+	var load_factor := -1.0
+	for t in worst_trace:
+		if String((t as Dictionary).get("key", "")) == "load":
+			load_factor = float((t as Dictionary).get("factor", -1.0))
+			break
+	if load_factor >= 0.0:
+		DccWidgets.note(g, ("Load slows the most heavily loaded land leg to %.0f%% of its unloaded "
+			+ "pace. That is already folded into each leg's own %s.") % [load_factor * 100.0, _rate_suffix("day")])
+	else:
+		DccWidgets.note(g, "Any slowing from load is already folded into each leg's own %s." % _rate_suffix("day"))
 
 func _build_supply_group(body: Control, plan: Dictionary) -> void:
 	var g := DccWidgets.section(body, "Supply reach")

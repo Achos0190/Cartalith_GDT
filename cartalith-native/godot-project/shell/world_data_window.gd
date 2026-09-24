@@ -487,10 +487,14 @@ func _rebuild_trade() -> void:
 	if balances.is_empty():
 		DccWidgets.note(body, "No trade balances -- generate a world first.")
 		return
+	## `civ_resource_trade_balance`'s hinterland term. Corrected 2026-09-24
+	## (audit B13): it called the faction-level aggregation "unstarted";
+	## `civ_faction_economy` computes it and CIVIL ▸ Economy ▸ By faction shows
+	## it. Tax and four of the five power axes remain undrawn.
 	DccWidgets.note(body,
-		"civ_resource_trade_balance's own hinterland term (ECONOMY_SCOPE.md) -- goods flow "
-		+ "per settlement, not a faction-level aggregation (population, tax, the five-axis "
-		+ "power heuristic), which remains unstarted real future scope.")
+		"Each settlement's own surplus and shortfall against its hinterland. Faction totals "
+		+ "(territory, population, food, exports and imports) are under Civilization ▸ "
+		+ "Economy ▸ By faction.")
 	body.add_child(DccTheme.rule())
 	_header_row(body, ["Settlement", "Exports", "Imports"])
 	var shown := 0

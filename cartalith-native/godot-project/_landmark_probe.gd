@@ -16,7 +16,8 @@ extends Node
 ##   B — the same workspace built against `StubBridge`, a GDScript subclass of
 ##       `EngineBridge` implementing the locked contract over fixtures. This is
 ##       what exercises the wiring the live bridge cannot yet: the rows, the
-##       viewshed tag, the disabled unbuildable row, the class chips, the run
+##       ABSENCE of the retired viewshed tag, the disabled unbuildable row with
+##       the engine's own reason, the class chips, the run
 ##       button, and the crux — a `spacing`-limited row whose placed bar is
 ##       genuinely shorter than its cap bar while an `at cap` row's two bars are
 ##       flush.
@@ -44,7 +45,8 @@ class StubBridge extends EngineBridge:
 			"buildable": true},
 		{"key": "ice_shelf", "label": "Ice shelf", "family": "physical",
 			"class": "continental", "default_cap": 3, "needs_viewshed": true,
-			"buildable": false},
+			"buildable": false,
+			"not_built": "Fixture reason: no ice-shelf model is wired to this pass."},
 		{"key": "mountain_pass", "label": "Mountain pass", "family": "transportation",
 			"class": "regional", "default_cap": 16, "needs_viewshed": false,
 			"buildable": true},
@@ -238,9 +240,11 @@ func _ready() -> void:
 		_ok("the run button is live too", (civ.get("_lm_run_btn") as Button) != null, true)
 		_ok("...and pressable with a world absent or present",
 			(civ.get("_lm_run_btn") as Button).disabled, false)
-		if live_vs > 0:
-			_ok("the live panel tags its viewshed types on the row",
-				civ_blob.find("[no viewshed]") >= 0, true)
+		## Inverted 2026-09-24: the viewshed exists (`landmark.rs` `Derived::vis`,
+		## read by fort/watchtower/fortified pass & crossing/volcanic/border
+		## marker), so the old `[no viewshed]` tag was false and is gone.
+		_ok("the live panel draws no false [no viewshed] tag",
+			civ_blob.find("no viewshed") < 0, true)
 		if live_nb > 0:
 			_ok("the live panel says how many types it cannot build",
 				civ_blob.find("are listed and disabled") >= 0, true)
@@ -266,42 +270,40 @@ func _ready() -> void:
 			print("  MISSING ", (k as Dictionary)["key"])
 	_ok("...and each by its own key", all_present, true)
 
-	print("\n=== B1: needs_viewshed shows ON THE ROW ===")
+	## Inverted 2026-09-24 (`ALIGNMENT_AUDIT.md` B7). This half used to require
+	## a `[no viewshed]` tag on every `needs_viewshed` row and a § TYPES note
+	## saying the engine computes no visibility. Both were false once M7 built
+	## `Derived::vis`, and `needs_viewshed` is a design tag that matches neither
+	## the kinds that read visibility nor the one (Peak) that does not. So it now
+	## guards that the false claim stays gone, fixture flag or not.
+	print("\n=== B1: no false viewshed claim, even on a needs_viewshed row ===")
 	var vs_tagged := 0
-	var vs_expected := 0
+	var vs_flagged := 0
 	for k in StubBridge.KINDS:
 		var kd: Dictionary = k
 		if not bool(kd["needs_viewshed"]):
 			continue
-		vs_expected += 1
+		vs_flagged += 1
 		var rr: Dictionary = rows[String(kd["key"])]
-		if _blob(rr["row"]).find("[no viewshed]") >= 0:
+		if _blob(rr["row"]).find("no viewshed") >= 0 \
+				or (rr["row"] as Control).tooltip_text.find("no visibility") >= 0:
 			vs_tagged += 1
-		else:
-			print("  UNTAGGED ", kd["key"])
-	_ok("there ARE viewshed types in the fixture", vs_expected > 0, true)
-	_ok("every one carries the tag beside its name", vs_tagged, vs_expected)
+			print("  STILL TAGGED ", kd["key"])
+	_ok("there ARE needs_viewshed types in the fixture", vs_flagged > 0, true)
+	_ok("none of them carries the old tag or tooltip", vs_tagged, 0)
 	var ws_blob := _blob(ws)
-	## The weight this used to assert was the research's flat `0.20`. The owner
-	## replaced it on 2026-08-31 (`design/dcc-environment-2026-08-31/`
-	## `BUILD_ANSWERS.md` §3, "Landmark viewshed | intended"), and
-	## `civilization_workspace.gd::_build_landmarks()` was rewritten to quote the
-	## new formula instead. The panel is right and this assertion was the stale
-	## party -- so it now guards the formula that is actually specified, and
-	## re-asserts that the old number is gone rather than merely absent by luck.
-	_ok("and § TYPES says how many, and what it costs them",
-		ws_blob.find("no viewshed]") >= 0, true)
-	_ok("...quoting the owner's 2026-08-31 formula, not the retired 0.20 weight",
-		ws_blob.find("0.6 × prominence + 0.4 × visible land area inside 30 km") >= 0
-			and ws_blob.find("0.20") < 0, true)
+	_ok("§ TYPES no longer says the engine computes no visibility",
+		ws_blob.find("no viewshed") < 0
+			and ws_blob.find("computes no visibility") < 0, true)
 
 	print("\n=== B2: buildable:false is listed, disabled, WITH a reason ===")
 	var ice: Dictionary = rows["ice_shelf"]
 	_ok("its slider is not editable", (ice["slider"] as HSlider).editable, false)
 	_ok("its second line states the reason",
 		String((ice["count"] as Label).text), "not buildable")
-	_ok("its row tooltip carries the why",
-		(ice["row"] as Control).tooltip_text.find("no placement rule") >= 0, true)
+	## The engine's own per-type `not_built` reason, not a generic line.
+	_ok("its row tooltip carries the engine's own why",
+		(ice["row"] as Control).tooltip_text.find("no ice-shelf model") >= 0, true)
 	_ok("it is dimmed rather than hidden", (ice["row"] as Control).visible, true)
 	_ok("§ TYPES says how many are in that state",
 		ws_blob.find("are listed and disabled") >= 0, true)
