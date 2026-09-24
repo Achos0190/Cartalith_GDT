@@ -4034,7 +4034,7 @@ static func measurements_from_document(text: String, gw: int, gh: int) -> Dictio
 		## value means the same thing an absent key means -- no reading -- so
 		## it takes the same path: omit the pair and let the list dash the row,
 		## rather than lose the measurement's points along with it.
-		if e.has("value"):
+		if e.has("value") and _is_num(e["value"]):
 			out_e["value"] = float(e["value"])
 			out_e["unit"] = String(e.get("unit", ""))
 		entries.append(out_e)

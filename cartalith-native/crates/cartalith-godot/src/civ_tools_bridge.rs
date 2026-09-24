@@ -74,7 +74,10 @@
 //! `WorldGen::absorb`, via `civ_name_rng()`) and advances across every
 //! manual placement made against one generated world, so repeated blank-name
 //! drops still get distinct names — its own independent stream, never
-//! shared with `compute_civilisation`'s.
+//! shared with `compute_civilisation`'s. A save records its position
+//! (`SAVEFILE_COMPAT.md` §9.1 `name_stream`) and a reopen resumes it
+//! (`project_bridge.rs::civ_tools_for_reopen`), so the stream also runs on
+//! across a save instead of restarting at the seed.
 //!
 //! ## "Contested cell" has no reference or engine meaning — this is new
 //!
@@ -266,7 +269,9 @@ pub fn drop_settlement(
 /// dignify with a number, the same way `assign_territory` itself never
 /// treats `0` as an owner.
 pub fn contested_cell_count(territory: &[i32], faction: i32, gw: usize, gh: usize) -> usize {
-    if faction == 0 || gw == 0 || gh == 0 {
+    // `territory.len() != gw * gh`: no whole claim grid (a reopened archive
+    // that did not carry one) has no borders to count, and must not index.
+    if faction == 0 || gw == 0 || gh == 0 || territory.len() != gw * gh {
         return 0;
     }
     let mut n = 0;

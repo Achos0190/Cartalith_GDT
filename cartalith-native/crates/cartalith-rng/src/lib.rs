@@ -33,6 +33,14 @@ impl Mulberry32 {
         Self { state: seed }
     }
 
+    /// The generator's whole position. `Mulberry32::new(rng.state())`
+    /// continues the stream exactly where `rng` stands, so a stream that must
+    /// outlive a session (a saved project's manual-placement names) can be
+    /// stored as this one number.
+    pub fn state(&self) -> u32 {
+        self.state
+    }
+
     /// One step of the generator, returning the same `[0, 1)` value the JS
     /// closure's own call would return.
     pub fn next_f64(&mut self) -> f64 {
@@ -51,6 +59,19 @@ mod tests {
     #[test]
     fn crate_compiles_and_tests_run() {
         assert_eq!(2 + 2, 4);
+    }
+
+    #[test]
+    fn a_stream_rebuilt_from_its_state_continues_it() {
+        let mut a = Mulberry32::new(42);
+        a.next_f64();
+        a.next_f64();
+        let mut b = Mulberry32::new(a.state());
+        for _ in 0..8 {
+            assert_eq!(a.next_f64(), b.next_f64());
+        }
+        // 42 + 10 * 0x6D2B79F5, wrapped: the position after ten draws.
+        assert_eq!(a.state(), 1_135_788_988);
     }
 
     #[test]

@@ -285,6 +285,11 @@ func _ready() -> void:
 	_app.open_place_editor(0)
 	await get_tree().process_frame
 	var pe := _find(_app, PlaceEditorWindow)
+	## Since `76117f4` (2026-09-21, the owner-supplied Settlement Editor
+	## canvas) KNOWLEDGE lives on the "Vault notes" tab, not in one scrolling
+	## form; the editor opens on Overview, so select that tab first.
+	pe._switch_tab("vault")
+	await get_tree().process_frame
 	var pe_text := "\n".join(_texts(pe, []))
 	_ok("panel: the place editor shows a KNOWLEDGE section", pe_text.findn("knowledge") >= 0)
 	_ok("panel: it reports the linked notes", pe_text.find("linked note") >= 0, pe_text)

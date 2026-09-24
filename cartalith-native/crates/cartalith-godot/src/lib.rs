@@ -336,6 +336,12 @@ struct CivData {
     /// from the road network above) -- unlike `villages`, this isn't
     /// gated, since there's no reference default to match and no reason
     /// to withhold it.
+    ///
+    /// **Either a whole `gw * gh` grid or empty.** Empty is "no territory":
+    /// a reopened project whose archive carried no `rasters/territory.i32`
+    /// (`project_bridge.rs::civ_from_project`, which warns). A reader that
+    /// indexes it tests `len() == gw * gh` first; the first committed
+    /// Territory stroke makes it whole again.
     territory: Vec<i32>,
     /// `cartalith_civ::civ_generate_provinces`'s per-cell output (reference
     /// `_civGenerateProvinces`, ported once `territory` above gave it a
@@ -684,7 +690,15 @@ fn civ_settle_staleness(stages: &mut cartalith_spatial::StageGraph, civ_dirty: &
 /// ran straight across a border the user had painted (audit 2026-09-24,
 /// Part 1 A4). The list itself depends only on the settlements, so ids and
 /// names do not move; only which cells carry them does.
+///
+/// A no-op while `civ.territory` is not a whole grid -- a reopened project
+/// whose archive carried no `rasters/territory.i32` (`project_bridge.rs`,
+/// `civ_from_project`): with no claim grid there is nothing to build
+/// provinces over, and the stored provinces are kept as they came.
 fn civ_reprovince(civ: &mut CivData, gw: usize, gh: usize) {
+    if civ.territory.len() != gw * gh {
+        return;
+    }
     let (provinces, province_list) = cartalith_civ::civ_generate_provinces(&civ.settlements, &civ.territory, gw, gh);
     civ.provinces = provinces;
     civ.province_list = province_list;
@@ -738,10 +752,19 @@ fn civ_commit_territory_paint(tools: &mut civ_tools_bridge::CivTools, civ: &mut 
 /// next paint commit (`CivTools::recompose`: base merged with *all* paint)
 /// redraws what was cleared. [`WorldGen::civ_clear_territory`] and
 /// [`WorldGen::civ_clear_places`] both end here.
+///
+/// A `civ.territory` that is not a whole grid (a reopened project whose claim
+/// grid was not in the archive) has nothing to re-base on; the base becomes
+/// "nothing claimed" at the tool's own size, so the next stroke still commits
+/// onto a whole grid instead of an empty one.
 fn civ_reset_territory_paint(tools: &mut civ_tools_bridge::CivTools, civ: &mut CivData) {
     tools.territory_paint = cartalith_spatial::PaintLayer::new();
     tools.discard();
-    tools.rebase(&mut civ.territory);
+    if civ.territory.len() == tools.territory_base.len() {
+        tools.rebase(&mut civ.territory);
+    } else {
+        tools.territory_base.fill(0);
+    }
 }
 
 /// Ruling AT (2026-09-24): after a timeline move that loaded a recorded
@@ -811,8 +834,8 @@ fn civ_clear_places_state(civ: &mut CivData, tools: Option<&mut civ_tools_bridge
 mod civ_merge_tests {
     use super::{
         CIV_FACTION_COUNT, CivData, CivRebuild, PipelineStage, SettlementExplanation, civ_clear_places_state, civ_merge,
-        civ_rebase_territory_paint, civ_roster_bridge, civ_settle_staleness, civ_tools_bridge, civ_year_loaded,
-        pipeline_stage_graph,
+        civ_rebase_territory_paint, civ_reprovince, civ_reset_territory_paint, civ_roster_bridge, civ_settle_staleness,
+        civ_tools_bridge, civ_year_loaded, pipeline_stage_graph,
     };
     use cartalith_civ::{
         Continent, NamedSettlement, Province, RoadEdge, SeaRoute, SettlementKind, SettlementPlacement,
@@ -1088,6 +1111,41 @@ mod civ_merge_tests {
         tools.territory_paint.cells_mut(4)[2] = 6;
         tools.recompose(&mut civ.territory);
         assert_eq!(civ.territory, vec![5, 0, 6, 0]);
+    }
+
+    /// A reopened project whose archive carried no claim grid holds
+    /// `territory` empty (`project_bridge.rs::civ_from_project`). Each path
+    /// that reads it as a grid takes that as "no territory" instead of
+    /// indexing it: before, the province rebuild and the contested count
+    /// panicked, and a reset re-based the Territory tool onto the empty grid,
+    /// so the next commit panicked too.
+    #[test]
+    fn an_unrestored_claim_grid_is_no_territory_on_every_path() {
+        let mut civ = tagged(2);
+        civ.territory = Vec::new();
+        civ.provinces = vec![1, 1, 2, 2];
+        civ_reprovince(&mut civ, 2, 2);
+        assert_eq!(civ.provinces, vec![1, 1, 2, 2], "nothing to rebuild over; the stored provinces stay");
+        assert_eq!(civ_tools_bridge::contested_cell_count(&civ.territory, 1, 2, 2), 0);
+
+        let mut tools = civ_tools_bridge::CivTools::new(2, 2, vec![7; 4], 1);
+        civ_reset_territory_paint(&mut tools, &mut civ);
+        assert_eq!(tools.territory_base, vec![0, 0, 0, 0], "nothing claimed, at the tool's own size");
+        assert!(tools.paint_at(0.0, 0.0, 5, 0.0, false));
+        assert!(tools.commit(&mut civ.territory));
+        assert_eq!(civ.territory, vec![5, 0, 0, 0], "the first stroke makes a whole grid of exactly itself");
+    }
+
+    /// The same unrestored grid, and a recorded year whose claims *are* known:
+    /// going to it restores them. Before, `fill(0)` and a zero-length copy
+    /// left the grid empty while reporting the year as loaded.
+    #[test]
+    fn go_to_a_recorded_year_fills_an_unrestored_claim_grid() {
+        let (mut civ, _) = recorded_0_and_100();
+        civ.territory = Vec::new();
+        assert!(civ.civ_goto_year(0));
+        assert_eq!(civ.territory, vec![7, 7, 7, 3]);
+        assert_eq!(civ.territory_year, Some(0));
     }
 
     /// Ruling AT, recorded year: a 2x2 world computed as faction 7. Year 0 is
@@ -1717,6 +1775,12 @@ impl CivData {
         let Some(snap) = cartalith_civ::timeline::civ_territory_at(&self.timeline, year) else {
             return false;
         };
+        // A live grid that was never restored (an archive without
+        // `rasters/territory.i32`) takes the recorded year's size: that
+        // year's claims are known even though the live ones were not.
+        if self.territory.is_empty() {
+            self.territory = vec![0; snap.len()];
+        }
         // `civ_snapshot_load`'s own copy: zero, then the overlapping prefix, so a
         // snapshot recorded against another grid size never panics here.
         self.territory.fill(0);
@@ -8978,9 +9042,9 @@ impl WorldGen {
     /// unreachable from any capital) are fully transparent. `None` before
     /// any `generate()` call, after `load_save()`, or if territory hasn't
     /// been computed for this world (see `CivData::territory`'s own doc
-    /// comment -- always computed when `civ` is `Some`, so in practice
-    /// this is `None` under exactly the same conditions as
-    /// `get_settlements()`/`get_roads()` returning empty).
+    /// comment -- computed whenever `civ` is `Some`, except for a reopened
+    /// archive that did not carry the claim grid, where this is `None` while
+    /// the settlements are real).
     #[func]
     fn build_territory_texture(&self) -> Option<Gd<ImageTexture>> {
         let civ = self.civ.as_ref()?;
@@ -9001,6 +9065,11 @@ impl WorldGen {
         // the sheet edge would otherwise colour the bare-paper margin.
         // `border_cover` is `0.0` across the whole interior (and everywhere
         // when there is no frame), so `alpha` is untouched there.
+        // No claim grid (a reopened archive that did not carry one): no wash,
+        // rather than a mis-sized image Godot refuses with an error.
+        if civ.territory.len() != gw * gh {
+            return None;
+        }
         let appearance = self.appearance();
         let mut bytes = Vec::with_capacity(gw * gh * 4);
         for (i, &f) in civ.territory.iter().enumerate() {
@@ -11243,13 +11312,17 @@ impl WorldGen {
     /// layer, then the provinces over that merged grid
     /// ([`civ_commit_territory_paint`]) -- a no-op with nothing pending, or
     /// before any `generate()` call.
+    ///
+    /// Returns whether anything was committed: `false` for both no-ops, so a
+    /// caller marks the project dirty only when the claims actually moved
+    /// (`engine_bridge.gd::civ_territory_commit`).
     #[func]
-    fn civ_territory_commit(&mut self) {
+    fn civ_territory_commit(&mut self) -> bool {
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        let (Some(civ), Some(tools)) = (self.civ.as_mut(), self.civ_tools.as_mut()) else { return };
+        let (Some(civ), Some(tools)) = (self.civ.as_mut(), self.civ_tools.as_mut()) else { return false };
         let committed = civ_commit_territory_paint(tools, civ, gw, gh);
         if !committed {
-            return;
+            return false;
         }
         // ED-02, recorded and not reversible. `civ_tools`' own Discard
         // reverts an *uncommitted* draft; once a claim is baked into
@@ -11264,6 +11337,7 @@ impl WorldGen {
                 "the pre-commit claim grid is not retained; the Territory tool's own Discard reverts an uncommitted draft only",
             ),
         );
+        true
     }
 
     /// Drops the in-progress territory draft, touching nothing already
@@ -11282,12 +11356,16 @@ impl WorldGen {
     /// not a reference or engine concept (`civ_tools_bridge::
     /// contested_cell_count`'s own doc comment: a claimed cell bordering a
     /// *different* claimed faction, 4-connected). Empty `Dictionary` before
-    /// any `generate()` call.
+    /// any `generate()` call, and for a reopened project whose archive carried
+    /// no claim grid -- unknown, which three zeros would not say.
     #[func]
     fn civ_faction_territory_stats(&self, faction: i64) -> VarDictionary {
         let Some(civ) = self.civ.as_ref() else { return VarDictionary::new() };
         let gw = self.gw as usize;
         let gh = self.gh as usize;
+        if civ.territory.len() != gw * gh {
+            return VarDictionary::new();
+        }
         let f = faction as i32;
         let claimed = civ.territory.iter().filter(|&&t| t == f).count();
         let contested = civ_tools_bridge::contested_cell_count(&civ.territory, f, gw, gh);
@@ -16603,7 +16681,9 @@ impl WorldGen {
             volcanic_field: &ws.volcanic_field,
             shear_field: &ws.shear_field,
             water_bodies: self.civ.as_ref().map(|c| c.water_bodies.as_slice()),
-            territory: self.civ.as_ref().map(|c| c.territory.as_slice()),
+            // Only a whole grid: a claim grid the archive did not carry is "no
+            // control layer", not a map of unclaimed cells.
+            territory: self.civ.as_ref().map(|c| c.territory.as_slice()).filter(|t| t.len() == gw * gh),
             settlements: self.civ.as_ref().map(|c| c.settlements.as_slice()),
             faction_colors: self.civ.as_ref().map_or_else(Vec::new, |c| {
                 (0..c.faction_roster.0.len() as i32).map(|f| c.faction_rgb(f)).collect()

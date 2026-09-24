@@ -2887,11 +2887,17 @@ func civ_territory_paint_polygon(points: PackedVector2Array, faction: int, subtr
 		mark_world_dirty()
 	return staged
 
-func civ_territory_commit() -> void:
+## Bakes the pending stroke into the claim grid. Returns the engine's `bool`:
+## `false` when nothing was pending (or no world), and the project is marked
+## dirty only when something was committed -- after the engine call, so a
+## listener reads the committed grid, never the one before it.
+func civ_territory_commit() -> bool:
 	if not _has("civ_territory_commit"):
-		return
-	mark_world_dirty()
-	world_gen.civ_territory_commit()
+		return false
+	var committed: bool = world_gen.civ_territory_commit()
+	if committed:
+		mark_world_dirty()
+	return committed
 
 func civ_territory_discard() -> void:
 	if not _has("civ_territory_discard"):

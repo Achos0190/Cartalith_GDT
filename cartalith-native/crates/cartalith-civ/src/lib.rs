@@ -13069,9 +13069,11 @@ pub fn jp_infra_context(
 /// real signal that a stage with no town near it is nonetheless inhabited.
 ///
 /// `territory` is `assign_territory`'s output (`-1` = unclaimed); `None` is the
-/// reference's own "no territory solution yet" branch.
+/// reference's own "no territory solution yet" branch. A slice that is not a
+/// whole `gw x gh` grid takes that branch too: a reopened project whose
+/// archive carried no claim grid has an empty one, and indexing it panicked.
 pub fn jp_claimed_at(territory: Option<&[i32]>, gw: usize, gh: usize, gx: f64, gy: f64) -> bool {
-    let Some(t) = territory else { return false };
+    let Some(t) = territory.filter(|t| t.len() == gw * gh) else { return false };
     let xi = (js_round(gx) as i64).clamp(0, gw as i64 - 1) as usize;
     let yi = (js_round(gy) as i64).clamp(0, gh as i64 - 1) as usize;
     t[yi * gw + xi] >= 0
@@ -15865,6 +15867,18 @@ pub fn jp_auto_stage_picks(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A claim grid that is not `gw x gh` (a reopened project whose archive
+    /// carried none holds an empty one) is the reference's "no territory"
+    /// branch, not an index: this panicked before, for any route of two
+    /// points. A whole grid still answers from its cell.
+    #[test]
+    fn jp_claimed_at_takes_a_partial_grid_as_no_territory() {
+        assert!(!jp_claimed_at(Some(&[]), 2, 2, 1.0, 1.0));
+        assert!(!jp_claimed_at(None, 2, 2, 1.0, 1.0));
+        assert!(jp_claimed_at(Some(&[-1, -1, -1, 4]), 2, 2, 1.0, 1.0));
+        assert!(!jp_claimed_at(Some(&[4, 4, 4, -1]), 2, 2, 1.0, 1.0));
+    }
 
     fn tb_map(pairs: &[(&'static str, f64)]) -> std::collections::HashMap<&'static str, f64> {
         pairs.iter().cloned().collect()

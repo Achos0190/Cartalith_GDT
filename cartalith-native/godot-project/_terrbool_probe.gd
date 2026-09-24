@@ -6,6 +6,8 @@ extends SceneTree
 ##      marks the project dirty only when a dab was staged;
 ##   2. `civ_territory_paint_polygon` still returns `-1` for a refused faction,
 ##      and does not mark the project dirty then;
+##   2b. `civ_territory_commit` returns the engine's `bool` and marks dirty
+##      only after a commit that happened;
 ##   3. Ruling AT (2026-09-24), measured: Go to year at an unrecorded year
 ##      leaves territory -- and a pending stroke -- exactly as it was; at a
 ##      recorded year the snapshot comes back and becomes the paint base, so a
@@ -66,6 +68,31 @@ func _initialize() -> void:
 	_check("lasso: a real ring stages cells", n_ok > 0, "%d" % n_ok)
 	_check("lasso: staged cells mark the project dirty", bridge.world_dirty == true)
 	bridge.civ_territory_discard()
+
+	## 2b. The commit wrapper (§2.11 "Three small reopen/territory defects"):
+	## returns the engine's `bool`, marks dirty only when something was
+	## committed, and only after the engine call -- a listener on
+	## `dirty_changed` reads the committed grid, not the one before it.
+	bridge._set_dirty(false)
+	var none = bridge.civ_territory_commit()
+	_check("commit: nothing pending returns false", typeof(none) == TYPE_BOOL and none == false, "%s (type %d)" % [none, typeof(none)])
+	_check("commit: nothing pending leaves the project clean", bridge.world_dirty == false)
+	var before_commit := int(wg.civ_faction_territory_stats(f).get("claimed_cells", -1))
+	bridge.civ_territory_paint_polygon(PackedVector2Array([Vector2(100, 100), Vector2(120, 100), Vector2(120, 120), Vector2(100, 120)]), f, false)
+	bridge._set_dirty(false)
+	var seen := [-1]
+	var listener := func(v: bool) -> void:
+		if v:
+			seen[0] = int(wg.civ_faction_territory_stats(f).get("claimed_cells", -1))
+	bridge.dirty_changed.connect(listener)
+	var did = bridge.civ_territory_commit()
+	bridge.dirty_changed.disconnect(listener)
+	var after_commit := int(wg.civ_faction_territory_stats(f).get("claimed_cells", -1))
+	_check("commit: a pending stroke returns true", typeof(did) == TYPE_BOOL and did == true, "%s" % did)
+	_check("commit: a real commit marks the project dirty", bridge.world_dirty == true)
+	_check("premise: the commit claimed cells", after_commit > before_commit, "%d -> %d" % [before_commit, after_commit])
+	_check("commit: the dirty listener reads the committed grid", seen[0] == after_commit, "listener saw %d, committed %d, before %d" % [seen[0], after_commit, before_commit])
+	bridge._set_dirty(false)
 
 	## 3. Go to year (Ruling AT), measured.
 	var live := _total(wg, ids)

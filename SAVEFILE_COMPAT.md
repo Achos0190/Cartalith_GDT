@@ -1063,6 +1063,7 @@ for a settlement or a way; for a **faction** id `0` is meaningful and means
 | Member | Type | Required | Meaning |
 |---|---|---|---|
 | `next_id` | integer | SHOULD | The next id an editor should hand out. A reader MUST raise it to `max(id) + 1` if the stored value is lower — otherwise a newly placed settlement collides with an existing one. Absent: derive it the same way. |
+| `name_stream` | integer `0..2^32` | MAY | Added 2026-09-24. The position of the stream that names and populates a hand-placed settlement given no name — this port's `CivTools::name_rng`, a mulberry32 whose whole state is this one number. A reader resumes the stream here, so a blank-named placement after reopening cannot draw a name one before the save already drew. Absent (every earlier archive, and a writer with no such stream): start the stream as a fresh session would. |
 | `settlements[].id` | integer ≥ 1 | MUST | Stable id. Unique within the array. |
 | `settlements[].x`, `.y` | integer | MUST | Grid cell, `0 ≤ x < GW`, `0 ≤ y < GH`. A reader MUST discard a settlement outside the grid. |
 | `settlements[].name` | string | MUST | May be empty. |
@@ -2452,7 +2453,12 @@ The Territory tool's paint layer is not stored either: `rasters/territory.i32`
 already holds every committed stroke merged in. A reopened project's Territory
 tool therefore starts from the saved claim grid with no paint, and a subtract
 stroke restores the saved owner rather than the one the generator first
-computed — the same base a jump to a recorded year gives it.
+computed — the same base a jump to a recorded year gives it. An archive with
+no `rasters/territory.i32` (§8.1: "No territory") reopens with no claim grid
+and says so in `project_open`'s warnings; its Territory tool starts from
+"nothing claimed", so the first committed stroke makes a whole grid holding
+only what was painted. Until then nothing is written back: a re-save leaves
+the raster absent rather than storing the unknown as unowned cells.
 
 ### 16.7 The edit history — and the save time, which is the file's own
 

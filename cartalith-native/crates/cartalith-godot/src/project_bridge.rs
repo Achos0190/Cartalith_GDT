@@ -253,8 +253,26 @@ const ENGINE_OWNED_SLOTS: &[&str] = &[
 struct SettlementsDoc {
     #[serde(default)]
     next_id: u64,
+    /// §9.1's `name_stream`: the manual-placement name/population stream's
+    /// position (`CivTools::name_rng`, `Mulberry32::state`). Without it a
+    /// reopened project restarts that stream from the seed and hands the next
+    /// blank-named drop a name an earlier drop already drew. Omitted when
+    /// there is no stream to record (no Territory/Settlement tool state), and
+    /// absent in every archive written before 2026-09-24, which reopen as they
+    /// always did: from the seed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name_stream: Option<u32>,
     #[serde(default)]
     settlements: Vec<SettlementDto>,
+}
+
+/// Just §9.1's `name_stream`, read without materialising the settlements --
+/// the one member of that document `civ_from_project` does not hand back,
+/// because the stream belongs to `CivTools`, not `CivData`.
+#[derive(Deserialize)]
+struct NameStreamOnly {
+    #[serde(default)]
+    name_stream: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1580,10 +1598,14 @@ fn dto_to_journey(d: &JourneyDto) -> cartalith_civ::travel_library::Journey {
 /// keyed by slot, plus the civ rasters. Pure — no Godot, no filesystem —
 /// so the round-trip tests below run under `cargo test -p cartalith-godot`
 /// with no Godot runtime involved.
-fn civ_documents(civ: &CivData, out: &mut BTreeMap<String, String>) {
+///
+/// `name_stream` is `CivTools::name_rng`'s position, `None` when there is no
+/// tool state to record it from (the member is then omitted, §9.1).
+fn civ_documents(civ: &CivData, name_stream: Option<u32>, out: &mut BTreeMap<String, String>) {
     let extras = &civ.place_extras.0;
     let settlements = SettlementsDoc {
         next_id: civ.next_tid,
+        name_stream,
         settlements: civ
             .settlements
             .iter()
@@ -2003,7 +2025,28 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
     // track. Absent (every earlier archive) is `None`, as it always was.
     let territory_year = timeline_doc.territory_year.filter(|y| timeline.iter().any(|s| s.year == *y));
 
-    let territory = take_i32("rasters/territory.i32");
+    // §8.1: an absent claim grid is "No territory" -- not a grid of unowned
+    // cells, which is a real answer (everything unclaimed) and which the next
+    // save would then write back as if it had been read. So it stays empty,
+    // the shape every reader of `CivData::territory` already tests for
+    // (`len() == gw * gh`), a re-save leaves it absent, and the loss is
+    // reported. A raster that is present but the wrong size or element type
+    // is the same unknown, and says so.
+    let territory = match data.raster("rasters/territory.i32") {
+        Some(Raster::I32(v)) if v.len() == n => v.clone(),
+        other => {
+            warnings.push(if other.is_none() {
+                "rasters/territory.i32: absent -- the settlements came back but their claimed territory did not; \
+                 paint it, or run Recompute civilisation (which needs the full world), to rebuild it"
+                    .to_string()
+            } else {
+                "rasters/territory.i32: not an i32 grid of this world's size -- territory was not restored; \
+                 paint it, or run Recompute civilisation (which needs the full world), to rebuild it"
+                    .to_string()
+            });
+            Vec::new()
+        }
+    };
     let provinces = take_i32("rasters/provinces.i32");
     let water_bodies = match data.raster("rasters/water_bodies.u8") {
         Some(Raster::U8(v)) if v.len() == n => v.clone(),
@@ -2047,6 +2090,42 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
         belief_seed_key: Vec::new(),
         territory_year,
     })
+}
+
+/// The Territory/Settlement tools' model for a reopened project, as `absorb`
+/// builds it for a generate, from what the archive actually holds:
+///
+/// - **The paint base** is the restored claim grid (every stroke committed
+///   before the save is already merged into it; §16.6). When the archive
+///   carried no claim grid (`civ.territory` empty, reported by
+///   [`civ_from_project`]) nothing is known to be claimed, so the base is
+///   "nothing claimed" at this world's size: a stroke then commits onto a
+///   whole grid and a subtract falls through to unclaimed -- the only owner
+///   the archive can vouch for. `civ.territory` itself stays empty until that
+///   first commit, so nothing reads the unknown as "all unclaimed" before then.
+/// - **The manual-placement name stream** resumes at §9.1's `name_stream`, so
+///   a blank-named drop after reopening cannot draw a name one before the save
+///   already drew. Absent (every archive written before 2026-09-24) keeps the
+///   seed-folded start `CivTools::new` gives.
+fn civ_tools_for_reopen(
+    gw: usize,
+    gh: usize,
+    civ: &CivData,
+    seed: u32,
+    data: &cartalith_io::ProjectData,
+) -> crate::civ_tools_bridge::CivTools {
+    let base = if civ.territory.len() == gw * gh { civ.territory.clone() } else { vec![0; gw * gh] };
+    let mut tools = crate::civ_tools_bridge::CivTools::new(gw, gh, base, seed);
+    if let Some(state) = civ_name_stream(data) {
+        tools.name_rng = cartalith_rng::Mulberry32::new(state);
+    }
+    tools
+}
+
+/// §9.1's `name_stream`, or `None` when the settlements document is absent,
+/// unreadable, or predates the member.
+fn civ_name_stream(data: &cartalith_io::ProjectData) -> Option<u32> {
+    data.parse::<NameStreamOnly>(SLOT_SETTLEMENTS).and_then(|r| r.ok()).and_then(|d| d.name_stream)
 }
 
 // ===================== the Godot surface =====================
@@ -2275,7 +2354,7 @@ impl WorldGen {
 
         let mut documents: BTreeMap<String, String> = BTreeMap::new();
         if let Some(civ) = self.civ.as_ref() {
-            civ_documents(civ, &mut documents);
+            civ_documents(civ, self.civ_tools.as_ref().map(|t| t.name_rng.state()), &mut documents);
             civ_rasters(civ, n, &mut write);
         }
 
@@ -2543,6 +2622,11 @@ impl WorldGen {
     ///   distinction between the two sources, so there is one key rather
     ///   than two to remember to show.
     ///
+    ///   Beside those row-level skips the restore pass also reports a
+    ///   substrate it could not honour, and (since 2026-09-24) a civ layer
+    ///   whose `rasters/territory.i32` was absent or unreadable -- restored
+    ///   with no claim grid rather than an all-unowned one ([`civ_from_project`]).
+    ///
     ///   **Two is what this pass drops, not what §6.4a asks for.** They are
     ///   the pass's only two `filter_map`s (`grep -n 'filter_map'` over the
     ///   restore block, 2026-09-06); its rung-1 *substitutions* — a
@@ -2677,8 +2761,9 @@ impl WorldGen {
         if let Some(civ) = civ_from_project(&data, n, &mut restore_warnings) {
             // The Territory tool's model, as `absorb` builds it for a generate:
             // the claim grid as the base, no paint, and the manual-placement
-            // name stream folded from this world's seed (`load_save` has just
-            // set `self.seed` from the archive). The base is the *restored*
+            // name stream where the save left it, or folded from this world's
+            // seed for an older archive (`load_save` has just set `self.seed`
+            // from it) -- [`civ_tools_for_reopen`]. The base is the *restored*
             // grid, which already carries every stroke committed before the
             // save -- the paint layer is not stored -- so a subtract dab
             // restores the saved owner, not the one `assign_territory` first
@@ -2686,11 +2771,12 @@ impl WorldGen {
             // grid after a timeline jump. With it, territory paint and
             // GeoJSON border import work on a reopened project. Built for
             // any restored civ layer, substrate or not: neither reads it.
-            self.civ_tools = Some(crate::civ_tools_bridge::CivTools::new(
+            self.civ_tools = Some(civ_tools_for_reopen(
                 self.gw.max(0) as usize,
                 self.gh.max(0) as usize,
-                civ.territory.clone(),
+                &civ,
                 self.seed as u32,
+                &data,
             ));
             self.civ = Some(civ);
             self.civ_dirty = false;
@@ -4199,7 +4285,7 @@ mod tests {
         };
         let mut write = ProjectWrite::new(&params, &fields);
         let mut documents = BTreeMap::new();
-        civ_documents(civ, &mut documents);
+        civ_documents(civ, None, &mut documents);
         write.documents = documents;
         if civ.territory.len() == n {
             write.raster("rasters/territory.i32", Raster::I32(civ.territory.clone()));
@@ -4525,7 +4611,7 @@ mod tests {
         civ.next_tid = 501;
 
         let mut documents = BTreeMap::new();
-        civ_documents(&civ, &mut documents);
+        civ_documents(&civ, None, &mut documents);
         let settlements = documents
             .get_mut(SLOT_SETTLEMENTS)
             .expect("the civ layer always writes its settlements");
@@ -5042,7 +5128,7 @@ mod tests {
     fn faction_tariffs_survive_a_real_archive_round_trip() {
         let plain = sample_civ();
         let mut docs = BTreeMap::new();
-        civ_documents(&plain, &mut docs);
+        civ_documents(&plain, None, &mut docs);
         assert!(
             !docs[SLOT_FACTIONS].contains("tariffs"),
             "no tariff set, no key written"
@@ -5818,7 +5904,7 @@ mod tests {
         // implementation and nothing in this workspace.
         let civ = sample_civ();
         let mut docs = BTreeMap::new();
-        civ_documents(&civ, &mut docs);
+        civ_documents(&civ, None, &mut docs);
 
         let s: serde_json::Value = serde_json::from_str(&docs[SLOT_SETTLEMENTS]).unwrap();
         assert_eq!(s["next_id"], 22);
@@ -5852,7 +5938,7 @@ mod tests {
         const MAX_SAFE: u64 = 9_007_199_254_740_991;
         let civ = sample_civ();
         let mut docs = BTreeMap::new();
-        civ_documents(&civ, &mut docs);
+        civ_documents(&civ, None, &mut docs);
         for text in docs.values() {
             let v: serde_json::Value = serde_json::from_str(text).unwrap();
             let mut worst: u64 = 0;
@@ -6433,7 +6519,7 @@ mod substrate_tests {
             substrate::write_substrate(ws, n, &mut write).expect("a generated world's substrate is writable");
         }
         let mut documents = BTreeMap::new();
-        civ_documents(civ, &mut documents);
+        civ_documents(civ, None, &mut documents);
         civ_rasters(civ, n, &mut write);
         write.documents = documents;
         let mut buf = Vec::new();
@@ -6728,7 +6814,7 @@ mod substrate_tests {
         // Re-saved, its ways and timeline documents are byte-identical: an
         // absent member is written back absent, never as an empty claim.
         let mut docs = BTreeMap::new();
-        civ_documents(&civ, &mut docs);
+        civ_documents(&civ, None, &mut docs);
         for slot in [SLOT_WAYS, SLOT_TIMELINE] {
             let Some(old) = data.text_of(slot) else { continue };
             assert_eq!(docs[slot], old, "{slot} re-serialises byte for byte");
@@ -6737,6 +6823,90 @@ mod substrate_tests {
         // civ layer, which this very archive restores.
         assert!(!substrate::NEEDS_SUBSTRATE.contains("civilisation layer"));
         assert!(substrate::NEEDS_SUBSTRATE.contains("regenerate"));
+    }
+
+    /// The real pre-substrate archive `a_project_saved_before_the_substrate_
+    /// opens_and_says_so` documents the provenance of.
+    const PRE_SUBSTRATE: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
+
+    #[test]
+    fn an_archive_without_its_claim_grid_reopens_with_no_territory_and_says_so() {
+        // Control: the real archive, whole.
+        let data = project::read_project(Cursor::new(PRE_SUBSTRATE)).expect("the fixture reads");
+        let (gw, gh) = (data.save.params.gw, data.save.params.gh);
+        let n = gw * gh;
+        let mut warnings = Vec::new();
+        let whole = civ_from_project(&data, n, &mut warnings).expect("its civ layer restores");
+        assert_eq!(whole.territory.len(), n);
+        assert!(whole.territory.iter().any(|&t| t > 0), "premise: the fixture holds claims");
+        assert!(warnings.is_empty(), "{warnings:?}");
+
+        // The same archive with that one raster taken out.
+        let stripped = without(PRE_SUBSTRATE, "rasters/territory.shuffled.i32");
+        let data = project::read_project(Cursor::new(&stripped[..])).expect("still reads");
+        assert!(data.raster("rasters/territory.i32").is_none(), "premise: the raster is gone");
+        let mut warnings = Vec::new();
+        let mut civ = civ_from_project(&data, n, &mut warnings).expect("its civ layer still restores");
+        assert!(civ.territory.is_empty(), "absent is no territory, not {} unowned cells", civ.territory.len());
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].starts_with("rasters/territory.i32: absent"), "{warnings:?}");
+        assert_eq!(civ.settlements.len(), whole.settlements.len(), "everything else still restores");
+
+        // A re-save leaves it absent rather than writing the unknown as zeros.
+        let mut write = ProjectWrite::new(&data.save.params, &data.save.fields);
+        civ_rasters(&civ, n, &mut write);
+        assert!(!write.rasters.contains_key("rasters/territory.i32"));
+        assert!(write.rasters.contains_key("rasters/provinces.i32"), "premise: the writer ran");
+
+        // The tool's base is "nothing claimed" at this world's size, so a
+        // stroke commits onto a whole grid and claims exactly its own cells.
+        let mut tools = civ_tools_for_reopen(gw, gh, &civ, data.save.params.seed as u32, &data);
+        assert_eq!(tools.territory_base, vec![0; n]);
+        assert!(tools.paint_at(10.0, 10.0, 2, 3.0, false));
+        assert!(tools.commit(&mut civ.territory));
+        assert_eq!(civ.territory.len(), n);
+        assert_eq!(civ.territory[10 * gw + 10], 2);
+        assert!(civ.territory.iter().all(|&t| t == 0 || t == 2), "only the stroke is claimed");
+    }
+
+    #[test]
+    fn a_reopened_project_resumes_the_manual_name_stream() {
+        use crate::civ_tools_bridge::{manual_settlement_name, manual_settlement_pop, CivTools};
+        let mut data = project::read_project(Cursor::new(PRE_SUBSTRATE)).expect("the fixture reads");
+        let (gw, gh) = (data.save.params.gw, data.save.params.gh);
+        let seed = data.save.params.seed as u32;
+        let civ = civ_from_project(&data, gw * gh, &mut Vec::new()).expect("its civ layer restores");
+        assert_eq!(civ_name_stream(&data), None, "premise: written before the member existed");
+        // One blank-named drop's draws, in `drop_settlement`'s order.
+        let culture = cartalith_civ::civ_default_culture(1);
+        let drop = |t: &mut CivTools| {
+            let name = manual_settlement_name("", culture, &mut t.name_rng);
+            manual_settlement_pop(cartalith_civ::SettlementKind::Town, 0.0, &mut t.name_rng);
+            name
+        };
+
+        let mut session = civ_tools_for_reopen(gw, gh, &civ, seed, &data);
+        let before: Vec<String> = (0..5).map(|_| drop(&mut session)).collect();
+        // The defect: an archive without the member restarts at the seed.
+        let mut restarted = civ_tools_for_reopen(gw, gh, &civ, seed, &data);
+        assert_eq!(drop(&mut restarted), before[0], "premise: without it, the first name repeats");
+
+        // Save with the stream's position, reopen, place five more.
+        let mut docs = BTreeMap::new();
+        civ_documents(&civ, Some(session.name_rng.state()), &mut docs);
+        assert!(docs[SLOT_SETTLEMENTS].contains("\"name_stream\":"), "{}", &docs[SLOT_SETTLEMENTS][..80]);
+        data.documents.insert(SLOT_SETTLEMENTS.to_string(), serde_json::from_str(&docs[SLOT_SETTLEMENTS]).unwrap());
+        let mut reopened = civ_tools_for_reopen(gw, gh, &civ, seed, &data);
+        let after: Vec<String> = (0..5).map(|_| drop(&mut reopened)).collect();
+        let unbroken: Vec<String> = (0..5).map(|_| drop(&mut session)).collect();
+        assert_eq!(after, unbroken, "the reopened stream is the session's own continuation");
+        for a in &after {
+            assert!(!before.contains(a), "{a} was drawn before the save as well: {before:?}");
+        }
+        // Absent stays absent: no stream, no member.
+        let mut none = BTreeMap::new();
+        civ_documents(&civ, None, &mut none);
+        assert!(!none[SLOT_SETTLEMENTS].contains("name_stream"));
     }
 
     /// The archive without one entry, copied raw.
