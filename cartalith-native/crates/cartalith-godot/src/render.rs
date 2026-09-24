@@ -1556,6 +1556,14 @@ pub struct TerrainAppearance {
     /// boolean for stage 2, which is why the GUI row is one group called
     /// *"Ice & snow"* rather than a strength beside an unrelated checkbox.
     pub ice_strength: f64,
+    /// Ruling AP (2026-09-23): how far a slope's facing moves the snow term, in
+    /// degrees C at full slope strength -- shaded (poleward-facing) slopes
+    /// hold snow warmer, sun-facing ones lose it colder. `0.0` is off by a
+    /// BRANCH in [`material_weights`], and `js_reference()` sets it, so the
+    /// parity path keeps the reference's temperature-only snow. `2.0`
+    /// shipped: a 200-300 m snowline difference between the two sides of a
+    /// ridge at the usual ~6.5 C/km lapse rate.
+    pub snow_aspect_c: f64,
 
     // ---- `GUI_GAP_REGISTER.md` CA-02: the elevation colour ramp ----
     /// How far the material colour is pulled toward [`Self::ramp`]'s colour
@@ -1939,6 +1947,8 @@ impl Default for TerrainAppearance {
             // one the stage is the milestone. The `0.0` that matters is
             // `js_reference`'s.
             ice_strength: 1.0,
+            // Ruling AP: snow follows slope facing on the shipped map.
+            snow_aspect_c: 2.0,
             // CA-02: off, so the shipped look is unchanged; the ramp behind it
             // is real so the slider has something to reveal.
             ramp_strength: 0.0,
@@ -2217,6 +2227,9 @@ impl TerrainAppearance {
             // block is inside an `if`, so this is off by control flow and not
             // by arithmetic.
             ice_strength: 0.0,
+            // Ruling AP's snow aspect term: the reference's snow reads
+            // temperature alone, so the parity path has none (a branch).
+            snow_aspect_c: 0.0,
             // LOD-D5, same rule a fourth time: the reference's tile shades at
             // one fixed balance of bands, draws its crest over a one-pixel
             // stencil and hands its river SDF the grid's own threshold at
@@ -4473,7 +4486,32 @@ pub(crate) struct Weights {
     pub(crate) is_mangrove: bool,
 }
 
-pub(crate) fn material_weights(t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64) -> Weights {
+/// Ruling AP's snow-aspect shift, in degrees C: `a.snow_aspect_c` times the
+/// slope's `facing` toward the equator (-1 shaded .. +1 sun-facing), times
+/// slope strength (`slope / 0.04`, as `material_weights` uses). `facing` must
+/// come from the same gradient as `slope`: the LOD tile has its own
+/// sub-cell slope, and pairing that with the coarse grid's facing left snow
+/// uncorrelated with the tile's northness (LOD-D4 bar 1b, measured
+/// 2026-09-24). `0.0` whenever the appearance has the term off.
+/// A tile pixel's facing toward the equator from the tile's own y-gradient
+/// `gy` (coarse units, the one its `slope` was built from): -1 shaded .. +1
+/// sun-facing, flipped south of the equator exactly as `aspect_factor` is.
+pub(crate) fn tile_snow_facing(ctx: &RenderCtx, gy: f64, slope: f64, wy: f64) -> f64 {
+    if slope <= 1e-9 {
+        return 0.0;
+    }
+    let f = gy / slope;
+    if ctx.lat_at_f(wy) >= 0.0 { -f } else { f }
+}
+
+pub(crate) fn snow_aspect_shift(a: &TerrainAppearance, facing: f64, slope: f64) -> f64 {
+    if a.snow_aspect_c <= 0.0 || slope <= 1e-9 {
+        return 0.0;
+    }
+    a.snow_aspect_c * facing.clamp(-1.0, 1.0) * (slope / 0.04).min(1.0)
+}
+
+pub(crate) fn material_weights(t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, snow_shift_c: f64) -> Weights {
     let slope_str = (slope / 0.04).min(1.0);
     let asp_dry = clamp01(asp * slope_str * 0.22);
     let asp_wet = clamp01(-asp * slope_str * 0.12);
@@ -4499,7 +4537,13 @@ pub(crate) fn material_weights(t: f64, m: f64, slope: f64, r: f64, twi: f64, asp
     let vp = vp_raw * (1.0 - fire * 0.40);
     let c = 1.0 - (-2.0 * vp).exp();
 
-    let snow = smoothstep(3.0, -5.0, t);
+    // Ruling AP (2026-09-23): snow holds on shaded slopes and melts off
+    // sun-facing ones -- `snow_shift_c` from [`snow_aspect_shift`], computed
+    // by the caller from a facing at the SAME scale as its `slope`. A
+    // branch, so `0.0` (the parity path) is the reference's
+    // temperature-only term exactly.
+    let t_snow = if snow_shift_c != 0.0 { t + snow_shift_c } else { t };
+    let snow = smoothstep(3.0, -5.0, t_snow);
     let mut bud = 1.0 - snow;
 
     let rexp = sl.powf(1.8) * (1.0 - vp) * (1.0 - meff) + convex * 0.25;
@@ -4592,7 +4636,7 @@ pub(crate) fn apply_wetness(c: Rgb, twi: f64, k: f64) -> Rgb {
 /// `1.0` is what it is under `js_reference()` and at `default()`, which is a
 /// statement about those two appearance records rather than about this port.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64) -> Rgb {
     // CA-03/CA-04's one per-pixel test. At the default it selects the original
     // expressions at both composite sites below, so no blend-mode arithmetic
     // exists on the shipped path — see the section above [`RasterLayer`] for
@@ -4626,7 +4670,7 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     };
     let asp_e = asp * (1.0 + (n_low - 0.5) * 0.3);
 
-    let w = material_weights(te, me, slope, r, twi_e, asp_e, curv);
+    let w = material_weights(te, me, slope, r, twi_e, asp_e, curv, snow_aspect_shift(appearance, snow_facing, slope));
     let tt = clamp01(0.5 + (n_low - 0.5) * 1.1 + (n_hi - 0.5) * 0.5);
 
     // `LOD_DETAIL_SCOPE.md` LOD-D4 stage 3. `glacier` is the caller's already
@@ -6679,7 +6723,10 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
             // put through the curve (it draws one pixel per cell by
             // definition, where the curve is the identity anyway), so there
             // is nothing for it to evaluate.
-            None);
+            None,
+            // Ruling AP's snow facing, at the grid's scale -- the same
+            // gradient `slope` came from.
+            if slope > 1e-9 { asp / slope } else { 0.0 });
         // R2 ridge crests (8171) — the reference's own slot, immediately after
         // `landColorCore` and folded with its own `0.7`. `crest` is empty
         // unless the stage is on, so this is a length test everywhere else.
@@ -6975,6 +7022,8 @@ impl BakeFields {
                 // reason: giving it the curve would re-baseline it for a
                 // stage with no input.
                 None,
+                // Ruling AP's snow facing, at the grid's scale, as `cell_color`.
+                if slope > 1e-9 { asp / slope } else { 0.0 },
             );
             // R2 ridge crests, the bake's own slot (11971) — `sampleArr` of
             // the same field, folded with the same `0.7`.
@@ -8236,7 +8285,7 @@ pub fn tile_cryo_samples(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize, boun
             let asp = ctx.aspect_factor_f(wx, wy);
             let curv = ctx.curvature_at_f(wx, wy);
             let glacier = if glacier_on { sample_arr(&tf.glacier, wx, wy, gw, gh) } else { 0.0 };
-            let wts = material_weights(t, m, slope, r_frac, twi, asp, curv);
+            let wts = material_weights(t, m, slope, r_frac, twi, asp, curv, snow_aspect_shift(a, tile_snow_facing(ctx, gy, slope, wy), slope));
             let scaled = glacier * a.ice_strength;
             let (wts, ice) = if scaled > 0.0 { apply_ice_cover(wts, scaled, slope) } else { (wts, 0.0) };
             out.push(CryoSample { elevation: ht, slope, northness, temperature_c: t, snow: wts.snow, ice, rock: wts.rock, glacier });
@@ -8633,6 +8682,12 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
                         // nearly green. Asserted, not claimed, by
                         // `tests/lod_d5_scale_aware.rs`.
                         Some(DetailScale { weights: detail_w, micro_mix, micro_n: micro_n_from_residual(residual, micro_full_scale) }),
+                        // Ruling AP's snow facing from the TILE's own gradient,
+                        // the one `slope` above came from: the coarse
+                        // `aspect_factor_f` barely varies across a tile, so
+                        // pairing it with the tile slope left snow blind to
+                        // the tile's northness (LOD-D4 bar 1b, 2026-09-24).
+                        tile_snow_facing(ctx, (d - u) / (2.0 * cy), slope, wy),
                     );
                     // R2 crest, then the two SDF bands — `applyCrest` and
                     // `applyCoastRiverSDFv`, in the reference's own order and

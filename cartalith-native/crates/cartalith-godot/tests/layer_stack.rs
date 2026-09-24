@@ -245,13 +245,18 @@ fn cost_of_the_per_pixel_stack_test() {
 fn the_default_stack_renders_the_pre_change_image() {
     let s = synth();
     for (name, a, screen, bake) in [
-        ("default", TerrainAppearance::default(), 0x2e7b_4258_49e7_10d6u64, 0x9408_99ac_3349_694du64),
-        ("vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0xeb64_802f_ae20_df7b, 0x66cf_b547_b3b7_9dcc),
+        // Default re-baselined 2026-09-24 for Ruling AP's snow aspect term
+        // (screen was `0x2e7b_4258_49e7_10d6`, bake `0x9408_99ac_3349_694d`).
+        ("default", TerrainAppearance::default(), 0x76c4_8787_85be_dd95u64, 0xcfaf_7c59_f035_c92au64),
+        // Vibrant re-baselined 2026-09-24, Ruling AP (screen was `0xeb64_802f_ae20_df7b`, bake `0x66cf_b547_b3b7_9dcc`).
+        ("vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0xfb6a_cace_306d_8beb, 0x9d3f_a5b1_d6a8_e398),
         // Screen re-derived 2026-09-23 for Ruling AN (was `0xae24_83aa_9cb4_63bf`):
         // Antique is the one look here whose grade is not at rest, so it is
         // the one whose local-contrast -> grade hand-off lost its intermediate
         // byte truncation. The three others and every bake digest did not move.
-        ("antique", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0x4427_8798_5bad_05ae, 0x5cc8_aa1d_c354_b557),
+        // Antique again 2026-09-24, Ruling AP's snow aspect term (screen was
+        // `0x4427_8798_5bad_05ae`, bake `0x5cc8_aa1d_c354_b557`).
+        ("antique", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0x6c64_1fa3_e8e9_633c, 0x5468_5194_1b63_1d0d),
         ("js_reference", TerrainAppearance::js_reference(), 0x4cba_6557_c30e_4029, 0x4cba_6557_c30e_4029),
     ] {
         assert!(a.layers.is_default(), "{name} did not start on the default stack");

@@ -297,11 +297,11 @@ fn the_discharge_weight_is_resolution_free() {
 fn the_ice_cover_preserves_the_material_sum() {
     let sum = |w: &render::Weights| w.snow + w.rock + w.sand + w.wetland + w.canopy + w.grass;
     for &(t, m, slope, r) in &[(-8.0, 0.5, 0.02, 0.8), (1.0, 0.3, 0.05, 0.7), (-20.0, 0.7, 0.12, 0.9), (10.0, 0.6, 0.01, 0.2)] {
-        let w = render::material_weights(t, m, slope, r, 0.5, 0.1, 0.0);
+        let w = render::material_weights(t, m, slope, r, 0.5, 0.1, 0.0, 0.0);
         let before = sum(&w);
         assert!((before - 1.0).abs() < 1e-9, "material_weights is not Σ=1 at t={t}: {before}");
         for g in [0.0, 0.25, 0.5, 1.0] {
-            let w = render::material_weights(t, m, slope, r, 0.5, 0.1, 0.0);
+            let w = render::material_weights(t, m, slope, r, 0.5, 0.1, 0.0, 0.0);
             let (w2, ice) = render::apply_ice_cover(w, g, slope);
             let after = sum(&w2);
             assert!((after - 1.0).abs() < 1e-9, "Σ = {after} after ice cover {ice} at t={t}, glacier={g}");
@@ -318,15 +318,15 @@ fn the_ice_cover_preserves_the_material_sum() {
 /// dropping the `(1 - gr2)` factor, makes this red.
 #[test]
 fn ice_is_taken_off_steep_ground_by_the_rock_exposure_term() {
-    let w0 = || render::material_weights(-6.0, 0.4, 0.0, 0.85, 0.5, 0.1, 0.0);
+    let w0 = || render::material_weights(-6.0, 0.4, 0.0, 0.85, 0.5, 0.1, 0.0, 0.0);
     // Flat: the full potential lands.
     let (_, flat_ice) = render::apply_ice_cover(w0(), 1.0, 0.0);
     assert!((flat_ice - 1.0).abs() < 1e-12, "flat ground took only {flat_ice} of a full potential");
     // At the knee and past it: none of it does.
     for slope in [0.08, 0.12, 0.5] {
-        let w = render::material_weights(-6.0, 0.4, slope, 0.85, 0.5, 0.1, 0.0);
+        let w = render::material_weights(-6.0, 0.4, slope, 0.85, 0.5, 0.1, 0.0, 0.0);
         let rock_before = w.rock;
-        let w = render::material_weights(-6.0, 0.4, slope, 0.85, 0.5, 0.1, 0.0);
+        let w = render::material_weights(-6.0, 0.4, slope, 0.85, 0.5, 0.1, 0.0, 0.0);
         let (w2, ice) = render::apply_ice_cover(w, 1.0, slope);
         assert_eq!(ice, 0.0, "slope {slope} is at or past the 0.08 knee and still took {ice} ice");
         assert_eq!(w2.rock, rock_before, "slope {slope} lost rock to ice");
@@ -486,7 +486,12 @@ fn tile_snow_fraction_rises_with_sub_cell_height() {
     // A flat +2 °C world: nothing is snow at grid resolution, so any snow the
     // tile reports came from the lapse term and from nothing else.
     let temp = vec![2.0f32; GW * GH];
-    let a = appearance();
+    // Ruling AP's snow aspect term OFF here (2026-09-24): sub-cell relief also
+    // changes a slope's facing, which that term reads, so with it on the
+    // zeroed-lapse control below moved (0.0388 vs 0.0342). This test isolates
+    // the LAPSE term; the aspect term has its own test.
+    let mut a = appearance();
+    a.snow_aspect_c = 0.0;
     let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, false, 55.0, 5.0, a.clone());
     let snow_of = |tf: &TileFields, bump: f64| -> f64 {
         let (tile, bounds) = sub_cell_tile(&field, 20.0, 20.0, 4.0, 65, bump);
@@ -906,6 +911,18 @@ seed {seed}: sea {sea:.3}, snow_el {snow_el:.3}; {gated} of {} cells pass the gl
             Some(r) => println!("   BAR 1b snow vs northness inside the band: r = {r:+.3} over {} px   (bar: |r| >= 0.2)", band.len()),
             None => println!("   BAR 1b snow vs northness: -- the band holds {} px with no variance", band.len()),
         }
+        // Bar 1b, selected by the INPUT (2026-09-24). The band above keeps pixels
+        // by their snow value -- the outcome under test -- so an aspect term
+        // that pushes shaded ground to full snow moves those pixels OUT of the
+        // band, and the north-facing pixels left in it are the warm ones: the
+        // selection itself drives r negative. Selecting by the temperature the
+        // snow term reads (its own -5..3 C transition) has no such bias.
+        let tband: Vec<&render::CryoSample> = s.iter().filter(|c| c.temperature_c > -5.0 && c.temperature_c < 3.0).collect();
+        let (ts, tn): (Vec<f64>, Vec<f64>) = (tband.iter().map(|c| c.snow).collect(), tband.iter().map(|c| c.northness).collect());
+        match pearson(&ts, &tn) {
+            Some(r) => println!("   BAR 1b' snow vs northness, band chosen by temperature: r = {r:+.3} over {} px   (bar: r >= +0.2)", tband.len()),
+            None => println!("   BAR 1b' snow vs northness: -- the temperature band holds {} px with no variance", tband.len()),
+        }
         let (all_s, all_n): (Vec<f64>, Vec<f64>) = (s.iter().map(|c| c.snow).collect(), s.iter().map(|c| c.northness).collect());
         let all_sl: Vec<f64> = s.iter().map(|c| c.slope).collect();
         println!(
@@ -1056,4 +1073,25 @@ fn measure_the_cost() {
     if b_ms[0] <= a_ms[8] && a_ms[0] <= b_ms[8] {
         println!("   the two brackets OVERLAP -- no per-tile difference is established at this sample size");
     }
+}
+
+/// Ruling AP (2026-09-23): snow gets an aspect term. At the same temperature a
+/// shaded, poleward-facing slope holds more snow than a sun-facing one, a flat
+/// cell is unaffected, and with the term off (`snow_aspect_c = 0.0`, which
+/// `js_reference()` sets) facing changes nothing -- the reference's
+/// temperature-only snow, exactly.
+#[test]
+fn snow_holds_on_shaded_slopes_and_melts_off_sun_facing_ones() {
+    let on = TerrainAppearance::default();
+    let parity = TerrainAppearance::js_reference();
+    let (t, m, slope, r) = (-1.0, 0.4, 0.05, 0.8);
+    let snow = |a: &TerrainAppearance, facing: f64, s: f64| {
+        render::material_weights(t, m, s, r, 0.5, facing * s, 0.0, render::snow_aspect_shift(a, facing, s)).snow
+    };
+    let (shaded, sunny) = (snow(&on, -1.0, slope), snow(&on, 1.0, slope));
+    println!("snow at {t} C: shaded {shaded:.4}, sun-facing {sunny:.4}");
+    assert!(shaded > sunny + 0.05, "shaded {shaded} should clearly out-snow sun-facing {sunny}");
+    assert_eq!(snow(&on, 0.0, 0.0), snow(&parity, 0.0, 0.0), "a flat cell has no facing, so the term must not touch it");
+    assert_eq!(parity.snow_aspect_c, 0.0, "the parity path must keep temperature-only snow");
+    assert_eq!(snow(&parity, -1.0, slope), snow(&parity, 1.0, slope), "with the term off, facing must change nothing");
 }

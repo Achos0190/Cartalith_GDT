@@ -132,7 +132,10 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 
 /// The finished default render, hashed. **Measured 2026-09-03, on the tree as
 /// it stood before `render::ColorSpace` was written**, and unchanged by it.
-const FINISHED_RENDER_FNV1A: u64 = 0x6154_1058_49e7_10d6;
+/// **Re-baselined 2026-09-24 for Ruling AP's snow aspect term** (was
+/// `0x6154_1058_49e7_10d6`): the shipped look's snow now follows slope
+/// facing (`TerrainAppearance::snow_aspect_c`); `js_reference()` is untouched.
+const FINISHED_RENDER_FNV1A: u64 = 0xbd99_2187_85be_dd95;
 
 #[test]
 fn default_render_is_byte_identical_to_the_pre_color_space_tree() {
@@ -192,8 +195,11 @@ fn fusing_the_finishing_passes_is_a_bounded_rounding_change() {
         ("Antique P3", antique, ColorSpace::DisplayP3),
         ("strong grade sRGB", strong_grade(), ColorSpace::Srgb),
     ];
-    // (label, pixels that differ, worst upward move) -- measured 2026-09-23.
-    let want = [("default sRGB", 0, 0), ("default P3", 5012, 1), ("Antique sRGB", 5139, 2), ("Antique P3", 9318, 2), ("strong grade sRGB", 5276, 2)];
+    // (label, pixels that differ, worst upward move) -- measured 2026-09-23;
+    // re-measured 2026-09-24 after Ruling AP's snow aspect term changed the image
+    // (default P3 was 5012, Antique sRGB 5139, Antique P3 9318,
+    // strong grade sRGB 5276).
+    let want = [("default sRGB", 0, 0), ("default P3", 5016, 1), ("Antique sRGB", 5115, 2), ("Antique P3", 9320, 2), ("strong grade sRGB", 5182, 2)];
     for ((label, a, space), (wl, wpx, wworst)) in cases.into_iter().zip(want) {
         assert_eq!(label, wl);
         let (fused, chained) = (finished_render_in(&a, space), chained_render_in(&a, space));
@@ -220,13 +226,17 @@ fn fusing_the_finishing_passes_is_a_bounded_rounding_change() {
 /// stages run and the change is largest. **Before Ruling AN** the same fixture
 /// hashed `0x6c83_b198_b39e_4d68` (measured on `43a2f76`, and reproduced here
 /// by `chained_render_in` — it is the value the old chain still produces).
-const ANTIQUE_P3_FNV1A: u64 = 0xf96d_1e67_6c25_daae;
+/// Re-baselined 2026-09-24 for Ruling AP's snow aspect term (was
+/// `0xf96d_1e67_6c25_daae`).
+const ANTIQUE_P3_FNV1A: u64 = 0x0647_711d_8f36_5fea;
 
 #[test]
 fn the_graded_wide_gamut_render_is_the_re_baselined_image() {
     let antique = TerrainAppearance::default().with_look(render::LOOK_ANTIQUE);
     assert_eq!(fnv1a(&finished_render_in(&antique, ColorSpace::DisplayP3)), ANTIQUE_P3_FNV1A);
-    assert_eq!(fnv1a(&chained_render_in(&antique, ColorSpace::DisplayP3)), 0x6c83_b198_b39e_4d68);
+    // The old chain's value moved too with Ruling AP's snow aspect term
+    // (2026-09-24; was `0x6c83_b198_b39e_4d68`).
+    assert_eq!(fnv1a(&chained_render_in(&antique, ColorSpace::DisplayP3)), 0x3b64_bc1d_2eac_1a1c);
 }
 
 /// Mean absolute distance, in levels, between `got` and the **continuous**
