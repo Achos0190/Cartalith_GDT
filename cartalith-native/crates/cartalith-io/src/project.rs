@@ -918,9 +918,10 @@ pub fn coerce_integral_floats(value: &mut serde_json::Value) {
     }
 }
 
-/// One project, as read. Everything past `save` is tree-only: a flat
-/// archive carries no entities, history or annotations, and the empty maps
-/// are the honest report of that rather than a failure.
+/// One project, as read. Everything past `save` is tree-only except
+/// [`ProjectData::legacy`], which is flat-only: a flat archive keeps its
+/// entities and annotations inside `params.json`'s `state` (§15.1), not in
+/// documents, so its document maps are empty and its records arrive there.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectData {
     /// The grid, the six core rasters, and the parameter state — the same
@@ -1008,6 +1009,13 @@ pub struct ProjectData {
     /// these grids -- the world substrate (§8.3) rebuilds `stream_order` from
     /// `strahler_order` -- must be able to tell which it holds.
     pub core_substituted: Option<Vec<String>>,
+    /// A flat archive's settlements, faction roster, territory, labels and
+    /// icons, read out of `state` (owner Ruling AU, [`crate::legacy`]).
+    /// `Some` for every flat archive — empty inside when it carried none —
+    /// and `None` for a tree, whose records are its documents. What did not
+    /// map is in [`LegacyProject::unmapped`](crate::legacy::LegacyProject)
+    /// and, word for word, in `warnings` below.
+    pub legacy: Option<crate::legacy::LegacyProject>,
     /// Everything that was skipped and why (`SAVEFILE_COMPAT.md` §6.4).
     ///
     /// A damaged optional entry must not cost the user their world, so it
@@ -1927,12 +1935,18 @@ fn read_tree(
         foreign,
         substrate,
         core_substituted: Some(core_substituted),
+        legacy: None,
         warnings,
     })
 }
 
 fn read_flat(archive: &mut zip::ZipArchive<impl Read + Seek>) -> Result<ProjectData, LoadError> {
     let save = crate::load_from_archive(archive)?;
+    // Ruling AU: the project layer a flat archive carries inside `state`.
+    // Its report is this reader's warnings -- a record that was present and
+    // did not map is exactly §6.4a's "reported, never silent" case.
+    let legacy = crate::legacy::read_legacy(&save.state, save.params.gw, save.params.gh);
+    let warnings = legacy.unmapped.clone();
     Ok(ProjectData {
         save,
         layout: Layout::Flat,
@@ -1959,10 +1973,11 @@ fn read_flat(archive: &mut zip::ZipArchive<impl Read + Seek>) -> Result<ProjectD
         // §15 predates the substrate (§8.3) and has no manifest to carry it.
         substrate: serde_json::Value::Null,
         core_substituted: None,
-        // Not a warning: a flat archive carrying no project layer is the
-        // format working as specified (`SAVEFILE_COMPAT.md` §15), not
-        // something the reader failed at.
-        warnings: Vec::new(),
+        legacy: Some(legacy),
+        // Only what Ruling AU's import could not carry. A flat archive with
+        // no project layer at all reports nothing: that is the format working
+        // as specified (`SAVEFILE_COMPAT.md` §15), not a reader failure.
+        warnings,
     })
 }
 

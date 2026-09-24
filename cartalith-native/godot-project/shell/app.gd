@@ -3070,6 +3070,14 @@ func _load_project(path: String) -> bool:
 		## about different halves of the same open and both are owed.
 		if bridge.last_open_layout == "flat":
 			notes.insert(0, "the older flat format — saving converts it to the project format, which the browser app cannot reopen")
+			## Owner Ruling AU: a flat archive's settlements, labels and icons
+			## are imported, and `project_open`'s warnings are the report of
+			## what did not map. The first line and the count go here; the
+			## whole list is `bridge.last_open_warnings`.
+			var nw := bridge.last_open_warnings.size()
+			if nw > 0:
+				notes.insert(1, "%s%s" % [String(bridge.last_open_warnings[0]),
+					(" (+%d more import notes)" % (nw - 1)) if nw > 1 else ""])
 		elif not bridge.last_open_warnings.is_empty():
 			notes.insert(0, String(bridge.last_open_warnings[0]))
 		if not notes.is_empty():

@@ -18,7 +18,8 @@ note about what the HTML app's `exportZip()` happened to produce.
 - **§7-§13** — entry-by-entry specification.
 - **§14** — JSON conventions. **Non-optional reading**; §14.2 describes a bug
   that has already cost this project one shipped subsystem.
-- **§15** — the legacy flat layout, read-only.
+- **§15** — the legacy flat layout, read-only. §15.5 is what this port
+  imports from one (owner Ruling AU).
 - **§16** — what is deliberately not stored, and why.
 - **§17** — notes specific to this port's own implementation (non-normative).
 - **§18** — why the container is deflate, measured. Non-normative, but it is
@@ -2270,6 +2271,54 @@ and `erosion` are not.
 
 The tree layout has no such hazard: `params.json`'s two views (§13.1) are each
 read whole, and neither is merged into a live object.
+
+### 15.5 What this port imports from a flat archive (owner Ruling AU)
+
+Non-normative: this port's reading of §15.1, not a rule for other readers.
+Owner Ruling AU (`LARGE_ITEM_RULINGS.md`, 2026-09-24): *"Legacy flat `.zip`
+archives import their settlements, labels and icons, mapped onto today's
+settlements, annotations and icons, with a report of anything that did not
+map."* Until then a flat archive opened as terrain alone.
+
+`cartalith_io::legacy::read_legacy` reads the records out of `state` and makes
+every substitution; `cartalith_io::read_project` returns them as
+`ProjectData::legacy` and puts the report in `ProjectData::warnings`, which
+`project_open` returns as its `warnings` and the shell's open status line
+shows the first of. `cartalith-godot`'s `legacy_import` turns them into the
+civilisation layer, the Label tool's list and the icon layer, from
+`WorldGen::load_save`. The world stays `Loaded` — §15 has no substrate (§8.3)
+— so the imported records are drawn and edited, and every readout that needs
+flow, channels or the tectonic grids refuses as it does for any other loaded
+world.
+
+| Flat source | Becomes | How |
+|---|---|---|
+| `state.places[]` whose `kind` is one of §9.1's six tiers | a settlement | `x`/`y` → cell (rounded if fractional, and reported; off-grid dropped and reported); `name`; `pop` → `population` (absent → 0, reported); `faction` (absent → Unclaimed, out of roster range → Unclaimed, both reported); `kind`; `capital` if present, else `kind == "capital"`; `coastal` if present, else the `port` trait; `suit` → `suitability` (absent → 0, §9.1's own default); `villageAddon` → `village_seeded`; `tid` → `id` when unique and positive, else a fresh id past the highest |
+| … whose `kind` is `monastery`, `fortress`, `university` or `industrial` | a `town` | the reference's four extra settlement classes have no tier here; reported |
+| … `traits`, `history`, `specialisation`, `umAge`, `umWalls` | the settlement's place-editor extras | a `specialisation` of `"none"` is the empty value |
+| `state.places[]` of any other `kind` (the POI tool's `ruin`, `shrine`, …), or with none (the "designate places" tool) | **nothing** | §15.1: not a settlement, and this port has no hand-placed point-of-interest record; reported by kind |
+| `state.civ.factionNames` and its four parallel arrays | the faction roster | a column the archive does not reach is this build's per-index default (reported); **every colour is this build's palette** (§15.3, reported). No `factionNames` → this build's default roster, as the reference does |
+| `state.civ.territory` (sparse pairs) | the claim grid | a pair off the grid, or naming a faction outside the roster, is skipped and reported |
+| `state.labels[]` | the Label tool's list, class `region` | `x`, `y`, `name`, `angle`, `arc`, `size` (absent → 16, the click literal), `font`/`color` carried or left absent, `sizeMode: "fixed"` → fixed, anything else zoom. Class `region` because the reference has one label kind and calls it a region name |
+| `state.mapIcons[]` | the icon layer, `origin` manual | `x`, `y`, `fam` → `family` (outside §11.2's four: dropped, reported), `slot`, `set` for `custom` only, `scale` (absent or ≤ 0 → 1, reported). Manual because the reference had no generated pass writing into `mapIcons` |
+
+Reported and **not** imported, whenever the archive carries any: every member
+of a settlement, label or icon record not named above (a real Auto-populate
+export carries `tradePop`, `tradeVolume` and `economicImportance`), each named
+with how many records held it; `state.civ.ways` (and the older `routes`) —
+outside the ruling, and a way's endpoints index the places array this import
+filters; `state.civ.journeys`; `state.civ.timeline` and its `year`; any other
+`state.civ` member; `state.roads`; painted `state.cartoPaint` cells;
+`state.region`. Provinces are not in a flat archive (§15.1) and are not
+invented.
+
+An archive with none of these records — the repository's first real export,
+written straight after `generate()` — imports nothing and reports nothing.
+Both cases are tested from real HTML-app exports:
+`crates/cartalith-io/tests/legacy_records_import.rs` against
+`real_export_seed24601.zip` and `legacy_records_seed24601.zip`, the second
+written by `tools/legacy_records_capture.js` from the unmodified v2.11
+reference.
 
 ---
 

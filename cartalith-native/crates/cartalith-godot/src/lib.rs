@@ -35,6 +35,7 @@ mod icon_bridge;
 mod infra_tools_bridge;
 mod journey_bridge;
 mod label_bridge;
+mod legacy_import;
 mod landmark_bridge;
 mod lod_bridge;
 mod lod_sweep;
@@ -272,10 +273,12 @@ enum WorldSource {
 /// carries the substrate (`SAVEFILE_COMPAT.md` §8.3), and over a terrain-only
 /// `Loaded` one when it does not. It is only ever *recomputed* over a
 /// complete world: a `Loaded` save lacks the substrate fields (`crust_field`,
-/// `boundary_type`, `shear_field`, `age_field`) the pipeline reads. `None`
-/// before the first successful `generate()`, after a legacy `.zip` load, or
-/// if generation produced zero settlement candidates (a legitimate empty-map
-/// outcome, not an error).
+/// `boundary_type`, `shear_field`, `age_field`) the pipeline reads. A legacy
+/// flat `.zip` brings its own settlements and territory in (owner Ruling AU,
+/// `legacy_import`), also over a `Loaded` world. `None` before the first
+/// successful `generate()`, after loading a save that carries no settlement
+/// and no territory, or if generation produced zero settlement candidates (a
+/// legitimate empty-map outcome, not an error).
 struct CivData {
     settlements: Vec<cartalith_civ::NamedSettlement>,
     /// Consolidated, classified, Catmull-Rom-smoothed, named road
@@ -7338,8 +7341,12 @@ impl WorldGen {
                 return false;
             }
         };
-        let save = match cartalith_io::load_save(std::io::BufReader::new(file)) {
-            Ok(s) => s,
+        // `read_project`, not `cartalith_io::load_save` (which is this call
+        // with everything but `save` thrown away): owner Ruling AU needs the
+        // flat layout's `legacy` records, and a tree archive's are ignored
+        // here because `project_open` restores them from its documents.
+        let (save, legacy, report) = match cartalith_io::read_project(std::io::BufReader::new(file)) {
+            Ok(d) => (d.save, d.legacy, d.warnings),
             Err(e) => {
                 godot_print!("cartalith-godot: load_save failed: {e}");
                 return false;
@@ -7360,9 +7367,10 @@ impl WorldGen {
         // WorldParams::defaults uses.
         self.lat_n = 55.0;
         self.lat_s = 5.0;
-        // The outgoing world's civ layer, dropped. A terrain-only save
-        // carries none; `project_open` (which calls this first) restores a
-        // project's own from its documents afterwards, and rebuilds the
+        // The outgoing world's civ layer, dropped. A flat archive's own
+        // settlements and territory are installed at the end of this function
+        // (owner Ruling AU); `project_open` (which calls this first) restores a
+        // tree project's from its documents afterwards, and rebuilds the
         // complete world under it when the archive carries the substrate
         // (`SAVEFILE_COMPAT.md` §8.3).
         self.civ = None;
@@ -7382,10 +7390,10 @@ impl WorldGen {
         // generated world -- `sculpt_commit`'s own `WorldSource::Generated`
         // match, not this clear.
         self.sculpt = None;
-        // Same restriction, for the same reason: a loaded save carries no
-        // manual-icon list at all (`SAVEFILE_COMPAT.md`), and any
-        // in-progress icons from the *previous* world would silently carry
-        // grid coordinates over the wrong dimensions if kept.
+        // The outgoing world's icons, dropped: they carry grid coordinates
+        // over the previous world's dimensions. A flat archive's own icons are
+        // installed at the end of this function (Ruling AU); a tree's are
+        // restored by `project_open` from `annotations/icons.json`.
         self.icons = None;
         // Same restriction as `civ` above, for the same reason: a loaded
         // save has no `territory` for `civ_tools_bridge::CivTools::
@@ -7408,14 +7416,9 @@ impl WorldGen {
         // stays exactly as it is: the outgoing world's editor must go
         // whether or not an incoming one replaces it.
         self.paint = None;
-        // Same restriction as `icons` above, for the same reason: a loaded
-        // save carries no label list at all (`SAVEFILE_COMPAT.md`'s "civ
-        // and UI payloads" note is about what the *reference's* save
-        // format holds, not what this port's `load_save` reconstructs --
-        // this loader has never rebuilt `civ`/`sculpt`/`icons`/`civ_tools`
-        // from a save either), and any in-progress labels from the
-        // *previous* world would silently carry grid coordinates over the
-        // wrong dimensions if kept.
+        // Same as `icons` above: the outgoing world's labels go, a flat
+        // archive's own are installed at the end of this function, and a
+        // tree's are restored by `project_open`.
         self.labels = None;
         // Same restriction as `civ` above, for the same reason: Way/Route
         // commit both need `self.civ` (never real for a loaded save, see
@@ -7568,6 +7571,28 @@ impl WorldGen {
         // fresh world. A save written before `world.name` existed leaves
         // this `None`, exactly as `world_origin` above does for `origin`.
         self.world_name = save.params.name.clone();
+        // Owner Ruling AU: a legacy flat archive's settlements, faction
+        // roster, territory, labels and icons, over this `Loaded` world. After
+        // `self.seed` above, which the Territory tool's name stream folds.
+        // The world stays `Loaded` -- the flat layout has no substrate -- so
+        // these are drawn and edited, and every substrate-needing readout
+        // still refuses with `substrate::NEEDS_SUBSTRATE`. What did not map
+        // is `report`, which `project_open` also returns as its `warnings`;
+        // it is printed here for the caller that reached this function alone.
+        if let Some(legacy) = legacy.as_ref() {
+            for line in &report {
+                godot_print!("cartalith-godot: legacy import: {line}");
+            }
+            let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+            let imported = legacy_import::import(legacy, gw, gh);
+            if let Some(civ) = imported.civ {
+                self.civ_tools = Some(crate::civ_tools_bridge::CivTools::new(gw, gh, civ.territory.clone(), self.seed as u32));
+                self.civ = Some(civ);
+                self.civ_dirty = false;
+            }
+            self.labels = imported.labels;
+            self.icons = imported.icons;
+        }
         // Every assignment to `source` bumps this -- see `world_epoch`.
         self.world_epoch = self.world_epoch.wrapping_add(1);
         self.source = Some(WorldSource::Loaded(Box::new(save)));
@@ -7588,10 +7613,11 @@ impl WorldGen {
     ///
     /// What travels: the six field entries plus the whole generation
     /// parameter table. What does **not**: the civilisation layer, labels,
-    /// icons, hand-drawn ways, paint and sculpt drafts. `load_save` clears
-    /// all of those (see its own comments), so writing them would produce a
-    /// file whose contents this port cannot read back — the format has no
-    /// place for them and the loader has nothing to put them in.
+    /// icons, hand-drawn ways, paint and sculpt drafts. The flat layout keeps
+    /// the first three inside `state` in the reference's own vocabulary, and
+    /// `load_save` now reads them back from there (owner Ruling AU,
+    /// `legacy_import`); this writer does not translate them into it, so a
+    /// save written here reopens as terrain only.
     #[func]
     fn save_project(&mut self, path: GString) -> bool {
         let Some(source) = self.source.as_ref() else {

@@ -10,6 +10,7 @@
 pub mod atlas;
 pub mod geojson_import;
 pub mod gzip;
+pub mod legacy;
 pub mod project;
 pub mod save;
 pub mod slippy;
@@ -25,6 +26,7 @@ pub use geojson_import::{
     Ring, CRS_NOTE,
 };
 pub use gzip::{gunzip_bytes, gzip_bytes};
+pub use legacy::{read_legacy, LegacyFaction, LegacyIcon, LegacyLabel, LegacyProject, LegacySettlement};
 // `project::manifest_json` is deliberately NOT re-exported here: `tiles`
 // already owns that name at the crate root and two `manifest_json`s in one
 // namespace is the kind of collision this format exists to avoid. Call it
@@ -137,9 +139,10 @@ pub struct SaveData {
     /// caller can pull what it models out of it — `cartalith-godot`'s
     /// `params::apply_saved_state` reads the generation-parameter block
     /// [`save::write_save`] wrote — without this crate having to grow a
-    /// struct for 200+ keys of civ and UI state it has nothing to
-    /// deserialize into (`SAVEFILE_COMPAT.md`'s own reasoning for approach
-    /// 1 over approach 2).
+    /// struct for 200+ keys of civ and UI state (`SAVEFILE_COMPAT.md`'s own
+    /// reasoning for approach 1 over approach 2). The settlements, labels and
+    /// icons in it are read by [`legacy::read_legacy`], through
+    /// [`project::read_project`]'s `legacy` member.
     ///
     /// `Value::Null` when the file had no `state` object at all. Reading it
     /// never fails, so a save whose `state` is unrecognisable still loads
@@ -268,8 +271,9 @@ fn json_bool(v: &serde_json::Value, path: &[&str]) -> Option<bool> {
 ///
 /// **Reads both layouts** (`SAVEFILE_COMPAT.md` §1, owner decision
 /// 2026-08-25): a flat legacy archive, and the tree a
-/// [`project::write_project`] writes. It returns only the terrain half of a
-/// tree archive — the entities, history and annotations need
+/// [`project::write_project`] writes. It returns only the terrain half of
+/// either — a tree's entities, history and annotations, and a flat archive's
+/// settlements, labels and icons ([`legacy`]), need
 /// [`project::read_project`] — so every caller that only ever wanted a
 /// world keeps working unchanged against either.
 pub fn load_save<R: Read + std::io::Seek>(reader: R) -> Result<SaveData, LoadError> {

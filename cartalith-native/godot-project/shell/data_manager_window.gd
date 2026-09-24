@@ -490,11 +490,14 @@ const PACKAGING_NOTE := "Both exports produce one stored (uncompressed) .zip. A 
 ## from the reference, so a consumer reading the file learns it too.
 const GEOJSON_CRS_NOTE := "Coordinates are local planar kilometres (east, north) at this world's own scale, with north up -- not WGS84 longitude/latitude. RFC 7946 assumes WGS84, but a procedurally generated world has no true georeference; the reference makes the same call, and the document says so in its own note property."
 
-const GEOJSON_CIV_NOTE := "Settlements, ways, territory and provinces come from the civilisation layer. A generated world and a reopened project both carry it; a legacy .zip save does not. Rivers are traced from the drainage network, which a generated world holds and a project saved since 2026-09-24 keeps; a project saved before then exports its settlements, roads and borders without rivers, and a .zip save exports a valid document with no features. Landmarks (the map's points of interest) are not exported yet, so there is no poi layer: every exported place is a settlement."
+const GEOJSON_CIV_NOTE := "Settlements, ways, territory and provinces come from the civilisation layer. A generated world and a reopened project both carry it, and so does a legacy .zip save for its settlements and painted territory -- not its ways, which that import does not bring in yet. Rivers are traced from the drainage network, which a generated world holds and a project saved since 2026-09-24 keeps; a project saved before then, and a legacy .zip save, export their settlements, roads and borders without rivers. Landmarks (the map's points of interest) are not exported yet, so there is no poi layer: every exported place is a settlement."
 ## Civ/river sentences corrected 2026-09-24 (ALIGNMENT_AUDIT Part 1 A1):
 ## `geojson_bridge.rs::export_geojson` reads `self.civ` whatever the source
 ## (a reopened .ctl project restores it) and traces rivers only for
 ## `WorldSource::Generated`; the old text had both backwards for a project.
+## Legacy-.zip sentences corrected 2026-09-24 (owner Ruling AU): a flat
+## archive now imports its settlements, faction roster and painted territory
+## (`legacy_import.rs`), but not its ways.
 ## POI sentence corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 B9): landmarks
 ## and the `poi` icon family exist; what is missing is only the GeoJSON side --
 ## `geojson_bridge.rs` builds every place `is_poi: false` and reads no landmark.
@@ -1615,9 +1618,10 @@ func _include_chips(row: Control) -> void:
 func _gis_count(key: String) -> Dictionary:
 	if _bridge == null or not _bridge.has_world:
 		return {"why": "No world is loaded."}
-	## A reopened .ctl project restores its civilisation layer; only a legacy
-	## .zip save lacks one (`SAVEFILE_COMPAT.md`). Corrected 2026-09-24.
-	var civ_absent := "None. Either this world has none (they were cleared, or never placed), or it was opened from a legacy .zip save, which carries no civilisation layer -- this window cannot tell those apart. Either way there is nothing of this group to write."
+	## A reopened .ctl project restores its civilisation layer, and a legacy
+	## .zip save brings its settlements and painted territory in (owner Ruling
+	## AU) but not its ways or provinces. Corrected 2026-09-24.
+	var civ_absent := "None. Either this world has none (they were cleared, or never placed), or it was opened from a legacy .zip save, whose import brings in settlements and painted territory but no ways or provinces -- this window cannot tell those apart. Either way there is nothing of this group to write."
 	match key:
 		"settlements":
 			var n: int = _bridge.settlements().size()

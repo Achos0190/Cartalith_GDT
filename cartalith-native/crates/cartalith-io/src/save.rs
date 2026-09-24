@@ -6,9 +6,11 @@
 //! (`DECISIONS.md` §7h): readers accept both layouts, writers produce only
 //! the tree, and the tree's writer is [`crate::project::write_project`].
 //! What survives here is §1.1's labelled export, which is lossy by
-//! construction — it can carry no settlement, no faction, no label, no
-//! recorded year and no vault link, because the flat layout has nowhere to
-//! put them.
+//! construction — it writes no settlement, no faction, no label, no recorded
+//! year and no vault link. The flat layout does have a place for most of
+//! them — inside `state`, in the HTML app's own vocabulary (§15.1), which is
+//! where [`crate::legacy`] reads them from — but this writer does not
+//! translate them back into it.
 //!
 //! Everything below this line predates that decision and describes the flat
 //! layout as it was when it was the only one. It is still accurate about
