@@ -189,4 +189,5 @@ at the code and reported these outside its own files.
 - **Owner questions confirmed unruled:** erosion §8 Q1, Q3-Q5 (the 2026-09-02
   ruling declined the clock for now); whether a sculpt commit should clear
   painted override cells (today they survive a sculpt and are dropped on
-  regenerate and load).
+  regenerate and load). *Ruled since: Ruling AS, 2026-09-24 -- a sculpt
+  commit clears the paint it covers.*

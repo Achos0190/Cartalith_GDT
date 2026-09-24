@@ -10121,8 +10121,10 @@ impl WorldGen {
     /// `stamps_applied`/`stamps_skipped` (int), `tiles_marked`
     /// (`PackedInt32Array`), `rivers_carved`/`cells_locked` (int, the
     /// River hook), `lakes_deposited`/`lake_cells` (int, the Lake hook),
-    /// and `recomputed`/`still_stale` (`PackedStringArray`, the stage names
-    /// that re-ran and the ones still waiting) -- empty `Dictionary` before
+    /// `recomputed`/`still_stale` (`PackedStringArray`, the stage names
+    /// that re-ran and the ones still waiting), and `paint_cleared`
+    /// (`{biome, terrain, splat}` ints: committed paint cells zeroed under
+    /// the stamps, Ruling AS -- see the body) -- empty `Dictionary` before
     /// any `generate()` call.
     ///
     /// Call `build_color_texture()` again afterward to see the result --
@@ -10145,6 +10147,36 @@ impl WorldGen {
         let (Some(sculpt), Some(WorldSource::Generated(ws))) = (self.sculpt.as_mut(), self.source.as_mut()) else {
             return VarDictionary::new();
         };
+        // Ruling AS (2026-09-24): the paint under each committed stamp is
+        // cleared, because a sculpt changes the ground. Footprint first --
+        // the commit below empties the draft it is read from -- and only
+        // when a layer has ever been painted, since the footprint is a second
+        // coverage pass over every stamp.
+        //
+        // **Undo does not bring it back, and says so.** The global undo
+        // stack snapshots HEIGHT only, and a paint commit is already a
+        // `Recorded`, non-reversible ledger row ("the pre-commit paint layer
+        // is not retained"). The clear follows that model rather than growing
+        // a paint snapshot: it records its own `Recorded` row BEFORE the
+        // sculpt's height row, so Edit > Undo pops the sculpt and leaves the
+        // "paint cleared" row standing -- which is the truth about the state
+        // after that undo.
+        let n = (self.gw as usize) * (self.gh as usize);
+        let paint_cleared = match self.paint.as_mut() {
+            Some(p) if p.has_committed_paint() => p.clear_cells_under(n, &sculpt.footprint()),
+            _ => [0, 0, 0],
+        };
+        let [pc_biome, pc_terrain, pc_splat] = paint_cleared;
+        if pc_biome + pc_terrain + pc_splat > 0 {
+            self.ledger.record(
+                "paint",
+                "Sculpt cleared paint",
+                format!("{pc_biome} biome, {pc_terrain} terrain, {pc_splat} splat cells"),
+                undo::EntryKind::Recorded(
+                    "cleared under the sculpt's stamps; paint is not snapshotted, so undoing the sculpt restores height only",
+                ),
+            );
+        }
         // Global heightmap undo, the reference's own call site (`sculptCommit`
         // opens with `pushUndo()`, reference HTML line 9319). Pushed here
         // rather than at the button, so a commit that turns out to apply
@@ -10191,6 +10223,11 @@ impl WorldGen {
             "lake_cells" => lake_cells,
             "recomputed" => &recomputed,
             "still_stale" => &still_stale,
+            "paint_cleared" => &vdict! {
+                "biome" => pc_biome as i64,
+                "terrain" => pc_terrain as i64,
+                "splat" => pc_splat as i64,
+            },
         }
     }
 

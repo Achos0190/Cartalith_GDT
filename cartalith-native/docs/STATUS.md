@@ -704,7 +704,14 @@ orogeny derivation (`cartalith-engine::world_structure_orogeny_ks`, pinned by
 `cartalith-engine/tests/world_structure_orogeny.rs`) and the `sea_grain_warp`
 default (`1.0` in `TerrainAppearance::default()`, `0.0` pinned in
 `js_reference()`; `tests/color_space.rs::the_ocean_lattice_fix_is_on_in_the_shipped_look_only`).
-The phone presets and the sculpt/paint clear are ruled and not built. None of the LOD
+**The other two are built and verified (2026-09-24):**
+the phone's memory confirmation above 2048 × 1311 cells
+(`new_world_dialog.gd::_on_create` / `_confirm_phone_memory`; probe
+`godot-project/_nwmem_probe.gd`, run once with `--force-touch` and once
+without) and the sculpt/paint clear (`SculptStamp::footprint` →
+`SculptEditor::footprint` → `PaintEditor::clear_cells_under`, called from
+`WorldGen::sculpt_commit`; `sculpt_bridge.rs::sculpt_footprint_clears_paint_under_the_stamp_and_keeps_paint_outside`,
+`sculpt.rs::footprint_covers_every_cell_apply_changes_and_is_not_the_bbox`). None of the LOD
 questions has a row in `OUTSTANDING_WORK.md` §3.1.
 
 | # | Question | Gates |

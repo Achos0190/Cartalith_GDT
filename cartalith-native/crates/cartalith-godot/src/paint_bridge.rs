@@ -114,13 +114,16 @@
 //!
 //! This does mean a Sculpt commit that changes elevation under a painted
 //! cell leaves this cache stale until the next full `generate()`.
-//! `cartalith-spatial/src/paint.rs`'s own module doc already flags the
-//! sibling question (whether a Sculpt commit should clear painted overrides
-//! under the cells it touched) as "a real open question this port has and
-//! the reference did not... nothing here decides it, because the deciding
-//! caller (the shell, milestone F) does not exist yet." This cache is the
-//! same open question, not a new one: fixed here would mean guessing at an
-//! answer nothing has settled yet.
+//!
+//! The sibling question -- whether a Sculpt commit should clear painted
+//! overrides under the cells it touched -- was open here until the owner
+//! answered it (Ruling AS, 2026-09-24, `LARGE_ITEM_RULINGS.md`): **it
+//! does.** `WorldGen::sculpt_commit` takes the draft's
+//! `SculptEditor::footprint` and hands it to
+//! [`PaintEditor::clear_cells_under`], which zeroes all three committed
+//! layers there. This water-mask cache is a separate question the ruling did
+//! not touch, and it is still refreshed only by a regenerate or
+//! [`PaintEditor::set_water_mask`].
 
 use std::sync::Arc;
 
@@ -321,10 +324,11 @@ impl PaintEditor {
     /// afford the O(gw*gh) scan `painted_counts` is.
     ///
     /// **Derived from the definition, not from a guess about usage:** the
-    /// three committed layers are private to this struct and exactly two
-    /// methods write them — `commit_all` (through `PaintLayer::cells_mut`,
-    /// the only mutable accessor) and `restore_layers` (which replaces all
-    /// three outright). Both bump this. `discard_all`, `set_layer`,
+    /// three committed layers are private to this struct and exactly three
+    /// methods write them — `commit_all` and `clear_cells_under` (both
+    /// through `PaintLayer::cells_mut`, the only mutable accessor) and
+    /// `restore_layers` (which replaces all three outright). All three bump
+    /// this (`clear_cells_under` only when a cell actually changed). `discard_all`, `set_layer`,
     /// `set_brush` and `stroke_at` touch only drafts, which no consumer of
     /// `layer_cells` can see, so they deliberately do not.
     /// `grep -n 'cells_mut\|self\.biome = \|self\.terrain = \|self\.splat = ' paint_bridge.rs`
@@ -605,6 +609,58 @@ impl PaintEditor {
         // missed bump costs a wrong picture. See `epoch`.
         self.epoch = self.epoch.wrapping_add(1);
         [biome, terrain, splat]
+    }
+
+    /// Whether any **committed** layer holds an allocated array at all --
+    /// the cheap gate `WorldGen::sculpt_commit` asks before it spends a
+    /// footprint pass on [`Self::clear_cells_under`]. An allocated layer
+    /// that was since erased back to all-zero still answers `true`; the
+    /// clear then finds nothing, which costs a pass and changes nothing.
+    pub fn has_committed_paint(&self) -> bool {
+        !(self.biome.is_unallocated() && self.terrain.is_unallocated() && self.splat.is_unallocated())
+    }
+
+    /// Ruling AS (2026-09-24): a sculpt commit clears the painted override
+    /// cells it covers. Zeroes every **committed** cell of all three layers
+    /// where `footprint[i]` is set, and returns how many painted cells each
+    /// layer lost, `[biome, terrain, splat]`.
+    ///
+    /// All three layers, Splat included: the ruling's reason is *"a sculpt
+    /// changes the ground"*, and Splat is the ground-texture override -- the
+    /// most literal of the three.
+    ///
+    /// **Pending drafts are untouched.** An uncommitted dab is the user's
+    /// next edit, not ground the sculpt changed under it; it bakes over the
+    /// new ground when the paint is committed, as it would have over the old.
+    ///
+    /// An unallocated layer stays unallocated (`commit_all`'s own rule: "an
+    /// unpainted layer costs nothing"), and a layer whose length is not `n`
+    /// is left alone rather than reallocated -- that is the
+    /// `PaintLayer::cells_mut` mismatch path, which would silently wipe it.
+    /// [`Self::epoch`] moves only when a cell actually changed.
+    pub fn clear_cells_under(&mut self, n: usize, footprint: &[bool]) -> [usize; 3] {
+        fn clear_one(layer: &mut PaintLayer, n: usize, footprint: &[bool]) -> usize {
+            if layer.cells().is_none_or(|c| c.len() != n) {
+                return 0;
+            }
+            let mut cleared = 0;
+            for (c, &f) in layer.cells_mut(n).iter_mut().zip(footprint) {
+                if f && *c != 0 {
+                    *c = 0;
+                    cleared += 1;
+                }
+            }
+            cleared
+        }
+        let out = [
+            clear_one(&mut self.biome, n, footprint),
+            clear_one(&mut self.terrain, n, footprint),
+            clear_one(&mut self.splat, n, footprint),
+        ];
+        if out.iter().any(|&k| k > 0) {
+            self.epoch = self.epoch.wrapping_add(1);
+        }
+        out
     }
 
     /// Drops every layer's pending draft, touching nothing committed.

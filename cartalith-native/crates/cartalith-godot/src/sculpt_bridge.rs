@@ -577,6 +577,37 @@ impl SculptEditor {
         self.selection.clear();
         summary
     }
+
+    /// The cells the **next** [`Self::commit`] will give a non-zero weight:
+    /// the union of every visible draft stamp's
+    /// [`SculptStamp::footprint`], one `bool` per cell, `gw * gh` long.
+    /// Hidden stamps are left out because the commit skips them too
+    /// (`commit_sculpt_pass`'s own filter).
+    ///
+    /// Ruling AS (2026-09-24): *"A sculpt commit clears painted override
+    /// cells it covers."* This is "covers" -- the cells a stamp actually
+    /// computes a new height for, not its padded bounding box, which is
+    /// generous by design (`SculptStamp::bbox`'s own doc) and would clear a
+    /// square ring of paint around every round stamp. Taken before the
+    /// commit, because the commit empties the draft; a stamp's coverage never
+    /// reads the field, so before and after are the same answer.
+    ///
+    /// The River commit hook carves along the stroke's own points at half
+    /// width `max(1, brush_size * 0.13)`, well inside the brush radius the
+    /// coverage already spans, so its carved cells are inside this set.
+    /// Step (2) of the commit -- re-clamping channels an EARLIER commit
+    /// locked -- is not this batch's stamps and is deliberately not in it.
+    pub fn footprint(&self) -> Vec<bool> {
+        let (w, h) = (self.draft.width(), self.draft.height());
+        let mut out = vec![false; w * h];
+        for e in self.draft.entries() {
+            if e.hidden {
+                continue;
+            }
+            e.stamp.footprint(w, h, |i| out[i] = true);
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -695,6 +726,71 @@ mod tests {
         // always field-sized -- but this must not panic or index OOB).
         let e = SculptEditor::new(16, 12, Some(vec![1u8; 4]), Some(vec![0.5f32; 4]), 0);
         assert_eq!(e.water.river_mask.len(), 16 * 12);
+    }
+
+    /// Ruling AS (2026-09-24): paint under a committed stamp is cleared, paint
+    /// outside it is kept -- and "under" is the stamp's weighted cells, not its
+    /// padded bounding box. Literals throughout: value 3 on Biome, 7 on
+    /// Terrain, and a radius-1 dab is the 5-cell plus `hypot <= 1` draws.
+    #[test]
+    fn sculpt_footprint_clears_paint_under_the_stamp_and_keeps_paint_outside() {
+        use crate::paint_bridge::{PaintEditor, PaintTarget};
+        use cartalith_spatial::Stamp;
+        let (w, h) = (160usize, 160usize);
+        let n = w * h;
+        let mut e = SculptEditor::new(w, h, None, None, 7);
+        let stamp = SculptStamp::new(Feature::Mountains, 7, vec![cartalith_terrain::sculpt::Point::new(80.0, 80.0)], 0.5);
+        let b = stamp.bounds(w, h);
+        e.draft.push(stamp);
+        // The bbox corner cell is inside the box and far outside the 32-cell
+        // brush: `m = 32 + 16 + edge + 3` per side, so the corner sits m*sqrt2
+        // (> 70 cells) from the tap.
+        let (kx, ky) = (b.x as f64 + 1.0, b.y as f64 + 1.0);
+        assert!(b.x > 5 && b.y > 5, "the fixture needs a box that does not reach cell (2, 2): {b:?}");
+
+        let mut p = PaintEditor::new(w, h, std::sync::Arc::from(vec![0u8; n].as_slice()));
+        p.set_brush(3, 1.0, 1.0, 0.0, false, false);
+        for (x, y) in [(80.0, 80.0), (kx, ky), (2.0, 2.0)] {
+            p.stroke_at(x, y);
+        }
+        p.set_layer(PaintTarget::Terrain);
+        p.set_brush(7, 1.0, 1.0, 0.0, false, false);
+        p.stroke_at(80.0, 80.0);
+        p.commit_all(n);
+        let at = |x: usize, y: usize| y * w + x;
+        let (kxi, kyi) = (kx as usize, ky as usize);
+        let biome = p.layer_cells(PaintTarget::Biome).unwrap();
+        assert_eq!([biome[at(80, 80)], biome[at(kxi, kyi)], biome[at(2, 2)]], [3, 3, 3], "fixture: all three dabs painted");
+        let epoch_before = p.epoch();
+
+        let fp = e.footprint();
+        assert!(fp[at(80, 80)], "the tap cell is weighted");
+        assert!(!fp[at(kxi, kyi)], "the bbox corner is NOT weighted -- the footprint is not the box");
+        let cleared = p.clear_cells_under(n, &fp);
+
+        assert_eq!(cleared, [5, 5, 0], "one 5-cell dab cleared from each painted layer; splat never painted");
+        let biome = p.layer_cells(PaintTarget::Biome).unwrap();
+        let terrain = p.layer_cells(PaintTarget::Terrain).unwrap();
+        assert_eq!(biome[at(80, 80)], 0, "biome paint under the stamp is cleared");
+        assert_eq!(terrain[at(80, 80)], 0, "terrain paint under the stamp is cleared");
+        assert_eq!(biome[at(kxi, kyi)], 3, "paint inside the bbox but outside the footprint is kept");
+        assert_eq!(biome[at(2, 2)], 3, "paint outside the stamp is kept");
+        assert!(p.layer_cells(PaintTarget::Splat).is_none(), "an unpainted layer stays unallocated");
+        assert_eq!(p.epoch(), epoch_before + 1, "a clear that changed cells moves the epoch");
+
+        // A second clear over the same footprint finds nothing and leaves the epoch.
+        assert_eq!(p.clear_cells_under(n, &fp), [0, 0, 0]);
+        assert_eq!(p.epoch(), epoch_before + 1);
+    }
+
+    /// A hidden stamp is skipped by the commit, so it covers nothing.
+    #[test]
+    fn a_hidden_stamp_contributes_no_footprint() {
+        let mut e = SculptEditor::new(64, 64, None, None, 7);
+        let i = e.draft.push(SculptStamp::new(Feature::Mountains, 7, vec![cartalith_terrain::sculpt::Point::new(32.0, 32.0)], 0.5));
+        assert!(e.footprint()[32 * 64 + 32]);
+        e.draft.set_hidden(i, true);
+        assert_eq!(e.footprint().iter().filter(|&&f| f).count(), 0);
     }
 
     #[test]

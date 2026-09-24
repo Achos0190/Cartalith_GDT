@@ -758,13 +758,18 @@ reference lacks. `PaintStamp::new` requires a mask and the ungated form is
 separately named, so parity is the default and the addition opt-in
 (`DECISIONS.md` §7d). The shell's `Land only` toggle is it.
 
-**One question still open.** The reference clears painted overrides on terrain
-rebuild, and only ever had one `generate()`. This port has incremental edits,
-and whether a Sculpt commit that changes the temperature/moisture under a
-painted cell should clear that cell has no reference answer and no ruling.
-What the code does: overrides are dropped on regenerate and load
-(`WorldGen::release_world`, `load_save`) and survive a sculpt commit;
-`PaintLayer::clear`'s doc names the question.
+**One question, since ruled.** The reference clears painted overrides on
+terrain rebuild, and only ever had one `generate()`. This port has incremental
+edits, and whether a Sculpt commit should clear the paint under it had no
+reference answer. The owner ruled it on 2026-09-24 (Ruling AS,
+`LARGE_ITEM_RULINGS.md`): **a sculpt commit clears the painted override cells
+it covers** -- the cells each committed stamp gives a non-zero weight
+(`SculptStamp::footprint`), on all three layers, drafts untouched
+(`PaintEditor::clear_cells_under`, called from `WorldGen::sculpt_commit`).
+Overrides are still dropped whole on regenerate and load
+(`WorldGen::release_world`, `load_save`). The global undo stack holds height
+only, so undoing the sculpt does not bring the cleared paint back; the clear
+records its own non-reversible history row saying so.
 
 ### A gap this milestone opened and closed
 

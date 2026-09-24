@@ -1166,8 +1166,85 @@ func _on_archetype_selected(index: int) -> void:
 ## yet". Nothing ever wrote the flag, so the branch was constant-true and the
 ## setter unreachable -- a stage-without-generate mode needs a caller and a
 ## control, not a private boolean, and would be added with them.
+##
+## **On a phone, a grid above Ruling AH's ceiling asks first** (Ruling AS,
+## 2026-09-24): the phone keeps 4K and 8K rather than hiding them, but a Create
+## above 2048 × 1311 cells stops at `_confirm_phone_memory()` and generates
+## only on its OK. Desktop and tablet never reach that branch -- `_phone` is
+## false there -- so they generate exactly as before.
 func _on_create() -> void:
+	var gw := int(grid_w_input.value)
+	var gh := int(grid_h_input.value)
+	if _phone and exceeds_phone_ceiling(gw, gh):
+		_confirm_phone_memory(gw, gh)
+		return
 	bridge.generate(request())
+
+## Ruling AH (2026-09-23) keeps **2048 × 1311** as the Android ceiling, and
+## Ruling AS (2026-09-24) turns it into a warning rather than a limit. Counted
+## in CELLS rather than as a width, because the generation peak is linear in
+## cell count and in nothing else (`MEMORY_OPTIMIZATION_SCOPE.md`, "The
+## generation peak, measured field by field (2026-08-25, second pass)", §3:
+## 4x the cells is 3.998x the peak). So a 2K grid at the region aspect -- the
+## ceiling itself -- asks nothing, and a 2K grid at a taller custom aspect,
+## which costs more than the ceiling was measured at, does.
+const PHONE_CEILING_CELLS := 2048 * 1311
+## The measured slope, not a guess: 241.3 bytes of peak per cell, taken from
+## four grid sizes (512 to 4096, three of them on the handset) in the same §3.
+## Its table is where the row's quoted figures come from -- 4096 × 2621 at
+## 2.41 GiB and 8192 × 5243 at 9.65 GiB -- and the 4096 row is also a direct
+## measurement (2 470.63 MiB on the handset, run as a bare process). The 8192
+## figure is that slope extrapolated; nothing that size has been run on a
+## phone, and the section says 8192 "is not reachable on any phone".
+const PEAK_BYTES_PER_CELL := 241.3
+## What the same section measured beneath the pipeline, and the headroom it
+## had: `~420 MB` of Godot process on a handset reporting 2.38 GB available.
+const PHONE_APP_BASE_MB := 420
+const PHONE_MEASURED_AVAILABLE_GB := 2.38
+
+## The open memory question, or `null` when none is up. Kept so a probe can
+## find it; nothing else reads it.
+var _memory_confirm: ConfirmationDialog
+
+func exceeds_phone_ceiling(gw: int, gh: int) -> bool:
+	return gw * gh > PHONE_CEILING_CELLS
+
+## The GiB a generate of `gw` × `gh` peaks at, from the measured slope.
+static func estimated_peak_gib(gw: int, gh: int) -> float:
+	return float(gw) * float(gh) * PEAK_BYTES_PER_CELL / 1073741824.0
+
+func phone_memory_warning_text(gw: int, gh: int) -> String:
+	return ("A %d × %d grid is above 2048 × 1311, the largest recommended on a phone.\n\n"
+		+ "Generating it needs about %.2f GiB of memory at its peak (measured at %.1f bytes per cell), "
+		+ "on top of about %d MB for the app itself. 2048 × 1311 was the largest grid measured "
+		+ "to fit on a handset with %.2f GB available; above it the system may close the app "
+		+ "mid-generate and the world will be lost.\n\nA generate this size can also take minutes.") \
+		% [gw, gh, estimated_peak_gib(gw, gh), PEAK_BYTES_PER_CELL,
+			PHONE_APP_BASE_MB, PHONE_MEASURED_AVAILABLE_GB]
+
+## `DccWidgets.confirm()`, the shell's protocol-complete question, hosted on
+## the shell rather than on this dialog: it is itself an exclusive window, and
+## this dialog has already hidden (`_build_phone_actions()`'s CREATE WORLD
+## hides before it calls `_on_create()`). **Cancel brings the form back** with
+## everything as it was -- the dialog is a persistent singleton, so the values
+## are still in its controls -- rather than dropping the user on the map with
+## nothing generated and no form to change the size in.
+func _confirm_phone_memory(gw: int, gh: int) -> void:
+	var host := get_parent()
+	if is_instance_valid(_memory_confirm):
+		_memory_confirm.queue_free()
+	_memory_confirm = DccWidgets.confirm(host, "Large world",
+		phone_memory_warning_text(gw, gh), "Generate anyway",
+		func(): bridge.generate(request()),
+		func():
+			## Hidden here, not left to Godot: `AcceptDialog` defers its own
+			## `hide()` past the `canceled` emit, so the question is still the
+			## host's exclusive child at this point and re-presenting the form
+			## would be refused ("already has another exclusive child").
+			if is_instance_valid(_memory_confirm):
+				_memory_confirm.hide()
+			if not DccWidgets.phone_present(self, host):
+				popup_centered())
 
 ## The keys `EngineBridge.generate()` reads. Sea level and the four
 ## experimental flags are read live off `bridge` rather than cached locally --

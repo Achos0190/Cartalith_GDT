@@ -1367,7 +1367,6 @@ impl SculptStamp {
             return;
         };
         assert_eq!(field.len(), w * h, "field length must equal w * h");
-        let meta = self.feature().meta();
         let g = self.globals;
         let brush_r = g.brush_size;
         let rad = self.radius();
@@ -1386,11 +1385,9 @@ impl SculptStamp {
         } = self.params
         {
             let full = field.to_vec();
-            let feather = 1.5f64.max(brush_r * (1.0 - g.hardness));
             for py in y0..=y1 {
                 for px in x0..=x1 {
-                    let hit = nearest_on_stroke(px as f64, py as f64, &self.points);
-                    let cov = g.falloff.coverage((brush_r - hit.dist) / feather);
+                    let cov = self.smooth_cov(px, py);
                     if cov <= 0.0 {
                         continue;
                     }
@@ -1411,86 +1408,15 @@ impl SculptStamp {
             return;
         }
 
-        let feather = if meta.radial {
-            2.0f64.max(rad * (1.0 - g.hardness))
-        } else {
-            1.5f64.max(brush_r * (1.0 - g.hardness))
-        };
-        let (cx, cy) = self.centroid();
-        let edge_amp = g.edge_noise * rad * 0.34 * meta.edge_char;
-        let warp = edge_amp > 0.01;
-        let wf = (2.3 / 8.0f64.max(rad)) * meta.edge_freq_mul;
-        let wf2 = wf * 3.4;
+        let cc = self.cover_ctx();
+        let seed = cc.seed;
         let nb = g.noise_scale / w as f64;
-        // `(st.seed ^ ((index+1)*1013)) >>> 0` -- FEATURE_KEYS order is
-        // load-bearing here.
-        let seed = self.seed ^ ((self.feature().index() as u32 + 1) * 1013);
-        let warp_seed = seed.wrapping_add(2100);
-        let detail_oct = g.octaves.saturating_sub(1).max(2);
 
         for py in y0..=y1 {
             for px in x0..=x1 {
-                let (fx, fy) = (px as f64, py as f64);
-                let (mut qx, mut qy) = (fx, fy);
-                if warp {
-                    let wx = sculpt_fbm(
-                        fx * wf,
-                        fy * wf,
-                        g.octaves,
-                        g.persistence,
-                        g.lacunarity,
-                        warp_seed,
-                    );
-                    let wy = sculpt_fbm(
-                        (fx + 211.3) * wf,
-                        (fy + 57.7) * wf,
-                        g.octaves,
-                        g.persistence,
-                        g.lacunarity,
-                        warp_seed,
-                    );
-                    qx = fx + wx * edge_amp;
-                    qy = fy + wy * edge_amp;
-                }
-                let (mut d, mut sd, mut s_arc, mut r_c) = (0.0, 0.0, 0.0, 0.0);
-                let mut cov;
-                if meta.radial {
-                    r_c = js_hypot(qx - cx, qy - cy);
-                    cov = g.falloff.coverage((rad - r_c) / feather);
-                } else {
-                    let hit = nearest_on_stroke(qx, qy, &self.points);
-                    d = hit.dist;
-                    sd = hit.sd;
-                    s_arc = hit.s;
-                    cov = g.falloff.coverage((brush_r - d) / feather);
-                }
-                if cov <= 0.0 {
+                let Some(hit) = self.cover_at(&cc, px, py) else {
                     continue;
-                }
-                // A second, higher-frequency noise term roughens only the
-                // partially-covered rim (`cov < 1`), so the interior stays
-                // solid while the silhouette breaks up.
-                //
-                // Under `Falloff::Constant` this block is unreachable by
-                // construction rather than by a guard: that shape only ever
-                // returns 0 or 1, and 0 has already `continue`d above. A hard
-                // edge therefore stays hard however high `edge_noise` is set,
-                // which is the behaviour that name promises.
-                if warp && cov < 1.0 {
-                    let detail = sculpt_fbm(
-                        fx * wf2 + 500.7,
-                        fy * wf2 - 330.2,
-                        detail_oct,
-                        g.persistence,
-                        g.lacunarity,
-                        warp_seed,
-                    );
-                    cov = clamp01(cov + detail * 0.17 * g.edge_noise * meta.edge_char);
-                    if cov <= 0.0 {
-                        continue;
-                    }
-                }
-
+                };
                 let i = py * w + px;
                 let ctx = Ctx {
                     seed,
@@ -1500,14 +1426,14 @@ impl SculptStamp {
                     nb,
                     r: brush_r,
                     radius: rad,
-                    px: fx,
-                    py: fy,
-                    d,
-                    sd,
-                    s: s_arc,
-                    r_c,
+                    px: px as f64,
+                    py: py as f64,
+                    d: hit.d,
+                    sd: hit.sd,
+                    s: hit.s,
+                    r_c: hit.r_c,
                     h0: field[i] as f64,
-                    k: cov * g.intensity,
+                    k: hit.cov * g.intensity,
                     sea_level: self.sea_level,
                 };
                 let eff = self.eval(&ctx);
@@ -1522,6 +1448,170 @@ impl SculptStamp {
                     && wo > wa[i] as f64
                 {
                     wa[i] = wo as f32;
+                }
+            }
+        }
+    }
+
+    /// Freehand/Smooth's coverage at one cell -- the blur branch of
+    /// [`SculptStamp::apply_into`] and [`SculptStamp::footprint`] share it, so
+    /// the cells a Smooth stamp reports are by construction the cells it blurs.
+    fn smooth_cov(&self, px: usize, py: usize) -> f64 {
+        let g = &self.globals;
+        let brush_r = g.brush_size;
+        let feather = 1.5f64.max(brush_r * (1.0 - g.hardness));
+        let hit = nearest_on_stroke(px as f64, py as f64, &self.points);
+        g.falloff.coverage((brush_r - hit.dist) / feather)
+    }
+
+    /// The per-stamp constants the per-pixel coverage test needs, computed
+    /// once per stamp. Moved out of [`SculptStamp::apply_into`] verbatim --
+    /// same expressions, same order -- so [`SculptStamp::footprint`] can ask
+    /// the same question without a second transcription of it.
+    fn cover_ctx(&self) -> CoverCtx {
+        let g = self.globals;
+        let meta = self.feature().meta();
+        let brush_r = g.brush_size;
+        let rad = self.radius();
+        let feather = if meta.radial {
+            2.0f64.max(rad * (1.0 - g.hardness))
+        } else {
+            1.5f64.max(brush_r * (1.0 - g.hardness))
+        };
+        let (cx, cy) = self.centroid();
+        let edge_amp = g.edge_noise * rad * 0.34 * meta.edge_char;
+        let warp = edge_amp > 0.01;
+        let wf = (2.3 / 8.0f64.max(rad)) * meta.edge_freq_mul;
+        let wf2 = wf * 3.4;
+        // `(st.seed ^ ((index+1)*1013)) >>> 0` -- FEATURE_KEYS order is
+        // load-bearing here.
+        let seed = self.seed ^ ((self.feature().index() as u32 + 1) * 1013);
+        let warp_seed = seed.wrapping_add(2100);
+        let detail_oct = g.octaves.saturating_sub(1).max(2);
+        CoverCtx {
+            radial: meta.radial,
+            edge_char: meta.edge_char,
+            brush_r,
+            rad,
+            feather,
+            cx,
+            cy,
+            edge_amp,
+            warp,
+            wf,
+            wf2,
+            seed,
+            warp_seed,
+            detail_oct,
+        }
+    }
+
+    /// One cell's coverage on the per-pixel path, or `None` where the stamp
+    /// gives it none -- exactly the cells [`SculptStamp::apply_into`] skips
+    /// with `continue`. Moved out of that loop verbatim.
+    fn cover_at(&self, cc: &CoverCtx, px: usize, py: usize) -> Option<CoverHit> {
+        let g = &self.globals;
+        let (fx, fy) = (px as f64, py as f64);
+        let (mut qx, mut qy) = (fx, fy);
+        if cc.warp {
+            let wx = sculpt_fbm(
+                fx * cc.wf,
+                fy * cc.wf,
+                g.octaves,
+                g.persistence,
+                g.lacunarity,
+                cc.warp_seed,
+            );
+            let wy = sculpt_fbm(
+                (fx + 211.3) * cc.wf,
+                (fy + 57.7) * cc.wf,
+                g.octaves,
+                g.persistence,
+                g.lacunarity,
+                cc.warp_seed,
+            );
+            qx = fx + wx * cc.edge_amp;
+            qy = fy + wy * cc.edge_amp;
+        }
+        let (mut d, mut sd, mut s_arc, mut r_c) = (0.0, 0.0, 0.0, 0.0);
+        let mut cov;
+        if cc.radial {
+            r_c = js_hypot(qx - cc.cx, qy - cc.cy);
+            cov = g.falloff.coverage((cc.rad - r_c) / cc.feather);
+        } else {
+            let hit = nearest_on_stroke(qx, qy, &self.points);
+            d = hit.dist;
+            sd = hit.sd;
+            s_arc = hit.s;
+            cov = g.falloff.coverage((cc.brush_r - d) / cc.feather);
+        }
+        if cov <= 0.0 {
+            return None;
+        }
+        // A second, higher-frequency noise term roughens only the
+        // partially-covered rim (`cov < 1`), so the interior stays
+        // solid while the silhouette breaks up.
+        //
+        // Under `Falloff::Constant` this block is unreachable by
+        // construction rather than by a guard: that shape only ever
+        // returns 0 or 1, and 0 has already returned above. A hard
+        // edge therefore stays hard however high `edge_noise` is set,
+        // which is the behaviour that name promises.
+        if cc.warp && cov < 1.0 {
+            let detail = sculpt_fbm(
+                fx * cc.wf2 + 500.7,
+                fy * cc.wf2 - 330.2,
+                cc.detail_oct,
+                g.persistence,
+                g.lacunarity,
+                cc.warp_seed,
+            );
+            cov = clamp01(cov + detail * 0.17 * g.edge_noise * cc.edge_char);
+            if cov <= 0.0 {
+                return None;
+            }
+        }
+        Some(CoverHit { d, sd, s: s_arc, r_c, cov })
+    }
+
+    /// Calls `visit(i)` for every cell index `i = y * w + x` this stamp gives
+    /// a **non-zero weight** -- the cells [`SculptStamp::apply_into`] actually
+    /// computes a new height for, not its padded [`SculptStamp::bbox`].
+    ///
+    /// The weight is `coverage * intensity` (`Ctx::k`), so a stamp at
+    /// intensity `0` -- the control's legal minimum -- writes nothing and
+    /// reports nothing. Coverage is decided by the same
+    /// [`SculptStamp::cover_at`] / [`SculptStamp::smooth_cov`] calls
+    /// `apply_into` makes, and it never reads the field, so the footprint is
+    /// a property of the recipe alone: it can be taken before a commit bakes
+    /// the stamp, and it does not depend on what earlier stamps did.
+    ///
+    /// Added for Ruling AS (2026-09-24): a sculpt commit clears the painted
+    /// override cells under each committed stamp, and this is "under".
+    pub fn footprint(&self, w: usize, h: usize, mut visit: impl FnMut(usize)) {
+        let Some((x0, y0, x1, y1)) = self.bbox(w, h) else {
+            return;
+        };
+        if !(self.globals.intensity > 0.0) {
+            return;
+        }
+        let smooth = matches!(
+            self.params,
+            FeatureParams::Freehand {
+                sub_mode: FreehandMode::Smooth,
+                ..
+            }
+        );
+        let cc = self.cover_ctx();
+        for py in y0..=y1 {
+            for px in x0..=x1 {
+                let hit = if smooth {
+                    self.smooth_cov(px, py) > 0.0
+                } else {
+                    self.cover_at(&cc, px, py).is_some()
+                };
+                if hit {
+                    visit(py * w + px);
                 }
             }
         }
@@ -1769,6 +1859,34 @@ impl SculptStamp {
     }
 }
 
+/// [`SculptStamp::cover_ctx`]'s per-stamp constants.
+struct CoverCtx {
+    radial: bool,
+    edge_char: f64,
+    brush_r: f64,
+    rad: f64,
+    feather: f64,
+    cx: f64,
+    cy: f64,
+    edge_amp: f64,
+    warp: bool,
+    wf: f64,
+    wf2: f64,
+    seed: u32,
+    warp_seed: u32,
+    detail_oct: u32,
+}
+
+/// [`SculptStamp::cover_at`]'s answer for one covered cell: the coverage and
+/// the stroke-distance terms `eval` reads.
+struct CoverHit {
+    d: f64,
+    sd: f64,
+    s: f64,
+    r_c: f64,
+    cov: f64,
+}
+
 impl Stamp for SculptStamp {
     type Cell = f32;
 
@@ -1801,6 +1919,58 @@ mod tests {
         let mut s = SculptStamp::new(feature, 1234, stroke(), 0.5);
         s.globals.brush_size = 12.0;
         s
+    }
+
+    // ---- footprint (Ruling AS) ----
+
+    /// Every cell `apply_into` changes is in the footprint, for every feature
+    /// and every Freehand sub-mode; the footprint is strictly smaller than the
+    /// padded bbox; and intensity 0 reports nothing.
+    #[test]
+    fn footprint_covers_every_cell_apply_changes_and_is_not_the_bbox() {
+        let (w, h) = (160usize, 160usize);
+        // `stamp()`'s stroke moved 50 cells in from the edge, so the padded box
+        // is not clipped and "smaller than the box" means something.
+        let shifted = |f: Feature| {
+            let mut s = stamp(f);
+            for p in &mut s.points {
+                *p = Point::new(p.x + 50.0, p.y + 50.0);
+            }
+            s
+        };
+        let mut cases: Vec<SculptStamp> = FEATURE_KEYS.iter().map(|&f| shifted(f)).collect();
+        for &m in FREEHAND_MODES {
+            let mut s = shifted(Feature::Freehand);
+            if let FeatureParams::Freehand { sub_mode, .. } = &mut s.params {
+                *sub_mode = FreehandMode::from_key(m).unwrap();
+            }
+            cases.push(s);
+        }
+        for s in &cases {
+            // A non-flat base so Smooth's blur has something to move.
+            let base: Vec<f32> = (0..w * h).map(|i| 0.3 + 0.4 * (((i * 7919) % 97) as f32 / 97.0)).collect();
+            let mut f = base.clone();
+            s.apply_into(&mut f, None, w, h, false);
+            let mut fp = vec![false; w * h];
+            s.footprint(w, h, |i| fp[i] = true);
+            let changed_outside = (0..w * h).filter(|&i| f[i] != base[i] && !fp[i]).count();
+            assert_eq!(changed_outside, 0, "{:?}: a changed cell lies outside the footprint", s.params);
+            let covered = fp.iter().filter(|&&v| v).count();
+            let (x0, y0, x1, y1) = s.bbox(w, h).unwrap();
+            let boxed = (x1 - x0 + 1) * (y1 - y0 + 1);
+            assert!(covered > 0, "{:?}: empty footprint", s.params);
+            // Volcano sizes itself from its own 110-cell radius, so its box is
+            // clipped to the whole grid and there is no corner to leave out.
+            let clipped = x0 == 0 || y0 == 0 || x1 == w - 1 || y1 == h - 1;
+            if !clipped {
+                assert!(covered < boxed, "{:?}: footprint {covered} vs bbox {boxed}", s.params);
+            }
+        }
+        let mut s = stamp(Feature::Mountains);
+        s.globals.intensity = 0.0;
+        let mut any = false;
+        s.footprint(w, h, |_| any = true);
+        assert!(!any, "intensity 0 writes nothing, so it covers nothing");
     }
 
     // ---- registry shape ----

@@ -2781,7 +2781,9 @@ func _build_sculpt_draft(parent: Control) -> void:
 		"Commit bakes the whole stamp stack into the heightfield in one pass, then re-runs " +
 		"river flow and climate over the new ground. It does not re-run erosion, and it " +
 		"leaves settlements, roads and borders as they are until you recompute the " +
-		"civilisation, which takes seconds on a large map. A draft carries no lock state of its " +
+		"civilisation, which takes seconds on a large map. Painted biome, terrain and splat " +
+		"overrides under the committed stamps are cleared, because the ground under them " +
+		"changed; Undo restores the height but not that paint. A draft carries no lock state of its " +
 		"own: the lock is per-world and lives in the Finalize section above, which bakes " +
 		"the LOD pyramid and then refuses further sculpting until it is un-finalized.")
 	_build_force_lake_row(sec)

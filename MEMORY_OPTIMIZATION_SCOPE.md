@@ -792,7 +792,10 @@ and it is not the binding constraint on whether a session survives.**
   numbers**: on Android, 2048 × 1311 is the last preset that fits, and 1024 is
   the last one that fits comfortably. (The owner ruled on them 2026-09-23:
   `LARGE_ITEM_RULINGS.md` Ruling AH keeps 2048 × 1311 as the Android ceiling,
-  higher presets desktop-only.)
+  higher presets desktop-only. Ruling AS, 2026-09-24, refined it: the phone
+  keeps 4K and 8K, and `new_world_dialog.gd::_on_create()` asks for
+  confirmation above 2048 × 1311 cells, quoting this section's 241.3 B/cell
+  slope.)
 
 **What "supported" would take, in order.** R1 and R2 are free and remove
 269 MiB from the common case and 40.96 MiB from every case; R3 is +40 ms and is

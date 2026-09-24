@@ -385,16 +385,14 @@ impl PaintLayer {
     /// `paintBiome = null` (line 3353): *"hand-painted Cartography overrides
     /// don't survive a terrain rebuild"*.
     ///
-    /// **A real open question this port has and the reference did not**, left
-    /// unanswered here deliberately: the reference only ever had one
-    /// `generate()`, so "cleared on rebuild" was unambiguous. This port now
-    /// has *incremental* terrain edits (milestone B), and whether a Sculpt
-    /// commit that changes the temperature/moisture inputs under a painted
-    /// cell should also clear that cell is a policy decision with no
-    /// reference answer. `UNIFIED_TOOL_PLAN.md` flagged it; nothing here
-    /// decides it, because the deciding caller (the shell, milestone F) does
-    /// not exist yet. Clearing on full regenerate is the reference-faithful
-    /// floor and is all this method does.
+    /// The reference only ever had one `generate()`, so "cleared on rebuild"
+    /// was unambiguous there. This port also has *incremental* terrain edits
+    /// (milestone B), and whether a Sculpt commit should clear the paint
+    /// under it was a policy question with no reference answer until the
+    /// owner ruled it (Ruling AS, 2026-09-24): it does, cell by cell, under
+    /// each committed stamp -- `cartalith-godot`'s
+    /// `PaintEditor::clear_cells_under`, not this method. This method is the
+    /// whole-layer clear for a full regenerate, the reference-faithful floor.
     pub fn clear(&mut self) {
         self.cells = None;
     }
