@@ -1422,3 +1422,15 @@ Asked through the session's question tool after the 2026-09-24 code-versus-docum
 **Per-faction currencies stand (Ruling R is kept).** Ruling AB's world-wide scarcity price index was built instead of R; R is not superseded. Build per-faction currencies with exchange rates on top of AB's scarcity pricing.
 
 **Fix coastal detection's east-west wrap on non-wrapping maps.** `civ_is_coastal` wraps x even when the map is not a world, so an edge settlement can count as coastal because of water on the opposite edge. Wrap only on world maps; the affected goldens are a disclosed re-baseline under this ruling.
+
+## 2026-09-24 — Ruling AS: four items the engine alignment audit and the sculpt cleanup raised
+
+Asked through the session's question tool; the owner picked each answer.
+
+**Port the reference's World Structure orogeny derivation.** With World Structure on, this port fixes `OrogenyParams { fold_k: 0.16, trench_k: 1.0, fault_block_k: 0.0 }`; the reference derives `foldIntensity = 0.6 + tectonicEnergy` and `trenchDepth = 0.7 + 0.8·oceanDepth` and carries `faultBlock 0.6` (v2.10 2265, 2536-2538), so horst-and-graben terrain never forms here. Port the derivation; World-Structure and archetype worlds change, a disclosed re-baseline under this ruling.
+
+**Turn the ocean-grain lattice fix on in the shipped look.** `TerrainAppearance::sea_grain_warp` stays 0.0 on the reference-parity path (`js_reference()` must pin it explicitly first, since it inherits the field through `..default()`) and becomes non-zero in `default()`. Only the Rust render hashes move, disclosed. The framing of the fix as a "divergence" is scrubbed per §7p.
+
+**The phone keeps 4K and 8K in New World, with a memory warning.** Ruling AH's 2048 ceiling stands as the recommendation; the phone offers the higher presets but warns about memory before generating rather than hiding them.
+
+**A sculpt commit clears painted override cells it covers.** Today painted biome/terrain cells survive a sculpt commit (and are dropped on regenerate and load). A sculpt changes the ground, so the paint under a committed stamp is cleared.
