@@ -1410,3 +1410,15 @@ Asked through the session's question tool; the owner picked each answer. The que
 **Every tooltip that names developer code is rewritten, not only default panels.** The four visible labels were already fixed (`3a12d64`); the tooltip sweep (~795 at the 2026-09-23 count) covers all of them, with the code names kept as `##` comments beside the string. Owned by §2.10's "Developer code names are shown to users" row.
 
 **SP-3 gets the combined strip.** The owner's 2026-08-25 fork asked for both tracks on one strip; it was built as four separate lists on one tab. Build one strip with ownership, population/tier, authored events and journeys passing interleaved by date, keeping the lists as the detail beneath it. Owned by a new §2.3 row.
+
+## 2026-09-24 — Ruling AR: four items the civilisation alignment audit raised
+
+Asked through the session's question tool after the 2026-09-24 code-versus-documentation audit; the owner picked each answer.
+
+**A reopened project must support every civilisation readout, by saving the missing rasters.** Today `project_open` restores the civ layer but `load_save` marks the world `WorldSource::Loaded`, and journey planning, trade flows, military, town layouts and the faction economy all refuse a Loaded world — while telling the user the save "carries no civilisation layer", which is false for a project. **Extend the project format to store the flow/river/channel rasters those readouts need**, so they work on open without recomputing. A format change: it needs a `SAVEFILE_COMPAT.md` entry, and older projects without the rasters must still open (and say what they cannot do).
+
+**A saved journey keeps its full plan.** `entities/journeys.json` stores the whole plan — all plan fields, stage overrides, layovers, animal choices and trim — not only the 20-field party preset, so a reopened journey plans exactly as it did and SP-2 markers and SP-3 pass dates stop being planned from defaults.
+
+**Per-faction currencies stand (Ruling R is kept).** Ruling AB's world-wide scarcity price index was built instead of R; R is not superseded. Build per-faction currencies with exchange rates on top of AB's scarcity pricing.
+
+**Fix coastal detection's east-west wrap on non-wrapping maps.** `civ_is_coastal` wraps x even when the map is not a world, so an edge settlement can count as coastal because of water on the opposite edge. Wrap only on world maps; the affected goldens are a disclosed re-baseline under this ruling.
