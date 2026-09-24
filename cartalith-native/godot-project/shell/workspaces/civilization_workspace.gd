@@ -1337,7 +1337,12 @@ func _lasso_commit() -> void:
 		return
 	var staged := bridge.civ_territory_paint_polygon(_lasso_points, _territory_faction, _territory_subtract)
 	_lasso_clear()
-	if staged <= 0:
+	## `-1` is the engine refusing the faction id (outside 0..255, which the
+	## territory layer cannot hold), not an empty ring -- nothing was staged.
+	if staged < 0:
+		app.set_status("hint", "Faction %d cannot be painted -- territory holds ids 0 to 255. Nothing assigned." % _territory_faction, "accent")
+		return
+	if staged == 0:
 		app.set_status("hint", "That ring encloses no cell centre -- nothing assigned.", "text_ghost")
 		return
 	_commit_territory()

@@ -342,6 +342,15 @@ pub fn polygon_cell_mask(ring: &[(f64, f64)], gw: usize, gh: usize) -> Vec<u8> {
     mask
 }
 
+/// The `PaintLayer` value one territory stroke writes: `0` for subtract ("fall
+/// through to the computed base", whatever `faction` says), otherwise the
+/// faction id -- or `None` when the id does not fit the layer's `u8`. Refused,
+/// never clamped: a clamp would paint a *different* faction (300 as 255) or
+/// turn an add into an erase (-1 as 0), and neither is what was asked for.
+fn paint_value(faction: i32, subtract: bool) -> Option<u8> {
+    if subtract { Some(0) } else { u8::try_from(faction).ok() }
+}
+
 /// The live CIVIL-tool-group state for one generated world: the territory
 /// paint draft/accumulator pair, and the manual-placement name/population
 /// RNG stream. See this module's own doc comment for why each exists.
@@ -388,9 +397,17 @@ impl CivTools {
 
     /// One dab, `subtract` selecting erase (`value = 0`, "fall through to
     /// the computed base") over paint (`value = faction`).
-    pub fn paint_at(&mut self, gx: f64, gy: f64, faction: i32, radius: f64, subtract: bool) {
-        let value = if subtract { 0u8 } else { faction.clamp(0, u8::MAX as i32) as u8 };
+    ///
+    /// Returns `false` and stages **nothing** when an add dab names a faction
+    /// the layer cannot hold ([`paint_value`]: negative, or past `u8::MAX`)
+    /// -- the refusal the GeoJSON import already makes
+    /// (`geojson_apply::apply_territory`). This used to clamp, so faction 300
+    /// silently painted faction 255 and faction -1 silently erased. A
+    /// subtract dab writes no faction, so its `faction` is not read.
+    pub fn paint_at(&mut self, gx: f64, gy: f64, faction: i32, radius: f64, subtract: bool) -> bool {
+        let Some(value) = paint_value(faction, subtract) else { return false };
         self.territory_draft.push(PaintStamp::ungated(gx.round() as i64, gy.round() as i64, radius, value));
+        true
     }
 
     /// The Territory lasso: stages `ring`'s interior ([`polygon_cell_mask`])
@@ -400,9 +417,12 @@ impl CivTools {
     /// one per cell, because `PassBuffer::push` snapshots the whole entry
     /// stack for draft undo, so per-cell pushes would be quadratic in area.
     /// Commit, discard, rebase and subtract-restores-the-base are therefore
-    /// exactly the brush's. Returns the number of cells staged; `0` pushes
-    /// nothing.
-    pub fn paint_polygon(&mut self, ring: &[(f64, f64)], faction: i32, subtract: bool) -> usize {
+    /// exactly the brush's. Returns the number of cells staged; `Some(0)`
+    /// pushes nothing. `None` is a refusal, not an empty ring: an add ring
+    /// naming a faction the layer cannot hold, exactly as
+    /// [`CivTools::paint_at`] refuses it, with nothing staged.
+    pub fn paint_polygon(&mut self, ring: &[(f64, f64)], faction: i32, subtract: bool) -> Option<usize> {
+        let value = paint_value(faction, subtract)?;
         let (gw, gh) = (self.territory_draft.width(), self.territory_draft.height());
         let inside = polygon_cell_mask(ring, gw, gh);
         let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0, 0);
@@ -413,16 +433,15 @@ impl CivTools {
             n += 1;
         }
         if n == 0 {
-            return 0;
+            return Some(0);
         }
         let (cx, cy) = (((x0 + x1) / 2) as i64, ((y0 + y1) / 2) as i64);
         let (dx, dy) = ((x1 as i64 - cx).max(cx - x0 as i64), (y1 as i64 - cy).max(cy - y0 as i64));
         // +1 so the inclusive `hypot > R` gate can never shave a bbox corner.
         let radius = ((dx * dx + dy * dy) as f64).sqrt() + 1.0;
         let gate: std::sync::Arc<[u8]> = inside.iter().map(|&v| (v == 0) as u8).collect();
-        let value = if subtract { 0u8 } else { faction.clamp(0, u8::MAX as i32) as u8 };
         self.territory_draft.push(PaintStamp::new(cx, cy, radius, value, gate));
-        n
+        Some(n)
     }
 
     /// Bakes the in-progress draft into `territory_paint`, then rebuilds
@@ -797,7 +816,7 @@ mod tests {
         let base = vec![9i32; 36]; // 6x6, all faction 9
         let mut tools = CivTools::new(6, 6, base.clone(), 1);
         let ring = [(1.0, 1.0), (4.0, 1.0), (4.0, 4.0), (1.0, 4.0)];
-        assert_eq!(tools.paint_polygon(&ring, 3, false), 9);
+        assert_eq!(tools.paint_polygon(&ring, 3, false), Some(9));
         let mut territory = base.clone();
         assert!(tools.commit(&mut territory));
         for y in 0..6 {
@@ -806,7 +825,7 @@ mod tests {
                 assert_eq!(territory[y * 6 + x], want, "cell ({x},{y})");
             }
         }
-        assert_eq!(tools.paint_polygon(&ring, 3, true), 9);
+        assert_eq!(tools.paint_polygon(&ring, 3, true), Some(9));
         assert!(tools.commit(&mut territory));
         assert_eq!(territory, base, "a subtract lasso over the same ring falls through to the base");
     }
@@ -816,7 +835,7 @@ mod tests {
         // A 6x1 strip: the covering disc must reach both bbox corners.
         let base = vec![0i32; 18];
         let mut tools = CivTools::new(6, 3, base.clone(), 1);
-        assert_eq!(tools.paint_polygon(&[(0.0, 0.2), (6.0, 0.2), (6.0, 0.8), (0.0, 0.8)], 2, false), 6);
+        assert_eq!(tools.paint_polygon(&[(0.0, 0.2), (6.0, 0.2), (6.0, 0.8), (0.0, 0.8)], 2, false), Some(6));
         let mut territory = base.clone();
         tools.commit(&mut territory);
         assert_eq!(&territory[..6], &[2; 6]);
@@ -827,13 +846,39 @@ mod tests {
     fn lasso_enclosing_no_centre_pushes_nothing_and_discard_drops_a_staged_ring() {
         let base = vec![0i32; 16];
         let mut tools = CivTools::new(4, 4, base.clone(), 1);
-        assert_eq!(tools.paint_polygon(&[(1.1, 1.1), (1.4, 1.1), (1.4, 1.4)], 2, false), 0);
+        assert_eq!(tools.paint_polygon(&[(1.1, 1.1), (1.4, 1.1), (1.4, 1.4)], 2, false), Some(0));
         assert!(tools.territory_draft.is_empty());
         tools.paint_polygon(&[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0)], 2, false);
         tools.discard();
         let mut territory = base.clone();
         assert!(!tools.commit(&mut territory));
         assert_eq!(territory, base);
+    }
+
+    /// `OUTSTANDING_WORK.md` §2.11: a faction id the layer cannot hold is
+    /// refused, the way `geojson_apply::apply_territory` refuses it -- not
+    /// clamped to 255 (another faction) or 0 (an erase). The base is faction
+    /// 9 everywhere, so any dab that did land would show as a non-9 cell.
+    #[test]
+    fn paint_refuses_a_faction_past_the_layer_and_stages_nothing() {
+        let base = vec![9i32; 16];
+        let mut tools = CivTools::new(4, 4, base.clone(), 1);
+        assert!(!tools.paint_at(1.0, 1.0, 256, 1.0, false), "256 must be refused");
+        assert!(!tools.paint_at(1.0, 1.0, -1, 1.0, false), "-1 must be refused, not read as an erase");
+        assert_eq!(tools.paint_polygon(&[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)], 256, false), None);
+        assert!(tools.territory_draft.is_empty(), "a refused dab or ring stages nothing");
+        let mut territory = base.clone();
+        assert!(!tools.commit(&mut territory), "nothing to commit");
+        assert_eq!(territory, vec![9i32; 16]);
+        assert!(tools.territory_paint.is_unallocated());
+
+        // The edge of the range is accepted, and a subtract never reads the id.
+        assert!(tools.paint_at(1.0, 1.0, 255, 0.0, false));
+        assert!(tools.commit(&mut territory));
+        assert_eq!(territory[1 * 4 + 1], 255);
+        assert!(tools.paint_at(1.0, 1.0, 256, 0.0, true), "a subtract writes no faction");
+        assert!(tools.commit(&mut territory));
+        assert_eq!(territory[1 * 4 + 1], 9);
     }
 
     #[test]

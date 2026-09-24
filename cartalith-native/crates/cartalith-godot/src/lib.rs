@@ -697,6 +697,44 @@ fn civ_commit_territory_paint(tools: &mut civ_tools_bridge::CivTools, civ: &mut 
     true
 }
 
+/// Empties the Territory tool's whole model -- the accumulated paint layer,
+/// any uncommitted draft, and the base the two merge over -- by re-basing it
+/// on `civ.territory`, which the caller has just emptied. All three, or the
+/// next paint commit (`CivTools::recompose`: base merged with *all* paint)
+/// redraws what was cleared. [`WorldGen::civ_clear_territory`] and
+/// [`WorldGen::civ_clear_places`] both end here.
+fn civ_reset_territory_paint(tools: &mut civ_tools_bridge::CivTools, civ: &mut CivData) {
+    tools.territory_paint = cartalith_spatial::PaintLayer::new();
+    tools.discard();
+    tools.rebase(&mut civ.territory);
+}
+
+/// [`WorldGen::civ_clear_places`]' state half, split out so it can run under
+/// `cargo test` (a `#[func]` returning a `VarDictionary` cannot). Removes the
+/// settlements and everything derived from them, the recorded timeline, and
+/// the territory -- computed borders *and* hand paint, since the Clear places
+/// dialog promises "their territory" goes with them and says nothing is kept.
+///
+/// Returns `(settlements removed, claimed cells before the clear)`.
+fn civ_clear_places_state(civ: &mut CivData, tools: Option<&mut civ_tools_bridge::CivTools>) -> (usize, usize) {
+    let removed = civ.settlements.len();
+    let claimed = civ.territory.iter().filter(|&&t| t > 0).count();
+    let n = civ.territory.len();
+    civ.settlements.clear();
+    civ.place_extras = civ_roster_bridge::PlaceExtrasTable::default();
+    civ.trade_balances.clear();
+    civ.explanations.clear();
+    civ.province_list.clear();
+    civ.provinces = vec![0; n];
+    civ.territory = vec![0; n];
+    civ.timeline.clear();
+    civ.year = 0;
+    if let Some(tools) = tools {
+        civ_reset_territory_paint(tools, civ);
+    }
+    (removed, claimed)
+}
+
 /// One test per [`CivRebuild`] mode, each asserting the same single claim:
 /// **`civ_merge`'s bool is true only when every field the merged layer
 /// derives from the settlement list came from the fresh pass.** That is the
@@ -717,7 +755,7 @@ fn civ_commit_territory_paint(tools: &mut civ_tools_bridge::CivTools, civ: &mut 
 #[cfg(test)]
 mod civ_merge_tests {
     use super::{
-        CIV_FACTION_COUNT, CivData, CivRebuild, PipelineStage, SettlementExplanation, civ_merge,
+        CIV_FACTION_COUNT, CivData, CivRebuild, PipelineStage, SettlementExplanation, civ_clear_places_state, civ_merge,
         civ_rebase_territory_paint, civ_roster_bridge, civ_settle_staleness, civ_tools_bridge, pipeline_stage_graph,
     };
     use cartalith_civ::{
@@ -956,6 +994,43 @@ mod civ_merge_tests {
             assert!(tools.commit(&mut merged.territory));
             assert_eq!(merged.territory[3], computed, "{mode:?}: subtract must restore the computed owner, not the paint");
         }
+    }
+
+    /// `OUTSTANDING_WORK.md` §2.11 "Clear places leaves a stale territory
+    /// base". A 2x2 world computed as faction 7 everywhere, cell 3 painted
+    /// faction 3. After Clear places, a stroke elsewhere must not bring back
+    /// either the old computed 7s or the old painted 3: before the fix the
+    /// base and paint survived in the tool layer and the commit recomposed
+    /// `[5, 7, 7, 3]`.
+    #[test]
+    fn clear_places_leaves_no_old_claim_for_the_next_commit_to_redraw() {
+        let mut civ = tagged(4);
+        civ.territory = vec![7, 7, 7, 7];
+        let mut tools = civ_tools_bridge::CivTools::new(2, 2, civ.territory.clone(), 1);
+        assert!(tools.paint_at(1.0, 1.0, 3, 0.0, false));
+        assert!(tools.commit(&mut civ.territory));
+        assert_eq!(civ.territory, vec![7, 7, 7, 3], "premise: base and paint both claim");
+        // An uncommitted dab pending at clear time goes too.
+        assert!(tools.paint_at(0.0, 1.0, 4, 0.0, false));
+
+        assert_eq!(civ_clear_places_state(&mut civ, Some(&mut tools)), (4, 4));
+        assert_eq!(civ.territory, vec![0, 0, 0, 0]);
+        assert_eq!(tools.territory_base, vec![0, 0, 0, 0], "the base is cleared, not left at the old claims");
+        assert!(tools.territory_paint.is_unallocated(), "the paint is cleared");
+        assert!(tools.territory_draft.is_empty(), "the pending draft is dropped");
+
+        assert!(tools.paint_at(0.0, 0.0, 5, 0.0, false));
+        assert!(tools.commit(&mut civ.territory));
+        assert_eq!(civ.territory, vec![5, 0, 0, 0], "only the new stroke is drawn");
+        // A subtract falls through to the cleared base, not to 7 or 3.
+        assert!(tools.paint_at(1.0, 1.0, 0, 0.0, true));
+        assert!(tools.commit(&mut civ.territory));
+        assert_eq!(civ.territory, vec![5, 0, 0, 0]);
+        // And a writer that fills the paint layer directly (the GeoJSON
+        // import) recomposes over the same empty base.
+        tools.territory_paint.cells_mut(4)[2] = 6;
+        tools.recompose(&mut civ.territory);
+        assert_eq!(civ.territory, vec![5, 0, 6, 0]);
     }
 
     /// SG-02's recompute rebuilds everything below the settlement list, so
@@ -1455,6 +1530,16 @@ impl CivData {
     /// (`cartalith_civ::timeline::civ_snapshot_load`) -- never touches
     /// `settlements`/`ways`, matching `TIMELINE_SCOPE.md` §7 success
     /// criterion 2.
+    ///
+    /// **Open, not settled (`OUTSTANDING_WORK.md` §2.11, 2026-09-24):** this
+    /// writes `territory` outside the Territory tool's base+paint model, so
+    /// `CivTools::territory_base`/`territory_paint` still describe the map
+    /// from before the jump. The next paint commit, subtract or recompute
+    /// rebuilds `territory` from those and the loaded year disappears from
+    /// the claim grid -- while `year` still names it, so a following
+    /// `civ_add_year` records the rebuilt grid under the viewed year. A year
+    /// with no snapshot zeroes `territory` (the reference's `terr.fill(0)`).
+    /// Which way to close this is an owner decision, routed from that row.
     fn civ_goto_year(&mut self, year: i64) {
         self.year = year;
         cartalith_civ::timeline::civ_snapshot_load(&self.timeline, year, &mut self.territory);
@@ -6497,42 +6582,42 @@ impl WorldGen {
     /// settlements that no longer exist, and `civ_goto_year` would otherwise
     /// restore a claim grid for a world with no places in it.
     ///
-    /// Accumulated territory *paint* is kept in the tool layer but stops
-    /// being drawn, since its base is now an empty claim map. Erasing the
-    /// paint itself is [`Self::civ_clear_territory`].
+    /// Territory goes entirely, as the shell's confirmation says ("along
+    /// with their territory"): the computed borders, the accumulated hand
+    /// paint and the base it merges over ([`civ_clear_places_state`]). This
+    /// used to keep the paint and the old base in the tool layer while
+    /// zeroing the claim grid, so the next paint commit or GeoJSON import
+    /// redrew every old claim. Auto-populate derives fresh borders; nothing
+    /// restores the cleared paint.
     ///
     /// Returns [`Self::civ_clear_ways`]' dictionary plus `"settlements":
     /// int`.
     #[func]
     fn civ_clear_places(&mut self) -> VarDictionary {
         let mut out = self.civ_clear_ways();
-        let mut removed = 0usize;
+        let (mut removed, mut claimed) = (0usize, 0usize);
         // SP-4: the settlements an anchor names are about to go, and the
         // next auto-populate reissues their `tid`s. Detach first.
         conflict_bridge::detach_all(&mut self.conflicts, self.civ.as_ref());
         if let Some(civ) = self.civ.as_mut() {
-            removed = civ.settlements.len();
-            let n = civ.territory.len();
-            civ.settlements.clear();
-            civ.place_extras = civ_roster_bridge::PlaceExtrasTable::default();
-            civ.trade_balances.clear();
-            civ.explanations.clear();
-            civ.province_list.clear();
-            civ.provinces = vec![0; n];
-            civ.territory = vec![0; n];
-            civ.timeline.clear();
-            civ.year = 0;
+            (removed, claimed) = civ_clear_places_state(civ, self.civ_tools.as_mut());
         }
         if removed > 0 {
             // SG-01: nothing downstream of the settlement list describes the
             // settlement list any more. `civ_populate` is the way back.
             self.civ_dirty = true;
+        }
+        // Also when no settlement was left but claims were: the paint that
+        // goes with them is unrecoverable, so the clear is recorded.
+        if removed > 0 || claimed > 0 {
             self.ledger.record(
                 "civ",
                 "Clear places & routes",
-                format!("{removed} settlement(s), their territory, provinces and the recorded timeline"),
+                format!(
+                    "{removed} settlement(s), their territory ({claimed} claimed cell(s), computed and painted), provinces and the recorded timeline"
+                ),
                 undo::EntryKind::Recorded(
-                    "settlements are not retained; Auto-populate derives a new set rather than restoring these",
+                    "settlements and painted territory are not retained; Auto-populate derives a new set rather than restoring these",
                 ),
             );
         }
@@ -6569,9 +6654,7 @@ impl WorldGen {
         // The paint layer *and* the base it merges over, or the next commit
         // silently restores what was just cleared -- see this method's doc.
         if let (Some(tools), Some(civ)) = (self.civ_tools.as_mut(), self.civ.as_mut()) {
-            tools.territory_paint = cartalith_spatial::PaintLayer::new();
-            tools.discard();
-            tools.rebase(&mut civ.territory);
+            civ_reset_territory_paint(tools, civ);
         }
         if cleared > 0 {
             self.ledger.record(
@@ -10755,11 +10838,22 @@ impl WorldGen {
     /// answer on the next commit rather than to bare "unclaimed" -- see
     /// `civ_tools_bridge.rs`'s own module doc for why that needs
     /// `territory_base` at all.
+    ///
+    /// Returns whether a dab was staged: `false` before any `generate()`, and
+    /// `false` -- with nothing staged -- for an add dab whose `faction` the
+    /// paint layer cannot hold (negative, or past 255), which is refused like
+    /// the GeoJSON import refuses it rather than clamped to another faction
+    /// (`CivTools::paint_at`). A subtract dab never reads `faction`.
     #[func]
-    fn civ_territory_paint_at(&mut self, gx: f64, gy: f64, faction: i64, radius: f64, subtract: bool) {
-        if let Some(tools) = self.civ_tools.as_mut() {
-            tools.paint_at(gx, gy, faction as i32, radius, subtract);
-        }
+    fn civ_territory_paint_at(&mut self, gx: f64, gy: f64, faction: i64, radius: f64, subtract: bool) -> bool {
+        let Some(tools) = self.civ_tools.as_mut() else { return false };
+        // `as i32` would wrap 2^32 + 3 to faction 3; out of range is refused.
+        let faction = match (subtract, i32::try_from(faction)) {
+            (true, _) => 0,
+            (false, Ok(f)) => f,
+            (false, Err(_)) => return false,
+        };
+        tools.paint_at(gx, gy, faction, radius, subtract)
     }
 
     /// The Territory lasso (owner request, 2026-09-23): stages every cell
@@ -10768,12 +10862,20 @@ impl WorldGen {
     /// one masked stamp (`civ_tools_bridge::CivTools::paint_polygon`).
     /// `civ_territory_commit`/`civ_territory_discard` then apply unchanged.
     /// Returns the cells staged; `0` before any `generate()` call or for a
-    /// ring enclosing no cell centre.
+    /// ring enclosing no cell centre; **`-1`** when an add ring names a
+    /// faction the paint layer cannot hold (negative, or past 255) -- refused
+    /// with nothing staged, as [`Self::civ_territory_paint_at`] refuses it,
+    /// and kept apart from `0` so a caller can say which happened.
     #[func]
     fn civ_territory_paint_polygon(&mut self, points: PackedVector2Array, faction: i64, subtract: bool) -> i64 {
         let Some(tools) = self.civ_tools.as_mut() else { return 0 };
         let ring: Vec<(f64, f64)> = points.as_slice().iter().map(|p| (p.x as f64, p.y as f64)).collect();
-        tools.paint_polygon(&ring, faction as i32, subtract) as i64
+        let faction = match (subtract, i32::try_from(faction)) {
+            (true, _) => 0,
+            (false, Ok(f)) => f,
+            (false, Err(_)) => return -1,
+        };
+        tools.paint_polygon(&ring, faction, subtract).map_or(-1, |n| n as i64)
     }
 
     /// Bakes the in-progress territory draft into the accumulated paint
