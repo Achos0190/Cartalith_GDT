@@ -1518,3 +1518,27 @@ each side's manpower. No "needs a decision".
 
 **Build LOD-D7: info and debug views get deep-zoom tiles** like the terrain
 view (`LOD_DETAIL_SCOPE.md` owner question 6).
+
+## 2026-09-24 — Ruling AW: war campaigns over time are not declined
+
+**Supersedes Ruling AV's Military wording and `MILITARY_MANPOWER_SCOPE.md` §4's
+decline of campaigns, change over time, and per-settlement garrisons.** The
+owner, in their own words: war campaigns over time "should not be declined".
+Asked what to build, the owner answered: **"Territory over time and siege lines
+drawn in their own Conflict layer under Carto."** Asked about garrisons: **yes,
+derived.**
+
+- **Territory over time.** A war's effect is shown as territory changing across
+  the Timeline's year cursor: the claims a conflict moves between recorded
+  years, read through the existing timeline snapshots (Ruling AT's base model).
+- **Siege lines in their own Conflict layer under CARTO.** A new map layer,
+  listed with the other CARTO layers, draws conflicts: siege lines around a
+  besieged settlement and the fronts between the sides, following the year
+  cursor. It is its own layer, not part of the SP-4 conflict overlay in CIVIL.
+- **Per-settlement garrisons, derived.** Each faction's standing army is split
+  across its settlements by a stated rule (walls, capital, border exposure),
+  shown per settlement and usable as a conflict's starting forces.
+
+What the owner did not ask for is not implied: no unit-by-unit movement and no
+combat rule that resolves battles on its own. Settle any such step with the
+owner before building it.

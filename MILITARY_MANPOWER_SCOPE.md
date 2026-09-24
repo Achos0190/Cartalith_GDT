@@ -938,6 +938,14 @@ same six factions spread **0.11 … 0.91** and roads carry real weight.
 
 ## 4 · What this deliberately does not build
 
+> **Reopened 2026-09-24 by Ruling AW** (`LARGE_ITEM_RULINGS.md`): war campaigns
+> over time are not declined. The owner scoped them as territory over time and
+> siege lines in their own Conflict layer under CARTO, with derived
+> per-settlement garrisons. The bullets below are the reasoning as it stood
+> before that ruling; per-settlement garrisons and change over time are now
+> scheduled, and campaigns are scheduled in the form the ruling names (no
+> unit movement or combat resolution).
+
 CV-25's own narrowing, kept, minus the manpower half this document supersedes.
 These are **declined**, with the reason, rather than deferred — nobody should
 re-propose them without reopening the reasoning:
