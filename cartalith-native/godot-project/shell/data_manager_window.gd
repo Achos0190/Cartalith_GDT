@@ -318,7 +318,7 @@ const PANE_PURPOSE := {
 	"sources_registry": "the list of every known source — no source registry exists",
 	"val_defs": "run every validator the engine has over the definitions it has — nothing is written back",
 	"val_check": "look for contradictions in the world's own data — nothing collects warnings",
-	"val_repair": "fix what a check found — there is no check to repair against",
+	"val_repair": "fix what a check found — no world check exists yet to repair against",
 }
 
 ## Export ▸ GIS / GeoJSON's INCLUDE row: the entity groups this window can name,
@@ -395,7 +395,9 @@ const ROUTES: Array[Dictionary] = [
 		"sub": "no warning store",
 		"reason": "There is a warning collection and it is about opening a FILE, not about checking a world: project_open() returns a warnings array, EngineBridge.last_open_warnings holds it, and app.gd surfaces its first entry after an open. Nothing anywhere walks a loaded WORLD looking for contradictions in its own data, which is what this route means -- and what would be checked, against which invariant, is itself undefined. The five validators that do exist check DEFINITIONS rather than world state and have their own route, Validation > Definitions, next door; this row is what is still missing after it. The canvas's `8` badge on this row is mockup data, so no badge is drawn. (Re-checked 2026-09-05; this row previously said no warning collection existed anywhere, which project_open's own return had already falsified. Re-checked 2026-09-06 when Definitions landed: the DM-10 register row moved there, so it no longer reads (C) here.)"},
 	{"group": "Validation", "id": "val_repair", "label": "Repair / Normalize", "badge": "", "kind": "gap",
-		"sub": "nothing to repair against", "reason": "No validation pass exists to repair against."},
+		## Corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 B12): "No validation
+		## pass exists" contradicted `val_defs` two rows up, which is live.
+		"sub": "nothing to repair against", "reason": "Validation > Definitions does check definitions, but it only reports -- nothing is written back -- and there is no world check (Check Data, above) whose findings a repair could act on."},
 ]
 
 ## **Four groups, not five.** See the header's divergence note.
@@ -484,7 +486,10 @@ const PACKAGING_NOTE := "Both exports produce one stored (uncompressed) .zip. A 
 ## from the reference, so a consumer reading the file learns it too.
 const GEOJSON_CRS_NOTE := "Coordinates are local planar kilometres (east, north) at this world's own scale, with north up -- not WGS84 longitude/latitude. RFC 7946 assumes WGS84, but a procedurally generated world has no true georeference; the reference makes the same call, and the document says so in its own note property."
 
-const GEOJSON_CIV_NOTE := "Settlements, ways, territory and provinces come from the civilisation layer, which only exists for a freshly generated world -- a loaded .zip save carries none of the substrate that pipeline needs (SAVEFILE_COMPAT.md). Exporting a loaded save produces a valid document whose features are rivers and nothing else. This port also has no point-of-interest kind, so there is no poi layer: every place is a settlement."
+const GEOJSON_CIV_NOTE := "Settlements, ways, territory and provinces come from the civilisation layer, which only exists for a freshly generated world -- a loaded .zip save carries none of the substrate that pipeline needs (SAVEFILE_COMPAT.md). Exporting a loaded save produces a valid document whose features are rivers and nothing else. Landmarks (the map's points of interest) are not exported yet, so there is no poi layer: every exported place is a settlement."
+## POI sentence corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 B9): landmarks
+## and the `poi` icon family exist; what is missing is only the GeoJSON side --
+## `geojson_bridge.rs` builds every place `is_poi: false` and reads no landmark.
 
 ## The pattern pane's FORMAT row on this route, and the reason its other two
 ## segments are dead.
@@ -637,7 +642,13 @@ var _gis_doc_layers: Dictionary = {}
 ## no longer does. Until 2026-08-24 this row was a **gap** whose reason read
 ## "cartalith-io reads .zip saves but does not write them"; that stopped being
 ## true when FI-01 landed the writer, and the row outlived it.
-const WD_RASTER_NOTE := "render::bake_rect runs the whole material path -- materials, hillshade, AO, the river tint, the paper ground and the plate frame -- at the fractional grid position each output pixel lands on, so an 8K export carries four times the material detail of a 2K one rather than the same picture resampled. Measured at the grid's own resolution against the live viewport: a dozen or so bytes of 8,060,928 differ, all by a single level, from the f32 prologue the reference stores in a Float32Array too."
+## Rewritten 2026-09-24 (ALIGNMENT_AUDIT Part 2 B10). It quoted "a dozen or
+## so bytes of 8,060,928 differ" against the live viewport -- stale since
+## `d657091`: `export_raster.rs::screen_river_ink` returns `None` for a
+## generated world (the screen draws `map_overlay.gd::_draw_rivers`' vector
+## strokes) while exports still stamp `river_ink()` into the raster. The
+## re-render claim is `render::bake_rect`'s.
+const WD_RASTER_NOTE := "The export re-renders the map at each output pixel's own position -- materials, hillshade, shading, the paper ground and the plate frame -- so an 8K export carries four times the material detail of a 2K one rather than the same picture resampled. One visible difference from the screen: on a generated world the screen draws rivers as smooth lines over the map, while an export paints them into the image from the map grid instead, so the two do not match exactly."
 const WD_TILES_NOTE := "Writes tile_{row}_{col}.png plus index.json (cartalith_io::build_tile_manifest) instead of one file. The raster is rendered ONCE either way and only the file layout differs, so this cannot change what the map looks like -- unlike the reference, which re-renders per tile because a browser canvas has a hard area cap no native build has."
 const WD_ATLAS_NOTE := "chanAtlasChk: soil fertility, water access and carrying capacity in one RGB8 PNG; settlement suitability in another; the fifteen resource potentials three to a file; biome and lithology indices in a third -- plus atlas/index.json documenting which channel of which file holds which field. Data at grid resolution, not a picture. The Köppen channel is documented and left at zero: this port retains no Köppen raster, exactly as the reference leaves it null when state.climate.seasons never built one."
 const WD_LAYERS_NOTE := "layersPreviewChk: the reference's own four human-viewable previews of the f32 data layers -- biome, hillshade, temperature, rainfall -- written into a layers/ folder beside whatever this run just wrote. Each is built from the pass the reference's own layerBytes(mode, debug) branch would have taken: bake_rect for biome, render::hillshade_raster for renderNow's mode==='shade' branch, and the temp/rain debug rasters, which are whole-image palette replacements rather than overlays because the reference's debugOpacity defaults to 1. Always at the GRID's size, not the raster width above: the .f32 blobs these preview are one value per cell, and the README line calls them reference only. Generated worlds only."
@@ -1700,11 +1711,14 @@ func _pattern_prose(col: Control, route: Dictionary) -> void:
 					"This build's GDExtension predates the heightmap-import binding (WorldGen::import_heightmap). Rebuild cartalith-godot to enable it.")
 		"import_gis":
 			## DM-03's other half, Ruling V (LARGE_ITEM_RULINGS.md, 2026-09-21):
-			## `geojson_apply.rs` over `cartalith_io::parse_geojson`.
+			## `geojson_apply.rs` over `cartalith_io::parse_geojson`. The poi
+			## clause below said "this port has no POI concept" until
+			## 2026-09-24 (ALIGNMENT_AUDIT Part 2 B9) -- landmarks exist; the
+			## import simply places no landmark from a poi feature.
 			DccWidgets.note(col,
 				"Reads a FeatureCollection and places what it can: a settlement feature (bounds/occupied/water gates, same as the Settlement tool) and a territory polygon (rasterised cell by cell). A feature naming a faction this world doesn't have creates it -- by its imported name, never a fuzzy remap, never silently dropped to unclaimed.")
 			DccWidgets.note(col,
-				"poi, way, river and province features are read and counted but not placed: this port has no POI concept, a way needs real settlement endpoints an import doesn't carry, a river is generated hydrology rather than user data, and a province must stay inside its own faction's territory in a way an arbitrary polygon isn't checked against. The result after importing names each one.")
+				"poi, way, river and province features are read and counted but not placed: the import does not turn a point of interest into a landmark yet, a way needs real settlement endpoints an import doesn't carry, a river is generated hydrology rather than user data, and a province must stay inside its own faction's territory in a way an arbitrary polygon isn't checked against. The result after importing names each one.")
 			DccWidgets.note(col,
 				"Coordinates are read as this world's own planar kilometres regardless of what the document's own CRS property claims -- the only coordinate system a generated world has.")
 		"import_world":

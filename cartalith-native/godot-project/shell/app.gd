@@ -1273,10 +1273,17 @@ func _setup_staleness() -> void:
 
 	_stale_recompute = DccWidgets.action(status_row, "Recompute", _recompute_stale)
 	_stale_recompute.visible = false
-	_stale_recompute.tooltip_text = ("Re-runs the stages the graph reports stale right now, "
-		+ "and nothing else. The civilisation layer is deliberately not cascaded per edit "
-		+ "(UNIFIED_TOOL_PLAN.md milestone C measured why), so \"civ\" usually stays -- "
-		+ "Civilization ▸ Settlements ▸ Recompute civilisation is the one that clears it.")
+	## Corrected 2026-09-24 (ALIGNMENT_AUDIT Part 3): it cited "UNIFIED_TOOL_PLAN.md
+	## milestone C measured why". That milestone measured nothing of the kind;
+	## the ~7 s often quoted is `CPU_MULTITHREADING_SCOPE.md`'s full-generation
+	## figure. What `recompute_stale_stages` runs is `staleness::recompute_stale`
+	## (hydrology + climate via one `refresh_climate`); civ stays stale by design,
+	## and `recompute_civilisation`'s own doc records its cost (seconds at 2048²).
+	_stale_recompute.tooltip_text = ("Re-runs only what is out of date right now -- after "
+		+ "a terrain edit, that is drainage and climate -- and nothing else. The "
+		+ "civilisation layer is not rebuilt on every edit, because a rebuild takes "
+		+ "seconds on a large world, so \"civ\" usually stays -- Civilization ▸ "
+		+ "Settlements ▸ Recompute civilisation is the one that clears it.")
 	## `dcc_shell.gd`'s `_build_status_bar()` fills this row in its own fixed
 	## order, one child per slot: `STATUS_SLOTS` -- **pass, stale, atlas,
 	## progress, autosave** -- then the spacer, then `mid` and `hint`. So child

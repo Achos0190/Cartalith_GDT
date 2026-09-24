@@ -1097,7 +1097,9 @@ func _update_derived_readout(gw: int, gh: int, km_w: float) -> void:
 
 	var warnings: Array[String] = []
 	if gw >= 4096 or gh >= 4096:
-		warnings.append("4K/8K grids are memory- and time-heavy on this port's CPU-only pipeline — a single generate at this size runs for minutes and allocates several GB.")
+		## "CPU-only pipeline" removed 2026-09-24 (ALIGNMENT_AUDIT Part 2 B11):
+		## `engine_bridge.gd::_ready` turns `use_gpu` on at boot.
+		warnings.append("4K/8K grids are memory- and time-heavy — a single generate at this size can take minutes and allocates several GB.")
 	if maxf(ratio, 1.0 / ratio) > DEGENERATE_ASPECT:
 		warnings.append("Aspect ratios past about %d:1 are degenerate: the coarse weather grid has almost no resolution across the short axis and the plate frame (a uniform margin in cells) swallows a large fraction of the sheet. It generates without crashing, but the result is not a useful map." % int(DEGENERATE_ASPECT))
 	dimension_warning_label.text = "\n".join(warnings)

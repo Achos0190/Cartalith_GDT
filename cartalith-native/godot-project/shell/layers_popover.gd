@@ -54,7 +54,9 @@ const FLOW_FX_SCRIPT := preload("res://shell/wind_fx_layer.gd")
 ## **Two grounds, not one**, in the engine's own words (`GAP_LAYERS`' doc
 ## comment there): "Two remain honestly unavailable for a *missing
 ## computation* (`oro`, `velo`) and two for a missing composite
-## (`popdensity`, `siteprofile`)." There is no third, "missing estimator"
+## (`popdensity`, `siteprofile`)." (2026-09-24: that doc is itself wrong about
+## `oro` and `velo` -- both are computed and then not kept; ALIGNMENT_AUDIT
+## Part 2 B2.) There is no third, "missing estimator"
 ## category -- an earlier draft of this file printed one for all four, which
 ## contradicted two of the hints it was printed under. Each sentence below is
 ## the substance of that id's own hint in `LAYER_GROUPS`, so the two lines of
@@ -66,15 +68,24 @@ const FLOW_FX_SCRIPT := preload("res://shell/wind_fx_layer.gd")
 const GAP_LAYERS := {
 	## `sample_bridge.rs:597`, the `LAYER_GROUPS` `"oro"` hint -- "needs the
 	## boundary-polyline structure generate_terrain folds into height and
-	## never retains". Unretained input, so not a "no ... exists" sentence.
+	## never retains". Computed, not kept: `generate_terrain_inner` builds `oro`
+	## (`build_orogeny_field` + `smooth_orogeny`) only when World Structure is
+	## on, folds it into height, and drops it with the boundary polylines.
+	## Corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 B2): it was called "a
+	## missing computation", which it is not.
 	"oro":
-		"Never available: a missing computation. The boundary polylines it " +
-		"draws from are folded into height and retained by no world.",
-	## `sample_bridge.rs:626`, the `LAYER_GROUPS` `"velo"` hint -- "no hydraulic
-	## velocity-erosion pass ... exists in cartalith-erosion".
+		"Never available: the orogeny field is computed during generation " +
+		"(with World Structure on) and added into the height, but it is not " +
+		"kept afterwards, so there is nothing left to draw.",
+	## The `LAYER_GROUPS` `"velo"` hint in `sample_bridge.rs` says no velocity
+	## pass exists -- false (reported, Rust side). `velocity_erode_kernel`
+	## (cartalith-erosion passes.rs) runs under `passes.velocity`, and
+	## `generate_terrain_inner` discards the water/velocity field it returns
+	## (`let _ = velocity_erode_kernel(...)`). Corrected 2026-09-24 (B2).
 	"velo":
-		"Never available: a missing computation. No hydraulic velocity-" +
-		"erosion pass exists in this engine.",
+		"Never available: velocity erosion does run (the Velocity (momentum) " +
+		"erosion switch under Hydrology), but the water-velocity field it " +
+		"works out is thrown away afterwards, so there is nothing to draw.",
 	## `sample_bridge.rs`'s `LAYER_GROUPS` `"popdensity"` hint -- "no regional
 	## population-density estimator exists in this engine".
 	##
@@ -678,10 +689,9 @@ func _row(parent: Control, item: Dictionary, current: String, hotkey: int = -1) 
 	## original wording. A `GAP_LAYERS` row is refused on a ground no world can
 	## change, so "for this world" beside it read as a self-contradiction; its
 	## sentence comes per id from the table above, because the four hints do
-	## not share one form. All four open "Not available:", but only `velo` and
-	## `popdensity` go on to say "no ... exists" -- `oro` says its input is
-	## never *retained*, and `siteprofile` that the *composite* has no Rust
-	## equivalent though both its inputs do.
+	## not share one form. All four open "Never available:"; `oro`, `velo` and
+	## `popdensity` are computed but not kept, and `siteprofile` is a composite
+	## with no engine equivalent though both its inputs have rows.
 	var reason := String(GAP_LAYERS.get(id, "Not available for this world."))
 	b.tooltip_text = String(item["hint"]) if available else \
 		String(item["hint"]) + "\n\n" + reason

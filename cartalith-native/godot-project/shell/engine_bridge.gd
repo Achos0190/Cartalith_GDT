@@ -661,8 +661,17 @@ func generate(request: Dictionary) -> void:
 	## here rather than in Rust: `generate_terrain` returns a world, not a
 	## `Result`, and "refuse and say why" is a UI act. The other two settings
 	## need nothing here -- `cpu_tile_pass` is the engine silently taking its
-	## existing CPU route, which is correct-by-construction.
-	var vram := gpu_vram_estimate(int(request.get("grid_w", 0)), int(request.get("grid_h", 0)))
+	## existing CPU route.
+	##
+	## Only while GPU acceleration is on (ALIGNMENT_AUDIT Part 2 B11, fixed
+	## 2026-09-24): `WorldGen::gpu_vram_estimate` judges the grid against the
+	## budget without asking whether the GPU will be used at all, so with the
+	## toggle off this refused a run that would never have touched the GPU.
+	## `null` (no parameter table on this build) keeps the old always-check.
+	var vram := {}
+	var gpu_on = param_get("use_gpu")
+	if gpu_on == null or gpu_on == true:
+		vram = gpu_vram_estimate(int(request.get("grid_w", 0)), int(request.get("grid_h", 0)))
 	if String(vram.get("action", "gpu")) == "fail":
 		last_summary = "Refused: the %dx%d grid needs about %d MB of GPU buffers, over the %d MB VRAM budget, and Preferences ▸ Fallback when VRAM full is set to Fail with error." % [
 			int(vram.get("gw", 0)), int(vram.get("gh", 0)),

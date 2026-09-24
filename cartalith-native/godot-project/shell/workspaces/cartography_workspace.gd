@@ -743,10 +743,15 @@ func _build_layer_gaps(parent: Control) -> void:
 		+ "width on the ground -- and nothing river-shaped is baked into the "
 		+ "terrain texture. A loaded save still shows its one-cell raster rivers, "
 		+ "because its format carries no channel network to draw.")
+	## Corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 B12). The reference's
+	## `#sharpBiomes` is a RENDER toggle (`state.viz.sharpBiomes`, default
+	## true, v2.11 7755), not a classification dial; this port applies its
+	## "on" state unconditionally -- `render.rs::bio_jitter`, called from
+	## `land_color` with no switch.
 	DccWidgets.note(sec,
-		"Sharper ecotones (biome-detail sharpening) is not parameterised: biome "
-		+ "classification runs off the finished temperature/rainfall fields with no "
-		+ "dials of its own -- see World ▸ Biomes for the same finding.")
+		"Sharper ecotones (finer biome detail) is always on here, as it is by "
+		+ "default in the reference -- the map breaks up biome edges with fine "
+		+ "noise -- but there is no switch to turn it off.")
 	## ◄ Visibility / zoom's own `§ Partly built`: Ruling L folds that
 	## category into Layers (L321-322), and its gap notes are about per-layer
 	## zoom ranges and the declutter budget -- both statements about the layer
@@ -775,11 +780,17 @@ func _build_layer_gaps(parent: Control) -> void:
 		+ "which is the half of CA-04 the 2026-09-03 raster stack did not do.\n"
 		+ "Two ladders do exist, both ported: way types by CIV_LOD_ROAD, and the "
 		+ "24-10 km urban-layout crossfade.")
+	## Population-density clause corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2
+	## B12) to agree with `layers_popover.gd`'s `GAP_LAYERS["popdensity"]`:
+	## `estimate_regional_density_km2` builds the per-cell field inside
+	## `civ_regional_population()` and integrates it to one total. Trade
+	## influence: no such field in cartalith-civ (`territory_influence` is
+	## political, not trade).
 	DccWidgets.note(gaps,
 		"Population density, political control as a *choropleth*, and trade "
-		+ "influence: control is a real debug view above; the other two have no "
-		+ "field. Settlement population is per-place, not rasterised, and no trade "
-		+ "influence field is computed anywhere in cartalith-civ.")
+		+ "influence: control is a real debug view above. Population density is "
+		+ "estimated cell by cell but only its world total is kept, so there is "
+		+ "nothing to draw yet. No trade-influence field is computed at all.")
 
 
 # ===========================================================================

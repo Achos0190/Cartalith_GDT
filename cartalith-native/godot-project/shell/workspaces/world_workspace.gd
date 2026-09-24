@@ -121,15 +121,24 @@ const STAGES: Array = [
 	 "groups": ["planet"], "keys": [],
 	 ## The old note here said "geoid AND tides ... with no cartalith-engine
 	 ## equivalent yet" and was only half true, which is why it is now two
-	 ## sentences. Geoid: still nothing -- `params.rs` carries no geoid entry
-	 ## and `cartalith-climate::geoid::refresh_geoid` (geoid.rs:135) has no
-	 ## caller outside its own tests. Tides: ported and live, just not under
+	 ## sentences. Geoid: no generation-time enable -- `params.rs` carries no
+	 ## geoid entry and `cartalith-climate::geoid::refresh_geoid` has no
+	 ## caller outside its own tests (but see the correction below). Tides: ported and live, just not under
 	 ## this stage -- `passes.tidal_flats` IS the tides enable (its own engine
 	 ## doc, cartalith-engine/src/lib.rs, says "This port has no separate
 	 ## enable: this toggle is it, and turning it on computes the tide
 	 ## field"), so the honest thing is to name where the row actually is
 	 ## rather than deny it exists.
-	 "gap": "Geoid sea level is a default-off reference sub-system with no cartalith-engine equivalent yet. Tides ARE ported: there is no separate enable here because `passes.tidal_flats` is it -- turning that toggle on (06 Erosion ▸ Stream-power carve) computes the tide field, and Layers ▸ Tides previews it. The moon roster (mass, distance, k₂) is what is not exposed: `PlanetParams` carries none, so the field is built with a single Earth-Moon-equivalent companion at this world's own gravity."},
+	 ##
+	 ## **Geoid corrected 2026-09-24** (ALIGNMENT_AUDIT Part 2 B6): the geoid
+	 ## IS ported -- `cartalith-climate::geoid` (`build_geoid`,
+	 ## `refresh_geoid`, golden `tests/golden_parity_geoid.rs`) -- and drawn as
+	 ## the `LAYER_GROUPS` "geoid" row (Tectonics) via `current_geoid_preview`.
+	 ## What is missing is the reference's `#geoidChk` generation-time enable:
+	 ## `refresh_geoid` has no caller, so no world's sea level is offset.
+	 ## Tides: `passes.tidal_flats` is the enable; the moon roster is not
+	 ## exposed because `PlanetParams` carries none.
+	 "gap": "Geoid sea level (the rotation bulge and mantle lifting or lowering local sea level) is computed and can be previewed as Layers ▸ Tectonics ▸ Geoid, but there is no switch yet to apply it during generation, so this world's sea level stays level everywhere. Tides are applied: there is no separate switch here because the Tidal flats (mudflat accretion) switch under Hydrology ▸ 06 Erosion is it -- turning it on computes the tide field, and Layers ▸ Tectonics ▸ Tides previews it. The moons (mass, distance, k₂) have no controls, so the tide field uses one Earth-Moon-like companion at this world's own gravity."},
 	{"name": "Extent & scale", "needs": "01 Planet",
 	 "produces": "land/sea split, all distances → every later stage",
 	 "groups": [], "keys": ["world", "sea_level", "peak_m"],
@@ -141,14 +150,28 @@ const STAGES: Array = [
 	{"name": "Tectonics", "needs": "01 Planet, 03 World structure",
 	 "produces": "elevation, plate_id, boundary_type, resistance → 05 Volcanism, 06 Erosion, 10 Resources & soils",
 	 "groups": ["tectonics"], "keys": [],
-	 "gap": "Structured-orogeny tuning (fold intensity, trench depth, fault blocks -- the reference's foldI/trenchD/faultB) is not exposed: generate_terrain hardcodes the exact values the reference's own defaults produce (0.16, 1.0, 0), so behaviour matches, but the three dials would each need threading through OrogenyParams' call site (GENERATION_PARAMETERS.md, \"Parameters the reference exposed that this port does not\")."},
+	 ## Corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 A2): the old text said the
+	 ## hardcoded `OrogenyParams { fold_k: 0.16, trench_k: 1.0, fault_block_k:
+	 ## 0.0 }` in `generate_terrain_inner` were the reference's own defaults "so
+	 ## behaviour matches". They are not: v2.10 `deriveFromWorldStructure`
+	 ## (2536-2538) sets foldIntensity/trenchDepth from the archetype and state
+	 ## carries faultBlock 0.6 (2265). Ruling AS orders the derivation ported;
+	 ## re-check this sentence when it lands.
+	 "gap": "Mountain-belt shaping (fold intensity, trench depth, fault blocks) has no dials. With World Structure on, this version uses fixed values rather than deriving them from the world's structure settings, so fold belts and trenches do not yet scale with them and block-faulted (horst-and-graben) terrain does not form."},
 	{"name": "Volcanism & impacts", "needs": "04 Tectonics",
 	 "produces": "cones, provinces, craters → 06 Erosion",
 	 "groups": ["volcanism"], "keys": [], "gap": ""},
 	{"name": "Erosion", "needs": "04 Tectonics, 08 Climate",
 	 "produces": "final surface → 07 Hydrology, 10 Resources & soils",
 	 "groups": ["erosion"], "keys": [],
-	 "gap": "Corrected 2026-08-30 while wiring the staged progress readout, against `generate_terrain_inner` (cartalith-engine/src/lib.rs) directly rather than trusting this note: it was stale on six of its seven claims. Stream-power carve, the Glacial group's fjord carve, Hillslope diffuse, Velocity (momentum), Glacial erosion, Coastal, Evolve climate <-> terrain (evoCyc) and Sediment fill are ALL ported and ALL run as generation-time `passes.*` toggles inside this stage's own block -- off by default, so a default world is unaffected by any of them existing (`_build_erosion_passes` below already said as much for the first four; this note had not caught up). Only Droplet hydraulic has no generate()-time equivalent: it is `erode_op`, a separate op the reference itself runs from its own `#erodeBtn`, never from `generate()` -- see the Droplet hydraulic group below."},
+	 ## Verified against `generate_terrain_inner`'s `if p.passes.any()` block
+	 ## (cartalith-engine/src/lib.rs). Corrected 2026-09-24 (ALIGNMENT_AUDIT
+	 ## Part 2 B6): the fjord carve is NOT a `passes.*` toggle -- it is the
+	 ## on-demand `#[func] carve_fjords` (the Glacial group's own button) --
+	 ## and the function that draws these groups is `_build_erosion_water_ice`,
+	 ## not `_build_erosion_passes`. Droplet is `erode_op`, the reference's
+	 ## `#erodeBtn`, never run from `generate()`.
+	 "gap": "Stream-power carve runs in every generation. Hillslope diffuse, Velocity (momentum), Glacial erosion, Coastal, Evolve climate ↔ terrain, Sediment fill and Tidal flats run as switches inside generation -- off by default, so a default world is unaffected by them. Two erosion tools run on demand over the finished map instead of during generation: Carve fjords (a button in the Glacial group) and Droplet hydraulic (its own group below)."},
 	{"name": "Hydrology", "needs": "06 Erosion",
 	 "produces": "rivers, lakes, drainage, flow accumulation → 08 Climate, 09 Ecology & biomes",
 	 "groups": [], "keys": ["carve_rivers", "river_density", "integrate_drainage"],
@@ -208,8 +231,13 @@ const EROSION_STAGE_INDEX := 5 ## Zero-based -- STAGES[5] is "Erosion".
 ## The order below IS the tree's order, and the last two rows are the ones
 ## `RAIL_NODES`' `world/b` gates (`dcc_shell.gd`).
 const CATEGORIES: Array = [
+	## "lead" corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 B6): it said "there
+	## is no partial recompute in this engine". There is -- `recompute_stale_
+	## stages` (after sculpt / fjord carve / paint commits: hydrology + climate
+	## only, `staleness::recompute_stale`) and `recompute_civilisation`. What is
+	## true is that Generate itself always runs all ten stages.
 	{"name": "Generate", "stages": [],
-	 "lead": "The one act: seed, extent, steering, run -- plus the non-seed way in, and the terminal bake. Every parameter in the categories below feeds this call, and this call resolves all ten pipeline stages at once -- there is no partial recompute in this engine or in the app it ports."},
+	 "lead": "The one act: seed, extent, steering, run -- plus the non-seed way in, and the terminal bake. Every parameter in the categories below feeds Generate, and Generate always runs all ten pipeline stages from the start. Hand edits are lighter: a sculpt or fjord carve re-runs only drainage and climate, and the civilisation layer has its own Recompute."},
 	{"name": "Planet", "stages": [0, 1, 2],
 	 "lead": "The planet the world sits on, the scale it is measured in, and the continental steering that shapes it. Everything here is an input to generation rather than a product of it."},
 	{"name": "Geology", "stages": [3, 4],
@@ -271,8 +299,10 @@ var _stage_log_label: Label
 ## finished generate, or `-1` when the world is not stale. Cleared on
 ## `generation_finished`, not on `generation_started`: the badge stays up
 ## for the run it caused, then clears once that run has made the world match
-## the dials again. This engine has no partial recompute (`_regenerate_live`'s
-## own doc comment, verified live against the reference), so the note is
+## the dials again. A parameter edit re-runs Generate, which has no partial
+## run (`_regenerate_live`'s own doc comment; the partial recomputes that do
+## exist, `recompute_stale_stages`/`recompute_civilisation`, serve hand edits
+## and the civ layer, not parameter edits), so the note is
 ## informational -- "here is where the edit that triggered this run landed"
 ## -- not a claim that Generate skips stages before it.
 var _stale_from_stage := -1
@@ -843,10 +873,12 @@ func _build_generate_head(parent: Control) -> void:
 	_stage_log_label = DccWidgets.note(status, "")
 	## User words (2026-09-24, UX review): the progress rows read the real
 	## `GenerationProgress` through `engine_bridge.gd`, and each run is ONE
-	## `generate()` call resolving all ten stages -- no partial recompute.
+	## `generate()` call resolving all ten stages. (Partial recomputes exist
+	## for hand edits -- `recompute_stale_stages`, `recompute_civilisation` --
+	## but not for Generate; "no partial recompute" corrected 2026-09-24, B6.)
 	DccWidgets.note(status,
 		"Live progress for each stage, not an animation. Every Generate runs all "
-		+ "ten stages in full -- there is no partial recompute -- so \"Stale from NN\" "
+		+ "ten stages in full, so \"Stale from NN\" "
 		+ "marks where an edit landed, not where the run starts. The civilisation "
 		+ "layer can go stale on its own over an edited world; it has its own badge "
 		+ "and button: Civilization ▸ Settlements ▸ Recompute.")
@@ -1908,8 +1940,13 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 	var label := String(info.get("label", key))
 	var unit := String(info.get("unit", ""))
 	var ref_ctrl := String(info.get("reference_control", ""))
-	var hint := ("Reference control #%s." % ref_ctrl) if not ref_ctrl.is_empty() else \
-		"Not exposed by the reference app — surfaced here as a superset, at the engine's own default."
+	## An empty `reference_control` asserts nothing (2026-09-24, ALIGNMENT_AUDIT
+	## Part 2 B5). It used to print "Not exposed by the reference app", which
+	## was false for the six erosion-pass toggles: v2.11 has #veloBtn #glacBtn
+	## #coastBtn #diffuseBtn #sedimentBtn #tidalFlatsBtn -- one-shot buttons,
+	## which is why `params.rs` leaves those rows' field empty. An empty field
+	## means "no matching slider recorded", not "no control exists".
+	var hint := ("Reference control #%s." % ref_ctrl) if not ref_ctrl.is_empty() else ""
 	var kind := String(info.get("type", "float"))
 
 	## Per-row "back to the engine's default", off `param_default(key)` --
@@ -1920,7 +1957,7 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 	## this go back to?" without being clicked.
 	var reset_to = bridge.param_default(key)
 	if reset_to != null:
-		hint += " Right-click the row to reset to the engine's default (%s)." % str(reset_to)
+		hint = (hint + " Right-click the row to reset to the engine's default (%s)." % str(reset_to)).strip_edges()
 
 	## Tectonics: World-Structure archetype override -- see `WS_OVERRIDDEN_KEYS`
 	## for what this is and why. `_ws_override_base_hint` is recorded whether
@@ -1931,7 +1968,7 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 		_ws_override_base_hint[key] = hint
 		ws_overridden = bool(bridge.param_get("world_structure.enabled"))
 		if ws_overridden:
-			hint = "%s %s" % [WS_OVERRIDE_REASON, hint]
+			hint = ("%s %s" % [WS_OVERRIDE_REASON, hint]).strip_edges()
 
 	if kind == "bool":
 		## A checkbox toggle is atomic -- there is no "dragging" phase to defer
@@ -2263,8 +2300,8 @@ func _reset_stage_progress() -> void:
 ## `_on_generation_finished` (end of run) and `_build()` (first paint) all
 ## share, so a stage that already finished is never shown as reset by a
 ## later call. Nothing here claims a stage finished before
-## `bridge.generation_stage` actually said so, and this engine still has no
-## partial recompute -- see `_stale_from_stage`'s own doc comment.
+## `bridge.generation_stage` actually said so, and Generate still has no
+## partial run -- see `_stale_from_stage`'s own doc comment.
 func _paint_stage_rows() -> void:
 	for i in _stage_state_labels.size():
 		var lbl: Label = _stage_state_labels[i]
@@ -3365,7 +3402,9 @@ const PHONE_GEN_ABSENT: Array = [
 	{"stage": 6, "label": "Min stream order", "route": "",
 	 "why": "Not settable anywhere yet. Since the owner's 2026-09-22 ruling a generated world's rivers are drawn as smoothed vector strokes over get_rivers(min_order), but the map always asks for order 1 -- every traced run (viewport_host.gd) -- and no control exposes a minimum. Strahler order itself is real: the right dock's River context picks a river by it."},
 	{"stage": 8, "label": "Ecotone sharpness", "route": "",
-	 "why": "Ecology is not parameterised in cartalith-engine: biome classification runs off the finished elevation/temperature/rainfall fields with no dials of its own."},
+	 ## Corrected 2026-09-24 (B12): the reference's sharpBiomes is a render
+	 ## toggle, applied always-on here by `render.rs::bio_jitter`.
+	 "why": "This is a map-drawing setting, not a generation one: finer biome edges are always drawn (the reference's default), and no switch turns them off."},
 	{"stage": 8, "label": "Rivers in biome view", "route": "",
 	 "why": "Not a separate switch: it is the Rivers row under CARTO > Layers, which shows or hides the map's river strokes in every view, the biome view included. Nothing river-shaped is baked into the terrain texture any more (owner ruling 2026-09-22), so there is no second, biome-only copy to toggle."},
 ]
@@ -3416,12 +3455,14 @@ func _pg_fs(px: float) -> int:
 func _pg_chip() -> Color:
 	return Color(DccTheme.c("text_bright"), 0.05)
 
-## `--warn: #e0a840`, drawn as `accent` (`#e0a34a`). Five and six units apart on
-## two channels -- indistinguishable at 9.5 px -- and a token can be remapped
-## where a twelfth near-accent literal could not. Said here rather than left as
-## an unexplained substitution.
+## `--warn: #e0a840`. `DccTheme` carries that exact value as its own `warn`
+## token (dark `#e0a840`, light `#9a6a12`), so this reads it rather than
+## substituting `accent` (`#e0a34a` / `#a4650f`) as it did until 2026-09-24
+## (ALIGNMENT_AUDIT Part 2 B12). Light-palette contrast against `panel`
+## `#fbfaf7` is unchanged to two decimals: both inks have relative luminance
+## ~0.172, ~4.5:1.
 func _pg_warn() -> Color:
-	return DccTheme.c("accent")
+	return DccTheme.c("warn")
 
 func _pg_box(bg: Color, radius: int, border_col: Color = Color(0, 0, 0, 0),
 		border_px: int = 0) -> StyleBoxFlat:
@@ -3818,7 +3859,7 @@ func _pg_idle_block(parent: Control) -> void:
 ## of the sentence is true and kept.
 func _pg_footnote(parent: Control) -> void:
 	var text := ("Editing a stage marks everything downstream stale. This engine "
-		+ "resolves all %d stages on every run -- there is no partial recompute, so "
+		+ "resolves all %d stages on every Generate, so "
 		+ "the stale badge names where the edit landed, not where the run starts. "
 		+ "Ecology (09) and Resources (10) carry no dials. GPU, LOD and render "
 		+ "quality live under MORE ▸ Preferences.") % STAGES.size()

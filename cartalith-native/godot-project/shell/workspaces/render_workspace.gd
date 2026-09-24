@@ -96,8 +96,10 @@ const WATER_ANIM_SCRIPT := preload("res://shell/water_anim_layer.gd")
 ##   the parchment on the very preset that wanted more of it. Parchment is a
 ##   live slider in Rendering-advanced below instead, and the presets leave it
 ##   where the quality tier put it.
-## * `icons` (antique true) -- the stylized mountain/hill/tree glyph layer,
-##   which this port has not built at all.
+## * `icons` (antique true) -- the mountain/hill/tree glyph layer. Built
+##   (`pack.rs::composite_map_icons`/`draw_icon_glyph`) but drawn only with a
+##   pack loaded and with no on/off toggle for a preset to set (corrected
+##   2026-09-24; it said "not built at all").
 ##
 ## **2026-08-24: each preset now also names a *look*.** A look
 ## (`WorldGen::list_looks`) is the engine's colour/chroma/light-shaping/grade
@@ -265,10 +267,12 @@ const APPEARANCE_GROUPS := [
 	## anything written here.
 	##
 	## It is inert in three states worth knowing before reading the slider as
-	## broken: a loaded save (no flow field, so no catchment -- the scope's
-	## documented snow-only fallback), a world whose glacial pass never ran
-	## (`ErosionPassParams::off()` is the shipped default), and any ground
-	## below the snowline or above freezing.
+	## broken: a loaded world with no flow field (no catchment -- the scope's
+	## documented snow-only fallback), any ground below the snowline or above
+	## freezing, and every grid-path render (screen overview and export pass a
+	## literal 0.0 -- LOD-D4 is a tile stage). It does NOT depend on the
+	## glacial pass having run: `build_glacier_potential` reads only the
+	## snowline setting (corrected 2026-09-24, ALIGNMENT_AUDIT Part 2 B4).
 	["Ice & snow", ["ice_strength"]],
 	## §19 (`TERRAIN_APPEARANCE_RESEARCH.md`, `OUTSTANDING_WORK.md` §2.5): the
 	## other two atmospheric-perspective axes research named, over the same
@@ -346,7 +350,13 @@ const APPEARANCE_HELP := {
 	"hydro_wet_strength": "Darkens and cools ground near real channels -- a soft halo around the drainage network, applied to the finished pixel. Not the reference's Wetness slider, which this row was mislabelled as until 2026-09-03 and which is the separate Wet ground (TWI) row below. Gated on real upstream drainage area, so it marks the same rivers whatever the map's resolution (GUI_GAP_REGISTER.md CA-11 -- it used to fade out as the grid got finer, and at 2048 wide it moved nothing at all).",
 	"ramp_strength": "How far the colour relief ramp takes over from the material colour. 0 is the material model alone (climate, slope, relief); 1 is a full hypsometric tint. The ramp is applied before the light, so the hillshade, occlusion and paper still read through it at any strength.",
 	"local_contrast": "Adds band-limited detail back after the paper wash. The gain falls to zero on strong edges, so coastlines and snowlines cannot halo.",
-	"ice_strength": "Glacier ice: how much of the glacier-potential field reaches the colour. The field is `glacial_kernel`'s own gate -- ground above the snowline and below freezing -- weighted by the catchment that ground drains, so ice fills troughs and thins to snow on the ridges between them, and it is taken off any face steep enough that the rock-exposure term already calls it bare. Inert in three states: a loaded save, which stores no flow field and so has no catchment (snow only, which is the honest fallback rather than a guess); a world whose glacial erosion pass never ran, which is every world at the shipped default; and ground that is below the snowline or above freezing. 0 also turns off the tile-resolution temperature this milestone adds, so it is the whole feature's off switch and not a fade.",
+	## Checked 2026-09-24 (ALIGNMENT_AUDIT Part 2 B4) at `render.rs::
+	## build_glacier_potential` (gates on height vs `passes.glacial_snowline`,
+	## temperature and flow -- NOT on whether `passes.glacial` ran) and at the
+	## grid `land_color` call sites (screen and export pass a literal 0.0), so
+	## the slider moves deep-zoom tiles only. The old text said it was inert on
+	## every world whose glacial pass never ran.
+	"ice_strength": "Glacier ice on the zoomed-in map: how much glacier colour is laid over high, cold ground. Ice forms above the glacial snowline (the Snowline dial under Hydrology ▸ 06 Erosion -- used whether or not glacial erosion is switched on) wherever it is below freezing, weighted by how much ground drains through each spot, so it fills valleys and thins to snow on the ridges between them; steep rock faces stay bare. It only shows once you zoom in far enough for detailed tiles -- the overview map and exports do not draw glacier ice. Nothing shows on a loaded world that carries no drainage data (only snow is drawn then) or on ground below the snowline or above freezing. 0 also turns off the finer tile temperature, so it is the whole feature's off switch, not a fade.",
 	"splat_strength": "How strongly a loaded asset pack's ground textures blend in. Inert with no pack loaded. The reference's Texture strength.",
 	"relief_chroma": "How far the relief lighting keeps the map's colour instead of fading it toward grey. 0 is the reference exactly -- shaded ground is pulled toward one fixed neutral, which costs value as well as chroma. At 1 the shading desaturates about each pixel's own luminance, and shadow cools while sunlight warms, the way a real scene's sky-lit shadow and warm sun differ.",
 	"crest_strength": "Thin bright strokes along convex, steep ridge lines -- the reference's Ridge crests. Costs one whole-grid pass when on and nothing when off.",
@@ -622,8 +632,15 @@ func _build_map_style() -> void:
 		+ "manages goes back to off first, so Default reproduces this port's base "
 		+ "look exactly. Parchment is left where the quality tier put it -- see "
 		+ "this file's STYLE_PRESETS for why the reference's own number would "
-		+ "reduce it. The reference's Antique also turns on a stylized "
-		+ "mountain/hill/tree glyph layer, which this port has not built.")
+		+ "reduce it. The reference's Antique also turns on its mountain/hill/"
+		+ "tree map icons. Those icons are drawn here too, but only while an "
+		+ "asset pack is loaded, and there is no switch to turn them on or off, "
+		+ "so no preset can change them.")
+	## Corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 B8): the old note said the
+	## glyph layer was "not built". It is `pack.rs::composite_map_icons` +
+	## `draw_icon_glyph` (the reference's `drawMapIcons`/`drawIconGlyph`),
+	## called from `lib.rs` only `if let Some(loaded) = self.asset_pack`.
+	## Missing: the reference's `#iconsChk` toggle, and drawing with no pack.
 	## **Why a tile carries its bundle and not a picture.** Stated to the user,
 	## not only in the source, because the absence is the first thing anyone
 	## looking at a gallery will ask about -- and because the reason is a real

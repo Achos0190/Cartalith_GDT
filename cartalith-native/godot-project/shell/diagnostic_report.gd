@@ -315,8 +315,9 @@ static func build_text(app: Node, bridge: EngineBridge, opts: Dictionary = {}) -
 ## disagree (`STATUS.md`, 2026-09-02: `forward_plus`/vulkan loses the device
 ## on generate while `gl_compatibility` is clean on the same machine) --
 ## which renderer Godot itself is drawing the shell with, and what state the
-## separate wgpu compute pipeline the four GPU-eligible substrate stages
-## dispatch to is in. Answered separately rather than folded into one line.
+## separate wgpu compute pipeline the GPU-accelerated stages dispatch to is
+## in (generation's seven, the civ layer's two, and Erode's thermal passes --
+## `menus.gd::GPU_TOGGLE_TIP`; it said "four" until 2026-09-24). Answered separately rather than folded into one line.
 static func _gpu_section(bridge: EngineBridge) -> String:
 	var lines: Array[String] = []
 	lines.append("Godot renderer:")
@@ -334,7 +335,7 @@ static func _gpu_section(bridge: EngineBridge) -> String:
 			% [adapter, RenderingServer.get_video_adapter_vendor(),
 				RenderingServer.get_video_adapter_api_version(), _adapter_type_name(RenderingServer.get_video_adapter_type())])
 
-	lines.append("Compute GPU (wgpu, the four GPU-eligible substrate stages):")
+	lines.append("Compute GPU (wgpu -- generation, civilisation-layer and Erode stages):")
 	if bridge == null or not bridge.gpu_api:
 		lines.append("  unavailable -- this build predates the multi-GPU API (WorldGen.gpu_enumerate_devices/gpu_set_multi_mode missing).")
 		return "\n".join(lines)

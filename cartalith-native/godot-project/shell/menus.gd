@@ -359,7 +359,12 @@ var _cpu_threads_popup: PopupMenu
 var _cpu_thread_choices: Array[int] = []
 ## The GPU-acceleration row's own tooltip, named because `about_to_popup` has
 ## to put it back after a generation released the row.
-const GPU_TOGGLE_TIP := "Runs domain warp, crustal heterogeneity, plate assignment and flow accumulation on the GPU. A given seed produces a genuinely different (not just faster) world with this on vs. off -- both are valid, but they don't match each other. Takes effect on the next generate."
+## Stage list checked 2026-09-24 (ALIGNMENT_AUDIT Part 2 B3) against what is
+## pushed onto `gpu_stages_used`: `generate_terrain_inner` -- warp/warp_split,
+## plate_assignment, stress, base_field_blur, heterogeneity, flow, weather;
+## `compute_civilisation` -- resource_potentials, settlement_suitability; and
+## `erode_op`'s thermal passes (`thermal_on_gpu`). It used to name four.
+const GPU_TOGGLE_TIP := "Runs the heavy grid work on the GPU: domain warp, plate assignment, crustal stress, the base-height blur, crustal heterogeneity, flow accumulation and the rainfall simulation during generation; resource and settlement-suitability maps in the civilisation layer; and the slope-collapse passes of Erode (droplet). A given seed produces a genuinely different (not just faster) world with this on vs. off -- both are valid, but they don't match each other. Takes effect on the next Generate, civilisation rebuild or Erode."
 
 var _lod_debug_popup: PopupMenu   ## `Help ▸ LOD debug` -- see
 	## `_build_lod_debug_submenu()`. Holds no state of its own; the check
@@ -2019,10 +2024,15 @@ func _build_landmark_types_menu(p: PopupMenu) -> void:
 
 	_landmark_popup.add_separator()
 	_landmark_popup.add_item("Landmark icons…", ID_LM_ICONS)
+	## Corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 B11). The library family
+	## shows `LIBRARY_POI_SLOTS`' ten, but only `PACK_POI_SLOTS`' eight resolve
+	## to art on the map (lake and bridge never do), and the type -> slot
+	## mapping exists: `icon_bridge/generate.rs::poi_slot_for_landmark`.
 	_landmark_popup.set_item_tooltip(_landmark_popup.item_count - 1,
-		"Opens the Asset library on the poi family -- the ten slots a landmark "
-		+ "type can draw with. Which slot each type uses is a mapping the port "
-		+ "still owes; the vocabulary it will map onto is already here.")
+		"Opens the Asset library on the points-of-interest family. Landmarks draw "
+		+ "from eight of its slots (Lake and Bridge are never used on the map): a "
+		+ "type uses the slot of the same name, peaks use Mountain peak, ancient "
+		+ "forests Named forest, ruins Ruin, and every other type uses Other.")
 	_landmark_popup.add_item("Landmark label style…", ID_LM_LABELS)
 	_landmark_popup.set_item_tooltip(_landmark_popup.item_count - 1,
 		"→ Cartography ▸ Labels. A landmark's icon and label style are "
@@ -2135,8 +2145,9 @@ func _refresh_landmark_menu() -> void:
 func _on_landmarks(id: int) -> void:
 	match id:
 		ID_LM_ICONS:
-			## `LIBRARY_POI_SLOTS`' ten slots -- the vocabulary a landmark type
-			## will draw with. `AssetLibraryWindow.FAMILIES` calls the key `poi`.
+			## The `poi` family (`LIBRARY_POI_SLOTS`' ten; landmarks resolve
+			## eight via `poi_slot_for_landmark`). `AssetLibraryWindow.FAMILIES`
+			## calls the key `poi`.
 			_host.open_asset_library("poi")
 		ID_LM_LABELS:
 			_shell.select_domain_category("cartography", "Labels")
@@ -2355,7 +2366,7 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 		## `Export pack .zip…` happens to write. Dashing an invented megabyte
 		## count here would be the "no value as a plausible value" shape this
 		## project keeps having to undo.
-		["FILLED", "Filled slots out of capacity, counted across all eight families the same way the Asset library's own rail counts them, plus the item total (a slot can hold several variants). The pack's size in bytes is not shown: nothing reports it until Export pack .zip writes the archive."],
+		["FILLED", "Filled slots out of capacity, counted across all nine families the same way the Asset library's own rail counts them, plus the item total (a slot can hold several variants). The pack's size in bytes is not shown: nothing reports it until Export pack .zip writes the archive."],
 	]:
 		_ap_read_idx.append(_readout(ap, "%s   — loading —" % String(r[0]), String(r[1])))
 
@@ -3235,7 +3246,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## this row's own tooltip (`_refresh_working_set_row`) and on the Render
 	## quality row above.
 	_working_set_row = _readout(p, "Working set",
-		"This process's own allocations against the machine's physical RAM. Refreshed on every popup.")
+		"Memory the app's interface layer has allocated, against the machine's physical RAM. It does not include the world data the generation engine holds. Refreshed on every popup.")
 	_refresh_working_set_row(p)
 	## PR-12, live 2026-08-24. There is now a real cache to clear: the
 	## persistent tile atlas (`bake_bridge.rs`), written by WORLD ▸ Generate ▸ Finalize ▸
@@ -3413,7 +3424,7 @@ func _build_gpu_devices_menu(p: PopupMenu) -> void:
 	_gpu_devices_popup.about_to_popup.connect(_on_gpu_devices_about_to_popup)
 	p.add_child(_gpu_devices_popup)
 	p.add_submenu_item("Devices", "GpuDevices")
-	_track_gpu_pref_row(p, "Which physical GPU(s) the four GPU-eligible substrate stages dispatch to. Takes effect on the next generate.")
+	_track_gpu_pref_row(p, "Which physical GPU(s) the GPU-accelerated work runs on (the stages GPU acceleration lists). Takes effect on the next generate.")
 	## Deliberately NOT enumerated here. `build()` runs inside `DccApp._ready`,
 	## and `gpu_devices()` stands up a `wgpu::Instance` and walks its backends
 	## -- doing that while Godot's own GL Compatibility renderer is still
@@ -3477,7 +3488,9 @@ func _refresh_gpu_devices_menu() -> void:
 		## reading its stated reason against the code, rather than by reading
 		## this function.
 		_readout(pm, "No GPU detected",
-			"wgpu enumerated no adapters. Generation runs entirely on the CPU, which is the reference path and produces correct worlds -- just slower on the four GPU-eligible substrate stages.")
+			## `gpu_devices()` (wgpu) enumerated no adapters. §7p: CPU is not
+			## framed as the standard here; it is the path that runs without one.
+			"No graphics card was found for compute work, so every stage runs on the CPU. Worlds still generate, more slowly, and a given seed comes out as it does with GPU acceleration off.")
 	for i in _gpu_devices.size():
 		var d: Dictionary = _gpu_devices[i]
 		var label := "%s · %s · %s" % [String(d.get("name", "?")), String(d.get("kind", "?")), String(d.get("backend", "?"))]
@@ -3550,7 +3563,7 @@ func _build_gpu_mode_menu(p: PopupMenu) -> void:
 		"Everything on the one selected (or automatic) device. The default.")
 	_gpu_mode_popup.add_radio_check_item("Split tiles", 1)
 	_gpu_mode_popup.set_item_tooltip(1,
-		"Partitions the domain-warp stage into row bands across every selected device, sized by measured per-device throughput. Only that one stage: it is the only GPU stage here whose kernel reads nothing outside its own cell -- blur needs a halo, plate assignment and flow accumulation read across the whole grid. Measured on this machine (RX 7800 XT + integrated Radeon): 1.2-1.5x at 4096 squared, but 0.7-0.8x at 2048 squared and below, where the second device's fixed cost exceeds what it contributes. Needs two devices checked above.")
+		"Partitions the domain-warp stage into row bands across every selected device, sized by measured per-device throughput. Only that one stage is split today; the others run whole on the main device (crustal heterogeneity is per-cell too, but is not split) -- blur needs a halo, and plate assignment and flow accumulation read across the whole grid. Measured on this machine (RX 7800 XT + integrated Radeon): 1.2-1.5x at 4096 squared, but 0.7-0.8x at 2048 squared and below, where the second device's fixed cost exceeds what it contributes. Needs two devices checked above.")
 	_gpu_mode_popup.add_radio_check_item("Alternate frames", 2)
 	_gpu_mode_popup.set_item_disabled(2, true)
 	_gpu_mode_popup.set_item_tooltip(2,
@@ -3720,7 +3733,11 @@ func _build_gpu_fallback_menu(p: PopupMenu) -> void:
 	_shell.style_popup(_gpu_fallback_popup)
 	_gpu_fallback_popup.add_radio_check_item("CPU tile pass", 0)
 	_gpu_fallback_popup.set_item_tooltip(0,
-		"The default, and already what happens on any GPU failure: the stage runs on the CPU instead. The CPU path is this port's reference implementation, so the world stays correct -- only slower.")
+		## Made consistent with `GPU_TOGGLE_TIP` 2026-09-24 (ALIGNMENT_AUDIT
+		## Part 2 B11, DECISIONS.md §7p): the old text called CPU "the reference
+		## implementation" and the result unchanged, while the toggle's tip
+		## (correctly) says GPU and CPU produce different worlds from one seed.
+		"The default, and already what happens on any GPU failure: the stage runs on the CPU instead. The world still generates, more slowly -- but that stage comes out as it does with GPU acceleration off, so the same seed can give a different world than a run where the GPU took it.")
 	_gpu_fallback_popup.add_radio_check_item("Reduce working res", 1)
 	_gpu_fallback_popup.set_item_disabled(1, true)
 	_gpu_fallback_popup.set_item_tooltip(1,
@@ -3818,11 +3835,11 @@ func _refresh_working_set_row(p: PopupMenu) -> void:
 	if total > 0:
 		p.set_item_text(_working_set_row, "Working set   %s of %s" % [_gb(used), _gb(total)])
 		p.set_item_tooltip(_working_set_row,
-			"This process's own allocations against the machine's physical RAM. " + _video_mem_line())
+			"Memory the app's interface layer has allocated, against the machine's physical RAM. It does not include the world data the generation engine holds. " + _video_mem_line())
 	else:
 		p.set_item_text(_working_set_row, "Working set   %s" % _gb(used))
 		p.set_item_tooltip(_working_set_row,
-			"This process's own allocations. This platform reports no physical-RAM total (OS.get_memory_info() physical is -1), so the of-N half of SS2.5's line is left off rather than invented. " + _video_mem_line())
+			"Memory the app's interface layer has allocated. It does not include the world data the generation engine holds. This device does not report its total RAM, so no total is shown. " + _video_mem_line())
 
 ## The second half of both tooltips above, shared because the sentence is the
 ## same fact whichever branch printed the numerator -- and because writing it
@@ -4071,7 +4088,10 @@ func _build_tiled_lod_menu(p: PopupMenu) -> void:
 	_shell.style_popup(_tiled_lod_popup)
 	_tiled_lod_popup.add_radio_check_item("Auto on zoom", ID_LOD_MODE_AUTO)
 	_tiled_lod_popup.set_item_tooltip(0,
-		"The default, and the reference's own: zooming past roughly one screen pixel per grid cell brings the tile pyramid up by itself.")
+		## Both gates of `viewport_host.gd::_update_lod()`:
+		## `LOD_PX_PER_CELL_THRESHOLD` (1.0) AND `LOD_AUTO_ZOOM` (2.2). The
+		## second was missing from this tooltip until 2026-09-24 (B12).
+		"The default, and the reference's own: detailed tiles come up by themselves once you have zoomed in past 2.2x and each grid cell covers more than one screen pixel -- both must hold.")
 	_tiled_lod_popup.add_radio_check_item("Manual", ID_LOD_MODE_MANUAL)
 	_tiled_lod_popup.set_item_tooltip(1,
 		"Zooming in never enters the pyramid; use Enter deep detail now below. Panning a deep view stays cheap either way -- the mode is about entering, not about staying.")
@@ -4341,7 +4361,7 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 	if _engine_has("atlas_import_zip"):
 		_atlas_popup.add_item("Import atlas…", ID_LOD_IMPORT_ATLAS)
 		_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1,
-			"Reads a portable atlas .zip into this machine's store. It is filed under the world key it was baked from, not this session's -- so it only speeds up a world whose key matches, and the status line says whether this one does.")
+			"Reads a portable atlas .zip into this machine's store, filed under the world it was baked from. It only helps a matching world, and only by letting Bake skip chunks it already has -- the map's detailed tiles are still drawn fresh either way. The status line says whether this world matches.")
 	else:
 		_todo(_atlas_popup, "Import atlas…",
 			"This GDExtension build has no atlas_import_zip(). Rebuild the native library.")
@@ -4567,8 +4587,10 @@ func _import_atlas() -> void:
 				return
 			var n := int(r.get("chunks", 0))
 			_host.set_status("hint", "imported %d chunk%s %s" % [n, "" if n == 1 else "s",
-				"for this world" if bool(r.get("matches_current", false))
-				else "— baked from a DIFFERENT world, so this one still synthesizes"],
+				## A matching atlas does not stop tile synthesis -- nothing reads
+				## the store at draw time (header note above; B12, 2026-09-24).
+				"for this world (Bake will skip them)" if bool(r.get("matches_current", false))
+				else "— baked from a DIFFERENT world, so they do not apply to this one"],
 				"text_dim")
 			if _host.has_method("refresh_atlas_status"):
 				_host.refresh_atlas_status()
@@ -4863,6 +4885,13 @@ func _on_units_choice(id: int) -> void:
 ## Refreshed rather than set once: the tier is recommended from the machine
 ## the app is on, and this shell runs on a phone where that answer is not the
 ## desktop's.
+## What the tiers actually change, in user words -- `render.rs::
+## TerrainAppearance::for_tier` (checked 2026-09-24, ALIGNMENT_AUDIT Part 2
+## B12): tiers switch whole stages off or on, they do not change "sample
+## counts", which the old tooltip said. The empty-recommendation branch is
+## `WorldGen.get_recommended_quality_tier` answering "".
+const QUALITY_TIP_LEAD := "How much of the map's look is rendered: Balanced drops local contrast and the paper's ageing mottle, Performance also drops paper grain, forest stippling and the geology tint, and Ultra adds extra light directions, stronger occlusion and more local contrast."
+
 func _refresh_quality_row(p: PopupMenu) -> void:
 	if _quality_pref_row < 0 or _quality_pref_row >= p.item_count:
 		return
@@ -4871,10 +4900,10 @@ func _refresh_quality_row(p: PopupMenu) -> void:
 		## Not "none recommended" dressed up as a tier name: an empty string is
 		## a binding that answered nothing, and it is dashed with that reason.
 		p.set_item_tooltip(_quality_pref_row,
-			"Sample counts in the appearance pipeline. This build's engine returned no recommendation for this machine (WorldGen.get_recommended_quality_tier answered an empty string).")
+			"%s No recommendation is available for this machine on this build." % QUALITY_TIP_LEAD)
 		return
 	p.set_item_tooltip(_quality_pref_row,
-		"Sample counts in the appearance pipeline. Recommended for this machine: %s -- currently %s." % [rec, _bridge.quality_tier()])
+		"%s Recommended for this machine: %s -- currently %s." % [QUALITY_TIP_LEAD, rec, _bridge.quality_tier()])
 
 func _on_quality(id: int) -> void:
 	var tiers := _bridge.quality_tiers()
@@ -5886,7 +5915,11 @@ func _world(p: PopupMenu) -> void:
 	## this is a new binding, not a fix to an existing double one.
 	_live(p, "Run pipeline", ID_WORLD_RUN_PIPELINE, KEY_MASK_CTRL | KEY_R)
 	p.set_item_tooltip(p.item_count - 1,
-		"Runs the whole generation pipeline -- the same guarded path the WORLD dock's own Generate button uses (world_workspace.gd::_regenerate_live()): it asks first if the world holds hand-authored work (sculpt stamps, icons, labels, paint, routes, hand-drawn ways) a regenerate would discard. The engine has no partial recompute -- every stage runs together.")
+		## Same guarded path as `world_workspace.gd::_regenerate_live()`.
+		## "The engine has no partial recompute" removed 2026-09-24 (ALIGNMENT_
+		## AUDIT Part 2 B6): `recompute_stale_stages`/`recompute_civilisation`
+		## exist; Generate itself always runs every stage.
+		"Runs the whole generation pipeline -- the same path the WORLD dock's own Generate button uses: it asks first if the world holds hand-authored work (sculpt stamps, icons, labels, paint, routes, hand-drawn ways) a regenerate would discard. Every stage runs, from the start.")
 	p.add_separator()
 	_build_reset_generation(p)
 	p.add_separator()
