@@ -10,6 +10,13 @@
 > track them. Status is in `cartalith-native/docs/STATUS.md`, group *Map
 > context*.
 >
+> **An interactive prototype of all three forms exists**:
+> `design/map-context-2026-09-25/` (desktop, tablet, phone), and the live
+> claude.ai Design canvas its README links. The owner reviewed it on
+> 2026-09-25 and the contrast was refined the same day. It is a mock over a
+> hand-drawn map. It demonstrates §4–§8's behaviour and builds none of §11's
+> milestones.
+>
 > Per `DECISIONS.md` §7d this is **divergence by addition**. The reference's
 > `_civCtxShow` has six operations, and every one survives in §4.3. The rest is
 > new interaction design. "Would a user of the HTML app find this feature

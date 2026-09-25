@@ -408,6 +408,11 @@ re-checked against the tree rather than copied from the commit message.
   shipped `map_overlay.gd` (`_TOUCH_HOLD_MS := 500`, PH-02) makes the same
   gesture open the context menu. RP-S6 will hit this the day it starts. The
   scope's fork F1 proposes the pin *and* the verbs.
+- **An interactive prototype of that proposal** is in
+  `design/map-context-2026-09-25/`: three Design-canvas frames (desktop, tablet,
+  phone) that the owner reviewed and asked to refine for contrast. **It is a
+  mock over a hand-drawn map and moves no ledger row.** CM-1…CM-7 remain as
+  below, because nothing under `godot-project/` changed.
 
 ### 2026-09-01
 

@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cartalith map context — phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0d0e0f;font-family:'IBM Plex Sans',sans-serif;color:#e8ebec}
+a{color:#e0a34a}a:hover{color:#f0b85e}
+.crow{cursor:pointer}.crow:active{background:#2b3034}
+.chips::-webkit-scrollbar{display:none}
+@keyframes hpulse{from{transform:scale(.7);opacity:.9}to{transform:scale(2.2);opacity:0}}
+.hpulse{animation:hpulse .45s ease-out forwards}
+@keyframes holdgrow{from{transform:scale(.25);opacity:.25}to{transform:scale(1);opacity:1}}
+.holdring{animation:holdgrow .48s linear forwards}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #0d0e0f; font-family: 'IBM Plex Sans', sans-serif; color: #e8ebec">
+
+<div style="position: absolute; left: 0; top: 0; width: 390px; height: 52px; box-sizing: border-box; padding: 0 14px; display: flex; align-items: center; gap: 10px; background: #121314; border-bottom: 1px solid #2a2d30">
+<div style="font: 500 12px/1 'IBM Plex Mono', monospace; letter-spacing: .22em; color: #e0a34a">CARTALITH</div>
+<div style="font: 10.5px/1 'IBM Plex Mono', monospace; color: #8d9296">{{domainUpper}} · phone</div>
+<div style="flex-grow: 1"></div>
+<div style="font: 10px/1 'IBM Plex Mono', monospace; color: #8d9296">long-press = pin</div>
+</div>
+
+<div style="position: absolute; left: 0; top: 52px; width: 390px; height: 728px; overflow: hidden; background: {{m.sea}}" onContextMenu="{{prevent}}">
+<div onPointerDown="{{onDown}}" onPointerMove="{{onMove}}" onPointerUp="{{onUp}}" onPointerCancel="{{onUp}}" style="position: absolute; left: 0; top: 0; width: 390px; height: 728px; touch-action: none; user-select: none">
+<svg width="390" height="728" style="position: absolute; left: 0; top: 0; display: block">
+<g transform="translate({{m.panX}} {{m.panY}})">
+<polygon points="{{m.landPts}}" style="fill: {{m.landFill}}; stroke: {{m.coast}}; stroke-width: 1.5"></polygon>
+<polygon points="{{m.terrL}}" style="fill: {{m.terrLFill}}; stroke: none"></polygon>
+<polygon points="{{m.terrR}}" style="fill: {{m.terrRFill}}; stroke: none"></polygon>
+<path d="{{m.ridgeD}}" style="fill: none; stroke: {{m.ridge}}; stroke-width: 2; stroke-linejoin: round"></path>
+<path d="{{m.riverD}}" style="fill: none; stroke: #6fa8cf; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round"></path>
+<circle cx="{{m.lakeX}}" cy="{{m.lakeY}}" r="{{m.lakeR}}" style="fill: #4f86ad; stroke: #6fa8cf; stroke-width: 1"></circle>
+<path d="{{m.waysD}}" style="fill: none; stroke: #c9b48a; stroke-width: 2.5"></path>
+<path d="{{m.routeD}}" style="fill: none; stroke: #e8d7a8; stroke-width: 2; stroke-dasharray: 6 5"></path>
+<path d="{{m.wayDraftD}}" style="fill: none; stroke: #e0a34a; stroke-width: 2; stroke-dasharray: 3 4"></path>
+<path d="{{m.measureD}}" style="fill: none; stroke: #f2f2f2; stroke-width: 1.5; stroke-dasharray: 2 3"></path>
+</g>
+</svg>
+<sc-for list="{{m.committed}}" as="k" hint-placeholder-count="0">
+<div style="position: absolute; left: {{k.l}}px; top: {{k.t}}px; width: {{k.s}}px; height: {{k.s}}px; border-radius: 50%; background: rgba(240,230,210,.18); border: 1px solid rgba(240,230,210,.45); pointer-events: none"></div>
+</sc-for>
+<sc-for list="{{m.drafts}}" as="k" hint-placeholder-count="0">
+<div style="position: absolute; left: {{k.l}}px; top: {{k.t}}px; width: {{k.s}}px; height: {{k.s}}px; border-radius: 50%; box-sizing: border-box; border: 1.5px dashed {{k.c}}; background: {{k.bg}}; pointer-events: none"></div>
+</sc-for>
+<sc-for list="{{m.icons}}" as="k" hint-placeholder-count="1">
+<div style="position: absolute; left: {{k.l}}px; top: {{k.t}}px; width: 11px; height: 11px; transform: rotate(45deg); box-sizing: border-box; border: 2px solid #e0a34a; background: rgba(0,0,0,.25); pointer-events: none"></div>
+</sc-for>
+<sc-for list="{{m.settlements}}" as="k" hint-placeholder-count="3">
+<div style="position: absolute; left: {{k.l}}px; top: {{k.t}}px; width: {{k.s}}px; height: {{k.s}}px; border-radius: 50%; box-sizing: border-box; background: #f2ead8; border: 1.5px solid #2a2418; pointer-events: none"></div>
+<div style="position: absolute; left: {{k.nl}}px; top: {{k.nt}}px; font: 500 10.5px/1 'IBM Plex Mono', monospace; color: {{k.ink}}; white-space: nowrap; pointer-events: none; text-shadow: {{k.halo}}">{{k.name}}</div>
+</sc-for>
+<sc-for list="{{m.labels}}" as="k" hint-placeholder-count="1">
+<div style="position: absolute; left: {{k.l}}px; top: {{k.t}}px; transform: translate(-50%, -50%); font: italic 500 11px/1 'IBM Plex Sans', sans-serif; letter-spacing: .1em; color: {{k.ink}}; white-space: nowrap; pointer-events: none; text-shadow: {{k.halo}}">{{k.text}}</div>
+</sc-for>
+<sc-if value="{{press.show}}" hint-placeholder-val="{{false}}">
+<div class="holdring" style="position: absolute; left: {{press.l}}px; top: {{press.t}}px; width: 64px; height: 64px; border-radius: 50%; box-sizing: border-box; border: 3px solid #e0a34a; pointer-events: none"></div>
+</sc-if>
+<sc-if value="{{pulse.show}}" hint-placeholder-val="{{false}}">
+<div class="hpulse" style="position: absolute; left: {{pulse.l}}px; top: {{pulse.t}}px; width: 64px; height: 64px; border-radius: 50%; box-sizing: border-box; border: 2px solid #e0a34a; pointer-events: none"></div>
+</sc-if>
+</div>
+
+<sc-if value="{{pin.show}}" hint-placeholder-val="{{false}}">
+<button onPointerDown="{{pinDown}}" onPointerMove="{{pinMove}}" onPointerUp="{{pinUp}}" onPointerCancel="{{pinUp}}" aria-label="Sample pin — drag to move" style="position: absolute; left: {{pin.l}}px; top: {{pin.t}}px; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; touch-action: none; cursor: grab; display: flex; align-items: center; justify-content: center">
+<span style="display: block; width: 16px; height: 16px; transform: rotate(45deg); box-sizing: border-box; border: 2.5px solid #e0a34a; background: rgba(224,163,74,.3)"></span>
+</button>
+<div style="position: absolute; left: {{pin.cl}}px; top: {{pin.ct}}px; padding: 7px 10px; background: #1c1f22; border: 1px solid #6b7277; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.4); pointer-events: none; white-space: nowrap">
+<div style="font: 10.5px/1.2 'IBM Plex Mono', monospace; color: #e8ebec">{{pin.l1}}</div>
+<div style="font: 9.5px/1.2 'IBM Plex Mono', monospace; color: #b8bdc1">{{pin.l2}}</div>
+</div>
+</sc-if>
+
+<sc-if value="{{toastOn}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; left: 16px; top: 12px; width: 358px; display: flex; justify-content: center; pointer-events: none">
+<div style="max-width: 340px; padding: 9px 14px; background: #1c1f22; border: 1px solid #6b7277; border-radius: 16px; font: 10.5px/1.45 'IBM Plex Mono', monospace; color: #e8ebec; text-align: center">{{toast}}</div>
+</div>
+</sc-if>
+
+<sc-if value="{{pillOn}}" hint-placeholder-val="{{true}}">
+<button onPointerDown="{{pillDown}}" onPointerMove="{{pillMove}}" onPointerUp="{{pillUp}}" onPointerCancel="{{pillUp}}" aria-label="Armed tool — tap to toggle Inspect, press and slide up for the tool fan" style="position: absolute; left: 101px; top: 668px; width: 188px; height: 44px; box-sizing: border-box; border-radius: 22px; border: 1px solid {{pill.border}}; background: {{pill.bg}}; color: {{pill.fg}}; font: 500 10.5px/1 'IBM Plex Mono', monospace; letter-spacing: .06em; touch-action: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px">
+<span style="font-size: 13px">⌃</span><span>{{pill.label}}</span>
+</button>
+</sc-if>
+
+<sc-if value="{{fanOn}}" hint-placeholder-val="{{false}}">
+<button onClick="{{fanScrim}}" aria-label="Close tool fan" style="position: absolute; left: 0; top: 0; width: 390px; height: 728px; border: 0; padding: 0; background: rgba(8,9,10,.55); pointer-events: {{fan.pe}}"></button>
+<div style="position: absolute; left: 0; top: 460px; width: 390px; text-align: center; font: 10.5px/1.4 'IBM Plex Mono', monospace; color: #e8ebec; pointer-events: none"><span style="padding: 5px 10px; background: #16181a; border: 1px solid #6b7277; border-radius: 12px">{{fan.caption}}</span></div>
+<sc-for list="{{fan.slots}}" as="s" hint-placeholder-count="8">
+<button onClick="{{s.click}}" aria-label="{{s.label}}" style="position: absolute; left: {{s.l}}px; top: {{s.t}}px; width: 56px; height: 56px; border-radius: 50%; box-sizing: border-box; padding: 0; border: {{s.bd}}; background: {{s.bg}}; color: {{s.fg}}; opacity: {{s.op}}; pointer-events: {{s.pe}}; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer">
+<span style="font: 15px/1 'IBM Plex Mono', monospace">{{s.glyph}}</span>
+<span style="font: 500 8.5px/1 'IBM Plex Mono', monospace">{{s.short}}</span>
+</button>
+</sc-for>
+<sc-if value="{{fan.back}}" hint-placeholder-val="{{false}}">
+<button onClick="{{fan.backClick}}" aria-label="Back to the tool fan" style="position: absolute; left: 167px; top: 662px; width: 56px; height: 56px; border-radius: 50%; border: 2px solid #e0a34a; background: #e0a34a; color: #141617; font: 600 9px/1 'IBM Plex Mono', monospace; letter-spacing: .1em; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; box-shadow: 0 0 0 4px rgba(224,163,74,.25)"><span style="font-size: 18px; letter-spacing: 0">‹</span><span>BACK</span></button>
+</sc-if>
+</sc-if>
+
+<sc-if value="{{sheetOn}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; left: 0; top: {{sheet.top}}px; width: 390px; height: {{sheet.h}}px; box-sizing: border-box; display: flex; flex-direction: column; background: #16181a; border-top: 1px solid #555b60; border-radius: 22px 22px 0 0; box-shadow: 0 -10px 30px rgba(0,0,0,.4)">
+<div onPointerDown="{{handleDown}}" onPointerMove="{{handleMove}}" onPointerUp="{{handleUp}}" onPointerCancel="{{handleUp}}" style="flex: none; touch-action: none; cursor: grab">
+<div style="height: 20px; display: flex; align-items: center; justify-content: center"><div style="width: 42px; height: 4px; border-radius: 2px; background: #7a8186"></div></div>
+<div style="display: flex; align-items: center; gap: 10px; padding: 0 14px 8px">
+<div style="flex-grow: 1; min-width: 0">
+<div style="font: 600 14px/1.2 'IBM Plex Sans', sans-serif; color: #e8ebec; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{card.title}}</div>
+<div style="margin-top: 3px; font: 10px/1.3 'IBM Plex Mono', monospace; color: #b8bdc1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{card.subtitle}}</div>
+</div>
+<button onClick="{{closeSheet}}" aria-label="Close" style="width: 44px; height: 44px; border-radius: 22px; border: 0; background: #2b3034; color: #eef0f1; font: 13px/1 'IBM Plex Mono', monospace; cursor: pointer">✕</button>
+</div>
+</div>
+<sc-if value="{{sheet.peek}}" hint-placeholder-val="{{true}}">
+<div class="chips" style="flex: none; display: flex; gap: 8px; padding: 2px 14px 10px; overflow-x: auto">
+<sc-for list="{{card.chips}}" as="c" hint-placeholder-count="4">
+<button onClick="{{c.click}}" style="flex: none; height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{c.bd}}; background: {{c.bg}}; color: {{c.fg}}; font: 500 11px/1 'IBM Plex Mono', monospace; white-space: nowrap; cursor: pointer">{{c.label}}</button>
+</sc-for>
+</div>
+<div style="padding: 0 14px; font: 9.5px/1.3 'IBM Plex Mono', monospace; color: #b0b5b9">drag the handle up for every action · drag the pin to move it</div>
+</sc-if>
+<sc-if value="{{sheet.half}}" hint-placeholder-val="{{false}}">
+<div style="flex-grow: 1; min-height: 0; overflow-y: auto; padding-bottom: 16px">
+<sc-if value="{{card.multi}}" hint-placeholder-val="{{false}}">
+<button class="crow" onClick="{{card.openSelect}}" style="display: flex; width: 100%; height: 46px; align-items: center; padding: 0 14px; border: 0; border-top: 1px solid #3a3e42; background: transparent; color: #e0a34a; font: 500 11px/1 'IBM Plex Mono', monospace; text-align: left"><span style="flex-grow: 1">{{card.multiLabel}}</span><span>▸</span></button>
+</sc-if>
+<sc-if value="{{card.inSub}}" hint-placeholder-val="{{false}}">
+<div style="border-top: 1px solid #3a3e42">
+<button class="crow" onClick="{{card.back}}" style="display: flex; width: 100%; height: 46px; align-items: center; padding: 0 14px; border: 0; color: #e0a34a; font: 600 11px/1 'IBM Plex Mono', monospace; text-align: left; background: #202427; border-bottom: 1px solid #3a3e42">‹ BACK  ·  {{card.subTitle}}</button>
+<sc-for list="{{card.subRows}}" as="row" hint-placeholder-count="4">
+<button class="crow" onClick="{{row.click}}" style="display: flex; width: 100%; height: 46px; align-items: center; padding: 0 14px 0 24px; border: 0; background: transparent; color: {{row.color}}; font: 14px/1 'IBM Plex Sans', sans-serif; text-align: left"><span style="flex-grow: 1">{{row.label}}</span><span style="color: #b0b5b9; font: 11px/1 'IBM Plex Mono', monospace">{{row.hint}}</span></button>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{card.inMain}}" hint-placeholder-val="{{true}}">
+<sc-for list="{{card.secs}}" as="sec" hint-placeholder-count="4">
+<div style="border-top: 1px solid #3a3e42; padding: 2px 0">
+<div style="padding: 8px 14px 2px; font: 500 9px/1 'IBM Plex Mono', monospace; letter-spacing: .18em; color: #b0b5b9">{{sec.name}}</div>
+<sc-for list="{{sec.rows}}" as="row" hint-placeholder-count="2">
+<sc-if value="{{row.isAction}}" hint-placeholder-val="{{true}}">
+<button class="crow" onClick="{{row.click}}" style="display: flex; width: 100%; height: 46px; align-items: center; gap: 8px; padding: 0 14px; border: 0; background: transparent; color: {{row.color}}; font: 14px/1 'IBM Plex Sans', sans-serif; text-align: left"><span style="flex-grow: 1">{{row.label}}</span><span style="color: #b0b5b9; font: 11px/1 'IBM Plex Mono', monospace">{{row.hint}}</span></button>
+</sc-if>
+<sc-if value="{{row.isParam}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; height: 50px; align-items: center; gap: 8px; padding: 0 14px; font: 14px/1 'IBM Plex Sans', sans-serif; color: #d7dadc">
+<span style="flex-grow: 1">{{row.label}}</span>
+<button onClick="{{row.minus}}" aria-label="Decrease" style="width: 44px; height: 44px; border-radius: 12px; border: 1px solid #34383b; background: #191c1e; color: #e8ebec; font-size: 16px; cursor: pointer">−</button>
+<span style="width: 64px; text-align: center; font: 12px/1 'IBM Plex Mono', monospace; color: #e0a34a">{{row.value}}</span>
+<button onClick="{{row.plus}}" aria-label="Increase" style="width: 44px; height: 44px; border-radius: 12px; border: 1px solid #34383b; background: #191c1e; color: #e8ebec; font-size: 16px; cursor: pointer">+</button>
+</div>
+</sc-if>
+<sc-if value="{{row.isDisabled}}" hint-placeholder-val="{{false}}">
+<div style="padding: 8px 14px">
+<div style="font: 14px/1.2 'IBM Plex Sans', sans-serif; color: #a0a6aa">{{row.label}}</div>
+<div style="margin-top: 3px; font: 10.5px/1.3 'IBM Plex Mono', monospace; color: #ebc080">{{row.reason}}</div>
+</div>
+</sc-if>
+</sc-for>
+</div>
+</sc-for>
+</sc-if>
+</div>
+</sc-if>
+</div>
+</sc-if>
+</div>
+
+<div style="position: absolute; left: 0; top: 780px; width: 390px; height: 64px; box-sizing: border-box; padding: 6px 10px 10px; display: flex; gap: 8px; background: #121314; border-top: 1px solid #3a3e42">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+<button onClick="{{t.pick}}" aria-label="{{t.label}} domain" style="flex-grow: 1; flex-basis: 0; height: 48px; border-radius: 14px; border: 0; background: {{t.bg}}; color: {{t.fg}}; font: 500 10px/1 'IBM Plex Mono', monospace; letter-spacing: .14em; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px"><span style="font-size: 14px; letter-spacing: 0">{{t.glyph}}</span><span>{{t.label}}</span></button>
+</sc-for>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+const W=390,H=728,HOLD=480,SLOP=10,PEEK=176,HALF=470,FAX=195,FAY=690,FR=150,FRI=84,FSLOT=56;
+const ACC='#e0a34a';
+const VIEWS=['Relief','Biome','Political','Elevation','Slope','Flow','Temp','Rain'];
+const STYLES=['Vibrant','Default','Antique','Ink','Watercolor','Print'];
+const MEASURE=['Path','Area','Radius','Section','Δ vert.'];
+const CLASSES=['metropolis','city','town','village','hamlet'];
+const kidsOf=(arr,prefix,family)=>arr.map(l=>({label:l,tool:prefix+' · '+l,family}));
+const GLOBAL={
+ N:{label:'Inspect',glyph:'↖',tool:'Inspect',family:'global'},
+ E:{label:'Measure',glyph:'⟷',children:MEASURE.map(m=>({label:m,tool:'Measure · '+m,family:'global'}))},
+ S:{label:'Undo',glyph:'↶',action:'undo'},
+ W:{label:'Region',glyph:'⬚',tool:'Region select',family:'global'}};
+const DIAG={
+ world:{NW:{label:'Uplift',glyph:'▲',children:kidsOf(['Mountains','Hills','Ridge','Plateau','Cliff','Volcano'],'Sculpt','sculpt')},
+  NE:{label:'Carve',glyph:'▼',children:kidsOf(['Canyon','Valley','River','Lake','Basin','Coastline'],'Sculpt','sculpt')},
+  SE:{label:'Freehand',glyph:'∿',children:kidsOf(['Raise','Lower','Smooth','Cliff','Ridge','Canyon','Mesa','Volcano'],'Freehand','sculpt')},
+  SW:{label:'Paint',glyph:'◧',children:kidsOf(['Biome','Terrain','Splat'],'Paint','paint')}},
+ civil:{NW:{label:'Settle',glyph:'⌂',children:kidsOf(['Metropolis','City','Town','Village','Hamlet'],'Settlement','settle')},
+  NE:{label:'Territory',glyph:'◩',children:kidsOf(['Add','Subtract'],'Territory','territory')},
+  SE:{label:'Way',glyph:'═',children:kidsOf(['Road','Track','Trail','Bridge'],'Way','way')},
+  SW:{label:'Route',glyph:'⤳',tool:'Route',family:'route'}},
+ carto:{NW:{label:'Label',glyph:'Aa',tool:'Label',family:'label'},
+  NE:{label:'Icon',glyph:'◇',children:kidsOf(['Settlement','Feature','POI','Custom'],'Icon','icon')},
+  SE:{label:'View',glyph:'◐',children:VIEWS.map(v=>({label:v,view:v}))},
+  SW:{label:'Style',glyph:'✎',children:STYLES.map(s=>({label:s,style:s}))}}};
+function ringDef(dom,dir){return GLOBAL[dir]||DIAG[dom][dir];}
+const FAN=[['W',180,FR],['NW',135,FR],['N',90,FR],['NE',45,FR],['E',0,FR],['SW',150,FRI],['S',90,FRI],['SE',30,FRI]];
+function fanPos(ang,r){const a=ang*Math.PI/180;return[FAX+r*Math.cos(a),FAY-r*Math.sin(a)];}
+const LAND=[[.08,.22],[.22,.10],[.45,.08],[.62,.14],[.80,.12],[.92,.28],[.90,.52],[.82,.72],[.66,.90],[.44,.88],[.26,.80],[.12,.64],[.06,.42]];
+const RIVER=[[.36,.13],[.37,.22],[.34,.29],[.36,.40],[.44,.47],[.52,.57],[.63,.64],[.72,.73],[.76,.81]];
+const RIDGES=[[[.58,.30],[.62,.22],[.66,.30]],[[.64,.32],[.69,.24],[.74,.33]],[[.70,.22],[.74,.16],[.78,.23]]];
+const NAMES=['Orvek','Tamsin Ford','Haldry','Cairnholt','Esk Varrow','Myrren','Dunmoor','Selwick'];
+const STYLEPAL={Vibrant:{sea:'#1d3a4f',land:'#5d7a4a',ink:'#f2f0ea',coast:'#9fb88a',ridge:'#3d5230'},Default:{sea:'#23384a',land:'#6b7d5a',ink:'#f2f0ea',coast:'#a6b592',ridge:'#46543a'},Antique:{sea:'#8a7f66',land:'#cdbb8f',ink:'#2f2618',coast:'#6d5c3d',ridge:'#8f7a52'},Ink:{sea:'#dcd8cc',land:'#f7f4ec',ink:'#1b1b1b',coast:'#1b1b1b',ridge:'#6b6b6b'},Watercolor:{sea:'#7fa6b8',land:'#b9c99a',ink:'#22301f',coast:'#5f7a55',ridge:'#7d8f63'},Print:{sea:'#3b5b7a',land:'#d9c9a3',ink:'#1f1f1f',coast:'#1f1f1f',ridge:'#8a7a58'}};
+const VIEWTINT={Biome:'#3f7a3a',Elevation:'#7d7d7d',Slope:'#8f6450',Flow:'#2f5f86',Temp:'#a85d38',Rain:'#3a70a6'};
+function inPoly(x,y,P){let c=false;for(let i=0,j=P.length-1;i<P.length;j=i++){const xi=P[i][0],yi=P[i][1],xj=P[j][0],yj=P[j][1];if(((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi))c=!c;}return c;}
+function segDist(px,py,ax,ay,bx,by){const dx=bx-ax,dy=by-ay;const L=dx*dx+dy*dy||1;let t=((px-ax)*dx+(py-ay)*dy)/L;t=Math.max(0,Math.min(1,t));return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));}
+function polyDist(px,py,pts){let d=1e9;for(let i=1;i<pts.length;i++)d=Math.min(d,segDist(px,py,pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1]));return d;}
+function sample(nx,ny){if(!inPoly(nx,ny,LAND))return{land:false,elev:-Math.round(140+2400*Math.abs(Math.sin(nx*7)*Math.cos(ny*5))),biome:'Open sea'};const rid=Math.max(0,1-Math.hypot(nx-.68,ny-.26)/.16);const e=Math.round(40+540*Math.abs(Math.sin(nx*9+ny*4))+2600*rid);const b=e>2200?'Alpine tundra':e>1200?'Montane forest':ny<.3?'Boreal forest':(nx>.6&&ny>.55)?'Warm steppe':'Temperate forest';return{land:true,elev:e,biome:b};}
+function fmt(n){return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' ');}
+function faction(nx){return nx<.5?'Aurel':'Kesh';}
+function clipHalf(P,left){const inside=p=>left?p[0]<=.5:p[0]>=.5;const out=[];for(let i=0;i<P.length;i++){const a=P[i],b=P[(i+1)%P.length];const ia=inside(a),ib=inside(b);if(ia)out.push(a);if(ia!==ib){const t=(.5-a[0])/(b[0]-a[0]);out.push([.5,a[1]+t*(b[1]-a[1])]);}}return out;}
+const ptsStr=P=>P.map(p=>(p[0]*W).toFixed(1)+','+(p[1]*H).toFixed(1)).join(' ');
+const pathD=P=>P.length<2?'':P.map((p,i)=>(i?'L':'M')+(p[0]*W).toFixed(1)+' '+(p[1]*H).toFixed(1)).join(' ');
+function initData(){return{settlements:[{id:'s1',name:'Vhal Serai',cls:'town',x:.42,y:.46},{id:'s2',name:'Port Amre',cls:'city',x:.68,y:.62},{id:'s3',name:'Lakemouth',cls:'village',x:.31,y:.30}],labels:[{id:'l1',text:'The Ashen Reach',x:.445,y:.476}],icons:[{id:'i1',fam:'Feature',x:.57,y:.36}],drafts:[],committed:[],way:[],ways:[],routes:[{id:'r1',name:'Serai–Amre road',pts:[[.42,.46],[.55,.55],[.68,.62]]}],measure:[],region:null,pin:null};}
+const SIZE={metropolis:15,city:13,town:10,village:8,hamlet:7};
+
+class Component extends DCLogic {
+constructor(props){super(props);this.state={domain:'world',tool:'Inspect',family:'global',prevTool:null,iconFam:null,cls:'town',view:'Relief',style:'Vibrant',radius:60,strength:.5,data:initData(),hist:[],pan:{x:0,y:0},pin:null,pid:null,sheet:null,sheetDrag:null,sub:null,fan:null,press:null,pulse:null,toast:'Long-press the map to drop a pin. Slide up from the tool pill for the fan.'};this.g=null;this.nid=10;}
+componentDidMount(){this._toastT=setTimeout(()=>this.setState({toast:null}),6000);}
+componentWillUnmount(){clearTimeout(this._t);clearTimeout(this._p);clearTimeout(this._ft);clearTimeout(this._toastT);}
+say(msg){this.setState({toast:msg});clearTimeout(this._toastT);this._toastT=setTimeout(()=>this.setState({toast:null}),2600);}
+mutate(label,fn){this.setState(s=>{const data=fn(JSON.parse(JSON.stringify(s.data)));return{data,hist:s.hist.concat([{label,data:s.data}]).slice(-40)};});this.say(label);}
+undo(){const h=this.state.hist;if(!h.length){this.say('Nothing to undo');return;}const last=h[h.length-1];this.setState({data:last.data,hist:h.slice(0,-1)});this.say('Undone: '+last.label);}
+newId(){return 'n'+(this.nid++);}
+dropSettlement(nx,ny,cls){const name=NAMES[this.nid%NAMES.length],id=this.newId();this.mutate('Dropped '+cls+' '+name,d=>{d.settlements.push({id,name,cls,x:nx,y:ny});return d;});}
+addLabel(nx,ny,text){const id=this.newId();this.mutate('Label “'+text+'” added',d=>{d.labels.push({id,text,x:nx,y:ny});return d;});}
+addIcon(nx,ny){const id=this.newId(),fam=this.state.iconFam||'Feature';this.mutate(fam+' icon stamped',d=>{d.icons.push({id,fam,x:nx,y:ny});return d;});}
+remove(key,id,label){this.mutate(label,d=>{d[key]=d[key].filter(o=>o.id!==id);return d;});}
+addDraft(nx,ny){const f=this.state.tool.split(' · ')[1]||'Stroke',paint=this.state.family==='paint',id=this.newId();this.mutate((paint?'Painted ':'Draft stroke: ')+f,d=>{d.drafts.push({id,x:nx,y:ny,feature:f,paint,r:this.state.radius});return d;});}
+commitDraft(){const n=this.state.data.drafts.length;this.mutate('Committed '+n+' stroke'+(n>1?'s':'')+' — tiles marked stale',d=>{d.committed=d.committed.concat(d.drafts);d.drafts=[];return d;});}
+discardDraft(){this.mutate('Draft discarded',d=>{d.drafts=[];return d;});}
+addWayPt(nx,ny){this.mutate(this.state.family==='route'?'Route stop':'Way point',d=>{d.way.push([nx,ny]);return d;});}
+commitWay(){const st=this.state,pts=st.data.way;if(!pts.length)return;const id=this.newId(),isRoute=st.family==='route';this.mutate(isRoute?'Route committed ('+pts.length+' stops)':(st.tool.split(' · ')[1]||'Road')+' committed ('+pts.length+' points)',d=>{if(d.way.length>1){if(isRoute)d.routes.push({id,name:'Route '+(d.routes.length+1),pts:d.way});else d.ways.push({id,pts:d.way});}d.way=[];return d;});}
+discardWay(){this.mutate('Way discarded',d=>{d.way=[];return d;});}
+addMeasure(nx,ny){this.mutate('Measure point',d=>{d.measure.push([nx,ny]);return d;});}
+setRegion(nx,ny){this.mutate('Export region set',d=>{d.region={x:nx,y:ny,w:.2,h:.16};return d;});}
+centre(c){this.setState({pan:{x:W/2-c.px,y:(H-PEEK)/2-c.py}});this.say('View centred');}
+setView(v){this.setState({view:v});this.say('View field: '+v);}
+setStyle(s){this.setState({style:s});this.say('Style preset: '+s);}
+isArmed(def){const st=this.state;return !!((def.tool&&def.tool===st.tool)||(def.view&&def.view===st.view)||(def.style&&def.style===st.style));}
+slotArmed(def){const st=this.state;if(def.children)return def.children.some(ch=>ch.tool&&ch.tool===st.tool);return !!(def.tool&&def.tool===st.tool);}
+slotDisabled(def){return def.action==='undo'&&!this.state.hist.length;}
+arm(def){if(def.action==='undo'){this.undo();return;}if(def.view){this.setView(def.view);return;}if(def.style){this.setStyle(def.style);return;}const fam=def.family||'global';const upd={tool:def.tool,family:fam};if(fam==='icon')upd.iconFam=def.label;if(fam==='settle')upd.cls=def.label.toLowerCase();this.setState(upd);this.say('Armed '+def.tool);}
+hitsAt(px,py){const d=this.state.data,out=[];
+ d.settlements.forEach(s=>{const r=Math.hypot(px-s.x*W,py-s.y*H);if(r<24)out.push({kind:'settlement',id:s.id,label:s.name,sub:s.cls,d:r});});
+ d.labels.forEach(l=>{const hw=l.text.length*3.4+8,dy=Math.abs(py-l.y*H);if(Math.abs(px-l.x*W)<hw&&dy<14)out.push({kind:'label',id:l.id,label:'“'+l.text+'”',sub:'label',d:dy+2});});
+ d.icons.forEach(i=>{const r=Math.hypot(px-i.x*W,py-i.y*H);if(r<22)out.push({kind:'icon',id:i.id,label:i.fam+' icon',sub:'icon',d:r});});
+ d.drafts.forEach(k=>{const r=Math.hypot(px-k.x*W,py-k.y*H);if(r<22)out.push({kind:'stamp',id:k.id,label:k.feature+' stamp',sub:'draft stamp',d:r});});
+ d.routes.forEach(rt=>{const dd=polyDist(px,py,rt.pts.map(p=>[p[0]*W,p[1]*H]));if(dd<12)out.push({kind:'route',id:rt.id,label:rt.name,sub:'route',d:dd+4});});
+ const rd=polyDist(px,py,RIVER.map(p=>[p[0]*W,p[1]*H]));if(rd<12)out.push({kind:'river',id:'river',label:'River Esk',sub:'river · order 4',d:rd+6});
+ return out.sort((a,b)=>a.d-b.d).slice(0,8);}
+ctxAt(x,y){const px=x-this.state.pan.x,py=y-this.state.pan.y;return{x,y,px,py,nx:px/W,ny:py/H};}
+buildCard(c){
+ const st=this.state,dom=st.domain,fam=st.family,d=st.data,h=c.primary,s=sample(c.nx,c.ny);
+ const A=(label,run,o)=>Object.assign({label,run},o||{});
+ const secs=[];const push=(name,rows)=>{if(rows.length)secs.push({name,rows});};
+ const kmE=fmt(Math.round(c.nx*8000)),kmN=fmt(Math.round((1-c.ny)*5600));
+ const head={title:h?h.label:'Pinned here',subtitle:(h?h.sub+' · ':'')+(s.land?fmt(s.elev)+' m · '+s.biome:fmt(-s.elev)+' m deep · open sea'),multi:c.hits.length>1?c.hits.length:0};
+ const dr=[];
+ if(d.drafts.length){const n=d.drafts.length;dr.push(A('Commit '+n+' '+(n>1?'strokes':'stroke'),()=>this.commitDraft(),{chip:'Commit '+n}),A('Undo last stroke',()=>this.undo(),{chip:'Undo'}),A('Discard draft',()=>this.discardDraft(),{danger:true,chip:'Discard'}));}
+ if(d.way.length){const n=d.way.length,w=fam==='route'?'route':'way';dr.push(A('Commit '+w+' ('+n+' '+(n>1?'points':'point')+')',()=>this.commitWay(),{chip:'Commit '+w}),A('Undo last point',()=>this.undo(),{chip:'Undo point'}),A('Discard '+w,()=>this.discardWay(),{danger:true,chip:'Discard'}));}
+ push('DRAFT',dr);
+ const tl=[];
+ if(fam==='sculpt'||fam==='paint')tl.push(A('Radius',null,{param:'radius',value:st.radius+' px'}),A('Strength',null,{param:'strength',value:st.strength.toFixed(2)}));
+ if(fam==='settle')tl.push(A('Class',null,{param:'cls',value:st.cls}));
+ push('TOOL · '+st.tool.toUpperCase(),tl);
+ const ob=[];const other=(label,to,chip)=>A(label,()=>{this.setState({domain:to});this.say('Domain: '+to.toUpperCase());},{keep:true,chip});
+ if(h){const nm=h.label;
+  if(h.kind==='settlement'){if(dom==='civil')ob.push(A('Edit '+nm+'…',()=>this.say('Place editor: '+nm),{chip:'Edit'}),A('Open city layout…',()=>this.say('City Viewer: '+nm),{chip:'City layout'}),A('Journey from here',()=>this.say('Journey planner: '+nm+' → …'),{chip:'Journey from'}),A('Journey to here',()=>this.say('Journey planner: … → '+nm),{chip:'Journey to'}),A('Open vault note',()=>this.say('Vault: Settlements/'+nm+'.md')),A('Delete '+nm,()=>this.remove('settlements',h.id,'Deleted '+nm),{danger:true}));else{if(dom==='carto')ob.push(A('Label this: “'+nm+'”',()=>this.addLabel(c.nx,c.ny+.05,nm),{chip:'Label this'}));ob.push(other('Settlement actions in CIVIL ›','civil','In CIVIL ›'));}}
+  else if(h.kind==='label'){if(dom==='carto')ob.push(A('Edit text…',()=>this.say('Editing '+nm+' in place'),{chip:'Edit text'}),A('Reset arc',()=>this.say('Arc reset')),A('Duplicate',()=>{const l=d.labels.find(x=>x.id===h.id);if(l)this.addLabel(l.x+.02,l.y+.05,l.text);}),A('Delete label',()=>this.remove('labels',h.id,'Deleted label '+nm),{danger:true,chip:'Delete'}));else ob.push(other('Label actions in CARTO ›','carto','In CARTO ›'));}
+  else if(h.kind==='icon'){if(dom==='carto')ob.push(A('Properties…',()=>this.say('Icon properties'),{chip:'Properties'}),A('Delete icon',()=>this.remove('icons',h.id,'Deleted icon'),{danger:true,chip:'Delete'}));else ob.push(other('Icon actions in CARTO ›','carto','In CARTO ›'));}
+  else if(h.kind==='stamp'){if(dom==='world')ob.push(A('Hide stamp',()=>this.say('Stamp hidden'),{chip:'Hide'}),A('Move up in stack',()=>this.say('Stamp moved up')),A('Move down in stack',()=>this.say('Stamp moved down')),A('Delete stamp',()=>this.remove('drafts',h.id,'Deleted stamp'),{danger:true,chip:'Delete'}));else ob.push(other('Stamp actions in WORLD ›','world','In WORLD ›'));}
+  else if(h.kind==='route'){if(dom==='civil')ob.push(A('Open in Journey Planner',()=>this.say('Journey Planner: '+nm),{chip:'Plan journey'}),A('Rename…',()=>this.say('Rename '+nm)),A('Delete route',()=>this.remove('routes',h.id,'Deleted '+nm),{danger:true}));else ob.push(other('Route actions in CIVIL ›','civil','In CIVIL ›'));}
+  else if(h.kind==='river'){if(dom==='world')ob.push(A('Inspect river',null,{disabled:true,reason:'needs a river pick — engine work (CM-7)'}),A('Trace downstream',null,{disabled:true,reason:'no bound receiver-tree trace yet'}));else if(dom==='carto')ob.push(A('Label this: “'+nm+'”',()=>this.addLabel(c.nx+.04,c.ny,nm),{chip:'Label river'}));}
+ }
+ if(dom==='world'&&fam==='paint'&&s.land)ob.push(A('Paint with this biome ('+s.biome+')',()=>{this.setState({tool:'Paint · Biome',family:'paint'});this.say('Eyedropper: painting '+s.biome);},{chip:'Paint this biome'}));
+ if(dom==='civil'&&s.land&&!h){const f=faction(c.nx);ob.push(A('Claim for '+f,()=>{this.setState({tool:'Territory · Add',family:'territory'});this.say('Territory armed for '+f+' (eyedropper)');},{chip:'Claim · '+f}),A('Open '+f+' in faction roster',()=>this.say('Faction roster: '+f)));}
+ push('OBJECT',ob);
+ const pl=[];
+ if(dom==='civil'&&s.land)pl.push(A('Drop settlement here',null,{chip:'Drop settlement ▸',children:['Metropolis','City','Town','Village','Hamlet'].map(k=>A(k,()=>this.dropSettlement(c.nx,c.ny,k.toLowerCase())))}),A('Start way here',()=>{this.setState({tool:'Way · Road',family:'way'});this.addWayPt(c.nx,c.ny);},{chip:'Start way'}),A('Start route here',()=>{this.setState({tool:'Route',family:'route'});this.addWayPt(c.nx,c.ny);}));
+ if(dom==='carto'){pl.push(A('Add label here',()=>this.addLabel(c.nx,c.ny,'New label'),{chip:'Add label'}));pl.push(st.iconFam?A('Stamp '+st.iconFam+' icon here',()=>this.addIcon(c.nx,c.ny),{chip:'Stamp icon'}):A('Stamp armed icon here',null,{disabled:true,reason:'no icon armed — slide up from the pill, pick Icon'}));pl.push(A('Start export region here',()=>this.setRegion(c.nx,c.ny)),A('View field',null,{chip:'View ▸',children:VIEWS.map(v=>A(v,()=>this.setView(v),{hint:v===st.view?'●':''}))}),A('Style preset',null,{children:STYLES.map(x=>A(x,()=>this.setStyle(x),{hint:x===st.style?'●':''}))}));}
+ push(dom==='carto'?'PLACE & SHOW':'PLACE HERE',pl);
+ const go=[A('Centre view here',()=>this.centre(c),{chip:'Centre'}),A('Measure from here',()=>{this.setState({tool:'Measure · Path',family:'global'});this.addMeasure(c.nx,c.ny);},{chip:'Measure'})];
+ if(dom==='world')go.push(A('Cross-section from here',()=>{this.setState({tool:'Measure · Section',family:'global'});this.addMeasure(c.nx,c.ny);},{chip:'Cross-section'}));
+ if(dom==='civil'&&!(h&&h.kind==='settlement'))go.push(A('Journey from here',()=>this.say('Journey planner: from '+kmE+' km E'),{chip:'Journey from'}));
+ push('GO / MEASURE',go);
+ const inf=[A('Copy coordinate',null,{chip:'Copy coords ▸',children:[A(kmE+' km E · '+kmN+' km N',()=>this.say('Copied '+kmE+' km E · '+kmN+' km N')),A((30-c.ny*60).toFixed(2)+'°, '+(c.nx*90-45).toFixed(2)+'° · world CRS',()=>this.say('Copied world-CRS coordinate'))]}),A('Open inspector',()=>this.say('Inspector (edge-swipe panel) — full sample for this pin'))];
+ if(dom==='civil')inf.push(A('Info here (settlement & ecology)',()=>this.say('Pinned in the Sample panel')));
+ push('INFO',inf);
+ return{head,secs};}
+runRow(row){if(row.children){this.setState({sheet:'half',sheetDrag:null,sub:row.label});return;}if(row.param||row.disabled)return;if(row.keep){row.run();return;}this.setState({sheet:null,pin:null,sub:null,sheetDrag:null});if(row.run)row.run();}
+param(key,dir){const st=this.state;if(key==='radius')this.setState({radius:Math.max(10,Math.min(200,st.radius+dir*10))});else if(key==='strength')this.setState({strength:Math.max(0,Math.min(1,+(st.strength+dir*.05).toFixed(2)))});else if(key==='cls'){const i=(CLASSES.indexOf(st.cls)+dir+CLASSES.length)%CLASSES.length;this.setState({cls:CLASSES[i],tool:'Settlement · '+CLASSES[i][0].toUpperCase()+CLASSES[i].slice(1)});}}
+closeSheet(){this.setState({sheet:null,pin:null,sub:null,sheetDrag:null});}
+loc(e,el){const rc=el.getBoundingClientRect(),k=el.offsetWidth/(rc.width||1);return{x:(e.clientX-rc.left)*k,y:(e.clientY-rc.top)*k};}
+toolAction(x,y){const c=this.ctxAt(x,y),f=this.state.family,t=this.state.tool;
+ if(f==='global'){if(t.indexOf('Measure')===0){this.addMeasure(c.nx,c.ny);return;}if(t==='Region select'){this.setRegion(c.nx-.1,c.ny-.08);return;}const hits=this.hitsAt(c.px,c.py);if(hits.length)this.say('Selected '+hits[0].label+' — long-press for its actions');else{const s=sample(c.nx,c.ny);this.say(s.land?fmt(s.elev)+' m · '+s.biome:'Open sea');}return;}
+ if(f==='sculpt'||f==='paint'){if(f==='paint'&&!sample(c.nx,c.ny).land){this.say('Paint is land only');return;}this.addDraft(c.nx,c.ny);return;}
+ if(f==='settle'){this.dropSettlement(c.nx,c.ny,this.state.cls);return;}
+ if(f==='territory'){this.say((t.indexOf('Add')>0?'Claimed':'Released')+' ground for '+faction(c.nx));return;}
+ if(f==='way'||f==='route'){this.addWayPt(c.nx,c.ny);return;}
+ if(f==='label'){this.addLabel(c.nx,c.ny,'New label');return;}
+ if(f==='icon'){this.addIcon(c.nx,c.ny);return;}}
+dropPin(x,y){const c=this.ctxAt(x,y);const hits=this.hitsAt(c.px,c.py);this.setState({pin:{nx:c.nx,ny:c.ny},pid:hits[0]?hits[0].id:null,sheet:'peek',sub:null,sheetDrag:null,press:null,pulse:{x,y}});clearTimeout(this._p);this._p=setTimeout(()=>this.setState({pulse:null}),460);}
+onDown(e){const el=e.currentTarget,p=this.loc(e,el);try{el.setPointerCapture(e.pointerId);}catch(_){}
+ this.g={x:p.x,y:p.y,phase:'press',px:this.state.pan.x,py:this.state.pan.y,lx:p.x,ly:p.y};this.setState({press:{x:p.x,y:p.y}});clearTimeout(this._t);
+ this._t=setTimeout(()=>{const g=this.g;if(g&&g.phase==='press'){g.phase='held';this.dropPin(g.x,g.y);}},HOLD);}
+onMove(e){const g=this.g;if(!g)return;const p=this.loc(e,e.currentTarget);
+ if(g.phase==='press'){if(Math.hypot(p.x-g.x,p.y-g.y)<=SLOP)return;clearTimeout(this._t);this.setState({press:null});const f=this.state.family;if((f==='sculpt'||f==='paint')&&!this.state.sheet){g.phase='stroke';this.toolAction(g.x,g.y);}else g.phase='pan';}
+ if(g.phase==='pan'){this.setState({pan:{x:g.px+p.x-g.x,y:g.py+p.y-g.y}});return;}
+ if(g.phase==='stroke'&&Math.hypot(p.x-g.lx,p.y-g.ly)>30){g.lx=p.x;g.ly=p.y;this.toolAction(p.x,p.y);}}
+onUp(){const g=this.g;this.g=null;clearTimeout(this._t);if(!g)return;if(this.state.press)this.setState({press:null});
+ if(g.phase==='press'){if(this.state.sheet){this.closeSheet();return;}this.toolAction(g.x,g.y);}}
+pinDown(e){const el=e.currentTarget;try{el.setPointerCapture(e.pointerId);}catch(_){}this.pd={moved:false};}
+pinMove(e){if(!this.pd)return;const p=this.loc(e,e.currentTarget.parentElement);const c=this.ctxAt(p.x,p.y-14);this.pd.moved=true;this.setState({pin:{nx:c.nx,ny:c.ny},pid:null,sub:null});}
+pinUp(){const pd=this.pd;this.pd=null;if(pd&&pd.moved){const pin=this.state.pin;const hits=this.hitsAt(pin.nx*W,pin.ny*H);this.setState({pid:hits[0]?hits[0].id:null});this.say('Pin moved — actions re-resolved');}}
+handleDown(e){if(e.target&&e.target.closest&&e.target.closest('button'))return;const el=e.currentTarget;try{el.setPointerCapture(e.pointerId);}catch(_){}const rc=el.getBoundingClientRect();this.hd={y0:e.clientY,h0:this.state.sheet==='half'?HALF:PEEK,k:el.offsetWidth/(rc.width||1),moved:false};}
+handleMove(e){const hd=this.hd;if(!hd)return;const dy=(e.clientY-hd.y0)*hd.k;if(Math.abs(dy)>6)hd.moved=true;if(hd.moved)this.setState({sheetDrag:Math.max(60,Math.min(H-40,hd.h0-dy))});}
+handleUp(e){const hd=this.hd;this.hd=null;if(!hd)return;if(e&&e.target&&e.target.closest&&e.target.closest('button')&&!hd.moved)return;
+ if(!hd.moved){this.setState({sheet:this.state.sheet==='half'?'peek':'half',sheetDrag:null});return;}
+ const h=this.state.sheetDrag||hd.h0;if(h<110){this.closeSheet();return;}this.setState({sheet:Math.abs(h-PEEK)<Math.abs(h-HALF)?'peek':'half',sheetDrag:null});}
+pillDown(e){const el=e.currentTarget;try{el.setPointerCapture(e.pointerId);}catch(_){}const p=this.loc(e,el.parentElement);this.f={x:p.x,y:p.y,open:false};clearTimeout(this._ft);this._ft=setTimeout(()=>{if(this.f&&!this.f.open){this.f.open=true;this.setState({fan:{sticky:false,hover:null,sub:null}});}},260);}
+fanNearest(x,y){const fan=this.state.fan;if(!fan)return null;if(Math.hypot(x-FAX,y-FAY)<40)return null;let best=null,bd=46;
+ if(fan.sub){const n=fan.sub.items.length;for(let i=0;i<n;i++){const ang=n>1?180-i*180/(n-1):90;const q=fanPos(ang,FR);const d=Math.hypot(x-q[0],y-q[1]);if(d<bd){bd=d;best=i;}}return best;}
+ FAN.forEach(f=>{const q=fanPos(f[1],f[2]);const d=Math.hypot(x-q[0],y-q[1]);if(d<bd){bd=d;best=f[0];}});return best;}
+pillMove(e){const f=this.f;if(!f)return;const p=this.loc(e,e.currentTarget.parentElement);
+ if(!f.open){if(Math.hypot(p.x-f.x,p.y-f.y)>12){f.open=true;clearTimeout(this._ft);this.setState({fan:{sticky:false,hover:null,sub:null}});}return;}
+ const fan=this.state.fan;if(!fan)return;const hv=this.fanNearest(p.x,p.y);if(hv!==fan.hover)this.setState({fan:Object.assign({},fan,{hover:hv})});}
+pillUp(){const f=this.f;this.f=null;clearTimeout(this._ft);if(!f)return;
+ if(!f.open){const st=this.state;if(st.tool!=='Inspect'){this.setState({prevTool:{tool:st.tool,family:st.family},tool:'Inspect',family:'global'});this.say('Inspect — tap the pill again to return to '+st.tool);}else if(st.prevTool){this.setState({tool:st.prevTool.tool,family:st.prevTool.family});this.say('Armed '+st.prevTool.tool);}else this.say('Press and slide up for the tool fan');return;}
+ const fan=this.state.fan;if(!fan)return;
+ if(fan.hover){const def=ringDef(this.state.domain,fan.hover);if(this.slotDisabled(def)){this.say('Undo — nothing to undo yet');this.setState({fan:null});return;}if(def.children){this.setState({fan:{sticky:true,hover:null,sub:{dir:fan.hover,items:def.children,hover:null}}});this.say(def.label+' — tap one');return;}this.setState({fan:null});this.arm(def);return;}
+ this.setState({fan:Object.assign({},fan,{sticky:true})});this.say('Tap a slot, or tap outside to close');}
+fanSlotClick(dir){const def=ringDef(this.state.domain,dir);if(this.slotDisabled(def)){this.say('Undo — nothing to undo yet');return;}if(def.children){this.setState({fan:{sticky:true,hover:null,sub:{dir,items:def.children,hover:null}}});return;}this.setState({fan:null});this.arm(def);}
+mapVals(){const st=this.state,d=st.data,pal=STYLEPAL[st.style],ink=pal.ink,halo=pal.ink.charAt(1)==='f'?'0 1px 2px rgba(0,0,0,.9), 0 0 5px rgba(0,0,0,.6)':'0 0 3px rgba(255,255,255,.95), 0 0 6px rgba(255,255,255,.6)',px=st.pan.x,py=st.pan.y,terr=st.view==='Political'||st.domain==='civil';
+ return{sea:pal.sea,landFill:VIEWTINT[st.view]||pal.land,coast:pal.coast,ridge:pal.ridge,panX:px,panY:py,landPts:ptsStr(LAND),terrL:ptsStr(clipHalf(LAND,true)),terrR:ptsStr(clipHalf(LAND,false)),terrLFill:terr?'rgba(90,140,220,.26)':'transparent',terrRFill:terr?'rgba(220,110,90,.26)':'transparent',ridgeD:RIDGES.map(pathD).join(' '),riverD:pathD(RIVER),lakeX:(.365*W).toFixed(1),lakeY:(.18*H).toFixed(1),lakeR:10,
+  waysD:d.ways.map(w=>pathD(w.pts)).join(' '),routeD:d.routes.map(r=>pathD(r.pts)).join(' '),wayDraftD:pathD(d.way),measureD:pathD(d.measure),
+  settlements:d.settlements.map(s=>{const z=SIZE[s.cls]||9,x=s.x*W+px,y=s.y*H+py;return{l:(x-z/2).toFixed(1),t:(y-z/2).toFixed(1),s:z,nl:(x+z/2+4).toFixed(1),nt:(y-5).toFixed(1),name:s.name,ink,halo};}),
+  labels:d.labels.map(l=>({l:(l.x*W+px).toFixed(1),t:(l.y*H+py).toFixed(1),text:l.text.toUpperCase(),ink,halo})),
+  icons:d.icons.map(i=>({l:(i.x*W+px-5.5).toFixed(1),t:(i.y*H+py-5.5).toFixed(1)})),
+  drafts:d.drafts.map(k=>{const s=Math.max(12,k.r*.35);return{l:(k.x*W+px-s/2).toFixed(1),t:(k.y*H+py-s/2).toFixed(1),s,c:k.paint?'#7fd18a':ACC,bg:k.paint?'rgba(127,209,138,.14)':'rgba(224,163,74,.12)'};}),
+  committed:d.committed.map(k=>{const s=Math.max(12,k.r*.35);return{l:(k.x*W+px-s/2).toFixed(1),t:(k.y*H+py-s/2).toFixed(1),s};})};}
+renderVals(){const st=this.state,dom=st.domain;
+ const tabs=[['world','WORLD','▲'],['civil','CIVIL','⌂'],['carto','CARTO','◐']].map(p=>({label:p[1],glyph:p[2],bg:p[0]===dom?'rgba(224,163,74,.12)':'transparent',fg:p[0]===dom?ACC:'#b8bdc1',pick:()=>{this.setState({domain:p[0],fan:null,sub:null});this.say('Domain: '+p[1]);}}));
+ let pin={show:false},card={},sheet={};
+ if(st.pin){const sx=st.pin.nx*W+st.pan.x,sy=st.pin.ny*H+st.pan.y,s=sample(st.pin.nx,st.pin.ny);const cl=Math.min(W-170,sx+22);pin={show:true,l:(sx-22).toFixed(1),t:(sy-22).toFixed(1),cl:cl.toFixed(1),ct:(sy-52).toFixed(1),l1:s.land?fmt(s.elev)+' m · '+s.biome:'Open sea',l2:faction(st.pin.nx)+' · '+fmt(Math.round(st.pin.nx*8000))+' km E'};}
+ if(st.pin&&st.sheet){const px=st.pin.nx*W,py=st.pin.ny*H,hits=this.hitsAt(px,py),primary=hits.find(h=>h.id===st.pid)||hits[0]||null,model=this.buildCard({px,py,nx:st.pin.nx,ny:st.pin.ny,hits,primary});
+  const rowV=row=>({label:row.label,hint:row.children?'▸':(row.hint||''),isParam:!!row.param,isAction:!row.param&&!row.disabled,isDisabled:!!row.disabled,reason:row.reason||'',value:row.value||'',color:row.danger?'#f29c8c':(row.keep?ACC:'#eef0f1'),click:()=>this.runRow(row),minus:()=>this.param(row.param,-1),plus:()=>this.param(row.param,1)});
+  const flat=[];model.secs.forEach(sc=>sc.rows.forEach(rw=>{if(!rw.param&&!rw.disabled)flat.push(rw);}));
+  let chips=flat.slice(0,4).map((rw,i)=>({label:rw.chip||rw.label,bg:i===0?ACC:'#262a2e',fg:i===0?'#141617':(rw.danger?'#e88a7a':'#e8ebec'),bd:i===0?ACC:'#6b7277',click:()=>this.runRow(rw)}));
+  if(model.head.multi)chips=[{label:'Select ▸ '+model.head.multi,bg:'#262a2e',fg:ACC,bd:ACC,click:()=>this.setState({sheet:'half',sub:'__select',sheetDrag:null})}].concat(chips.slice(0,3));
+  let inSub=false,subTitle='',subRows=[];
+  if(st.sub){let found=null;if(st.sub==='__select'){found={label:'Objects here',children:hits.map(hh=>({label:hh.label+' · '+hh.kind,keep:true,hint:hh.id===(primary&&primary.id)?'●':'',run:()=>this.setState({pid:hh.id,sub:null})}))};}else model.secs.forEach(sc=>sc.rows.forEach(rw=>{if(rw.label===st.sub&&rw.children)found=rw;}));if(found){inSub=true;subTitle=found.label;subRows=found.children.map(rowV);}}
+  card={title:model.head.title,subtitle:model.head.subtitle,chips,multi:!!model.head.multi&&!inSub,multiLabel:'Select — '+model.head.multi+' objects here',openSelect:()=>this.setState({sub:'__select'}),inSub,inMain:!inSub,subTitle,subRows,back:()=>this.setState({sub:null}),secs:model.secs.map(sc=>({name:sc.name,rows:sc.rows.map(rowV)}))};
+  const h=st.sheetDrag!=null?st.sheetDrag:(st.sheet==='half'?HALF:PEEK);const showHalf=st.sheetDrag!=null?h>PEEK+60:st.sheet==='half';
+  sheet={h:Math.round(h),top:Math.round(H-h),peek:!showHalf,half:showHalf};}
+ let fan={};const fs=st.fan;
+ if(fs){const pe=fs.sticky?'auto':'none';let slots;let caption;
+  if(fs.sub){const n=fs.sub.items.length;slots=fs.sub.items.map((it,i)=>{const ang=n>1?180-i*180/(n-1):90,q=fanPos(ang,FR),hov=fs.sub.hover===i,arm=this.isArmed(it);return{l:(q[0]-FSLOT/2).toFixed(1),t:(q[1]-FSLOT/2).toFixed(1),glyph:'',short:it.label,label:it.label,bg:arm?ACC:(hov?'#4a3717':'#262a2e'),fg:arm?'#141617':(hov?'#ffc86e':'#f4f5f6'),bd:hov?'2px solid '+ACC:'1px solid #6b7277',op:1,pe:'auto',click:()=>{this.setState({fan:null});this.arm(it);}};});caption=ringDef(dom,fs.sub.dir).label+' ▸ tap one';}
+  else{slots=FAN.map(f=>{const def=ringDef(dom,f[0]),q=fanPos(f[1],f[2]),hov=fs.hover===f[0],arm=this.slotArmed(def),dis=this.slotDisabled(def);return{l:(q[0]-FSLOT/2).toFixed(1),t:(q[1]-FSLOT/2).toFixed(1),glyph:def.glyph,short:def.label+(def.children?'▸':''),label:def.label,bg:arm?ACC:(hov?'#4a3717':'#262a2e'),fg:arm?'#141617':(hov?'#ffc86e':'#f4f5f6'),bd:hov?'2px solid '+ACC:'1px solid #6b7277',op:dis?.35:1,pe,click:()=>this.fanSlotClick(f[0])};});
+   caption=fs.hover?(fs.hover+' · '+ringDef(dom,fs.hover).label+' — lift to pick'):(fs.sticky?'tap a slot · tap outside to close':'slide to a slot, lift to pick');}
+  fan={slots,caption,pe:fs.sticky?'auto':'none',back:!!fs.sub,backClick:()=>this.setState({fan:{sticky:true,hover:null,sub:null}})};}
+ const pill={label:st.tool.toUpperCase(),bg:st.tool==='Inspect'?'#262a2e':ACC,fg:st.tool==='Inspect'?'#e8ebec':'#141617',border:st.tool==='Inspect'?'#7a8186':ACC};
+ const press=st.press?{show:true,l:(st.press.x-32).toFixed(1),t:(st.press.y-32).toFixed(1)}:{show:false};
+ const pulse=st.pulse?{show:true,l:(st.pulse.x-32).toFixed(1),t:(st.pulse.y-32).toFixed(1)}:{show:false};
+ return{tabs,m:this.mapVals(),pin,card,sheet,sheetOn:!!(st.pin&&st.sheet),fan,fanOn:!!fs&&!st.sheet,pill,pillOn:!st.sheet,press,pulse,toast:st.toast||'',toastOn:!!st.toast,domainUpper:dom.toUpperCase(),prevent:e=>e.preventDefault(),onDown:e=>this.onDown(e),onMove:e=>this.onMove(e),onUp:e=>this.onUp(e),pinDown:e=>this.pinDown(e),pinMove:e=>this.pinMove(e),pinUp:e=>this.pinUp(e),handleDown:e=>this.handleDown(e),handleMove:e=>this.handleMove(e),handleUp:e=>this.handleUp(e),pillDown:e=>this.pillDown(e),pillMove:e=>this.pillMove(e),pillUp:e=>this.pillUp(e),closeSheet:()=>this.closeSheet(),fanScrim:()=>this.setState({fan:null})};}
+}
+</script>
+</body>
+</html>
