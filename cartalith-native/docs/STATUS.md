@@ -397,6 +397,18 @@ Dated, because this is what a returning session needs and it is exactly what
 went missing from the old file. Commits are from `git log`; each claim below was
 re-checked against the tree rather than copied from the commit message.
 
+### 2026-09-25
+
+- **`MAP_CONTEXT_SCOPE.md` written, as a proposal and not a schedule.** It
+  covers the right-click context card, an 8-slot tool ring per domain, and
+  their tablet and phone forms. It adds seven milestone rows (*Map context*,
+  below), and none of them is built. **It records one collision nobody had
+  written down.** `design/dcc-environment-2026-08-31/spec/06-phone.md` §7
+  makes the phone's long-press *"sample terrain → pin + chip"* (480 ms). The
+  shipped `map_overlay.gd` (`_TOUCH_HOLD_MS := 500`, PH-02) makes the same
+  gesture open the context menu. RP-S6 will hit this the day it starts. The
+  scope's fork F1 proposes the pin *and* the verbs.
+
 ### 2026-09-01
 
 Eight agents worked `OUTSTANDING_WORK.md` §1's eight in-flight rows in
@@ -1349,6 +1361,27 @@ counts are wrong by up to 41 %** (`dcc_shell.gd` listed at 4 339 and measuring
 run yet**, so it under-states them. Some of that drift is stages 1-2's own work
 landing after the plan was written.
 
+### Map context · `MAP_CONTEXT_SCOPE.md`
+
+Seven rows, all unbuilt. **A proposal written 2026-09-25 and not scheduled**,
+so none of it is counted in `OUTSTANDING_WORK.md`'s 155. What exists is the
+baseline the scope builds on. `map_overlay.gd`'s `map_right_clicked` carries
+one settlement hit. `civilization_workspace.gd::on_map_right_clicked` is the
+**only** implementer (WORLD and CARTO right-click does nothing). The touch
+hold is PH-02's `_TOUCH_HOLD_MS` path.
+
+| ID | Milestone | Status | Evidence |
+|---|---|---|---|
+| CM-1 | The request and the broker (multi-hit `context_requested`, providers per workspace) | not started | Searched `godot-project/` for `context_requested`, `context_broker`, `context_actions`: zero hits. `map_right_clicked` still carries a single `hit: int` |
+| CM-2 | The context card (sectioned, disabled-with-reason, replaces the `PopupMenu`) | not started | No `context_card.gd`; the CIVIL menu is still `PopupMenu.new()` in `civilization_workspace.gd` |
+| CM-3 | The desktop ring (RMB-drag marking, RMB-hold, Q) | not started | No `radial_ring.gd`; no radial/pie `Control` anywhere under `shell/` (the only `radial` hits are gradients and sculpt-feature prose) |
+| CM-4 | Tablet: hold → ring + card with slide-to-select; pen barrel button verified | not started | The hold path still swallows the finger until lift (`_touch_swallow_up`), so nothing can track a slide |
+| CM-5 | Phone noun surface: long-press → pin → peek card | blocked | On the scope's fork **F1** (and see this file's 2026-09-25 entry for the gesture collision it resolves) |
+| CM-6 | Phone thumb fan | blocked | On the scope's fork **F2** |
+| CM-7 | New picks and verbs (landmark, route, stamp; way and river are engine work) | not started | Only `civ_pick_place_at`, `label_hit_test`, `icon_hit_test` exist in `engine_bridge.gd`; `sculpt_list_stamps` returns `point_count`, not the points |
+
+**Group total: 7 — 5 not started, 2 blocked.**
+
 ### Superseded desktop shell · `GUI_SHELL_SCOPE.md`
 
 Four rows. **History only.** The shell this document built no longer exists;
@@ -1426,20 +1459,20 @@ Neither is work until someone commits to it. Both are owner decisions (18 and
 
 ## Ledger totals
 
-**264 milestone rows across 29 subsystem groups**, counted from the tables
+**271 milestone rows across 30 subsystem groups**, counted from the tables
 above. Shares are rounded and do not sum to 100.
 
 | Status | Count | Share |
 |---|---:|---:|
-| **done** | 174 | 66 % |
-| **not started** | 41 | 16 % |
+| **done** | 174 | 64 % |
+| **not started** | 46 | 17 % |
 | **declined** (deliberate, with the reason in code or a ruling) | 16 | 6 % |
-| **blocked** (a named blocker) | 13 | 5 % |
+| **blocked** (a named blocker) | 15 | 6 % |
 | **partial** | 10 | 4 % |
 | **shelved** (owner, 2026-08-25 — all of `EXPORT_SCOPE.md`) | 5 | 2 % |
 | **unverified** (not a code artefact) | 5 | 2 % |
 
-**Where the 41 not-started rows are.** Seven subsystems hold 33 of them; the
+**Where the 46 not-started rows are.** Eight subsystems hold 38 of them; the
 other eight are singletons and pairs across Economy, Story planning, Android,
 the gap register and the two options kept open. **Journey Planner dropped out
 of this list 2026-09-01**: JP-QC4 (`jp_road_cells`/`ManualWay`) was its only
@@ -1455,8 +1488,9 @@ Planner ledger above.
 | Sculpt live | 4 | L0 gates the rest; L3 is declined by design |
 | GUI replacement | 4 | Stages 3, 5, 6, 7 — **all unblocked** |
 | GPU layer integration | 2 | Both are the document's own named deferrals |
+| Map context | 5 | CM-1…CM-4, CM-7. An unscheduled proposal (2026-09-25), so also absent from `OUTSTANDING_WORK.md` |
 
-**Where the 13 blocked rows are.** Seven of them trace to just three open owner
+**Where the 15 blocked rows are.** Two are the Map context proposal's own phone rows, CM-5 and CM-6, blocked on its forks F1 and F2. Of the other 13, seven trace to just three open owner
 decisions: conflict attachment (SP-2, SP-4, SP-5, LM-9), the viewshed budget
 (LM-7), and save compression (SF-5, SF-6). **Answering decision 1 alone unblocks
 three rows across two documents** — SP-4 directly, LM-9 which names SP-4 as its
@@ -1467,7 +1501,7 @@ milestones 8-15 (UM-16), hardware (AND-10), an owner content decision
 2026-09-01** — no longer blocked on `cartalith-engine` retention work it never
 actually needed; see the Journey Planner ledger above.
 
-**Read the `done` figure carefully.** 66 % of rows done is not 66 % of the
+**Read the `done` figure carefully.** 64 % of rows done is not 64 % of the
 project done — rows are not effort. Urban milestone 10 is one row and nine
 reference functions; "R7 — `road_dijkstra`'s discarded `prev`" is also one row.
 `OUTSTANDING_WORK.md` sizes every outstanding item; this table counts them.
