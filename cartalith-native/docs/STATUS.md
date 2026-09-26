@@ -1606,8 +1606,8 @@ opens one row, for a settlement hit only. The touch hold timing is unchanged
 | CM-2 | The context card (sectioned, disabled-with-reason, replaces the `PopupMenu`) | not started | No `context_card.gd`; the presenter is still a `PopupMenu.new()`, now in `shell/context_broker.gd::present` (moved there from `civilization_workspace.gd` by CM-1) |
 | CM-3 | The desktop ring (RMB-drag marking, RMB-hold, Q) | not started | No `radial_ring.gd`; no radial/pie `Control` anywhere under `shell/` (the only `radial` hits are gradients and sculpt-feature prose) |
 | CM-4 | Tablet: hold → ring + card with slide-to-select; pen barrel button verified | not started | The hold path still swallows the finger until lift (`_touch_swallow_up`), so nothing can track a slide |
-| CM-5 | Phone noun surface: long-press → pin → peek card | blocked | On the scope's fork **F1** (and see this file's 2026-09-25 entry for the gesture collision it resolves) |
-| CM-6 | Phone thumb fan | blocked | On the scope's fork **F2** |
+| CM-5 | Phone noun surface: long-press → pin → peek card | not started — unblocked by Ruling AX (2026-09-26, F1 answered) | On the scope's fork **F1** (and see this file's 2026-09-25 entry for the gesture collision it resolves) |
+| CM-6 | Phone thumb fan | not started — unblocked by Ruling AX (2026-09-26, F2 answered) | On the scope's fork **F2** |
 | CM-7 | New picks and verbs (landmark, route, stamp; way and river are engine work) | not started | Only `civ_pick_place_at`, `label_hit_test`, `icon_hit_test` exist in `engine_bridge.gd`; `sculpt_list_stamps` returns `point_count`, not the points |
 
 **Group total: 7 — 1 done (verified 2026-09-26), 4 not started, 2 blocked.**
