@@ -115,15 +115,81 @@ static func install(app) -> void:
 ## header has it). Static, like everything here: this class has no instance,
 ## so the broker passes `app`.
 ##
-## **Empty in CM-1, deliberately, not by omission.** The rows that belong to
-## no single domain -- §4.1's *Go / measure* (Measure from here, Cross-section
-## from here) and *Info* (Pin sample here, Copy coordinate ▸) -- are rows the
-## scope places in the card, and CM-1's presenter is still CX-01's
-## `PopupMenu`, which the milestone must not change for the user. Adding them
-## here would put them into CIVIL's menu and open a menu in WORLD, where a
-## right-click has never opened one. They arrive with CM-2.
-static func context_actions(_app, _req: Dictionary) -> Array:
-	return []
+## **Since CM-2, the rows that belong to no single domain** (§4.1's *Go /
+## measure* and *Info*), in every domain, on the card only
+## (`ContextBroker.card_form`: the phone's sheet is still CM-1's, and CM-5
+## owns it). Each calls something the shell already had:
+##
+##   Centre view here     `ViewportHost.move_view_to` -- CX-01's own Move
+##                        viewer to, at a cell instead of a settlement
+##   Measure from here    `measure_from()` below: arms Measure through
+##                        `app.arm_tool` (the TOOLS path) in Distance mode and
+##                        places the first point with `_measure_click`, the
+##                        same function a map click runs
+##   Copy coordinate ▸    `DisplayServer.clipboard_set` over `world_crs()`:
+##                        project km (the frame's own X east, Y south), and the
+##                        row's latitude. Longitude is not modelled
+##                        (`world_workspace.gd::_build_crs` says so), so no
+##                        longitude is offered
+##
+## Not here: §4.1's *Pin sample here* -- there is no sample pin in this shell
+## yet (it is the phone spec's RP-S6 / CM-5), so the row would have nothing
+## behind it. *Cross-section from here* is WORLD's (§4.3), in
+## `world_workspace.gd`, over `measure_from()`.
+static func context_actions(app, req: Dictionary) -> Array:
+	## `ContextBroker.card_form(req)`, written out: a preload of the broker
+	## here would be a cycle (the broker names this class).
+	if String(req.get("form", "")) == "phone" or app.bridge == null or not app.bridge.has_world:
+		return []
+	var gx := float(req.get("gx", 0.0))
+	var gy := float(req.get("gy", 0.0))
+	var rows: Array = [
+		{"id": "global.centre", "label": "Centre view here", "section": "go", "enabled": true,
+			"callable": func() -> void: app.viewport.move_view_to(gx, gy)},
+		{"id": "global.measure_from", "label": "Measure from here", "section": "go", "enabled": true,
+			"callable": func() -> void: measure_from(app, "distance", gx, gy)},
+	]
+	var copy := _coordinate_rows(app, gx, gy)
+	if not copy.is_empty():
+		rows.append({"id": "global.copy_coordinate", "label": "Copy coordinate", "section": "info",
+			"enabled": true, "children": copy})
+	return rows
+
+## The Copy coordinate ▸ submenu. Empty when the engine reports no frame.
+static func _coordinate_rows(app, gx: float, gy: float) -> Array:
+	var crs: Dictionary = app.bridge.world_crs()
+	var out: Array = []
+	if crs.has("cell_km") and float(crs["cell_km"]) > 0.0:
+		var k := float(crs["cell_km"])
+		var km := "%s E · %s S" % [DccUnits.format(gx * k, 1), DccUnits.format(gy * k, 1)]
+		out.append({"id": "global.copy_km", "label": km + "  (map)", "enabled": true,
+			"callable": func() -> void: _copy(app, km)})
+	if crs.has("lat_n") and crs.has("deg_per_row"):
+		var lat := float(crs["lat_n"]) - gy * float(crs["deg_per_row"])
+		var lat_text := "%.2f° %s" % [absf(lat), "N" if lat >= 0.0 else "S"]
+		out.append({"id": "global.copy_lat", "label": lat_text + "  (latitude, world CRS)", "enabled": true,
+			"callable": func() -> void: _copy(app, lat_text)})
+	return out
+
+static func _copy(app, text: String) -> void:
+	DisplayServer.clipboard_set(text)
+	app.set_status("hint", "Copied %s" % text, "text_ghost")
+
+## A measurement that starts at a point: Measure armed through `app.arm_tool`
+## in `mode`, its chain reset, and `(gx, gy)` placed as the first point by
+## the same `_measure_click` a map click runs. For the card's *Measure from
+## here* and *Cross-section from here* (`MAP_CONTEXT_SCOPE.md` §4.3).
+static func measure_from(app, mode: String, gx: float, gy: float) -> void:
+	if _measure_mode != mode:
+		set_measure_mode(app, mode)
+	app.arm_tool("measure")
+	## Whether or not arming re-ran `_on_armed`, the reading starts here.
+	app.bridge.measure_begin()
+	_measure_points = PackedVector2Array()
+	_section_result = {}
+	if app.section_strip != null:
+		app.section_strip.clear()
+	_measure_click(app, gx, gy)
 
 # -- Measure ----------------------------------------------------------------
 

@@ -954,8 +954,9 @@ signal map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2)
 ## `MAP_CONTEXT_SCOPE.md` §3's `ContextRequest`, CM-1's half of it: what this
 ## control knows about the gesture, and **every** pick under the pointer rather
 ## than the one nearest settlement `map_right_clicked` carries. Emitted from the
-## same two places `map_right_clicked` is (the right-button press, and PH-02's
-## touch hold), with the same point. `request_at()` builds it; its doc comment
+## same two places `map_right_clicked` is (the right button's click -- on
+## release since CM-2, at the press point -- and PH-02's touch hold), with the
+## same point. `request_at()` builds it; its doc comment
 ## has the shape. The shell's `context_broker.gd` adds what only the shell
 ## knows (domain, armed tool, form) and asks every provider for rows.
 signal context_requested(req: Dictionary)
@@ -1025,6 +1026,15 @@ var _touch_swallow_up := false   ## the hold fired; the coming lift is not a rel
 var _touch_ms := 0
 var _touch_pos := Vector2.ZERO
 var _touch_press: Dictionary = {}
+
+## The right button's click-vs-drag test (`MAP_CONTEXT_SCOPE.md` §6, CM-2):
+## "RMB press → release, under 8 px travel" is the card; 8 px or more is a
+## drag, which §6 gives to the tool ring (CM-3). `_rmb_press` is `{pos,
+## travel}` while the button is down -- `travel` the farthest the pointer got
+## from `pos`, so a drag that comes back to where it started is still a drag --
+## and `{}` otherwise.
+const _RMB_CLICK_SLOP := 8.0
+var _rmb_press: Dictionary = {}
 
 var _settlements: Array = []
 var _roads: Array = []
@@ -4424,6 +4434,10 @@ func _grid_point(mouse: Vector2, rect: Rect2, interior: Rect2) -> Dictionary:
 	}
 
 func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and not _rmb_press.is_empty():
+		var rp: Vector2 = _rmb_press["pos"]
+		_rmb_press["travel"] = maxf(float(_rmb_press["travel"]),
+			rp.distance_to((event as InputEventMouseMotion).position))
 	if event is InputEventMouseMotion:
 		var rect := _displayed_rect()
 		if rect.size.x <= 0.0:
@@ -4459,25 +4473,47 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_RIGHT:
-			## Press, not release -- the reference opens its menu from
-			## `contextmenu`, which fires on press. `accept_event()` so the
-			## click cannot fall through to anything behind this control,
-			## matching the reference's own `e.preventDefault()` ("the canvas
-			## has no useful native menu; ours only opens in civ-capable
-			## tabs").
-			if not mb.pressed:
+			## **On release, since CM-2** (`MAP_CONTEXT_SCOPE.md` §6). It fired
+			## on press until then, on the ground that the reference's
+			## `contextmenu` "fires on press" -- which is platform-dependent:
+			## browsers fire it on mouse-down on macOS and Linux and on
+			## mouse-*up* on Windows, this port's desktop target. Telling a
+			## click from a drag needs the release, so the press only records
+			## where it went down (`_rmb_press`), motion records how far it
+			## travelled, and the release decides:
+			##
+			##   travel < `_RMB_CLICK_SLOP`  the context card, at the PRESS
+			##                               point (where the user aimed)
+			##   travel >= it                nothing yet -- §6 gives an RMB
+			##                               drag to the tool ring, CM-3
+			##
+			## §6's third row (a still hold >= 300 ms opens the ring *and* the
+			## card) has no ring to open yet, so a still hold still gets its
+			## card on release. Both halves `accept_event()`, so neither can
+			## fall through to anything behind this control -- the reference's
+			## own `e.preventDefault()`.
+			if mb.pressed:
+				_rmb_press = {"pos": mb.position, "travel": 0.0}
+				accept_event()
+				return
+			if _rmb_press.is_empty():
+				return
+			var at: Vector2 = _rmb_press["pos"]
+			var travel := maxf(float(_rmb_press["travel"]), at.distance_to(mb.position))
+			_rmb_press = {}
+			accept_event()
+			if travel >= _RMB_CLICK_SLOP:
 				return
 			var r := _displayed_rect()
 			if r.size.x <= 0.0:
 				return
 			var inter := _interior_rect(r)
-			var pt := _grid_point(mb.position, r, inter)
+			var pt := _grid_point(at, r, inter)
 			if not pt["valid"]:
 				return
 			map_right_clicked.emit(pt["gx"], pt["gy"],
-				_hit_test_settlement(mb.position, inter, r), mb.position)
-			context_requested.emit(request_at(mb.position, "mouse"))
-			accept_event()
+				_hit_test_settlement(at, inter, r), at)
+			context_requested.emit(request_at(at, "mouse"))
 			return
 		if mb.button_index != MOUSE_BUTTON_LEFT:
 			return

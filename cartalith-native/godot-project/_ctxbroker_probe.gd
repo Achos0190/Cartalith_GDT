@@ -1,27 +1,35 @@
 extends Node
 ## CM-1 (`MAP_CONTEXT_SCOPE.md` §11): the map right-click through
 ## `context_requested` → `shell/context_broker.gd` → every provider's
-## `context_actions`, presented in the same `PopupMenu` CX-01 always used.
+## `context_actions`. CM-1 presented them in the same `PopupMenu` CX-01 always
+## used; **since CM-2 the desktop presenter is `shell/context_card.gd`**, so
+## this probe reads the card, and asserts CM-1's own contract on it: the rows
+## CM-1 routed (`civ.*`, and CARTO's `carto.settlement_in_civil`) arrive with
+## the same text, order and enabled state, and a `----` still falls wherever
+## the section changes. The card's other rows (CM-2's WORLD, CARTO and global
+## rows) are printed on the `ROW` lines but are `_ctxcard_probe.gd`'s to
+## assert, not this file's. Legs D and F read "none of CM-1's rows" for that
+## reason: since CM-2 a right-click there opens a card of other rows.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _ctxbroker_probe.tscn
 ##
-## **Windowed, not `--headless`** -- the popup is a `Window`, and whether it is
+## **Windowed, not `--headless`** -- the card is a `Window`, and whether it is
 ## on screen is part of what is asserted. No pixel is read, so no palette is
-## assumed; the assertions are on item text, ids, disabled/separator state,
-## popup visibility and engine selection sets.
+## assumed; the assertions are on row text, ids, enabled state, section
+## changes, card visibility and engine selection sets. Rows are pressed by a
+## click pushed through the SubViewport, the path a pointer takes.
 ##
-## The same file ran against HEAD before CM-1 was written (it degrades: with no
-## broker it reads `civilization_workspace.gd`'s own `_ctx_menu`, and skips the
-## `hits[]` legs), so its `ROW` lines are the before/after comparison: diff the
-## two runs' `ROW` lines and they must be identical.
+## Before CM-2 this file read `PopupMenu` items; its `ROW` lines from that run
+## (the CM-1 rows, in order, with `----` at section changes) are the
+## before/after comparison for CM-2: the CM-1 rows must be identical.
 ##
 ## Legs:
 ##   A  CIVIL, RMB on a settlement      -- CX-01's five rows, in order, enabled
 ##   B  CIVIL, RMB on an empty cell     -- the two rows with no settlement
 ##   C  CIVIL, PH-02 touch hold on the settlement -- the same five rows
-##   D  WORLD, RMB on the settlement    -- nothing opens
+##   D  WORLD, RMB on the settlement    -- none of CM-1's rows
 ##   E  CARTO, RMB on the settlement    -- Ruling AX F4's one "…in CIVIL" row
-##   F  CARTO, RMB on an empty cell     -- nothing opens
+##   F  CARTO, RMB on an empty cell     -- none of CM-1's rows
 ##   G  the overlap fixture: a label and an icon placed on the settlement;
 ##      `hits[]` must hold all three, and the RMB must not move either
 ##      selection set
@@ -59,11 +67,9 @@ func _find(n: Node, pred: Callable) -> Node:
 	return null
 
 
-func _all_popups(n: Node, out: Array) -> void:
-	if n is PopupMenu:
-		out.append(n)
-	for c in n.get_children():
-		_all_popups(c, out)
+func _card():
+	var b = app.get("context_broker")
+	return b.card if b != null else null
 
 
 func _civ_ws() -> Node:
@@ -72,33 +78,45 @@ func _civ_ws() -> Node:
 		return sc != null and String(sc.resource_path).ends_with("civilization_workspace.gd"))
 
 
-## Every visible `PopupMenu` under the app -- a menu bar's own popups are
-## hidden at rest, so what is visible after a right-click is what it opened.
+## Whether the card is up -- the one presenter a desktop right-click opens.
 func _visible_popups() -> Array:
-	var all: Array = []
-	_all_popups(app, all)
-	var vis: Array = []
-	for p in all:
-		if (p as PopupMenu).visible:
-			vis.append(p)
-	return vis
+	var c = _card()
+	return [c] if c != null and c.visible else []
 
 
 func _hide_popups() -> void:
-	var all: Array = []
-	_all_popups(app, all)
-	for p in all:
-		(p as PopupMenu).hide()
+	var c = _card()
+	if c != null:
+		c.hide()
 	await _frames(2)
 
 
-func _rows(p: PopupMenu) -> Array:
+const CM1_IDS := ["civ.", "carto.settlement_in_civil"]
+
+static func _is_cm1(id: String) -> bool:
+	for p in CM1_IDS:
+		if id.begins_with(p):
+			return true
+	return false
+
+
+## CM-1's rows as the card drew them, in the format this probe always used:
+## the row text, ` {disabled}` when it is drawn disabled, and `----` wherever
+## the section changes between two of them -- which is where CX-01's menu had
+## its separators.
+func _rows(c) -> Array:
 	var out: Array = []
-	for i in p.item_count:
-		if p.is_item_separator(i):
-			out.append("----")
+	var band := ""
+	var last_band := ""
+	for r in c.drawn_rows():
+		if r["kind"] == "band":
+			band = String(r["text"])
+		if not _is_cm1(String(r.get("id", ""))):
 			continue
-		out.append("%s%s" % [p.get_item_text(i), " {disabled}" if p.is_item_disabled(i) else ""])
+		if not out.is_empty() and band != last_band:
+			out.append("----")
+		last_band = band
+		out.append("%s%s" % [r["text"], " {disabled}" if r["kind"] == "disabled" else ""])
 	return out
 
 
@@ -106,13 +124,12 @@ func _dump(tag: String) -> Array:
 	var vis := _visible_popups()
 	print("ROW %s visible_popups=%d" % [tag, vis.size()])
 	var rows: Array = []
-	for p in vis:
-		var pm := p as PopupMenu
-		var panel: StyleBox = pm.get_theme_stylebox("panel")
-		print("ROW %s style size=%s pos=%s fs=%d vsep=%d panel=%s" % [tag, pm.size, pm.position,
-			pm.get_theme_font_size("font_size"), pm.get_theme_constant("v_separation"),
-			(panel as StyleBoxFlat).bg_color.to_html() if panel is StyleBoxFlat else "?"])
-		rows = _rows(p)
+	for c in vis:
+		print("ROW %s card rect=%s" % [tag, c.panel_rect()])
+		for r in c.drawn_rows():
+			if r["kind"] in ["action", "disabled", "param", "select"]:
+				print("ROW %s   card-row %s | %s" % [tag, String(r.get("id", "")), r["text"]])
+		rows = _rows(c)
 		for i in rows.size():
 			print("ROW %s [%d] %s" % [tag, i, rows[i]])
 	return rows
@@ -153,15 +170,26 @@ func _lift(ov: Control, pos: Vector2) -> void:
 	await _frames(2)
 
 
-func _press_row(p: PopupMenu, prefix: String) -> bool:
-	for i in p.item_count:
-		if not p.is_item_separator(i) and p.get_item_text(i).begins_with(prefix):
-			## A user's click closes the popup as well as choosing the row;
-			## `activate_item` is not bound to scripts, so both halves by hand.
-			var id := p.get_item_id(i)
-			p.hide()
-			await _frames(2)
-			p.id_pressed.emit(id)
+## A left click on the card row whose text starts with `prefix`, pushed
+## through the SubViewport at the row's centre.
+func _press_row(c, prefix: String) -> bool:
+	for r in c.drawn_rows():
+		if r["kind"] == "action" and String(r["text"]).begins_with(prefix):
+			var n: Control = r["node"]
+			var p: Vector2 = n.get_global_rect().get_center() + Vector2(c.position)
+			var mv := InputEventMouseMotion.new()
+			mv.position = p
+			mv.global_position = p
+			_vp.push_input(mv)
+			await _frames(1)
+			for down in [true, false]:
+				var ev := InputEventMouseButton.new()
+				ev.button_index = MOUSE_BUTTON_LEFT
+				ev.pressed = down
+				ev.position = p
+				ev.global_position = p
+				_vp.push_input(ev)
+				await _frames(1)
 			await _frames(4)
 			return true
 	return false
@@ -238,7 +266,7 @@ func _run() -> void:
 	app.select_domain("world")
 	await _frames(4)
 	await _rmb(ov, _pos_of(ov, k))
-	_ok("D WORLD opens nothing", _dump("D_world_settlement").size(), 0)
+	_ok("D WORLD shows none of CM-1's rows", _dump("D_world_settlement").size(), 0)
 
 	# -- E / F ---------------------------------------------------------------
 	await _hide_popups()
@@ -253,7 +281,7 @@ func _run() -> void:
 		_ok("E CARTO: one row for the settlement, in CIVIL", rows_e, ["Settlement actions in CIVIL ›"])
 	else:
 		_ok("E (HEAD) CARTO opens nothing", rows_e.size(), 0)
-	_ok("F CARTO empty cell opens nothing", rows_f.size(), 0)
+	_ok("F CARTO empty cell shows none of CM-1's rows", rows_f.size(), 0)
 
 	# -- H: behaviour of one CX-01 row ----------------------------------------
 	await _hide_popups()

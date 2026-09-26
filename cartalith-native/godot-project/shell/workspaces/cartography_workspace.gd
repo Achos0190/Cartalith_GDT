@@ -802,7 +802,7 @@ func _build_layer_gaps(parent: Control) -> void:
 
 
 # ===========================================================================
-# Map context (`MAP_CONTEXT_SCOPE.md` CM-1)
+# Map context (`MAP_CONTEXT_SCOPE.md` CM-1, CM-2)
 # ===========================================================================
 
 ## This workspace's `context_actions` provider -- the contract is in
@@ -814,22 +814,132 @@ func _build_layer_gaps(parent: Control) -> void:
 ## Not CIVIL's verbs inline -- that is the fork the owner answered. Before CM-1
 ## a right-click in CARTO opened nothing at all.
 ##
-## §4.3's other CARTO rows (label Edit text / Delete, icon Properties / Delete,
-## Add label here, View field ▸, Style preset ▸) are not here yet. Their hits
-## already arrive in `req.hits` (`label`, `icon`); the rows need the card's
-## sections and submenus, and presenting them in CX-01's `PopupMenu` would be
-## a CARTO menu the owner has not seen. They land with CM-2.
+## **Since CM-2, §4.3's other CARTO rows that this file already does**, on the
+## card only (the phone's sheet is still CM-1's; CM-5 owns it). Each row runs
+## the function the dock's own control runs:
+##
+##   label hit    Edit text of "…"…    the label list's `edit` button
+##                                     (`label_select` + the edit form)
+##                Delete label "…"     its `×` button (`label_delete`)
+##   icon hit     Delete icon "…"      the icon list's `×` (`icon_delete`)
+##   named hit    Label this: "…"      `_create_label`, the New-label dialog's
+##                                     own Create body, with the hit's name
+##   any cell     Add label here…      `_prompt_label_name`, the Label tool's
+##                                     click on empty ground
+##                Stamp armed icon     `icon_place`, as `_on_icon_click` does;
+##                  here               disabled with the reason when nothing
+##                                     is armed or no pack is loaded
+##                View field ▸         the Layers popover's eight hot-keyed
+##                                     views, same order, `set_debug_layer`
+##                Style preset ▸       the Map style tiles (`_render.
+##                                     _apply_preset`)
+##                Start export         arms Region select with its first
+##                  region here        corner here (`GlobalTools._region_drag`)
+##
+## **Omitted, with the reason** (§4.2): *Reset arc* and *Duplicate* -- no
+## control in the shell does either today, so they would be new verbs; icon
+## *Properties* -- the icon's settings live in the tool options bar while Icon
+## is armed and there is no per-icon properties surface to open.
+##
+## Only the FIRST hit of each kind gets rows, the same rule CIVIL's provider
+## uses for its settlement; Select ▸ narrows `hits` to one object to reach the
+## others.
 func context_actions(req: Dictionary) -> Array:
 	if String(req.get("domain", "")) != "cartography":
 		return []
+	var rows: Array = []
+	var first: Dictionary = {}
 	for h in req.get("hits", []):
-		if h["kind"] == "settlement":
-			var raw: Dictionary = req.duplicate()
-			return [{"id": "carto.settlement_in_civil",
-				"label": "Settlement actions in CIVIL ›", "section": "object",
-				"enabled": true, "header": String(h.get("label", "Place")),
-				"callable": _open_in_civil.bind(raw)}]
-	return []
+		var kind := String(h["kind"])
+		if not first.has(kind):
+			first[kind] = h
+	if first.has("settlement"):
+		var h: Dictionary = first["settlement"]
+		var raw: Dictionary = req.duplicate()
+		rows.append({"id": "carto.settlement_in_civil",
+			"label": "Settlement actions in CIVIL ›", "section": "object",
+			"enabled": true, "header": String(h.get("label", "Place")),
+			"callable": _open_in_civil.bind(raw)})
+	if String(req.get("form", "")) == "phone" or not bridge.has_world:
+		return rows
+	var gx := float(req.get("gx", 0.0))
+	var gy := float(req.get("gy", 0.0))
+	if first.has("label"):
+		var li := int(first["label"]["id"])
+		var lt := String(first["label"].get("label", "(untitled)"))
+		rows.append({"id": "carto.label_edit", "label": "Edit text of “%s”…" % lt, "section": "object",
+			"enabled": true, "callable": func() -> void:
+				bridge.label_select(li)
+				app.set_tool_options(_build_label_tool_options_row)
+				_rebuild_label_panel()})
+		rows.append({"id": "carto.label_delete", "label": "Delete label “%s”" % lt, "section": "object",
+			"enabled": true, "danger": true, "callable": func() -> void:
+				bridge.label_delete(li)
+				app.viewport.refresh_annotations()
+				app.set_tool_options(_build_label_tool_options_row)
+				_rebuild_label_panel()})
+	if first.has("icon"):
+		var ii := int(first["icon"]["id"])
+		var it := String(first["icon"].get("label", "icon"))
+		rows.append({"id": "carto.icon_delete", "label": "Delete icon “%s”" % it, "section": "object",
+			"enabled": true, "danger": true, "callable": func() -> void:
+				bridge.icon_delete(ii)
+				app.viewport.refresh_annotations()
+				_rebuild_icon_panel()})
+	for kind in ["settlement", "landmark"]:
+		if first.has(kind) and String(first[kind].get("label", "")) != "":
+			var nm := String(first[kind]["label"])
+			rows.append({"id": "carto.label_this", "label": "Label this: “%s”" % nm, "section": "place",
+				"enabled": true, "callable": func() -> void: _create_label(gx, gy, nm)})
+			break
+	rows.append({"id": "carto.add_label", "label": "Add label here…", "section": "place",
+		"enabled": true, "callable": func() -> void: _prompt_label_name(gx, gy)})
+	var stamp := {"id": "carto.stamp_icon", "label": "Stamp armed icon here", "section": "place",
+		"enabled": false, "callable": func() -> void:
+			if bridge.icon_place(gx, gy) >= 0:
+				app.viewport.refresh_annotations()
+				_rebuild_icon_panel()}
+	if not bridge.has_asset_pack():
+		stamp["reason"] = "no asset pack loaded — File ▸ Import asset pack"
+	elif bridge.icon_armed().is_empty():
+		stamp["reason"] = "no icon armed — arm Icon in TOOLS and pick one in its options bar"
+	else:
+		stamp["enabled"] = true
+	rows.append(stamp)
+	var views := _view_field_rows()
+	if not views.is_empty():
+		rows.append({"id": "carto.view_field", "label": "View field", "section": "place",
+			"enabled": true, "children": views})
+	if _render != null:
+		var presets: Array = []
+		for i in RenderWorkspace.STYLE_PRESETS.size():
+			presets.append({"id": "carto.style.%d" % i, "label": String(RenderWorkspace.STYLE_PRESETS[i][0]),
+				"enabled": true, "callable": _render._apply_preset.bind(i)})
+		rows.append({"id": "carto.style_preset", "label": "Style preset", "section": "place",
+			"enabled": true, "children": presets})
+	rows.append({"id": "carto.region_start", "label": "Start export region here", "section": "go",
+		"enabled": true, "callable": func() -> void:
+			app.arm_tool("region")
+			GlobalTools._region_drag(app, gx, gy)
+			app.set_status("hint", "Region: drag or click to the opposite corner", "text_ghost")})
+	return rows
+
+## The Layers popover's eight hot-keyed views, in its own order: the first
+## eight *available* `debug_layers()` items (`layers_popover.gd::rebuild`'s
+## `_hotkey_ids`), each with its digit and a `●` on the one drawn now.
+func _view_field_rows() -> Array:
+	var out: Array = []
+	var current: String = app.viewport.debug_view()
+	for g in bridge.debug_layers():
+		for it in (g as Dictionary)["items"]:
+			var item: Dictionary = it
+			if not bool(item.get("available", false)) or out.size() >= 8:
+				continue
+			var id := String(item["id"])
+			out.append({"id": "carto.view.%s" % id, "label": String(item["label"]), "enabled": true,
+				"shortcut": ("%s  %d" % [DccIcons.SYMBOLS["on"], out.size() + 1]) if id == current else str(out.size() + 1),
+				"callable": func() -> void: app.viewport.set_debug_layer(id)})
+	return out
 
 ## Deferred: this runs inside the broker's own `id_pressed`, and the re-resolve
 ## rebuilds that very popup.
@@ -1586,23 +1696,7 @@ func _prompt_label_name(gx: float, gy: float) -> void:
 	app.add_child(dlg)
 
 	var create := func():
-		var idx := bridge.label_create(gx, gy, edit.text)
-		if idx >= 0:
-			## The role and its two defaults, applied in the one place a label
-			## comes into existence -- "applies to new ones" is not a policy
-			## written anywhere else, it is these three lines. The engine's own
-			## `MapLabel::new` values (`LABEL_NEW_SIZE`/`LABEL_NEW_SIZE_MODE`)
-			## are what they replace, and an untouched panel replaces the mode
-			## with the identical value.
-			bridge.label_set_class(idx, _label_class)
-			var spec := _label_class_spec(_label_class)
-			bridge.label_set(idx, {
-				"size": float(spec.get("size", LABEL_NEW_SIZE)),
-				"size_mode": String(_label_role_size_mode.get(_label_class, LABEL_NEW_SIZE_MODE)),
-			})
-			app.viewport.refresh_annotations()
-			app.set_tool_options(_build_label_tool_options_row)
-			_rebuild_label_panel()
+		_create_label(gx, gy, edit.text)
 		dlg.queue_free()
 	edit.text_submitted.connect(func(_t: String): create.call())
 	dlg.confirmed.connect(create)
@@ -1616,6 +1710,31 @@ func _prompt_label_name(gx: float, gy: float) -> void:
 	## before the final layout puts the caret in a control that is about to
 	## move -- the same reason `DccWidgets.prompt()` defers its own.
 	edit.grab_focus.call_deferred()
+
+
+## A new label, in the role the Label classes panel has selected: the body the
+## New-label dialog's Create always ran, lifted out (CM-2) so the map context
+## card's *Label this* row creates a label the same way. Returns its index, or
+## -1 when the engine refused.
+func _create_label(gx: float, gy: float, text: String) -> int:
+	var idx := bridge.label_create(gx, gy, text)
+	if idx >= 0:
+		## The role and its two defaults, applied in the one place a label
+		## comes into existence -- "applies to new ones" is not a policy
+		## written anywhere else, it is these three lines. The engine's own
+		## `MapLabel::new` values (`LABEL_NEW_SIZE`/`LABEL_NEW_SIZE_MODE`)
+		## are what they replace, and an untouched panel replaces the mode
+		## with the identical value.
+		bridge.label_set_class(idx, _label_class)
+		var spec := _label_class_spec(_label_class)
+		bridge.label_set(idx, {
+			"size": float(spec.get("size", LABEL_NEW_SIZE)),
+			"size_mode": String(_label_role_size_mode.get(_label_class, LABEL_NEW_SIZE_MODE)),
+		})
+		app.viewport.refresh_annotations()
+		app.set_tool_options(_build_label_tool_options_row)
+		_rebuild_label_panel()
+	return idx
 
 
 ## Tool options row: `CARTO · LABEL` -- per §4.5.5's table this carries

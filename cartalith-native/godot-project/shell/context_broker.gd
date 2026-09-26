@@ -50,20 +50,42 @@ extends RefCounted
 ## falls between two rows whose sections differ, which reproduces CX-01's two
 ## separators exactly.
 ##
-## ## The presenter
+## ## The presenter (CM-2)
 ##
-## The same styled `PopupMenu` CX-01 always used (`DccWidgets.style_popup`),
-## positioned the way `civilization_workspace.gd` positioned it, and on a phone
-## the same `app.phone_present_popup()` L4 sheet. CM-2 replaces this with
-## `context_card.gd`; nothing above this section changes when it does.
+## **Desktop and tablet: `context_card.gd`** -- §4.1's sectioned card with
+## its header readout, Select ▸, disabled-with-reason rows, inline Tool rows,
+## keyboard navigation and a filter. Rows may carry, beyond the above:
+##
+##   `children`  Array of Action rows -- a one-level submenu in the card
+##   `param`     `{"value": Callable -> String, "step": Callable(dir)}` -- an
+##               inline parameter row (§4.1's Tool section)
+##   `shortcut`  String, drawn right-aligned
+##
+## **Phone: unchanged since CM-1** -- the same styled `PopupMenu`
+## (`DccWidgets.style_popup`) re-presented by `app.phone_present_popup()` as
+## the L4 sheet. The phone's own noun surface is CM-5. A `PopupMenu` can show
+## neither a submenu row nor a param row, so rows carrying `children` or
+## `param` are left out of it, and the providers keep their CM-2 rows off the
+## phone altogether (`card_form()`), so the sheet a phone user sees is the one
+## CM-1 shipped.
+##
+## **Select ▸.** Picking one object re-resolves the request with `hits`
+## narrowed to that one object and `all_hits` keeping the full list, so every
+## provider's rows are about the picked object and the card can still list the
+## rest. Nothing above this section had to change for it: a provider reads
+## `hits` as it always did.
 
 ## §4.1's sections after the header, in their fixed order.
 const SECTIONS: Array = ["draft", "tool", "object", "place", "go", "info"]
+const ContextCard := preload("res://shell/context_card.gd")
 
 var app
-## The presenter's one popup, rebuilt per request (its rows depend on what was
-## hit and what it is called, so a cached list would be stale).
+## The phone presenter's popup, rebuilt per request (its rows depend on what
+## was hit and what it is called, so a cached list would be stale). Null until
+## a phone first needs it.
 var popup: PopupMenu
+## The desktop and tablet presenter. Null until first needed.
+var card: ContextCard
 ## What the last `resolve()` asked and got -- read by `_on_id`, and by probes.
 var last_request: Dictionary = {}
 var last_actions: Array = []
@@ -142,7 +164,45 @@ func resolve(raw: Dictionary) -> void:
 	present(last_request, last_actions)
 
 
+## Whether this request is presented by the card (desktop, tablet) rather
+## than the phone's `PopupMenu` sheet. Providers gate their CM-2 rows on it.
+static func card_form(req: Dictionary) -> bool:
+	return String(req.get("form", "")) != "phone"
+
+
+## Select ▸: the same request, about one object. `all_hits` keeps what the
+## pointer was over, so the card's list survives the narrowing.
+func reselect(hit: Dictionary) -> void:
+	if last_request.is_empty():
+		return
+	var req := last_request.duplicate()
+	req["all_hits"] = last_request.get("all_hits", last_request.get("hits", []))
+	req["hits"] = [hit]
+	last_request = req
+	last_actions = collect(req)
+	present(req, last_actions)
+
+
 func present(req: Dictionary, actions: Array) -> void:
+	if actions.is_empty():
+		return
+	if card_form(req):
+		if card == null:
+			card = ContextCard.new()
+			card.setup(app)
+			app.add_child(card)
+		## `screen_pos` is `map_overlay`'s local space, under the map camera's
+		## zoom; the card pops in the viewport `app` is in (the measured
+		## correction CX-01's menu made, 2026-09-23).
+		var at: Vector2 = app.viewport.overlay.get_global_transform_with_canvas() * Vector2(req["screen_pos"])
+		card.open(req, actions, at, reselect)
+		return
+	_present_phone(req, actions)
+
+
+func _present_phone(req: Dictionary, all_actions: Array) -> void:
+	var actions: Array = all_actions.filter(func(a): return not (a.has("children") or a.has("param")))
+	last_actions = actions
 	if actions.is_empty():
 		return
 	if popup == null:

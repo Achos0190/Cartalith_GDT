@@ -232,9 +232,20 @@ func _ctx_map_setup() -> void:
 		broker.resolve({"gx": 120.0, "gy": 90.0, "screen_pos": Vector2(400, 400),
 			"hits": [], "source": "mouse"})
 		await _frames(6)
+		## CM-2: desktop and tablet present a `context_card.gd` (a
+		## `PopupPanel`, not a menu); only the phone still builds `popup`.
+		## Each form is dumped as what it is -- and neither is skipped silently.
 		var cm = broker.popup
-		if cm is PopupMenu:
+		var card = broker.get("card")
+		if card != null and card.visible:
+			_l("CARD Map right-click (CIVIL)  panel=%s" % card.panel_rect())
+			for r in card.drawn_rows():
+				_l("  CARD-ROW %s | %s%s" % [r["kind"], r["text"],
+					("  {reason: %s}" % r["reason"]) if r.has("reason") else ""])
+		elif cm is PopupMenu:
 			_dump_popup(cm as PopupMenu, "Map right-click (CIVIL)", 0)
+		else:
+			_l("CARD Map right-click (CIVIL)  NOTHING OPENED")
 
 
 ## **This function was silently a no-op, and that was worse than a hang.**

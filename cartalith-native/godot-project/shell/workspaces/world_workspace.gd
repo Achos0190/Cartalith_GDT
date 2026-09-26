@@ -3013,15 +3013,145 @@ func _follow_tool_to_its_block(id: String) -> void:
 	## thing §2.4's `armTool` asks for.
 	app.select_domain_category("world", category)
 
-## `MAP_CONTEXT_SCOPE.md` CM-1's provider contract (`shell/context_broker.gd`'s
-## header). **Empty in CM-1, deliberately.** §4.3's WORLD rows are Draft
-## (Commit N strokes · Discard), Tool (radius / mode inline), Object (stamp
-## verbs, which need a stamp pick §9.2 has not built) and Go/Info -- every one a
-## card section, and CM-1's presenter is still CX-01's `PopupMenu`, which must
-## not change what the user sees. A right-click in WORLD opened nothing before
-## CM-1 and opens nothing now. The rows arrive with CM-2's card.
-func context_actions(_req: Dictionary) -> Array:
-	return []
+## `MAP_CONTEXT_SCOPE.md`'s provider contract (`shell/context_broker.gd`'s
+## header). Empty in CM-1; **since CM-2, §4.3's WORLD rows that something in
+## this file already does**, on the card only (the phone's sheet is CM-5's):
+##
+##   Draft   Commit N stamps · Undo last stamp ·      `_on_sculpt_commit` /
+##           Discard sculpt draft                     `_on_sculpt_discard`, the
+##                                                    Draft section's buttons;
+##                                                    Undo is the right dock's
+##                                                    stack Undo (`sculpt_undo`)
+##           Commit N dabs · Discard paint draft      `_on_paint_commit` /
+##                                                    `_on_paint_discard`
+##   Tool    Sculpt: the global brush size            `sculpt_set_globals`, as
+##                                                    the dock's slider does
+##           Paint: Radius · Erase                    `_on_paint_radius_changed`
+##                                                    / `_on_paint_erase_changed`
+##   Object  Paint with this cell's biome (paint)     `_on_paint_value_picked_from_dock`
+##                                                    over `sample_cell().biome`
+##   Go      Cross-section from here                  `GlobalTools.measure_from`
+##
+## "Stamps", not the scope's "strokes": `sculpt_stamp_count()` counts stamps and
+## the Draft section says "N stamps on the draft", so the card says what the
+## dock says. The dock rebuilds after a Tool-row step, so its slider and the
+## card never show two values for one setting.
+##
+## **Omitted, each for a stated reason** -- §4.2's "only engine-backed rows
+## ship": the stamp verbs (Select / Hide / Move / Delete) need the stamp pick
+## §9.2 has not built (CM-7); the river rows need a
+## river pick and trace (CM-7, **E**); *Regenerate from this stage* is excluded
+## by the scope itself.
+func context_actions(req: Dictionary) -> Array:
+	if String(req.get("domain", "")) != "world" or String(req.get("form", "")) == "phone":
+		return []
+	if not bridge.has_world:
+		return []
+	var gx := float(req.get("gx", 0.0))
+	var gy := float(req.get("gy", 0.0))
+	var rows: Array = []
+	var stamps := bridge.sculpt_stamp_count()
+	if stamps > 0:
+		rows.append({"id": "world.sculpt_commit", "label": "Commit %d stamp%s" % [stamps, "" if stamps == 1 else "s"],
+			"section": "draft", "enabled": true, "callable": _on_sculpt_commit})
+		## The right dock's stack Undo, the one caller `sculpt_undo()` has: it
+		## pops the draft's last stamp (not `undo_last`, which is the
+		## committed-world history -- `engine_bridge.gd` keeps the two apart).
+		var can := bridge.sculpt_can_undo()
+		var undo_row := {"id": "world.sculpt_undo", "label": "Undo last stamp", "section": "draft",
+			"enabled": can, "callable": func() -> void:
+				if app.right_dock_ctrl.has_method("_on_sculpt_stack_undo"):
+					app.right_dock_ctrl._on_sculpt_stack_undo()
+				else:
+					bridge.sculpt_undo()}
+		if not can:
+			undo_row["reason"] = "the draft has nothing left to undo"
+		rows.append(undo_row)
+		rows.append({"id": "world.sculpt_discard", "label": "Discard sculpt draft", "section": "draft",
+			"enabled": true, "danger": true, "callable": _on_sculpt_discard})
+	var dabs := bridge.paint_draft_count()
+	if dabs > 0:
+		rows.append({"id": "world.paint_commit", "label": "Commit %d paint dab%s" % [dabs, "" if dabs == 1 else "s"],
+			"section": "draft", "enabled": true, "callable": _on_paint_commit})
+		rows.append({"id": "world.paint_discard", "label": "Discard paint draft", "section": "draft",
+			"enabled": true, "danger": true, "callable": _on_paint_discard})
+	match String(req.get("armed_tool", "")):
+		"sculpt":
+			var info := _sculpt_global_info("brush_size")
+			if not info.is_empty():
+				rows.append({"id": "world.brush_size", "label": String(info.get("label", "Brush size")),
+					"section": "tool", "enabled": true, "param": {
+						"value": func() -> String:
+							return "%d px" % int(round(float(bridge.sculpt_get_globals().get("brush_size", 0.0)))),
+						"step": _step_brush_size.bind(info)}})
+		"paint":
+			rows.append({"id": "world.paint_radius", "label": "Radius", "section": "tool", "enabled": true,
+				"param": {"value": func() -> String: return "%d cells" % int(_paint_brush["radius"]),
+					"step": _step_paint_radius}})
+			rows.append({"id": "world.paint_erase", "label": "Erase", "section": "tool", "enabled": true,
+				"param": {"value": func() -> String: return "on" if bool(_paint_brush["erase"]) else "off",
+					"step": func(_dir: int) -> void:
+						_on_paint_erase_changed(not bool(_paint_brush["erase"]))
+						_rebuild_paint_body()}})
+			var eye := _eyedropper_row(gx, gy)
+			if not eye.is_empty():
+				rows.append(eye)
+	rows.append({"id": "world.section_from", "label": "Cross-section from here", "section": "go",
+		"enabled": true, "callable": func() -> void: GlobalTools.measure_from(app, "section", gx, gy)})
+	return rows
+
+## `get_sculpt_globals_info()`'s entry for one key, or `{}`.
+func _sculpt_global_info(key: String) -> Dictionary:
+	for c in bridge.get_sculpt_globals_info():
+		if String((c as Dictionary).get("key", "")) == key:
+			return c
+	return {}
+
+## One card step of the brush size: a twentieth of its range, rounded to the
+## control's own step -- the canvas's ±10 px on a 6-200 range is about that.
+func _step_brush_size(dir: int, info: Dictionary) -> void:
+	var lo := float(info.get("min", 0.0))
+	var hi := float(info.get("max", 1.0))
+	var st := maxf(float(info.get("step", 1.0)), 1.0)
+	var inc := maxf(st, round((hi - lo) / 20.0 / st) * st)
+	var cur := float(bridge.sculpt_get_globals().get("brush_size", lo))
+	_on_global_changed(clampf(cur + dir * inc, lo, hi), "brush_size", true)
+	if is_instance_valid(_sculpt_body):
+		_build_sculpt(_sculpt_body)
+
+## The dock's Radius slider runs 1-40 cells in steps of 1; the card steps by 1.
+func _step_paint_radius(dir: int) -> void:
+	_on_paint_radius_changed(clampf(float(_paint_brush["radius"]) + dir, 1.0, 40.0))
+	_rebuild_paint_body()
+
+func _rebuild_paint_body() -> void:
+	if is_instance_valid(_paint_body):
+		_build_paint(_paint_body)
+
+## §4.3's eyedropper: the biome under the pointer, as the Biome layer's paint
+## value -- the same path the right dock's legend uses to arm a value. `{}`
+## when the cell reports no biome or the palette has no entry of that name
+## (matched on the palette's own label, case-insensitively).
+func _eyedropper_row(gx: float, gy: float) -> Dictionary:
+	var cell := bridge.sample_cell(int(gx), int(gy))
+	if not cell.has("biome"):
+		return {}
+	var biome := String(cell["biome"])
+	var layers := bridge.get_paint_layers()
+	var li := layers.find("biome")
+	if li < 0:
+		return {}
+	for pd in bridge.get_paint_palette("biome"):
+		if String((pd as Dictionary).get("label", "")).to_lower() == biome.to_lower():
+			var idx := int(pd.get("index", -1))
+			if idx < 0:
+				return {}
+			return {"id": "world.eyedropper", "label": "Paint with this biome (%s)" % String(pd["label"]),
+				"section": "object", "enabled": true, "callable": func() -> void:
+					if _paint_layer != "biome":
+						_on_paint_layer_changed(li, layers)
+					_on_paint_value_picked_from_dock(idx)}
+	return {}
 
 ## §10's brush ring, wired from `on_cursor_sampled` per the tool-arming
 ## substrate's own instructions -- `app.gd`'s `_wire_selection` forwards every
