@@ -1329,6 +1329,7 @@ Written only when at least one conflict exists.
 ```json
 {
   "next_id": 6,
+  "anchor_convention": "centre",
   "conflicts": [
     { "id": 3, "name": "Siege of Kessra", "kind": "siege",
       "start_year": 212, "end_year": 214, "sides": [2, 1],
@@ -1353,6 +1354,28 @@ every province pass. `end_year` absent = ongoing; `anchor` absent =
 unattached. A row with an unknown `kind` is skipped, the rest of the document
 opens; an anchor that resolves to nothing is kept and the shape drawn at
 `points` as stored.
+
+**`anchor_convention` (added 2026-09-28, Ruling AY).** An additive marker,
+written `"centre"` by every build from `36312e2` on. It records which
+convention `anchor.at` was written in, because `conflict_bridge::anchor_pos`
+changed what "the anchor's position" means partway through this document's
+life: before `36312e2`, a settlement/province anchor resolved to the
+settlement's raw integer cell (its corner); from `36312e2` on it resolves to
+`cell + 0.5` (the centre, where the settlement's own pin actually draws).
+`anchor.at` is a snapshot of that resolved position taken at attach time
+(`Conflict::anchor_at`), so a document written before the fix has every
+anchored conflict's `at` half a cell off from what today's `anchor_pos` would
+compute for the same place. **A document with no `anchor_convention` member
+(an older reader's `serde` default gives `""`, never mistaken for a real
+value) is migrated on load**: each conflict that has an `anchor` gets its
+`at` shifted by `+0.5, +0.5` before use, so `resolved_points`'s
+`anchor_now - anchor_at` lands the shape exactly where the pre-fix build drew
+it — now expressed in the centre convention `anchor_now` is always in. An
+unanchored conflict has no `anchor.at` at all and is never touched. The
+migration happens once, at load, in `project_bridge.rs`'s restore path (not
+in the `ConflictDto` conversion itself, which stays a pure format mapping);
+re-saving after that load writes the marker, so the shift is not repeated on
+a later reopen.
 
 ### 9.8 `entities/landmarks.json`
 

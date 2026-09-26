@@ -503,6 +503,18 @@ struct ConflictsDoc {
     next_id: u64,
     #[serde(default)]
     conflicts: Vec<ConflictDto>,
+    /// Ruling AY (`LARGE_ITEM_RULINGS.md`, 2026-09-28). Additive marker, set
+    /// by every writer from `36312e2` on: `"centre"` when `anchor.at` was
+    /// written in the cell-*centre* convention (`conflict_bridge::anchor_pos`,
+    /// `+0.5` on both axes). A document from before that fix has no member at
+    /// all -- `serde`'s default gives `""`, never confused with a real value
+    /// -- and its `anchor.at` is in the old *corner* convention, half a cell
+    /// off where `anchor_pos` now resolves. The loader (`project_bridge.rs`'s
+    /// restore, not this DTO conversion) reads this to decide whether to
+    /// shift `anchor.at` by `+0.5, +0.5` before use; see `SAVEFILE_COMPAT.md`
+    /// §9.7.
+    #[serde(default)]
+    anchor_convention: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -575,6 +587,34 @@ fn dto_to_conflict(d: &ConflictDto) -> Option<cartalith_civ::conflict::Conflict>
         anchor,
         anchor_at: d.anchor.as_ref().filter(|_| anchor.is_some()).map_or((0.0, 0.0), |a| (a.at[0], a.at[1])),
     })
+}
+
+/// `entities/conflicts.json`'s full read: every parseable row (an unknown
+/// `kind` is dropped, `dto_to_conflict`'s own rule), migrated for Ruling AY
+/// (`LARGE_ITEM_RULINGS.md`, 2026-09-28) if the document predates the
+/// cell-centre fix (`36312e2`) -- no `anchor_convention: "centre"` marker.
+///
+/// **Only an anchored conflict's `anchor_at` moves, by `+0.5` on both axes.**
+/// A document written before the fix stored `anchor_at` in the settlement's
+/// raw cell (the corner); `conflict_bridge::anchor_pos` now always resolves
+/// to the centre, so reading an unmigrated `anchor_at` against it would shift
+/// the drawn shape by half a cell the moment its anchor is next read, even
+/// though nothing about the anchored place moved. Migrating it once here
+/// keeps `resolved_points`'s `anchor_now - anchor_at` delta exactly what the
+/// pre-fix build computed. A free (unanchored) conflict has no `anchor_at`
+/// in either convention and is never touched. See `SAVEFILE_COMPAT.md` §9.7.
+fn conflicts_from_doc_migrated(doc: &ConflictsDoc) -> Vec<cartalith_civ::conflict::Conflict> {
+    let migrate_pre_fix_anchor = doc.anchor_convention != "centre";
+    let mut conflicts: Vec<_> = doc.conflicts.iter().filter_map(dto_to_conflict).collect();
+    if migrate_pre_fix_anchor {
+        for c in &mut conflicts {
+            if c.anchor.is_some() {
+                c.anchor_at.0 += 0.5;
+                c.anchor_at.1 += 0.5;
+            }
+        }
+    }
+    conflicts
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -2588,6 +2628,10 @@ impl WorldGen {
                 &ConflictsDoc {
                     next_id: self.conflicts.next_id,
                     conflicts: self.conflicts.conflicts.iter().map(conflict_to_dto).collect(),
+                    // Ruling AY: every write from the cell-centre fix on
+                    // marks its convention, so a future reader never has to
+                    // guess from a missing member.
+                    anchor_convention: "centre".to_string(),
                 },
             );
         }
@@ -3066,7 +3110,7 @@ impl WorldGen {
         // SP-4. `load_save` (run first) emptied the store; a damaged document
         // costs itself, and an unreadable row costs that row (§6.4a rung 3).
         if let Some(Ok(doc)) = data.parse::<ConflictsDoc>(SLOT_CONFLICTS) {
-            let conflicts: Vec<_> = doc.conflicts.iter().filter_map(dto_to_conflict).collect();
+            let conflicts = conflicts_from_doc_migrated(&doc);
             if !conflicts.is_empty() {
                 // §9.1's rule: `next_id` never trails its data.
                 let max_present = conflicts.iter().map(|c| c.id + 1).max().unwrap_or(1);
@@ -4553,7 +4597,11 @@ mod tests {
         insert_doc(
             &mut documents,
             SLOT_CONFLICTS,
-            &ConflictsDoc { next_id: 6, conflicts: vec![conflict_to_dto(&siege), conflict_to_dto(&front)] },
+            &ConflictsDoc {
+                next_id: 6,
+                conflicts: vec![conflict_to_dto(&siege), conflict_to_dto(&front)],
+                anchor_convention: "centre".to_string(),
+            },
         );
         write.documents = documents;
         let mut buf = Vec::new();
@@ -4569,6 +4617,153 @@ mod tests {
         assert_eq!(doc.next_id, 6);
         let back: Vec<Conflict> = doc.conflicts.iter().filter_map(dto_to_conflict).collect();
         assert_eq!(back, vec![siege, front]);
+    }
+
+    /// Ruling AY (`LARGE_ITEM_RULINGS.md`, 2026-09-28), OUTSTANDING_WORK.md
+    /// section 2.11 "Migrate pre-fix conflict anchors on load". This literal
+    /// JSON is not hand-built: it is `entities/conflicts.json` exactly as a
+    /// real pre-fix build wrote it, captured from a worktree at `36312e2^`
+    /// (the commit immediately before the cell-centre fix) with a settlement
+    /// anchored siege at cell `(7, 4)` -- the pre-fix build's own
+    /// `conflict_bridge::anchor_pos` resolved that to the raw corner `(7, 4)`,
+    /// which is what `anchor.at` holds here, and no `anchor_convention`
+    /// member exists at all (the marker did not yet exist). See this task's
+    /// report for the exact `cargo test -- --nocapture` transcript this was
+    /// read off.
+    const PRE_FIX_CONFLICTS_JSON: &str = r#"{"conflicts":[{"anchor":{"at":[7,4],"kind":"settlement","tid":9},"end_year":214,"id":3,"kind":"siege","name":"Siege of Kessra","outcome":"Relieved in the third spring","points":[[7,4]],"sides":[2,1],"start_year":212}],"next_id":4}"#;
+
+    #[test]
+    fn a_pre_fix_archive_migrates_its_stored_anchor_to_the_centre_convention() {
+        let doc: ConflictsDoc = serde_json::from_str(PRE_FIX_CONFLICTS_JSON).expect("parses");
+        // No marker at all: serde's default for a missing string member,
+        // never confused with a real "centre" value.
+        assert_eq!(doc.anchor_convention, "");
+        let conflicts = conflicts_from_doc_migrated(&doc);
+        assert_eq!(conflicts.len(), 1);
+        let c = &conflicts[0];
+        // The stored corner (7.0, 4.0) shifted to the centre (7.5, 4.5).
+        assert_eq!(c.anchor_at, (7.5, 4.5));
+        // Unmigrated points are never touched -- only anchor_at moves.
+        assert_eq!(c.points, vec![(7.0, 4.0)]);
+
+        // The settlement (tid 9) has since moved to cell (10, 6); today's
+        // (post-fix) anchor_pos resolves that to the centre (10.5, 6.5).
+        // The pre-fix build, asked to draw this same archive with the
+        // settlement at (10, 6), would have resolved its own (unmigrated,
+        // corner) anchor_pos to (10.0, 6.0) and drawn
+        // points + (anchor_now - anchor_at) = (7,4) + ((10,6)-(7,4)) =
+        // (10.0, 6.0) -- captured directly from that pre-fix build in the
+        // same worktree run as the fixture above (resolved_points, literal
+        // [(10.0, 6.0)]). The fixed loader must draw the identical pixel
+        // from the migrated anchor and today's centre-convention anchor_now:
+        assert_eq!(c.resolved_points(Some((10.5, 6.5))), vec![(10.0, 6.0)]);
+    }
+
+    #[test]
+    fn a_conflict_saved_by_the_fixed_build_reopens_with_no_double_shift() {
+        use cartalith_civ::conflict::{Conflict, ConflictAnchor, ConflictKind};
+        let siege = Conflict {
+            id: 3,
+            name: "Siege of Kessra".into(),
+            kind: ConflictKind::Siege,
+            start_year: 212,
+            end_year: Some(214),
+            sides: vec![2, 1],
+            outcome: "Relieved in the third spring".into(),
+            points: vec![(7.0, 4.0)],
+            anchor: Some(ConflictAnchor::Settlement(9)),
+            // Already the fixed, centre-convention value -- what
+            // conflict_bridge::anchor_pos writes into a freshly attached
+            // conflict on this build.
+            anchor_at: (7.5, 4.5),
+        };
+        let params = cartalith_io::SaveParams {
+            gw: 4,
+            gh: 3,
+            seed: 4242,
+            map_width_km: 800.0,
+            sea_level: 0.42,
+            world: false,
+            origin: None,
+            name: None,
+        };
+        let fields = cartalith_io::SaveFields {
+            heightmap: std::sync::Arc::new(vec![0.5; 12]),
+            temperature: std::sync::Arc::new(vec![10.0; 12]),
+            rainfall: std::sync::Arc::new(vec![1.0; 12]),
+            volcanic_field: vec![0.0; 12],
+            impact_field: vec![0.0; 12],
+            strahler_order: vec![0; 12],
+        };
+        let mut write = ProjectWrite::new(&params, &fields);
+        let mut documents = BTreeMap::new();
+        insert_doc(
+            &mut documents,
+            SLOT_CONFLICTS,
+            &ConflictsDoc {
+                next_id: 4,
+                conflicts: vec![conflict_to_dto(&siege)],
+                anchor_convention: "centre".to_string(),
+            },
+        );
+        write.documents = documents;
+        let mut buf = Vec::new();
+        project::write_project(std::io::Cursor::new(&mut buf), &write).expect("write");
+        let data = cartalith_io::read_project(std::io::Cursor::new(&buf)).expect("read");
+        let text = data.document(SLOT_CONFLICTS).expect("present").to_string();
+        assert!(text.contains("\"anchor_convention\":\"centre\""), "{text}");
+        let doc: ConflictsDoc = data.parse(SLOT_CONFLICTS).unwrap().unwrap();
+        assert_eq!(doc.anchor_convention, "centre");
+        let conflicts = conflicts_from_doc_migrated(&doc);
+        assert_eq!(conflicts.len(), 1);
+        // Marker present: no shift. Reopening a fixed-build save must not
+        // apply the pre-fix migration a second time.
+        assert_eq!(conflicts[0].anchor_at, (7.5, 4.5));
+        assert_eq!(conflicts[0], siege);
+    }
+
+    #[test]
+    fn a_free_unanchored_conflict_never_moves_on_migration() {
+        use cartalith_civ::conflict::{Conflict, ConflictAnchor, ConflictKind};
+        let front = Conflict {
+            id: 5,
+            name: "Northern front".into(),
+            kind: ConflictKind::Front,
+            start_year: 300,
+            end_year: None,
+            sides: vec![3, 4],
+            outcome: String::new(),
+            points: vec![(1.0, 2.0), (3.5, 2.5), (6.0, 1.0)],
+            anchor: None,
+            anchor_at: (0.0, 0.0),
+        };
+        // A pre-fix document (no anchor_convention marker) with one anchored
+        // (migrates) and one free conflict (must not move).
+        let anchored = Conflict {
+            id: 3,
+            name: "Siege of Kessra".into(),
+            kind: ConflictKind::Siege,
+            start_year: 212,
+            end_year: Some(214),
+            sides: vec![2, 1],
+            outcome: String::new(),
+            points: vec![(7.0, 4.0)],
+            anchor: Some(ConflictAnchor::Settlement(9)),
+            anchor_at: (7.0, 4.0),
+        };
+        let doc = ConflictsDoc {
+            next_id: 6,
+            conflicts: vec![conflict_to_dto(&anchored), conflict_to_dto(&front)],
+            anchor_convention: String::new(),
+        };
+        let conflicts = conflicts_from_doc_migrated(&doc);
+        assert_eq!(conflicts.len(), 2);
+        let migrated_front = conflicts.iter().find(|c| c.id == 5).expect("front present");
+        assert_eq!(migrated_front.points, front.points);
+        assert_eq!(migrated_front.anchor_at, (0.0, 0.0));
+        assert_eq!(*migrated_front, front);
+        let migrated_anchored = conflicts.iter().find(|c| c.id == 3).expect("siege present");
+        assert_eq!(migrated_anchored.anchor_at, (7.5, 4.5));
     }
 
     #[test]
